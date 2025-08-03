@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<List<Mix>> getAllMixes() async {
   final fetchRequest = FetchAllMixesRequest();

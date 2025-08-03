@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<List<(int, String)>> fetchTrackSummary() async {
   SearchMediaFileSummaryRequest(n: 50).sendSignalToRust();

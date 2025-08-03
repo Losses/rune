@@ -13,7 +13,7 @@ import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../widgets/navigation_bar/utils/activate_link_action.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 import '../tile/cover_art.dart';
 import '../ax_reveal/ax_reveal.dart';
@@ -73,7 +73,7 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
       playbackMode: widget.mode,
       hintPosition: widget.index,
       initialPlaybackId: widget.item.id,
-      operateMode: PlaylistOperateMode.Replace,
+      operateMode: PlaylistOperateMode.replace,
       instantlyPlay: true,
       fallbackPlayingItems:
           widget.fallbackFileIds.map(PlayingItem.inLibrary).toList(),
@@ -97,7 +97,7 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
       onMiddleClick: (_) {
         executeMiddleClickAction(
           context,
-          CollectionType.Track,
+          CollectionType.track,
           widget.item.id,
         );
       },

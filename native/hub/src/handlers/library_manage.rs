@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use analysis::utils::computing_device::ComputingDevice;
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
 use tokio::{sync::Mutex, task};
@@ -11,7 +12,7 @@ use database::{
         analysis::analysis_audio_library,
         cover_art::scan_cover_arts,
         fingerprint::{
-            compare_all_pairs, compute_file_fingerprints, mark_duplicate_files, Configuration,
+            Configuration, compare_all_pairs, compute_file_fingerprints, mark_duplicate_files,
         },
         metadata::scan_audio_library,
         recommendation::sync_recommendation,
@@ -20,9 +21,9 @@ use database::{
 };
 
 use crate::{
-    messages::*,
-    utils::{determine_batch_size, Broadcaster, GlobalParams, ParamsExtractor},
     Session, Signal, TaskTokens,
+    messages::*,
+    utils::{Broadcaster, GlobalParams, ParamsExtractor, determine_batch_size},
 };
 
 impl ParamsExtractor for CloseLibraryRequest {
@@ -119,23 +120,26 @@ impl Signal for ScanAudioLibraryRequest {
         tokens.scan_token = Some(new_token.clone());
         drop(tokens); // Release the lock
 
-        let request = dart_signal.clone();
+        // Clone all the data we need before spawning the task
+        let request_path = dart_signal.path.clone();
+        let request_force = dart_signal.force;
         let main_db_clone = Arc::clone(&main_db);
+        let node_id_clone = Arc::clone(&node_id);
+        let broadcaster_clone = Arc::clone(&broadcaster);
 
         task::spawn_blocking(move || {
             let runtime = tokio::runtime::Runtime::new().unwrap();
             runtime.block_on(async move {
-                let path = request.path.clone();
                 let result: Result<()> = async {
                     let file_processed = scan_audio_library(
                         &main_db_clone,
-                        Path::new(&path.clone()),
+                        Path::new(&request_path),
                         true,
-                        request.force,
+                        request_force,
                         |progress| {
-                            broadcaster.broadcast(&ScanAudioLibraryProgress {
-                                task: 0,
-                                path: path.clone(),
+                            broadcaster_clone.broadcast(&ScanAudioLibraryProgress {
+                                task: ScanTaskType::IndexFiles,
+                                path: request_path.clone(),
                                 progress: progress.try_into().unwrap(),
                                 total: 0,
                             });
@@ -147,8 +151,8 @@ impl Signal for ScanAudioLibraryRequest {
                     if new_token.is_cancelled() {
                         info!("Operation cancelled during artist processing.");
 
-                        broadcaster.broadcast(&ScanAudioLibraryResponse {
-                            path: request.path.clone(),
+                        broadcaster_clone.broadcast(&ScanAudioLibraryResponse {
+                            path: request_path.clone(),
                             progress: -1,
                         });
 
@@ -156,17 +160,18 @@ impl Signal for ScanAudioLibraryRequest {
                     }
 
                     let batch_size = determine_batch_size(0.75);
-                    let cloned_broadcaster = Arc::clone(&broadcaster);
+                    let cloned_broadcaster = Arc::clone(&broadcaster_clone);
+                    let path_for_closure = request_path.clone();
 
                     scan_cover_arts(
                         &main_db_clone,
-                        Path::new(&path.clone()),
-                        &node_id,
+                        Path::new(&request_path),
+                        &node_id_clone,
                         batch_size,
                         move |now, total| {
                             cloned_broadcaster.broadcast(&ScanAudioLibraryProgress {
-                                task: 1,
-                                path: path.clone(),
+                                task: ScanTaskType::ScanCoverArts,
+                                path: path_for_closure.clone(),
                                 progress: now.try_into().unwrap(),
                                 total: total.try_into().unwrap(),
                             });
@@ -175,8 +180,8 @@ impl Signal for ScanAudioLibraryRequest {
                     )
                     .await?;
 
-                    broadcaster.broadcast(&ScanAudioLibraryResponse {
-                        path: request.path.clone(),
+                    broadcaster_clone.broadcast(&ScanAudioLibraryResponse {
+                        path: request_path.clone(),
                         progress: file_processed as i32,
                     });
 
@@ -190,6 +195,15 @@ impl Signal for ScanAudioLibraryRequest {
         });
 
         Ok(None)
+    }
+}
+
+impl From<ComputingDeviceRequest> for ComputingDevice {
+    fn from(value: ComputingDeviceRequest) -> Self {
+        match value {
+            ComputingDeviceRequest::Cpu => ComputingDevice::Cpu,
+            ComputingDeviceRequest::Gpu => ComputingDevice::Gpu,
+        }
     }
 }
 
@@ -238,12 +252,14 @@ impl Signal for AnalyzeAudioLibraryRequest {
         tokens.analyze_token = Some(new_token.clone());
         drop(tokens);
 
+        // Clone the data from dart_signal before spawning the task
         let request = dart_signal.clone();
         debug!("Analyzing media files: {:#?}", request);
 
         let request_path = request.path.clone();
         let closure_request_path = request_path.clone();
         let batch_size = determine_batch_size(request.workload_factor);
+        let computing_device = request.computing_device;
 
         task::spawn_blocking(move || {
             let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -255,7 +271,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
                         Path::new(&request_path),
                         &node_id,
                         batch_size,
-                        request.computing_device.into(),
+                        computing_device.into(),
                         move |progress, total| {
                             cloned_broadcaster.broadcast(&AnalyzeAudioLibraryProgress {
                                 path: closure_request_path.clone(),
@@ -446,7 +462,7 @@ impl Signal for CancelTaskRequest {
         let mut tokens = task_tokens.lock().await;
 
         let success = match request.r#type {
-            0 => {
+            CancelTaskType::AnalyzeAudioLibrary => {
                 if let Some(token) = tokens.analyze_token.take() {
                     warn!("Cancelling analyze task");
                     token.cancel();
@@ -455,7 +471,7 @@ impl Signal for CancelTaskRequest {
                     false
                 }
             }
-            1 => {
+            CancelTaskType::ScanAudioLibrary => {
                 if let Some(token) = tokens.scan_token.take() {
                     warn!("Cancelling scan task");
                     token.cancel();

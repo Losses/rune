@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{bail, Error};
 use anyhow::{Context, Result};
+use anyhow::{Error, bail};
 use discovery::server::PermissionManager;
 use log::{debug, error, info};
 use sea_orm::{DatabaseConnection, TransactionTrait};
@@ -14,20 +14,20 @@ use ::database::actions::logging::insert_log;
 use ::database::actions::playback_queue::replace_playback_queue;
 use ::database::actions::stats::increase_played_through;
 use ::database::connection::MainDbConnection;
+use ::database::playing_item::PlayingItemMetadataSummary;
 use ::database::playing_item::dispatcher::PlayingItemActionDispatcher;
 use ::database::playing_item::library_item::extract_in_library_ids;
-use ::database::playing_item::PlayingItemMetadataSummary;
 use ::discovery::client::CertValidator;
-use ::playback::controller::get_default_cover_art_path;
-use ::playback::controller::handle_media_control_event;
-use ::playback::controller::MediaControlManager;
-use ::playback::player::PlayingItem;
-use ::playback::player::{Playable, PlaylistStatus};
 use ::playback::MediaMetadata;
 use ::playback::MediaPlayback;
 use ::playback::MediaPosition;
-use ::scrobbling::manager::ScrobblingServiceManager;
+use ::playback::controller::MediaControlManager;
+use ::playback::controller::get_default_cover_art_path;
+use ::playback::controller::handle_media_control_event;
+use ::playback::player::PlayingItem;
+use ::playback::player::{Playable, PlaylistStatus};
 use ::scrobbling::ScrobblingTrack;
+use ::scrobbling::manager::ScrobblingServiceManager;
 
 use crate::messages::*;
 use crate::utils::Broadcaster;
@@ -211,7 +211,7 @@ pub async fn initialize_local_player(
                 index: status.index.map(|i| i as i32),
                 playback_mode: status.playback_mode.into(),
                 ready: status.ready,
-                cover_art_path: cached_cover_art.clone().unwrap_or_default(),
+                cover_art_path: cached_cover_art.clone(),
                 lib_path: lib_path.as_str().to_string(),
             };
 
@@ -298,7 +298,7 @@ pub async fn initialize_local_player(
 
     task::spawn(async move {
         while let Ok(value) = realtime_fft_receiver.recv().await {
-            broadcaster_for_realtime_fft.broadcast(&RealtimeFft { value });
+            broadcaster_for_realtime_fft.broadcast(&RealtimeFFT { value });
         }
     });
 
@@ -399,16 +399,16 @@ pub async fn initialize_local_player(
     task::spawn(async move {
         while let Ok(user) = permission_receiver.recv().await {
             broadcaster_for_permission_manager.broadcast(&IncommingClientPermissionNotification {
-                user: Some(ClientSummary {
+                user: ClientSummary {
                     alias: user.alias,
                     fingerprint: user.fingerprint,
                     device_model: user.device_model,
                     status: match user.status {
-                        discovery::server::UserStatus::Approved => 0,
-                        discovery::server::UserStatus::Pending => 1,
-                        discovery::server::UserStatus::Blocked => 2,
+                        discovery::server::UserStatus::Approved => ClientStatus::Approved,
+                        discovery::server::UserStatus::Pending => ClientStatus::Pending,
+                        discovery::server::UserStatus::Blocked => ClientStatus::Blocked,
                     },
-                }),
+                },
             });
         }
     });
@@ -438,7 +438,7 @@ pub async fn send_playlist_update(
                 .into_iter()
                 .filter_map(|id| summary_map.get(&id))
                 .map(|summary| PlaylistItem {
-                    item: Some(summary.item.clone().into()),
+                    item: summary.item.clone().into(),
                     artist: summary.artist.clone(),
                     album: summary.album.clone(),
                     title: summary.title.clone(),

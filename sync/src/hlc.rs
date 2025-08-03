@@ -1203,7 +1203,7 @@ mod hlc_from_str_tests {
         assert_eq!(hlc.version, 0xabc);
 
         // Test hex with > 8 chars (overflows u32)
-        let hlc_string_overflow = format!("1234567890123-100000000-{}", node_id);
+        let hlc_string_overflow = format!("1234567890123-100000000-{node_id}");
         let result = HLC::from_str(&hlc_string_overflow);
         assert!(result.is_err()); // Error comes from u32::from_str_radix
         let err_msg = result.err().unwrap().to_string();

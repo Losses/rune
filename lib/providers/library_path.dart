@@ -9,7 +9,7 @@ import '../utils/router/navigation.dart';
 import '../utils/dialogs/select_library_mode/show_select_library_mode_dialog.dart';
 import '../utils/file_storage/file_storage_service.dart';
 import '../screens/collection/utils/collection_data_provider.dart';
-import '../messages/all.dart';
+import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 
 final FileStorageService _fileStorageService = FileStorageService();
@@ -55,8 +55,8 @@ class LibraryPathEntry {
     OperationDestination src,
     OperationDestination dest,
   ) {
-    if (src == OperationDestination.Local &&
-        dest == OperationDestination.Local) {
+    if (src == OperationDestination.local &&
+        dest == OperationDestination.local) {
       final segments = cleanPath.split('/');
       return segments.lastWhere((s) => s.isNotEmpty, orElse: () => cleanPath);
     }
@@ -184,7 +184,7 @@ class LibraryPathProvider with ChangeNotifier {
         hintPosition: -1,
         initialPlaybackId: 0,
         instantlyPlay: false,
-        operateMode: PlaylistOperateMode.Replace,
+        operateMode: PlaylistOperateMode.replace,
         fallbackPlayingItems: [],
       );
 
@@ -210,20 +210,20 @@ class LibraryPathProvider with ChangeNotifier {
   }
 
   List<LibraryPathEntry> getRRPaths() => _filterEntries(
-        source: OperationDestination.Remote,
-        destination: OperationDestination.Remote,
+        source: OperationDestination.remote,
+        destination: OperationDestination.remote,
       );
 
   List<LibraryPathEntry> getLLPaths() => _filterEntries(
-        source: OperationDestination.Local,
-        destination: OperationDestination.Local,
+        source: OperationDestination.local,
+        destination: OperationDestination.local,
       );
 
   List<LibraryPathEntry> getAnySourceRemotePaths() =>
-      _filterEntries(destination: OperationDestination.Remote);
+      _filterEntries(destination: OperationDestination.remote);
 
   List<LibraryPathEntry> getAnyDestinationRemotePaths() =>
-      _filterEntries(source: OperationDestination.Remote);
+      _filterEntries(source: OperationDestination.remote);
 
   Future<void> clearAllOpenedFiles() async {
     await _fileStorageService.clearAllOpenedFiles();

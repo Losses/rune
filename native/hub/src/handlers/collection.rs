@@ -4,12 +4,28 @@ use std::sync::Arc;
 use anyhow::Result;
 use futures::future::join_all;
 
-use database::actions::collection::{CollectionQuery, CollectionQueryListMode, UnifiedCollection};
+use database::actions::collection::{
+    CollectionQuery, CollectionQueryListMode, CollectionQueryType, UnifiedCollection,
+};
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 use database::entities::{albums, artists, genres, mix_queries, mixes, playlists};
 
-use crate::utils::{inject_cover_art_map, GlobalParams, ParamsExtractor, RunningMode};
-use crate::{messages::*, Session, Signal};
+use crate::utils::{GlobalParams, ParamsExtractor, RunningMode, inject_cover_art_map};
+use crate::{Session, Signal, messages::*};
+
+impl From<CollectionQueryType> for CollectionType {
+    fn from(value: CollectionQueryType) -> Self {
+        match value {
+            CollectionQueryType::Album => CollectionType::Album,
+            CollectionQueryType::Artist => CollectionType::Artist,
+            CollectionQueryType::Playlist => CollectionType::Playlist,
+            CollectionQueryType::Mix => CollectionType::Mix,
+            CollectionQueryType::Genre => CollectionType::Genre,
+            CollectionQueryType::Track => CollectionType::Track,
+            CollectionQueryType::Directory => CollectionType::Directory,
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct CollectionActionParams {
@@ -279,11 +295,13 @@ impl Signal for FetchCollectionGroupSummaryRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         match dart_signal.collection_type {
-            0 => handle_fetch_group_summary::<albums::Model>(&main_db).await,
-            1 => handle_fetch_group_summary::<artists::Model>(&main_db).await,
-            2 => handle_fetch_group_summary::<playlists::Model>(&main_db).await,
-            3 => handle_fetch_group_summary::<mixes::Model>(&main_db).await,
-            5 => handle_fetch_group_summary::<genres::Model>(&main_db).await,
+            CollectionType::Album => handle_fetch_group_summary::<albums::Model>(&main_db).await,
+            CollectionType::Artist => handle_fetch_group_summary::<artists::Model>(&main_db).await,
+            CollectionType::Playlist => {
+                handle_fetch_group_summary::<playlists::Model>(&main_db).await
+            }
+            CollectionType::Mix => handle_fetch_group_summary::<mixes::Model>(&main_db).await,
+            CollectionType::Genre => handle_fetch_group_summary::<genres::Model>(&main_db).await,
             _ => Err(anyhow::anyhow!("Invalid collection type")),
         }
     }
@@ -331,7 +349,7 @@ impl Signal for FetchCollectionGroupsRequest {
         };
 
         match dart_signal.collection_type {
-            0 => {
+            CollectionType::Album => {
                 handle_fetch_groups::<albums::Model>(
                     &main_db,
                     &recommend_db,
@@ -341,7 +359,7 @@ impl Signal for FetchCollectionGroupsRequest {
                 )
                 .await
             }
-            1 => {
+            CollectionType::Artist => {
                 handle_fetch_groups::<artists::Model>(
                     &main_db,
                     &recommend_db,
@@ -351,7 +369,7 @@ impl Signal for FetchCollectionGroupsRequest {
                 )
                 .await
             }
-            2 => {
+            CollectionType::Playlist => {
                 handle_fetch_groups::<playlists::Model>(
                     &main_db,
                     &recommend_db,
@@ -361,7 +379,7 @@ impl Signal for FetchCollectionGroupsRequest {
                 )
                 .await
             }
-            3 => {
+            CollectionType::Mix => {
                 handle_fetch_groups::<mixes::Model>(
                     &main_db,
                     &recommend_db,
@@ -371,7 +389,7 @@ impl Signal for FetchCollectionGroupsRequest {
                 )
                 .await
             }
-            5 => {
+            CollectionType::Genre => {
                 handle_fetch_groups::<genres::Model>(
                     &main_db,
                     &recommend_db,
@@ -427,7 +445,7 @@ impl Signal for FetchCollectionByIdsRequest {
         };
 
         match dart_signal.collection_type {
-            0 => {
+            CollectionType::Album => {
                 handle_fetch_by_id::<albums::Model>(
                     &main_db,
                     &recommend_db,
@@ -437,7 +455,7 @@ impl Signal for FetchCollectionByIdsRequest {
                 )
                 .await
             }
-            1 => {
+            CollectionType::Artist => {
                 handle_fetch_by_id::<artists::Model>(
                     &main_db,
                     &recommend_db,
@@ -447,7 +465,7 @@ impl Signal for FetchCollectionByIdsRequest {
                 )
                 .await
             }
-            2 => {
+            CollectionType::Playlist => {
                 handle_fetch_by_id::<playlists::Model>(
                     &main_db,
                     &recommend_db,
@@ -457,7 +475,7 @@ impl Signal for FetchCollectionByIdsRequest {
                 )
                 .await
             }
-            3 => {
+            CollectionType::Mix => {
                 handle_fetch_by_id::<mixes::Model>(
                     &main_db,
                     &recommend_db,
@@ -467,7 +485,7 @@ impl Signal for FetchCollectionByIdsRequest {
                 )
                 .await
             }
-            5 => {
+            CollectionType::Genre => {
                 handle_fetch_by_id::<genres::Model>(
                     &main_db,
                     &recommend_db,
@@ -506,10 +524,12 @@ impl Signal for SearchCollectionSummaryRequest {
         };
 
         match dart_signal.collection_type {
-            0 => handle_search::<albums::Model>(&main_db, params).await,
-            1 => handle_search::<artists::Model>(&main_db, params).await,
-            2 => handle_search::<playlists::Model>(&main_db, params).await,
-            3 => handle_search::<mixes::Model>(&main_db, params).await,
+            Some(CollectionType::Album) => handle_search::<albums::Model>(&main_db, params).await,
+            Some(CollectionType::Artist) => handle_search::<artists::Model>(&main_db, params).await,
+            Some(CollectionType::Playlist) => {
+                handle_search::<playlists::Model>(&main_db, params).await
+            }
+            Some(CollectionType::Mix) => handle_search::<mixes::Model>(&main_db, params).await,
             _ => Err(anyhow::anyhow!("Invalid collection type")),
         }
     }

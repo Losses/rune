@@ -8,7 +8,7 @@ import '../../../utils/l10n.dart';
 import '../../../utils/api/seek_absolute.dart';
 import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/context_menu_wrapper.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 
 import 'lyric_section.dart';
 import 'simple_lyric_section.dart';

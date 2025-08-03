@@ -360,7 +360,7 @@ impl Signal for MovePlaylistItemRequest {
     }
 }
 
-impl ParamsExtractor for SetRealtimeFftEnabledRequest {
+impl ParamsExtractor for SetRealtimeFFTEnabledRequest {
     type Params = (Arc<Mutex<dyn Playable>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
@@ -368,7 +368,7 @@ impl ParamsExtractor for SetRealtimeFftEnabledRequest {
     }
 }
 
-impl Signal for SetRealtimeFftEnabledRequest {
+impl Signal for SetRealtimeFFTEnabledRequest {
     type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 

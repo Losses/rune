@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 import '../../api/set_media_library_path.dart';
 import '../../api/testlibrary_initialized.dart';
 

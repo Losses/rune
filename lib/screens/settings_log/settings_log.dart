@@ -18,7 +18,7 @@ import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/settings_log/widgets/log_detail_dialog.dart';
 import '../../screens/settings_log/widgets/log_item.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 class SettingsLogPage extends StatefulWidget {
   const SettingsLogPage({super.key});

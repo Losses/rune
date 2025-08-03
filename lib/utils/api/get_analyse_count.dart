@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 ifAnalyzeExists(int fileId) async {
   final fetchRequest = GetAnalyzeCountRequest();

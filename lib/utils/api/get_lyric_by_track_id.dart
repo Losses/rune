@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 import '../playing_item.dart';
 
 Future<List<LyricContentLine>> getLyricByTrackId(PlayingItem? item) async {

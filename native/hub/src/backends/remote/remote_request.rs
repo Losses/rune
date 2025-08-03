@@ -11,19 +11,19 @@ macro_rules! register_remote_handlers {
 
 #[macro_export]
 macro_rules! implement_rinf_rust_signal_trait {
-    ($($request:ty),*) => {
+    ($($t:ty),*) => {
         $(
-            impl RinfRustSignal for $request {
-                fn send(&self) {
-                    self.send_signal_to_dart()
-                }
-
+            impl $crate::utils::RinfRustSignal for $t {
                 fn name(&self) -> String {
-                    stringify!($request).to_string()
+                    stringify!($t).to_string()
                 }
 
-                fn encode_message(&self) -> Vec<u8> {
-                    self.encode_to_vec()
+                fn encode_to_vec(&self) -> anyhow::Result<Vec<u8>> {
+                    rinf::serialize(self).map_err(anyhow::Error::from)
+                }
+
+                fn send_to_dart(&self) {
+                    self.send_signal_to_dart();
                 }
             }
         )*
@@ -59,7 +59,15 @@ macro_rules! forward_event_to_remote {
                             }
                             Some(dart_signal) = receiver.recv() => {
                                 // Encode the message
-                                let payload = dart_signal.message.encode_to_vec();
+                                let payload = match rinf::serialize(&dart_signal.message) {
+                                    Ok(x) => x,
+                                    Err(e) => {
+                                        CrashResponse {
+                                            detail: format!("Failed to serialize message: {}", e),
+                                        }.send_signal_to_dart();
+                                        continue;
+                                    }
+                                };
 
                                 let type_name = dart_signal.message.name();
                                 let encoded_message = encode_message(&type_name, &payload, Some(Uuid::new_v4()));
@@ -72,7 +80,7 @@ macro_rules! forward_event_to_remote {
                                 if let Err(e) = result {
                                     CrashResponse {
                                         detail: format!("Failed to send message: {}", e),
-                                    }.send();
+                                    }.send_signal_to_dart();
                                 }
                             }
                         }

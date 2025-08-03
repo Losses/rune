@@ -10,7 +10,7 @@ import '../../../utils/dialogs/unavailable_dialog_on_band.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
 import '../../../screens/settings_library/widgets/progress_button.dart';
-import '../../../messages/playlist.pb.dart';
+import '../../../bindings/bindings.dart';
 
 import '../mix/utils/select_input_controller.dart';
 import '../mix/widgets/select_buttons_section.dart';

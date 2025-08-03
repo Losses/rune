@@ -4,7 +4,7 @@ import '../../../utils/l10n.dart';
 import '../../../utils/api/remove_trusted_client.dart';
 import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/dialogs/information/confirm.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 
 Future<void> showConfirmRemoveDeviceDialog(
   BuildContext context,

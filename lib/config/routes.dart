@@ -16,7 +16,7 @@ import '../routes/collections.dart' as collections;
 import '../routes/query_tracks.dart' as query_tracks;
 import '../routes/library_home.dart' as library_home;
 
-import '../messages/collection.pb.dart';
+import '../bindings/bindings.dart';
 
 final Map<String, WidgetBuilder> routes = {
   '/': (context) => const home.HomePage(),
@@ -24,7 +24,7 @@ final Map<String, WidgetBuilder> routes = {
   '/library': (context) => const library_home.LibraryHomePage(),
   '/artists': (context) => const collections.CollectionPage(
         key: ValueKey("Artists"),
-        collectionType: CollectionType.Artist,
+        collectionType: CollectionType.artist,
       ),
   '/artists/detail': (context) {
     final arguments = getQueryTracksParameter();
@@ -42,7 +42,7 @@ final Map<String, WidgetBuilder> routes = {
   },
   '/albums': (context) => const collections.CollectionPage(
         key: ValueKey("Albums"),
-        collectionType: CollectionType.Album,
+        collectionType: CollectionType.album,
       ),
   '/albums/detail': (context) {
     final arguments = getQueryTracksParameter();
@@ -63,7 +63,7 @@ final Map<String, WidgetBuilder> routes = {
   },
   '/genres': (context) => const collections.CollectionPage(
         key: ValueKey("Genres"),
-        collectionType: CollectionType.Genre,
+        collectionType: CollectionType.genre,
       ),
   '/genres/detail': (context) {
     final arguments = getQueryTracksParameter();
@@ -84,7 +84,7 @@ final Map<String, WidgetBuilder> routes = {
   },
   '/playlists': (context) => const collections.CollectionPage(
         key: ValueKey("Playlists"),
-        collectionType: CollectionType.Playlist,
+        collectionType: CollectionType.playlist,
       ),
   '/playlists/detail': (context) {
     final arguments = getQueryTracksParameter();
@@ -102,7 +102,7 @@ final Map<String, WidgetBuilder> routes = {
   },
   '/mixes': (context) => const collections.CollectionPage(
         key: ValueKey("Mixes"),
-        collectionType: CollectionType.Mix,
+        collectionType: CollectionType.mix,
       ),
   '/mixes/detail': (context) {
     final arguments = getQueryTracksParameter();

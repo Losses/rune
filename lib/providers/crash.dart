@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:rinf/rinf.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../messages/all.dart';
+import '../bindings/bindings.dart';
 
 class CrashProvider with ChangeNotifier {
   String? report;
 
-  late StreamSubscription<RustSignal<CrashResponse>> subscription;
+  late StreamSubscription<RustSignalPack<CrashResponse>> subscription;
 
   CrashProvider() {
     subscription = CrashResponse.rustSignalStream.listen(_updatePlaybackStatus);
@@ -20,7 +20,7 @@ class CrashProvider with ChangeNotifier {
     subscription.cancel();
   }
 
-  void _updatePlaybackStatus(RustSignal<CrashResponse> signal) {
+  void _updatePlaybackStatus(RustSignalPack<CrashResponse> signal) {
     report = signal.message.detail;
     notifyListeners();
   }

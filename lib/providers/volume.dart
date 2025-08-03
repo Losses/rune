@@ -5,13 +5,13 @@ import 'package:rinf/rinf.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/settings_manager.dart';
-import '../messages/playback.pb.dart';
+import '../bindings/bindings.dart';
 
 class VolumeProvider with ChangeNotifier {
   static const String _volumeSettingsKey = 'volume_level';
 
   final SettingsManager _settingsManager = SettingsManager();
-  late StreamSubscription<RustSignal<VolumeResponse>> _subscription;
+  late StreamSubscription<RustSignalPack<VolumeResponse>> _subscription;
 
   double _volume = 1;
   double get volume => _volume;
@@ -33,7 +33,7 @@ class VolumeProvider with ChangeNotifier {
     }
   }
 
-  void _handleVolumeResponse(RustSignal<VolumeResponse> signal) {
+  void _handleVolumeResponse(RustSignalPack<VolumeResponse> signal) {
     _updateVolume(signal.message.volume);
   }
 

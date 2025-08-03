@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/mix/create_edit_mix_dialog.dart';
-import '../../../messages/mix.pb.dart';
+import '../../../bindings/bindings.dart';
 
 Future<Mix?> showCreateEditMixDialog(
   BuildContext context, 

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../screens/settings_server/utils/show_review_connection_dialog.dart';
 
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 class DiscoveryFrame extends StatefulWidget {
   const DiscoveryFrame(

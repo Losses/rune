@@ -2,7 +2,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/playing_item.dart';
-import '../../messages/lyric.pb.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'widgets/lyric_display.dart';

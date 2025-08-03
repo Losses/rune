@@ -1,5 +1,5 @@
 import '../../../utils/query_list.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 
 import '../../build_query.dart';
 import '../../api/query_mix_tracks.dart';

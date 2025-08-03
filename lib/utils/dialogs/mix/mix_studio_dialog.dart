@@ -10,7 +10,7 @@ import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart
 import '../../../widgets/navigation_bar/constants/navigation_bar_height.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../screens/search/widgets/track_search_item.dart';
-import '../../../messages/mix.pbserver.dart';
+import '../../../bindings/bindings.dart';
 import '../../../providers/responsive_providers.dart';
 
 import '../../query_list.dart';

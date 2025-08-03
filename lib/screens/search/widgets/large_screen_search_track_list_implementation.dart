@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../../widgets/start_screen/managed_start_screen_item.dart';
-import '../../../messages/collection.pb.dart';
+import '../../../bindings/bindings.dart';
 
 import './search_card.dart';
 

@@ -11,7 +11,7 @@ import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 import '../tile/cover_art.dart';
 import 'widgets/track_number_cover_art.dart';
@@ -69,7 +69,7 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
       onMiddleClick: (_) {
         executeMiddleClickAction(
           context,
-          CollectionType.Track,
+          CollectionType.track,
           widget.item.id,
         );
       },
@@ -98,7 +98,7 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
               playbackMode: widget.mode,
               hintPosition: widget.index,
               initialPlaybackId: widget.item.id,
-              operateMode: PlaylistOperateMode.Replace,
+              operateMode: PlaylistOperateMode.replace,
               instantlyPlay: true,
               fallbackPlayingItems:
                   widget.fallbackFileIds.map(PlayingItem.inLibrary).toList(),

@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<ComplexQueryResponse?> complexQuery(List<ComplexQuery> queries) async {
   if (queries.isEmpty) return null;

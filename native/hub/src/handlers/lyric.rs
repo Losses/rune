@@ -64,7 +64,7 @@ impl Signal for GetLyricByTrackIdRequest {
                     match lyrics {
                         Some(lyric) => match lyric {
                             Ok(lyric) => Ok(Some(GetLyricByTrackIdResponse {
-                                item: Some(item.clone()),
+                                item: item.clone(),
                                 lines: lyric
                                     .lyrics
                                     .into_iter()
@@ -88,13 +88,13 @@ impl Signal for GetLyricByTrackIdRequest {
                             }
                         },
                         None => Ok(Some(GetLyricByTrackIdResponse {
-                            item: Some(item.clone()),
+                            item: item.clone(),
                             lines: [].to_vec(),
                         })),
                     }
                 }
                 None => Ok(Some(GetLyricByTrackIdResponse {
-                    item: Some(item.clone()),
+                    item: item.clone(),
                     lines: [].to_vec(),
                 })),
             }

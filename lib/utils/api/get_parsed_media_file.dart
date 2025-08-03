@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<FetchParsedMediaFileResponse> getParsedMediaFile(int fileId) async {
   final fetchRequest = FetchParsedMediaFileRequest(id: fileId);

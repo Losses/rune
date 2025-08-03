@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<(bool, bool, String?)> testLibraryInitialized(String path) async {
   TestLibraryInitializedRequest(path: path).sendSignalToRust();

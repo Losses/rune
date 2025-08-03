@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../widgets/start_screen/utils/group.dart';
 import '../../../widgets/start_screen/utils/internal_collection.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 
 import 'fetch_page.dart';
 import 'fetch_groups.dart';

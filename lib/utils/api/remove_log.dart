@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<bool> removeLog(int id) async {
   final removeRequest = RemoveLogRequest(

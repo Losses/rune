@@ -46,7 +46,7 @@ import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
 import 'screens/settings_theme/constants/window_sizes.dart';
 
-import 'messages/all.dart';
+import 'bindings/bindings.dart';
 
 import 'constants/configurations.dart';
 
@@ -452,7 +452,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
             hintPosition: -1,
             initialPlaybackId: -1,
             instantlyPlay: true,
-            operateMode: PlaylistOperateMode.Replace,
+            operateMode: PlaylistOperateMode.replace,
             fallbackPlayingItems: []);
       });
     }

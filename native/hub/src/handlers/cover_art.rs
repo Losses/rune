@@ -8,11 +8,11 @@ use database::connection::RecommendationDbConnection;
 use database::playing_item::dispatcher::PlayingItemActionDispatcher;
 use tokio::task;
 
-use crate::utils::query_cover_arts;
+use crate::Session;
 use crate::utils::GlobalParams;
 use crate::utils::ParamsExtractor;
-use crate::Session;
-use crate::{messages::*, Signal};
+use crate::utils::query_cover_arts;
+use crate::{Signal, messages::*};
 
 impl ParamsExtractor for GetCoverArtIdsByMixQueriesRequest {
     type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
@@ -42,7 +42,8 @@ impl Signal for GetCoverArtIdsByMixQueriesRequest {
             let recommend_db = Arc::clone(&recommend_db);
             async move {
                 let query =
-                    query_cover_arts(&main_db, recommend_db, x.queries, Some(request.n)).await;
+                    query_cover_arts(&main_db, recommend_db, x.queries.clone(), Some(request.n))
+                        .await;
 
                 match query {
                     Ok(files) => {
@@ -102,11 +103,11 @@ impl Signal for GetPrimaryColorByTrackIdRequest {
 
                     match primary_color {
                         Some(x) => GetPrimaryColorByTrackIdResponse {
-                            item: Some(item),
+                            item,
                             primary_color: Some(x),
                         },
                         None => GetPrimaryColorByTrackIdResponse {
-                            item: Some(item),
+                            item,
                             primary_color: None,
                         },
                     }

@@ -17,7 +17,7 @@ import '../../widgets/no_shortcuts.dart';
 import '../../widgets/tile/fancy_cover.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../messages/system.pb.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/license.dart';
 import '../../providers/responsive_providers.dart';
 

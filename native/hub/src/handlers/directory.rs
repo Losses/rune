@@ -45,7 +45,7 @@ impl Signal for FetchDirectoryTreeRequest {
             .with_context(|| "Failed to fetch directory tree")?;
 
         Ok(Some(FetchDirectoryTreeResponse {
-            root: Some(convert_directory_tree(root)),
+            root: convert_directory_tree(root),
         }))
     }
 }

@@ -1,22 +1,20 @@
-use prost::Message;
-
-use crate::broadcastable;
+use crate::implement_rinf_rust_signal_trait;
 use crate::messages::*;
-use crate::utils::RinfRustSignal;
+use rinf::RustSignal;
 
-broadcastable!(ScanAudioLibraryProgress, ScanAudioLibraryResponse);
-broadcastable!(SetMediaLibraryPathResponse);
-broadcastable!(AnalyzeAudioLibraryProgress, AnalyzeAudioLibraryResponse);
-broadcastable!(
+implement_rinf_rust_signal_trait!(ScanAudioLibraryProgress, ScanAudioLibraryResponse);
+implement_rinf_rust_signal_trait!(SetMediaLibraryPathResponse);
+implement_rinf_rust_signal_trait!(AnalyzeAudioLibraryProgress, AnalyzeAudioLibraryResponse);
+implement_rinf_rust_signal_trait!(
     DeduplicateAudioLibraryProgress,
     DeduplicateAudioLibraryResponse
 );
-broadcastable!(
+implement_rinf_rust_signal_trait!(
     PlaybackStatus,
     ScrobbleServiceStatusUpdated,
     CrashResponse,
-    RealtimeFft
+    RealtimeFFT
 );
-broadcastable!(PlaylistUpdate);
-broadcastable!(TrustListUpdated);
-broadcastable!(IncommingClientPermissionNotification);
+implement_rinf_rust_signal_trait!(PlaylistUpdate);
+implement_rinf_rust_signal_trait!(TrustListUpdated);
+implement_rinf_rust_signal_trait!(IncommingClientPermissionNotification);

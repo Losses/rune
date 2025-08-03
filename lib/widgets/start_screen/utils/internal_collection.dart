@@ -1,5 +1,5 @@
 import '../../../utils/query_list.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 
 class InternalCollection {
   final int id;

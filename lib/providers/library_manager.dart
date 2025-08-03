@@ -4,9 +4,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/router/navigation.dart';
 import '../screens/collection/utils/collection_data_provider.dart';
-import '../messages/library_manage.pb.dart';
+import '../../bindings/bindings.dart';
 import '../constants/configurations.dart';
 import '../constants/settings_manager.dart';
+
 
 enum TaskStatus { working, finished, cancelled }
 
@@ -114,7 +115,7 @@ class LibraryManagerProvider with ChangeNotifier {
           getScanTaskProgress(scanResult.path)?.initialize ?? false;
       _updateScanProgress(
         scanResult.path,
-        ScanTaskType.ScanCoverArts,
+        ScanTaskType.scanCoverArts,
         scanResult.progress,
         0,
         TaskStatus.finished,
@@ -163,16 +164,16 @@ class LibraryManagerProvider with ChangeNotifier {
         CancelTaskResponse.rustSignalStream.listen((event) {
       final cancelResponse = event.message;
       if (cancelResponse.success) {
-        if (cancelResponse.type == CancelTaskType.ScanAudioLibrary) {
+        if (cancelResponse.rType == CancelTaskType.scanAudioLibrary) {
           _updateScanProgress(
             cancelResponse.path,
-            ScanTaskType.IndexFiles,
+            ScanTaskType.indexFiles,
             0,
             0,
             TaskStatus.cancelled,
             false,
           );
-        } else if (cancelResponse.type == CancelTaskType.AnalyzeAudioLibrary) {
+        } else if (cancelResponse.rType == CancelTaskType.analyzeAudioLibrary) {
           _updateAnalyzeProgress(
             cancelResponse.path,
             0,
@@ -180,8 +181,8 @@ class LibraryManagerProvider with ChangeNotifier {
             TaskStatus.cancelled,
             false,
           );
-        } else if (cancelResponse.type ==
-            CancelTaskType.DeduplicateAudioLibrary) {
+        } else if (cancelResponse.rType ==
+            CancelTaskType.deduplicateAudioLibrary) {
           _updateDeduplicateProgress(
             cancelResponse.path,
             0,
@@ -295,7 +296,7 @@ class LibraryManagerProvider with ChangeNotifier {
     }
     _updateScanProgress(
       path,
-      ScanTaskType.IndexFiles,
+      ScanTaskType.indexFiles,
       0,
       0,
       TaskStatus.working,
@@ -327,7 +328,7 @@ class LibraryManagerProvider with ChangeNotifier {
     AnalyzeAudioLibraryRequest(
       path: path,
       computingDevice:
-          computingDevice == 'gpu' ? ComputingDevice.Gpu : ComputingDevice.Cpu,
+          computingDevice == 'gpu' ? ComputingDevice.gpu : ComputingDevice.cpu,
       workloadFactor: workloadFactor,
     ).sendSignalToRust();
   }
@@ -400,7 +401,7 @@ class LibraryManagerProvider with ChangeNotifier {
   }
 
   Future<void> cancelTask(String path, CancelTaskType type) async {
-    CancelTaskRequest(path: path, type: type).sendSignalToRust();
+    CancelTaskRequest(path: path, rType: type).sendSignalToRust();
   }
 
   @override

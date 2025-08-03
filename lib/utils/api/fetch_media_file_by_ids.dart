@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import '../../widgets/track_list/utils/internal_media_file.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<List<InternalMediaFile>> fetchMediaFileByIds(
   List<int> ids,

@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 void seekAbsolute(int positionMs) {
   SeekRequest(

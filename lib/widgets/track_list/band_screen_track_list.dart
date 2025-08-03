@@ -16,7 +16,7 @@ import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
 import '../../utils/l10n.dart';
 
@@ -153,7 +153,7 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
               onMiddleClick: (_) {
                 executeMiddleClickAction(
                   context,
-                  CollectionType.Track,
+                  CollectionType.track,
                   widget.item.id,
                 );
               },
@@ -178,7 +178,7 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
                     playbackMode: widget.mode,
                     hintPosition: widget.index,
                     initialPlaybackId: widget.item.id,
-                    operateMode: PlaylistOperateMode.Replace,
+                    operateMode: PlaylistOperateMode.replace,
                     instantlyPlay: true,
                     fallbackPlayingItems: widget.pagingController.itemList
                             ?.map((x) => x.id)

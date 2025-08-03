@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../screens/search/widgets/search_card.dart';
-import '../../../messages/collection.pb.dart';
+import '../../../bindings/bindings.dart';
 
 import 'small_screen_search_track_list_implementation.dart';
 
@@ -18,8 +18,8 @@ class BandScreenSearchTrackList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SmallScreenSearchTrackListImplementation(
-      collectionType: CollectionType.Track,
-      items: items[CollectionType.Track],
+      collectionType: CollectionType.track,
+      items: items[CollectionType.track],
       groupId: 3,
       direction: direction,
     );

@@ -2,26 +2,25 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
 use axum::{
-    middleware,
+    Extension, Router, middleware,
     routing::{delete, get, post, put},
-    Extension, Router,
 };
-use axum_server::{tls_rustls::RustlsConfig, Handle};
-use base64::{engine::general_purpose::URL_SAFE, Engine as _};
-use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use axum_server::{Handle, tls_rustls::RustlsConfig};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use log::{error, info};
-use prost::Message;
 use rand::{
+    RngCore,
     distributions::{Alphanumeric, DistString},
-    thread_rng, RngCore,
+    thread_rng,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -30,15 +29,17 @@ use tokio::{
     task::JoinHandle,
 };
 use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor, GovernorLayer,
+    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor,
 };
 
 use ::database::actions::cover_art::COVER_TEMP_DIR;
-use ::discovery::{client::parse_certificate, ssl::generate_self_signed_cert, DiscoveryParams};
+use ::discovery::{DiscoveryParams, client::parse_certificate, ssl::generate_self_signed_cert};
 
 use crate::{
+    Signal,
     messages::*,
     server::{
+        AppState, ServerState, WebSocketService,
         http::{
             check_fingerprint::check_fingerprint_handler, device_info::device_info_handler,
             file::file_handler, list::list_users_handler, panel_alias::update_alias_handler,
@@ -48,10 +49,8 @@ use crate::{
             panel_status::update_user_status_handler, ping::ping_handler,
             register::register_handler, websocket::websocket_handler,
         },
-        AppState, ServerState, WebSocketService,
     },
     utils::{GlobalParams, ParamsExtractor, RinfRustSignal},
-    Signal,
 };
 
 #[derive(Debug, Serialize, Deserialize)]

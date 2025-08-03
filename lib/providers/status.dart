@@ -7,18 +7,119 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../utils/playing_item.dart';
 import '../utils/settings_manager.dart';
 import '../utils/theme_color_manager.dart';
-import '../messages/all.dart';
+import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 
+// Custom state class that can be mutated
+class PlaybackStatusState {
+  String state;
+  bool ready;
+  double? progressSeconds;
+  double? progressPercentage;
+  String? artist;
+  String? album;
+  String? title;
+  double? duration;
+  int? index;
+  String? item;
+  int? playbackMode;
+  String? coverArtPath;
+  String? libPath;
+
+  PlaybackStatusState({
+    this.state = "Stopped",
+    this.ready = false,
+    this.progressSeconds,
+    this.progressPercentage,
+    this.artist,
+    this.album,
+    this.title,
+    this.duration,
+    this.index,
+    this.item,
+    this.playbackMode,
+    this.coverArtPath,
+    this.libPath,
+  });
+
+  PlaybackStatusState.from(PlaybackStatusState other)
+      : state = other.state,
+        ready = other.ready,
+        progressSeconds = other.progressSeconds,
+        progressPercentage = other.progressPercentage,
+        artist = other.artist,
+        album = other.album,
+        title = other.title,
+        duration = other.duration,
+        index = other.index,
+        item = other.item,
+        playbackMode = other.playbackMode,
+        coverArtPath = other.coverArtPath,
+        libPath = other.libPath;
+
+  // Update from PlaybackStatus (machine generated)
+  void updateFrom(PlaybackStatus newStatus) {
+    state = newStatus.state;
+    ready = newStatus.ready ?? false;
+    progressSeconds = newStatus.progressSeconds;
+    progressPercentage = newStatus.progressPercentage;
+    artist = newStatus.artist;
+    album = newStatus.album;
+    title = newStatus.title;
+    duration = newStatus.duration;
+    index = newStatus.index;
+    item = newStatus.item;
+    playbackMode = newStatus.playbackMode;
+    coverArtPath = newStatus.coverArtPath;
+    libPath = newStatus.libPath;
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! PlaybackStatusState) return false;
+
+    return state == other.state &&
+        ready == other.ready &&
+        progressSeconds == other.progressSeconds &&
+        progressPercentage == other.progressPercentage &&
+        artist == other.artist &&
+        album == other.album &&
+        title == other.title &&
+        duration == other.duration &&
+        index == other.index &&
+        item == other.item &&
+        playbackMode == other.playbackMode &&
+        coverArtPath == other.coverArtPath &&
+        libPath == other.libPath;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        state,
+        ready,
+        progressSeconds,
+        progressPercentage,
+        artist,
+        album,
+        title,
+        duration,
+        index,
+        item,
+        playbackMode,
+        coverArtPath,
+        libPath,
+      );
+}
+
 class PlaybackStatusProvider with ChangeNotifier {
-  final PlaybackStatus _playbackStatus =
-      PlaybackStatus(state: "Stopped", ready: false);
+  final PlaybackStatusState _playbackStatusState = PlaybackStatusState();
   PlayingItem? _playingItem;
 
-  PlaybackStatus get playbackStatus => _playbackStatus;
+  PlaybackStatusState get playbackStatus => _playbackStatusState;
   PlayingItem? get playingItem => _playingItem;
 
-  late StreamSubscription<RustSignal<PlaybackStatus>> statusSubscription;
+  late StreamSubscription<RustSignalPack<PlaybackStatus>> statusSubscription;
 
   bool _hasPendingNotification = false;
 
@@ -43,36 +144,47 @@ class PlaybackStatusProvider with ChangeNotifier {
     }
   }
 
-  void _updatePlaybackStatus(RustSignal<PlaybackStatus> signal) {
+  void _updatePlaybackStatus(RustSignalPack<PlaybackStatus> signal) {
     final newStatus = signal.message;
-    if (!_isPlaybackStatusEqual(_playbackStatus, newStatus)) {
-      final bool isNewTrack = _playbackStatus.item != newStatus.item;
+    final previousState = PlaybackStatusState.from(_playbackStatusState);
 
-      _playbackStatus.state = newStatus.state;
+    // Create a temporary state to compare
+    final tempState = PlaybackStatusState.from(_playbackStatusState);
+    tempState.updateFrom(newStatus);
 
-      if (newStatus.state != "Stopped" || _playbackStatus.libPath != newStatus.libPath) {
-        _playbackStatus.progressSeconds = newStatus.progressSeconds;
-        _playbackStatus.progressPercentage = newStatus.progressPercentage;
-        _playbackStatus.artist = newStatus.artist;
-        _playbackStatus.album = newStatus.album;
-        _playbackStatus.title = newStatus.title;
-        _playbackStatus.duration = newStatus.duration;
-        _playbackStatus.index = newStatus.index;
-        _playbackStatus.item = newStatus.item;
-        _playbackStatus.playbackMode = newStatus.playbackMode;
-        _playbackStatus.ready = newStatus.ready;
-        _playbackStatus.coverArtPath = newStatus.coverArtPath;
-        _playbackStatus.libPath = newStatus.libPath;
-        final newPlayingItem = newStatus.item.isEmpty
-            ? null
-            : PlayingItem.fromString(newStatus.item);
+    if (previousState != tempState) {
+      final bool isNewTrack = _playbackStatusState.item != newStatus.item;
+
+      _playbackStatusState.state = newStatus.state;
+
+      if (newStatus.state != "Stopped" ||
+          _playbackStatusState.libPath != newStatus.libPath) {
+        _playbackStatusState.progressSeconds = newStatus.progressSeconds;
+        _playbackStatusState.progressPercentage = newStatus.progressPercentage;
+        _playbackStatusState.artist = newStatus.artist;
+        _playbackStatusState.album = newStatus.album;
+        _playbackStatusState.title = newStatus.title;
+        _playbackStatusState.duration = newStatus.duration;
+        _playbackStatusState.index = newStatus.index;
+        _playbackStatusState.item = newStatus.item;
+        _playbackStatusState.playbackMode = newStatus.playbackMode;
+        _playbackStatusState.ready = newStatus.ready ?? false;
+        _playbackStatusState.coverArtPath = newStatus.coverArtPath;
+        _playbackStatusState.libPath = newStatus.libPath;
+
+        final newPlayingItem =
+            newStatus.item?.isEmpty == true || newStatus.item == null
+                ? null
+                : PlayingItem.fromString(newStatus.item!);
         _playingItem = newPlayingItem;
 
         if (isNewTrack) {
           if (newPlayingItem != null) {
             ThemeColorManager().handleCoverArtColorChange(newPlayingItem);
           }
-          SettingsManager().setValue(kLastQueueIndexKey, newStatus.index);
+          if (newStatus.index != null) {
+            SettingsManager().setValue(kLastQueueIndexKey, newStatus.index!);
+          }
         }
       }
 
@@ -80,23 +192,7 @@ class PlaybackStatusProvider with ChangeNotifier {
     }
   }
 
-  bool _isPlaybackStatusEqual(
-      PlaybackStatus oldStatus, PlaybackStatus newStatus) {
-    return oldStatus.state == newStatus.state &&
-        oldStatus.progressSeconds == newStatus.progressSeconds &&
-        oldStatus.progressPercentage == newStatus.progressPercentage &&
-        oldStatus.artist == newStatus.artist &&
-        oldStatus.album == newStatus.album &&
-        oldStatus.title == newStatus.title &&
-        oldStatus.duration == newStatus.duration &&
-        oldStatus.index == newStatus.index &&
-        oldStatus.item == newStatus.item &&
-        oldStatus.playbackMode == newStatus.playbackMode &&
-        oldStatus.ready == newStatus.ready &&
-        oldStatus.coverArtPath == newStatus.coverArtPath;
-  }
-
   bool get notReady {
-    return playbackStatus.ready == false;
+    return _playbackStatusState.ready == false;
   }
 }

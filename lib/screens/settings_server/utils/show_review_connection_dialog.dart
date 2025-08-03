@@ -4,7 +4,7 @@ import '../../../utils/l10n.dart';
 import '../../../utils/api/update_client_status.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/information/error.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 
 import '../widgets/review_connection_dialog.dart';
 

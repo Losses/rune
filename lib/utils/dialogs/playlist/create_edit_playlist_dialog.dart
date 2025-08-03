@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../utils/l10n.dart';
 import '../../../utils/api/update_playlist.dart';
 import '../../../utils/api/create_playlist.dart';
 import '../../../utils/api/get_playlist_by_id.dart';
@@ -7,9 +8,7 @@ import '../../../utils/dialogs/unavailable_dialog_on_band.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
 import '../../../screens/collection/utils/collection_data_provider.dart';
-import '../../../messages/playlist.pb.dart';
-import '../../../messages/collection.pb.dart';
-import '../../../utils/l10n.dart';
+import '../../../bindings/bindings.dart';
 
 import '../../api/create_m3u8_playlist.dart';
 import '../../api/fetch_collection_group_summary_title.dart';
@@ -70,7 +69,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
 
   Future<void> fetchGroupList() async {
     final groups =
-        await fetchCollectionGroupSummaryTitle(CollectionType.Playlist);
+        await fetchCollectionGroupSummaryTitle(CollectionType.playlist);
 
     if (!mounted) return;
 
@@ -158,7 +157,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                           widget.$close(response.playlist);
                           if (response.success) {
                             CollectionCache()
-                                .clearType(CollectionType.Playlist);
+                                .clearType(CollectionType.playlist);
 
                             if (response.notFoundPaths.isNotEmpty) {
                               showCreateImportM3u8SuccessDialog(
@@ -189,7 +188,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                           );
                         }
 
-                        CollectionCache().clearType(CollectionType.Playlist);
+                        CollectionCache().clearType(CollectionType.playlist);
 
                         setState(() {
                           isLoading = false;

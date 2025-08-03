@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<void> addItemToMix(int mixId, String operator, String parameter) async {
   final request = AddItemToMixRequest(

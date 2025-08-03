@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<String> fetchRemoteFile(String url) async {
   FetchRemoteFileRequest(url: url).sendSignalToRust();

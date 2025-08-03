@@ -406,9 +406,9 @@ class CoverArtDiskState extends State<CoverArtDisk>
                                 size: size,
                                 path: _currentPath,
                                 hint: (
-                                  status.album,
-                                  status.artist,
-                                  'Total Time ${formatTime(status.duration)}'
+                                  status.album ?? "",
+                                  status.artist ?? "",
+                                  'Total Time ${formatTime(status.duration ?? 0)}'
                                 ),
                               ),
                             ),

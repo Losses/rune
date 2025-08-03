@@ -5,7 +5,7 @@ import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../screens/settings_log/utils/open_log_item_context_menu.dart';
 import '../../../widgets/settings/settings_button.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 
 class LogItem extends StatefulWidget {
   final LogDetail log;

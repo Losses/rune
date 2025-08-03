@@ -20,7 +20,7 @@ import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../widgets/start_screen/start_group_implementation.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/library_home.dart';
 
 import './constants/first_column.dart';

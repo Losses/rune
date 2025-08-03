@@ -8,7 +8,7 @@ import '../../../utils/api/operate_playback_with_mix_query.dart';
 import '../../../utils/context_menu/track_item_context_menu.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/track_list/utils/internal_media_file.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 
 import './search_card.dart';
 
@@ -53,7 +53,7 @@ class TrackSearchItemState extends SearchCardState<TrackSearchItem> {
       playbackMode: 99,
       hintPosition: 0,
       initialPlaybackId: widget.item.id,
-      operateMode: PlaylistOperateMode.Replace,
+      operateMode: PlaylistOperateMode.replace,
       instantlyPlay: true,
       fallbackPlayingItems:
           widget.fallbackFileIds.map(PlayingItem.inLibrary).toList(),
@@ -78,7 +78,7 @@ class TrackSearchItemState extends SearchCardState<TrackSearchItem> {
   void onMiddleClick(BuildContext context, Offset position) {
     executeMiddleClickAction(
       context,
-      CollectionType.Track,
+      CollectionType.track,
       widget.item.id,
     );
   }

@@ -5,7 +5,7 @@ import '../utils/l10n.dart';
 import '../utils/platform.dart';
 import '../utils/router/navigation.dart';
 import '../screens/settings_library/widgets/progress_button.dart';
-import '../messages/library_manage.pbenum.dart';
+import '../bindings/bindings.dart';
 import '../providers/library_manager.dart';
 import '../providers/library_path.dart';
 
@@ -130,7 +130,7 @@ class ScanLibraryButton extends StatelessWidget {
         final confirm = await showCancelDialog(context);
 
         if (confirm == true) {
-          libraryManager.cancelTask(itemPath, CancelTaskType.ScanAudioLibrary);
+          libraryManager.cancelTask(itemPath, CancelTaskType.scanAudioLibrary);
         }
       },
       onPressedStart: (libraryManager, itemPath) async {
@@ -197,7 +197,7 @@ class AnalyzeLibraryButton extends StatelessWidget {
         if (confirm == true) {
           libraryManager.cancelTask(
             itemPath,
-            CancelTaskType.AnalyzeAudioLibrary,
+            CancelTaskType.analyzeAudioLibrary,
           );
         }
       },
@@ -252,7 +252,7 @@ class DeduplicateLibraryButton extends StatelessWidget {
         if (confirm == true) {
           libraryManager.cancelTask(
             itemPath,
-            CancelTaskType.DeduplicateAudioLibrary,
+            CancelTaskType.deduplicateAudioLibrary,
           );
         }
       },

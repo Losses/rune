@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<List<String>> fetchCollectionGroupSummaryTitle(
     CollectionType collectionType) async {

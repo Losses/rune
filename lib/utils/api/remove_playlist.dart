@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<bool> removePlaylist(int playlistId) async {
   final updateRequest = RemovePlaylistRequest(playlistId: playlistId);

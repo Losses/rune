@@ -5,7 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/playing_item.dart';
-import '../../messages/playback.pb.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/playlist.dart';
 import '../../providers/status.dart';
 

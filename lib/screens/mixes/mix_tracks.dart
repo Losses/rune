@@ -4,7 +4,7 @@ import '../../utils/query_list.dart';
 import '../../utils/api/get_mix_by_id.dart';
 import '../../utils/api/fetch_mix_queries_by_mix_id.dart';
 import '../../screens/query_tracks/query_tracks.dart';
-import '../../messages/mix.pbserver.dart';
+import '../../bindings/bindings.dart';
 
 class MixTrackesPage extends StatefulWidget {
   final int mixId;

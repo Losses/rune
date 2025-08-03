@@ -5,27 +5,28 @@ pub mod http;
 mod manager;
 pub mod utils;
 
-use discovery::protocol::DiscoveryService;
+pub use manager::ServerManager;
 pub use manager::generate_or_load_certificates;
 pub use manager::get_or_generate_alias;
 pub use manager::update_root_password;
-pub use manager::ServerManager;
 
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
+use anyhow::Result;
 use log::error;
-use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, broadcast};
 
-use ::discovery::{server::PermissionManager, utils::DeviceInfo};
+use ::discovery::{protocol::DiscoveryService, server::PermissionManager, utils::DeviceInfo};
 
 use crate::{
+    Session,
     backends::remote::encode_message,
     utils::{Broadcaster, RinfRustSignal},
-    Session,
 };
 
-pub type HandlerFn =
-    Box<dyn Fn(Vec<u8>, Option<Session>) -> BoxFuture<'static, (String, Vec<u8>)> + Send + Sync>;
+pub type HandlerFn = Box<
+    dyn Fn(Vec<u8>, Option<Session>) -> BoxFuture<'static, (String, Result<Vec<u8>>)> + Send + Sync,
+>;
 pub type HandlerMap = Arc<Mutex<HashMap<String, HandlerFn>>>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -68,7 +69,7 @@ impl WebSocketService {
     pub async fn register_handler<F, Fut>(&self, msg_type: &str, handler: F)
     where
         F: Fn(Vec<u8>, Option<Session>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = (String, Vec<u8>)> + Send + 'static,
+        Fut: Future<Output = (String, Result<Vec<u8>>)> + Send + 'static,
     {
         self.handlers.lock().await.insert(
             msg_type.to_string(),
@@ -81,7 +82,7 @@ impl WebSocketService {
         msg_type: &str,
         payload: Vec<u8>,
         session: Option<Session>,
-    ) -> Option<(String, Vec<u8>)> {
+    ) -> Option<(String, Result<Vec<u8>>)> {
         let handlers = self.handlers.lock().await;
         let handler = handlers.get(msg_type)?;
         Some(handler(payload, session).await)
@@ -91,7 +92,14 @@ impl WebSocketService {
 impl Broadcaster for WebSocketService {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
         let type_name = message.name();
-        let payload = message.encode_message();
+        let payload = match message.encode_to_vec() {
+            Ok(payload) => payload,
+            Err(e) => {
+                error!("Failed to encode message: {}", e);
+                return;
+            },
+        };
+
         let message_data = encode_message(&type_name, &payload, None);
 
         if let Err(e) = self.broadcast_tx.send(message_data) {

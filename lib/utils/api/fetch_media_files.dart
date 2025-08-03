@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 
 Future<List<InternalMediaFile>> fetchMediaFiles(

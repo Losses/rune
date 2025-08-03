@@ -1,4 +1,4 @@
-import '../messages/all.dart';
+import '../bindings/bindings.dart';
 
 class PlayingItem {
   final int? inLibrary;
@@ -14,12 +14,25 @@ class PlayingItem {
   const PlayingItem.unknown() : this._(isUnknown: true);
 
   static PlayingItem fromRequest(PlayingItemRequest request) {
-    if (request.inLibrary.fileId != 0) {
-      return PlayingItem.inLibrary(request.inLibrary.fileId);
-    } else if (request.independentFile.path != "") {
-      return PlayingItem.independentFile(request.independentFile.path);
-    } else {
+    final inLibrary = request.inLibrary;
+
+    if (inLibrary == null) {
       return PlayingItem.unknown();
+    } else {
+      final fileId = inLibrary.fileId;
+      final independentFile = request.independentFile;
+
+      if (fileId != null && fileId != 0) {
+        return PlayingItem.inLibrary(fileId);
+      } else if (independentFile != null) {
+        final path = independentFile.path;
+        if (path != null) {
+          return PlayingItem.independentFile(path);
+        }
+        return PlayingItem.unknown();
+      } else {
+        return PlayingItem.unknown();
+      }
     }
   }
 

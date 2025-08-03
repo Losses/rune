@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<bool> serverAvailabilityTest(String url) async {
   final removeTrustRequest = ServerAvailabilityTestRequest(url: url);

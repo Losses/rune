@@ -4,7 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../utils/playing_item.dart';
 import '../../utils/api/get_lyric_by_track_id.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/status.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -78,8 +78,8 @@ class _LyricsPageState extends State<LyricsPage> {
   (int, int) _selectProgress(
       BuildContext context, PlaybackStatusProvider status) {
     return (
-      (status.playbackStatus.progressSeconds * 1000).round(),
-      (status.playbackStatus.duration * 1000).round(),
+      (status.playbackStatus.progressSeconds ?? 0 * 1000).round(),
+      (status.playbackStatus.duration ?? 0 * 1000).round(),
     );
   }
 

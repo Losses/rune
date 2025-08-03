@@ -6,7 +6,7 @@ import '../../widgets/turntile/turntile_screen.dart';
 import '../../widgets/band_screen/band_screen.dart';
 import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../messages/collection.pb.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'utils/collection_data_provider.dart';

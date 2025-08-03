@@ -49,18 +49,18 @@ impl Signal for SetLikedRequest {
                         })?;
 
                     SetLikedResponse {
-                        item: Some(item.clone()),
+                        item: item.clone(),
                         liked: request.liked,
                         success: true,
                     }
                 }
                 PlayingItem::IndependentFile(_) => SetLikedResponse {
-                    item: Some(item.clone()),
+                    item: item.clone(),
                     liked: false,
                     success: false,
                 },
                 PlayingItem::Unknown => SetLikedResponse {
-                    item: Some(item.clone()),
+                    item: item.clone(),
                     liked: false,
                     success: false,
                 },
@@ -103,16 +103,16 @@ impl Signal for GetLikedRequest {
                         .with_context(|| format!("Failed to get liked: file_id={}", file_id))?;
 
                     GetLikedResponse {
-                        item: Some(item.clone()),
+                        item: item.clone(),
                         liked,
                     }
                 }
                 PlayingItem::IndependentFile(_) => GetLikedResponse {
-                    item: Some(item.clone()),
+                    item: item.clone(),
                     liked: false,
                 },
                 PlayingItem::Unknown => GetLikedResponse {
-                    item: Some(item.clone()),
+                    item: item.clone(),
                     liked: false,
                 },
             };

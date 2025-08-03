@@ -4,7 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../screens/search/widgets/search_card.dart';
-import '../../../messages/collection.pb.dart';
+import '../../../bindings/bindings.dart';
 
 import 'large_screen_search_track_list_implementation.dart';
 
@@ -40,48 +40,48 @@ class MediumScreenSearchTrackList extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.start,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (items[CollectionType.Artist]?.isNotEmpty ?? false)
+                  if (items[CollectionType.artist]?.isNotEmpty ?? false)
                     SearchListSectionTitle(text: S.of(context).artists),
                   LargeScreenSearchTrackListImplementation(
                     rows: rows,
                     ratio: ratio,
                     gapSize: gapSize,
                     cellSize: cellSize,
-                    collectionType: CollectionType.Artist,
-                    items: items[CollectionType.Artist],
+                    collectionType: CollectionType.artist,
+                    items: items[CollectionType.artist],
                     groupId: 0,
                   ),
-                  if (items[CollectionType.Album]?.isNotEmpty ?? false)
+                  if (items[CollectionType.album]?.isNotEmpty ?? false)
                     SearchListSectionTitle(text: S.of(context).albums),
                   LargeScreenSearchTrackListImplementation(
                     rows: rows,
                     ratio: ratio,
                     gapSize: gapSize,
                     cellSize: cellSize,
-                    collectionType: CollectionType.Album,
-                    items: items[CollectionType.Album],
+                    collectionType: CollectionType.album,
+                    items: items[CollectionType.album],
                     groupId: 1,
                   ),
-                  if (items[CollectionType.Playlist]?.isNotEmpty ?? false)
+                  if (items[CollectionType.playlist]?.isNotEmpty ?? false)
                     SearchListSectionTitle(text: S.of(context).playlists),
                   LargeScreenSearchTrackListImplementation(
                     rows: rows,
                     ratio: ratio,
                     gapSize: gapSize,
                     cellSize: cellSize,
-                    collectionType: CollectionType.Playlist,
-                    items: items[CollectionType.Playlist],
+                    collectionType: CollectionType.playlist,
+                    items: items[CollectionType.playlist],
                     groupId: 2,
                   ),
-                  if (items[CollectionType.Track]?.isNotEmpty ?? false)
+                  if (items[CollectionType.track]?.isNotEmpty ?? false)
                     SearchListSectionTitle(text: S.of(context).tracks),
                   LargeScreenSearchTrackListImplementation(
                     rows: rows,
                     ratio: ratio,
                     gapSize: gapSize,
                     cellSize: cellSize,
-                    collectionType: CollectionType.Track,
-                    items: items[CollectionType.Track],
+                    collectionType: CollectionType.track,
+                    items: items[CollectionType.track],
                     groupId: 3,
                   ),
                 ],

@@ -4,7 +4,7 @@ import 'package:mesh_gradient/mesh_gradient.dart';
 import 'package:animated_flip_counter/animated_flip_counter.dart';
 
 import '../../utils/color_brightness.dart';
-import '../../messages/library_manage.pb.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
 import '../../utils/l10n.dart';
@@ -44,7 +44,7 @@ class _ScanningPageState extends State<ScanningPage>
     final progress =
         libraryManager.getScanTaskProgress(libraryPath.currentPath ?? "");
 
-    final task = progress?.type ?? ScanTaskType.IndexFiles;
+    final task = progress?.type ?? ScanTaskType.indexFiles;
     final count = progress?.progress ?? 0;
 
     return AnimatedMeshGradient(
@@ -74,7 +74,7 @@ class _ScanningPageState extends State<ScanningPage>
               value: count,
               duration: const Duration(milliseconds: 400),
               curve: Curves.easeInOut,
-              suffix: task == ScanTaskType.IndexFiles
+              suffix: task == ScanTaskType.indexFiles
                   ? S.of(context).tracksFound
                   : S.of(context).albumCoversCollected,
               textStyle: typography.bodyLarge?.apply(

@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 import '../playing_item.dart';
 
 Future<bool?> setLiked(PlayingItem item, bool liked) async {

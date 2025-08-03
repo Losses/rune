@@ -5,8 +5,7 @@ import '../../../../utils/api/fetch_collection_by_ids.dart';
 import '../../../../utils/api/fetch_media_file_by_ids.dart';
 import '../../../../utils/api/search_collection_summary.dart';
 import '../../../../utils/api/fetch_collection_group_summary_title.dart';
-import '../../../../messages/search.pb.dart';
-import '../../../../messages/collection.pb.dart';
+import '../../../../bindings/bindings.dart';
 import '../../../../providers/responsive_providers.dart';
 import '../../../../utils/l10n.dart';
 
@@ -72,18 +71,18 @@ class _MixEditorState extends State<MixEditor> {
                 controller: _controller.groupController,
                 title: S.of(context).group,
                 getItems: () =>
-                    fetchCollectionGroupSummaryTitle(CollectionType.Mix),
+                    fetchCollectionGroupSummaryTitle(CollectionType.mix),
               ),
               SearchChipInputSection(
                 controller: _controller.artistsController,
                 title: S.of(context).artists,
-                getInitResult: () => getInitResult(CollectionType.Artist),
+                getInitResult: () => getInitResult(CollectionType.artist),
                 searchForItems: (query) => _searchItems(
                   query,
                   'artists',
                   (x) async {
                     return (await fetchCollectionByIds(
-                            CollectionType.Artist, x))
+                            CollectionType.artist, x))
                         .map((x) => (x.id, x.name))
                         .toList();
                   },
@@ -92,12 +91,12 @@ class _MixEditorState extends State<MixEditor> {
               SearchChipInputSection(
                 controller: _controller.albumsController,
                 title: S.of(context).albums,
-                getInitResult: () => getInitResult(CollectionType.Album),
+                getInitResult: () => getInitResult(CollectionType.album),
                 searchForItems: (query) => _searchItems(
                   query,
                   'albums',
                   (x) async {
-                    return (await fetchCollectionByIds(CollectionType.Album, x))
+                    return (await fetchCollectionByIds(CollectionType.album, x))
                         .map((x) => (x.id, x.name))
                         .toList();
                   },
@@ -106,12 +105,12 @@ class _MixEditorState extends State<MixEditor> {
               SearchChipInputSection(
                 controller: _controller.genresController,
                 title: S.of(context).genres,
-                getInitResult: () => getInitResult(CollectionType.Genre),
+                getInitResult: () => getInitResult(CollectionType.genre),
                 searchForItems: (query) => _searchItems(
                   query,
                   'genres',
                   (x) async {
-                    return (await fetchCollectionByIds(CollectionType.Genre, x))
+                    return (await fetchCollectionByIds(CollectionType.genre, x))
                         .map((x) => (x.id, x.name))
                         .toList();
                   },
@@ -120,13 +119,13 @@ class _MixEditorState extends State<MixEditor> {
               SearchChipInputSection(
                 controller: _controller.playlistsController,
                 title: S.of(context).playlists,
-                getInitResult: () => getInitResult(CollectionType.Playlist),
+                getInitResult: () => getInitResult(CollectionType.playlist),
                 searchForItems: (query) => _searchItems(
                   query,
                   'playlists',
                   (x) async {
                     return (await fetchCollectionByIds(
-                      CollectionType.Playlist,
+                      CollectionType.playlist,
                       x,
                     ))
                         .map((x) => (x.id, x.name))

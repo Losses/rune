@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 void playNext() async {
   NextRequest().sendSignalToRust();

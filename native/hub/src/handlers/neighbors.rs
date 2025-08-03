@@ -4,26 +4,26 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use http_body_util::BodyExt;
-use hyper::{body::Bytes, Request, Uri};
+use hyper::{Request, Uri, body::Bytes};
 use log::info;
 use tokio::sync::RwLock;
 use url::Url;
 
 use ::database::actions::cover_art::COVER_TEMP_DIR;
-use ::discovery::client::{fetch_server_certificate, select_best_host, try_connect, CertValidator};
+use ::discovery::DiscoveryParams;
+use ::discovery::client::{CertValidator, fetch_server_certificate, select_best_host, try_connect};
 use ::discovery::protocol::DiscoveryService;
 use ::discovery::request::{create_https_client, send_http_request};
 use ::discovery::server::{PermissionManager, UserStatus};
 use ::discovery::url::decode_rnsrv_url;
 use ::discovery::utils::{DeviceInfo, DeviceType};
-use ::discovery::DiscoveryParams;
 
 use crate::server::api::{check_fingerprint, register_device};
-use crate::server::{generate_or_load_certificates, get_or_generate_alias, ServerManager};
+use crate::server::{ServerManager, generate_or_load_certificates, get_or_generate_alias};
 use crate::utils::{GlobalParams, ParamsExtractor};
-use crate::{messages::*, Session, Signal};
+use crate::{Session, Signal, messages::*};
 
 impl ParamsExtractor for StartBroadcastRequest {
     type Params = (Arc<DiscoveryService>, Arc<String>);
@@ -422,7 +422,7 @@ impl Signal for ServerAvailabilityTestRequest {
                 return Ok(Some(ServerAvailabilityTestResponse {
                     success: false,
                     error: format!("{:#?}", e),
-                }))
+                }));
             }
         };
 
@@ -466,10 +466,9 @@ impl Signal for UpdateClientStatusRequest {
             .change_user_status(
                 &message.fingerprint,
                 match message.status {
-                    0 => UserStatus::Approved,
-                    1 => UserStatus::Pending,
-                    2 => UserStatus::Blocked,
-                    _ => UserStatus::Pending,
+                    ClientStatus::Approved => UserStatus::Approved,
+                    ClientStatus::Pending => UserStatus::Pending,
+                    ClientStatus::Blocked => UserStatus::Blocked,
                 },
             )
             .await
@@ -546,7 +545,7 @@ impl Signal for AddTrustedServerRequest {
                 return Ok(Some(AddTrustedServerResponse {
                     success: true,
                     error: String::new(),
-                }))
+                }));
             }
         };
 
@@ -646,7 +645,7 @@ impl Signal for RegisterDeviceOnServerRequest {
                 return Ok(Some(RegisterDeviceOnServerResponse {
                     success: false,
                     error: format!("{:#?}", e),
-                }))
+                }));
             }
         };
 
@@ -707,7 +706,7 @@ impl Signal for CheckDeviceOnServerRequest {
                     success: false,
                     error: format!("{:#?}", e),
                     status: None,
-                }))
+                }));
             }
         };
 
@@ -773,7 +772,7 @@ impl Signal for ConnectRequest {
                         success: true,
                         connected_host: host,
                         error: String::new(),
-                    }))
+                    }));
                 }
                 Ok(Err(e)) => last_err = Some(e),
                 Err(e) => last_err = Some(anyhow!(e)),

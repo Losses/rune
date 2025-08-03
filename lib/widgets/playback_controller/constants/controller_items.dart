@@ -299,7 +299,7 @@ List<ControllerEntry> controllerItems = [
           Provider.of<PlaybackStatusProvider>(context, listen: false);
 
       final PlaybackMode currentMode = PlaybackModeExtension.fromValue(
-        statusProvider.playbackStatus.playbackMode,
+        statusProvider.playbackStatus.playbackMode ?? 0,
       );
 
       return modeToIcon(currentMode);
@@ -311,7 +311,8 @@ List<ControllerEntry> controllerItems = [
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
 
-      final currentMode = PlaybackModeExtension.fromValue(status.playbackMode);
+      final currentMode =
+          PlaybackModeExtension.fromValue(status.playbackMode ?? 0);
 
       return modeToLabel(context, currentMode);
     },
@@ -331,7 +332,8 @@ List<ControllerEntry> controllerItems = [
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
 
-      final currentMode = PlaybackModeExtension.fromValue(status.playbackMode);
+      final currentMode =
+          PlaybackModeExtension.fromValue(status.playbackMode ?? 0);
 
       // Retrieve disabled modes
       List<dynamic>? storedDisabledModes = await SettingsManager()

@@ -5,7 +5,7 @@ import '../../../utils/l10n.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/subtitle_button.dart';
 import '../../../widgets/fingerprint/fingerprint_figure.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 import '../../../providers/broadcast.dart';
 
 class ReviewConnectionDialog extends StatefulWidget {
@@ -84,18 +84,18 @@ class _ReviewConnectionDialogState extends State<ReviewConnectionDialog> {
                       SubtitleButton(
                         title: s.allowAccess,
                         subtitle: s.allowAccessSubtitle,
-                        selected: status == ClientStatus.APPROVED,
+                        selected: status == ClientStatus.approved,
                         onPressed: () => setState(() {
-                          status = ClientStatus.APPROVED;
+                          status = ClientStatus.approved;
                         }),
                       ),
                       const SizedBox(height: 8),
                       SubtitleButton(
                         title: s.blockDevice,
                         subtitle: s.blockDeviceSubtitle,
-                        selected: status != ClientStatus.APPROVED,
+                        selected: status != ClientStatus.approved,
                         onPressed: () => setState(() {
-                          status = ClientStatus.BLOCKED;
+                          status = ClientStatus.blocked;
                         }),
                       ),
                     ],

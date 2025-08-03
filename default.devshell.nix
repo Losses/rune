@@ -30,7 +30,6 @@ pkgs.mkShell {
     pinnedJDK
     clang
     cmake
-    protobuf_26
     pcre2
     ninja
     unzip

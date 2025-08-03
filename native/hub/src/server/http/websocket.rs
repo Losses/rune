@@ -2,8 +2,8 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{
-        ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
         ConnectInfo, Query, State,
+        ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -13,9 +13,9 @@ use log::{debug, error, info, warn};
 use tokio::sync::mpsc;
 
 use crate::{
+    Session,
     backends::remote::{decode_message, encode_message},
     server::ServerState,
-    Session,
 };
 use discovery::server::{User, UserStatus};
 
@@ -133,13 +133,21 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: Use
                         )
                         .await
                     {
+                        let response = match response {
+                            Ok(response) => response,
+                            Err(e) => {
+                                error!("[{}] Failed to handle message: {}", incoming_alias, e);
+                                continue;
+                            }
+                        };
+
                         let response_payload = encode_message(&resp_type, &response, Some(uuid));
                         if let Err(e) = incoming_tx
                             .send(WsMessage::Binary(response_payload.into()))
                             .await
                         {
                             error!("[{}] Failed to queue response: {}", incoming_alias, e);
-                            break;
+                            continue;
                         }
                     }
                 }

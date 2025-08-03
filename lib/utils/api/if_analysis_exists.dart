@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<bool> ifAnalyzeExists(int fileId) async {
   final fetchRequest = IfAnalyzeExistsRequest(fileId: fileId);

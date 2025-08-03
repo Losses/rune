@@ -1,7 +1,0 @@
-syntax = "proto3";
-package album;
-
-message Album {
-    int32 id = 1;
-    string name = 2;
-}

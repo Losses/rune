@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<Mix> updateMix(
   int mixId,
@@ -14,7 +14,8 @@ Future<Mix> updateMix(
     group: group,
     scriptletMode: scriptletMode,
     mode: mode,
-    queries: queries.map((x) => MixQuery(operator: x.$1, parameter: x.$2)),
+    queries:
+        queries.map((x) => MixQuery(operator: x.$1, parameter: x.$2)).toList(),
   );
   updateRequest.sendSignalToRust(); // GENERATED
 

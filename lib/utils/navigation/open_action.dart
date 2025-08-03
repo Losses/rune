@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_selector/file_selector.dart';
 
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 import '../query_list.dart';
 import '../playing_item.dart';
@@ -37,7 +37,7 @@ class OpenAction extends Action<OpenIntent> {
       hintPosition: -1,
       initialPlaybackId: -1,
       instantlyPlay: true,
-      operateMode: PlaylistOperateMode.Replace,
+      operateMode: PlaylistOperateMode.replace,
       fallbackPlayingItems: items,
     );
   }

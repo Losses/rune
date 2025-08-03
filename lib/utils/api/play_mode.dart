@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 import '../../constants/configurations.dart';
 
 import '../settings_manager.dart';

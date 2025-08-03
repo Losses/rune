@@ -2,7 +2,7 @@ name: rune
 description: "The rune player."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
 # The following defines the version and build number for your application.
 # A version number is three numbers separated by dots, like 1.2.43
@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 2.0.1004
 
 environment:
-  sdk: '>=3.5.1 <4.0.0'
+  sdk: ">=3.5.1 <4.0.0"
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -61,9 +61,9 @@ dependencies:
   flutter_boring_avatars: ^2.0.1
   logger: ^2.4.0
   flutter_svg: ^2.0.10+1
-  http: ^1.2.0
-  rinf: ^7.0.2
-  fixnum: ^1.1.0
+  rinf: ^8.4.0
+  tuple: ^2.0.2
+  meta: ^1.15.0
   very_good_infinite_list: ^0.9.0
   flutter_fullscreen: ^1.0.1
   device_info_plus: ^11.1.1
@@ -186,3 +186,7 @@ msix_config:
   capabilities: removableStorage
   logo_path: ./assets/source/microsoft_store/installer_icon.png
   debug: false
+
+rinf:
+  gen_output_dir: lib/bindings
+

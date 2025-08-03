@@ -10,7 +10,7 @@ import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../../widgets/cover_wall_background/gradient_container.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
 import '../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 import '../../../providers/status.dart';
 import '../../../providers/responsive_providers.dart';
 
@@ -160,7 +160,12 @@ class CoverArtFrame extends StatelessWidget {
         selector: (context, playbackStatusProvider) {
           final s = playbackStatusProvider.playbackStatus;
 
-          return (s.coverArtPath, s.album, s.artist, s.duration);
+          return (
+            s.coverArtPath ?? "",
+            s.album ?? "",
+            s.artist ?? "",
+            s.duration ?? 0
+          );
         },
         builder: (context, p, child) {
           return CoverArt(

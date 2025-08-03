@@ -1,11 +1,12 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../providers/status.dart';
 import '../../utils/format_time.dart';
 import '../../utils/playing_item.dart';
 import '../../utils/api/seek.dart';
 import '../../widgets/playback_controller/like_button.dart';
-import '../../messages/playback.pb.dart';
+
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -21,7 +22,7 @@ class ControllerProgressBar extends StatelessWidget {
   });
 
   final PlayingItem? item;
-  final PlaybackStatus? status;
+  final PlaybackStatusState? status;
   final bool notReady;
 
   @override

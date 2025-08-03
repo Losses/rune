@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/settings_manager.dart';
-import '../messages/all.dart';
+import '../bindings/bindings.dart';
 
 class LicenseProvider with ChangeNotifier {
   static const licenseKey = 'license';

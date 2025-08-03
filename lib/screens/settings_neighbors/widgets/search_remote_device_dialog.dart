@@ -4,7 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../widgets/no_shortcuts.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 
 import 'discovered_devices_list.dart';
 

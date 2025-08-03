@@ -9,7 +9,7 @@ import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/dialogs/information/information.dart';
 import '../../../utils/discovery_url.dart';
 import '../../../widgets/settings/settings_button.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 import '../../../providers/library_path.dart';
 
 import '../utils/show_search_remote_device_dialog.dart';
@@ -96,7 +96,7 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
           );
 
           return;
-        } else if (serverStatus.status == ClientStatus.BLOCKED) {
+        } else if (serverStatus.status == ClientStatus.blocked) {
           await showErrorDialog(
             context: context,
             title: s.clientBlockedTitle,

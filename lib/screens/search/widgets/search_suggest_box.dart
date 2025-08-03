@@ -6,7 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../../utils/settings_manager.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/rune_clickable.dart';
-import '../../../messages/search.pb.dart';
+import '../../../bindings/bindings.dart';
 import '../../../providers/responsive_providers.dart';
 
 final SettingsManager settingsManager = SettingsManager();

@@ -10,7 +10,7 @@ import '../utils/router/router_name.dart';
 import '../utils/router/query_tracks_parameter.dart';
 import '../utils/context_menu/track_item_context_menu.dart';
 import '../utils/context_menu/collection_item_context_menu.dart';
-import '../messages/all.dart';
+import '../bindings/bindings.dart';
 
 import 'ax_pressure.dart';
 import 'context_menu_wrapper.dart';
@@ -80,7 +80,7 @@ class _CollectionItemState extends State<CollectionItem> {
             );
           },
           onContextMenu: (position) {
-            if (widget.collectionType != CollectionType.Track) {
+            if (widget.collectionType != CollectionType.track) {
               openCollectionItemContextMenu(
                 position,
                 context,
@@ -111,7 +111,7 @@ class _CollectionItemState extends State<CollectionItem> {
                 filterDuplicates(widget.collection.coverArtMap.values.toList()),
             emptyTileType: BoringAvatarType.bauhaus,
             onPressed: () {
-              if (widget.collectionType != CollectionType.Track) {
+              if (widget.collectionType != CollectionType.track) {
                 $push(
                   '/${collectionTypeToRouterName(widget.collectionType)}/detail',
                   arguments: QueryTracksParameter(
@@ -127,7 +127,7 @@ class _CollectionItemState extends State<CollectionItem> {
                   hintPosition: 0,
                   initialPlaybackId: widget.collection.id,
                   instantlyPlay: true,
-                  operateMode: PlaylistOperateMode.Replace,
+                  operateMode: PlaylistOperateMode.replace,
                   fallbackPlayingItems: widget.collection.queries
                       .map((x) => int.parse(x.$2))
                       .map(PlayingItem.inLibrary)

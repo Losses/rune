@@ -9,7 +9,7 @@ import '../../../utils/context_menu/collection_item_context_menu.dart';
 import '../../../widgets/tile/flip_cover_grid.dart';
 import '../../../widgets/start_screen/utils/internal_collection.dart';
 import '../../../screens/search/widgets/search_card.dart';
-import '../../../messages/collection.pb.dart';
+import '../../../bindings/bindings.dart';
 
 class CollectionSearchItem extends SearchCard {
   final InternalCollection item;

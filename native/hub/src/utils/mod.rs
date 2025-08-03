@@ -11,18 +11,19 @@ use anyhow::{Context, Result};
 use dunce::canonicalize;
 use log::{error, info};
 use nid::get_or_create_node_id;
+use rinf::DartSignal;
 use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use ::database::{
     actions::{
-        collection::CollectionQueryType, cover_art::bake_cover_art_by_media_files,
-        metadata::MetadataSummary, mixes::query_mix_media_files,
+        cover_art::bake_cover_art_by_media_files, metadata::MetadataSummary,
+        mixes::query_mix_media_files,
     },
     connection::{
-        check_library_state, connect_main_db, connect_recommendation_db, create_redirect,
-        LibraryState, MainDbConnection, RecommendationDbConnection,
+        LibraryState, MainDbConnection, RecommendationDbConnection, check_library_state,
+        connect_main_db, connect_recommendation_db, create_redirect,
     },
     entities::media_files,
     playing_item::MediaFileHandle,
@@ -40,9 +41,9 @@ use crate::server::ServerManager;
 
 #[cfg(target_os = "android")]
 use tracing_logcat::{LogcatMakeWriter, LogcatTag};
+use tracing_subscriber::EnvFilter;
 #[cfg(target_os = "android")]
 use tracing_subscriber::fmt::format::Format;
-use tracing_subscriber::EnvFilter;
 
 pub struct DatabaseConnections {
     pub main_db: Arc<MainDbConnection>,
@@ -114,31 +115,14 @@ pub trait ParamsExtractor {
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params;
 }
 
-pub trait RinfRustSignal: ::prost::Message {
-    fn send(&self);
+pub trait RinfRustSignal {
     fn name(&self) -> String;
-    fn encode_message(&self) -> Vec<u8>;
-}
 
-#[macro_export]
-macro_rules! broadcastable {
-    ($($t:ty),*) => {
-        $(
-            impl RinfRustSignal for $t {
-                fn send(&self) {
-                    self.send_signal_to_dart()
-                }
+    /// Encodes the message into a byte vector.
+    fn encode_to_vec(&self) -> Result<Vec<u8>>;
 
-                fn name(&self) -> String {
-                    stringify!($t).to_string()
-                }
-
-                fn encode_message(&self) -> Vec<u8> {
-                    self.encode_to_vec()
-                }
-            }
-        )*
-    };
+    /// Sends the message to Dart.
+    fn send_to_dart(&self);
 }
 
 pub trait Broadcaster: Send + Sync {
@@ -149,7 +133,7 @@ pub struct LocalGuiBroadcaster;
 
 impl Broadcaster for LocalGuiBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
-        message.send();
+        message.send_to_dart();
     }
 }
 
@@ -164,7 +148,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
             let alias = &dart_signal.message.alias;
             let node_id = get_or_create_node_id(config_path).await?.to_string();
 
-            match &dart_signal.message.hosted_on() {
+            match &dart_signal.message.hosted_on {
                 OperationDestination::Local => {
                     let database_path = dart_signal.message.db_path;
                     let database_mode = dart_signal.message.mode;
@@ -199,7 +183,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                     }
 
                     if let Some(mode) = database_mode {
-                        if mode == 1 {
+                        if mode == LibraryInitializeMode::Redirected {
                             if let Err(e) = create_redirect(media_library_path) {
                                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
                                     path: media_library_path.clone(),
@@ -289,7 +273,7 @@ pub async fn inject_cover_art_map(
     let files = query_cover_arts(
         main_db,
         recommend_db,
-        if collection.collection_type == i32::from(CollectionQueryType::Track) {
+        if collection.collection_type == CollectionType::Track {
             if collection.queries.is_empty() {
                 vec![]
             } else {

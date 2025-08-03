@@ -11,8 +11,8 @@ use database::actions::mixes::{
 };
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 
-use crate::utils::{parse_media_files, GlobalParams, ParamsExtractor};
-use crate::{messages::*, Session, Signal};
+use crate::utils::{GlobalParams, ParamsExtractor, parse_media_files};
+use crate::{Session, Signal, messages::*};
 
 impl ParamsExtractor for FetchAllMixesRequest {
     type Params = (Arc<MainDbConnection>,);
@@ -102,13 +102,13 @@ impl Signal for CreateMixRequest {
         .with_context(|| "Failed to update replace mix queries while creating")?;
 
         Ok(Some(CreateMixResponse {
-            mix: Some(Mix {
+            mix: Mix {
                 id: mix.id,
                 name: mix.name,
                 group: mix.group,
                 locked: mix.locked,
                 mode: mix.mode.expect("Mix mode not exists"),
-            }),
+            },
         }))
     }
 }
@@ -165,13 +165,13 @@ impl Signal for UpdateMixRequest {
         .with_context(|| "Failed to update replace mix queries while updating")?;
 
         Ok(Some(UpdateMixResponse {
-            mix: Some(Mix {
+            mix: Mix {
                 id: mix.id,
                 name: mix.name,
                 group: mix.group,
                 locked: mix.locked,
                 mode: mix.mode.expect("Mix mode not exists"),
-            }),
+            },
         }))
     }
 }
@@ -278,13 +278,13 @@ impl Signal for GetMixByIdRequest {
             .with_context(|| format!("Failed to get mix by id: {}", request.mix_id))?;
 
         Ok(Some(GetMixByIdResponse {
-            mix: Some(Mix {
+            mix: Mix {
                 id: mix.id,
                 name: mix.name,
                 group: mix.group,
                 locked: mix.locked,
                 mode: mix.mode.expect("Mix mode not exists"),
-            }),
+            },
         }))
     }
 }

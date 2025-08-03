@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../widgets/turntile/managed_turntile_screen_item.dart';
-import '../../../messages/collection.pb.dart';
+import '../../../bindings/bindings.dart';
 
 import './search_card.dart';
 

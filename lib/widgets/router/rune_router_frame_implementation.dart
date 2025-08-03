@@ -22,7 +22,7 @@ import '../../providers/router_path.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
 
-import '../../messages/playback.pbenum.dart';
+import '../../bindings/bindings.dart';
 
 import 'rune_stack.dart';
 import 'scale_fade_container.dart';
@@ -99,7 +99,7 @@ class _RuneRouterFrameImplementationState
           hintPosition: -1,
           initialPlaybackId: -1,
           instantlyPlay: true,
-          operateMode: PlaylistOperateMode.Replace,
+          operateMode: PlaylistOperateMode.replace,
           fallbackPlayingItems: filterAudioFiles(detail.files)
               .map(PlayingItem.independentFile)
               .toList(),

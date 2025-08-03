@@ -2,7 +2,7 @@
 # Do not change the name of this crate.
 name = "hub"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 build = "build.rs"
 
 [lib]
@@ -21,8 +21,7 @@ name = "rune-client"
 path = "src/server/client/main.rs"
 
 [dependencies]
-rinf = "7.0.2"
-prost = "0.12.6"
+rinf = "8.0.0"
 tokio = { version = "1.44.2", features = ["sync", "time", "rt-multi-thread"] }
 sea-orm = "1.1.0"
 lyric = { path = "../../lyric" }
@@ -87,6 +86,7 @@ jsonwebtoken = "9.3.1"
 base64 = "0.22.1"
 bcrypt = "0.17.0"
 rpassword = "7.3.1"
+bincode = { version = "2.0.1", features = ["serde"] }
 
 [build-dependencies]
 anyhow = { version = "1.0.89", features = ["backtrace"] }

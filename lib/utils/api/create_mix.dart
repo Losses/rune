@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<Mix> createMix(
   String name,
@@ -12,7 +12,8 @@ Future<Mix> createMix(
     group: group.isEmpty ? 'Favorite' : group,
     scriptletMode: scriptletMode,
     mode: mode,
-    queries: queries.map((x) => MixQuery(operator: x.$1, parameter: x.$2)),
+    queries:
+        queries.map((x) => MixQuery(operator: x.$1, parameter: x.$2)).toList(),
   );
   createRequest.sendSignalToRust(); // GENERATED
 

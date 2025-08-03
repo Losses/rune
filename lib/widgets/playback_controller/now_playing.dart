@@ -50,13 +50,13 @@ class NowPlaying extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 TrackTitle(
-                                  title: status.title,
+                                  title: status.title ?? "",
                                   style: typography.body,
                                   onPressed: showCoverArtWall,
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  status.artist,
+                                  status.artist ?? "",
                                   overflow: TextOverflow.ellipsis,
                                   style: typography.caption?.apply(
                                     color: theme.inactiveColor.withAlpha(160),

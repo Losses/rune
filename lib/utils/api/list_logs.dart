@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<List<LogDetail>> listLogs(int cursor, int pageSize) async {
   final listRequest = ListLogRequest(

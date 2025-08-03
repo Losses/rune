@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<SearchForResponse> searchFor(String query) async {
   if (!query.endsWith('*')) {

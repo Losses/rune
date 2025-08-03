@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<List<(String, String)>> fetchMixQueriesByMixId(int mixId) async {
   final fetchMediaFiles = FetchMixQueriesRequest(mixId: mixId);

@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 import '../../../utils/router/navigation.dart';
 
 import '../widgets/server_status_dialog.dart';

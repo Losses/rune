@@ -6,7 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/settings_manager.dart';
-import '../../messages/playback.pb.dart';
+import '../../bindings/bindings.dart';
 import '../../constants/configurations.dart';
 
 class FFTVisualizerRegistry {

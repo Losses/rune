@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<String> fetchServerCertificate(String host) async {
   final removeTrustRequest =

@@ -1,7 +1,0 @@
-syntax = "proto3";
-package artist;
-
-message Artist {
-    int32 id = 1;
-    string name = 2;
-}

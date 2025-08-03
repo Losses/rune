@@ -1,14 +1,29 @@
 import 'dart:async';
 
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
+import '../../providers/status.dart';
 
 bool _shouldExecute = true;
 
-void seek(double value, PlaybackStatus? status) {
+void seek(double value, PlaybackStatusState? status) {
   if (_shouldExecute) {
     if (status != null) {
       SeekRequest(
-        positionSeconds: (value / 100) * status.duration,
+        positionSeconds: (value / 100) * (status.duration ?? 0),
+      ).sendSignalToRust();
+    }
+    _shouldExecute = false;
+    Timer(const Duration(milliseconds: 42), () {
+      _shouldExecute = true;
+    });
+  }
+}
+
+void seek0(double value, PlaybackStatus? status) {
+  if (_shouldExecute) {
+    if (status != null) {
+      SeekRequest(
+        positionSeconds: (value / 100) * (status.duration ?? 0),
       ).sendSignalToRust();
     }
     _shouldExecute = false;

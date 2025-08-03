@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:rinf/rinf.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../messages/playback.pb.dart';
+import '../bindings/bindings.dart';
 import '../utils/playing_item.dart';
 
 final class PlaylistEntry {
@@ -25,7 +25,7 @@ class PlaylistProvider with ChangeNotifier {
 
   List<PlaylistEntry> get items => _items;
 
-  late StreamSubscription<RustSignal<PlaylistUpdate>> subscription;
+  late StreamSubscription<RustSignalPack<PlaylistUpdate>> subscription;
 
   PlaylistProvider() {
     subscription = PlaylistUpdate.rustSignalStream.listen(_updatePlaylist);
@@ -37,7 +37,7 @@ class PlaylistProvider with ChangeNotifier {
     subscription.cancel();
   }
 
-  void _updatePlaylist(RustSignal<PlaylistUpdate> event) {
+  void _updatePlaylist(RustSignalPack<PlaylistUpdate> event) {
     final playlistUpdate = event.message;
     final newItems = playlistUpdate.items;
     _items = newItems

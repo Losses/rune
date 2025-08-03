@@ -1,7 +1,0 @@
-syntax = "proto3";
-package sfx;
-
-// [DART-SIGNAL]
-message SfxPlayRequest {
-    string path = 1;
-}

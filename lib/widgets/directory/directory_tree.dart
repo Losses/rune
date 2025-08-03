@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/directory/utils/convertion.dart';
-import '../../messages/directory.pb.dart';
+import '../../bindings/bindings.dart';
 
 class DirectoryTreeController extends ChangeNotifier {
   Set<String>? _selectedValue;

@@ -1,6 +1,6 @@
 import '../../../widgets/start_screen/utils/group.dart';
 import '../../../widgets/start_screen/utils/internal_collection.dart';
-import '../../../messages/collection.pb.dart';
+import '../../../bindings/bindings.dart';
 
 import 'fetch_summary.dart';
 import 'fetch_groups.dart';

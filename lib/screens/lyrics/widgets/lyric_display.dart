@@ -1,11 +1,11 @@
 import 'dart:math';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' as foundation;
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../../utils/rune_log.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 import '../../../providers/responsive_providers.dart';
 
 import 'lyric_line.dart';
@@ -51,7 +51,7 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
   @override
   void didUpdateWidget(LyricsDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!listEquals(oldWidget.activeLines, widget.activeLines)) {
+    if (!foundation.listEquals(oldWidget.activeLines, widget.activeLines)) {
       _scrollToActiveLines();
     }
   }

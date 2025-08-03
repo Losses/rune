@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<List<Collection>> fetchCollectionByIds(
   CollectionType collectionType,

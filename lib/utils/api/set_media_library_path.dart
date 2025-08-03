@@ -1,23 +1,23 @@
 import '../../constants/configurations.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 import '../settings_manager.dart';
 
 (OperationDestination, OperationDestination) determineConnectionType(
     String path) {
   if (path.startsWith('@RR|')) {
-    return (OperationDestination.Remote, OperationDestination.Remote);
+    return (OperationDestination.remote, OperationDestination.remote);
   } else if (path.startsWith('@LR|')) {
-    return (OperationDestination.Local, OperationDestination.Remote);
+    return (OperationDestination.local, OperationDestination.remote);
   }
-  return (OperationDestination.Local, OperationDestination.Local);
+  return (OperationDestination.local, OperationDestination.local);
 }
 
 LibraryInitializeMode? stringToLibraryInitializeMode(String? x) {
   if (x == null) return null;
-  if (x == 'Redirected') return LibraryInitializeMode.Redirected;
+  if (x == 'Redirected') return LibraryInitializeMode.redirected;
 
-  return LibraryInitializeMode.Portable;
+  return LibraryInitializeMode.portable;
 }
 
 Future<(bool, bool, String?)> setMediaLibraryPath(

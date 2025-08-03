@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<CreateM3u8PlaylistResponse> createM3u8Playlist(
   String name,

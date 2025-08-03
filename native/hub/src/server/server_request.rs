@@ -27,13 +27,16 @@ macro_rules! register_single_handler {
                 let global_params = global_params.clone();
                 async move {
                     let buf = payload.as_slice();
-                    let request = match $request::decode(buf) {
+                    let request = match rinf::deserialize::<$request>(buf) {
                         Ok(req) => req,
                         Err(e) => {
                             error!("Failed to deserialize request: {:?}", e);
-                            return ("CrashResponse".to_owned(), CrashResponse {
-                                detail: format!("Failed to deserialize request: {:?}", e),
-                            }.encode_to_vec());
+                            return (
+                                "CrashResponse".to_owned(),
+                                rinf::serialize(&CrashResponse {
+                                    detail: format!("Failed to deserialize request: {}", e)
+                                }).map_err(|e| anyhow::Error::new(e))
+                            );
                         }
                     };
 
@@ -44,9 +47,12 @@ macro_rules! register_single_handler {
                         }
                         Err(e) => {
                             error!("Error handling request: {:?}", e);
-                            ("CrashResponse".to_owned(), CrashResponse {
-                                detail: format!("{:#?}", e),
-                            }.encode_to_vec())
+                            (
+                                "CrashResponse".to_owned(),
+                                rinf::serialize(&CrashResponse {
+                                    detail: e.to_string()
+                                }).map_err(|e| anyhow::Error::new(e))
+                            )
                         }
                     }
                 }
@@ -59,12 +65,12 @@ macro_rules! register_single_handler {
 macro_rules! handle_server_response {
     ($response:expr, with_response) => {
         if let Some(response) = $response {
-            (response.name(), response.encode_to_vec())
+            (response.name(), rinf::serialize(&response).map_err(|e| anyhow::Error::new(e)))
         } else {
-            ("".to_owned(), Vec::new())
+            ("".to_owned(), Ok::<Vec<u8>, anyhow::Error>(Vec::new()))
         }
     };
     ($response:expr, without_response) => {
-        ("".to_owned(), Vec::new())
+        ("".to_owned(), Ok::<Vec<u8>, anyhow::Error>(Vec::new()))
     };
 }

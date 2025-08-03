@@ -19,7 +19,7 @@ import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../screens/collection/utils/is_user_generated.dart';
 import '../../screens/collection/utils/collection_item_builder.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 import '../infinite_list_loading.dart';
 import '../smooth_horizontal_scroll.dart';
@@ -171,7 +171,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                 );
               },
             ),
-            if (data.collectionType == CollectionType.Mix)
+            if (data.collectionType == CollectionType.mix)
               MenuFlyoutItem(
                 leading: const Icon(Symbols.add),
                 text: Text(S.of(context).newMix),
@@ -181,7 +181,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   if (x != null) data.reloadData();
                 },
               ),
-            if (data.collectionType == CollectionType.Playlist)
+            if (data.collectionType == CollectionType.playlist)
               MenuFlyoutItem(
                 leading: const Icon(Symbols.add),
                 text: Text(S.of(context).newPlaylist),
@@ -191,7 +191,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   if (x != null) data.reloadData();
                 },
               ),
-            if (data.collectionType == CollectionType.Playlist)
+            if (data.collectionType == CollectionType.playlist)
               MenuFlyoutItem(
                 leading: const Icon(Symbols.download),
                 text: Text(S.of(context).importM3u8),

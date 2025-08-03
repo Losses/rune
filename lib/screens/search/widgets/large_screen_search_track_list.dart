@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../screens/search/widgets/search_card.dart';
-import '../../../messages/collection.pb.dart';
+import '../../../bindings/bindings.dart';
 
 import 'large_screen_search_track_list_implementation.dart';
 

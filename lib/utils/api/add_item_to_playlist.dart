@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<void> addItemToPlaylist(int playlistId, int itemId,
     [int? position]) async {

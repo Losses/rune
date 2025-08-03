@@ -6,14 +6,15 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
 use log::{debug, error, info};
-use prost::Message as ProstMessage;
+use rinf::{DartSignal, RustSignal};
 use rustls::ClientConfig;
+use serde::Deserialize;
 use tokio::sync::{Mutex, RwLock};
 use tokio_tungstenite::{
-    connect_async_tls_with_config, tungstenite::protocol::Message as TungsteniteMessage, Connector,
+    Connector, connect_async_tls_with_config, tungstenite::protocol::Message as TungsteniteMessage,
 };
 use tokio_util::sync::CancellationToken;
 use urlencoding::encode;
@@ -21,7 +22,7 @@ use uuid::Uuid;
 
 use ::database::connection::{connect_fake_main_db, connect_fake_recommendation_db};
 use ::discovery::{
-    client::{select_best_host, CertValidator},
+    client::{CertValidator, select_best_host},
     protocol::DiscoveryService,
     server::PermissionManager,
     url::decode_rnsrv_url,
@@ -30,19 +31,24 @@ use ::playback::{player::MockPlayer, sfx_player::SfxPlayer};
 use ::scrobbling::manager::MockScrobblingManager;
 
 use crate::{
-    forward_event_to_remote, implement_rinf_dart_signal_trait,
+    Signal, forward_event_to_remote, implement_rinf_dart_signal_trait,
     messages::*,
     register_remote_handlers,
     server::{api::check_fingerprint, generate_or_load_certificates},
     utils::{
-        nid::get_or_create_node_id, GlobalParams, LocalGuiBroadcaster, ParamsExtractor,
-        RinfRustSignal, RunningMode, TaskTokens,
+        GlobalParams, LocalGuiBroadcaster, ParamsExtractor, RinfRustSignal, RunningMode,
+        TaskTokens, nid::get_or_create_node_id,
     },
-    Signal,
 };
 
-pub trait RinfDartSignal: ProstMessage {
+pub trait RinfDartSignal {
     fn name(&self) -> String;
+    fn decode(x: &[u8]) -> Result<Self>
+    where
+        Self: Sized + for<'a> Deserialize<'a>,
+    {
+        rinf::deserialize(x).map_err(|e| anyhow::anyhow!("Deserialization failed: {}", e))
+    }
 }
 
 for_all_requests0!(implement_rinf_dart_signal_trait);
@@ -101,12 +107,12 @@ impl WebSocketDartBridge {
 
     pub async fn register_handler<T>(&self, msg_type: &str)
     where
-        T: ProstMessage + RinfRustSignal + Default + 'static,
+        T: RinfRustSignal + RustSignal + for<'a> Deserialize<'a> + 'static,
     {
         let handler_fn = Box::new(
-            move |payload: Vec<u8>| match T::decode(payload.as_slice()) {
+            move |payload: Vec<u8>| match rinf::deserialize::<T>(payload.as_slice()) {
                 Ok(decoded) => {
-                    decoded.send();
+                    decoded.send_signal_to_dart();
                 }
                 Err(e) => {
                     error!("Failed to decode message: {}", e);
@@ -358,7 +364,7 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
             PlaybackStatus,
             ScrobbleServiceStatusUpdated,
             CrashResponse,
-            RealtimeFft,
+            RealtimeFFT,
             PlaylistUpdate
         );
 

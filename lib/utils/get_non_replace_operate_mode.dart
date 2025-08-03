@@ -1,4 +1,4 @@
-import '../messages/all.dart';
+import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 
 import 'settings_manager.dart';
@@ -10,6 +10,6 @@ Future<PlaylistOperateMode> getNonReplaceOperateMode() async {
       await settingsManager.getValue<String>(kNonReplaceOperateModeKey);
 
   return storedVolume == 'PlayNext'
-      ? PlaylistOperateMode.PlayNext
-      : PlaylistOperateMode.AppendToEnd;
+      ? PlaylistOperateMode.playNext
+      : PlaylistOperateMode.appendToEnd;
 }

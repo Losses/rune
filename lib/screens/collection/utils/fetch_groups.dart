@@ -1,7 +1,7 @@
 import '../../../utils/api/fetch_collection_groups.dart';
 import '../../../widgets/start_screen/utils/group.dart';
 import '../../../widgets/start_screen/utils/internal_collection.dart';
-import '../../../messages/collection.pb.dart';
+import '../../../bindings/bindings.dart';
 
 Future<List<Group<InternalCollection>>> fetchCollectionPageGroups(
   CollectionType collectionType,

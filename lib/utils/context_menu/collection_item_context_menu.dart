@@ -13,8 +13,7 @@ import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../utils/dialogs/mix/remove_mix_dialog.dart';
 import '../../utils/dialogs/playlist/create_edit_playlist.dart';
 import '../../utils/dialogs/playlist/remove_playlist_dialog.dart';
-import '../../messages/mix.pbserver.dart';
-import '../../messages/collection.pb.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
 import '../../utils/l10n.dart';
 
@@ -26,11 +25,11 @@ import '../router/router_aware_flyout_controller.dart';
 import 'utils/build_m3u8.dart';
 
 final Map<CollectionType, String> typeToOperator = {
-  CollectionType.Album: "lib::album",
-  CollectionType.Artist: "lib::artist",
-  CollectionType.Playlist: "lib::playlist",
-  CollectionType.Track: "lib::track",
-  CollectionType.Genre: "lib::genre",
+  CollectionType.album: "lib::album",
+  CollectionType.artist: "lib::artist",
+  CollectionType.playlist: "lib::playlist",
+  CollectionType.track: "lib::track",
+  CollectionType.genre: "lib::genre",
 };
 
 final Map<
@@ -40,7 +39,7 @@ final Map<
       void Function()? refreshList,
       int id,
     )> typeToEdit = {
-  CollectionType.Playlist: (context, refreshList, id) async {
+  CollectionType.playlist: (context, refreshList, id) async {
     final result =
         await showCreateEditPlaylistDialog(context, "", playlistId: id);
 
@@ -48,7 +47,7 @@ final Map<
       refreshList();
     }
   },
-  CollectionType.Mix: (context, refreshList, id) async {
+  CollectionType.mix: (context, refreshList, id) async {
     final result = await showMixStudioDialog(context, mixId: id);
 
     if (result != null && refreshList != null) {
@@ -58,8 +57,8 @@ final Map<
 };
 
 Map<CollectionType, String> typeToEditLabel(BuildContext context) => {
-      CollectionType.Playlist: S.of(context).editPlaylist,
-      CollectionType.Mix: S.of(context).editMix,
+      CollectionType.playlist: S.of(context).editPlaylist,
+      CollectionType.mix: S.of(context).editMix,
     };
 
 final Map<
@@ -69,14 +68,14 @@ final Map<
       void Function()? refreshList,
       int id,
     )> typeToRemove = {
-  CollectionType.Playlist: (context, refreshList, id) async {
+  CollectionType.playlist: (context, refreshList, id) async {
     final result = await showRemovePlaylistDialog(context, id);
 
     if (result == true && refreshList != null) {
       refreshList();
     }
   },
-  CollectionType.Mix: (context, refreshList, id) async {
+  CollectionType.mix: (context, refreshList, id) async {
     final result = await showRemoveMixDialog(context, id);
 
     if (result == true && refreshList != null) {
@@ -86,8 +85,8 @@ final Map<
 };
 
 Map<CollectionType, String> typeToRemoveLabel(BuildContext context) => {
-      CollectionType.Playlist: S.of(context).removePlaylist,
-      CollectionType.Mix: S.of(context).removeMix,
+      CollectionType.playlist: S.of(context).removePlaylist,
+      CollectionType.mix: S.of(context).removeMix,
     };
 
 void openCollectionItemContextMenu(

@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<bool> removeTrustedClient(String fingerprint) async {
   final removeTrustRequest =

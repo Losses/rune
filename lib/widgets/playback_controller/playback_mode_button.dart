@@ -99,7 +99,7 @@ class PlaybackModeButton extends StatelessWidget {
     return Consumer<PlaybackStatusProvider>(
       builder: (context, playbackStatusProvider, child) {
         final PlaybackMode currentMode = PlaybackModeExtension.fromValue(
-          playbackStatusProvider.playbackStatus.playbackMode,
+          playbackStatusProvider.playbackStatus.playbackMode ?? 0,
         );
 
         return RuneClickable(

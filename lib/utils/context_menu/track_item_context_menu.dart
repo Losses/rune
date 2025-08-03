@@ -10,7 +10,7 @@ import '../../utils/api/if_analysis_exists.dart';
 import '../../utils/api/add_item_to_playlist.dart';
 import '../../utils/api/get_parsed_media_file.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
 
 import '../rune_log.dart';
@@ -129,21 +129,21 @@ Widget buildTrackItemContextMenu(
         leading: const Icon(Symbols.play_circle),
         text: Text(S.of(context).startPlaying),
         onPressed: () async {
-          startPlaying(CollectionType.Track, item.file.id, const []);
+          startPlaying(CollectionType.track, item.file.id, const []);
         },
       ),
       MenuFlyoutItem(
         leading: const Icon(Symbols.playlist_add),
         text: Text(S.of(context).addToQueue),
         onPressed: () async {
-          addToQueue(CollectionType.Track, item.file.id, const []);
+          addToQueue(CollectionType.track, item.file.id, const []);
         },
       ),
       MenuFlyoutItem(
         leading: const Icon(Symbols.rocket),
         text: Text(S.of(context).startRoaming),
         onPressed: () async {
-          startRoaming(context, CollectionType.Track, item.file.id, const []);
+          startRoaming(context, CollectionType.track, item.file.id, const []);
         },
       ),
       if (playlistId != null) const MenuFlyoutSeparator(),
@@ -276,7 +276,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         child: const Icon(Symbols.play_circle),
       ),
       onPressed: () async {
-        startPlaying(CollectionType.Track, item.file.id, const []);
+        startPlaying(CollectionType.track, item.file.id, const []);
       },
     ),
     CommandBarButton(
@@ -285,7 +285,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         child: const Icon(Symbols.playlist_add),
       ),
       onPressed: () async {
-        addToQueue(CollectionType.Track, item.file.id, const []);
+        addToQueue(CollectionType.track, item.file.id, const []);
       },
     ),
     CommandBarButton(
@@ -294,7 +294,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         child: const Icon(Symbols.rocket),
       ),
       onPressed: () async {
-        startRoaming(context, CollectionType.Track, item.file.id, const []);
+        startRoaming(context, CollectionType.track, item.file.id, const []);
       },
     ),
   ];

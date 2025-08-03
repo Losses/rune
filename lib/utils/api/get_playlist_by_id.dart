@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<Playlist> getPlaylistById(int playlistId) async {
   final fetchMediaFiles = GetPlaylistByIdRequest(playlistId: playlistId);

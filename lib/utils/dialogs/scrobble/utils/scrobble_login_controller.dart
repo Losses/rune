@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../../messages/all.dart';
+import '../../../../bindings/bindings.dart';
 
 class ScrobbleLoginController {
   final TextEditingController usernameController = TextEditingController();

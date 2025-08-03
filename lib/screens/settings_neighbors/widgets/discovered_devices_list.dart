@@ -4,7 +4,7 @@ import 'package:rinf/rinf.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 import '../../../utils/l10n.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
 
@@ -29,7 +29,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   List<DiscoveredDeviceMessage> _devices = [];
   Timer? _pollingTimer;
   StreamSubscription? _responseSubscription;
-  late StreamSubscription<RustSignal<GetDiscoveredDeviceResponse>>
+  late StreamSubscription<RustSignalPack<GetDiscoveredDeviceResponse>>
       _subscription;
 
   @override
@@ -57,7 +57,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
     GetDiscoveredDeviceRequest().sendSignalToRust();
   }
 
-  _onData(RustSignal<GetDiscoveredDeviceResponse> response) {
+  _onData(RustSignalPack<GetDiscoveredDeviceResponse> response) {
     setState(() {
       _devices = response.message.devices;
     });

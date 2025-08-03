@@ -4,8 +4,7 @@ import '../../../utils/dialogs/clean_group_titles.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
 import '../../../screens/collection/utils/collection_data_provider.dart';
-import '../../../messages/mix.pb.dart';
-import '../../../messages/collection.pb.dart';
+import '../../../bindings/bindings.dart';
 import '../../../utils/l10n.dart';
 
 import '../../api/create_mix.dart';
@@ -65,7 +64,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
   }
 
   Future<void> fetchGroupList() async {
-    final groups = await fetchCollectionGroupSummaryTitle(CollectionType.Mix);
+    final groups = await fetchCollectionGroupSummaryTitle(CollectionType.mix);
 
     if (!mounted) return;
 
@@ -157,7 +156,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
                           );
                         }
 
-                        CollectionCache().clearType(CollectionType.Mix);
+                        CollectionCache().clearType(CollectionType.mix);
 
                         setState(() {
                           isLoading = false;

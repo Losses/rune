@@ -1,11 +1,11 @@
-import '../../messages/collection.pb.dart';
+import '../../bindings/bindings.dart';
 
 final Map<CollectionType, String> routerName = {
-  CollectionType.Album: 'albums',
-  CollectionType.Artist: 'artists',
-  CollectionType.Playlist: 'playlists',
-  CollectionType.Mix: 'mixes',
-  CollectionType.Genre: 'genres',
+  CollectionType.album: 'albums',
+  CollectionType.artist: 'artists',
+  CollectionType.playlist: 'playlists',
+  CollectionType.mix: 'mixes',
+  CollectionType.genre: 'genres',
 };
 
 collectionTypeToRouterName(CollectionType x) => routerName[x];

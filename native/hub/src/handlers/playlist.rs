@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use database::actions::playlists::remove_item_from_playlist;
 use sea_orm::TransactionTrait;
 
@@ -12,7 +12,7 @@ use ::database::actions::playlists::{
 use ::database::connection::MainDbConnection;
 
 use crate::utils::{GlobalParams, ParamsExtractor};
-use crate::{messages::*, Session, Signal};
+use crate::{Session, Signal, messages::*};
 
 impl ParamsExtractor for FetchAllPlaylistsRequest {
     type Params = (Arc<MainDbConnection>,);
@@ -82,11 +82,11 @@ impl Signal for CreatePlaylistRequest {
         txn.commit().await?;
 
         Ok(Some(CreatePlaylistResponse {
-            playlist: Some(Playlist {
+            playlist: Playlist {
                 id: playlist.id,
                 name: playlist.name,
                 group: playlist.group,
-            }),
+            },
         }))
     }
 }
@@ -132,11 +132,11 @@ impl Signal for UpdatePlaylistRequest {
         })?;
 
         Ok(Some(UpdatePlaylistResponse {
-            playlist: Some(Playlist {
+            playlist: Playlist {
                 id: playlist.id,
                 name: playlist.name,
                 group: playlist.group,
-            }),
+            },
         }))
     }
 }
@@ -277,11 +277,11 @@ impl Signal for GetPlaylistByIdRequest {
             ))?;
 
         Ok(Some(GetPlaylistByIdResponse {
-            playlist: Some(Playlist {
+            playlist: Playlist {
                 id: playlist.id,
                 name: playlist.name,
                 group: playlist.group,
-            }),
+            },
         }))
     }
 }

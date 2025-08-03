@@ -1,6 +1,6 @@
 import '../../utils/query_list.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<List<InternalMediaFile>> queryMixTracks(
   QueryList queries, [
@@ -10,10 +10,10 @@ Future<List<InternalMediaFile>> queryMixTracks(
   final request = MixQueryRequest(
     queries: queries.toQueryList(),
     pageSize: pageSize ?? 30,
-    cursor: cursor,
+    cursor: cursor ?? 0,
     bakeCoverArts: true,
   );
-  request.sendSignalToRust(); // GENERATED
+  request.sendSignalToRust();
 
   final response = (await MixQueryResponse.rustSignalStream.first).message;
 

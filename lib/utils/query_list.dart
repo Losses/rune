@@ -1,6 +1,6 @@
 import 'dart:collection';
 
-import '../messages/mix.pbserver.dart';
+import '../bindings/bindings.dart';
 
 class QueryList extends ListBase<(String, String)> {
   final List<(String, String)> _inner;

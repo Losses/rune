@@ -1,6 +1,6 @@
-import '../../../messages/collection.pb.dart';
+import '../../../bindings/bindings.dart';
 
 bool userGenerated(CollectionType collectionType) {
-  return collectionType == CollectionType.Playlist ||
-      collectionType == CollectionType.Mix;
+  return collectionType == CollectionType.playlist ||
+      collectionType == CollectionType.mix;
 }

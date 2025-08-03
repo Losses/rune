@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<SystemInfoResponse> systemInfo() async {
   final updateRequest = SystemInfoRequest();

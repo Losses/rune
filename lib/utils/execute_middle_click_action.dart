@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../messages/all.dart';
+import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 
 import 'api/operate_playback_with_mix_query.dart';
@@ -49,7 +49,7 @@ Future<void> startPlaying(
     hintPosition: -1,
     initialPlaybackId: 0,
     instantlyPlay: true,
-    operateMode: PlaylistOperateMode.Replace,
+    operateMode: PlaylistOperateMode.replace,
     fallbackPlayingItems: fallbackFileIds.map(PlayingItem.inLibrary).toList(),
   );
 }
@@ -95,7 +95,7 @@ Future<void> startRoaming(
     hintPosition: -1,
     initialPlaybackId: 0,
     instantlyPlay: true,
-    operateMode: PlaylistOperateMode.Replace,
+    operateMode: PlaylistOperateMode.replace,
     fallbackPlayingItems: fallbackFileIds.map(PlayingItem.inLibrary).toList(),
   );
 }

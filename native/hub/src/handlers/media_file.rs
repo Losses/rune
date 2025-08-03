@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use sea_orm::DatabaseConnection;
 
 use ::database::actions::cover_art::{bake_cover_art_by_file_ids, bake_cover_art_by_media_files};
@@ -9,8 +9,8 @@ use ::database::actions::file::{get_files_by_ids, get_media_files, list_files};
 use ::database::actions::metadata::{get_metadata_summary_by_files, get_parsed_file_by_id};
 use ::database::connection::MainDbConnection;
 
-use crate::utils::{parse_media_files, GlobalParams, ParamsExtractor};
-use crate::{messages::*, Session, Signal};
+use crate::utils::{GlobalParams, ParamsExtractor, parse_media_files};
+use crate::{Session, Signal, messages::*};
 
 impl ParamsExtractor for FetchMediaFilesRequest {
     type Params = (Arc<MainDbConnection>, Arc<String>);
@@ -152,7 +152,7 @@ impl Signal for FetchParsedMediaFileRequest {
             .with_context(|| "Failed to query album")?;
 
         Ok(Some(FetchParsedMediaFileResponse {
-            file: Some(media_file.clone()),
+            file: media_file.clone(),
             artists: artists
                 .into_iter()
                 .map(|x| Artist {
@@ -160,10 +160,10 @@ impl Signal for FetchParsedMediaFileRequest {
                     name: x.name,
                 })
                 .collect(),
-            album: Some(Album {
+            album: Album {
                 id: album.id,
                 name: album.name,
-            }),
+            },
         }))
     }
 }

@@ -140,8 +140,8 @@ app.*.symbols
 .cargo/
 target/
 
-# Generated messages
-*/**/messages/
+# rinf
+lib/bindings
 
 # eLinux
 result

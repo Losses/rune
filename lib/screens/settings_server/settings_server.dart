@@ -10,7 +10,7 @@ import '../../utils/settings_body_padding.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/settings/settings_tile_title.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/broadcast.dart';
 
 import 'utils/show_confirm_remove_device_dialog.dart';
@@ -137,36 +137,31 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
 
   IconData _getStatusIcon(ClientStatus status) {
     switch (status) {
-      case ClientStatus.APPROVED:
+      case ClientStatus.approved:
         return Symbols.check_circle;
-      case ClientStatus.PENDING:
+      case ClientStatus.pending:
         return Symbols.pending;
-      case ClientStatus.BLOCKED:
+      case ClientStatus.blocked:
         return Symbols.block;
     }
-
-    return Symbols.help;
   }
 
   Color _getStatusColor(ClientStatus status) {
     switch (status) {
-      case ClientStatus.APPROVED:
+      case ClientStatus.approved:
         return Colors.green;
-      case ClientStatus.PENDING:
+      case ClientStatus.pending:
         return Colors.yellow;
-      case ClientStatus.BLOCKED:
+      case ClientStatus.blocked:
         return Colors.red;
     }
-
-    return Colors.grey;
   }
 
   String _getStatusText(ClientStatus status, BuildContext context) {
     return switch (status) {
-      ClientStatus.APPROVED => S.of(context).approvedStatus,
-      ClientStatus.PENDING => S.of(context).pendingStatus,
-      ClientStatus.BLOCKED => S.of(context).blockedStatus,
-      ClientStatus() => S.of(context).unknownStatus,
+      ClientStatus.approved => S.of(context).approvedStatus,
+      ClientStatus.pending => S.of(context).pendingStatus,
+      ClientStatus.blocked => S.of(context).blockedStatus,
     };
   }
 }

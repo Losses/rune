@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<bool> removeMix(int mixId) async {
   final updateRequest = RemoveMixRequest(mixId: mixId);

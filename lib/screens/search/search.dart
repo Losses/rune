@@ -13,8 +13,7 @@ import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/search/widgets/small_screen_search_track_list.dart';
 import '../../screens/search/constants/search_categories.dart';
-import '../../messages/search.pb.dart';
-import '../../messages/collection.pb.dart';
+import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'utils/track_items_to_search_card.dart';
@@ -167,26 +166,26 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
       items = {};
 
       if (response.tracks.isNotEmpty) {
-        items[CollectionType.Track] = trackItemsToSearchCard(
+        items[CollectionType.track] = trackItemsToSearchCard(
           await fetchMediaFileByIds(response.tracks, true),
         );
       }
       if (response.artists.isNotEmpty) {
-        items[CollectionType.Artist] = await collectionResponseToSearchCard(
+        items[CollectionType.artist] = await collectionResponseToSearchCard(
           response.artists,
-          CollectionType.Artist,
+          CollectionType.artist,
         );
       }
       if (response.albums.isNotEmpty) {
-        items[CollectionType.Album] = await collectionResponseToSearchCard(
+        items[CollectionType.album] = await collectionResponseToSearchCard(
           response.albums,
-          CollectionType.Album,
+          CollectionType.album,
         );
       }
       if (response.playlists.isNotEmpty) {
-        items[CollectionType.Playlist] = await collectionResponseToSearchCard(
+        items[CollectionType.playlist] = await collectionResponseToSearchCard(
           response.playlists,
-          CollectionType.Playlist,
+          CollectionType.playlist,
         );
       }
 

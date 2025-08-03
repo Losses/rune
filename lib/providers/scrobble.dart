@@ -8,7 +8,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:pointycastle/export.dart' as pc;
 
 import '../utils/settings_manager.dart';
-import '../messages/all.dart';
+import '../bindings/bindings.dart';
 
 extension LoginRequestItemJson on LoginRequestItem {
   Map<String, dynamic> toMap() {
@@ -70,7 +70,7 @@ class ScrobbleProvider with ChangeNotifier {
   static const String credentialsKey = 'login_credentials';
 
   final SettingsManager _settingsManager = SettingsManager();
-  late StreamSubscription<RustSignal<ScrobbleServiceStatusUpdated>>
+  late StreamSubscription<RustSignalPack<ScrobbleServiceStatusUpdated>>
       _statusSubscription;
   List<ServiceStatus> _serviceStatuses = [];
   List<ServiceStatus> get serviceStatuses => _serviceStatuses;
@@ -135,7 +135,7 @@ class ScrobbleProvider with ChangeNotifier {
 
     // Handle the response
     if (!response.success) {
-      throw response.error;
+      throw response.error ?? "Unknown error";
     }
   }
 
@@ -147,7 +147,7 @@ class ScrobbleProvider with ChangeNotifier {
     final response = rustSignal.message;
 
     if (!response.success) {
-      throw response.error;
+      throw response.error ?? "Unknown error";
     }
 
     // Read existing credentials
@@ -183,7 +183,7 @@ class ScrobbleProvider with ChangeNotifier {
   }
 
   Future<void> _handleStatusUpdate(
-      RustSignal<ScrobbleServiceStatusUpdated> signal) async {
+      RustSignalPack<ScrobbleServiceStatusUpdated> signal) async {
     List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
     Set<String> credentialServiceIds =
         storedCredentials.map((c) => c.serviceId).toSet();
@@ -193,7 +193,7 @@ class ScrobbleProvider with ChangeNotifier {
               serviceId: status.serviceId,
               isAvailable: status.isAvailable,
               hasCredentials: credentialServiceIds.contains(status.serviceId),
-              error: status.error,
+              error: status.error ?? "",
             ))
         .toList();
 

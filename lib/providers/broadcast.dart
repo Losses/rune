@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../utils/settings_manager.dart';
 import '../utils/api/get_ssl_certificate_fingerprint.dart';
-import '../messages/all.dart';
+import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 
 final SettingsManager _settingsManager = SettingsManager();
@@ -128,7 +128,7 @@ class BroadcastProvider extends ChangeNotifier {
 
     StartBroadcastRequest(
       durationSeconds: duration,
-      alias: _deviceAlias,
+      alias: _deviceAlias ?? "",
     ).sendSignalToRust();
 
     _startCountdownTimer(duration);

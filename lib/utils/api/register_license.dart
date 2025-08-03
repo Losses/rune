@@ -1,4 +1,4 @@
-import '../../messages/all.dart';
+import '../../bindings/bindings.dart';
 
 Future<RegisterLicenseResponse> registerLicense(String path) async {
   RegisterLicenseRequest(path: path).sendSignalToRust();

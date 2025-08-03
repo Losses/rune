@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../../utils/l10n.dart';
-import '../../../messages/all.dart';
+import '../../../bindings/bindings.dart';
 
 class LogDetailDialog extends StatefulWidget {
   const LogDetailDialog({
