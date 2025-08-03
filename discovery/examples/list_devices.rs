@@ -99,12 +99,12 @@ impl DeviceDiscovery {
 
 fn generate_random_alias() -> String {
     let mut rng = rand::thread_rng();
-    format!("Device-{:04x}", rng.gen::<u16>())
+    format!("Device-{:04x}", rng.r#gen::<u16>())
 }
 
 fn generate_random_model() -> String {
     let mut rng = rand::thread_rng();
-    format!("Model-{:04x}", rng.gen::<u16>())
+    format!("Model-{:04x}", rng.r#gen::<u16>())
 }
 
 fn generate_random_port() -> u16 {

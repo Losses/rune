@@ -177,8 +177,8 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
         _main_db: &DatabaseConnection,
         item: &PlayingItem,
     ) -> Option<i32> {
-        match item {
-            PlayingItem::IndependentFile(ref path) => {
+        match &item {
+            PlayingItem::IndependentFile(path) => {
                 // Calculate the CRC32 for the file path
                 let path_str = path.to_string_lossy();
                 let crc32 = media_crc32(path_str.as_bytes(), 0, 0, path_str.len());
