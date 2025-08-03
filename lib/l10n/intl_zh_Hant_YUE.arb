@@ -1054,5 +1054,289 @@
   "userToken": "用戶權杖",
   "@userToken": {
     "description": "scrobble 登入表格嘅輸入欄位標題。"
+  },
+  "hostname": "主機名稱",
+  "@hostname": {
+    "description": "URL 嘅主機名稱部分。"
+  },
+  "port": "連接埠",
+  "@port": {
+    "description": "URL 嘅連接埠部分。"
+  },
+  "secured": "已加密",
+  "@secured": {
+    "description": "係唔係加密連線。"
+  },
+  "addConnection": "新增連線",
+  "@addConnection": {
+    "description": "對話框入面嘅操作按鈕。"
+  },
+  "neighbors": "附近",
+  "@neighbors": {
+    "description": "用嚟幫用戶互相連接嘅設定頁面。"
+  },
+  "searchNeighbors": "搜尋附近裝置",
+  "@searchNeighbors": {
+    "description": "附近裝置設定頁面入面嘅項目，用嚟喺本機網絡度搵裝置。"
+  },
+  "searchNeighborsSubtitle": "喺本機網絡度搵同連接 Rune 裝置。",
+  "@searchNeighborsSubtitle": {
+    "description": "搜尋附近裝置設定項嘅副標題。"
+  },
+  "editDeviceInformation": "編輯裝置資訊",
+  "@editDeviceInformation": {
+    "description": "出現喺裝置設定度。指喺掃描嗰陣顯示俾其他用戶睇嘅裝置資訊。"
+  },
+  "editDeviceInformationSubtitle": "自訂喺掃描嗰陣顯示俾其他裝置睇嘅詳細資訊。",
+  "@editDeviceInformationSubtitle": {
+    "description": "強調更改會影響喺其他人掃描列表度嘅可見性。避免用技術術語，突出「掃描」呢個互動場景。"
+  },
+  "enableBroadcast": "啟用廣播",
+  "@enableBroadcast": {
+    "description": "「廣播」即係主動傳送裝置資訊。如果目標語言冇直接對應嘅詞，可以優先用「設定為可被發現」或「分享可用狀態」。"
+  },
+  "enableBroadcastSubtitle": "展示你嘅裝置資訊，俾其他人發現。",
+  "@enableBroadcastSubtitle": {
+    "description": "避免歧義：呢度嘅「公開」只係指對本機網絡入面嘅用戶，而唔係成個互聯網。"
+  },
+  "addNeighborManually": "手動新增附近裝置",
+  "@addNeighborManually": {
+    "description": "「附近裝置」指喺同一個區域網絡內嘅裝置。如果空間夠，亦可以用「手動新增鄰居」，但應以簡潔為先。"
+  },
+  "addNeighborManuallySubtitle": "手動輸入裝置嘅區域網絡資訊嚟建立連線。",
+  "@addNeighborManuallySubtitle": {
+    "description": "明確「區域網絡」唔等於公共互聯網（例如區域網絡入面嘅 IP/連接埠）。「連線」指建立直接連結，而唔單止係顯示可見。"
+  },
+  "stop": "停止",
+  "@stop": {
+    "description": "用嚟結束當前活動嘅操作按鈕。"
+  },
+  "deviceFingerprint": "裝置指紋",
+  "@deviceFingerprint": {
+    "description": "用喺安全識別同連接嘅裝置唯一標識符。"
+  },
+  "deviceName": "裝置名稱",
+  "@deviceName": {
+    "description": "用戶自訂嘅裝置名稱，喺掃描同連接嗰陣顯示俾其他用戶睇。"
+  },
+  "noDevicesFound": "搵唔到任何裝置",
+  "@noDevicesFound": {
+    "description": "掃描嗰陣搵唔到任何裝置時顯示嘅資訊。"
+  },
+  "error": "錯誤：{error}",
+  "@error": {
+    "description": "搵唔到裝置時顯示嘅錯誤訊息。",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "權限被拒"
+      }
+    }
+  },
+  "model": "型號",
+  "@model": {
+    "description": "裝置型號資訊嘅標籤。"
+  },
+  "type": "類型",
+  "@type": {
+    "description": "裝置類型資訊嘅標籤。"
+  },
+  "fingerprint": "指紋",
+  "@fingerprint": {
+    "description": "裝置指紋資訊嘅標籤。"
+  },
+  "lastSeen": "上次發現",
+  "@lastSeen": {
+    "description": "裝置上次被偵測到嘅時間標籤。"
+  },
+  "ipAddresses": "IP 地址",
+  "@ipAddresses": {
+    "description": "裝置 IP 地址嘅標籤。"
+  },
+  "pair": "配對",
+  "@pair": {
+    "description": "用嚟發起裝置配對嘅按鈕文字。"
+  },
+  "pairingWith": "正同 {deviceName} 配對緊…",
+  "@pairingWith": {
+    "description": "開始配對流程時顯示嘅資訊。",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "客廳電視"
+      }
+    }
+  },
+  "server": "伺服器",
+  "@server": {
+    "description": "用嚟控制媒體播放器共享行為嘅設定頁面標題，包括管理授權用戶同廣播裝置狀態。"
+  },
+  "serverControl": "伺服器控制",
+  "@serverControl": {
+    "description": "用嚟控制本機網絡伺服器嘅部分標題。「伺服器」指用嚟俾裝置發現嘅後台服務。"
+  },
+  "serverControlSubtitle": "啟動伺服器，等其他裝置可以喺本機網絡搵到呢個裝置。",
+  "@serverControlSubtitle": {
+    "description": "明確伺服器只會喺本機網絡運行。強調啟動伺服器會令裝置對其他人可見。"
+  },
+  "selectInterface": "網絡介面",
+  "@selectInterface": {
+    "description": "用嚟揀伺服器綁定邊個網絡介面嘅標籤。保持技術性但要清晰。"
+  },
+  "approvedStatus": "已批准",
+  "@approvedStatus": {
+    "description": "作為用戶/客戶端狀態徽章顯示，表示該裝置已被完全授權。如果更自然，可用「已驗證」或「已確認」。"
+  },
+  "pendingStatus": "待審批",
+  "@pendingStatus": {
+    "description": "作為用戶/客戶端狀態徽章顯示，表示等緊批准。優先用表示「處理中」嘅術語，而唔係技術詞彙好似「排隊中」。"
+  },
+  "blockedStatus": "已封鎖",
+  "@blockedStatus": {
+    "description": "作為用戶/客戶端狀態徽章顯示，表示明確拒絕存取。視乎文化適用性，可用「已禁用」或「被拒絕」等強烈用詞，但應避免負面含義過重。"
+  },
+  "unknownStatus": "未知",
+  "@unknownStatus": {
+    "description": "作為用戶/客戶端狀態徽章顯示，表示狀態無法識別或未定義。建議用「無法識別」或「未定義」，保持中性語氣，唔暗示錯誤。UI 中通常配灰色。"
+  },
+  "review": "審查",
+  "@review": {
+    "description": "用嚟審查待處理嘅裝置連線請求嘅按鈕。會彈出一個對話框俾你允許或封鎖裝置。"
+  },
+  "reviewRequestTitle": "連線請求",
+  "@reviewRequestTitle": {
+    "description": "審查裝置連線時對話框顯示嘅標題。保持簡潔，突出所需操作。"
+  },
+  "blockDevice": "封鎖裝置",
+  "@blockDevice": {
+    "description": "永久拒絕存取嘅操作。根據文化習慣亦可用「禁用」，但避免負面情緒過重。"
+  },
+  "allowAccess": "允許存取",
+  "@allowAccess": {
+    "description": "授權連線權限嘅操作。可根據習慣用「批准」或「授權」。"
+  },
+  "connectionVerificationMessage": "如果要允許裝置 {alias} ({model}) 連線，請分享以下嘅通訊密鑰指紋嚟驗證你嘅身份。",
+  "@connectionVerificationMessage": {
+    "description": "用嚟建立信任嘅操作說明文字。強調透過分享指紋嚟進行身份驗證。可用「驗證」或「認證」類術語。",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "用戶自訂嘅裝置暱稱"
+      },
+      "model": {
+        "type": "String",
+        "description": "廠商定義嘅裝置型號標識"
+      }
+    }
+  },
+  "allowAccessSubtitle": "授權呢個裝置控制播放同攞取歌曲。",
+  "@allowAccessSubtitle": {
+    "description": "說明允許存取時會授予嘅權限。「攞取」指獲取媒體內容。"
+  },
+  "blockDeviceSubtitle": "封鎖未來嘅連線。你可以隨時取消對呢個裝置嘅封鎖。",
+  "@blockDeviceSubtitle": {
+    "description": "說明封鎖行為嘅後果同可撤銷性。如果 UI 唔同，可用「喺裝置管理度解除」類描述。"
+  },
+  "removeTrust": "移除權限",
+  "@removeTrust": {
+    "description": "用嚟刪除裝置權限記錄嘅對話框標題。強調永久移除所有已批准/已封鎖狀態，並需要重新註冊。"
+  },
+  "removeTrustSubtitle": "呢個操作會永久刪除權限記錄。裝置會冇晒所有存取狀態（批准/封鎖），而且要重新傳送註冊請求，先可以再出現喺列表度。",
+  "@removeTrustSubtitle": {
+    "description": "說明刪除行為會移除所有歷史狀態，並需要重新註冊。如果更自然可用「清除記錄」等表達，但應同「移除權限」保持一致。"
+  },
+  "pairingTitle": "裝置配對",
+  "@pairingTitle": {
+    "description": "用喺安全配對對話框嘅標題。應突出雙向認證過程。"
+  },
+  "pairingLoading": "攞緊裝置指紋…",
+  "@pairingLoading": {
+    "description": "指紋驗證過程中顯示嘅狀態文字。表示進行緊安全檢查。"
+  },
+  "pairingInstructions": "為咗安全驗證，請揀同你夥伴裝置上顯示嘅指紋相符嘅字元，嚟確認你連線嘅係啱嘅裝置。",
+  "@pairingInstructions": {
+    "description": "說明部分指紋驗證流程。用「安全驗證」而唔係技術術語好似 MITM。"
+  },
+  "pairingFailureTitle": "配對失敗",
+  "@pairingFailureTitle": {
+    "description": "指紋唔啱嗰陣嘅標題。表達失敗結果但唔引起過度擔憂。"
+  },
+  "pairingFailureMessage": "指紋唔啱。請確認你連線緊嘅係啱嘅裝置，然後再重新驗證。",
+  "@pairingFailureMessage": {
+    "description": "引導用戶重試，而唔係建議檢查網絡。重點放喺裝置驗證上。"
+  },
+  "closingWindowBehaviorTitle": "關閉視窗行為",
+  "@closingWindowBehaviorTitle": {
+    "description": "視窗關閉行為設定部分嘅標題文字。強調用戶可以控制應用程式關閉時嘅行為。"
+  },
+  "closingWindowBehaviorSubtitle": "揀撳關閉掣嗰陣應用程式嘅行為。",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "解釋用戶可以自訂關閉按鈕嘅行為。可用「自訂」或「配置」等詞替代。"
+  },
+  "minimizeToTray": "最小化到系統匣",
+  "@minimizeToTray": {
+    "description": "選項文字，表示關閉視窗後程式仍然喺後台運行。亦可用「隱藏到系統匣」或「保持運行」表達方式。"
+  },
+  "exitProgram": "完全退出",
+  "@exitProgram": {
+    "description": "選項文字，表示關閉視窗時程式會徹底退出。亦可用「關閉應用程式」或「終止程式」等替代表述。"
+  },
+  "systemTabTitle": "系統",
+  "@systemTabTitle": {
+    "description": "系統設定部分嘅導航標籤標題，表示包含系統級配置選項嘅集合。"
+  },
+  "removeFromPlaylist": "喺播放清單移除",
+  "@removeFromPlaylist": {
+    "description": "用嚟將歌曲從當前播放清單移除嘅操作。喺右鍵點擊歌曲時作為選單選項出現。可根據語言習慣用「刪除」或「移除」。"
+  },
+  "waitForApprove": "等緊伺服器批准呢個請求…",
+  "@waitForApprove": {
+    "description": "喺伺服器連線驗證過程中顯示嘅加載資訊。"
+  },
+  "clientBlockedTitle": "連線被封鎖",
+  "@clientBlockedTitle": {
+    "description": "錯誤標題，表示遠端裝置已封鎖此客戶端嘅連線嘗試。"
+  },
+  "clientBlockedMessage": "遠端裝置已經封鎖咗你嘅客戶端連線。你需要攞到嗰個裝置擁有者嘅許可先可以建立連線。",
+  "@clientBlockedMessage": {
+    "description": "說明用戶嘅連線請求被遠端裝置拒絕。建議用戶聯絡裝置擁有者嚟解決問題。"
+  },
+  "genres": "音樂類型",
+  "@genres": {
+    "description": "用喺音樂類別/風格列表嘅標題或分區名。可能用喺音樂庫分類、篩選選項或偏好設定。可根據語言習慣揀「音樂分類」、「音樂風格」或「音樂種類」等表述。"
+  },
+  "genreQuery": "搜音樂類型",
+  "@genreQuery": {},
+  "deduplicate": "移除重複項目",
+  "@deduplicate": {
+    "description": "按鈕標籤，用嚟從音樂庫或播放清單移除重複歌曲。表示識別並刪除重複歌曲嘅功能。可根據語言習慣用「刪除重複」或「清理重複」等講法。"
+  },
+  "deduplicateThresholdTitle": "移除重複門檻",
+  "@deduplicateThresholdTitle": {
+    "description": "音訊相似度門檻設定嘅標題。表示用戶可以喺度調整偵測重複歌曲時嘅比較嚴格程度。"
+  },
+  "deduplicateThresholdSubtitle": "調整偵測相似音訊歌曲嘅靈敏度。",
+  "@deduplicateThresholdSubtitle": {
+    "description": "簡要說明音訊相似度門檻控制嘅內容。幫助用戶理解呢個配置項嘅用途。"
+  },
+  "nearlyIdentical": "幾乎一樣",
+  "@nearlyIdentical": {
+    "description": "最高級別嘅音訊相似度門檻，表示歌曲幾乎完全一樣。用嚟配置重複偵測設定。可根據語言習慣用「完全一樣」或「完美匹配」。"
+  },
+  "highlySimiar": "高度相似",
+  "@highlySimiar": {
+    "description": "第二高嘅音訊相似度門檻，表示歌曲之間差異極少。用嚟配置重複偵測設定。可用「非常相似」或「近乎一樣」等表述。"
+  },
+  "moderatelySimilar": "部分相似",
+  "@moderatelySimilar": {
+    "description": "中等程度嘅音訊相似度門檻，表示歌曲之間存在明顯但唔嚴重嘅差異。可用「部分相似」或「有啲一樣」。"
+  },
+  "slightlySimilar": "略為相似",
+  "@slightlySimilar": {
+    "description": "最低級別嘅音訊相似度門檻，表示歌曲之間只有少量相似特徵。可用「基本唔一樣」或「有少少相似」。"
+  },
+  "deduplicating": "移除緊重複項目",
+  "@deduplicating": {
+    "description": "表示當前執行緊移除重複過程嘅標籤。向用戶展示系統喺度移除音樂庫或播放清單入面嘅重複歌曲。亦可用「移除緊重複項」或「去重進行中」等表達。"
   }
 }

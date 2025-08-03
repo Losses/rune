@@ -787,5 +787,289 @@
   "userToken": "User Token",
   "@userToken": {
     "description": "scrobble 登入表單的輸入欄位標題。"
+  },
+  "hostname": "主機名",
+  "@hostname": {
+    "description": "URL 的主機名部分。"
+  },
+  "port": "埠",
+  "@port": {
+    "description": "URL 的埠部分。"
+  },
+  "secured": "已加密",
+  "@secured": {
+    "description": "是否為加密連接。"
+  },
+  "addConnection": "添加連接",
+  "@addConnection": {
+    "description": "對話框中的操作按鈕。"
+  },
+  "neighbors": "附近",
+  "@neighbors": {
+    "description": "用於幫助用戶互相連接的設置頁面。"
+  },
+  "searchNeighbors": "搜索附近設備",
+  "@searchNeighbors": {
+    "description": "相鄰設置頁面中的項目，用於發現本地網路中的設備。"
+  },
+  "searchNeighborsSubtitle": "在本地網路中尋找並連接 Rune 設備。",
+  "@searchNeighborsSubtitle": {
+    "description": "搜索鄰居設置項的副標題。"
+  },
+  "editDeviceInformation": "編輯設備資訊",
+  "@editDeviceInformation": {
+    "description": "出現在設備設定中。指的是在掃描過程中向其他用戶展示的設備資訊。"
+  },
+  "editDeviceInformationSubtitle": "自訂在掃描過程中展示給其他設備的詳細資訊。",
+  "@editDeviceInformationSubtitle": {
+    "description": "強調更改將影響在他人掃描列表中的可見性。避免使用技術術語，突出“掃描”這一交互場景。"
+  },
+  "enableBroadcast": "啟用廣播",
+  "@enableBroadcast": {
+    "description": "“廣播”意味著主動發送設備資訊。如目標語言中沒有直接對應詞彙，可優先使用“使可見”或“共享可用性”。"
+  },
+  "enableBroadcastSubtitle": "展示您的設備資訊，供他人發現。",
+  "@enableBroadcastSubtitle": {
+    "description": "避免歧義：此處“公開”僅指對本地網路中的用戶，而非整個網路。"
+  },
+  "addNeighborManually": "手動添加附近設備",
+  "@addNeighborManually": {
+    "description": "“附近設備”指的是在同一區域網路內的設備。如空間允許，也可使用“手動添加鄰居”。應優先簡潔表達。"
+  },
+  "addNeighborManuallySubtitle": "手動輸入設備的區域網路資訊以建立連接。",
+  "@addNeighborManuallySubtitle": {
+    "description": "明確“區域網路”不等於公共網路（例如區域網路中的 IP/埠）。“連接”意味著建立直接連結，而非僅僅顯示可見。"
+  },
+  "stop": "停止",
+  "@stop": {
+    "description": "用於終止當前活動的操作按鈕。"
+  },
+  "deviceFingerprint": "設備指紋",
+  "@deviceFingerprint": {
+    "description": "用於安全識別與連接的設備唯一標識符。"
+  },
+  "deviceName": "設備名稱",
+  "@deviceName": {
+    "description": "用戶自訂的設備名稱，在掃描和連接過程中展示給其他用戶。"
+  },
+  "noDevicesFound": "未發現設備",
+  "@noDevicesFound": {
+    "description": "掃描過程中未發現任何設備時顯示的資訊。"
+  },
+  "error": "錯誤：{error}",
+  "@error": {
+    "description": "設備發現失敗時顯示的錯誤資訊。",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "權限被拒絕"
+      }
+    }
+  },
+  "model": "型號",
+  "@model": {
+    "description": "設備型號資訊的標籤。"
+  },
+  "type": "類型",
+  "@type": {
+    "description": "設備類型資訊的標籤。"
+  },
+  "fingerprint": "指紋",
+  "@fingerprint": {
+    "description": "設備指紋資訊的標籤。"
+  },
+  "lastSeen": "上次發現",
+  "@lastSeen": {
+    "description": "設備上次被檢測到的時間標籤。"
+  },
+  "ipAddresses": "IP 地址",
+  "@ipAddresses": {
+    "description": "設備 IP 地址的標籤。"
+  },
+  "pair": "配對",
+  "@pair": {
+    "description": "用於發起設備配對的按鈕文本。"
+  },
+  "pairingWith": "正在與 {deviceName} 配對…",
+  "@pairingWith": {
+    "description": "開始配對流程時顯示的資訊。",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "客廳電視"
+      }
+    }
+  },
+  "server": "伺服器",
+  "@server": {
+    "description": "用於控制媒體播放器共享行為的設置頁面標題，包括管理授權用戶和廣播設備狀態。"
+  },
+  "serverControl": "伺服器控制",
+  "@serverControl": {
+    "description": "用於控制本地網路伺服器的部分標題。“伺服器”指的是用於設備發現的後台服務。"
+  },
+  "serverControlSubtitle": "啟動伺服器以便其他設備在本地網路中發現此設備。",
+  "@serverControlSubtitle": {
+    "description": "明確伺服器僅在本地網路中運行。強調啟動伺服器會使設備對他人可見。"
+  },
+  "selectInterface": "網路界面",
+  "@selectInterface": {
+    "description": "用於選擇伺服器綁定的網路界面的標籤。保持技術性但應清晰。"
+  },
+  "approvedStatus": "已批准",
+  "@approvedStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示該設備已被完全授權。若更自然，可使用“已驗證”或“已確認”。"
+  },
+  "pendingStatus": "待審批",
+  "@pendingStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示正等待批准。優先使用表示“待處理”的術語而非技術詞彙如“排隊中”。"
+  },
+  "blockedStatus": "已阻止",
+  "@blockedStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示明確拒絕訪問。可視文化適用使用“已封禁”或“被拒絕”等強烈用詞，但應避免負面含義過重。"
+  },
+  "unknownStatus": "未知",
+  "@unknownStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示狀態無法識別或未定義。建議使用“未識別”或“未定義”，保持中性語氣，不暗示錯誤。UI 中常配灰色。"
+  },
+  "review": "審查",
+  "@review": {
+    "description": "用於審查待處理設備連接請求的按鈕。會彈出一個允許或阻止設備的對話框。"
+  },
+  "reviewRequestTitle": "連接請求",
+  "@reviewRequestTitle": {
+    "description": "審查設備連接時對話框顯示的標題。保持簡潔，突出所需操作。"
+  },
+  "blockDevice": "阻止設備",
+  "@blockDevice": {
+    "description": "永久拒絕訪問的操作。根據文化習慣也可用“封禁”，但避免負面情緒過重。"
+  },
+  "allowAccess": "允許訪問",
+  "@allowAccess": {
+    "description": "授權連接權限的操作。可根據習慣使用“批准”或“授權”。"
+  },
+  "connectionVerificationMessage": "若要允許設備 {alias}（{model}）連接，請分享以下通信金鑰指紋以驗證您的身份。",
+  "@connectionVerificationMessage": {
+    "description": "用於建立信任的操作說明文本。強調透過分享指紋來進行身份驗證。可使用“驗證”或“認證”類術語。",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "用戶自訂的設備暱稱"
+      },
+      "model": {
+        "type": "String",
+        "description": "廠商定義的設備型號標識"
+      }
+    }
+  },
+  "allowAccessSubtitle": "授權此設備控制播放並獲取曲目。",
+  "@allowAccessSubtitle": {
+    "description": "說明允許訪問時會授予的權限。“獲取”指的是獲取媒體內容。"
+  },
+  "blockDeviceSubtitle": "阻止未來的連接。您可隨時取消對該設備的阻止。",
+  "@blockDeviceSubtitle": {
+    "description": "說明阻止行為的後果及可撤銷性。如 UI 不同，可用“設備管理中解除”類描述。"
+  },
+  "removeTrust": "移除權限",
+  "@removeTrust": {
+    "description": "用於刪除設備權限記錄的對話框標題。強調永久移除所有已批准/已阻止狀態，並需要重新註冊。"
+  },
+  "removeTrustSubtitle": "此操作將永久刪除權限記錄。設備將失去所有訪問狀態（批准/阻止），並需重新發送註冊請求，以再次出現在列表中。",
+  "@removeTrustSubtitle": {
+    "description": "說明刪除行為會移除所有歷史狀態，並需要重新註冊。如更自然可使用“清除記錄”等表達，但應與“移除權限”保持一致。"
+  },
+  "pairingTitle": "設備配對",
+  "@pairingTitle": {
+    "description": "用於安全配對對話框的標題。應突出雙向認證過程。"
+  },
+  "pairingLoading": "正在獲取設備指紋…",
+  "@pairingLoading": {
+    "description": "指紋驗證過程中顯示的狀態文本。表示正在進行安全檢查。"
+  },
+  "pairingInstructions": "為進行安全驗證，請選擇與您的伙伴設備上顯示的指紋相匹配的字元，以確認連接的是正確設備。",
+  "@pairingInstructions": {
+    "description": "說明部分指紋驗證流程。使用“安全驗證”而非技術術語如 MITM。"
+  },
+  "pairingFailureTitle": "配對失敗",
+  "@pairingFailureTitle": {
+    "description": "指紋不匹配時的標題。表達失敗結果但不引起過度擔憂。"
+  },
+  "pairingFailureMessage": "指紋不匹配。請確認您正在連接正確的設備，並重新進行驗證。",
+  "@pairingFailureMessage": {
+    "description": "引導用戶重試，而不是建議檢查網路。重點放在設備驗證上。"
+  },
+  "closingWindowBehaviorTitle": "關閉窗口行為",
+  "@closingWindowBehaviorTitle": {
+    "description": "窗口關閉行為設置部分的標題文本。強調用戶可控制應用關閉時的行為。"
+  },
+  "closingWindowBehaviorSubtitle": "選擇點擊關閉按鈕時應用的行為。",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "解釋用戶可以自訂關閉按鈕的行為。可使用“自訂”或“配置”等詞替代。"
+  },
+  "minimizeToTray": "最小化到托盤",
+  "@minimizeToTray": {
+    "description": "選項文本，表示關閉窗口後程序仍在後台運行。也可使用“隱藏到托盤”或“保持運行”表達方式。"
+  },
+  "exitProgram": "完全退出",
+  "@exitProgram": {
+    "description": "選項文本，表示關閉窗口時程序將徹底退出。也可使用“關閉應用”或“終止程式”等替代表述。"
+  },
+  "systemTabTitle": "系統",
+  "@systemTabTitle": {
+    "description": "系統設置部分的導航標籤標題，表示包含系統級配置選項的集合。"
+  },
+  "removeFromPlaylist": "從播放列表中移除",
+  "@removeFromPlaylist": {
+    "description": "用於將曲目從當前播放列表中移除的操作。在右鍵點擊歌曲時作為菜單選項出現。可根據語言習慣使用“刪除”或“移除”。"
+  },
+  "waitForApprove": "正在等待伺服器批准此請求…",
+  "@waitForApprove": {
+    "description": "在伺服器連接驗證過程中顯示的載入資訊。"
+  },
+  "clientBlockedTitle": "連接被阻止",
+  "@clientBlockedTitle": {
+    "description": "錯誤標題，表示遠程設備已阻止該用戶端的連接嘗試。"
+  },
+  "clientBlockedMessage": "遠程設備已阻止您的用戶端連接。您需要獲得該設備所有者的許可才能建立連接。",
+  "@clientBlockedMessage": {
+    "description": "說明用戶的連接請求被遠程設備拒絕。建議用戶聯繫設備所有者以解決問題。"
+  },
+  "genres": "音樂類型",
+  "@genres": {
+    "description": "用於音樂類別/風格列表的標題或分區名。可能用於音樂庫分類、篩選選項或偏好設置。可根據語言習慣選擇“音樂分類”、“音樂風格”或“音樂種類”等表述。"
+  },
+  "genreQuery": "類型查詢",
+  "@genreQuery": {},
+  "deduplicate": "去重",
+  "@deduplicate": {
+    "description": "按鈕標籤，用於從音樂庫或播放列表中移除重複曲目。表示識別並刪除重複歌曲的功能。可根據語言習慣使用“刪除重複”或“清理重複”等說法。"
+  },
+  "deduplicateThresholdTitle": "去重閾值",
+  "@deduplicateThresholdTitle": {
+    "description": "音訊相似度閾值設置的標題。表示用戶可以在此調整檢測重複曲目時的比較嚴格程度。"
+  },
+  "deduplicateThresholdSubtitle": "調整檢測相似音訊曲目的靈敏度級別。",
+  "@deduplicateThresholdSubtitle": {
+    "description": "簡要說明音訊相似度閾值控制的內容。幫助用戶理解該配置項的用途。"
+  },
+  "nearlyIdentical": "幾乎一致",
+  "@nearlyIdentical": {
+    "description": "最高級別的音訊相似度閾值，表示曲目幾乎完全一致。用於配置重複檢測設置。可根據語言習慣使用“完全一致”或“完美匹配”。"
+  },
+  "highlySimiar": "高度相似",
+  "@highlySimiar": {
+    "description": "第二高的音訊相似度閾值，表示曲目之間差異極少。用於配置重複檢測設置。可使用“非常相似”或“近乎一致”等表述。"
+  },
+  "moderatelySimilar": "部分相似",
+  "@moderatelySimilar": {
+    "description": "中等程度的音訊相似度閾值，表示曲目之間存在明顯但不嚴重的差異。可使用“部分相似”或“有些一致”。"
+  },
+  "slightlySimilar": "略微相似",
+  "@slightlySimilar": {
+    "description": "最低級別的音訊相似度閾值，表示曲目之間僅有少量相似特徵。可使用“基本上不一致”或“略有相似”。"
+  },
+  "deduplicating": "正在去重",
+  "@deduplicating": {
+    "description": "表示當前正在執行去重過程的標籤。向用戶展示系統正在移除音樂庫或播放列表中的重複曲目。也可使用“正在移除重複項”或“去重進行中”等表達。"
   }
 }

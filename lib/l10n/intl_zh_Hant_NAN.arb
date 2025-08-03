@@ -1056,5 +1056,289 @@
   "userToken": "User Token",
   "@userToken": {
     "description": "scrobble 登入表的輸入空格標題。"
+  },
+  "hostname": "主機名",
+  "@hostname": {
+    "description": "URL 的主機名部分。"
+  },
+  "port": "埠號",
+  "@port": {
+    "description": "URL 的埠號部分。"
+  },
+  "secured": "已加密",
+  "@secured": {
+    "description": "敢是加密連線。"
+  },
+  "addConnection": "增加連線",
+  "@addConnection": {
+    "description": "對話框內底的動作按鈕。"
+  },
+  "neighbors": "附近",
+  "@neighbors": {
+    "description": "用來鬥相共使用者互相連線的設定頁面。"
+  },
+  "searchNeighbors": "揣附近設備",
+  "@searchNeighbors": {
+    "description": "附近設定頁面中的項目，用來發現本地網路中的設備。"
+  },
+  "searchNeighborsSubtitle": "佇本地網路內底揣閣連線 Rune 設備。",
+  "@searchNeighborsSubtitle": {
+    "description": "揣附近設備設定項目的副標題。"
+  },
+  "editDeviceInformation": "編輯設備資訊",
+  "@editDeviceInformation": {
+    "description": "出現佇設備設定。指的是佇掃描過程中，欲顯示予其他使用者看的設備資訊。"
+  },
+  "editDeviceInformationSubtitle": "客製化佇掃描過程中，欲顯示予其他設備的詳細資訊。",
+  "@editDeviceInformationSubtitle": {
+    "description": "強調修改會影響佇別人掃描清單中的可見度。避免使用技術術語，突出「掃描」這个互動情境。"
+  },
+  "enableBroadcast": "啟用廣播",
+  "@enableBroadcast": {
+    "description": "「廣播」意思是主動送出設備資訊。若目標語言無直接對應的詞，會當優先使用「予人看著」抑是「分享可用性」。"
+  },
+  "enableBroadcastSubtitle": "顯示你的設備資訊，予別人發現。",
+  "@enableBroadcastSubtitle": {
+    "description": "避免誤會：這馬的「公開」干焦指對本地網路中的使用者，毋是規个網際網路。"
+  },
+  "addNeighborManually": "手動增加附近設備",
+  "@addNeighborManually": {
+    "description": "「附近設備」指的是佇仝一个區域網路內的設備。若空間會使，嘛會當用「手動增加厝邊」。應優先簡潔表達。"
+  },
+  "addNeighborManuallySubtitle": "手動輸入設備的區域網路資訊來建立連線。",
+  "@addNeighborManuallySubtitle": {
+    "description": "明確「區域網路」無等於公共網際網路（譬如區域網路中的 IP/埠號）。「連線」意思是建立直接連結，毋是干焦顯示看會著。"
+  },
+  "stop": "停止",
+  "@stop": {
+    "description": "用來結束目前活動的動作按鈕。"
+  },
+  "deviceFingerprint": "設備指紋",
+  "@deviceFingerprint": {
+    "description": "用來安全識別佮連線的設備唯一識別碼。"
+  },
+  "deviceName": "設備名稱",
+  "@deviceName": {
+    "description": "使用者客製化的設備名稱，佇掃描佮連線過程中顯示予其他使用者。"
+  },
+  "noDevicesFound": "揣無設備",
+  "@noDevicesFound": {
+    "description": "掃描過程中揣無任何設備時顯示的資訊。"
+  },
+  "error": "錯誤：{error}",
+  "@error": {
+    "description": "設備發現失敗時顯示的錯誤資訊。",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "權限被拒絕"
+      }
+    }
+  },
+  "model": "型號",
+  "@model": {
+    "description": "設備型號資訊的標籤。"
+  },
+  "type": "類型",
+  "@type": {
+    "description": "設備類型資訊的標籤。"
+  },
+  "fingerprint": "指紋",
+  "@fingerprint": {
+    "description": "設備指紋資訊的標籤。"
+  },
+  "lastSeen": "頂擺揣著",
+  "@lastSeen": {
+    "description": "設備頂擺被偵測著的時間標籤。"
+  },
+  "ipAddresses": "IP 位址",
+  "@ipAddresses": {
+    "description": "設備 IP 位址的標籤。"
+  },
+  "pair": "配對",
+  "@pair": {
+    "description": "用來發起設備配對的按鈕文字。"
+  },
+  "pairingWith": "當咧佮 {deviceName} 配對…",
+  "@pairingWith": {
+    "description": "開始配對流程時顯示的資訊。",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "客廳電視"
+      }
+    }
+  },
+  "server": "伺服器",
+  "@server": {
+    "description": "用來控制媒體播放器分享行為的設定頁面標題，包括管理授權使用者佮廣播設備狀態。"
+  },
+  "serverControl": "伺服器控制",
+  "@serverControl": {
+    "description": "用來控制本地網路伺服器的部分標題。「伺服器」指的是用來發現設備的背景服務。"
+  },
+  "serverControlSubtitle": "啟動伺服器，予其他設備會當佇本地網路中發現這台設備。",
+  "@serverControlSubtitle": {
+    "description": "明確伺服器干焦佇本地網路中執行。強調啟動伺服器會予設備對別人可見。"
+  },
+  "selectInterface": "網路介面",
+  "@selectInterface": {
+    "description": "用來選擇伺服器綁定的網路介面的標籤。保持技術性但是愛清楚。"
+  },
+  "approvedStatus": "已批准",
+  "@approvedStatus": {
+    "description": "做為使用者/客戶端狀態徽章顯示，表示這个設備已經完全授權。若較自然，會當用「已驗證」或「已確認」。"
+  },
+  "pendingStatus": "等待批准",
+  "@pendingStatus": {
+    "description": "做為使用者/客戶端狀態徽章顯示，表示當咧等待批准。優先使用表示「待處理」的術語，毋是技術詞彙譬如「排隊中」。"
+  },
+  "blockedStatus": "已封鎖",
+  "@blockedStatus": {
+    "description": "做為使用者/客戶端狀態徽章顯示，表示明確拒絕存取。會當看文化適用使用「已封禁」或「被拒絕」這款較強的用詞，但是應避免負面意思太重。"
+  },
+  "unknownStatus": "未知",
+  "@unknownStatus": {
+    "description": "做為使用者/客戶端狀態徽章顯示，表示狀態無法度識別或未定義。建議使用「未識別」或「未定義」，保持中性語氣，毋暗示錯誤。UI 中捷用灰色。"
+  },
+  "review": "審查",
+  "@review": {
+    "description": "用來審查等待處理的設備連線請求的按鈕。會彈出一个允許或封鎖設備的對話框。"
+  },
+  "reviewRequestTitle": "連線請求",
+  "@reviewRequestTitle": {
+    "description": "審查設備連線時對話框顯示的標題。保持簡潔，突出需要的操作。"
+  },
+  "blockDevice": "封鎖設備",
+  "@blockDevice": {
+    "description": "永久拒絕存取的動作。根據文化習慣嘛會當用「封禁」，毋過避免負面情緒傷重。"
+  },
+  "allowAccess": "允許存取",
+  "@allowAccess": {
+    "description": "授權連線權限的動作。會當根據習慣使用「批准」或「授權」。"
+  },
+  "connectionVerificationMessage": "若欲允許設備 {alias} ({model}) 連線，請分享下面的通訊金鑰指紋來驗證你的身份。",
+  "@connectionVerificationMessage": {
+    "description": "用來建立信任的操作說明文字。強調透過分享指紋來進行身份驗證。會當使用「驗證」或「認證」之類的術語。",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "使用者自訂的設備別名"
+      },
+      "model": {
+        "type": "String",
+        "description": "廠商定義的設備型號標識"
+      }
+    }
+  },
+  "allowAccessSubtitle": "授權這台設備控制播放佮取得歌曲。",
+  "@allowAccessSubtitle": {
+    "description": "說明允許存取時會授予的權限。「取得」指的是取得媒體內容。"
+  },
+  "blockDeviceSubtitle": "封鎖未來的連線。你隨時會當取消對這台設備的封鎖。",
+  "@blockDeviceSubtitle": {
+    "description": "說明封鎖行為的後果佮可撤銷性。若 UI 無仝，會當用「佇設備管理中解除」之類的描述。"
+  },
+  "removeTrust": "移除權限",
+  "@removeTrust": {
+    "description": "用來刣掉設備權限記錄的對話框標題。強調永久移除所有已批准/已封鎖的狀態，並需要重新註冊。"
+  },
+  "removeTrustSubtitle": "這个操作會永久刣掉權限記錄。設備會失去所有存取狀態（批准/封鎖），並且需要重新送出註冊請求，才會閣再出現佇清單內底。",
+  "@removeTrustSubtitle": {
+    "description": "說明刣掉行為會移除所有歷史狀態，並需要重新註冊。若較自然會當用「清除記錄」等表達，毋過應佮「移除權限」保持一致。"
+  },
+  "pairingTitle": "設備配對",
+  "@pairingTitle": {
+    "description": "用來安全配對對話框的標題。應突出雙向認證過程。"
+  },
+  "pairingLoading": "當咧取得設備指紋…",
+  "@pairingLoading": {
+    "description": "指紋驗證過程中顯示的狀態文字。表示當咧進行安全檢查。"
+  },
+  "pairingInstructions": "為著進行安全驗證，請選擇佮你的夥伴設備頂顯示的指紋相符合的字元，來確認連線著的是正確的設備。",
+  "@pairingInstructions": {
+    "description": "說明部分指紋驗證流程。使用「安全驗證」毋是技術術語譬如 MITM。"
+  },
+  "pairingFailureTitle": "配對失敗",
+  "@pairingFailureTitle": {
+    "description": "指紋無符合時的標題。表達失敗結果毋過無引起過度煩惱。"
+  },
+  "pairingFailureMessage": "指紋無符合。請確認你當咧連線的設備是著的，閣重新進行驗證。",
+  "@pairingFailureMessage": {
+    "description": "引導使用者重試，毋是建議檢查網路。重點囥佇設備驗證頂。"
+  },
+  "closingWindowBehaviorTitle": "關閉視窗行為",
+  "@closingWindowBehaviorTitle": {
+    "description": "視窗關閉行為設定部分的標題文字。強調使用者會當控制應用程式關閉時的行為。"
+  },
+  "closingWindowBehaviorSubtitle": "選擇點擊關閉按鈕時應用程式的行為。",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "解說使用者會當客製化關閉按鈕的行為。會當用「客製化」或「配置」等詞代替。"
+  },
+  "minimizeToTray": "縮小到系統列",
+  "@minimizeToTray": {
+    "description": "選項文字，表示關閉視窗後程式猶佇背景執行。嘛會當用「藏到系統列」或「繼續執行」的表達方式。"
+  },
+  "exitProgram": "完全結束",
+  "@exitProgram": {
+    "description": "選項文字，表示關閉視窗時程式會完全結束。嘛會當用「關掉應用程式」或「結束程式」等替代表達。"
+  },
+  "systemTabTitle": "系統",
+  "@systemTabTitle": {
+    "description": "系統設定部分的導覽標籤標題，表示包含系統級配置選項的集合。"
+  },
+  "removeFromPlaylist": "對播放清單內底刣掉",
+  "@removeFromPlaylist": {
+    "description": "用來將歌曲對目前播放清單中移除的動作。佇正手點歌曲時做為選單選項出現。會當根據語言習慣用「刪除」或「移除」。"
+  },
+  "waitForApprove": "當咧等待伺服器批准這个請求…",
+  "@waitForApprove": {
+    "description": "佇伺服器連線驗證過程中顯示的載入資訊。"
+  },
+  "clientBlockedTitle": "連線被封鎖",
+  "@clientBlockedTitle": {
+    "description": "錯誤標題，表示遠端設備已經封鎖這个客戶端的連線嘗試。"
+  },
+  "clientBlockedMessage": "遠端設備已經封鎖你的客戶端連線。你需要得到這个設備所有者的許可，才會當建立連線。",
+  "@clientBlockedMessage": {
+    "description": "說明使用者的連線請求被遠端設備拒絕。建議使用者聯絡設備所有者來解決問題。"
+  },
+  "genres": "音樂類型",
+  "@genres": {
+    "description": "用來音樂類別/風格列表的標題或分區名。可能用佇音樂庫分類、篩選選項或偏好設定。會當根據語言習慣選擇「音樂分類」、「音樂風格」或「音樂種類」等表述。"
+  },
+  "genreQuery": "類型查詢",
+  "@genreQuery": {},
+  "deduplicate": "去重疊",
+  "@deduplicate": {
+    "description": "按鈕標籤，用來對音樂庫或播放清單中移除重覆的歌曲。表示識別並刣掉重覆歌曲的功能。會當根據語言習慣用「刣掉重覆」或「清理重覆」等講法。"
+  },
+  "deduplicateThresholdTitle": "去重疊門檻",
+  "@deduplicateThresholdTitle": {
+    "description": "音訊相似度門檻設定的標題。表示使用者會當佇遮調整偵測重覆歌曲時的比較嚴格程度。"
+  },
+  "deduplicateThresholdSubtitle": "調整偵測相似音訊曲目的靈敏度等級。",
+  "@deduplicateThresholdSubtitle": {
+    "description": "簡單說明音訊相似度門檻控制的內容。幫助使用者了解這个配置項的用途。"
+  },
+  "nearlyIdentical": "差不多仝款",
+  "@nearlyIdentical": {
+    "description": "上懸級的音訊相似度門檻，表示歌曲差不多完全仝款。用來配置重覆偵測設定。會當根據語言習慣用「完全仝款」或「完美符合」。"
+  },
+  "highlySimiar": "真成",
+  "@highlySimiar": {
+    "description": "第二懸的音訊相似度門檻，表示歌曲之間差異真少。用來配置重覆偵測設定。會當用「非常成」或「差不多仝款」等表述。"
+  },
+  "moderatelySimilar": "有部份成",
+  "@moderatelySimilar": {
+    "description": "中等程度的音訊相似度門檻，表示歌曲之間存在明顯毋過無嚴重的差異。會當用「部分成」或「有淡薄仔仝款」。"
+  },
+  "slightlySimilar": "淡薄仔成",
+  "@slightlySimilar": {
+    "description": "上低的音訊相似度門檻，表示歌曲之間干焦有少量相似的特徵。會當用「基本上無仝款」或「淡薄仔成」。"
+  },
+  "deduplicating": "當咧去重疊",
+  "@deduplicating": {
+    "description": "表示目前當咧執行去重疊過程的標籤。向使用者展示系統當咧移除音樂庫或播放清單中的重覆歌曲。嘛會當用「當咧移除重覆的項目」或「去重疊進行中」等表達。"
   }
 }

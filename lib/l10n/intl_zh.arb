@@ -1,3 +1,1342 @@
 {
-  "@@locale": "zh"
+  "@@locale": "zh",
+  "rune": "Rune",
+  "@rune": {
+    "description": "軟體的品牌名稱，不應翻譯。"
+  },
+  "runePlayer": "Rune 播放器",
+  "@runePlayer": {
+    "description": "軟體的全稱。"
+  },
+  "copyright": "版權",
+  "@copyright": {
+    "description": "這是設置界面版權部分中的一個條目標題。"
+  },
+  "copyrightAnnouncement": "版權所有 © 2024 Rune 播放器開發團隊。",
+  "@copyrightAnnouncement": {
+    "description": "完整的版權聲明。"
+  },
+  "licenseAnnouncement": "本產品根據 MPL 許可證授權許可。",
+  "@licenseAnnouncement": {
+    "description": "完整的軟體許可聲明。"
+  },
+  "factoryReset": "恢復出廠設置",
+  "@factoryReset": {
+    "description": "設置頁面中觸發“重設媒體庫歷史記錄”操作的按鈕的標題。"
+  },
+  "factoryResetSubtitle": "從媒體庫列表中刪除所有項目。",
+  "@factoryResetSubtitle": {
+    "description": "設置界面中“恢復出廠設置”按鈕的說明文字。"
+  },
+  "bsodBody": "您的播放器遇到問題，需要重新啟動。我們尊重您的隱私，不會收集任何數據。",
+  "@bsodBody": {
+    "description": "在藍屏界面，這向用戶解釋軟體遇到了致命錯誤。並信達雅提示用戶隱私保護。"
+  },
+  "artists": "藝術家",
+  "@artists": {},
+  "albums": "專輯",
+  "@albums": {},
+  "playlists": "播放列表",
+  "@playlists": {},
+  "unknownAlbum": "未知專輯",
+  "@unknownAlbum": {},
+  "unknownTrack": "未知曲目",
+  "@unknownTrack": {},
+  "unknownArtist": "未知藝術家",
+  "@unknownArtist": {},
+  "selectDirectory": "選擇目錄",
+  "@selectDirectory": {},
+  "noDataAvailable": "沒有可用數據",
+  "@noDataAvailable": {},
+  "start": "開始",
+  "@start": {
+    "description": "“媒體庫首頁”功能列表旁邊的裝飾文字。"
+  },
+  "search": "搜索",
+  "@search": {},
+  "tracks": "曲目",
+  "@tracks": {},
+  "system": "系統",
+  "@system": {},
+  "operatingSystem": "操作系統",
+  "@operatingSystem": {
+    "description": "“關於”頁面上軟體資訊條目的標題之一。"
+  },
+  "systemVersion": "系統版本",
+  "@systemVersion": {
+    "description": "“關於”頁面上軟體資訊條目的標題之一。"
+  },
+  "kernelVersion": "內核版本",
+  "@kernelVersion": {
+    "description": "“關於”頁面上的一個條目，通常表示操作系統內核的版本，用於診斷。"
+  },
+  "hostName": "主機名",
+  "@hostName": {
+    "description": "“關於”頁面上的一個條目，通常表示計算機的名稱。"
+  },
+  "player": "播放器",
+  "@player": {
+    "description": "“關於”頁面上軟體元數據的一個部分標題，提供軟體的版本資訊概覽。"
+  },
+  "buildHash": "構建哈希",
+  "@buildHash": {},
+  "buildDate": "構建日期",
+  "@buildDate": {},
+  "commitDate": "提交日期",
+  "@commitDate": {},
+  "rustcVersion": "Rust 編譯器版本",
+  "@rustcVersion": {},
+  "activation": "啟用狀態",
+  "@activation": {},
+  "runeIsActivated": "Rune 已啟用",
+  "@runeIsActivated": {
+    "description": "告知用戶該軟體目前已活化。實際上，該軟體在任何情況下都是啟用的。"
+  },
+  "productId": "產品 ID",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "你可能是正版軟體的受害者。",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "這句話是一個彩蛋，諷刺反盜版措施往往使合法用戶的體驗比使用盜版的人更糟。請隨意保持幽默感。"
+  },
+  "axiomDesign": "Axiom Design",
+  "@axiomDesign": {
+    "description": "支持本項目的設計研究機構。您應保留原名，不作翻譯。"
+  },
+  "computingDevice": "計算設備",
+  "@computingDevice": {
+    "description": "一個設置條目標題，允許用戶選擇負責執行音訊分析任務的硬體設備。"
+  },
+  "computingDeviceSubtitle": "選擇 GPU 或 CPU 以獲得更快或更高效的處理。",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "性能水平",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "選擇要同時執行的任務量。",
+  "@performanceLevelSubtitle": {},
+  "performance": "性能",
+  "@performance": {
+    "description": "高性能模式，利用可用的硬體資源盡快完成計算任務。"
+  },
+  "balance": "平衡",
+  "@balance": {
+    "description": "平衡模式，均勻分配資源，防止計算任務使系統過載導致卡頓。"
+  },
+  "batterySaving": "節能",
+  "@batterySaving": {
+    "description": "省電模式，最小化資源使用以防止過熱，適合性能較弱的設備。"
+  },
+  "switchTo": "切換",
+  "@switchTo": {
+    "description": "切換媒體庫的按鈕提示文字。按下此按鈕將關閉當前媒體庫並打開一個新的。"
+  },
+  "removeLibrary": "移除",
+  "@removeLibrary": {
+    "description": "移除媒體庫的按鈕提示文字。按下此按鈕將從歷史記錄中刪除媒體庫條目。"
+  },
+  "addLibrary": "添加媒體庫",
+  "@addLibrary": {
+    "description": "設置界面中創建新媒體庫的按鈕提示文字。按下此按鈕將引導用戶選擇一個目錄並創建媒體庫。"
+  },
+  "addLibrarySubtitle": "添加媒體庫並掃描已有文件。",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "操作菜單",
+  "@actionMenu": {
+    "description": "設置界面元素列表中的一個分隔符號。此分隔符號下方的所有項目將隱藏在一個彈出按鈕中，而不是直接顯示在螢幕上。"
+  },
+  "addToQueue": "添加到隊列",
+  "@addToQueue": {
+    "description": "上下文菜單中的一個條目。按下此條目將把相應的歌曲或專輯添加到播放隊列中。"
+  },
+  "addToQueueSubtitle": "新項目添加至播放隊列的方式",
+  "@addToQueueSubtitle": {},
+  "playNext": "下一首",
+  "@playNext": {
+    "description": "一個操作，將一首歌曲或一張專輯排隊作為播放列表中的下一首播放。"
+  },
+  "addToEnd": "添加到隊尾",
+  "@addToEnd": {
+    "description": "一個操作，將一首歌曲或一張專輯添加到播放列表的末尾。"
+  },
+  "middleClickAction": "中鍵操作",
+  "@middleClickAction": {
+    "description": "設置界面中的一個標題，控制用戶用滑鼠中鍵點擊一首歌曲或專輯時的行為。"
+  },
+  "middleClickActionSubtitle": "用滑鼠中鍵點擊歌曲或合集時執行的操作。",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "開始播放",
+  "@startPlaying": {
+    "description": "用戶可以觸發的開始播放音樂的操作。"
+  },
+  "startRoaming": "開始漫遊",
+  "@startRoaming": {
+    "description": "用戶可以觸發的開始播放與當前歌曲或專輯相似的音樂的操作。"
+  },
+  "playbackMode": "播放模式",
+  "@playbackMode": {
+    "description": "設置界面中的一個標題，幫助用戶選擇所需的播放模式，如隨機播放或順序播放。"
+  },
+  "playbackModeSubtitle": "選擇您喜歡的播放方式",
+  "@playbackModeSubtitle": {},
+  "colorMode": "色彩模式",
+  "@colorMode": {
+    "description": "一個設置條目，幫助用戶選擇界面的色彩模式，包括淺色和深色模式。"
+  },
+  "colorModeSubtitle": "更改 Rune 中的色彩模式顯示。",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "系統默認",
+  "@systemColorMode": {
+    "description": "一個色彩設置條目，啟用後，軟體的淺色或深色模式將與系統設置保持一致。"
+  },
+  "dark": "深色",
+  "@dark": {
+    "description": "一個色彩設置條目，選中後啟用深色模式。"
+  },
+  "light": "淺色",
+  "@light": {
+    "description": "一個色彩設置條目，選中後啟用淺色模式。"
+  },
+  "themeColor": "主題顏色",
+  "@themeColor": {
+    "description": "一個設置條目，允許用戶選擇自己喜歡的主題色。"
+  },
+  "themeColorSubtitle": "選擇一個顏色，讓您的 Rune 煥然一新。",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "跟隨系統主題色",
+  "@followSystemTheme": {
+    "description": "主題色設置中的一個條目。啟用後，軟體的主題色將跟隨系統設置。"
+  },
+  "dynamicColors": "動態顏色",
+  "@dynamicColors": {
+    "description": "一個色彩設置條目。啟用後，軟體的主題色會根據當前播放的歌曲的封面而變化。"
+  },
+  "dynamicColorsSubtitle": "根據正在播放歌曲的封面調整 Rune 的主題色。",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "品牌動畫",
+  "@brandingAnimation": {
+    "description": "一個設置條目，允許用戶控制軟體啟動時是否播放歡迎動畫。"
+  },
+  "brandingAnimationSubtitle": "在 Rune 啟動時播放品牌動畫。",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "這可能需要幾分鐘。",
+  "@thisMightTakeAFewMinutes": {
+    "description": "掃描等待界面上的標題，提醒用戶要有耐心。"
+  },
+  "tracksFound": " 首曲目已找到",
+  "@tracksFound": {
+    "description": "掃描等待界面上的提示文字，告知用戶已掃描到多少首歌曲。"
+  },
+  "albumCoversCollected": " 張專輯封面已收集",
+  "@albumCoversCollected": {
+    "description": "掃描等待界面上的提示文字，告知用戶已掃描到多少張專輯封面。"
+  },
+  "editPlaylist": "編輯播放列表",
+  "@editPlaylist": {
+    "description": "上下文菜單中的一個條目，允許用戶編輯播放列表的元數據。"
+  },
+  "editMix": "編輯 Mix",
+  "@editMix": {
+    "description": "上下文菜單中的一個條目，允許用戶編輯 Mix 的元數據。Mix 是一種智慧播放列表。注意：不要與“混音(remix)”的概念混淆。"
+  },
+  "edit": "編輯",
+  "@edit": {
+    "description": "上下文菜單中作為備用文本的動詞，在軟體無法識別應該編輯什麼內容時，引導用戶進行編輯。"
+  },
+  "remove": "移除",
+  "@remove": {
+    "description": "上下文菜單中作為備用文本的動詞，在軟體無法識別應該移除什麼內容時，引導用戶進行移除。"
+  },
+  "removePlaylist": "移除播放列表",
+  "@removePlaylist": {
+    "description": "上下文菜單中的一個條目，允許用戶刪除播放列表。"
+  },
+  "removeMix": "移除 Mix",
+  "@removeMix": {
+    "description": "上下文菜單中的一個條目，允許用戶刪除 Mix。Mix 是一種智慧播放列表。注意：不要與“混音(remix)”的概念混淆。"
+  },
+  "addToMix": "添加到 Mix",
+  "@addToMix": {
+    "description": "上下文菜單中的一個條目，允許用戶將一首歌曲或一張專輯添加到 Mix。Mix 是一種智慧播放列表。注意：不要與“混音(remix)”的概念混淆。"
+  },
+  "newMix": "新建 Mix",
+  "@newMix": {
+    "description": "上下文菜單中的一個條目，允許用戶創建一個新的 Mix。Mix 是一種智慧播放列表。注意：不要與“混音(remix)”的概念混淆。"
+  },
+  "selectAGroup": "選擇一個分組",
+  "@selectAGroup": {
+    "description": "位於編輯 Mix 或播放列表模態框中的輸入欄位的占位符文本，引導用戶選擇一個內容分組。"
+  },
+  "likedOnly": "僅收藏",
+  "@likedOnly": {
+    "description": "Mix 編輯界面中的一個條目，一個複選框選項，用於過濾並僅保留用戶“喜歡”的歌曲。"
+  },
+  "allTracks": "所有曲目",
+  "@allTracks": {
+    "description": "Mix 編輯界面中的一個條目，一個複選框選項，用於過濾並保留所有歌曲，而不僅僅是用戶“喜歡”的歌曲。"
+  },
+  "defaultMode": "默認",
+  "@defaultMode": {
+    "description": "播放列表中歌曲被遍歷的一種方式，保持當前系統行為而不指定模式。"
+  },
+  "sequential": "順序播放",
+  "@sequential": {
+    "description": "播放列表中歌曲被遍歷的一種方式，從頭到尾按順序播放。"
+  },
+  "repeatAll": "列表循環",
+  "@repeatAll": {
+    "description": "播放列表中歌曲被遍歷的一種方式，播放完畢後從頭開始重複。"
+  },
+  "repeatOne": "單曲循環",
+  "@repeatOne": {
+    "description": "播放列表中歌曲被遍歷的一種方式，不斷重複一首歌曲。"
+  },
+  "shuffle": "隨機播放",
+  "@shuffle": {
+    "description": "播放列表中歌曲被遍歷的一種方式，按隨機順序播放。"
+  },
+  "title": "標題",
+  "@title": {
+    "description": "播放列表或 Mix 編輯模態框中的一個條目，引導用戶編輯其標題。"
+  },
+  "group": "分組",
+  "@group": {
+    "description": "播放列表或 Mix 編輯模態框中的一個條目，引導用戶編輯其分組。"
+  },
+  "save": "保存",
+  "@save": {
+    "description": "模態框中的一個操作按鈕，按下時保存更改。"
+  },
+  "create": "創建",
+  "@create": {
+    "description": "模態框中的一個操作按鈕，按下時創建一個新條目。"
+  },
+  "cancel": "取消",
+  "@cancel": {
+    "description": "模態框中的一個操作按鈕，不進行任何更改就關閉模態框。"
+  },
+  "noRecommendation": "不推薦",
+  "@noRecommendation": {
+    "description": "Mix 編輯模態框下拉菜單中的一個條目。選擇此選項表示用戶不打算基於查詢結果進行推薦。"
+  },
+  "basedOnAll": "基於全部",
+  "@basedOnAll": {
+    "description": "Mix 編輯模態框下拉菜單中的一個條目。選擇此選項會根據整個查詢結果集推薦相似的歌曲。"
+  },
+  "group1": "第一組",
+  "@group1": {},
+  "group2": "第二組",
+  "@group2": {},
+  "group3": "第三組",
+  "@group3": {},
+  "group4": "第四組",
+  "@group4": {},
+  "group5": "第五組",
+  "@group5": {},
+  "group6": "第六組",
+  "@group6": {},
+  "group7": "第七組",
+  "@group7": {},
+  "group8": "第八組",
+  "@group8": {},
+  "group9": "第九組",
+  "@group9": {},
+  "ascending": "升序",
+  "@ascending": {
+    "description": "Mix 編輯模態框下拉菜單中的一個條目。選擇此選項將按升序對查詢結果進行排序。"
+  },
+  "descending": "降序",
+  "@descending": {
+    "description": "Mix 編輯模態框下拉菜單中的一個條目。選擇此選項將按降序對查詢結果進行排序。"
+  },
+  "lastModified": "最後修改時間",
+  "@lastModified": {
+    "description": "Mix 編輯模態框下拉菜單中的一個條目。此選項允許用戶按文件元數據的最後修改時間進行排序。"
+  },
+  "duration": "時長",
+  "@duration": {
+    "description": "Mix 編輯模態框下拉菜單中的一個條目。此選項允許用戶按音訊長度進行排序。"
+  },
+  "timesPlayedThrough": "完整播放次數",
+  "@timesPlayedThrough": {
+    "description": "Mix 編輯模態框下拉菜單中的一個條目。此選項允許用戶按音訊被完整播放的次數進行排序。"
+  },
+  "timesSkipped": "跳過次數",
+  "@timesSkipped": {
+    "description": "Mix 編輯模態框下拉菜單中的一個條目。此選項允許用戶按音訊被跳過的次數進行排序。"
+  },
+  "pickDirectory": "選擇目錄",
+  "@pickDirectory": {
+    "description": "Mix 編輯模態框中的按鈕提示文字。按下此按鈕會打開一個模態框，引導用戶選擇目錄。"
+  },
+  "oneDirectory": "一個目錄",
+  "@oneDirectory": {
+    "description": "表示已選擇一個目錄的狀態文本。"
+  },
+  "manyDirectories": "{count} 個目錄",
+  "@manyDirectories": {
+    "description": "表示已選擇多個目錄的狀態文本。",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "confirm": "確認",
+  "@confirm": {
+    "description": "模態框中的操作按鈕文本，表示用戶確認一個操作。"
+  },
+  "directories": "目錄",
+  "@directories": {
+    "description": "模態設置選項中一個條目的標題，告知用戶接下來的選項是用於按文件夾過濾歌曲。"
+  },
+  "allDirectories": "所有目錄",
+  "@allDirectories": {
+    "description": "表示已選擇所有目錄的提示。"
+  },
+  "randomTracks": "隨機曲目",
+  "@randomTracks": {
+    "description": "模態設置選項中一個條目的標題，告知用戶接下來的選項是用於選擇若干隨機歌曲。"
+  },
+  "amount": "數量",
+  "@amount": {
+    "description": "模態框中的提示文本，表示通過滑塊或輸入框選擇的歌曲數量。"
+  },
+  "mode": "模式",
+  "@mode": {
+    "description": "歌曲的播放模式。"
+  },
+  "recommendation": "推薦",
+  "@recommendation": {
+    "description": "模態設置選項中一個條目的標題，告知用戶接下來的選項控制播放器的推薦行為。"
+  },
+  "sortBy": "排序方式",
+  "@sortBy": {
+    "description": "模態設置選項中一個條目的標題，告知用戶接下來的選項控制歌曲的排序方式。"
+  },
+  "sortOrder": "排序順序",
+  "@sortOrder": {
+    "description": "模態設置選項中一個條目的標題，告知用戶接下來的選項控制歌曲的排序方向。"
+  },
+  "liked": "收藏",
+  "@liked": {
+    "description": "模態設置選項中一個條目的標題，告知用戶接下來的選項過濾用戶標記為“喜歡”的歌曲。"
+  },
+  "noRoamingCollection": "無法開始漫遊。尚未分析合集中的歌曲。",
+  "@noRoamingCollection": {},
+  "noRoamingTrack": "無法開始漫遊。尚未分析該曲目。",
+  "@noRoamingTrack": {},
+  "noAnalysisScanning": "{baseMessage} 正在掃描媒體庫，無法分析。",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisAnalyzing": "{baseMessage} 正在分析媒體庫，請稍後。",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisDefault": "{baseMessage} 請分析媒體庫以獲得最佳體驗。",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "notReady": "尚未完成",
+  "@notReady": {
+    "description": "模態框標題，表示歌曲尚未建立索引，無法推薦。"
+  },
+  "createPlaylist": "創建播放列表",
+  "@createPlaylist": {
+    "description": "創建播放列表的模態框標題。"
+  },
+  "scanLibrary": "掃描媒體庫",
+  "@scanLibrary": {
+    "description": "模態框中的操作按鈕文本，按下時啟動媒體庫掃描。"
+  },
+  "analyzeTracks": "分析曲目",
+  "@analyzeTracks": {
+    "description": "模態框中的操作按鈕文本，按下時啟動對媒體庫中所有歌曲的分析。"
+  },
+  "scan": "掃描",
+  "@scan": {
+    "description": "設置界面中的按鈕提示文字，按下時啟動媒體庫掃描。"
+  },
+  "scanning": "正在掃描",
+  "@scanning": {
+    "description": "設置界面中的按鈕提示文字，表示當前正在掃描媒體庫。"
+  },
+  "analyze": "分析",
+  "@analyze": {
+    "description": "設置界面中的按鈕提示文字，按下時啟動對媒體庫中所有歌曲的分析。"
+  },
+  "analyzing": "正在分析",
+  "@analyzing": {
+    "description": "設置界面中的按鈕提示文字，表示當前正在分析媒體庫。"
+  },
+  "tryCreatingYourOwnCollection": "嘗試創建您自己的合集",
+  "@tryCreatingYourOwnCollection": {
+    "description": "在“合集”視圖的空白頁面上顯示的文字，建議用戶創建一個新的合集。"
+  },
+  "theseActionsMayHelp": "這些操作可能有所幫助",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "嘗試掃描新文件",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "未找到合集",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "播放列表中沒有項目",
+  "@noItemsInPlaylist": {},
+  "previous": "上一首",
+  "@previous": {
+    "description": "控制播放的按鈕提示文字，用於跳到上一首歌曲。"
+  },
+  "previousSubtitle": "轉到上一首曲目",
+  "@previousSubtitle": {},
+  "playPause": "播放/暫停",
+  "@playPause": {
+    "description": "控制播放的按鈕提示文字，用於在播放和暫停狀態之間切換。"
+  },
+  "playPauseSubtitle": "切換播放和暫停",
+  "@playPauseSubtitle": {},
+  "next": "下一首",
+  "@next": {
+    "description": "控制播放的按鈕提示文字，用於跳到下一首歌曲。"
+  },
+  "nextSubtitle": "轉到下一首曲目",
+  "@nextSubtitle": {},
+  "volume": "音量",
+  "@volume": {
+    "description": "控制播放的按鈕提示文字，用於調整音量。"
+  },
+  "volumeSubtitle": "調整音量",
+  "@volumeSubtitle": {},
+  "playlist": "播放隊列",
+  "@playlist": {
+    "description": "控制播放的按鈕提示文字，用於顯示播放列表。"
+  },
+  "playlistSubtitle": "查看播放隊列",
+  "@playlistSubtitle": {},
+  "hidden": "隱藏",
+  "@hidden": {
+    "description": "表示一個隱藏按鈕的按鈕提示文字；通常不使用此文本。"
+  },
+  "hiddenSubtitle": "下列的內容將隱藏在其他列表中",
+  "@hiddenSubtitle": {},
+  "coverWall": "封面牆",
+  "@coverWall": {
+    "description": "控制播放的按鈕提示文字，用於切換到封面牆頁面，這是一個由專輯封面組成的裝飾性頁面。"
+  },
+  "coverWallSubtitle": "展示封面，營造獨特氛圍",
+  "@coverWallSubtitle": {},
+  "fullscreen": "全螢幕",
+  "@fullscreen": {
+    "description": "控制播放的按鈕提示文字，用於切換全螢幕模式。"
+  },
+  "fullscreenSubtitle": "進出全螢幕模式",
+  "@fullscreenSubtitle": {},
+  "pause": "暫停",
+  "@pause": {
+    "description": "控制播放的按鈕提示文字，用於暫停當前正在播放的歌曲。"
+  },
+  "play": "播放",
+  "@play": {
+    "description": "控制播放的按鈕提示文字，用於從暫停狀態恢復播放。"
+  },
+  "enable": "啟用",
+  "@enable": {
+    "description": "設置界面中的單選按鈕提示文字，表示一個功能已啟用。"
+  },
+  "disable": "禁用",
+  "@disable": {
+    "description": "設置界面中的單選按鈕提示文字，表示一個功能未啟用。"
+  },
+  "noTracksFound": "未找到曲目",
+  "@noTracksFound": {},
+  "library": "媒體庫",
+  "@library": {
+    "description": "媒體庫設置界面的標題。"
+  },
+  "artistQuery": "查詢藝術家",
+  "@artistQuery": {},
+  "playlistQuery": "查詢播放列表",
+  "@playlistQuery": {},
+  "mixes": "Mix",
+  "@mixes": {
+    "description": "Mix 界面的標題，指一種智慧播放列表。"
+  },
+  "mixQuery": "查詢 Mix",
+  "@mixQuery": {},
+  "settings": "設置",
+  "@settings": {
+    "description": "設置界面的標題。"
+  },
+  "analysis": "分析",
+  "@analysis": {
+    "description": "分析設置界面的標題。"
+  },
+  "playback": "播放",
+  "@playback": {
+    "description": "播放設置界面的標題。"
+  },
+  "theme": "主題",
+  "@theme": {
+    "description": "主題設置界面的標題。"
+  },
+  "controller": "控制",
+  "@controller": {
+    "description": "播放控制按鈕設置界面的標題。"
+  },
+  "about": "關於",
+  "@about": {
+    "description": "關於界面的標題。"
+  },
+  "selectLibraryDirectorySubtitle": "選擇您的音訊庫目錄，我們將掃描並分析其中的所有曲目。",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "重設媒體庫",
+  "@resetLibrary": {
+    "description": "模態框中的操作按鈕文本，表示用戶想要重設媒體庫。"
+  },
+  "resetLibraryQuestion": "確認重設媒體庫？",
+  "@resetLibraryQuestion": {
+    "description": "詢問用戶是否要重設媒體庫的模態框標題。"
+  },
+  "resetLibrarySubtitle": "重設媒體庫將清除您的文件開啟記錄。不會改動您現有的媒體庫。您想要繼續嗎？",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "不可用",
+  "@unavailable": {
+    "description": "僅在出現錯誤時出現的不可用的上下文菜單元素。"
+  },
+  "goToArtist": "前往藝術家",
+  "@goToArtist": {
+    "description": "引導用戶前往藝術家頁面的上下文菜單項。"
+  },
+  "goToAlbum": "前往專輯",
+  "@goToAlbum": {
+    "description": "引導用戶前往專輯頁面的上下文菜單項。"
+  },
+  "addToPlaylist": "添加到播放列表",
+  "@addToPlaylist": {
+    "description": "引導用戶將一首歌曲或一張專輯添加到播放列表的上下文菜單項。"
+  },
+  "newPlaylist": "新建播放列表",
+  "@newPlaylist": {
+    "description": "引導用戶創建新播放列表的上下文菜單項。"
+  },
+  "unableToOpenLibrary": "無法打開媒體庫",
+  "@unableToOpenLibrary": {
+    "description": "告知用戶無法打開媒體庫的模態框標題。"
+  },
+  "unableToOpenLibrarySubtitle": "由於以下錯誤，無法打開媒體庫：",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "未知錯誤",
+  "@unknownError": {
+    "description": "表示出現未知錯誤的模態框錯誤內容。"
+  },
+  "close": "關閉",
+  "@close": {
+    "description": "模態框中引導用戶關閉它的操作按鈕。"
+  },
+  "queue": "隊列",
+  "@queue": {
+    "description": "播放列表模態框的標題。"
+  },
+  "createMix": "創建 Mix",
+  "@createMix": {
+    "description": "引導用戶創建新Mix的上下文菜單項。Mix 是一種智慧播放列表。"
+  },
+  "removeMixTitle": "刪除 Mix",
+  "@removeMixTitle": {
+    "description": "告知用戶他們即將刪除Mix的模態框標題。Mix 是一種智慧播放列表。"
+  },
+  "removeMixSubtitle": "如果刪除此 Mix ，您將無法恢復。您確定要刪除嗎？",
+  "@removeMixSubtitle": {},
+  "delete": "刪除",
+  "@delete": {
+    "description": "模態框中的操作按鈕文本，表示按下它將刪除資訊。"
+  },
+  "removePlaylistTitle": "移除播放列表",
+  "@removePlaylistTitle": {
+    "description": "告知用戶他們即將刪除播放列表的模態框標題。"
+  },
+  "removePlaylistSubtitle": "如果刪除此播放列表，您將無法恢復。您確定要刪除嗎？",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "取消任務",
+  "@cancelTaskTitle": {
+    "description": "告知用戶他們即將取消一個任務的模態框標題。"
+  },
+  "cancelTaskSubtitle": "如果取消此任務，它將停止在當前進度。您確定要取消嗎？",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "取消任務",
+  "@cancelTask": {
+    "description": "模態框中的操作按鈕文本，表示按下它將取消任務。"
+  },
+  "continueTask": "繼續",
+  "@continueTask": {
+    "description": "模態框中的操作按鈕文本，表示按下它將繼續任務。"
+  },
+  "refresh": "刷新",
+  "@refresh": {
+    "description": "引導用戶刷新當前頁面資訊的上下文菜單項。"
+  },
+  "explore": "探索",
+  "@explore": {
+    "description": "一個功能區域的標題。"
+  },
+  "language": "語言",
+  "@language": {
+    "description": "語言設定頁面的標題。"
+  },
+  "followSystemLanguage": "跟隨系統語言",
+  "@followSystemLanguage": {
+    "description": "設置中的操作按鈕文本，表示 Rune 的語言應跟隨操作系統。"
+  },
+  "followSystemLanguageSubtitle": "遵循系統語言，無需特殊設置。",
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "窗口大小",
+  "@windowSize": {
+    "description": "主題頁面中設置窗口大小的提示文本。"
+  },
+  "windowSizeSubtitle": "選擇應用程式的首選窗口大小。",
+  "@windowSizeSubtitle": {
+    "description": "解釋窗口大小選項的副標題。"
+  },
+  "normalWindowSize": "普通",
+  "@normalWindowSize": {
+    "description": "標準窗口大小的選項。"
+  },
+  "slimWindowSize": "窄",
+  "@slimWindowSize": {
+    "description": "較窄窗口大小的選項。"
+  },
+  "stockyWindowSize": "長",
+  "@stockyWindowSize": {
+    "description": "較寬窗口大小的選項。"
+  },
+  "log": "日誌",
+  "@log": {
+    "description": "設置部分中的日誌頁面的標題，此頁面包含程序運行時發生的錯誤和警告。"
+  },
+  "viewLogDetail": "查看日誌詳情",
+  "@viewLogDetail": {
+    "description": "上下文菜單中的一個條目。按下此條目將顯示日誌詳情模態框。"
+  },
+  "removeLogTitle": "刪除日誌",
+  "@removeLogTitle": {
+    "description": "告知用戶他們即將刪除一條日誌的模態框標題。"
+  },
+  "removeLogSubtitle": "如果刪除此日誌，您將無法恢復它。您確定要刪除嗎？",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "移除所有日誌",
+  "@clearLogTitle": {
+    "description": "告知用戶他們即將刪除所有日誌的模態框標題。"
+  },
+  "clearLogSubtitle": "如果刪除所有日誌，您將無法恢復。您確定要刪除嗎？",
+  "@clearLogSubtitle": {},
+  "deleteAll": "全部刪除",
+  "@deleteAll": {
+    "description": "上下文菜單中的一個條目。按下此條目將刪除所有可用項目。"
+  },
+  "noLogsAvailable": "無可用日誌",
+  "@noLogsAvailable": {
+    "description": "日誌設置頁面的空狀態圖示的標題。"
+  },
+  "home": "首頁",
+  "@home": {
+    "description": "首頁設置頁面的標題。"
+  },
+  "newest": "最新",
+  "@newest": {
+    "description": "媒體庫首頁設置下拉選單中的條目。"
+  },
+  "oldest": "最舊",
+  "@oldest": {
+    "description": "媒體庫首頁設置下拉選單中的條目。"
+  },
+  "random": "隨機",
+  "@random": {
+    "description": "媒體庫首頁設置下拉選單中的條目。"
+  },
+  "mostPlayed": "最常播放",
+  "@mostPlayed": {
+    "description": "媒體庫首頁中的標題。"
+  },
+  "personalize": "個性化",
+  "@personalize": {
+    "description": "媒體庫首頁的上下文菜單中的條目。"
+  },
+  "artistsLibraryHomeSubtitle": "發現和探索您最喜愛的藝術家的世界",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中藝術家部分的描述。"
+  },
+  "albumsLibraryHomeSubtitle": "沉浸在由才華橫溢的藝術家創作的專輯中",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中專輯部分的描述。"
+  },
+  "playlistsLibraryHomeSubtitle": "策劃您自己的個性化聆聽之旅",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中播放列表部分的描述。"
+  },
+  "tracksLibraryHomeSubtitle": "深入研究您熟悉和喜愛的曲目",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中曲目部分的描述。"
+  },
+  "likedLibraryHomeSubtitle": "重溫您最珍視的曲目",
+  "@likedLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中收藏部分的描述。"
+  },
+  "mostLibraryHomeSubtitle": "再次聆聽一次又一次吸引您的旋律",
+  "@mostLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中最多播放部分的描述。"
+  },
+  "showRune": "顯示 Rune",
+  "@showRune": {
+    "description": "工具列選單中的條目。"
+  },
+  "exit": "退出",
+  "@exit": {
+    "description": "工具列選單中的條目。"
+  },
+  "back": "返回",
+  "@back": {
+    "description": "Windows 標題欄左上角圖示的工具提示。"
+  },
+  "exportTracks": "導出為",
+  "@exportTracks": {
+    "description": "上下文菜單中允許用戶導出集合的條目"
+  },
+  "exportM3u8": "播放列表文件",
+  "@exportM3u8": {
+    "description": "上下文菜單中的一個條目，允許用戶以 M3U8 格式導出集合"
+  },
+  "exportCoverWall": "封面牆",
+  "@exportCoverWall": {
+    "description": "上下文菜單中的一個條目，允許用戶導出封面牆"
+  },
+  "ratio": "比例",
+  "@ratio": {
+    "description": "封面牆模態的輸入欄位標題"
+  },
+  "frame": "邊框",
+  "@frame": {
+    "description": "封面牆模態的輸入欄位標題"
+  },
+  "background": "背景",
+  "@background": {
+    "description": "封面牆模態的輸入欄位標題"
+  },
+  "evaluationMode": "評估模式",
+  "@evaluationMode": {
+    "description": "評估模式模態框的標題"
+  },
+  "evaluationModeContent1": "Rune 不是免費軟體。我們鼓勵您從應用商店購買正版許可證。",
+  "@evaluationModeContent1": {
+    "description": "評估模式模態框的內容"
+  },
+  "evaluationModeContent2": "許可用戶可享受由應用商店提供的自動更新，並有權直接向開發人員提出新功能。",
+  "@evaluationModeContent2": {
+    "description": "評估模式模態框的內容"
+  },
+  "evaluationModeContent3": "您可以選擇在 180 天內關閉此提醒，我們稍後會再次提醒您。",
+  "@evaluationModeContent3": {
+    "description": "評估模式模態框的內容"
+  },
+  "remindMeLater": "稍後提醒",
+  "@remindMeLater": {
+    "description": "評估模式模態框的動作按鈕"
+  },
+  "mysteriousButton": "神秘按鈕",
+  "@mysteriousButton": {
+    "description": "上下文菜單中的項目"
+  },
+  "mysteriousModalTitle": "嘎吱",
+  "@mysteriousModalTitle": {
+    "description": "模態框的標題"
+  },
+  "mysteriousModalContent": "你似乎觸發了一個神秘的機關。空間的結構好像發生了變化，露出了新的探索區域。",
+  "@mysteriousModalContent": {
+    "description": "模態框的內容"
+  },
+  "laboratory": "實驗室",
+  "@laboratory": {
+    "description": "連結標題的標題"
+  },
+  "libraryMode": "媒體庫設置",
+  "@libraryMode": {
+    "description": "模態框的標題，用於指導用戶選擇儲存資料庫的位置"
+  },
+  "libraryModeSubtitle": "我們需要更多了解您的媒體庫。您的媒體檔案儲存在哪裡？",
+  "@libraryModeSubtitle": {
+    "description": "模態框的副標題，引導用戶選擇資料庫的儲存位置"
+  },
+  "portableMode": "本機硬碟",
+  "@portableMode": {
+    "description": "用戶的一個候選庫模式"
+  },
+  "portableModeSubtitle": "我們會將您的媒體索引一併儲存在媒體庫所在的文件夾中。",
+  "@portableModeSubtitle": {
+    "description": "用戶的候選庫模式的副標題"
+  },
+  "localMode": "雲端",
+  "@localMode": {
+    "description": "用戶的一個候選庫模式"
+  },
+  "localModeSubtitle": "我們會將您的媒體索引儲存在 Rune 的配置目錄中。",
+  "@localModeSubtitle": {
+    "description": "用戶的候選庫模式的副標題"
+  },
+  "rememberWindowSize": "記憶窗口大小",
+  "@rememberWindowSize": {
+    "description": "主題頁面中設置選項的標題"
+  },
+  "rememberWindowSizeSubtitle": "在調整窗口大小時保存，下次啟動程序時尺寸不變。",
+  "@rememberWindowSizeSubtitle": {
+    "description": "主題頁面中設置選項的副標題"
+  },
+  "closeNotification": "Rune 仍在運行",
+  "@closeNotification": {
+    "description": "當用戶關閉窗口時，彈出的通知"
+  },
+  "closeNotificationSubtitle": "Rune 正在後台運行。您可以在系統托盤中輕鬆找到。",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "註冊",
+  "@register": {
+    "description": "設置頁面中註冊磁貼的標題。"
+  },
+  "evaluationModeContent4": "您可以從下面的商店購買音樂文件作為註冊碼。點擊“註冊”以驗證您的正版狀態。",
+  "@evaluationModeContent4": {
+    "description": "評估模式模態的內容。"
+  },
+  "registerAction": "註冊",
+  "@registerAction": {
+    "description": "模態中註冊按鈕的標籤。"
+  },
+  "registerFailed": "註冊失敗",
+  "@registerFailed": {
+    "description": "註冊失敗模態的標題。"
+  },
+  "registerFailedSubtitle": "驗證過程中發生錯誤。",
+  "@registerFailedSubtitle": {
+    "description": "註冊失敗模態的內容。"
+  },
+  "registerSuccess": "註冊成功",
+  "@registerSuccess": {
+    "description": "註冊成功模態的標題。"
+  },
+  "registerSuccessSubtitle": "恭喜！您的軟體已成功註冊，感謝您選擇 Rune。",
+  "@registerSuccessSubtitle": {
+    "description": "註冊成功模態的內容。"
+  },
+  "registerInvalid": "金鑰無效",
+  "@registerInvalid": {
+    "description": "無效註冊金鑰模態的標題。"
+  },
+  "registerInvalidSubtitle": "您提供的金鑰文件無效。請檢查文件並重試。",
+  "@registerInvalidSubtitle": {
+    "description": "無效註冊金鑰模態的內容。"
+  },
+  "importM3u8Success": "導入成功",
+  "@importM3u8Success": {
+    "description": "部分導入成功模態的標題。"
+  },
+  "importM3u8SuccessSubtitle": "您的曲目已導入，但有些曲目並未在資料庫中檢索到。",
+  "@importM3u8SuccessSubtitle": {
+    "description": "部分導入成功模態的內容。"
+  },
+  "importM3u8Failed": "導入失敗",
+  "@importM3u8Failed": {
+    "description": "導入失敗模態的標題。"
+  },
+  "importM3u8FailedSubtitle": "導入過程中發生錯誤。",
+  "@importM3u8FailedSubtitle": {
+    "description": "導入失敗模態的內容。"
+  },
+  "importM3u8": "導入播放列表",
+  "@importM3u8": {
+    "description": "上下文菜單項，指導用戶導入新播放列表。"
+  },
+  "adaptiveSwitching": "自適應切換",
+  "@adaptiveSwitching": {
+    "description": "播放設置頁面中條目的設置標題"
+  },
+  "adaptiveSwitchingSubtitle": "切換上一首時，若已播放超過 3 秒，則從頭播放當前曲目。",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "播放設置頁面中條目的設置描述"
+  },
+  "considerPurchase": "請考慮購買正版許可證。",
+  "@considerPurchase": {
+    "description": "關於頁面中的通知，引導用戶購買許可證"
+  },
+  "lyrics": "歌詞",
+  "@lyrics": {
+    "description": "按鈕提示文本，用於控制播放，用於切換到歌詞頁面。"
+  },
+  "lyricsSubtitle": "展示曲目的完整歌詞",
+  "@lyricsSubtitle": {},
+  "onlineServices": "在線服務",
+  "@onlineServices": {
+    "description": "播放設置頁面中的章節標題。"
+  },
+  "login": "登錄",
+  "@login": {
+    "description": "登錄模態框的操作按鈕。"
+  },
+  "loginFailed": "登錄失敗",
+  "@loginFailed": {
+    "description": "登錄模態框中登入失敗按鈕的標題。"
+  },
+  "loginFailedSubtitle": "嘗試登錄時出錯",
+  "@loginFailedSubtitle": {
+    "description": "登錄模態框中登入失敗按鈕的副標題。"
+  },
+  "lastFmSubtitle": "使用此音樂跟蹤服務提供詳細的收聽見解。",
+  "@lastFmSubtitle": {
+    "description": "scrobble 服務的描述。"
+  },
+  "libreFmSubtitle": "一個自由開放的平台，用於分享您的音樂品味。",
+  "@libreFmSubtitle": {
+    "description": "scrobble 服務的描述。"
+  },
+  "listenBrainzSubtitle": "在追蹤您的習慣的同時為開源資料庫做出貢獻。",
+  "@listenBrainzSubtitle": {
+    "description": "scrobble 服務的描述。"
+  },
+  "fix": "修復",
+  "@fix": {
+    "description": "服務登錄失敗設置項的動作按鈕。"
+  },
+  "confirmLogoutTitle": "確認註銷",
+  "@confirmLogoutTitle": {
+    "description": "註銷確認對話框的標題。"
+  },
+  "confirmLogoutSubtitle": "您確定要註銷嗎？所有本地儲存的登錄憑證都將被刪除。",
+  "@confirmLogoutSubtitle": {
+    "description": "註銷確認對話框的副標題。"
+  },
+  "retryLogin": "重試登錄",
+  "@retryLogin": {
+    "description": "錯誤選項菜單中的重試登錄選項。"
+  },
+  "logout": "註銷",
+  "@logout": {
+    "description": "錯誤選項菜單中的註銷選項。"
+  },
+  "copy": "複製",
+  "@copy": {
+    "description": "內容上下文菜單中的項。"
+  },
+  "username": "使用者名稱",
+  "@username": {
+    "description": "scrobble 登錄表單的輸入欄位標題。"
+  },
+  "password": "密碼",
+  "@password": {
+    "description": "scrobble 登錄表單的輸入欄位標題。"
+  },
+  "apiKey": "API Key",
+  "@apiKey": {
+    "description": "scrobble 登錄表單的輸入欄位標題。"
+  },
+  "apiSecret": "API Secret",
+  "@apiSecret": {
+    "description": "scrobble 登錄表單的輸入欄位標題。"
+  },
+  "userToken": "User Token",
+  "@userToken": {
+    "description": "scrobble 登錄表單的輸入欄位標題。"
+  },
+  "hostname": "主機名",
+  "@hostname": {
+    "description": "URL 的主機名部分。"
+  },
+  "port": "埠",
+  "@port": {
+    "description": "URL 的埠部分。"
+  },
+  "secured": "已加密",
+  "@secured": {
+    "description": "是否為加密連接。"
+  },
+  "addConnection": "添加連接",
+  "@addConnection": {
+    "description": "對話框中的操作按鈕。"
+  },
+  "neighbors": "附近",
+  "@neighbors": {
+    "description": "用於幫助用戶互相連接的設置頁面。"
+  },
+  "searchNeighbors": "搜索附近設備",
+  "@searchNeighbors": {
+    "description": "相鄰設置頁面中的項目，用於發現本地網路中的設備。"
+  },
+  "searchNeighborsSubtitle": "在本地網路中尋找並連接 Rune 設備。",
+  "@searchNeighborsSubtitle": {
+    "description": "搜索鄰居設置項的副標題。"
+  },
+  "editDeviceInformation": "編輯設備資訊",
+  "@editDeviceInformation": {
+    "description": "出現在設備設定中。指的是在掃描過程中向其他用戶展示的設備資訊。"
+  },
+  "editDeviceInformationSubtitle": "自訂在掃描過程中展示給其他設備的詳細資訊。",
+  "@editDeviceInformationSubtitle": {
+    "description": "強調更改將影響在他人掃描列表中的可見性。避免使用技術術語，突出“掃描”這一交互場景。"
+  },
+  "enableBroadcast": "啟用廣播",
+  "@enableBroadcast": {
+    "description": "“廣播”意味著主動發送設備資訊。如目標語言中沒有直接對應詞彙，可優先使用“使可見”或“共享可用性”。"
+  },
+  "enableBroadcastSubtitle": "展示您的設備資訊，供他人發現。",
+  "@enableBroadcastSubtitle": {
+    "description": "避免歧義：此處“公開”僅指對本地網路中的用戶，而非整個網路。"
+  },
+  "addNeighborManually": "手動添加附近設備",
+  "@addNeighborManually": {
+    "description": "“附近設備”指的是在同一區域網路內的設備。如空間允許，也可使用“手動添加鄰居”。應優先簡潔表達。"
+  },
+  "addNeighborManuallySubtitle": "手動輸入設備的區域網路資訊以建立連接。",
+  "@addNeighborManuallySubtitle": {
+    "description": "明確“區域網路”不等於公共網路（例如區域網路中的 IP/埠）。“連接”意味著建立直接連結，而非僅僅顯示可見。"
+  },
+  "stop": "停止",
+  "@stop": {
+    "description": "用於終止當前活動的操作按鈕。"
+  },
+  "deviceFingerprint": "設備指紋",
+  "@deviceFingerprint": {
+    "description": "用於安全識別與連接的設備唯一標識符。"
+  },
+  "deviceName": "設備名稱",
+  "@deviceName": {
+    "description": "用戶自訂的設備名稱，在掃描和連接過程中展示給其他用戶。"
+  },
+  "noDevicesFound": "未發現設備",
+  "@noDevicesFound": {
+    "description": "掃描過程中未發現任何設備時顯示的資訊。"
+  },
+  "error": "錯誤：{error}",
+  "@error": {
+    "description": "設備發現失敗時顯示的錯誤資訊。",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "權限被拒絕"
+      }
+    }
+  },
+  "model": "型號",
+  "@model": {
+    "description": "設備型號資訊的標籤。"
+  },
+  "type": "類型",
+  "@type": {
+    "description": "設備類型資訊的標籤。"
+  },
+  "fingerprint": "指紋",
+  "@fingerprint": {
+    "description": "設備指紋資訊的標籤。"
+  },
+  "lastSeen": "上次發現",
+  "@lastSeen": {
+    "description": "設備上次被檢測到的時間標籤。"
+  },
+  "ipAddresses": "IP 地址",
+  "@ipAddresses": {
+    "description": "設備 IP 地址的標籤。"
+  },
+  "pair": "配對",
+  "@pair": {
+    "description": "用於發起設備配對的按鈕文本。"
+  },
+  "pairingWith": "正在與 {deviceName} 配對…",
+  "@pairingWith": {
+    "description": "開始配對流程時顯示的資訊。",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "客廳電視"
+      }
+    }
+  },
+  "server": "伺服器",
+  "@server": {
+    "description": "用於控制媒體播放器共享行為的設置頁面標題，包括管理授權用戶和廣播設備狀態。"
+  },
+  "serverControl": "伺服器控制",
+  "@serverControl": {
+    "description": "用於控制本地網路伺服器的部分標題。“伺服器”指的是用於設備發現的後台服務。"
+  },
+  "serverControlSubtitle": "啟動伺服器以便其他設備在本地網路中發現此設備。",
+  "@serverControlSubtitle": {
+    "description": "明確伺服器僅在本地網路中運行。強調啟動伺服器會使設備對他人可見。"
+  },
+  "selectInterface": "網路界面",
+  "@selectInterface": {
+    "description": "用於選擇伺服器綁定的網路界面的標籤。保持技術性但應清晰。"
+  },
+  "approvedStatus": "已批准",
+  "@approvedStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示該設備已被完全授權。若更自然，可使用“已驗證”或“已確認”。"
+  },
+  "pendingStatus": "待審批",
+  "@pendingStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示正等待批准。優先使用表示“待處理”的術語而非技術詞彙如“排隊中”。"
+  },
+  "blockedStatus": "已阻止",
+  "@blockedStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示明確拒絕訪問。可視文化適用使用“已封禁”或“被拒絕”等強烈用詞，但應避免負面含義過重。"
+  },
+  "unknownStatus": "未知",
+  "@unknownStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示狀態無法識別或未定義。建議使用“未識別”或“未定義”，保持中性語氣，不暗示錯誤。UI 中常配灰色。"
+  },
+  "review": "審查",
+  "@review": {
+    "description": "用於審查待處理設備連接請求的按鈕。會彈出一個允許或阻止設備的對話框。"
+  },
+  "reviewRequestTitle": "連接請求",
+  "@reviewRequestTitle": {
+    "description": "審查設備連接時對話框顯示的標題。保持簡潔，突出所需操作。"
+  },
+  "blockDevice": "阻止設備",
+  "@blockDevice": {
+    "description": "永久拒絕訪問的操作。根據文化習慣也可用“封禁”，但避免負面情緒過重。"
+  },
+  "allowAccess": "允許訪問",
+  "@allowAccess": {
+    "description": "授權連接權限的操作。可根據習慣使用“批准”或“授權”。"
+  },
+  "connectionVerificationMessage": "若要允許設備 {alias}（{model}）連接，請分享以下通信金鑰指紋以驗證您的身份。",
+  "@connectionVerificationMessage": {
+    "description": "用於建立信任的操作說明文本。強調透過分享指紋來進行身份驗證。可使用“驗證”或“認證”類術語。",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "用戶自訂的設備暱稱"
+      },
+      "model": {
+        "type": "String",
+        "description": "廠商定義的設備型號標識"
+      }
+    }
+  },
+  "allowAccessSubtitle": "授權此設備控制播放並獲取曲目。",
+  "@allowAccessSubtitle": {
+    "description": "說明允許訪問時會授予的權限。“獲取”指的是獲取媒體內容。"
+  },
+  "blockDeviceSubtitle": "阻止未來的連接。您可隨時取消對該設備的阻止。",
+  "@blockDeviceSubtitle": {
+    "description": "說明阻止行為的後果及可撤銷性。如 UI 不同，可用“設備管理中解除”類描述。"
+  },
+  "removeTrust": "移除權限",
+  "@removeTrust": {
+    "description": "用於刪除設備權限記錄的對話框標題。強調永久移除所有已批准/已阻止狀態，並需要重新註冊。"
+  },
+  "removeTrustSubtitle": "此操作將永久刪除權限記錄。設備將失去所有訪問狀態（批准/阻止），並需重新發送註冊請求，以再次出現在列表中。",
+  "@removeTrustSubtitle": {
+    "description": "說明刪除行為會移除所有歷史狀態，並需要重新註冊。如更自然可使用“清除記錄”等表達，但應與“移除權限”保持一致。"
+  },
+  "pairingTitle": "設備配對",
+  "@pairingTitle": {
+    "description": "用於安全配對對話框的標題。應突出雙向認證過程。"
+  },
+  "pairingLoading": "正在獲取設備指紋…",
+  "@pairingLoading": {
+    "description": "指紋驗證過程中顯示的狀態文本。表示正在進行安全檢查。"
+  },
+  "pairingInstructions": "為進行安全驗證，請選擇與您的伙伴設備上顯示的指紋相匹配的字元，以確認連接的是正確設備。",
+  "@pairingInstructions": {
+    "description": "說明部分指紋驗證流程。使用“安全驗證”而非技術術語如 MITM。"
+  },
+  "pairingFailureTitle": "配對失敗",
+  "@pairingFailureTitle": {
+    "description": "指紋不匹配時的標題。表達失敗結果但不引起過度擔憂。"
+  },
+  "pairingFailureMessage": "指紋不匹配。請確認您正在連接正確的設備，並重新進行驗證。",
+  "@pairingFailureMessage": {
+    "description": "引導用戶重試，而不是建議檢查網路。重點放在設備驗證上。"
+  },
+  "closingWindowBehaviorTitle": "關閉窗口行為",
+  "@closingWindowBehaviorTitle": {
+    "description": "窗口關閉行為設置部分的標題文本。強調用戶可控制應用關閉時的行為。"
+  },
+  "closingWindowBehaviorSubtitle": "選擇點擊關閉按鈕時應用的行為。",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "解釋用戶可以自訂關閉按鈕的行為。可使用“自訂”或“配置”等詞替代。"
+  },
+  "minimizeToTray": "最小化到托盤",
+  "@minimizeToTray": {
+    "description": "選項文本，表示關閉窗口後程序仍在後台運行。也可使用“隱藏到托盤”或“保持運行”表達方式。"
+  },
+  "exitProgram": "完全退出",
+  "@exitProgram": {
+    "description": "選項文本，表示關閉窗口時程序將徹底退出。也可使用“關閉應用”或“終止程式”等替代表述。"
+  },
+  "systemTabTitle": "系統",
+  "@systemTabTitle": {
+    "description": "系統設置部分的導航標籤標題，表示包含系統級配置選項的集合。"
+  },
+  "removeFromPlaylist": "從播放列表中移除",
+  "@removeFromPlaylist": {
+    "description": "用於將曲目從當前播放列表中移除的操作。在右鍵點擊歌曲時作為菜單選項出現。可根據語言習慣使用“刪除”或“移除”。"
+  },
+  "waitForApprove": "正在等待伺服器批准此請求…",
+  "@waitForApprove": {
+    "description": "在伺服器連接驗證過程中顯示的載入資訊。"
+  },
+  "clientBlockedTitle": "連接被阻止",
+  "@clientBlockedTitle": {
+    "description": "錯誤標題，表示遠程設備已阻止該用戶端的連接嘗試。"
+  },
+  "clientBlockedMessage": "遠程設備已阻止您的用戶端連接。您需要獲得該設備所有者的許可才能建立連接。",
+  "@clientBlockedMessage": {
+    "description": "說明用戶的連接請求被遠程設備拒絕。建議用戶聯繫設備所有者以解決問題。"
+  },
+  "genres": "音樂類型",
+  "@genres": {
+    "description": "用於音樂類別/風格列表的標題或分區名。可能用於音樂庫分類、篩選選項或偏好設置。可根據語言習慣選擇“音樂分類”、“音樂風格”或“音樂種類”等表述。"
+  },
+  "genreQuery": "類型查詢",
+  "@genreQuery": {},
+  "deduplicate": "去重",
+  "@deduplicate": {
+    "description": "按鈕標籤，用於從音樂庫或播放列表中移除重複曲目。表示識別並刪除重複歌曲的功能。可根據語言習慣使用“刪除重複”或“清理重複”等說法。"
+  },
+  "deduplicateThresholdTitle": "去重閾值",
+  "@deduplicateThresholdTitle": {
+    "description": "音訊相似度閾值設置的標題。表示用戶可以在此調整檢測重複曲目時的比較嚴格程度。"
+  },
+  "deduplicateThresholdSubtitle": "調整檢測相似音訊曲目的靈敏度級別。",
+  "@deduplicateThresholdSubtitle": {
+    "description": "簡要說明音訊相似度閾值控制的內容。幫助用戶理解該配置項的用途。"
+  },
+  "nearlyIdentical": "幾乎一致",
+  "@nearlyIdentical": {
+    "description": "最高級別的音訊相似度閾值，表示曲目幾乎完全一致。用於配置重複檢測設置。可根據語言習慣使用“完全一致”或“完美匹配”。"
+  },
+  "highlySimiar": "高度相似",
+  "@highlySimiar": {
+    "description": "第二高的音訊相似度閾值，表示曲目之間差異極少。用於配置重複檢測設置。可使用“非常相似”或“近乎一致”等表述。"
+  },
+  "moderatelySimilar": "部分相似",
+  "@moderatelySimilar": {
+    "description": "中等程度的音訊相似度閾值，表示曲目之間存在明顯但不嚴重的差異。可使用“部分相似”或“有些一致”。"
+  },
+  "slightlySimilar": "略微相似",
+  "@slightlySimilar": {
+    "description": "最低級別的音訊相似度閾值，表示曲目之間僅有少量相似特徵。可使用“基本上不一致”或“略有相似”。"
+  },
+  "deduplicating": "正在去重",
+  "@deduplicating": {
+    "description": "表示當前正在執行去重過程的標籤。向用戶展示系統正在移除音樂庫或播放列表中的重複曲目。也可使用“正在移除重複項”或“去重進行中”等表達。"
+  }
 }
