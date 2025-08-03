@@ -2,7 +2,9 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use foreign_keys::RuneForeignKeyResolver;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityName, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityName, EntityTrait, QueryFilter, Set,
+};
 use sync::{
     chunking::ChunkingOptions,
     core::{RemoteDataSource, SyncContext, SyncDirection, SyncTableMetadata},

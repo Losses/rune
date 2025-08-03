@@ -41,7 +41,7 @@ impl MigrationTrait for Migration {
     }
 }
 
-#[derive(Iden, Clone, Copy)] 
+#[derive(Iden, Clone, Copy)]
 pub enum Albums {
     Table,
     Id,

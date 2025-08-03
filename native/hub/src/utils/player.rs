@@ -10,7 +10,6 @@ use sea_orm::{DatabaseConnection, TransactionTrait};
 use tokio::sync::{Mutex, RwLock};
 use tokio::task;
 
-use ::scrobbling::manager::ScrobblingServiceManager;
 use ::database::actions::logging::insert_log;
 use ::database::actions::playback_queue::replace_playback_queue;
 use ::database::actions::stats::increase_played_through;
@@ -27,6 +26,7 @@ use ::playback::player::{Playable, PlaylistStatus};
 use ::playback::MediaMetadata;
 use ::playback::MediaPlayback;
 use ::playback::MediaPosition;
+use ::scrobbling::manager::ScrobblingServiceManager;
 use ::scrobbling::ScrobblingTrack;
 
 use crate::messages::*;

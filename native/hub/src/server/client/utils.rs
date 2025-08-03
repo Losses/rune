@@ -6,8 +6,8 @@ use log::error;
 use tokio::sync::{Mutex, RwLock};
 
 use discovery::{
-    protocol::{DiscoveredDevice, DiscoveryService},
     client::CertValidator,
+    protocol::{DiscoveredDevice, DiscoveryService},
 };
 
 use crate::fs::VirtualFS;

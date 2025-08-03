@@ -218,9 +218,9 @@ pub fn initial_sync<T: TimestampExchanger>(
 /// ```rust
 /// use std::time::{Duration, Instant};
 /// use std::thread;
-/// 
+///
 /// use once_cell::sync::Lazy;
-/// 
+///
 /// use crate::sync::clock::{check_offset, CristianError, TimestampExchanger, Timestamp, ClockOffset, PROCESS_START};
 ///
 /// // Mock TimestampExchanger defined directly within the doctest

@@ -761,7 +761,7 @@ pub mod tests {
                 match DateTime::parse_from_rfc3339(&self.updated_at_hlc_ts) {
                     Ok(dt) => Some(HLC {
                         timestamp_ms: dt.timestamp_millis() as u64, // Convert to u64 millis
-                        version: self.updated_at_hlc_v as u32,   // Convert back to u32
+                        version: self.updated_at_hlc_v as u32,      // Convert back to u32
                         node_id: self.updated_at_hlc_nid,
                     }),
                     Err(e) => {

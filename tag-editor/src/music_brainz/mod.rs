@@ -1,2 +1,2 @@
-pub mod fingerprint;
 pub mod api;
+pub mod fingerprint;

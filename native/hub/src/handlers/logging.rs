@@ -8,7 +8,9 @@ use ::database::{
 };
 
 use crate::{
-    messages::*, utils::{GlobalParams, ParamsExtractor}, Session, Signal
+    messages::*,
+    utils::{GlobalParams, ParamsExtractor},
+    Session, Signal,
 };
 
 impl ParamsExtractor for ListLogRequest {

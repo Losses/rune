@@ -295,10 +295,13 @@ macro_rules! parallel_media_files_processing {
                                     .with_context(|| "Failed to spawn analysis task")
                                 {
                                     Ok(analysis_result) => {
-                                        {
-                                            $result_handler(&main_db, file, node_id_clone.clone(), analysis_result)
-                                            .await;
-                                        }
+                                        $result_handler(
+                                            &main_db,
+                                            file,
+                                            node_id_clone.clone(),
+                                            analysis_result,
+                                        )
+                                        .await;
                                     }
                                     Err(e) => error!("{:?}", e),
                                 }

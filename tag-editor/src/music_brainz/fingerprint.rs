@@ -177,7 +177,11 @@ pub fn encode_fingerprint(
     }
 }
 
-pub fn calculate_similarity_score(segments: &[Segment], duration_secs: f32, config: &Configuration) -> f32 {
+pub fn calculate_similarity_score(
+    segments: &[Segment],
+    duration_secs: f32,
+    config: &Configuration,
+) -> f32 {
     let mut total = 0.0;
     for seg in segments {
         let duration = seg.duration(config);

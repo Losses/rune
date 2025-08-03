@@ -42,7 +42,10 @@ impl MigrationTrait for Migration {
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_media_file_fingerprint_media_file_id")
-                            .from(MediaFileFingerprint::Table, MediaFileFingerprint::MediaFileId)
+                            .from(
+                                MediaFileFingerprint::Table,
+                                MediaFileFingerprint::MediaFileId,
+                            )
                             .to(MediaFiles::Table, MediaFiles::Id)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade),

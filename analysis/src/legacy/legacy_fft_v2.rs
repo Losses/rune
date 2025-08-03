@@ -97,7 +97,8 @@ impl FFTProcessor {
 
         let fn_is_cancelled: Box<dyn Fn() -> bool> = Box::new(move || {
             cancel_token
-                .as_ref().is_some_and(|token| token.is_cancelled())
+                .as_ref()
+                .is_some_and(|token| token.is_cancelled())
         });
         let is_cancelled = false;
 

@@ -998,18 +998,36 @@ async fn test_bidirectional_updates_different_albums() -> Result<()> {
     assert_eq!(Albums::find().count(&fixture.server_db).await?, 2);
 
     // Check Album A on both sides
-    let final_a_on_client = Albums::find_by_id(client_album.id).one(&fixture.client_db).await?.unwrap();
-    let final_a_on_server = Albums::find_by_id(client_album.id).one(&fixture.server_db).await?.unwrap();
+    let final_a_on_client = Albums::find_by_id(client_album.id)
+        .one(&fixture.client_db)
+        .await?
+        .unwrap();
+    let final_a_on_server = Albums::find_by_id(client_album.id)
+        .one(&fixture.server_db)
+        .await?
+        .unwrap();
     assert_eq!(final_a_on_client.name, "Album A updated by Server");
     assert_eq!(final_a_on_server.name, "Album A updated by Server");
-    assert_eq!(final_a_on_server.updated_at_hlc_ts, updated_a.updated_at_hlc_ts);
+    assert_eq!(
+        final_a_on_server.updated_at_hlc_ts,
+        updated_a.updated_at_hlc_ts
+    );
 
     // Check Album B on both sides
-    let final_b_on_client = Albums::find_by_id(server_album.id).one(&fixture.client_db).await?.unwrap();
-    let final_b_on_server = Albums::find_by_id(server_album.id).one(&fixture.server_db).await?.unwrap();
+    let final_b_on_client = Albums::find_by_id(server_album.id)
+        .one(&fixture.client_db)
+        .await?
+        .unwrap();
+    let final_b_on_server = Albums::find_by_id(server_album.id)
+        .one(&fixture.server_db)
+        .await?
+        .unwrap();
     assert_eq!(final_b_on_client.name, "Album B updated by Client");
     assert_eq!(final_b_on_server.name, "Album B updated by Client");
-    assert_eq!(final_b_on_client.updated_at_hlc_ts, updated_b.updated_at_hlc_ts);
+    assert_eq!(
+        final_b_on_client.updated_at_hlc_ts,
+        updated_b.updated_at_hlc_ts
+    );
 
     Ok(())
 }
@@ -1044,12 +1062,14 @@ async fn test_conflict_resolution_create_create_client_wins() -> Result<()> {
 
     // Pre-condition check
     let client_hlc = ::sync::hlc::HLC {
-        timestamp_ms: DateTime::parse_from_rfc3339(&client_album.updated_at_hlc_ts)?.timestamp_millis() as u64,
+        timestamp_ms: DateTime::parse_from_rfc3339(&client_album.updated_at_hlc_ts)?
+            .timestamp_millis() as u64,
         version: client_album.updated_at_hlc_ver as u32,
         node_id: client_album.updated_at_hlc_nid.parse()?,
     };
     let server_hlc = ::sync::hlc::HLC {
-        timestamp_ms: DateTime::parse_from_rfc3339(&server_album.updated_at_hlc_ts)?.timestamp_millis() as u64,
+        timestamp_ms: DateTime::parse_from_rfc3339(&server_album.updated_at_hlc_ts)?
+            .timestamp_millis() as u64,
         version: server_album.updated_at_hlc_ver as u32,
         node_id: server_album.updated_at_hlc_nid.parse()?,
     };
@@ -1103,12 +1123,14 @@ async fn test_conflict_resolution_create_create_server_wins() -> Result<()> {
 
     // Pre-condition check
     let client_hlc = ::sync::hlc::HLC {
-        timestamp_ms: DateTime::parse_from_rfc3339(&client_album.updated_at_hlc_ts)?.timestamp_millis() as u64,
+        timestamp_ms: DateTime::parse_from_rfc3339(&client_album.updated_at_hlc_ts)?
+            .timestamp_millis() as u64,
         version: client_album.updated_at_hlc_ver as u32,
         node_id: client_album.updated_at_hlc_nid.parse()?,
     };
     let server_hlc = ::sync::hlc::HLC {
-        timestamp_ms: DateTime::parse_from_rfc3339(&server_album.updated_at_hlc_ts)?.timestamp_millis() as u64,
+        timestamp_ms: DateTime::parse_from_rfc3339(&server_album.updated_at_hlc_ts)?
+            .timestamp_millis() as u64,
         version: server_album.updated_at_hlc_ver as u32,
         node_id: server_album.updated_at_hlc_nid.parse()?,
     };
@@ -1250,20 +1272,56 @@ async fn test_chunking_and_update_propagation() -> Result<()> {
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis() as u64;
 
-    for i in 0..50 { // 50 records, ~30 days old
+    for i in 0..50 {
+        // 50 records, ~30 days old
         let timestamp_ms = now_ms - 30 * 24 * 60 * 60 * 1000 + (i * 1000) as u64;
-        let hlc = ::sync::hlc::HLC { timestamp_ms, version: 0, node_id: server_node_id };
-        seed_album_with_hlc(&fixture.server_db, i + 1, &format!("Album {}", i + 1), None, &hlc).await?;
+        let hlc = ::sync::hlc::HLC {
+            timestamp_ms,
+            version: 0,
+            node_id: server_node_id,
+        };
+        seed_album_with_hlc(
+            &fixture.server_db,
+            i + 1,
+            &format!("Album {}", i + 1),
+            None,
+            &hlc,
+        )
+        .await?;
     }
-    for i in 50..100 { // 50 records, ~10 days old
+    for i in 50..100 {
+        // 50 records, ~10 days old
         let timestamp_ms = now_ms - 10 * 24 * 60 * 60 * 1000 + (i * 1000) as u64;
-        let hlc = ::sync::hlc::HLC { timestamp_ms, version: 0, node_id: server_node_id };
-        seed_album_with_hlc(&fixture.server_db, i + 1, &format!("Album {}", i + 1), None, &hlc).await?;
+        let hlc = ::sync::hlc::HLC {
+            timestamp_ms,
+            version: 0,
+            node_id: server_node_id,
+        };
+        seed_album_with_hlc(
+            &fixture.server_db,
+            i + 1,
+            &format!("Album {}", i + 1),
+            None,
+            &hlc,
+        )
+        .await?;
     }
-    for i in 100..num_albums { // 50 records, ~1 day old
+    for i in 100..num_albums {
+        // 50 records, ~1 day old
         let timestamp_ms = now_ms - 24 * 60 * 60 * 1000 + (i * 1000) as u64;
-        let hlc = ::sync::hlc::HLC { timestamp_ms, version: 0, node_id: server_node_id };
-        seed_album_with_hlc(&fixture.server_db, i + 1, &format!("Album {}", i + 1), None, &hlc).await?;
+        let hlc = ::sync::hlc::HLC {
+            timestamp_ms,
+            version: 0,
+            node_id: server_node_id,
+        };
+        seed_album_with_hlc(
+            &fixture.server_db,
+            i + 1,
+            &format!("Album {}", i + 1),
+            None,
+            &hlc,
+        )
+        .await?;
     }
 
     // 2. Initial sync to get all albums on the client
@@ -1291,9 +1349,9 @@ async fn test_chunking_and_update_propagation() -> Result<()> {
         .await?
         .unwrap()
         .into_active_model();
-    
+
     let update_hlc = fixture.server_hlc_context().generate_hlc(); // A current HLC
-    
+
     album_to_update.name = Set("Updated Album Name".to_string());
     album_to_update.updated_at_hlc_ts = Set(update_hlc.to_rfc3339()?);
     album_to_update.updated_at_hlc_ver = Set(update_hlc.version as i32);
@@ -1305,15 +1363,22 @@ async fn test_chunking_and_update_propagation() -> Result<()> {
         .remote_data_source
         .get_remote_chunks::<albums::Entity>(ALBUMS_TABLE, None)
         .await?;
-    
-    assert_eq!(chunks_before.len(), chunks_after.len(), "Number of chunks should not change");
+
+    assert_eq!(
+        chunks_before.len(),
+        chunks_after.len(),
+        "Number of chunks should not change"
+    );
 
     let changed_chunks = chunks_before
         .iter()
         .zip(chunks_after.iter())
         .filter(|(a, b)| a.chunk_hash != b.chunk_hash)
         .count();
-    assert_eq!(changed_chunks, 1, "Exactly one chunk hash should have changed");
+    assert_eq!(
+        changed_chunks, 1,
+        "Exactly one chunk hash should have changed"
+    );
 
     // 6. Run sync again
     fixture.run_sync().await?;
@@ -1323,7 +1388,7 @@ async fn test_chunking_and_update_propagation() -> Result<()> {
         .one(&fixture.client_db)
         .await?
         .context("Updated album not found on client")?;
-    
+
     assert_eq!(updated_album_on_client.name, "Updated Album Name");
     assert_eq!(
         Albums::find().count(&fixture.client_db).await?,

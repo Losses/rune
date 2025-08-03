@@ -148,7 +148,11 @@ pub fn get_storage_info(lib_path: &str, db_path: Option<&str>) -> Result<Storage
 
 pub type MainDbConnection = sea_orm::DatabaseConnection;
 
-pub async fn connect_main_db(lib_path: &str, db_path: Option<&str>, node_id: &str) -> Result<MainDbConnection> {
+pub async fn connect_main_db(
+    lib_path: &str,
+    db_path: Option<&str>,
+    node_id: &str,
+) -> Result<MainDbConnection> {
     let storage_info = get_storage_info(lib_path, db_path)?;
     let db_path = storage_info.get_main_db_path();
 

@@ -78,7 +78,8 @@ pub fn fft(
     // Helper function to check cancellation
     let is_cancelled = || {
         cancel_token
-            .as_ref().is_some_and(|token| token.is_cancelled())
+            .as_ref()
+            .is_some_and(|token| token.is_cancelled())
     };
 
     // Get the audio track.

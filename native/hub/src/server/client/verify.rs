@@ -1,11 +1,13 @@
-use std::{fmt, sync::Arc};
 use std::time::Duration;
+use std::{fmt, sync::Arc};
 
 use anyhow::{Context, Result};
 use colored::Colorize;
 use futures::StreamExt;
 use hub::server::{
-    api::{fetch_device_info, register_device}, generate_or_load_certificates, get_or_generate_alias, utils::path::get_config_dir
+    api::{fetch_device_info, register_device},
+    generate_or_load_certificates, get_or_generate_alias,
+    utils::path::get_config_dir,
 };
 use log::info;
 
@@ -154,7 +156,8 @@ pub async fn register_current_device(host: &str, config: Arc<ClientConfig>) -> R
         certificate_id,
         "RuneAudio".to_owned(),
         "Headless".to_owned(),
-    ).await?;
+    )
+    .await?;
 
     Ok(())
 }
