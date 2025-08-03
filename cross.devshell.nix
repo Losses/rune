@@ -20,7 +20,7 @@ pkgsCross.callPackage (
     sqlite,
     clippy,
     rust-analyzer,
-    flutter329,
+    flutter,
     rustup,
     mount,
     protobuf_26,
@@ -54,7 +54,7 @@ pkgsCross.callPackage (
       clang
       cmake
       binutils
-      flutter329
+      flutter
       clippy
       rust-analyzer
       rustup

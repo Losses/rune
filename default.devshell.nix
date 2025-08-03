@@ -24,7 +24,7 @@ pkgs.mkShell {
     clippy
     rust-analyzer
     rustup
-    masterPkgs.flutter329
+    masterPkgs.flutter
     android-studio
     androidSdk
     pinnedJDK

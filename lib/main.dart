@@ -14,8 +14,8 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import 'package:system_tray/system_tray.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
+import 'l10n/app_localizations.dart';
 import 'utils/l10n.dart';
 import 'utils/locale.dart';
 import 'utils/rune_log.dart';

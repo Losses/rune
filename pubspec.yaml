@@ -19,7 +19,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 version: 2.0.1004
 
 environment:
-  sdk: ">=3.5.1 <4.0.0"
+  sdk: ">=3.8.1 <4.0.0"
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -61,7 +61,7 @@ dependencies:
   flutter_boring_avatars: ^2.0.1
   logger: ^2.4.0
   flutter_svg: ^2.0.10+1
-  rinf: ^8.4.0
+  rinf: ^8.7.1
   tuple: ^2.0.2
   meta: ^1.15.0
   very_good_infinite_list: ^0.9.0
@@ -73,7 +73,7 @@ dependencies:
       ref: c07abbf7c186c543de09a9c7df8577bbf5e27748
   permission_handler: ^11.3.1
   animated_flip_counter: ^0.3.4
-  intl: ^0.19.0
+  intl: ^0.20.2
   bitsdojo_window: ^0.1.6
   flutter_window_close: ^1.2.0
   flutter_staggered_grid_view: ^0.7.0

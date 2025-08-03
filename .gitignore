@@ -143,6 +143,9 @@ target/
 # rinf
 lib/bindings
 
+# l10n
+lib/l10n/*.dart
+
 # eLinux
 result
 
