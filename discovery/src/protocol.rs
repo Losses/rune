@@ -158,7 +158,7 @@ impl DiscoveryService {
 
         match result.initialize().await {
             Ok(_) => info!("Discovery service initialized"),
-            Err(e) => error!("Failed to initialize discovery service: {}", e),
+            Err(e) => error!("Failed to initialize discovery service: {e}"),
         };
 
         Ok(result)
@@ -406,7 +406,7 @@ impl DiscoveryService {
                     "announce": true
                 });
                 if let Err(e) = Self::send_announcement(&sockets, &announcement).await {
-                    error!("Announcement failed: {}", e);
+                    error!("Announcement failed: {e}");
                 }
             };
 
@@ -523,10 +523,10 @@ impl DiscoveryService {
                                             break; // Exit loop if channel is closed (likely during shutdown)
                                         }
 
-                                        error!("Error handling datagram: {}", e);
+                                        error!("Error handling datagram: {e}");
                                     }
                                 }
-                                Err(e) => error!("Receive error: {}", e), // Log socket receive errors
+                                Err(e) => error!("Receive error: {e}"), // Log socket receive errors
                             }
                         }
                     }

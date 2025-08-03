@@ -50,8 +50,7 @@ where
     let progress_callback = Arc::new(progress_callback);
 
     info!(
-        "Starting audio library analysis with batch size: {}",
-        batch_size
+        "Starting audio library analysis with batch size: {batch_size}"
     );
 
     let existed_ids: Vec<i32> = media_analysis::Entity::find()
@@ -88,11 +87,11 @@ where
                     if let Some(x) = analysis_result {
                         match insert_analysis_result(db, file.id, x).await {
                             Ok(_) => debug!("Finished analysis: {}", file.id),
-                            Err(e) => error!("Failed to insert analysis result: {}", e),
+                            Err(e) => error!("Failed to insert analysis result: {e}"),
                         }
                     };
                 }
-                Err(e) => error!("Failed to analyze track: {}", e),
+                Err(e) => error!("Failed to analyze track: {e}"),
             }
         }
     )

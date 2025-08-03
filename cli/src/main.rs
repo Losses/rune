@@ -135,7 +135,7 @@ async fn main() {
     let canonicalized_path = match canonicalize(&path) {
         Ok(path) => path,
         Err(e) => {
-            error!("Failed to canonicalize path: {}", e);
+            error!("Failed to canonicalize path: {e}");
             return;
         }
     };
@@ -152,7 +152,7 @@ async fn main() {
     let main_db = match connect_main_db(lib_path, None, "").await {
         Ok(db) => db,
         Err(e) => {
-            error!("Failed to connect to main database: {}", e);
+            error!("Failed to connect to main database: {e}");
             return;
         }
     };
@@ -160,7 +160,7 @@ async fn main() {
     let analysis_db = match connect_recommendation_db(lib_path, None) {
         Ok(db) => db,
         Err(e) => {
-            error!("Failed to connect to analysis database: {}", e);
+            error!("Failed to connect to analysis database: {e}");
             return;
         }
     };
@@ -214,7 +214,7 @@ async fn main() {
                     table.printstd();
                 }
                 Err(e) => {
-                    error!("Failed to retrieve metadata summary: {}", e);
+                    error!("Failed to retrieve metadata summary: {e}");
                 }
             }
         }
@@ -277,11 +277,11 @@ async fn main() {
         Commands::Search { query, num } => match search_for(&main_db, query, None, *num).await {
             Ok(results) => {
                 for (collection_type, ids) in results {
-                    info!("{:?}: {:?}", collection_type, ids);
+                    info!("{collection_type:?}: {ids:?}");
                 }
             }
             Err(e) => {
-                error!("Search failed: {}", e);
+                error!("Search failed: {e}");
             }
         },
     }

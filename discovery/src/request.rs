@@ -36,7 +36,7 @@ pub async fn create_https_client(
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
-            eprintln!("Connection error: {}", e);
+            eprintln!("Connection error: {e}");
         }
     });
 

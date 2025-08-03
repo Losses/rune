@@ -35,10 +35,7 @@ where
 {
     let progress_callback = Arc::new(progress_callback);
 
-    info!(
-        "Starting audio fingerprint computation with batch size: {}",
-        batch_size
-    );
+    info!("Starting audio fingerprint computation with batch size: {batch_size}");
 
     let existed_ids: Vec<i32> = media_file_fingerprint::Entity::find()
         .select_only()
@@ -83,10 +80,10 @@ where
 
                     match media_file_fingerprint::Entity::insert(model).exec(db).await {
                         Ok(_) => debug!("Inserted fingerprint for file: {}", file.id),
-                        Err(e) => error!("Failed to insert fingerprint: {}", e),
+                        Err(e) => error!("Failed to insert fingerprint: {e}"),
                     }
                 }
-                Err(e) => error!("Failed to compute fingerprint: {:#?}", e),
+                Err(e) => error!("Failed to compute fingerprint: {e:#?}"),
             }
         }
     )
@@ -145,7 +142,7 @@ where
     info!("Start comparing all tracks");
 
     loop {
-        info!("Comparing fingerprints after: {}", last_id);
+        info!("Comparing fingerprints after: {last_id}");
 
         if let Some(token) = &cancel_token {
             if token.is_cancelled() {
@@ -326,7 +323,7 @@ async fn load_fingerprint(db: DatabaseConnection, id: i32) -> Result<Vec<u32>> {
 }
 
 async fn load_history_files(db: &DatabaseConnection, current_id: i32) -> Result<Vec<i32>> {
-    info!("Loading history files: {}", current_id);
+    info!("Loading history files: {current_id}");
 
     let history_ids = media_files::Entity::find()
         .select_only()
@@ -376,10 +373,7 @@ where
 {
     let progress_callback = Arc::new(progress_callback);
 
-    info!(
-        "Starting duplicate detection with similarity threshold: {}",
-        similarity_threshold
-    );
+    info!("Starting duplicate detection with similarity threshold: {similarity_threshold}");
 
     // Step 1: Get all file similarity pairs above the threshold
     progress_callback(0, 3); // 3 main stages: getting data, grouping, marking
@@ -391,10 +385,7 @@ where
         .context("Failed to retrieve file similarities")?;
 
     if similarities.is_empty() {
-        info!(
-            "No similar files found above threshold {}",
-            similarity_threshold
-        );
+        info!("No similar files found above threshold {similarity_threshold}");
         progress_callback(3, 3); // Complete all stages
         return Ok(0);
     }
@@ -422,7 +413,7 @@ where
     };
 
     let marked_count = mark_duplicates(db, file_groups, progress_callback_for_marking).await?;
-    info!("Marked {} files as duplicates", marked_count);
+    info!("Marked {marked_count} files as duplicates");
     progress_callback(3, 3); // Completed all stages
 
     Ok(marked_count)
@@ -589,6 +580,6 @@ where
         progress_callback(index + 1, total_fingerprints);
     }
 
-    info!("Reset duplicate marks for {} files", updated_count);
+    info!("Reset duplicate marks for {updated_count} files");
     Ok(updated_count)
 }

@@ -324,9 +324,7 @@ pub async fn initialize_local_player(
                     }
                 }
                 Err(e) => {
-                    error!(
-                        "Failed to start txn while logging scrobbler error: {e:#?}"
-                    );
+                    error!("Failed to start txn while logging scrobbler error: {e:#?}");
                 }
             }
         }
@@ -346,8 +344,8 @@ pub async fn initialize_local_player(
                     if let Err(e) = insert_log(
                         &txn,
                         database::actions::logging::LogLevel::Error,
-                        error.domain,
-                        format!("{:#?}", error.error),
+                        error.domain.clone(),
+                        format!("{error:#?}"),
                     )
                     .await
                     {

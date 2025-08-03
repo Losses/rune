@@ -336,7 +336,7 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
     fn gt(hlc: &HLC) -> Result<Condition> {
         let ts_str = hlc
             .to_rfc3339()
-            .with_context(|| format!("Failed to format GT timestamp for HLC {}", hlc))?;
+            .with_context(|| format!("Failed to format GT timestamp for HLC {hlc}"))?;
         let ver_val = hlc.version as i32;
 
         Ok(Condition::any()
@@ -354,7 +354,7 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
     fn lt(hlc: &HLC) -> Result<Condition> {
         let ts_str = hlc
             .to_rfc3339()
-            .with_context(|| format!("Failed to format LT timestamp for HLC {}", hlc))?;
+            .with_context(|| format!("Failed to format LT timestamp for HLC {hlc}"))?;
         let ver_val = hlc.version as i32;
 
         Ok(Condition::any()
@@ -372,7 +372,7 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
     fn gte(hlc: &HLC) -> Result<Condition> {
         let ts_str = hlc
             .to_rfc3339()
-            .with_context(|| format!("Failed to format GTE timestamp for HLC {}", hlc))?;
+            .with_context(|| format!("Failed to format GTE timestamp for HLC {hlc}"))?;
         let ver_val = hlc.version as i32;
 
         Ok(Condition::any()
@@ -390,7 +390,7 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
     fn lte(hlc: &HLC) -> Result<Condition> {
         let ts_str = hlc
             .to_rfc3339()
-            .with_context(|| format!("Failed to format LTE timestamp for HLC {}", hlc))?;
+            .with_context(|| format!("Failed to format LTE timestamp for HLC {hlc}"))?;
         let ver_val = hlc.version as i32;
 
         Ok(Condition::any()
@@ -430,7 +430,7 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
             .filter(Self::unique_id_column().eq(unique_id_value))
             .one(db)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to find record by unique ID: {}", e))
+            .map_err(|e| anyhow::anyhow!("Failed to find record by unique ID: {e}"))
     }
 
     /// Deletes a single record by its unique_id.
@@ -442,7 +442,7 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
             .filter(Self::unique_id_column().eq(unique_id_value))
             .exec(db)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to delete record by unique ID: {}", e))
+            .map_err(|e| anyhow::anyhow!("Failed to delete record by unique ID: {e}"))
     }
 }
 
@@ -530,10 +530,10 @@ mod hlcmodel_tests {
         let expected_sql = r#"("mock_tasks"."updated_at_hlc_ts" > ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" > ?)"#;
         let expected_vals = expected_values(&expected_ts_str, expected_version);
 
-        println!("Generated SQL WHERE (GT): {}", sql_where);
-        println!("Generated Values (GT): {:?}", values);
-        println!("Expected SQL: {}", expected_sql);
-        println!("Expected Values: {:?}", expected_vals);
+        println!("Generated SQL WHERE (GT): {sql_where}");
+        println!("Generated Values (GT): {values:?}");
+        println!("Expected SQL: {expected_sql}");
+        println!("Expected Values: {expected_vals:?}");
 
         assert_eq!(
             normalize_sql(&sql_where),
@@ -586,9 +586,9 @@ mod hlcmodel_tests {
         let expected_sql = r#"("mock_tasks"."updated_at_hlc_ts" > ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" >= ?)"#;
         let expected_vals = expected_values(&expected_ts_str, expected_version);
 
-        println!("Generated SQL WHERE (GTE): {}", sql_where);
-        println!("Generated Values (GTE): {:?}", values);
-        println!("Expected SQL: {}", expected_sql);
+        println!("Generated SQL WHERE (GTE): {sql_where}");
+        println!("Generated Values (GTE): {values:?}");
+        println!("Expected SQL: {expected_sql}");
         println!("Expected Values: {:?}", expected_vals);
 
         assert_eq!(

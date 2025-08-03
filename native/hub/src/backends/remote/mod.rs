@@ -47,7 +47,7 @@ pub trait RinfDartSignal {
     where
         Self: Sized + for<'a> Deserialize<'a>,
     {
-        rinf::deserialize(x).map_err(|e| anyhow::anyhow!("Deserialization failed: {}", e))
+        rinf::deserialize(x).map_err(|e| anyhow::anyhow!("Deserialization failed: {e}"))
     }
 }
 

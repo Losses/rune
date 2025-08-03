@@ -95,7 +95,7 @@ pub async fn sync_file_descriptions(
                             &txn,
                             LogLevel::Error,
                             "actions::metadata::sync_file_descriptions".to_string(),
-                            format!("{:#?}", e),
+                            format!("{e:#?}"),
                         )
                         .await?;
                         continue;
@@ -131,12 +131,12 @@ pub async fn sync_file_descriptions(
                         }) {
                             Ok(hash) => hash,
                             Err(e) => {
-                                error!("{:?}", e);
+                                error!("{e:?}");
                                 insert_log(
                                     &txn,
                                     LogLevel::Error,
                                     "actions::metadata::sync_file_descriptions".to_string(),
-                                    format!("{:#?}", e),
+                                    format!("{e:#?}"),
                                 )
                                 .await?;
                                 continue;
@@ -159,12 +159,12 @@ pub async fn sync_file_descriptions(
                                     )
                                 })
                             {
-                                error!("{:?}", e);
+                                error!("{e:?}");
                                 insert_log(
                                     &txn,
                                     LogLevel::Error,
                                     "actions::metadata::sync_file_descriptions".to_string(),
-                                    format!("{:#?}", e),
+                                    format!("{e:#?}"),
                                 )
                                 .await?;
                                 continue;
@@ -179,12 +179,12 @@ pub async fn sync_file_descriptions(
                                     )
                                 })
                             {
-                                error!("{:?}", e);
+                                error!("{e:?}");
                                 insert_log(
                                     &txn,
                                     LogLevel::Error,
                                     "actions::metadata::sync_file_descriptions".to_string(),
-                                    format!("{:#?}", e),
+                                    format!("{e:#?}"),
                                 )
                                 .await?;
                                 continue;
@@ -210,12 +210,12 @@ pub async fn sync_file_descriptions(
                                         )
                                     })
                             {
-                                error!("{:?}", e);
+                                error!("{e:?}");
                                 insert_log(
                                     &txn,
                                     LogLevel::Error,
                                     "actions::metadata::sync_file_descriptions".to_string(),
-                                    format!("{:#?}", e),
+                                    format!("{e:#?}"),
                                 )
                                 .await?;
                                 continue;
@@ -237,12 +237,12 @@ pub async fn sync_file_descriptions(
                                                 )
                                             })
                                     {
-                                        error!("{:?}", e);
+                                        error!("{e:?}");
                                         insert_log(
                                             &txn,
                                             LogLevel::Error,
                                             "actions::metadata::sync_file_descriptions".to_string(),
-                                            format!("{:#?}", e),
+                                            format!("{e:#?}"),
                                         )
                                         .await?;
                                         continue;
@@ -251,12 +251,12 @@ pub async fn sync_file_descriptions(
                                     update_search_term(existing_file.id, &x);
                                 }
                                 Err(e) => {
-                                    error!("{:?}", e);
+                                    error!("{e:?}");
                                     insert_log(
                                         &txn,
                                         LogLevel::Error,
                                         "actions::metadata::sync_file_descriptions".to_string(),
-                                        format!("{:#?}", e),
+                                        format!("{e:#?}"),
                                     )
                                     .await?;
                                 }
@@ -293,24 +293,24 @@ pub async fn sync_file_descriptions(
                                     }
                                 }
                                 Err(e) => {
-                                    error!("{:#?}", e);
+                                    error!("{e:#?}");
                                     insert_log(
                                         &txn,
                                         LogLevel::Error,
                                         "actions::metadata::sync_file_descriptions".to_string(),
-                                        format!("{:#?}", e),
+                                        format!("{e:#?}"),
                                     )
                                     .await?;
                                 }
                             }
                         }
                         Err(e) => {
-                            error!("{:?}", e);
+                            error!("{e:?}");
                             insert_log(
                                 &txn,
                                 LogLevel::Error,
                                 "actions::metadata::sync_file_descriptions".to_string(),
-                                format!("{:#?}", e),
+                                format!("{e:#?}"),
                             )
                             .await?;
                         }
@@ -326,12 +326,12 @@ pub async fn sync_file_descriptions(
         .await
         .with_context(|| "Failed to commit transaction")
     {
-        error!("{:?}", e);
+        error!("{e:?}");
         insert_log(
             main_db,
             LogLevel::Error,
             "actions::metadata::sync_file_descriptions".to_string(),
-            format!("{:?}", e),
+            format!("{e:?}"),
         )
         .await?;
     }
@@ -341,12 +341,12 @@ pub async fn sync_file_descriptions(
             .await
             .with_context(|| "Failed to add term")
         {
-            error!("{:?}", e);
+            error!("{e:?}");
             insert_log(
                 main_db,
                 LogLevel::Error,
                 "actions::metadata::sync_file_descriptions".to_string(),
-                format!("{:?}", e),
+                format!("{e:?}"),
             )
             .await?;
         }
@@ -449,7 +449,7 @@ pub async fn process_files(
                                         &txn,
                                         LogLevel::Error,
                                         "actions::metadata::sync_file_descriptions".to_string(),
-                                        format!("{:#?}", e),
+                                        format!("{e:#?}"),
                                     )
                                     .await?;
                                 }
@@ -478,16 +478,16 @@ pub async fn process_files(
                                     )
                                 }) {
                                 Ok(_) => {}
-                                Err(e) => error!("{:?}", e),
+                                Err(e) => error!("{e:?}"),
                             };
                         }
                         Err(e) => {
-                            error!("{:?}", e);
+                            error!("{e:?}");
                             insert_log(
                                 &txn,
                                 LogLevel::Error,
                                 "actions::metadata::sync_file_descriptions".to_string(),
-                                format!("{:#?}", e),
+                                format!("{e:#?}"),
                             )
                             .await?;
                         }
@@ -546,12 +546,12 @@ where
     match description.get_crc().with_context(|| "Failed to get CRC") {
         Ok(crc) => active_model.file_hash = ActiveValue::Set(crc),
         Err(e) => {
-            error!("{:?}", e);
+            error!("{e:?}");
             insert_log(
                 db,
                 LogLevel::Error,
                 "actions::metadata::update_file_metadata".to_string(),
-                format!("{:#?}", e),
+                format!("{e:#?}"),
             )
             .await?;
             return Err(e);
@@ -563,12 +563,12 @@ where
         .await
         .with_context(|| "Failed to update active model")
     {
-        error!("{:?}", e);
+        error!("{e:?}");
         insert_log(
             db,
             LogLevel::Error,
             "actions::metadata::update_file_metadata".to_string(),
-            format!("{:?}", e),
+            format!("{e:?}"),
         )
         .await?;
         return Err(e);
@@ -581,12 +581,12 @@ where
         .await
         .with_context(|| "Failed to delete existing metadata")
     {
-        error!("{:#?}", e);
+        error!("{e:#?}");
         insert_log(
             db,
             LogLevel::Error,
             "actions::metadata::update_file_metadata".to_string(),
-            format!("Failed to delete existing metadata: {:?}", e),
+            format!("Failed to delete existing metadata: {e:?}"),
         )
         .await?;
         return Err(e);
@@ -611,12 +611,12 @@ where
             .await
             .with_context(|| "Failed to insert new metadata while executing updating")
         {
-            error!("{:?}", e);
+            error!("{e:?}");
             insert_log(
                 db,
                 LogLevel::Error,
                 "actions::metadata::update_file_metadata".to_string(),
-                format!("{:#?}", e),
+                format!("{e:#?}"),
             )
             .await?;
             return Err(e);
@@ -640,12 +640,12 @@ where
     {
         Ok(info) => info,
         Err(e) => {
-            error!("{:?}", e);
+            error!("{e:?}");
             insert_log(
                 db,
                 LogLevel::Error,
                 "actions::metadata::update_file_codec_information".to_string(),
-                format!("{:#?}", e),
+                format!("{e:#?}"),
             )
             .await?;
             return Err(e);
@@ -660,12 +660,12 @@ where
     {
         Ok(rate) => active_model.sample_rate = ActiveValue::Set(rate),
         Err(e) => {
-            error!("{:#?}", e);
+            error!("{e:#?}");
             insert_log(
                 db,
                 LogLevel::Error,
                 "actions::metadata::update_file_codec_information".to_string(),
-                format!("{:#?}", e),
+                format!("{e:#?}"),
             )
             .await?;
             return Err(e);
@@ -681,12 +681,12 @@ where
         .await
         .with_context(|| "Failed to update codec information")
     {
-        error!("{:?}", e);
+        error!("{e:?}");
         insert_log(
             db,
             LogLevel::Error,
             "actions::metadata::update_file_codec_information".to_string(),
-            format!("{:#?}", e),
+            format!("{e:#?}"),
         )
         .await?;
         return Err(e);
@@ -844,7 +844,7 @@ where
                 debug!("Finished one batch");
             }
             Err(e) => {
-                error!("{:#?}", e);
+                error!("{e:#?}");
             }
         };
 
@@ -855,7 +855,7 @@ where
             .with_context(|| "Unable to index files")
         {
             Ok(_) => {}
-            Err(e) => error!("{:#?}", e),
+            Err(e) => error!("{e:#?}"),
         };
 
         // Update the number of processed files
@@ -872,12 +872,12 @@ where
             .with_context(|| "Unable to cleanup database")
         {
             Ok(_) => info!("Cleanup completed successfully."),
-            Err(e) => error!("{:#?}", e),
+            Err(e) => error!("{e:#?}"),
         }
         // Perform library maintenance after indexing is completed.
         match perform_library_maintenance(main_db, cancel_token.as_ref()).await {
             Ok(_) => info!("Library maintainence successfully."),
-            Err(e) => error!("{:#?}", e),
+            Err(e) => error!("{e:#?}"),
         };
     }
 

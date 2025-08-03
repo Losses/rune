@@ -63,7 +63,7 @@ macro_rules! forward_event_to_remote {
                                     Ok(x) => x,
                                     Err(e) => {
                                         CrashResponse {
-                                            detail: format!("Failed to serialize message: {}", e),
+                                            detail: format!("Failed to serialize message: {e}"),
                                         }.send_signal_to_dart();
                                         continue;
                                     }
@@ -79,7 +79,7 @@ macro_rules! forward_event_to_remote {
 
                                 if let Err(e) = result {
                                     CrashResponse {
-                                        detail: format!("Failed to send message: {}", e),
+                                        detail: format!("Failed to send message: {e}"),
                                     }.send_signal_to_dart();
                                 }
                             }

@@ -175,7 +175,7 @@ impl std::fmt::Display for UrlError {
         match self {
             Self::InvalidProtocol => write!(f, "Invalid URL protocol: expected 'rnsrv://'"),
             Self::InvalidFormat => write!(f, "Invalid URL format after protocol prefix"),
-            Self::DecodeError(e) => write!(f, "IP address decode error: {}", e),
+            Self::DecodeError(e) => write!(f, "IP address decode error: {e}"),
         }
     }
 }

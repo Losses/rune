@@ -95,15 +95,14 @@ pub async fn get_file_id_from_path(
     };
 
     if !absolute_path.exists() {
-        return Err(format!("File does not exist: {:?}", absolute_path));
+        return Err(format!("File does not exist: {absolute_path:?}"));
     }
 
     let relative_path = match absolute_path.strip_prefix(root_path) {
         Ok(path) => path,
         Err(_) => {
             return Err(format!(
-                "File is not within the specified library path: {:?}",
-                absolute_path
+                "File is not within the specified library path: {absolute_path:?}"
             ));
         }
     };
@@ -111,10 +110,10 @@ pub async fn get_file_id_from_path(
     let file_info = match get_file_by_path(db, relative_path).await {
         Ok(Some(file_info)) => file_info,
         Ok(_none) => {
-            return Err(format!("File is not in the database: {:?}", relative_path));
+            return Err(format!("File is not in the database: {relative_path:?}"));
         }
         Err(e) => {
-            return Err(format!("Failed to query the database: {}", e));
+            return Err(format!("Failed to query the database: {e}"));
         }
     };
 

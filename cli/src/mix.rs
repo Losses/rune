@@ -58,7 +58,7 @@ pub async fn mixes(
         match query_mix_media_files(main_db, recommend_db, mix_parameters_vec, 0, num).await {
             Ok(recommendations) => recommendations,
             Err(e) => {
-                eprintln!("Failed to get recommendations: {}", e);
+                eprintln!("Failed to get recommendations: {e}");
                 return;
             }
         };
@@ -92,7 +92,7 @@ pub async fn save_mixes_as_m3u8(output: Option<&PathBuf>, files: &Vec<media_file
 
     if let Some(parent) = corrected_path.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
-            eprintln!("Failed to create directories: {}", e);
+            eprintln!("Failed to create directories: {e}");
             return;
         }
     }
@@ -100,13 +100,13 @@ pub async fn save_mixes_as_m3u8(output: Option<&PathBuf>, files: &Vec<media_file
     let mut file = match File::create(&corrected_path) {
         Ok(file) => file,
         Err(e) => {
-            eprintln!("Failed to create file: {}", e);
+            eprintln!("Failed to create file: {e}");
             return;
         }
     };
 
     if let Err(e) = file.write_all("#EXTM3U\n".as_bytes()) {
-        eprintln!("Failed to write to file: {}", e);
+        eprintln!("Failed to write to file: {e}");
         return;
     }
 
@@ -122,7 +122,7 @@ pub async fn save_mixes_as_m3u8(output: Option<&PathBuf>, files: &Vec<media_file
             };
 
         if let Err(e) = writeln!(file, "{}", relative_to_output.display()) {
-            eprintln!("Failed to write to file: {}", e);
+            eprintln!("Failed to write to file: {e}");
             return;
         }
     }
@@ -139,10 +139,10 @@ fn format_time(seconds: f64) -> String {
     let minutes = total_seconds / 60;
     let remaining_seconds = total_seconds % 60;
 
-    let minutes_str = format!("{:02}", minutes);
-    let seconds_str = format!("{:02}", remaining_seconds);
+    let minutes_str = format!("{minutes:02}");
+    let seconds_str = format!("{remaining_seconds:02}");
 
-    format!("{}:{}", minutes_str, seconds_str)
+    format!("{minutes_str}:{seconds_str}")
 }
 
 pub async fn display_mixes_in_table(main_db: &MainDbConnection, files: &[media_files::Model]) {
@@ -179,7 +179,7 @@ pub async fn display_mixes_in_table(main_db: &MainDbConnection, files: &[media_f
             table.printstd();
         }
         Err(e) => {
-            error!("Failed to retrieve metadata summary: {}", e);
+            error!("Failed to retrieve metadata summary: {e}");
         }
     }
 }

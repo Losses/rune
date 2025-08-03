@@ -182,9 +182,9 @@ impl Player {
             let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
             // Run the main loop of PlayerInternal within the Tokio runtime
             if let Err(e) = runtime.block_on(internal.run()) {
-                error!("PlayerInternal runtime error: {:?}", e);
+                error!("PlayerInternal runtime error: {e:?}");
 
-                crash_sender.send(format!("{:#?}", e));
+                crash_sender.send(format!("{e:#?}"));
             }
         });
 
@@ -320,7 +320,7 @@ impl Player {
         // Acquire the lock and send the command
         if let Ok(commands) = self.commands.lock() {
             if let Err(e) = commands.send(cmd) {
-                error!("Failed to send command: {:?}", e);
+                error!("Failed to send command: {e:?}");
             }
         } else {
             error!("Failed to lock commands for sending");

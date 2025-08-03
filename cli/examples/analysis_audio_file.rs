@@ -21,10 +21,10 @@ fn main() {
             }
         }
         Err(e) => {
-            println!("Error: {}", e);
+            println!("Error: {e}");
             panic!("Unable to analysis the track");
         }
     };
 
-    println!("{:#?}", analysis_result);
+    println!("{analysis_result:#?}");
 }

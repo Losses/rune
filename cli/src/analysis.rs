@@ -23,14 +23,14 @@ pub async fn analyze_audio_library(
     )
     .await
     {
-        eprintln!("Audio analysis failed: {}", e);
+        eprintln!("Audio analysis failed: {e}");
         return;
     }
 
     print!("Analysis finished");
 
     if let Err(e) = sync_recommendation(main_db, analysis_db).await {
-        eprintln!("Sync recommendation failed: {}", e);
+        eprintln!("Sync recommendation failed: {e}");
         return;
     }
 

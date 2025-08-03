@@ -70,7 +70,7 @@ impl MediaControlManager {
 
         let controls = match MediaControls::new(config) {
             Ok(x) => x,
-            Err(e) => bail!(Error::msg(format!("{:?}", e))),
+            Err(e) => bail!(Error::msg(format!("{e:?}"))),
         };
 
         let (event_sender, _) = SimpleChannel::channel(32);
@@ -96,7 +96,7 @@ impl MediaControlManager {
 
         match request {
             Ok(x) => x,
-            Err(e) => bail!(Error::msg(format!("{:?}", e))),
+            Err(e) => bail!(Error::msg(format!("{e:?}"))),
         };
 
         thread::spawn(move || {
@@ -122,7 +122,7 @@ pub async fn handle_media_control_event(
     player: &Arc<Mutex<dyn Playable>>,
     event: MediaControlEvent,
 ) -> Result<()> {
-    debug!("Received media control event: {:?}", event);
+    debug!("Received media control event: {event:?}");
 
     match event {
         MediaControlEvent::Play => player.lock().await.play(),
@@ -153,7 +153,7 @@ pub async fn handle_media_control_event(
         MediaControlEvent::SetPosition(position) => {
             player.lock().await.seek(position.0.as_millis() as f64)
         }
-        _ => debug!("Unhandled media control event: {:?}", event),
+        _ => debug!("Unhandled media control event: {event:?}"),
     }
 
     Ok(())

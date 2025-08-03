@@ -184,11 +184,9 @@ mod tests {
         }
 
         log::info!(
-            "Max real difference: {} at index {}",
-            max_diff_re,
-            max_diff_idx
+            "Max real difference: {max_diff_re} at index {max_diff_idx}"
         );
-        log::info!("Max imaginary difference: {}", max_diff_im);
+        log::info!("Max imaginary difference: {max_diff_im}");
         log::info!(
             "Value at max diff - v1: {}, v2: {}",
             v1[max_diff_idx],

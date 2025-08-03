@@ -889,7 +889,7 @@ pub mod tests {
         // Convert HLC timestamp (u64 ms) to RFC3339 string for storage
         let hlc_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp_ms)
             // Convert the anyhow::Error from the helper to DbErr for compatibility
-            .map_err(|e| DbErr::Custom(format!("Failed to format HLC timestamp: {}", e)))?;
+            .map_err(|e| DbErr::Custom(format!("Failed to format HLC timestamp: {e}")))?;
 
         // Create an ActiveModel with the data, including the formatted timestamp string
         let active_model = ActiveModel {

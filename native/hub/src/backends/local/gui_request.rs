@@ -40,9 +40,9 @@ macro_rules! handle_single_gui_event {
                                     handle_response!(_response, $response_type);
                                 }
                                 Err(e) => {
-                                    error!("{:?}", e);
+                                    error!("{e:?}");
                                     CrashResponse {
-                                        detail: format!("{:#?}", e),
+                                        detail: format!("{e:#?}"),
                                     }
                                     .send_signal_to_dart();
                                 }

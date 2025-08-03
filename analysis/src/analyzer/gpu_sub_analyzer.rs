@@ -101,8 +101,8 @@ mod tests {
         )
         .unwrap();
 
-        info!("GPU result: {:?}", gpu_result);
-        info!("GPU result: {:?}", gpu_result);
+        info!("GPU result: {gpu_result:?}");
+        info!("GPU result: {gpu_result:?}");
 
         assert!(
             (gpu_result.rms - gpu_result1.rms).abs() < 0.01,

@@ -398,7 +398,7 @@ impl CertValidator {
     pub fn fingerprints(&self) -> Result<HashMap<String, Vec<String>>> {
         self.cached_entries
             .read() // Acquire read lock on cache
-            .map_err(|e| anyhow!("Unable to read fingerprints: {}", e)) // Map lock error to anyhow Error
+            .map_err(|e| anyhow!("Unable to read fingerprints: {e}")) // Map lock error to anyhow Error
             .map(|guard| guard.clone()) // Clone the HashMap from the read guard
     }
 

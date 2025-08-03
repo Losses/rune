@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
     setup_logging()?;
 
     if let Err(e) = default_provider().install_default() {
-        bail!(format!("{:#?}", e));
+        bail!(format!("{e:#?}"));
     };
 
     let cli = Cli::parse();

@@ -17,7 +17,7 @@ pub fn get_format(file_path: &str) -> Result<Box<dyn FormatReader>> {
 
     // Create a probe hint using the file's extension.
     let mut hint = Hint::new();
-    let ext = file_path.split('.').last().unwrap_or_default();
+    let ext = file_path.split('.').next_back().unwrap_or_default();
     hint.with_extension(ext);
 
     // Use the default options for metadata and format readers.

@@ -395,9 +395,9 @@ where
     let (local_chunks_res, remote_chunks_res) = tokio::join!(local_chunks_fut, remote_chunks_fut);
 
     let mut local_chunks = local_chunks_res
-        .with_context(|| format!("Failed to generate local chunks for table '{}'", table_name))?;
+        .with_context(|| format!("Failed to generate local chunks for table '{table_name}'"))?;
     let mut remote_chunks = remote_chunks_res
-        .with_context(|| format!("Failed to fetch remote chunks for table '{}'", table_name))?;
+        .with_context(|| format!("Failed to fetch remote chunks for table '{table_name}'"))?;
 
     // Sort chunks by start HLC for efficient alignment
     local_chunks.sort_by(|a, b| a.start_hlc.cmp(&b.start_hlc));
@@ -438,7 +438,7 @@ where
 
     info!("** ** RECONCILIATION_QUEUE: {:#?}", reconciliation_queue);
 
-    info!("Reconciliation queue: {:?}", reconciliation_queue);
+    info!("Reconciliation queue: {reconciliation_queue:?}");
 
     // Process the reconciliation queue until empty
     while let Some(item) = reconciliation_queue.pop_front() {
@@ -462,7 +462,7 @@ where
                 );
                 let (local_res, remote_res) = tokio::join!(local_fut, remote_fut);
 
-                info!("** ** FETCH RANGE: LOCAL {:#?}", local_res);
+                info!("** ** FETCH RANGE: LOCAL {local_res:#?}");
 
                 // Extend the comparison lists, propagating errors
                 local_records_to_compare.extend(local_res.with_context(|| {
@@ -478,7 +478,7 @@ where
                     )
                 })?;
 
-                info!("** ** FETCH RANGE: LOCAL {:#?}", remote_res);
+                info!("** ** FETCH RANGE: LOCAL {remote_res:#?}");
 
                 remote_records_to_compare.extend(remote_res.records);
             }
@@ -4234,7 +4234,6 @@ pub(crate) mod tests {
                 db: &E,
             ) -> Result<FkPayload> {
                 let mut payload = FkPayload::new();
-                // Assuming author_id is non-nullable. If it can be null, handle Option<i32> and insert None for payload.
                 if let Some(author) = super::author_entity::Entity::find_by_id(self.author_id)
                     .one(db)
                     .await

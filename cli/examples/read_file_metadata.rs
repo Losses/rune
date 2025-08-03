@@ -8,9 +8,9 @@ fn main() {
     match get_metadata(path, None) {
         Ok(metadata) => {
             for (key, value) in metadata {
-                println!("{}: {}", key, value);
+                println!("{key}: {value}");
             }
         }
-        Err(err) => eprintln!("Error: {}", err),
+        Err(err) => eprintln!("Error: {err}"),
     }
 }

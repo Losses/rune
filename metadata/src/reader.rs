@@ -235,7 +235,7 @@ fn probe_audio_file<P: AsRef<Path>>(file_path: P) -> Result<ProbeResult> {
     // Probe the media source.
     let probed = symphonia::default::get_probe()
         .format(&hint, mss, &fmt_opts, &meta_opts)
-        .map_err(|e| anyhow::anyhow!("Failed to probe file: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to probe file: {e}"))?;
 
     Ok(probed)
 }

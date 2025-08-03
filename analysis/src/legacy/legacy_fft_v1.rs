@@ -272,7 +272,7 @@ pub fn fft(
     }
     debug!("Final average spectrum calculated");
 
-    debug!("Total samples: {}", total_samples);
+    debug!("Total samples: {total_samples}");
 
     Some(AudioDescription {
         sample_rate,

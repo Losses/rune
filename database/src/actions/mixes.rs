@@ -112,7 +112,7 @@ impl CollectionQuery for mixes::Model {
     ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>> {
         get_mixes_groups(main_db, group_titles)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to get collection groups: {}", e))
+            .map_err(|e| anyhow::anyhow!("Failed to get collection groups: {e}"))
     }
 
     async fn get_by_ids(main_db: &MainDbConnection, ids: &[i32]) -> Result<Vec<Self>> {

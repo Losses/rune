@@ -57,7 +57,7 @@ pub fn analyze_audio(
     );
 
     let audio_desc = measure_time!(
-        &format!("[{:?}] Analyzer", computing_device),
+        &format!("[{computing_device:?}] Analyzer"),
         analyzer.process(file_path)
     );
 
@@ -72,7 +72,7 @@ pub fn analyze_audio(
     // Calculate spectral features
     let spectral_centroid = spectral_centroid(&amp_spectrum);
     let spectral_flatness = spectral_flatness(&amp_spectrum);
-    let spectral_flux = spectral_flux(&amp_spectrum, &vec![0.0; amp_spectrum.len()], window_size); // Assuming previous signal is zero
+    let spectral_flux = spectral_flux(&amp_spectrum, &vec![0.0; amp_spectrum.len()], window_size); 
     let spectral_slope = spectral_slope(&amp_spectrum, audio_desc.sample_rate as f32, window_size);
     let spectral_rolloff = spectral_rolloff(&amp_spectrum, audio_desc.sample_rate as f32);
     let spectral_spread = spectral_spread(&amp_spectrum);
@@ -159,11 +159,11 @@ pub fn normalize_analysis_result(result: &AnalysisResult) -> NormalizedAnalysisR
     // Define the ranges for each feature
     let max_spectral_centroid = (result.parameters.window_size / 2) as f32;
     let max_spectral_flatness = 1.0;
-    let max_spectral_flux = 1.0; // Assuming a reasonable upper bound for normalization purposes
+    let max_spectral_flux = 1.0; 
     let max_spectral_slope = 1.0;
     let max_spectral_rolloff = (result.stat.sample_rate / 2) as f32;
     let max_spectral_spread = (result.parameters.window_size / 2) as f32;
-    let max_spectral_skewness = 1.0; // Assuming a reasonable upper bound for normalization purposes
+    let max_spectral_skewness = 1.0; 
     let max_spectral_kurtosis = 1.0;
     let max_chroma = 1.0;
 

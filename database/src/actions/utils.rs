@@ -197,7 +197,7 @@ macro_rules! parallel_media_files_processing {
                     {
                         Ok(f) => f,
                         Err(e) => {
-                            error!("Database error: {:?}", e);
+                            error!("Database error: {e:?}");
                             // Send termination signal on error
                             if let Err(e) = tx.send(None).await {
                                 warn!("Failed to send termination signal: {:#?}", e);
@@ -271,7 +271,7 @@ macro_rules! parallel_media_files_processing {
                             let permit = match semaphore.acquire_owned().await {
                                 Ok(permit) => permit,
                                 Err(e) => {
-                                    error!("Failed to acquire semaphore: {:?}", e);
+                                    error!("Failed to acquire semaphore: {e:?}");
                                     continue;
                                 }
                             };
@@ -303,7 +303,7 @@ macro_rules! parallel_media_files_processing {
                                         )
                                         .await;
                                     }
-                                    Err(e) => error!("{:?}", e),
+                                    Err(e) => error!("{e:?}"),
                                 }
 
                                 let mut count = processed_count.lock().await;
@@ -319,7 +319,7 @@ macro_rules! parallel_media_files_processing {
                             info!("No files left, waiting for active tasks to complete...");
                             for task in active_tasks {
                                 if let Err(e) = task.await {
-                                    error!("Task join error: {:?}", e);
+                                    error!("Task join error: {e:?}");
                                 }
                             }
                             break;
@@ -337,10 +337,10 @@ macro_rules! parallel_media_files_processing {
 
         // Handle any errors from producer or consumer
         if let Err(e) = producer_result {
-            error!("Producer error: {:?}", e);
+            error!("Producer error: {e:?}");
         }
         if let Err(e) = consumer_result {
-            error!("Consumer error: {:?}", e);
+            error!("Consumer error: {e:?}");
         }
 
         info!("Total tasks executed: {}", total_tasks);

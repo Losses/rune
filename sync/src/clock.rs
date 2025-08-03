@@ -555,7 +555,7 @@ mod tests {
 
         match result.unwrap_err() {
             CristianError::NoValidTimestamps => {}
-            e => panic!("Expected NoValidTimestamps error, got {:?}", e),
+            e => panic!("Expected NoValidTimestamps error, got {e:?}"),
         }
 
         // Check that the loop still tried num_samples times

@@ -39,7 +39,7 @@ pub async fn recommend_music(
         match get_file_id_from_path(main_db, path, file_path).await {
             Ok(id) => id,
             Err(e) => {
-                eprintln!("{}", e);
+                eprintln!("{e}");
                 return;
             }
         }
@@ -52,7 +52,7 @@ pub async fn recommend_music(
         match get_recommendation_by_file_id(recommend_db, file_id, num) {
             Ok(recommendations) => recommendations,
             Err(e) => {
-                eprintln!("Failed to get recommendations: {}", e);
+                eprintln!("Failed to get recommendations: {e}");
                 return;
             }
         };
@@ -62,7 +62,7 @@ pub async fn recommend_music(
     let files = match get_files_by_ids(main_db, &ids).await {
         Ok(files) => files,
         Err(e) => {
-            eprintln!("Failed to get files by IDs: {}", e);
+            eprintln!("Failed to get files by IDs: {e}");
             return;
         }
     };
@@ -103,7 +103,7 @@ pub async fn save_recommendations_as_json(
 
     if let Some(parent) = corrected_path.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
-            eprintln!("Failed to create directories: {}", e);
+            eprintln!("Failed to create directories: {e}");
             return;
         }
     }
@@ -112,13 +112,13 @@ pub async fn save_recommendations_as_json(
     let mut file = match File::create(&corrected_path) {
         Ok(file) => file,
         Err(e) => {
-            eprintln!("Failed to create file: {}", e);
+            eprintln!("Failed to create file: {e}");
             return;
         }
     };
 
     if let Err(e) = file.write_all(json_data.to_string().as_bytes()) {
-        eprintln!("Failed to write to file: {}", e);
+        eprintln!("Failed to write to file: {e}");
         return;
     }
 
@@ -146,7 +146,7 @@ pub async fn save_recommendations_as_m3u8(
 
     if let Some(parent) = corrected_path.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
-            eprintln!("Failed to create directories: {}", e);
+            eprintln!("Failed to create directories: {e}");
             return;
         }
     }
@@ -154,13 +154,13 @@ pub async fn save_recommendations_as_m3u8(
     let mut file = match File::create(&corrected_path) {
         Ok(file) => file,
         Err(e) => {
-            eprintln!("Failed to create file: {}", e);
+            eprintln!("Failed to create file: {e}");
             return;
         }
     };
 
     if let Err(e) = file.write_all("#EXTM3U\n".as_bytes()) {
-        eprintln!("Failed to write to file: {}", e);
+        eprintln!("Failed to write to file: {e}");
         return;
     }
 
@@ -176,7 +176,7 @@ pub async fn save_recommendations_as_m3u8(
             };
 
         if let Err(e) = writeln!(file, "{}", relative_to_output.display()) {
-            eprintln!("Failed to write to file: {}", e);
+            eprintln!("Failed to write to file: {e}");
             return;
         }
     }

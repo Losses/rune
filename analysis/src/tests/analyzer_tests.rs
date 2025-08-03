@@ -24,8 +24,8 @@ mod tests {
         )
         .unwrap();
 
-        info!("CPU result: {:?}", cpu_result);
-        info!("Legacy CPU result: {:?}", legacy_cpu_result);
+        info!("CPU result: {cpu_result:?}");
+        info!("Legacy CPU result: {legacy_cpu_result:?}");
 
         // Compare results with tolerance
         assert!(
@@ -66,8 +66,8 @@ mod tests {
         )
         .unwrap();
 
-        info!("GPU result: {:?}", gpu_result);
-        info!("Legacy CPU result: {:?}", legacy_cpu_result);
+        info!("GPU result: {gpu_result:?}");
+        info!("Legacy CPU result: {legacy_cpu_result:?}");
 
         // Compare results with tolerance
         assert!(
@@ -107,8 +107,8 @@ mod tests {
 
         let gpu_result = measure_time!("GPU FFT", analyzer.process(file_path)).unwrap();
 
-        info!("CPU result: {:?}", cpu_result);
-        info!("GPU result: {:?}", gpu_result);
+        info!("CPU result: {cpu_result:?}");
+        info!("GPU result: {gpu_result:?}");
 
         // Compare results with tolerance
         assert!(

@@ -55,7 +55,7 @@ pub async fn index_media_files(
         let txn = match main_db.begin().await {
             Ok(txn) => txn,
             Err(e) => {
-                error!("Failed to start transaction: {}", e);
+                error!("Failed to start transaction: {e}");
                 continue; // Proceed to the next file if transaction start fails.
             }
         };
@@ -507,7 +507,7 @@ async fn process_batch(
 ) -> Result<()> {
     let batch = std::mem::take(file_ids); // Take ownership of the file IDs for processing and clear the original vector.
     if let Err(e) = index_media_files(db, batch, cancel_token).await {
-        error!("Batch processing failed: {}", e); // Log error if batch processing fails.
+        error!("Batch processing failed: {e}"); // Log error if batch processing fails.
     }
     Ok(())
 }
@@ -700,7 +700,7 @@ pub async fn perform_library_maintenance(
 
     // Clean up orphaned records.
     if let Err(e) = cleanup_orphaned_records(db).await {
-        error!("Failed to clean up orphaned records: {}", e);
+        error!("Failed to clean up orphaned records: {e}");
         return Err(e);
     }
 

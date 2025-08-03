@@ -284,7 +284,7 @@ impl Analyzer {
 
         if !self.sample_buffer.is_empty() {
             // Pad to the nearest multiple of 1024
-            let target_size = ((self.total_samples + 1023) / 1024) * 1024;
+            let target_size = self.total_samples.div_ceil(1024) * 1024;
             while self.sample_buffer.len() < target_size {
                 self.sample_buffer.push(0.0);
             }

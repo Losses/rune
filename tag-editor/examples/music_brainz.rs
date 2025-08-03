@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
             println!("Identification successful: {:#?}", response);
         }
         Err(e) => {
-            eprintln!("Identification failed: {:?}", e);
+            eprintln!("Identification failed: {e:?}");
         }
     }
 

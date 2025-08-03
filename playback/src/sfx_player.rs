@@ -56,10 +56,10 @@ impl SfxPlayer {
             let mut internal = SfxPlayerInternal::new(cmd_rx, internal_cancellation_token.clone());
             let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
             if let Err(e) = runtime.block_on(internal.run()) {
-                error!("PlayerInternal runtime error: {:?}", e);
+                error!("PlayerInternal runtime error: {e:?}");
 
-                if let Err(e) = crash_sender.send(format!("{:#?}", e)) {
-                    error!("Failed to send error report: {:?}", e);
+                if let Err(e) = crash_sender.send(format!("{e:#?}")) {
+                    error!("Failed to send error report: {e:?}");
                 }
             }
 
@@ -80,7 +80,7 @@ impl SfxPlayer {
     pub fn command(&self, cmd: SfxPlayerCommand) {
         if let Ok(commands) = self.commands.lock() {
             if let Err(e) = commands.send(cmd) {
-                error!("Failed to send command: {:?}", e);
+                error!("Failed to send command: {e:?}");
             }
         } else {
             error!("Failed to lock commands for sending");

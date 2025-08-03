@@ -32,10 +32,7 @@ mod tests {
             let diff = (orig - reconstructed).norm();
             assert!(
                 diff < 1e-6,
-                "Difference too large: {} vs {}, diff = {}",
-                orig,
-                reconstructed,
-                diff
+                "Difference too large: {orig} vs {reconstructed}, diff = {diff}"
             );
         }
     }
@@ -71,10 +68,7 @@ mod tests {
             let diff = (orig - reconstructed).abs();
             assert!(
                 diff < 1e-6,
-                "Difference too large: {} vs {}, diff = {}",
-                orig,
-                reconstructed,
-                diff
+                "Difference too large: {orig} vs {reconstructed}, diff = {diff}"
             );
         }
     }

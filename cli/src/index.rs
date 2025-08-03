@@ -7,7 +7,7 @@ pub async fn index_audio_library(main_db: &MainDbConnection) {
             println!("Audio indexing completed successfully.");
         }
         Err(e) => {
-            eprintln!("Audio indexing failed: {}", e)
+            eprintln!("Audio indexing failed: {e}")
         }
     }
 }

@@ -85,7 +85,7 @@ pub fn get_recommendation_by_parameter(
             }
         }
         Err(e) => {
-            error!("{:#?}", e);
+            error!("{e:#?}");
             Ok(vec![])
         }
     }

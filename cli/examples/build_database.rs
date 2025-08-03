@@ -61,7 +61,7 @@ async fn main() {
     let recommend_db = connect_recommendation_db(&path, None).unwrap();
     match sync_recommendation(&main_db, &recommend_db).await {
         Ok(_) => info!("OK!"),
-        Err(e) => error!("Unable to sync recommendation: {}", e),
+        Err(e) => error!("Unable to sync recommendation: {e}"),
     };
 
     println!("OK");

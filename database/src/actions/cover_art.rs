@@ -273,8 +273,7 @@ where
     F: Fn(usize, usize) + Send + Sync + 'static,
 {
     info!(
-        "Starting cover art processing with batch size: {}",
-        batch_size
+        "Starting cover art processing with batch size: {batch_size}"
     );
 
     let progress_callback = Arc::new(progress_callback);

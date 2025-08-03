@@ -240,7 +240,7 @@ impl PlayerInternal {
         let fft_receiver = match self.realtime_fft.lock() {
             Ok(fft) => fft.subscribe(),
             Err(e) => {
-                bail!("Failed to lock realtime FFT: {:?}", e);
+                bail!("Failed to lock realtime FFT: {e:?}");
             }
         };
 
@@ -253,7 +253,7 @@ impl PlayerInternal {
                         break;
                     }
 
-                    debug!("Received command: {:?}", cmd);
+                    debug!("Received command: {cmd:?}");
                     match cmd {
                         PlayerCommand::Load { index } => self.load(Some(index), false, true),
                         PlayerCommand::Play => self.play(),
@@ -281,7 +281,7 @@ impl PlayerInternal {
                 },
                 Ok(fft_data) = fft_receiver.recv() => {
                     if let Err(e) = self.event_sender.send(PlayerEvent::RealtimeFFT(fft_data)) {
-                        error!("Failed to send FFT data: {:?}", e);
+                        error!("Failed to send FFT data: {e:?}");
                     }
                 },
                 _ = progress_interval.tick() => {
@@ -309,7 +309,7 @@ impl PlayerInternal {
                             self.stream_retry_count += 1;
                             info!("Retrying to load track (attempt {} of 5)", self.stream_retry_count);
                             if let Err(e) = self.load(Some(index), false, true) {
-                                error!("Retry failed: {:?}", e);
+                                error!("Retry failed: {e:?}");
                             }
                         }
                     } else {
@@ -358,7 +358,7 @@ impl PlayerInternal {
                 self.next()?;
                 self.event_sender.send(PlayerEvent::Log(InternalLog {
                     domain: "player::internal::decoder".to_string(),
-                    error: format!("{:#?}", error),
+                    error: format!("{error:#?}"),
                 }))?;
                 return Ok(());
             }

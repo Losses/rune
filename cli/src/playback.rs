@@ -19,7 +19,7 @@ async fn play_files(main_db: &MainDbConnection, canonicalized_path: &Path, file_
         match get_file_by_id(main_db, id).await {
             Ok(file) => Some(file),
             Err(e) => {
-                error!("Failed to get file by id {}: {}", id, e);
+                error!("Failed to get file by id {id}: {e}");
                 None
             }
         }
@@ -52,13 +52,13 @@ async fn play_files(main_db: &MainDbConnection, canonicalized_path: &Path, file_
     info!("Initializing event listeners");
     task::spawn(async move {
         while let Ok(status) = status_receiver.recv().await {
-            debug!("Player status updated: {:?}", status);
+            debug!("Player status updated: {status:?}");
 
             let position = status.position;
 
             debug!(
                 "State: {}, seconds: {}",
-                status.state.to_string(),
+                status.state,
                 position.as_secs_f32()
             );
         }
@@ -74,7 +74,7 @@ pub async fn play_random(main_db: &MainDbConnection, canonicalized_path: &Path) 
             play_files(main_db, canonicalized_path, file_ids).await;
         }
         Err(e) => {
-            error!("Failed to get random files: {}", e);
+            error!("Failed to get random files: {e}");
         }
     }
 }
