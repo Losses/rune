@@ -44,8 +44,6 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
   late List<bool> _isFlipping;
   late List<DateTime?> _flipStartTimes;
   late List<double> _rotates;
-  late List<ui.Image?> _images;
-  late List<Color> _colors;
   final Map<String, ui.Image> _imageCache = {};
   final ImageProxy _imageProxy = imageMemoryManager.requireProxy();
   Ticker? _ticker;
@@ -86,16 +84,6 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     super.didChangeDependencies();
     pixelRatio = MediaQuery.devicePixelRatioOf(context);
 
-    final int size = (widget.size / _gridCount).ceil();
-    final targetSize = size * pixelRatio.ceil();
-
-    _images = List.generate(
-      _gridCount * _gridCount,
-      (i) => _imageProxy.getCachedImage(_frontPaths[i], targetSize),
-    );
-
-    _colors = List.from(_frontColors);
-
     if (_ticker == null) {
       _ticker = Ticker(_onTick);
       if (widget.paths.length > 1) {
@@ -103,7 +91,6 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
       } else {
         _updateCache().then((_) {
           if (!mounted) return;
-          _images[0] = _imageCache[widget.paths[0]];
           setState(() {});
         });
       }
@@ -268,11 +255,6 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
       } else {
         _rotates[k] = 0;
       }
-
-      _images[k] =
-          _imageCache[(_rotates[k] >= pi / 2) ? _frontPaths[k] : _backPaths[k]];
-
-      _colors[k] = (_rotates[k] >= pi / 2) ? _frontColors[k] : _backColors[k];
     }
 
     if (needsUpdate) {
@@ -287,13 +269,22 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
 
   @override
   Widget build(BuildContext context) {
+    final images = List<ui.Image?>.generate(_gridCount * _gridCount, (k) {
+      final path = (_rotates[k] >= pi / 2) ? _frontPaths[k] : _backPaths[k];
+      return _imageCache[path];
+    });
+
+    final colors = List<Color>.generate(_gridCount * _gridCount, (k) {
+      return (_rotates[k] >= pi / 2) ? _frontColors[k] : _backColors[k];
+    });
+
     return RepaintBoundary(
       child: CustomPaint(
         painter: FlipGridPainter(
-          _images,
+          images,
           gridCount: _gridCount,
           rotates: _rotates,
-          fallbackColors: _colors,
+          fallbackColors: colors,
         ),
         // Set the size to fill the available space
         size: Size.infinite,
