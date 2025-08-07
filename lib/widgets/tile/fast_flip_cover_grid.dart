@@ -44,6 +44,8 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
   late List<bool> _isFlipping;
   late List<DateTime?> _flipStartTimes;
   late List<double> _rotates;
+  late List<ui.Image?> _images;
+  late List<Color> _colors;
   final Map<String, ui.Image> _imageCache = {};
   final ImageProxy _imageProxy = imageMemoryManager.requireProxy();
   Ticker? _ticker;
@@ -83,6 +85,13 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
   void didChangeDependencies() {
     super.didChangeDependencies();
     pixelRatio = MediaQuery.devicePixelRatioOf(context);
+
+    final int size = (widget.size / _gridCount).ceil();
+    final targetSize = size * pixelRatio.ceil();
+
+    for (int k = 0; k < _gridCount * _gridCount; k++) {
+      _images[k] = _imageProxy.getCachedImage(_backPaths[k], targetSize);
+    }
 
     if (_ticker == null) {
       _ticker = Ticker(_onTick);
@@ -136,6 +145,8 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     _isFlipping = List.filled(_gridCount * _gridCount, false);
     _flipStartTimes = List.filled(_gridCount * _gridCount, null);
     _rotates = List.filled(_gridCount * _gridCount, 0.0);
+    _images = List.filled(_gridCount * _gridCount, null);
+    _colors = List.from(_backColors);
   }
 
   int _determineGridSize() {
@@ -182,10 +193,18 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
 
     final resizedImage = await _imageProxy.requestImage(path, targetSize);
 
-    // Store the image in cache
     _imageCache[path] = resizedImage;
 
     if (!mounted) return;
+
+    for (int k = 0; k < _gridCount * _gridCount; k++) {
+      final currentPath =
+          (_rotates[k] >= pi / 2) ? _frontPaths[k] : _backPaths[k];
+      if (currentPath == path) {
+        _images[k] = resizedImage;
+      }
+    }
+
     setState(() {});
   }
 
@@ -255,6 +274,11 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
       } else {
         _rotates[k] = 0;
       }
+
+      _images[k] =
+          _imageCache[(_rotates[k] >= pi / 2) ? _frontPaths[k] : _backPaths[k]];
+
+      _colors[k] = (_rotates[k] >= pi / 2) ? _frontColors[k] : _backColors[k];
     }
 
     if (needsUpdate) {
@@ -269,22 +293,13 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
 
   @override
   Widget build(BuildContext context) {
-    final images = List<ui.Image?>.generate(_gridCount * _gridCount, (k) {
-      final path = (_rotates[k] >= pi / 2) ? _frontPaths[k] : _backPaths[k];
-      return _imageCache[path];
-    });
-
-    final colors = List<Color>.generate(_gridCount * _gridCount, (k) {
-      return (_rotates[k] >= pi / 2) ? _frontColors[k] : _backColors[k];
-    });
-
     return RepaintBoundary(
       child: CustomPaint(
         painter: FlipGridPainter(
-          images,
+          _images,
           gridCount: _gridCount,
           rotates: _rotates,
-          fallbackColors: colors,
+          fallbackColors: _colors,
         ),
         // Set the size to fill the available space
         size: Size.infinite,
