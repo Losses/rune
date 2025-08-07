@@ -54,7 +54,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate message files
-        run: rinf message
+        run: rinf gen
 
       - name: Format message files
         run: |
@@ -103,7 +103,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate message files
-        run: rinf message
+        run: rinf gen
       
       - name: Analyze Flutter
         run: |

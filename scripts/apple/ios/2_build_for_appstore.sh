@@ -12,7 +12,7 @@ sed -i '' 's/<string>LG57TUQ726.ci.not.rune<\/string>/<string>LG57TUQ726.ci.not.
 sed -i '' 's/"PROVISIONING_PROFILE_SPECIFIER\[sdk=iphoneos\*]" = "Rune";/"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Rune iOS App Store";/g' ios/Runner.xcodeproj/project.pbxproj
 
 flutter pub get
-rinf message
+rinf gen
 cd ios
 pod update
 cd ..

@@ -15,7 +15,7 @@ sed -i '' 's/"CODE_SIGN_IDENTITY\[sdk=macosx\*]" = "Developer ID Application";/"
 sed -i '' 's/<string>LG57TUQ726.ci.not.rune<\/string>/<string>LG57TUQ726.ci.not.rune.appstore<\/string>/g' macos/Runner/Release.entitlements
 
 flutter pub get
-rinf message
+rinf gen
 cd macos
 pod update
 cd ..

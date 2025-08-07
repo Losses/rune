@@ -43,7 +43,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate message files
-        run: rinf message
+        run: rinf gen
 
       - name: Build Windows
         run: flutter build windows --release --verbose
@@ -113,7 +113,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate message files
-        run: rinf message
+        run: rinf gen
 
       - name: Build MSIX
         run: dart run msix:create --release
@@ -184,7 +184,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate message files
-        run: rinf message
+        run: rinf gen
 
       - name: Build linux
         run: flutter build linux --release --verbose
@@ -270,7 +270,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate message files
-        run: rinf message
+        run: rinf gen
 
       - name: Build linux
         run: flutter build linux --release --verbose

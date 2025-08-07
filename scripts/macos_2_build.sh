@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 cd ..
 
 flutter pub get
-rinf message
+rinf gen
 cd macos
 pod update
 cd ..
