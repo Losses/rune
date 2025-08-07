@@ -47,7 +47,7 @@ class SettingsManager {
   Future<T?> getValue<T>(String key) async {
     await _initFuture;
     String storageKey = StorageKeyManager.getStorageKey(key);
-    return _storage.read<T>(storageKey);
+    return _storage.read<T?>(storageKey);
   }
 
   Future<void> setValue<T>(String key, T value) async {
