@@ -15,7 +15,7 @@ pkgs.mkShell {
   buildInputs = with pkgs; [
     (rust-bin.stable.latest.default.override {
       extensions = [ "rust-src" ];
-      targets = [ "armv7-linux-androideabi" "aarch64-linux-android" "x86_64-linux-android" ];
+      targets = [ "armv7-linux-androideabi" "aarch64-linux-android" "i686-linux-android" "x86_64-linux-android" ];
     })
     yq
     openssl
