@@ -18,14 +18,7 @@ jobs:
     - run:
         name: Setup Flutter Environment Variables
         command: |
-          echo 'export PATH="$PATH:$HOME/flutter/bin:$HOME/protoc/bin:$HOME/.pub-cache/bin:$PATH"' >> "$BASH_ENV"
-    - run:
-        name: Download Protobuf
-        command: |
-          curl -L -o ../protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v28.3/protoc-28.3-linux-aarch_64.zip
-          unzip ../protoc.zip -d ../protoc
-          whereis protoc
-          protoc --version
+          echo 'export PATH="$PATH:$HOME/flutter/bin:$HOME/.pub-cache/bin:$PATH"' >> "$BASH_ENV"
     - rust/install:
         version: stable
     - run:
@@ -42,11 +35,11 @@ jobs:
           flutter doctor
     - checkout
     - run:
-        name: Install the Rust dependencies
-        command: cargo install rinf_cli
-    - run:
         name: Flutter pub get
         command: flutter pub get
+    - run:
+        name: Install the Rust dependencies
+        command: cargo install rinf_cli
     - run:
         name: Generate message files
         command: rinf gen
@@ -134,6 +127,11 @@ jobs:
           name: Get Flutter packages
           command: |
             nix --extra-experimental-features "nix-command flakes" develop . --command flutter pub get
+
+      - run:
+          name: Install rinf_cli
+          command: |
+            nix --extra-experimental-features "nix-command flakes" develop . --command cargo install rinf_cli
 
       - run:
           name: Generating Rinf files
