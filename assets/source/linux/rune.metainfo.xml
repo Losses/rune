@@ -57,6 +57,28 @@
   </screenshots>
 
   <releases>
+    <release version="2.0.0-alpha.5" date="2025-08-10">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Using zbus for mpris backend by @baiyuanneko in https://github.com/Losses/rune/pull/268.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>For macOS, replace with opaque tinted icon by @laosb in https://github.com/Losses/rune/pull/259.</li>
+          <li>Implement the database sync protocol.</li>
+          <li>Improve the performance while users are not interacting with the program.</li>
+          <li>Update Japanese Translation by @NovaDNG in https://github.com/Losses/rune/pull/267.</li>
+          <li>Update Chinese Translation.</li>
+        </ul>
+        <p>Security</p>
+        <ul>
+          <li>Bump openssl from 0.10.70 to 0.10.72 by @dependabot[bot] in https://github.com/Losses/rune/pull/262.</li>
+          <li>Bump tokio from 1.44.1 to 1.44.2 by @dependabot[bot] in https://github.com/Losses/rune/pull/263.</li>
+          <li>Bump crossbeam-channel from 0.5.13 to 0.5.15 by @dependabot[bot] in https://github.com/Losses/rune/pull/264.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.4" date="2025-03-19">
       <description>
         <p>Bugs</p>
