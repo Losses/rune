@@ -1,7 +1,11 @@
+use std::{
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
 use anyhow::Result;
 use async_trait::async_trait;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -30,18 +34,12 @@ pub struct FsNode {
     pub size: u64,
 }
 
-use std::io::{Read, Write};
-
 pub trait FileStream: Read + Write + Send {}
 impl<T: Read + Write + Send> FileStream for T {}
 
 #[async_trait]
 pub trait FileIo: Send + Sync {
-    async fn open(
-        &self,
-        path: &Path,
-        open_mode: &str,
-    ) -> Result<Box<dyn FileStream>, FileIoError>;
+    async fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError>;
     async fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError>;
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<(), FileIoError>;
     async fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError>;

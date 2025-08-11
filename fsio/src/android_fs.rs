@@ -1,12 +1,15 @@
+use std::{
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
+
+use async_trait::async_trait;
+use ndk_saf::{from_tree_url, AndroidFile, AndroidFileOps};
+use rusqlite::{params, Connection};
+use tokio::task;
 
 use super::{FileIo, FileIoError, FileStream, FsNode};
-use async_trait::async_trait;
-use ndk_saf::{AndroidFile, AndroidFileOps, from_tree_url};
-use rusqlite::{params, Connection};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use tokio::task;
 
 pub(crate) struct AndroidFsIo {
     db: Arc<Mutex<Connection>>,
@@ -23,7 +26,8 @@ impl AndroidFsIo {
                 parent TEXT NOT NULL
             )",
             [],
-        ).map_err(|e| FileIoError::Database(e.to_string()))?;
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))?;
 
         let instance = Self {
             db: Arc::new(Mutex::new(db)),
@@ -89,15 +93,22 @@ impl AndroidFsIo {
 
     fn get_uri(&self, path: &Path) -> Result<String, FileIoError> {
         let conn = self.db.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT content_url FROM fs_cache WHERE path = ?1")
+        let mut stmt = conn
+            .prepare("SELECT content_url FROM fs_cache WHERE path = ?1")
             .map_err(|e| FileIoError::Database(e.to_string()))?;
-        let mut rows = stmt.query(params![path.to_str().unwrap()])
+        let mut rows = stmt
+            .query(params![path.to_str().unwrap()])
             .map_err(|e| FileIoError::Database(e.to_string()))?;
 
-        if let Some(row) = rows.next().map_err(|e| FileIoError::Database(e.to_string()))? {
+        if let Some(row) = rows
+            .next()
+            .map_err(|e| FileIoError::Database(e.to_string()))?
+        {
             row.get(0).map_err(|e| FileIoError::Database(e.to_string()))
         } else {
-            Err(FileIoError::PathNotFound(path.to_string_lossy().to_string()))
+            Err(FileIoError::PathNotFound(
+                path.to_string_lossy().to_string(),
+            ))
         }
     }
 
@@ -109,11 +120,7 @@ impl AndroidFsIo {
 
 #[async_trait]
 impl FileIo for AndroidFsIo {
-    async fn open(
-        &self,
-        path: &Path,
-        open_mode: &str,
-    ) -> Result<Box<dyn FileStream>, FileIoError> {
+    async fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
         let file = self.get_android_file(path)?;
         let android_file = file
             .open(open_mode)
@@ -138,14 +145,21 @@ impl FileIo for AndroidFsIo {
 
     async fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError> {
         let parent_file = self.get_android_file(parent)?;
-        let new_file = parent_file.create_directory(name).map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let new_file = parent_file
+            .create_directory(name)
+            .map_err(|e| FileIoError::Saf(e.to_string()))?;
         let new_path = parent.join(name);
-        
+
         let conn = self.db.lock().unwrap();
         conn.execute(
             "INSERT OR REPLACE INTO fs_cache (path, content_url, parent) VALUES (?1, ?2, ?3)",
-            params![new_path.to_str().unwrap(), new_file.url, parent.to_str().unwrap()],
-        ).map_err(|e| FileIoError::Database(e.to_string()))?;
+            params![
+                new_path.to_str().unwrap(),
+                new_file.url,
+                parent.to_str().unwrap()
+            ],
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))?;
 
         Ok(new_path)
     }
@@ -168,13 +182,18 @@ impl FileIo for AndroidFsIo {
 
     async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError> {
         let conn = self.db.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT path FROM fs_cache WHERE parent = ?1")
+        let mut stmt = conn
+            .prepare("SELECT path FROM fs_cache WHERE parent = ?1")
             .map_err(|e| FileIoError::Database(e.to_string()))?;
-        let mut rows = stmt.query(params![path.to_str().unwrap()])
+        let mut rows = stmt
+            .query(params![path.to_str().unwrap()])
             .map_err(|e| FileIoError::Database(e.to_string()))?;
 
         let mut nodes = Vec::new();
-        while let Some(row) = rows.next().map_err(|e| FileIoError::Database(e.to_string()))? {
+        while let Some(row) = rows
+            .next()
+            .map_err(|e| FileIoError::Database(e.to_string()))?
+        {
             let path_str: String = row.get(0)?;
             let path = PathBuf::from(path_str);
             let file = self.get_android_file(&path)?;
@@ -190,33 +209,46 @@ impl FileIo for AndroidFsIo {
 
     async fn remove_file(&self, path: &Path) -> Result<(), FileIoError> {
         let file = self.get_android_file(path)?;
-        file.remove_file().map_err(|e| FileIoError::Saf(e.to_string()))?;
-        
+        file.remove_file()
+            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+
         let conn = self.db.lock().unwrap();
-        conn.execute("DELETE FROM fs_cache WHERE path = ?1", params![path.to_str().unwrap()])
-            .map_err(|e| FileIoError::Database(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM fs_cache WHERE path = ?1",
+            params![path.to_str().unwrap()],
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))?;
         Ok(())
     }
 
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
         let file = self.get_android_file(path)?;
-        file.remove_file().map_err(|e| FileIoError::Saf(e.to_string()))?;
+        file.remove_file()
+            .map_err(|e| FileIoError::Saf(e.to_string()))?;
 
         let conn = self.db.lock().unwrap();
-        conn.execute("DELETE FROM fs_cache WHERE path LIKE ?1", params![format!("{}%", path.to_str().unwrap())])
-            .map_err(|e| FileIoError::Database(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM fs_cache WHERE path LIKE ?1",
+            params![format!("{}%", path.to_str().unwrap())],
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))?;
         Ok(())
     }
 
     async fn walk_dir(&self, path: &Path, _follow_links: bool) -> Result<Vec<FsNode>, FileIoError> {
         let conn = self.db.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT path FROM fs_cache WHERE path LIKE ?1")
+        let mut stmt = conn
+            .prepare("SELECT path FROM fs_cache WHERE path LIKE ?1")
             .map_err(|e| FileIoError::Database(e.to_string()))?;
-        let mut rows = stmt.query(params![format!("{}%", path.to_str().unwrap())])
+        let mut rows = stmt
+            .query(params![format!("{}%", path.to_str().unwrap())])
             .map_err(|e| FileIoError::Database(e.to_string()))?;
 
         let mut nodes = Vec::new();
-        while let Some(row) = rows.next().map_err(|e| FileIoError::Database(e.to_string()))? {
+        while let Some(row) = rows
+            .next()
+            .map_err(|e| FileIoError::Database(e.to_string()))?
+        {
             let path_str: String = row.get(0)?;
             let path = PathBuf::from(path_str);
             let file = self.get_android_file(&path)?;
