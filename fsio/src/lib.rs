@@ -39,7 +39,12 @@ impl<T: Read + Write + Send> FileStream for T {}
 
 #[async_trait]
 pub trait FileIo: Send + Sync {
-    async fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError>;
+    fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError>;
+    async fn open_async(
+        &self,
+        path: &Path,
+        open_mode: &str,
+    ) -> Result<Box<dyn FileStream>, FileIoError>;
     async fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError>;
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<(), FileIoError>;
     async fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError>;

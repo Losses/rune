@@ -16,7 +16,22 @@ impl StdFsIo {
 
 #[async_trait]
 impl FileIo for StdFsIo {
-    async fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
+    fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(open_mode.contains('r'));
+        options.write(open_mode.contains('w'));
+        options.append(open_mode.contains('a'));
+        options.truncate(open_mode.contains('t'));
+        options.create(true);
+        let file = options.open(path)?;
+        Ok(Box::new(file))
+    }
+
+    async fn open_async(
+        &self,
+        path: &Path,
+        open_mode: &str,
+    ) -> Result<Box<dyn FileStream>, FileIoError> {
         let mut options = fs::OpenOptions::new();
         options.read(open_mode.contains('r'));
         options.write(open_mode.contains('w'));

@@ -120,7 +120,20 @@ impl AndroidFsIo {
 
 #[async_trait]
 impl FileIo for AndroidFsIo {
-    async fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
+    fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
+        // block on the async open
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(self.open_async(path, open_mode))
+    }
+
+    async fn open_async(
+        &self,
+        path: &Path,
+        open_mode: &str,
+    ) -> Result<Box<dyn FileStream>, FileIoError> {
         let file = self.get_android_file(path)?;
         let android_file = file
             .open(open_mode)
@@ -130,7 +143,7 @@ impl FileIo for AndroidFsIo {
 
     async fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
         use std::io::Read;
-        let mut file = self.open(path, "r").await?;
+        let mut file = self.open_async(path, "r").await?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
         Ok(buffer)
@@ -138,7 +151,7 @@ impl FileIo for AndroidFsIo {
 
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<(), FileIoError> {
         use std::io::Write;
-        let mut file = self.open(path, "w").await?;
+        let mut file = self.open_async(path, "w").await?;
         file.write_all(contents)?;
         Ok(())
     }
