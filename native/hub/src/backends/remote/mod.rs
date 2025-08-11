@@ -27,6 +27,7 @@ use ::discovery::{
     server::PermissionManager,
     url::decode_rnsrv_url,
 };
+use ::fsio::FsIo;
 use ::playback::{player::MockPlayer, sfx_player::SfxPlayer};
 use ::scrobbling::manager::MockScrobblingManager;
 
@@ -109,19 +110,20 @@ impl WebSocketDartBridge {
     where
         T: RinfRustSignal + RustSignal + for<'a> Deserialize<'a> + 'static,
     {
-        let handler_fn = Box::new(
-            move |payload: Vec<u8>| match rinf::deserialize::<T>(payload.as_slice()) {
-                Ok(decoded) => {
-                    decoded.send_signal_to_dart();
-                }
-                Err(e) => {
-                    error!("Failed to decode message: {e}");
-                    CrashResponse {
-                        detail: format!("Failed to decode message: {e}"),
-                    };
-                }
-            },
-        );
+        let handler_fn =
+            Box::new(
+                move |payload: Vec<u8>| match rinf::deserialize::<T>(payload.as_slice()) {
+                    Ok(decoded) => {
+                        decoded.send_signal_to_dart();
+                    }
+                    Err(e) => {
+                        error!("Failed to decode message: {e}");
+                        CrashResponse {
+                            detail: format!("Failed to decode message: {e}"),
+                        };
+                    }
+                },
+            );
 
         self.handlers
             .lock()
@@ -133,9 +135,7 @@ impl WebSocketDartBridge {
         if let Some(handler) = self.handlers.lock().await.get(msg_type) {
             handler(payload);
         } else {
-            error!(
-                "No handler registered for message type in the message bridge: {msg_type}"
-            );
+            error!("No handler registered for message type in the message bridge: {msg_type}");
         }
     }
 
@@ -273,6 +273,7 @@ impl WebSocketDartBridge {
                 let node_id = get_or_create_node_id(config_path).await?.to_string();
 
                 let global_params = GlobalParams {
+                    fsio: Arc::new(FsIo::new_noop()),
                     lib_path: Arc::new(rnsrv_url.to_owned()),
                     config_path: Arc::new(config_path.to_string()),
                     node_id: Arc::new(node_id),

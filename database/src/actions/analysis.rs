@@ -1,5 +1,3 @@
-#![allow(clippy::too_many_arguments)]
-
 use std::path::Path;
 use std::sync::Arc;
 
@@ -38,6 +36,7 @@ pub fn empty_progress_callback(_processed: usize, _total: usize) {}
 ///
 /// # Returns
 /// * `Result<(), sea_orm::DbErr>` - A result indicating success or failure.
+#[allow(clippy::too_many_arguments)]
 pub async fn analysis_audio_library<F>(
     fsio: Arc<FsIo>,
     main_db: &DatabaseConnection,

@@ -4,6 +4,7 @@ mod gui_request;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use fsio::FsIo;
 use log::{error, info};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -33,6 +34,7 @@ use crate::utils::nid::get_or_create_node_id;
 use crate::utils::player::initialize_local_player;
 
 pub async fn local_player_loop(
+    fsio: Arc<FsIo>,
     lib_path: String,
     config_path: String,
     db_connections: DatabaseConnections,
@@ -79,6 +81,7 @@ pub async fn local_player_loop(
 
         info!("Initializing Player events");
         tokio::spawn(initialize_local_player(
+            fsio.clone(),
             lib_path.clone(),
             main_db.clone(),
             player.clone(),
@@ -90,6 +93,7 @@ pub async fn local_player_loop(
 
         info!("Initializing UI events");
         let global_params = GlobalParams {
+            fsio,
             lib_path,
             config_path,
             node_id,

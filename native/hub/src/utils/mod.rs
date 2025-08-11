@@ -9,6 +9,7 @@ use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result};
 use dunce::canonicalize;
+use fsio::FsIo;
 use log::{error, info};
 use nid::get_or_create_node_id;
 use rinf::DartSignal;
@@ -84,6 +85,7 @@ pub enum RunningMode {
 }
 
 pub struct GlobalParams {
+    pub fsio: Arc<FsIo>,
     pub lib_path: Arc<String>,
     pub config_path: Arc<String>,
     pub node_id: Arc<String>,
@@ -143,10 +145,21 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
 
     loop {
         while let Some(dart_signal) = receiver.recv().await {
+            #[cfg(not(target_os = "android"))]
             let media_library_path = &dart_signal.message.path;
+            #[cfg(target_os = "android")]
+            let media_library_path = "";
+
             let config_path = &dart_signal.message.config_path;
             let alias = &dart_signal.message.alias;
             let node_id = get_or_create_node_id(config_path).await?.to_string();
+            #[cfg(not(target_os = "android"))]
+            let fsio = Arc::new(FsIo::new());
+            #[cfg(target_os = "android")]
+            let fsio = Arc::new(FsIo::new(
+                Path::new(".rune/.android-fs.db"),
+                dart_signal.message.path,
+            ));
 
             match &dart_signal.message.hosted_on {
                 OperationDestination::Local => {
@@ -214,6 +227,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
 
                             // Continue with main loop
                             local_player_loop(
+                                fsio,
                                 media_library_path.to_string(),
                                 config_path.to_string(),
                                 db_connections,

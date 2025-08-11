@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use log::info;
 use rustls::crypto::ring::default_provider;
@@ -20,13 +20,14 @@ use cli::{
 use hub::{
     server::{ServerManager, WebSocketService},
     utils::{
-        initialize_databases, nid::get_or_create_node_id, player::initialize_local_player,
-        GlobalParams, RunningMode, TaskTokens,
+        GlobalParams, RunningMode, TaskTokens, initialize_databases, nid::get_or_create_node_id,
+        player::initialize_local_player,
     },
 };
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::discovery::{client::CertValidator, protocol::DiscoveryService, server::PermissionManager};
+use ::fsio::FsIo;
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
 
@@ -117,6 +118,11 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let lib_path: Arc<String> = Arc::new(lib_path.to_string());
     let config_path: Arc<String> = Arc::new(config_path.to_string());
 
+    #[cfg(not(target_os = "android"))]
+    let fsio = Arc::new(FsIo::new());
+    #[cfg(target_os = "android")]
+    let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), lib_path));
+
     let main_cancel_token = CancellationToken::new();
     let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
 
@@ -140,6 +146,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
 
     info!("Initializing Player events");
     tokio::spawn(initialize_local_player(
+        fsio.clone(),
         lib_path.clone(),
         main_db.clone(),
         player.clone(),
@@ -150,6 +157,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     ));
 
     let global_params = Arc::new(GlobalParams {
+        fsio,
         lib_path,
         config_path,
         node_id,

@@ -1,33 +1,37 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use anyhow::{Context, Result};
-use anyhow::{Error, bail};
+use anyhow::{Context, Error, Result, bail};
 use discovery::server::PermissionManager;
 use log::{debug, error, info};
 use sea_orm::{DatabaseConnection, TransactionTrait};
-use tokio::sync::{Mutex, RwLock};
-use tokio::task;
+use tokio::{
+    sync::{Mutex, RwLock},
+    task,
+};
 
-use ::database::actions::logging::insert_log;
-use ::database::actions::playback_queue::replace_playback_queue;
-use ::database::actions::stats::increase_played_through;
-use ::database::connection::MainDbConnection;
-use ::database::playing_item::PlayingItemMetadataSummary;
-use ::database::playing_item::dispatcher::PlayingItemActionDispatcher;
-use ::database::playing_item::library_item::extract_in_library_ids;
+use ::database::{
+    actions::{
+        logging::insert_log, playback_queue::replace_playback_queue, stats::increase_played_through,
+    },
+    connection::MainDbConnection,
+    playing_item::{
+        PlayingItemMetadataSummary, dispatcher::PlayingItemActionDispatcher,
+        library_item::extract_in_library_ids,
+    },
+};
+
 use ::discovery::client::CertValidator;
-use ::playback::MediaMetadata;
-use ::playback::MediaPlayback;
-use ::playback::MediaPosition;
-use ::playback::controller::MediaControlManager;
-use ::playback::controller::get_default_cover_art_path;
-use ::playback::controller::handle_media_control_event;
-use ::playback::player::PlayingItem;
-use ::playback::player::{Playable, PlaylistStatus};
-use ::scrobbling::ScrobblingTrack;
-use ::scrobbling::manager::ScrobblingServiceManager;
+use ::fsio::FsIo;
+use ::playback::{
+    MediaMetadata, MediaPlayback, MediaPosition,
+    controller::{MediaControlManager, get_default_cover_art_path, handle_media_control_event},
+    player::{Playable, PlayingItem, PlaylistStatus},
+};
+use ::scrobbling::{ScrobblingTrack, manager::ScrobblingServiceManager};
 
 use crate::messages::*;
 use crate::utils::Broadcaster;
@@ -50,7 +54,9 @@ pub fn metadata_summary_to_scrobbling_track(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn initialize_local_player(
+    fsio: Arc<FsIo>,
     lib_path: Arc<String>,
     main_db: Arc<MainDbConnection>,
     player: Arc<Mutex<dyn Playable>>,
@@ -75,6 +81,9 @@ pub async fn initialize_local_player(
     let main_db_for_scrobble_log = Arc::clone(&main_db);
     let main_db_for_player_log = Arc::clone(&main_db);
 
+    let fsio_for_status = Arc::clone(&fsio);
+    let fsio_for_playlist = Arc::clone(&fsio);
+
     let manager = Arc::new(Mutex::new(MediaControlManager::new()?));
 
     let os_controller_receiver = manager.lock().await.subscribe_controller_events();
@@ -98,6 +107,7 @@ pub async fn initialize_local_player(
 
     info!("Initializing event listeners");
     task::spawn(async move {
+        let fsio = Arc::clone(&fsio_for_status);
         let main_db = Arc::clone(&main_db_for_status);
         let mut cached_meta: Option<PlayingItemMetadataSummary> = None;
         let mut cached_cover_art: Option<String> = None;
@@ -139,7 +149,7 @@ pub async fn initialize_local_player(
                         match dispatcher
                             .lock()
                             .await
-                            .get_metadata_summary(&main_db, item_vec)
+                            .get_metadata_summary(&fsio, &main_db, item_vec)
                             .await
                         {
                             Ok(metadata) => match metadata.first() {
@@ -230,11 +240,12 @@ pub async fn initialize_local_player(
     });
 
     task::spawn(async move {
+        let fsio = Arc::clone(&fsio_for_playlist);
         let main_db = Arc::clone(&main_db_for_playlist);
         let broadcaster = Arc::clone(&broadcaster_for_playlist);
 
         while let Ok(playlist) = playlist_receiver.recv().await {
-            send_playlist_update(&main_db, &playlist, &*broadcaster).await;
+            send_playlist_update(Arc::clone(&fsio), &main_db, &playlist, &*broadcaster).await;
             match replace_playback_queue(&main_db, extract_in_library_ids(playlist.items)).await {
                 Ok(_) => {}
                 Err(e) => error!("Failed to update playback queue record: {e:#?}"),
@@ -264,7 +275,7 @@ pub async fn initialize_local_player(
             let metadata = dispatcher
                 .lock()
                 .await
-                .get_metadata_summary(&main_db, [item].as_ref())
+                .get_metadata_summary(&fsio, &main_db, [item].as_ref())
                 .await;
 
             if let Ok(metadata) = metadata {
@@ -413,6 +424,7 @@ pub async fn initialize_local_player(
 }
 
 pub async fn send_playlist_update(
+    fsio: Arc<FsIo>,
     db: &DatabaseConnection,
     playlist: &PlaylistStatus,
     broadcaster: &dyn Broadcaster,
@@ -421,7 +433,10 @@ pub async fn send_playlist_update(
 
     let dispatcher = PlayingItemActionDispatcher::new();
 
-    match dispatcher.get_metadata_summary(db, &items.clone()).await {
+    match dispatcher
+        .get_metadata_summary(&fsio, db, &items.clone())
+        .await
+    {
         Ok(summaries) => {
             // Create a HashMap to store summaries by their id
             let summary_map: HashMap<PlayingItem, _> = summaries

@@ -79,6 +79,12 @@ impl FsIo {
             inner: Arc::new(StdFsIo::new()),
         }
     }
+
+    pub fn new_noop() -> Self {
+        Self {
+            inner: Arc::new(NoOpFsIo::new()),
+        }
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -105,3 +111,6 @@ use std_fs::StdFsIo;
 mod android_fs;
 #[cfg(target_os = "android")]
 use android_fs::AndroidFsIo;
+
+mod noop_fs;
+use noop_fs::NoOpFsIo;

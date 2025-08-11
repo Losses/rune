@@ -1,13 +1,12 @@
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
-use analysis::utils::computing_device::ComputingDevice;
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
 use tokio::{sync::Mutex, task};
 use tokio_util::sync::CancellationToken;
 
-use database::{
+use ::analysis::utils::computing_device::ComputingDevice;
+use ::database::{
     actions::{
         analysis::analysis_audio_library,
         cover_art::scan_cover_arts,
@@ -19,6 +18,7 @@ use database::{
     },
     connection::{MainDbConnection, RecommendationDbConnection},
 };
+use ::fsio::FsIo;
 
 use crate::{
     Session, Signal, TaskTokens,
@@ -78,6 +78,7 @@ impl Signal for CloseLibraryRequest {
 
 impl ParamsExtractor for ScanAudioLibraryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
@@ -86,6 +87,7 @@ impl ParamsExtractor for ScanAudioLibraryRequest {
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
+            Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.node_id),
             Arc::clone(&all_params.task_tokens),
@@ -96,6 +98,7 @@ impl ParamsExtractor for ScanAudioLibraryRequest {
 
 impl Signal for ScanAudioLibraryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
@@ -105,7 +108,7 @@ impl Signal for ScanAudioLibraryRequest {
 
     async fn handle(
         &self,
-        (main_db, node_id, task_tokens, broadcaster): Self::Params,
+        (fsio, main_db, node_id, task_tokens, broadcaster): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<()>> {
@@ -132,6 +135,7 @@ impl Signal for ScanAudioLibraryRequest {
             runtime.block_on(async move {
                 let result: Result<()> = async {
                     let file_processed = scan_audio_library(
+                        &fsio,
                         &main_db_clone,
                         Path::new(&request_path),
                         true,
@@ -164,6 +168,7 @@ impl Signal for ScanAudioLibraryRequest {
                     let path_for_closure = request_path.clone();
 
                     scan_cover_arts(
+                        fsio,
                         &main_db_clone,
                         Path::new(&request_path),
                         &node_id_clone,
@@ -209,6 +214,7 @@ impl From<ComputingDeviceRequest> for ComputingDevice {
 
 impl ParamsExtractor for AnalyzeAudioLibraryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<String>,
         Arc<RecommendationDbConnection>,
@@ -218,6 +224,7 @@ impl ParamsExtractor for AnalyzeAudioLibraryRequest {
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
+            Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.node_id),
             Arc::clone(&all_params.recommend_db),
@@ -229,6 +236,7 @@ impl ParamsExtractor for AnalyzeAudioLibraryRequest {
 
 impl Signal for AnalyzeAudioLibraryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<String>,
         Arc<RecommendationDbConnection>,
@@ -239,7 +247,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
 
     async fn handle(
         &self,
-        (main_db, node_id, recommend_db, task_tokens, broadcaster): Self::Params,
+        (fsio, main_db, node_id, recommend_db, task_tokens, broadcaster): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -267,6 +275,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
                 let cloned_broadcaster = Arc::clone(&broadcaster);
                 let result = async {
                     let total_files = analysis_audio_library(
+                        fsio,
                         &main_db,
                         Path::new(&request_path),
                         &node_id,
@@ -309,6 +318,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
 
 impl ParamsExtractor for DeduplicateAudioLibraryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
@@ -317,6 +327,7 @@ impl ParamsExtractor for DeduplicateAudioLibraryRequest {
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
+            Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.node_id),
             Arc::clone(&all_params.task_tokens),
@@ -327,6 +338,7 @@ impl ParamsExtractor for DeduplicateAudioLibraryRequest {
 
 impl Signal for DeduplicateAudioLibraryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
@@ -336,7 +348,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
     async fn handle(
         &self,
-        (main_db, node_id, task_tokens, broadcaster): Self::Params,
+        (fsio, main_db, node_id, task_tokens, broadcaster): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -367,6 +379,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
                 let request_path_clone = request_path_clone.to_string();
                 compute_file_fingerprints(
+                    fsio,
                     &main_db,
                     Path::new(&request_path_clone),
                     &node_id,
