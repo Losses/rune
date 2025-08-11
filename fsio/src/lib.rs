@@ -12,6 +12,8 @@ use thiserror::Error;
 pub enum FileIoError {
     #[error("path not found: {0}")]
     PathNotFound(String),
+    #[error("invalid path")]
+    InvalidPath,
     #[error("permission denied: {0}")]
     PermissionDenied(String),
     #[error("IO error: {0}")]

@@ -2833,6 +2833,7 @@ dependencies = [
  "directories",
  "discovery",
  "dunce",
+ "fsio",
  "futures",
  "futures-channel",
  "futures-util",

@@ -1,6 +1,8 @@
 use std::{
+    fs,
     io::{Read, Write},
-    path::{Path, PathBuf},
+    os::unix::prelude::AsRawFd,
+    path::{Component, Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -18,7 +20,19 @@ pub(crate) struct AndroidFsIo {
 
 impl AndroidFsIo {
     pub(crate) async fn new(db_path: &Path, root_uri: &str) -> Result<Self, FileIoError> {
-        let db = Connection::open(db_path).map_err(|e| FileIoError::Database(e.to_string()))?;
+        let root_file = from_tree_url(root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
+
+        let db_file = Self::find_file_by_path(root_file, db_path, true)
+            .await
+            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+
+        let std_file = db_file
+            .open("rw")
+            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let fd = std_file.as_raw_fd();
+        let path = PathBuf::from(format!("/proc/self/fd/{}", fd));
+
+        let db = Connection::open(path).map_err(|e| FileIoError::Database(e.to_string()))?;
         db.execute(
             "CREATE TABLE IF NOT EXISTS fs_cache (
                 path TEXT PRIMARY KEY,
@@ -37,6 +51,39 @@ impl AndroidFsIo {
         instance.refresh_cache().await?;
 
         Ok(instance)
+    }
+
+    async fn find_file_by_path(
+        start_file: AndroidFile,
+        path: &Path,
+        create_if_not_exist: bool,
+    ) -> Result<AndroidFile, String> {
+        let mut current_file = start_file;
+        for component in path.components() {
+            let component_name = match component {
+                Component::Normal(name) => name.to_str().ok_or("Invalid path component")?,
+                _ => continue,
+            };
+
+            let files = current_file.list_files()?;
+            let found_file = files.into_iter().find(|f| f.filename == component_name);
+
+            current_file = match found_file {
+                Some(file) => file,
+                None => {
+                    if create_if_not_exist {
+                        if let Some(ext) = Path::new(component_name).extension() {
+                            current_file.create_file("application/octet-stream", component_name)?
+                        } else {
+                            current_file.create_directory(component_name)?
+                        }
+                    } else {
+                        return Err(format!("File not found: {}", component_name));
+                    }
+                }
+            };
+        }
+        Ok(current_file)
     }
 
     pub async fn refresh_cache(&self) -> Result<(), FileIoError> {
