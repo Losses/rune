@@ -5507,6 +5507,7 @@ dependencies = [
  "clap",
  "database",
  "dunce",
+ "fsio",
  "futures",
  "log",
  "metadata",

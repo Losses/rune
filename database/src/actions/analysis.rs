@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -37,7 +39,7 @@ pub fn empty_progress_callback(_processed: usize, _total: usize) {}
 /// # Returns
 /// * `Result<(), sea_orm::DbErr>` - A result indicating success or failure.
 pub async fn analysis_audio_library<F>(
-    fsio: &FsIo,
+    fsio: Arc<FsIo>,
     main_db: &DatabaseConnection,
     lib_path: &Path,
     node_id: &str,
@@ -65,7 +67,6 @@ where
         media_files::Entity::find().filter(media_files::Column::Id.is_not_in(existed_ids));
 
     let lib_path = Arc::new(lib_path.to_path_buf());
-    let fsio = Arc::new(fsio);
     let node_id = Arc::new(node_id.to_owned());
 
     parallel_media_files_processing!(

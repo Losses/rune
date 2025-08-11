@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use clap::{Parser, Subcommand};
 use dunce::canonicalize;
@@ -14,6 +14,7 @@ use database::{
     },
     connection::{connect_main_db, connect_recommendation_db},
 };
+use fsio::FsIo;
 
 use rune::{
     analysis::*,
@@ -153,6 +154,7 @@ async fn main() {
             return;
         }
     };
+    let fsio = Arc::new(FsIo::new());
 
     // TODO: INTEGRATING THE CLIENT ID LATER
     let main_db = match connect_main_db(lib_path, None, "").await {
@@ -173,9 +175,17 @@ async fn main() {
 
     match &cli.command {
         Commands::Scan => {
-            let _ = scan_audio_library(&main_db, &path, true, false, empty_progress_callback, None)
-                .await;
-            let _ = scan_cover_arts(&main_db, &path, "", 10, |_now, _total| {}, None).await;
+            let _ = scan_audio_library(
+                &fsio,
+                &main_db,
+                &path,
+                true,
+                false,
+                empty_progress_callback,
+                None,
+            )
+            .await;
+            let _ = scan_cover_arts(fsio, &main_db, &path, "", 10, |_now, _total| {}, None).await;
             info!("Library scanned successfully.");
         }
         Commands::Index => {
@@ -184,6 +194,7 @@ async fn main() {
         Commands::Analyze { computing_device } => {
             analyze_audio_library(
                 computing_device.as_str().into(),
+                fsio,
                 &main_db,
                 &analysis_db,
                 &path,

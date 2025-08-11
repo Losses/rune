@@ -25,3 +25,4 @@ prettytable = "0.10.0"
 dunce = "1.0.4"
 log = "0.4.22"
 rust_decimal = "1.36.0"
+fsio = { version = "0.1.0", path = "../fsio" }

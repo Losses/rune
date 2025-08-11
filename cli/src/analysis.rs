@@ -1,18 +1,22 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use analysis::utils::computing_device::ComputingDevice;
 use database::actions::analysis::{analysis_audio_library, empty_progress_callback};
 use database::actions::recommendation::sync_recommendation;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
+use fsio::FsIo;
 
 pub async fn analyze_audio_library(
     computing_device: ComputingDevice,
+    fsio: Arc<FsIo>,
     main_db: &MainDbConnection,
     analysis_db: &RecommendationDbConnection,
     path: &Path,
     node_id: &str,
 ) {
     if let Err(e) = analysis_audio_library(
+        fsio,
         main_db,
         path,
         node_id,

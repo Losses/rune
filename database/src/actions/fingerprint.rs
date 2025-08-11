@@ -24,7 +24,7 @@ use crate::entities::{media_file_fingerprint, media_file_similarity, media_files
 use crate::parallel_media_files_processing;
 
 pub async fn compute_file_fingerprints<F>(
-    fsio: &FsIo,
+    fsio: Arc<FsIo>,
     main_db: &DatabaseConnection,
     lib_path: &Path,
     node_id: &str,
@@ -63,7 +63,7 @@ where
         lib_path,
         fsio,
         node_id,
-        move |fsio, file, lib_path, cancel_token| {
+        move |_fsio, file, lib_path, cancel_token| {
             compute_single_fingerprint(file, lib_path, &Configuration::default(), cancel_token)
         },
         |db, file: media_files::Model, _node_id, fingerprint_result: Result<(Vec<u32>, _)>| async move {

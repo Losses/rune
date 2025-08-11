@@ -263,7 +263,7 @@ pub async fn insert_extract_result(
 }
 
 pub async fn scan_cover_arts<F>(
-    fsio: &FsIo,
+    fsio: Arc<FsIo>,
     main_db: &DatabaseConnection,
     lib_path: &Path,
     node_id: &str,
@@ -284,7 +284,6 @@ where
 
     let lib_path = Arc::new(lib_path.to_path_buf());
     let node_id = Arc::new(node_id.to_owned());
-    let fsio = Arc::new(fsio);
 
     parallel_media_files_processing!(
         main_db,

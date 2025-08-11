@@ -1,7 +1,10 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
-use database::actions::metadata::{empty_progress_callback, scan_audio_library};
-use database::connection::connect_main_db;
+use database::{
+    actions::metadata::{empty_progress_callback, scan_audio_library},
+    connection::connect_main_db,
+};
+use fsio::FsIo;
 
 #[tokio::main]
 async fn main() {
@@ -13,8 +16,10 @@ async fn main() {
     let path = args.get(1).cloned().expect("Audio data path not provided");
 
     let root_path = PathBuf::from(&path);
+    let fsio = Arc::new(FsIo::new());
 
     let _ = scan_audio_library(
+        &fsio,
         &main_db,
         &root_path,
         true,

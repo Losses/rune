@@ -1,14 +1,18 @@
+use std::sync::Arc;
+
 use analysis::{
     analysis::{analyze_audio, normalize_analysis_result},
     utils::computing_device::ComputingDevice,
 };
+use fsio::FsIo;
 
 fn main() {
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).expect("file path not provided");
+    let fsio = Arc::new(FsIo::new());
 
-    let result = analyze_audio(path, 4096, 4096 / 2, ComputingDevice::Gpu, None);
+    let result = analyze_audio(&fsio, path, 4096, 4096 / 2, ComputingDevice::Gpu, None);
 
     let analysis_result = match result {
         Ok(x) =>

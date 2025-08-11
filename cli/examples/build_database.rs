@@ -1,16 +1,20 @@
+use std::{path::PathBuf, sync::Arc};
+
+use fsio::FsIo;
 use log::{error, info};
-use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
 use analysis::utils::computing_device::ComputingDevice;
-use database::actions::analysis::{
-    analysis_audio_library, empty_progress_callback as empty_analysis_progress_callback,
+use database::{
+    actions::{
+        analysis::{
+            analysis_audio_library, empty_progress_callback as empty_analysis_progress_callback,
+        },
+        metadata::{empty_progress_callback as empty_scan_progress_callback, scan_audio_library},
+        recommendation::sync_recommendation,
+    },
+    connection::{connect_main_db, connect_recommendation_db},
 };
-use database::actions::metadata::{
-    empty_progress_callback as empty_scan_progress_callback, scan_audio_library,
-};
-use database::actions::recommendation::sync_recommendation;
-use database::connection::{connect_main_db, connect_recommendation_db};
 
 #[tokio::main]
 async fn main() {
@@ -31,9 +35,11 @@ async fn main() {
     let path = args.get(1).cloned().expect("Audio data path not provided");
 
     let root_path = PathBuf::from(&path);
+    let fsio = Arc::new(FsIo::new());
 
     // Scan the audio library
     let _ = scan_audio_library(
+        &fsio,
         &main_db,
         &root_path,
         true,
@@ -46,6 +52,7 @@ async fn main() {
     info!("Analyzing tracks");
     // Analyze the audio files in the database
     analysis_audio_library(
+        fsio,
         &main_db,
         &root_path,
         "",

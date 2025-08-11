@@ -278,7 +278,7 @@ macro_rules! parallel_media_files_processing {
                             };
 
                             let lib_path = Arc::clone(&$lib_path);
-                            let fsio = Arc::clone(&$fsio);
+                            let fsio = $fsio.clone();
                             let processed_count = Arc::clone(&processed_count);
                             let progress_callback = Arc::clone(&progress_callback);
                             let node_id_clone = $node_id.clone();
@@ -288,7 +288,7 @@ macro_rules! parallel_media_files_processing {
                             let task = task::spawn(async move {
                                 let analysis_result = task::spawn_blocking(move || {
                                     let process_fn = $process_fn;
-                                    process_fn(&fsio, &file_clone, &lib_path, process_cancel_token)
+                                    process_fn(fsio.as_ref(), &file_clone, &lib_path, process_cancel_token)
                                     // Pass the cloned token
                                 })
                                 .await;
