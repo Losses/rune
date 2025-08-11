@@ -1,19 +1,25 @@
-use anyhow::Context;
-use anyhow::Result;
+use std::path::Path;
 
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::formats::FormatReader;
-use symphonia::core::formats::Track;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
+use anyhow::{Context, Result};
 
-pub fn get_format(file_path: &str) -> Result<Box<dyn FormatReader>> {
+use symphonia::core::{
+    formats::{FormatOptions, FormatReader, Track},
+    {io::MediaSourceStream, meta::MetadataOptions, probe::Hint},
+};
+
+use fsio::FsIo;
+
+use crate::utils::media_source::FsioMediaSource;
+
+pub fn get_format(fsio: &FsIo, file_path: &str) -> Result<Box<dyn FormatReader>> {
     // Open the media source.
-    let src = std::fs::File::open(file_path).with_context(|| "failed to open media")?;
+    let src = fsio
+        .open(Path::new(file_path), "r")
+        .with_context(|| "failed to open media")?;
 
     // Create the media source stream.
-    let mss = MediaSourceStream::new(Box::new(src), Default::default());
+    let source = FsioMediaSource::new(src);
+    let mss = MediaSourceStream::new(Box::new(source), Default::default());
 
     // Create a probe hint using the file's extension.
     let mut hint = Hint::new();

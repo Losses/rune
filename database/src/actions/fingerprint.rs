@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
+use fsio::FsIo;
 use log::{debug, info};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, JoinType,
@@ -13,16 +14,17 @@ use sea_orm::{
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
+pub use tag_editor::music_brainz::fingerprint::{Configuration, Segment};
 use tag_editor::music_brainz::fingerprint::{
     calc_fingerprint, calculate_similarity_score, get_track_duration_in_secs, match_fingerprints,
 };
-pub use tag_editor::music_brainz::fingerprint::{Configuration, Segment};
 
 use crate::entities::prelude::{MediaFileFingerprint, MediaFileSimilarity, MediaFiles};
 use crate::entities::{media_file_fingerprint, media_file_similarity, media_files};
 use crate::parallel_media_files_processing;
 
 pub async fn compute_file_fingerprints<F>(
+    fsio: &FsIo,
     main_db: &DatabaseConnection,
     lib_path: &Path,
     node_id: &str,
@@ -59,8 +61,9 @@ where
         cancel_token,
         cursor_query,
         lib_path,
+        fsio,
         node_id,
-        move |file, lib_path, cancel_token| {
+        move |fsio, file, lib_path, cancel_token| {
             compute_single_fingerprint(file, lib_path, &Configuration::default(), cancel_token)
         },
         |db, file: media_files::Model, _node_id, fingerprint_result: Result<(Vec<u32>, _)>| async move {

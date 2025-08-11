@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
+use fsio::FsIo;
 use sea_orm::DatabaseConnection;
 
 use metadata::{
@@ -77,6 +78,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
 
     async fn get_metadata_summary(
         &self,
+        fsio: &FsIo,
         _main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<PlayingItemMetadataSummary>> {
@@ -90,7 +92,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                 match path.to_str() {
                     Some(xs) => {
                         let metadata: Result<Vec<(String, String)>> = get_metadata(xs, None);
-                        let codec: Result<(u32, f64)> = get_codec_information_from_path(path);
+                        let codec: Result<(u32, f64)> = get_codec_information_from_path(fsio, path);
 
                         match (metadata, codec) {
                             (Ok(metadata_vec), Ok((_, duration))) => {

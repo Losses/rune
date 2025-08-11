@@ -1,11 +1,14 @@
-use std::ffi::OsStr;
-use std::fmt;
-use std::fs::File;
-use std::io::{BufReader, Read};
-use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::{
+    ffi::OsStr,
+    fmt,
+    fs::File,
+    io::{BufReader, Read},
+    path::{Path, PathBuf},
+    time::UNIX_EPOCH,
+};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
+use fsio::FsIo;
 use symphonia::core::codecs::CODEC_TYPE_NULL;
 
 use analysis::utils::audio_metadata_reader::{get_codec_information, get_format};
@@ -60,20 +63,20 @@ impl FileDescription {
         }
     }
 
-    pub fn get_codec_information(&mut self) -> Result<(u32, f64)> {
-        let codec_information = get_codec_information_from_path(&self.full_path)?;
+    pub fn get_codec_information(&mut self, fsio: &FsIo) -> Result<(u32, f64)> {
+        let codec_information = get_codec_information_from_path(fsio, &self.full_path)?;
 
         Ok(codec_information)
     }
 }
 
-pub fn get_codec_information_from_path(full_path: &Path) -> Result<(u32, f64)> {
+pub fn get_codec_information_from_path(fsio: &FsIo, full_path: &Path) -> Result<(u32, f64)> {
     let full_math = match full_path.to_str() {
         Some(full_path) => full_path,
         _none => bail!("Failed to convert file path while getting codec information"),
     };
 
-    let format = get_format(full_math)
+    let format = get_format(fsio, full_math)
         .with_context(|| format!("No supported format found: {full_math}"))?;
 
     let track = format

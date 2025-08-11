@@ -1,24 +1,24 @@
+use fsio::FsIo;
 use log::debug;
 
-use rubato::Resampler;
-use rubato::SincFixedIn;
-use rubato::SincInterpolationParameters;
-use rubato::SincInterpolationType;
-use rubato::WindowFunction;
-use rustfft::{num_complex::Complex, FftPlanner};
-use symphonia::core::audio::AudioBufferRef;
-use symphonia::core::audio::Signal;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
-use symphonia::core::conv::IntoSample;
-use symphonia::core::errors::Error;
+use rubato::{
+    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
+use rustfft::{FftPlanner, num_complex::Complex};
+use symphonia::core::{
+    audio::{AudioBufferRef, Signal},
+    codecs::{CODEC_TYPE_NULL, DecoderOptions},
+    conv::IntoSample,
+    errors::Error,
+};
 use tokio_util::sync::CancellationToken;
 
-use crate::utils::audio_description::AudioDescription;
-use crate::utils::audio_metadata_reader::*;
-use crate::utils::features::energy;
-use crate::utils::features::rms;
-use crate::utils::features::zcr;
-use crate::utils::hanning_window::build_hanning_window;
+use crate::utils::{
+    audio_description::AudioDescription,
+    audio_metadata_reader::*,
+    features::{energy, rms, zcr},
+    hanning_window::build_hanning_window,
+};
 
 // Define the macro at the beginning of the file, after the imports
 macro_rules! process_window {
@@ -70,6 +70,7 @@ pub const RESAMPLER_PARAMETER: rubato::SincInterpolationParameters = SincInterpo
 
 #[allow(dead_code)]
 pub fn fft(
+    fsio: &FsIo,
     file_path: &str,
     window_size: usize,
     overlap_size: usize,
@@ -83,7 +84,7 @@ pub fn fft(
     };
 
     // Get the audio track.
-    let mut format = get_format(file_path).expect("no supported audio tracks");
+    let mut format = get_format(fsio, file_path).expect("no supported audio tracks");
     let track = format
         .tracks()
         .iter()

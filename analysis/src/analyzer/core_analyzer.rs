@@ -4,21 +4,31 @@ use log::debug;
 
 use rubato::{FftFixedInOut, Resampler};
 use rustfft::num_complex::Complex;
-use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
-use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
-use symphonia::core::conv::IntoSample;
-use symphonia::core::errors::Error;
-use symphonia::core::formats::FormatReader;
-use symphonia::core::sample::Sample;
-use symphonia::default::get_codecs;
+use symphonia::{
+    core::{
+        audio::{AudioBuffer, AudioBufferRef, Signal},
+        codecs::{CODEC_TYPE_NULL, Decoder, DecoderOptions},
+        conv::IntoSample,
+        errors::Error,
+        formats::FormatReader,
+        sample::Sample,
+    },
+    default::get_codecs,
+};
 use tokio_util::sync::CancellationToken;
 
-use crate::analyzer::cpu_sub_analyzer::CpuSubAnalyzer;
-use crate::analyzer::gpu_sub_analyzer::GpuSubAnalyzer;
-use crate::analyzer::sub_analyzer::SubAnalyzer;
-use crate::utils::audio_description::AudioDescription;
-use crate::utils::audio_metadata_reader::*;
-use crate::utils::computing_device::ComputingDevice;
+use fsio::FsIo;
+
+use crate::{
+    analyzer::{
+        cpu_sub_analyzer::CpuSubAnalyzer, gpu_sub_analyzer::GpuSubAnalyzer,
+        sub_analyzer::SubAnalyzer,
+    },
+    utils::{
+        audio_description::AudioDescription, audio_metadata_reader::*,
+        computing_device::ComputingDevice,
+    },
+};
 
 macro_rules! check_cancellation {
     ($self:expr) => {
@@ -112,8 +122,8 @@ impl Analyzer {
         }
     }
 
-    pub fn process(&mut self, file_path: &str) -> Option<AudioDescription> {
-        let mut format = get_format(file_path).expect("no supported audio tracks");
+    pub fn process(&mut self, fsio: &FsIo, file_path: &str) -> Option<AudioDescription> {
+        let mut format = get_format(fsio, file_path).expect("no supported audio tracks");
         let track = format
             .tracks()
             .iter()

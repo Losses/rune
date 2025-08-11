@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Write},
+    io::{Read, Seek, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -34,8 +34,8 @@ pub struct FsNode {
     pub size: u64,
 }
 
-pub trait FileStream: Read + Write + Send {}
-impl<T: Read + Write + Send> FileStream for T {}
+pub trait FileStream: Read + Write + Seek + Send + Sync {}
+impl<T: Read + Write + Seek + Send + Sync> FileStream for T {}
 
 #[async_trait]
 pub trait FileIo: Send + Sync {

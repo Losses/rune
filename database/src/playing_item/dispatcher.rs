@@ -7,11 +7,12 @@ use std::{
 use anyhow::Result;
 use sea_orm::DatabaseConnection;
 
+use fsio::FsIo;
 use playback::player::PlayingItem;
 
 use super::{
-    independent_file::IndependentFileProcessor, library_item::LibraryItemProcessor,
     MediaFileHandle, PlayingFileMetadataProvider, PlayingItemMetadataSummary,
+    independent_file::IndependentFileProcessor, library_item::LibraryItemProcessor,
 };
 
 pub struct PlayingItemActionDispatcher {
@@ -115,11 +116,12 @@ impl PlayingItemActionDispatcher {
 
     pub async fn get_metadata_summary(
         &self,
+        fsio: &FsIo,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<PlayingItemMetadataSummary>> {
         self.process_with_both_processors(main_db, items, |processor, db, items| {
-            Box::pin(processor.get_metadata_summary(db, items))
+            Box::pin(processor.get_metadata_summary(fsio, db, items))
         })
         .await
     }

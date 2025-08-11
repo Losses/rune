@@ -20,4 +20,5 @@ analysis = { path = "../analysis" }
 anyhow = {version="1.0.86",  features = ["backtrace"] }
 image = "0.25.2"
 palette_extract = "0.1.0"
+fsio = { version = "0.1.0", path = "../fsio" }
 

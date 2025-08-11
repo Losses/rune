@@ -8,6 +8,7 @@ use std::{
 use anyhow::{Context, Result};
 use chrono::Utc;
 use dunce::canonicalize;
+use fsio::FsIo;
 use log::info;
 use once_cell::sync::Lazy;
 use sea_orm::{
@@ -16,7 +17,7 @@ use sea_orm::{
 };
 use tokio_util::sync::CancellationToken;
 
-use metadata::cover_art::{extract_cover_art_binary, get_primary_color, CoverArt};
+use metadata::cover_art::{CoverArt, extract_cover_art_binary, get_primary_color};
 
 use crate::{
     entities::{media_cover_art, media_files},
@@ -262,6 +263,7 @@ pub async fn insert_extract_result(
 }
 
 pub async fn scan_cover_arts<F>(
+    fsio: &FsIo,
     main_db: &DatabaseConnection,
     lib_path: &Path,
     node_id: &str,
@@ -272,9 +274,7 @@ pub async fn scan_cover_arts<F>(
 where
     F: Fn(usize, usize) + Send + Sync + 'static,
 {
-    info!(
-        "Starting cover art processing with batch size: {batch_size}"
-    );
+    info!("Starting cover art processing with batch size: {batch_size}");
 
     let progress_callback = Arc::new(progress_callback);
 
@@ -284,6 +284,7 @@ where
 
     let lib_path = Arc::new(lib_path.to_path_buf());
     let node_id = Arc::new(node_id.to_owned());
+    let fsio = Arc::new(fsio);
 
     parallel_media_files_processing!(
         main_db,
@@ -292,8 +293,9 @@ where
         cancel_token,
         cursor_query,
         lib_path,
+        fsio,
         node_id,
-        move |file, lib_path, _cancel_token| { extract_cover_art_by_file_id(file, lib_path) },
+        move |_fsio, file, lib_path, _cancel_token| { extract_cover_art_by_file_id(file, lib_path) },
         |db, file: media_files::Model, node_id: Arc<String>, result| async move {
             match insert_extract_result(db, &file, magic_cover_art_id, result, &node_id).await {
                 Ok(_) => {

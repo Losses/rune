@@ -1,13 +1,15 @@
-use std::fs::File;
 use std::io::Write;
+use std::{fs::File, sync::Arc};
 
 use anyhow::Result;
 use clap::{Arg, Command};
+use fsio::FsIo;
 use tokio_util::sync::CancellationToken;
 
 use tag_editor::sampler::interval_sampler::IntervalSampler;
 
-fn main() -> Result<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
     // Set up CLI arguments
     let matches = Command::new("Sampler CLI")
         .version("1.0")
@@ -48,8 +50,9 @@ fn main() -> Result<()> {
         Some(cancel_token.clone()),
     );
 
+    let fsio = Arc::new(FsIo::new());
     // Process the audio file
-    sampler.process()?;
+    sampler.process(&fsio)?;
 
     for (counter, event) in sampler.receiver.iter().enumerate() {
         // Create numbered output file names for both txt and pcm

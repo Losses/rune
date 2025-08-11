@@ -1,12 +1,13 @@
 use anyhow::Result;
 use clap::{Arg, Command};
+use fsio::FsIo;
 use tokio_util::sync::CancellationToken;
 
 use tag_editor::{
     sampler::interval_sampler::IntervalSampler,
     shazam::{
         api::identify,
-        spectrogram::{compute_signature, Signature},
+        spectrogram::{Signature, compute_signature},
     },
 };
 
@@ -27,6 +28,7 @@ async fn main() -> Result<()> {
 
     // Get the input file from arguments
     let input_file = matches.get_one::<String>("INPUT").unwrap();
+    let fsio = FsIo::new();
 
     // Set parameters
     let sample_rate = 16000;
@@ -48,7 +50,7 @@ async fn main() -> Result<()> {
     );
 
     // Process the audio file
-    sampler.process()?;
+    sampler.process(&fsio)?;
 
     // Collect and process sample events
     for event in sampler.receiver.iter() {

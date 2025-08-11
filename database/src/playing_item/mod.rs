@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
+use fsio::FsIo;
 use sea_orm::DatabaseConnection;
 
 use metadata::describe::FileDescription;
@@ -113,6 +114,7 @@ pub trait PlayingFileMetadataProvider {
 
     async fn get_metadata_summary(
         &self,
+        fsio: &FsIo,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<PlayingItemMetadataSummary>>;

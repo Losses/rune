@@ -1,18 +1,18 @@
 use std::sync::mpsc::Sender;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use rubato::{FftFixedInOut, Resampler};
-use symphonia::core::audio::AudioBuffer;
-use symphonia::core::audio::AudioBufferRef;
-use symphonia::core::audio::Signal;
-use symphonia::core::codecs::Decoder;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
-use symphonia::core::conv::IntoSample;
-use symphonia::core::formats::FormatReader;
-use symphonia::core::sample::Sample;
+use symphonia::core::{
+    audio::{AudioBuffer, AudioBufferRef, Signal},
+    codecs::{CODEC_TYPE_NULL, Decoder, DecoderOptions},
+    conv::IntoSample,
+    formats::FormatReader,
+    sample::Sample,
+};
 use tokio_util::sync::CancellationToken;
 
 use analysis::utils::audio_metadata_reader::{get_codec_information, get_format};
+use fsio::FsIo;
 
 pub struct SampleEvent {
     pub sample_index: usize,  // The index of the current sample
@@ -62,8 +62,13 @@ impl UniformSampler {
         }
     }
 
-    pub fn process(&mut self, file_path: &str, sender: Sender<SampleEvent>) -> Result<()> {
-        let mut format = get_format(file_path)?;
+    pub fn process(
+        &mut self,
+        fsio: &FsIo,
+        file_path: &str,
+        sender: Sender<SampleEvent>,
+    ) -> Result<()> {
+        let mut format = get_format(fsio, file_path)?;
         let track = match format
             .tracks()
             .iter()

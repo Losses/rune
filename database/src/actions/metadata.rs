@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
+use fsio::FsIo;
 use log::{debug, error, info};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -11,7 +12,7 @@ use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use tokio_util::sync::CancellationToken;
 
-use metadata::describe::{describe_file, FileDescription};
+use metadata::describe::{FileDescription, describe_file};
 use metadata::reader::get_metadata;
 use metadata::scanner::AudioScanner;
 
@@ -19,7 +20,7 @@ use crate::actions::collection::CollectionQueryType;
 use crate::actions::cover_art::remove_cover_art_by_file_id;
 use crate::actions::file::get_file_ids_by_descriptions;
 use crate::actions::index::{index_media_files, perform_library_maintenance};
-use crate::actions::logging::{insert_log, LogLevel};
+use crate::actions::logging::{LogLevel, insert_log};
 use crate::actions::search::{add_term, remove_term};
 use crate::entities::{albums, artists, media_file_albums, media_files};
 use crate::entities::{media_file_artists, media_metadata};
@@ -54,6 +55,7 @@ pub fn read_metadata(description: &FileDescription) -> Result<FileMetadata> {
 }
 
 pub async fn sync_file_descriptions(
+    fsio: &FsIo,
     main_db: &DatabaseConnection,
     descriptions: &mut [Option<FileDescription>],
     force: bool,
@@ -200,16 +202,19 @@ pub async fn sync_file_descriptions(
                                 description.file_name.clone()
                             );
 
-                            if let Err(e) =
-                                update_file_codec_information(&txn, &existing_file, description)
-                                    .await
-                                    .with_context(|| {
-                                        format!(
-                                            "Failed to update file codec information: {}",
-                                            description.file_name.clone(),
-                                        )
-                                    })
-                            {
+                            if let Err(e) = update_file_codec_information(
+                                fsio,
+                                &txn,
+                                &existing_file,
+                                description,
+                            )
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "Failed to update file codec information: {}",
+                                    description.file_name.clone(),
+                                )
+                            }) {
                                 error!("{e:?}");
                                 insert_log(
                                     &txn,
@@ -279,7 +284,7 @@ pub async fn sync_file_descriptions(
 
                     match file_metadata {
                         Ok(x) => {
-                            match insert_new_file(&txn, &x, description)
+                            match insert_new_file(fsio, &txn, &x, description)
                                 .await
                                 .with_context(|| {
                                     format!(
@@ -358,6 +363,7 @@ pub async fn sync_file_descriptions(
 }
 
 pub async fn process_files(
+    fsio: &FsIo,
     main_db: &DatabaseConnection,
     descriptions: &mut [Option<FileDescription>],
 ) -> Result<()> {
@@ -429,7 +435,7 @@ pub async fn process_files(
                                 description.file_name.clone()
                             );
 
-                            update_file_codec_information(&txn, &existing_file, description)
+                            update_file_codec_information(fsio, &txn, &existing_file, description)
                                 .await?;
 
                             remove_cover_art_by_file_id(&txn, existing_file.id).await?;
@@ -469,7 +475,7 @@ pub async fn process_files(
 
                     match file_metadata {
                         Ok(x) => {
-                            match insert_new_file(&txn, &x, description)
+                            match insert_new_file(fsio, &txn, &x, description)
                                 .await
                                 .with_context(|| {
                                     format!(
@@ -627,6 +633,7 @@ where
 }
 
 pub async fn update_file_codec_information<E>(
+    fsio: &FsIo,
     db: &E,
     existing_file: &media_files::Model,
     description: &mut FileDescription,
@@ -635,7 +642,7 @@ where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {
     let (sample_rate, duration_in_seconds) = match description
-        .get_codec_information()
+        .get_codec_information(fsio)
         .with_context(|| "Failed to get codec information")
     {
         Ok(info) => info,
@@ -696,6 +703,7 @@ where
 }
 
 pub async fn insert_new_file<E>(
+    fsio: &FsIo,
     main_db: &E,
     metadata: &FileMetadata,
     description: &mut FileDescription,
@@ -703,7 +711,7 @@ pub async fn insert_new_file<E>(
 where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {
-    let (sample_rate, duration_in_seconds) = description.get_codec_information()?;
+    let (sample_rate, duration_in_seconds) = description.get_codec_information(fsio)?;
 
     description
         .get_crc()
@@ -799,6 +807,7 @@ async fn clean_up_database(main_db: &DatabaseConnection, root_path: &Path) -> Re
 pub fn empty_progress_callback(_processed: usize) {}
 
 pub async fn scan_audio_library<F>(
+    fsio: &FsIo,
     main_db: &DatabaseConnection,
     lib_path: &Path,
     cleanup: bool,
@@ -836,7 +845,7 @@ where
             .map(|result| result.ok())
             .collect();
 
-        match sync_file_descriptions(main_db, &mut descriptions, force)
+        match sync_file_descriptions(fsio, main_db, &mut descriptions, force)
             .await
             .with_context(|| "Unable to describe files")
         {

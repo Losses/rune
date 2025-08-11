@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use dunce::canonicalize;
 use sea_orm::DatabaseConnection;
 
+use fsio::FsIo;
 use playback::player::PlayingItem;
 
 use crate::actions::{
@@ -76,6 +77,7 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
 
     async fn get_metadata_summary(
         &self,
+        _fsio: &FsIo,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<PlayingItemMetadataSummary>> {

@@ -1,10 +1,13 @@
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
-use crate::analyzer::core_analyzer::Analyzer;
-use crate::measure_time;
-use crate::utils::computing_device::ComputingDevice;
-use crate::utils::features::*;
+use fsio::FsIo;
+
+use crate::{
+    analyzer::core_analyzer::Analyzer,
+    measure_time,
+    utils::{computing_device::ComputingDevice, features::*},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct AudioStat {
@@ -42,6 +45,7 @@ pub struct AnalysisResult {
 }
 
 pub fn analyze_audio(
+    fsio: &FsIo,
     file_path: &str,
     window_size: usize,
     overlap_size: usize,
@@ -58,7 +62,7 @@ pub fn analyze_audio(
 
     let audio_desc = measure_time!(
         &format!("[{computing_device:?}] Analyzer"),
-        analyzer.process(file_path)
+        analyzer.process(fsio, file_path)
     );
 
     if audio_desc.is_none() {
@@ -72,7 +76,7 @@ pub fn analyze_audio(
     // Calculate spectral features
     let spectral_centroid = spectral_centroid(&amp_spectrum);
     let spectral_flatness = spectral_flatness(&amp_spectrum);
-    let spectral_flux = spectral_flux(&amp_spectrum, &vec![0.0; amp_spectrum.len()], window_size); 
+    let spectral_flux = spectral_flux(&amp_spectrum, &vec![0.0; amp_spectrum.len()], window_size);
     let spectral_slope = spectral_slope(&amp_spectrum, audio_desc.sample_rate as f32, window_size);
     let spectral_rolloff = spectral_rolloff(&amp_spectrum, audio_desc.sample_rate as f32);
     let spectral_spread = spectral_spread(&amp_spectrum);
@@ -159,11 +163,11 @@ pub fn normalize_analysis_result(result: &AnalysisResult) -> NormalizedAnalysisR
     // Define the ranges for each feature
     let max_spectral_centroid = (result.parameters.window_size / 2) as f32;
     let max_spectral_flatness = 1.0;
-    let max_spectral_flux = 1.0; 
+    let max_spectral_flux = 1.0;
     let max_spectral_slope = 1.0;
     let max_spectral_rolloff = (result.stat.sample_rate / 2) as f32;
     let max_spectral_spread = (result.parameters.window_size / 2) as f32;
-    let max_spectral_skewness = 1.0; 
+    let max_spectral_skewness = 1.0;
     let max_spectral_kurtosis = 1.0;
     let max_chroma = 1.0;
 

@@ -1,26 +1,29 @@
 #[cfg(test)]
 mod tests {
-    use crate::analyzer::core_analyzer::Analyzer;
-    use crate::legacy::legacy_fft_v1;
-    use crate::measure_time;
-    use crate::utils::computing_device::ComputingDevice;
+    use fsio::FsIo;
     use log::info;
+
+    use crate::{
+        analyzer::core_analyzer::Analyzer, legacy::legacy_fft_v1, measure_time,
+        utils::computing_device::ComputingDevice,
+    };
 
     #[test]
     fn test_analyze_cpu_vs_legacy() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
         let file_path = "../assets/startup_0.ogg";
+        let fsio = FsIo::new();
         let window_size = 1024;
         let overlap_size = 512;
 
         let mut analyzer =
             Analyzer::new(ComputingDevice::Cpu, window_size, overlap_size, None, None);
 
-        let cpu_result = measure_time!("CPU FFT", analyzer.process(file_path)).unwrap();
+        let cpu_result = measure_time!("CPU FFT", analyzer.process(&fsio, file_path)).unwrap();
 
         let legacy_cpu_result = measure_time!(
             "LEGACY CPU FFT",
-            legacy_fft_v1::fft(file_path, window_size, overlap_size, None)
+            legacy_fft_v1::fft(&fsio, file_path, window_size, overlap_size, None)
         )
         .unwrap();
 
@@ -48,21 +51,22 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_analyze_gpu_vs_legacy() {
+    #[tokio::test]
+    async fn test_analyze_gpu_vs_legacy() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
         let file_path = "../assets/startup_0.ogg";
+        let fsio = FsIo::new();
         let window_size = 1024;
         let overlap_size = 512;
 
         let mut analyzer =
             Analyzer::new(ComputingDevice::Gpu, window_size, overlap_size, None, None);
 
-        let gpu_result = measure_time!("GPU FFT", analyzer.process(file_path)).unwrap();
+        let gpu_result = measure_time!("GPU FFT", analyzer.process(&fsio, file_path)).unwrap();
 
         let legacy_cpu_result = measure_time!(
             "LEGACY CPU FFT",
-            legacy_fft_v1::fft(file_path, window_size, overlap_size, None)
+            legacy_fft_v1::fft(&fsio, file_path, window_size, overlap_size, None)
         )
         .unwrap();
 
@@ -90,22 +94,23 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_fft_cpu_vs_gpu() {
+    #[tokio::test]
+    async fn test_fft_cpu_vs_gpu() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
         let file_path = "../assets/startup_0.ogg";
+        let fsio = FsIo::new();
         let window_size = 1024;
         let overlap_size = 512;
 
         let mut analyzer =
             Analyzer::new(ComputingDevice::Cpu, window_size, overlap_size, None, None);
 
-        let cpu_result = measure_time!("CPU FFT", analyzer.process(file_path)).unwrap();
+        let cpu_result = measure_time!("CPU FFT", analyzer.process(&fsio, file_path)).unwrap();
 
         let mut analyzer =
             Analyzer::new(ComputingDevice::Gpu, window_size, overlap_size, None, None);
 
-        let gpu_result = measure_time!("GPU FFT", analyzer.process(file_path)).unwrap();
+        let gpu_result = measure_time!("GPU FFT", analyzer.process(&fsio, file_path)).unwrap();
 
         info!("CPU result: {cpu_result:?}");
         info!("GPU result: {gpu_result:?}");

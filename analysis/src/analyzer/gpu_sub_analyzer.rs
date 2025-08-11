@@ -1,12 +1,13 @@
 use rubato::Resampler;
 use rustfft::num_complex::Complex;
 
-use crate::analyzer::core_analyzer::Analyzer;
-use crate::analyzer::sub_analyzer::SubAnalyzer;
-use crate::utils::features::energy;
-use crate::utils::features::rms;
-use crate::utils::features::zcr;
-use crate::utils::hanning_window::build_hanning_window;
+use crate::{
+    analyzer::{core_analyzer::Analyzer, sub_analyzer::SubAnalyzer},
+    utils::{
+        features::{energy, rms, zcr},
+        hanning_window::build_hanning_window,
+    },
+};
 
 use crate::wgpu_fft::wgpu_radix4;
 
@@ -75,6 +76,7 @@ impl SubAnalyzer for GpuSubAnalyzer {
 
 #[cfg(test)]
 mod tests {
+    use fsio::FsIo;
     use log::info;
 
     use crate::legacy::legacy_fft_v2::gpu_fft;
@@ -90,14 +92,22 @@ mod tests {
         let window_size = 1024;
         let batch_size = 1024 * 8;
         let overlap_size = 512;
+        let fsio = FsIo::new();
 
         let mut analyzer =
             Analyzer::new(ComputingDevice::Cpu, window_size, overlap_size, None, None);
-        let gpu_result = measure_time!("GPU FFT", analyzer.process(file_path).unwrap());
+        let gpu_result = measure_time!("GPU FFT", analyzer.process(&fsio, file_path).unwrap());
 
         let gpu_result1 = measure_time!(
             "GPU FFT1",
-            gpu_fft(file_path, window_size, batch_size, overlap_size, None)
+            gpu_fft(
+                &fsio,
+                file_path,
+                window_size,
+                batch_size,
+                overlap_size,
+                None
+            )
         )
         .unwrap();
 

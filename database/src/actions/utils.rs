@@ -155,6 +155,7 @@ macro_rules! parallel_media_files_processing {
         $cancel_token:expr,
         $cursor_query:expr,
         $lib_path:expr,
+        $fsio:expr,
         $node_id: expr,
         $process_fn:expr,
         $result_handler:expr
@@ -169,7 +170,7 @@ macro_rules! parallel_media_files_processing {
         let (tx, rx) = async_channel::bounded($batch_size);
         info!("Batch size: {}", $batch_size);
         let total_tasks = cursor_query_clone.count($main_db).await? as usize;
-        info!("Total tasks: {}", {total_tasks});
+        info!("Total tasks: {}", { total_tasks });
         let processed_count = Arc::new(Mutex::new(0));
 
         let producer_cancel_token = $cancel_token.clone();
@@ -184,7 +185,7 @@ macro_rules! parallel_media_files_processing {
                             info!("Cancellation requested. Exiting producer loop.");
                             // Handle the error gracefully
                             if let Err(e) = tx.send(None).await {
-                                warn!("Failed to send termination signal: {:#?}", {e});
+                                warn!("Failed to send termination signal: {:#?}", { e });
                             }
                             break;
                         }
@@ -200,7 +201,7 @@ macro_rules! parallel_media_files_processing {
                             error!("Database error: {e:?}");
                             // Send termination signal on error
                             if let Err(e) = tx.send(None).await {
-                                warn!("Failed to send termination signal: {:#?}", {e});
+                                warn!("Failed to send termination signal: {:#?}", { e });
                             }
                             return Err(e);
                         }
@@ -221,7 +222,7 @@ macro_rules! parallel_media_files_processing {
                             if token.is_cancelled() {
                                 info!("Cancellation requested during file sending.");
                                 if let Err(e) = tx.send(None).await {
-                                    warn!("Failed to send termination signal: {:#?}", {e});
+                                    warn!("Failed to send termination signal: {:#?}", { e });
                                 }
                                 return Ok(());
                             }
@@ -230,7 +231,7 @@ macro_rules! parallel_media_files_processing {
                         match tx.send(Some(file.clone())).await {
                             Ok(_) => {}
                             Err(e) => {
-                                warn!("Failed to send file: {:#?}", {e});
+                                warn!("Failed to send file: {:#?}", { e });
                                 return Ok(());
                             }
                         }
@@ -277,6 +278,7 @@ macro_rules! parallel_media_files_processing {
                             };
 
                             let lib_path = Arc::clone(&$lib_path);
+                            let fsio = Arc::clone(&$fsio);
                             let processed_count = Arc::clone(&processed_count);
                             let progress_callback = Arc::clone(&progress_callback);
                             let node_id_clone = $node_id.clone();
@@ -286,7 +288,7 @@ macro_rules! parallel_media_files_processing {
                             let task = task::spawn(async move {
                                 let analysis_result = task::spawn_blocking(move || {
                                     let process_fn = $process_fn;
-                                    process_fn(&file_clone, &lib_path, process_cancel_token)
+                                    process_fn(&fsio, &file_clone, &lib_path, process_cancel_token)
                                     // Pass the cloned token
                                 })
                                 .await;
@@ -343,7 +345,7 @@ macro_rules! parallel_media_files_processing {
             error!("Consumer error: {e:?}");
         }
 
-        info!("Total tasks executed: {}", {total_tasks});
+        info!("Total tasks executed: {}", { total_tasks });
 
         Ok(total_tasks)
     }};
