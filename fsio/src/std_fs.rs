@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use tokio::fs;
 use walkdir::WalkDir;
 
-use super::{FileIo, FileIoError, FsNode};
+use super::{FileIo, FileIoError, FileStream, FsNode};
 
 pub(crate) struct StdFsIo;
 
@@ -16,7 +16,11 @@ impl StdFsIo {
 
 #[async_trait]
 impl FileIo for StdFsIo {
-    async fn open(&self, path: &Path, open_mode: &str) -> Result<std::fs::File, FileIoError> {
+    async fn open(
+        &self,
+        path: &Path,
+        open_mode: &str,
+    ) -> Result<Box<dyn FileStream>, FileIoError> {
         let mut options = fs::OpenOptions::new();
         options.read(open_mode.contains('r'));
         options.write(open_mode.contains('w'));
@@ -24,7 +28,7 @@ impl FileIo for StdFsIo {
         options.truncate(open_mode.contains('t'));
         options.create(true);
         let file = options.open(path).await?;
-        Ok(file.into_std().await)
+        Ok(Box::new(file.into_std().await))
     }
 
     async fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {

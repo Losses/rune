@@ -1,10 +1,11 @@
 
-use super::{FileIo, FileIoError, FsNode};
+use super::{FileIo, FileIoError, FileStream, FsNode};
 use async_trait::async_trait;
+use ndk_saf::{AndroidFile, AndroidFileOps, from_tree_url};
+use rusqlite::{params, Connection};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use rusqlite::{Connection, params};
-use ndk_saf::{AndroidFile, AndroidFileOps, from_tree_url};
 use tokio::task;
 
 pub(crate) struct AndroidFsIo {
@@ -35,22 +36,37 @@ impl AndroidFsIo {
     }
 
     pub async fn refresh_cache(&self) -> Result<(), FileIoError> {
-        let root_file = from_tree_url(&self.root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let root_file =
+            from_tree_url(&self.root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
         let db = self.db.clone();
-        
-        task::spawn_blocking(move || {
-            let mut conn = db.lock().unwrap();
-            let tx = conn.transaction().unwrap();
-            tx.execute("DELETE FROM fs_cache", [])?;
 
-            fn walk(file: AndroidFile, current_path: &Path, tx: &rusqlite::Transaction) -> Result<(), FileIoError> {
-                let files = file.list_files().map_err(|e| FileIoError::Saf(e.to_string()))?;
+        task::spawn_blocking(move || -> Result<(), FileIoError> {
+            let mut conn = db.lock().unwrap();
+            let tx = conn
+                .transaction()
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
+            tx.execute("DELETE FROM fs_cache", [])
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
+
+            fn walk(
+                file: AndroidFile,
+                current_path: &Path,
+                tx: &rusqlite::Transaction,
+            ) -> Result<(), FileIoError> {
+                let files = file
+                    .list_files()
+                    .map_err(|e| FileIoError::Saf(e.to_string()))?;
                 for f in files {
                     let new_path = current_path.join(&f.filename);
                     tx.execute(
                         "INSERT OR REPLACE INTO fs_cache (path, content_url, parent) VALUES (?1, ?2, ?3)",
-                        params![new_path.to_str().unwrap(), f.url, current_path.to_str().unwrap()],
-                    ).map_err(|e| FileIoError::Database(e.to_string()))?;
+                        params![
+                            new_path.to_str().unwrap(),
+                            f.url,
+                            current_path.to_str().unwrap()
+                        ],
+                    )
+                    .map_err(|e| FileIoError::Database(e.to_string()))?;
 
                     if f.is_dir {
                         walk(f, &new_path, tx)?;
@@ -59,9 +75,16 @@ impl AndroidFsIo {
                 Ok(())
             }
 
-            walk(root_file, Path::new(""), &tx)?;
-            tx.commit().map_err(|e| FileIoError::Database(e.to_string()))
-        }).await.unwrap()
+            match walk(root_file, Path::new(""), &tx) {
+                Ok(_) => tx.commit().map_err(|e| FileIoError::Database(e.to_string())),
+                Err(e) => {
+                    tx.rollback().map_err(|e| FileIoError::Database(e.to_string()))?;
+                    Err(e)
+                }
+            }
+        })
+        .await
+        .map_err(|e| FileIoError::Unknown)?
     }
 
     fn get_uri(&self, path: &Path) -> Result<String, FileIoError> {
@@ -86,9 +109,16 @@ impl AndroidFsIo {
 
 #[async_trait]
 impl FileIo for AndroidFsIo {
-    async fn open(&self, path: &Path, open_mode: &str) -> Result<std::fs::File, FileIoError> {
+    async fn open(
+        &self,
+        path: &Path,
+        open_mode: &str,
+    ) -> Result<Box<dyn FileStream>, FileIoError> {
         let file = self.get_android_file(path)?;
-        file.open(open_mode).map_err(|e| FileIoError::Saf(e.to_string()))
+        let android_file = file
+            .open(open_mode)
+            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        Ok(Box::new(android_file))
     }
 
     async fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
@@ -121,15 +151,18 @@ impl FileIo for AndroidFsIo {
     }
 
     async fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
-        let mut current_path = PathBuf::new();
-        for component in path.components() {
-            let component_str = component.as_os_str().to_str().unwrap();
-            let next_path = current_path.join(component_str);
-            if !self.exists(&next_path).await? {
-                self.create_dir(&current_path, component_str).await?;
-            }
-            current_path = next_path;
+        if self.exists(path).await? {
+            return Ok(());
         }
+
+        let parent = path.parent().unwrap_or_else(|| Path::new(""));
+        if !self.exists(parent).await? {
+            self.create_dir_all(parent).await?;
+        }
+
+        let name = path.file_name().unwrap().to_str().unwrap();
+        self.create_dir(parent, name).await?;
+
         Ok(())
     }
 
