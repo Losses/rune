@@ -1,21 +1,27 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 use dunce::canonicalize;
 use log::{error, info};
-use prettytable::{row, Table};
-use std::path::PathBuf;
+use prettytable::{Table, row};
 use tracing_subscriber::filter::EnvFilter;
 
-use database::actions::cover_art::scan_cover_arts;
-use database::actions::metadata::{
-    empty_progress_callback, get_metadata_summary_by_file_ids, scan_audio_library,
+use database::{
+    actions::{
+        cover_art::scan_cover_arts,
+        metadata::{empty_progress_callback, get_metadata_summary_by_file_ids, scan_audio_library},
+        search::search_for,
+    },
+    connection::{connect_main_db, connect_recommendation_db},
 };
-use database::actions::search::search_for;
-use database::connection::{connect_main_db, connect_recommendation_db};
-use rune::analysis::*;
-use rune::index::index_audio_library;
-use rune::mix::{mixes, RecommendMixOptions};
-use rune::playback::*;
-use rune::recommend::*;
+
+use rune::{
+    analysis::*,
+    index::index_audio_library,
+    mix::{RecommendMixOptions, mixes},
+    playback::*,
+    recommend::*,
+};
 
 #[derive(Parser)]
 #[command(name = "Media Manager")]
