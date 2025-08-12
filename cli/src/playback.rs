@@ -1,14 +1,19 @@
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
+
 use dunce::canonicalize;
 use futures::future::join_all;
 use log::{debug, error, info};
-use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 use tokio::task;
 
-use database::actions::file::{get_file_by_id, get_random_files};
-use database::connection::MainDbConnection;
+use database::{
+    actions::file::{get_file_by_id, get_random_files},
+    connection::MainDbConnection,
+};
 use playback::player::{Playable, Player, PlayingItem};
 
 async fn play_files(main_db: &MainDbConnection, canonicalized_path: &Path, file_ids: Vec<i32>) {
