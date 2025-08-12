@@ -12,7 +12,7 @@ async fn main() {
         let base_path = Path::new("/tmp/fsio_example");
 
         // Cleanup previous runs
-        if fs.exists(base_path).await.unwrap_or(false) {
+        if fs.exists(base_path).unwrap_or(false) {
             fs.remove_dir_all(base_path)
                 .await
                 .expect("Failed to clean up temp dir");
@@ -20,7 +20,6 @@ async fn main() {
 
         // 1. Create a directory
         fs.create_dir_all(base_path)
-            .await
             .expect("Failed to create directory");
         println!("Created directory: {base_path:?}");
 
@@ -33,7 +32,7 @@ async fn main() {
         println!("Wrote to file: {file_path:?}");
 
         // 3. Read the file
-        let read_content = fs.read(&file_path).await.expect("Failed to read file");
+        let read_content = fs.read(&file_path).expect("Failed to read file");
         assert_eq!(content.as_bytes(), read_content.as_slice());
         println!("Read and verified content from file.");
 

@@ -188,9 +188,9 @@ impl FileIo for AndroidFsIo {
         Ok(Box::new(android_file))
     }
 
-    async fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
+    fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
         use std::io::Read;
-        let mut file = self.open_async(path, "r").await?;
+        let mut file = self.open(path, "r")?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
         Ok(buffer)
@@ -203,7 +203,7 @@ impl FileIo for AndroidFsIo {
         Ok(())
     }
 
-    async fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError> {
+    fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError> {
         let parent_file = self.get_android_file(parent)?;
         let new_file = parent_file
             .create_directory(name)
@@ -224,18 +224,18 @@ impl FileIo for AndroidFsIo {
         Ok(new_path)
     }
 
-    async fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
+    fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
         if self.exists(path).await? {
             return Ok(());
         }
 
         let parent = path.parent().unwrap_or_else(|| Path::new(""));
-        if !self.exists(parent).await? {
-            self.create_dir_all(parent).await?;
+        if !self.exists(parent)? {
+            self.create_dir_all(parent)?;
         }
 
         let name = path.file_name().unwrap().to_str().unwrap();
-        self.create_dir(parent, name).await?;
+        self.create_dir(parent, name)?;
 
         Ok(())
     }
@@ -322,7 +322,7 @@ impl FileIo for AndroidFsIo {
         Ok(nodes)
     }
 
-    async fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
+    fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
         Ok(self.get_uri(path).is_ok())
     }
 

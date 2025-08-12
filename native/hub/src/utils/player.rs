@@ -130,7 +130,7 @@ pub async fn initialize_local_player(
                         let cover_art = match dispatcher
                             .lock()
                             .await
-                            .bake_cover_art(&main_db, item_vec)
+                            .bake_cover_art(&fsio, &main_db, item_vec)
                             .await
                         {
                             Ok(data) => {

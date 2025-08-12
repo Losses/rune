@@ -4,7 +4,9 @@ use anyhow::Result;
 use image::{GenericImageView, ImageBuffer, Pixel};
 use lofty::file::TaggedFileExt;
 use log::{error, info};
-use palette_extract::{get_palette_rgb, Color};
+use palette_extract::{Color, get_palette_rgb};
+
+use ::fsio::FsIo;
 
 use crate::crc::media_crc32;
 
@@ -59,20 +61,29 @@ pub fn color_to_int(color: &Color) -> i32 {
     (alpha << 24) | (r << 16) | (g << 8) | b
 }
 
-pub fn extract_cover_art_binary(file_path: &Path, lib_path: Option<&Path>) -> Option<CoverArt> {
-    if let Some(cover_art) = extract_from_tagged_file(file_path) {
+pub fn extract_cover_art_binary(
+    fsio: &FsIo,
+    lib_path: Option<&Path>,
+    file_path: &Path,
+) -> Option<CoverArt> {
+    if let Some(cover_art) = extract_from_tagged_file(fsio, file_path) {
         return Some(cover_art);
     }
 
     if let Some(lib_path) = lib_path {
         info!("Falling back to external cover art");
-        return fallback_to_external_cover(file_path, lib_path);
+        return fallback_to_external_cover(fsio, file_path, lib_path);
     }
 
     None
 }
 
-fn extract_from_tagged_file(file_path: &Path) -> Option<CoverArt> {
+fn extract_from_tagged_file(fsio: &FsIo, file_path: &Path) -> Option<CoverArt> {
+    let file_path = match fsio.canonicalize(file_path) {
+        Ok(x) => x,
+        Err(_) => return None,
+    };
+
     let tagged_file = lofty::read_from_path(file_path).ok()?;
 
     let tag = tagged_file
@@ -105,7 +116,7 @@ fn extract_from_tagged_file(file_path: &Path) -> Option<CoverArt> {
     })
 }
 
-fn fallback_to_external_cover(file_path: &Path, lib_path: &Path) -> Option<CoverArt> {
+fn fallback_to_external_cover(fsio: &FsIo, lib_path: &Path, file_path: &Path) -> Option<CoverArt> {
     if !file_path.starts_with(lib_path) {
         error!("File path is not within the library path");
         return None;
@@ -155,8 +166,13 @@ fn fallback_to_external_cover(file_path: &Path, lib_path: &Path) -> Option<Cover
     while current_dir.starts_with(lib_path) {
         for cover_name in &cover_names {
             let cover_path = current_dir.join(cover_name);
-            if cover_path.exists() {
-                if let Some(cover_art) = process_external_cover(&cover_path) {
+            let exists = match fsio.exists(&cover_path) {
+                Ok(x) => x,
+                Err(_) => return None,
+            };
+
+            if exists {
+                if let Some(cover_art) = process_external_cover(fsio, &cover_path) {
                     return Some(cover_art);
                 }
             }
@@ -167,8 +183,8 @@ fn fallback_to_external_cover(file_path: &Path, lib_path: &Path) -> Option<Cover
     None
 }
 
-fn process_external_cover(cover_path: &Path) -> Option<CoverArt> {
-    let cover_data = std::fs::read(cover_path).ok()?;
+fn process_external_cover(fsio: &FsIo, cover_path: &Path) -> Option<CoverArt> {
+    let cover_data = fsio.read(cover_path).ok()?;
 
     if cover_data.is_empty() {
         return None;

@@ -121,12 +121,14 @@ pub trait PlayingFileMetadataProvider {
 
     async fn bake_cover_art(
         &self,
+        fsio: &FsIo,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>>;
 
     async fn get_cover_art_primary_color(
         &self,
+        fsio: &FsIo,
         main_db: &DatabaseConnection,
         item: &PlayingItem,
     ) -> Option<i32>;

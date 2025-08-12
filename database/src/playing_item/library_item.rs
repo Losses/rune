@@ -95,13 +95,14 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
 
     async fn bake_cover_art(
         &self,
+        fsio: &FsIo,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
         let in_library_ids = extract_in_library_ids(items.to_vec());
 
         let result: HashMap<i32, String> =
-            bake_cover_art_by_file_ids(main_db, in_library_ids).await?;
+            bake_cover_art_by_file_ids(fsio, main_db, in_library_ids).await?;
 
         let mut converted_result = HashMap::new();
 
@@ -114,6 +115,7 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
 
     async fn get_cover_art_primary_color(
         &self,
+        _fsio: &FsIo,
         main_db: &DatabaseConnection,
         item: &PlayingItem,
     ) -> Option<i32> {

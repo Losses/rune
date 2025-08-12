@@ -4,19 +4,28 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use sea_orm::DatabaseConnection;
 
-use ::database::actions::cover_art::{bake_cover_art_by_file_ids, bake_cover_art_by_media_files};
-use ::database::actions::file::{get_files_by_ids, get_media_files, list_files};
-use ::database::actions::metadata::{get_metadata_summary_by_files, get_parsed_file_by_id};
-use ::database::connection::MainDbConnection;
+use ::database::{
+    actions::{
+        cover_art::{bake_cover_art_by_file_ids, bake_cover_art_by_media_files},
+        file::{get_files_by_ids, get_media_files, list_files},
+        metadata::{get_metadata_summary_by_files, get_parsed_file_by_id},
+    },
+    connection::MainDbConnection,
+};
+use ::fsio::FsIo;
 
-use crate::utils::{GlobalParams, ParamsExtractor, parse_media_files};
-use crate::{Session, Signal, messages::*};
+use crate::{
+    Session, Signal,
+    messages::*,
+    utils::{GlobalParams, ParamsExtractor, parse_media_files},
+};
 
 impl ParamsExtractor for FetchMediaFilesRequest {
-    type Params = (Arc<MainDbConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
+            Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.lib_path),
         )
@@ -24,12 +33,12 @@ impl ParamsExtractor for FetchMediaFilesRequest {
 }
 
 impl Signal for FetchMediaFilesRequest {
-    type Params = (Arc<DatabaseConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<DatabaseConnection>, Arc<String>);
     type Response = FetchMediaFilesResponse;
 
     async fn handle(
         &self,
-        (main_db, lib_path): Self::Params,
+        (fsio, main_db, lib_path): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -41,7 +50,7 @@ impl Signal for FetchMediaFilesRequest {
             get_media_files(&main_db, cursor.try_into()?, page_size.try_into()?).await?;
 
         let cover_art_map = if request.bake_cover_arts {
-            bake_cover_art_by_media_files(&main_db, media_entries.clone()).await?
+            bake_cover_art_by_media_files(&fsio, &main_db, media_entries.clone()).await?
         } else {
             HashMap::new()
         };
@@ -49,9 +58,7 @@ impl Signal for FetchMediaFilesRequest {
         let media_summaries = get_metadata_summary_by_files(&main_db, media_entries)
             .await
             .with_context(|| {
-                format!(
-                    "Failed to fetch media list, page: {cursor}, size: {page_size}"
-                )
+                format!("Failed to fetch media list, page: {cursor}, size: {page_size}")
             })?;
 
         let media_files = parse_media_files(media_summaries, lib_path).await?;
@@ -63,10 +70,11 @@ impl Signal for FetchMediaFilesRequest {
 }
 
 impl ParamsExtractor for FetchMediaFileByIdsRequest {
-    type Params = (Arc<MainDbConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
+            Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.lib_path),
         )
@@ -74,12 +82,12 @@ impl ParamsExtractor for FetchMediaFileByIdsRequest {
 }
 
 impl Signal for FetchMediaFileByIdsRequest {
-    type Params = (Arc<MainDbConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>);
     type Response = FetchMediaFileByIdsResponse;
 
     async fn handle(
         &self,
-        (main_db, lib_path): Self::Params,
+        (fsio, main_db, lib_path): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -98,7 +106,7 @@ impl Signal for FetchMediaFileByIdsRequest {
             .with_context(|| "Failed to parse media summaries")?;
 
         let cover_art_map = if request.bake_cover_arts {
-            bake_cover_art_by_file_ids(&main_db, request.ids.clone()).await?
+            bake_cover_art_by_file_ids(&fsio, &main_db, request.ids.clone()).await?
         } else {
             HashMap::new()
         };

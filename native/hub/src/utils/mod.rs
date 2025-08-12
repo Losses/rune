@@ -277,6 +277,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
 }
 
 pub async fn inject_cover_art_map(
+    fsio: &FsIo,
     main_db: &MainDbConnection,
     recommend_db: Arc<RecommendationDbConnection>,
     collection: Collection,
@@ -301,7 +302,7 @@ pub async fn inject_cover_art_map(
     .await?;
 
     // Get the base cover art paths
-    let raw_cover_art_map = bake_cover_art_by_media_files(main_db, files).await?;
+    let raw_cover_art_map = bake_cover_art_by_media_files(fsio, main_db, files).await?;
 
     // Process the cover art paths based on the running mode
     let cover_art_map: HashMap<i32, String> = raw_cover_art_map

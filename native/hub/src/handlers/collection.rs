@@ -1,14 +1,16 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use futures::future::join_all;
 
-use database::actions::collection::{
-    CollectionQuery, CollectionQueryListMode, CollectionQueryType, UnifiedCollection,
+use ::database::{
+    actions::collection::{
+        CollectionQuery, CollectionQueryListMode, CollectionQueryType, UnifiedCollection,
+    },
+    connection::{MainDbConnection, RecommendationDbConnection},
+    entities::{albums, artists, genres, mix_queries, mixes, playlists},
 };
-use database::connection::{MainDbConnection, RecommendationDbConnection};
-use database::entities::{albums, artists, genres, mix_queries, mixes, playlists};
+use ::fsio::FsIo;
 
 use crate::utils::{GlobalParams, ParamsExtractor, RunningMode, inject_cover_art_map};
 use crate::{Session, Signal, messages::*};
@@ -63,6 +65,7 @@ async fn handle_fetch_group_summary<T: CollectionQuery>(
 }
 
 async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
+    fsio: &Arc<FsIo>,
     main_db: &Arc<MainDbConnection>,
     recommend_db: &Arc<RecommendationDbConnection>,
     running_mode: &RunningMode,
@@ -83,6 +86,7 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
 
             async move {
                 Collection::from_model_bakeable(
+                    fsio,
                     &main_db,
                     recommend_db,
                     running_mode,
@@ -112,6 +116,7 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
 }
 
 async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
+    fsio: &Arc<FsIo>,
     main_db: &Arc<MainDbConnection>,
     recommend_db: &Arc<RecommendationDbConnection>,
     running_mode: &RunningMode,
@@ -127,6 +132,7 @@ async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
     .await?;
     let futures = items.into_iter().map(|item| async move {
         Collection::from_model_bakeable(
+            fsio,
             main_db,
             Arc::clone(recommend_db),
             running_mode,
@@ -226,6 +232,7 @@ impl Collection {
     }
 
     pub async fn from_model_bakeable<T: CollectionQuery>(
+        fsio: &FsIo,
         main_db: &MainDbConnection,
         recommend_db: Arc<RecommendationDbConnection>,
         running_mode: &RunningMode,
@@ -237,6 +244,7 @@ impl Collection {
 
         if bake_cover_arts {
             collection = inject_cover_art_map(
+                fsio,
                 main_db,
                 recommend_db,
                 collection,
@@ -251,6 +259,7 @@ impl Collection {
     }
 
     pub async fn from_unified_collection_bakeable(
+        fsio: &FsIo,
         main_db: &MainDbConnection,
         recommend_db: Arc<RecommendationDbConnection>,
         running_mode: &RunningMode,
@@ -262,6 +271,7 @@ impl Collection {
 
         if bake_cover_arts {
             collection = inject_cover_art_map(
+                fsio,
                 main_db,
                 recommend_db,
                 collection,
@@ -309,6 +319,7 @@ impl Signal for FetchCollectionGroupSummaryRequest {
 
 impl ParamsExtractor for FetchCollectionGroupsRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         RunningMode,
@@ -316,6 +327,7 @@ impl ParamsExtractor for FetchCollectionGroupsRequest {
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
+            Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.recommend_db),
             all_params.running_mode,
@@ -325,6 +337,7 @@ impl ParamsExtractor for FetchCollectionGroupsRequest {
 
 impl Signal for FetchCollectionGroupsRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         RunningMode,
@@ -333,7 +346,7 @@ impl Signal for FetchCollectionGroupsRequest {
 
     async fn handle(
         &self,
-        (main_db, recommend_db, running_mode): Self::Params,
+        (fsio, main_db, recommend_db, running_mode): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -351,6 +364,7 @@ impl Signal for FetchCollectionGroupsRequest {
         match dart_signal.collection_type {
             CollectionType::Album => {
                 handle_fetch_groups::<albums::Model>(
+                    &fsio,
                     &main_db,
                     &recommend_db,
                     &running_mode,
@@ -361,6 +375,7 @@ impl Signal for FetchCollectionGroupsRequest {
             }
             CollectionType::Artist => {
                 handle_fetch_groups::<artists::Model>(
+                    &fsio,
                     &main_db,
                     &recommend_db,
                     &running_mode,
@@ -371,6 +386,7 @@ impl Signal for FetchCollectionGroupsRequest {
             }
             CollectionType::Playlist => {
                 handle_fetch_groups::<playlists::Model>(
+                    &fsio,
                     &main_db,
                     &recommend_db,
                     &running_mode,
@@ -381,6 +397,7 @@ impl Signal for FetchCollectionGroupsRequest {
             }
             CollectionType::Mix => {
                 handle_fetch_groups::<mixes::Model>(
+                    &fsio,
                     &main_db,
                     &recommend_db,
                     &running_mode,
@@ -391,6 +408,7 @@ impl Signal for FetchCollectionGroupsRequest {
             }
             CollectionType::Genre => {
                 handle_fetch_groups::<genres::Model>(
+                    &fsio,
                     &main_db,
                     &recommend_db,
                     &running_mode,
@@ -406,6 +424,7 @@ impl Signal for FetchCollectionGroupsRequest {
 
 impl ParamsExtractor for FetchCollectionByIdsRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         RunningMode,
@@ -413,6 +432,7 @@ impl ParamsExtractor for FetchCollectionByIdsRequest {
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
+            Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.recommend_db),
             all_params.running_mode,
@@ -422,6 +442,7 @@ impl ParamsExtractor for FetchCollectionByIdsRequest {
 
 impl Signal for FetchCollectionByIdsRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         RunningMode,
@@ -430,7 +451,7 @@ impl Signal for FetchCollectionByIdsRequest {
 
     async fn handle(
         &self,
-        (main_db, recommend_db, running_mode): Self::Params,
+        (fsio, main_db, recommend_db, running_mode): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -447,6 +468,7 @@ impl Signal for FetchCollectionByIdsRequest {
         match dart_signal.collection_type {
             CollectionType::Album => {
                 handle_fetch_by_id::<albums::Model>(
+                    &fsio,
                     &main_db,
                     &recommend_db,
                     &running_mode,
@@ -457,6 +479,7 @@ impl Signal for FetchCollectionByIdsRequest {
             }
             CollectionType::Artist => {
                 handle_fetch_by_id::<artists::Model>(
+                    &fsio,
                     &main_db,
                     &recommend_db,
                     &running_mode,
@@ -467,6 +490,7 @@ impl Signal for FetchCollectionByIdsRequest {
             }
             CollectionType::Playlist => {
                 handle_fetch_by_id::<playlists::Model>(
+                    &fsio,
                     &main_db,
                     &recommend_db,
                     &running_mode,
@@ -477,6 +501,7 @@ impl Signal for FetchCollectionByIdsRequest {
             }
             CollectionType::Mix => {
                 handle_fetch_by_id::<mixes::Model>(
+                    &fsio,
                     &main_db,
                     &recommend_db,
                     &running_mode,
@@ -487,6 +512,7 @@ impl Signal for FetchCollectionByIdsRequest {
             }
             CollectionType::Genre => {
                 handle_fetch_by_id::<genres::Model>(
+                    &fsio,
                     &main_db,
                     &recommend_db,
                     &running_mode,

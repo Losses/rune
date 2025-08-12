@@ -42,8 +42,8 @@ impl FileIo for StdFsIo {
         Ok(Box::new(file.into_std().await))
     }
 
-    async fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
-        fs::read(path).await.map_err(FileIoError::Io)
+    fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
+        std::fs::read(path).map_err(FileIoError::Io)
     }
 
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<(), FileIoError> {
@@ -56,8 +56,8 @@ impl FileIo for StdFsIo {
         Ok(new_path)
     }
 
-    async fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
-        fs::create_dir_all(path).await.map_err(FileIoError::Io)
+    fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
+        std::fs::create_dir_all(path).map_err(FileIoError::Io)
     }
 
     async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError> {
@@ -107,8 +107,8 @@ impl FileIo for StdFsIo {
         .unwrap()
     }
 
-    async fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
-        Ok(fs::try_exists(path).await?)
+    fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
+        Ok(std::fs::exists(path)?)
     }
 
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError> {

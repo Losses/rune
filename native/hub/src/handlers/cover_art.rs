@@ -3,16 +3,19 @@ use std::sync::Arc;
 use anyhow::Result;
 use futures::future::join_all;
 
-use database::connection::MainDbConnection;
-use database::connection::RecommendationDbConnection;
-use database::playing_item::dispatcher::PlayingItemActionDispatcher;
+use ::fsio::FsIo;
 use tokio::task;
 
-use crate::Session;
-use crate::utils::GlobalParams;
-use crate::utils::ParamsExtractor;
-use crate::utils::query_cover_arts;
-use crate::{Signal, messages::*};
+use ::database::{
+    connection::{MainDbConnection, RecommendationDbConnection},
+    playing_item::dispatcher::PlayingItemActionDispatcher,
+};
+
+use crate::{
+    Session, Signal,
+    messages::*,
+    utils::{GlobalParams, ParamsExtractor, query_cover_arts},
+};
 
 impl ParamsExtractor for GetCoverArtIdsByMixQueriesRequest {
     type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
@@ -72,20 +75,23 @@ impl Signal for GetCoverArtIdsByMixQueriesRequest {
 }
 
 impl ParamsExtractor for GetPrimaryColorByTrackIdRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<FsIo>, Arc<MainDbConnection>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            Arc::clone(&all_params.fsio),
+            Arc::clone(&all_params.main_db),
+        )
     }
 }
 
 impl Signal for GetPrimaryColorByTrackIdRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<FsIo>, Arc<MainDbConnection>,);
     type Response = GetPrimaryColorByTrackIdResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (fsio, main_db,): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -98,7 +104,7 @@ impl Signal for GetPrimaryColorByTrackIdRequest {
                 runtime.block_on(async move {
                     let dispatcher = PlayingItemActionDispatcher::new();
                     let primary_color = dispatcher
-                        .get_cover_art_primary_color(&main_db, &item.clone().into())
+                        .get_cover_art_primary_color(&fsio, &main_db, &item.clone().into())
                         .await;
 
                     match primary_color {

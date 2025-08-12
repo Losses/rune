@@ -1,15 +1,19 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 
-use database::actions::cover_art::bake_cover_art_by_media_files;
-use database::actions::metadata::get_metadata_summary_by_files;
-use database::actions::mixes::{
-    add_item_to_mix, create_mix, get_all_mixes, get_mix_by_id, get_mix_queries_by_mix_id,
-    query_mix_media_files, remove_mix, replace_mix_queries, update_mix,
+use ::database::{
+    actions::{
+        cover_art::bake_cover_art_by_media_files,
+        metadata::get_metadata_summary_by_files,
+        mixes::{
+            add_item_to_mix, create_mix, get_all_mixes, get_mix_by_id, get_mix_queries_by_mix_id,
+            query_mix_media_files, remove_mix, replace_mix_queries, update_mix,
+        },
+    },
+    connection::{MainDbConnection, RecommendationDbConnection},
 };
-use database::connection::{MainDbConnection, RecommendationDbConnection};
+use ::fsio::FsIo;
 
 use crate::utils::{GlobalParams, ParamsExtractor, parse_media_files};
 use crate::{Session, Signal, messages::*};
@@ -290,6 +294,7 @@ impl Signal for GetMixByIdRequest {
 
 impl ParamsExtractor for MixQueryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         Arc<String>,
@@ -297,6 +302,7 @@ impl ParamsExtractor for MixQueryRequest {
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
+            Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.recommend_db),
             Arc::clone(&all_params.lib_path),
@@ -306,6 +312,7 @@ impl ParamsExtractor for MixQueryRequest {
 
 impl Signal for MixQueryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         Arc<String>,
@@ -314,7 +321,7 @@ impl Signal for MixQueryRequest {
 
     async fn handle(
         &self,
-        (main_db, recommend_db, lib_path): Self::Params,
+        (fsio, main_db, recommend_db, lib_path): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -343,7 +350,7 @@ impl Signal for MixQueryRequest {
 
         let files = parse_media_files(media_summaries, lib_path).await?;
         let cover_art_map = if request.bake_cover_arts {
-            bake_cover_art_by_media_files(&main_db, media_entries).await?
+            bake_cover_art_by_media_files(&fsio, &main_db, media_entries).await?
         } else {
             HashMap::new()
         };

@@ -128,16 +128,17 @@ impl PlayingItemActionDispatcher {
 
     pub async fn bake_cover_art(
         &self,
+        fsio: &FsIo,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
         let in_library_results = self
             .in_library_processor
-            .bake_cover_art(main_db, items)
+            .bake_cover_art(fsio, main_db, items)
             .await?;
         let independent_results = self
             .independent_file_processor
-            .bake_cover_art(main_db, items)
+            .bake_cover_art(fsio, main_db, items)
             .await?;
 
         let mut result_map = HashMap::new();
@@ -149,6 +150,7 @@ impl PlayingItemActionDispatcher {
 
     pub async fn get_cover_art_primary_color(
         &self,
+        fsio: &FsIo,
         main_db: &DatabaseConnection,
         item: &PlayingItem,
     ) -> Option<i32> {
@@ -158,7 +160,9 @@ impl PlayingItemActionDispatcher {
             PlayingItem::Unknown => return None,
         };
 
-        processor.get_cover_art_primary_color(main_db, item).await
+        processor
+            .get_cover_art_primary_color(fsio, main_db, item)
+            .await
     }
 }
 

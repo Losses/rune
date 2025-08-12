@@ -1,26 +1,28 @@
-use std::marker::PhantomData;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{marker::PhantomData, str::FromStr, sync::Arc};
 
 use anyhow::{Error, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use log::warn;
 
-use database::actions::collection::{
-    CollectionQuery, CollectionQueryListMode, CollectionQueryType, UnifiedCollection,
+use ::database::{
+    actions::{
+        collection::{
+            CollectionQuery, CollectionQueryListMode, CollectionQueryType, UnifiedCollection,
+        },
+        file::{get_media_files, get_random_files, get_reverse_listed_media_files},
+        metadata::{MetadataSummary, get_metadata_summary_by_files},
+        mixes::query_mix_media_files,
+    },
+    connection::{MainDbConnection, RecommendationDbConnection},
+    entities::{albums, artists, genres, media_files, mixes, playlists},
 };
-use database::actions::file::{get_media_files, get_random_files, get_reverse_listed_media_files};
-use database::actions::metadata::{get_metadata_summary_by_files, MetadataSummary};
-use database::actions::mixes::query_mix_media_files;
-use database::connection::MainDbConnection;
-use database::connection::RecommendationDbConnection;
-use database::entities::{albums, artists, genres, media_files, mixes, playlists};
+use ::fsio::FsIo;
 
 use crate::{
+    Session, Signal,
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Session, Signal,
 };
 
 #[async_trait]
@@ -213,6 +215,7 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
 
 impl ParamsExtractor for ComplexQueryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         crate::utils::RunningMode,
@@ -220,6 +223,7 @@ impl ParamsExtractor for ComplexQueryRequest {
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
+            Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.recommend_db),
             all_params.running_mode,
@@ -229,6 +233,7 @@ impl ParamsExtractor for ComplexQueryRequest {
 
 impl Signal for ComplexQueryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         crate::utils::RunningMode,
@@ -237,7 +242,7 @@ impl Signal for ComplexQueryRequest {
 
     async fn handle(
         &self,
-        (main_db, recommend_db, running_mode): Self::Params,
+        (fsio, main_db, recommend_db, running_mode): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -250,9 +255,12 @@ impl Signal for ComplexQueryRequest {
         let futures = queries.iter().map(|query| {
             let main_db = main_db.clone();
             let recommend_db = recommend_db.clone();
+            let fsio = Arc::clone(&fsio);
+
             {
                 let value = remote_host.clone();
                 async move {
+                    let fsio = Arc::clone(&fsio);
                     let query_executor = create_query(&query.domain, &query.parameter)?;
                     let unified_collections =
                         query_executor.execute(&main_db, &recommend_db).await?;
@@ -260,6 +268,7 @@ impl Signal for ComplexQueryRequest {
 
                     let entries_futures =
                         unified_collections.into_iter().map(|unified_collection| {
+                            let fsio = Arc::clone(&fsio);
                             let main_db = main_db.clone();
                             let recommend_db = recommend_db.clone();
                             let remote_host = remote_host.clone();
@@ -269,6 +278,7 @@ impl Signal for ComplexQueryRequest {
                                     Collection::from_unified_collection(unified_collection);
                                 if collection.cover_art_map.is_empty() {
                                     collection = crate::utils::inject_cover_art_map(
+                                        &fsio,
                                         &main_db,
                                         recommend_db,
                                         collection,

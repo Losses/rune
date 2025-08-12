@@ -7,8 +7,6 @@ use std::{
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use dunce::canonicalize;
-use fsio::FsIo;
 use log::info;
 use once_cell::sync::Lazy;
 use sea_orm::{
@@ -17,7 +15,8 @@ use sea_orm::{
 };
 use tokio_util::sync::CancellationToken;
 
-use metadata::cover_art::{CoverArt, extract_cover_art_binary, get_primary_color};
+use ::fsio::FsIo;
+use ::metadata::cover_art::{CoverArt, extract_cover_art_binary, get_primary_color};
 
 use crate::{
     entities::{media_cover_art, media_files},
@@ -87,11 +86,12 @@ pub static COVER_TEMP_DIR: Lazy<PathBuf> =
     Lazy::new(|| env::temp_dir().join("rune").join("cover_arts"));
 
 fn bake_cover_art_by_cover_arts(
+    fsio: &FsIo,
     cover_arts: Vec<media_cover_art::Model>,
 ) -> Result<HashMap<i32, String>> {
     let mut cover_art_id_to_path: HashMap<i32, String> = HashMap::new();
 
-    fs::create_dir_all(COVER_TEMP_DIR.clone())?;
+    fsio.create_dir_all(&COVER_TEMP_DIR)?;
 
     for cover_art in cover_arts.iter() {
         let id: i32 = cover_art.id;
@@ -114,6 +114,7 @@ fn bake_cover_art_by_cover_arts(
 }
 
 pub async fn bake_cover_art_by_cover_art_ids(
+    fsio: &FsIo,
     main_db: &DatabaseConnection,
     cover_art_ids: Vec<i32>,
 ) -> Result<HashMap<i32, String>> {
@@ -122,10 +123,11 @@ pub async fn bake_cover_art_by_cover_art_ids(
         .all(main_db)
         .await?;
 
-    bake_cover_art_by_cover_arts(cover_arts)
+    bake_cover_art_by_cover_arts(fsio, cover_arts)
 }
 
 pub async fn bake_cover_art_by_media_files(
+    fsio: &FsIo,
     main_db: &DatabaseConnection,
     files: Vec<media_files::Model>,
 ) -> Result<HashMap<i32, String>> {
@@ -135,7 +137,8 @@ pub async fn bake_cover_art_by_media_files(
         .map(|x| x.cover_art_id.unwrap_or(-1))
         .collect();
 
-    let cover_art_id_to_path = bake_cover_art_by_cover_art_ids(main_db, cover_art_ids).await?;
+    let cover_art_id_to_path =
+        bake_cover_art_by_cover_art_ids(fsio, main_db, cover_art_ids).await?;
 
     let mut file_id_to_path: HashMap<i32, String> = HashMap::new();
 
@@ -154,6 +157,7 @@ pub async fn bake_cover_art_by_media_files(
 }
 
 pub async fn bake_cover_art_by_file_ids(
+    fsio: &FsIo,
     main_db: &DatabaseConnection,
     file_ids: Vec<i32>,
 ) -> Result<HashMap<i32, String>> {
@@ -179,22 +183,20 @@ pub async fn bake_cover_art_by_file_ids(
         }
     };
 
-    bake_cover_art_by_media_files(main_db, files).await
+    bake_cover_art_by_media_files(fsio, main_db, files).await
 }
 
 pub fn extract_cover_art_by_file_id(
-    file: &media_files::Model,
+    fsio: &FsIo,
     lib_path: &Path,
+    file: &media_files::Model,
 ) -> Option<CoverArt> {
-    let file_path = canonicalize(
-        Path::new(lib_path)
-            .join(file.directory.clone())
-            .join(file.file_name.clone()),
-    )
-    .unwrap();
+    let file_path = Path::new(lib_path)
+        .join(file.directory.clone())
+        .join(file.file_name.clone());
 
     // If cover_art_id is empty, it means the file has not been checked before
-    extract_cover_art_binary(&file_path, Some(lib_path))
+    extract_cover_art_binary(fsio, Some(lib_path), &file_path)
 }
 
 pub async fn insert_extract_result(
@@ -294,7 +296,9 @@ where
         lib_path,
         fsio,
         node_id,
-        move |_fsio, file, lib_path, _cancel_token| { extract_cover_art_by_file_id(file, lib_path) },
+        move |fsio, file, lib_path, _cancel_token| {
+            extract_cover_art_by_file_id(fsio, lib_path, file)
+        },
         |db, file: media_files::Model, node_id: Arc<String>, result| async move {
             match insert_extract_result(db, &file, magic_cover_art_id, result, &node_id).await {
                 Ok(_) => {

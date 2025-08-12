@@ -136,6 +136,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
 
     async fn bake_cover_art(
         &self,
+        fsio: &FsIo,
         _main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
@@ -144,7 +145,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
         let mut result_map: HashMap<PlayingItem, String> = HashMap::new();
 
         for path in independent_paths {
-            let cover_art_option = extract_cover_art_binary(&path, path.parent());
+            let cover_art_option = extract_cover_art_binary(fsio, path.parent(), &path);
 
             if let Some(cover_art) = cover_art_option {
                 let path_str = path.to_string_lossy();
@@ -176,6 +177,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
 
     async fn get_cover_art_primary_color(
         &self,
+        fsio: &FsIo,
         _main_db: &DatabaseConnection,
         item: &PlayingItem,
     ) -> Option<i32> {
@@ -198,7 +200,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                     }
                 } else {
                     // Attempt to bake cover art
-                    if (self.bake_cover_art(_main_db, &[item.clone()]).await).is_ok() {
+                    if (self.bake_cover_art(fsio, _main_db, &[item.clone()]).await).is_ok() {
                         // Try reading the color again
                         if let Ok(color_str) = fs::read_to_string(&color_file) {
                             if let Ok(color) = color_str.trim().parse::<i32>() {

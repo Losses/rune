@@ -75,7 +75,7 @@ impl FileIo for NoOpFsIo {
         Ok(Box::new(NoOpStream::new()))
     }
 
-    async fn read(&self, _path: &Path) -> Result<Vec<u8>, FileIoError> {
+    fn read(&self, _path: &Path) -> Result<Vec<u8>, FileIoError> {
         Ok(Vec::new())
     }
 
@@ -87,7 +87,7 @@ impl FileIo for NoOpFsIo {
         Ok(PathBuf::from(name))
     }
 
-    async fn create_dir_all(&self, _path: &Path) -> Result<(), FileIoError> {
+    fn create_dir_all(&self, _path: &Path) -> Result<(), FileIoError> {
         Ok(())
     }
 
@@ -111,7 +111,7 @@ impl FileIo for NoOpFsIo {
         Ok(Vec::new())
     }
 
-    async fn exists(&self, _path: &Path) -> Result<bool, FileIoError> {
+    fn exists(&self, _path: &Path) -> Result<bool, FileIoError> {
         Ok(false)
     }
 

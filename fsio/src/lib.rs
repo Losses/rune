@@ -47,15 +47,15 @@ pub trait FileIo: Send + Sync {
         path: &Path,
         open_mode: &str,
     ) -> Result<Box<dyn FileStream>, FileIoError>;
-    async fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError>;
+    fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError>;
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<(), FileIoError>;
     async fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError>;
-    async fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
+    fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
     async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError>;
     async fn remove_file(&self, path: &Path) -> Result<(), FileIoError>;
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
     async fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<Vec<FsNode>, FileIoError>;
-    async fn exists(&self, path: &Path) -> Result<bool, FileIoError>;
+    fn exists(&self, path: &Path) -> Result<bool, FileIoError>;
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError>;
     async fn is_dir(&self, path: &Path) -> Result<bool, FileIoError>;
     fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError>;
