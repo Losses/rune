@@ -295,7 +295,7 @@ impl FileIo for AndroidFsIo {
         Ok(())
     }
 
-    async fn walk_dir(&self, path: &Path, _follow_links: bool) -> Result<Vec<FsNode>, FileIoError> {
+    fn walk_dir(&self, path: &Path, _follow_links: bool) -> Result<Vec<FsNode>, FileIoError> {
         let conn = self.db.lock().unwrap();
         let mut stmt = conn
             .prepare("SELECT path FROM fs_cache WHERE path LIKE ?1")

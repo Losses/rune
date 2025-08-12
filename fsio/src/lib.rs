@@ -54,7 +54,7 @@ pub trait FileIo: Send + Sync {
     async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError>;
     async fn remove_file(&self, path: &Path) -> Result<(), FileIoError>;
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
-    async fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<Vec<FsNode>, FileIoError>;
+    fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<Vec<FsNode>, FileIoError>;
     fn exists(&self, path: &Path) -> Result<bool, FileIoError>;
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError>;
     async fn is_dir(&self, path: &Path) -> Result<bool, FileIoError>;

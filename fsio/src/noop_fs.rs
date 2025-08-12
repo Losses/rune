@@ -103,7 +103,7 @@ impl FileIo for NoOpFsIo {
         Ok(())
     }
 
-    async fn walk_dir(
+    fn walk_dir(
         &self,
         _path: &Path,
         _follow_links: bool,

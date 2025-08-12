@@ -84,27 +84,23 @@ impl FileIo for StdFsIo {
         fs::remove_dir_all(path).await.map_err(FileIoError::Io)
     }
 
-    async fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<Vec<FsNode>, FileIoError> {
+    fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<Vec<FsNode>, FileIoError> {
         let path = path.to_path_buf();
-        tokio::task::spawn_blocking(move || {
-            WalkDir::new(path)
-                .follow_links(follow_links)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .map(|entry| {
-                    let path = entry.path().to_path_buf();
-                    let metadata = entry.metadata().map_err(|e| FileIoError::Io(e.into()))?;
-                    Ok(FsNode {
-                        path,
-                        is_dir: metadata.is_dir(),
-                        is_file: metadata.is_file(),
-                        size: metadata.len(),
-                    })
+        WalkDir::new(path)
+            .follow_links(follow_links)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .map(|entry| {
+                let path = entry.path().to_path_buf();
+                let metadata = entry.metadata().map_err(|e| FileIoError::Io(e.into()))?;
+                Ok(FsNode {
+                    path,
+                    is_dir: metadata.is_dir(),
+                    is_file: metadata.is_file(),
+                    size: metadata.len(),
                 })
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .await
-        .unwrap()
+            })
+            .collect::<Result<Vec<_>, _>>()
     }
 
     fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
