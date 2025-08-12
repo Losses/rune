@@ -124,4 +124,8 @@ impl FileIo for StdFsIo {
     fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
         dunce::canonicalize(path).map_err(FileIoError::Io)
     }
+
+    fn canonicalize_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
+        dunce::canonicalize(path).map_err(FileIoError::Io)
+    }
 }

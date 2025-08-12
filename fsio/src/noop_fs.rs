@@ -126,4 +126,8 @@ impl FileIo for NoOpFsIo {
     fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
         Ok(path.to_path_buf())
     }
+
+    fn canonicalize_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
+        Ok(PathBuf::from(path))
+    }
 }

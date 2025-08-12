@@ -59,6 +59,7 @@ pub trait FileIo: Send + Sync {
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError>;
     async fn is_dir(&self, path: &Path) -> Result<bool, FileIoError>;
     fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError>;
+    fn canonicalize_str(&self, path: &str) -> Result<PathBuf, FileIoError>;
 }
 
 pub struct FsIo {

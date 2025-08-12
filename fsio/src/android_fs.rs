@@ -7,7 +7,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ndk_saf::{from_tree_url, AndroidFile, AndroidFileOps};
+use ndk_saf::{from_tree_url, open_content_url, AndroidFile, AndroidFileOps};
 use rusqlite::{params, Connection};
 use tokio::task;
 
@@ -345,5 +345,18 @@ impl FileIo for AndroidFsIo {
         let proc_path = format!("/proc/self/fd/{}", fd);
         let real_path = fs::read_link(proc_path).map_err(FileIoError::Io)?;
         Ok(real_path)
+    }
+
+    fn canonicalize_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
+        if path.contains(':') {
+            let std_file =
+                open_content_url(path, "r").map_err(|e| FileIoError::Saf(e.to_string()))?;
+            let fd = std_file.as_raw_fd();
+            let proc_path = format!("/proc/self/fd/{}", fd);
+            let real_path = fs::read_link(proc_path).map_err(FileIoError::Io)?;
+            Ok(real_path)
+        } else {
+            self.canonicalize(Path::new(path))
+        }
     }
 }
