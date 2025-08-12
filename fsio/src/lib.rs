@@ -30,6 +30,7 @@ pub enum FileIoError {
 
 #[derive(Debug, Clone)]
 pub struct FsNode {
+    pub filename: String,
     pub path: PathBuf,
     pub is_dir: bool,
     pub is_file: bool,

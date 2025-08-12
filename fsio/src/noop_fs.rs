@@ -133,6 +133,7 @@ impl FileIo for NoOpFsIo {
 
     fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError> {
         Ok(FsNode {
+            filename: path.file_name().unwrap().to_str().unwrap().to_string(),
             path: path.to_path_buf(),
             is_dir: false,
             is_file: false,
@@ -142,6 +143,12 @@ impl FileIo for NoOpFsIo {
 
     fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError> {
         Ok(FsNode {
+            filename: Path::new(path)
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string(),
             path: PathBuf::from(path),
             is_dir: false,
             is_file: false,

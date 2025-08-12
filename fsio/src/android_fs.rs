@@ -258,6 +258,7 @@ impl FileIo for AndroidFsIo {
             let path = PathBuf::from(path_str);
             let file = self.get_android_file(&path)?;
             nodes.push(FsNode {
+                filename: file.filename,
                 path,
                 is_dir: file.is_dir,
                 is_file: !file.is_dir,
@@ -313,6 +314,7 @@ impl FileIo for AndroidFsIo {
             let path = PathBuf::from(path_str);
             let file = self.get_android_file(&path)?;
             nodes.push(FsNode {
+                filename: file.filename,
                 path,
                 is_dir: file.is_dir,
                 is_file: !file.is_dir,
@@ -364,6 +366,7 @@ impl FileIo for AndroidFsIo {
         let file = self.get_android_file(path)?;
         let path = self.canonicalize_path(path)?;
         Ok(FsNode {
+            filename: file.filename,
             path,
             is_dir: file.is_dir,
             is_file: !file.is_dir,
@@ -376,6 +379,7 @@ impl FileIo for AndroidFsIo {
         let file = self.get_android_file(p)?;
         let path = self.canonicalize_path_str(path)?;
         Ok(FsNode {
+            filename: file.filename,
             path,
             is_dir: file.is_dir,
             is_file: !file.is_dir,

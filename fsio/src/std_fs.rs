@@ -67,6 +67,7 @@ impl FileIo for StdFsIo {
             let path = entry.path();
             let metadata = entry.metadata().await?;
             nodes.push(FsNode {
+                filename: entry.file_name().to_str().unwrap().to_string(),
                 path,
                 is_dir: metadata.is_dir(),
                 is_file: metadata.is_file(),
@@ -94,6 +95,7 @@ impl FileIo for StdFsIo {
                 let path = entry.path().to_path_buf();
                 let metadata = entry.metadata().map_err(|e| FileIoError::Io(e.into()))?;
                 Ok(FsNode {
+                    filename: entry.file_name().to_str().unwrap().to_string(),
                     path,
                     is_dir: metadata.is_dir(),
                     is_file: metadata.is_file(),
@@ -129,6 +131,7 @@ impl FileIo for StdFsIo {
         let path = self.canonicalize_path(path)?;
         let metadata = std::fs::metadata(&path)?;
         Ok(FsNode {
+            filename: path.file_name().unwrap().to_str().unwrap().to_string(),
             path,
             is_dir: metadata.is_dir(),
             is_file: metadata.is_file(),
@@ -140,6 +143,7 @@ impl FileIo for StdFsIo {
         let path = self.canonicalize_path_str(path)?;
         let metadata = std::fs::metadata(&path)?;
         Ok(FsNode {
+            filename: path.file_name().unwrap().to_str().unwrap().to_string(),
             path,
             is_dir: metadata.is_dir(),
             is_file: metadata.is_file(),
