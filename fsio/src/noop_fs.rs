@@ -123,11 +123,29 @@ impl FileIo for NoOpFsIo {
         Ok(false)
     }
 
-    fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+    fn canonicalize_path(&self, path: &Path) -> Result<PathBuf, FileIoError> {
         Ok(path.to_path_buf())
     }
 
-    fn canonicalize_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
+    fn canonicalize_path_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
         Ok(PathBuf::from(path))
+    }
+
+    fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        Ok(FsNode {
+            path: path.to_path_buf(),
+            is_dir: false,
+            is_file: false,
+            size: 0,
+        })
+    }
+
+    fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError> {
+        Ok(FsNode {
+            path: PathBuf::from(path),
+            is_dir: false,
+            is_file: false,
+            size: 0,
+        })
     }
 }

@@ -336,7 +336,7 @@ impl FileIo for AndroidFsIo {
         Ok(file.is_dir)
     }
 
-    fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+    fn canonicalize_path(&self, path: &Path) -> Result<PathBuf, FileIoError> {
         let file = self.get_android_file(path)?;
         let std_file = file
             .open("r")
@@ -347,7 +347,7 @@ impl FileIo for AndroidFsIo {
         Ok(real_path)
     }
 
-    fn canonicalize_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
+    fn canonicalize_path_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
         if path.contains(':') {
             let std_file =
                 open_content_url(path, "r").map_err(|e| FileIoError::Saf(e.to_string()))?;
@@ -356,7 +356,30 @@ impl FileIo for AndroidFsIo {
             let real_path = fs::read_link(proc_path).map_err(FileIoError::Io)?;
             Ok(real_path)
         } else {
-            self.canonicalize(Path::new(path))
+            self.canonicalize_path(Path::new(path))
         }
+    }
+
+    fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        let file = self.get_android_file(path)?;
+        let path = self.canonicalize_path(path)?;
+        Ok(FsNode {
+            path,
+            is_dir: file.is_dir,
+            is_file: !file.is_dir,
+            size: file.size as u64,
+        })
+    }
+
+    fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError> {
+        let p = Path::new(path);
+        let file = self.get_android_file(p)?;
+        let path = self.canonicalize_path_str(path)?;
+        Ok(FsNode {
+            path,
+            is_dir: file.is_dir,
+            is_file: !file.is_dir,
+            size: file.size as u64,
+        })
     }
 }

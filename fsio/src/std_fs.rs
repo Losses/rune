@@ -117,11 +117,33 @@ impl FileIo for StdFsIo {
         Ok(metadata.is_dir())
     }
 
-    fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+    fn canonicalize_path(&self, path: &Path) -> Result<PathBuf, FileIoError> {
         dunce::canonicalize(path).map_err(FileIoError::Io)
     }
 
-    fn canonicalize_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
+    fn canonicalize_path_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
         dunce::canonicalize(path).map_err(FileIoError::Io)
+    }
+
+    fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        let path = self.canonicalize_path(path)?;
+        let metadata = std::fs::metadata(&path)?;
+        Ok(FsNode {
+            path,
+            is_dir: metadata.is_dir(),
+            is_file: metadata.is_file(),
+            size: metadata.len(),
+        })
+    }
+
+    fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError> {
+        let path = self.canonicalize_path_str(path)?;
+        let metadata = std::fs::metadata(&path)?;
+        Ok(FsNode {
+            path,
+            is_dir: metadata.is_dir(),
+            is_file: metadata.is_file(),
+            size: metadata.len(),
+        })
     }
 }
