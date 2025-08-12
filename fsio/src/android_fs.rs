@@ -336,7 +336,7 @@ impl FileIo for AndroidFsIo {
         Ok(file.is_dir)
     }
 
-    async fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+    fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
         let file = self.get_android_file(path)?;
         let std_file = file
             .open("r")

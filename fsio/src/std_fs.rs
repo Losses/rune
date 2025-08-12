@@ -121,7 +121,7 @@ impl FileIo for StdFsIo {
         Ok(metadata.is_dir())
     }
 
-    async fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+    fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
         dunce::canonicalize(path).map_err(FileIoError::Io)
     }
 }

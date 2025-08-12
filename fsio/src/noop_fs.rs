@@ -123,7 +123,7 @@ impl FileIo for NoOpFsIo {
         Ok(false)
     }
 
-    async fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+    fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
         Ok(path.to_path_buf())
     }
 }
