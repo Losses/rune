@@ -335,4 +335,15 @@ impl FileIo for AndroidFsIo {
         let file = self.get_android_file(path)?;
         Ok(file.is_dir)
     }
+
+    async fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+        let file = self.get_android_file(path)?;
+        let std_file = file
+            .open("r")
+            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let fd = std_file.as_raw_fd();
+        let proc_path = format!("/proc/self/fd/{}", fd);
+        let real_path = fs::read_link(proc_path).map_err(FileIoError::Io)?;
+        Ok(real_path)
+    }
 }

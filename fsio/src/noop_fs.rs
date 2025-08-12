@@ -122,4 +122,8 @@ impl FileIo for NoOpFsIo {
     async fn is_dir(&self, _path: &Path) -> Result<bool, FileIoError> {
         Ok(false)
     }
+
+    async fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+        Ok(path.to_path_buf())
+    }
 }

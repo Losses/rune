@@ -120,4 +120,8 @@ impl FileIo for StdFsIo {
         let metadata = fs::metadata(path).await?;
         Ok(metadata.is_dir())
     }
+
+    async fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+        dunce::canonicalize(path).map_err(FileIoError::Io)
+    }
 }
