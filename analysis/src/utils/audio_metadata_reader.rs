@@ -7,9 +7,8 @@ use symphonia::core::{
     {io::MediaSourceStream, meta::MetadataOptions, probe::Hint},
 };
 
-use fsio::FsIo;
-
-use crate::utils::media_source::FsioMediaSource;
+use ::fsio::FsIo;
+use ::fsio_media_source::FsioMediaSource;
 
 pub fn get_format(fsio: &FsIo, file_path: &str) -> Result<Box<dyn FormatReader>> {
     // Open the media source.

@@ -63,8 +63,14 @@ where
         lib_path,
         fsio,
         node_id,
-        move |_fsio, file, lib_path, cancel_token| {
-            compute_single_fingerprint(file, lib_path, &Configuration::default(), cancel_token)
+        move |fsio, file, lib_path, cancel_token| {
+            compute_single_fingerprint(
+                fsio,
+                lib_path,
+                file,
+                &Configuration::default(),
+                cancel_token,
+            )
         },
         |db, file: media_files::Model, _node_id, fingerprint_result: Result<(Vec<u32>, _)>| async move {
             match fingerprint_result {
@@ -93,8 +99,9 @@ where
 }
 
 fn compute_single_fingerprint(
-    file: &media_files::Model,
+    fsio: &FsIo,
     lib_path: &Path,
+    file: &media_files::Model,
     config: &Configuration,
     cancel_token: Option<CancellationToken>,
 ) -> Result<(Vec<u32>, Duration)> {
@@ -108,7 +115,7 @@ fn compute_single_fingerprint(
         }
     }
 
-    let result = calc_fingerprint(&file_path, config)
+    let result = calc_fingerprint(fsio, &file_path, config)
         .with_context(|| format!("compute fingerprint for: {}", file_path.display()))?;
 
     Ok(result)

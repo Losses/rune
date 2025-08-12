@@ -37,3 +37,4 @@ tracing-subscriber = "0.3.18"
 realfft = "3.4.0"
 cfg-if = "1.0.0"
 fsio = { version = "0.1.0", path = "../fsio" }
+fsio_media_source = { version = "0.1.0", path = "../fsio-media-source" }

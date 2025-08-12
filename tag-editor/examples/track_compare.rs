@@ -4,9 +4,10 @@ use anyhow::Context;
 use clap::Parser;
 use rusty_chromaprint::match_fingerprints;
 
-use tag_editor::music_brainz::fingerprint::calc_fingerprint;
-use tag_editor::music_brainz::fingerprint::calculate_similarity_score;
-use tag_editor::music_brainz::fingerprint::get_track_duration_in_secs;
+use ::fsio::FsIo;
+use ::tag_editor::music_brainz::fingerprint::{
+    calc_fingerprint, calculate_similarity_score, get_track_duration_in_secs,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Audio fingerprint comparison tool", long_about = None)]
@@ -23,11 +24,12 @@ fn main() -> anyhow::Result<()> {
 
     // Initialize Chromaprint configuration with default parameters
     let config = rusty_chromaprint::Configuration::default();
+    let fsio = FsIo::new();
 
     // Process first file
     println!("Processing {}...", args.file1.display());
     let (fp1, duration1) =
-        calc_fingerprint(&args.file1, &config).context("Failed to process first file")?;
+        calc_fingerprint(&fsio, &args.file1, &config).context("Failed to process first file")?;
     println!(
         "Processed {} ({:.2}s)",
         args.file1.display(),
@@ -37,7 +39,7 @@ fn main() -> anyhow::Result<()> {
     // Process second file
     println!("\nProcessing {}...", args.file2.display());
     let (fp2, duration2) =
-        calc_fingerprint(&args.file2, &config).context("Failed to process second file")?;
+        calc_fingerprint(&fsio, &args.file2, &config).context("Failed to process second file")?;
     println!(
         "Processed {} ({:.2}s)",
         args.file2.display(),
@@ -74,7 +76,7 @@ fn main() -> anyhow::Result<()> {
         get_track_duration_in_secs(&fp1, &config).max(get_track_duration_in_secs(&fp2, &config)),
         &config,
     );
-    println!("\nOverall similarity score: {:.3}", {similarity});
+    println!("\nOverall similarity score: {:.3}", { similarity });
 
     Ok(())
 }

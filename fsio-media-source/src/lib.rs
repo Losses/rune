@@ -1,7 +1,8 @@
 use std::io::{Read, Seek, SeekFrom};
 
-use fsio::FileStream;
 use symphonia::core::io::MediaSource;
+
+use fsio::FileStream;
 
 pub struct FsioMediaSource {
     stream: Box<dyn FileStream>,

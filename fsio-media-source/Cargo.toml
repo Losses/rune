@@ -1,0 +1,12 @@
+[package]
+name = "fsio_media_source"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "fsio_media_source"
+path = "src/lib.rs"
+
+[dependencies]
+symphonia = { version = "0.5.4", features = ["all", "opt-simd"] }
+fsio = { version = "0.1.0", path = "../fsio" }

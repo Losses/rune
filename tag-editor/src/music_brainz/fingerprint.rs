@@ -1,19 +1,22 @@
-use std::path::Path;
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
-use anyhow::{anyhow, Context, Result};
-use base64::prelude::BASE64_URL_SAFE_NO_PAD;
-use base64::Engine;
+use anyhow::{Context, Result, anyhow};
+use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
 pub use rusty_chromaprint::{
-    match_fingerprints, Configuration, FingerprintCompressor, Fingerprinter, Segment,
+    Configuration, FingerprintCompressor, Fingerprinter, Segment, match_fingerprints,
 };
-use symphonia::core::audio::{AudioBufferRef, SampleBuffer};
-use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
-use symphonia::core::errors::Error;
-use symphonia::core::formats::{FormatOptions, FormatReader};
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
+use symphonia::core::{
+    audio::{AudioBufferRef, SampleBuffer},
+    codecs::{CODEC_TYPE_NULL, Decoder, DecoderOptions},
+    errors::Error,
+    formats::{FormatOptions, FormatReader},
+    io::MediaSourceStream,
+    meta::MetadataOptions,
+    probe::Hint,
+};
+
+use ::fsio::FsIo;
+use ::fsio_media_source::FsioMediaSource;
 
 struct AudioReader {
     format: Box<dyn FormatReader>,
@@ -23,10 +26,11 @@ struct AudioReader {
 }
 
 impl AudioReader {
-    fn new(path: &impl AsRef<Path>) -> Result<Self> {
+    fn new(fsio: &FsIo, path: &impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let src = std::fs::File::open(path).context("failed to open file")?;
-        let mss = MediaSourceStream::new(Box::new(src), Default::default());
+        let src = fsio.open(path, "r").context("failed to open file")?;
+        let source = FsioMediaSource::new(src);
+        let mss = MediaSourceStream::new(Box::new(source), Default::default());
 
         let mut hint = Hint::new();
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -87,10 +91,11 @@ impl AudioReader {
 }
 
 pub fn calc_fingerprint(
+    fsio: &FsIo,
     path: impl AsRef<Path>,
     config: &Configuration,
 ) -> Result<(Vec<u32>, Duration)> {
-    let mut reader = AudioReader::new(&path).context("initializing audio reader")?;
+    let mut reader = AudioReader::new(fsio, &path).context("initializing audio reader")?;
     let mut printer = Fingerprinter::new(config);
 
     let mut total_frames = 0;

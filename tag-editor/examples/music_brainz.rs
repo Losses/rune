@@ -1,7 +1,9 @@
 use anyhow::Result;
 use clap::{Arg, Command};
 use rusty_chromaprint::Configuration;
-use tag_editor::music_brainz::{api::identify, fingerprint::calc_fingerprint};
+
+use ::fsio::FsIo;
+use ::tag_editor::music_brainz::{api::identify, fingerprint::calc_fingerprint};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -27,12 +29,13 @@ async fn main() -> Result<()> {
     // Get the API key and file path from arguments
     let api_key = matches.get_one::<String>("API_KEY").unwrap();
     let file_path = matches.get_one::<String>("FILE_PATH").unwrap();
+    let fsio = FsIo::new();
 
     // Create Chromaprint configuration
     let config = Configuration::default();
 
     // Calculate fingerprint
-    let (fingerprint, duration) = calc_fingerprint(file_path, &config)?;
+    let (fingerprint, duration) = calc_fingerprint(&fsio, file_path, &config)?;
 
     // Call the identify function
     match identify(
@@ -44,7 +47,7 @@ async fn main() -> Result<()> {
     .await
     {
         Ok(response) => {
-            println!("Identification successful: {:#?}", {response});
+            println!("Identification successful: {:#?}", { response });
         }
         Err(e) => {
             eprintln!("Identification failed: {e:?}");
