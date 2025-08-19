@@ -40,6 +40,7 @@ pub struct LibraryItemProcessor;
 impl PlayingFileMetadataProvider for LibraryItemProcessor {
     async fn get_file_handle(
         &self,
+        _fsio: &FsIo,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<MediaFileHandle>> {
@@ -54,11 +55,12 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
 
     async fn get_file_path(
         &self,
+        fsio: &FsIo,
         lib_path: &Path,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, PathBuf>> {
-        let handles = self.get_file_handle(main_db, items).await?;
+        let handles = self.get_file_handle(fsio, main_db, items).await?;
 
         let mut result: HashMap<PlayingItem, PathBuf> = HashMap::new();
 
@@ -96,6 +98,7 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
     async fn bake_cover_art(
         &self,
         fsio: &FsIo,
+        _lib_path: &Path,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
@@ -116,6 +119,7 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
     async fn get_cover_art_primary_color(
         &self,
         _fsio: &FsIo,
+        _lib_path: &Path,
         main_db: &DatabaseConnection,
         item: &PlayingItem,
     ) -> Option<i32> {

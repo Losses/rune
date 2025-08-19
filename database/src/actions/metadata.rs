@@ -1,29 +1,37 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
-use fsio::FsIo;
 use log::{debug, error, info};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
-use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
-use sea_orm::{DatabaseConnection, TransactionTrait};
+use sea_orm::{
+    ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait,
+    entity::prelude::*,
+};
 use tokio_util::sync::CancellationToken;
 
-use metadata::describe::{FileDescription, describe_file};
-use metadata::reader::get_metadata;
-use metadata::scanner::AudioScanner;
+use ::fsio::{FsIo, FsNode};
+use ::metadata::{
+    describe::{FileDescription, describe_file},
+    reader::get_metadata,
+    scanner::AudioScanner,
+};
 
-use crate::actions::collection::CollectionQueryType;
-use crate::actions::cover_art::remove_cover_art_by_file_id;
-use crate::actions::file::get_file_ids_by_descriptions;
-use crate::actions::index::{index_media_files, perform_library_maintenance};
-use crate::actions::logging::{LogLevel, insert_log};
-use crate::actions::search::{add_term, remove_term};
-use crate::entities::{albums, artists, media_file_albums, media_files};
-use crate::entities::{media_file_artists, media_metadata};
+use crate::actions::{
+    collection::CollectionQueryType,
+    cover_art::remove_cover_art_by_file_id,
+    file::get_file_ids_by_descriptions,
+    index::{index_media_files, perform_library_maintenance},
+    logging::{LogLevel, insert_log},
+    search::{add_term, remove_term},
+};
+use crate::entities::{
+    albums, artists, media_file_albums, media_file_artists, media_files, media_metadata,
+};
 
 use super::cover_art::get_magic_cover_art_id;
 use super::utils::DatabaseExecutor;
@@ -34,20 +42,12 @@ pub struct FileMetadata {
     pub metadata: Vec<(String, String)>,
 }
 
-pub fn read_metadata(description: &FileDescription) -> Result<FileMetadata> {
-    let full_path = match description.full_path.to_str() {
-        Some(x) => x,
-        _none => bail!("File path not available"),
-    };
-
-    match get_metadata(full_path, None).with_context(|| {
-        format!(
-            "Unable to read metadata: {}",
-            description.rel_path.display()
-        )
-    }) {
+pub fn read_metadata(fs_node: &FsNode) -> Result<FileMetadata> {
+    match get_metadata(fs_node, None)
+        .with_context(|| format!("Unable to read metadata: {:#?}", fs_node.path))
+    {
         Ok(metadata) => Ok(FileMetadata {
-            path: description.rel_path.clone(),
+            path: fs_node.path.clone(),
             metadata,
         }),
         Err(e) => Err(e),
@@ -128,7 +128,7 @@ pub async fn sync_file_descriptions(
                             description.file_name.clone()
                         );
 
-                        let new_hash = match description.get_crc().with_context(|| {
+                        let new_hash = match description.get_crc(fsio).with_context(|| {
                             format!("Failed to get CRC: {}", description.file_name)
                         }) {
                             Ok(hash) => hash,
@@ -226,22 +226,30 @@ pub async fn sync_file_descriptions(
                                 continue;
                             }
 
-                            let file_metadata = read_metadata(description).with_context(|| {
-                                format!("Unable to parse file metadata: {:?}", description.rel_path)
-                            });
+                            let file_metadata =
+                                read_metadata(&description.raw_node).with_context(|| {
+                                    format!(
+                                        "Unable to parse file metadata: {:?}",
+                                        description.rel_path
+                                    )
+                                });
 
                             match file_metadata {
                                 Ok(x) => {
-                                    if let Err(e) =
-                                        update_file_metadata(&txn, &existing_file, description, &x)
-                                            .await
-                                            .with_context(|| {
-                                                format!(
-                                                    "Failed to update file metadata: {}",
-                                                    description.file_name.clone(),
-                                                )
-                                            })
-                                    {
+                                    if let Err(e) = update_file_metadata(
+                                        fsio,
+                                        &txn,
+                                        &existing_file,
+                                        description,
+                                        &x,
+                                    )
+                                    .await
+                                    .with_context(|| {
+                                        format!(
+                                            "Failed to update file metadata: {}",
+                                            description.file_name.clone(),
+                                        )
+                                    }) {
                                         error!("{e:?}");
                                         insert_log(
                                             &txn,
@@ -269,13 +277,13 @@ pub async fn sync_file_descriptions(
                         }
                     }
                 } else {
-                    // If the file is new, insert a new record
+                    // If the file is new, insert a new recordF
                     debug!(
                         "File is new, inserting new record: {}",
                         description.file_name.clone()
                     );
 
-                    let file_metadata = read_metadata(description).with_context(|| {
+                    let file_metadata = read_metadata(&description.raw_node).with_context(|| {
                         format!(
                             "Unable to parse metadata: {}",
                             description.rel_path.clone().display()
@@ -405,7 +413,7 @@ pub async fn process_files(
                             "File's last modified date has changed, checking hash: {}",
                             description.file_name.clone()
                         );
-                        let new_hash = description.get_crc()?;
+                        let new_hash = description.get_crc(fsio)?;
                         if existing_file.file_hash == new_hash {
                             // If the hash is the same, update the last modified date
                             debug!(
@@ -440,14 +448,20 @@ pub async fn process_files(
 
                             remove_cover_art_by_file_id(&txn, existing_file.id).await?;
 
-                            let file_metadata = read_metadata(description).with_context(|| {
+                            let file_metadata = read_metadata(&description.raw_node).with_context(|| {
                                 format!("Unable to parse file metadata: {:?}", description.rel_path)
                             });
 
                             match file_metadata {
                                 Ok(x) => {
-                                    update_file_metadata(&txn, &existing_file, description, &x)
-                                        .await?;
+                                    update_file_metadata(
+                                        fsio,
+                                        &txn,
+                                        &existing_file,
+                                        description,
+                                        &x,
+                                    )
+                                    .await?;
                                 }
                                 Err(e) => {
                                     error!("{:?}", description.rel_path);
@@ -469,7 +483,7 @@ pub async fn process_files(
                         description.file_name.clone()
                     );
 
-                    let file_metadata = read_metadata(description).with_context(|| {
+                    let file_metadata = read_metadata(&description.raw_node).with_context(|| {
                         format!("Unable to parse file metadata: {:?}", description.rel_path)
                     });
 
@@ -536,6 +550,7 @@ where
 }
 
 pub async fn update_file_metadata<E>(
+    fsio: &FsIo,
     db: &E,
     existing_file: &media_files::Model,
     description: &mut FileDescription,
@@ -549,7 +564,10 @@ where
     // Update last modified and file hash
     active_model.last_modified = ActiveValue::Set(description.last_modified.clone());
 
-    match description.get_crc().with_context(|| "Failed to get CRC") {
+    match description
+        .get_crc(fsio)
+        .with_context(|| "Failed to get CRC")
+    {
         Ok(crc) => active_model.file_hash = ActiveValue::Set(crc),
         Err(e) => {
             error!("{e:?}");
@@ -714,9 +732,9 @@ where
     let (sample_rate, duration_in_seconds) = description.get_codec_information(fsio)?;
 
     description
-        .get_crc()
+        .get_crc(fsio)
         .with_context(|| format!("Failed to get CRC: {}", description.file_name))?;
-    let new_hash = if let Ok(hash) = description.get_crc() {
+    let new_hash = if let Ok(hash) = description.get_crc(fsio) {
         hash.clone()
     } else {
         bail!("");
@@ -814,12 +832,12 @@ pub async fn scan_audio_library<F>(
     force: bool,
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
-) -> Result<usize, sea_orm::DbErr>
+) -> Result<usize>
 where
     F: Fn(usize) + Send + Sync,
 {
     let root_path_str = lib_path.to_str().expect("Invalid UTF-8 sequence in path");
-    let mut scanner = AudioScanner::new(&root_path_str);
+    let mut scanner = AudioScanner::new(fsio, &root_path_str)?;
 
     info!("Starting audio library scan");
 
@@ -841,7 +859,7 @@ where
         let mut descriptions: Vec<Option<FileDescription>> = files
             .clone()
             .into_iter()
-            .map(|file| describe_file(&file.path().to_path_buf(), &Some(lib_path.to_path_buf())))
+            .map(|file| describe_file(&file, &Some(lib_path.to_path_buf())))
             .map(|result| result.ok())
             .collect();
 

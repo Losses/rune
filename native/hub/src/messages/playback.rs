@@ -116,7 +116,7 @@ pub struct InLibraryPlayingItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize, SignalPiece)]
 pub struct IndependentFilePlayingItem {
-    pub path: String,
+    pub raw_path: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, SignalPiece)]

@@ -6,27 +6,27 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
-use fsio::FsIo;
 use sea_orm::DatabaseConnection;
 
-use metadata::{
+use ::fsio::FsIo;
+use ::metadata::{
     cover_art::extract_cover_art_binary,
     crc::media_crc32,
-    describe::{describe_file, get_codec_information_from_path},
+    describe::{describe_file, get_codec_information_from_node},
     reader::get_metadata,
 };
-use playback::player::PlayingItem;
+use ::playback::player::PlayingItem;
 
 use crate::actions::{cover_art::COVER_TEMP_DIR, metadata::extract_number};
 
 use super::{MediaFileHandle, PlayingFileMetadataProvider, PlayingItemMetadataSummary};
 
-pub fn extract_independent_file_paths(items: Vec<PlayingItem>) -> Vec<PathBuf> {
+pub fn extract_independent_file_paths(items: Vec<PlayingItem>) -> Vec<(PlayingItem, String)> {
     items
         .into_iter()
         .filter_map(|item| {
             if let PlayingItem::IndependentFile(path) = item {
-                Some(path)
+                Some((PlayingItem::IndependentFile(path.clone()), path))
             } else {
                 None
             }
@@ -40,6 +40,7 @@ pub struct IndependentFileProcessor;
 impl PlayingFileMetadataProvider for IndependentFileProcessor {
     async fn get_file_handle(
         &self,
+        fsio: &FsIo,
         _main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<MediaFileHandle>> {
@@ -47,12 +48,10 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
 
         let independent_handles: Vec<MediaFileHandle> = independent_paths
             .into_iter()
-            .filter_map(|x| match describe_file(&x, &None) {
-                Ok(file_desc) => Some(file_desc.into()),
-                Err(e) => {
-                    eprintln!("Warning: Failed to describe file {}: {}", x.display(), e);
-                    None
-                }
+            .filter_map(|(_, x)| {
+                let fs_node = fsio.canonicalize_str(&x).ok()?;
+                let file_desc = describe_file(&fs_node, &None).ok()?;
+                Some(file_desc.into())
             })
             .collect();
 
@@ -61,6 +60,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
 
     async fn get_file_path(
         &self,
+        fsio: &FsIo,
         _lib_path: &Path,
         _main_db: &DatabaseConnection,
         items: &[PlayingItem],
@@ -69,8 +69,9 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
 
         let mut result: HashMap<PlayingItem, PathBuf> = HashMap::new();
 
-        for handle in independent_paths {
-            result.insert(PlayingItem::IndependentFile(handle.clone()), handle);
+        for (playing_item, handle) in independent_paths {
+            let fs_node = fsio.canonicalize_str(&handle)?;
+            result.insert(playing_item, fs_node.path);
         }
 
         Ok(result)
@@ -86,47 +87,44 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
 
         let result = independent_paths
             .iter()
-            .filter_map(|path| {
-                let file_name = path.file_name()?.to_str()?.to_string();
+            .filter_map(|(playing_item, path_str)| {
+                let fs_node = match fsio.canonicalize_str(path_str) {
+                    Ok(x) => x,
+                    Err(_) => return None,
+                };
 
-                match path.to_str() {
-                    Some(xs) => {
-                        let metadata: Result<Vec<(String, String)>> = get_metadata(xs, None);
-                        let codec: Result<(u32, f64)> = get_codec_information_from_path(fsio, path);
+                let metadata: Result<Vec<(String, String)>> = get_metadata(&fs_node, None);
+                let codec: Result<(u32, f64)> = get_codec_information_from_node(fsio, &fs_node);
 
-                        match (metadata, codec) {
-                            (Ok(metadata_vec), Ok((_, duration))) => {
-                                let metadata: HashMap<_, _> =
-                                    metadata_vec.iter().cloned().collect();
+                match (metadata, codec) {
+                    (Ok(metadata_vec), Ok((_, duration))) => {
+                        let metadata: HashMap<_, _> = metadata_vec.iter().cloned().collect();
 
-                                let parsed_disk_number = metadata
-                                    .get("disc_number")
-                                    .and_then(|s| extract_number(s))
-                                    .unwrap_or(0);
+                        let parsed_disk_number = metadata
+                            .get("disc_number")
+                            .and_then(|s| extract_number(s))
+                            .unwrap_or(0);
 
-                                let parsed_track_number = metadata
-                                    .get("track_number")
-                                    .and_then(|s| extract_number(s))
-                                    .unwrap_or(0);
+                        let parsed_track_number = metadata
+                            .get("track_number")
+                            .and_then(|s| extract_number(s))
+                            .unwrap_or(0);
 
-                                let track_number = parsed_disk_number * 1000 + parsed_track_number;
+                        let track_number = parsed_disk_number * 1000 + parsed_track_number;
 
-                                Some(PlayingItemMetadataSummary {
-                                    item: PlayingItem::IndependentFile(path.to_path_buf()),
-                                    artist: metadata.get("artist").cloned().unwrap_or_default(),
-                                    album: metadata.get("album").cloned().unwrap_or_default(),
-                                    title: metadata
-                                        .get("track_title")
-                                        .cloned()
-                                        .unwrap_or(file_name),
-                                    track_number,
-                                    duration,
-                                })
-                            }
-                            _ => None,
-                        }
+                        Some(PlayingItemMetadataSummary {
+                            item: playing_item.clone(),
+                            artist: metadata.get("artist").cloned().unwrap_or_default(),
+                            album: metadata.get("album").cloned().unwrap_or_default(),
+                            title: metadata
+                                .get("track_title")
+                                .cloned()
+                                .unwrap_or(fs_node.filename),
+                            track_number,
+                            duration,
+                        })
                     }
-                    None => None,
+                    _ => None,
                 }
             })
             .collect();
@@ -137,6 +135,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
     async fn bake_cover_art(
         &self,
         fsio: &FsIo,
+        lib_path: &Path,
         _main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
@@ -144,11 +143,10 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
 
         let mut result_map: HashMap<PlayingItem, String> = HashMap::new();
 
-        for path in independent_paths {
-            let cover_art_option = extract_cover_art_binary(fsio, path.parent(), &path);
+        for (playing_item, path_str) in independent_paths {
+            let cover_art_option = extract_cover_art_binary(fsio, Some(lib_path), &path_str);
 
             if let Some(cover_art) = cover_art_option {
-                let path_str = path.to_string_lossy();
                 let crc32 = media_crc32(path_str.as_bytes(), 0, 0, path_str.len());
 
                 let image_file_name = format!("{crc32:08x}");
@@ -165,10 +163,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                     fs::write(color_file, format!("{:?}", cover_art.primary_color))?;
                 }
 
-                result_map.insert(
-                    PlayingItem::IndependentFile(path.clone()),
-                    image_file.to_string_lossy().to_string(),
-                );
+                result_map.insert(playing_item, image_file.to_string_lossy().to_string());
             }
         }
 
@@ -178,13 +173,13 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
     async fn get_cover_art_primary_color(
         &self,
         fsio: &FsIo,
+        lib_path: &Path,
         _main_db: &DatabaseConnection,
         item: &PlayingItem,
     ) -> Option<i32> {
         match &item {
-            PlayingItem::IndependentFile(path) => {
+            PlayingItem::IndependentFile(path_str) => {
                 // Calculate the CRC32 for the file path
-                let path_str = path.to_string_lossy();
                 let crc32 = media_crc32(path_str.as_bytes(), 0, 0, path_str.len());
                 let image_file_name = format!("{crc32:08x}");
                 let color_file_name = format!("{image_file_name}.color");
@@ -200,7 +195,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                     }
                 } else {
                     // Attempt to bake cover art
-                    if (self.bake_cover_art(fsio, _main_db, &[item.clone()]).await).is_ok() {
+                    if (self.bake_cover_art(fsio, lib_path, _main_db, &[item.clone()]).await).is_ok() {
                         // Try reading the color again
                         if let Ok(color_str) = fs::read_to_string(&color_file) {
                             if let Ok(color) = color_str.trim().parse::<i32>() {

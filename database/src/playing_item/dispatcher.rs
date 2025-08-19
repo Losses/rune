@@ -7,8 +7,8 @@ use std::{
 use anyhow::Result;
 use sea_orm::DatabaseConnection;
 
-use fsio::FsIo;
-use playback::player::PlayingItem;
+use ::fsio::FsIo;
+use ::playback::player::PlayingItem;
 
 use super::{
     MediaFileHandle, PlayingFileMetadataProvider, PlayingItemMetadataSummary,
@@ -83,28 +83,30 @@ impl PlayingItemActionDispatcher {
 
     pub async fn get_file_handle(
         &self,
+        fsio: &FsIo,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<MediaFileHandle>> {
         self.process_with_both_processors(main_db, items, |processor, db, items| {
-            Box::pin(processor.get_file_handle(db, items))
+            Box::pin(processor.get_file_handle(fsio, db, items))
         })
         .await
     }
 
-    pub async fn get_file_path(
+    pub async fn get_file_path<P: AsRef<Path>>(
         &self,
-        lib_path: &Path,
+        fsio: &FsIo,
+        lib_path: &P,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, PathBuf>> {
         let in_library_results = self
             .in_library_processor
-            .get_file_path(lib_path, main_db, items)
+            .get_file_path(fsio, lib_path.as_ref(), main_db, items)
             .await?;
         let independent_results = self
             .independent_file_processor
-            .get_file_path(lib_path, main_db, items)
+            .get_file_path(fsio, lib_path.as_ref(), main_db, items)
             .await?;
 
         let mut result_map = HashMap::new();
@@ -126,19 +128,21 @@ impl PlayingItemActionDispatcher {
         .await
     }
 
-    pub async fn bake_cover_art(
+    pub async fn bake_cover_art<P: AsRef<Path>>(
         &self,
         fsio: &FsIo,
+        lib_path: P,
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
+        let lib_path = lib_path.as_ref();
         let in_library_results = self
             .in_library_processor
-            .bake_cover_art(fsio, main_db, items)
+            .bake_cover_art(fsio, lib_path, main_db, items)
             .await?;
         let independent_results = self
             .independent_file_processor
-            .bake_cover_art(fsio, main_db, items)
+            .bake_cover_art(fsio, lib_path, main_db, items)
             .await?;
 
         let mut result_map = HashMap::new();
@@ -151,6 +155,7 @@ impl PlayingItemActionDispatcher {
     pub async fn get_cover_art_primary_color(
         &self,
         fsio: &FsIo,
+        lib_path: &Path,
         main_db: &DatabaseConnection,
         item: &PlayingItem,
     ) -> Option<i32> {
@@ -161,7 +166,7 @@ impl PlayingItemActionDispatcher {
         };
 
         processor
-            .get_cover_art_primary_color(fsio, main_db, item)
+            .get_cover_art_primary_color(fsio, lib_path, main_db, item)
             .await
     }
 }

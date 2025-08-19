@@ -1,24 +1,24 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use ::playback::player::Playable;
 use anyhow::{Context, Result};
+use fsio::FsIo;
 use tokio::sync::Mutex;
 
-use ::database::actions::mixes::query_mix_media_files;
-use ::database::actions::stats::increase_skipped;
-use ::database::connection::MainDbConnection;
-use ::database::connection::RecommendationDbConnection;
-use ::database::playing_item::dispatcher::PlayingItemActionDispatcher;
-use ::playback::player::PlayingItem;
-use ::playback::strategies::AddMode;
+use ::database::{
+    actions::{mixes::query_mix_media_files, stats::increase_skipped},
+    connection::{MainDbConnection, RecommendationDbConnection},
+    playing_item::dispatcher::PlayingItemActionDispatcher,
+};
+use ::playback::{
+    player::{Playable, PlayingItem},
+    strategies::AddMode,
+};
 
-use crate::Session;
-use crate::utils::GlobalParams;
-use crate::utils::ParamsExtractor;
-use crate::utils::files_to_playback_request;
-use crate::utils::find_nearest_index;
-use crate::{Signal, messages::*};
+use crate::{
+    Session, Signal,
+    messages::*,
+    utils::{GlobalParams, ParamsExtractor, files_to_playback_request, find_nearest_index},
+};
 
 impl From<PlayingItem> for PlayingItemRequest {
     fn from(x: PlayingItem) -> Self {
@@ -27,11 +27,9 @@ impl From<PlayingItem> for PlayingItemRequest {
                 in_library: Some(InLibraryPlayingItem { file_id: x }),
                 independent_file: None,
             },
-            PlayingItem::IndependentFile(path_buf) => PlayingItemRequest {
+            PlayingItem::IndependentFile(path_str) => PlayingItemRequest {
                 in_library: None,
-                independent_file: Some(IndependentFilePlayingItem {
-                    path: path_buf.to_string_lossy().to_string(),
-                }),
+                independent_file: Some(IndependentFilePlayingItem { raw_path: path_str }),
             },
             PlayingItem::Unknown => PlayingItemRequest {
                 in_library: None,
@@ -50,8 +48,8 @@ impl From<PlayingItemRequest> for PlayingItem {
         }
 
         if let Some(independent_file) = x.independent_file {
-            if !independent_file.path.is_empty() {
-                return PlayingItem::IndependentFile(PathBuf::from(independent_file.path));
+            if !independent_file.raw_path.is_empty() {
+                return PlayingItem::IndependentFile(independent_file.raw_path);
             }
         }
 
@@ -410,6 +408,7 @@ impl Signal for SetAdaptiveSwitchingEnabledRequest {
 
 impl ParamsExtractor for OperatePlaybackWithMixQueryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         Arc<String>,
@@ -418,6 +417,7 @@ impl ParamsExtractor for OperatePlaybackWithMixQueryRequest {
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
+            Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.recommend_db),
             Arc::clone(&all_params.lib_path),
@@ -428,6 +428,7 @@ impl ParamsExtractor for OperatePlaybackWithMixQueryRequest {
 
 impl Signal for OperatePlaybackWithMixQueryRequest {
     type Params = (
+        Arc<FsIo>,
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         Arc<String>,
@@ -437,7 +438,7 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
 
     async fn handle(
         &self,
-        (main_db, recommend_db, lib_path, player): Self::Params,
+        (fsio, main_db, recommend_db, lib_path, player): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -453,7 +454,7 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
         // Retrieve tracks
         let tracks = if request.queries.is_empty() {
             PlayingItemActionDispatcher::new()
-                .get_file_handle(&main_db, &items)
+                .get_file_handle(&fsio, &main_db, &items)
                 .await?
         } else {
             query_mix_media_files(
@@ -498,7 +499,10 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
 
         // If not required to play instantly, add to playlist and return
         if !request.instantly_play {
-            player.add_to_playlist(files_to_playback_request(&lib_path, &tracks), add_mode);
+            player.add_to_playlist(
+                files_to_playback_request(&fsio, lib_path.as_ref(), &tracks),
+                add_mode,
+            );
             return Ok(Some(OperatePlaybackWithMixQueryResponse {
                 playing_items: items.into_iter().map(|x| x.into()).collect(),
             }));
@@ -531,7 +535,10 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
 
         // Add to playlist
         if !tracks.is_empty() {
-            player.add_to_playlist(files_to_playback_request(&lib_path, &tracks), add_mode);
+            player.add_to_playlist(
+                files_to_playback_request(&fsio, lib_path.as_ref(), &tracks),
+                add_mode,
+            );
         }
 
         // Set playback mode

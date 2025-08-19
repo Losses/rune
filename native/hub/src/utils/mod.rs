@@ -2,10 +2,12 @@ pub mod broadcastable;
 pub mod nid;
 pub mod player;
 
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    path::{Path, PathBuf},
+    sync::{Arc, OnceLock},
+};
 
 use anyhow::{Context, Result};
 use dunce::canonicalize;
@@ -444,25 +446,34 @@ pub async fn parse_media_files(
     Ok(media_files)
 }
 
-pub fn files_to_playback_request(
-    lib_path: &String,
+pub fn files_to_playback_request<P: AsRef<Path>>(
+    fsio: &FsIo,
+    lib_path: &P,
     files: &[MediaFileHandle],
 ) -> Vec<(PlayingItem, PathBuf)> {
     files
         .iter()
         .filter_map(|file| {
-            let file_path = match &file.item {
-                PlayingItem::InLibrary(_) => Path::new(lib_path)
-                    .join(&file.directory)
-                    .join(&file.file_name),
-                PlayingItem::IndependentFile(path_buf) => path_buf.to_path_buf(),
-                PlayingItem::Unknown => Path::new("/").to_path_buf(),
+            let path_buf = match &file.item {
+                PlayingItem::InLibrary(_) => match fsio.canonicalize_path(
+                    &lib_path
+                        .as_ref()
+                        .join(&file.directory)
+                        .join(&file.file_name),
+                ) {
+                    Ok(x) => x,
+                    Err(_) => return None,
+                },
+                PlayingItem::IndependentFile(raw_path) => {
+                    match fsio.canonicalize_path_str(raw_path) {
+                        Ok(x) => x,
+                        Err(_) => return None,
+                    }
+                }
+                PlayingItem::Unknown => return None,
             };
 
-            match canonicalize(&file_path) {
-                Ok(canonical_path) => Some((file.item.clone(), canonical_path)),
-                Err(_) => None,
-            }
+            Some((file.item.clone(), path_buf))
         })
         .collect()
 }

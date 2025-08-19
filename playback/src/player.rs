@@ -27,7 +27,9 @@ pub struct PlayerStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PlayingItem {
     InLibrary(i32),
-    IndependentFile(PathBuf),
+    /// This is the raw content, on native platform it
+    /// is the path, on Android, it is the Content URI
+    IndependentFile(String),
     Unknown,
 }
 
@@ -38,8 +40,7 @@ impl fmt::Display for PlayingItem {
             PlayingItem::IndependentFile(path) => {
                 write!(
                     f,
-                    "PlayingItem::IndependentFile({})",
-                    path.to_string_lossy()
+                    "PlayingItem::IndependentFile({path})"
                 )
             }
             PlayingItem::Unknown => write!(f, "PlayingItem::Unknown()"),

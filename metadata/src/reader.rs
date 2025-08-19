@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use std::fs::File;
-use std::path::Path;
+use std::{path::Path, collections::HashMap, fs::File};
 
 use anyhow::{bail, Result};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{MetadataOptions, MetadataRevision, StandardTagKey, Value};
 use symphonia::core::probe::{Hint, ProbeResult};
+
+use ::fsio::FsNode;
 
 fn create_standard_tag_key_maps() -> (
     HashMap<StandardTagKey, &'static str>,
@@ -274,11 +274,11 @@ pub fn get_lyrics<P: AsRef<Path>>(file_path: P) -> Result<Option<String>> {
     Ok(None)
 }
 
-pub fn get_metadata<P: AsRef<Path>>(
-    file_path: P,
+pub fn get_metadata(
+    fs_node: &FsNode,
     field_blacklist: Option<Vec<&str>>,
 ) -> Result<Vec<(String, String)>> {
-    let mut probed = probe_audio_file(file_path)?;
+    let mut probed = probe_audio_file(fs_node.path.clone())?;
     let mut format = probed.format;
     let mut metadata_list = Vec::new();
 

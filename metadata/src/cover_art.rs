@@ -61,10 +61,10 @@ pub fn color_to_int(color: &Color) -> i32 {
     (alpha << 24) | (r << 16) | (g << 8) | b
 }
 
-pub fn extract_cover_art_binary(
+pub fn extract_cover_art_binary<P: AsRef<Path>>(
     fsio: &FsIo,
     lib_path: Option<&Path>,
-    file_path: &Path,
+    file_path: &P,
 ) -> Option<CoverArt> {
     if let Some(cover_art) = extract_from_tagged_file(fsio, file_path) {
         return Some(cover_art);
@@ -72,14 +72,14 @@ pub fn extract_cover_art_binary(
 
     if let Some(lib_path) = lib_path {
         info!("Falling back to external cover art");
-        return fallback_to_external_cover(fsio, file_path, lib_path);
+        return fallback_to_external_cover(fsio, file_path.as_ref(), lib_path);
     }
 
     None
 }
 
-fn extract_from_tagged_file(fsio: &FsIo, file_path: &Path) -> Option<CoverArt> {
-    let file_path = match fsio.canonicalize(file_path) {
+fn extract_from_tagged_file<P: AsRef<Path>>(fsio: &FsIo, file_path: &P) -> Option<CoverArt> {
+    let file_path = match fsio.canonicalize_path(file_path.as_ref()) {
         Ok(x) => x,
         Err(_) => return None,
     };
