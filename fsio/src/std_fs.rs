@@ -68,6 +68,7 @@ impl FileIo for StdFsIo {
             let metadata = entry.metadata().await?;
             nodes.push(FsNode {
                 filename: entry.file_name().to_str().unwrap().to_string(),
+                raw_path: path.to_str().unwrap_or_default().to_string(),
                 path,
                 is_dir: metadata.is_dir(),
                 is_file: metadata.is_file(),
@@ -96,6 +97,7 @@ impl FileIo for StdFsIo {
                 let metadata = entry.metadata().map_err(|e| FileIoError::Io(e.into()))?;
                 Ok(FsNode {
                     filename: entry.file_name().to_str().unwrap().to_string(),
+                    raw_path: path.to_str().unwrap_or_default().to_string(),
                     path,
                     is_dir: metadata.is_dir(),
                     is_file: metadata.is_file(),
@@ -132,6 +134,7 @@ impl FileIo for StdFsIo {
         let metadata = std::fs::metadata(&path)?;
         Ok(FsNode {
             filename: path.file_name().unwrap().to_str().unwrap().to_string(),
+            raw_path: path.to_str().unwrap_or_default().to_string(),
             path,
             is_dir: metadata.is_dir(),
             is_file: metadata.is_file(),
@@ -144,6 +147,7 @@ impl FileIo for StdFsIo {
         let metadata = std::fs::metadata(&path)?;
         Ok(FsNode {
             filename: path.file_name().unwrap().to_str().unwrap().to_string(),
+            raw_path: path.to_str().unwrap_or_default().to_string(),
             path,
             is_dir: metadata.is_dir(),
             is_file: metadata.is_file(),

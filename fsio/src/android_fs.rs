@@ -259,6 +259,7 @@ impl FileIo for AndroidFsIo {
             let file = self.get_android_file(&path)?;
             nodes.push(FsNode {
                 filename: file.filename,
+                raw_path: path.to_str().unwrap_or_default().to_string(),
                 path,
                 is_dir: file.is_dir,
                 is_file: !file.is_dir,
@@ -315,6 +316,7 @@ impl FileIo for AndroidFsIo {
             let file = self.get_android_file(&path)?;
             nodes.push(FsNode {
                 filename: file.filename,
+                raw_path: path.to_str().unwrap_or_default().to_string(),
                 path,
                 is_dir: file.is_dir,
                 is_file: !file.is_dir,
@@ -367,6 +369,7 @@ impl FileIo for AndroidFsIo {
         let path = self.canonicalize_path(path)?;
         Ok(FsNode {
             filename: file.filename,
+            raw_path: path.to_str().unwrap_or_default().to_string(),
             path,
             is_dir: file.is_dir,
             is_file: !file.is_dir,
@@ -375,15 +378,19 @@ impl FileIo for AndroidFsIo {
     }
 
     fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError> {
-        let p = Path::new(path);
-        let file = self.get_android_file(p)?;
-        let path = self.canonicalize_path_str(path)?;
-        Ok(FsNode {
-            filename: file.filename,
-            path,
-            is_dir: file.is_dir,
-            is_file: !file.is_dir,
-            size: file.size as u64,
-        })
+        if path.contains(':') {
+            let file = from_tree_url(path).map_err(|e| FileIoError::Saf(e.to_string()))?;
+            let canon_path = self.canonicalize_path_str(path)?;
+            Ok(FsNode {
+                filename: file.filename,
+                raw_path: canon_path.to_str().unwrap_or_default().to_string(),
+                path: canon_path,
+                is_dir: file.is_dir,
+                is_file: !file.is_dir,
+                size: file.size as u64,
+            })
+        } else {
+            self.canonicalize(Path::new(path))
+        }
     }
 }

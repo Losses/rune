@@ -32,6 +32,7 @@ pub enum FileIoError {
 pub struct FsNode {
     pub filename: String,
     pub path: PathBuf,
+    pub raw_path: String,
     pub is_dir: bool,
     pub is_file: bool,
     pub size: u64,

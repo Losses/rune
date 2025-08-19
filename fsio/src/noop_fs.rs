@@ -103,11 +103,7 @@ impl FileIo for NoOpFsIo {
         Ok(())
     }
 
-    fn walk_dir(
-        &self,
-        _path: &Path,
-        _follow_links: bool,
-    ) -> Result<Vec<FsNode>, FileIoError> {
+    fn walk_dir(&self, _path: &Path, _follow_links: bool) -> Result<Vec<FsNode>, FileIoError> {
         Ok(Vec::new())
     }
 
@@ -134,6 +130,7 @@ impl FileIo for NoOpFsIo {
     fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError> {
         Ok(FsNode {
             filename: path.file_name().unwrap().to_str().unwrap().to_string(),
+            raw_path: path.to_str().unwrap_or_default().to_string(),
             path: path.to_path_buf(),
             is_dir: false,
             is_file: false,
@@ -149,6 +146,7 @@ impl FileIo for NoOpFsIo {
                 .to_str()
                 .unwrap()
                 .to_string(),
+            raw_path: path.to_string(),
             path: PathBuf::from(path),
             is_dir: false,
             is_file: false,
