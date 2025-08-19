@@ -15,8 +15,6 @@ use axum::{
 };
 use axum_server::{Handle, tls_rustls::RustlsConfig};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE};
-#[cfg(not(target_os = "android"))]
-use fsio::FsIo;
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use log::{error, info};
 use rand::{
@@ -36,6 +34,7 @@ use tower_governor::{
 
 use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::discovery::{DiscoveryParams, client::parse_certificate, ssl::generate_self_signed_cert};
+use ::fsio::FsIo;
 
 use crate::{
     Signal,
