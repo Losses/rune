@@ -16,6 +16,10 @@ impl StdFsIo {
 
 #[async_trait]
 impl FileIo for StdFsIo {
+    fn name(&self) -> &'static str {
+        "Std"
+    }
+
     fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
         let mut options = std::fs::OpenOptions::new();
         options.read(open_mode.contains('r'));

@@ -43,6 +43,7 @@ impl<T: Read + Write + Seek + Send + Sync> FileStream for T {}
 
 #[async_trait]
 pub trait FileIo: Send + Sync {
+    fn name(&self) -> &'static str;
     fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError>;
     async fn open_async(
         &self,
@@ -97,6 +98,14 @@ impl FsIo {
 impl Default for FsIo {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl std::fmt::Debug for FsIo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FsIo")
+            .field("inner", &self.inner.name())
+            .finish()
     }
 }
 

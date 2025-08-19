@@ -167,6 +167,10 @@ impl AndroidFsIo {
 
 #[async_trait]
 impl FileIo for AndroidFsIo {
+    fn name(&self) -> &'static str {
+        "Android"
+    }
+
     fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
         // block on the async open
         let rt = tokio::runtime::Builder::new_current_thread()

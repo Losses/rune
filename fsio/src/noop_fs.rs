@@ -63,6 +63,10 @@ impl Seek for NoOpStream {
 
 #[async_trait]
 impl FileIo for NoOpFsIo {
+    fn name(&self) -> &'static str {
+        "NoOp"
+    }
+
     fn open(&self, _path: &Path, _open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
         Ok(Box::new(NoOpStream::new()))
     }
