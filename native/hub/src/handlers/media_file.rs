@@ -61,7 +61,7 @@ impl Signal for FetchMediaFilesRequest {
                 format!("Failed to fetch media list, page: {cursor}, size: {page_size}")
             })?;
 
-        let media_files = parse_media_files(media_summaries, lib_path).await?;
+        let media_files = parse_media_files(&fsio, media_summaries, lib_path).await?;
         Ok(Some(FetchMediaFilesResponse {
             media_files,
             cover_art_map,
@@ -101,7 +101,7 @@ impl Signal for FetchMediaFileByIdsRequest {
             .await
             .with_context(|| "Unable to get media summaries")?;
 
-        let items = parse_media_files(media_summaries, lib_path)
+        let items = parse_media_files(&fsio, media_summaries, lib_path)
             .await
             .with_context(|| "Failed to parse media summaries")?;
 
@@ -119,10 +119,11 @@ impl Signal for FetchMediaFileByIdsRequest {
 }
 
 impl ParamsExtractor for FetchParsedMediaFileRequest {
-    type Params = (Arc<MainDbConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
+            Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.lib_path),
         )
@@ -130,12 +131,12 @@ impl ParamsExtractor for FetchParsedMediaFileRequest {
 }
 
 impl Signal for FetchParsedMediaFileRequest {
-    type Params = (Arc<DatabaseConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<DatabaseConnection>, Arc<String>);
     type Response = FetchParsedMediaFileResponse;
 
     async fn handle(
         &self,
-        (db, lib_path): Self::Params,
+        (fsio, db, lib_path): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -145,7 +146,7 @@ impl Signal for FetchParsedMediaFileRequest {
             .await
             .with_context(|| "Failed to get media summaries")?;
 
-        let parsed_files = parse_media_files(vec![media_file], lib_path.clone())
+        let parsed_files = parse_media_files(&fsio, vec![media_file], lib_path.clone())
             .await
             .with_context(|| "Failed to parse media files")?;
 

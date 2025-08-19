@@ -5,7 +5,6 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
-use dunce::canonicalize;
 use sea_orm::DatabaseConnection;
 
 use fsio::FsIo;
@@ -65,8 +64,8 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
         let mut result: HashMap<PlayingItem, PathBuf> = HashMap::new();
 
         for handle in handles {
-            let file_path = canonicalize(
-                Path::new(lib_path)
+            let file_path = fsio.canonicalize_path(
+                &Path::new(lib_path)
                     .join(handle.directory.clone())
                     .join(handle.file_name.clone()),
             )?;

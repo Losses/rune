@@ -6,7 +6,6 @@ use axum::{
     http::{Request, StatusCode},
     response::{IntoResponse, Response},
 };
-use dunce::canonicalize;
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
@@ -18,6 +17,7 @@ pub async fn file_handler(
 ) -> impl IntoResponse {
     let lib_path = &state.app_state.lib_path;
     let cover_temp_dir = &state.app_state.cover_temp_dir;
+    let fsio = state.fsio.clone();
 
     // Parse the request path, splitting it into prefix and actual file path
     let path_parts: Vec<&str> = file_path.splitn(2, '/').collect();
@@ -36,7 +36,7 @@ pub async fn file_handler(
 
     // Construct the full file path and normalize it
     let requested_path = root_dir.join(relative_path);
-    let canonical_path = match canonicalize(&requested_path) {
+    let canonical_path = match fsio.canonicalize_path(&requested_path) {
         Ok(path) => path,
         Err(_) => return StatusCode::FORBIDDEN.into_response(),
     };

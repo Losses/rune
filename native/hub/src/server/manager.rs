@@ -15,6 +15,8 @@ use axum::{
 };
 use axum_server::{Handle, tls_rustls::RustlsConfig};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE};
+#[cfg(not(target_os = "android"))]
+use fsio::FsIo;
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use log::{error, info};
 use rand::{
@@ -85,6 +87,7 @@ pub struct ServerManager {
     certificate: String,
     private_key: String,
     pub jwt_secret: Vec<u8>,
+    pub fsio: Arc<FsIo>,
 }
 
 impl ServerManager {
@@ -102,6 +105,11 @@ impl ServerManager {
             .await
             .context("Failed to initialize JWT secret")?;
 
+        #[cfg(not(target_os = "android"))]
+        let fsio = Arc::new(FsIo::new());
+        #[cfg(target_os = "android")]
+        let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), lib_path));
+
         Ok(Self {
             global_params,
             server_handle: Mutex::new(None),
@@ -111,6 +119,7 @@ impl ServerManager {
             certificate,
             private_key,
             jwt_secret,
+            fsio,
         })
     }
 
@@ -145,6 +154,7 @@ impl ServerManager {
             discovery_device_info: Arc::new(RwLock::new(discovery_params.device_info)),
             permission_manager: self.global_params.permission_manager.clone(),
             device_scanner: self.global_params.device_scanner.clone(),
+            fsio: Arc::clone(&self.fsio),
         });
 
         let governor_conf = GovernorConfigBuilder::default()
@@ -303,9 +313,7 @@ pub async fn get_or_generate_alias(config_path: &Path) -> Result<String> {
 }
 
 pub async fn update_alias(config_path: &Path, new_alias: &str) -> Result<()> {
-    info!(
-        "Updating certificate alias in: {config_path:?} to: {new_alias}"
-    );
+    info!("Updating certificate alias in: {config_path:?} to: {new_alias}");
 
     let certificate_id_path = config_path.join("cid");
 

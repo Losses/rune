@@ -10,7 +10,6 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use dunce::canonicalize;
 use fsio::FsIo;
 use log::{error, info};
 use nid::get_or_create_node_id;
@@ -395,14 +394,15 @@ pub fn process_cover_art_path(
 }
 
 pub async fn parse_media_files(
+    fsio: &FsIo,
     media_summaries: Vec<MetadataSummary>,
     lib_path: Arc<String>,
 ) -> Result<Vec<MediaFile>> {
     let mut media_files = Vec::with_capacity(media_summaries.len());
 
     for file in media_summaries {
-        let media_path = canonicalize(
-            Path::new(lib_path.as_ref())
+        let media_path = fsio.canonicalize_path(
+            &Path::new(lib_path.as_ref())
                 .join(&file.directory)
                 .join(&file.file_name),
         );

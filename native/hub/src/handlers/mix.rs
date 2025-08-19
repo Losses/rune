@@ -348,7 +348,7 @@ impl Signal for MixQueryRequest {
             .await
             .with_context(|| "Failed to get media summaries")?;
 
-        let files = parse_media_files(media_summaries, lib_path).await?;
+        let files = parse_media_files(&fsio, media_summaries, lib_path).await?;
         let cover_art_map = if request.bake_cover_arts {
             bake_cover_art_by_media_files(&fsio, &main_db, media_entries).await?
         } else {

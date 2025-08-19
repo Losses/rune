@@ -30,7 +30,6 @@ tokio = { version = "1.40.0", features = ["fs"] }
 arroy = "0.5.0"
 heed = "0.20.5"
 rand = "0.8.5"
-dunce = "1.0.4"
 async-channel = "2.3.1"
 deunicode = "1.6.0"
 paste = "1.0.15"

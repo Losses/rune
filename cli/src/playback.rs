@@ -14,7 +14,10 @@ use database::{
     actions::file::{get_file_by_id, get_random_files},
     connection::MainDbConnection,
 };
-use playback::player::{Playable, Player, PlayingItem};
+use playback::{
+    player::{Playable, Player, PlayingItem},
+    strategies::AddMode,
+};
 
 async fn play_files(main_db: &MainDbConnection, canonicalized_path: &Path, file_ids: Vec<i32>) {
     let player = Player::new(None);
@@ -47,7 +50,7 @@ async fn play_files(main_db: &MainDbConnection, canonicalized_path: &Path, file_
                 )
             })
             .collect(),
-        playback::strategies::AddMode::AppendToEnd,
+        AddMode::AppendToEnd,
     );
 
     player.lock().unwrap().play();

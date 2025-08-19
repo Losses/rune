@@ -5,10 +5,10 @@ pub mod http;
 mod manager;
 pub mod utils;
 
-pub use manager::ServerManager;
-pub use manager::generate_or_load_certificates;
-pub use manager::get_or_generate_alias;
-pub use manager::update_root_password;
+use fsio::FsIo;
+pub use manager::{
+    ServerManager, generate_or_load_certificates, get_or_generate_alias, update_root_password,
+};
 
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
@@ -44,6 +44,7 @@ pub struct ServerState {
     pub discovery_device_info: Arc<RwLock<DeviceInfo>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub device_scanner: Arc<DiscoveryService>,
+    pub fsio: Arc<FsIo>,
 }
 
 pub struct WebSocketService {
@@ -97,7 +98,7 @@ impl Broadcaster for WebSocketService {
             Err(e) => {
                 error!("Failed to encode message: {e}");
                 return;
-            },
+            }
         };
 
         let message_data = encode_message(&type_name, &payload, None);
