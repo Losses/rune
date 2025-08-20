@@ -25,7 +25,7 @@ class PlayingItem {
       if (fileId != 0) {
         return PlayingItem.inLibrary(fileId);
       } else if (independentFile != null) {
-        return PlayingItem.independentFile(independentFile.path);
+        return PlayingItem.independentFile(independentFile.rawPath);
       } else {
         return PlayingItem.unknown();
       }
@@ -84,7 +84,7 @@ extension PlayingItemExtension on PlayingItem {
     } else if (independentFile != null) {
       return PlayingItemRequest(
         inLibrary: null,
-        independentFile: IndependentFilePlayingItem(path: independentFile!),
+        independentFile: IndependentFilePlayingItem(rawPath: independentFile!),
       );
     } else {
       return PlayingItemRequest(
