@@ -59,7 +59,7 @@ jobs:
         run: cargo clippy -- -D warnings
 
   flutter-analyze:
-    name: Flutter analyze
+    name: Flutter Analyze
     runs-on: ubuntu-latest
 
     steps:
