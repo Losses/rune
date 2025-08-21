@@ -44,6 +44,12 @@ android {
         versionName = flutterVersionName
     }
 
+    tasks.whenTaskAdded { task ->
+        if (task.name.startsWith("configureCMake") || task.name.startsWith("buildCMake")) {
+            task.enabled = false
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
