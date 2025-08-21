@@ -1,6 +1,5 @@
 use std::{
     fs,
-    io::{Read, Write},
     os::unix::prelude::AsRawFd,
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex},
@@ -65,17 +64,23 @@ impl AndroidFsIo {
                 _ => continue,
             };
 
-            let files = current_file.list_files()?;
+            let files = current_file
+                .list_files()
+                .map_err(|e| e.to_string())?;
             let found_file = files.into_iter().find(|f| f.filename == component_name);
 
             current_file = match found_file {
                 Some(file) => file,
                 None => {
                     if create_if_not_exist {
-                        if let Some(ext) = Path::new(component_name).extension() {
-                            current_file.create_file("application/octet-stream", component_name)?
+                        if let Some(_ext) = Path::new(component_name).extension() {
+                            current_file
+                                .create_file("application/octet-stream", component_name)
+                                .map_err(|e| e.to_string())?
                         } else {
-                            current_file.create_directory(component_name)?
+                            current_file
+                                .create_directory(component_name)
+                                .map_err(|e| e.to_string())?
                         }
                     } else {
                         return Err(format!("File not found: {}", component_name));
@@ -129,13 +134,14 @@ impl AndroidFsIo {
             match walk(root_file, Path::new(""), &tx) {
                 Ok(_) => tx.commit().map_err(|e| FileIoError::Database(e.to_string())),
                 Err(e) => {
-                    tx.rollback().map_err(|e| FileIoError::Database(e.to_string()))?;
+                    tx.rollback()
+                        .map_err(|e| FileIoError::Database(e.to_string()))?;
                     Err(e)
                 }
             }
         })
         .await
-        .map_err(|e| FileIoError::Unknown)?
+        .map_err(|_e| FileIoError::Unknown)?
     }
 
     fn get_uri(&self, path: &Path) -> Result<String, FileIoError> {
@@ -207,7 +213,7 @@ impl FileIo for AndroidFsIo {
         Ok(())
     }
 
-    fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError> {
+    async fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError> {
         let parent_file = self.get_android_file(parent)?;
         let new_file = parent_file
             .create_directory(name)
@@ -229,17 +235,21 @@ impl FileIo for AndroidFsIo {
     }
 
     fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
-        if self.exists(path).await? {
+        if self.exists(path)? {
             return Ok(());
         }
 
         let parent = path.parent().unwrap_or_else(|| Path::new(""));
-        if !self.exists(parent)? {
+        if !parent.as_os_str().is_empty() && !self.exists(parent)? {
             self.create_dir_all(parent)?;
         }
 
         let name = path.file_name().unwrap().to_str().unwrap();
-        self.create_dir(parent, name)?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(self.create_dir(parent, name))?;
 
         Ok(())
     }
@@ -258,7 +268,9 @@ impl FileIo for AndroidFsIo {
             .next()
             .map_err(|e| FileIoError::Database(e.to_string()))?
         {
-            let path_str: String = row.get(0)?;
+            let path_str: String = row
+                .get(0)
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
             let path = PathBuf::from(path_str);
             let file = self.get_android_file(&path)?;
             nodes.push(FsNode {
@@ -315,7 +327,9 @@ impl FileIo for AndroidFsIo {
             .next()
             .map_err(|e| FileIoError::Database(e.to_string()))?
         {
-            let path_str: String = row.get(0)?;
+            let path_str: String = row
+                .get(0)
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
             let path = PathBuf::from(path_str);
             let file = self.get_android_file(&path)?;
             nodes.push(FsNode {
