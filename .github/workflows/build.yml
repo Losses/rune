@@ -89,7 +89,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install the Rust dependencies
-        run:  cargo install rinf_cli
+        run: cargo install rinf_cli
 
       - name: Flutter pub get
         run: flutter pub get
@@ -283,7 +283,7 @@ jobs:
           makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
 
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-15
     permissions:
       contents: write
     steps:
@@ -409,7 +409,7 @@ jobs:
           rm -f .env
 
   build-and-release-mac-app-store:
-    runs-on: macos-latest
+    runs-on: macos-15
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout repository
@@ -505,7 +505,7 @@ jobs:
           rm -f .env
           rm -f $RUNNER_TEMP/*.p8
   build-and-release-ios-app-store:
-    runs-on: macos-latest
+    runs-on: macos-15
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout repository

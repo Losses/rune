@@ -2,6 +2,8 @@
 
 set -e
 
+sudo xcode-select -s /Applications/Xcode_16.4.app
+
 cd "$(dirname "$0")"
 cd ..
 
