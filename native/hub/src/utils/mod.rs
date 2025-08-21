@@ -160,8 +160,8 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
             #[cfg(target_os = "android")]
             let fsio = Arc::new(FsIo::new(
                 Path::new(".rune/.android-fs.db"),
-                dart_signal.message.path,
-            ));
+                &dart_signal.message.path,
+            )?);
 
             match &dart_signal.message.hosted_on {
                 OperationDestination::Local => {
@@ -173,7 +173,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                         Ok(x) => x,
                         Err(e) => {
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                path: media_library_path.clone(),
+                                path: media_library_path.to_string(),
                                 success: false,
                                 error: Some(format!("{e:#?}")),
                                 not_ready: false,
@@ -186,7 +186,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                         match &library_test {
                             LibraryState::Uninitialized => {
                                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                    path: media_library_path.clone(),
+                                    path: media_library_path.to_string(),
                                     success: false,
                                     error: None,
                                     not_ready: true,
@@ -201,7 +201,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                         if mode == LibraryInitializeMode::Redirected {
                             if let Err(e) = create_redirect(media_library_path) {
                                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                    path: media_library_path.clone(),
+                                    path: media_library_path.to_string(),
                                     success: false,
                                     error: Some(format!("{e:#?}")),
                                     not_ready: false,
@@ -218,7 +218,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                         Ok(db_connections) => {
                             // Send success response to Dart
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                path: media_library_path.clone(),
+                                path: media_library_path.to_string(),
                                 success: true,
                                 error: None,
                                 not_ready: false,
@@ -255,7 +255,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                     match server_player_loop(media_library_path, config_path, alias).await {
                         Ok(_) => {
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                path: media_library_path.clone(),
+                                path: media_library_path.to_string(),
                                 success: true,
                                 error: None,
                                 not_ready: false,
@@ -263,7 +263,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                         }
                         Err(e) => {
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                path: media_library_path.clone(),
+                                path: media_library_path.to_string(),
                                 success: false,
                                 error: Some(format!("{e:#?}")),
                                 not_ready: false,

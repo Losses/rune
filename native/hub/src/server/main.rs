@@ -4,6 +4,8 @@ use std::{
     sync::{Arc, OnceLock},
     time::Duration,
 };
+#[cfg(target_os = "android")]
+use std::path::Path;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
@@ -121,7 +123,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     #[cfg(not(target_os = "android"))]
     let fsio = Arc::new(FsIo::new());
     #[cfg(target_os = "android")]
-    let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), lib_path));
+    let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), &lib_path)?);
 
     let main_cancel_token = CancellationToken::new();
     let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
