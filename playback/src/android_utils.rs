@@ -18,7 +18,7 @@ static INIT: Once = Once::new();
 static mut JVM: Option<*mut c_void> = None;
 
 #[allow(non_snake_case)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn JNI_OnLoad(vm: *mut JavaVM, _: *mut c_void) -> jint {
     catch_unwind(|| {
         // Safely init JVM
@@ -34,7 +34,7 @@ pub extern "system" fn JNI_OnLoad(vm: *mut JavaVM, _: *mut c_void) -> jint {
     .unwrap_or(INVALID_JNI_VERSION)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_ci_not_rune_MainActivity_initializeContext(
     _env: *mut jni::JNIEnv,
     _class: jni::objects::JClass,
@@ -52,7 +52,7 @@ pub extern "system" fn Java_ci_not_rune_MainActivity_initializeContext(
     info!("JNI Context initialized");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_ci_not_rune_MainActivity_releaseContext(
     _env: *mut jni::JNIEnv,
     _class: jni::objects::JClass,
