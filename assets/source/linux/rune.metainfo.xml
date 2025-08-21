@@ -57,6 +57,20 @@
   </screenshots>
 
   <releases>
+    
+<release version="2.0.0-alpha.6" date="2025-08-20">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Fix the iOS publishing CI.</li>
+          <li>Fixed the Android CI.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Implemented the Android TF Card file reading support.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.5" date="2025-08-10">
       <description>
         <p>Bugs</p>
