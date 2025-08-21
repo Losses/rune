@@ -8,7 +8,6 @@ use std::{
 use async_trait::async_trait;
 use ndk_saf::{from_tree_url, open_content_url, AndroidFile, AndroidFileOps};
 use rusqlite::{params, Connection};
-use tokio::task;
 
 use super::{FileIo, FileIoError, FileStream, FsNode};
 
@@ -18,11 +17,10 @@ pub(crate) struct AndroidFsIo {
 }
 
 impl AndroidFsIo {
-    pub(crate) async fn new(db_path: &Path, root_uri: &str) -> Result<Self, FileIoError> {
+    pub(crate) fn new(db_path: &Path, root_uri: &str) -> Result<Self, FileIoError> {
         let root_file = from_tree_url(root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
 
         let db_file = Self::find_file_by_path(root_file, db_path, true)
-            .await
             .map_err(|e| FileIoError::Saf(e.to_string()))?;
 
         let std_file = db_file
@@ -47,12 +45,12 @@ impl AndroidFsIo {
             root_uri: root_uri.to_string(),
         };
 
-        instance.refresh_cache().await?;
+        instance.refresh_cache()?;
 
         Ok(instance)
     }
 
-    async fn find_file_by_path(
+    fn find_file_by_path(
         start_file: AndroidFile,
         path: &Path,
         create_if_not_exist: bool,
@@ -64,9 +62,7 @@ impl AndroidFsIo {
                 _ => continue,
             };
 
-            let files = current_file
-                .list_files()
-                .map_err(|e| e.to_string())?;
+            let files = current_file.list_files().map_err(|e| e.to_string())?;
             let found_file = files.into_iter().find(|f| f.filename == component_name);
 
             current_file = match found_file {
@@ -91,57 +87,55 @@ impl AndroidFsIo {
         Ok(current_file)
     }
 
-    pub async fn refresh_cache(&self) -> Result<(), FileIoError> {
+    pub fn refresh_cache(&self) -> Result<(), FileIoError> {
         let root_file =
             from_tree_url(&self.root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
         let db = self.db.clone();
 
-        task::spawn_blocking(move || -> Result<(), FileIoError> {
-            let mut conn = db.lock().unwrap();
-            let tx = conn
-                .transaction()
-                .map_err(|e| FileIoError::Database(e.to_string()))?;
-            tx.execute("DELETE FROM fs_cache", [])
+        let mut conn = db.lock().unwrap();
+        let tx = conn
+            .transaction()
+            .map_err(|e| FileIoError::Database(e.to_string()))?;
+        tx.execute("DELETE FROM fs_cache", [])
+            .map_err(|e| FileIoError::Database(e.to_string()))?;
+
+        fn walk(
+            file: AndroidFile,
+            current_path: &Path,
+            tx: &rusqlite::Transaction,
+        ) -> Result<(), FileIoError> {
+            let files = file
+                .list_files()
+                .map_err(|e| FileIoError::Saf(e.to_string()))?;
+            for f in files {
+                let new_path = current_path.join(&f.filename);
+                tx.execute(
+                    "INSERT OR REPLACE INTO fs_cache (path, content_url, parent) VALUES (?1, ?2, ?3)",
+                    params![
+                        new_path.to_str().unwrap(),
+                        f.url,
+                        current_path.to_str().unwrap()
+                    ],
+                )
                 .map_err(|e| FileIoError::Database(e.to_string()))?;
 
-            fn walk(
-                file: AndroidFile,
-                current_path: &Path,
-                tx: &rusqlite::Transaction,
-            ) -> Result<(), FileIoError> {
-                let files = file
-                    .list_files()
-                    .map_err(|e| FileIoError::Saf(e.to_string()))?;
-                for f in files {
-                    let new_path = current_path.join(&f.filename);
-                    tx.execute(
-                        "INSERT OR REPLACE INTO fs_cache (path, content_url, parent) VALUES (?1, ?2, ?3)",
-                        params![
-                            new_path.to_str().unwrap(),
-                            f.url,
-                            current_path.to_str().unwrap()
-                        ],
-                    )
+                if f.is_dir {
+                    walk(f, &new_path, tx)?;
+                }
+            }
+            Ok(())
+        }
+
+        match walk(root_file, Path::new(""), &tx) {
+            Ok(_) => tx
+                .commit()
+                .map_err(|e| FileIoError::Database(e.to_string())),
+            Err(e) => {
+                tx.rollback()
                     .map_err(|e| FileIoError::Database(e.to_string()))?;
-
-                    if f.is_dir {
-                        walk(f, &new_path, tx)?;
-                    }
-                }
-                Ok(())
+                Err(e)
             }
-
-            match walk(root_file, Path::new(""), &tx) {
-                Ok(_) => tx.commit().map_err(|e| FileIoError::Database(e.to_string())),
-                Err(e) => {
-                    tx.rollback()
-                        .map_err(|e| FileIoError::Database(e.to_string()))?;
-                    Err(e)
-                }
-            }
-        })
-        .await
-        .map_err(|_e| FileIoError::Unknown)?
+        }
     }
 
     fn get_uri(&self, path: &Path) -> Result<String, FileIoError> {

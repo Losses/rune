@@ -43,6 +43,7 @@ use crate::server::ServerManager;
 
 #[cfg(target_os = "android")]
 use tracing_logcat::{LogcatMakeWriter, LogcatTag};
+#[cfg(not(target_os = "android"))]
 use tracing_subscriber::EnvFilter;
 #[cfg(target_os = "android")]
 use tracing_subscriber::fmt::format::Format;

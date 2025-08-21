@@ -74,7 +74,7 @@ pub struct FsIo {
 impl FsIo {
     #[cfg(target_os = "android")]
     pub async fn new(db_path: &Path, root_uri: &str) -> Result<Self, FileIoError> {
-        let inner = AndroidFsIo::new(db_path, root_uri).await?;
+        let inner = AndroidFsIo::new(db_path, root_uri)?;
         Ok(Self {
             inner: Arc::new(inner),
         })
