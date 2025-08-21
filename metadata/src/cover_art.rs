@@ -171,10 +171,8 @@ fn fallback_to_external_cover(fsio: &FsIo, lib_path: &Path, file_path: &Path) ->
                 Err(_) => return None,
             };
 
-            if exists {
-                if let Some(cover_art) = process_external_cover(fsio, &cover_path) {
-                    return Some(cover_art);
-                }
+            if exists && let Some(cover_art) = process_external_cover(fsio, &cover_path) {
+                return Some(cover_art);
             }
         }
         current_dir = current_dir.parent()?;
