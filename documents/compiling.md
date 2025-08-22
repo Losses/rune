@@ -3,6 +3,7 @@
 ### Linux Users
 
 1. **Set Up Development Environment**:
+
    - Install [Nix](https://nixos.org/download/#download-nix) and [Flakes](https://nixos.wiki/wiki/Flakes).
    - Clone the repository:
 
@@ -18,6 +19,7 @@
      ```
 
 2. **Compile Rune**:
+
    - Compile for Linux:
 
      ```bash
@@ -25,31 +27,69 @@
      flutter build linux --release
      ```
 
+3. **Android Build Setup**:
+
+   **For Nix users**:
+
+   - Enter the Nix shell:
+
+     ```bash
+     nix develop .
+     ```
+
+   - Set up Android environment:
+
+     ```bash
+     setup_android_env
+     ```
+
+   - Build Android APK:
+
+     ```bash
+     flutter build apk --release
+     ```
+
+     > **Note**: The x86 build will not work with this command after setting up the Android environment.
+
+   - To switch back from Android environment:
+
+     ```bash
+     teardown_android_env
+     ```
+
+   **For non-Nix users**:
+
+   - Use the provided build script that automatically sets up the environment and builds the APK:
+
+     ```bash
+     ./android/build.sh
+     ```
+
 ### Windows Users
 
 1. **Configure Development Environment**:
 
-    - **Flutter SDK**: [Installation Guide](https://docs.flutter.dev/get-started/install)
-    - **Rust Toolchain**: [Installation Guide](https://www.rust-lang.org/tools/install)
+   - **Flutter SDK**: [Installation Guide](https://docs.flutter.dev/get-started/install)
+   - **Rust Toolchain**: [Installation Guide](https://www.rust-lang.org/tools/install)
 
-    Verify your setup with:
+   Verify your setup with:
 
-    ```bash
-    rustc --version
-    flutter doctor
-    ```
+   ```bash
+   rustc --version
+   flutter doctor
+   ```
 
 2. **Compile Rune**:
 
-    ```powershell
-    flutter pub get
-    rinf gen
-    flutter build windows --release
-    ```
+   ```powershell
+   flutter pub get
+   rinf gen
+   flutter build windows --release
+   ```
 
 ### Protobuf Messages
 
-If you’ve cloned the project or modified `.proto` files in the `./messages` directory, run:
+If you've cloned the project or modified `.proto` files in the `./messages` directory, run:
 
 ```bash
 rinf gen
@@ -77,28 +117,34 @@ For detailed integration instructions, refer to Rinf's [documentation](https://r
 ### Steps
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/losses/rune.git
 cd rune
 ```
+
 2. Install all development dependencies:
+
 ```sh
 ./scripts/macos_1_install.sh
 ```
 
-> If you're an employee of *Inkwire Tech*, make sure you have an Apple Account in *Inkwire Tech*'s Developer Program logged in on your Xcode, and skip to Step #6. Ask @laosb if you can't make it work.
+> If you're an employee of _Inkwire Tech_, make sure you have an Apple Account in _Inkwire Tech_'s Developer Program logged in on your Xcode, and skip to Step #6. Ask @laosb if you can't make it work.
 
 3. Open the project in Xcode:
+
 ```sh
 open ./macos/Runner.xcworkspace
 ```
+
 4. In Xcode, select the `Runner` project in the project navigator, then select the `Runner` target.
-5. In the *Signing & Capabilities* tab:
-  1. Uncheck *Automatically manage signing*.
-  2. Select *None* for *Provisioning Profile*.
-  3. Select *None* for *Team*.
-  4. Select *Sign to Run Locally* for *Signing Certificate*.
-6. Build / run the project:
+5. In the _Signing & Capabilities_ tab:
+6. Uncheck _Automatically manage signing_.
+7. Select _None_ for _Provisioning Profile_.
+8. Select _None_ for _Team_.
+9. Select _Sign to Run Locally_ for _Signing Certificate_.
+10. Build / run the project:
+
 ```sh
 ./scripts/macos_2_build.sh
 # or
