@@ -155,3 +155,7 @@ Output/Rune.exe
 *.afdesign~lock~
 profile.json
 tarpaulin-report.html
+android/app/src/main/jniLibs/arm64-v8a/libc++_shared.so
+android/app/src/main/jniLibs/armeabi-v7a/libc++_shared.so
+android/app/src/main/jniLibs/x86/libc++_shared.so
+android/app/src/main/jniLibs/x86_64/libc++_shared.so
