@@ -2,12 +2,20 @@
 
 let
   pinnedJDK = pkgs.jdk17;
+
+  # NDK setup
   ndkVersion = "27.1.12297006";
   ndkRoot = "${androidSdk}/share/android-sdk/ndk/${ndkVersion}";
   toolchainPath = "${ndkRoot}/toolchains/llvm/prebuilt/linux-x86_64";
   sysrootPath = "${toolchainPath}/sysroot";
   toolchainBinPath = "${toolchainPath}/bin";
   cmakeToolchainFile = "${ndkRoot}/build/cmake/android.toolchain.cmake";
+
+  # Android Build Tools setup for aapt2
+  buildToolsVersion = "34.0.0";
+  buildTools = androidPkgs."build-tools_${builtins.replaceStrings ["."] ["-"] buildToolsVersion}";
+  aapt2Path = "${buildTools}/aapt2";
+
 in
 pkgs.mkShell {
   name = "Rune Development Shell";
@@ -33,6 +41,7 @@ pkgs.mkShell {
     pcre2
     ninja
     unzip
+    curl
     wayland
     eza
     fd
@@ -59,17 +68,18 @@ pkgs.mkShell {
     JAVA_HOME = "${pinnedJDK}";
     ANDROID_HOME = "${androidSdk}/share/android-sdk";
     RUST_BACKTRACE = 1;
-    ANDROID_NDK_PATH = "${ndkRoot}";
+    ANDROID_NDK_PATH = ndkRoot;
     NIX_NIX_DEV_SHELL = "true";
-    NIX_ANDROID_NDK_ROOT = "${ndkRoot}";
+    NIX_ANDROID_NDK_ROOT = ndkRoot;
     NIX_CFLAGS = "-I${sysrootPath}/usr/include";
     NIX_CXXFLAGS = "-I${sysrootPath}/usr/include/c++/v1";
     NIX_BINDGEN_EXTRA_CLANG_ARGS = "--sysroot=${sysrootPath}";
     NIX_RUSTFLAGS = "-Clink-arg=--sysroot=${sysrootPath}";
     NIX_CMAKE_TOOLCHAIN_FILE = cmakeToolchainFile;
-    NIX_TOOLCHAIN_BIN_PATH = toolchainPath;
+    NIX_TOOLCHAIN_BIN_PATH = toolchainBinPath;
     NIX_ANDROID_SDK = androidSdk;
     NIX_PINNED_JDK = pinnedJDK;
+    NIX_GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${aapt2Path}";
   };
 
   shellHook = ''
