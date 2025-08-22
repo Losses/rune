@@ -13,8 +13,7 @@ let
 
   # Android Build Tools setup for aapt2
   buildToolsVersion = "34.0.0";
-  buildTools = androidPkgs."build-tools_${builtins.replaceStrings ["."] ["-"] buildToolsVersion}";
-  aapt2Path = "${buildTools}/aapt2";
+  aapt2Path = "${androidSdk}/share/android-sdk/build-tools/${buildToolsVersion}/aapt2";
 
 in
 pkgs.mkShell {
@@ -34,7 +33,6 @@ pkgs.mkShell {
     rustup
     masterPkgs.flutter
     android-studio
-    androidSdk
     pinnedJDK
     clang
     cmake
