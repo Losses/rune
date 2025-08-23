@@ -1,6 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:fast_file_picker/fast_file_picker.dart';
 
 import '../../main.dart';
 
@@ -28,10 +29,7 @@ import 'rune_stack.dart';
 import 'scale_fade_container.dart';
 
 class RuneRouterFrameImplementation extends StatefulWidget {
-  const RuneRouterFrameImplementation({
-    super.key,
-    required this.child,
-  });
+  const RuneRouterFrameImplementation({super.key, required this.child});
 
   final Widget child;
 
@@ -92,6 +90,10 @@ class _RuneRouterFrameImplementationState
 
     return DropTarget(
       onDragDone: (detail) {
+        final files = detail.files
+            .map((xfile) => FastFilePickerPath.fromPath(xfile.name, xfile.path))
+            .toList();
+
         safeOperatePlaybackWithMixQuery(
           context: context,
           queries: QueryList(),
@@ -100,9 +102,9 @@ class _RuneRouterFrameImplementationState
           initialPlaybackId: -1,
           instantlyPlay: true,
           operateMode: PlaylistOperateMode.replace,
-          fallbackPlayingItems: filterAudioFiles(detail.files)
-              .map(PlayingItem.independentFile)
-              .toList(),
+          fallbackPlayingItems: filterAudioFiles(
+            files,
+          ).map(PlayingItem.independentFile).toList(),
         );
       },
       child: Stack(
@@ -138,12 +140,12 @@ class _RuneRouterFrameImplementationState
                         deviceType: const [
                           DeviceType.band,
                           DeviceType.dock,
-                          DeviceType.tv
+                          DeviceType.tv,
                         ],
                         builder: (context, activeBreakpoint) {
                           final isSmallView =
                               activeBreakpoint == DeviceType.band ||
-                                  activeBreakpoint == DeviceType.dock;
+                              activeBreakpoint == DeviceType.dock;
 
                           if (!isSmallView) {
                             return NavigationBar(path: path);
