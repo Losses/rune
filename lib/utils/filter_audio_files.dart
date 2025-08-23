@@ -1,6 +1,6 @@
 import 'package:path/path.dart' as path;
 
-import 'package:file_selector/file_selector.dart';
+import 'package:fast_file_picker/fast_file_picker.dart';
 
 const audioExtensions = [
   '.aac',
@@ -15,13 +15,16 @@ const audioExtensions = [
   '.ogg',
   '.vorbis',
   '.opus',
-  '.wav'
+  '.wav',
 ];
 
-List<String> filterAudioFiles(List<XFile> xfiles) {
-  return xfiles
-      .where((xfile) =>
-          audioExtensions.contains(path.extension(xfile.path).toLowerCase()))
-      .map((xfile) => xfile.path)
+List<String> filterAudioFiles(List<FastFilePickerPath> files) {
+  return files
+      .where(
+        (xfile) =>
+            audioExtensions.contains(path.extension(xfile.name).toLowerCase()),
+      )
+      .map((file) => file.path ?? file.uri)
+      .whereType<String>()
       .toList();
 }

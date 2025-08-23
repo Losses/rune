@@ -14,6 +14,14 @@ packages:
     description: dart
     source: sdk
     version: "0.3.3"
+  accessing_security_scoped_resource:
+    dependency: transitive
+    description:
+      name: accessing_security_scoped_resource
+      sha256: afb84f50ecca60dda51b93a4d92e9e22776d897b29f280374448ae8877160e75
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.4.0"
   analyzer:
     dependency: transitive
     description:
@@ -334,6 +342,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.3.3"
+  fast_file_picker:
+    dependency: "direct main"
+    description:
+      name: fast_file_picker
+      sha256: cd66dcbe4366d5b882582c60cbe18969dad154820c7fefb6bf51d4ed3b811847
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.4.7"
   ffi:
     dependency: transitive
     description:
@@ -643,6 +659,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.5"
+  ios_document_picker:
+    dependency: transitive
+    description:
+      name: ios_document_picker
+      sha256: d7cbc61366602f6fd74a5bfeeecf68ad553ef91a6b1bb6d406dd7808d694d5c4
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.4.0"
   js:
     dependency: transitive
     description:
@@ -723,6 +747,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.3.1"
+  macos_file_picker:
+    dependency: transitive
+    description:
+      name: macos_file_picker
+      sha256: "8999b125f8166b60f4693065ddec7770bfc5b5fe3e4e6cecd78b07a3b33e7701"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.6.1"
   macos_secure_bookmarks:
     dependency: "direct main"
     description:
@@ -1052,6 +1084,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.28.0"
+  saf_util:
+    dependency: transitive
+    description:
+      name: saf_util
+      sha256: "219f983e5f17b28998335158cdc97add9d52af9884e38b5a43f10dcc070510ec"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.11.0"
   screen_retriever:
     dependency: transitive
     description:

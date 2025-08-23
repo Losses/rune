@@ -1,8 +1,9 @@
+import 'package:fast_file_picker/fast_file_picker.dart';
+import 'package:file_selector/file_selector.dart' show XTypeGroup;
 import 'package:flutter_svg/svg.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:file_selector/file_selector.dart';
 
 import '../../../../widgets/no_shortcuts.dart';
 import '../../../../widgets/responsive_dialog_actions.dart';
@@ -65,11 +66,10 @@ class _RegisterDialogState extends State<RegisterDialog> {
               onPressed: _loading
                   ? null
                   : _loading
-                      ? null
-                      : () => launchUrl(
-                            Uri.parse(
-                                'https://nodewave.bandcamp.com/album/rune'),
-                          ),
+                  ? null
+                  : () => launchUrl(
+                      Uri.parse('https://nodewave.bandcamp.com/album/rune'),
+                    ),
               child: Row(
                 children: [
                   SvgPicture.asset(
@@ -89,9 +89,7 @@ class _RegisterDialogState extends State<RegisterDialog> {
             Button(
               onPressed: _loading
                   ? null
-                  : () => launchUrl(
-                        Uri.parse('https://not-ci.itch.io/rune'),
-                      ),
+                  : () => launchUrl(Uri.parse('https://not-ci.itch.io/rune')),
               child: Row(
                 children: [
                   SvgPicture.asset(
@@ -123,20 +121,25 @@ class _RegisterDialogState extends State<RegisterDialog> {
                           'm4a',
                           'ogg',
                           'wav',
-                          'aiff'
+                          'aiff',
                         ],
                       );
-                      final XFile? file = await openFile(
-                        acceptedTypeGroups: <XTypeGroup>[typeGroup],
-                      );
+                      final FastFilePickerPath? file =
+                          await FastFilePicker.pickFile(
+                            acceptedTypeGroups: <XTypeGroup>[typeGroup],
+                          );
 
                       if (file == null) return;
+
+                      final path = file.path ?? file.uri;
+
+                      if (path == null) return;
 
                       setState(() {
                         _loading = true;
                       });
 
-                      final license = await registerLicense(file.path);
+                      final license = await registerLicense(path);
 
                       widget.$close(null);
 
@@ -147,8 +150,10 @@ class _RegisterDialogState extends State<RegisterDialog> {
                           LicenseProvider.licenseKey,
                           license.license,
                         );
-                        Provider.of<LicenseProvider>(context, listen: false)
-                            .revalidateLicense();
+                        Provider.of<LicenseProvider>(
+                          context,
+                          listen: false,
+                        ).revalidateLicense();
                         showRegisterSuccessDialog(context);
                         return;
                       }

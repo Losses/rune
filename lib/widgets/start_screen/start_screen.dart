@@ -1,8 +1,9 @@
 import 'dart:async';
 
+import 'package:fast_file_picker/fast_file_picker.dart';
+import 'package:file_selector/file_selector.dart' show XTypeGroup;
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
@@ -39,9 +40,7 @@ class StartScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        return StartScreenImplementation(
-          constraints: constraints,
-        );
+        return StartScreenImplementation(constraints: constraints);
       },
     );
   }
@@ -50,10 +49,7 @@ class StartScreen extends StatelessWidget {
 class StartScreenImplementation extends StatefulWidget {
   final BoxConstraints constraints;
 
-  const StartScreenImplementation({
-    super.key,
-    required this.constraints,
-  });
+  const StartScreenImplementation({super.key, required this.constraints});
 
   @override
   StartScreenImplementationState createState() =>
@@ -87,8 +83,9 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
         lastPageReached = true;
       }
 
-      final index =
-          data.items.indexWhere((group) => group.groupTitle == groupTitle);
+      final index = data.items.indexWhere(
+        (group) => group.groupTitle == groupTitle,
+      );
 
       // If found, calculate the scroll position.
       if (index != -1) {
@@ -99,11 +96,11 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
           final group = data.items[i];
           final dimensions =
               StartGroupImplementation.defaultDimensionCalculator(
-            widget.constraints.maxHeight - padding.top - padding.bottom,
-            defaultCellSize,
-            4,
-            group.items,
-          );
+                widget.constraints.maxHeight - padding.top - padding.bottom,
+                defaultCellSize,
+                4,
+                group.items,
+              );
 
           final (groupWidth, _) = StartGroupImplementation.finalSizeCalculator(
             dimensions,
@@ -115,9 +112,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
         }
 
         // Step 6: Scroll to the calculated position.
-        _scrollController.scrollTo(
-          scrollPosition,
-        );
+        _scrollController.scrollTo(scrollPosition);
         return;
       }
 
@@ -139,9 +134,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
     );
   }
 
-  void openStartScreenContextMenu(
-    Offset localPosition,
-  ) async {
+  void openStartScreenContextMenu(Offset localPosition) async {
     if (!context.mounted) return;
     final targetContext = _contextAttachKey.currentContext;
 
@@ -200,15 +193,18 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                     label: 'playlist',
                     extensions: <String>['m3u', 'm3u8'],
                   );
-                  final XFile? file = await openFile(
-                    acceptedTypeGroups: <XTypeGroup>[typeGroup],
-                  );
+                  final FastFilePickerPath? file =
+                      await FastFilePicker.pickFile(
+                        acceptedTypeGroups: <XTypeGroup>[typeGroup],
+                      );
 
                   if (file == null) return;
                   if (!mounted) return;
 
-                  final x =
-                      await showCreateImportM3u8PlaylistDialog(context, file);
+                  final x = await showCreateImportM3u8PlaylistDialog(
+                    context,
+                    file,
+                  );
 
                   if (x != null) data.reloadData();
                 },

@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:file_selector/file_selector.dart';
+import 'package:fast_file_picker/fast_file_picker.dart';
+import 'package:file_selector/file_selector.dart' show XTypeGroup;
 
 import '../../bindings/bindings.dart';
 
@@ -20,12 +21,18 @@ class OpenAction extends Action<OpenIntent> {
       extensions: audioExtensions,
     );
 
-    final List<XFile> files = await openFiles(
-      acceptedTypeGroups: <XTypeGroup>[typeGroup],
-    );
+    final List<FastFilePickerPath>? files =
+        await FastFilePicker.pickMultipleFiles(
+          acceptedTypeGroups: <XTypeGroup>[typeGroup],
+        );
 
-    final items =
-        filterAudioFiles(files).map(PlayingItem.independentFile).toList();
+    if (files == null) {
+      return;
+    }
+
+    final items = filterAudioFiles(
+      files,
+    ).map(PlayingItem.independentFile).toList();
 
     if (items.isEmpty) {
       return;
