@@ -9,23 +9,19 @@ pub mod messages;
 pub mod server;
 pub mod utils;
 
-use std::future::Future;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{future::Future, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use log::{error, info};
 use rustls::crypto::ring::default_provider;
 use tokio::sync::Mutex;
-use tracing_subscriber::fmt;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{EnvFilter, fmt};
 
 pub use tokio;
 
 use ::scrobbling::manager::ScrobblingManager;
 
-use utils::receive_media_library_path;
-use utils::TaskTokens;
+use utils::{TaskTokens, receive_media_library_path};
 
 use crate::utils::init_logging;
 
@@ -81,7 +77,7 @@ async fn main() {
 
     // Start receiving the media library path
     if let Err(e) = receive_media_library_path(scrobbler).await {
-        error!("Failed to receive media library path: {e}");
+        error!("Failed to receive media library path: {e:?}");
     }
 
     rinf::dart_shutdown().await;
