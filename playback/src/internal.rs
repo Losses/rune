@@ -3,12 +3,12 @@ use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use log::{debug, error, info, warn};
 use rodio::source::SeekError;
 use rodio::{Decoder, PlayError, Sink, Source};
 use tokio::sync::mpsc;
-use tokio::time::{interval, sleep_until, Duration, Instant};
+use tokio::time::{Duration, Instant, interval, sleep_until};
 use tokio_util::sync::CancellationToken;
 
 use crate::buffered::rune_buffered;
@@ -383,12 +383,11 @@ impl PlayerInternal {
             let fft_enabled = Arc::clone(&self.fft_enabled);
             tokio::spawn(async move {
                 while let Some(data) = fft_rx.recv().await {
-                    if let Ok(enabled) = fft_enabled.lock() {
-                        if *enabled {
-                            if let Ok(fft) = realtime_fft.lock() {
-                                fft.add_data(data);
-                            }
-                        }
+                    if let Ok(enabled) = fft_enabled.lock()
+                        && *enabled
+                        && let Ok(fft) = realtime_fft.lock()
+                    {
+                        fft.add_data(data);
                     }
                 }
             });
@@ -399,10 +398,10 @@ impl PlayerInternal {
                 move |_sample: &mut SharedSource| {
                     if let Ok(guard) = source_for_fft.lock() {
                         let data: Option<Vec<i16>> = guard.current_samples();
-                        if let Some(data) = data {
-                            if fft_tx.send(data).is_err() {
-                                error!("Failed to send FFT data");
-                            }
+                        if let Some(data) = data
+                            && fft_tx.send(data).is_err()
+                        {
+                            error!("Failed to send FFT data");
                         }
                     }
                 },

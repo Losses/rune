@@ -51,10 +51,11 @@ impl SfxPlayerInternal {
                 break;
             }
 
-            if let Some(sink) = &self.sink {
-                if sink.empty() && self.state == InternalSfxPlaybackState::Playing {
-                    self.state = InternalSfxPlaybackState::Empty;
-                }
+            if let Some(sink) = &self.sink
+                && sink.empty()
+                && self.state == InternalSfxPlaybackState::Playing
+            {
+                self.state = InternalSfxPlaybackState::Empty;
             }
 
             if let Some(cmd) = self.commands.recv().await {
