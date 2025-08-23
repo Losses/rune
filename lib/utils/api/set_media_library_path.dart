@@ -36,7 +36,7 @@ Future<(bool, bool, String?)> setMediaLibraryPath(
     path: cleanPath,
     dbPath: await getSettingsPath(),
     configPath: await getSettingsPath(),
-    alias: await settingsManager.getValue(kDeviceAliasKey),
+    alias: await settingsManager.getValue<String?>(kDeviceAliasKey) ?? "Rune",
     mode: mode,
     playsOn: playsOn,
     hostedOn: hostedOn,
