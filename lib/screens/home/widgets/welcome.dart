@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../../utils/l10n.dart';
+import '../../../utils/rune_log.dart';
 import '../../../utils/ax_shadow.dart';
 import '../../../utils/get_dir_path.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
@@ -19,14 +20,20 @@ class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
 
   selectDirectory(BuildContext context) async {
-    final libraryPath =
-        Provider.of<LibraryPathProvider>(context, listen: false);
-    final libraryManager =
-        Provider.of<LibraryManagerProvider>(context, listen: false);
+    final libraryPath = Provider.of<LibraryPathProvider>(
+      context,
+      listen: false,
+    );
+    final libraryManager = Provider.of<LibraryManagerProvider>(
+      context,
+      listen: false,
+    );
     // on Android, check for permission
     if (!await requestAndroidPermission()) return;
 
     final path = await getDirPath();
+
+    info$("Path selected $path");
 
     if (path == null) return;
     if (!context.mounted) return;
@@ -38,16 +45,10 @@ class WelcomePage extends StatelessWidget {
     );
 
     if (success) {
-      libraryManager.scanLibrary(
-        path,
-        isInitializeTask: true,
-      );
+      libraryManager.scanLibrary(path, isInitializeTask: true);
     } else if (!cancelled) {
       if (!context.mounted) return;
-      await showFailedToInitializeLibrary(
-        context,
-        error,
-      );
+      await showFailedToInitializeLibrary(context, error);
     }
   }
 
@@ -94,16 +95,17 @@ class WelcomePage extends StatelessWidget {
                       ),
                       r.smallerOrEqualTo(DeviceType.car, false)
                           ? r.smallerOrEqualTo(DeviceType.band, false)
-                              ? const SizedBox(height: 2)
-                              : const SizedBox(height: 14)
+                                ? const SizedBox(height: 2)
+                                : const SizedBox(height: 14)
                           : const SizedBox(height: 20),
                       Column(
                         children: [
                           if (!r.smallerOrEqualTo(DeviceType.band, false) &&
                               !r.smallerOrEqualTo(DeviceType.zune, false))
                             Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 24),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                              ),
                               child: Text(
                                 S.of(context).selectLibraryDirectorySubtitle,
                                 textAlign: TextAlign.center,
@@ -113,8 +115,8 @@ class WelcomePage extends StatelessWidget {
                           r.smallerOrEqualTo(DeviceType.car, false)
                               ? const SizedBox(height: 20)
                               : r.smallerOrEqualTo(DeviceType.zune, false)
-                                  ? const SizedBox(height: 12)
-                                  : const SizedBox(height: 56),
+                              ? const SizedBox(height: 12)
+                              : const SizedBox(height: 56),
                           FilledButton(
                             child: Text(S.of(context).selectDirectory),
                             onPressed: () => selectDirectory(context),
@@ -128,8 +130,9 @@ class WelcomePage extends StatelessWidget {
                   Text(
                     S.of(context).copyrightAnnouncement,
                     textAlign: TextAlign.center,
-                    style: theme.typography.caption
-                        ?.apply(color: theme.inactiveColor.withAlpha(80)),
+                    style: theme.typography.caption?.apply(
+                      color: theme.inactiveColor.withAlpha(80),
+                    ),
                   ),
               ],
             ),
