@@ -1056,5 +1056,289 @@
   "userToken": "Uzanta Ĵetono",
   "@userToken": {
     "description": "Input field title of the scrobble login form."
+  },
+  "hostname": "Gastiganto nomo",
+  "@hostname": {
+    "description": "La gastiganto-noma parto de URL."
+  },
+  "port": "Pordo",
+  "@port": {
+    "description": "La porda parto de URL."
+  },
+  "secured": "Sekurigita",
+  "@secured": {
+    "description": "Ĉu la konekto estas sekurigita."
+  },
+  "addConnection": "Aldoni Konekton",
+  "@addConnection": {
+    "description": "La ago-butono de la dialogo."
+  },
+  "neighbors": "Najbaroj",
+  "@neighbors": {
+    "description": "La agorda paĝo kiu povus helpi uzantojn konektiĝi unu kun la alia."
+  },
+  "searchNeighbors": "Serĉi Najbarojn",
+  "@searchNeighbors": {
+    "description": "La ero en la najbara agorda paĝo, por malkovri aparatojn en la loka reto."
+  },
+  "searchNeighborsSubtitle": "Trovi kaj konektiĝi al Rune-aparatoj en via loka reto.",
+  "@searchNeighborsSubtitle": {
+    "description": "La subtitolo de la serĉi-najbarojn agorda ero"
+  },
+  "editDeviceInformation": "Redakti Aparat-informojn",
+  "@editDeviceInformation": {
+    "description": "Aperas en aparat-agordoj. Rilatas al detaloj montritaj al aliaj uzantoj dum skanado."
+  },
+  "editDeviceInformationSubtitle": "Adapti detalojn montritajn al aliaj aparatoj dum skanoj.",
+  "@editDeviceInformationSubtitle": {
+    "description": "Emfazas ke ŝanĝoj influas videblecon en skan-listoj de aliaj. Evitas teknikajn terminojn. Fokusas je 'skanoj' kiel interaga kunteksto."
+  },
+  "enableBroadcast": "Ebligi Dissendo",
+  "@enableBroadcast": {
+    "description": "'Dissendo' implicas aktive sendado de aparat-informoj. Se cela lingvo mankas rektan ekvivalenton, prioritatu 'videbliigi' aŭ 'kunhavigi disponeblon'."
+  },
+  "enableBroadcastSubtitle": "Kunhavigi viajn aparat-informojn publike por ke aliaj malkovru.",
+  "@enableBroadcastSubtitle": {
+    "description": "Evitas duecocon: 'publike' = al uzantoj en la loka reto, ne la tuta interreto."
+  },
+  "addNeighborManually": "Aldoni Najbaron Mane",
+  "@addNeighborManually": {
+    "description": "'Najbaro' rilatas al aparatoj en la sama loka reto. Se spaco permesas, 'Mane Aldoni Najbaron' estas akceptebla. Prioritatas breviton."
+  },
+  "addNeighborManuallySubtitle": "Enigi aparat-lokan ret-informon mane por konektiĝi.",
+  "@addNeighborManuallySubtitle": {
+    "description": "Klarigas 'loka reto' ≠ publika interreto (ekz. IP/pordo ene de LAN). 'konektiĝi' implicas establi rektan ligon, ne nur videblecon."
+  },
+  "stop": "Halti",
+  "@stop": {
+    "description": "Ago-butono por ĉesigi aktivan agon."
+  },
+  "deviceFingerprint": "Aparat-fingropremo",
+  "@deviceFingerprint": {
+    "description": "Unika identigilo por la aparato, uzata por sekura identigo kaj konekto."
+  },
+  "deviceName": "Aparat-nomo",
+  "@deviceName": {
+    "description": "La uzant-difinita nomo de la aparato, montrita al aliaj uzantoj dum skanado kaj konekto."
+  },
+  "noDevicesFound": "Neniuj aparatoj trovitaj",
+  "@noDevicesFound": {
+    "description": "Mesaĝo montrita kiam neniuj aparatoj estas malkovritaj dum skanado"
+  },
+  "error": "Eraro: {error}",
+  "@error": {
+    "description": "Eraromesaĝo montrita kiam aparat-malkovro malsukcesas",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Permeso rifuzita"
+      }
+    }
+  },
+  "model": "Modelo",
+  "@model": {
+    "description": "Etikedo por aparat-modelo informoj"
+  },
+  "type": "Tipo",
+  "@type": {
+    "description": "Etikedo por aparat-tipo informoj"
+  },
+  "fingerprint": "Fingropremo",
+  "@fingerprint": {
+    "description": "Etikedo por aparat-fingropremo informoj"
+  },
+  "lastSeen": "Laste Vidita",
+  "@lastSeen": {
+    "description": "Etikedo por kiam aparato estis laste detektita"
+  },
+  "ipAddresses": "IP-adresoj",
+  "@ipAddresses": {
+    "description": "Etikedo por aparat-IP-adresoj"
+  },
+  "pair": "Parigi",
+  "@pair": {
+    "description": "Butonoteksto por komenci aparat-parigon"
+  },
+  "pairingWith": "Pariĝante kun {deviceName}...",
+  "@pairingWith": {
+    "description": "Mesaĝo montrita kiam pariga proceso komenciĝas",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "Salona Televido"
+      }
+    }
+  },
+  "server": "Servilo",
+  "@server": {
+    "description": "La titolo de la agorda paĝo por regi amaskomunikilaj ludilo-kunhavigaj kondutoj. Inkluzivas administri rajtitajn uzantojn kaj dissendi aparatan ĉeeston."
+  },
+  "serverControl": "Servilo-regado",
+  "@serverControl": {
+    "description": "Sekcia titolo por regi la lokan retan servilon. 'Servilo' ĉi tie rilatas al la fona servo kiu administras aparat-malkovron."
+  },
+  "serverControlSubtitle": "Startigi la servilon por permesi aliajn aparatojn malkovri ĉi tiun aparaton en la loka reto.",
+  "@serverControlSubtitle": {
+    "description": "Klarigas ke la servilo nur funkcias en la loka reto. Emfazas ke startigo ebligas videblecon al aliaj."
+  },
+  "selectInterface": "Reta Interfaco",
+  "@selectInterface": {
+    "description": "Etikedo por elekti kiun retan interfacon la servilo devus bindi. Manteni teknika sed klara."
+  },
+  "approvedStatus": "Aprobita",
+  "@approvedStatus": {
+    "description": "Montrita kiel uzanto/kliento-stata insigno. Indikas ke la aparato estas plene rajtigita. Uzu afirmajn terminojn kiel 'Kontrolita' aŭ 'Konfirmita' se pli naturaj."
+  },
+  "pendingStatus": "Atendanta",
+  "@pendingStatus": {
+    "description": "Montrita kiel uzanto/kliento-stata insigno. Indikas atendado por aprobo. Preferu terminojn implicantajn 'atendanta ago' ol teknikajn terminojn kiel 'En Vico'."
+  },
+  "blockedStatus": "Blokita",
+  "@blockedStatus": {
+    "description": "Montrita kiel uzanto/kliento-stata insigno. Indikas eksplicitan rifuzon de aliro. Uzu fortajn terminojn kiel 'Malpermesita' aŭ 'Rifuzita' kie taŭgaj, sed evitu tro agresajn vortojn."
+  },
+  "unknownStatus": "Nekonata",
+  "@unknownStatus": {
+    "description": "Montrita kiel uzanto/kliento-stata insigno. Indikas ke la stato estas nerekonita aŭ nedifinita. Sugesti terminojn kiel 'Nerekonita' aŭ 'Nedifinita' sed manteni neŭtralan tonon sen implici erarojn. Asociita kun neŭtralaj koloroj kiel grizo en la UI."
+  },
+  "review": "Kontroli",
+  "@review": {
+    "description": "Butono por kontroli atendantajn aparat-konektajn petojn. Malfermas modalon por aprobi aŭ bloki la aparaton."
+  },
+  "reviewRequestTitle": "Konekta Peto",
+  "@reviewRequestTitle": {
+    "description": "Titolo montrita en la modalo dum kontrolado de aparat-konekto. Manteni konciza, fokusi je bezonata ago."
+  },
+  "blockDevice": "Bloki Aparaton",
+  "@blockDevice": {
+    "description": "Ago por daŭre rifuzi aliron. Uzu fortajn verbojn kiel 'Malpermesi' se kulture pli taŭgaj, sed evitu negativajn konotaciojn."
+  },
+  "allowAccess": "Permesi Aliron",
+  "@allowAccess": {
+    "description": "Ago por doni konektan permeson. Harmoniu kun terminoj kiel 'Aprobi' aŭ 'Rajtigi' se pli taŭgaj por cela lingvo."
+  },
+  "connectionVerificationMessage": "Por permesi al la aparato {alias} ({model}) konektiĝi, kunhavigu la komunikadan ŝlosilo-fingropremon sube por helpi kontroli vian identecon.",
+  "@connectionVerificationMessage": {
+    "description": "Instrua teksto en modalo por establi fidon. Emfazas kunhavigi sekurecajn akreditaĵojn (fingropremon) por aŭtentigi konektojn. Uzu terminojn kiel 'validigi' aŭ 'aŭtentigi' se preferitaj en cela lingvo.",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "Uzant-difinita aparat-kromnomo"
+      },
+      "model": {
+        "type": "String",
+        "description": "Fabrikant-aparata modelo-identigilo"
+      }
+    }
+  },
+  "allowAccessSubtitle": "Doni aliron por regi reproduktadon kaj elŝuti kantojn el ĉi tiu aparato.",
+  "@allowAccessSubtitle": {
+    "description": "Klarigas permesojn donitajn dum permesi aliron. Uzu 'Rajtigi' aŭ 'Doni permesojn' kiel alternativojn. Klarigu ke 'elŝuti' rilatas al amaskomuna enhavo-akiro."
+  },
+  "blockDeviceSubtitle": "Malhelpi estontan konekton. Vi povas malbloki ĉi tiun aparaton iam ajn.",
+  "@blockDeviceSubtitle": {
+    "description": "Klarigas blokadajn konsekvencojn kaj malfareblon. Uzu 'Malpermesi' aŭ 'Rifuzi' kiel alternativojn. Frazigi 'en agordoj' kuntekste (ekz., 'per aparat-administrado' se UI diferencas)."
+  },
+  "removeTrust": "Forigi Permeson",
+  "@removeTrust": {
+    "description": "Modala titolo por forigi aparat-permeso-historion. Emfazas daŭran forigon de ambaŭ permesitaj/blokitaj statoj kaj la bezonon de re-registriĝo."
+  },
+  "removeTrustSubtitle": "Ĉi tio daŭre forigos la permeso-dosieron. La aparato perdos ĉiujn alir-statojn (Aprobita/Blokita) kaj devos sendi novan registriĝan peton por reaperi en la listo.",
+  "@removeTrustSubtitle": {
+    "description": "Klarigas ke forigo forigas ĉiujn historiajn statojn kaj postulas freŝan registriĝon. Uzu terminojn kiel 'viŝi' aŭ 'viŝi historion' se pli naturaj, sed mantenu konsekvencon kun 'removeTrust' ago."
+  },
+  "pairingTitle": "Parigado",
+  "@pairingTitle": {
+    "description": "Titolo por sekura aparat-pariga dialogo. Devus emfazi reciprokan aŭtentig-procezon."
+  },
+  "pairingLoading": "Akiras aparat-fingropremon...",
+  "@pairingLoading": {
+    "description": "Statusteksto montrita dum fingropremo-kontrolo. Indikas sekurecan kontrolon en progreso."
+  },
+  "pairingInstructions": "Por sekureca kontrolo, elektu la signojn kiuj kompletasthe fingropremon montritan sur via partnera aparato. Ĉi tio konfirmas ke vi konektiĝas al la ĝusta aparato.",
+  "@pairingInstructions": {
+    "description": "Klarigas partan fingropremo-kontrolan procezon. Uzas 'sekurecan kontrolon' anstataŭ teknikajn MITM-terminojn."
+  },
+  "pairingFailureTitle": "Parigado Malsukcesis",
+  "@pairingFailureTitle": {
+    "description": "Titolo por fingropremo-malkonkordo. Deklaras rezulton sen kaŭzi maltrankvilan alarmon."
+  },
+  "pairingFailureMessage": "La fingropremo ne kongruas. Bonvolu certigi ke vi konektiĝas al la ĝusta aparato kaj reprovu la kontrolon.",
+  "@pairingFailureMessage": {
+    "description": "Gvidas uzanton reprovi anstataŭ sugesti ret-kontrolojn. Fokusas je aparat-kontrolo."
+  },
+  "closingWindowBehaviorTitle": "Konduto de Fenestra Fermado",
+  "@closingWindowBehaviorTitle": {
+    "description": "Titolteksto por la sekcio de fenestra ferm-konduto agordoj. Emfazas uzanto-regadon pri kiel la aplikaĵo fermiĝas."
+  },
+  "closingWindowBehaviorSubtitle": "Elektu kiel la aplikaĵo kondutas kiam vi alklakas la fermu-butonon.",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "Klarigas ke uzantoj povas adapti ferm-butonan konduton. Uzu 'adapti' aŭ 'agordi' kiel alternativojn."
+  },
+  "minimizeToTray": "Malplejgrandigi al Pleto",
+  "@minimizeToTray": {
+    "description": "Opcia teksto indikanta ke la programo daŭros funkci en la fono kiam fenestro estas fermita. Uzu 'Kaŝi al pleto' aŭ 'Daŭri funkcii' kiel alternativajn frazigojn."
+  },
+  "exitProgram": "Eliri Tute",
+  "@exitProgram": {
+    "description": "Opcia teksto indikanta ke la programo tute ĉesiĝos kiam fenestro estas fermita. Uzu 'Fermi aplikaĵon' aŭ 'Ĉesigi programon' kiel alternativajn frazigojn."
+  },
+  "systemTabTitle": "Sistema",
+  "@systemTabTitle": {
+    "description": "Naviga langeto-titolo por la sistema agordoj sekcio. Indikas kolekton de sistema-nivelaj agordaj opcioj."
+  },
+  "removeFromPlaylist": "Forigi el Ludlisto",
+  "@removeFromPlaylist": {
+    "description": "Ago por forigi kanton el la nuna ludlisto. Aperas kiel menu-opcio dum dekstra klako sur kanto. Uzu verbojn kiel 'Forviŝi' aŭ 'Forigi' bazite je tio kio estas pli natura en la cela lingvo."
+  },
+  "waitForApprove": "Atendas ke la servilo aprobu ĉi tiun peton...",
+  "@waitForApprove": {
+    "description": "Ŝarga mesaĝo montrita dum servilo-konekta kontrola proceso."
+  },
+  "clientBlockedTitle": "Konekto Blokita",
+  "@clientBlockedTitle": {
+    "description": "Eraro-titolo indikanta ke la fora aparato blokis ĉi tiun klienton-konektajn provojn."
+  },
+  "clientBlockedMessage": "La fora aparato blokis vian klienton de konektiĝado. Vi bezonos permeson de la aparat-posedanto por establi konekton.",
+  "@clientBlockedMessage": {
+    "description": "Klarigas ke la uzanto-konekta provo estis rifuzita ĉar ilia kliento estis blokita de la fora aparato. Sugestas ke uzanto bezonas kontakti la aparat-posedanton por solvo."
+  },
+  "genres": "Ĝenroj",
+  "@genres": {
+    "description": "Kaplinjo aŭ sekcia titolo por listo de muzik-kategorioj/-stiloj. Povus esti uzata en muzikbiblioteko-organizado, filtrajn opciojn, aŭ muzikprefero-agordojn. Alternativaj frazigoj povus inkluzivi 'Muzik-kategoriojn', 'Muzik-stilojn', aŭ 'Muzik-tipojn' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "genreQuery": "Ĝenro-demando",
+  "@genreQuery": {},
+  "deduplicate": "Malduobligi",
+  "@deduplicate": {
+    "description": "Butono-etikedo por forigi duobligitajn kantojn el muzikbiblioteko aŭ ludlisto. Rilatas al la funkcio identigi kaj forigi duobligitajn kantojn. Alternativaj frazigoj povus inkluzivi 'Forigi Duoblaĵojn' aŭ 'Purigi Duoblaĵojn' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "deduplicateThresholdTitle": "Maldubliga Sojlo",
+  "@deduplicateThresholdTitle": {
+    "description": "Titolo por la aŭdaĵ-simileco-sojla agordo. Indikas kie uzantoj povas ĝustigi kiel strikte aŭdaĵ-kantoj estas komparataj por dublaĵo-detekto."
+  },
+  "deduplicateThresholdSubtitle": "Ĝustigu la sentececon por detekti similajn aŭdaĵ-kantojn.",
+  "@deduplicateThresholdSubtitle": {
+    "description": "Mallonga klarigo de tio kion la aŭdaĵ-simileco-sojla agordo regas. Helpas uzantojn kompreni la celon de ĉi tiu agorda opcio."
+  },
+  "nearlyIdentical": "Preskaŭ Identaj",
+  "@nearlyIdentical": {
+    "description": "Plej alta nivelo de aŭdaĵ-simileco-sojlo indikanta kantojn kiuj estas preskaŭ ĝuste la samaj. Uzata dum agordi dublaĵo-detektajn agordojn. Alternativaj frazigoj povus inkluzivi 'Ĝustan Kongruon' aŭ 'Perfektan Kongruon' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "highlySimiar": "Tre Similaj",
+  "@highlySimiar": {
+    "description": "Dua plej alta nivelo de aŭdaĵ-simileco-sojlo indikanta kantojn kiuj havas tre malmultajn diferencojn. Uzata dum agordi dublaĵo-detektajn agordojn. Alternativaj frazigoj povus inkluzivi 'Tre Similajn' aŭ 'Preskaŭ Identajn' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "moderatelySimilar": "Mezgrade Similaj",
+  "@moderatelySimilar": {
+    "description": "Meza nivelo de aŭdaĵ-simileco-sojlo indikanta kantojn kiuj havas rimarkindajn sed ne gravajn diferencojn. Uzata dum agordi dublaĵo-detektajn agordojn. Alternativaj frazigoj povus inkluzivi 'Iomete Similajn' aŭ 'Parte Kongruajn' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "slightlySimilar": "Iomete Similaj",
+  "@slightlySimilar": {
+    "description": "Plej malalta nivelo de aŭdaĵ-simileco-sojlo indikanta kantojn kiuj kunhavas iujn ecojn sed havas signifajn diferencojn. Uzata dum agordi dublaĵo-detektajn agordojn. Alternativaj frazigoj povus inkluzivi 'Minimume Similajn' aŭ 'Apenaŭ Kongruajn' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "deduplicating": "Maldubligante",
+  "@deduplicating": {
+    "description": "Etikedo indikanta ke la maldubliga proceso estas nuntempe aktiva. Montrita al uzantoj dum duobligitaj kantoj estas forigataj el ilia muzikbiblioteko aŭ ludlisto. Alternativaj frazigoj povus inkluzivi 'Forigi duoblaĵojn progresanta' aŭ 'Maldubligado progresanta' depende de tio kio estas plej natura en la cela lingvo."
   }
 }
