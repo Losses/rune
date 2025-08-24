@@ -49,3 +49,7 @@ souvlaki = { git = "https://github.com/Losses/souvlaki", rev = "e60e9b9a6a277430
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1.1"
 jni = "0.21.1"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["fmt"] }
+tracing-logcat = "0.1.0"
+ndk-saf = { git = "https://github.com/Losses/Rust-SAF", version = "0.1.7" }

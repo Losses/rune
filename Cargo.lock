@@ -4705,6 +4705,7 @@ dependencies = [
  "jni",
  "log",
  "ndk-context",
+ "ndk-saf",
  "once_cell",
  "rand 0.8.5",
  "raw-window-handle 0.5.2",
@@ -4714,6 +4715,9 @@ dependencies = [
  "souvlaki",
  "tokio",
  "tokio-util",
+ "tracing",
+ "tracing-logcat",
+ "tracing-subscriber",
  "windows 0.44.0",
 ]
 
