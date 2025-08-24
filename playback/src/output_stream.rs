@@ -1,10 +1,10 @@
 use std::sync::{Arc, Weak};
 
-use rodio::cpal::traits::{HostTrait, StreamTrait};
 use rodio::cpal::Sample;
+use rodio::cpal::traits::{HostTrait, StreamTrait};
 use rodio::dynamic_mixer::{self, DynamicMixerController};
 use rodio::source::Source;
-use rodio::{cpal, DeviceTrait, SupportedStreamConfig};
+use rodio::{DeviceTrait, SupportedStreamConfig, cpal};
 use rodio::{PlayError, StreamError};
 
 pub struct RuneOutputStream {

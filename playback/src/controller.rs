@@ -8,7 +8,7 @@ use std::{
     thread,
 };
 
-use anyhow::{bail, Error, Result};
+use anyhow::{Error, Result, bail};
 use log::{debug, info};
 use once_cell::sync::OnceCell;
 use tokio::sync::Mutex;
@@ -164,16 +164,16 @@ mod windows {
     use std::io::Error;
     use std::mem;
 
-    use anyhow::{bail, Context, Result};
+    use anyhow::{Context, Result, bail};
 
-    use windows::core::{w, PCWSTR};
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetAncestor,
-        IsDialogMessageW, PeekMessageW, RegisterClassExW, TranslateMessage, GA_ROOT, MSG,
-        PM_REMOVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_QUIT, WNDCLASSEXW,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GA_ROOT, GetAncestor,
+        IsDialogMessageW, MSG, PM_REMOVE, PeekMessageW, RegisterClassExW, TranslateMessage,
+        WINDOW_EX_STYLE, WINDOW_STYLE, WM_QUIT, WNDCLASSEXW,
     };
+    use windows::core::{PCWSTR, w};
 
     pub struct DummyWindow {
         pub handle: HWND,

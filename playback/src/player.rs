@@ -38,10 +38,7 @@ impl fmt::Display for PlayingItem {
         match self {
             PlayingItem::InLibrary(id) => write!(f, "PlayingItem::InLibrary({id})"),
             PlayingItem::IndependentFile(path) => {
-                write!(
-                    f,
-                    "PlayingItem::IndependentFile({path})"
-                )
+                write!(f, "PlayingItem::IndependentFile({path})")
             }
             PlayingItem::Unknown => write!(f, "PlayingItem::Unknown()"),
         }
