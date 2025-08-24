@@ -1,14 +1,19 @@
-use std::ffi::c_void;
-use std::panic::catch_unwind;
-use std::sync::Once;
-
-use log::info;
+use std::{
+    ffi::c_void,
+    ops::Deref,
+    panic::{self, catch_unwind},
+    string::String,
+    sync::Once,
+};
 
 use jni::{
-    sys::{jint, JNI_VERSION_1_6},
     JavaVM,
+    sys::{JNI_VERSION_1_6, jint},
 };
 use ndk_context::{initialize_android_context, release_android_context};
+use tracing::{error, info};
+use tracing_logcat::{LogcatMakeWriter, LogcatTag};
+use tracing_subscriber::fmt::format::Format;
 
 /// Invalid JNI version constant, signifying JNI_OnLoad failure.
 const INVALID_JNI_VERSION: jint = 0;
@@ -20,14 +25,53 @@ static mut JVM: Option<*mut c_void> = None;
 #[allow(non_snake_case)]
 #[unsafe(no_mangle)]
 pub extern "system" fn JNI_OnLoad(vm: *mut JavaVM, _: *mut c_void) -> jint {
+    let tag = LogcatTag::Fixed(env!("CARGO_PKG_NAME").to_owned());
+    let writer = LogcatMakeWriter::new(tag).expect("Failed to initialize logcat writer");
+
+    tracing_subscriber::fmt()
+        .event_format(Format::default().with_level(false).without_time())
+        .with_writer(writer)
+        .with_ansi(false)
+        .init();
+    panic::set_hook(Box::new(|panic_info| {
+        let (filename, line) = panic_info
+            .location()
+            .map(|loc| (loc.file(), loc.line()))
+            .unwrap_or(("<unknown>", 0));
+
+        let cause = panic_info
+            .payload()
+            .downcast_ref::<String>()
+            .map(String::deref);
+
+        let cause = cause.unwrap_or_else(|| {
+            panic_info
+                .payload()
+                .downcast_ref::<&str>()
+                .copied()
+                .unwrap_or("<cause unknown>")
+        });
+
+        error!("A panic occurred at {}:{}: {}", filename, line, cause);
+    }));
+
     catch_unwind(|| {
-        // Safely init JVM
-        INIT.call_once(|| {
-            unsafe {
-                // Convert *mut JavaVM to *mut c_void and store it
-                JVM = Some(vm as *mut c_void);
+        // Safely init JVM and ClassLoader
+        INIT.call_once(|| unsafe {
+            // Convert *mut JavaVM to *mut c_void and store it
+            JVM = Some(vm as *mut c_void);
+
+            // Initialize ClassLoader for proper class finding from non-main threads
+            let java_vm = JavaVM::from_raw(vm as *mut jni::sys::JavaVM).unwrap();
+            if let Ok(mut env) = java_vm.get_env() {
+                if let Err(e) = ndk_saf::initialize_class_loader(vm, &mut env) {
+                    error!("JNI_OnLoad: Failed to setup ClassLoader: {:?}", e);
+                } else {
+                    info!("JNI_OnLoad: JVM and ClassLoader initialized successfully");
+                }
+            } else {
+                error!("JNI_OnLoad: Failed to get JNI environment");
             }
-            info!("JNI_OnLoad called and JVM initialized");
         });
         JNI_VERSION_1_6
     })
