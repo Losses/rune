@@ -1056,5 +1056,289 @@
   "userToken": "Jeton utilisateur",
   "@userToken": {
     "description": "Input field title of the scrobble login form."
+  },
+  "hostname": "Nom d'hôte",
+  "@hostname": {
+    "description": "La partie nom d'hôte d'une URL."
+  },
+  "port": "Port",
+  "@port": {
+    "description": "La partie port d'une URL."
+  },
+  "secured": "Sécurisé",
+  "@secured": {
+    "description": "Si la connexion est sécurisée."
+  },
+  "addConnection": "Ajouter une Connexion",
+  "@addConnection": {
+    "description": "Le bouton d'action du dialogue."
+  },
+  "neighbors": "Voisins",
+  "@neighbors": {
+    "description": "La page de paramètres qui pourrait aider les utilisateurs à se connecter les uns aux autres."
+  },
+  "searchNeighbors": "Rechercher des Voisins",
+  "@searchNeighbors": {
+    "description": "L'élément dans la page de paramètres des voisins, pour découvrir des appareils dans le réseau local."
+  },
+  "searchNeighborsSubtitle": "Trouvez et connectez-vous aux appareils Rune dans votre réseau local.",
+  "@searchNeighborsSubtitle": {
+    "description": "Le sous-titre de l'élément de paramètres rechercher des voisins"
+  },
+  "editDeviceInformation": "Modifier les Informations de l'Appareil",
+  "@editDeviceInformation": {
+    "description": "Apparaît dans les paramètres de l'appareil. Fait référence aux détails montrés aux autres utilisateurs lors du scan."
+  },
+  "editDeviceInformationSubtitle": "Personnalisez les détails montrés aux autres appareils lors des scans.",
+  "@editDeviceInformationSubtitle": {
+    "description": "Met l'accent sur le fait que les modifications affectent la visibilité dans les listes de scan des autres. Évite les termes techniques. Se concentre sur les 'scans' comme contexte d'interaction."
+  },
+  "enableBroadcast": "Activer la Diffusion",
+  "@enableBroadcast": {
+    "description": "'Diffusion' implique l'envoi actif d'informations d'appareil. Si la langue cible manque d'équivalent direct, privilégiez 'rendre visible' ou 'partager la disponibilité'."
+  },
+  "enableBroadcastSubtitle": "Partagez publiquement vos informations d'appareil pour que d'autres puissent les découvrir.",
+  "@enableBroadcastSubtitle": {
+    "description": "Évite l'ambiguïté : 'publiquement' = aux utilisateurs du réseau local, pas tout l'internet."
+  },
+  "addNeighborManually": "Ajouter un Voisin Manuellement",
+  "@addNeighborManually": {
+    "description": "'Voisin' fait référence aux appareils sur le même réseau local. Si l'espace le permet, 'Ajouter Manuellement un Voisin' est acceptable. Privilégie la brièveté."
+  },
+  "addNeighborManuallySubtitle": "Saisissez manuellement les informations de réseau local d'un appareil pour vous connecter.",
+  "@addNeighborManuallySubtitle": {
+    "description": "Clarifie 'réseau local' ≠ internet public (ex. IP/port dans le LAN). 'se connecter' implique établir un lien direct, pas seulement la visibilité."
+  },
+  "stop": "Arrêter",
+  "@stop": {
+    "description": "Bouton d'action pour terminer une action active."
+  },
+  "deviceFingerprint": "Empreinte de l'Appareil",
+  "@deviceFingerprint": {
+    "description": "Un identifiant unique pour l'appareil, utilisé pour l'identification sécurisée et la connexion."
+  },
+  "deviceName": "Nom de l'Appareil",
+  "@deviceName": {
+    "description": "Le nom défini par l'utilisateur de l'appareil, affiché aux autres utilisateurs lors du scan et de la connexion."
+  },
+  "noDevicesFound": "Aucun appareil trouvé",
+  "@noDevicesFound": {
+    "description": "Message affiché quand aucun appareil n'est découvert lors du scan"
+  },
+  "error": "Erreur : {error}",
+  "@error": {
+    "description": "Message d'erreur affiché quand la découverte d'appareils échoue",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Permission refusée"
+      }
+    }
+  },
+  "model": "Modèle",
+  "@model": {
+    "description": "Étiquette pour les informations de modèle d'appareil"
+  },
+  "type": "Type",
+  "@type": {
+    "description": "Étiquette pour les informations de type d'appareil"
+  },
+  "fingerprint": "Empreinte",
+  "@fingerprint": {
+    "description": "Étiquette pour les informations d'empreinte d'appareil"
+  },
+  "lastSeen": "Vu pour la Dernière Fois",
+  "@lastSeen": {
+    "description": "Étiquette pour quand l'appareil a été détecté pour la dernière fois"
+  },
+  "ipAddresses": "Adresses IP",
+  "@ipAddresses": {
+    "description": "Étiquette pour les adresses IP de l'appareil"
+  },
+  "pair": "Appairer",
+  "@pair": {
+    "description": "Texte du bouton pour initier l'appairage d'appareil"
+  },
+  "pairingWith": "Appairage avec {deviceName}...",
+  "@pairingWith": {
+    "description": "Message affiché quand le processus d'appairage commence",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "TV du Salon"
+      }
+    }
+  },
+  "server": "Serveur",
+  "@server": {
+    "description": "Le titre de la page de paramètres pour contrôler les comportements de partage du lecteur multimédia. Inclut la gestion des utilisateurs autorisés et la diffusion de la présence de l'appareil."
+  },
+  "serverControl": "Contrôle du Serveur",
+  "@serverControl": {
+    "description": "Titre de section pour contrôler le serveur de réseau local. 'Serveur' ici fait référence au service d'arrière-plan qui gère la découverte d'appareils."
+  },
+  "serverControlSubtitle": "Démarrez le serveur pour permettre aux autres appareils de découvrir cet appareil sur le réseau local.",
+  "@serverControlSubtitle": {
+    "description": "Clarifie que le serveur n'opère que sur le réseau local. Met l'accent sur le fait que démarrer permet la visibilité aux autres."
+  },
+  "selectInterface": "Interface Réseau",
+  "@selectInterface": {
+    "description": "Étiquette pour sélectionner quelle interface réseau le serveur devrait lier. Garder technique mais clair."
+  },
+  "approvedStatus": "Approuvé",
+  "@approvedStatus": {
+    "description": "Affiché comme badge de statut utilisateur/client. Indique que l'appareil est entièrement autorisé. Utilisez des termes affirmatifs comme 'Vérifié' ou 'Confirmé' si plus naturels."
+  },
+  "pendingStatus": "En Attente",
+  "@pendingStatus": {
+    "description": "Affiché comme badge de statut utilisateur/client. Indique l'attente d'approbation. Préférez les termes impliquant 'attente d'action' plutôt que les termes techniques comme 'En File'."
+  },
+  "blockedStatus": "Bloqué",
+  "@blockedStatus": {
+    "description": "Affiché comme badge de statut utilisateur/client. Indique le refus explicite d'accès. Utilisez des termes forts comme 'Banni' ou 'Refusé' où appropriés, mais évitez le vocabulaire trop agressif."
+  },
+  "unknownStatus": "Inconnu",
+  "@unknownStatus": {
+    "description": "Affiché comme badge de statut utilisateur/client. Indique que le statut n'est pas reconnu ou indéfini. Suggérez des termes comme 'Non reconnu' ou 'Indéfini' mais maintenez un ton neutre sans impliquer d'erreurs. Associé avec des couleurs neutres comme le gris dans l'interface."
+  },
+  "review": "Examiner",
+  "@review": {
+    "description": "Bouton pour examiner les demandes de connexion d'appareil en attente. Déclenche une modale pour approuver ou bloquer l'appareil."
+  },
+  "reviewRequestTitle": "Demande de Connexion",
+  "@reviewRequestTitle": {
+    "description": "Titre affiché dans la modale lors de l'examen d'une connexion d'appareil. Garder concis, se concentrer sur l'action requise."
+  },
+  "blockDevice": "Bloquer l'Appareil",
+  "@blockDevice": {
+    "description": "Action pour refuser définitivement l'accès. Utilisez des verbes forts comme 'Bannir' si culturellement plus appropriés, mais évitez les connotations négatives."
+  },
+  "allowAccess": "Autoriser l'Accès",
+  "@allowAccess": {
+    "description": "Action pour accorder la permission de connexion. Alignez avec des termes comme 'Approuver' ou 'Autoriser' si mieux adaptés à la langue cible."
+  },
+  "connectionVerificationMessage": "Pour permettre à l'appareil {alias} ({model}) de se connecter, partagez l'empreinte de clé de communication ci-dessous pour aider à vérifier votre identité.",
+  "@connectionVerificationMessage": {
+    "description": "Texte d'instruction dans la modale pour établir la confiance. Met l'accent sur le partage d'identifiants de sécurité (empreinte) pour authentifier les connexions. Utilisez des termes comme 'valider' ou 'authentifier' si préférés dans la langue cible.",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "Surnom d'appareil défini par l'utilisateur"
+      },
+      "model": {
+        "type": "String",
+        "description": "Identifiant de modèle d'appareil du fabricant"
+      }
+    }
+  },
+  "allowAccessSubtitle": "Accordez l'accès pour contrôler la lecture et télécharger des pistes depuis cet appareil.",
+  "@allowAccessSubtitle": {
+    "description": "Explique les permissions accordées lors de l'autorisation d'accès. Utilisez 'Autoriser' ou 'Accorder des permissions' comme alternatives. Clarifiez que 'télécharger' fait référence à la récupération de contenu multimédia."
+  },
+  "blockDeviceSubtitle": "Empêchez les connexions futures. Vous pouvez débloquer cet appareil à tout moment.",
+  "@blockDeviceSubtitle": {
+    "description": "Explique les conséquences du blocage et la réversibilité. Utilisez 'Bannir' ou 'Refuser' comme alternatives. Formulez 'dans les paramètres' contextuellement (ex., 'via la gestion des appareils' si l'interface diffère)."
+  },
+  "removeTrust": "Supprimer l'Autorisation",
+  "@removeTrust": {
+    "description": "Titre de modale pour supprimer l'historique d'autorisation d'un appareil. Met l'accent sur la suppression permanente des statuts autorisés/bloqués et la nécessité de ré-enregistrement."
+  },
+  "removeTrustSubtitle": "Cela supprimera définitivement l'enregistrement d'autorisation. L'appareil perdra tous les statuts d'accès (Approuvé/Bloqué) et devra envoyer une nouvelle demande d'enregistrement pour réapparaître dans la liste.",
+  "@removeTrustSubtitle": {
+    "description": "Explique que la suppression retire tous les statuts historiques et nécessite un nouvel enregistrement. Utilisez des termes comme 'effacer' ou 'vider l'historique' si plus naturels, mais maintenez la cohérence avec l'action 'removeTrust'."
+  },
+  "pairingTitle": "Appairage",
+  "@pairingTitle": {
+    "description": "Titre pour le dialogue d'appairage sécurisé d'appareil. Devrait mettre l'accent sur le processus d'authentification mutuelle."
+  },
+  "pairingLoading": "Récupération de l'empreinte de l'appareil...",
+  "@pairingLoading": {
+    "description": "Texte de statut affiché pendant la vérification d'empreinte. Indique une vérification de sécurité en cours."
+  },
+  "pairingInstructions": "Pour la vérification de sécurité, sélectionnez les caractères qui complètent l'empreinte affichée sur votre appareil partenaire. Cela confirme que vous vous connectez au bon appareil.",
+  "@pairingInstructions": {
+    "description": "Explique le processus de vérification d'empreinte partielle. Utilise 'vérification de sécurité' au lieu de termes techniques MITM."
+  },
+  "pairingFailureTitle": "Échec de l'Appairage",
+  "@pairingFailureTitle": {
+    "description": "Titre pour la non-correspondance d'empreinte. Indique le résultat sans causer d'alarme excessive."
+  },
+  "pairingFailureMessage": "L'empreinte ne correspond pas. Veuillez vous assurer que vous vous connectez au bon appareil et réessayez la vérification.",
+  "@pairingFailureMessage": {
+    "description": "Guide l'utilisateur pour réessayer plutôt que de suggérer des vérifications réseau. Se concentre sur la vérification d'appareil."
+  },
+  "closingWindowBehaviorTitle": "Comportement de Fermeture de Fenêtre",
+  "@closingWindowBehaviorTitle": {
+    "description": "Texte de titre pour la section des paramètres de comportement de fermeture de fenêtre. Met l'accent sur le contrôle utilisateur de comment l'application se ferme."
+  },
+  "closingWindowBehaviorSubtitle": "Choisissez comment l'application se comporte quand vous cliquez sur le bouton fermer.",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "Explique que les utilisateurs peuvent personnaliser le comportement du bouton fermer. Utilisez 'personnaliser' ou 'configurer' comme alternatives."
+  },
+  "minimizeToTray": "Réduire en Barre des Tâches",
+  "@minimizeToTray": {
+    "description": "Texte d'option indiquant que le programme continuera de fonctionner en arrière-plan quand la fenêtre est fermée. Utilisez 'Masquer en barre des tâches' ou 'Continuer à fonctionner' comme phrasé alternatif."
+  },
+  "exitProgram": "Quitter Complètement",
+  "@exitProgram": {
+    "description": "Texte d'option indiquant que le programme se terminera complètement quand la fenêtre est fermée. Utilisez 'Fermer l'application' ou 'Terminer l'app' comme phrasé alternatif."
+  },
+  "systemTabTitle": "Système",
+  "@systemTabTitle": {
+    "description": "Titre d'onglet de navigation pour la section des paramètres système. Indique une collection d'options de configuration au niveau système."
+  },
+  "removeFromPlaylist": "Supprimer de la Playlist",
+  "@removeFromPlaylist": {
+    "description": "Action pour supprimer une piste de la playlist actuelle. Apparaît comme option de menu lors du clic droit sur une chanson. Utilisez des verbes comme 'Effacer' ou 'Retirer' selon ce qui est plus naturel dans la langue cible."
+  },
+  "waitForApprove": "En attente de l'approbation de cette demande par le serveur...",
+  "@waitForApprove": {
+    "description": "Message de chargement affiché pendant le processus de vérification de connexion serveur."
+  },
+  "clientBlockedTitle": "Connexion Bloquée",
+  "@clientBlockedTitle": {
+    "description": "Titre d'erreur indiquant que l'appareil distant a bloqué les tentatives de connexion de ce client."
+  },
+  "clientBlockedMessage": "L'appareil distant a bloqué votre client de la connexion. Vous aurez besoin de la permission du propriétaire de l'appareil pour établir une connexion.",
+  "@clientBlockedMessage": {
+    "description": "Explique que la tentative de connexion de l'utilisateur a été rejetée parce que leur client a été bloqué par l'appareil distant. Suggère que l'utilisateur doit contacter le propriétaire de l'appareil pour résoudre."
+  },
+  "genres": "Genres",
+  "@genres": {
+    "description": "En-tête ou titre de section pour une liste de catégories/styles musicaux. Pourrait être utilisé dans l'organisation de bibliothèque musicale, les options de filtre, ou les paramètres de préférences musicales. Les phrasés alternatifs pourraient inclure 'Catégories Musicales', 'Styles Musicaux', ou 'Types de Musique' selon ce qui est le plus naturel dans la langue cible."
+  },
+  "genreQuery": "Requête de Genre",
+  "@genreQuery": {},
+  "deduplicate": "Dédupliquer",
+  "@deduplicate": {
+    "description": "Étiquette de bouton pour supprimer les pistes dupliquées d'une bibliothèque musicale ou playlist. Fait référence à la fonction d'identification et de suppression des chansons dupliquées. Les phrasés alternatifs pourraient inclure 'Supprimer les Doublons' ou 'Nettoyer les Doublons' selon ce qui est le plus naturel dans la langue cible."
+  },
+  "deduplicateThresholdTitle": "Seuil de Déduplication",
+  "@deduplicateThresholdTitle": {
+    "description": "Titre pour le paramètre de seuil de similarité audio. Indique où les utilisateurs peuvent ajuster avec quelle rigueur les pistes audio sont comparées pour la détection de doublons."
+  },
+  "deduplicateThresholdSubtitle": "Ajustez le niveau de sensibilité pour détecter les pistes audio similaires.",
+  "@deduplicateThresholdSubtitle": {
+    "description": "Brève explication de ce que contrôle le paramètre de seuil de similarité audio. Aide les utilisateurs à comprendre le but de cette option de configuration."
+  },
+  "nearlyIdentical": "Presque Identiques",
+  "@nearlyIdentical": {
+    "description": "Niveau le plus élevé de seuil de similarité audio indiquant des pistes qui sont presque exactement les mêmes. Utilisé lors de la configuration des paramètres de détection de doublons. Les phrasés alternatifs pourraient inclure 'Correspondance Exacte' ou 'Correspondance Parfaite' selon ce qui est le plus naturel dans la langue cible."
+  },
+  "highlySimiar": "Très Similaires",
+  "@highlySimiar": {
+    "description": "Deuxième niveau le plus élevé de seuil de similarité audio indiquant des pistes qui ont très peu de différences. Utilisé lors de la configuration des paramètres de détection de doublons. Les phrasés alternatifs pourraient inclure 'Très Similaires' ou 'Presque Identiques' selon ce qui est le plus naturel dans la langue cible."
+  },
+  "moderatelySimilar": "Modérément Similaires",
+  "@moderatelySimilar": {
+    "description": "Niveau moyen de seuil de similarité audio indiquant des pistes qui ont des différences notables mais pas majeures. Utilisé lors de la configuration des paramètres de détection de doublons. Les phrasés alternatifs pourraient inclure 'Quelque Peu Similaires' ou 'Partiellement Correspondantes' selon ce qui est le plus naturel dans la langue cible."
+  },
+  "slightlySimilar": "Légèrement Similaires",
+  "@slightlySimilar": {
+    "description": "Niveau le plus bas de seuil de similarité audio indiquant des pistes qui partagent quelques caractéristiques mais ont des différences significatives. Utilisé lors de la configuration des paramètres de détection de doublons. Les phrasés alternatifs pourraient inclure 'Minimalement Similaires' ou 'À Peine Correspondantes' selon ce qui est le plus naturel dans la langue cible."
+  },
+  "deduplicating": "Déduplication en cours",
+  "@deduplicating": {
+    "description": "Étiquette indiquant que le processus de déduplication est actuellement actif. Affiché aux utilisateurs pendant que les pistes dupliquées sont supprimées de leur bibliothèque musicale ou playlist. Les phrasés alternatifs pourraient inclure 'Suppression des doublons en cours' ou 'Déduplication en cours' selon ce qui est le plus naturel dans la langue cible."
   }
 }
