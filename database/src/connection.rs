@@ -1,25 +1,30 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use anyhow::{Context, Result};
-use arroy::distances::Euclidean;
-use arroy::internals::{KeyCodec, NodeCodec};
-use arroy::Database as ArroyDatabase;
+use arroy::{
+    Database as ArroyDatabase,
+    distances::Euclidean,
+    internals::{KeyCodec, NodeCodec},
+};
 use heed::{Env, EnvFlags, EnvOpenOptions};
 use log::info;
-use sea_orm::sqlx::sqlite::SqliteConnectOptions;
-use sea_orm::sqlx::SqlitePool;
-use sea_orm::{Database, SqlxSqliteConnector};
+use sea_orm::{
+    Database, SqlxSqliteConnector,
+    sqlx::{SqlitePool, sqlite::SqliteConnectOptions},
+};
 use tempfile::tempdir;
 use uuid::Uuid;
 #[cfg(windows)]
-use windows::core::PWSTR;
+use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, SetFileAttributesW};
 #[cfg(windows)]
-use windows::Win32::Storage::FileSystem::{SetFileAttributesW, FILE_ATTRIBUTE_HIDDEN};
+use windows::core::PWSTR;
 
-use migration::Migrator;
-use migration::MigratorTrait;
+use ::fsio::FsIo;
+use ::migration::{Migrator, MigratorTrait};
 
 use crate::actions::mixes::initialize_mix_queries;
 
@@ -41,7 +46,7 @@ impl StorageInfo {
     }
 
     pub fn get_recommendation_db_path(&self) -> PathBuf {
-        self.db_dir.join(".analysis")
+        self.db_dir.join(".analysis.db")
     }
 }
 
@@ -149,6 +154,7 @@ pub fn get_storage_info(lib_path: &str, db_path: Option<&str>) -> Result<Storage
 pub type MainDbConnection = sea_orm::DatabaseConnection;
 
 pub async fn connect_main_db(
+    fsio: &FsIo,
     lib_path: &str,
     db_path: Option<&str>,
     node_id: &str,
@@ -162,14 +168,14 @@ pub async fn connect_main_db(
 
     let db_url = format!(
         "sqlite:{}?mode=rwc",
-        db_path.into_os_string().into_string().unwrap()
+        fsio.canonicalize_path(&db_path)?.to_string_lossy()
     );
 
     let connection_options = SqliteConnectOptions::from_str(&db_url)?;
 
     let pool = SqlitePool::connect_with(connection_options).await?;
 
-    info!("Initializing main database: {}", {db_url});
+    info!("Initializing main database: {}", { db_url });
 
     let db = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
 
@@ -201,6 +207,7 @@ pub struct RecommendationDbConnection {
 }
 
 pub fn connect_recommendation_db(
+    fsio: &FsIo,
     lib_path: &str,
     db_path: Option<&str>,
 ) -> Result<RecommendationDbConnection> {
@@ -208,13 +215,12 @@ pub fn connect_recommendation_db(
     let analysis_path = storage_info.get_recommendation_db_path();
 
     if !analysis_path.exists() {
-        fs::create_dir_all(&analysis_path)?;
+        fs::create_dir_all(&storage_info.db_dir)?;
     }
 
-    let path_str = analysis_path
-        .into_os_string()
-        .into_string()
-        .map_err(|_| anyhow::anyhow!("Failed to convert database path"))?;
+    let path_str = fsio.canonicalize_path(&analysis_path)?;
+    let path_str = path_str.to_string_lossy();
+    let path_str = path_str.as_ref();
 
     info!("Initializing recommendation database: {path_str}");
 
@@ -222,6 +228,7 @@ pub fn connect_recommendation_db(
         EnvOpenOptions::new()
             .map_size(DB_SIZE)
             .flags(EnvFlags::NO_LOCK)
+            .flags(EnvFlags::NO_SUB_DIR)
             .open(path_str)?
     };
 

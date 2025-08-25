@@ -110,20 +110,20 @@ fn setup_logging() {
 }
 
 async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<Arc<GlobalParams>> {
+    #[cfg(not(target_os = "android"))]
+    let fsio = Arc::new(FsIo::new());
+    #[cfg(target_os = "android")]
+    let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), &lib_path)?);
+
     let db_path = format!("{lib_path}/.rune");
     let node_id = Arc::new(get_or_create_node_id(config_path).await?.to_string());
 
-    let db_connections = initialize_databases(lib_path, Some(&db_path), &node_id).await?;
+    let db_connections = initialize_databases(&fsio, lib_path, Some(&db_path), &node_id).await?;
 
     let main_db: Arc<MainDbConnection> = db_connections.main_db;
     let recommend_db: Arc<RecommendationDbConnection> = db_connections.recommend_db;
     let lib_path: Arc<String> = Arc::new(lib_path.to_string());
     let config_path: Arc<String> = Arc::new(config_path.to_string());
-
-    #[cfg(not(target_os = "android"))]
-    let fsio = Arc::new(FsIo::new());
-    #[cfg(target_os = "android")]
-    let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), &lib_path)?);
 
     let main_cancel_token = CancellationToken::new();
     let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));

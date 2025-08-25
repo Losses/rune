@@ -52,4 +52,4 @@ jni = "0.21.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["fmt"] }
 tracing-logcat = "0.1.0"
-ndk-saf = { git = "https://github.com/Losses/Rust-SAF", version = "0.1.7" }
+ndk-saf = { git = "https://github.com/Losses/Rust-SAF", version = "0.1.8" }

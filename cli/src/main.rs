@@ -157,7 +157,7 @@ async fn main() {
     let fsio = Arc::new(FsIo::new());
 
     // TODO: INTEGRATING THE CLIENT ID LATER
-    let main_db = match connect_main_db(lib_path, None, "").await {
+    let main_db = match connect_main_db(&fsio, lib_path, None, "").await {
         Ok(db) => db,
         Err(e) => {
             error!("Failed to connect to main database: {e}");
@@ -165,7 +165,7 @@ async fn main() {
         }
     };
 
-    let analysis_db = match connect_recommendation_db(lib_path, None) {
+    let analysis_db = match connect_recommendation_db(&fsio, lib_path, None) {
         Ok(db) => db,
         Err(e) => {
             error!("Failed to connect to analysis database: {e}");

@@ -54,17 +54,18 @@ pub struct DatabaseConnections {
 }
 
 pub async fn initialize_databases(
+    fsio: &FsIo,
     path: &str,
     db_path: Option<&str>,
     node_id: &str,
 ) -> Result<DatabaseConnections> {
     info!("Initializing databases");
 
-    let main_db = connect_main_db(path, db_path, node_id)
+    let main_db = connect_main_db(fsio, path, db_path, node_id)
         .await
         .with_context(|| "Failed to connect to main DB")?;
 
-    let recommend_db = connect_recommendation_db(path, db_path)
+    let recommend_db = connect_recommendation_db(fsio, path, db_path)
         .with_context(|| "Failed to connect to recommendation DB")?;
 
     Ok(DatabaseConnections {
@@ -145,12 +146,14 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
     let receiver = SetMediaLibraryPathRequest::get_dart_signal_receiver();
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalGuiBroadcaster);
 
+    error!("Receive media library path loop started");
+
     loop {
         while let Some(dart_signal) = receiver.recv().await {
-            #[cfg(not(target_os = "android"))]
+            error!("Received media library path message");
             let media_library_path = &dart_signal.message.path;
-            #[cfg(target_os = "android")]
-            let media_library_path = "";
+
+            info!("Received media library {media_library_path}");
 
             let config_path = &dart_signal.message.config_path;
             let alias = &dart_signal.message.alias;
@@ -212,7 +215,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                     }
 
                     // Initialize databases
-                    match initialize_databases(media_library_path, Some(&database_path), &node_id)
+                    match initialize_databases(&fsio, media_library_path, Some(&database_path), &node_id)
                         .await
                     {
                         Ok(db_connections) => {

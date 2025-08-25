@@ -9,7 +9,8 @@ use fsio::FsIo;
 #[tokio::main]
 async fn main() {
     let path = ".";
-    let main_db = connect_main_db(path, None, "").await.unwrap();
+    let fsio = FsIo::new();
+    let main_db = connect_main_db(&fsio, path, None, "").await.unwrap();
 
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
