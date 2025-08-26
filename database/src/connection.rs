@@ -166,9 +166,10 @@ pub async fn connect_main_db(
         fs::create_dir_all(&storage_info.db_dir)?;
     }
 
+    let db_path = fsio.ensure_file(&db_path).await?;
     let db_url = format!(
         "sqlite:{}?mode=rwc",
-        fsio.canonicalize_path(&db_path)?.to_string_lossy()
+        fsio.canonicalize_path(&db_path.path)?.to_string_lossy()
     );
 
     let connection_options = SqliteConnectOptions::from_str(&db_url)?;
@@ -206,7 +207,7 @@ pub struct RecommendationDbConnection {
     pub db: ArroyDatabase<Euclidean>,
 }
 
-pub fn connect_recommendation_db(
+pub async fn connect_recommendation_db(
     fsio: &FsIo,
     lib_path: &str,
     db_path: Option<&str>,
@@ -214,12 +215,12 @@ pub fn connect_recommendation_db(
     let storage_info = get_storage_info(lib_path, db_path)?;
     let analysis_path = storage_info.get_recommendation_db_path();
 
-    if !analysis_path.exists() {
+    if !storage_info.db_dir.exists() {
         fs::create_dir_all(&storage_info.db_dir)?;
     }
 
-    let path_str = fsio.canonicalize_path(&analysis_path)?;
-    let path_str = path_str.to_string_lossy();
+    let db_path = fsio.ensure_file(&analysis_path).await?;
+    let path_str = db_path.path.to_string_lossy();
     let path_str = path_str.as_ref();
 
     info!("Initializing recommendation database: {path_str}");
@@ -229,8 +230,9 @@ pub fn connect_recommendation_db(
             .map_size(DB_SIZE)
             .flags(EnvFlags::NO_LOCK)
             .flags(EnvFlags::NO_SUB_DIR)
-            .open(path_str)?
-    };
+            .open(path_str)
+    }
+    .with_context(|| "Failed to open the recommendation database")?;
 
     let mut wtxn = env.write_txn()?;
     let db: ArroyDatabase<Euclidean> = env
