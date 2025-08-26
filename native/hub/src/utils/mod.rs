@@ -176,6 +176,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                     let library_test = match check_library_state(media_library_path) {
                         Ok(x) => x,
                         Err(e) => {
+                            error!("Failed to check library state: {e:#?}");
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
                                 path: media_library_path.to_string(),
                                 success: false,
@@ -191,7 +192,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                             LibraryState::Uninitialized => {
                                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
                                     path: media_library_path.to_string(),
-                                    success: false,
+                                    success: true,
                                     error: None,
                                     not_ready: true,
                                 });
@@ -271,6 +272,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                             });
                         }
                         Err(e) => {
+                            error!("Failed to server player loop: {e:#?}");
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
                                 path: media_library_path.to_string(),
                                 success: false,
