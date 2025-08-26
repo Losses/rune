@@ -66,6 +66,7 @@ pub async fn initialize_databases(
         .with_context(|| "Failed to connect to main DB")?;
 
     let recommend_db = connect_recommendation_db(fsio, path, db_path)
+        .await
         .with_context(|| "Failed to connect to recommendation DB")?;
 
     Ok(DatabaseConnections {
@@ -215,8 +216,13 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                     }
 
                     // Initialize databases
-                    match initialize_databases(&fsio, media_library_path, Some(&database_path), &node_id)
-                        .await
+                    match initialize_databases(
+                        &fsio,
+                        media_library_path,
+                        Some(&database_path),
+                        &node_id,
+                    )
+                    .await
                     {
                         Ok(db_connections) => {
                             // Send success response to Dart
