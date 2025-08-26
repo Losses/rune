@@ -26,7 +26,11 @@ impl FileIo for StdFsIo {
         options.write(open_mode.contains('w'));
         options.append(open_mode.contains('a'));
         options.truncate(open_mode.contains('t'));
-        options.create(true);
+
+        if open_mode.contains('w') || open_mode.contains('a') || open_mode.contains('t') {
+            options.create(true);
+        }
+
         let file = options.open(path)?;
         Ok(Box::new(file))
     }
@@ -41,7 +45,11 @@ impl FileIo for StdFsIo {
         options.write(open_mode.contains('w'));
         options.append(open_mode.contains('a'));
         options.truncate(open_mode.contains('t'));
-        options.create(true);
+
+        if open_mode.contains('w') || open_mode.contains('a') || open_mode.contains('t') {
+            options.create(true);
+        }
+
         let file = options.open(path).await?;
         Ok(Box::new(file.into_std().await))
     }

@@ -147,11 +147,11 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
     let receiver = SetMediaLibraryPathRequest::get_dart_signal_receiver();
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalGuiBroadcaster);
 
-    error!("Receive media library path loop started");
+    info!("Receive media library path loop started");
 
     loop {
         while let Some(dart_signal) = receiver.recv().await {
-            error!("Received media library path message");
+            info!("Received media library path message");
             let media_library_path = &dart_signal.message.path;
 
             info!("Received media library {media_library_path}");

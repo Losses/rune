@@ -17,6 +17,7 @@ fn scan_audio_files<P: AsRef<Path>>(
     path: &P,
 ) -> Result<impl Iterator<Item = FsNode> + Send, fsio::FileIoError> {
     let files = fsio.walk_dir(path.as_ref(), true)?;
+
     Ok(files.into_iter().filter(is_audio_file))
 }
 
