@@ -163,7 +163,7 @@ pub async fn connect_main_db(
     let db_path = storage_info.get_main_db_path();
 
     if !storage_info.db_dir.exists() {
-        fs::create_dir_all(&storage_info.db_dir)?;
+        fsio.ensure_directory(&storage_info.db_dir).await?;
     }
 
     let db_path = fsio.ensure_file(&db_path).await?;
@@ -216,7 +216,7 @@ pub async fn connect_recommendation_db(
     let analysis_path = storage_info.get_recommendation_db_path();
 
     if !storage_info.db_dir.exists() {
-        fs::create_dir_all(&storage_info.db_dir)?;
+        fsio.ensure_directory(&storage_info.db_dir).await?;
     }
 
     let db_path = fsio.ensure_file(&analysis_path).await?;
