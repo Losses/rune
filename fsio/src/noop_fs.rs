@@ -157,4 +157,12 @@ impl FileIo for NoOpFsIo {
             size: 0,
         })
     }
+
+    async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        self.canonicalize(path)
+    }
+
+    async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        self.canonicalize(path)
+    }
 }

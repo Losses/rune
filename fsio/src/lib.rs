@@ -65,6 +65,8 @@ pub trait FileIo: Send + Sync {
     fn canonicalize_path_str(&self, path: &str) -> Result<PathBuf, FileIoError>;
     fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError>;
     fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError>;
+    async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError>;
+    async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError>;
 }
 
 pub struct FsIo {

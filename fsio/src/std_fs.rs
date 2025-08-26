@@ -158,4 +158,21 @@ impl FileIo for StdFsIo {
             size: metadata.len(),
         })
     }
+
+    async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        if !self.exists(path)? {
+            if let Some(parent) = path.parent() {
+                self.create_dir_all(parent)?;
+            }
+            self.write(path, &[]).await?;
+        }
+        self.canonicalize(path)
+    }
+
+    async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        if !self.exists(path)? {
+            self.create_dir_all(path)?;
+        }
+        self.canonicalize(path)
+    }
 }
