@@ -51,7 +51,9 @@ pub trait FileIo: Send + Sync {
         open_mode: &str,
     ) -> Result<Box<dyn FileStream>, FileIoError>;
     fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError>;
+    fn read_to_string(&self, path: &Path) -> Result<String, FileIoError>;
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<(), FileIoError>;
+    async fn write_string(&self, path: &Path, contents: &str) -> Result<(), FileIoError>;
     async fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError>;
     fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
     async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError>;

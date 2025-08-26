@@ -58,7 +58,15 @@ impl FileIo for StdFsIo {
         std::fs::read(path).map_err(FileIoError::Io)
     }
 
+    fn read_to_string(&self, path: &Path) -> Result<String, FileIoError> {
+        std::fs::read_to_string(path).map_err(FileIoError::Io)
+    }
+
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<(), FileIoError> {
+        fs::write(path, contents).await.map_err(FileIoError::Io)
+    }
+
+    async fn write_string(&self, path: &Path, contents: &str) -> Result<(), FileIoError> {
         fs::write(path, contents).await.map_err(FileIoError::Io)
     }
 

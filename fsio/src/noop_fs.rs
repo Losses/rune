@@ -83,7 +83,15 @@ impl FileIo for NoOpFsIo {
         Ok(Vec::new())
     }
 
+    fn read_to_string(&self, _path: &Path) -> Result<String, FileIoError> {
+        Ok(String::new())
+    }
+
     async fn write(&self, _path: &Path, _contents: &[u8]) -> Result<(), FileIoError> {
+        Ok(())
+    }
+
+    async fn write_string(&self, _path: &Path, _contents: &str) -> Result<(), FileIoError> {
         Ok(())
     }
 

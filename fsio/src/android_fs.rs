@@ -200,11 +200,20 @@ impl FileIo for AndroidFsIo {
         Ok(buffer)
     }
 
+    fn read_to_string(&self, path: &Path) -> Result<String, FileIoError> {
+        let content = self.read(path)?;
+        String::from_utf8(content).map_err(|_| FileIoError::InvalidPath)
+    }
+
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<(), FileIoError> {
         use std::io::Write;
         let mut file = self.open_async(path, "w").await?;
         file.write_all(contents)?;
         Ok(())
+    }
+
+    async fn write_string(&self, path: &Path, contents: &str) -> Result<(), FileIoError> {
+        self.write(path, contents.as_bytes()).await
     }
 
     async fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError> {
