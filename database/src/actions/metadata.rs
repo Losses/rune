@@ -241,6 +241,7 @@ pub async fn sync_file_descriptions(
                                     if let Err(e) = update_file_metadata(
                                         fsio,
                                         &txn,
+                                        node_id,
                                         &existing_file,
                                         description,
                                         &x,
@@ -464,6 +465,7 @@ pub async fn process_files(
                                     update_file_metadata(
                                         fsio,
                                         &txn,
+                                        node_id,
                                         &existing_file,
                                         description,
                                         &x,
@@ -559,6 +561,7 @@ where
 pub async fn update_file_metadata<E>(
     fsio: &FsIo,
     db: &E,
+    node_id: &str,
     existing_file: &media_files::Model,
     description: &mut FileDescription,
     metadata: &FileMetadata,
@@ -630,8 +633,21 @@ where
         .into_iter()
         .map(|(key, value)| media_metadata::ActiveModel {
             file_id: ActiveValue::Set(existing_file.id),
-            meta_key: ActiveValue::Set(key),
+            meta_key: ActiveValue::Set(key.clone()),
             meta_value: ActiveValue::Set(value),
+            hlc_uuid: ActiveValue::Set(
+                Uuid::new_v5(
+                    &Uuid::NAMESPACE_OID,
+                    format!("RUNE_METADATA::{}::{}", existing_file.file_hash, key).as_bytes(),
+                )
+                .to_string(),
+            ),
+            created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+            updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+            created_at_hlc_ver: ActiveValue::Set(0),
+            updated_at_hlc_ver: ActiveValue::Set(0),
+            created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+            updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
             ..Default::default()
         })
         .collect();
@@ -752,12 +768,15 @@ where
         file_name: ActiveValue::Set(description.file_name.to_string()),
         directory: ActiveValue::Set(description.directory.clone()),
         extension: ActiveValue::Set(description.extension.clone()),
-        file_hash: ActiveValue::Set(new_hash),
+        file_hash: ActiveValue::Set(new_hash.clone()),
         sample_rate: ActiveValue::Set(sample_rate.try_into()?),
         duration: ActiveValue::Set(
             Decimal::from_f64(duration_in_seconds).expect("Unable to convert track duration"),
         ),
         last_modified: ActiveValue::Set(description.last_modified.clone()),
+        hlc_uuid: ActiveValue::Set(
+            Uuid::new_v5(&Uuid::NAMESPACE_OID, new_hash.as_bytes()).to_string(),
+        ),
         created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         created_at_hlc_ver: ActiveValue::Set(0),
