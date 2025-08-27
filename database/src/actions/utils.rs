@@ -288,7 +288,12 @@ macro_rules! parallel_media_files_processing {
                             let task = task::spawn(async move {
                                 let analysis_result = task::spawn_blocking(move || {
                                     let process_fn = $process_fn;
-                                    process_fn(fsio.as_ref(), &file_clone, &lib_path, process_cancel_token)
+                                    process_fn(
+                                        fsio.as_ref(),
+                                        &file_clone,
+                                        &lib_path,
+                                        process_cancel_token,
+                                    )
                                     // Pass the cloned token
                                 })
                                 .await;
@@ -300,7 +305,7 @@ macro_rules! parallel_media_files_processing {
                                         $result_handler(
                                             &main_db,
                                             file,
-                                            node_id_clone.clone(),
+                                            node_id_clone,
                                             analysis_result,
                                         )
                                         .await;

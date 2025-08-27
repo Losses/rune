@@ -37,11 +37,13 @@ async fn main() {
     let path = args.get(1).cloned().expect("Audio data path not provided");
 
     let root_path = PathBuf::from(&path);
+    let node_id = "RUNE_EXAMPLE";
 
     // Scan the audio library
     let _ = scan_audio_library(
         &fsio,
         &main_db,
+        node_id,
         &root_path,
         true,
         false,

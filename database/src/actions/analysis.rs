@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
+use chrono::Utc;
 use fsio::FsIo;
 use futures::future::join_all;
 use log::info;
@@ -82,12 +83,12 @@ where
         },
         |db,
          file: media_files::Model,
-         _node_id,
+         node_id: Arc<String>,
          analysis_result: Result<Option<NormalizedAnalysisResult>>| async move {
             match analysis_result {
                 Ok(analysis_result) => {
                     if let Some(x) = analysis_result {
-                        match insert_analysis_result(db, file.id, x).await {
+                        match insert_analysis_result(db, &node_id, file.id, x).await {
                             Ok(_) => debug!("Finished analysis: {}", file.id),
                             Err(e) => error!("Failed to insert analysis result: {e}"),
                         }
@@ -145,6 +146,7 @@ fn analysis_file(
 /// * `result` - The normalized analysis result.
 async fn insert_analysis_result(
     main_db: &DatabaseConnection,
+    node_id: &str,
     file_id: i32,
     result: NormalizedAnalysisResult,
 ) -> Result<()> {
@@ -162,6 +164,12 @@ async fn insert_analysis_result(
         spectral_kurtosis: ActiveValue::Set(Decimal::from_f32(result.spectral_kurtosis)),
         perceptual_spread: ActiveValue::Set(Decimal::from_f32(result.raw.perceptual_spread)),
         perceptual_sharpness: ActiveValue::Set(Decimal::from_f32(result.raw.perceptual_sharpness)),
+        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(0),
+        updated_at_hlc_ver: ActiveValue::Set(0),
+        created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+        updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
         ..Default::default()
     };
 

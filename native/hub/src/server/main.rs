@@ -1,11 +1,11 @@
 mod cli;
 
+#[cfg(target_os = "android")]
+use std::path::Path;
 use std::{
     sync::{Arc, OnceLock},
     time::Duration,
 };
-#[cfg(target_os = "android")]
-use std::path::Path;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
@@ -116,7 +116,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), &lib_path)?);
 
     let db_path = format!("{lib_path}/.rune");
-    let node_id = Arc::new(get_or_create_node_id(config_path).await?.to_string());
+    let node_id = Arc::new(get_or_create_node_id(&fsio, config_path).await?.to_string());
 
     let db_connections = initialize_databases(&fsio, lib_path, Some(&db_path), &node_id).await?;
 

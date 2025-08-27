@@ -54,7 +54,7 @@ pub async fn local_player_loop(
         let config_path: Arc<String> = Arc::new(config_path);
 
         let node_id = Arc::new(
-            get_or_create_node_id(&config_path)
+            get_or_create_node_id(&fsio, &config_path)
                 .await
                 .unwrap()
                 .to_string(),

@@ -1,6 +1,7 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{fs, path::PathBuf, sync::Arc};
 
 use clap::{Parser, Subcommand};
+use directories::ProjectDirs;
 use dunce::canonicalize;
 use log::{error, info};
 use prettytable::{Table, row};
@@ -23,6 +24,7 @@ use rune::{
     playback::*,
     recommend::*,
 };
+use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(name = "Media Manager")]
@@ -139,6 +141,19 @@ async fn main() {
     // Determine the path from either the option or the positional argument
     let path = cli.library.expect("Path is required");
 
+    let proj_dirs = ProjectDirs::from("ci", "not", "rune").unwrap();
+
+    let config_dir = proj_dirs.config_dir();
+    let config_path = config_dir.to_path_buf();
+
+    if config_path.exists() {
+        if config_path.is_file() {
+            panic!("Config directory path is a file: {config_path:?}");
+        }
+    } else {
+        fs::create_dir_all(&config_path).unwrap();
+    }
+
     let canonicalized_path = match canonicalize(&path) {
         Ok(path) => path,
         Err(e) => {
@@ -173,11 +188,46 @@ async fn main() {
         }
     };
 
+    let nid_path = config_path.join("nid");
+
+    fsio.ensure_file(&nid_path).await.unwrap();
+    info!("Checking nid file at: {nid_path:?}");
+
+    let content = fsio.read_to_string(&nid_path);
+    let node_id = match content {
+        Ok(content) => {
+            let trimmed = content.trim();
+            match Uuid::parse_str(trimmed) {
+                Ok(uuid) => {
+                    info!("Found valid UUID: {uuid}");
+                    uuid
+                }
+                Err(_) => {
+                    info!("Invalid UUID in nid file, generating new one");
+                    let new_uuid = Uuid::new_v4();
+                    fsio.write_string(&nid_path, &new_uuid.to_string())
+                        .await
+                        .unwrap();
+                    new_uuid
+                }
+            }
+        }
+        Err(_) => {
+            info!("nid file not found, creating new one");
+            let new_uuid = Uuid::new_v4();
+            fsio.write_string(&nid_path, &new_uuid.to_string())
+                .await
+                .unwrap();
+            new_uuid
+        }
+    }.to_string();
+
     match &cli.command {
         Commands::Scan => {
             let _ = scan_audio_library(
                 &fsio,
                 &main_db,
+                &node_id,
                 &path,
                 true,
                 false,

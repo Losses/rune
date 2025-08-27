@@ -26,3 +26,5 @@ dunce = "1.0.4"
 log = "0.4.22"
 rust_decimal = "1.36.0"
 fsio = { version = "0.1.0", path = "../fsio" }
+directories = "6.0.0"
+uuid = { version = "1.18.0", features = ["v4"] }

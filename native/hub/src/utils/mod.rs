@@ -158,7 +158,6 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
 
             let config_path = &dart_signal.message.config_path;
             let alias = &dart_signal.message.alias;
-            let node_id = get_or_create_node_id(config_path).await?.to_string();
             #[cfg(not(target_os = "android"))]
             let fsio = Arc::new(FsIo::new());
             #[cfg(target_os = "android")]
@@ -166,6 +165,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                 Path::new(".rune/.android-fs.db"),
                 &dart_signal.message.path,
             )?);
+            let node_id = get_or_create_node_id(&fsio, config_path).await?.to_string();
 
             match &dart_signal.message.hosted_on {
                 OperationDestination::Local => {
@@ -262,7 +262,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                 }
                 OperationDestination::Remote => {
                     let config_path = &dart_signal.message.config_path;
-                    match server_player_loop(media_library_path, config_path, alias).await {
+                    match server_player_loop(fsio, media_library_path, config_path, alias).await {
                         Ok(_) => {
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
                                 path: media_library_path.to_string(),

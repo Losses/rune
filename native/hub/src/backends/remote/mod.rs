@@ -141,6 +141,7 @@ impl WebSocketDartBridge {
 
     pub async fn run(
         &mut self,
+        fsio: &FsIo,
         rnsrv_url: &str,
         host: &str,
         config_path: &str,
@@ -270,7 +271,7 @@ impl WebSocketDartBridge {
                     Arc::new(RwLock::new(CertValidator::new(config_path).await.unwrap()));
 
                 info!("Initializing UI events");
-                let node_id = get_or_create_node_id(config_path).await?.to_string();
+                let node_id = get_or_create_node_id(fsio, config_path).await?.to_string();
 
                 let global_params = GlobalParams {
                     fsio: Arc::new(FsIo::new_noop()),
@@ -317,7 +318,12 @@ impl WebSocketDartBridge {
     }
 }
 
-pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Result<()> {
+pub async fn server_player_loop(
+    fsio: Arc<FsIo>,
+    url: &str,
+    config_path: &str,
+    alias: &str,
+) -> Result<()> {
     info!("Media Library Received, initialize the server loop");
 
     let cert_validator = Arc::new(
@@ -348,6 +354,7 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
 
     let rnsrv_url = url.to_string();
     let config_path = config_path.to_string();
+    let fsio = Arc::clone(&fsio);
     tokio::spawn(async move {
         info!("Initializing bridge");
         let mut bridge = WebSocketDartBridge::new();
@@ -369,7 +376,14 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
         );
 
         bridge
-            .run(&rnsrv_url, &host, &config_path, client_config, &fingerprint)
+            .run(
+                &fsio,
+                &rnsrv_url,
+                &host,
+                &config_path,
+                client_config,
+                &fingerprint,
+            )
             .await
     });
 

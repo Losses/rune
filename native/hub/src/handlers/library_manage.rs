@@ -137,6 +137,7 @@ impl Signal for ScanAudioLibraryRequest {
                     let file_processed = scan_audio_library(
                         &fsio,
                         &main_db_clone,
+                        &node_id,
                         Path::new(&request_path),
                         true,
                         request_force,

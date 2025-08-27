@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use chrono::Utc;
 use log::{debug, error, info};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -57,6 +58,7 @@ pub fn read_metadata(fs_node: &FsNode) -> Result<FileMetadata> {
 pub async fn sync_file_descriptions(
     fsio: &FsIo,
     main_db: &DatabaseConnection,
+    node_id: &str,
     descriptions: &mut [Option<FileDescription>],
     force: bool,
 ) -> Result<()> {
@@ -292,7 +294,7 @@ pub async fn sync_file_descriptions(
 
                     match file_metadata {
                         Ok(x) => {
-                            match insert_new_file(fsio, &txn, &x, description)
+                            match insert_new_file(fsio, &txn, node_id, &x, description)
                                 .await
                                 .with_context(|| {
                                     format!(
@@ -373,6 +375,7 @@ pub async fn sync_file_descriptions(
 pub async fn process_files(
     fsio: &FsIo,
     main_db: &DatabaseConnection,
+    node_id: &str,
     descriptions: &mut [Option<FileDescription>],
 ) -> Result<()> {
     debug!("Starting to process multiple files");
@@ -448,9 +451,13 @@ pub async fn process_files(
 
                             remove_cover_art_by_file_id(&txn, existing_file.id).await?;
 
-                            let file_metadata = read_metadata(&description.raw_node).with_context(|| {
-                                format!("Unable to parse file metadata: {:?}", description.rel_path)
-                            });
+                            let file_metadata =
+                                read_metadata(&description.raw_node).with_context(|| {
+                                    format!(
+                                        "Unable to parse file metadata: {:?}",
+                                        description.rel_path
+                                    )
+                                });
 
                             match file_metadata {
                                 Ok(x) => {
@@ -489,7 +496,7 @@ pub async fn process_files(
 
                     match file_metadata {
                         Ok(x) => {
-                            match insert_new_file(fsio, &txn, &x, description)
+                            match insert_new_file(fsio, &txn, node_id, &x, description)
                                 .await
                                 .with_context(|| {
                                     format!(
@@ -723,6 +730,7 @@ where
 pub async fn insert_new_file<E>(
     fsio: &FsIo,
     main_db: &E,
+    node_id: &str,
     metadata: &FileMetadata,
     description: &mut FileDescription,
 ) -> Result<()>
@@ -750,6 +758,12 @@ where
             Decimal::from_f64(duration_in_seconds).expect("Unable to convert track duration"),
         ),
         last_modified: ActiveValue::Set(description.last_modified.clone()),
+        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(0),
+        updated_at_hlc_ver: ActiveValue::Set(0),
+        created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+        updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
         ..Default::default()
     };
     let inserted_file = media_files::Entity::insert(new_file).exec(main_db).await?;
@@ -824,9 +838,11 @@ async fn clean_up_database(main_db: &DatabaseConnection, root_path: &Path) -> Re
 
 pub fn empty_progress_callback(_processed: usize) {}
 
+#[allow(clippy::too_many_arguments)]
 pub async fn scan_audio_library<F>(
     fsio: &FsIo,
     main_db: &DatabaseConnection,
+    node_id: &str,
     lib_path: &Path,
     cleanup: bool,
     force: bool,
@@ -863,7 +879,7 @@ where
             .map(|result| result.ok())
             .collect();
 
-        match sync_file_descriptions(fsio, main_db, &mut descriptions, force)
+        match sync_file_descriptions(fsio, main_db, node_id, &mut descriptions, force)
             .await
             .with_context(|| "Unable to describe files")
         {

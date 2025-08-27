@@ -11,6 +11,7 @@ async fn main() {
     let path = ".";
     let fsio = FsIo::new();
     let main_db = connect_main_db(&fsio, path, None, "").await.unwrap();
+    let node_id = "RUNE_EXAMPLE";
 
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
@@ -22,6 +23,7 @@ async fn main() {
     let _ = scan_audio_library(
         &fsio,
         &main_db,
+        node_id,
         &root_path,
         true,
         false,
