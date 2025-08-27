@@ -4,18 +4,14 @@ use uuid::Uuid;
 
 use sync::{
     core::PrimaryKeyFromStr,
-    hlc::{HLCModel, HLCRecord, HLC},
+    hlc::{HLC, HLCModel, HLCRecord},
     impl_hlc_model_for_entity, impl_hlc_record_for_model, impl_primary_key_from_str_for_i32_pk,
 };
 
-use crate::entities::albums;
-use crate::entities::artists;
-use crate::entities::genres;
-use crate::entities::media_cover_art;
-use crate::entities::media_file_albums;
-use crate::entities::media_file_artists;
-use crate::entities::media_file_genres;
-use crate::entities::media_files;
+use crate::entities::{
+    albums, artists, genres, media_cover_art, media_file_albums, media_file_artists,
+    media_file_fingerprint, media_file_genres, media_file_similarity, media_files,
+};
 
 // Albums
 impl_hlc_record_for_model!(albums::Model);
@@ -85,6 +81,26 @@ impl_hlc_model_for_entity!(
     media_file_genres::Column::UpdatedAtHlcTs,
     media_file_genres::Column::UpdatedAtHlcVer,
     media_file_genres::Column::UpdatedAtHlcNid
+);
+
+// MediaFileFingerprint
+impl_hlc_record_for_model!(media_file_fingerprint::Model);
+impl_hlc_model_for_entity!(
+    media_file_fingerprint::Entity,
+    media_file_fingerprint::Column::HlcUuid,
+    media_file_fingerprint::Column::UpdatedAtHlcTs,
+    media_file_fingerprint::Column::UpdatedAtHlcVer,
+    media_file_fingerprint::Column::UpdatedAtHlcNid
+);
+
+// MediaFileSimilarity
+impl_hlc_record_for_model!(media_file_similarity::Model);
+impl_hlc_model_for_entity!(
+    media_file_similarity::Entity,
+    media_file_similarity::Column::HlcUuid,
+    media_file_similarity::Column::UpdatedAtHlcTs,
+    media_file_similarity::Column::UpdatedAtHlcVer,
+    media_file_similarity::Column::UpdatedAtHlcNid
 );
 
 // MediaCoverArt

@@ -62,7 +62,7 @@ impl MigrationTrait for Migration {
     }
 }
 
-#[derive(Iden)]
+#[derive(Iden, Clone, Copy)]
 pub enum MediaFileFingerprint {
     Table,
     Id,

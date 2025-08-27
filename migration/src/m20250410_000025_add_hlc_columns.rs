@@ -1,6 +1,6 @@
 use sea_orm_migration::{
     prelude::*,
-    sea_orm::{prelude::Uuid, FromQueryResult, Statement},
+    sea_orm::{FromQueryResult, Statement, prelude::Uuid},
 };
 
 use crate::{
@@ -18,6 +18,8 @@ use crate::{
     m20230912_000014_create_mix_queries_table::MixQueries,
     m20250311_000021_create_genres_table::Genres,
     m20250311_000022_create_media_file_genres_table::MediaFileGenres,
+    m20250312_000023_create_media_file_fingerprint_table::MediaFileFingerprint,
+    m20250312_000024_create_media_file_similarity_table::MediaFileSimilarity,
 };
 
 #[derive(DeriveMigrationName)]
@@ -48,6 +50,8 @@ impl MigrationTrait for Migration {
         Self::add_tracking_columns(manager, MediaFileAlbums::Table, true).await?;
         Self::add_tracking_columns(manager, MediaFileArtists::Table, true).await?;
         Self::add_tracking_columns(manager, MediaFileGenres::Table, true).await?;
+        Self::add_tracking_columns(manager, MediaFileFingerprint::Table, true).await?;
+        Self::add_tracking_columns(manager, MediaFileSimilarity::Table, true).await?;
 
         Self::add_tracking_columns_with_existing_ts(manager, Mixes::Table).await?;
         Self::add_tracking_columns_with_existing_ts(manager, MixQueries::Table).await?;
@@ -68,6 +72,8 @@ impl MigrationTrait for Migration {
         Self::remove_tracking_columns(manager, MediaFileAlbums::Table, true).await?;
         Self::remove_tracking_columns(manager, MediaFileArtists::Table, true).await?;
         Self::remove_tracking_columns(manager, MediaFileGenres::Table, true).await?;
+        Self::remove_tracking_columns(manager, MediaFileFingerprint::Table, true).await?;
+        Self::remove_tracking_columns(manager, MediaFileSimilarity::Table, true).await?;
 
         Self::remove_tracking_columns_with_existing_ts(manager, Mixes::Table).await?;
         Self::remove_tracking_columns_with_existing_ts(manager, MixQueries::Table).await?;
