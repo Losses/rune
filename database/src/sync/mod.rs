@@ -8,7 +8,7 @@ use sea_orm::{
 use sync::{
     chunking::ChunkingOptions,
     core::{RemoteDataSource, SyncContext, SyncDirection, SyncTableMetadata},
-    hlc::{SyncTaskContext, HLC},
+    hlc::{HLC, SyncTaskContext},
     sync_scheduler::{SyncScheduler, TableSyncJob, TableSyncResult},
 };
 use uuid::Uuid;
@@ -111,6 +111,30 @@ pub async fn setup_and_run_sync<'s, RDS: RemoteDataSource + Debug + Send + Sync 
         TableSyncJob::new::<entities::media_file_genres::Entity, _>(
             entities::media_file_genres::Entity.table_name().to_string(),
             initial_meta(entities::media_file_genres::Entity.table_name().to_string()).await,
+            fk_resolver.clone(),
+        ),
+        TableSyncJob::new::<entities::media_file_fingerprint::Entity, _>(
+            entities::media_file_fingerprint::Entity
+                .table_name()
+                .to_string(),
+            initial_meta(
+                entities::media_file_fingerprint::Entity
+                    .table_name()
+                    .to_string(),
+            )
+            .await,
+            fk_resolver.clone(),
+        ),
+        TableSyncJob::new::<entities::media_file_similarity::Entity, _>(
+            entities::media_file_similarity::Entity
+                .table_name()
+                .to_string(),
+            initial_meta(
+                entities::media_file_similarity::Entity
+                    .table_name()
+                    .to_string(),
+            )
+            .await,
             fk_resolver.clone(),
         ),
     ];
