@@ -406,6 +406,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
                 compare_all_pairs(
                     &main_db,
+                    &node_id,
                     batch_size,
                     move |cur, total| {
                         let progress = 0.33 + cur as f32 / total as f32 * 0.33;

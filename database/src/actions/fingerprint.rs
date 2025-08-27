@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
+use chrono::Utc;
 use fsio::FsIo;
 use log::{debug, info};
 use sea_orm::{
@@ -13,6 +14,7 @@ use sea_orm::{
 };
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 pub use tag_editor::music_brainz::fingerprint::{Configuration, Segment};
 use tag_editor::music_brainz::fingerprint::{
@@ -72,7 +74,10 @@ where
                 cancel_token,
             )
         },
-        |db, file: media_files::Model, _node_id, fingerprint_result: Result<(Vec<u32>, _)>| async move {
+        |db,
+         file: media_files::Model,
+         node_id: Arc<String>,
+         fingerprint_result: Result<(Vec<u32>, _)>| async move {
             match fingerprint_result {
                 Ok((fingerprint, _duration)) => {
                     let fingerprint_bytes = fingerprint
@@ -84,6 +89,19 @@ where
                         media_file_id: ActiveValue::Set(file.id),
                         fingerprint: ActiveValue::Set(fingerprint_bytes),
                         is_duplicated: ActiveValue::Set(0),
+                        hlc_uuid: ActiveValue::Set(
+                            Uuid::new_v5(
+                                &Uuid::NAMESPACE_OID,
+                                format!("RUNE_FINGERPRINT::{}", file.id).as_bytes(),
+                            )
+                            .to_string(),
+                        ),
+                        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                        created_at_hlc_ver: ActiveValue::Set(0), // TODO: Fix this
+                        updated_at_hlc_ver: ActiveValue::Set(0),
+                        created_at_hlc_nid: ActiveValue::Set(node_id.to_string()),
+                        updated_at_hlc_nid: ActiveValue::Set(node_id.to_string()),
                         ..Default::default()
                     };
 
@@ -137,6 +155,7 @@ pub async fn get_fingerprint_count(main_db: &DatabaseConnection) -> Result<u64> 
 
 pub async fn compare_all_pairs<F>(
     db: &DatabaseConnection,
+    node_id: &str,
     batch_size: usize,
     progress_callback: F,
     config: &Configuration,
@@ -174,6 +193,7 @@ where
 
         process_page_combinations(
             db,
+            node_id,
             batch_size,
             &files_page,
             config,
@@ -190,6 +210,7 @@ where
 
 async fn process_page_combinations<F>(
     db: &DatabaseConnection,
+    node_id: &str,
     batch_size: usize,
     current_page: &[media_files::Model],
     config: &Configuration,
@@ -271,6 +292,7 @@ where
     let consumer = tokio::spawn({
         let db = db.clone();
         let config = config.clone();
+        let node_id = node_id.to_owned();
         let cancel_token = cancel_token.clone();
         let progress_callback = Arc::clone(&progress_callback);
         let progress_counter = Arc::clone(&progress_counter);
@@ -299,6 +321,19 @@ where
                     file_id1: ActiveValue::Set(id1),
                     file_id2: ActiveValue::Set(id2),
                     similarity: ActiveValue::Set(similarity),
+                    hlc_uuid: ActiveValue::Set(
+                        Uuid::new_v5(
+                            &Uuid::NAMESPACE_OID,
+                            format!("RUNE_SIMILARITY::{id1}+{id2}").as_bytes(),
+                        )
+                        .to_string(),
+                    ),
+                    created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                    updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                    created_at_hlc_ver: ActiveValue::Set(0), // TODO: Fix this
+                    updated_at_hlc_ver: ActiveValue::Set(0),
+                    created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+                    updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
                     ..Default::default()
                 })
                 .exec(&db)
