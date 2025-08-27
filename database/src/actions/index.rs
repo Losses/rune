@@ -74,9 +74,9 @@ pub async fn index_media_files(
         // Process artists for the current media file.
         let artist_result = process_artists(&txn, node_id, &summary, cancel_token).await;
         // Process album for the current media file.
-        let album_result = process_album(&txn, &summary).await;
+        let album_result = process_album(&txn, node_id, &summary).await;
         // Process genres for the current media file.
-        let genre_result = process_genres(&txn, &summary, cancel_token).await;
+        let genre_result = process_genres(&txn, node_id, &summary, cancel_token).await;
 
         // Commit transaction if all processing is successful, otherwise rollback.
         match (artist_result, album_result, genre_result) {
@@ -197,7 +197,7 @@ async fn process_artists(
         if !existing_map.contains_key(&artist.name) {
             add_term(txn, CollectionQueryType::Artist, artist.id, &artist.name).await?;
         }
-        artist_ids.push(artist.id);
+        artist_ids.push((artist.id, artist.hlc_uuid));
     }
 
     // Clean up existing artist associations for the media file before creating new ones.
@@ -208,13 +208,27 @@ async fn process_artists(
 
     // Insert new artist associations for the media file.
     if !artist_ids.is_empty() {
-        media_file_artists::Entity::insert_many(artist_ids.into_iter().map(|artist_id| {
-            media_file_artists::ActiveModel {
-                media_file_id: Set(summary.id), // Set media file ID.
-                artist_id: Set(artist_id),      // Set artist ID.
-                ..Default::default()
-            }
-        }))
+        media_file_artists::Entity::insert_many(artist_ids.into_iter().map(
+            |(artist_id, artist_hlc_uuld)| {
+                media_file_artists::ActiveModel {
+                    media_file_id: Set(summary.id), // Set media file ID.
+                    artist_id: Set(artist_id),      // Set artist ID.
+                    hlc_uuid: Set(Uuid::new_v5(
+                        &Uuid::NAMESPACE_OID,
+                        format!("RUNE_ARTIST_FILE::{artist_hlc_uuld}::{}", summary.file_hash)
+                            .as_bytes(),
+                    )
+                    .to_string()),
+                    created_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+                    updated_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+                    created_at_hlc_ver: Set(0),
+                    updated_at_hlc_ver: Set(0),
+                    created_at_hlc_nid: Set(node_id.to_owned()),
+                    updated_at_hlc_nid: Set(node_id.to_owned()),
+                    ..Default::default()
+                }
+            },
+        ))
         .exec(txn)
         .await?;
     }
@@ -236,13 +250,12 @@ async fn process_artists(
 /// # Returns
 ///
 /// Returns `Ok(())` if album processing is successful, or an `Err(Error)` if any error occurs.
-async fn process_album(txn: &DatabaseTransaction, summary: &MetadataSummary) -> Result<()> {
+async fn process_album(
+    txn: &DatabaseTransaction,
+    node_id: &str,
+    summary: &MetadataSummary,
+) -> Result<()> {
     let album_name = &summary.album;
-    let album = albums::ActiveModel {
-        name: Set(album_name.clone()),               // Set album name.
-        group: Set(generate_group_name(album_name)), // Generate group name for album.
-        ..Default::default()
-    };
 
     // Check if the album already exists in the database.
     let existing_album = albums::Entity::find()
@@ -250,9 +263,28 @@ async fn process_album(txn: &DatabaseTransaction, summary: &MetadataSummary) -> 
         .one(txn)
         .await?;
 
-    let album_id = match existing_album {
-        Some(existing) => existing.id, // Use existing album ID if found.
+    let (album_id, album_hlc_uuid) = match existing_album {
+        Some(existing) => (existing.id, existing.hlc_uuid), // Use existing album ID if found.
         None => {
+            let hlc_uuid = Uuid::new_v5(
+                &Uuid::NAMESPACE_OID,
+                format!("RUNE_ALBUM::{album_name}").as_bytes(),
+            )
+            .to_string();
+
+            let album = albums::ActiveModel {
+                name: Set(album_name.clone()),               // Set album name.
+                group: Set(generate_group_name(album_name)), // Generate group name for album.
+                hlc_uuid: Set(hlc_uuid.clone()),
+                created_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+                updated_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+                created_at_hlc_ver: Set(0),
+                updated_at_hlc_ver: Set(0),
+                created_at_hlc_nid: Set(node_id.to_owned()),
+                updated_at_hlc_nid: Set(node_id.to_owned()),
+                ..Default::default()
+            };
+
             // Insert the new album if it doesn't exist.
             let inserted_album = albums::Entity::insert(album).exec(txn).await?;
             // Add search term for the newly inserted album.
@@ -263,7 +295,7 @@ async fn process_album(txn: &DatabaseTransaction, summary: &MetadataSummary) -> 
                 album_name,
             )
             .await?;
-            inserted_album.last_insert_id // Return the new album ID.
+            (inserted_album.last_insert_id, hlc_uuid) // Return the new album ID.
         }
     };
 
@@ -278,6 +310,17 @@ async fn process_album(txn: &DatabaseTransaction, summary: &MetadataSummary) -> 
         media_file_id: Set(summary.id),                // Set media file ID.
         album_id: Set(album_id),                       // Set album ID.
         track_number: Set(Some(summary.track_number)), // Set track number from metadata.
+        hlc_uuid: Set(Uuid::new_v5(
+            &Uuid::NAMESPACE_OID,
+            format!("RUNE_ALBUM_FILE::{album_hlc_uuid}::{}", summary.file_hash).as_bytes(),
+        )
+        .to_string()),
+        created_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+        updated_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+        created_at_hlc_ver: Set(0),
+        updated_at_hlc_ver: Set(0),
+        created_at_hlc_nid: Set(node_id.to_owned()),
+        updated_at_hlc_nid: Set(node_id.to_owned()),
         ..Default::default()
     })
     .exec(txn)
@@ -303,6 +346,7 @@ async fn process_album(txn: &DatabaseTransaction, summary: &MetadataSummary) -> 
 /// Returns `Ok(())` if genre processing is successful, or an `Err(Error)` if any error occurs.
 async fn process_genres(
     txn: &DatabaseTransaction,
+    node_id: &str,
     summary: &MetadataSummary,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<()> {
@@ -354,6 +398,17 @@ async fn process_genres(
                 genres::ActiveModel {
                     name: Set(name.clone()),                // Set genre name.
                     group: Set(generate_group_name(&name)), // Generate group name for genre.
+                    hlc_uuid: Set(Uuid::new_v5(
+                        &Uuid::NAMESPACE_OID,
+                        format!("RUNE_GENRES::{name}").as_bytes(),
+                    )
+                    .to_string()),
+                    created_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+                    updated_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+                    created_at_hlc_ver: Set(0),
+                    updated_at_hlc_ver: Set(0),
+                    created_at_hlc_nid: Set(node_id.to_owned()),
+                    updated_at_hlc_nid: Set(node_id.to_owned()),
                     ..Default::default()
                 }
             }))
@@ -380,7 +435,7 @@ async fn process_genres(
         if !existing_map.contains_key(&genre.name) {
             add_term(txn, CollectionQueryType::Genre, genre.id, &genre.name).await?;
         }
-        genre_ids.push(genre.id);
+        genre_ids.push((genre.id, genre.hlc_uuid));
     }
 
     // Clean up existing genre associations for the media file before creating new ones.
@@ -391,13 +446,27 @@ async fn process_genres(
 
     // Insert new genre associations for the media file.
     if !genre_ids.is_empty() {
-        media_file_genres::Entity::insert_many(genre_ids.into_iter().map(|genre_id| {
-            media_file_genres::ActiveModel {
-                media_file_id: Set(summary.id), // Set media file ID.
-                genre_id: Set(genre_id),        // Set genre ID.
-                ..Default::default()
-            }
-        }))
+        media_file_genres::Entity::insert_many(genre_ids.into_iter().map(
+            |(genre_id, genre_hlc_uuid)| {
+                media_file_genres::ActiveModel {
+                    media_file_id: Set(summary.id), // Set media file ID.
+                    genre_id: Set(genre_id),        // Set genre ID.
+                    hlc_uuid: Set(Uuid::new_v5(
+                        &Uuid::NAMESPACE_OID,
+                        format!("RUNE_GENRES_FILE::{genre_hlc_uuid}::{}", summary.file_hash)
+                            .as_bytes(),
+                    )
+                    .to_string()),
+                    created_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+                    updated_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+                    created_at_hlc_ver: Set(0),
+                    updated_at_hlc_ver: Set(0),
+                    created_at_hlc_nid: Set(node_id.to_owned()),
+                    updated_at_hlc_nid: Set(node_id.to_owned()),
+                    ..Default::default()
+                }
+            },
+        ))
         .exec(txn)
         .await?;
     }

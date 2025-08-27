@@ -947,6 +947,7 @@ pub struct MetadataSummary {
     pub track_number: i32,
     pub duration: f64,
     pub cover_art_id: Option<i32>,
+    pub file_hash: String,
 }
 
 pub async fn get_metadata_summary_by_files(
@@ -1025,6 +1026,7 @@ pub async fn get_metadata_summary_by_files(
             } else {
                 cover_art_id
             },
+            file_hash: file.file_hash.clone(),
         };
 
         results.push(summary);
