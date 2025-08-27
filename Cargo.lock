@@ -3808,6 +3808,7 @@ version = "0.1.0"
 dependencies = [
  "async-std",
  "chrono",
+ "once_cell",
  "sea-orm-migration",
 ]
 

@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 chrono = "0.4.38"
 async-std = { version = "1", features = ["attributes", "tokio1"] }
+once_cell = "1.21.3"
 
 [dependencies.sea-orm-migration]
 version = "1.1.0"

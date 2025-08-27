@@ -1,6 +1,6 @@
 use sea_orm_migration::{
     prelude::*,
-    sea_orm::{prelude::Uuid, FromQueryResult, Statement},
+    sea_orm::{FromQueryResult, Statement, prelude::Uuid},
 };
 
 use crate::{
@@ -90,6 +90,7 @@ impl MigrationTrait for Migration {
 impl Migration {
     async fn populate_hlc_uuids(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
         let db = manager.get_connection();
+        let node_id = crate::get_node_id();
 
         // Albums
         #[derive(Debug, FromQueryResult)]
@@ -97,20 +98,23 @@ impl Migration {
             id: i32,
             name: String,
         }
-        let rows: Vec<AlbumRow> =
-            AlbumRow::find_by_statement(Statement::from_string(
-                db.get_database_backend(),
-                "SELECT id, name FROM albums".to_string(),
-            ))
-            .all(db)
-            .await?;
+        let rows: Vec<AlbumRow> = AlbumRow::find_by_statement(Statement::from_string(
+            db.get_database_backend(),
+            "SELECT id, name FROM albums".to_string(),
+        ))
+        .all(db)
+        .await?;
         for row in rows {
             let uuid = Uuid::new_v5(&Uuid::NAMESPACE_OID, row.name.as_bytes()).to_string();
             manager
                 .exec_stmt(
                     Query::update()
                         .table(Albums::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(Albums::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -123,20 +127,23 @@ impl Migration {
             id: i32,
             name: String,
         }
-        let rows: Vec<ArtistRow> =
-            ArtistRow::find_by_statement(Statement::from_string(
-                db.get_database_backend(),
-                "SELECT id, name FROM artists".to_string(),
-            ))
-            .all(db)
-            .await?;
+        let rows: Vec<ArtistRow> = ArtistRow::find_by_statement(Statement::from_string(
+            db.get_database_backend(),
+            "SELECT id, name FROM artists".to_string(),
+        ))
+        .all(db)
+        .await?;
         for row in rows {
             let uuid = Uuid::new_v5(&Uuid::NAMESPACE_OID, row.name.as_bytes()).to_string();
             manager
                 .exec_stmt(
                     Query::update()
                         .table(Artists::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(Artists::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -149,22 +156,27 @@ impl Migration {
             id: i32,
             name: String,
         }
-        let rows: Vec<GenreRow> =
-            GenreRow::find_by_statement(Statement::from_string(
-                db.get_database_backend(),
-                "SELECT id, name FROM genres".to_string(),
-            ))
-            .all(db)
-            .await?;
+        let rows: Vec<GenreRow> = GenreRow::find_by_statement(Statement::from_string(
+            db.get_database_backend(),
+            "SELECT id, name FROM genres".to_string(),
+        ))
+        .all(db)
+        .await?;
         for row in rows {
-            let uuid =
-                Uuid::new_v5(&Uuid::NAMESPACE_OID, format!("RUNE_GENRES::{}", row.name).as_bytes())
-                    .to_string();
+            let uuid = Uuid::new_v5(
+                &Uuid::NAMESPACE_OID,
+                format!("RUNE_GENRES::{}", row.name).as_bytes(),
+            )
+            .to_string();
             manager
                 .exec_stmt(
                     Query::update()
                         .table(Genres::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(Genres::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -177,20 +189,23 @@ impl Migration {
             id: i32,
             file_hash: String,
         }
-        let rows: Vec<MediaFileRow> =
-            MediaFileRow::find_by_statement(Statement::from_string(
-                db.get_database_backend(),
-                "SELECT id, file_hash FROM media_files".to_string(),
-            ))
-            .all(db)
-            .await?;
+        let rows: Vec<MediaFileRow> = MediaFileRow::find_by_statement(Statement::from_string(
+            db.get_database_backend(),
+            "SELECT id, file_hash FROM media_files".to_string(),
+        ))
+        .all(db)
+        .await?;
         for row in rows {
             let uuid = Uuid::new_v5(&Uuid::NAMESPACE_OID, row.file_hash.as_bytes()).to_string();
             manager
                 .exec_stmt(
                     Query::update()
                         .table(MediaFiles::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(MediaFiles::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -203,13 +218,12 @@ impl Migration {
             id: i32,
             file_hash: String,
         }
-        let rows: Vec<CoverArtRow> =
-            CoverArtRow::find_by_statement(Statement::from_string(
-                db.get_database_backend(),
-                "SELECT id, file_hash FROM media_cover_art".to_string(),
-            ))
-            .all(db)
-            .await?;
+        let rows: Vec<CoverArtRow> = CoverArtRow::find_by_statement(Statement::from_string(
+            db.get_database_backend(),
+            "SELECT id, file_hash FROM media_cover_art".to_string(),
+        ))
+        .all(db)
+        .await?;
         for row in rows {
             let uuid = if row.file_hash.is_empty() {
                 Uuid::nil().to_string()
@@ -220,7 +234,11 @@ impl Migration {
                 .exec_stmt(
                     Query::update()
                         .table(MediaCoverArt::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(MediaCoverArt::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -233,12 +251,10 @@ impl Migration {
             id: i32,
             media_file_id: i32,
         }
-        let rows: Vec<FingerprintRow> = FingerprintRow::find_by_statement(
-            Statement::from_string(
-                db.get_database_backend(),
-                "SELECT id, media_file_id FROM media_file_fingerprint".to_string(),
-            ),
-        )
+        let rows: Vec<FingerprintRow> = FingerprintRow::find_by_statement(Statement::from_string(
+            db.get_database_backend(),
+            "SELECT id, media_file_id FROM media_file_fingerprint".to_string(),
+        ))
         .all(db)
         .await?;
         for row in rows {
@@ -251,7 +267,11 @@ impl Migration {
                 .exec_stmt(
                     Query::update()
                         .table(MediaFileFingerprint::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(MediaFileFingerprint::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -265,13 +285,12 @@ impl Migration {
             file_id1: i32,
             file_id2: i32,
         }
-        let rows: Vec<SimilarityRow> =
-            SimilarityRow::find_by_statement(Statement::from_string(
-                db.get_database_backend(),
-                "SELECT id, file_id1, file_id2 FROM media_file_similarity".to_string(),
-            ))
-            .all(db)
-            .await?;
+        let rows: Vec<SimilarityRow> = SimilarityRow::find_by_statement(Statement::from_string(
+            db.get_database_backend(),
+            "SELECT id, file_id1, file_id2 FROM media_file_similarity".to_string(),
+        ))
+        .all(db)
+        .await?;
         for row in rows {
             let uuid = Uuid::new_v5(
                 &Uuid::NAMESPACE_OID,
@@ -282,7 +301,11 @@ impl Migration {
                 .exec_stmt(
                     Query::update()
                         .table(MediaFileSimilarity::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(MediaFileSimilarity::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -296,13 +319,12 @@ impl Migration {
             playlist_id: i32,
             media_file_id: i32,
         }
-        let rows: Vec<MfpRow> =
-            MfpRow::find_by_statement(Statement::from_string(
-                db.get_database_backend(),
-                "SELECT id, playlist_id, media_file_id FROM media_file_playlists".to_string(),
-            ))
-            .all(db)
-            .await?;
+        let rows: Vec<MfpRow> = MfpRow::find_by_statement(Statement::from_string(
+            db.get_database_backend(),
+            "SELECT id, playlist_id, media_file_id FROM media_file_playlists".to_string(),
+        ))
+        .all(db)
+        .await?;
         for row in rows {
             let uuid = Uuid::new_v5(
                 &Uuid::NAMESPACE_URL,
@@ -313,7 +335,11 @@ impl Migration {
                 .exec_stmt(
                     Query::update()
                         .table(MediaFilePlaylists::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(MediaFilePlaylists::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -343,7 +369,11 @@ impl Migration {
                 .exec_stmt(
                     Query::update()
                         .table(MediaAnalysis::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(MediaAnalysis::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -374,7 +404,11 @@ impl Migration {
                 .exec_stmt(
                     Query::update()
                         .table(MediaMetadata::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(MediaMetadata::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -405,7 +439,11 @@ impl Migration {
                 .exec_stmt(
                     Query::update()
                         .table(MediaFileAlbums::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(MediaFileAlbums::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -440,7 +478,11 @@ impl Migration {
                 .exec_stmt(
                     Query::update()
                         .table(MediaFileArtists::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(MediaFileArtists::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -454,7 +496,7 @@ impl Migration {
             genre_hlc_uuid: String,
             file_hash: String,
         }
-        let rows: Vec<MfgRow> = MfartRow::find_by_statement(Statement::from_string(
+        let rows: Vec<MfgRow> = MfgRow::find_by_statement(Statement::from_string(
             db.get_database_backend(),
             "SELECT T1.id, T2.hlc_uuid AS genre_hlc_uuid, T3.file_hash FROM media_file_genres AS T1 JOIN genres AS T2 ON T1.genre_id = T2.id JOIN media_files AS T3 ON T1.media_file_id = T3.id"
                 .to_string(),
@@ -466,7 +508,7 @@ impl Migration {
                 &Uuid::NAMESPACE_OID,
                 format!(
                     "RUNE_GENRES_FILE::{}::{}",
-                    row.artist_hlc_uuid, row.file_hash
+                    row.genre_hlc_uuid, row.file_hash
                 )
                 .as_bytes(),
             )
@@ -475,7 +517,11 @@ impl Migration {
                 .exec_stmt(
                     Query::update()
                         .table(MediaFileGenres::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(MediaFileGenres::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -745,6 +791,7 @@ impl Migration {
 
         // STEP 3: Populate the 'hlc_uuid' column.
         let db = manager.get_connection();
+        let node_id = crate::get_node_id();
 
         #[derive(Iden)]
         enum PrimaryKey {
@@ -768,7 +815,11 @@ impl Migration {
                 .exec_stmt(
                     Query::update()
                         .table(table)
-                        .value(CommonColumns::HlcUuid, new_uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, new_uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(PrimaryKey::Id).eq(row.id))
                         .to_owned(),
                 )
@@ -939,6 +990,8 @@ impl Migration {
 
         // STEP 3: Populate the 'hlc_uuid' column.
         let db = manager.get_connection();
+        let node_id = crate::get_node_id();
+
         #[derive(Debug, FromQueryResult)]
         struct MixQueryRow {
             id: i32,
@@ -963,7 +1016,11 @@ impl Migration {
                 .exec_stmt(
                     Query::update()
                         .table(MixQueries::Table)
-                        .value(CommonColumns::HlcUuid, uuid)
+                        .values([
+                            (CommonColumns::HlcUuid, uuid.into()),
+                            (CommonColumns::CreatedAtHlcNid, node_id.into()),
+                            (CommonColumns::UpdatedAtHlcNid, node_id.into()),
+                        ])
                         .and_where(Expr::col(MixQueries::Id).eq(row.id))
                         .to_owned(),
                 )

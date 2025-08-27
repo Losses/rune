@@ -1,4 +1,15 @@
+use once_cell::sync::OnceCell;
 pub use sea_orm_migration::prelude::*;
+
+static NODE_ID: OnceCell<String> = OnceCell::new();
+
+pub fn initialize_node_id(node_id: String) -> Result<(), String> {
+    NODE_ID.set(node_id)
+}
+
+pub fn get_node_id() -> &'static str {
+    NODE_ID.get().expect("Node ID has not been initialized")
+}
 
 mod m20230701_000001_create_media_files_table;
 mod m20230701_000002_create_media_metadata_table;
