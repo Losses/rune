@@ -213,9 +213,7 @@ impl SyncScheduler {
                     results.push(TableSyncResult::Success(updated_metadata));
                 }
                 Err(e) => {
-                    error!(
-                        "Scheduler: Failed to sync table '{table_name_for_log}': {e:?}"
-                    );
+                    error!("Scheduler: Failed to sync table '{table_name_for_log}': {e:?}");
                     results.push(TableSyncResult::Failure {
                         table_name: table_name_for_log,
                         error: e,
@@ -242,11 +240,11 @@ impl Default for SyncScheduler {
 mod tests {
     use super::*;
     use crate::chunking::ChunkingOptions;
-    use crate::core::tests::test_entity;
+    use crate::core::SyncDirection;
     use crate::core::tests::MockRemoteDataSource;
     use crate::core::tests::NoOpForeignKeyResolver;
-    use crate::core::SyncDirection;
-    use crate::hlc::{SyncTaskContext, HLC};
+    use crate::core::tests::test_entity;
+    use crate::hlc::{HLC, SyncTaskContext};
 
     use anyhow::anyhow;
     use sea_orm::{ConnectionTrait, Database, DbBackend, DbConn, Schema};

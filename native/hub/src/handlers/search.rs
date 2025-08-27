@@ -8,9 +8,9 @@ use ::database::actions::search::search_for;
 use ::database::connection::MainDbConnection;
 
 use crate::{
+    Session, Signal,
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Session, Signal,
 };
 
 impl ParamsExtractor for SearchForRequest {

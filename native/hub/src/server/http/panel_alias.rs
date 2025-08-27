@@ -2,13 +2,13 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
 use axum::{
+    Json,
     extract::{Extension, State},
     http::StatusCode,
-    Json,
 };
 use serde::Deserialize;
 
-use crate::server::{manager::update_alias, ServerManager, ServerState};
+use crate::server::{ServerManager, ServerState, manager::update_alias};
 
 use super::register::AppError;
 

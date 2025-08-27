@@ -107,7 +107,10 @@ impl ServerManager {
         #[cfg(not(target_os = "android"))]
         let fsio = Arc::new(FsIo::new());
         #[cfg(target_os = "android")]
-        let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), &global_params.lib_path)?);
+        let fsio = Arc::new(FsIo::new(
+            Path::new(".rune/.android-fs.db"),
+            &global_params.lib_path,
+        )?);
 
         Ok(Self {
             global_params,

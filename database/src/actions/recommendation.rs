@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use arroy::distances::Euclidean;
 use arroy::{Reader, Writer};
 use log::error;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use sea_orm::entity::prelude::*;
 
 use crate::actions::analysis::AggregatedAnalysisResult;

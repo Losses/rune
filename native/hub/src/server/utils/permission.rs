@@ -17,9 +17,7 @@ pub fn print_permission_table(users: &[UserSummary]) {
             UserStatus::Blocked => "Blocked".red(),
         };
 
-        println!(
-            "{index_str} {alias} {device_info} {fingerprint} {status}"
-        );
+        println!("{index_str} {alias} {device_info} {fingerprint} {status}");
     }
 }
 

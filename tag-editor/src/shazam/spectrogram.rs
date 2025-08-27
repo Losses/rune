@@ -1,7 +1,7 @@
 use std::fmt;
 
-use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
+use rustfft::num_complex::Complex;
 use serde::Serialize;
 
 use crate::shazam::ring::Ring;

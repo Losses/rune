@@ -6,7 +6,7 @@ use std::time::SystemTime;
 use log::error;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{RwLock, broadcast};
 
 use crate::persistent::{PersistenceError, PersistentDataManager};
 use crate::utils::DeviceType;

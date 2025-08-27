@@ -4,8 +4,8 @@ use anyhow::Result;
 use tokio::signal::ctrl_c;
 
 use hub::server::{
-    utils::{device::load_device_info, path::get_config_dir},
     ServerManager,
+    utils::{device::load_device_info, path::get_config_dir},
 };
 
 use crate::initialize_global_params;

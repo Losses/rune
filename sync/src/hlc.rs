@@ -40,13 +40,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use blake3::Hasher;
 use chrono::Utc;
 use sea_orm::{
-    entity::prelude::*, Condition, DatabaseConnection, DeleteResult, FromQueryResult,
-    PaginatorTrait, QueryFilter, QueryOrder,
+    Condition, DatabaseConnection, DeleteResult, FromQueryResult, PaginatorTrait, QueryFilter,
+    QueryOrder, entity::prelude::*,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -145,8 +145,7 @@ impl HLC {
                 if last_hlc.version == u32::MAX {
                     panic!(
                         "HLC counter overflow detected within a single millisecond. Timestamp: {}, Node: {}",
-                        current_timestamp,
-                        context.node_id
+                        current_timestamp, context.node_id
                     );
                 }
                 (current_timestamp, last_hlc.version + 1)
@@ -450,7 +449,7 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
 mod hlcmodel_tests {
     use crate::{
         chunking::tests::test_model_def::Entity,
-        hlc::{create_hlc, HLCModel, HLC},
+        hlc::{HLC, HLCModel, create_hlc},
     };
     use anyhow::Result;
     use sea_orm::{Condition, DbBackend, EntityTrait, QueryFilter, QueryTrait, Statement, Value};

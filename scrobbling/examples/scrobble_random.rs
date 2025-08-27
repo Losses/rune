@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::{Arg, Command};
 use rand::Rng;
 use scrobbling::{
-    last_fm::LastFmClient, libre_fm::LibreFmClient, listen_brainz::ListenBrainzClient,
-    ScrobblingClient, ScrobblingTrack,
+    ScrobblingClient, ScrobblingTrack, last_fm::LastFmClient, libre_fm::LibreFmClient,
+    listen_brainz::ListenBrainzClient,
 };
 
 #[tokio::main]
@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
             }
         }
         _ => {
-            eprintln!("Unsupported service: {}", {service});
+            eprintln!("Unsupported service: {}", { service });
             return Ok(());
         }
     };

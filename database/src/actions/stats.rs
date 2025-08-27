@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
-use sea_orm::prelude::*;
 use sea_orm::ActiveValue;
+use sea_orm::prelude::*;
 
 use crate::entities::media_file_stats;
 use crate::entities::media_files;

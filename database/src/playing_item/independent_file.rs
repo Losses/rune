@@ -195,7 +195,11 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                     }
                 } else {
                     // Attempt to bake cover art
-                    if (self.bake_cover_art(fsio, lib_path, _main_db, &[item.clone()]).await).is_ok() {
+                    if (self
+                        .bake_cover_art(fsio, lib_path, _main_db, &[item.clone()])
+                        .await)
+                        .is_ok()
+                    {
                         // Try reading the color again
                         if let Ok(color_str) = fs::read_to_string(&color_file) {
                             if let Ok(color) = color_str.trim().parse::<i32>() {

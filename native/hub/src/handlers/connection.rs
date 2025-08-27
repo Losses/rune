@@ -1,12 +1,12 @@
 use anyhow::Result;
 use log::info;
 
-use database::connection::{check_library_state, LibraryState};
+use database::connection::{LibraryState, check_library_state};
 
 use crate::{
+    Session, Signal,
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Session, Signal,
 };
 
 impl ParamsExtractor for TestLibraryInitializedRequest {

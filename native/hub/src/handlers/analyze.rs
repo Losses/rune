@@ -6,7 +6,7 @@ use ::database::actions::analysis::{get_analyze_count, if_analyze_exists};
 use ::database::connection::MainDbConnection;
 
 use crate::utils::{GlobalParams, ParamsExtractor};
-use crate::{messages::*, Session, Signal};
+use crate::{Session, Signal, messages::*};
 
 impl ParamsExtractor for IfAnalyzeExistsRequest {
     type Params = (Arc<MainDbConnection>,);

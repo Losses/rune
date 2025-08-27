@@ -1,14 +1,14 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
 
 use ::database::{
     connection::MainDbConnection, playing_item::dispatcher::PlayingItemActionDispatcher,
 };
+use ::fsio::FsIo;
 use ::lyric::{lrc::parse_lrc, parser::parse_audio_lyrics};
 use ::metadata::reader::get_lyrics;
 use ::playback::player::PlayingItem;
-use ::fsio::FsIo;
 
 use crate::{
     Session, Signal,

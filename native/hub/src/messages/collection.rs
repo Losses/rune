@@ -13,7 +13,7 @@ pub enum CollectionType {
     Mix,
     Track,
     Genre,
-    Directory
+    Directory,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]

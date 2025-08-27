@@ -1,7 +1,7 @@
 use std::time::UNIX_EPOCH;
 use std::{collections::HashMap, time::SystemTime};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use async_trait::async_trait;
 use reqwest::{Client, Response};
 

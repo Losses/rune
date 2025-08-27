@@ -1,6 +1,6 @@
 use anyhow::Result;
-use sea_orm::{prelude::*, TransactionTrait};
 use sea_orm::{EntityTrait, QueryOrder, Set};
+use sea_orm::{TransactionTrait, prelude::*};
 
 use crate::entities::playback_queue;
 

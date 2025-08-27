@@ -1,6 +1,6 @@
 use std::{collections::HashMap, f32, f32::consts::PI, sync::Mutex};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use lazy_static::lazy_static;
 use rustfft::num_complex::Complex;
 

@@ -9,9 +9,9 @@ use ::database::{
 use ::playback::player::PlayingItem;
 
 use crate::{
+    Session, Signal,
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Session, Signal,
 };
 
 impl ParamsExtractor for SetLikedRequest {

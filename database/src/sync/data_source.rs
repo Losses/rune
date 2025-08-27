@@ -7,7 +7,7 @@ use uuid::Uuid;
 use ::sync::{
     chunking::DataChunk,
     core::{RemoteDataSource, RemoteRecordsWithPayload, SyncOperation},
-    hlc::{HLCModel, HLCRecord, HLC},
+    hlc::{HLC, HLCModel, HLCRecord},
 };
 
 #[derive(Debug)]

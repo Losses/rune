@@ -7,9 +7,9 @@ use sysinfo::Users;
 use ::database::connection::MainDbConnection;
 
 use crate::{
+    Session, Signal,
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Session, Signal,
 };
 
 impl ParamsExtractor for SystemInfoRequest {

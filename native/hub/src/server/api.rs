@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use http_body_util::{BodyExt, Empty, Full};
-use hyper::{body::Bytes, Method, Request, StatusCode, Uri};
+use hyper::{Method, Request, StatusCode, Uri, body::Bytes};
 use rustls::ClientConfig;
 use serde::{Deserialize, Serialize};
 use urlencoding::encode;

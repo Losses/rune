@@ -2,8 +2,8 @@ use std::{fmt, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use rustls::{
-    pki_types::{IpAddr, ServerName},
     Error as RustlsError,
+    pki_types::{IpAddr, ServerName},
 };
 use serde::{Deserialize, Serialize};
 

@@ -3,14 +3,14 @@ use std::time::Duration;
 use anyhow::Result;
 use num_bigint::BigUint as NumBigUint;
 use num_integer::Integer;
-use num_traits::{identities::Zero, ToPrimitive};
+use num_traits::{ToPrimitive, identities::Zero};
 use rcgen::{
     CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
     KeyUsagePurpose, SanType,
 };
 use rsa::{
-    pkcs8::{EncodePrivateKey, EncodePublicKey},
     RsaPrivateKey, RsaPublicKey,
+    pkcs8::{EncodePrivateKey, EncodePublicKey},
 };
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;

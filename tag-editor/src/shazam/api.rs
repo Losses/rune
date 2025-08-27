@@ -1,11 +1,11 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use chrono::Utc;
 use once_cell::sync::Lazy;
 use rand::seq::SliceRandom;
-use reqwest::{header, Client, StatusCode};
+use reqwest::{Client, StatusCode, header};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

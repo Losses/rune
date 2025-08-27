@@ -1,5 +1,5 @@
 #[cfg(target_os = "macos")]
-use swift_rs::{swift, SRString};
+use swift_rs::{SRString, swift};
 
 #[cfg(target_os = "macos")]
 swift!(fn bundle_id() -> SRString);
@@ -18,6 +18,6 @@ mod tests {
     fn test_bundle_id() {
         let bundle_id = get_bundle_id();
 
-        println!("Bundle ID: {}", {bundle_id});
+        println!("Bundle ID: {}", { bundle_id });
     }
 }

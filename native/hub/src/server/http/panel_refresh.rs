@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{extract::Extension, Json};
+use axum::{Json, extract::Extension};
 
 use super::register::AppError;
 use crate::server::ServerManager;

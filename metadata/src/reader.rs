@@ -1,6 +1,6 @@
-use std::{path::Path, collections::HashMap, fs::File};
+use std::{collections::HashMap, fs::File, path::Path};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{MetadataOptions, MetadataRevision, StandardTagKey, Value};

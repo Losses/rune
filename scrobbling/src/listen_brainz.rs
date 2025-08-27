@@ -1,6 +1,6 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use async_trait::async_trait;
-use reqwest::{header::HeaderValue, Client, Response};
+use reqwest::{Client, Response, header::HeaderValue};
 use serde_json::{Map, Value};
 use std::{
     collections::HashMap,

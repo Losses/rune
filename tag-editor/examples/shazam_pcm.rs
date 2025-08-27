@@ -1,12 +1,12 @@
 use std::fs::File;
 use std::io::Read;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Arg, Command};
 
 use tag_editor::shazam::{
     api::identify,
-    spectrogram::{compute_signature, Signature},
+    spectrogram::{Signature, compute_signature},
 };
 
 fn parse_pcm_to_samples(pcm_data: Vec<u8>) -> Result<Vec<f64>> {

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt, str::FromStr};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimeTag {

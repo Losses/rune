@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use log::error;
-use prettytable::{row, Table};
+use prettytable::{Table, row};
 use rust_decimal::prelude::ToPrimitive;
 
 use database::actions::metadata::get_metadata_summary_by_file_ids;

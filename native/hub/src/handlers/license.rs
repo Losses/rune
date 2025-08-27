@@ -5,15 +5,15 @@ use anyhow::Result;
 use database::connection::MainDbConnection;
 
 use crate::{
+    Session, Signal,
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Session, Signal,
 };
 use sha2::{Digest, Sha256};
 
 #[cfg(target_os = "windows")]
 pub async fn check_store_license() -> Result<Option<(String, bool, bool)>> {
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{Duration, sleep};
     use windows::Foundation::AsyncStatus;
     use windows::Services::Store::StoreContext;
 
@@ -114,7 +114,7 @@ impl Signal for RegisterLicenseRequest {
                     license: None,
                     success: false,
                     error: Some(format!("{e:#?}")),
-                }))
+                }));
             }
         };
 

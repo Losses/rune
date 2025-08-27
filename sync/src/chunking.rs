@@ -8,7 +8,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use blake3::Hasher;
 use log::{debug, info, warn};
 use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter, QuerySelect};
@@ -18,7 +18,7 @@ use uuid::Uuid;
 // Use the refined HLC module functions/traits
 use crate::{
     foreign_key::{ForeignKeyResolver, ModelWithForeignKeyOps},
-    hlc::{calculate_hash as calculate_record_hash, HLCModel, HLCQuery, HLCRecord, HLC},
+    hlc::{HLC, HLCModel, HLCQuery, HLCRecord, calculate_hash as calculate_record_hash},
 };
 
 const MILLISECONDS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
@@ -395,8 +395,13 @@ where
         // Ensure HLC ordering within the fetched batch (should be guaranteed by query order)
         if chunk_start_hlc > chunk_end_hlc {
             // This indicates a potential issue with query ordering or HLC data corruption
-            warn!("Inconsistent HLC order within fetched batch: Start {} > End {}. Record IDs: {} to {}",
-                 chunk_start_hlc, chunk_end_hlc, first_record.unique_id(), last_record.unique_id());
+            warn!(
+                "Inconsistent HLC order within fetched batch: Start {} > End {}. Record IDs: {} to {}",
+                chunk_start_hlc,
+                chunk_end_hlc,
+                first_record.unique_id(),
+                last_record.unique_id()
+            );
             // Depending on requirements, maybe bail or log and continue? Bailing is safer.
             bail!("Detected inconsistent HLC order within fetched batch for chunking.");
         }
@@ -514,9 +519,10 @@ where
         let expected_empty_hash = calculate_chunk_hash::<E::Model>(&[])?; // Use empty slice
         if parent_chunk.chunk_hash != expected_empty_hash {
             bail!(
-                     "Data inconsistency detected: Parent chunk reported 0 count, but hash mismatch (Expected empty hash '{}', Found '{}').",
-                     expected_empty_hash, parent_chunk.chunk_hash
-                 );
+                "Data inconsistency detected: Parent chunk reported 0 count, but hash mismatch (Expected empty hash '{}', Found '{}').",
+                expected_empty_hash,
+                parent_chunk.chunk_hash
+            );
         }
         // If hash matches for empty chunk, verification passed.
         debug!("Parent chunk was empty and verified successfully.");
@@ -560,7 +566,10 @@ where
         );
         bail!(
             "Data inconsistency detected: Record count mismatch for chunk [{}-{}] (Expected {}, Found {}).",
-            parent_chunk.start_hlc, parent_chunk.end_hlc, parent_chunk.count, records.len()
+            parent_chunk.start_hlc,
+            parent_chunk.end_hlc,
+            parent_chunk.count,
+            records.len()
         );
     }
 
@@ -585,7 +594,10 @@ where
             );
             bail!(
                 "Data inconsistency detected: Hash mismatch for chunk [{}-{}] (Expected '{}', Calculated '{}').",
-                parent_chunk.start_hlc, parent_chunk.end_hlc, parent_chunk.chunk_hash, calculated_parent_hash
+                parent_chunk.start_hlc,
+                parent_chunk.end_hlc,
+                parent_chunk.chunk_hash,
+                calculated_parent_hash
             );
         }
     } else {
@@ -593,9 +605,10 @@ where
         let expected_empty_hash = calculate_chunk_hash::<E::Model>(&records)?; // records is empty here
         if parent_chunk.chunk_hash != expected_empty_hash {
             bail!(
-                 "Data inconsistency detected: Parent chunk reported 0 count, but hash mismatch (Expected empty hash '{}', Found '{}').",
-                 expected_empty_hash, parent_chunk.chunk_hash
-             );
+                "Data inconsistency detected: Parent chunk reported 0 count, but hash mismatch (Expected empty hash '{}', Found '{}').",
+                expected_empty_hash,
+                parent_chunk.chunk_hash
+            );
         }
         // If hash matches for empty chunk, verification passed.
         debug!("Parent chunk was empty and verified successfully.");
@@ -710,7 +723,7 @@ pub mod tests {
         use super::*; // Inherit imports from parent test module
         use crate::{
             foreign_key::FkPayload,
-            hlc::{HLCModel, HLCRecord, HLC},
+            hlc::{HLC, HLCModel, HLCRecord},
         };
         use async_trait::async_trait;
         use sea_orm::DeriveEntityModel;
@@ -839,7 +852,7 @@ pub mod tests {
         // Create a NaiveDateTime from seconds and nanoseconds
         let seconds = (millis / 1000) as i64;
         let nanos = (millis % 1000 * 1_000_000) as u32; // Millis to Nanos
-                                                        // Use Utc.timestamp_opt to handle potential out-of-range values gracefully
+        // Use Utc.timestamp_opt to handle potential out-of-range values gracefully
         match Utc.timestamp_opt(seconds, nanos) {
             chrono::LocalResult::Single(dt) => {
                 // Format with full nanosecond precision and UTC offset ('Z' or +00:00)

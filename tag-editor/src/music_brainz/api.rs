@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use log::{error, warn};
 use reqwest::Client;
 use rusty_chromaprint::Configuration;

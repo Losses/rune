@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
-use http_body_util::{combinators::UnsyncBoxBody, BodyExt};
+use anyhow::{Context, Result, anyhow};
+use http_body_util::{BodyExt, combinators::UnsyncBoxBody};
 use hyper::{
-    body::{Bytes, Incoming},
     Request, Response,
+    body::{Bytes, Incoming},
 };
 use hyper_util::rt::TokioIo;
 use rustls::{client::ClientConfig, pki_types::ServerName};

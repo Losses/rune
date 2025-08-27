@@ -97,10 +97,7 @@ pub fn get_codec_information_from_node(fsio: &FsIo, fs_node: &FsNode) -> Result<
 
 const CHUNK_SIZE: usize = 1024 * 400;
 
-pub fn describe_file(
-    fs_node: &FsNode,
-    lib_path: &Option<PathBuf>,
-) -> Result<FileDescription> {
+pub fn describe_file(fs_node: &FsNode, lib_path: &Option<PathBuf>) -> Result<FileDescription> {
     let file_path = fs_node.path.clone();
 
     let rel_path: PathBuf = match lib_path {

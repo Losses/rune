@@ -285,8 +285,8 @@ macro_rules! collection_query {
             ) -> Result<Vec<Self>> {
                 use anyhow::Context;
                 use sea_orm::{
-                    sea_query::Func, sea_query::SimpleExpr, FromQueryResult, Order, QueryOrder,
-                    QuerySelect, QueryTrait,
+                    FromQueryResult, Order, QueryOrder, QuerySelect, QueryTrait, sea_query::Func,
+                    sea_query::SimpleExpr,
                 };
                 use $crate::actions::collection::CollectionQueryListMode;
 

@@ -6,9 +6,9 @@ use tokio::sync::Mutex;
 use ::playback::sfx_player::SfxPlayer;
 
 use crate::{
+    Session, Signal,
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Session, Signal,
 };
 
 impl ParamsExtractor for SfxPlayRequest {

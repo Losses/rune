@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader, Write};
 use anyhow::Result;
 use clap::{Arg, Command};
 
-use tag_editor::shazam::spectrogram::{compute_signature, Signature};
+use tag_editor::shazam::spectrogram::{Signature, compute_signature};
 
 #[tokio::main]
 async fn main() -> Result<()> {

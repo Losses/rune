@@ -1,10 +1,10 @@
 use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 use axum::{
+    Json,
     extract::{ConnectInfo, State},
     http::{Response, StatusCode},
     response::IntoResponse,
-    Json,
 };
 use serde::{Deserialize, Serialize};
 

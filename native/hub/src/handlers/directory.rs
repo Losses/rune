@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 
-use database::actions::directory::get_directory_tree;
 use database::actions::directory::DirectoryTree;
+use database::actions::directory::get_directory_tree;
 use database::connection::MainDbConnection;
 
+use crate::Session;
 use crate::utils::GlobalParams;
 use crate::utils::ParamsExtractor;
-use crate::Session;
-use crate::{messages::*, Signal};
+use crate::{Signal, messages::*};
 
 fn convert_directory_tree(tree: DirectoryTree) -> DirectoryTreeResponse {
     DirectoryTreeResponse {

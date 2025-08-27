@@ -1,4 +1,4 @@
-use prettytable::{format, row, Table};
+use prettytable::{Table, format, row};
 use serde_json::json;
 use std::fs::{self, File};
 use std::io::Write;

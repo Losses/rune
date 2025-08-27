@@ -65,7 +65,10 @@ macro_rules! register_single_handler {
 macro_rules! handle_server_response {
     ($response:expr, with_response) => {
         if let Some(response) = $response {
-            (response.name(), rinf::serialize(&response).map_err(|e| anyhow::Error::new(e)))
+            (
+                response.name(),
+                rinf::serialize(&response).map_err(|e| anyhow::Error::new(e)),
+            )
         } else {
             ("".to_owned(), Ok::<Vec<u8>, anyhow::Error>(Vec::new()))
         }

@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::broadcast::error::TryRecvError;
 use tokio::sync::Notify;
+use tokio::sync::broadcast::error::TryRecvError;
 
 pub struct SimpleChannel<T> {
     _queue: Arc<Mutex<VecDeque<T>>>,

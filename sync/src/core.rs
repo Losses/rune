@@ -74,7 +74,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 #[cfg(not(test))]
 use log::{error, info, warn};
 #[cfg(test)]
@@ -88,11 +88,11 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::chunking::{break_data_chunk, generate_data_chunks, ChunkingOptions, DataChunk};
+use crate::chunking::{ChunkingOptions, DataChunk, break_data_chunk, generate_data_chunks};
 use crate::foreign_key::{
     ActiveModelWithForeignKeyOps, FkPayload, ForeignKeyResolver, ModelWithForeignKeyOps,
 };
-use crate::hlc::{HLCModel, HLCQuery, HLCRecord, SyncTaskContext, HLC};
+use crate::hlc::{HLC, HLCModel, HLCQuery, HLCRecord, SyncTaskContext};
 use crate::utils::merge_fk_mappings;
 
 /// If a chunk pair has differing hashes, but the maximum record count
@@ -556,9 +556,13 @@ where
                 if max_count == 0 {
                     // Both chunks reported 0 count but hashes differed. This is weird.
                     // Hash of empty should be consistent. Fetch range to be safe.
-                    warn!("ChunkPair has 0 count but differing hashes for range [{}-{}] L:'{}' R:'{}'. Fetching range.",
-                          local_chunk.start_hlc, local_chunk.end_hlc,
-                          local_chunk.chunk_hash, remote_chunk.chunk_hash);
+                    warn!(
+                        "ChunkPair has 0 count but differing hashes for range [{}-{}] L:'{}' R:'{}'. Fetching range.",
+                        local_chunk.start_hlc,
+                        local_chunk.end_hlc,
+                        local_chunk.chunk_hash,
+                        remote_chunk.chunk_hash
+                    );
                     reconciliation_queue.push_back(ReconciliationItem::FetchRange(
                         ComparisonRange {
                             start_hlc: local_chunk.start_hlc.clone(),
@@ -621,8 +625,10 @@ where
 
                             info!(
                                 "Successfully broke down chunk [{}-{}] into {} local and {} remote sub-chunks. Aligning sub-chunks.",
-                                local_chunk.start_hlc, local_chunk.end_hlc,
-                                local_subs.len(), remote_subs.len()
+                                local_chunk.start_hlc,
+                                local_chunk.end_hlc,
+                                local_subs.len(),
+                                remote_subs.len()
                             );
 
                             // Align and queue the generated sub-chunks for further processing
@@ -636,8 +642,10 @@ where
                         }
                         (Err(e), _) => {
                             // Failed to break down the local chunk (verification likely failed)
-                            error!("Failed to break down local chunk [{}-{}]: {:?}. Falling back to FetchRange.",
-                                   local_chunk.start_hlc, local_chunk.end_hlc, e);
+                            error!(
+                                "Failed to break down local chunk [{}-{}]: {:?}. Falling back to FetchRange.",
+                                local_chunk.start_hlc, local_chunk.end_hlc, e
+                            );
                             // Fallback: Fetch all records for the original parent chunk range
                             reconciliation_queue.push_back(ReconciliationItem::FetchRange(
                                 ComparisonRange {
@@ -648,8 +656,10 @@ where
                         }
                         (_, Err(e)) => {
                             // Failed to get sub-chunks from the remote side
-                            error!("Failed to get remote sub-chunks for parent range [{}-{}]: {:?}. Falling back to FetchRange.",
-                                   local_chunk.start_hlc, local_chunk.end_hlc, e);
+                            error!(
+                                "Failed to get remote sub-chunks for parent range [{}-{}]: {:?}. Falling back to FetchRange.",
+                                local_chunk.start_hlc, local_chunk.end_hlc, e
+                            );
                             // Fallback: Fetch all records for the original parent chunk range
                             reconciliation_queue.push_back(ReconciliationItem::FetchRange(
                                 ComparisonRange {
@@ -848,7 +858,9 @@ where
                         }
                     } else {
                         // Record's created_at is newer than last_sync_hlc, so it's a genuine new record from remote.
-                        info!("Conflict Resolution: Record {id} is RemoteOnly and new. Generating InsertLocal.");
+                        info!(
+                            "Conflict Resolution: Record {id} is RemoteOnly and new. Generating InsertLocal."
+                        );
                         if context.sync_direction == SyncDirection::Pull
                             || context.sync_direction == SyncDirection::Bidirectional
                         {
@@ -1164,7 +1176,9 @@ where
                     })?;
 
                 if delete_result.rows_affected == 0 {
-                    warn!("While updating {id_str}, the existing record was not found for deletion. Proceeding with insert.");
+                    warn!(
+                        "While updating {id_str}, the existing record was not found for deletion. Proceeding with insert."
+                    );
                 }
 
                 // Second, insert the new version of the record
@@ -1487,9 +1501,9 @@ pub(crate) mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::chunking::{calculate_chunk_hash, ChunkFkMapping, ChunkingOptions, DataChunk};
+    use crate::chunking::{ChunkFkMapping, ChunkingOptions, DataChunk, calculate_chunk_hash};
     use crate::core::PrimaryKeyFromStr;
-    use crate::hlc::{HLCModel, HLCRecord, SyncTaskContext, HLC};
+    use crate::hlc::{HLC, HLCModel, HLCRecord, SyncTaskContext};
 
     #[derive(Debug)]
     pub(crate) struct NoOpForeignKeyResolver;
@@ -1535,7 +1549,7 @@ pub(crate) mod tests {
     pub(crate) mod test_entity {
         use std::str::FromStr;
 
-        use anyhow::{anyhow, Result};
+        use anyhow::{Result, anyhow};
         use async_trait::async_trait;
         use sea_orm::{
             ActiveModelBehavior, DeriveEntityModel, DerivePrimaryKey, DeriveRelation, EnumIter,
@@ -1543,7 +1557,7 @@ pub(crate) mod tests {
         use serde::{Deserialize, Serialize};
         use uuid::Uuid;
 
-        use crate::hlc::{HLCModel, HLCRecord, HLC};
+        use crate::hlc::{HLC, HLCModel, HLCRecord};
 
         use super::*;
 
@@ -3683,10 +3697,12 @@ pub(crate) mod tests {
         eprintln!("Actual error string (get_remote_chunks): {error_string}");
 
         assert!(error_string.contains("Failed to fetch remote chunks for table 'test_items'"));
-        assert!(error
-            .root_cause()
-            .to_string()
-            .contains("Simulated failure getting remote chunks"));
+        assert!(
+            error
+                .root_cause()
+                .to_string()
+                .contains("Simulated failure getting remote chunks")
+        );
 
         Ok(())
     }
@@ -3784,10 +3800,12 @@ pub(crate) mod tests {
         let error_string = error.to_string();
         eprintln!("Actual error string (get_remote_records): {error_string}");
         assert!(error_string.contains("Failed to fetch remote records for range"));
-        assert!(error
-            .root_cause()
-            .to_string()
-            .contains("Simulated failure getting remote records"));
+        assert!(
+            error
+                .root_cause()
+                .to_string()
+                .contains("Simulated failure getting remote records")
+        );
 
         Ok(())
     }
@@ -3857,10 +3875,12 @@ pub(crate) mod tests {
         assert!(
             error_string.contains("Sync failed for table 'test_items' during changes application") // Check context
         );
-        assert!(error
-            .root_cause()
-            .to_string()
-            .contains("Simulated remote apply failure")); // Check root cause
+        assert!(
+            error
+                .root_cause()
+                .to_string()
+                .contains("Simulated remote apply failure")
+        ); // Check root cause
 
         Ok(())
     }
@@ -3889,7 +3909,7 @@ pub(crate) mod tests {
         use std::collections::HashMap;
         use std::str::FromStr;
 
-        use anyhow::{anyhow, Result};
+        use anyhow::{Result, anyhow};
         use async_trait::async_trait;
         use sea_orm::entity::prelude::*;
         use sea_orm::{
@@ -3903,7 +3923,7 @@ pub(crate) mod tests {
         use crate::foreign_key::{
             ActiveModelWithForeignKeyOps, DatabaseExecutor, FkPayload, ModelWithForeignKeyOps,
         };
-        use crate::hlc::{HLCModel, HLCRecord, HLC};
+        use crate::hlc::{HLC, HLCModel, HLCRecord};
 
         #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
         #[sea_orm(table_name = "authors")]
@@ -4070,7 +4090,7 @@ pub(crate) mod tests {
         use std::println as warn;
         use std::str::FromStr;
 
-        use anyhow::{anyhow, Context, Result};
+        use anyhow::{Context, Result, anyhow};
         use async_trait::async_trait;
         use sea_orm::entity::prelude::*;
         use sea_orm::{
@@ -4084,7 +4104,7 @@ pub(crate) mod tests {
         use crate::foreign_key::{
             ActiveModelWithForeignKeyOps, DatabaseExecutor, FkPayload, ModelWithForeignKeyOps,
         };
-        use crate::hlc::{HLCModel, HLCRecord, HLC};
+        use crate::hlc::{HLC, HLCModel, HLCRecord};
 
         #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
         #[sea_orm(table_name = "posts")]
@@ -4245,8 +4265,7 @@ pub(crate) mod tests {
                     } else {
                         warn!(
                             "generate_fk_mappings_for_records (Post): Author with local PK {} not found for post with sync_id {}.",
-                            post_model.author_id,
-                            post_model.sync_id
+                            post_model.author_id, post_model.sync_id
                         );
                         // Decide if this is an error or if None should be stored. For now, just warn and skip.
                     }

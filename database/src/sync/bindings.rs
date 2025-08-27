@@ -121,3 +121,5 @@ impl_primary_key_from_str_for_i32_pk!(media_file_albums::PrimaryKey, i32);
 impl_primary_key_from_str_for_i32_pk!(media_file_artists::PrimaryKey, i32);
 impl_primary_key_from_str_for_i32_pk!(media_file_genres::PrimaryKey, i32);
 impl_primary_key_from_str_for_i32_pk!(media_cover_art::PrimaryKey, i32);
+impl_primary_key_from_str_for_i32_pk!(media_file_fingerprint::PrimaryKey, i32);
+impl_primary_key_from_str_for_i32_pk!(media_file_similarity::PrimaryKey, i32);

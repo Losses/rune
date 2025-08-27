@@ -10,7 +10,7 @@ pub mod verify;
 
 use std::{process::exit, sync::Arc};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use log::{error, info};
 use regex::Regex;
@@ -27,11 +27,11 @@ use ::discovery::{client::CertValidator, protocol::DiscoveryService};
 
 use cli::{Cli, DiscoveryCmd, RemoteCmd, ReplCommand};
 use connection::WSConnection;
-use editor::{create_editor, EditorConfig};
+use editor::{EditorConfig, create_editor};
 use fs::VirtualFS;
 use utils::{
-    get_fingerprint_by_index, print_certificate_table, print_device_details, print_device_table,
-    AppState,
+    AppState, get_fingerprint_by_index, print_certificate_table, print_device_details,
+    print_device_table,
 };
 use verify::{inspect_host, print_device_information, register_current_device, verify_servers};
 

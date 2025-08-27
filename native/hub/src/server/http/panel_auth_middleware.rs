@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use axum::{body::Body, http::Request, middleware::Next, response::Response};
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 
-use crate::server::{http::register::AppError, manager::JwtClaims, ServerManager};
+use crate::server::{ServerManager, http::register::AppError, manager::JwtClaims};
 
 pub async fn auth_middleware(request: Request<Body>, next: Next) -> Result<Response, AppError> {
     let auth_header = request

@@ -1,13 +1,13 @@
 use std::fmt::Debug;
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
-use tokio::sync::{broadcast, RwLock, RwLockReadGuard};
+use tokio::sync::{RwLock, RwLockReadGuard, broadcast};
 
 /// Represents errors that can occur during persistent data management.
 ///

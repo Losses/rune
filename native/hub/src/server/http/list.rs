@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 
 use super::register::AppError;
 use crate::server::ServerState;
