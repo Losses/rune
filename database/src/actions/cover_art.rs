@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 
 use ::fsio::FsIo;
 use ::metadata::cover_art::{CoverArt, extract_cover_art_binary, get_primary_color};
+use uuid::Uuid;
 
 use crate::{
     entities::{media_cover_art, media_files},
@@ -53,7 +54,7 @@ pub async fn ensure_magic_cover_art(
             file_hash: ActiveValue::Set(String::new()),
             binary: ActiveValue::Set(Vec::new()),
             primary_color: ActiveValue::Set(Some(0)),
-            hlc_uuid: ActiveValue::Set(node_id.to_owned()),
+            hlc_uuid: ActiveValue::Set("00000000-0000-0000-0000-000000000000".to_owned()),
             created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
             updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
             created_at_hlc_ver: ActiveValue::Set(0),
@@ -230,13 +231,15 @@ pub async fn insert_extract_result(
                 file_hash: ActiveValue::Set(cover_art.crc.clone()),
                 binary: ActiveValue::Set(cover_art.data.clone()),
                 primary_color: ActiveValue::Set(Some(cover_art.primary_color)),
-                hlc_uuid: ActiveValue::Set(node_id.to_owned()),
+                hlc_uuid: ActiveValue::Set(
+                    Uuid::new_v5(&Uuid::NAMESPACE_OID, cover_art.crc.as_bytes()).to_string(),
+                ),
                 created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
                 updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
                 created_at_hlc_ver: ActiveValue::Set(0),
                 updated_at_hlc_ver: ActiveValue::Set(0),
-                created_at_hlc_nid: ActiveValue::Set("".to_owned()),
-                updated_at_hlc_nid: ActiveValue::Set("".to_owned()),
+                created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+                updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
             };
 
             let insert_result = media_cover_art::Entity::insert(new_cover_art)

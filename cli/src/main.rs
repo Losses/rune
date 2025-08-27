@@ -220,7 +220,8 @@ async fn main() {
                 .unwrap();
             new_uuid
         }
-    }.to_string();
+    }
+    .to_string();
 
     match &cli.command {
         Commands::Scan => {
@@ -235,11 +236,12 @@ async fn main() {
                 None,
             )
             .await;
-            let _ = scan_cover_arts(fsio, &main_db, &path, "", 10, |_now, _total| {}, None).await;
+            let _ =
+                scan_cover_arts(fsio, &main_db, &path, &node_id, 10, |_now, _total| {}, None).await;
             info!("Library scanned successfully.");
         }
         Commands::Index => {
-            index_audio_library(&main_db).await;
+            index_audio_library(&main_db, &node_id).await;
         }
         Commands::Analyze { computing_device } => {
             analyze_audio_library(

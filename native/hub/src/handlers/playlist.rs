@@ -76,9 +76,7 @@ impl Signal for CreatePlaylistRequest {
         let txn = main_db.begin().await?;
         let playlist = create_playlist(&txn, &node_id, name.clone(), group.clone())
             .await
-            .with_context(|| {
-                format!("Failed to create playlist: name={name}, group={group}")
-            })?;
+            .with_context(|| format!("Failed to create playlist: name={name}, group={group}"))?;
         txn.commit().await?;
 
         Ok(Some(CreatePlaylistResponse {
@@ -213,19 +211,22 @@ impl Signal for AddItemToPlaylistRequest {
 }
 
 impl ParamsExtractor for ReorderPlaylistItemPositionRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
+        )
     }
 }
 
 impl Signal for ReorderPlaylistItemPositionRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
     type Response = ReorderPlaylistItemPositionResponse;
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (main_db, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -233,6 +234,7 @@ impl Signal for ReorderPlaylistItemPositionRequest {
 
         reorder_playlist_item_position(
             &main_db,
+            &node_id,
             request.playlist_id,
             request.media_file_id,
             request.new_position,

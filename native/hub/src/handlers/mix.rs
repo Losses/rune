@@ -94,6 +94,7 @@ impl Signal for CreateMixRequest {
             &main_db,
             &node_id,
             mix.id,
+            &mix.hlc_uuid,
             request
                 .queries
                 .clone()
@@ -157,6 +158,7 @@ impl Signal for UpdateMixRequest {
             &main_db,
             &node_id,
             request.mix_id,
+            &mix.hlc_uuid,
             request
                 .queries
                 .clone()

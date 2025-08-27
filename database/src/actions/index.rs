@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Error, Result};
+use chrono::Utc;
 use log::{error, info};
 use migration::OnConflict;
-use sea_orm::{prelude::*, DatabaseTransaction, QuerySelect};
 use sea_orm::{DatabaseConnection, Set, TransactionTrait};
+use sea_orm::{DatabaseTransaction, QuerySelect, prelude::*};
 use tokio_util::sync::CancellationToken;
 
 use crate::actions::collection::CollectionQueryType;
@@ -14,7 +15,7 @@ use crate::entities::{
     albums, artists, genres, media_file_albums, media_file_artists, media_file_genres, media_files,
 };
 
-use super::metadata::{get_metadata_summary_by_file_ids, MetadataSummary};
+use super::metadata::{MetadataSummary, get_metadata_summary_by_file_ids};
 
 /// Indexes media files by processing their metadata and updating database records for artists, albums, and genres.
 ///
@@ -34,6 +35,7 @@ use super::metadata::{get_metadata_summary_by_file_ids, MetadataSummary};
 /// Returns `Ok(())` if the indexing process is successful, or an `Err(Error)` if any error occurs.
 pub async fn index_media_files(
     main_db: &DatabaseConnection,
+    node_id: &str,
     file_ids: Vec<i32>,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<()> {
@@ -70,7 +72,7 @@ pub async fn index_media_files(
         }
 
         // Process artists for the current media file.
-        let artist_result = process_artists(&txn, &summary, cancel_token).await;
+        let artist_result = process_artists(&txn, node_id, &summary, cancel_token).await;
         // Process album for the current media file.
         let album_result = process_album(&txn, &summary).await;
         // Process genres for the current media file.
@@ -110,6 +112,7 @@ pub async fn index_media_files(
 /// Returns `Ok(())` if artist processing is successful, or an `Err(Error)` if any error occurs.
 async fn process_artists(
     txn: &DatabaseTransaction,
+    node_id: &str,
     summary: &MetadataSummary,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<()> {
@@ -161,6 +164,13 @@ async fn process_artists(
                 artists::ActiveModel {
                     name: Set(name.clone()),                // Set artist name.
                     group: Set(generate_group_name(&name)), // Generate group name for artist.
+                    hlc_uuid: Set(Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes()).to_string()),
+                    created_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+                    updated_at_hlc_ts: Set(Utc::now().to_rfc3339()),
+                    created_at_hlc_ver: Set(0),
+                    updated_at_hlc_ver: Set(0),
+                    created_at_hlc_nid: Set(node_id.to_owned()),
+                    updated_at_hlc_nid: Set(node_id.to_owned()),
                     ..Default::default()
                 }
             }))
@@ -413,6 +423,7 @@ async fn process_genres(
 /// Returns `Ok(())` if the library indexing is successful, or an `Err(Error)` if any error occurs.
 pub async fn index_audio_library(
     main_db: &DatabaseConnection,
+    node_id: &str,
     batch_size: usize,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<()> {
@@ -459,13 +470,13 @@ pub async fn index_audio_library(
 
             // Process the batch when it reaches the specified batch size.
             if file_ids.len() >= batch_size {
-                process_batch(main_db, &mut file_ids, cancel_token).await?; // Process the current batch.
+                process_batch(main_db, node_id, &mut file_ids, cancel_token).await?; // Process the current batch.
             }
         }
 
         // Process any remaining files in the last batch after the channel is closed.
         if !file_ids.is_empty() {
-            process_batch(main_db, &mut file_ids, cancel_token).await?; // Process the last batch.
+            process_batch(main_db, node_id, &mut file_ids, cancel_token).await?; // Process the last batch.
         }
 
         Ok::<(), Error>(())
@@ -502,11 +513,12 @@ pub async fn index_audio_library(
 /// Returns `Ok(())` if batch processing is successful, or an `Err(Error)` if any error occurs.
 async fn process_batch(
     db: &DatabaseConnection,
+    node_id: &str,
     file_ids: &mut Vec<i32>,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<()> {
     let batch = std::mem::take(file_ids); // Take ownership of the file IDs for processing and clear the original vector.
-    if let Err(e) = index_media_files(db, batch, cancel_token).await {
+    if let Err(e) = index_media_files(db, node_id, batch, cancel_token).await {
         error!("Batch processing failed: {e}"); // Log error if batch processing fails.
     }
     Ok(())

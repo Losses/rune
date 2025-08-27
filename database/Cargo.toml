@@ -47,7 +47,7 @@ windows = { version = "0.58.0", features = [
 ] }
 async-trait = "0.1.83"
 thiserror = "2.0.3"
-uuid = { version = "1.11.0", features = ["v4"] }
+uuid = { version = "1.11.0", features = ["v5", "v4"] }
 regex = "1.11.1"
 tempfile = "3.17.1"
 axum = { version = "0.8.2", features = ["tokio"] }

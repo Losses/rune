@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use async_trait::async_trait;
 use chrono::Utc;
 use log::info;
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
-use sea_orm::{prelude::*, TransactionTrait};
+use sea_orm::{TransactionTrait, prelude::*};
 use tokio::fs::read_to_string;
 
 use crate::actions::collection::CollectionQuery;
@@ -64,7 +64,13 @@ where
     let new_playlist = ActiveModel {
         name: ActiveValue::Set(name.clone()),
         group: ActiveValue::Set(group),
-        hlc_uuid: ActiveValue::Set(node_id.to_owned()),
+        hlc_uuid: ActiveValue::Set(
+            Uuid::new_v5(
+                &Uuid::NAMESPACE_URL,
+                format!("RUNE_PLAYLIST::{name}::{}", Utc::now().to_rfc3339()).as_bytes(),
+            )
+            .to_string(),
+        ),
         created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         created_at_hlc_ver: ActiveValue::Set(0),
@@ -143,7 +149,7 @@ pub async fn update_playlist(
         }
 
         active_model.updated_at_hlc_ts = ActiveValue::Set(Utc::now().to_rfc3339());
-        active_model.created_at_hlc_ver = ActiveValue::Set(ver + 1);
+        active_model.updated_at_hlc_ver = ActiveValue::Set(ver + 1);
         active_model.updated_at_hlc_nid = ActiveValue::Set(node_id.to_owned());
 
         // Update the playlist in the database
@@ -274,6 +280,7 @@ pub async fn add_item_to_playlist(
 /// * `Result<()>` - An empty result or an error.
 pub async fn reorder_playlist_item_position(
     main_db: &DatabaseConnection,
+    node_id: &str,
     playlist_id: i32,
     media_file_id: i32,
     new_position: i32,
@@ -288,9 +295,15 @@ pub async fn reorder_playlist_item_position(
         .await?;
 
     if let Some(item) = item {
+        let ver = item.updated_at_hlc_ver;
         // Update the position
         let mut active_model: media_file_playlists::ActiveModel = item.into();
         active_model.position = ActiveValue::Set(new_position);
+        active_model.updated_at_hlc_ts = ActiveValue::Set(Utc::now().to_rfc3339());
+        active_model.updated_at_hlc_ver = ActiveValue::Set(ver + 1);
+        active_model.updated_at_hlc_nid = ActiveValue::Set(node_id.to_owned());
+
+        // Update the media file playlist item in the database
         let _ = active_model.update(main_db).await?;
 
         Ok(())
@@ -432,6 +445,7 @@ where
 
 pub async fn import_m3u8_to_playlist<E>(
     main_db: &E,
+    node_id: &str,
     playlist_id: i32,
     playlist_path: &Path,
 ) -> Result<PlaylistImportResult>
@@ -449,6 +463,19 @@ where
                 playlist_id: ActiveValue::Set(playlist_id),
                 media_file_id: ActiveValue::Set(media_file_id),
                 position: ActiveValue::Set(index as i32),
+                hlc_uuid: ActiveValue::Set(
+                    Uuid::new_v5(
+                        &Uuid::NAMESPACE_URL,
+                        format!("RUNE_PLAYLIST::{playlist_id}::{media_file_id}").as_bytes(),
+                    )
+                    .to_string(),
+                ),
+                created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                created_at_hlc_ver: ActiveValue::Set(0),
+                updated_at_hlc_ver: ActiveValue::Set(0),
+                created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+                updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
                 ..Default::default()
             },
         )
@@ -477,7 +504,7 @@ pub async fn create_m3u8_playlist(
         create_playlist(&txn, node_id, name.clone(), group.clone()).await?;
 
     // Import the M3U8 file contents into the playlist
-    let import_result = import_m3u8_to_playlist(&txn, playlist.id, m3u8_path).await;
+    let import_result = import_m3u8_to_playlist(&txn, node_id, playlist.id, m3u8_path).await;
 
     // Check if the import was successful
     match import_result {
@@ -517,9 +544,7 @@ pub async fn remove_item_from_playlist(
 
     let txn = main_db.begin().await?;
 
-    info!(
-        "Removing item {media_file_id}(pos: {position}) from playlist {playlist_id}"
-    );
+    info!("Removing item {media_file_id}(pos: {position}) from playlist {playlist_id}");
     let delete_result = MediaFilePlaylistEntity::delete_many()
         .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
         .filter(media_file_playlists::Column::MediaFileId.eq(media_file_id))

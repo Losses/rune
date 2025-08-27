@@ -88,7 +88,9 @@ where
             match analysis_result {
                 Ok(analysis_result) => {
                     if let Some(x) = analysis_result {
-                        match insert_analysis_result(db, &node_id, file.id, x).await {
+                        match insert_analysis_result(db, &node_id, file.id, &file.file_hash, x)
+                            .await
+                        {
                             Ok(_) => debug!("Finished analysis: {}", file.id),
                             Err(e) => error!("Failed to insert analysis result: {e}"),
                         }
@@ -148,6 +150,7 @@ async fn insert_analysis_result(
     main_db: &DatabaseConnection,
     node_id: &str,
     file_id: i32,
+    file_hash: &str,
     result: NormalizedAnalysisResult,
 ) -> Result<()> {
     let mut new_analysis = media_analysis::ActiveModel {
@@ -164,6 +167,13 @@ async fn insert_analysis_result(
         spectral_kurtosis: ActiveValue::Set(Decimal::from_f32(result.spectral_kurtosis)),
         perceptual_spread: ActiveValue::Set(Decimal::from_f32(result.raw.perceptual_spread)),
         perceptual_sharpness: ActiveValue::Set(Decimal::from_f32(result.raw.perceptual_sharpness)),
+        hlc_uuid: ActiveValue::Set(
+            Uuid::new_v5(
+                &Uuid::NAMESPACE_OID,
+                format!("RUNE_ANALYSIS::{file_hash}").as_bytes(),
+            )
+            .to_string(),
+        ),
         created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         created_at_hlc_ver: ActiveValue::Set(0),

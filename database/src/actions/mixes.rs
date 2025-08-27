@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use chrono::Utc;
 use log::warn;
@@ -129,8 +129,8 @@ impl CollectionQuery for mixes::Model {
         mode: CollectionQueryListMode,
     ) -> Result<Vec<Self>> {
         use sea_orm::{
-            sea_query::Func, sea_query::SimpleExpr, FromQueryResult, Order, QueryOrder,
-            QuerySelect, QueryTrait,
+            FromQueryResult, Order, QueryOrder, QuerySelect, QueryTrait, sea_query::Func,
+            sea_query::SimpleExpr,
         };
 
         match mode {
@@ -195,12 +195,18 @@ pub async fn create_mix(
     use mixes::ActiveModel;
 
     let new_mix = ActiveModel {
-        name: ActiveValue::Set(name),
+        name: ActiveValue::Set(name.clone()),
         group: ActiveValue::Set(group),
         scriptlet_mode: ActiveValue::Set(scriptlet_mode),
         mode: ActiveValue::Set(Some(mode)),
         locked: ActiveValue::Set(locked),
-        hlc_uuid: ActiveValue::Set(node_id.to_owned()),
+        hlc_uuid: ActiveValue::Set(
+            Uuid::new_v5(
+                &Uuid::NAMESPACE_URL,
+                format!("RUNE_PLAYLIST::{}::{}", name, Utc::now().to_rfc3339()).as_bytes(),
+            )
+            .to_string(),
+        ),
         created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         created_at_hlc_ver: ActiveValue::Set(0),
@@ -293,36 +299,75 @@ pub async fn replace_mix_queries(
     main_db: &DatabaseConnection,
     node_id: &str,
     mix_id: i32,
+    mix_hlc_uuid: &str,
     operator_parameters: Vec<(String, String)>,
     group: Option<i32>,
 ) -> Result<()> {
     use mix_queries::Entity as MixQueryEntity;
 
     let txn = main_db.begin().await?;
-    let mut existing_ids = Vec::new();
 
+    // Get all existing records for the current mix_id
+    let existing_queries = MixQueryEntity::find()
+        .filter(mix_queries::Column::MixId.eq(mix_id))
+        .all(&txn)
+        .await
+        .with_context(|| format!("Failed to query existing queries for mix_id {mix_id}"))?;
+
+    // Create a mapping of existing records: operator -> existing record
+    let mut existing_by_operator: HashMap<String, mix_queries::Model> = HashMap::new();
+    for query in existing_queries {
+        existing_by_operator.insert(query.operator.clone(), query);
+    }
+
+    // Create a mapping of new parameters: operator -> parameter
+    let mut new_operator_params: HashMap<String, String> = HashMap::new();
     for (operator, parameter) in &operator_parameters {
-        let mix_query = MixQueryEntity::find()
-            .filter(mix_queries::Column::MixId.eq(mix_id))
-            .filter(mix_queries::Column::Operator.eq(operator))
-            .filter(mix_queries::Column::Parameter.eq(parameter))
-            .one(&txn)
-            .await
-            .with_context(|| {
-                format!("Failed to query existed query with `{operator}({parameter})`")
-            })?;
+        new_operator_params.insert(operator.clone(), parameter.clone());
+    }
 
-        if let Some(existing_mix_query) = mix_query {
-            existing_ids.push(existing_mix_query.id);
+    let current_time = Utc::now().to_rfc3339();
+
+    // Process each new operator-parameter pair
+    for (operator, parameter) in &operator_parameters {
+        if let Some(existing_query) = existing_by_operator.get(operator) {
+            // If operator exists, check if parameter needs to be updated
+            if existing_query.parameter != *parameter {
+                // Parameter is inconsistent, need to update record and increment version
+                let updated_query = mix_queries::ActiveModel {
+                    id: ActiveValue::Set(existing_query.id),
+                    parameter: ActiveValue::Set(parameter.clone()),
+                    group: ActiveValue::Set(group.unwrap_or_default()),
+                    updated_at_hlc_ts: ActiveValue::Set(current_time.clone()),
+                    updated_at_hlc_ver: ActiveValue::Set(existing_query.updated_at_hlc_ver + 1),
+                    updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+                    ..Default::default()
+                };
+
+                MixQueryEntity::update(updated_query)
+                    .exec(&txn)
+                    .await
+                    .with_context(|| {
+                        format!("Failed to update query with `{operator}({parameter})`")
+                    })?;
+            }
+            // If parameter is also consistent, no operation needed
         } else {
-            let mix_query = mix_queries::ActiveModel {
+            // Operator doesn't exist, create new record
+            let new_query = mix_queries::ActiveModel {
                 mix_id: ActiveValue::Set(mix_id),
                 operator: ActiveValue::Set(operator.clone()),
                 parameter: ActiveValue::Set(parameter.clone()),
                 group: ActiveValue::Set(group.unwrap_or_default()),
-                hlc_uuid: ActiveValue::Set(node_id.to_owned()),
-                created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-                updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                hlc_uuid: ActiveValue::Set(
+                    Uuid::new_v5(
+                        &Uuid::NAMESPACE_OID,
+                        format!("{mix_hlc_uuid}{operator}").as_bytes(),
+                    )
+                    .to_string(),
+                ),
+                created_at_hlc_ts: ActiveValue::Set(current_time.clone()),
+                updated_at_hlc_ts: ActiveValue::Set(current_time.clone()),
                 created_at_hlc_ver: ActiveValue::Set(0),
                 updated_at_hlc_ver: ActiveValue::Set(0),
                 created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
@@ -330,37 +375,32 @@ pub async fn replace_mix_queries(
                 ..Default::default()
             };
 
-            mix_queries::Entity::insert(mix_query)
+            MixQueryEntity::insert(new_query)
                 .exec(&txn)
                 .await
                 .with_context(|| {
                     format!("Failed to insert new query with `{operator}({parameter})`")
                 })?;
-        };
+        }
     }
 
-    let mut operator_parameter_conditions = Condition::any();
-    for (operator, parameter) in &operator_parameters {
-        operator_parameter_conditions = operator_parameter_conditions.add(
-            Condition::all()
-                .add(mix_queries::Column::Operator.eq(operator.clone()))
-                .add(mix_queries::Column::Parameter.eq(parameter.clone())),
-        );
+    // Handle records that need to be deleted (operators in existing records but not in new parameters)
+    for (existing_operator, existing_query) in existing_by_operator {
+        if !new_operator_params.contains_key(&existing_operator) {
+            // This operator doesn't exist in new parameters, needs to be marked for deletion
+            MixQueryEntity::delete_by_id(existing_query.id)
+                .exec(&txn)
+                .await
+                .with_context(|| {
+                    format!("Failed to delete query with operator `{existing_operator}`")
+                })?;
+        }
     }
-
-    let delete_condition = Condition::all()
-        .add(mix_queries::Column::MixId.eq(mix_id))
-        .add(Condition::not(operator_parameter_conditions));
-
-    MixQueryEntity::delete_many()
-        .filter(delete_condition)
-        .exec(&txn)
-        .await?;
 
     txn.commit().await?;
-
     Ok(())
 }
+
 pub async fn get_mix_queries_by_mix_id(
     main_db: &DatabaseConnection,
     mix_id: i32,

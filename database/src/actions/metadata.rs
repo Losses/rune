@@ -893,7 +893,7 @@ where
 
         let file_ids = get_file_ids_by_descriptions(main_db, &descriptions).await?;
 
-        match index_media_files(main_db, file_ids, cancel_token.as_ref())
+        match index_media_files(main_db, node_id, file_ids, cancel_token.as_ref())
             .await
             .with_context(|| "Unable to index files")
         {
