@@ -1,6 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use axum::{
     body::Bytes,
     extract::{Path, Query, State},
@@ -10,9 +10,9 @@ use axum::{
 use chrono::DateTime;
 use log::{debug, error, info, warn};
 use sea_orm::{
-    sea_query::OnConflict, ActiveModelBehavior, ActiveModelTrait, ActiveValue::Set, ColumnTrait,
-    DatabaseConnection, EntityTrait, IntoActiveModel, Iterable, ModelTrait, PrimaryKeyToColumn,
-    PrimaryKeyTrait, QueryFilter, TransactionTrait,
+    ActiveModelBehavior, ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection,
+    EntityTrait, IntoActiveModel, Iterable, ModelTrait, PrimaryKeyToColumn, PrimaryKeyTrait,
+    QueryFilter, TransactionTrait, sea_query::OnConflict,
 };
 use serde::{Deserialize, Serialize};
 use sync::chunking::{break_data_chunk, generate_data_chunks};
@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::{
     entities::{
         albums, artists, genres, media_cover_art, media_file_albums, media_file_artists,
-        media_file_genres, media_files, sync_record,
+        media_file_fingerprint, media_file_genres, media_file_similarity, media_files, sync_record,
     },
     sync::utils::parse_hlc,
 };
@@ -30,7 +30,7 @@ use ::sync::{
     chunking::{ChunkingOptions, DataChunk, SubDataChunk},
     core::{RemoteRecordsWithPayload, SyncOperation},
     foreign_key::{ActiveModelWithForeignKeyOps, ForeignKeyResolver, ModelWithForeignKeyOps},
-    hlc::{HLCModel, HLCQuery, HLCRecord, SyncTaskContext, HLC},
+    hlc::{HLC, HLCModel, HLCQuery, HLCRecord, SyncTaskContext},
 };
 
 use super::foreign_keys::RuneForeignKeyResolver;
@@ -182,11 +182,20 @@ pub async fn get_remote_chunks_handler(
             )
             .await?
         }
+        "media_file_fingerprint" => {
+            generate_data_chunks::<media_file_fingerprint::Entity, _>(
+                db,
+                &options,
+                after_hlc,
+                Some(fk_resolver),
+            )
+            .await?
+        }
         _ => {
             return Err(AppError(anyhow!(
                 "Unsupported table name for chunks: {}",
                 table_name
-            )))
+            )));
         }
     };
     Ok(Json(chunks))
@@ -278,11 +287,20 @@ pub async fn get_remote_sub_chunks_handler(
             )
             .await?
         }
+        "media_file_fingerprint" => {
+            break_data_chunk::<media_file_fingerprint::Entity, _>(
+                db,
+                &payload.parent_chunk,
+                payload.sub_chunk_size,
+                Some(fk_resolver),
+            )
+            .await?
+        }
         _ => {
             return Err(AppError(anyhow!(
                 "Unsupported table name for sub_chunks: {}",
                 table_name
-            )))
+            )));
         }
     };
     let result_chunks: Vec<DataChunk> = sub_chunks_metadata.into_iter().map(|s| s.chunk).collect();
@@ -426,11 +444,29 @@ pub async fn get_remote_records_in_hlc_range_handler(
             )
             .await?,
         )?,
+        "media_file_fingerprint" => serde_json::to_value(
+            fetch_records_with_fk_payloads::<media_file_fingerprint::Entity, _>(
+                db,
+                &start_hlc,
+                &end_hlc,
+                fk_resolver,
+            )
+            .await?,
+        )?,
+        "media_file_similarity" => serde_json::to_value(
+            fetch_records_with_fk_payloads::<media_file_similarity::Entity, _>(
+                db,
+                &start_hlc,
+                &end_hlc,
+                fk_resolver,
+            )
+            .await?,
+        )?,
         _ => {
             return Err(AppError(anyhow!(
                 "Unsupported table name for records: {}",
                 table_name
-            )))
+            )));
         }
     };
     Ok(Json(response_json).into_response())
@@ -637,6 +673,15 @@ pub async fn apply_remote_changes_handler(
         }
         "media_file_genres" => {
             process_entity_changes::<media_file_genres::Entity, _>(
+                &txn,
+                &body,
+                fk_resolver,
+                &table_name,
+            )
+            .await?
+        }
+        "media_file_fingerprint" => {
+            process_entity_changes::<media_file_fingerprint::Entity, _>(
                 &txn,
                 &body,
                 fk_resolver,
