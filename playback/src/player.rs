@@ -158,7 +158,7 @@ impl Player {
             volume: 1.0,
         }));
 
-        let commands = Arc::new(Mutex::new(cmd_tx));
+        let commands = Arc::new(Mutex::new(cmd_tx.clone()));
         // Create the Player instance and wrap the command sender in Arc<Mutex>
         let player = Player {
             commands: commands.clone(),
@@ -176,8 +176,12 @@ impl Player {
         let internal_cancellation_token = cancellation_token.clone();
         thread::spawn(move || {
             // Create a PlayerInternal instance, passing in the command receiver and event sender
-            let mut internal =
-                PlayerInternal::new(cmd_rx, event_sender, internal_cancellation_token.clone());
+            let mut internal = PlayerInternal::new(
+                cmd_rx,
+                event_sender,
+                internal_cancellation_token.clone(),
+                cmd_tx.clone(),
+            );
             // Create a new Tokio runtime for asynchronous tasks
             let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
             // Run the main loop of PlayerInternal within the Tokio runtime
