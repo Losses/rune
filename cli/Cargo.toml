@@ -15,7 +15,7 @@ database = { path = "../database" }
 metadata = { path = "../metadata" }
 analysis = { path = "../analysis" }
 playback = { path = "../playback" }
-tracing-subscriber = "0.3.18"
+tracing-subscriber = "0.3.20"
 tracing = "0.1.40"
 serde = "1.0.219"
 serde_json = "1.0.140"
