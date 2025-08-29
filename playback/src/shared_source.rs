@@ -1,25 +1,30 @@
-use std::fs::File;
-use std::io::BufReader;
 use std::sync::{Arc, Mutex};
 
-use rodio::Decoder;
+use rodio::{Sample, Source};
 
-use crate::buffered::RuneBuffered;
-
-pub struct SharedSource {
-    pub inner: Arc<Mutex<RuneBuffered<Decoder<BufReader<File>>>>>,
+pub struct SharedSource<S: Source>
+where
+    S::Item: Sample,
+{
+    pub inner: Arc<Mutex<S>>,
 }
 
-impl SharedSource {
-    pub fn new(source: RuneBuffered<Decoder<BufReader<File>>>) -> Self {
+impl<S: Source> SharedSource<S>
+where
+    S::Item: Sample,
+{
+    pub fn new(source: S) -> Self {
         Self {
             inner: Arc::new(Mutex::new(source)),
         }
     }
 }
 
-impl Iterator for SharedSource {
-    type Item = <RuneBuffered<Decoder<BufReader<File>>> as Iterator>::Item;
+impl<S: Source> Iterator for SharedSource<S>
+where
+    S::Item: Sample,
+{
+    type Item = S::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.lock().unwrap().next()

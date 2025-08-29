@@ -30,6 +30,7 @@ pub enum PlayingItem {
     /// This is the raw content, on native platform it
     /// is the path, on Android, it is the Content URI
     IndependentFile(String),
+    Online(String),
     Unknown,
 }
 
@@ -40,6 +41,7 @@ impl fmt::Display for PlayingItem {
             PlayingItem::IndependentFile(path) => {
                 write!(f, "PlayingItem::IndependentFile({path})")
             }
+            PlayingItem::Online(url) => write!(f, "PlayingItem::Online({url})"),
             PlayingItem::Unknown => write!(f, "PlayingItem::Unknown()"),
         }
     }

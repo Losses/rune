@@ -2,16 +2,20 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use log::{debug, error, info, warn};
 use rodio::source::SeekError;
 use rodio::{Decoder, PlayError, Sink, Source};
+
+use stream_download::storage::temp::TempStorageProvider;
+use stream_download::{Settings, StreamDownload};
 use tokio::sync::mpsc;
-use tokio::time::{Duration, Instant, interval, sleep_until};
+use tokio::time::{Instant, interval, sleep_until};
 use tokio_util::sync::CancellationToken;
 
-use crate::buffered::rune_buffered;
+use crate::buffered::{RuneBuffered, rune_buffered};
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::player::PlayingItem;
 use crate::realtime_fft::RealTimeFFT;
@@ -20,6 +24,68 @@ use crate::strategies::{
     AddMode, PlaybackStrategy, RepeatAllStrategy, RepeatOneStrategy, SequentialStrategy,
     ShuffleStrategy, UpdateReason,
 };
+
+enum AnySource {
+    Local(RuneBuffered<Decoder<BufReader<File>>>),
+    Online(RuneBuffered<Decoder<StreamDownload<TempStorageProvider>>>),
+}
+
+impl AnySource {
+    fn current_samples(&self) -> Option<Vec<i16>> {
+        match self {
+            AnySource::Local(s) => s.current_samples(),
+            AnySource::Online(s) => s.current_samples(),
+        }
+    }
+}
+
+impl Iterator for AnySource {
+    type Item = i16;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            AnySource::Local(s) => s.next(),
+            AnySource::Online(s) => s.next(),
+        }
+    }
+}
+
+impl Source for AnySource {
+    fn current_frame_len(&self) -> Option<usize> {
+        match self {
+            AnySource::Local(s) => s.current_frame_len(),
+            AnySource::Online(s) => s.current_frame_len(),
+        }
+    }
+
+    fn channels(&self) -> u16 {
+        match self {
+            AnySource::Local(s) => s.channels(),
+            AnySource::Online(s) => s.channels(),
+        }
+    }
+
+    fn sample_rate(&self) -> u32 {
+        match self {
+            AnySource::Local(s) => s.sample_rate(),
+            AnySource::Online(s) => s.sample_rate(),
+        }
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        match self {
+            AnySource::Local(s) => s.total_duration(),
+            AnySource::Online(s) => s.total_duration(),
+        }
+    }
+
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        match self {
+            AnySource::Local(s) => s.try_seek(pos),
+            AnySource::Online(s) => s.try_seek(pos),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PlaybackMode {
@@ -158,7 +224,11 @@ pub struct InternalLog {
     pub error: String,
 }
 
-impl Source for SharedSource {
+impl<S> Source for SharedSource<S>
+where
+    S: Source,
+    S::Item: rodio::Sample,
+{
     fn current_frame_len(&self) -> Option<usize> {
         self.inner.lock().unwrap().current_frame_len()
     }
@@ -255,13 +325,13 @@ impl PlayerInternal {
 
                     debug!("Received command: {cmd:?}");
                     match cmd {
-                        PlayerCommand::Load { index } => self.load(Some(index), false, true),
-                        PlayerCommand::Play => self.play(),
+                        PlayerCommand::Load { index } => self.load(Some(index), false, true).await,
+                        PlayerCommand::Play => self.play().await,
                         PlayerCommand::Pause => self.pause(),
                         PlayerCommand::Stop => self.stop(),
-                        PlayerCommand::Next => self.next(),
-                        PlayerCommand::Previous => self.previous(),
-                        PlayerCommand::Switch(index) => self.switch(index),
+                        PlayerCommand::Next => self.next().await,
+                        PlayerCommand::Previous => self.previous().await,
+                        PlayerCommand::Switch(index) => self.switch(index).await,
                         PlayerCommand::Seek(position) => self.seek(position),
                         PlayerCommand::AddToPlaylist { tracks, mode } => {
                             self.add_to_playlist(tracks, mode);
@@ -273,7 +343,7 @@ impl PlayerInternal {
                             self.move_playlist_item(old_index, new_index);
                             Ok(())
                         },
-                        PlayerCommand::SetPlaybackMode(mode) => self.set_playback_mode(mode),
+                        PlayerCommand::SetPlaybackMode(mode) => self.set_playback_mode(mode).await,
                         PlayerCommand::SetVolume(volume) => self.set_volume(volume),
                         PlayerCommand::SetRealtimeFFTEnabled(enabled) => self.set_realtime_fft_enabled(enabled),
                         PlayerCommand::SetAdaptiveSwitchingEnabled(enabled) => self.set_adaptive_switching(enabled),
@@ -286,7 +356,7 @@ impl PlayerInternal {
                 },
                 _ = progress_interval.tick() => {
                     if self.state != InternalPlaybackState::Stopped {
-                        self.send_progress()?;
+                        self.send_progress().await?;
                     }
                 },
                 _ = async {
@@ -308,7 +378,7 @@ impl PlayerInternal {
                         if let Some(index) = self.current_track_index {
                             self.stream_retry_count += 1;
                             info!("Retrying to load track (attempt {} of 5)", self.stream_retry_count);
-                            if let Err(e) = self.load(Some(index), false, true) {
+                            if let Err(e) = self.load(Some(index), false, true).await {
                                 error!("Retry failed: {e:?}");
                             }
                         }
@@ -334,7 +404,7 @@ impl PlayerInternal {
         Ok(())
     }
 
-    fn load(&mut self, index: Option<usize>, play: bool, mapped: bool) -> Result<()> {
+    async fn load(&mut self, index: Option<usize>, play: bool, mapped: bool) -> Result<()> {
         if let Some(index) = index {
             debug!("Loading track at index: {}", { index });
             let mapped_index = if mapped {
@@ -343,27 +413,51 @@ impl PlayerInternal {
                 index
             };
 
-            if mapped_index + 1 > self.playlist.len() {
+            if mapped_index >= self.playlist.len() {
                 warn!("Index {mapped_index} exceed the boundary");
                 return Ok(());
             }
 
             let item = &self.playlist[mapped_index];
-            let file = File::open(item.path.clone())
-                .with_context(|| format!("Failed to open file: {:?}", item.path))?;
-            let source = Decoder::new(BufReader::new(file));
+            let source_result: Result<AnySource> = match &item.item {
+                PlayingItem::IndependentFile(_) | PlayingItem::InLibrary(_) => {
+                    let file = File::open(item.path.clone())
+                        .with_context(|| format!("Failed to open file: {:?}", item.path))?;
+                    let decoder = Decoder::new(BufReader::new(file))?;
+                    Ok(AnySource::Local(rune_buffered(decoder)))
+                }
+                PlayingItem::Online(url) => {
+                    info!("Downloading from url: {url}");
+                    let reader = StreamDownload::new_http(
+                        url.parse()?,
+                        TempStorageProvider::new(),
+                        Settings::default(),
+                    )
+                    .await
+                    .map_err(|e| anyhow!(e.to_string()))?;
 
-            if let Err(error) = source {
-                warn!("Failed to decode file {:?}: {:#?}", item.path, error);
-                self.next()?;
-                self.event_sender.send(PlayerEvent::Log(InternalLog {
-                    domain: "player::internal::decoder".to_string(),
-                    error: format!("{error:#?}"),
-                }))?;
-                return Ok(());
-            }
+                    let decoder = Decoder::new(reader)?;
+                    Ok(AnySource::Online(rune_buffered(decoder)))
+                }
+                PlayingItem::Unknown => {
+                    bail!("Cannot load unknown item");
+                }
+            };
 
-            let source = SharedSource::new(rune_buffered(source.unwrap()));
+            let source = match source_result {
+                Ok(s) => s,
+                Err(error) => {
+                    warn!("Failed to decode file {:?}: {:#?}", item.path, error);
+                    Box::pin(self.next()).await?;
+                    self.event_sender.send(PlayerEvent::Log(InternalLog {
+                        domain: "player::internal::decoder".to_string(),
+                        error: format!("{error:#?}"),
+                    }))?;
+                    return Ok(());
+                }
+            };
+
+            let source = SharedSource::new(source);
             let source_for_fft = Arc::clone(&source.inner);
 
             let (stream, stream_handle) = RuneOutputStream::try_default_with_callback({
@@ -395,13 +489,13 @@ impl PlayerInternal {
             sink.set_volume(self.volume);
             sink.append(source.periodic_access(
                 Duration::from_millis(12),
-                move |_sample: &mut SharedSource| {
+                move |_sample: &mut SharedSource<_>| {
                     if let Ok(guard) = source_for_fft.lock() {
                         let data: Option<Vec<i16>> = guard.current_samples();
-                        if let Some(data) = data
-                            && fft_tx.send(data).is_err()
-                        {
-                            error!("Failed to send FFT data");
+                        if let Some(data) = data {
+                            if fft_tx.send(data).is_err() {
+                                error!("Failed to send FFT data");
+                            }
                         }
                     }
                 },
@@ -459,7 +553,7 @@ impl PlayerInternal {
         Ok(())
     }
 
-    fn play(&mut self) -> Result<()> {
+    async fn play(&mut self) -> Result<()> {
         if let Some(sink) = &self.sink {
             sink.play();
             info!("Playback started");
@@ -484,8 +578,9 @@ impl PlayerInternal {
         } else {
             info!("Loading the first track");
             self.load(Some(0), true, true)
+                .await
                 .with_context(|| "Failed to load the first track")?;
-            self.play()?;
+            Box::pin(self.play()).await?;
         }
 
         Ok(())
@@ -528,10 +623,11 @@ impl PlayerInternal {
         Ok(())
     }
 
-    fn next(&mut self) -> Result<()> {
+    async fn next(&mut self) -> Result<()> {
         if let Some(index) = self.current_track_index {
             if let Some(next_index) = self.playback_strategy.next(index, self.playlist.len()) {
                 self.load(Some(next_index), true, true)
+                    .await
                     .with_context(|| "Failed to load next track")?;
             } else {
                 info!("End of playlist reached");
@@ -542,7 +638,8 @@ impl PlayerInternal {
                 if let Some(start_index) =
                     self.playback_strategy.on_playlist_end(self.playlist.len())
                 {
-                    self.load(Some(start_index), false, true)
+                    Box::pin(self.load(Some(start_index), false, true))
+                        .await
                         .with_context(|| "Failed to load track at start index")?;
                 } else {
                     self.stop()?;
@@ -553,9 +650,10 @@ impl PlayerInternal {
         Ok(())
     }
 
-    fn do_switch_back(&mut self, index: usize) -> Result<()> {
+    async fn do_switch_back(&mut self, index: usize) -> Result<()> {
         if let Some(prev_index) = self.playback_strategy.previous(index, self.playlist.len()) {
             self.load(Some(prev_index), true, true)
+                .await
                 .with_context(|| "Failed to load previous track")?;
         } else {
             info!("Beginning of playlist reached");
@@ -564,7 +662,7 @@ impl PlayerInternal {
         Ok(())
     }
 
-    fn previous(&mut self) -> Result<()> {
+    async fn previous(&mut self) -> Result<()> {
         if let Some(index) = self.current_track_index {
             match &self.sink {
                 Some(sink) => {
@@ -572,23 +670,25 @@ impl PlayerInternal {
 
                     if self.adaptive_switching && need_adaptive {
                         self.load(Some(index), true, true)
+                            .await
                             .with_context(|| "Failed to reload track")?;
                     } else {
-                        return self.do_switch_back(index);
+                        return self.do_switch_back(index).await;
                     }
                     return Ok(());
                 }
-                None => return self.do_switch_back(index),
+                None => return self.do_switch_back(index).await,
             }
         }
 
         Ok(())
     }
 
-    fn switch(&mut self, index: usize) -> Result<()> {
+    async fn switch(&mut self, index: usize) -> Result<()> {
         if index < self.playlist.len() {
             debug!("Switching to track at index: {}", { index });
             self.load(Some(index), true, false)
+                .await
                 .with_context(|| "Failed to switch track")?;
         } else {
             warn!("Switch command received but index {index} is out of bounds");
@@ -730,7 +830,7 @@ impl PlayerInternal {
         Ok(())
     }
 
-    fn set_playback_mode(&mut self, mode: PlaybackMode) -> Result<()> {
+    async fn set_playback_mode(&mut self, mode: PlaybackMode) -> Result<()> {
         self.playback_mode = mode;
         self.playback_strategy = match mode {
             PlaybackMode::Sequential => Box::new(SequentialStrategy),
@@ -738,7 +838,7 @@ impl PlayerInternal {
             PlaybackMode::RepeatAll => Box::new(RepeatAllStrategy),
             PlaybackMode::Shuffle => Box::new(ShuffleStrategy::new(self.playlist.len())),
         };
-        self.send_progress()?;
+        self.send_progress().await?;
         info!("Playback mode set to {:?}", { mode });
 
         Ok(())
@@ -749,7 +849,7 @@ impl PlayerInternal {
             .get_mapped_track_index(index, self.playlist.len())
     }
 
-    fn send_progress(&mut self) -> Result<()> {
+    async fn send_progress(&mut self) -> Result<()> {
         let id = self.current_item.clone();
         let index = self.current_track_index;
         let index = index.map(|x| self.get_mapped_track_index(x));
@@ -770,7 +870,7 @@ impl PlayerInternal {
                     .with_context(|| "Failed to send EndOfTrack event")?;
 
                 if self.state != InternalPlaybackState::Stopped {
-                    self.next()?;
+                    Box::pin(self.next()).await?;
                 }
             } else {
                 self.event_sender
