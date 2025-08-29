@@ -416,21 +416,21 @@ where
         })?;
 
         let mut current_chunk_fk_mappings: Option<ChunkFkMapping> = None;
-        if let Some(resolver) = fk_resolver {
-            if !records.is_empty() {
-                let mappings = resolver
-                    .generate_fk_mappings_for_records(&records, db)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Failed to generate FK mappings for chunk of entity {}",
-                            E::table_name(&E::default())
-                        )
-                    })?;
+        if let Some(resolver) = fk_resolver
+            && !records.is_empty()
+        {
+            let mappings = resolver
+                .generate_fk_mappings_for_records(&records, db)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to generate FK mappings for chunk of entity {}",
+                        E::table_name(&E::default())
+                    )
+                })?;
 
-                if !mappings.is_empty() {
-                    current_chunk_fk_mappings = Some(mappings);
-                }
+            if !mappings.is_empty() {
+                current_chunk_fk_mappings = Some(mappings);
             }
         }
 
@@ -662,20 +662,20 @@ where
             })?;
 
         let mut sub_chunk_fk_map: Option<ChunkFkMapping> = None;
-        if let Some(resolver) = fk_resolver {
-            if !sub_chunk_records_slice.is_empty() {
-                let mappings = resolver
-                    .generate_fk_mappings_for_records(sub_chunk_records_slice, db)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Failed to generate FK mappings for sub-chunk of entity {}",
-                            E::table_name(&E::default())
-                        )
-                    })?;
-                if !mappings.is_empty() {
-                    sub_chunk_fk_map = Some(mappings);
-                }
+        if let Some(resolver) = fk_resolver
+            && !sub_chunk_records_slice.is_empty()
+        {
+            let mappings = resolver
+                .generate_fk_mappings_for_records(sub_chunk_records_slice, db)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to generate FK mappings for sub-chunk of entity {}",
+                        E::table_name(&E::default())
+                    )
+                })?;
+            if !mappings.is_empty() {
+                sub_chunk_fk_map = Some(mappings);
             }
         }
 
