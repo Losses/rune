@@ -12,10 +12,11 @@ use crate::reader::push_tags;
 
 pub async fn get_metadata_and_codec_from_stream(
     source: Box<dyn MediaSource>,
+    mime_type: &str,
 ) -> Result<(Vec<(String, String)>, f64)> {
     let mss = MediaSourceStream::new(source, Default::default());
     let mut hint = Hint::new();
-    hint.with_extension("mp3");
+    hint.with_extension(mime_type);
 
     let meta_opts: MetadataOptions = Default::default();
     let fmt_opts: FormatOptions = Default::default();
