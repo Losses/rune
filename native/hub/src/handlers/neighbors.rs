@@ -1,27 +1,26 @@
-use std::fs;
-use std::future::Future;
-use std::path::Path;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{fs, future::Future, path::Path, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
-use http_body_util::BodyExt;
-use hyper::{Request, Uri, body::Bytes};
 use log::info;
 use tokio::sync::RwLock;
 use url::Url;
 
 use ::database::actions::cover_art::COVER_TEMP_DIR;
-use ::discovery::DiscoveryParams;
-use ::discovery::client::{CertValidator, fetch_server_certificate, select_best_host, try_connect};
-use ::discovery::protocol::DiscoveryService;
-use ::discovery::request::{create_https_client, send_http_request};
-use ::discovery::server::{PermissionManager, UserStatus};
-use ::discovery::url::decode_rnsrv_url;
-use ::discovery::utils::{DeviceInfo, DeviceType};
+use ::discovery::{
+    DiscoveryParams,
+    client::{CertValidator, fetch_server_certificate, select_best_host, try_connect},
+    protocol::DiscoveryService,
+    server::{PermissionManager, UserStatus},
+    url::decode_rnsrv_url,
+    utils::{DeviceInfo, DeviceType},
+};
+use ::http_request::{BodyExt, Bytes, Empty, Request, Uri, create_https_client, send_http_request};
 
-use crate::server::api::{check_fingerprint, register_device};
-use crate::server::{ServerManager, generate_or_load_certificates, get_or_generate_alias};
+use crate::server::{
+    ServerManager,
+    api::{check_fingerprint, register_device},
+    generate_or_load_certificates, get_or_generate_alias,
+};
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Session, Signal, messages::*};
 
@@ -936,10 +935,7 @@ impl Signal for FetchRemoteFileRequest {
         };
 
         // Build the HTTP request
-        let req = match Request::builder()
-            .uri(uri)
-            .body(http_body_util::Empty::<Bytes>::new())
-        {
+        let req = match Request::builder().uri(uri).body(Empty::<Bytes>::new()) {
             Ok(req) => req,
             Err(e) => {
                 return Ok(Some(FetchRemoteFileResponse {

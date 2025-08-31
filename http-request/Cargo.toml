@@ -1,0 +1,21 @@
+[package]
+name = "http-request"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "http_request"
+path = "src/lib.rs"
+
+[dependencies]
+rustls = { version = "0.23.23", features = ["ring"], default-features = false }
+hyper = "1.6.0"
+http-body-util = "0.1.2"
+tokio-rustls = { version = "0.26.1", features = [
+    "logging",
+    "tls12",
+], default-features = false }
+tokio = { version = "1.40.0" }
+hyper-util = "0.1.10"
+anyhow = "1.0.98"
+http-body = "1.0.1"

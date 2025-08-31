@@ -4,7 +4,7 @@
 # various Rust configurations.
 
 [workspace]
-members = ["native/hub", "native/requests", "cli", "tag-editor", "discovery", "sync", "fsio", "fsio-media-source", "playback"]
+members = ["native/hub", "native/requests", "cli", "tag-editor", "discovery", "sync", "fsio", "fsio-media-source", "playback", "http-request"]
 resolver = "2"
 
 [patch.crates-io]

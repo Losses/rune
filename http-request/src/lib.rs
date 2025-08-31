@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
-use http_body_util::{BodyExt, combinators::UnsyncBoxBody};
-use hyper::{
-    Request, Response,
-    body::{Bytes, Incoming},
-};
+use http_body_util::combinators::UnsyncBoxBody;
+use hyper::{Response, body::Incoming};
 use hyper_util::rt::TokioIo;
-use rustls::{client::ClientConfig, pki_types::ServerName};
+use rustls::pki_types::ServerName;
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
+
+pub use http_body_util::{BodyExt, Empty, Full};
+pub use hyper::{Method, Request, StatusCode, Uri, body::Bytes};
+pub use rustls::ClientConfig;
 
 pub async fn create_https_client(
     host: String,
