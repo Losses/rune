@@ -1098,17 +1098,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cfb"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d38f2da7a0a2c4ccf0065be06397cc26a81f4e528be095826eee9d4adbb8c60f"
-dependencies = [
- "byteorder",
- "fnv",
- "uuid",
-]
-
-[[package]]
 name = "cfg-expr"
 version = "0.15.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2915,12 +2904,12 @@ dependencies = [
  "http-body-util",
  "humantime",
  "hyper",
- "infer",
  "jsonwebtoken",
  "lazy_static",
  "log",
  "lyric",
  "metadata",
+ "mimetype-detector",
  "num_cpus",
  "paste",
  "playback",
@@ -3263,15 +3252,6 @@ checksum = "707907fe3c25f5424cce2cb7e1cbcafee6bdbe735ca90ef77c29e84591e5b9da"
 dependencies = [
  "equivalent",
  "hashbrown 0.15.0",
-]
-
-[[package]]
-name = "infer"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c14b6a15a13d4a605e7d3cf546263ee57ad72c6a6376d6321af8e3700340f4c"
-dependencies = [
- "cfb",
 ]
 
 [[package]]
@@ -3900,6 +3880,12 @@ dependencies = [
  "mime",
  "unicase",
 ]
+
+[[package]]
+name = "mimetype-detector"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15d068d156d788233f29b792dc6d99b10f42459b26fa16df63fec8afbdc94d8e"
 
 [[package]]
 name = "minimal-lexical"

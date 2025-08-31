@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Extension, Path as AxumPath, State},
-    http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
     Json,
+    extract::{Extension, Path as AxumPath, State},
+    http::{HeaderMap, StatusCode, header},
+    response::{IntoResponse, Response},
 };
+use mimetype_detector::detect_file;
 use serde::Serialize;
 
 use crate::{
@@ -13,9 +14,7 @@ use crate::{
     server::{ServerManager, ServerState},
     utils::parse_media_files,
 };
-use database::actions::{
-    cover_art::bake_cover_art_by_file_ids, metadata::get_parsed_file_by_id,
-};
+use database::actions::{cover_art::bake_cover_art_by_file_ids, metadata::get_parsed_file_by_id};
 
 #[derive(Serialize)]
 pub struct MediaMetadataResponse {
@@ -43,10 +42,13 @@ pub async fn get_media_metadata_handler(
         .to_string_lossy()
         .to_string();
 
-    let parsed_files =
-        parse_media_files(&server_state.fsio, vec![media_file], Arc::new(lib_path_string))
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let parsed_files = parse_media_files(
+        &server_state.fsio,
+        vec![media_file],
+        Arc::new(lib_path_string),
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let media_file = parsed_files.first().cloned().ok_or_else(|| {
         (
@@ -92,12 +94,10 @@ pub async fn get_cover_art_handler(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let cover_path = cover_art_map.get(&file_id_i32).cloned().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            "Cover art not found".to_string(),
-        )
-    })?;
+    let cover_path = cover_art_map
+        .get(&file_id_i32)
+        .cloned()
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Cover art not found".to_string()))?;
 
     let cover_data = match tokio::fs::read(&cover_path).await {
         Ok(data) => data,
@@ -109,19 +109,24 @@ pub async fn get_cover_art_handler(
         }
     };
 
-    let mime_type = infer::get(&cover_data)
-        .map(|t| t.mime_type())
-        .unwrap_or("application/octet-stream");
-
     let mut headers = HeaderMap::new();
     headers.insert(
         header::CONTENT_TYPE,
-        mime_type.parse().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to parse mime type".to_string(),
-            )
-        })?,
+        detect_file(&cover_path)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to parse mime type: {e}"),
+                )
+            })?
+            .to_string()
+            .parse()
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to parse mime resovling result: {e}"),
+                )
+            })?,
     );
     Ok((headers, cover_data).into_response())
 }
