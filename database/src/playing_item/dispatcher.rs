@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    future::Future,
     path::{Path, PathBuf},
 };
 
@@ -13,11 +12,13 @@ use ::playback::player::PlayingItem;
 use super::{
     MediaFileHandle, PlayingFileMetadataProvider, PlayingItemMetadataSummary,
     independent_file::IndependentFileProcessor, library_item::LibraryItemProcessor,
+    online_file::OnlineFileProcessor,
 };
 
 pub struct PlayingItemActionDispatcher {
     in_library_processor: Box<dyn PlayingFileMetadataProvider + Send + Sync>,
     independent_file_processor: Box<dyn PlayingFileMetadataProvider + Send + Sync>,
+    online_file_processor: Box<dyn PlayingFileMetadataProvider + Send + Sync>,
 }
 
 impl PlayingItemActionDispatcher {
@@ -25,60 +26,23 @@ impl PlayingItemActionDispatcher {
         Self {
             in_library_processor: Box::new(LibraryItemProcessor),
             independent_file_processor: Box::new(IndependentFileProcessor),
+            online_file_processor: Box::new(OnlineFileProcessor),
         }
     }
 
-    async fn process_with_both_processors<'a, T, F, Fut>(
-        &'a self,
-        main_db: &'a DatabaseConnection,
-        items: &'a [PlayingItem],
-        processor_fn: F,
-    ) -> Result<Vec<T>>
-    where
-        F: Fn(
-                &'a (dyn PlayingFileMetadataProvider + Send + Sync),
-                &'a DatabaseConnection,
-                &'a [PlayingItem],
-            ) -> Fut
-            + Send
-            + Sync,
-        Fut: Future<Output = Result<Vec<T>>> + Send + 'a,
-        T: HasPlayingItem,
-    {
-        let in_library_results = processor_fn(&*self.in_library_processor, main_db, items).await?;
-        let independent_results =
-            processor_fn(&*self.independent_file_processor, main_db, items).await?;
-
-        Ok(Self::merge_and_sort_results(
-            items,
-            in_library_results,
-            independent_results,
-        ))
-    }
-
-    fn merge_and_sort_results<T: HasPlayingItem>(
-        items: &[PlayingItem],
-        mut results1: Vec<T>,
-        mut results2: Vec<T>,
-    ) -> Vec<T> {
+    fn sort_results<T: HasPlayingItem>(items: &[PlayingItem], results: &mut [T]) {
         let item_index_map: HashMap<&PlayingItem, usize> = items
             .iter()
             .enumerate()
             .map(|(index, item)| (item, index))
             .collect();
 
-        let mut all_results = Vec::new();
-        all_results.append(&mut results1);
-        all_results.append(&mut results2);
-
-        all_results.sort_by_key(|result| {
+        results.sort_by_key(|result| {
             item_index_map
                 .get(&result.playing_item())
                 .cloned()
                 .unwrap_or(usize::MAX)
         });
-
-        all_results
     }
 
     pub async fn get_file_handle(
@@ -87,10 +51,27 @@ impl PlayingItemActionDispatcher {
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<MediaFileHandle>> {
-        self.process_with_both_processors(main_db, items, |processor, db, items| {
-            Box::pin(processor.get_file_handle(fsio, db, items))
-        })
-        .await
+        let in_library_results = self
+            .in_library_processor
+            .get_file_handle(fsio, main_db, items)
+            .await?;
+        let independent_results = self
+            .independent_file_processor
+            .get_file_handle(fsio, main_db, items)
+            .await?;
+        let online_results = self
+            .online_file_processor
+            .get_file_handle(fsio, main_db, items)
+            .await?;
+
+        let mut all_results = Vec::new();
+        all_results.extend(in_library_results);
+        all_results.extend(independent_results);
+        all_results.extend(online_results);
+
+        Self::sort_results(items, &mut all_results);
+
+        Ok(all_results)
     }
 
     pub async fn get_file_path<P: AsRef<Path>>(
@@ -108,10 +89,15 @@ impl PlayingItemActionDispatcher {
             .independent_file_processor
             .get_file_path(fsio, lib_path.as_ref(), main_db, items)
             .await?;
+        let online_results = self
+            .online_file_processor
+            .get_file_path(fsio, lib_path.as_ref(), main_db, items)
+            .await?;
 
         let mut result_map = HashMap::new();
         result_map.extend(in_library_results);
         result_map.extend(independent_results);
+        result_map.extend(online_results);
 
         Ok(result_map)
     }
@@ -122,10 +108,27 @@ impl PlayingItemActionDispatcher {
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<PlayingItemMetadataSummary>> {
-        self.process_with_both_processors(main_db, items, |processor, db, items| {
-            Box::pin(processor.get_metadata_summary(fsio, db, items))
-        })
-        .await
+        let in_library_results = self
+            .in_library_processor
+            .get_metadata_summary(fsio, main_db, items)
+            .await?;
+        let independent_results = self
+            .independent_file_processor
+            .get_metadata_summary(fsio, main_db, items)
+            .await?;
+        let online_results = self
+            .online_file_processor
+            .get_metadata_summary(fsio, main_db, items)
+            .await?;
+
+        let mut all_results = Vec::new();
+        all_results.extend(in_library_results);
+        all_results.extend(independent_results);
+        all_results.extend(online_results);
+
+        Self::sort_results(items, &mut all_results);
+
+        Ok(all_results)
     }
 
     pub async fn bake_cover_art<P: AsRef<Path>>(
@@ -144,10 +147,15 @@ impl PlayingItemActionDispatcher {
             .independent_file_processor
             .bake_cover_art(fsio, lib_path, main_db, items)
             .await?;
+        let online_results = self
+            .online_file_processor
+            .bake_cover_art(fsio, lib_path, main_db, items)
+            .await?;
 
         let mut result_map = HashMap::new();
         result_map.extend(in_library_results);
         result_map.extend(independent_results);
+        result_map.extend(online_results);
 
         Ok(result_map)
     }
@@ -160,7 +168,7 @@ impl PlayingItemActionDispatcher {
         item: &PlayingItem,
     ) -> Option<i32> {
         match item {
-            PlayingItem::InLibrary(_) => {
+            PlayingItem::InLibrary(_) | PlayingItem::Online(_, Some(_)) => {
                 self.in_library_processor
                     .get_cover_art_primary_color(fsio, lib_path, main_db, item)
                     .await
@@ -170,10 +178,11 @@ impl PlayingItemActionDispatcher {
                     .get_cover_art_primary_color(fsio, lib_path, main_db, item)
                     .await
             }
-            PlayingItem::Online(_, Some(_)) => {
-                todo!()
+            PlayingItem::Online(_, None) => {
+                self.online_file_processor
+                    .get_cover_art_primary_color(fsio, lib_path, main_db, item)
+                    .await
             }
-            PlayingItem::Online(_, None) => None,
             PlayingItem::Unknown => None,
         }
     }

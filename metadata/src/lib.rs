@@ -5,3 +5,4 @@ pub mod describe;
 pub mod genre;
 pub mod reader;
 pub mod scanner;
+pub mod streaming;

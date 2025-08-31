@@ -1680,6 +1680,7 @@ dependencies = [
  "seq-macro",
  "serde",
  "serde_json",
+ "stream-download",
  "sync",
  "tag-editor",
  "tempfile",
@@ -3825,6 +3826,7 @@ dependencies = [
  "analysis",
  "anyhow",
  "fsio",
+ "futures",
  "image",
  "lazy_static",
  "lofty",
@@ -3833,6 +3835,7 @@ dependencies = [
  "regex",
  "symphonia",
  "thiserror 1.0.65",
+ "tokio",
  "walkdir",
 ]
 

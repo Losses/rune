@@ -183,7 +183,7 @@ pub fn string_to_standard_tag_key(s: &str) -> Option<StandardTagKey> {
     STRING_TO_STANDARD_TAG_KEY.get(s).cloned()
 }
 
-fn push_tags(
+pub fn push_tags(
     revision: &MetadataRevision,
     metadata_list: &mut Vec<(String, String)>,
     field_blacklist: &[&str],
