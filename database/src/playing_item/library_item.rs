@@ -122,21 +122,19 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
         main_db: &DatabaseConnection,
         item: &PlayingItem,
     ) -> Option<i32> {
-        match item {
-            PlayingItem::InLibrary(track_id) | PlayingItem::Online(_, Some(track_id)) => {
-                if let Some(id) = get_cover_art_id_by_track_id(main_db, *track_id)
-                    .await
-                    .ok()
-                    .flatten()
-                {
-                    get_primary_color_by_cover_art_id(main_db, id).await.ok()
-                } else {
-                    None
-                }
-            }
-            PlayingItem::IndependentFile(_) => None,
-            PlayingItem::Online(_, None) => None,
-            PlayingItem::Unknown => None,
-        }
+        let track_id = match item {
+            PlayingItem::InLibrary(id) => Some(*id),
+            PlayingItem::Online(_, Some(file)) => Some(file.id),
+            _ => None,
+        }?;
+
+        let cover_art_id = match get_cover_art_id_by_track_id(main_db, track_id).await {
+            Ok(Some(id)) => Some(id),
+            _ => None,
+        }?;
+
+        get_primary_color_by_cover_art_id(main_db, cover_art_id)
+            .await
+            .ok()
     }
 }

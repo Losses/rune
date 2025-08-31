@@ -12,7 +12,7 @@ pub struct FetchMediaFilesRequest {
     pub bake_cover_arts: bool,
 }
 
-#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+#[derive(Clone, Serialize, Deserialize, SignalPiece, Debug)]
 pub struct MediaFile {
     pub id: i32,
     pub path: String,

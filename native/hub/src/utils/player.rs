@@ -259,9 +259,17 @@ pub async fn initialize_local_player(
         let scrobbler = Arc::clone(&scrobber_for_played_through);
 
         while let Ok(item) = played_through_receiver.recv().await {
-            match item {
-                PlayingItem::InLibrary(id) | PlayingItem::Online(_, Some(id)) => {
-                    if let Err(e) = increase_played_through(&main_db, id)
+            match &item {
+                PlayingItem::InLibrary(id) => {
+                    if let Err(e) = increase_played_through(&main_db, *id)
+                        .await
+                        .with_context(|| "Unable to update played through count")
+                    {
+                        error!("{e:?}");
+                    }
+                }
+                PlayingItem::Online(_, Some(online_file)) => {
+                    if let Err(e) = increase_played_through(&main_db, online_file.id)
                         .await
                         .with_context(|| "Unable to update played through count")
                     {

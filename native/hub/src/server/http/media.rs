@@ -104,7 +104,7 @@ pub async fn get_cover_art_handler(
         Err(e) => {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to read cover art file: {}", e),
+                format!("Failed to read cover art file: {e}"),
             ));
         }
     };
