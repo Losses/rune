@@ -190,7 +190,7 @@ pub async fn get_media_metadata(
     let uri = Uri::builder()
         .scheme("https")
         .authority(format!("{host}:7863"))
-        .path_and_query(format!("/media/{}/metadata", file_id))
+        .path_and_query(format!("/media/{file_id}/metadata"))
         .build()
         .context("Invalid URL format")?;
 
@@ -235,7 +235,7 @@ pub async fn get_cover_art(host: &str, config: Arc<ClientConfig>, file_id: i64) 
     let uri = Uri::builder()
         .scheme("https")
         .authority(format!("{host}:7863"))
-        .path_and_query(format!("/media/{}/cover", file_id))
+        .path_and_query(format!("/media/{file_id}/cover"))
         .build()
         .context("Invalid URL format")?;
 
