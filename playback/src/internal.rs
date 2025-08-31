@@ -467,7 +467,7 @@ impl PlayerInternal {
                             let decoder = Decoder::new(BufReader::new(file))?;
                             Ok(AnySource::Local(rune_buffered(decoder)))
                         }
-                        PlayingItem::Online(url) => {
+                        PlayingItem::Online(url, _) => {
                             info!("Downloading from url: {url}");
                             let reader = StreamDownload::new_http(
                                 url.parse()?,

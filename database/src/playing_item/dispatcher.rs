@@ -159,15 +159,23 @@ impl PlayingItemActionDispatcher {
         main_db: &DatabaseConnection,
         item: &PlayingItem,
     ) -> Option<i32> {
-        let processor: &(dyn PlayingFileMetadataProvider + Send + Sync) = match item {
-            PlayingItem::InLibrary(_) => &*self.in_library_processor,
-            PlayingItem::IndependentFile(_) => &*self.independent_file_processor,
-            PlayingItem::Unknown => return None,
-        };
-
-        processor
-            .get_cover_art_primary_color(fsio, lib_path, main_db, item)
-            .await
+        match item {
+            PlayingItem::InLibrary(_) => {
+                self.in_library_processor
+                    .get_cover_art_primary_color(fsio, lib_path, main_db, item)
+                    .await
+            }
+            PlayingItem::IndependentFile(_) => {
+                self.independent_file_processor
+                    .get_cover_art_primary_color(fsio, lib_path, main_db, item)
+                    .await
+            }
+            PlayingItem::Online(_, Some(_)) => {
+                todo!()
+            }
+            PlayingItem::Online(_, None) => None,
+            PlayingItem::Unknown => None,
+        }
     }
 }
 

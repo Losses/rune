@@ -260,7 +260,7 @@ pub async fn initialize_local_player(
 
         while let Ok(item) = played_through_receiver.recv().await {
             match item {
-                PlayingItem::InLibrary(id) => {
+                PlayingItem::InLibrary(id) | PlayingItem::Online(_, Some(id)) => {
                     if let Err(e) = increase_played_through(&main_db, id)
                         .await
                         .with_context(|| "Unable to update played through count")
@@ -269,6 +269,7 @@ pub async fn initialize_local_player(
                     }
                 }
                 PlayingItem::IndependentFile(_) => {}
+                PlayingItem::Online(_, None) => {}
                 PlayingItem::Unknown => {}
             }
 

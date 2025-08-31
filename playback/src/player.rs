@@ -30,7 +30,11 @@ pub enum PlayingItem {
     /// This is the raw content, on native platform it
     /// is the path, on Android, it is the Content URI
     IndependentFile(String),
-    Online(String),
+    // The second parameter is the media_file id in the
+    // library, if the file comes from the library,
+    // the cover art resolving module need a different
+    // code path
+    Online(String, Option<i32>),
     Unknown,
 }
 
@@ -41,7 +45,9 @@ impl fmt::Display for PlayingItem {
             PlayingItem::IndependentFile(path) => {
                 write!(f, "PlayingItem::IndependentFile({path})")
             }
-            PlayingItem::Online(url) => write!(f, "PlayingItem::Online({url})"),
+            PlayingItem::Online(url, library_file_id) => {
+                write!(f, "PlayingItem::Online({url}::{library_file_id:?})")
+            }
             PlayingItem::Unknown => write!(f, "PlayingItem::Unknown()"),
         }
     }

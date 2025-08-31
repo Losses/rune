@@ -123,7 +123,7 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
         item: &PlayingItem,
     ) -> Option<i32> {
         match item {
-            PlayingItem::InLibrary(track_id) => {
+            PlayingItem::InLibrary(track_id) | PlayingItem::Online(_, Some(track_id)) => {
                 if let Some(id) = get_cover_art_id_by_track_id(main_db, *track_id)
                     .await
                     .ok()
@@ -135,6 +135,7 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
                 }
             }
             PlayingItem::IndependentFile(_) => None,
+            PlayingItem::Online(_, None) => None,
             PlayingItem::Unknown => None,
         }
     }

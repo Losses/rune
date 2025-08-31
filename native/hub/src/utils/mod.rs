@@ -482,6 +482,7 @@ pub fn files_to_playback_request<P: AsRef<Path>>(
                         Err(_) => return None,
                     }
                 }
+                PlayingItem::Online(_, _) => PathBuf::new(),
                 PlayingItem::Unknown => return None,
             };
 

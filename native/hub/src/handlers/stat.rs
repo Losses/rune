@@ -59,6 +59,7 @@ impl Signal for SetLikedRequest {
                     liked: false,
                     success: false,
                 },
+                PlayingItem::Online(_, _) => todo!(),
                 PlayingItem::Unknown => SetLikedResponse {
                     item: item.clone(),
                     liked: false,
@@ -111,6 +112,7 @@ impl Signal for GetLikedRequest {
                     item: item.clone(),
                     liked: false,
                 },
+                PlayingItem::Online(_, _) => todo!(),
                 PlayingItem::Unknown => GetLikedResponse {
                     item: item.clone(),
                     liked: false,

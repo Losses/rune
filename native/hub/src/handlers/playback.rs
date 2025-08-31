@@ -31,6 +31,7 @@ impl From<PlayingItem> for PlayingItemRequest {
                 in_library: None,
                 independent_file: Some(IndependentFilePlayingItem { raw_path: path_str }),
             },
+            PlayingItem::Online(_, _) => todo!(),
             PlayingItem::Unknown => PlayingItemRequest {
                 in_library: None,
                 independent_file: None,
