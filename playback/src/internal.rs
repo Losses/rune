@@ -133,7 +133,7 @@ pub enum PlayerCommand {
         index: usize,
     },
     LoadComplete {
-        result: Result<AnySource>,
+        result: Box<Result<AnySource>>,
         item: PlayingItem,
         index: usize,
         path: PathBuf,
@@ -348,7 +348,7 @@ impl PlayerInternal {
                         PlayerCommand::Load { index } => self.load(Some(index), false, true)?,
                         PlayerCommand::LoadComplete { result, item, index, path, play } => {
                             self.state = InternalPlaybackState::Stopped;
-                            match result {
+                            match *result {
                                 Ok(source) => {
                                     self.setup_sink(source, item, index, path, play)?;
                                 }
@@ -488,7 +488,7 @@ impl PlayerInternal {
                 .await;
 
                 let cmd = PlayerCommand::LoadComplete {
-                    result: source_result,
+                    result: Box::new(source_result),
                     item: item.item,
                     index,
                     path: item.path,
