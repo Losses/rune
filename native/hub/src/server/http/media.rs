@@ -92,14 +92,36 @@ pub async fn get_cover_art_handler(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let cover_data = cover_art_map.get(&file_id_i32).cloned().ok_or_else(|| {
+    let cover_path = cover_art_map.get(&file_id_i32).cloned().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             "Cover art not found".to_string(),
         )
     })?;
 
+    let cover_data = match tokio::fs::read(&cover_path).await {
+        Ok(data) => data,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to read cover art file: {}", e),
+            ));
+        }
+    };
+
+    let mime_type = infer::get(&cover_data)
+        .map(|t| t.mime_type())
+        .unwrap_or("application/octet-stream");
+
     let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, "image/png".parse().unwrap());
+    headers.insert(
+        header::CONTENT_TYPE,
+        mime_type.parse().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to parse mime type".to_string(),
+            )
+        })?,
+    );
     Ok((headers, cover_data).into_response())
 }
