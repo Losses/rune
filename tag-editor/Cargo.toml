@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 analysis = { path = "../analysis" }
-anyhow = { version = "1.0.86", features = ["backtrace"] }
+anyhow = { version = "1.0.98", features = ["backtrace"] }
 log = "0.4.22"
 rubato = "0.16.1"
 rustfft = "6.2.0"

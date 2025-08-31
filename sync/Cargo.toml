@@ -9,7 +9,7 @@ name = "sync"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1.0.97"
+anyhow = "1.0.98"
 blake3 = "1.7.0"
 rust_decimal = "1.37.1"
 serde = { version = "1.0.219", features = ["derive"] }

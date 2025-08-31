@@ -19,7 +19,7 @@ name = "analysis_benchmark"
 harness = false
 
 [dependencies]
-anyhow = {version="1.0.86",  features = ["backtrace"] }
+anyhow = {version="1.0.98",  features = ["backtrace"] }
 lazy_static = "1.5.0"
 log = "0.4.22"
 rubato = "0.16.1"

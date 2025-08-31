@@ -31,7 +31,7 @@ rodio = { version = "0.20.1", default-features = false, features = [
 rustfft = "6.2.0"
 tokio-util = "0.7.11"
 rand = "0.8.5"
-anyhow = "1.0.89"
+anyhow = "1.0.98"
 raw-window-handle = "0.5.2"
 windows = { version = "0.44.0", features = [
     "Win32_System_LibraryLoader",

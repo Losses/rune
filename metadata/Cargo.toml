@@ -17,7 +17,7 @@ log = "0.4.22"
 lofty = "0.21.1"
 regex = "1.10.6"
 analysis = { path = "../analysis" }
-anyhow = {version="1.0.86",  features = ["backtrace"] }
+anyhow = {version="1.0.98",  features = ["backtrace"] }
 image = "0.25.2"
 palette_extract = "0.1.0"
 fsio = { version = "0.1.0", path = "../fsio" }

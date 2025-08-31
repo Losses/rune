@@ -9,7 +9,7 @@ name = "scrobbling"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1.0.94"
+anyhow = "1.0.98"
 async-trait = "0.1.83"
 md5 = "0.7.0"
 reqwest = { version = "0.12.9", features = ["blocking", "json", "socks"] }
