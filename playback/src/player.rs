@@ -25,6 +25,13 @@ pub struct PlayerStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OnlineInLibraryFile {
+    pub host: String,
+    pub fingerprint: String,
+    pub id: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PlayingItem {
     InLibrary(i32),
     /// This is the raw content, on native platform it
@@ -34,7 +41,7 @@ pub enum PlayingItem {
     // library, if the file comes from the library,
     // the cover art resolving module need a different
     // code path
-    Online(String, Option<i32>),
+    Online(String, Option<OnlineInLibraryFile>),
     Unknown,
 }
 
@@ -45,8 +52,8 @@ impl fmt::Display for PlayingItem {
             PlayingItem::IndependentFile(path) => {
                 write!(f, "PlayingItem::IndependentFile({path})")
             }
-            PlayingItem::Online(url, library_file_id) => {
-                write!(f, "PlayingItem::Online({url}::{library_file_id:?})")
+            PlayingItem::Online(url, remote_file) => {
+                write!(f, "PlayingItem::Online({url}::{remote_file:?})")
             }
             PlayingItem::Unknown => write!(f, "PlayingItem::Unknown()"),
         }
