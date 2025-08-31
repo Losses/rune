@@ -1,12 +1,18 @@
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use image::{GenericImageView, ImageBuffer, Pixel};
 use lofty::file::TaggedFileExt;
 use log::{error, info};
 use palette_extract::{Color, get_palette_rgb};
 
 use ::fsio::FsIo;
+use symphonia::core::{
+    formats::FormatOptions,
+    io::{MediaSource, MediaSourceStream},
+    meta::MetadataOptions,
+    probe::Hint,
+};
 
 use crate::crc::media_crc32;
 
@@ -114,6 +120,51 @@ fn extract_from_tagged_file<P: AsRef<Path>>(fsio: &FsIo, file_path: &P) -> Optio
         data: cover_data,
         primary_color: color_to_int(&primary_color),
     })
+}
+
+pub async fn extract_cover_art_from_stream(
+    source: Box<dyn MediaSource>,
+    mime_type: &str,
+) -> Result<CoverArt> {
+    let mss = MediaSourceStream::new(source, Default::default());
+    let mut hint = Hint::new();
+    hint.with_extension(mime_type);
+
+    let meta_opts: MetadataOptions = Default::default();
+    let fmt_opts: FormatOptions = Default::default();
+
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &fmt_opts, &meta_opts)
+        .context("Failed to probe media source")?;
+
+    let mut format = probed.format;
+
+    if let Some(metadata) = format.metadata().current() {
+        if let Some(visual) = metadata.visuals().first() {
+            let cover_data = visual.data.to_vec();
+            if cover_data.is_empty() {
+                return Err(anyhow::anyhow!("Empty cover art data in stream"));
+            }
+
+            let rgb_sequence = decode_image(&cover_data)?;
+
+            // Calculate the CRC
+            let crc = media_crc32(&rgb_sequence, 0, 0, rgb_sequence.len());
+            if crc == 0 {
+                return Err(anyhow::anyhow!("Invalid CRC for cover art"));
+            }
+            let primary_color = get_palette_rgb(&rgb_sequence)[0];
+            let crc_string = format!("{crc:08x}");
+
+            return Ok(CoverArt {
+                crc: crc_string,
+                data: cover_data,
+                primary_color: color_to_int(&primary_color),
+            });
+        }
+    }
+
+    Err(anyhow::anyhow!("No cover art found in stream"))
 }
 
 fn fallback_to_external_cover(fsio: &FsIo, lib_path: &Path, file_path: &Path) -> Option<CoverArt> {
