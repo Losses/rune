@@ -15,6 +15,7 @@ use axum::{
 };
 use axum_server::{Handle, tls_rustls::RustlsConfig};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE};
+use database::actions::cover_art::COVER_TEMP_DIR;
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use log::{error, info};
 use rand::{
@@ -32,7 +33,6 @@ use tower_governor::{
     GovernorLayer, governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor,
 };
 
-use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::discovery::{DiscoveryParams, client::parse_certificate, ssl::generate_self_signed_cert};
 use ::fsio::FsIo;
 
@@ -43,7 +43,7 @@ use crate::{
         AppState, ServerState, WebSocketService,
         http::{
             check_fingerprint::check_fingerprint_handler, device_info::device_info_handler,
-            file::file_handler, list::list_users_handler, panel_alias::update_alias_handler,
+            file::file_handler, list::list_users_handler, media::{get_cover_art_handler, get_media_metadata_handler}, panel_alias::update_alias_handler,
             panel_auth_middleware::auth_middleware, panel_broadcast::toggle_broadcast_handler,
             panel_delete_user::delete_user_handler, panel_login::login_handler,
             panel_refresh::refresh_handler, panel_self::self_handler,
@@ -200,7 +200,10 @@ impl ServerManager {
             .route("/check-fingerprint", get(check_fingerprint_handler))
             .route("/files/{*file_path}", get(file_handler))
             .route("/device-info", get(device_info_handler))
-            .with_state(server_state);
+            .route("/media/metadata/:id", get(get_media_metadata_handler))
+            .route("/media/cover/:id", get(get_cover_art_handler))
+            .with_state(server_state)
+            .layer(Extension(self.clone()));
 
         info!(
             "Library files path: {}",

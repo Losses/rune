@@ -2,6 +2,7 @@ pub mod check_fingerprint;
 pub mod device_info;
 pub mod file;
 pub mod list;
+pub mod media;
 pub mod panel_alias;
 pub mod panel_auth_middleware;
 pub mod panel_broadcast;
