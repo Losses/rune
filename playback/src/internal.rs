@@ -1,18 +1,20 @@
-use std::fmt::Debug;
-use std::fs::File;
-use std::io::BufReader;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    fmt::Debug,
+    fs::File,
+    io::BufReader,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::{Context, Result, anyhow, bail};
 use log::{debug, error, info, warn};
-use rodio::source::SeekError;
-use rodio::{Decoder, PlayError, Sink, Source};
-use stream_download::storage::temp::TempStorageProvider;
-use stream_download::{Settings, StreamDownload};
-use tokio::sync::mpsc;
-use tokio::time::{Instant, interval, sleep_until};
+use rodio::{Decoder, PlayError, Sink, Source, source::SeekError};
+use stream_download::{Settings, StreamDownload, storage::temp::TempStorageProvider};
+use tokio::{
+    sync::mpsc,
+    time::{Instant, interval, sleep_until},
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::buffered::{RuneBuffered, rune_buffered};
