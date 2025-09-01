@@ -4781,6 +4781,7 @@ dependencies = [
  "simple_channel",
  "souvlaki",
  "stream-download",
+ "symphonia",
  "tokio",
  "tokio-util",
  "tracing",

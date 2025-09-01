@@ -10,7 +10,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use log::{debug, error, info, warn};
 use rodio::{Decoder, PlayError, Sink, Source, source::SeekError};
-use stream_download::{Settings, StreamDownload, storage::temp::TempStorageProvider};
+use stream_download::{StreamDownload, storage::temp::TempStorageProvider};
 use tokio::{
     sync::mpsc,
     time::{Instant, interval, sleep_until},
@@ -471,14 +471,7 @@ impl PlayerInternal {
                         }
                         PlayingItem::Online(url, _) => {
                             info!("Downloading from url: {url}");
-                            let reader = StreamDownload::new_http(
-                                url.parse()?,
-                                TempStorageProvider::new(),
-                                Settings::default(),
-                            )
-                            .await
-                            .map_err(|e| anyhow!(e.to_string()))?;
-
+                            let reader = crate::stream_utils::create_stream_from_url(url).await?;
                             let decoder = Decoder::new(reader)?;
                             Ok(AnySource::Online(rune_buffered(decoder)))
                         }

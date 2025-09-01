@@ -4,17 +4,28 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
-use http_request::{Bytes, ClientConfig};
+use futures::future::join_all;
+use log::warn;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
+use stream_download::{Settings, StreamDownload, storage::temp::TempStorageProvider};
+use symphonia::core::io::{IoSource, MediaSource};
+use uuid::Uuid;
 
 use ::fsio::FsIo;
 use ::http_request::{
     BodyExt, Empty, Request, StatusCode, Uri, create_https_client, send_http_request,
 };
-use ::playback::player::PlayingItem;
+use ::http_request::{Bytes, ClientConfig};
+use ::metadata::{
+    cover_art::extract_cover_art_from_stream, streaming::get_metadata_and_codec_from_stream,
+};
+use ::playback::{
+    player::PlayingItem,
+    stream_utils::{create_stream_from_url, create_stream_media_source_from_url},
+};
 
 use super::{MediaFileHandle, PlayingFileMetadataProvider, PlayingItemMetadataSummary};
 
@@ -154,6 +165,53 @@ pub async fn get_cover_art(host: &str, config: Arc<ClientConfig>, file_id: i64) 
 
 pub struct OnlineFileProcessor;
 
+async fn get_summary_for_online_in_library_file(
+    item: &PlayingItem,
+    host: &str,
+    file_id: i32,
+) -> Result<PlayingItemMetadataSummary> {
+    let config = Arc::new(ClientConfig::new());
+    let metadata = get_media_metadata(host, config, file_id as i64).await?;
+    Ok(PlayingItemMetadataSummary {
+        item: item.clone(),
+        title: metadata.file.title,
+        artist: metadata.file.artist,
+        album: metadata.file.album,
+        duration: metadata.file.duration,
+        track_number: metadata.file.track_number,
+    })
+}
+
+async fn get_summary_for_online_file(
+    item: &PlayingItem,
+    url: &str,
+) -> Result<PlayingItemMetadataSummary> {
+    let source = create_stream_media_source_from_url(url).await?;
+    let mime_type = ""; // Let symphonia detect
+    let (metadata, duration) = get_metadata_and_codec_from_stream(source, mime_type).await?;
+
+    let mut summary = PlayingItemMetadataSummary {
+        item: item.clone(),
+        title: None,
+        artist: None,
+        album: None,
+        duration: Some(duration),
+        track_number: None,
+    };
+
+    for (key, value) in metadata {
+        match key.to_lowercase().as_str() {
+            "title" => summary.title = Some(value),
+            "artist" => summary.artist = Some(value),
+            "album" => summary.album = Some(value),
+            "track" => summary.track_number = value.parse().ok(),
+            _ => {}
+        }
+    }
+
+    Ok(summary)
+}
+
 #[async_trait]
 impl PlayingFileMetadataProvider for OnlineFileProcessor {
     async fn get_file_handle(
@@ -181,20 +239,103 @@ impl PlayingFileMetadataProvider for OnlineFileProcessor {
         &self,
         _fsio: &FsIo,
         _main_db: &DatabaseConnection,
-        _items: &[PlayingItem],
+        items: &[PlayingItem],
     ) -> Result<Vec<PlayingItemMetadataSummary>> {
-        Ok(vec![])
+        let futures = items.iter().filter_map(|item| {
+            if let PlayingItem::Online(url, online_file_opt) = item {
+                Some(async move {
+                    let result = if let Some(online_file) = online_file_opt {
+                        get_summary_for_online_in_library_file(
+                            item,
+                            &online_file.host,
+                            online_file.id,
+                        )
+                        .await
+                    } else {
+                        get_summary_for_online_file(item, url).await
+                    };
+                    (item.clone(), result)
+                })
+            } else {
+                None
+            }
+        });
+
+        let results = join_all(futures).await;
+        let mut summaries = Vec::new();
+        for (item, result) in results {
+            match result {
+                Ok(summary) => summaries.push(summary),
+                Err(e) => warn!("Failed to get metadata for {:?}: {}", item, e),
+            }
+        }
+
+        Ok(summaries)
     }
 
     async fn bake_cover_art(
         &self,
-        _fsio: &FsIo,
-        _lib_path: &Path,
+        fsio: &FsIo,
+        lib_path: &Path,
         _main_db: &DatabaseConnection,
-        _items: &[PlayingItem],
+        items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
-        // Cover art baking for online files might need a different approach
-        Ok(HashMap::new())
+        let futures = items.iter().filter_map(|item| {
+            if let PlayingItem::Online(url, online_file_opt) = item {
+                let fsio = fsio.clone();
+                let lib_path = lib_path.to_path_buf();
+                let item_clone = item.clone();
+                let url_clone = url.clone();
+                let online_file_opt_clone = online_file_opt.clone();
+
+                Some(async move {
+                    let cover_art_data = if let Some(online_file) = online_file_opt_clone {
+                        let config = Arc::new(ClientConfig::new());
+                        get_cover_art(&online_file.host, config, online_file.id as i64)
+                            .await
+                            .map(|bytes| bytes.to_vec())
+                    } else {
+                        let source = create_stream_media_source_from_url(&url_clone).await?;
+                        extract_cover_art_from_stream(source, "")
+                            .await
+                            .map(|cover_art| cover_art.data)
+                    };
+
+                    match cover_art_data {
+                        Ok(data) => {
+                            let file_name = format!("{}.jpg", Uuid::new_v4());
+                            let cache_dir = lib_path.join("cache").join("covers");
+                            if !fsio.exists(&cache_dir).unwrap_or(false) {
+                                fsio.create_dir_all(&cache_dir)?;
+                            }
+                            let file_path = cache_dir.join(file_name);
+                            fsio.write(&file_path, &data)?;
+                            Ok((item_clone, file_path.to_string_lossy().to_string()))
+                        }
+                        Err(e) => Err(anyhow!(
+                            "Failed to get cover art for {:?}: {}",
+                            item_clone,
+                            e
+                        )),
+                    }
+                })
+            } else {
+                None
+            }
+        });
+
+        let results = join_all(futures).await;
+        let mut cover_art_map = HashMap::new();
+        for result in results {
+            match result {
+                Ok((item, path)) => {
+                    cover_art_map.insert(item, path);
+                }
+                Err(e) => warn!("{}", e),
+            }
+        }
+
+        Ok(cover_art_map)
     }
 
     async fn get_cover_art_primary_color(

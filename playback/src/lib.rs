@@ -9,6 +9,7 @@ pub mod output_stream;
 pub mod player;
 pub mod sfx_player;
 pub mod strategies;
+pub mod stream_utils;
 
 #[cfg(target_os = "android")]
 mod dummy_souvlaki;
