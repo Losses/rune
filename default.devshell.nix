@@ -33,7 +33,7 @@ pkgs.mkShell {
     clippy
     rust-analyzer
     rustup
-    masterPkgs.flutter
+    flutter
     android-studio
     pinnedJDK
     clang
