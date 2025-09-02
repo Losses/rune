@@ -136,7 +136,7 @@ jobs:
       - run:
           name: Build APKs
           command: |
-            nix --extra-experimental-features "nix-command flakes" develop . --command bash ./android/build.sh
+            nix --extra-experimental-features "nix-command flakes" develop . --command bash -c 'export GRADLE_USER_HOME="/home/circleci/project/android/.gradle_cache" && bash ./android/build.sh'
 
       - run:
           name: Prepare artifacts
