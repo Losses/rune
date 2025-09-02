@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:vector_math/vector_math_64.dart';
 
 enum TiltMode { absolute, relateive }
 
@@ -66,7 +67,8 @@ class AxPressureState extends State<AxPressure> {
     final ay =
         (centerY / size.height) * degFactors[1] * (widget.invert ? 1 : -1);
 
-    final z = (pow(centerX.abs(), 2) + pow(centerY.abs(), 2)) /
+    final z =
+        (pow(centerX.abs(), 2) + pow(centerY.abs(), 2)) /
             (pow(size.width / 2, 2) + pow(size.height / 2, 2)) -
         1;
 
@@ -75,7 +77,7 @@ class AxPressureState extends State<AxPressure> {
         ..setEntry(3, 2, 1 / widget.perspective)
         ..rotateX(-ay * pi / 180)
         ..rotateY(-ax * pi / 180)
-        ..translate(0.0, 0.0, -z * widget.zoomFactor);
+        ..translateByVector3(Vector3(0.0, 0.0, -z * widget.zoomFactor));
     });
   }
 

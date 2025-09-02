@@ -26,12 +26,7 @@ double _lerpDouble(double a, double b, double t) {
   return a * (1.0 - t) + b * t;
 }
 
-enum DragDirection {
-  up,
-  right,
-  down,
-  left,
-}
+enum DragDirection { up, right, down, left }
 
 class CoverArtDisk extends StatefulWidget {
   const CoverArtDisk({super.key});
@@ -106,9 +101,12 @@ class CoverArtDiskState extends State<CoverArtDisk>
   void _onTick(Duration _) {
     final now = DateTime.now();
     if (_lastUpdateTime != null) {
-      final status = Provider.of<PlaybackStatusProvider>(context, listen: false)
-          .playbackStatus;
-      final elapsed = now.difference(_lastUpdateTime!).inMicroseconds /
+      final status = Provider.of<PlaybackStatusProvider>(
+        context,
+        listen: false,
+      ).playbackStatus;
+      final elapsed =
+          now.difference(_lastUpdateTime!).inMicroseconds /
           Duration.microsecondsPerSecond;
 
       if (status.state == 'Playing') {
@@ -119,8 +117,11 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
       setState(() {
         // Use lerp to smoothly transition to the target angle and offset
-        _currentRotation =
-            _lerpAngle(_currentRotation, _targetRotation, lerpFactor);
+        _currentRotation = _lerpAngle(
+          _currentRotation,
+          _targetRotation,
+          lerpFactor,
+        );
 
         _finalOffsetX = _lerpDouble(
           _finalOffsetX,
@@ -222,8 +223,10 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
     if (_isDragging) {
       setState(() {
-        final isCar = Provider.of<ResponsiveProvider>(context, listen: false)
-            .smallerOrEqualTo(DeviceType.car, false);
+        final isCar = Provider.of<ResponsiveProvider>(
+          context,
+          listen: false,
+        ).smallerOrEqualTo(DeviceType.car, false);
 
         if (isCar) {
           _targetDragOffsetX = 0;
@@ -246,8 +249,10 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
       if ((_finalOffsetX * _finalOffsetX + _finalOffsetY * _finalOffsetY) >
           (size / 4) * (size / 4)) {
-        final isCar = Provider.of<ResponsiveProvider>(context, listen: false)
-            .smallerOrEqualTo(DeviceType.car, false);
+        final isCar = Provider.of<ResponsiveProvider>(
+          context,
+          listen: false,
+        ).smallerOrEqualTo(DeviceType.car, false);
 
         if (isCar) {
           _onSwitch(
@@ -311,7 +316,11 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
     if (_currentPath != status.coverArtPath) {
       _handlePathChange(
-          status.coverArtPath, size, isCar, theme.fastAnimationDuration);
+        status.coverArtPath,
+        size,
+        isCar,
+        theme.fastAnimationDuration,
+      );
     }
 
     if (isWatch) return Container();
@@ -319,14 +328,14 @@ class CoverArtDiskState extends State<CoverArtDisk>
     _baseOffsetY = isCar
         ? 0.0
         : notReady || _isSwitching
-            ? size * 1.2
-            : max(size / 5 * 3, size - playbackControllerHeight + 8);
+        ? size * 1.2
+        : max(size / 5 * 3, size - playbackControllerHeight + 8);
 
     _baseOffsetX = !isCar
         ? 0.0
         : notReady || _isSwitching
-            ? screen.height / 2 + size * 1.2
-            : (screen.height / 2) + screen.height / 6;
+        ? screen.height / 2 + size * 1.2
+        : (screen.height / 2) + screen.height / 6;
 
     const radius = 512;
 
@@ -353,7 +362,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
       bottom: _finalOffsetY,
       child: Transform(
         transform: Matrix4.identity()
-          ..scale(0.9)
+          ..scaleByDouble(0.9, 0.9, 0.9, 1.0)
           ..rotateZ(_currentRotation),
         alignment: Alignment.center,
         child: Listener(
@@ -384,19 +393,13 @@ class CoverArtDiskState extends State<CoverArtDisk>
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(512),
                         child: BackdropFilter(
-                          filter: ImageFilter.blur(
-                            sigmaX: 5.0,
-                            sigmaY: 5.0,
-                          ),
+                          filter: ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0),
                           child: AnimatedContainer(
                             duration: theme.fastAnimationDuration,
                             width: double.infinity,
                             height: double.infinity,
                             decoration: BoxDecoration(
-                              border: Border.all(
-                                color: borderColor,
-                                width: 5,
-                              ),
+                              border: Border.all(color: borderColor, width: 5),
                               borderRadius: BorderRadius.circular(512),
                               boxShadow: _isFocused ? boxShadow : null,
                             ),
@@ -408,7 +411,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
                                 hint: (
                                   status.album ?? "",
                                   status.artist ?? "",
-                                  'Total Time ${formatTime(status.duration)}'
+                                  'Total Time ${formatTime(status.duration)}',
                                 ),
                               ),
                             ),

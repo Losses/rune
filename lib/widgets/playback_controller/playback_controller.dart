@@ -44,12 +44,14 @@ class PlaybackControllerState extends State<PlaybackController> {
           SizedBox.expand(
             child: Center(
               child: Container(
-                constraints:
-                    const BoxConstraints(minWidth: 1200, maxWidth: 1600),
+                constraints: const BoxConstraints(
+                  minWidth: 1200,
+                  maxWidth: 1600,
+                ),
                 child: Transform(
                   transform: Matrix4.identity()
-                    ..scale(1.0, scaleY)
-                    ..translate(0.0, (1 - scaleY) * 100),
+                    ..scaleByDouble(1.0, scaleY, 1.0, 1.0)
+                    ..translateByDouble(0.0, (1 - scaleY) * 100, 0.0, 1.0),
                   child: const FFTVisualize(),
                 ),
               ),
