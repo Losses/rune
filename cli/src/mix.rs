@@ -39,16 +39,16 @@ pub async fn mixes(
             // Trim leading and trailing whitespace
             let param = param.trim();
             // Find the position of the first '(' and the last ')'
-            if let Some(start) = param.find('(') {
-                if let Some(end) = param.rfind(')') {
-                    // Extract the operator and parameter
-                    let operator = &param[..start];
-                    let parameter = &param[start + 1..end];
-                    // Trim leading and trailing whitespace and handle escape issues
-                    let operator = operator.trim().replace("\\(", "(").replace("\\)", ")");
-                    let parameter = parameter.trim().replace("\\(", "(").replace("\\)", ")");
-                    return Some((operator.to_string(), parameter.to_string()));
-                }
+            if let Some(start) = param.find('(')
+                && let Some(end) = param.rfind(')')
+            {
+                // Extract the operator and parameter
+                let operator = &param[..start];
+                let parameter = &param[start + 1..end];
+                // Trim leading and trailing whitespace and handle escape issues
+                let operator = operator.trim().replace("\\(", "(").replace("\\)", ")");
+                let parameter = parameter.trim().replace("\\(", "(").replace("\\)", ")");
+                return Some((operator.to_string(), parameter.to_string()));
             }
             None
         })
@@ -90,11 +90,11 @@ pub async fn save_mixes_as_m3u8(output: Option<&PathBuf>, files: &Vec<media_file
         eprintln!("Warning: Output file extension corrected to .m3u8");
     }
 
-    if let Some(parent) = corrected_path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
-            eprintln!("Failed to create directories: {e}");
-            return;
-        }
+    if let Some(parent) = corrected_path.parent()
+        && let Err(e) = fs::create_dir_all(parent)
+    {
+        eprintln!("Failed to create directories: {e}");
+        return;
     }
 
     let mut file = match File::create(&corrected_path) {

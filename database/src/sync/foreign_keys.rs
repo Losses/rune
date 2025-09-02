@@ -677,11 +677,11 @@ impl ModelWithForeignKeyOps for media_files::Model {
         let mut column_specific_map = HashMap::new();
 
         for record_model in records {
-            if let Some(parent_local_id) = record_model.cover_art_id {
-                if let hash_map::Entry::Vacant(e) =
+            if let Some(parent_local_id) = record_model.cover_art_id
+                && let hash_map::Entry::Vacant(e) =
                     column_specific_map.entry(parent_local_id.to_string())
-                {
-                    let parent_sync_id = get_referenced_sync_id::<media_cover_art::Entity, _>(
+            {
+                let parent_sync_id = get_referenced_sync_id::<media_cover_art::Entity, _>(
                         db,
                         Some(parent_local_id),
                         media_cover_art::Column::Id,
@@ -693,16 +693,15 @@ impl ModelWithForeignKeyOps for media_files::Model {
                         )
                     })?;
 
-                    if let Some(sync_id_str) = parent_sync_id {
-                        e.insert(sync_id_str);
-                    } else {
-                        warn!(
-                            "Could not find sync_id for parent media_cover_art referenced by media_files.{} = {} (child record {}). Parent might not exist or missing HLC UUID.",
-                            fk_column_name,
-                            parent_local_id,
-                            record_model.unique_id()
-                        );
-                    }
+                if let Some(sync_id_str) = parent_sync_id {
+                    e.insert(sync_id_str);
+                } else {
+                    warn!(
+                        "Could not find sync_id for parent media_cover_art referenced by media_files.{} = {} (child record {}). Parent might not exist or missing HLC UUID.",
+                        fk_column_name,
+                        parent_local_id,
+                        record_model.unique_id()
+                    );
                 }
             }
         }

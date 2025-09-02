@@ -42,16 +42,16 @@ impl From<PlayingItem> for PlayingItemRequest {
 
 impl From<PlayingItemRequest> for PlayingItem {
     fn from(x: PlayingItemRequest) -> Self {
-        if let Some(in_library) = x.in_library {
-            if in_library.file_id != 0 {
-                return PlayingItem::InLibrary(in_library.file_id);
-            }
+        if let Some(in_library) = x.in_library
+            && in_library.file_id != 0
+        {
+            return PlayingItem::InLibrary(in_library.file_id);
         }
 
-        if let Some(independent_file) = x.independent_file {
-            if !independent_file.raw_path.is_empty() {
-                return PlayingItem::IndependentFile(independent_file.raw_path);
-            }
+        if let Some(independent_file) = x.independent_file
+            && !independent_file.raw_path.is_empty()
+        {
+            return PlayingItem::IndependentFile(independent_file.raw_path);
         }
 
         PlayingItem::Unknown

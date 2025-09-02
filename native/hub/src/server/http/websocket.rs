@@ -117,38 +117,38 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: Use
     let incoming_alias = alias.clone();
     let incoming = async move {
         while let Some(Ok(msg)) = receiver.next().await {
-            if let WsMessage::Binary(payload) = msg {
-                if let Some((msg_type, msg_payload, uuid)) = decode_message(&payload) {
-                    debug!("[{incoming_alias}] Received: {msg_type}");
+            if let WsMessage::Binary(payload) = msg
+                && let Some((msg_type, msg_payload, uuid)) = decode_message(&payload)
+            {
+                debug!("[{incoming_alias}] Received: {msg_type}");
 
-                    if let Some((resp_type, response)) = state
-                        .websocket_service
-                        .handle_message(
-                            &msg_type,
-                            msg_payload,
-                            Some(Session {
-                                fingerprint: fingerprint.to_owned(),
-                                host: host.to_owned(),
-                            }),
-                        )
-                        .await
-                    {
-                        let response = match response {
-                            Ok(response) => response,
-                            Err(e) => {
-                                error!("[{incoming_alias}] Failed to handle message: {e}");
-                                continue;
-                            }
-                        };
-
-                        let response_payload = encode_message(&resp_type, &response, Some(uuid));
-                        if let Err(e) = incoming_tx
-                            .send(WsMessage::Binary(response_payload.into()))
-                            .await
-                        {
-                            error!("[{incoming_alias}] Failed to queue response: {e}");
+                if let Some((resp_type, response)) = state
+                    .websocket_service
+                    .handle_message(
+                        &msg_type,
+                        msg_payload,
+                        Some(Session {
+                            fingerprint: fingerprint.to_owned(),
+                            host: host.to_owned(),
+                        }),
+                    )
+                    .await
+                {
+                    let response = match response {
+                        Ok(response) => response,
+                        Err(e) => {
+                            error!("[{incoming_alias}] Failed to handle message: {e}");
                             continue;
                         }
+                    };
+
+                    let response_payload = encode_message(&resp_type, &response, Some(uuid));
+                    if let Err(e) = incoming_tx
+                        .send(WsMessage::Binary(response_payload.into()))
+                        .await
+                    {
+                        error!("[{incoming_alias}] Failed to queue response: {e}");
+                        continue;
                     }
                 }
             }

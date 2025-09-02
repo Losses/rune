@@ -352,20 +352,19 @@ pub async fn sync_file_descriptions(
         .await?;
     }
 
-    if let Some((id, name)) = search_term {
-        if let Err(e) = add_term(main_db, CollectionQueryType::Track, id, &name)
+    if let Some((id, name)) = search_term
+        && let Err(e) = add_term(main_db, CollectionQueryType::Track, id, &name)
             .await
             .with_context(|| "Failed to add term")
-        {
-            error!("{e:?}");
-            insert_log(
-                main_db,
-                LogLevel::Error,
-                "actions::metadata::sync_file_descriptions".to_string(),
-                format!("{e:?}"),
-            )
-            .await?;
-        }
+    {
+        error!("{e:?}");
+        insert_log(
+            main_db,
+            LogLevel::Error,
+            "actions::metadata::sync_file_descriptions".to_string(),
+            format!("{e:?}"),
+        )
+        .await?;
     }
 
     debug!("Finished syncing file data");
@@ -652,22 +651,21 @@ where
         })
         .collect();
 
-    if !new_metadata.is_empty() {
-        if let Err(e) = media_metadata::Entity::insert_many(new_metadata.clone())
+    if !new_metadata.is_empty()
+        && let Err(e) = media_metadata::Entity::insert_many(new_metadata.clone())
             .exec(db)
             .await
             .with_context(|| "Failed to insert new metadata while executing updating")
-        {
-            error!("{e:?}");
-            insert_log(
-                db,
-                LogLevel::Error,
-                "actions::metadata::update_file_metadata".to_string(),
-                format!("{e:#?}"),
-            )
-            .await?;
-            return Err(e);
-        }
+    {
+        error!("{e:?}");
+        insert_log(
+            db,
+            LogLevel::Error,
+            "actions::metadata::update_file_metadata".to_string(),
+            format!("{e:#?}"),
+        )
+        .await?;
+        return Err(e);
     }
 
     Ok(())
@@ -882,11 +880,11 @@ where
     // Read audio files at a time until no more files are available.
     while !scanner.has_ended() {
         // Check if the cancellation token has been triggered
-        if let Some(ref token) = cancel_token {
-            if token.is_cancelled() {
-                info!("Scan cancelled.");
-                return Ok(processed_files);
-            }
+        if let Some(ref token) = cancel_token
+            && token.is_cancelled()
+        {
+            info!("Scan cancelled.");
+            return Ok(processed_files);
         }
 
         debug!("Reading metadata for the next 12 files");

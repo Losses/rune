@@ -327,27 +327,27 @@ where
         .one(main_db)
         .await?;
 
-    if let Some(file) = file {
-        if let Some(cover_art_id) = file.cover_art_id {
-            // Update the file's cover_art_id to None
-            let mut file_active_model: media_files::ActiveModel = file.into();
-            file_active_model.cover_art_id = ActiveValue::Set(None);
-            media_files::Entity::update(file_active_model)
+    if let Some(file) = file
+        && let Some(cover_art_id) = file.cover_art_id
+    {
+        // Update the file's cover_art_id to None
+        let mut file_active_model: media_files::ActiveModel = file.into();
+        file_active_model.cover_art_id = ActiveValue::Set(None);
+        media_files::Entity::update(file_active_model)
+            .exec(main_db)
+            .await?;
+
+        // Check if there are other files linked to the same cover_art_id
+        let count = media_files::Entity::find()
+            .filter(media_files::Column::CoverArtId.eq(cover_art_id))
+            .count(main_db)
+            .await?;
+
+        if count == 0 {
+            // If no other files are linked to the same cover_art_id, delete the corresponding entry in the media_cover_art table
+            media_cover_art::Entity::delete_by_id(cover_art_id)
                 .exec(main_db)
                 .await?;
-
-            // Check if there are other files linked to the same cover_art_id
-            let count = media_files::Entity::find()
-                .filter(media_files::Column::CoverArtId.eq(cover_art_id))
-                .count(main_db)
-                .await?;
-
-            if count == 0 {
-                // If no other files are linked to the same cover_art_id, delete the corresponding entry in the media_cover_art table
-                media_cover_art::Entity::delete_by_id(cover_art_id)
-                    .exec(main_db)
-                    .await?;
-            }
         }
     }
 

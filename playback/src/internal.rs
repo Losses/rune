@@ -538,10 +538,10 @@ impl PlayerInternal {
             move |_sample: &mut SharedSource<_>| {
                 if let Ok(guard) = source_for_fft.lock() {
                     let data: Option<Vec<i16>> = guard.current_samples();
-                    if let Some(data) = data {
-                        if fft_tx.send(data).is_err() {
-                            error!("Failed to send FFT data");
-                        }
+                    if let Some(data) = data
+                        && fft_tx.send(data).is_err()
+                    {
+                        error!("Failed to send FFT data");
                     }
                 }
             },

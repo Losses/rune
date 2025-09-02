@@ -116,10 +116,10 @@ pub async fn search_for(
         CollectionQueryType::Directory,
         CollectionQueryType::Playlist,
     ] {
-        if let Some(ref search_fields) = search_fields {
-            if !search_fields.contains(&collection_type) {
-                continue;
-            }
+        if let Some(ref search_fields) = search_fields
+            && !search_fields.contains(&collection_type)
+        {
+            continue;
         }
 
         let query_str = deunicode(query_str);

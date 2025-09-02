@@ -179,17 +179,15 @@ impl Signal for ValidateLicenseRequest {
         is_pro = is_pro || pro_via_args;
         is_store_mode = is_store_mode || store_via_args;
 
-        if !is_pro {
-            if let Some(license) = license {
-                let mut hasher = Sha256::new();
-                hasher.update(license.as_bytes());
-                let result = hasher.finalize();
-                let hash_str = format!("{result:x}");
+        if !is_pro && let Some(license) = license {
+            let mut hasher = Sha256::new();
+            hasher.update(license.as_bytes());
+            let result = hasher.finalize();
+            let hash_str = format!("{result:x}");
 
-                let pro_via_license = LICENSES.contains(&hash_str.as_str());
+            let pro_via_license = LICENSES.contains(&hash_str.as_str());
 
-                is_pro = is_pro || pro_via_license;
-            }
+            is_pro = is_pro || pro_via_license;
         }
 
         let store_license = check_store_license().await;

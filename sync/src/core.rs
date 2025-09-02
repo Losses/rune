@@ -1905,10 +1905,11 @@ pub(crate) mod tests {
                             "Failed to deserialize record for sub-chunking in table {table_name}"
                         )
                     })?;
-                if let Some(hlc) = record.updated_at_hlc() {
-                    if hlc >= parent_chunk.start_hlc && hlc <= parent_chunk.end_hlc {
-                        records_in_range.push(record);
-                    }
+                if let Some(hlc) = record.updated_at_hlc()
+                    && hlc >= parent_chunk.start_hlc
+                    && hlc <= parent_chunk.end_hlc
+                {
+                    records_in_range.push(record);
                 }
             }
             records_in_range.sort_by_key(|m| m.updated_at_hlc());
@@ -1978,10 +1979,11 @@ pub(crate) mod tests {
                             "Failed to deserialize record for HLC range fetch in table {table_name}"
                         )
                     })?;
-                if let Some(hlc) = record.updated_at_hlc() {
-                    if hlc >= *start_hlc && hlc <= *end_hlc {
-                        records.push(record);
-                    }
+                if let Some(hlc) = record.updated_at_hlc()
+                    && hlc >= *start_hlc
+                    && hlc <= *end_hlc
+                {
+                    records.push(record);
                 }
             }
             records.sort_by_key(|m| m.updated_at_hlc());
@@ -2420,7 +2422,7 @@ pub(crate) mod tests {
             start_hlc: hlc_remote_old.clone(), // Remote chunk covers its older version
             end_hlc: hlc_remote_old.clone(),
             count: 1,
-            chunk_hash: calculate_chunk_hash(&[remote_record.clone()])?,
+            chunk_hash: calculate_chunk_hash(std::slice::from_ref(&remote_record))?,
             fk_mappings: Default::default(),
         };
         remote_source
@@ -2555,7 +2557,7 @@ pub(crate) mod tests {
             start_hlc: hlc_remote_new.clone(), // Remote chunk covers its newer version
             end_hlc: hlc_remote_new.clone(),
             count: 1,
-            chunk_hash: calculate_chunk_hash(&[remote_record.clone()])?,
+            chunk_hash: calculate_chunk_hash(std::slice::from_ref(&remote_record))?,
             fk_mappings: Default::default(),
         };
         remote_source
@@ -2976,7 +2978,7 @@ pub(crate) mod tests {
             start_hlc: common_hlc.clone(), // Chunk covers the record's HLC
             end_hlc: common_hlc.clone(),
             count: 1,
-            chunk_hash: calculate_chunk_hash(&[remote_record.clone()])?, // Hash based on remote data
+            chunk_hash: calculate_chunk_hash(std::slice::from_ref(&remote_record))?, // Hash based on remote data
             fk_mappings: Default::default(),
         };
         remote_source
@@ -3456,14 +3458,14 @@ pub(crate) mod tests {
             start_hlc: hlc_remote_insert.clone(),
             end_hlc: hlc_remote_insert.clone(),
             count: 1,
-            chunk_hash: calculate_chunk_hash(&[r_new.clone()])?,
+            chunk_hash: calculate_chunk_hash(std::slice::from_ref(&r_new))?,
             fk_mappings: Default::default(),
         };
         let remote_chunk2 = DataChunk {
             start_hlc: hlc_remote_update.clone(),
             end_hlc: hlc_remote_update.clone(),
             count: 1,
-            chunk_hash: calculate_chunk_hash(&[r_update.clone()])?,
+            chunk_hash: calculate_chunk_hash(std::slice::from_ref(&r_update))?,
             fk_mappings: Default::default(),
         };
         remote_source
@@ -3584,7 +3586,7 @@ pub(crate) mod tests {
             start_hlc: hlc_remote_old.clone(),
             end_hlc: hlc_remote_old.clone(),
             count: 1,
-            chunk_hash: calculate_chunk_hash(&[r_old.clone()])?,
+            chunk_hash: calculate_chunk_hash(std::slice::from_ref(&r_old))?,
             fk_mappings: Default::default(),
         };
         remote_source
@@ -4507,7 +4509,7 @@ pub(crate) mod tests {
             start_hlc: hlc_author_v1.clone(),
             end_hlc: hlc_author_v1.clone(),
             count: 1,
-            chunk_hash: calculate_chunk_hash(&[remote_author1_model.clone()])?,
+            chunk_hash: calculate_chunk_hash(std::slice::from_ref(&remote_author1_model))?,
             fk_mappings: Default::default(), // Authors don't have FKs in this model
         };
         remote_source
@@ -4543,7 +4545,7 @@ pub(crate) mod tests {
             start_hlc: hlc_post_v1_remote.clone(),
             end_hlc: hlc_post_v1_remote.clone(),
             count: 1,
-            chunk_hash: calculate_chunk_hash(&[remote_post1_model.clone()])?,
+            chunk_hash: calculate_chunk_hash(std::slice::from_ref(&remote_post1_model))?,
             fk_mappings: Some(post_fk_mappings),
         };
         remote_source
@@ -4669,7 +4671,7 @@ pub(crate) mod tests {
             start_hlc: hlc_author_v1.clone(),
             end_hlc: hlc_author_v1.clone(),
             count: 1,
-            chunk_hash: calculate_chunk_hash(&[remote_author1_model.clone()])?,
+            chunk_hash: calculate_chunk_hash(std::slice::from_ref(&remote_author1_model))?,
             fk_mappings: Default::default(), // Authors don't have FKs
         };
         remote_source
@@ -4838,14 +4840,14 @@ pub(crate) mod tests {
                 start_hlc: hlc_author1_v1.clone(),
                 end_hlc: hlc_author1_v1.clone(),
                 count: 1,
-                chunk_hash: calculate_chunk_hash(&[remote_author1_model.clone()])?,
+                chunk_hash: calculate_chunk_hash(std::slice::from_ref(&remote_author1_model))?,
                 fk_mappings: Default::default(),
             },
             DataChunk {
                 start_hlc: hlc_author2_v1.clone(),
                 end_hlc: hlc_author2_v1.clone(),
                 count: 1,
-                chunk_hash: calculate_chunk_hash(&[remote_author2_model.clone()])?,
+                chunk_hash: calculate_chunk_hash(std::slice::from_ref(&remote_author2_model))?,
                 fk_mappings: Default::default(),
             },
         ];
@@ -4882,7 +4884,7 @@ pub(crate) mod tests {
             start_hlc: hlc_post_v1_remote_reparented.clone(),
             end_hlc: hlc_post_v1_remote_reparented.clone(),
             count: 1,
-            chunk_hash: calculate_chunk_hash(&[remote_post1_reparented_model.clone()])?,
+            chunk_hash: calculate_chunk_hash(std::slice::from_ref(&remote_post1_reparented_model))?,
             fk_mappings: Some(post_fk_mappings),
         };
         remote_source

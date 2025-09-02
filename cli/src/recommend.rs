@@ -101,11 +101,11 @@ pub async fn save_recommendations_as_json(
         eprintln!("Warning: Output file extension corrected to .json");
     }
 
-    if let Some(parent) = corrected_path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
-            eprintln!("Failed to create directories: {e}");
-            return;
-        }
+    if let Some(parent) = corrected_path.parent()
+        && let Err(e) = fs::create_dir_all(parent)
+    {
+        eprintln!("Failed to create directories: {e}");
+        return;
     }
 
     let json_data = json!(recommendations);
@@ -144,11 +144,11 @@ pub async fn save_recommendations_as_m3u8(
         eprintln!("Warning: Output file extension corrected to .m3u8");
     }
 
-    if let Some(parent) = corrected_path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
-            eprintln!("Failed to create directories: {e}");
-            return;
-        }
+    if let Some(parent) = corrected_path.parent()
+        && let Err(e) = fs::create_dir_all(parent)
+    {
+        eprintln!("Failed to create directories: {e}");
+        return;
     }
 
     let mut file = match File::create(&corrected_path) {

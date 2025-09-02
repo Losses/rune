@@ -46,10 +46,10 @@ pub async fn register_handler(
             .verify_by_fingerprint(&request.fingerprint)
             .await;
 
-        if let Some(user) = user {
-            if user.status == UserStatus::Blocked {
-                return Ok(StatusCode::FORBIDDEN);
-            }
+        if let Some(user) = user
+            && user.status == UserStatus::Blocked
+        {
+            return Ok(StatusCode::FORBIDDEN);
         }
     }
 

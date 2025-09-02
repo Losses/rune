@@ -232,8 +232,8 @@ impl WebSocketDartBridge {
                             message = read.next() => {
                                 match message {
                                     Some(Ok(msg)) => {
-                                        if let TungsteniteMessage::Binary(payload) = msg {
-                                            if let Some((msg_type, msg_payload, _request_id)) = decode_message(&payload) {
+                                        if let TungsteniteMessage::Binary(payload) = msg
+                                            && let Some((msg_type, msg_payload, _request_id)) = decode_message(&payload) {
                                                 debug!("Received message with type: {msg_type}");
                                                 if let Some(handler) = handlers.lock().await.get(&msg_type) {
                                                     handler(msg_payload);
@@ -241,7 +241,6 @@ impl WebSocketDartBridge {
                                                     error!("No handler registered for message type while receiving response: {msg_type}");
                                                 }
                                             }
-                                        }
                                     }
                                     Some(Err(e)) => {
                                         error!("Error receiving message: {e}");

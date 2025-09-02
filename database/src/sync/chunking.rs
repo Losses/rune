@@ -525,13 +525,13 @@ where
                     .one(txn)
                     .await?;
 
-                if let Some(db_record) = &existing_record {
-                    if model.updated_at_hlc() <= db_record.updated_at_hlc() {
-                        debug!(
-                            "[SERVER DIAGNOSTICS] Ignoring stale {op_type} for unique_id: {unique_id}"
-                        );
-                        continue;
-                    }
+                if let Some(db_record) = &existing_record
+                    && model.updated_at_hlc() <= db_record.updated_at_hlc()
+                {
+                    debug!(
+                        "[SERVER DIAGNOSTICS] Ignoring stale {op_type} for unique_id: {unique_id}"
+                    );
+                    continue;
                 }
 
                 debug!("[SERVER DIAGNOSTICS] Processing {op_type} for unique_id: {unique_id}");

@@ -139,29 +139,29 @@ pub async fn extract_cover_art_from_stream(
 
     let mut format = probed.format;
 
-    if let Some(metadata) = format.metadata().current() {
-        if let Some(visual) = metadata.visuals().first() {
-            let cover_data = visual.data.to_vec();
-            if cover_data.is_empty() {
-                return Err(anyhow::anyhow!("Empty cover art data in stream"));
-            }
-
-            let rgb_sequence = decode_image(&cover_data)?;
-
-            // Calculate the CRC
-            let crc = media_crc32(&rgb_sequence, 0, 0, rgb_sequence.len());
-            if crc == 0 {
-                return Err(anyhow::anyhow!("Invalid CRC for cover art"));
-            }
-            let primary_color = get_palette_rgb(&rgb_sequence)[0];
-            let crc_string = format!("{crc:08x}");
-
-            return Ok(CoverArt {
-                crc: crc_string,
-                data: cover_data,
-                primary_color: color_to_int(&primary_color),
-            });
+    if let Some(metadata) = format.metadata().current()
+        && let Some(visual) = metadata.visuals().first()
+    {
+        let cover_data = visual.data.to_vec();
+        if cover_data.is_empty() {
+            return Err(anyhow::anyhow!("Empty cover art data in stream"));
         }
+
+        let rgb_sequence = decode_image(&cover_data)?;
+
+        // Calculate the CRC
+        let crc = media_crc32(&rgb_sequence, 0, 0, rgb_sequence.len());
+        if crc == 0 {
+            return Err(anyhow::anyhow!("Invalid CRC for cover art"));
+        }
+        let primary_color = get_palette_rgb(&rgb_sequence)[0];
+        let crc_string = format!("{crc:08x}");
+
+        return Ok(CoverArt {
+            crc: crc_string,
+            data: cover_data,
+            primary_color: color_to_int(&primary_color),
+        });
     }
 
     Err(anyhow::anyhow!("No cover art found in stream"))

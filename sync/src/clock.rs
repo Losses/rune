@@ -395,13 +395,13 @@ mod tests {
             }
 
             // Check if this call should fail
-            if let Some(fail_nth) = self.fail_exchange_nth_call.get() {
-                if current_call_number == fail_nth {
-                    // Check for exact match
-                    return Err(CristianError::ExchangeError(format!(
-                        "Simulated exchange failure on call {current_call_number}"
-                    )));
-                }
+            if let Some(fail_nth) = self.fail_exchange_nth_call.get()
+                && current_call_number == fail_nth
+            {
+                // Check for exact match
+                return Err(CristianError::ExchangeError(format!(
+                    "Simulated exchange failure on call {current_call_number}"
+                )));
             }
 
             // Simulate network delay
@@ -620,11 +620,11 @@ mod tests {
         let mut triggered_error = false;
         for _ in 0..10 {
             let result = sample_offset(&exchanger);
-            if let Err(CristianError::ExchangeError(msg)) = result {
-                if msg.contains("Invalid RTT calculation") {
-                    triggered_error = true;
-                    break;
-                }
+            if let Err(CristianError::ExchangeError(msg)) = result
+                && msg.contains("Invalid RTT calculation")
+            {
+                triggered_error = true;
+                break;
             }
             // Add a small delay to increase chance of Instant::now() difference
             std::thread::sleep(Duration::from_nanos(10));

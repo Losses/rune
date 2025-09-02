@@ -1,12 +1,16 @@
-use std::borrow::Cow::{self, Borrowed, Owned};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    borrow::Cow::{self, Borrowed, Owned},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use rustyline::completion::FilenameCompleter;
-use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
-use rustyline::hint::Hinter;
-use rustyline::history::SearchDirection;
-use rustyline::validate::MatchingBracketValidator;
+use rustyline::{
+    completion::FilenameCompleter,
+    highlight::{Highlighter, MatchingBracketHighlighter},
+    hint::Hinter,
+    history::SearchDirection,
+    validate::MatchingBracketValidator,
+};
 use rustyline_derive::{Completer, Helper, Validator};
 use tokio::sync::RwLock;
 
@@ -104,11 +108,10 @@ impl Hinter for DIYHinter {
             .history()
             .starts_with(line, start, SearchDirection::Reverse)
             .unwrap_or(None)
+            && sr.entry != line
         {
-            if sr.entry != line {
-                let char_pos = line.chars().take(pos).count();
-                return Some(sr.entry.chars().skip(char_pos).collect());
-            }
+            let char_pos = line.chars().take(pos).count();
+            return Some(sr.entry.chars().skip(char_pos).collect());
         }
 
         // If no history match, try filesystem-based completion

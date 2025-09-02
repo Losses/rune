@@ -127,10 +127,10 @@ fn compute_single_fingerprint(
 
     info!("Computing fingerprint for: {}", file.file_name);
 
-    if let Some(token) = &cancel_token {
-        if token.is_cancelled() {
-            return Err(anyhow!("Operation cancelled"));
-        }
+    if let Some(token) = &cancel_token
+        && token.is_cancelled()
+    {
+        return Err(anyhow!("Operation cancelled"));
     }
 
     let result = calc_fingerprint(fsio, &file_path, config)
@@ -173,10 +173,10 @@ where
     loop {
         info!("Comparing fingerprints after: {last_id}");
 
-        if let Some(token) = &cancel_token {
-            if token.is_cancelled() {
-                return Ok(());
-            }
+        if let Some(token) = &cancel_token
+            && token.is_cancelled()
+        {
+            return Ok(());
         }
 
         let files_page = MediaFiles::find()
@@ -220,10 +220,10 @@ async fn process_page_combinations<F>(
 where
     F: Fn(usize, usize) + Send + Sync + 'static,
 {
-    if let Some(token) = &cancel_token {
-        if token.is_cancelled() {
-            return Ok(());
-        }
+    if let Some(token) = &cancel_token
+        && token.is_cancelled()
+    {
+        return Ok(());
     }
 
     info!("Processing page with {} files", current_page.len());
@@ -231,10 +231,10 @@ where
     let mut total_tasks = 0;
     let mut history_files_per_file = Vec::with_capacity(current_page.len());
     for (i, file1) in current_page.iter().enumerate() {
-        if let Some(token) = &cancel_token {
-            if token.is_cancelled() {
-                return Ok(());
-            }
+        if let Some(token) = &cancel_token
+            && token.is_cancelled()
+        {
+            return Ok(());
         }
 
         let current_combinations = current_page.len() - i - 1;
@@ -260,27 +260,27 @@ where
         let history_files_per_file = history_files_per_file.clone();
         async move {
             for (i, file1) in current_page.iter().enumerate() {
-                if let Some(token) = &cancel_token {
-                    if token.is_cancelled() {
-                        return Ok(());
-                    }
+                if let Some(token) = &cancel_token
+                    && token.is_cancelled()
+                {
+                    return Ok(());
                 }
 
                 for file2 in &current_page[i + 1..] {
-                    if let Some(token) = &cancel_token {
-                        if token.is_cancelled() {
-                            return Ok(());
-                        }
+                    if let Some(token) = &cancel_token
+                        && token.is_cancelled()
+                    {
+                        return Ok(());
                     }
                     tx.send((file1.id, file2.id)).await?;
                 }
 
                 let history_files = &history_files_per_file[i];
                 for file2_id in history_files {
-                    if let Some(token) = &cancel_token {
-                        if token.is_cancelled() {
-                            return Ok(());
-                        }
+                    if let Some(token) = &cancel_token
+                        && token.is_cancelled()
+                    {
+                        return Ok(());
                     }
                     tx.send((file1.id, *file2_id)).await?;
                 }
@@ -298,10 +298,10 @@ where
         let progress_counter = Arc::clone(&progress_counter);
         async move {
             while let Ok((id1, id2)) = rx.recv().await {
-                if let Some(token) = &cancel_token {
-                    if token.is_cancelled() {
-                        return Ok(());
-                    }
+                if let Some(token) = &cancel_token
+                    && token.is_cancelled()
+                {
+                    return Ok(());
                 }
 
                 let _permit = semaphore.acquire().await?;

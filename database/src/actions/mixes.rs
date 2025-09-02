@@ -532,11 +532,11 @@ pub async fn initialize_mix_queries(main_db: &DatabaseConnection, node_id: &str)
 
             if mix.name == "\u{200B}Liked" {
                 new_queries.push(("filter::liked", "true"));
-            } else if mix.name.starts_with("\u{200B}Mix ") {
-                if let Some(n) = mix.name.split_whitespace().last() {
-                    new_queries.push(("pipe::limit", "50"));
-                    new_queries.push(("pipe::recommend", n));
-                }
+            } else if mix.name.starts_with("\u{200B}Mix ")
+                && let Some(n) = mix.name.split_whitespace().last()
+            {
+                new_queries.push(("pipe::limit", "50"));
+                new_queries.push(("pipe::recommend", n));
             }
 
             for (operator, parameter) in new_queries {
@@ -901,19 +901,18 @@ pub async fn query_mix_media_files(
         or_condition = or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
     }
 
-    if let Some(queue_enabled) = playback_queue {
-        if queue_enabled {
-            let queued_tracks = list_playback_queue(main_db).await?;
+    if let Some(queue_enabled) = playback_queue
+        && queue_enabled
+    {
+        let queued_tracks = list_playback_queue(main_db).await?;
 
-            let subquery = media_files::Entity::find()
-                .select_only()
-                .filter(media_files::Column::Id.is_in(queued_tracks))
-                .column(media_files::Column::Id)
-                .into_query();
+        let subquery = media_files::Entity::find()
+            .select_only()
+            .filter(media_files::Column::Id.is_in(queued_tracks))
+            .column(media_files::Column::Id)
+            .into_query();
 
-            or_condition =
-                or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
-        }
+        or_condition = or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
     }
 
     let has_liked = filter_liked.is_some();
@@ -1126,10 +1125,10 @@ pub async fn query_mix_media_files(
         );
     }
 
-    if let Some(limit) = pipe_limit {
-        if cursor as u64 >= limit {
-            return Ok(vec![]);
-        }
+    if let Some(limit) = pipe_limit
+        && cursor as u64 >= limit
+    {
+        return Ok(vec![]);
     }
 
     let final_page_size = if let Some(limit) = pipe_limit {

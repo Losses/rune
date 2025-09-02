@@ -42,11 +42,11 @@ pub async fn index_media_files(
     info!("Indexing media: {file_ids:?}");
 
     // Check for cancellation before starting any processing.
-    if let Some(token) = &cancel_token {
-        if token.is_cancelled() {
-            info!("Operation cancelled before starting.");
-            return Ok(());
-        }
+    if let Some(token) = &cancel_token
+        && token.is_cancelled()
+    {
+        info!("Operation cancelled before starting.");
+        return Ok(());
     }
 
     // Retrieve metadata summaries for the given file IDs.
@@ -63,12 +63,12 @@ pub async fn index_media_files(
         };
 
         // Check for cancellation during processing of each file.
-        if let Some(token) = &cancel_token {
-            if token.is_cancelled() {
-                info!("Operation cancelled during processing.");
-                let _ = txn.rollback().await; // Rollback the current transaction if cancelled.
-                return Ok(());
-            }
+        if let Some(token) = &cancel_token
+            && token.is_cancelled()
+        {
+            info!("Operation cancelled during processing.");
+            let _ = txn.rollback().await; // Rollback the current transaction if cancelled.
+            return Ok(());
         }
 
         // Process artists for the current media file.
@@ -132,10 +132,10 @@ async fn process_artists(
     }
 
     // Check for cancellation token.
-    if let Some(token) = cancel_token {
-        if token.is_cancelled() {
-            return Err(Error::msg("Operation cancelled"));
-        }
+    if let Some(token) = cancel_token
+        && token.is_cancelled()
+    {
+        return Err(Error::msg("Operation cancelled"));
     }
 
     // Fetch existing artists from the database that match the artist names from metadata.
@@ -366,10 +366,10 @@ async fn process_genres(
     }
 
     // Check for cancellation token.
-    if let Some(token) = cancel_token {
-        if token.is_cancelled() {
-            return Err(Error::msg("Operation cancelled"));
-        }
+    if let Some(token) = cancel_token
+        && token.is_cancelled()
+    {
+        return Err(Error::msg("Operation cancelled"));
     }
 
     // Fetch existing genres from the database that match the genre names from metadata.
@@ -763,11 +763,11 @@ pub async fn perform_library_maintenance(
     info!("Starting library maintenance");
 
     // Check for cancellation before starting maintenance.
-    if let Some(token) = &cancel_token {
-        if token.is_cancelled() {
-            info!("Maintenance cancelled before starting");
-            return Ok(());
-        }
+    if let Some(token) = &cancel_token
+        && token.is_cancelled()
+    {
+        info!("Maintenance cancelled before starting");
+        return Ok(());
     }
 
     // Clean up orphaned records.

@@ -188,23 +188,23 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                 // Check if the color file exists
                 if color_file.exists() {
                     // Read the color from the file
-                    if let Ok(color_str) = fs::read_to_string(&color_file) {
-                        if let Ok(color) = color_str.trim().parse::<i32>() {
-                            return Some(color);
-                        }
+                    if let Ok(color_str) = fs::read_to_string(&color_file)
+                        && let Ok(color) = color_str.trim().parse::<i32>()
+                    {
+                        return Some(color);
                     }
                 } else {
                     // Attempt to bake cover art
                     if (self
-                        .bake_cover_art(fsio, lib_path, _main_db, &[item.clone()])
+                        .bake_cover_art(fsio, lib_path, _main_db, std::slice::from_ref(item))
                         .await)
                         .is_ok()
                     {
                         // Try reading the color again
-                        if let Ok(color_str) = fs::read_to_string(&color_file) {
-                            if let Ok(color) = color_str.trim().parse::<i32>() {
-                                return Some(color);
-                            }
+                        if let Ok(color_str) = fs::read_to_string(&color_file)
+                            && let Ok(color) = color_str.trim().parse::<i32>()
+                        {
+                            return Some(color);
                         }
                     }
                 }

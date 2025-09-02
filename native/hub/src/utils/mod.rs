@@ -202,18 +202,17 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                         }
                     }
 
-                    if let Some(mode) = database_mode {
-                        if mode == LibraryInitializeMode::Redirected {
-                            if let Err(e) = create_redirect(media_library_path) {
-                                broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                    path: media_library_path.to_string(),
-                                    success: false,
-                                    error: Some(format!("{e:#?}")),
-                                    not_ready: false,
-                                });
-                                continue;
-                            }
-                        }
+                    if let Some(mode) = database_mode
+                        && mode == LibraryInitializeMode::Redirected
+                        && let Err(e) = create_redirect(media_library_path)
+                    {
+                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            path: media_library_path.to_string(),
+                            success: false,
+                            error: Some(format!("{e:#?}")),
+                            not_ready: false,
+                        });
+                        continue;
                     }
 
                     // Initialize databases

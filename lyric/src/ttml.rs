@@ -82,20 +82,18 @@ pub fn parse_ttml(content: &str) -> Result<LyricFile> {
 
     let mut lyric_file = LyricFile::new();
 
-    if let Some(head) = root.get_child("head") {
-        if let Some(metadata) = head.get_child("metadata") {
-            for child in &metadata.children {
-                if let Some(element) = child.as_element() {
-                    if element.name == "agent" {
-                        if let Some(id) = element.attributes.get("xml:id") {
-                            if let Some(agent_type) = element.attributes.get("type") {
-                                lyric_file
-                                    .metadata
-                                    .insert(id.to_string(), agent_type.to_string());
-                            }
-                        }
-                    }
-                }
+    if let Some(head) = root.get_child("head")
+        && let Some(metadata) = head.get_child("metadata")
+    {
+        for child in &metadata.children {
+            if let Some(element) = child.as_element()
+                && element.name == "agent"
+                && let Some(id) = element.attributes.get("xml:id")
+                && let Some(agent_type) = element.attributes.get("type")
+            {
+                lyric_file
+                    .metadata
+                    .insert(id.to_string(), agent_type.to_string());
             }
         }
     }
@@ -144,10 +142,10 @@ pub fn parse_ttml(content: &str) -> Result<LyricFile> {
                                 text.push_str(&word_text);
                                 word_time_tags.push((word_start_time, word_end_time, word_text));
                             }
-                        } else if let Some(translation) = span.attributes.get("ttm:role") {
-                            if translation == "x-translation" {
-                                text.push_str(&extract_text(span));
-                            }
+                        } else if let Some(translation) = span.attributes.get("ttm:role")
+                            && translation == "x-translation"
+                        {
+                            text.push_str(&extract_text(span));
                         }
                     }
                 }
