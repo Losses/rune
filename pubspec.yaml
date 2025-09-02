@@ -93,7 +93,7 @@ dependencies:
   badges: ^3.1.2
   fast_file_picker: ^0.4.7
   file_selector: ^1.0.3
-  vector_math: ^2.2.0
+  vector_math: ^2.1.4
 
 dev_dependencies:
   build_runner: ^2.4.11
