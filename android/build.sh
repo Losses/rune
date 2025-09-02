@@ -46,10 +46,10 @@ if [[ "${NIX_NIX_DEV_SHELL}" = "true" ]]; then
 
     if [ "$CIRCLECI" = "true" ]; then
         echo "CircleCI environment detected. Applying patch to settings.gradle..."
-        sed -i "1i System.setProperty('gradle.user.home', '$WORK_DIR/.gradle_cache')" "$WORK_DIR/settings.gradle"
+        sed -i "/pluginManagement {/a System.setProperty('gradle.user.home', '$WORK_DIR/.gradle_cache')" "$WORK_DIR/settings.gradle"
 
-        echo "--- Patched settings.gradle (top 3 lines) ---"
-        head -n 3 "$WORK_DIR/settings.gradle"
+        echo "--- Patched settings.gradle (top 4 lines) ---"
+        head -n 4 "$WORK_DIR/settings.gradle"
         echo "-------------------------------------------"
     fi
 
