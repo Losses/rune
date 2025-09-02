@@ -45,12 +45,13 @@ if [[ "${NIX_NIX_DEV_SHELL}" = "true" ]]; then
     export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=$NIX_ANDROID_SDK/share/android-sdk/build-tools/34.0.0/aapt2"
 
     if [ "$CIRCLECI" = "true" ]; then
-        echo "CircleCI environment detected. Applying patch to settings.gradle..."
-        sed -i "/pluginManagement {/a System.setProperty('gradle.user.home', '$WORK_DIR/.gradle_cache')" "$WORK_DIR/settings.gradle"
+        echo "CircleCI environment detected. Creating global gradle.properties..."
+        mkdir -p "$HOME/.gradle"
+        echo "systemProp.gradle.user.home=$WORK_DIR/.gradle_cache" > "$HOME/.gradle/gradle.properties"
 
-        echo "--- Patched settings.gradle (top 4 lines) ---"
-        head -n 4 "$WORK_DIR/settings.gradle"
-        echo "-------------------------------------------"
+        echo "--- Global gradle.properties created ---"
+        cat "$HOME/.gradle/gradle.properties"
+        echo "----------------------------------------"
     fi
 
     export PATH=$NIX_TOOLCHAIN_BIN_PATH:$NIX_ANDROID_SDK/share/android-sdk/platform-tools:$NIX_ANDROID_SDK/share/android-sdk/tools:$NIX_ANDROID_SDK/share/android-sdk/tools/bin:$PATH
