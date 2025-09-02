@@ -57,6 +57,30 @@
   </screenshots>
 
   <releases>
+
+    <release version="2.0.0-alpha.7" date="2025-09-02">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Fix incorrect migration config and data generation for the sync package.</li>
+          <li>Downgrade build runner to use Ubuntu 22.04 by @abc1763613206 in
+            https://github.com/Losses/rune/pull/277.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Upgrade flutter to 3.35.</li>
+        </ul>
+        <p>Security</p>
+        <ul>
+          <li>Bump macOS deployment target to 10.15 by @laosb in
+            https://github.com/Losses/rune/pull/273.</li>
+          <li>Bump iOS deployment target to 14.0 by @laosb in
+            https://github.com/Losses/rune/pull/274.</li>
+          <li>Bump tracing-subscriber from 0.3.19 to 0.3.20 by @dependabot[bot] in
+            https://github.com/Losses/rune/pull/275.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.6" date="2025-08-20">
       <description>
         <p>Bugs</p>
