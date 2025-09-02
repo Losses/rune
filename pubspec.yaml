@@ -33,7 +33,6 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
-  protobuf: ^3.1.0
   fluent_ui:
     git:
       url: https://github.com/Losses/fluent_ui.git
