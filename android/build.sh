@@ -41,13 +41,16 @@ if [[ "${NIX_NIX_DEV_SHELL}" = "true" ]]; then
     export RUSTFLAGS=$NIX_RUSTFLAGS
     export CMAKE_TOOLCHAIN_FILE=$NIX_CMAKE_TOOLCHAIN_FILE
     
-    # Initialize base GRADLE_OPTS for Nix environment
+    # Base GRADLE_OPTS for Nix environment
     export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=$NIX_ANDROID_SDK/share/android-sdk/build-tools/34.0.0/aapt2"
 
     if [ "$CIRCLECI" = "true" ]; then
-        echo "CircleCI environment detected. Applying Gradle cache workaround..."
-        GRADLE_OPTS="${GRADLE_OPTS} -Dgradle.user.home=$WORK_DIR/.gradle_cache"
-        export GRADLE_OPTS
+        echo "CircleCI environment detected. Applying patch to settings.gradle..."
+        sed -i "1i System.setProperty('gradle.user.home', '$WORK_DIR/.gradle_cache')" "$WORK_DIR/settings.gradle"
+
+        echo "--- Patched settings.gradle (top 3 lines) ---"
+        head -n 3 "$WORK_DIR/settings.gradle"
+        echo "-------------------------------------------"
     fi
 
     export PATH=$NIX_TOOLCHAIN_BIN_PATH:$NIX_ANDROID_SDK/share/android-sdk/platform-tools:$NIX_ANDROID_SDK/share/android-sdk/tools:$NIX_ANDROID_SDK/share/android-sdk/tools/bin:$PATH
