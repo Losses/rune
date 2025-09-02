@@ -142,7 +142,7 @@ pub async fn inspect_host(host: &str, config: Arc<ClientConfig>) -> Result<()> {
 
 pub async fn register_current_device(host: &str, config: Arc<ClientConfig>) -> Result<()> {
     let config_dir = get_config_dir()?;
-    let certificate_id = get_or_generate_alias(&config_dir).await?;
+    let certificate_id = get_or_generate_alias(config_dir).await?;
     let (_, certificate, _) = generate_or_load_certificates(&config_dir, &certificate_id)
         .await
         .context("Failed to load client certificates")?;
@@ -166,7 +166,7 @@ pub async fn register_current_device(host: &str, config: Arc<ClientConfig>) -> R
 
 pub async fn print_device_information() -> Result<()> {
     let config_dir = get_config_dir()?;
-    let certificate_id = get_or_generate_alias(&config_dir).await?;
+    let certificate_id = get_or_generate_alias(config_dir).await?;
     let (_, certificate, _) = generate_or_load_certificates(&config_dir, &certificate_id)
         .await
         .context("Failed to load client certificates")?;

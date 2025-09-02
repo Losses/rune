@@ -9,7 +9,7 @@ use ::discovery::{config::get_config_dir, protocol::DiscoveryService};
 
 pub async fn handle_broadcast() -> Result<()> {
     let config_path = get_config_dir()?;
-    let device_info = load_device_info(&config_path).await?;
+    let device_info = load_device_info(config_path).await?;
 
     let discovery_service = DiscoveryService::with_store(config_path).await?;
 
