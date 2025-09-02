@@ -15,7 +15,7 @@ class StartGroupImplementation<T> extends StatelessWidget {
   final Axis direction;
 
   final Dimensions Function(double, double, double, List<T>)
-      dimensionCalculator;
+  dimensionCalculator;
 
   const StartGroupImplementation({
     super.key,
@@ -79,7 +79,9 @@ class StartGroupImplementation<T> extends StatelessWidget {
       1,
     );
     final int maxItems = min(
-        pow(sqrt(items.length).floor(), 2).floor(), pow(columns, 2).floor());
+      pow(sqrt(items.length).floor(), 2).floor(),
+      pow(columns, 2).floor(),
+    );
     final int rows = min((maxItems / columns).ceil(), columns);
 
     final int trueColumns = max(columns, 3);
@@ -138,7 +140,7 @@ class StartGroupImplementation<T> extends StatelessWidget {
       groupIndex: groupIndex,
       cellSize: cellSize,
       itemBuilder: itemBuilder,
-      direction: this.direction,
+      direction: direction,
     );
   }
 }
