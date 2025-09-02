@@ -15,7 +15,7 @@
 }:
 
 let
-  version = "2.0.1007";
+  version = "2.0.1008";
 
   metaCommon = {
     description = "Experience timeless melodies with a music player that blends classic design with modern technology";

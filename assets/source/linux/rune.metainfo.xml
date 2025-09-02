@@ -57,7 +57,15 @@
   </screenshots>
 
   <releases>
-
+    <release version="2.0.0-alpha.8" date="2025-09-02">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Linux build broken.</li>
+          <li>Android build broken.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.7" date="2025-09-02">
       <description>
         <p>Bugs</p>
