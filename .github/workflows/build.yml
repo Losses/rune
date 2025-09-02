@@ -127,7 +127,7 @@ jobs:
           makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
 
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
