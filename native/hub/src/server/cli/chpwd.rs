@@ -2,7 +2,9 @@ use anyhow::Result;
 use log::{error, info};
 use rpassword::prompt_password;
 
-use hub::server::{update_root_password, utils::path::get_config_dir};
+use hub::server::update_root_password;
+
+use ::discovery::config::get_config_dir;
 
 pub async fn handle_chpwd() -> Result<()> {
     let config_dir = get_config_dir()?;

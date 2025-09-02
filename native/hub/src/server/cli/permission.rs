@@ -1,14 +1,11 @@
 use anyhow::Result;
 use log::info;
 
-use hub::server::utils::{
-    path::get_config_dir,
-    permission::{parse_status, print_permission_table, validate_index},
-};
+use hub::server::utils::permission::{parse_status, print_permission_table, validate_index};
 
 use crate::PermissionAction;
 
-use ::discovery::server::PermissionManager;
+use ::discovery::{config::get_config_dir, server::PermissionManager};
 
 pub async fn handle_permission(action: PermissionAction) -> Result<()> {
     let config_path = get_config_dir()?;

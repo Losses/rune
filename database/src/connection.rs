@@ -180,16 +180,16 @@ pub async fn connect_main_db(
 
     let db = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
 
-    // Initialize node_id for migrations.
-    // We ignore the result because it might have been initialized already, which is fine.
-    let _ = migration::initialize_node_id(node_id.to_string());
-
     initialize_db(&db, node_id).await?;
 
     Ok(db)
 }
 
 pub async fn initialize_db(conn: &sea_orm::DatabaseConnection, node_id: &str) -> Result<()> {
+    // Initialize node_id for migrations.
+    // We ignore the result because it might have been initialized already, which is fine.
+    let _ = migration::initialize_node_id(node_id.to_string());
+
     Migrator::up(conn, None).await?;
     initialize_mix_queries(conn, node_id).await?;
     Ok(())

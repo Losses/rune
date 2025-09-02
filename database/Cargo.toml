@@ -53,8 +53,8 @@ tempfile = "3.17.1"
 axum = { version = "0.8.2", features = ["tokio"] }
 reqwest = "0.12.18"
 fsio = { version = "0.1.0", path = "../fsio" }
-stream-download = "0.22.4"
 http-request = { version = "0.1.0", path = "../http-request" }
+discovery = { version = "0.1.0", path = "../discovery" }
 
 [dev-dependencies]
 hyper = "1.6.0"

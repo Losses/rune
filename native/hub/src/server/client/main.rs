@@ -21,9 +21,7 @@ use tokio::{
 };
 use tracing_subscriber::EnvFilter;
 
-use hub::server::utils::path::get_config_dir;
-
-use ::discovery::{client::CertValidator, protocol::DiscoveryService};
+use ::discovery::{client::CertValidator, config::get_config_dir, protocol::DiscoveryService};
 
 use cli::{Cli, DiscoveryCmd, RemoteCmd, ReplCommand};
 use connection::WSConnection;

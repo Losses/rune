@@ -51,6 +51,7 @@ colored = "3.0.0"
 http-body = "1.0.1"
 notify = "8.0.0"
 dashmap = "6.1.0"
+directories = "6.0.0"
 
 [dev-dependencies]
 clearscreen = "4.0.1"

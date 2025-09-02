@@ -10,10 +10,9 @@ use futures::future::join_all;
 use log::warn;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
-use stream_download::{Settings, StreamDownload, storage::temp::TempStorageProvider};
-use symphonia::core::io::{IoSource, MediaSource};
 use uuid::Uuid;
 
+use ::discovery::{client::CertValidator, config::get_config_dir};
 use ::fsio::FsIo;
 use ::http_request::{
     BodyExt, Empty, Request, StatusCode, Uri, create_https_client, send_http_request,
@@ -22,10 +21,7 @@ use ::http_request::{Bytes, ClientConfig};
 use ::metadata::{
     cover_art::extract_cover_art_from_stream, streaming::get_metadata_and_codec_from_stream,
 };
-use ::playback::{
-    player::PlayingItem,
-    stream_utils::{create_stream_from_url, create_stream_media_source_from_url},
-};
+use ::playback::{player::PlayingItem, stream_utils::create_stream_media_source_from_url};
 
 use super::{MediaFileHandle, PlayingFileMetadataProvider, PlayingItemMetadataSummary};
 
@@ -170,8 +166,15 @@ async fn get_summary_for_online_in_library_file(
     host: &str,
     file_id: i32,
 ) -> Result<PlayingItemMetadataSummary> {
-    let config = Arc::new(ClientConfig::new());
-    let metadata = get_media_metadata(host, config, file_id as i64).await?;
+    let config_path = get_config_dir()?;
+    let cert_validator = Arc::new(
+        CertValidator::new(config_path)
+            .await
+            .with_context(|| "Failed to create the cert validator")?,
+    );
+    let client_config = Arc::new(cert_validator.into_client_config());
+
+    let metadata = get_media_metadata(host, client_config, file_id as i64).await?;
     Ok(PlayingItemMetadataSummary {
         item: item.clone(),
         title: metadata.file.title,
@@ -192,19 +195,19 @@ async fn get_summary_for_online_file(
 
     let mut summary = PlayingItemMetadataSummary {
         item: item.clone(),
-        title: None,
-        artist: None,
-        album: None,
-        duration: Some(duration),
-        track_number: None,
+        title: String::new(),
+        artist: String::new(),
+        album: String::new(),
+        duration,
+        track_number: 0,
     };
 
     for (key, value) in metadata {
         match key.to_lowercase().as_str() {
-            "title" => summary.title = Some(value),
-            "artist" => summary.artist = Some(value),
-            "album" => summary.album = Some(value),
-            "track" => summary.track_number = value.parse().ok(),
+            "title" => summary.title = value,
+            "artist" => summary.artist = value,
+            "album" => summary.album = value,
+            "track" => summary.track_number = value.parse().unwrap_or(0),
             _ => {}
         }
     }
@@ -266,7 +269,7 @@ impl PlayingFileMetadataProvider for OnlineFileProcessor {
         for (item, result) in results {
             match result {
                 Ok(summary) => summaries.push(summary),
-                Err(e) => warn!("Failed to get metadata for {:?}: {}", item, e),
+                Err(e) => warn!("Failed to get metadata for {item:?}: {e}"),
             }
         }
 
@@ -280,18 +283,25 @@ impl PlayingFileMetadataProvider for OnlineFileProcessor {
         _main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
+        let config_path = get_config_dir()?;
+        let cert_validator = Arc::new(
+            CertValidator::new(config_path)
+                .await
+                .with_context(|| "Failed to create the cert validator")?,
+        );
+        let client_config = Arc::new(cert_validator.into_client_config());
+
         let futures = items.iter().filter_map(|item| {
             if let PlayingItem::Online(url, online_file_opt) = item {
-                let fsio = fsio.clone();
                 let lib_path = lib_path.to_path_buf();
                 let item_clone = item.clone();
                 let url_clone = url.clone();
                 let online_file_opt_clone = online_file_opt.clone();
 
+                let client_config = Arc::clone(&client_config);
                 Some(async move {
                     let cover_art_data = if let Some(online_file) = online_file_opt_clone {
-                        let config = Arc::new(ClientConfig::new());
-                        get_cover_art(&online_file.host, config, online_file.id as i64)
+                        get_cover_art(&online_file.host, client_config, online_file.id as i64)
                             .await
                             .map(|bytes| bytes.to_vec())
                     } else {
@@ -309,7 +319,7 @@ impl PlayingFileMetadataProvider for OnlineFileProcessor {
                                 fsio.create_dir_all(&cache_dir)?;
                             }
                             let file_path = cache_dir.join(file_name);
-                            fsio.write(&file_path, &data)?;
+                            fsio.write(&file_path, &data).await?;
                             Ok((item_clone, file_path.to_string_lossy().to_string()))
                         }
                         Err(e) => Err(anyhow!(
@@ -331,7 +341,7 @@ impl PlayingFileMetadataProvider for OnlineFileProcessor {
                 Ok((item, path)) => {
                     cover_art_map.insert(item, path);
                 }
-                Err(e) => warn!("{}", e),
+                Err(e) => warn!("{e}"),
             }
         }
 

@@ -3,9 +3,9 @@ use std::time::Duration;
 use anyhow::Result;
 use tokio::signal::ctrl_c;
 
-use hub::server::utils::{device::load_device_info, path::get_config_dir};
+use hub::server::utils::device::load_device_info;
 
-use ::discovery::protocol::DiscoveryService;
+use ::discovery::{config::get_config_dir, protocol::DiscoveryService};
 
 pub async fn handle_broadcast() -> Result<()> {
     let config_path = get_config_dir()?;

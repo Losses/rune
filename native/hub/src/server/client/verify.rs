@@ -1,18 +1,20 @@
-use std::time::Duration;
-use std::{fmt, sync::Arc};
+use std::{fmt, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use colored::Colorize;
 use futures::StreamExt;
+use log::info;
+use rustls::ClientConfig;
+
+use ::discovery::{
+    client::{fetch_server_certificate, parse_certificate},
+    config::get_config_dir,
+};
+
 use hub::server::{
     api::{fetch_device_info, register_device},
     generate_or_load_certificates, get_or_generate_alias,
-    utils::path::get_config_dir,
 };
-use log::info;
-
-use discovery::client::{fetch_server_certificate, parse_certificate};
-use rustls::ClientConfig;
 
 #[derive(Debug)]
 enum VerificationResult {

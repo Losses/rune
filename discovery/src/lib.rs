@@ -7,6 +7,7 @@ pub mod server;
 pub mod ssl;
 pub mod url;
 pub mod utils;
+pub mod config;
 
 pub struct DiscoveryParams {
     pub device_info: DeviceInfo,
