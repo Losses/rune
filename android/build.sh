@@ -66,13 +66,37 @@ EOF
         # Also set GRADLE_USER_HOME environment variable
         export GRADLE_USER_HOME="$GRADLE_CACHE_DIR"
         
-        # Add additional Gradle options to use writable directories
-        export GRADLE_OPTS="$GRADLE_OPTS -Dgradle.user.home=$GRADLE_CACHE_DIR -Duser.home=$HOME"
+        # Add comprehensive Gradle options to force all operations to use writable directories
+        export GRADLE_OPTS="$GRADLE_OPTS -Dgradle.user.home=$GRADLE_CACHE_DIR -Duser.home=$HOME -Dorg.gradle.unsafe.configuration-cache=false -Djava.io.tmpdir=$WORK_DIR/tmp"
+        
+        # Create temp directory for Java operations
+        mkdir -p "$WORK_DIR/tmp"
+        export TMPDIR="$WORK_DIR/tmp"
+        export TEMP="$WORK_DIR/tmp"
+        export TMP="$WORK_DIR/tmp"
+        
+        # Force Flutter to use our Gradle settings
+        export FLUTTER_GRADLE_OPTS="$GRADLE_OPTS"
+        
+        # Create a local gradle wrapper properties to override Flutter's internal settings
+        mkdir -p "$WORK_DIR/gradle/wrapper"
+        if [ ! -f "$WORK_DIR/gradle/wrapper/gradle-wrapper.properties" ]; then
+            cat > "$WORK_DIR/gradle/wrapper/gradle-wrapper.properties" << EOF
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.3-bin.zip
+networkTimeout=10000
+validateDistributionUrl=true
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+EOF
+        fi
 
         echo "--- Global gradle.properties created ---"
         cat "$HOME/.gradle/gradle.properties"
         echo "GRADLE_USER_HOME: $GRADLE_USER_HOME"
         echo "GRADLE_OPTS: $GRADLE_OPTS"
+        echo "TMPDIR: $TMPDIR"
         echo "----------------------------------------"
     fi
 
@@ -114,7 +138,7 @@ fi
 
 # Exec Flutter build
 echo "Starting Flutter build..."
-flutter build apk --release --split-per-abi
+flutter build apk --release --verbose --split-per-abi
 
 # Report build result
 if [ $? -eq 0 ]; then
