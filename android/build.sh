@@ -46,11 +46,33 @@ if [[ "${NIX_NIX_DEV_SHELL}" = "true" ]]; then
 
     if [ "$CIRCLECI" = "true" ]; then
         echo "CircleCI environment detected. Creating global gradle.properties..."
+        
+        # Create writable gradle cache directory
+        GRADLE_CACHE_DIR="$WORK_DIR/.gradle_cache"
+        mkdir -p "$GRADLE_CACHE_DIR"
         mkdir -p "$HOME/.gradle"
-        echo "systemProp.gradle.user.home=$WORK_DIR/.gradle_cache" > "$HOME/.gradle/gradle.properties"
+        
+        # Set up gradle.properties with proper cache directories
+        cat > "$HOME/.gradle/gradle.properties" << EOF
+systemProp.gradle.user.home=$GRADLE_CACHE_DIR
+org.gradle.daemon=false
+org.gradle.parallel=true
+org.gradle.caching=true
+org.gradle.configuration-cache=false
+android.useAndroidX=true
+android.enableJetifier=true
+EOF
+        
+        # Also set GRADLE_USER_HOME environment variable
+        export GRADLE_USER_HOME="$GRADLE_CACHE_DIR"
+        
+        # Add additional Gradle options to use writable directories
+        export GRADLE_OPTS="$GRADLE_OPTS -Dgradle.user.home=$GRADLE_CACHE_DIR -Duser.home=$HOME"
 
         echo "--- Global gradle.properties created ---"
         cat "$HOME/.gradle/gradle.properties"
+        echo "GRADLE_USER_HOME: $GRADLE_USER_HOME"
+        echo "GRADLE_OPTS: $GRADLE_OPTS"
         echo "----------------------------------------"
     fi
 
