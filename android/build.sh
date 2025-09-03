@@ -33,6 +33,23 @@ export AARCH64_LINUX_ANDROID_OPENSSL_DIR="$WORK_DIR/openssl/arm64-v8a"
 export I686_LINUX_ANDROID_OPENSSL_DIR="$WORK_DIR/openssl/x86"
 export X86_64_LINUX_ANDROID_OPENSSL_DIR="$WORK_DIR/openssl/x86_64"
 
+# Common writable directories setup for both Nix and non-Nix environments
+GRADLE_CACHE_DIR="$WORK_DIR/.gradle_cache"
+PUB_CACHE_DIR="$WORK_DIR/.pub_cache"
+FLUTTER_CACHE_DIR="$WORK_DIR/.flutter_cache"
+
+# Create necessary writable directories
+mkdir -p "$GRADLE_CACHE_DIR"
+mkdir -p "$PUB_CACHE_DIR" 
+mkdir -p "$FLUTTER_CACHE_DIR"
+mkdir -p "$WORK_DIR/tmp"
+
+# Set common cache directories
+export PUB_CACHE="$PUB_CACHE_DIR"
+export TMPDIR="$WORK_DIR/tmp"
+export TEMP="$WORK_DIR/tmp"
+export TMP="$WORK_DIR/tmp"
+
 if [[ "${NIX_NIX_DEV_SHELL}" = "true" ]]; then
     export ANDROID_NDK_ROOT=$NIX_ANDROID_NDK_ROOT
     export CFLAGS=$NIX_CFLAGS
@@ -44,16 +61,15 @@ if [[ "${NIX_NIX_DEV_SHELL}" = "true" ]]; then
     # Base GRADLE_OPTS for Nix environment
     export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=$NIX_ANDROID_SDK/share/android-sdk/build-tools/34.0.0/aapt2"
 
-    if [ "$CIRCLECI" = "true" ]; then
-        echo "CircleCI environment detected. Creating global gradle.properties..."
-        
-        # Create writable gradle cache directory
-        GRADLE_CACHE_DIR="$WORK_DIR/.gradle_cache"
-        mkdir -p "$GRADLE_CACHE_DIR"
-        mkdir -p "$HOME/.gradle"
-        
-        # Set up gradle.properties with proper cache directories
-        cat > "$HOME/.gradle/gradle.properties" << EOF
+    # Set Gradle home to writable location for all Nix environments
+    export GRADLE_USER_HOME="$GRADLE_CACHE_DIR"
+    
+    # Additional Gradle configuration to prevent writing to read-only Nix store
+    export GRADLE_OPTS="$GRADLE_OPTS -Dgradle.user.home=$GRADLE_CACHE_DIR -Duser.home=$HOME -Djava.io.tmpdir=$WORK_DIR/tmp"
+
+    # Create global gradle.properties for consistent behavior
+    mkdir -p "$HOME/.gradle"
+    cat > "$HOME/.gradle/gradle.properties" << EOF
 systemProp.gradle.user.home=$GRADLE_CACHE_DIR
 org.gradle.daemon=false
 org.gradle.parallel=true
@@ -62,42 +78,36 @@ org.gradle.configuration-cache=false
 android.useAndroidX=true
 android.enableJetifier=true
 EOF
+
+    if [ "$CIRCLECI" = "true" ]; then
+        echo "CircleCI environment detected. Applying additional configurations..."
         
-        # Also set GRADLE_USER_HOME environment variable
-        export GRADLE_USER_HOME="$GRADLE_CACHE_DIR"
-        
-        # Add comprehensive Gradle options to force all operations to use writable directories
-        export GRADLE_OPTS="$GRADLE_OPTS -Dgradle.user.home=$GRADLE_CACHE_DIR -Duser.home=$HOME -Dorg.gradle.unsafe.configuration-cache=false -Djava.io.tmpdir=$WORK_DIR/tmp"
-        
-        # Create temp directory for Java operations
-        mkdir -p "$WORK_DIR/tmp"
-        export TMPDIR="$WORK_DIR/tmp"
-        export TEMP="$WORK_DIR/tmp"
-        export TMP="$WORK_DIR/tmp"
+        # Enhanced Gradle options for CircleCI with Nix
+        export GRADLE_OPTS="$GRADLE_OPTS -Dorg.gradle.unsafe.configuration-cache=false -Dorg.gradle.project.gradle.user.home=$GRADLE_CACHE_DIR"
         
         # Force Flutter to use our Gradle settings
         export FLUTTER_GRADLE_OPTS="$GRADLE_OPTS"
         
-        # Create a local gradle wrapper properties to override Flutter's internal settings
-        mkdir -p "$WORK_DIR/gradle/wrapper"
-        if [ ! -f "$WORK_DIR/gradle/wrapper/gradle-wrapper.properties" ]; then
-            cat > "$WORK_DIR/gradle/wrapper/gradle-wrapper.properties" << EOF
-distributionBase=GRADLE_USER_HOME
-distributionPath=wrapper/dists
-distributionUrl=https\://services.gradle.org/distributions/gradle-8.3-bin.zip
-networkTimeout=10000
-validateDistributionUrl=true
-zipStoreBase=GRADLE_USER_HOME
-zipStorePath=wrapper/dists
-EOF
-        fi
-
         echo "--- Global gradle.properties created ---"
         cat "$HOME/.gradle/gradle.properties"
         echo "GRADLE_USER_HOME: $GRADLE_USER_HOME"
         echo "GRADLE_OPTS: $GRADLE_OPTS"
         echo "TMPDIR: $TMPDIR"
         echo "----------------------------------------"
+    fi
+
+    # Create a local gradle wrapper properties to ensure consistent Gradle version
+    mkdir -p "$WORK_DIR/gradle/wrapper"
+    if [ ! -f "$WORK_DIR/gradle/wrapper/gradle-wrapper.properties" ]; then
+        cat > "$WORK_DIR/gradle/wrapper/gradle-wrapper.properties" << EOF
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip
+networkTimeout=10000
+validateDistributionUrl=true
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+EOF
     fi
 
     export PATH=$NIX_TOOLCHAIN_BIN_PATH:$NIX_ANDROID_SDK/share/android-sdk/platform-tools:$NIX_ANDROID_SDK/share/android-sdk/tools:$NIX_ANDROID_SDK/share/android-sdk/tools/bin:$PATH
@@ -117,6 +127,30 @@ EOF
 
     flutter config --jdk-dir $NIX_PINNED_JDK
     echo "=================="
+else
+    # Non-Nix environment setup
+    echo "=== Standard Environment Setup ==="
+    
+    # Set standard Gradle home for non-Nix environments
+    if [ -z "$GRADLE_USER_HOME" ]; then
+        export GRADLE_USER_HOME="$GRADLE_CACHE_DIR"
+    fi
+    
+    # Basic Gradle options for non-Nix environments
+    export GRADLE_OPTS="${GRADLE_OPTS:-} -Dgradle.user.home=$GRADLE_USER_HOME -Djava.io.tmpdir=$WORK_DIR/tmp"
+    
+    # Create gradle.properties for consistency
+    mkdir -p "$HOME/.gradle"
+    if [ ! -f "$HOME/.gradle/gradle.properties" ]; then
+        cat > "$HOME/.gradle/gradle.properties" << EOF
+systemProp.gradle.user.home=$GRADLE_USER_HOME
+org.gradle.daemon=true
+org.gradle.parallel=true
+org.gradle.caching=true
+android.useAndroidX=true
+android.enableJetifier=true
+EOF
+    fi
 fi
 
 # Print env variables for debugging purpose
@@ -128,6 +162,8 @@ echo "ARMV7_LINUX_ANDROIDEABI_OPENSSL_DIR: $ARMV7_LINUX_ANDROIDEABI_OPENSSL_DIR"
 echo "AARCH64_LINUX_ANDROID_OPENSSL_DIR: $AARCH64_LINUX_ANDROID_OPENSSL_DIR"
 echo "I686_LINUX_ANDROID_OPENSSL_DIR: $I686_LINUX_ANDROID_OPENSSL_DIR"
 echo "X86_64_LINUX_ANDROID_OPENSSL_DIR: $X86_64_LINUX_ANDROID_OPENSSL_DIR"
+echo "GRADLE_USER_HOME: $GRADLE_USER_HOME"
+echo "PUB_CACHE: $PUB_CACHE"
 echo "=================="
 
 # Check if Flutter is present
@@ -135,6 +171,14 @@ if ! command -v flutter &> /dev/null; then
     echo "ERROR: Flutter command not found"
     exit 1
 fi
+
+# Verify Flutter can access writable directories
+echo "Verifying Flutter configuration..."
+flutter doctor -v
+
+# Get dependencies
+echo "Getting Flutter dependencies..."
+flutter pub get
 
 # Exec Flutter build
 echo "Starting Flutter build..."
