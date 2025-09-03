@@ -40,16 +40,7 @@ if [[ "${NIX_NIX_DEV_SHELL}" = "true" ]]; then
     export BINDGEN_EXTRA_CLANG_ARGS=$NIX_BINDGEN_EXTRA_CLANG_ARGS
     export RUSTFLAGS=$NIX_RUSTFLAGS
     export CMAKE_TOOLCHAIN_FILE=$NIX_CMAKE_TOOLCHAIN_FILE
-    
-    # Initialize base GRADLE_OPTS for Nix environment
     export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=$NIX_ANDROID_SDK/share/android-sdk/build-tools/34.0.0/aapt2"
-
-    if [ "$CIRCLECI" = "true" ]; then
-        echo "CircleCI environment detected. Applying Gradle cache workaround..."
-        GRADLE_OPTS="${GRADLE_OPTS} -Dgradle.user.home=$WORK_DIR/.gradle_cache"
-        export GRADLE_OPTS
-    fi
-
     export PATH=$NIX_TOOLCHAIN_BIN_PATH:$NIX_ANDROID_SDK/share/android-sdk/platform-tools:$NIX_ANDROID_SDK/share/android-sdk/tools:$NIX_ANDROID_SDK/share/android-sdk/tools/bin:$PATH
 
     echo "=================="
