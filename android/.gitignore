@@ -16,3 +16,5 @@ key.properties
 
 # Ignore prebuilt OpenSSL
 openssl/
+
+.gradle_cache
