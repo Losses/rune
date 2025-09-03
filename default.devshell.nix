@@ -101,6 +101,7 @@ pkgs.mkShell {
       export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${aapt2Path}"
       export PKG_CONFIG_PATH="${toolchainBinPath}"
       export PKG_CONFIG_SYSROOT_DIR="${sysrootPath}"
+      export _JAVA_OPTIONS="-Dorg.gradle.projectcachedir=$(mktemp -d)"
 
       # Point to the correct subdirectories within the fetched archive
       # This now perfectly mirrors the logic from your build.sh script.

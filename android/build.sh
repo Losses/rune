@@ -42,6 +42,7 @@ if [[ "${NIX_NIX_DEV_SHELL}" = "true" ]]; then
     export CMAKE_TOOLCHAIN_FILE=$NIX_CMAKE_TOOLCHAIN_FILE
     export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=$NIX_ANDROID_SDK/share/android-sdk/build-tools/34.0.0/aapt2"
     export PATH=$NIX_TOOLCHAIN_BIN_PATH:$NIX_ANDROID_SDK/share/android-sdk/platform-tools:$NIX_ANDROID_SDK/share/android-sdk/tools:$NIX_ANDROID_SDK/share/android-sdk/tools/bin:$PATH
+    export _JAVA_OPTIONS="-Dorg.gradle.projectcachedir=$(mktemp -d)"
 
     echo "=================="
     echo "=== Nix Shell Environment Setup ==="
