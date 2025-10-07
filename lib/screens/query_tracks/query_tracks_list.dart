@@ -112,9 +112,12 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   void _checkAndLoadItem(int index) {
     if (_loadedItems.containsKey(index) ||
-        (index >= _totalCount && _reachedEnd))
+        (index >= _totalCount && _reachedEnd)) {
       return;
-    if (_loadingIndices.contains((index ~/ _pageSize) * _pageSize)) return;
+    }
+    if (_loadingIndices.contains((index ~/ _pageSize) * _pageSize)) {
+      return;
+    }
 
     final pageStart = (index ~/ _pageSize) * _pageSize;
     _loadPage(pageStart);

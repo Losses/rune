@@ -2,7 +2,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/format_time.dart';
-import '../../utils/playing_item.dart';
 import '../../utils/queries_has_recommendation.dart';
 import '../../utils/execute_middle_click_action.dart';
 import '../../utils/get_playlist_id_from_query_list.dart';

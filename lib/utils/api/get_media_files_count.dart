@@ -11,7 +11,6 @@ Future<int> getMediaFilesCount() async {
 
     return response.count;
   } catch (e) {
-    print('Error getting media files count: $e');
     rethrow;
   }
 }
