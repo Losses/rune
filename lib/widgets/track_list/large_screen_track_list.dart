@@ -1,5 +1,4 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/query_list.dart';
@@ -16,14 +15,16 @@ import '../start_screen/managed_start_screen_item.dart';
 import 'large_screen_track_list_item.dart';
 
 class LargeScreenTrackList extends StatelessWidget {
-  final PagingController<int, InternalMediaFile> pagingController;
+  final int totalCount;
+  final InternalMediaFile? Function(int) getItem;
   final QueryList queries;
   final int mode;
   final bool topPadding;
 
   const LargeScreenTrackList({
     super.key,
-    required this.pagingController,
+    required this.totalCount,
+    required this.getItem,
     required this.queries,
     required this.mode,
     required this.topPadding,
@@ -40,75 +41,78 @@ class LargeScreenTrackList extends StatelessWidget {
           const double gapSize = 8;
           const double cellSize = 64;
 
-          final int rows =
-              (constraints.maxHeight / (cellSize + gapSize)).floor();
+          final int rows = (constraints.maxHeight / (cellSize + gapSize))
+              .floor();
           final double finalHeight = rows * (cellSize + gapSize) - gapSize;
 
           const ratio = 1 / 4;
 
           final hasRecommendation = queriesHasRecommendation(queries);
-          final fallbackFileIds =
-              pagingController.itemList?.map((x) => x.id).toList() ?? [];
 
           return SmoothHorizontalScroll(
-            builder: (context, scrollController) => SizedBox(
-              height: finalHeight,
-              child: PagedGridView<int, InternalMediaFile>(
-                pagingController: pagingController,
-                padding: getScrollContainerPadding(
-                  context,
-                  top: topPadding,
-                  leftPlus: 12,
-                  rightPlus: 12,
-                ),
-                scrollDirection: Axis.horizontal,
-                scrollController: scrollController,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: rows,
-                  mainAxisSpacing: gapSize,
-                  crossAxisSpacing: gapSize,
-                  childAspectRatio: ratio,
-                ),
-                builderDelegate: PagedChildBuilderDelegate<InternalMediaFile>(
-                  noItemsFoundIndicatorBuilder: (context) {
-                    return SizedBox.expand(
-                      child: Center(
+            builder: (context, scrollController) => Scrollbar(
+              controller: scrollController,
+              thumbVisibility: true,
+              child: SizedBox(
+                height: finalHeight,
+                child: totalCount == 0
+                    ? Center(
                         child: NoItems(
                           title: S.of(context).noTracksFound,
                           hasRecommendation: hasRecommendation,
-                          reloadData: pagingController.refresh,
+                          reloadData: () {},
                         ),
-                      ),
-                    );
-                  },
-                  itemBuilder: (context, item, index) {
-                    final int row = index % rows;
-                    final int column = index ~/ rows;
+                      )
+                    : GridView.builder(
+                        padding: getScrollContainerPadding(
+                          context,
+                          top: topPadding,
+                          leftPlus: 12,
+                          rightPlus: 12,
+                        ),
+                        scrollDirection: Axis.horizontal,
+                        controller: scrollController,
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: rows,
+                          mainAxisSpacing: gapSize,
+                          crossAxisSpacing: gapSize,
+                          childAspectRatio: ratio,
+                        ),
+                        itemCount: totalCount,
+                        itemBuilder: (context, index) {
+                          final item = getItem(index);
 
-                    return ManagedStartScreenItem(
-                      groupId: 0,
-                      row: row,
-                      column: column,
-                      width: cellSize / ratio,
-                      height: cellSize,
-                      child: AxPressure(
-                        child: AxReveal0(
-                          child: LargeScreenTrackListItem(
-                            index: index,
-                            item: item,
-                            queries: queries,
-                            fallbackFileIds: fallbackFileIds,
-                            coverArtPath: item.coverArtPath,
-                            mode: mode,
-                            isAlbumQuery: isAlbumQuery,
-                            position: index,
-                            reloadData: pagingController.refresh,
-                          ),
-                        ),
+                          if (item == null) {
+                            return const Center(child: ProgressRing());
+                          }
+
+                          final int row = index % rows;
+                          final int column = index ~/ rows;
+
+                          return ManagedStartScreenItem(
+                            groupId: 0,
+                            row: row,
+                            column: column,
+                            width: cellSize / ratio,
+                            height: cellSize,
+                            child: AxPressure(
+                              child: AxReveal0(
+                                child: LargeScreenTrackListItem(
+                                  index: index,
+                                  item: item,
+                                  queries: queries,
+                                  fallbackFileIds: const [],
+                                  coverArtPath: item.coverArtPath,
+                                  mode: mode,
+                                  isAlbumQuery: isAlbumQuery,
+                                  position: index,
+                                  reloadData: () {},
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
               ),
             ),
           );

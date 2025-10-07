@@ -196,3 +196,7 @@ pub async fn get_duration_by_file_id(
         ))
     }
 }
+
+pub async fn get_media_files_count(db: &DatabaseConnection) -> Result<u64, sea_orm::DbErr> {
+    media_files::Entity::find().count(db).await
+}
