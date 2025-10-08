@@ -1,10 +1,8 @@
-use anyhow::{anyhow, Result};
-use stream_download::{storage::temp::TempStorageProvider, Settings, StreamDownload};
+use anyhow::{Result, anyhow};
+use stream_download::{Settings, StreamDownload, storage::temp::TempStorageProvider};
 use symphonia::core::io::{MediaSource, ReadOnlySource};
 
-pub async fn create_stream_from_url(
-    url: &str,
-) -> Result<StreamDownload<TempStorageProvider>> {
+pub async fn create_stream_from_url(url: &str) -> Result<StreamDownload<TempStorageProvider>> {
     StreamDownload::new_http(
         url.parse()?,
         TempStorageProvider::new(),

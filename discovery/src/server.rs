@@ -247,9 +247,11 @@ impl PermissionManager {
             .await?;
 
         if let Some(user) = self.verify_by_fingerprint(&fingerprint_clone).await
-            && user.status != UserStatus::Blocked && user.status != UserStatus::Approved {
-                let _ = self.request_sender.send(user.clone());
-            }
+            && user.status != UserStatus::Blocked
+            && user.status != UserStatus::Approved
+        {
+            let _ = self.request_sender.send(user.clone());
+        }
 
         Ok(())
     }
