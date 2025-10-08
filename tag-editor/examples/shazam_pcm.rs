@@ -10,7 +10,7 @@ use tag_editor::shazam::{
 };
 
 fn parse_pcm_to_samples(pcm_data: Vec<u8>) -> Result<Vec<f64>> {
-    if pcm_data.len() % 2 != 0 {
+    if !pcm_data.len().is_multiple_of(2) {
         bail!("PCM data length is not even, indicating incomplete samples.");
     }
 

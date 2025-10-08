@@ -52,7 +52,7 @@ fn main() -> io::Result<()> {
             print!(" ");
         }
     }
-    if binary_data.len() % 8 != 0 {
+    if !binary_data.len().is_multiple_of(8) {
         println!();
     }
 

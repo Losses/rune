@@ -385,7 +385,7 @@ async fn load_history_files(db: &DatabaseConnection, current_id: i32) -> Result<
 }
 
 pub fn bytes_to_u32s(bytes: Vec<u8>) -> Result<Vec<u32>> {
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         bail!("The length of the input byte vector must be a multiple of 4.".to_string());
     }
 

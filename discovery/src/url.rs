@@ -259,7 +259,7 @@ pub fn decode_rnsrv_url(url: &str) -> Result<Vec<String>, UrlError> {
     let encoded = &url[8..];
     // Check if the length of the encoded part is a multiple of 7.
     // If not, the format is invalid, return `InvalidFormat` error.
-    if encoded.len() % 7 != 0 {
+    if !encoded.len().is_multiple_of(7) {
         return Err(UrlError::InvalidFormat);
     }
 
