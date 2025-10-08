@@ -55,6 +55,78 @@ pub fn read_metadata(fs_node: &FsNode) -> Result<FileMetadata> {
     }
 }
 
+/// Batch query to check which files have been modified since last database entry
+/// Returns a map of (directory, file_name) -> last_modified timestamp for files that exist in database
+pub async fn get_existing_files_modified(
+    main_db: &DatabaseConnection,
+    file_keys: Vec<(String, String)>, // (directory, file_name)
+) -> Result<std::collections::HashMap<(String, String), String>> {
+    if file_keys.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    // Split into chunks to avoid SQL query size limits
+    let chunk_size = 500;
+    let mut result = std::collections::HashMap::new();
+
+    for chunk in file_keys.chunks(chunk_size) {
+        let mut conditions = sea_orm::Condition::any();
+
+        for (directory, file_name) in chunk {
+            conditions = conditions.add(
+                sea_orm::Condition::all()
+                    .add(media_files::Column::Directory.eq(directory.clone()))
+                    .add(media_files::Column::FileName.eq(file_name.clone())),
+            );
+        }
+
+        let existing_files = media_files::Entity::find()
+            .filter(conditions)
+            .all(main_db)
+            .await
+            .with_context(|| "Failed to query existing files")?;
+
+        for file in existing_files {
+            result.insert((file.directory, file.file_name), file.last_modified);
+        }
+    }
+
+    Ok(result)
+}
+
+/// Filter out files that haven't been modified based on last_modified timestamps
+/// Returns (files_to_process, skipped_count)
+pub fn filter_modified_files(
+    descriptions: Vec<Option<FileDescription>>,
+    existing_modified_map: &std::collections::HashMap<(String, String), String>,
+) -> (Vec<Option<FileDescription>>, usize) {
+    let mut filtered = Vec::new();
+    let mut skipped_count = 0;
+
+    for description in descriptions {
+        match description {
+            Some(desc) => {
+                let key = (desc.directory.clone(), desc.file_name.clone());
+
+                if let Some(db_last_modified) = existing_modified_map.get(&key) {
+                    // File exists in database, check if it's been modified
+                    if db_last_modified == &desc.last_modified {
+                        // File hasn't been modified, skip it
+                        skipped_count += 1;
+                        continue;
+                    }
+                }
+
+                // Either file doesn't exist in database or has been modified
+                filtered.push(Some(desc));
+            }
+            None => filtered.push(None),
+        }
+    }
+
+    (filtered, skipped_count)
+}
+
 pub async fn sync_file_descriptions(
     fsio: &FsIo,
     main_db: &DatabaseConnection,
@@ -872,12 +944,15 @@ where
     let root_path_str = lib_path.to_str().expect("Invalid UTF-8 sequence in path");
     let mut scanner = AudioScanner::new(fsio, &root_path_str)?;
 
-    info!("Starting audio library scan");
+    info!("Starting audio library scan with last-modified pre-filtering");
 
-    // Get the total number of files to scan (assuming AudioScanner has this method)
     let mut processed_files = 0;
+    let mut total_files_scanned = 0;
+    let mut skipped_files = 0;
 
-    // Read audio files at a time until no more files are available.
+    // Read audio files in larger batches for better performance
+    const BATCH_SIZE: usize = 48;
+
     while !scanner.has_ended() {
         // Check if the cancellation token has been triggered
         if let Some(ref token) = cancel_token
@@ -887,8 +962,14 @@ where
             return Ok(processed_files);
         }
 
-        debug!("Reading metadata for the next 12 files");
-        let files = scanner.read_files(12);
+        debug!("Reading metadata for the next {} files", BATCH_SIZE);
+        let files = scanner.read_files(BATCH_SIZE);
+        total_files_scanned += files.len();
+
+        if files.is_empty() {
+            continue;
+        }
+
         let mut descriptions: Vec<Option<FileDescription>> = files
             .clone()
             .into_iter()
@@ -896,12 +977,54 @@ where
             .map(|result| result.ok())
             .collect();
 
+        // Pre-filtering: Skip files that haven't been modified
+        if !force {
+            // Collect file keys for batch database query
+            let file_keys: Vec<(String, String)> = descriptions
+                .iter()
+                .filter_map(|desc| {
+                    desc.as_ref()
+                        .map(|d| (d.directory.clone(), d.file_name.clone()))
+                })
+                .collect();
+
+            // Batch query existing files' last_modified timestamps
+            match get_existing_files_modified(main_db, file_keys).await {
+                Ok(existing_modified_map) => {
+                    // Filter out unchanged files
+                    let (filtered_descriptions, skipped_count) =
+                        filter_modified_files(descriptions, &existing_modified_map);
+
+                    skipped_files += skipped_count;
+                    descriptions = filtered_descriptions;
+
+                    if skipped_count > 0 {
+                        debug!("Skipped {} unchanged files in this batch", skipped_count);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to query existing files for pre-filtering: {e:#?}");
+                    // Continue with all files if pre-filtering fails
+                }
+            }
+        }
+
+        // Process only the files that need updating
+        if !descriptions.iter().any(|d| d.is_some()) {
+            debug!("All files in batch were unchanged, skipping");
+            progress_callback(total_files_scanned);
+            continue;
+        }
+
         match sync_file_descriptions(fsio, main_db, node_id, &mut descriptions, force)
             .await
             .with_context(|| "Unable to describe files")
         {
             Ok(_) => {
-                debug!("Finished one batch");
+                debug!(
+                    "Finished one batch with {} files to process",
+                    descriptions.iter().filter(|d| d.is_some()).count()
+                );
             }
             Err(e) => {
                 error!("{e:#?}");
@@ -919,10 +1042,14 @@ where
         };
 
         // Update the number of processed files
-        processed_files += files.len();
+        processed_files += descriptions.iter().filter(|d| d.is_some()).count();
 
-        // Call the progress callback if it is provided
-        progress_callback(processed_files);
+        // Call the progress callback with total files scanned
+        progress_callback(total_files_scanned);
+    }
+
+    if skipped_files > 0 {
+        info!("Pre-filtering skipped {} unchanged files", skipped_files);
     }
 
     if cleanup {
