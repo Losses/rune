@@ -1,9 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/format_time.dart';
-import '../../utils/playing_item.dart';
 import '../../utils/queries_has_recommendation.dart';
 import '../../utils/execute_middle_click_action.dart';
 import '../../utils/get_playlist_id_from_query_list.dart';
@@ -25,14 +23,16 @@ import '../navigation_bar/page_content_frame.dart';
 import '../tile/cover_art.dart';
 
 class BandScreenTrackList extends StatelessWidget {
-  final PagingController<int, InternalMediaFile> pagingController;
+  final int totalCount;
+  final InternalMediaFile? Function(int) getItem;
   final QueryList queries;
   final int mode;
   final bool topPadding;
 
   const BandScreenTrackList({
     super.key,
-    required this.pagingController,
+    required this.totalCount,
+    required this.getItem,
     required this.queries,
     required this.mode,
     required this.topPadding,
@@ -47,7 +47,7 @@ class BandScreenTrackList extends StatelessWidget {
         DeviceType.band,
         DeviceType.belt,
         DeviceType.dock,
-        DeviceType.tv
+        DeviceType.tv,
       ],
       builder: (context, deviceType) {
         if (deviceType == DeviceType.band || deviceType == DeviceType.belt) {
@@ -63,40 +63,53 @@ class BandScreenTrackList extends StatelessWidget {
     );
   }
 
-  PagedListView<int, InternalMediaFile> buildList(
+  Widget buildList(
     BuildContext context,
     bool hasRecommendation,
     ScrollController? scrollController,
   ) {
-    return PagedListView<int, InternalMediaFile>(
-      scrollDirection:
-          scrollController == null ? Axis.vertical : Axis.horizontal,
-      pagingController: pagingController,
-      scrollController: scrollController,
+    if (totalCount == 0) {
+      return Center(
+        child: NoItems(
+          title: S.of(context).noTracksFound,
+          hasRecommendation: hasRecommendation,
+          reloadData: () {},
+        ),
+      );
+    }
+
+    final listView = ListView.builder(
+      scrollDirection: scrollController == null
+          ? Axis.vertical
+          : Axis.horizontal,
+      controller: scrollController,
       padding: getScrollContainerPadding(context, top: topPadding),
-      builderDelegate: PagedChildBuilderDelegate<InternalMediaFile>(
-        noItemsFoundIndicatorBuilder: (context) {
-          return SizedBox.expand(
-            child: Center(
-              child: NoItems(
-                title: S.of(context).noTracksFound,
-                hasRecommendation: hasRecommendation,
-                reloadData: pagingController.refresh,
-              ),
-            ),
+      itemCount: totalCount,
+      itemBuilder: (context, index) {
+        final item = getItem(index);
+
+        if (item == null) {
+          return const SizedBox(
+            width: 64,
+            height: 64,
+            child: Center(child: ProgressRing()),
           );
-        },
-        itemBuilder: (context, item, index) {
-          return BandViewTrackItem(
-            index: index,
-            item: item,
-            queries: queries,
-            mode: mode,
-            pagingController: pagingController,
-            position: index,
-          );
-        },
-      ),
+        }
+
+        return BandViewTrackItem(
+          index: index,
+          item: item,
+          queries: queries,
+          mode: mode,
+          position: index,
+        );
+      },
+    );
+
+    return Scrollbar(
+      controller: scrollController,
+      thumbVisibility: true,
+      child: listView,
     );
   }
 }
@@ -108,7 +121,6 @@ class BandViewTrackItem extends StatefulWidget {
     required this.item,
     required this.queries,
     required this.mode,
-    required this.pagingController,
     required this.position,
   });
 
@@ -116,7 +128,6 @@ class BandViewTrackItem extends StatefulWidget {
   final InternalMediaFile item;
   final QueryList queries;
   final int mode;
-  final PagingController<int, InternalMediaFile> pagingController;
   final int position;
 
   @override
@@ -142,10 +153,7 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
       child: AspectRatio(
         aspectRatio: 1,
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 2,
-            vertical: 1,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
           child: AxPressure(
             child: ContextMenuWrapper(
               contextAttachKey: _contextAttachKey,
@@ -167,7 +175,7 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
                   widget.position,
                   widget.item.id,
                   playlistId,
-                  widget.pagingController.refresh,
+                  () {},
                 );
               },
               child: Tile(
@@ -180,11 +188,7 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
                     initialPlaybackId: widget.item.id,
                     operateMode: PlaylistOperateMode.replace,
                     instantlyPlay: true,
-                    fallbackPlayingItems: widget.pagingController.itemList
-                            ?.map((x) => x.id)
-                            .map(PlayingItem.inLibrary)
-                            .toList() ??
-                        [],
+                    fallbackPlayingItems: const [],
                   );
                 },
                 child: CoverArt(
@@ -192,7 +196,7 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
                   hint: (
                     widget.item.album,
                     widget.item.artist,
-                    'Total Time ${formatTime(widget.item.duration)}'
+                    'Total Time ${formatTime(widget.item.duration)}',
                   ),
                 ),
               ),

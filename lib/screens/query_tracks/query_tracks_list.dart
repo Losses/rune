@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/api/query_mix_tracks.dart';
@@ -35,59 +35,119 @@ class QueryTrackListView extends StatefulWidget {
 class QueryTrackListViewState extends State<QueryTrackListView> {
   static const _pageSize = 20;
 
-  final PagingController<int, InternalMediaFile> _pagingController =
-      PagingController(firstPageKey: 0);
+  int _totalCount = 0;
+  final Map<int, InternalMediaFile> _loadedItems = {};
+  final Set<int> _loadingIndices = {};
+  bool _isInitialized = false;
+  bool _reachedEnd = false;
 
   @override
   void initState() {
-    _pagingController.addPageRequestListener((cursor) async {
-      await _fetchPage(cursor);
+    super.initState();
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    setState(() {
+      _isInitialized = true;
+    });
+    // Pre-load first page
+    _loadPage(0);
+  }
+
+  Future<void> _loadPage(int cursor) async {
+    if (_loadingIndices.contains(cursor) || _reachedEnd) return;
+
+    // Immediately mark as loading to prevent duplicate requests
+    _loadingIndices.add(cursor);
+
+    // Schedule setState for after the current build phase to update UI
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+
+    try {
+      final newItems = await queryMixTracks(widget.queries, cursor, _pageSize);
+
+      if (!mounted) return;
+
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          for (var i = 0; i < newItems.length; i++) {
+            _loadedItems[cursor + i] = newItems[i];
+          }
+          _loadingIndices.remove(cursor);
+
+          // Update total count
+          final newTotal = cursor + newItems.length;
+          if (newTotal > _totalCount) {
+            _totalCount = newTotal;
+          }
+
+          // Check if we've reached the end
+          if (newItems.length < _pageSize) {
+            _reachedEnd = true;
+            _totalCount = cursor + newItems.length;
+          }
+        });
+      });
 
       Timer(
         Duration(milliseconds: gridAnimationDelay),
         () => widget.layoutManager.playAnimations(),
       );
-    });
-    super.initState();
-  }
-
-  Future<void> _fetchPage(int cursor) async {
-    try {
-      final newItems = await queryMixTracks(
-        widget.queries,
-        cursor,
-        _pageSize,
-      );
-
+    } catch (error) {
       if (!mounted) return;
 
-      final isLastPage = newItems.length < _pageSize;
-      if (isLastPage) {
-        _pagingController.appendLastPage(newItems);
-      } else {
-        final nextCursor = cursor + newItems.length;
-        _pagingController.appendPage(newItems, nextCursor);
-      }
-    } catch (error) {
-      _pagingController.error = error;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _loadingIndices.remove(cursor);
+        });
+      });
     }
+  }
+
+  void _checkAndLoadItem(int index) {
+    if (_loadedItems.containsKey(index) ||
+        (index >= _totalCount && _reachedEnd)) {
+      return;
+    }
+    if (_loadingIndices.contains((index ~/ _pageSize) * _pageSize)) {
+      return;
+    }
+
+    final pageStart = (index ~/ _pageSize) * _pageSize;
+    _loadPage(pageStart);
+  }
+
+  InternalMediaFile? _getItem(int index) {
+    _checkAndLoadItem(index);
+    return _loadedItems[index];
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      return const Center(child: ProgressRing());
+    }
+
     return DeviceTypeBuilder(
       deviceType: const [
         DeviceType.band,
         DeviceType.belt,
         DeviceType.dock,
         DeviceType.zune,
-        DeviceType.tv
+        DeviceType.tv,
       ],
       builder: (context, activeBreakpoint) {
         if (activeBreakpoint == DeviceType.belt) {
           return BeltContainer(
             child: BandScreenTrackList(
-              pagingController: _pagingController,
+              totalCount: _totalCount,
+              getItem: _getItem,
               queries: widget.queries,
               mode: widget.mode,
               topPadding: widget.topPadding,
@@ -98,7 +158,8 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         if (activeBreakpoint == DeviceType.dock ||
             activeBreakpoint == DeviceType.band) {
           return BandScreenTrackList(
-            pagingController: _pagingController,
+            totalCount: _totalCount,
+            getItem: _getItem,
             queries: widget.queries,
             mode: widget.mode,
             topPadding: widget.topPadding,
@@ -107,7 +168,8 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
         if (activeBreakpoint == DeviceType.zune) {
           return SmallScreenTrackList(
-            pagingController: _pagingController,
+            totalCount: _totalCount,
+            getItem: _getItem,
             queries: widget.queries,
             mode: widget.mode,
             topPadding: widget.topPadding,
@@ -115,7 +177,8 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         }
 
         return LargeScreenTrackList(
-          pagingController: _pagingController,
+          totalCount: _totalCount,
+          getItem: _getItem,
           queries: widget.queries,
           mode: widget.mode,
           topPadding: widget.topPadding,
@@ -126,7 +189,6 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   @override
   void dispose() {
-    _pagingController.dispose();
     super.dispose();
   }
 }

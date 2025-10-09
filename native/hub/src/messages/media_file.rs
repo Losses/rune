@@ -70,3 +70,11 @@ pub struct SearchMediaFileSummaryRequest {
 pub struct SearchMediaFileSummaryResponse {
     pub result: Vec<MediaFileSummary>,
 }
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct GetMediaFilesCountRequest {}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct GetMediaFilesCountResponse {
+    pub count: i32,
+}

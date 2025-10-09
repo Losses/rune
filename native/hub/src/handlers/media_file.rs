@@ -7,7 +7,7 @@ use sea_orm::DatabaseConnection;
 use ::database::{
     actions::{
         cover_art::{bake_cover_art_by_file_ids, bake_cover_art_by_media_files},
-        file::{get_files_by_ids, get_media_files, list_files},
+        file::{get_files_by_ids, get_media_files, get_media_files_count, list_files},
         metadata::{get_metadata_summary_by_files, get_parsed_file_by_id},
     },
     connection::MainDbConnection,
@@ -216,6 +216,33 @@ impl Signal for SearchMediaFileSummaryRequest {
                     cover_art_id: x.cover_art_id.unwrap_or(-1),
                 })
                 .collect(),
+        }))
+    }
+}
+
+impl ParamsExtractor for GetMediaFilesCountRequest {
+    type Params = (Arc<MainDbConnection>,);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.main_db),)
+    }
+}
+
+impl Signal for GetMediaFilesCountRequest {
+    type Params = (Arc<MainDbConnection>,);
+    type Response = GetMediaFilesCountResponse;
+    async fn handle(
+        &self,
+        (main_db,): Self::Params,
+        _session: Option<Session>,
+        _dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let count = get_media_files_count(&main_db)
+            .await
+            .with_context(|| "Failed to get media files count")?;
+
+        Ok(Some(GetMediaFilesCountResponse {
+            count: count.try_into()?,
         }))
     }
 }

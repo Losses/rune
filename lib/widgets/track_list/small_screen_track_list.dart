@@ -1,5 +1,4 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/queries_has_recommendation.dart';
@@ -12,63 +11,97 @@ import '../../utils/l10n.dart';
 
 import '../navigation_bar/page_content_frame.dart';
 
-class SmallScreenTrackList extends StatelessWidget {
-  final PagingController<int, InternalMediaFile> pagingController;
+class SmallScreenTrackList extends StatefulWidget {
+  final int totalCount;
+  final InternalMediaFile? Function(int) getItem;
   final QueryList queries;
   final int mode;
   final bool topPadding;
 
   const SmallScreenTrackList({
     super.key,
-    required this.pagingController,
+    required this.totalCount,
+    required this.getItem,
     required this.queries,
     required this.mode,
     required this.topPadding,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final hasRecommendation = queriesHasRecommendation(queries);
-    final fallbackFileIds =
-        pagingController.itemList?.map((x) => x.id).toList() ?? [];
+  State<SmallScreenTrackList> createState() => _SmallScreenTrackListState();
+}
 
-    return PagedListView<int, InternalMediaFile>(
-      pagingController: pagingController,
-      padding: getScrollContainerPadding(
-        context,
-        top: topPadding,
-        leftPlus: 16,
-        rightPlus: 16,
-      ),
-      builderDelegate: PagedChildBuilderDelegate<InternalMediaFile>(
-        noItemsFoundIndicatorBuilder: (context) {
-          return SizedBox.expand(
-            child: Center(
-              child: NoItems(
-                title: S.of(context).noTracksFound,
-                hasRecommendation: hasRecommendation,
-                reloadData: pagingController.refresh,
+class _SmallScreenTrackListState extends State<SmallScreenTrackList> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasRecommendation = queriesHasRecommendation(widget.queries);
+
+    if (widget.totalCount == 0) {
+      return Center(
+        child: NoItems(
+          title: S.of(context).noTracksFound,
+          hasRecommendation: hasRecommendation,
+          reloadData: () {},
+        ),
+      );
+    }
+
+    return Scrollbar(
+      controller: _scrollController,
+      thumbVisibility: true,
+      child: ListView.builder(
+        controller: _scrollController,
+        padding: getScrollContainerPadding(
+          context,
+          top: widget.topPadding,
+          leftPlus: 16,
+          rightPlus: 16,
+        ),
+        itemCount: widget.totalCount,
+        itemBuilder: (context, index) {
+          final item = widget.getItem(index);
+
+          if (item == null) {
+            return const SizedBox(
+              height: 64,
+              child: Center(child: ProgressRing()),
+            );
+          }
+
+          final isLastItem = index == widget.totalCount - 1;
+
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ManagedTurntileScreenItem(
+                groupId: 0,
+                row: index,
+                column: 1,
+                child: AxPressure(
+                  child: SmallScreenTrackListItem(
+                    index: index,
+                    item: item,
+                    queries: widget.queries,
+                    fallbackFileIds: const [],
+                    coverArtPath: item.coverArtPath,
+                    mode: widget.mode,
+                    position: index,
+                    reloadData: () {},
+                  ),
+                ),
               ),
-            ),
-          );
-        },
-        itemBuilder: (context, item, index) {
-          return ManagedTurntileScreenItem(
-            groupId: 0,
-            row: index,
-            column: 1,
-            child: AxPressure(
-              child: SmallScreenTrackListItem(
-                index: index,
-                item: item,
-                queries: queries,
-                fallbackFileIds: fallbackFileIds,
-                coverArtPath: item.coverArtPath,
-                mode: mode,
-                position: index,
-                reloadData: pagingController.refresh,
-              ),
-            ),
+              // Add extra bottom spacing for the last item
+              if (isLastItem)
+                SizedBox(height: MediaQuery.of(context).size.width / 3 + 20),
+            ],
           );
         },
       ),
