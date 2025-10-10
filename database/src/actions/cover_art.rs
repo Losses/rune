@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use log::info;
+use log::{error, info};
 use once_cell::sync::Lazy;
 use sea_orm::{
     ActiveValue, ColumnTrait, Condition, DatabaseConnection, EntityTrait, PaginatorTrait,
@@ -196,6 +196,11 @@ pub fn extract_cover_art_by_file_id(
         .join(file.directory.clone())
         .join(file.file_name.clone());
 
+    // Check if the file actually exists and get its modification time
+    if !fsio.exists(&file_path).ok()? {
+        return None;
+    }
+
     // If cover_art_id is empty, it means the file has not been checked before
     extract_cover_art_binary(fsio, Some(lib_path), &file_path)
 }
@@ -208,6 +213,13 @@ pub async fn insert_extract_result(
     node_id: &str,
 ) -> Result<()> {
     let file = file.clone();
+
+    // Skip update if the file already has a cover_art_id but hasn't been modified
+    // (shouldn't happen with our filter, but just in case)
+    // Note: We allow re-processing if the file has existing cover_art_id because
+    // it might have been modified since the cover art was processed
+    // The timestamp comparison in our query ensures we only process files that need updating
+
     if let Some(cover_art) = result {
         // Check if there is a file with the same CRC in the database
         let existing_cover_art = media_cover_art::Entity::find()
@@ -256,7 +268,7 @@ pub async fn insert_extract_result(
             Ok(())
         }
     } else {
-        // update the file's cover_art_id
+        // update the file's cover_art_id to magic cover art (no cover art found)
         let mut file_active_model: media_files::ActiveModel = file.into();
         file_active_model.cover_art_id = ActiveValue::Set(Some(magic_cover_art_id));
         media_files::Entity::update(file_active_model)
@@ -265,6 +277,89 @@ pub async fn insert_extract_result(
 
         Ok(())
     }
+}
+
+/// Batch query to get files with cover art and their update times
+/// Returns a map of file_id -> (file_last_modified, cover_art_updated_at)
+pub async fn get_files_with_cover_art_timestamps(
+    main_db: &DatabaseConnection,
+    file_ids: Vec<i32>,
+) -> Result<HashMap<i32, (String, String)>> {
+    if file_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // Split into chunks to avoid SQL query size limits (following metadata.rs pattern)
+    let chunk_size = 500;
+    let mut result = HashMap::new();
+
+    for chunk in file_ids.chunks(chunk_size) {
+        // Get files with cover art in this chunk
+        let files = media_files::Entity::find()
+            .filter(media_files::Column::Id.is_in(chunk.to_vec()))
+            .filter(media_files::Column::CoverArtId.is_not_null())
+            .all(main_db)
+            .await
+            .with_context(|| "Failed to query files with cover art")?;
+
+        // Get the cover art records for these files
+        let cover_art_ids: Vec<i32> = files.iter().filter_map(|f| f.cover_art_id).collect();
+
+        let cover_art_map: HashMap<i32, String> = if !cover_art_ids.is_empty() {
+            media_cover_art::Entity::find()
+                .filter(media_cover_art::Column::Id.is_in(cover_art_ids))
+                .all(main_db)
+                .await
+                .with_context(|| "Failed to query cover art records")?
+                .into_iter()
+                .map(|ca| (ca.id, ca.updated_at_hlc_ts))
+                .collect()
+        } else {
+            HashMap::new()
+        };
+
+        // Combine the results
+        for file in files {
+            if let Some(cover_art_id) = file.cover_art_id
+                && let Some(cover_art_updated_at) = cover_art_map.get(&cover_art_id)
+            {
+                result.insert(
+                    file.id,
+                    (file.last_modified.clone(), cover_art_updated_at.clone()),
+                );
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Filter files that need cover art reprocessing based on timestamp comparison
+/// Returns (files_to_process, skipped_count)
+fn filter_files_by_timestamp(
+    files: Vec<media_files::Model>,
+    timestamp_map: &HashMap<i32, (String, String)>,
+) -> (Vec<media_files::Model>, usize) {
+    let mut filtered = Vec::new();
+    let mut skipped_count = 0;
+
+    for file in files {
+        if let Some((file_last_modified, cover_art_updated_at)) = timestamp_map.get(&file.id) {
+            // Compare timestamps - both are RFC3339 strings, so we can compare them directly
+            if file_last_modified > cover_art_updated_at {
+                // File was modified after cover art was processed
+                filtered.push(file);
+            } else {
+                // File hasn't been modified since cover art processing
+                skipped_count += 1;
+            }
+        } else {
+            // No timestamp info available, include for safety
+            filtered.push(file);
+        }
+    }
+
+    (filtered, skipped_count)
 }
 
 pub async fn scan_cover_arts<F>(
@@ -283,9 +378,64 @@ where
 
     let progress_callback = Arc::new(progress_callback);
 
-    let cursor_query = media_files::Entity::find();
-
+    // Process files that either:
+    // 1. Don't have cover art yet, OR
+    // 2. Have been modified since their cover art was last updated
     let magic_cover_art_id = ensure_magic_cover_art_id(main_db, node_id).await?;
+
+    // Get all files that have cover art to check timestamps
+    let files_with_cover_art = media_files::Entity::find()
+        .filter(media_files::Column::CoverArtId.is_not_null())
+        .all(main_db)
+        .await
+        .with_context(|| "Failed to query files with cover art")?;
+
+    let file_ids_with_cover_art: Vec<i32> = files_with_cover_art.iter().map(|f| f.id).collect();
+
+    let mut timestamp_modified_files = Vec::new();
+
+    if !file_ids_with_cover_art.is_empty() {
+        // Get timestamps for files with cover art in batches
+        let timestamp_map = get_files_with_cover_art_timestamps(main_db, file_ids_with_cover_art)
+            .await
+            .with_context(|| "Failed to get cover art timestamps")?;
+
+        // Filter files that need reprocessing based on timestamp comparison
+        let (filtered_files, skipped_count) =
+            filter_files_by_timestamp(files_with_cover_art, &timestamp_map);
+
+        timestamp_modified_files = filtered_files;
+
+        if skipped_count > 0 {
+            info!(
+                "Skipped {} files with unchanged timestamps since cover art processing",
+                skipped_count
+            );
+        }
+    }
+
+    info!(
+        "Found {} files that need cover art reprocessing due to timestamp mismatch",
+        timestamp_modified_files.len()
+    );
+
+    // Combine files that need processing:
+    // 1. Files without cover art (NULL cover_art_id)
+    // 2. Files with timestamp mismatch
+    let files_to_process_ids: Vec<i32> =
+        timestamp_modified_files.into_iter().map(|f| f.id).collect();
+
+    let cursor_query = if files_to_process_ids.is_empty() {
+        // Only files without cover art
+        media_files::Entity::find().filter(media_files::Column::CoverArtId.is_null())
+    } else {
+        // Files without cover art OR files with timestamp mismatch
+        media_files::Entity::find().filter(
+            Condition::any()
+                .add(media_files::Column::CoverArtId.is_null())
+                .add(media_files::Column::Id.is_in(files_to_process_ids)),
+        )
+    };
 
     let lib_path = Arc::new(lib_path.to_path_buf());
     let node_id = Arc::new(node_id.to_owned());
