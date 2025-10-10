@@ -51,12 +51,18 @@ class NavigationBarState extends State<NavigationBar> {
             previousPath) {
           // parent to child
           playFlipAnimation(
-              context, 'child:$previousPath', 'title:$previousPath');
+            context,
+            'child:$previousPath',
+            'title:$previousPath',
+          );
         } else if (navigationQuery.getParent(previousPath, false)?.path ==
             currentPath) {
           // child to parent
           playFlipAnimation(
-              context, 'title:$currentPath', 'child:$currentPath');
+            context,
+            'title:$currentPath',
+            'child:$currentPath',
+          );
         } else {}
       }
     }
@@ -107,7 +113,9 @@ class NavigationBarState extends State<NavigationBar> {
 
         final viewPadding = MediaQuery.of(context).viewPadding;
 
-        late Widget parentWidget = SmallerOrEqualTo(
+        late Widget parentWidget = Align(
+          alignment: AlignmentGeometry.topLeft,
+          child: SmallerOrEqualTo(
             deviceType: DeviceType.fish,
             builder: (context, isFish) {
               if (isFish) {
@@ -119,7 +127,6 @@ class NavigationBarState extends State<NavigationBar> {
                       padding: const EdgeInsets.only(right: 12),
                       child: SizedBox(
                         height: 92,
-                        width: 320,
                         child: ParentLink(
                           titleFlipKey: titleFlipKey,
                           text: parent.titleBuilder(context),
@@ -128,15 +135,18 @@ class NavigationBarState extends State<NavigationBar> {
                       ),
                     )
                   : Container();
-            });
+            },
+          ),
+        );
 
         final baseSlibings = (slibings ?? emptySlibings);
         final validSlibings = isZune
             ? baseSlibings
             : baseSlibings.where((x) => !x.zuneOnly).toList();
 
-        final int currentItemIndex =
-            validSlibings.indexWhere((route) => route == item);
+        final int currentItemIndex = validSlibings.indexWhere(
+          (route) => route == item,
+        );
 
         final childrenWidget = SmallerOrEqualTo(
           deviceType: DeviceType.fish,
@@ -155,26 +165,24 @@ class NavigationBarState extends State<NavigationBar> {
                       ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.start,
-                  children: validSlibings.toList().asMap().entries.map(
-                    (entry) {
-                      final route = entry.value;
+                  children: validSlibings.toList().asMap().entries.map((entry) {
+                    final route = entry.value;
 
-                      final index = entry.key;
-                      final isCurrent = currentItemIndex == index;
+                    final index = entry.key;
+                    final isCurrent = currentItemIndex == index;
 
-                      final int delay = !isCurrent
-                          ? ((index - currentItemIndex).abs() * 100)
-                          : 0;
+                    final int delay = !isCurrent
+                        ? ((index - currentItemIndex).abs() * 100)
+                        : 0;
 
-                      return SlibingLink(
-                        key: ValueKey('${parent?.path}/${route.path}'),
-                        route: route,
-                        isSelected: route == item,
-                        delay: delay,
-                        onPressed: () => _onRouteSelected(route),
-                      );
-                    },
-                  ).toList(),
+                    return SlibingLink(
+                      key: ValueKey('${parent?.path}/${route.path}'),
+                      route: route,
+                      isSelected: route == item,
+                      delay: delay,
+                      onPressed: () => _onRouteSelected(route),
+                    );
+                  }).toList(),
                 ),
               ),
             );
@@ -187,10 +195,7 @@ class NavigationBarState extends State<NavigationBar> {
           children: [
             if (isZune || !isSearch)
               Transform.translate(
-                offset: Offset(
-                  0 + viewPadding.left,
-                  -44 + viewPadding.top,
-                ),
+                offset: Offset(0 + viewPadding.left, -44 + viewPadding.top),
                 child: Padding(
                   padding: Platform.isMacOS
                       ? const EdgeInsets.only(left: 24)
@@ -232,10 +237,7 @@ class NavigationBarState extends State<NavigationBar> {
 }
 
 class NavigationBackParent extends StatelessWidget {
-  const NavigationBackParent({
-    super.key,
-    required this.viewPadding,
-  });
+  const NavigationBackParent({super.key, required this.viewPadding});
 
   final EdgeInsets viewPadding;
 
@@ -245,11 +247,7 @@ class NavigationBackParent extends StatelessWidget {
       padding: EdgeInsetsDirectional.only(top: 20 + viewPadding.top),
       child: Align(
         alignment: Alignment.centerLeft,
-        child: SizedBox(
-          width: 60,
-          height: 60,
-          child: NavigationBackButton(),
-        ),
+        child: SizedBox(width: 60, height: 60, child: NavigationBackButton()),
       ),
     );
   }

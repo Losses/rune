@@ -55,20 +55,19 @@ class ParentLinkState extends State<ParentLink> {
   Widget build(BuildContext context) {
     final accentColor = FluentTheme.of(context).accentColor;
 
-    return Padding(
+    return Container(
       padding: const EdgeInsets.only(right: 12),
+      color: Colors.yellow,
+      constraints: BoxConstraints.tightFor(width: 200),
       child: Listener(
         onPointerUp: (_) => _onPressed(),
         child: FocusableActionDetector(
           focusNode: _focusNode,
           onShowFocusHighlight: _handleFocusHighlight,
           onShowHoverHighlight: _handleHoverHighlight,
-          actions: {
-            ActivateIntent: ActivateLinkAction(context, _onPressed),
-          },
+          actions: {ActivateIntent: ActivateLinkAction(context, _onPressed)},
           child: SizedBox(
             height: 80,
-            width: 320,
             child: FlipText(
               key: Key(widget.titleFlipKey),
               flipKey: widget.titleFlipKey,
