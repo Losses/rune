@@ -147,6 +147,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         },
         // Lyric
         RequestResponse {
+            request: "GetMediaFilesCountRequest".to_string(),
+            response: Some("GetMediaFilesCountResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
             request: "GetLyricByTrackIdRequest".to_string(),
             response: Some("GetLyricByTrackIdResponse".to_string()),
             local_only: false,

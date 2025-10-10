@@ -1,10 +1,11 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/api/fetch_media_files.dart';
+import '../../utils/api/get_media_files_count.dart';
 import '../../config/animation.dart';
 import '../../widgets/belt_container.dart';
 import '../../widgets/track_list/band_screen_track_list.dart';
@@ -17,10 +18,7 @@ import '../../providers/responsive_providers.dart';
 class TrackListView extends StatefulWidget {
   final StartScreenLayoutManager layoutManager;
 
-  const TrackListView({
-    super.key,
-    required this.layoutManager,
-  });
+  const TrackListView({super.key, required this.layoutManager});
 
   @override
   TrackListViewState createState() => TrackListViewState();
@@ -29,38 +27,101 @@ class TrackListView extends StatefulWidget {
 class TrackListViewState extends State<TrackListView> {
   static const _pageSize = 100;
 
-  final PagingController<int, InternalMediaFile> _pagingController =
-      PagingController(firstPageKey: 0);
+  int _totalCount = 0;
+  final Map<int, InternalMediaFile> _loadedItems = {};
+  final Set<int> _loadingIndices = {};
+  bool _isInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    _pagingController.addPageRequestListener((cursor) async {
-      _fetchPage(cursor);
-    });
+    _initializeData();
   }
 
-  Future<void> _fetchPage(int cursor) async {
+  Future<void> _initializeData() async {
+    try {
+      final count = await getMediaFilesCount();
+      if (!mounted) return;
+
+      setState(() {
+        _totalCount = count;
+        _isInitialized = true;
+      });
+      // Pre-load first page
+      _loadPage(0);
+    } catch (error) {
+      // If getting count fails, fall back to dynamic loading
+      if (!mounted) return;
+
+      setState(() {
+        _totalCount = 10000; // Set a large number as fallback
+        _isInitialized = true;
+      });
+      _loadPage(0);
+    }
+  }
+
+  Future<void> _loadPage(int cursor) async {
+    if (_loadingIndices.contains(cursor)) return;
+
+    // Immediately mark as loading to prevent duplicate requests
+    _loadingIndices.add(cursor);
+
+    // Schedule setState for after the current build phase to update UI
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+
     try {
       final newItems = await fetchMediaFiles(cursor, _pageSize);
+      if (!mounted) return;
 
-      final isLastPage = newItems.length < _pageSize;
-      if (isLastPage) {
-        _pagingController.appendLastPage(newItems);
-      } else {
-        final nextCursor = cursor + newItems.length;
-        _pagingController.appendPage(newItems, nextCursor);
-      }
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          for (var i = 0; i < newItems.length; i++) {
+            _loadedItems[cursor + i] = newItems[i];
+          }
+          _loadingIndices.remove(cursor);
+        });
+      });
 
-      Timer(Duration(milliseconds: gridAnimationDelay),
-          () => widget.layoutManager.playAnimations());
+      Timer(
+        Duration(milliseconds: gridAnimationDelay),
+        () => widget.layoutManager.playAnimations(),
+      );
     } catch (error) {
-      _pagingController.error = error;
+      if (!mounted) return;
+
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _loadingIndices.remove(cursor);
+        });
+      });
     }
+  }
+
+  void _checkAndLoadItem(int index) {
+    if (_loadedItems.containsKey(index)) return;
+    if (_loadingIndices.contains((index ~/ _pageSize) * _pageSize)) return;
+
+    final pageStart = (index ~/ _pageSize) * _pageSize;
+    _loadPage(pageStart);
+  }
+
+  InternalMediaFile? _getItem(int index) {
+    _checkAndLoadItem(index);
+    return _loadedItems[index];
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      return const Center(child: ProgressRing());
+    }
+
     const queries = QueryList([("lib::all", "true")]);
     return DeviceTypeBuilder(
       deviceType: const [
@@ -74,7 +135,8 @@ class TrackListViewState extends State<TrackListView> {
         if (activeBreakpoint == DeviceType.belt) {
           return BeltContainer(
             child: BandScreenTrackList(
-              pagingController: _pagingController,
+              totalCount: _totalCount,
+              getItem: _getItem,
               queries: queries,
               mode: 99,
               topPadding: true,
@@ -85,7 +147,8 @@ class TrackListViewState extends State<TrackListView> {
         if (activeBreakpoint == DeviceType.dock ||
             activeBreakpoint == DeviceType.band) {
           return BandScreenTrackList(
-            pagingController: _pagingController,
+            totalCount: _totalCount,
+            getItem: _getItem,
             queries: queries,
             mode: 99,
             topPadding: true,
@@ -94,7 +157,8 @@ class TrackListViewState extends State<TrackListView> {
 
         if (activeBreakpoint == DeviceType.zune) {
           return SmallScreenTrackList(
-            pagingController: _pagingController,
+            totalCount: _totalCount,
+            getItem: _getItem,
             queries: queries,
             mode: 99,
             topPadding: true,
@@ -102,7 +166,8 @@ class TrackListViewState extends State<TrackListView> {
         }
 
         return LargeScreenTrackList(
-          pagingController: _pagingController,
+          totalCount: _totalCount,
+          getItem: _getItem,
           queries: queries,
           mode: 99,
           topPadding: true,
@@ -113,7 +178,6 @@ class TrackListViewState extends State<TrackListView> {
 
   @override
   void dispose() {
-    _pagingController.dispose();
     super.dispose();
   }
 }
