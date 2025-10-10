@@ -55,32 +55,51 @@ class ParentLinkState extends State<ParentLink> {
   Widget build(BuildContext context) {
     final accentColor = FluentTheme.of(context).accentColor;
 
-    return Container(
-      padding: const EdgeInsets.only(right: 12),
-      color: Colors.yellow,
-      constraints: BoxConstraints.tightFor(width: 200),
-      child: Listener(
-        onPointerUp: (_) => _onPressed(),
-        child: FocusableActionDetector(
-          focusNode: _focusNode,
-          onShowFocusHighlight: _handleFocusHighlight,
-          onShowHoverHighlight: _handleHoverHighlight,
-          actions: {ActivateIntent: ActivateLinkAction(context, _onPressed)},
-          child: SizedBox(
-            height: 80,
-            child: FlipText(
-              key: Key(widget.titleFlipKey),
-              flipKey: widget.titleFlipKey,
-              text: widget.text,
-              scale: 5,
-              alpha: _isFocus ? 255 : _alpha,
-              color: _isFocus ? accentColor : null,
-              glowColor: accentColor,
-              glowRadius: _isFocus ? 10 : 0,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: widget.text,
+            style: const TextStyle(
+              fontSize: 17,
+              fontVariations: <FontVariation>[FontVariation('wght', 400)],
             ),
           ),
-        ),
-      ),
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout();
+
+        final scaledWidth = (textPainter.width * 5) + 12;
+
+        return Container(
+          constraints: BoxConstraints.tightFor(width: scaledWidth),
+          padding: const EdgeInsets.only(right: 12),
+          child: Listener(
+            onPointerUp: (_) => _onPressed(),
+            child: FocusableActionDetector(
+              focusNode: _focusNode,
+              onShowFocusHighlight: _handleFocusHighlight,
+              onShowHoverHighlight: _handleHoverHighlight,
+              actions: {
+                ActivateIntent: ActivateLinkAction(context, _onPressed),
+              },
+              child: SizedBox(
+                height: 80,
+                child: FlipText(
+                  key: Key(widget.titleFlipKey),
+                  flipKey: widget.titleFlipKey,
+                  text: widget.text,
+                  scale: 5,
+                  alpha: _isFocus ? 255 : _alpha,
+                  color: _isFocus ? accentColor : null,
+                  glowColor: accentColor,
+                  glowRadius: _isFocus ? 10 : 0,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
