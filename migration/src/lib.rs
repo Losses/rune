@@ -35,6 +35,7 @@ mod m20250312_000023_create_media_file_fingerprint_table;
 mod m20250312_000024_create_media_file_similarity_table;
 mod m20250410_000025_add_hlc_columns;
 mod m20250529_000026_create_sync_record_table;
+mod m20251010_000027_add_index_cover_art_file_hash;
 
 pub struct Migrator;
 
@@ -66,6 +67,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250312_000024_create_media_file_similarity_table::Migration),
             Box::new(m20250410_000025_add_hlc_columns::Migration),
             Box::new(m20250529_000026_create_sync_record_table::Migration),
+            Box::new(m20251010_000027_add_index_cover_art_file_hash::Migration),
         ]
     }
 }
