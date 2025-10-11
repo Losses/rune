@@ -61,12 +61,12 @@
       <description>
         <p>Bugs</p>
         <ul>
-          <li>When scanning coverart, already scanned files will not be skipped.</li>
+          <li>When scanning cover-art, already scanned files will not be skipped.</li>
         </ul>
         <p>Features</p>
         <ul>
           <li>Frameless window option for Linux.</li>
-          <li>a scroll bar to the tracks list by @baiyuanneko in https://github.com/Losses/rune/pull/283.</li>
+          <li>A scroll bar to the tracks list by @baiyuanneko in https://github.com/Losses/rune/pull/283.</li>
         </ul>
       </description>
     </release>
