@@ -12,6 +12,7 @@ import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/navigation_bar/navigation_back_button.dart';
 import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
+import '../../providers/linux_custom_window_controls.dart';
 
 import '../ax_reveal/ax_reveal.dart';
 import '../rune_clickable.dart';
@@ -209,7 +210,8 @@ class NavigationBarState extends State<NavigationBar> {
                   ),
                 ),
               ),
-            if (!isZune && !Platform.isWindows)
+            if (!isZune && !Platform.isWindows && !(Platform.isLinux &&
+                context.watch<LinuxCustomWindowControlsProvider>().enabled))
               Positioned(
                 top: 16 + viewPadding.top,
                 right: 16 + viewPadding.right,
