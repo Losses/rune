@@ -62,6 +62,7 @@ import 'providers/router_path.dart';
 import 'providers/library_path.dart';
 import 'providers/library_home.dart';
 import 'providers/library_manager.dart';
+import 'providers/linux_custom_window_controls.dart';
 import 'providers/playback_controller.dart';
 import 'providers/responsive_providers.dart';
 
@@ -128,6 +129,15 @@ void main(List<String> arguments) async {
           false;
 
   cafeMode = (await settingsManager.getValue<String>(kCafeModeKey)) == "true";
+
+  // Load Linux custom window controls setting early for window configuration
+  late bool linuxCustomWindowControls;
+  if (Platform.isLinux) {
+    linuxCustomWindowControls =
+        (await settingsManager.getValue<bool>(kLinuxCustomWindowControlsKey)) ?? false;
+  } else {
+    linuxCustomWindowControls = false;
+  }
 
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -218,7 +228,7 @@ void main(List<String> arguments) async {
 
   setAdaptiveSwitchingEnabled();
 
-  mainLoop(licenseProvider);
+  mainLoop(licenseProvider, linuxCustomWindowControls);
   if (isDesktop && !Platform.isMacOS) {
     appWindow.show();
   }
@@ -239,11 +249,17 @@ void main(List<String> arguments) async {
       if (storedFullScreen != null) {
         FullScreen.setFullScreen(storedFullScreen);
       }
+
+      // Initialize Linux custom window controls with the current window state
+      if (Platform.isLinux) {
+        // The window is now ready, we can configure any Linux-specific settings here
+        // Note: Actual frameless window configuration may require platform-specific integration
+      }
     });
   }
 }
 
-void mainLoop(LicenseProvider licenseProvider) {
+void mainLoop(LicenseProvider licenseProvider, bool linuxCustomWindowControls) {
   runApp(
     MultiProvider(
       providers: [
@@ -288,6 +304,12 @@ void mainLoop(LicenseProvider licenseProvider) {
         ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
+        ChangeNotifierProvider(
+          lazy: false,
+          create: (_) => LinuxCustomWindowControlsProvider()
+            ..initializeWithValue(linuxCustomWindowControls)
+            ..initialize(),
+        ),
       ],
       child: const Rune(),
     ),

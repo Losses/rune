@@ -1338,5 +1338,13 @@
   "deduplicating": "Deduplicating",
   "@deduplicating": {
     "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
+  },
+  "linuxCustomWindowControls": "Custom Window Controls",
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
+  "linuxCustomWindowControlsSubtitle": "Enable custom window controls for a frameless window experience similar to Windows mode",
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
   }
 }

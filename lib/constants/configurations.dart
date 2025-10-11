@@ -143,3 +143,9 @@ const kClosingWindowBehaviorKey = 'closing_window_behavior';
 /// a lower threshold increases detection sensitivity at the cost of potential false
 /// matches.
 const kDeduplicateThresholdKey = 'deduplicate_threshold';
+
+/// This key is used to enable or disable custom window controls on Linux.
+/// When enabled, the application displays a frameless window with custom window
+/// controls similar to the Windows implementation. For compatibility reasons,
+/// this defaults to false (disabled) when the setting is missing.
+const kLinuxCustomWindowControlsKey = 'linux_custom_window_controls';
