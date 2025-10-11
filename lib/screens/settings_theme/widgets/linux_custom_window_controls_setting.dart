@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../widgets/settings/settings_box_toggle.dart';

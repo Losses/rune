@@ -7,7 +7,6 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import 'widgets/deduplicate_threshold_setting.dart';
 import 'widgets/performance_level_setting.dart';
 import 'widgets/closing_window_behavior_setting.dart';
-import 'widgets/linux_custom_window_controls_setting.dart';
 
 class SettingsAnalysis extends StatefulWidget {
   const SettingsAnalysis({super.key});
@@ -30,7 +29,6 @@ class _SettingsAnalysisState extends State<SettingsAnalysis> {
                 // ComputingDeviceSetting(),
                 PerformanceLevelSetting(),
                 ClosingWindowBehaviorSetting(),
-                LinuxCustomWindowControlsSetting(),
                 DeduplicateThresholdSetting(),
               ],
             ),
