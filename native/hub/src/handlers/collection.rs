@@ -544,6 +544,12 @@ impl Signal for SearchCollectionSummaryRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        log::debug!(
+            "SearchCollectionSummaryRequest: collection_type={:?}, n={}",
+            dart_signal.collection_type,
+            dart_signal.n
+        );
+
         let params = CollectionActionParams {
             n: Some(dart_signal.n.try_into()?),
             ..Default::default()
@@ -556,7 +562,17 @@ impl Signal for SearchCollectionSummaryRequest {
                 handle_search::<playlists::Model>(&main_db, params).await
             }
             Some(CollectionType::Mix) => handle_search::<mixes::Model>(&main_db, params).await,
-            _ => Err(anyhow::anyhow!("Invalid collection type")),
+            Some(CollectionType::Genre) => handle_search::<genres::Model>(&main_db, params).await,
+            _ => {
+                log::error!(
+                    "SearchCollectionSummaryRequest: Invalid or unsupported collection_type={:?}",
+                    dart_signal.collection_type
+                );
+                Err(anyhow::anyhow!(
+                    "Invalid collection type: {:?}",
+                    dart_signal.collection_type
+                ))
+            }
         }
     }
 }
