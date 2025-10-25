@@ -80,16 +80,15 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
           }
           _loadingIndices.remove(cursor);
 
-          // Update total count
-          final newTotal = cursor + newItems.length;
-          if (newTotal > _totalCount) {
-            _totalCount = newTotal;
-          }
-
           // Check if we've reached the end
           if (newItems.length < _pageSize) {
             _reachedEnd = true;
             _totalCount = cursor + newItems.length;
+          } else {
+            // If we haven't reached the end, assume there's at least one more page
+            // This allows the UI to scroll and trigger loading the next page
+            final loadedCount = cursor + newItems.length;
+            _totalCount = loadedCount + _pageSize;
           }
         });
       });
