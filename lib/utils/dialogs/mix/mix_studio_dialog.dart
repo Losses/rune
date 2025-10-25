@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -22,7 +24,6 @@ import '../../api/fetch_mix_queries_by_mix_id.dart';
 import '../../dialogs/mix/widgets/mix_editor.dart';
 import '../../dialogs/mix/utils/mix_editor_data.dart';
 import '../../dialogs/mix/widgets/mix_editor_controller.dart';
-import '../../chip_input/search_task.dart';
 
 import '../unavailable_dialog_on_band.dart';
 
@@ -69,34 +70,113 @@ class _MixStudioDialogImplementationState
     extends State<MixStudioDialogImplementation> {
   late final _controller = MixEditorController();
   final _layoutManager = StartScreenLayoutManager();
-  final _searchManager = SearchTask<InternalMediaFile, List<(String, String)>>(
-    notifyWhenStateChange: false,
-    searchDelegate: (x) => queryMixTracks(QueryList(x)),
-  );
+  final _scrollController = ScrollController();
 
   bool isLoading = false;
   String _query = '';
+  int _cursor = 0;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  static const int _pageSize = 100;
+  List<InternalMediaFile> _allTracks = [];
+  Timer? _debounceTimer;
+  bool _isInitialLoad = true;
 
   @override
   void initState() {
     super.initState();
 
+    _scrollController.addListener(_onScroll);
+
+    _controller.addListener(() {
+      // Skip the first listener call during loadMix
+      if (_isInitialLoad) {
+        _isInitialLoad = false;
+        return;
+      }
+      _debouncedResetAndLoad();
+    });
+
     if (widget.mixId != null) {
       loadMix(widget.mixId!);
     }
+  }
 
-    _controller.addListener(() {
-      _layoutManager.resetAnimations();
-      _searchManager.search(mixEditorDataToQuery(_controller.getData()));
+  void _debouncedResetAndLoad() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      _resetAndLoadTracks();
     });
-    _searchManager.addListener(() {
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200 &&
+        !_isLoadingMore &&
+        _hasMore) {
+      _loadMoreTracks();
+    }
+  }
+
+  Future<void> _resetAndLoadTracks() async {
+    _layoutManager.resetAnimations();
+
+    // Don't clear the tracks immediately to avoid flickering
+    // Instead, load new data first, then replace
+    final query = mixEditorDataToQuery(_controller.getData());
+    final newQuery = query.map((x) => '$x').join(';');
+
+    try {
+      final newTracks = await queryMixTracks(QueryList(query), 0, _pageSize);
+
       setState(() {
-        final query = mixEditorDataToQuery(_controller.getData());
-
-        _query = query.map((x) => '$x').join(';');
+        _query = newQuery;
+        _cursor = newTracks.length;
+        _hasMore = newTracks.length >= _pageSize;
+        _allTracks = newTracks;
+        _isLoadingMore = false;
       });
+
+      // Reset scroll position to top for new results
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+
       _layoutManager.playAnimations();
+    } catch (e) {
+      setState(() {
+        _query = newQuery;
+        _cursor = 0;
+        _hasMore = false;
+        _allTracks = [];
+        _isLoadingMore = false;
+      });
+    }
+  }
+
+  Future<void> _loadMoreTracks() async {
+    if (_isLoadingMore || !_hasMore) return;
+
+    setState(() {
+      _isLoadingMore = true;
     });
+
+    try {
+      final query = mixEditorDataToQuery(_controller.getData());
+      final newTracks = await queryMixTracks(QueryList(query), _cursor, _pageSize);
+
+      setState(() {
+        _allTracks.addAll(newTracks);
+        _cursor += newTracks.length;
+        _hasMore = newTracks.length >= _pageSize;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingMore = false;
+        _hasMore = false;
+      });
+    }
   }
 
   Future<void> loadMix(int mixId) async {
@@ -106,11 +186,17 @@ class _MixStudioDialogImplementationState
     final queryData = await queryToMixEditorData(mix.name, mix.group, queries);
 
     _controller.setData(queryData);
+
+    // Load initial tracks after setting the controller data
+    await _resetAndLoadTracks();
+
     setState(() {});
   }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
+    _scrollController.dispose();
     _controller.dispose();
     _layoutManager.dispose();
     super.dispose();
@@ -218,12 +304,12 @@ class _MixStudioDialogImplementationState
                                         (cellSize + gapSize))
                                     .floor();
 
-                                final trackIds = _searchManager.searchResults
+                                final trackIds = _allTracks
                                     .map((x) => x.id)
                                     .toList();
 
                                 return GridView(
-                                  key: Key(_query),
+                                  controller: _scrollController,
                                   gridDelegate:
                                       SliverGridDelegateWithFixedCrossAxisCount(
                                     crossAxisCount: rows,
@@ -231,7 +317,7 @@ class _MixStudioDialogImplementationState
                                     crossAxisSpacing: gapSize,
                                     childAspectRatio: ratio,
                                   ),
-                                  children: _searchManager.searchResults
+                                  children: _allTracks
                                       .map(
                                         (a) => TrackSearchItem(
                                           index: 0,
