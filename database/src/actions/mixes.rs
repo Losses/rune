@@ -724,8 +724,6 @@ pub async fn query_mix_media_files(
     cursor: usize,
     page_size: usize,
 ) -> Result<Vec<media_files::Model>> {
-    log::info!("query_mix_media_files: cursor={}, page_size={}, queries={:?}", cursor, page_size, queries);
-
     let mut all: bool = false;
 
     let mut artist_ids: Vec<i32> = vec![];
@@ -1146,7 +1144,7 @@ pub async fn query_mix_media_files(
         .await
         .unwrap();
 
-    log::info!("query_mix_media_files: returning {} media files", media_files.len());
+    log::debug!("query_mix_media_files: returning {} media files", media_files.len());
 
     let sorted_files = sort_media_files(media_files, &track_ids);
 

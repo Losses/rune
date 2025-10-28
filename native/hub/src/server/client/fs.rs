@@ -188,7 +188,6 @@ impl VirtualFS {
                             // Cache the entries
                             let collection_type = path_to_collection_type(&parent_path)
                                 .ok_or_else(|| {
-                                    log::error!("resolve_path_with_ids: Failed to determine collection type for parent_path: {:?}", parent_path);
                                     anyhow!("Invalid collection type for path: {:?}", parent_path)
                                 })?;
 
@@ -226,7 +225,6 @@ impl VirtualFS {
                             "Tracks" => CollectionType::Track,
                             "Genres" => CollectionType::Genre,
                             _ => {
-                                log::error!("resolve_path_with_ids: Invalid root_dir '{}' from path {:?}", root_dir, current);
                                 return Err(anyhow!("Invalid collection type: {}", root_dir));
                             }
                         }
@@ -300,7 +298,6 @@ impl VirtualFS {
             4 => {
                 let collection_type =
                     path_to_collection_type(path).ok_or_else(|| {
-                        log::error!("path_to_query (depth 4): Failed to determine collection type for path: {:?}", path);
                         anyhow!("Invalid path: {:?}", path)
                     })?;
 
@@ -317,12 +314,9 @@ impl VirtualFS {
                         .find(|e| e.name == collection_name)
                         .and_then(|e| e.id)
                         .ok_or_else(|| {
-                            log::error!("path_to_query (depth 4): Collection '{}' not found in cache for parent {:?}",
-                                collection_name, parent_path);
                             anyhow!("Collection not found in cache")
                         })?
                 } else {
-                    log::error!("path_to_query (depth 4): Parent directory {:?} not cached", parent_path);
                     return Err(anyhow!("Parent directory not cached"));
                 };
 
@@ -524,7 +518,6 @@ impl VirtualFS {
 
                 let collection_type = path_to_collection_type(new_path)
                     .ok_or_else(|| {
-                        log::error!("validate_path (depth 3): Failed to determine collection type for new_path: {:?}", new_path);
                         anyhow!("Invalid collection type for path: {:?}", new_path)
                     })?;
                 let group_name = new_path
@@ -540,7 +533,6 @@ impl VirtualFS {
             4 => {
                 let collection_type = path_to_collection_type(new_path)
                     .ok_or_else(|| {
-                        log::error!("validate_path (depth 4): Failed to determine collection type for new_path: {:?}", new_path);
                         anyhow!("Invalid collection type for path: {:?}", new_path)
                     })?;
                 let group_name = new_path
