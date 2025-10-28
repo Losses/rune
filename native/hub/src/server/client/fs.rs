@@ -304,9 +304,6 @@ impl VirtualFS {
                 let parent_path = path.parent().unwrap().to_path_buf();
                 let collection_name = path.file_name().unwrap().to_str().unwrap();
 
-                log::debug!("path_to_query (depth 4): collection_type={:?}, parent_path={:?}, collection_name={}",
-                    collection_type, parent_path, collection_name);
-
                 let collection_id = if let Some(parent_cache) = self.cache.get(&parent_path) {
                     parent_cache
                         .entries
@@ -319,9 +316,6 @@ impl VirtualFS {
                 } else {
                     return Err(anyhow!("Parent directory not cached"));
                 };
-
-                log::debug!("path_to_query (depth 4): Found collection_id={} for collection '{}'",
-                    collection_id, collection_name);
 
                 build_query(collection_type, collection_id, &self.connection).await
             }
