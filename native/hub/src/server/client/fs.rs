@@ -187,7 +187,9 @@ impl VirtualFS {
 
                             // Cache the entries
                             let collection_type = path_to_collection_type(&parent_path)
-                                .ok_or_else(|| anyhow!("Invalid collection type"))?;
+                                .ok_or_else(|| {
+                                    anyhow!("Invalid collection type for path: {:?}", parent_path)
+                                })?;
 
                             self.cache_entries(parent_path.clone(), entries, collection_type);
                         }
@@ -222,7 +224,9 @@ impl VirtualFS {
                             "Mixes" => CollectionType::Mix,
                             "Tracks" => CollectionType::Track,
                             "Genres" => CollectionType::Genre,
-                            _ => return Err(anyhow!("Invalid collection type")),
+                            _ => {
+                                return Err(anyhow!("Invalid collection type: {}", root_dir));
+                            }
                         }
                     };
 
@@ -252,7 +256,10 @@ impl VirtualFS {
     }
 
     pub async fn path_to_query(&self, path: &Path) -> Result<Vec<(String, String)>> {
-        match path.components().count() {
+        let depth = path.components().count();
+        log::debug!("path_to_query: path={:?}, depth={}", path, depth);
+
+        match depth {
             2 => Ok(vec![("lib::directory.deep".to_string(), "/".to_string())]),
             3 => {
                 // Prevent query generation for paths under /Tracks as they shouldn't exist
@@ -290,7 +297,9 @@ impl VirtualFS {
             }
             4 => {
                 let collection_type =
-                    path_to_collection_type(path).ok_or_else(|| anyhow!("Invalid path"))?;
+                    path_to_collection_type(path).ok_or_else(|| {
+                        anyhow!("Invalid path: {:?}", path)
+                    })?;
 
                 let parent_path = path.parent().unwrap().to_path_buf();
                 let collection_name = path.file_name().unwrap().to_str().unwrap();
@@ -301,7 +310,9 @@ impl VirtualFS {
                         .iter()
                         .find(|e| e.name == collection_name)
                         .and_then(|e| e.id)
-                        .ok_or_else(|| anyhow!("Collection not found in cache"))?
+                        .ok_or_else(|| {
+                            anyhow!("Collection not found in cache")
+                        })?
                 } else {
                     return Err(anyhow!("Parent directory not cached"));
                 };
@@ -500,7 +511,9 @@ impl VirtualFS {
                 }
 
                 let collection_type = path_to_collection_type(new_path)
-                    .ok_or_else(|| anyhow!("Invalid collection type"))?;
+                    .ok_or_else(|| {
+                        anyhow!("Invalid collection type for path: {:?}", new_path)
+                    })?;
                 let group_name = new_path
                     .components()
                     .next_back()
@@ -513,7 +526,9 @@ impl VirtualFS {
             // Third level (individual collections) must exist in the server
             4 => {
                 let collection_type = path_to_collection_type(new_path)
-                    .ok_or_else(|| anyhow!("Invalid collection type"))?;
+                    .ok_or_else(|| {
+                        anyhow!("Invalid collection type for path: {:?}", new_path)
+                    })?;
                 let group_name = new_path
                     .components()
                     .nth(2)

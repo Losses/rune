@@ -48,11 +48,45 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   }
 
   Future<void> _initializeData() async {
+    // Pre-load first page before marking as initialized
+    await _loadPageForInitialization(0);
     setState(() {
       _isInitialized = true;
     });
-    // Pre-load first page
-    _loadPage(0);
+  }
+
+  Future<void> _loadPageForInitialization(int cursor) async {
+    if (_loadingIndices.contains(cursor) || _reachedEnd) return;
+
+    _loadingIndices.add(cursor);
+
+    try {
+      final newItems = await queryMixTracks(widget.queries, cursor, _pageSize);
+
+      if (!mounted) return;
+
+      for (var i = 0; i < newItems.length; i++) {
+        _loadedItems[cursor + i] = newItems[i];
+      }
+      _loadingIndices.remove(cursor);
+
+      // Check if we've reached the end
+      if (newItems.length < _pageSize) {
+        _reachedEnd = true;
+        _totalCount = cursor + newItems.length;
+      } else {
+        final loadedCount = cursor + newItems.length;
+        _totalCount = loadedCount + _pageSize;
+      }
+
+      Timer(
+        Duration(milliseconds: gridAnimationDelay),
+        () => widget.layoutManager.playAnimations(),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _loadingIndices.remove(cursor);
+    }
   }
 
   Future<void> _loadPage(int cursor) async {
@@ -80,16 +114,15 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
           }
           _loadingIndices.remove(cursor);
 
-          // Update total count
-          final newTotal = cursor + newItems.length;
-          if (newTotal > _totalCount) {
-            _totalCount = newTotal;
-          }
-
           // Check if we've reached the end
           if (newItems.length < _pageSize) {
             _reachedEnd = true;
             _totalCount = cursor + newItems.length;
+          } else {
+            // If we haven't reached the end, assume there's at least one more page
+            // This allows the UI to scroll and trigger loading the next page
+            final loadedCount = cursor + newItems.length;
+            _totalCount = loadedCount + _pageSize;
           }
         });
       });

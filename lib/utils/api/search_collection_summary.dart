@@ -2,7 +2,10 @@ import '../../bindings/bindings.dart';
 
 Future<List<(int, String)>> fetchCollectionSummary(
     CollectionType collectionType) async {
-  SearchCollectionSummaryRequest(n: 50).sendSignalToRust();
+  SearchCollectionSummaryRequest(
+    collectionType: collectionType,
+    n: 50,
+  ).sendSignalToRust();
 
   return (await SearchCollectionSummaryResponse.rustSignalStream.first)
       .message

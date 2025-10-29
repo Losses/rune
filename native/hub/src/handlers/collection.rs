@@ -556,7 +556,13 @@ impl Signal for SearchCollectionSummaryRequest {
                 handle_search::<playlists::Model>(&main_db, params).await
             }
             Some(CollectionType::Mix) => handle_search::<mixes::Model>(&main_db, params).await,
-            _ => Err(anyhow::anyhow!("Invalid collection type")),
+            Some(CollectionType::Genre) => handle_search::<genres::Model>(&main_db, params).await,
+            _ => {
+                Err(anyhow::anyhow!(
+                    "Invalid collection type: {:?}",
+                    dart_signal.collection_type
+                ))
+            }
         }
     }
 }

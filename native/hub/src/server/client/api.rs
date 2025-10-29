@@ -25,6 +25,7 @@ pub async fn build_query(
     id: i32,
     connection: &WSConnection,
 ) -> Result<Vec<(String, String)>> {
+
     if collection_type == CollectionType::Mix {
         let queries = fetch_mix_queries_by_mix_id(id, connection).await?;
         Ok(queries
@@ -55,14 +56,20 @@ pub fn build_collection_query(
 }
 
 pub fn path_to_collection_type(path: &Path) -> Option<CollectionType> {
-    match path.components().nth(1)?.as_os_str().to_str()? {
+    let component = path.components().nth(1)?;
+    let component_str = component.as_os_str().to_str()?;
+
+    match component_str {
         "Albums" => Some(CollectionType::Album),
         "Artists" => Some(CollectionType::Artist),
         "Playlists" => Some(CollectionType::Playlist),
         "Mixes" => Some(CollectionType::Mix),
         "Tracks" => Some(CollectionType::Track),
         "Genres" => Some(CollectionType::Genre),
-        _ => None,
+        _ => {
+            log::warn!("path_to_collection_type: Unknown collection type '{}' from path {:?}", component_str, path);
+            None
+        }
     }
 }
 

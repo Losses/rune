@@ -40,7 +40,10 @@ macro_rules! handle_single_gui_event {
                                     handle_response!(_response, $response_type);
                                 }
                                 Err(e) => {
-                                    error!("{e:?}");
+                                    error!("Request {} failed: {:?}", stringify!($request), e);
+                                    error!("Full error chain for {}: {:#}", stringify!($request), e);
+                                    let backtrace = e.backtrace();
+                                    error!("Backtrace for {}: {:?}", stringify!($request), backtrace);
                                     CrashResponse {
                                         detail: format!("{e:#?}"),
                                     }
