@@ -207,6 +207,9 @@ class _MixStudioDialogImplementationState
       isLoading = true;
     });
 
+    final editorData = _controller.getData();
+    final queries = mixEditorDataToQuery(editorData);
+
     Mix? response;
     if (widget.mixId != null) {
       response = await updateMix(
@@ -217,7 +220,7 @@ class _MixStudioDialogImplementationState
         int.parse(
           _controller.modeController.selectedValue ?? '99',
         ),
-        mixEditorDataToQuery(_controller.getData()),
+        queries,
       );
     } else {
       response = await createMix(
@@ -227,7 +230,7 @@ class _MixStudioDialogImplementationState
         int.parse(
           _controller.modeController.selectedValue ?? '99',
         ),
-        mixEditorDataToQuery(_controller.getData()),
+        queries,
       );
     }
 

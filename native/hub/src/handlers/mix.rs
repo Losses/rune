@@ -154,17 +154,19 @@ impl Signal for UpdateMixRequest {
         .await
         .with_context(|| "Failed to update mix metadata")?;
 
+        let queries_vec: Vec<(String, String)> = request
+            .queries
+            .clone()
+            .into_iter()
+            .map(|x| (x.operator, x.parameter))
+            .collect();
+
         replace_mix_queries(
             &main_db,
             &node_id,
             request.mix_id,
             &mix.hlc_uuid,
-            request
-                .queries
-                .clone()
-                .into_iter()
-                .map(|x| (x.operator, x.parameter))
-                .collect(),
+            queries_vec,
             None,
         )
         .await
