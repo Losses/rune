@@ -314,46 +314,30 @@ pub async fn replace_mix_queries(
         .await
         .with_context(|| format!("Failed to query existing queries for mix_id {mix_id}"))?;
 
-    // Create a mapping of existing records: operator -> existing record
-    let mut existing_by_operator: HashMap<String, mix_queries::Model> = HashMap::new();
+    // Create a mapping of existing records: (operator, parameter) -> existing record
+    // Note: Using (operator, parameter) as key to support multiple queries with same operator
+    let mut existing_by_key: HashMap<(String, String), mix_queries::Model> = HashMap::new();
     for query in existing_queries {
-        existing_by_operator.insert(query.operator.clone(), query);
+        existing_by_key.insert((query.operator.clone(), query.parameter.clone()), query);
     }
 
-    // Create a mapping of new parameters: operator -> parameter
-    let mut new_operator_params: HashMap<String, String> = HashMap::new();
-    for (operator, parameter) in &operator_parameters {
-        new_operator_params.insert(operator.clone(), parameter.clone());
-    }
+    // Create a set of new query keys for easy lookup
+    let new_query_keys: HashSet<(String, String)> = operator_parameters
+        .iter()
+        .map(|(op, param)| (op.clone(), param.clone()))
+        .collect();
 
     let current_time = Utc::now().to_rfc3339();
 
     // Process each new operator-parameter pair
     for (operator, parameter) in &operator_parameters {
-        if let Some(existing_query) = existing_by_operator.get(operator) {
-            // If operator exists, check if parameter needs to be updated
-            if existing_query.parameter != *parameter {
-                // Parameter is inconsistent, need to update record and increment version
-                let updated_query = mix_queries::ActiveModel {
-                    id: ActiveValue::Set(existing_query.id),
-                    parameter: ActiveValue::Set(parameter.clone()),
-                    group: ActiveValue::Set(group.unwrap_or_default()),
-                    updated_at_hlc_ts: ActiveValue::Set(current_time.clone()),
-                    updated_at_hlc_ver: ActiveValue::Set(existing_query.updated_at_hlc_ver + 1),
-                    updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-                    ..Default::default()
-                };
+        let key = (operator.clone(), parameter.clone());
 
-                MixQueryEntity::update(updated_query)
-                    .exec(&txn)
-                    .await
-                    .with_context(|| {
-                        format!("Failed to update query with `{operator}({parameter})`")
-                    })?;
-            }
-            // If parameter is also consistent, no operation needed
+        if existing_by_key.contains_key(&key) {
+            // Query already exists with same operator and parameter, no action needed
         } else {
-            // Operator doesn't exist, create new record
+            // Query doesn't exist, create new record
+
             let new_query = mix_queries::ActiveModel {
                 mix_id: ActiveValue::Set(mix_id),
                 operator: ActiveValue::Set(operator.clone()),
@@ -362,7 +346,7 @@ pub async fn replace_mix_queries(
                 hlc_uuid: ActiveValue::Set(
                     Uuid::new_v5(
                         &Uuid::NAMESPACE_OID,
-                        format!("{mix_hlc_uuid}{operator}").as_bytes(),
+                        format!("{mix_hlc_uuid}{operator}{parameter}").as_bytes(),
                     )
                     .to_string(),
                 ),
@@ -384,15 +368,19 @@ pub async fn replace_mix_queries(
         }
     }
 
-    // Handle records that need to be deleted (operators in existing records but not in new parameters)
-    for (existing_operator, existing_query) in existing_by_operator {
-        if !new_operator_params.contains_key(&existing_operator) {
-            // This operator doesn't exist in new parameters, needs to be marked for deletion
+    // Handle records that need to be deleted (queries in existing records but not in new queries)
+    for (existing_key, existing_query) in existing_by_key {
+        if !new_query_keys.contains(&existing_key) {
+            // This query doesn't exist in new parameters, needs to be deleted
+
             MixQueryEntity::delete_by_id(existing_query.id)
                 .exec(&txn)
                 .await
                 .with_context(|| {
-                    format!("Failed to delete query with operator `{existing_operator}`")
+                    format!(
+                        "Failed to delete query with `{}({})`",
+                        existing_key.0, existing_key.1
+                    )
                 })?;
         }
     }
