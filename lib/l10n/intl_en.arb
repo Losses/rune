@@ -198,6 +198,16 @@
   "@light": {
     "description": "A color settings entry that enables light mode when selected."
   },
+  "trayIconColorMode": "Tray Icon Color Mode",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "Control how the tray icon adapts to your system theme.",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "Automatic",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
   "themeColor": "Theme Color",
   "@themeColor": {
     "description": "A settings entry that allows users to choose their preferred theme color."

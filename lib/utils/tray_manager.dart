@@ -9,6 +9,9 @@ import 'package:bitsdojo_window/bitsdojo_window.dart';
 import '../providers/status.dart';
 import '../providers/router_path.dart';
 
+import '../constants/configurations.dart';
+import '../constants/settings_manager.dart';
+
 import 'api/play_next.dart';
 import 'api/play_pause.dart';
 import 'api/play_play.dart';
@@ -26,16 +29,28 @@ class TrayIcon {
 }
 
 class TrayManager {
-  static TrayIcon getTrayIcon() {
+  static Future<TrayIcon> getTrayIcon() async {
     if (Platform.isMacOS) {
       return TrayIcon('assets/mac-tray.svg', false);
     }
 
-    final brightness =
-        SchedulerBinding.instance.platformDispatcher.platformBrightness ==
-                Brightness.light
-            ? Brightness.dark.name
-            : Brightness.light.name;
+    // Get user preference for tray icon color mode
+    final trayIconColorMode =
+        await $settingsManager.getValue<String>(kTrayIconColorModeKey) ??
+            "auto";
+
+    String brightness;
+    if (trayIconColorMode == "auto") {
+      // Automatic mode: follow system theme
+      brightness =
+          SchedulerBinding.instance.platformDispatcher.platformBrightness ==
+                  Brightness.light
+              ? Brightness.dark.name
+              : Brightness.light.name;
+    } else {
+      // Manual mode: use user's selection directly
+      brightness = trayIconColorMode;
+    }
 
     if (Platform.isWindows) {
       return TrayIcon('assets/tray_icon_$brightness.ico', false);
@@ -113,7 +128,7 @@ class TrayManager {
   }
 
   Future<void> updateTrayIcon() async {
-    final icon = getTrayIcon();
+    final icon = await TrayManager.getTrayIcon();
     await systemTray.setImage(icon.path, isTemplate: true, isInstalled: icon.isInstalled);
   }
 

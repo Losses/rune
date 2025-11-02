@@ -198,6 +198,16 @@
   "@light": {
     "description": "一个色彩设置条目，选中后启用浅色模式。"
   },
+  "trayIconColorMode": "托盘图标颜色模式",
+  "@trayIconColorMode": {
+    "description": "一个设置条目，允许用户控制系统托盘图标的颜色，可选择自动、亮色和暗色模式。"
+  },
+  "trayIconColorModeSubtitle": "控制托盘图标如何适应您的系统主题。",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "自动",
+  "@automaticTrayIconMode": {
+    "description": "托盘图标颜色模式的一个选项，根据系统主题自动在亮色和暗色之间切换。"
+  },
   "themeColor": "主题颜色",
   "@themeColor": {
     "description": "一个设置条目，允许用户选择自己喜欢的主题色。"

@@ -182,7 +182,7 @@ void main(List<String> arguments) async {
   );
 
   if (isDesktop) {
-    final icon = TrayManager.getTrayIcon();
+    final icon = await TrayManager.getTrayIcon();
     await systemTray.initSystemTray(
       title: Platform.isMacOS ? null : 'Rune',
       iconPath: icon.path,

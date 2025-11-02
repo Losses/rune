@@ -149,3 +149,9 @@ const kDeduplicateThresholdKey = 'deduplicate_threshold';
 /// controls similar to the Windows implementation. For compatibility reasons,
 /// this defaults to false (disabled) when the setting is missing.
 const kLinuxCustomWindowControlsKey = 'linux_custom_window_controls';
+
+/// This key is used to store the user's preference for the tray icon color mode.
+/// It determines whether the tray icon should automatically adapt to the system
+/// theme or use a fixed color mode. Options include "auto" (follows system theme),
+/// "light" (always use light icon), and "dark" (always use dark icon).
+const kTrayIconColorModeKey = 'tray_icon_color_mode';
