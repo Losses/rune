@@ -42,11 +42,17 @@ class TrayManager {
     String brightness;
     if (trayIconColorMode == "auto") {
       // Automatic mode: follow system theme
-      brightness =
-          SchedulerBinding.instance.platformDispatcher.platformBrightness ==
-                  Brightness.light
-              ? Brightness.dark.name
-              : Brightness.light.name;
+      // Special case: GNOME always uses light icon
+      if (Platform.isLinux &&
+          Platform.environment['XDG_CURRENT_DESKTOP'] == 'GNOME') {
+        brightness = Brightness.light.name;
+      } else {
+        brightness =
+            SchedulerBinding.instance.platformDispatcher.platformBrightness ==
+                    Brightness.light
+                ? Brightness.dark.name
+                : Brightness.light.name;
+      }
     } else {
       // Manual mode: use user's selection directly
       brightness = trayIconColorMode;
