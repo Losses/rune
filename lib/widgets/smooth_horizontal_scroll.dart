@@ -20,6 +20,13 @@ class SmoothScrollController extends ScrollController {
       setter: (value) => jumpTo(value),
       vsync: vsync,
     );
+    addListener(_handleExternalScroll);
+  }
+
+  void _handleExternalScroll() {
+    if (!_lerpController.isAnimating) {
+      _lerpController.syncValue(offset);
+    }
   }
 
   void smoothScrollBy(double delta) {
@@ -36,6 +43,7 @@ class SmoothScrollController extends ScrollController {
 
   @override
   void dispose() {
+    removeListener(_handleExternalScroll);
     _lerpController.dispose();
     super.dispose();
   }
