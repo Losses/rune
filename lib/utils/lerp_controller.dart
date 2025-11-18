@@ -60,5 +60,11 @@ class LerpController {
     return a + (b - a) * t;
   }
 
+  void syncValue(double value) {
+    _value = value;
+  }
+
+  bool get isAnimating => _ticker?.isTicking ?? false;
+
   double get value => _value;
 }
