@@ -63,7 +63,17 @@ pub fn parse_lrc(content: &str) -> Result<LyricFile> {
 
                 // Parse enhanced format word-level time tags
                 let word_time_tags = if remaining_content.contains('<') {
-                    parse_enhanced_lrc(remaining_content)?
+                    parse_enhanced_lrc(remaining_content).unwrap_or_else(|_| {
+                        vec![(
+                            start_time.clone(),
+                            TimeTag {
+                                minutes: 9999,
+                                seconds: 0,
+                                milliseconds: 0,
+                            },
+                            text.to_string(),
+                        )]
+                    })
                 } else {
                     vec![(
                         start_time.clone(),
