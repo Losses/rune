@@ -48,12 +48,17 @@ impl FromStr for TimeTag {
         }
 
         let seconds = second_parts[0].parse::<u32>()?;
-        let centiseconds = second_parts[1].parse::<u32>()?;
+        let fraction = second_parts[1];
+        let milliseconds = match fraction.len() {
+            2 => fraction.parse::<u32>()? * 10,
+            3 => fraction.parse::<u32>()?,
+            _ => bail!("Invalid milliseconds format"),
+        };
 
         Ok(TimeTag {
             minutes,
             seconds,
-            milliseconds: centiseconds * 10,
+            milliseconds,
         })
     }
 }
