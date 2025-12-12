@@ -84,6 +84,18 @@ impl TestFixture {
     fn server_hlc_context(&self) -> &Arc<SyncTaskContext> {
         &self.server.hlc_context
     }
+
+    async fn stop_server(&mut self) -> Result<()> {
+        if let Some(shutdown_tx) = self.server.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+            if let Some(handle) = self.server.handle.take() {
+                handle
+                    .await
+                    .context("Server task panicked or was cancelled")??;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Drop for TestFixture {
@@ -111,7 +123,7 @@ async fn setup_db(is_server: bool) -> Result<DatabaseConnection> {
 pub struct TestServer {
     addr: SocketAddr,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
-    _handle: JoinHandle<Result<()>>,
+    handle: Option<JoinHandle<Result<()>>>,
     pub node_id: Uuid,
     hlc_context: Arc<SyncTaskContext>,
 }
@@ -171,7 +183,7 @@ async fn start_server(db: DatabaseConnection) -> Result<TestServer> {
     Ok(TestServer {
         addr,
         shutdown_tx: Some(shutdown_tx),
-        _handle: handle,
+        handle: Some(handle),
         node_id: server_node_id,
         hlc_context,
     })
@@ -1407,3 +1419,99 @@ async fn test_chunking_and_update_propagation() -> Result<()> {
 
 // // TODO: Add more tests:
 // // - Test error conditions (e.g., server down during a call, malformed data).
+
+#[tokio::test]
+async fn test_sync_error_server_down() -> Result<()> {
+    let mut fixture = TestFixture::new().await?;
+
+    // Stop the server
+    fixture.stop_server().await?;
+
+    // Attempt to run sync
+    let results = fixture.run_sync().await.context("Sync execution failed")?;
+
+    // Since connection is refused, all jobs should fail
+    assert!(!results.is_empty(), "Should have attempted sync jobs");
+    for result in results {
+        assert!(
+            !result.is_success(),
+            "Sync job for table '{}' should have failed",
+            result.table_name_str()
+        );
+        let err = result.get_error().unwrap();
+        // The error should be related to connection refusal
+        let err_debug = format!("{:?}", err);
+        assert!(
+            err_debug.contains("connect") || err_debug.contains("connection") || err_debug.contains("refused") || err_debug.contains("request or response body error"),
+            "Error should indicate connection failure, got debug: {}",
+            err_debug
+        );
+    }
+
+    Ok(())
+}
+
+async fn start_malformed_server() -> Result<(SocketAddr, tokio::sync::oneshot::Sender<()>)> {
+    let app = Router::new().fallback(get(|| async { "not json" }).post(|| async { "not json" }));
+
+    let port = portpicker::pick_unused_port().context("No free ports")?;
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let listener = TcpListener::bind(addr).await?;
+
+    tokio::spawn(async move {
+        serve(listener, app.into_make_service())
+            .with_graceful_shutdown(async {
+                shutdown_rx.await.ok();
+            })
+            .await
+            .ok();
+    });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    Ok((addr, shutdown_tx))
+}
+
+#[tokio::test]
+async fn test_sync_error_malformed_data() -> Result<()> {
+    // 1. Start a server that returns malformed data (plain text instead of JSON)
+    let (addr, shutdown_tx) = start_malformed_server().await?;
+
+    // 2. Setup Client Side
+    let client_db = setup_db(false).await.context("Client DB setup failed")?;
+    let client_node_id = Uuid::new_v4();
+    let client_hlc_context = Arc::new(SyncTaskContext::new(client_node_id));
+    let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", addr));
+
+    // 3. Run Sync
+    let results = setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &client_hlc_context,
+    )
+    .await?;
+
+    // 4. Verify failures
+    assert!(!results.is_empty(), "Should have attempted sync jobs");
+    for result in results {
+        assert!(
+            !result.is_success(),
+            "Sync job for table '{}' should have failed due to malformed data",
+            result.table_name_str()
+        );
+        let err = result.get_error().unwrap();
+        let err_debug = format!("{:?}", err);
+        // reqwest error for invalid json
+        assert!(
+            err_debug.contains("json") || err_debug.contains("decode") || err_debug.contains("deserialize") || err_debug.contains("expected ident"),
+            "Error should indicate JSON parsing failure, got debug: {}",
+            err_debug
+        );
+    }
+
+    // Cleanup
+    let _ = shutdown_tx.send(());
+
+    Ok(())
+}
