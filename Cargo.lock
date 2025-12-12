@@ -2946,6 +2946,7 @@ dependencies = [
  "strum",
  "strum_macros",
  "swift-rs",
+ "sync",
  "sysinfo 0.31.4",
  "term_size",
  "tokio",

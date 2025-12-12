@@ -26,6 +26,7 @@ tokio = { version = "1.44.2", features = ["sync", "time", "rt-multi-thread"] }
 sea-orm = "1.1.0"
 lyric = { path = "../../lyric" }
 database = { path = "../../database" }
+sync = { path = "../../sync" }
 analysis = { path = "../../analysis" }
 playback = { path = "../../playback" }
 scrobbling = { path = "../../scrobbling" }

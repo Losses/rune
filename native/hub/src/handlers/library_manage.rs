@@ -2,8 +2,10 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
+use sync::hlc::SyncTaskContext;
 use tokio::{sync::Mutex, task};
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 use ::analysis::utils::computing_device::ComputingDevice;
 use ::database::{
@@ -374,6 +376,21 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
             let request_path_clone = request_path_clone.clone();
             rt.block_on(async {
+                let uuid_node_id = match Uuid::parse_str(&node_id) {
+                    Ok(id) => id,
+                    Err(e) => {
+                         let broadcaster_clone = Arc::clone(&broadcaster);
+                         // Ideally we should send an error message back.
+                         // But for now logging it and returning.
+                         log::error!("Invalid node ID {node_id}: {e}");
+                         broadcaster_clone.broadcast(&DeduplicateAudioLibraryResponse {
+                             path: request_path_clone.to_string(),
+                         });
+                         return Ok(());
+                    }
+                };
+                let hlc_context = Arc::new(SyncTaskContext::new(uuid_node_id));
+
                 // Stage 1: Compute fingerprints (0% - 33%)
                 let broadcaster_clone = Arc::clone(&broadcaster);
                 let progress_path = request_path_clone.to_string();
@@ -383,7 +400,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                     fsio,
                     &main_db,
                     Path::new(&request_path_clone),
-                    &node_id,
+                    hlc_context.clone(),
                     batch_size,
                     move |cur, total| {
                         let progress = cur as f32 / total as f32 * 0.33;
@@ -406,7 +423,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
                 compare_all_pairs(
                     &main_db,
-                    &node_id,
+                    hlc_context,
                     batch_size,
                     move |cur, total| {
                         let progress = 0.33 + cur as f32 / total as f32 * 0.33;
