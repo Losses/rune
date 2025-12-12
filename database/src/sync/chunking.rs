@@ -191,6 +191,15 @@ pub async fn get_remote_chunks_handler(
             )
             .await?
         }
+        "media_file_similarity" => {
+            generate_data_chunks::<media_file_similarity::Entity, _>(
+                db,
+                &options,
+                after_hlc,
+                Some(fk_resolver),
+            )
+            .await?
+        }
         _ => {
             return Err(AppError(anyhow!(
                 "Unsupported table name for chunks: {}",
@@ -289,6 +298,15 @@ pub async fn get_remote_sub_chunks_handler(
         }
         "media_file_fingerprint" => {
             break_data_chunk::<media_file_fingerprint::Entity, _>(
+                db,
+                &payload.parent_chunk,
+                payload.sub_chunk_size,
+                Some(fk_resolver),
+            )
+            .await?
+        }
+        "media_file_similarity" => {
+            break_data_chunk::<media_file_similarity::Entity, _>(
                 db,
                 &payload.parent_chunk,
                 payload.sub_chunk_size,
@@ -682,6 +700,15 @@ pub async fn apply_remote_changes_handler(
         }
         "media_file_fingerprint" => {
             process_entity_changes::<media_file_fingerprint::Entity, _>(
+                &txn,
+                &body,
+                fk_resolver,
+                &table_name,
+            )
+            .await?
+        }
+        "media_file_similarity" => {
+            process_entity_changes::<media_file_similarity::Entity, _>(
                 &txn,
                 &body,
                 fk_resolver,
