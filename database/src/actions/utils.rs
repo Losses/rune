@@ -157,6 +157,7 @@ macro_rules! parallel_media_files_processing {
         $lib_path:expr,
         $fsio:expr,
         $node_id: expr,
+        $hlc_context: expr,
         $process_fn:expr,
         $result_handler:expr
     ) => {{
@@ -282,6 +283,7 @@ macro_rules! parallel_media_files_processing {
                             let processed_count = Arc::clone(&processed_count);
                             let progress_callback = Arc::clone(&progress_callback);
                             let node_id_clone = $node_id.clone();
+                            let hlc_context_clone = $hlc_context.clone();
                             let process_cancel_token = consumer_cancel_token.clone();
 
                             let file_clone = file.clone();
@@ -306,6 +308,7 @@ macro_rules! parallel_media_files_processing {
                                             &main_db,
                                             file,
                                             node_id_clone,
+                                            hlc_context_clone,
                                             analysis_result,
                                         )
                                         .await;

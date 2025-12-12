@@ -3,15 +3,16 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use std::str::FromStr;
 
 use anyhow::{Context, Result, anyhow, bail};
-use chrono::Utc;
 use fsio::FsIo;
 use log::{debug, info};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, JoinType,
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
 };
+use sync::hlc::SyncTaskContext;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -54,6 +55,10 @@ where
         media_files::Entity::find().filter(media_files::Column::Id.is_not_in(existed_ids));
 
     let lib_path = Arc::new(lib_path.to_path_buf());
+
+    // Create HLC context
+    let node_uuid = Uuid::from_str(node_id).context("Invalid node_id UUID")?;
+    let hlc_context = Arc::new(SyncTaskContext::new(node_uuid));
     let node_id = Arc::new(node_id.to_owned());
 
     parallel_media_files_processing!(
@@ -65,6 +70,7 @@ where
         lib_path,
         fsio,
         node_id,
+        hlc_context,
         move |fsio, file, lib_path, cancel_token| {
             compute_single_fingerprint(
                 fsio,
@@ -77,6 +83,7 @@ where
         |db,
          file: media_files::Model,
          node_id: Arc<String>,
+         hlc_context: Arc<SyncTaskContext>,
          fingerprint_result: Result<(Vec<u32>, _)>| async move {
             match fingerprint_result {
                 Ok((fingerprint, _duration)) => {
@@ -84,6 +91,9 @@ where
                         .into_iter()
                         .flat_map(|x| x.to_le_bytes())
                         .collect::<Vec<u8>>();
+
+                    let hlc = hlc_context.generate_hlc();
+                    let hlc_ts = hlc.to_rfc3339().unwrap_or_default();
 
                     let model = media_file_fingerprint::ActiveModel {
                         media_file_id: ActiveValue::Set(file.id),
@@ -96,10 +106,10 @@ where
                             )
                             .to_string(),
                         ),
-                        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-                        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-                        created_at_hlc_ver: ActiveValue::Set(0), // TODO: Fix this
-                        updated_at_hlc_ver: ActiveValue::Set(0),
+                        created_at_hlc_ts: ActiveValue::Set(hlc_ts.clone()),
+                        updated_at_hlc_ts: ActiveValue::Set(hlc_ts),
+                        created_at_hlc_ver: ActiveValue::Set(hlc.version as i32),
+                        updated_at_hlc_ver: ActiveValue::Set(hlc.version as i32),
                         created_at_hlc_nid: ActiveValue::Set(node_id.to_string()),
                         updated_at_hlc_nid: ActiveValue::Set(node_id.to_string()),
                         ..Default::default()
@@ -191,9 +201,14 @@ where
             break;
         }
 
+        // Create HLC context for processing page combinations
+        let node_uuid = Uuid::from_str(node_id).context("Invalid node_id UUID")?;
+        let hlc_context = Arc::new(SyncTaskContext::new(node_uuid));
+
         process_page_combinations(
             db,
             node_id,
+            hlc_context,
             batch_size,
             &files_page,
             config,
@@ -211,6 +226,7 @@ where
 async fn process_page_combinations<F>(
     db: &DatabaseConnection,
     node_id: &str,
+    hlc_context: Arc<SyncTaskContext>,
     batch_size: usize,
     current_page: &[media_files::Model],
     config: &Configuration,
@@ -296,6 +312,7 @@ where
         let cancel_token = cancel_token.clone();
         let progress_callback = Arc::clone(&progress_callback);
         let progress_counter = Arc::clone(&progress_counter);
+        let hlc_context = hlc_context.clone();
         async move {
             while let Ok((id1, id2)) = rx.recv().await {
                 if let Some(token) = &cancel_token
@@ -317,6 +334,9 @@ where
                     &config,
                 );
 
+                let hlc = hlc_context.generate_hlc();
+                let hlc_ts = hlc.to_rfc3339().unwrap_or_default();
+
                 MediaFileSimilarity::insert(media_file_similarity::ActiveModel {
                     file_id1: ActiveValue::Set(id1),
                     file_id2: ActiveValue::Set(id2),
@@ -328,10 +348,10 @@ where
                         )
                         .to_string(),
                     ),
-                    created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-                    updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-                    created_at_hlc_ver: ActiveValue::Set(0), // TODO: Fix this
-                    updated_at_hlc_ver: ActiveValue::Set(0),
+                    created_at_hlc_ts: ActiveValue::Set(hlc_ts.clone()),
+                    updated_at_hlc_ts: ActiveValue::Set(hlc_ts),
+                    created_at_hlc_ver: ActiveValue::Set(hlc.version as i32),
+                    updated_at_hlc_ver: ActiveValue::Set(hlc.version as i32),
                     created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
                     updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
                     ..Default::default()

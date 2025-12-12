@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     env, fs,
     path::{Path, PathBuf},
+    str::FromStr,
     sync::Arc,
 };
 
@@ -439,6 +440,8 @@ where
 
     let lib_path = Arc::new(lib_path.to_path_buf());
     let node_id = Arc::new(node_id.to_owned());
+    let node_uuid = Uuid::from_str(&node_id).unwrap_or_default();
+    let hlc_context = Arc::new(sync::hlc::SyncTaskContext::new(node_uuid));
 
     parallel_media_files_processing!(
         main_db,
@@ -449,10 +452,15 @@ where
         lib_path,
         fsio,
         node_id,
+        hlc_context,
         move |fsio, file, lib_path, _cancel_token| {
             extract_cover_art_by_file_id(fsio, lib_path, file)
         },
-        |db, file: media_files::Model, node_id: Arc<String>, result| async move {
+        |db,
+         file: media_files::Model,
+         node_id: Arc<String>,
+         _hlc_context: Arc<sync::hlc::SyncTaskContext>,
+         result| async move {
             match insert_extract_result(db, &file, magic_cover_art_id, result, &node_id).await {
                 Ok(_) => {
                     debug!("Processed cover art for file ID: {}", file.id);
