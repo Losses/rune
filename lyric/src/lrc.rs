@@ -4,6 +4,12 @@ use anyhow::Result;
 
 use crate::types::{LyricFile, LyricLine, TimeTag, VoiceType};
 
+const DUMMY_END_TIME: TimeTag = TimeTag {
+    minutes: 9999,
+    seconds: 0,
+    milliseconds: 0,
+};
+
 pub fn parse_lrc(content: &str) -> Result<LyricFile> {
     let mut lrc = LyricFile::new();
 
@@ -63,26 +69,24 @@ pub fn parse_lrc(content: &str) -> Result<LyricFile> {
 
                 // Parse enhanced format word-level time tags
                 let word_time_tags = if remaining_content.contains('<') {
-                    parse_enhanced_lrc(remaining_content)?
+                    parse_enhanced_lrc(remaining_content).unwrap_or_else(|_| {
+                        vec![(
+                            start_time.clone(),
+                            DUMMY_END_TIME,
+                            text.to_string(),
+                        )]
+                    })
                 } else {
                     vec![(
                         start_time.clone(),
-                        TimeTag {
-                            minutes: 9999,
-                            seconds: 0,
-                            milliseconds: 0,
-                        },
+                        DUMMY_END_TIME,
                         text.to_string(),
                     )]
                 };
 
                 lrc.lyrics.push(LyricLine {
                     start_time: start_time.clone(),
-                    end_time: TimeTag {
-                        minutes: 9999,
-                        seconds: 0,
-                        milliseconds: 0,
-                    }, // Temporary, will be updated in next iteration
+                    end_time: DUMMY_END_TIME, // Temporary, will be updated in next iteration
                     voice_type,
                     text,
                     word_time_tags,
@@ -105,11 +109,7 @@ fn parse_enhanced_lrc(content: &str) -> Result<Vec<(TimeTag, TimeTag, String)>> 
             let start_time = TimeTag::from_str(time_tag_str)?;
 
             // Determine end_time using the previous start_time
-            let end_time = TimeTag {
-                minutes: 9999,
-                seconds: 0,
-                milliseconds: 0,
-            };
+            let end_time = DUMMY_END_TIME;
 
             // Update previous line's end_time
             if let Some(last_line) = word_time_tags.last_mut() {
