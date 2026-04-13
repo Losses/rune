@@ -2,7 +2,6 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
-use sync::hlc::SyncTaskContext;
 use tokio::{sync::Mutex, task};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -389,7 +388,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                          return Ok(());
                     }
                 };
-                let hlc_context = Arc::new(SyncTaskContext::new(uuid_node_id));
+                let node_id = uuid_node_id.to_string();
 
                 // Stage 1: Compute fingerprints (0% - 33%)
                 let broadcaster_clone = Arc::clone(&broadcaster);
@@ -400,7 +399,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                     fsio,
                     &main_db,
                     Path::new(&request_path_clone),
-                    hlc_context.clone(),
+                    &node_id,
                     batch_size,
                     move |cur, total| {
                         let progress = cur as f32 / total as f32 * 0.33;
@@ -423,7 +422,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
                 compare_all_pairs(
                     &main_db,
-                    hlc_context,
+                    &node_id,
                     batch_size,
                     move |cur, total| {
                         let progress = 0.33 + cur as f32 / total as f32 * 0.33;
