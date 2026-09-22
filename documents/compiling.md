@@ -57,6 +57,19 @@
      teardown_android_env
      ```
 
+   **On-device debugging**:
+
+   - The settings Laboratory (unlock via the mysterious button on the About
+     page) contains a "Filesystem Self-Test" card that runs layered Dart →
+     Rust → SAF diagnostics against any picked directory, including TF cards.
+   - `scripts/android/saf_selftest.sh` collects logcat around a manual run;
+     `scripts/android/emulator_selftest.sh` drives the whole flow on the
+     `selftest` emulator AVD (see the script header for setup).
+   - For manual `cargo check --target aarch64-linux-android`, export the NDK
+     compilers first: `CC_aarch64_linux_android=aarch64-linux-android21-clang`
+     `CXX_aarch64_linux_android=aarch64-linux-android21-clang++`
+     `AR_aarch64_linux_android=llvm-ar` (after `setup_android_env`).
+
    **For non-Nix users**:
 
    - Use the provided build script that automatically sets up the environment and builds the APK:

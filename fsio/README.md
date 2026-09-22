@@ -2,117 +2,49 @@
 
 ## Overview
 
-`fsio` is a Rust crate that provides a unified, asynchronous file I/O abstraction layer designed for cross-platform applications. Its primary goal is to offer a consistent API for filesystem operations across standard operating systems (like Linux, macOS, Windows) and Android, where file access is restricted and must go through the Storage Access Framework (SAF).
+`fsio` is a Rust crate that provides a unified file I/O abstraction layer designed for cross-platform applications. Its primary goal is to offer a consistent API for filesystem operations across standard operating systems (like Linux, macOS, Windows) and Android, where file access is restricted and must go through the Storage Access Framework (SAF).
 
-On Android, `fsio` leverages the `ndk-saf` crate and maintains a local SQLite database to cache file and directory structure, enabling efficient path-based access without repeatedly traversing the SAF tree.
+On Android, `fsio` leverages the `ndk-saf` crate and maintains a SQLite database inside the SAF tree (`.rune/.android-fs.db`) to cache file metadata and content URIs, enabling efficient path-based access without repeatedly traversing the SAF tree.
 
 ## Features
 
 - **Consistent API**: A single `FileIo` trait for all platforms.
-- **Asynchronous**: All operations are `async`, built on `tokio`.
 - **Android SAF Support**: Transparently handles file I/O on Android through `ndk-saf`.
-- **Caching on Android**: Uses an SQLite cache for file URIs to provide fast, path-based lookups.
-- **Standard Fallback**: Uses standard `tokio::fs` on non-Android platforms.
-- **Easy Integration**: Designed to be a drop-in replacement for direct filesystem calls.
+- **Caching on Android**: SQLite cache maps paths to content URIs and metadata (`is_dir`, `size`, `filename`) for fast, IPC-free lookups.
+- **Read-through self-healing**: Cache misses are resolved live against the SAF tree and cached; stale entries are evicted and retried once on failure.
+- **Standard Fallback**: Uses standard filesystem calls on non-Android platforms.
+- **Self-test**: `self_test::run_fs_self_test` runs layered probes (L2-L7) against any `FsIo` backend for on-device diagnostics.
 
 ## Usage
 
-The main entry point is the `FsIo` struct, which provides access to the `FileIo` trait methods.
+The main entry point is the `FsIo` struct, which derefs to `dyn FileIo`.
 
 ### Initialization (Standard Platforms)
-
-On non-Android platforms, initialization is straightforward:
 
 ```rust
 use fsio::FsIo;
 
 let fs = FsIo::new();
-// You can now use fs for file operations.
 ```
 
 ### Initialization (Android)
 
-On Android, you must provide a path for the cache database and a root content URI obtained from the Storage Access Framework (e.g., from an `ACTION_OPEN_DOCUMENT_TREE` intent).
-
-```rust
-use fsio::FsIo;
-use std::path::Path;
-
-#[tokio::main]
-async fn main() {
-    # #[cfg(target_os = "android")]
-    # {
-    // This is a conceptual example.
-    // let db_path = Path::new("/data/data/com.yourapp/files/fs_cache.db");
-    // let root_uri = "content://com.android.externalstorage.documents/tree/primary%3ADocuments";
-
-    // let fs = FsIo::new(db_path, root_uri).await.expect("Failed to initialize FsIo");
-    // The cache is automatically built on the first run.
-    // To refresh the cache later, you can call:
-    // fs.refresh_cache().await.expect("Failed to refresh cache");
-    # }
-}
+```rust,ignore
+// db_path is tree-relative; the cache DB lives inside the SAF tree.
+let fs = FsIo::new(Path::new(".rune/.android-fs.db"), root_uri)?;
 ```
 
-### Example
-
-```rust
-use fsio::{FsIo, FileIo};
-use std::path::Path;
-
-#[tokio::main]
-async fn main() {
-    // This example runs on non-Android platforms.
-    # #[cfg(not(target_os = "android"))]
-    # {
-    let fs = FsIo::new();
-    let dir_path = Path::new("/tmp/my_app");
-
-    if !fs.exists(dir_path).await.unwrap() {
-        fs.create_dir_all(dir_path).await.expect("Failed to create directory");
-    }
-
-    let file_path = dir_path.join("data.txt");
-    let content = "Hello, world!";
-
-    fs.write(&file_path, content.as_bytes()).await.expect("Failed to write file");
-
-    let read_content = fs.read(&file_path).await.expect("Failed to read file");
-
-    assert_eq!(content.as_bytes(), read_content.as_slice());
-    println!("File written and read successfully!");
-
-    fs.remove_dir_all(dir_path).await.expect("Failed to clean up");
-    # }
-}
-```
+`FsIo::new` is synchronous and never panics on a nested Tokio runtime. The cache is built on first use (empty database) and reused afterwards; call `refresh_cache()` (a `FileIo` trait method, no-op on other backends) to force a full rescan, e.g. before a library scan.
 
 ## API Reference
 
-The core functionality is defined by the `FileIo` trait.
+See `src/lib.rs` for the full `FileIo` trait. Notes:
 
-```rust
-#[async_trait]
-pub trait FileIo: Send + Sync {
-    async fn open(&self, path: &Path, open_mode: &str) -> Result<std::fs::File, FileIoError>;
-    async fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError>;
-    async fn write(&self, path: &Path, contents: &[u8]) -> Result<(), FileIoError>;
-    async fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError>;
-    async fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
-    async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError>;
-    async fn remove_file(&self, path: &Path) -> Result<(), FileIoError>;
-    async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
-    async fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<Vec<FsNode>, FileIoError>;
-    async fn exists(&self, path: &Path) -> Result<bool, FileIoError>;
-    async fn is_file(&self, path: &Path) -> Result<bool, FileIoError>;
-    async fn is_dir(&self, path: &Path) -> Result<bool, FileIoError>;
-}
-```
+- `open`/`open_async` are both synchronous under the hood; write-style modes (`w`/`a`/`t`) create missing files (via SAF `create_file` on Android).
+- `walk_dir`/`read_dir` on Android are served from the cache with zero provider IPC; they reflect the tree as of the last `refresh_cache` plus any changes made through this `FsIo` instance or healed on access.
+- `modified_time` returns seconds since the UNIX epoch (via `fstat` on the SAF fd on Android).
+- `canonicalize_path` on Android returns the real `/mnt/user/...` path via `/proc/self/fd` readlink — useful for display, but that path is **not** directly readable under scoped storage; open files through `FsIo` instead.
 
-## Android Implementation Details
+## Testing
 
-- **Database Cache**: The `AndroidFsIo` implementation relies on an SQLite database with a single table (`fs_cache`) to map filesystem paths to content URIs.
-- **Cache Columns**: `path` (TEXT, PRIMARY KEY), `content_url` (TEXT), `parent` (TEXT).
-- **Initialization**: When `FsIo::new` is called on Android, it initializes the database and performs an initial scan of the SAF tree from the `root_uri` to populate the cache. This can take time on the first run.
-- **`walk_dir`**: On Android, this operation queries the database cache directly rather than walking the SAF tree, making it significantly faster.
-- **`refresh_cache`**: You can manually trigger a full refresh of the cache by calling the `refresh_cache` method on the `AndroidFsIo` instance if you expect the underlying filesystem has changed externally.
+`cargo test -p fsio` runs the conformance suite (`tests/conformance.rs`) against `StdFsIo` and `NoOpFsIo`, plus a host-side self-test smoke run.
