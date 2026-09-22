@@ -300,8 +300,8 @@ pub async fn sync_file_descriptions(
                                 continue;
                             }
 
-                            let file_metadata =
-                                read_metadata(fsio, &description.raw_node).with_context(|| {
+                            let file_metadata = read_metadata(fsio, &description.raw_node)
+                                .with_context(|| {
                                     format!(
                                         "Unable to parse file metadata: {:?}",
                                         description.rel_path
@@ -358,12 +358,13 @@ pub async fn sync_file_descriptions(
                         description.file_name.clone()
                     );
 
-                    let file_metadata = read_metadata(fsio, &description.raw_node).with_context(|| {
-                        format!(
-                            "Unable to parse metadata: {}",
-                            description.rel_path.clone().display()
-                        )
-                    });
+                    let file_metadata =
+                        read_metadata(fsio, &description.raw_node).with_context(|| {
+                            format!(
+                                "Unable to parse metadata: {}",
+                                description.rel_path.clone().display()
+                            )
+                        });
 
                     match file_metadata {
                         Ok(x) => {
@@ -523,8 +524,8 @@ pub async fn process_files(
 
                             remove_cover_art_by_file_id(&txn, existing_file.id).await?;
 
-                            let file_metadata =
-                                read_metadata(fsio, &description.raw_node).with_context(|| {
+                            let file_metadata = read_metadata(fsio, &description.raw_node)
+                                .with_context(|| {
                                     format!(
                                         "Unable to parse file metadata: {:?}",
                                         description.rel_path
@@ -563,9 +564,10 @@ pub async fn process_files(
                         description.file_name.clone()
                     );
 
-                    let file_metadata = read_metadata(fsio, &description.raw_node).with_context(|| {
-                        format!("Unable to parse file metadata: {:?}", description.rel_path)
-                    });
+                    let file_metadata =
+                        read_metadata(fsio, &description.raw_node).with_context(|| {
+                            format!("Unable to parse file metadata: {:?}", description.rel_path)
+                        });
 
                     match file_metadata {
                         Ok(x) => {

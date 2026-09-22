@@ -252,20 +252,19 @@ pub async fn connect_recommendation_db(
     let storage_info = get_storage_info(fsio, lib_path, db_path)?;
     let analysis_path = storage_info.get_recommendation_db_path();
 
-    let path_string;
-    if db_uses_local_fs(&storage_info.db_dir) {
+    let path_string = if db_uses_local_fs(&storage_info.db_dir) {
         tokio::fs::create_dir_all(&storage_info.db_dir).await?;
         if !tokio::fs::try_exists(&analysis_path).await? {
             tokio::fs::write(&analysis_path, b"").await?;
         }
-        path_string = analysis_path.to_string_lossy().into_owned();
+        analysis_path.to_string_lossy().into_owned()
     } else {
         if !storage_info.db_dir.exists() {
             fsio.ensure_directory(&storage_info.db_dir).await?;
         }
         let db_node = fsio.ensure_file(&analysis_path).await?;
-        path_string = db_node.path.to_string_lossy().into_owned();
-    }
+        db_node.path.to_string_lossy().into_owned()
+    };
     let path_str = path_string.as_str();
 
     info!("Initializing recommendation database: {path_str}");
