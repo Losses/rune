@@ -1,4 +1,5 @@
 pub mod broadcastable;
+pub mod diagnostics;
 pub mod nid;
 pub mod player;
 
@@ -13,7 +14,7 @@ use anyhow::{Context, Result};
 use fsio::FsIo;
 use log::{error, info};
 use nid::get_or_create_node_id;
-use rinf::DartSignal;
+use rinf::{DartSignal, DartSignalPack};
 use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -151,140 +152,186 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
 
     loop {
         while let Some(dart_signal) = receiver.recv().await {
-            info!("Received media library path message");
-            let media_library_path = &dart_signal.message.path;
+            let path = dart_signal.message.path.clone();
+            // A panic while handling one message must not wedge the whole rinf
+            // channel (the process stays alive but every Dart signal goes
+            // unanswered). Catch it, report, keep listening.
+            let handling = std::panic::AssertUnwindSafe(handle_media_library_path(
+                dart_signal,
+                Arc::clone(&scrobbler),
+                Arc::clone(&broadcaster),
+            ));
+            if let Err(panic) = futures::FutureExt::catch_unwind(handling).await {
+                error!("Panicked while handling media library path {path}: {panic:?}");
+                broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                    path,
+                    success: false,
+                    error: Some(
+                        "Internal error while opening the library; details are in the logs"
+                            .to_string(),
+                    ),
+                    not_ready: false,
+                });
+            }
+        }
 
-            info!("Received media library {media_library_path}");
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
+}
 
-            let config_path = &dart_signal.message.config_path;
-            let alias = &dart_signal.message.alias;
-            #[cfg(not(target_os = "android"))]
-            let fsio = Arc::new(FsIo::new());
-            #[cfg(target_os = "android")]
-            let fsio = Arc::new(FsIo::new(
-                Path::new(".rune/.android-fs.db"),
-                &dart_signal.message.path,
-            )?);
-            let node_id = get_or_create_node_id(&fsio, config_path).await?.to_string();
+async fn handle_media_library_path(
+    dart_signal: DartSignalPack<SetMediaLibraryPathRequest>,
+    scrobbler: Arc<Mutex<ScrobblingManager>>,
+    broadcaster: Arc<dyn Broadcaster>,
+) {
+    {
+        info!("Received media library path message");
+        let media_library_path = &dart_signal.message.path;
 
-            match &dart_signal.message.hosted_on {
-                OperationDestination::Local => {
-                    let database_path = dart_signal.message.db_path;
-                    let database_mode = dart_signal.message.mode;
-                    info!("Received path: {media_library_path}");
+        info!("Received media library {media_library_path}");
 
-                    let library_test = match check_library_state(media_library_path) {
-                        Ok(x) => x,
-                        Err(e) => {
-                            error!("Failed to check library state: {e:#?}");
-                            broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                path: media_library_path.to_string(),
-                                success: false,
-                                error: Some(format!("{e:#?}")),
-                                not_ready: false,
-                            });
-                            continue;
-                        }
-                    };
+        let config_path = &dart_signal.message.config_path;
+        let alias = &dart_signal.message.alias;
+        #[cfg(not(target_os = "android"))]
+        let fsio = Arc::new(FsIo::new());
+        #[cfg(target_os = "android")]
+        let fsio = match FsIo::new(Path::new(".rune/.android-fs.db"), &dart_signal.message.path) {
+            Ok(fsio) => Arc::new(fsio),
+            Err(e) => {
+                error!("Failed to initialize Android SAF filesystem: {e:#?}");
+                broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                    path: media_library_path.to_string(),
+                    success: false,
+                    error: Some(format!("Failed to access the selected directory: {e:#?}")),
+                    not_ready: false,
+                });
+                return;
+            }
+        };
+        let node_id = match get_or_create_node_id(config_path).await {
+            Ok(node_id) => node_id.to_string(),
+            Err(e) => {
+                error!("Failed to get or create node id: {e:#?}");
+                broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                    path: media_library_path.to_string(),
+                    success: false,
+                    error: Some(format!("Failed to initialize library config: {e:#?}")),
+                    not_ready: false,
+                });
+                return;
+            }
+        };
 
-                    if database_mode.is_none() {
-                        match &library_test {
-                            LibraryState::Uninitialized => {
-                                broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                    path: media_library_path.to_string(),
-                                    success: true,
-                                    error: None,
-                                    not_ready: true,
-                                });
-                                continue;
-                            }
-                            LibraryState::Initialized(_) => {}
-                        }
-                    }
+        match &dart_signal.message.hosted_on {
+            OperationDestination::Local => {
+                let database_path = dart_signal.message.db_path;
+                let database_mode = dart_signal.message.mode;
+                info!("Received path: {media_library_path}");
 
-                    if let Some(mode) = database_mode
-                        && mode == LibraryInitializeMode::Redirected
-                        && let Err(e) = create_redirect(media_library_path)
-                    {
+                let library_test = match check_library_state(&fsio, media_library_path) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        error!("Failed to check library state: {e:#?}");
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             path: media_library_path.to_string(),
                             success: false,
                             error: Some(format!("{e:#?}")),
                             not_ready: false,
                         });
-                        continue;
+                        return;
                     }
+                };
 
-                    // Initialize databases
-                    match initialize_databases(
-                        &fsio,
-                        media_library_path,
-                        Some(&database_path),
-                        &node_id,
-                    )
-                    .await
-                    {
-                        Ok(db_connections) => {
-                            // Send success response to Dart
+                if database_mode.is_none() {
+                    match &library_test {
+                        LibraryState::Uninitialized => {
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
                                 path: media_library_path.to_string(),
                                 success: true,
                                 error: None,
-                                not_ready: false,
+                                not_ready: true,
                             });
-
-                            // Clone the Arc for this iteration
-                            let scrobbler_clone = Arc::clone(&scrobbler);
-
-                            // Continue with main loop
-                            local_player_loop(
-                                fsio,
-                                media_library_path.to_string(),
-                                config_path.to_string(),
-                                db_connections,
-                                scrobbler_clone,
-                                broadcaster.clone(),
-                            )
-                            .await;
+                            return;
                         }
-                        Err(e) => {
-                            error!("Database initialization failed: {e:#?}");
-                            // Send error response to Dart
-                            broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                path: media_library_path.to_string(),
-                                success: false,
-                                error: Some(format!("{e:#?}")),
-                                not_ready: false,
-                            });
-                        }
+                        LibraryState::Initialized(_) => {}
                     }
                 }
-                OperationDestination::Remote => {
-                    let config_path = &dart_signal.message.config_path;
-                    match server_player_loop(fsio, media_library_path, config_path, alias).await {
-                        Ok(_) => {
-                            broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                path: media_library_path.to_string(),
-                                success: true,
-                                error: None,
-                                not_ready: false,
-                            });
-                        }
-                        Err(e) => {
-                            error!("Failed to server player loop: {e:#?}");
-                            broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                path: media_library_path.to_string(),
-                                success: false,
-                                error: Some(format!("{e:#?}")),
-                                not_ready: false,
-                            });
-                        }
+
+                if let Some(mode) = database_mode
+                    && mode == LibraryInitializeMode::Redirected
+                    && let Err(e) = create_redirect(&fsio, media_library_path).await
+                {
+                    broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                        path: media_library_path.to_string(),
+                        success: false,
+                        error: Some(format!("{e:#?}")),
+                        not_ready: false,
+                    });
+                    return;
+                }
+
+                // Initialize databases
+                match initialize_databases(&fsio, media_library_path, Some(&database_path), &node_id)
+                    .await
+                {
+                    Ok(db_connections) => {
+                        // Send success response to Dart
+                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            path: media_library_path.to_string(),
+                            success: true,
+                            error: None,
+                            not_ready: false,
+                        });
+
+                        // Clone the Arc for this iteration
+                        let scrobbler_clone = Arc::clone(&scrobbler);
+
+                        // Continue with main loop
+                        local_player_loop(
+                            fsio,
+                            media_library_path.to_string(),
+                            config_path.to_string(),
+                            db_connections,
+                            scrobbler_clone,
+                            broadcaster.clone(),
+                        )
+                        .await;
+                    }
+                    Err(e) => {
+                        error!("Database initialization failed: {e:#?}");
+                        // Send error response to Dart
+                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            path: media_library_path.to_string(),
+                            success: false,
+                            error: Some(format!("{e:#?}")),
+                            not_ready: false,
+                        });
+                    }
+                }
+            }
+            OperationDestination::Remote => {
+                let config_path = &dart_signal.message.config_path;
+                match server_player_loop(fsio, media_library_path, config_path, alias).await {
+                    Ok(_) => {
+                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            path: media_library_path.to_string(),
+                            success: true,
+                            error: None,
+                            not_ready: false,
+                        });
+                    }
+                    Err(e) => {
+                        error!("Failed to server player loop: {e:#?}");
+                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            path: media_library_path.to_string(),
+                            success: false,
+                            error: Some(format!("{e:#?}")),
+                            not_ready: false,
+                        });
                     }
                 }
             }
         }
-
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 }
 
@@ -539,11 +586,19 @@ pub fn init_logging() {
 #[cfg(target_os = "android")]
 pub fn init_logging() {
     let tag = LogcatTag::Fixed(env!("CARGO_PKG_NAME").to_owned());
-    let writer = LogcatMakeWriter::new(tag).expect("Failed to initialize logcat writer");
+    let writer = match LogcatMakeWriter::new(tag) {
+        Ok(writer) => writer,
+        Err(e) => {
+            eprintln!("Failed to initialize logcat writer: {e:?}");
+            return;
+        }
+    };
 
-    tracing_subscriber::fmt()
+    // JNI_OnLoad (playback::android_utils) may have already installed a global
+    // subscriber; a second .init() would panic and kill the Rust main thread.
+    let _ = tracing_subscriber::fmt()
         .event_format(Format::default().with_level(false).without_time())
         .with_writer(writer)
         .with_ansi(false)
-        .init();
+        .try_init();
 }

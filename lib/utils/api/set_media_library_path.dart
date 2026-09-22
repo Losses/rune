@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../constants/configurations.dart';
 import '../../bindings/bindings.dart';
 
@@ -42,12 +44,22 @@ Future<(bool, bool, String?)> setMediaLibraryPath(
     hostedOn: hostedOn,
   ).sendSignalToRust();
 
-  while (true) {
-    final rustSignal = await SetMediaLibraryPathResponse.rustSignalStream.first;
-    final response = rustSignal.message;
+  try {
+    while (true) {
+      final rustSignal = await SetMediaLibraryPathResponse.rustSignalStream.first
+          .timeout(const Duration(seconds: 30));
+      final response = rustSignal.message;
 
-    if (response.path == cleanPath) {
-      return (response.success, response.notReady, response.error);
+      if (response.path == cleanPath) {
+        return (response.success, response.notReady, response.error);
+      }
     }
+  } on TimeoutException {
+    return (
+      false,
+      false,
+      'No response from the Rust backend within 30 seconds. '
+          'The Rust side may have failed to initialize; check logcat for details.'
+    );
   }
 }

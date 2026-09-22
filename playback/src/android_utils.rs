@@ -25,37 +25,41 @@ static mut JVM: Option<*mut c_void> = None;
 #[allow(non_snake_case)]
 #[unsafe(no_mangle)]
 pub extern "system" fn JNI_OnLoad(vm: *mut JavaVM, _: *mut c_void) -> jint {
-    let tag = LogcatTag::Fixed(env!("CARGO_PKG_NAME").to_owned());
-    let writer = LogcatMakeWriter::new(tag).expect("Failed to initialize logcat writer");
-
-    tracing_subscriber::fmt()
-        .event_format(Format::default().with_level(false).without_time())
-        .with_writer(writer)
-        .with_ansi(false)
-        .init();
-    panic::set_hook(Box::new(|panic_info| {
-        let (filename, line) = panic_info
-            .location()
-            .map(|loc| (loc.file(), loc.line()))
-            .unwrap_or(("<unknown>", 0));
-
-        let cause = panic_info
-            .payload()
-            .downcast_ref::<String>()
-            .map(String::deref);
-
-        let cause = cause.unwrap_or_else(|| {
-            panic_info
-                .payload()
-                .downcast_ref::<&str>()
-                .copied()
-                .unwrap_or("<cause unknown>")
-        });
-
-        error!("A panic occurred at {}:{}: {}", filename, line, cause);
-    }));
-
     catch_unwind(|| {
+        if let Ok(writer) =
+            LogcatMakeWriter::new(LogcatTag::Fixed(env!("CARGO_PKG_NAME").to_owned()))
+        {
+            // init_logging() (hub::utils) installs a subscriber too; whichever
+            // runs second must not panic, or the Rust main thread dies silently.
+            let _ = tracing_subscriber::fmt()
+                .event_format(Format::default().with_level(false).without_time())
+                .with_writer(writer)
+                .with_ansi(false)
+                .try_init();
+        }
+
+        panic::set_hook(Box::new(|panic_info| {
+            let (filename, line) = panic_info
+                .location()
+                .map(|loc| (loc.file(), loc.line()))
+                .unwrap_or(("<unknown>", 0));
+
+            let cause = panic_info
+                .payload()
+                .downcast_ref::<String>()
+                .map(String::deref);
+
+            let cause = cause.unwrap_or_else(|| {
+                panic_info
+                    .payload()
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .unwrap_or("<cause unknown>")
+            });
+
+            error!("A panic occurred at {}:{}: {}", filename, line, cause);
+        }));
+
         // Safely init JVM and ClassLoader
         INIT.call_once(|| unsafe {
             // Convert *mut JavaVM to *mut c_void and store it

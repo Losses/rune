@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/query_list.dart';
@@ -157,9 +159,15 @@ class LibraryPathProvider with ChangeNotifier {
     }
 
     if (notReady && context != null) {
-      selectedMode = stringToLibraryInitializeMode(
-        await showSelectLibraryModeDialog(context),
-      );
+      // Databases cannot live inside a SAF tree (SQLite WAL / LMDB need real
+      // file paths), so Android is always redirected to app-local storage.
+      if (Platform.isAndroid) {
+        selectedMode = LibraryInitializeMode.redirected;
+      } else {
+        selectedMode = stringToLibraryInitializeMode(
+          await showSelectLibraryModeDialog(context),
+        );
+      }
 
       if (selectedMode == null) {
         return (false, true, null);

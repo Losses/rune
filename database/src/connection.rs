@@ -1,8 +1,4 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{path::{Path, PathBuf}, str::FromStr};
 
 use anyhow::{Context, Result};
 use arroy::{
@@ -65,22 +61,48 @@ impl LibraryState {
     }
 }
 
-pub fn check_library_state(lib_path: &str) -> Result<LibraryState> {
-    let rune_dir: PathBuf = [lib_path, ".rune"].iter().collect();
+/// On Android `lib_path` is a content:// tree URI and FsIo is already rooted
+/// at that tree, so the rune dir is addressed relative to the tree root.
+/// Everywhere else it is a plain filesystem path joined with `.rune`.
+fn rune_dir_path(lib_path: &str) -> PathBuf {
+    #[cfg(target_os = "android")]
+    {
+        let _ = lib_path;
+        PathBuf::from(".rune")
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        [lib_path, ".rune"].iter().collect()
+    }
+}
 
-    if !rune_dir.exists() {
+/// Redirected databases live in the app's local storage (an absolute path),
+/// which FsIo on Android cannot address (it is rooted at the SAF tree).
+fn db_uses_local_fs(db_dir: &Path) -> bool {
+    cfg!(target_os = "android") && db_dir.is_absolute()
+}
+
+pub fn check_library_state(fsio: &FsIo, lib_path: &str) -> Result<LibraryState> {
+    let rune_dir = rune_dir_path(lib_path);
+
+    // The marker of an initialized library is its main DB or a redirect file —
+    // NOT the bare .rune directory, which FsIo on Android creates eagerly for
+    // its fs cache (.rune/.android-fs.db) before any initialization happens.
+    let main_db = rune_dir.join(".0.db");
+    let redirect_file = rune_dir.join(".redirect");
+    if !fsio.exists(&main_db)? && !fsio.exists(&redirect_file)? {
         return Ok(LibraryState::Uninitialized);
     }
 
-    let mode = detect_storage_mode(&rune_dir)?;
+    let mode = detect_storage_mode(fsio, &rune_dir)?;
     Ok(LibraryState::Initialized(mode))
 }
 
-pub fn detect_storage_mode(rune_dir: &Path) -> Result<StorageMode> {
+pub fn detect_storage_mode(fsio: &FsIo, rune_dir: &Path) -> Result<StorageMode> {
     let redirect_file = rune_dir.join(".redirect");
 
-    if redirect_file.exists() {
-        let content = fs::read_to_string(redirect_file)?;
+    if fsio.exists(&redirect_file)? {
+        let content = fsio.read_to_string(&redirect_file)?;
         let uuid = Uuid::parse_str(content.trim()).context("Invalid UUID in .redirect file")?;
         Ok(StorageMode::Redirected(uuid))
     } else {
@@ -99,16 +121,16 @@ fn set_hidden_attribute(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-pub fn check_storage_mode(lib_path: &str) -> Result<StorageMode> {
-    let rune_dir: PathBuf = [lib_path, ".rune"].iter().collect();
+pub fn check_storage_mode(fsio: &FsIo, lib_path: &str) -> Result<StorageMode> {
+    let rune_dir = rune_dir_path(lib_path);
     let redirect_file = rune_dir.join(".redirect");
 
-    if !rune_dir.exists() {
+    if !fsio.exists(&rune_dir)? {
         return Ok(StorageMode::Portable);
     }
 
-    if redirect_file.exists() {
-        let content = fs::read_to_string(redirect_file)?;
+    if fsio.exists(&redirect_file)? {
+        let content = fsio.read_to_string(&redirect_file)?;
         let uuid = Uuid::parse_str(content.trim())?;
         Ok(StorageMode::Redirected(uuid))
     } else {
@@ -116,22 +138,24 @@ pub fn check_storage_mode(lib_path: &str) -> Result<StorageMode> {
     }
 }
 
-pub fn create_redirect(lib_path: &str) -> Result<()> {
-    let rune_dir: PathBuf = [lib_path, ".rune"].iter().collect();
-    if !rune_dir.exists() {
-        fs::create_dir_all(&rune_dir)?;
+pub async fn create_redirect(fsio: &FsIo, lib_path: &str) -> Result<()> {
+    let rune_dir = rune_dir_path(lib_path);
+    if !fsio.exists(&rune_dir)? {
+        fsio.ensure_directory(&rune_dir).await?;
         #[cfg(windows)]
         set_hidden_attribute(&rune_dir)?;
     }
 
     let redirect_file = rune_dir.join(".redirect");
-    fs::write(redirect_file, Uuid::new_v4().to_string())?;
+    fsio
+        .write_string(&redirect_file, &Uuid::new_v4().to_string())
+        .await?;
     Ok(())
 }
 
-pub fn get_storage_info(lib_path: &str, db_path: Option<&str>) -> Result<StorageInfo> {
-    let rune_dir: PathBuf = [lib_path, ".rune"].iter().collect();
-    let state = check_library_state(lib_path)?;
+pub fn get_storage_info(fsio: &FsIo, lib_path: &str, db_path: Option<&str>) -> Result<StorageInfo> {
+    let rune_dir = rune_dir_path(lib_path);
+    let state = check_library_state(fsio, lib_path)?;
 
     let db_dir = match &state {
         LibraryState::Uninitialized => rune_dir.clone(),
@@ -159,18 +183,25 @@ pub async fn connect_main_db(
     db_path: Option<&str>,
     node_id: &str,
 ) -> Result<MainDbConnection> {
-    let storage_info = get_storage_info(lib_path, db_path)?;
-    let db_path = storage_info.get_main_db_path();
+    let storage_info = get_storage_info(fsio, lib_path, db_path)?;
+    let db_file = storage_info.get_main_db_path();
 
-    if !storage_info.db_dir.exists() {
-        fsio.ensure_directory(&storage_info.db_dir).await?;
-    }
-
-    let db_path = fsio.ensure_file(&db_path).await?;
-    let db_url = format!(
-        "sqlite:{}?mode=rwc",
-        fsio.canonicalize_path(&db_path.path)?.to_string_lossy()
-    );
+    let db_url = if db_uses_local_fs(&storage_info.db_dir) {
+        tokio::fs::create_dir_all(&storage_info.db_dir).await?;
+        if !tokio::fs::try_exists(&db_file).await? {
+            tokio::fs::write(&db_file, b"").await?;
+        }
+        format!("sqlite:{}?mode=rwc", db_file.to_string_lossy())
+    } else {
+        if !storage_info.db_dir.exists() {
+            fsio.ensure_directory(&storage_info.db_dir).await?;
+        }
+        let db_node = fsio.ensure_file(&db_file).await?;
+        format!(
+            "sqlite:{}?mode=rwc",
+            fsio.canonicalize_path(&db_node.path)?.to_string_lossy()
+        )
+    };
 
     let connection_options = SqliteConnectOptions::from_str(&db_url)?;
 
@@ -216,16 +247,24 @@ pub async fn connect_recommendation_db(
     lib_path: &str,
     db_path: Option<&str>,
 ) -> Result<RecommendationDbConnection> {
-    let storage_info = get_storage_info(lib_path, db_path)?;
+    let storage_info = get_storage_info(fsio, lib_path, db_path)?;
     let analysis_path = storage_info.get_recommendation_db_path();
 
-    if !storage_info.db_dir.exists() {
-        fsio.ensure_directory(&storage_info.db_dir).await?;
+    let path_string;
+    if db_uses_local_fs(&storage_info.db_dir) {
+        tokio::fs::create_dir_all(&storage_info.db_dir).await?;
+        if !tokio::fs::try_exists(&analysis_path).await? {
+            tokio::fs::write(&analysis_path, b"").await?;
+        }
+        path_string = analysis_path.to_string_lossy().into_owned();
+    } else {
+        if !storage_info.db_dir.exists() {
+            fsio.ensure_directory(&storage_info.db_dir).await?;
+        }
+        let db_node = fsio.ensure_file(&analysis_path).await?;
+        path_string = db_node.path.to_string_lossy().into_owned();
     }
-
-    let db_path = fsio.ensure_file(&analysis_path).await?;
-    let path_str = db_path.path.to_string_lossy();
-    let path_str = path_str.as_ref();
+    let path_str = path_string.as_str();
 
     info!("Initializing recommendation database: {path_str}");
 

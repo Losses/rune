@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use log::info;
 
 use database::connection::{LibraryState, check_library_state};
+use fsio::FsIo;
 
 use crate::{
     Session, Signal,
@@ -10,23 +13,25 @@ use crate::{
 };
 
 impl ParamsExtractor for TestLibraryInitializedRequest {
-    type Params = ();
+    type Params = (Arc<FsIo>,);
 
-    fn extract_params(&self, _: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.fsio),)
+    }
 }
 
 impl Signal for TestLibraryInitializedRequest {
-    type Params = ();
+    type Params = (Arc<FsIo>,);
     type Response = TestLibraryInitializedResponse;
 
     async fn handle(
         &self,
-        _: Self::Params,
+        (fsio,): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let media_library_path = dart_signal.path.clone();
-        let test_result = check_library_state(&media_library_path);
+        let test_result = check_library_state(&fsio, &media_library_path);
 
         info!("Testing the library path: {media_library_path}");
 

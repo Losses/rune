@@ -140,7 +140,7 @@ impl WebSocketDartBridge {
 
     pub async fn run(
         &mut self,
-        fsio: &FsIo,
+        _fsio: &FsIo,
         rnsrv_url: &str,
         host: &str,
         config_path: &str,
@@ -269,7 +269,7 @@ impl WebSocketDartBridge {
                     Arc::new(RwLock::new(CertValidator::new(config_path).await.unwrap()));
 
                 info!("Initializing UI events");
-                let node_id = get_or_create_node_id(fsio, config_path).await?.to_string();
+                let node_id = get_or_create_node_id(config_path).await?.to_string();
 
                 let global_params = GlobalParams {
                     fsio: Arc::new(FsIo::new_noop()),

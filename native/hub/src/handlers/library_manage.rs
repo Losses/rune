@@ -126,6 +126,17 @@ impl Signal for ScanAudioLibraryRequest {
 
         // Clone all the data we need before spawning the task
         let request_path = dart_signal.path.clone();
+        // FsIo on Android is rooted at the granted SAF tree; the content://
+        // URI Dart passes is not a path inside that tree. Scans always start
+        // at the tree root there.
+        #[cfg(target_os = "android")]
+        let scan_path = if request_path.starts_with("content://") {
+            String::new()
+        } else {
+            request_path.clone()
+        };
+        #[cfg(not(target_os = "android"))]
+        let scan_path = request_path.clone();
         let request_force = dart_signal.force;
         let main_db_clone = Arc::clone(&main_db);
         let node_id_clone = Arc::clone(&node_id);
@@ -135,11 +146,21 @@ impl Signal for ScanAudioLibraryRequest {
             let runtime = tokio::runtime::Runtime::new().unwrap();
             runtime.block_on(async move {
                 let result: Result<()> = async {
+                    let refresh_start = std::time::Instant::now();
+                    if let Err(e) = fsio.refresh_cache() {
+                        warn!("Failed to refresh filesystem cache before scan: {e:#?}");
+                    } else {
+                        info!(
+                            "Filesystem cache refreshed in {:?}",
+                            refresh_start.elapsed()
+                        );
+                    }
+
                     let file_processed = scan_audio_library(
                         &fsio,
                         &main_db_clone,
                         &node_id,
-                        Path::new(&request_path),
+                        Path::new(&scan_path),
                         true,
                         request_force,
                         |progress| {
@@ -172,7 +193,7 @@ impl Signal for ScanAudioLibraryRequest {
                     scan_cover_arts(
                         fsio,
                         &main_db_clone,
-                        Path::new(&request_path),
+                        Path::new(&scan_path),
                         &node_id_clone,
                         batch_size,
                         move |now, total| {
@@ -268,6 +289,16 @@ impl Signal for AnalyzeAudioLibraryRequest {
 
         let request_path = request.path.clone();
         let closure_request_path = request_path.clone();
+        // See ScanAudioLibraryRequest: on Android the content:// URI is not a
+        // path inside the SAF tree; analysis starts at the tree root.
+        #[cfg(target_os = "android")]
+        let analysis_path = if request_path.starts_with("content://") {
+            String::new()
+        } else {
+            request_path.clone()
+        };
+        #[cfg(not(target_os = "android"))]
+        let analysis_path = request_path.clone();
         let batch_size = determine_batch_size(request.workload_factor);
         let computing_device = request.computing_device;
 
@@ -279,7 +310,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
                     let total_files = analysis_audio_library(
                         fsio,
                         &main_db,
-                        Path::new(&request_path),
+                        Path::new(&analysis_path),
                         &node_id,
                         batch_size,
                         computing_device.into(),
