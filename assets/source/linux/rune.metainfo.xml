@@ -57,6 +57,22 @@
   </screenshots>
 
   <releases>
+    <release version="2.0.0-alpha.10" date="2026-09-22">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Fix Android library initialization and crash on background threads.</li>
+          <li>Fix playback on Android scoped storage by decoding via file descriptors.</li>
+          <li>Fix metadata probing and database cleanup for SAF tree paths.</li>
+          <li>Persist Android SAF tree URI permissions across app restarts.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Implement high-performance SQLite-backed SAF directory cache with synchronous JNI access.</li>
+          <li>Add layered filesystem self-test diagnostics in Laboratory settings.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.9" date="2025-10-10">
       <description>
         <p>Bugs</p>
