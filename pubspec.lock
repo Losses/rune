@@ -1064,7 +1064,7 @@ packages:
     source: hosted
     version: "0.28.0"
   saf_util:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: saf_util
       sha256: "219f983e5f17b28998335158cdc97add9d52af9884e38b5a43f10dcc070510ec"
