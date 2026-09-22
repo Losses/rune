@@ -1,6 +1,5 @@
 use std::{
     fmt::Debug,
-    fs::File,
     io::BufReader,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -8,6 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use fsio::{FileStream, FsIo};
 use log::{debug, error, info, warn};
 use rodio::{Decoder, PlayError, Sink, Source, source::SeekError};
 use stream_download::{StreamDownload, storage::temp::TempStorageProvider};
@@ -28,7 +28,7 @@ use crate::strategies::{
 };
 
 pub enum AnySource {
-    Local(RuneBuffered<Decoder<BufReader<File>>>),
+    Local(RuneBuffered<Decoder<BufReader<Box<dyn FileStream>>>>),
     Online(RuneBuffered<Decoder<StreamDownload<TempStorageProvider>>>),
 }
 
@@ -273,6 +273,7 @@ pub(crate) struct PlayerInternal {
     commands: mpsc::UnboundedReceiver<PlayerCommand>,
     commands_sender: mpsc::UnboundedSender<PlayerCommand>,
     event_sender: mpsc::UnboundedSender<PlayerEvent>,
+    fsio: Arc<FsIo>,
     realtime_fft: Arc<Mutex<RealTimeFFT>>,
     fft_enabled: Arc<Mutex<bool>>,
     playlist: Vec<PlaylistItem>,
@@ -299,12 +300,14 @@ impl PlayerInternal {
         event_sender: mpsc::UnboundedSender<PlayerEvent>,
         cancellation_token: CancellationToken,
         commands_sender: mpsc::UnboundedSender<PlayerCommand>,
+        fsio: Arc<FsIo>,
     ) -> Self {
         let (stream_error_sender, stream_error_receiver) = mpsc::unbounded_channel();
         Self {
             commands,
             commands_sender,
             event_sender,
+            fsio,
             playlist: Vec::new(),
             current_item: None,
             current_track_index: None,
@@ -459,14 +462,16 @@ impl PlayerInternal {
 
             let item = self.playlist[mapped_index].clone();
             let commands_sender = self.commands_sender.clone();
+            let fsio = Arc::clone(&self.fsio);
 
             tokio::spawn(async move {
                 let source_result = async {
                     match &item.item {
                         PlayingItem::IndependentFile(_) | PlayingItem::InLibrary(_) => {
-                            let file = File::open(item.path.clone())
+                            let stream = fsio
+                                .open(&item.path, "r")
                                 .with_context(|| format!("Failed to open file: {:?}", item.path))?;
-                            let decoder = Decoder::new(BufReader::new(file))?;
+                            let decoder = Decoder::new(BufReader::new(stream))?;
                             Ok(AnySource::Local(rune_buffered(decoder)))
                         }
                         PlayingItem::Online(url, _) => {

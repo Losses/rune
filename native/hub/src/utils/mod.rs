@@ -271,8 +271,13 @@ async fn handle_media_library_path(
                 }
 
                 // Initialize databases
-                match initialize_databases(&fsio, media_library_path, Some(&database_path), &node_id)
-                    .await
+                match initialize_databases(
+                    &fsio,
+                    media_library_path,
+                    Some(&database_path),
+                    &node_id,
+                )
+                .await
                 {
                     Ok(db_connections) => {
                         // Send success response to Dart
@@ -459,6 +464,16 @@ pub async fn parse_media_files(
     let mut media_files = Vec::with_capacity(media_summaries.len());
 
     for file in media_summaries {
+        // On Android the path stays relative to the SAF tree root and is
+        // opened through FsIo at playback time; canonicalizing it would
+        // produce a /mnt/user/... path that is not directly readable.
+        #[cfg(target_os = "android")]
+        let media_path: Result<PathBuf, fsio::FileIoError> = {
+            let _ = &lib_path;
+            let _ = &fsio;
+            Ok(Path::new(&file.directory).join(&file.file_name))
+        };
+        #[cfg(not(target_os = "android"))]
         let media_path = fsio.canonicalize_path(
             &Path::new(lib_path.as_ref())
                 .join(&file.directory)

@@ -4766,6 +4766,7 @@ name = "playback"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fsio",
  "futures",
  "jni",
  "log",

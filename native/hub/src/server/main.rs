@@ -129,7 +129,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
 
     info!("Initializing player");
-    let player = Player::new(Some(main_cancel_token.clone()));
+    let player = Player::new(Arc::clone(&fsio), Some(main_cancel_token.clone()));
     let player: Arc<Mutex<Player>> = Arc::new(Mutex::new(player));
 
     let sfx_player = SfxPlayer::new(Some(main_cancel_token.clone()));

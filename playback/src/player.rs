@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fmt, thread};
 
+use fsio::FsIo;
 use log::{debug, error};
 use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use tokio::sync::mpsc;
@@ -132,13 +133,13 @@ pub struct Player {
 
 impl Default for Player {
     fn default() -> Self {
-        Self::new(None)
+        Self::new(Arc::new(FsIo::new_noop()), None)
     }
 }
 
 impl Player {
     // Create a new Player instance and return the Player and the event receiver
-    pub fn new(cancellation_token: Option<CancellationToken>) -> Self {
+    pub fn new(fsio: Arc<FsIo>, cancellation_token: Option<CancellationToken>) -> Self {
         // Create an unbounded channel for sending commands
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         // Create an unbounded channel for receiving events
@@ -194,6 +195,7 @@ impl Player {
                 event_sender,
                 internal_cancellation_token.clone(),
                 cmd_tx.clone(),
+                fsio,
             );
             // Create a new Tokio runtime for asynchronous tasks
             let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
