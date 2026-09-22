@@ -103,6 +103,7 @@
             platforms-android-35
             platforms-android-36
             ndk-27-1-12297006
+            system-images-android-34-default-x86-64
           ]
         );
 
