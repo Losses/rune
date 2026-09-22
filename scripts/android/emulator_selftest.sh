@@ -62,7 +62,7 @@ $ASHELL "adb shell appops set $PKG MANAGE_EXTERNAL_STORAGE allow"
 echo "==> launching app ..."
 $ASHELL "adb logcat -c; adb shell am force-stop $PKG; adb shell monkey -p $PKG 1 >/dev/null"
 sleep 15
-VM_URI=$($ASHELL 'adb logcat -d | grep -oE "http://127.0.0.1:[0-9]+/[A-Za-z0-9_-]+=/" | head -1')
+VM_URI=$($ASHELL 'adb logcat -d | grep -oE "http://127.0.0.1:[0-9]+/[A-Za-z0-9_-]+=/" | head -1' | grep -oE "http://127.0.0.1:[0-9]+/[A-Za-z0-9_-]+=/" | tail -1)
 echo "    VM service: $VM_URI"
 VM_PORT=$(echo "$VM_URI" | grep -oE ":[0-9]+" | tr -d ':')
 $ASHELL "adb forward tcp:$VM_PORT tcp:$VM_PORT"
