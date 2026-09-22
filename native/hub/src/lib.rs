@@ -21,7 +21,7 @@ pub use tokio;
 
 use ::scrobbling::manager::ScrobblingManager;
 
-use utils::{TaskTokens, receive_media_library_path};
+use utils::{TaskTokens, diagnostics::receive_fs_self_test, receive_media_library_path};
 
 use crate::utils::init_logging;
 
@@ -74,6 +74,11 @@ async fn main() {
         init_logging();
         None
     };
+
+    // The self-test listener must stay alive even when the media library is
+    // not initialized, so it runs as an independent task instead of going
+    // through the handler dispatch.
+    tokio::spawn(receive_fs_self_test());
 
     // Start receiving the media library path
     if let Err(e) = receive_media_library_path(scrobbler).await {

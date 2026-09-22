@@ -16,6 +16,7 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    - scripts/**
 include: package:flutter_lints/flutter.yaml
 
 linter:

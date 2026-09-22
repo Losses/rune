@@ -12,6 +12,7 @@ import 'widgets/settings/cafe_mode_settings.dart';
 import 'widgets/settings/force_zune_settings.dart';
 import 'widgets/settings/branding_animation_settings.dart';
 import 'widgets/settings/cover_wall_richness_settings.dart';
+import 'widgets/settings/fs_self_test_settings.dart';
 import 'widgets/settings/library_cover_wallpaper_settings.dart';
 import 'widgets/settings/mild_spectrum_settings.dart';
 import 'widgets/settings/tray_icon_color_mode_settings.dart';
@@ -100,6 +101,7 @@ class _ResponsiveSettingsGrid extends StatelessWidget {
           ForceZuneSettings(),
           MildSpectrumSettings(),
           TrayIconColorModeSettings(),
+          FsSelfTestSettings(),
         ],
       ),
     );
