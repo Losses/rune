@@ -49,6 +49,9 @@ let
     };
 
     nativeBuildInputs = [
+      wrapGAppsHook
+      gsettings-desktop-schemas
+      dconf
       rustPlatform.cargoSetupHook
       pkg-config
     ];
