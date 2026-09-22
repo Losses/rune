@@ -7,7 +7,7 @@ fn main() {
     let path = args.get(1).expect("file path not provided");
     let fsio = FsIo::new();
 
-    match get_metadata(&fsio.canonicalize_str(path).unwrap(), None) {
+    match get_metadata(&fsio, &fsio.canonicalize_str(path).unwrap(), None) {
         Ok(metadata) => {
             for (key, value) in metadata {
                 println!("{key}: {value}");

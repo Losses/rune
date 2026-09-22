@@ -20,7 +20,8 @@ use playback::{
 };
 
 async fn play_files(main_db: &MainDbConnection, canonicalized_path: &Path, file_ids: Vec<i32>) {
-    let player = Player::new(None);
+    let fsio = Arc::new(fsio::FsIo::new());
+    let player = Player::new(fsio, None);
     let player = Arc::new(Mutex::new(player));
 
     let file_futures = file_ids.into_iter().map(|id| async move {

@@ -3841,6 +3841,7 @@ dependencies = [
  "analysis",
  "anyhow",
  "fsio",
+ "fsio_media_source",
  "futures",
  "image",
  "lazy_static",

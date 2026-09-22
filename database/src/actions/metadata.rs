@@ -43,8 +43,8 @@ pub struct FileMetadata {
     pub metadata: Vec<(String, String)>,
 }
 
-pub fn read_metadata(fs_node: &FsNode) -> Result<FileMetadata> {
-    match get_metadata(fs_node, None)
+pub fn read_metadata(fsio: &FsIo, fs_node: &FsNode) -> Result<FileMetadata> {
+    match get_metadata(fsio, fs_node, None)
         .with_context(|| format!("Unable to read metadata: {:#?}", fs_node.path))
     {
         Ok(metadata) => Ok(FileMetadata {
@@ -301,7 +301,7 @@ pub async fn sync_file_descriptions(
                             }
 
                             let file_metadata =
-                                read_metadata(&description.raw_node).with_context(|| {
+                                read_metadata(fsio, &description.raw_node).with_context(|| {
                                     format!(
                                         "Unable to parse file metadata: {:?}",
                                         description.rel_path
@@ -358,7 +358,7 @@ pub async fn sync_file_descriptions(
                         description.file_name.clone()
                     );
 
-                    let file_metadata = read_metadata(&description.raw_node).with_context(|| {
+                    let file_metadata = read_metadata(fsio, &description.raw_node).with_context(|| {
                         format!(
                             "Unable to parse metadata: {}",
                             description.rel_path.clone().display()
@@ -524,7 +524,7 @@ pub async fn process_files(
                             remove_cover_art_by_file_id(&txn, existing_file.id).await?;
 
                             let file_metadata =
-                                read_metadata(&description.raw_node).with_context(|| {
+                                read_metadata(fsio, &description.raw_node).with_context(|| {
                                     format!(
                                         "Unable to parse file metadata: {:?}",
                                         description.rel_path
@@ -563,7 +563,7 @@ pub async fn process_files(
                         description.file_name.clone()
                     );
 
-                    let file_metadata = read_metadata(&description.raw_node).with_context(|| {
+                    let file_metadata = read_metadata(fsio, &description.raw_node).with_context(|| {
                         format!("Unable to parse file metadata: {:?}", description.rel_path)
                     });
 
@@ -904,14 +904,19 @@ where
     Ok(())
 }
 
-async fn clean_up_database(main_db: &DatabaseConnection, root_path: &Path) -> Result<()> {
+async fn clean_up_database(
+    fsio: &FsIo,
+    main_db: &DatabaseConnection,
+    root_path: &Path,
+) -> Result<()> {
     let db_files = media_files::Entity::find().all(main_db).await?;
 
     for db_file in db_files {
         let full_path = root_path
             .join(PathBuf::from(&db_file.directory))
             .join(PathBuf::from(&db_file.file_name));
-        if !full_path.exists() {
+        let exists = fsio.exists(&full_path).unwrap_or(false);
+        if !exists {
             info!("Cleaning {}", full_path.to_str().unwrap_or_default());
             // Delete the file record
             media_files::Entity::delete_by_id(db_file.id)
@@ -1054,7 +1059,7 @@ where
 
     if cleanup {
         info!("Starting cleanup process.");
-        match clean_up_database(main_db, lib_path)
+        match clean_up_database(fsio, main_db, lib_path)
             .await
             .with_context(|| "Unable to cleanup database")
         {

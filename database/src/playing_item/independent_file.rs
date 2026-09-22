@@ -93,7 +93,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                     Err(_) => return None,
                 };
 
-                let metadata: Result<Vec<(String, String)>> = get_metadata(&fs_node, None);
+                let metadata: Result<Vec<(String, String)>> = get_metadata(fsio, &fs_node, None);
                 let codec: Result<(u32, f64)> = get_codec_information_from_node(fsio, &fs_node);
 
                 match (metadata, codec) {

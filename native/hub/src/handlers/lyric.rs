@@ -57,7 +57,7 @@ impl Signal for GetLyricByTrackIdRequest {
 
             match path {
                 Some(path) => {
-                    let build_in_lyric = get_lyrics(path).unwrap_or_default();
+                    let build_in_lyric = get_lyrics(&fsio, path).unwrap_or_default();
 
                     let lyrics = match build_in_lyric {
                         Some(x) => Some(parse_lrc(&x)),

@@ -79,7 +79,7 @@ pub async fn index_media_files(
         let genre_result = process_genres(&txn, node_id, &summary, cancel_token).await;
 
         // Commit transaction if all processing is successful, otherwise rollback.
-        match (artist_result, album_result, genre_result) {
+        match (&artist_result, &album_result, &genre_result) {
             (Ok(_), Ok(_), Ok(_)) => {
                 if let Err(e) = txn.commit().await {
                     error!("Commit failed for file {}: {}", summary.id, e);
@@ -87,7 +87,13 @@ pub async fn index_media_files(
             }
             _ => {
                 let _ = txn.rollback().await; // Rollback transaction if any processing failed.
-                error!("Processing failed for file {}, rolled back", summary.id);
+                error!(
+                    "Processing failed for file {}, rolled back. artist_err={:?}, album_err={:?}, genre_err={:?}",
+                    summary.id,
+                    artist_result.as_ref().err(),
+                    album_result.as_ref().err(),
+                    genre_result.as_ref().err()
+                );
             }
         }
     }

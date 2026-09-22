@@ -1,12 +1,13 @@
-use std::{collections::HashMap, fs::File, path::Path};
+use std::{collections::HashMap, path::Path};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{MetadataOptions, MetadataRevision, StandardTagKey, Value};
 use symphonia::core::probe::{Hint, ProbeResult};
 
-use ::fsio::FsNode;
+use ::fsio::{FsIo, FsNode};
+use ::fsio_media_source::FsioMediaSource;
 
 fn create_standard_tag_key_maps() -> (
     HashMap<StandardTagKey, &'static str>,
@@ -211,20 +212,19 @@ pub fn push_tags(
     }
 }
 
-fn probe_audio_file<P: AsRef<Path>>(file_path: P) -> Result<ProbeResult> {
-    if !Path::new(file_path.as_ref()).exists() {
-        bail!("File not found");
-    }
+fn probe_audio_file(fsio: &FsIo, file_path: &Path) -> Result<ProbeResult> {
+    // Open the media source via FsIo (works with SAF content URI, std fs, etc.)
+    let src = fsio
+        .open(file_path, "r")
+        .map_err(|e| anyhow::anyhow!("Failed to open file {:?}: {e}", file_path))?;
+
+    // Create the media source stream.
+    let source = FsioMediaSource::new(src);
+    let mss = MediaSourceStream::new(Box::new(source), Default::default());
 
     // Create a probe hint using the file's extension.
     let mut hint = Hint::new();
-    let file_path_str = file_path.as_ref().to_string_lossy();
-
-    // Open the media source.
-    let src = File::open(&file_path)?;
-
-    // Create the media source stream.
-    let mss = MediaSourceStream::new(Box::new(src), Default::default());
+    let file_path_str = file_path.to_string_lossy();
     let ext = file_path_str.split('.').next_back().unwrap_or_default();
     hint.with_extension(ext);
 
@@ -235,13 +235,13 @@ fn probe_audio_file<P: AsRef<Path>>(file_path: P) -> Result<ProbeResult> {
     // Probe the media source.
     let probed = symphonia::default::get_probe()
         .format(&hint, mss, &fmt_opts, &meta_opts)
-        .map_err(|e| anyhow::anyhow!("Failed to probe file: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("Failed to probe file {:?}: {e}", file_path))?;
 
     Ok(probed)
 }
 
-pub fn get_lyrics<P: AsRef<Path>>(file_path: P) -> Result<Option<String>> {
-    let mut probed = probe_audio_file(file_path)?;
+pub fn get_lyrics(fsio: &FsIo, file_path: &Path) -> Result<Option<String>> {
+    let mut probed = probe_audio_file(fsio, file_path)?;
     let mut format = probed.format;
 
     let format_metadata = format.metadata();
@@ -275,10 +275,11 @@ pub fn get_lyrics<P: AsRef<Path>>(file_path: P) -> Result<Option<String>> {
 }
 
 pub fn get_metadata(
+    fsio: &FsIo,
     fs_node: &FsNode,
     field_blacklist: Option<Vec<&str>>,
 ) -> Result<Vec<(String, String)>> {
-    let mut probed = probe_audio_file(fs_node.path.clone())?;
+    let mut probed = probe_audio_file(fsio, &fs_node.path)?;
     let mut format = probed.format;
     let mut metadata_list = Vec::new();
 
