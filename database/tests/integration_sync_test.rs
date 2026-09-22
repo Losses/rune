@@ -1442,7 +1442,10 @@ async fn test_sync_error_server_down() -> Result<()> {
         // The error should be related to connection refusal
         let err_debug = format!("{:?}", err);
         assert!(
-            err_debug.contains("connect") || err_debug.contains("connection") || err_debug.contains("refused") || err_debug.contains("request or response body error"),
+            err_debug.contains("connect")
+                || err_debug.contains("connection")
+                || err_debug.contains("refused")
+                || err_debug.contains("request or response body error"),
             "Error should indicate connection failure, got debug: {}",
             err_debug
         );
@@ -1504,7 +1507,10 @@ async fn test_sync_error_malformed_data() -> Result<()> {
         let err_debug = format!("{:?}", err);
         // reqwest error for invalid json
         assert!(
-            err_debug.contains("json") || err_debug.contains("decode") || err_debug.contains("deserialize") || err_debug.contains("expected ident"),
+            err_debug.contains("json")
+                || err_debug.contains("decode")
+                || err_debug.contains("deserialize")
+                || err_debug.contains("expected ident"),
             "Error should indicate JSON parsing failure, got debug: {}",
             err_debug
         );

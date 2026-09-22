@@ -1132,7 +1132,10 @@ pub async fn query_mix_media_files(
         .await
         .unwrap();
 
-    log::debug!("query_mix_media_files: returning {} media files", media_files.len());
+    log::debug!(
+        "query_mix_media_files: returning {} media files",
+        media_files.len()
+    );
 
     let sorted_files = sort_media_files(media_files, &track_ids);
 

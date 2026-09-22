@@ -378,14 +378,14 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 let uuid_node_id = match Uuid::parse_str(&node_id) {
                     Ok(id) => id,
                     Err(e) => {
-                         let broadcaster_clone = Arc::clone(&broadcaster);
-                         // Ideally we should send an error message back.
-                         // But for now logging it and returning.
-                         log::error!("Invalid node ID {node_id}: {e}");
-                         broadcaster_clone.broadcast(&DeduplicateAudioLibraryResponse {
-                             path: request_path_clone.to_string(),
-                         });
-                         return Ok(());
+                        let broadcaster_clone = Arc::clone(&broadcaster);
+                        // Ideally we should send an error message back.
+                        // But for now logging it and returning.
+                        log::error!("Invalid node ID {node_id}: {e}");
+                        broadcaster_clone.broadcast(&DeduplicateAudioLibraryResponse {
+                            path: request_path_clone.to_string(),
+                        });
+                        return Ok(());
                     }
                 };
                 let node_id = uuid_node_id.to_string();

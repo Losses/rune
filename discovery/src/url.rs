@@ -266,7 +266,7 @@ pub fn decode_rnsrv_url(url: &str) -> Result<Vec<String>, UrlError> {
     // Initialize a vector to store the decoded IPv4 address strings.
     let mut ips = Vec::with_capacity(encoded.len() / 7);
     // Iterate over the encoded string in chunks of 7 characters.
-    for chunk in encoded.as_bytes().chunks_exact(7) {
+    for chunk in encoded.as_bytes().chunks(7) {
         // Convert each 7-character chunk to a string slice.
         // This should be safe as we are expecting base-36 ASCII characters.
         let s = from_utf8(chunk).map_err(|_| UrlError::InvalidFormat)?;

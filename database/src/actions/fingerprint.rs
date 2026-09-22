@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use std::str::FromStr;
 
 use anyhow::{Context, Result, anyhow, bail};
 use fsio::FsIo;
@@ -206,14 +206,16 @@ where
         let hlc_context = Arc::new(SyncTaskContext::new(node_uuid));
 
         process_page_combinations(
-            db,
-            node_id,
-            hlc_context,
-            batch_size,
+            PageCombinationParams {
+                db,
+                node_id,
+                hlc_context,
+                batch_size,
+                config,
+                cancel_token: cancel_token.clone(),
+                progress_callback: Arc::clone(&progress_callback),
+            },
             &files_page,
-            config,
-            cancel_token.clone(),
-            Arc::clone(&progress_callback),
         )
         .await?;
 
@@ -223,19 +225,33 @@ where
     Ok(())
 }
 
-async fn process_page_combinations<F>(
-    db: &DatabaseConnection,
-    node_id: &str,
+struct PageCombinationParams<'a, F> {
+    db: &'a DatabaseConnection,
+    node_id: &'a str,
     hlc_context: Arc<SyncTaskContext>,
     batch_size: usize,
-    current_page: &[media_files::Model],
-    config: &Configuration,
+    config: &'a Configuration,
     cancel_token: Option<Arc<CancellationToken>>,
     progress_callback: Arc<F>,
+}
+
+async fn process_page_combinations<F>(
+    params: PageCombinationParams<'_, F>,
+    current_page: &[media_files::Model],
 ) -> Result<()>
 where
     F: Fn(usize, usize) + Send + Sync + 'static,
 {
+    let PageCombinationParams {
+        db,
+        node_id,
+        hlc_context,
+        batch_size,
+        config,
+        cancel_token,
+        progress_callback,
+    } = params;
+
     if let Some(token) = &cancel_token
         && token.is_cancelled()
     {
@@ -410,7 +426,7 @@ pub fn bytes_to_u32s(bytes: Vec<u8>) -> Result<Vec<u32>> {
     }
 
     let mut u32s = Vec::new();
-    for chunk in bytes.chunks_exact(4) {
+    for chunk in bytes.chunks(4) {
         // Use try_into to convert the byte slice to a [u8; 4] array
         let byte_array: [u8; 4] = match chunk.try_into() {
             Ok(arr) => arr,

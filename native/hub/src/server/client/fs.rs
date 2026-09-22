@@ -128,7 +128,7 @@ impl VirtualFS {
     }
 
     fn get_collection_type_from_current_path(&self) -> Option<CollectionType> {
-        if self.current_path == PathBuf::from("/") {
+        if self.current_path == Path::new("/") {
             None
         } else {
             path_to_collection_type(&self.current_path)
@@ -150,7 +150,7 @@ impl VirtualFS {
             if component_str == "." {
                 continue;
             } else if component_str == ".." {
-                if current != PathBuf::from("/") {
+                if current != Path::new("/") {
                     current.pop();
                     // Update collection type after moving up
                     collection_type = path_to_collection_type(&current);
@@ -296,10 +296,8 @@ impl VirtualFS {
                 Ok(vec![("lib::directory.deep".to_string(), "/".to_string())])
             }
             4 => {
-                let collection_type =
-                    path_to_collection_type(path).ok_or_else(|| {
-                        anyhow!("Invalid path: {:?}", path)
-                    })?;
+                let collection_type = path_to_collection_type(path)
+                    .ok_or_else(|| anyhow!("Invalid path: {:?}", path))?;
 
                 let parent_path = path.parent().unwrap().to_path_buf();
                 let collection_name = path.file_name().unwrap().to_str().unwrap();
@@ -310,9 +308,7 @@ impl VirtualFS {
                         .iter()
                         .find(|e| e.name == collection_name)
                         .and_then(|e| e.id)
-                        .ok_or_else(|| {
-                            anyhow!("Collection not found in cache")
-                        })?
+                        .ok_or_else(|| anyhow!("Collection not found in cache"))?
                 } else {
                     return Err(anyhow!("Parent directory not cached"));
                 };
@@ -511,9 +507,7 @@ impl VirtualFS {
                 }
 
                 let collection_type = path_to_collection_type(new_path)
-                    .ok_or_else(|| {
-                        anyhow!("Invalid collection type for path: {:?}", new_path)
-                    })?;
+                    .ok_or_else(|| anyhow!("Invalid collection type for path: {:?}", new_path))?;
                 let group_name = new_path
                     .components()
                     .next_back()
@@ -526,9 +520,7 @@ impl VirtualFS {
             // Third level (individual collections) must exist in the server
             4 => {
                 let collection_type = path_to_collection_type(new_path)
-                    .ok_or_else(|| {
-                        anyhow!("Invalid collection type for path: {:?}", new_path)
-                    })?;
+                    .ok_or_else(|| anyhow!("Invalid collection type for path: {:?}", new_path))?;
                 let group_name = new_path
                     .components()
                     .nth(2)

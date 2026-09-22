@@ -22,7 +22,6 @@ use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
 
 use crate::Signal;
-use crate::listen_local_gui_event;
 use crate::messages::*;
 use crate::server::ServerManager;
 use crate::utils::Broadcaster;

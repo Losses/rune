@@ -32,9 +32,8 @@ use ::playback::{player::MockPlayer, sfx_player::SfxPlayer};
 use ::scrobbling::manager::MockScrobblingManager;
 
 use crate::{
-    Signal, forward_event_to_remote, implement_rinf_dart_signal_trait,
+    Signal,
     messages::*,
-    register_remote_handlers,
     server::{api::check_fingerprint, generate_or_load_certificates},
     utils::{
         GlobalParams, LocalGuiBroadcaster, ParamsExtractor, RinfRustSignal, RunningMode,

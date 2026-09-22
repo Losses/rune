@@ -57,7 +57,7 @@ pub async fn check_fingerprint_handler(
                 ),
             };
 
-            debug!("Checking fingerprint: {}({})", &query.fingerprint, status);
+            debug!("Checking fingerprint: {}({})", query.fingerprint, status);
 
             let response = CheckFingerprintResponse {
                 is_trusted,

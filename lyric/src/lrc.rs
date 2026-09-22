@@ -70,18 +70,10 @@ pub fn parse_lrc(content: &str) -> Result<LyricFile> {
                 // Parse enhanced format word-level time tags
                 let word_time_tags = if remaining_content.contains('<') {
                     parse_enhanced_lrc(remaining_content).unwrap_or_else(|_| {
-                        vec![(
-                            start_time.clone(),
-                            DUMMY_END_TIME,
-                            text.to_string(),
-                        )]
+                        vec![(start_time.clone(), DUMMY_END_TIME, text.to_string())]
                     })
                 } else {
-                    vec![(
-                        start_time.clone(),
-                        DUMMY_END_TIME,
-                        text.to_string(),
-                    )]
+                    vec![(start_time.clone(), DUMMY_END_TIME, text.to_string())]
                 };
 
                 lrc.lyrics.push(LyricLine {

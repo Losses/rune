@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use log::{error, info};
+use log::info;
 use once_cell::sync::Lazy;
 use sea_orm::{
     ActiveValue, ColumnTrait, Condition, DatabaseConnection, EntityTrait, PaginatorTrait,

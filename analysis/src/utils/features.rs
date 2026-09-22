@@ -516,14 +516,17 @@ pub fn create_mel_filter_bank(
     let mut filter_bank = vec![vec![0.0; buffer_size / 2 + 1]; num_filters];
 
     for j in 0..num_filters {
-        for i in fft_bins_of_freq[j]..fft_bins_of_freq[j + 1] {
-            filter_bank[j][i] = (i - fft_bins_of_freq[j]) as f32
-                / (fft_bins_of_freq[j + 1] - fft_bins_of_freq[j]) as f32;
+        let start = fft_bins_of_freq[j];
+        let peak = fft_bins_of_freq[j + 1];
+        let end = fft_bins_of_freq[j + 2];
+
+        for (offset, cell) in filter_bank[j][start..peak].iter_mut().enumerate() {
+            *cell = offset as f32 / (peak - start) as f32;
         }
 
-        for i in fft_bins_of_freq[j + 1]..fft_bins_of_freq[j + 2] {
-            filter_bank[j][i] = (fft_bins_of_freq[j + 2] - i) as f32
-                / (fft_bins_of_freq[j + 2] - fft_bins_of_freq[j + 1]) as f32;
+        let fall = end - peak;
+        for (offset, cell) in filter_bank[j][peak..end].iter_mut().enumerate() {
+            *cell = (fall - offset) as f32 / fall as f32;
         }
     }
 

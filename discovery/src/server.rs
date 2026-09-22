@@ -3,7 +3,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use log::error;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{RwLock, broadcast};
