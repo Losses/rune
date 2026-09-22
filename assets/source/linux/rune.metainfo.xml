@@ -61,15 +61,19 @@
       <description>
         <p>Bugs</p>
         <ul>
-          <li>Fix Android library initialization and crash on background threads.</li>
-          <li>Fix playback on Android scoped storage by decoding via file descriptors.</li>
-          <li>Fix metadata probing and database cleanup for SAF tree paths.</li>
-          <li>Persist Android SAF tree URI permissions across app restarts.</li>
+          <li>Fix Android SAF file access, metadata scanning, and playback under scoped storage.</li>
+          <li>Disable GTK header bar by default on Linux.</li>
+          <li>Fix track list scroll bar behavior in certain circumstances.</li>
+          <li>Fix save button in Mix Studio.</li>
+          <li>Fix collection displaying and editing issues.</li>
+          <li>Enhanced LRC parsing.</li>
         </ul>
         <p>Features</p>
         <ul>
-          <li>Implement high-performance SQLite-backed SAF directory cache with synchronous JNI access.</li>
-          <li>Add layered filesystem self-test diagnostics in Laboratory settings.</li>
+          <li>Upgrade Flutter to 3.47 and Rust toolchain to 1.98.</li>
+          <li>High-performance cached SAF filesystem for Android with on-device self-test diagnostics.</li>
+          <li>Support preference for tray icon color schema.</li>
+          <li>CLI integration for client ID.</li>
         </ul>
       </description>
     </release>
