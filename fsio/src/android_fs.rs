@@ -30,11 +30,32 @@ impl AndroidFsIo {
         let path = PathBuf::from(format!("/proc/self/fd/{}", fd));
 
         let db = Connection::open(path).map_err(|e| FileIoError::Database(e.to_string()))?;
+
+        // Schema v2 caches entry metadata (filename/is_dir/size) so listings
+        // don't need a provider IPC per entry. Old caches lack these columns;
+        // the cache is disposable, so drop and rebuild.
+        let has_v2_schema = {
+            let mut stmt = db
+                .prepare("PRAGMA table_info(fs_cache)")
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
+            let columns = stmt
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
+            let has_is_dir = columns.filter_map(|c| c.ok()).any(|name| name == "is_dir");
+            has_is_dir
+        };
+        if !has_v2_schema {
+            db.execute("DROP TABLE IF EXISTS fs_cache", [])
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
+        }
         db.execute(
             "CREATE TABLE IF NOT EXISTS fs_cache (
                 path TEXT PRIMARY KEY,
                 content_url TEXT NOT NULL,
-                parent TEXT NOT NULL
+                parent TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                is_dir INTEGER NOT NULL,
+                size INTEGER NOT NULL
             )",
             [],
         )
@@ -45,7 +66,17 @@ impl AndroidFsIo {
             root_uri: root_uri.to_string(),
         };
 
-        instance.refresh_cache()?;
+        let cache_empty = {
+            let conn = instance.db.lock().unwrap();
+            conn.query_row("SELECT COUNT(*) FROM fs_cache", [], |r| r.get::<_, i64>(0))
+                .map(|count| count == 0)
+                .unwrap_or(true)
+        };
+        if cache_empty {
+            instance.refresh_cache()?;
+        } else {
+            log::info!("fs_cache is populated, skipping full refresh on startup");
+        }
 
         Ok(instance)
     }
@@ -110,11 +141,14 @@ impl AndroidFsIo {
             for f in files {
                 let new_path = current_path.join(&f.filename);
                 tx.execute(
-                    "INSERT OR REPLACE INTO fs_cache (path, content_url, parent) VALUES (?1, ?2, ?3)",
+                    "INSERT OR REPLACE INTO fs_cache (path, content_url, parent, filename, is_dir, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                     params![
                         new_path.to_str().unwrap(),
                         f.url,
-                        current_path.to_str().unwrap()
+                        current_path.to_str().unwrap(),
+                        f.filename,
+                        f.is_dir,
+                        f.size as i64,
                     ],
                 )
                 .map_err(|e| FileIoError::Database(e.to_string()))?;
@@ -139,24 +173,170 @@ impl AndroidFsIo {
     }
 
     fn get_uri(&self, path: &Path) -> Result<String, FileIoError> {
-        let conn = self.db.lock().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT content_url FROM fs_cache WHERE path = ?1")
-            .map_err(|e| FileIoError::Database(e.to_string()))?;
-        let mut rows = stmt
-            .query(params![path.to_str().unwrap()])
-            .map_err(|e| FileIoError::Database(e.to_string()))?;
+        let cached = {
+            let conn = self.db.lock().unwrap();
+            let mut stmt = conn
+                .prepare("SELECT content_url FROM fs_cache WHERE path = ?1")
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
+            let mut rows = stmt
+                .query(params![path.to_str().unwrap()])
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
 
-        if let Some(row) = rows
-            .next()
-            .map_err(|e| FileIoError::Database(e.to_string()))?
-        {
-            row.get(0).map_err(|e| FileIoError::Database(e.to_string()))
-        } else {
-            Err(FileIoError::PathNotFound(
-                path.to_string_lossy().to_string(),
-            ))
+            match rows
+                .next()
+                .map_err(|e| FileIoError::Database(e.to_string()))?
+            {
+                Some(row) => Some(
+                    row.get::<_, String>(0)
+                        .map_err(|e| FileIoError::Database(e.to_string()))?,
+                ),
+                None => None,
+            }
+        };
+
+        if let Some(url) = cached {
+            return Ok(url);
         }
+
+        // Cache miss: resolve live by walking the SAF tree (the same way other
+        // platforms hit the real filesystem), then cache just this entry.
+        let root_file =
+            from_tree_url(&self.root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let file = Self::find_file_by_path(root_file, path, false)
+            .map_err(|_| FileIoError::PathNotFound(path.to_string_lossy().to_string()))?;
+
+        let parent = path.parent().unwrap_or_else(|| Path::new(""));
+        let conn = self.db.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO fs_cache (path, content_url, parent, filename, is_dir, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                path.to_str().unwrap(),
+                file.url,
+                parent.to_str().unwrap(),
+                file.filename,
+                file.is_dir,
+                file.size as i64,
+            ],
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))?;
+
+        Ok(file.url)
+    }
+
+    fn evict_cache(&self, path: &Path) {
+        let conn = self.db.lock().unwrap();
+        if let Err(e) = conn.execute(
+            "DELETE FROM fs_cache WHERE path = ?1",
+            params![path.to_str().unwrap()],
+        ) {
+            log::warn!("Failed to evict stale cache entry for {path:?}: {e}");
+        }
+    }
+
+    /// Read cached metadata for `path`; the read-through `get_uri` guarantees
+    /// the row exists (resolving live and caching it on miss).
+    fn get_cached_meta(&self, path: &Path) -> Result<(String, bool, u64), FileIoError> {
+        self.get_uri(path)?;
+        let conn = self.db.lock().unwrap();
+        conn.query_row(
+            "SELECT filename, is_dir, size FROM fs_cache WHERE path = ?1",
+            params![path.to_str().unwrap()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, bool>(1)?,
+                    row.get::<_, i64>(2)? as u64,
+                ))
+            },
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))
+    }
+
+    /// Synchronous open shared by `open` and `open_async`. Building a fresh
+    /// tokio runtime and block_on-ing here would panic when the caller is
+    /// already on a runtime thread; everything below is synchronous JNI.
+    fn open_sync(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
+        // Skip DocumentFile construction entirely: opening only needs the
+        // content URI, so this is a single provider IPC.
+        let creates = open_mode.contains('w') || open_mode.contains('a') || open_mode.contains('t');
+        let uri = match self.get_uri(path) {
+            Ok(uri) => uri,
+            Err(FileIoError::PathNotFound(_)) if creates => self.create_file_for_write(path)?,
+            Err(e) => return Err(e),
+        };
+        match open_content_url(&uri, open_mode) {
+            Ok(file) => Ok(Box::new(file)),
+            Err(first_error) => {
+                // The cached URI may be stale (the file was replaced outside the
+                // app); evict it and re-resolve live once before giving up.
+                self.evict_cache(path);
+                let uri = self.get_uri(path)?;
+                let file = open_content_url(&uri, open_mode).map_err(|second_error| {
+                    FileIoError::Saf(format!(
+                        "{second_error} (initial attempt with cached URI: {first_error})"
+                    ))
+                })?;
+                Ok(Box::new(file))
+            }
+        }
+    }
+
+    /// SAF can only create files through the parent directory's DocumentFile;
+    /// mirror std semantics where write-style open modes create missing files.
+    fn create_file_for_write(&self, path: &Path) -> Result<String, FileIoError> {
+        let parent = path.parent().unwrap_or_else(|| Path::new(""));
+        if !parent.as_os_str().is_empty() {
+            self.create_dir_all(parent)?;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or(FileIoError::InvalidPath)?;
+
+        let parent_file = self.get_android_file(parent)?;
+        let new_file = parent_file
+            .create_file("application/octet-stream", name)
+            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+
+        let conn = self.db.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO fs_cache (path, content_url, parent, filename, is_dir, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                path.to_str().unwrap(),
+                new_file.url,
+                parent.to_str().unwrap(),
+                new_file.filename,
+                new_file.is_dir,
+                new_file.size as i64,
+            ],
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))?;
+
+        Ok(new_file.url)
+    }
+
+    fn create_dir_sync(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError> {
+        let parent_file = self.get_android_file(parent)?;
+        let new_file = parent_file
+            .create_directory(name)
+            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let new_path = parent.join(name);
+
+        let conn = self.db.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO fs_cache (path, content_url, parent, filename, is_dir, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                new_path.to_str().unwrap(),
+                new_file.url,
+                parent.to_str().unwrap(),
+                new_file.filename,
+                new_file.is_dir,
+                new_file.size as i64,
+            ],
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))?;
+
+        Ok(new_path)
     }
 
     fn get_android_file(&self, path: &Path) -> Result<AndroidFile, FileIoError> {
@@ -171,13 +351,12 @@ impl FileIo for AndroidFsIo {
         "Android"
     }
 
+    fn refresh_cache(&self) -> Result<(), FileIoError> {
+        AndroidFsIo::refresh_cache(self)
+    }
+
     fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
-        // block on the async open
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(self.open_async(path, open_mode))
+        self.open_sync(path, open_mode)
     }
 
     async fn open_async(
@@ -185,11 +364,7 @@ impl FileIo for AndroidFsIo {
         path: &Path,
         open_mode: &str,
     ) -> Result<Box<dyn FileStream>, FileIoError> {
-        let file = self.get_android_file(path)?;
-        let android_file = file
-            .open(open_mode)
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
-        Ok(Box::new(android_file))
+        self.open_sync(path, open_mode)
     }
 
     fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
@@ -217,24 +392,7 @@ impl FileIo for AndroidFsIo {
     }
 
     async fn create_dir(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError> {
-        let parent_file = self.get_android_file(parent)?;
-        let new_file = parent_file
-            .create_directory(name)
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
-        let new_path = parent.join(name);
-
-        let conn = self.db.lock().unwrap();
-        conn.execute(
-            "INSERT OR REPLACE INTO fs_cache (path, content_url, parent) VALUES (?1, ?2, ?3)",
-            params![
-                new_path.to_str().unwrap(),
-                new_file.url,
-                parent.to_str().unwrap()
-            ],
-        )
-        .map_err(|e| FileIoError::Database(e.to_string()))?;
-
-        Ok(new_path)
+        self.create_dir_sync(parent, name)
     }
 
     fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
@@ -248,11 +406,7 @@ impl FileIo for AndroidFsIo {
         }
 
         let name = path.file_name().unwrap().to_str().unwrap();
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(self.create_dir(parent, name))?;
+        self.create_dir_sync(parent, name)?;
 
         Ok(())
     }
@@ -260,30 +414,26 @@ impl FileIo for AndroidFsIo {
     async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError> {
         let conn = self.db.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT path FROM fs_cache WHERE parent = ?1")
+            .prepare("SELECT path, filename, is_dir, size FROM fs_cache WHERE parent = ?1")
             .map_err(|e| FileIoError::Database(e.to_string()))?;
-        let mut rows = stmt
-            .query(params![path.to_str().unwrap()])
+        let rows = stmt
+            .query_map(params![path.to_str().unwrap()], |row| {
+                let path_str: String = row.get(0)?;
+                let is_dir: bool = row.get(2)?;
+                Ok(FsNode {
+                    filename: row.get(1)?,
+                    raw_path: path_str.clone(),
+                    path: PathBuf::from(path_str),
+                    is_dir,
+                    is_file: !is_dir,
+                    size: row.get::<_, i64>(3)? as u64,
+                })
+            })
             .map_err(|e| FileIoError::Database(e.to_string()))?;
 
         let mut nodes = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .map_err(|e| FileIoError::Database(e.to_string()))?
-        {
-            let path_str: String = row
-                .get(0)
-                .map_err(|e| FileIoError::Database(e.to_string()))?;
-            let path = PathBuf::from(path_str);
-            let file = self.get_android_file(&path)?;
-            nodes.push(FsNode {
-                filename: file.filename,
-                raw_path: path.to_str().unwrap_or_default().to_string(),
-                path,
-                is_dir: file.is_dir,
-                is_file: !file.is_dir,
-                size: file.size as u64,
-            });
+        for node in rows {
+            nodes.push(node.map_err(|e| FileIoError::Database(e.to_string()))?);
         }
         Ok(nodes)
     }
@@ -308,41 +458,55 @@ impl FileIo for AndroidFsIo {
             .map_err(|e| FileIoError::Saf(e.to_string()))?;
 
         let conn = self.db.lock().unwrap();
+        let path_str = path.to_str().unwrap();
         conn.execute(
-            "DELETE FROM fs_cache WHERE path LIKE ?1",
-            params![format!("{}%", path.to_str().unwrap())],
+            "DELETE FROM fs_cache WHERE path = ?1 OR path LIKE ?2",
+            params![path_str, format!("{path_str}/%")],
         )
         .map_err(|e| FileIoError::Database(e.to_string()))?;
         Ok(())
     }
 
     fn walk_dir(&self, path: &Path, _follow_links: bool) -> Result<Vec<FsNode>, FileIoError> {
+        let path_str = path.to_str().unwrap();
         let conn = self.db.lock().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT path FROM fs_cache WHERE path LIKE ?1")
-            .map_err(|e| FileIoError::Database(e.to_string()))?;
-        let mut rows = stmt
-            .query(params![format!("{}%", path.to_str().unwrap())])
-            .map_err(|e| FileIoError::Database(e.to_string()))?;
 
         let mut nodes = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .map_err(|e| FileIoError::Database(e.to_string()))?
-        {
-            let path_str: String = row
-                .get(0)
+        let mut collect = |row: &rusqlite::Row| -> rusqlite::Result<FsNode> {
+            let path_str: String = row.get(0)?;
+            let is_dir: bool = row.get(2)?;
+            Ok(FsNode {
+                filename: row.get(1)?,
+                raw_path: path_str.clone(),
+                path: PathBuf::from(path_str),
+                is_dir,
+                is_file: !is_dir,
+                size: row.get::<_, i64>(3)? as u64,
+            })
+        };
+
+        if path_str.is_empty() {
+            let mut stmt = conn
+                .prepare("SELECT path, filename, is_dir, size FROM fs_cache")
                 .map_err(|e| FileIoError::Database(e.to_string()))?;
-            let path = PathBuf::from(path_str);
-            let file = self.get_android_file(&path)?;
-            nodes.push(FsNode {
-                filename: file.filename,
-                raw_path: path.to_str().unwrap_or_default().to_string(),
-                path,
-                is_dir: file.is_dir,
-                is_file: !file.is_dir,
-                size: file.size as u64,
-            });
+            let rows = stmt
+                .query_map([], &mut collect)
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
+            for node in rows {
+                nodes.push(node.map_err(|e| FileIoError::Database(e.to_string()))?);
+            }
+        } else {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT path, filename, is_dir, size FROM fs_cache WHERE path = ?1 OR path LIKE ?2",
+                )
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
+            let rows = stmt
+                .query_map(params![path_str, format!("{path_str}/%")], &mut collect)
+                .map_err(|e| FileIoError::Database(e.to_string()))?;
+            for node in rows {
+                nodes.push(node.map_err(|e| FileIoError::Database(e.to_string()))?);
+            }
         }
         Ok(nodes)
     }
@@ -352,20 +516,18 @@ impl FileIo for AndroidFsIo {
     }
 
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError> {
-        let file = self.get_android_file(path)?;
-        Ok(!file.is_dir)
+        let (_, is_dir, _) = self.get_cached_meta(path)?;
+        Ok(!is_dir)
     }
 
     async fn is_dir(&self, path: &Path) -> Result<bool, FileIoError> {
-        let file = self.get_android_file(path)?;
-        Ok(file.is_dir)
+        let (_, is_dir, _) = self.get_cached_meta(path)?;
+        Ok(is_dir)
     }
 
     fn canonicalize_path(&self, path: &Path) -> Result<PathBuf, FileIoError> {
-        let file = self.get_android_file(path)?;
-        let std_file = file
-            .open("r")
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let uri = self.get_uri(path)?;
+        let std_file = open_content_url(&uri, "r").map_err(|e| FileIoError::Saf(e.to_string()))?;
         let fd = std_file.as_raw_fd();
         let proc_path = format!("/proc/self/fd/{}", fd);
         let real_path = fs::read_link(proc_path).map_err(FileIoError::Io)?;
@@ -386,15 +548,15 @@ impl FileIo for AndroidFsIo {
     }
 
     fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError> {
-        let file = self.get_android_file(path)?;
-        let path = self.canonicalize_path(path)?;
+        let (filename, is_dir, size) = self.get_cached_meta(path)?;
+        let real_path = self.canonicalize_path(path)?;
         Ok(FsNode {
-            filename: file.filename,
-            raw_path: path.to_str().unwrap_or_default().to_string(),
-            path,
-            is_dir: file.is_dir,
-            is_file: !file.is_dir,
-            size: file.size as u64,
+            filename,
+            raw_path: real_path.to_str().unwrap_or_default().to_string(),
+            path: real_path,
+            is_dir,
+            is_file: !is_dir,
+            size,
         })
     }
 

@@ -69,6 +69,12 @@ pub trait FileIo: Send + Sync {
     fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError>;
     async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError>;
     async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError>;
+
+    /// Refresh any internal cache from the real filesystem. Backends that
+    /// read through directly (std, noop) have nothing to refresh.
+    fn refresh_cache(&self) -> Result<(), FileIoError> {
+        Ok(())
+    }
 }
 
 pub struct FsIo {
@@ -133,3 +139,5 @@ use android_fs::AndroidFsIo;
 
 mod noop_fs;
 use noop_fs::NoOpFsIo;
+
+pub mod self_test;
