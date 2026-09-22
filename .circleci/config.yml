@@ -59,6 +59,10 @@ jobs:
             cd build/linux/arm64/release/bundle/
             TAG=${CIRCLE_TAG}
             zip -r ../Rune-${TAG}-linux-aarch64.zip .
+      - store_artifacts:
+          path: build/linux/arm64/release/
+          destination: linux-arm64
+
       - run:
           name: Upload to GitHub Release
           command: |
@@ -147,6 +151,10 @@ jobs:
             cp app-armeabi-v7a-release.apk ../../../../dist/Rune-${TAG}-android-armeabi-v7a.apk
             cp app-arm64-v8a-release.apk ../../../../dist/Rune-${TAG}-android-arm64-v8a.apk
             cp app-x86_64-release.apk  ../../../../dist/Rune-${TAG}-android-x86_64.apk
+
+      - store_artifacts:
+          path: dist/
+          destination: android-apks
 
       - run:
           name: Upload to GitHub Release
