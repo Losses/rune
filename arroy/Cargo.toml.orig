@@ -1,0 +1,58 @@
+[package]
+name = "arroy"
+description = "Annoy-inspired Approximate Nearest Neighbors in Rust, based on LMDB and optimized for memory usage"
+version = "0.6.2"
+documentation = "https://docs.rs/arroy"
+repository = "https://github.com/meilisearch/arroy"
+keywords = ["ANN-search", "Graph-algorithms", "Vector-Search", "Store"]
+categories = ["algorithms", "database", "data-structures", "science"]
+authors = [
+    "Kerollmops <clement@meilisearch.com>",
+    "Tamo <tamo@meilisearch.com>",
+]
+license = "MIT"
+edition = "2021"
+
+[dependencies]
+bytemuck = { version = "1.21.0", features = ["derive", "extern_crate_alloc"] }
+byteorder = "1.5.0"
+heed = { version = "0.22.0", default-features = false }
+tracing = "0.1.41"
+memmap2 = "0.9.5"
+ordered-float = "4.6.0"
+rand = { version = "0.8.5", features = ["alloc"] }
+rayon = "1.10.0"
+roaring = "0.10.9"
+tempfile = "3.15.0"
+thiserror = "2.0.9"
+nohash = "0.2.0"
+page_size = "0.6.0"
+enum-iterator = "2.1.0"
+
+[dev-dependencies]
+anyhow = "1.0.95"
+arbitrary = { version = "1.4.1", features = ["derive"] }
+clap = { version = "4.5.24", features = ["derive"] }
+env_logger = "0.11.6"
+insta = "1.42.0"
+instant-distance = "0.6.1"
+proptest = "1.6.0"
+rand = { version = "0.8.5", features = ["std_rng"] }
+tempfile = "3.15.0"
+
+[features]
+default = []
+
+# Enabling this feature provide a method on the reader that can plot its root node in the dot format.
+plot = []
+
+# Enabling this feature provide a method on the reader that assert its own validity.
+assert-reader-validity = []
+
+[[example]]
+name = "graph"
+required-features = ["plot"]
+
+[[example]]
+name = "fuzz"
+required-features = ["assert-reader-validity"]

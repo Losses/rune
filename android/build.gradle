@@ -8,23 +8,25 @@ allprojects {
 rootProject.buildDir = "../build"
 
 subprojects {
-    // unify compileSdk to 31 to work around https://github.com/flutter/flutter/issues/153281
+    // Raise every plugin's compileSdk to the app module's (flutter.compileSdkVersion).
+    // AGP 8.13 errors out when a dependency (e.g. androidx.annotation) requires a
+    // newer compileSdk than what old plugins declare. The app project is evaluated
+    // first thanks to evaluationDependsOn(":app") below.
     afterEvaluate { project ->
         if (project.extensions.findByName("android") != null) {
             Integer pluginCompileSdk = project.android.compileSdk
-            if (pluginCompileSdk != null && pluginCompileSdk < 31) {
-                project.logger.error(
+            Integer appCompileSdk = rootProject.project(":app").android.compileSdk
+            if (pluginCompileSdk != null && appCompileSdk != null && pluginCompileSdk < appCompileSdk) {
+                project.logger.warn(
                         "Warning: Overriding compileSdk version in Flutter plugin: "
                                 + project.name
                                 + " from "
                                 + pluginCompileSdk
-                                + " to 31 (to work around https://issuetracker.google.com/issues/199180389)."
-                                + "\nIf there is not a new version of " + project.name + ", consider filing an issue against "
-                                + project.name
-                                + " to increase their compileSdk to the latest (otherwise try updating to the latest version)."
-                )
+                                + " to "
+                                + appCompileSdk
+                                + " to match the app module.")
                 project.android {
-                    compileSdk 31
+                    compileSdk appCompileSdk
                 }
             }
         }

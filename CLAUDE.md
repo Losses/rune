@@ -1,5 +1,10 @@
 # Rune Player Development Guidelines
 
+## Dev Environment (Nix)
+- Enter with `nix develop`; Android cross-builds need `setup_android_env` first.
+- Rust and Flutter versions are pinned in `default.devshell.nix` (`rustVersion`, `flutterPkg`). Bump those two lines to upgrade; `nix flake update` alone will not move them.
+- Do NOT add the `rustup` package to the devshell. rinf's cargokit always builds through `rustup` (checking `$HOME/.cargo/bin` before PATH); the devshell ships a shim `rustup` that forwards to the Nix toolchain. If `$HOME/.cargo/bin/rustup` exists it will silently win — delete it.
+
 ## Build/Test/Lint Commands
 - Build: `flutter build` (platform-specific flags can be added)
 - Run: `flutter run` or `./scripts/macos_2_run.sh` (macOS)

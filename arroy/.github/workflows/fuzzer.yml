@@ -1,0 +1,26 @@
+name: Run the indexing fuzzer
+
+on:
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+
+jobs:
+  fuzz:
+    name: Setup the action
+    runs-on: ubuntu-latest
+    timeout-minutes: 60 
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      # Run fuzzer
+      - name: Run the fuzzer
+        run: |
+          cargo run --release --features assert-reader-validity --example fuzz $((60 * 5))
+

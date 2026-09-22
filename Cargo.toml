@@ -9,3 +9,6 @@ resolver = "2"
 
 [patch.crates-io]
 core-graphics = { path = "./core-graphics" }
+# Vendored to fix compilation for 32-bit x86 (i686-linux-android):
+# `use core::arch::x86_64::*` inside a cfg(any(x86, x86_64)) block.
+arroy = { path = "./arroy" }
