@@ -30,7 +30,7 @@ async fn main() {
         let descriptions: Vec<Option<FileDescription>> = files
             .clone()
             .into_iter()
-            .map(|fs_node| describe_file(&fs_node, &Some(root_path.to_path_buf())))
+            .map(|fs_node| describe_file(&fsio, &fs_node, &Some(root_path.to_path_buf())))
             .map(|result| result.ok())
             .collect();
 

@@ -175,6 +175,14 @@ impl FileIo for StdFsIo {
         })
     }
 
+    fn modified_time(&self, path: &Path) -> Result<u64, FileIoError> {
+        let modified = std::fs::metadata(path)?
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        Ok(modified.as_secs())
+    }
+
     async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError> {
         if !self.exists(path)? {
             if let Some(parent) = path.parent() {

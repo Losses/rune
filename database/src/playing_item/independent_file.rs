@@ -50,7 +50,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
             .into_iter()
             .filter_map(|(_, x)| {
                 let fs_node = fsio.canonicalize_str(&x).ok()?;
-                let file_desc = describe_file(&fs_node, &None).ok()?;
+                let file_desc = describe_file(fsio, &fs_node, &None).ok()?;
                 Some(file_desc.into())
             })
             .collect();

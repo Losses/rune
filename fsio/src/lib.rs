@@ -67,6 +67,8 @@ pub trait FileIo: Send + Sync {
     fn canonicalize_path_str(&self, path: &str) -> Result<PathBuf, FileIoError>;
     fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError>;
     fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError>;
+    /// Seconds since the UNIX epoch of the last modification.
+    fn modified_time(&self, path: &Path) -> Result<u64, FileIoError>;
     async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError>;
     async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError>;
 

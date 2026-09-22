@@ -173,4 +173,8 @@ impl FileIo for NoOpFsIo {
     async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError> {
         self.canonicalize(path)
     }
+
+    fn modified_time(&self, _path: &Path) -> Result<u64, FileIoError> {
+        Ok(0)
+    }
 }

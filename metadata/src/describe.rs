@@ -3,7 +3,6 @@ use std::{
     fmt,
     io::{BufReader, Read},
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
 };
 
 use anyhow::{Context, Result, bail};
@@ -97,7 +96,11 @@ pub fn get_codec_information_from_node(fsio: &FsIo, fs_node: &FsNode) -> Result<
 
 const CHUNK_SIZE: usize = 1024 * 400;
 
-pub fn describe_file(fs_node: &FsNode, lib_path: &Option<PathBuf>) -> Result<FileDescription> {
+pub fn describe_file(
+    fsio: &FsIo,
+    fs_node: &FsNode,
+    lib_path: &Option<PathBuf>,
+) -> Result<FileDescription> {
     let file_path = fs_node.path.clone();
 
     let rel_path: PathBuf = match lib_path {
@@ -125,9 +128,9 @@ pub fn describe_file(fs_node: &FsNode, lib_path: &Option<PathBuf>) -> Result<Fil
         .map(String::from)
         .unwrap_or_else(|| String::from(""));
 
-    // Get last modified time
-    let metadata = file_path.metadata()?;
-    let last_modified = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_secs();
+    // Get last modified time through the fs abstraction: on Android the
+    // tree-relative path does not exist on the local filesystem.
+    let last_modified = fsio.modified_time(&file_path)?;
     let last_modified = format!("{last_modified}");
 
     Ok(FileDescription {

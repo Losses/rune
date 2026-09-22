@@ -973,7 +973,7 @@ where
         let mut descriptions: Vec<Option<FileDescription>> = files
             .clone()
             .into_iter()
-            .map(|file| describe_file(&file, &Some(lib_path.to_path_buf())))
+            .map(|file| describe_file(fsio, &file, &Some(lib_path.to_path_buf())))
             .map(|result| result.ok())
             .collect();
 

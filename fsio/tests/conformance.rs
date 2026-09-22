@@ -171,6 +171,22 @@ async fn std_errors_on_missing_paths() {
     assert!(!fsio.exists(&missing).unwrap());
 }
 
+#[tokio::test]
+async fn std_modified_time_reports_real_mtime() {
+    let temp = tempfile::tempdir().unwrap();
+    let (fsio, root) = std_fsio_in(&temp);
+    let file = root.join("mtime.txt");
+
+    fsio.write(&file, b"x").await.unwrap();
+    let mtime = fsio.modified_time(&file).unwrap();
+    assert!(mtime > 0);
+
+    assert!(fsio.modified_time(&root.join("missing")).is_err());
+
+    let noop = FsIo::new_noop();
+    assert_eq!(noop.modified_time(Path::new("any")).unwrap(), 0);
+}
+
 // NoOpFsIo is the remote-mode stub: every operation succeeds and returns
 // empty values. These tests pin that contract.
 

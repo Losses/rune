@@ -560,6 +560,18 @@ impl FileIo for AndroidFsIo {
         })
     }
 
+    fn modified_time(&self, path: &Path) -> Result<u64, FileIoError> {
+        // fstat on the SAF fd goes through FUSE getattr and carries real mtime
+        let uri = self.get_uri(path)?;
+        let file = open_content_url(&uri, "r").map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let modified = file
+            .metadata()?
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        Ok(modified.as_secs())
+    }
+
     fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError> {
         if path.contains(':') {
             let file = from_tree_url(path).map_err(|e| FileIoError::Saf(e.to_string()))?;

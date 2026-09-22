@@ -88,12 +88,12 @@ pub static COVER_TEMP_DIR: Lazy<PathBuf> =
     Lazy::new(|| env::temp_dir().join("rune").join("cover_arts"));
 
 fn bake_cover_art_by_cover_arts(
-    fsio: &FsIo,
+    _fsio: &FsIo,
     cover_arts: Vec<media_cover_art::Model>,
 ) -> Result<HashMap<i32, String>> {
     let mut cover_art_id_to_path: HashMap<i32, String> = HashMap::new();
 
-    fsio.create_dir_all(&COVER_TEMP_DIR)?;
+    fs::create_dir_all(&*COVER_TEMP_DIR)?;
 
     for cover_art in cover_arts.iter() {
         let id: i32 = cover_art.id;

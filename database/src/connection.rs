@@ -1,4 +1,7 @@
-use std::{path::{Path, PathBuf}, str::FromStr};
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use anyhow::{Context, Result};
 use arroy::{
@@ -147,8 +150,7 @@ pub async fn create_redirect(fsio: &FsIo, lib_path: &str) -> Result<()> {
     }
 
     let redirect_file = rune_dir.join(".redirect");
-    fsio
-        .write_string(&redirect_file, &Uuid::new_v4().to_string())
+    fsio.write_string(&redirect_file, &Uuid::new_v4().to_string())
         .await?;
     Ok(())
 }
