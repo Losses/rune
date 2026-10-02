@@ -94,6 +94,8 @@ pkgs.mkShell {
   name = "Rune Development Shell";
 
   buildInputs = with pkgs; [
+    circleci-cli
+    gh
     rustupShim
     rustToolchain
     rinfCli
