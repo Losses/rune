@@ -57,6 +57,19 @@
   </screenshots>
 
   <releases>
+    <release version="2.0.0-alpha.11" date="2026-10-02">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Fix Apple App Store code signing configuration.</li>
+          <li>Update Android SAF dependency for improved stability.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Support additional audio codecs (Opus via libopus, AAC via fdk-aac).</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.10" date="2026-09-22">
       <description>
         <p>Bugs</p>
