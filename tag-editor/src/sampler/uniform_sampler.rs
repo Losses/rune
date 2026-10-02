@@ -94,7 +94,7 @@ impl UniformSampler {
         }
 
         let dec_opts: DecoderOptions = Default::default();
-        let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)?;
+        let mut decoder = fsio_media_source::get_codecs().make(&track.codec_params, &dec_opts)?;
 
         // Set up the resampler
         let resampler = FftFixedInOut::<f64>::new(

@@ -9,7 +9,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use fsio::{FileStream, FsIo};
 use log::{debug, error, info, warn};
-use rodio::{Decoder, PlayError, Sink, Source, source::SeekError};
+use rodio::{PlayError, Sink, Source, source::SeekError};
 use stream_download::{StreamDownload, storage::temp::TempStorageProvider};
 use tokio::{
     sync::mpsc,
@@ -18,6 +18,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use crate::buffered::{RuneBuffered, rune_buffered};
+use crate::decoder::RuneDecoder;
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::player::PlayingItem;
 use crate::realtime_fft::RealTimeFFT;
@@ -28,8 +29,8 @@ use crate::strategies::{
 };
 
 pub enum AnySource {
-    Local(RuneBuffered<Decoder<BufReader<Box<dyn FileStream>>>>),
-    Online(RuneBuffered<Decoder<StreamDownload<TempStorageProvider>>>),
+    Local(RuneBuffered<RuneDecoder<BufReader<Box<dyn FileStream>>>>),
+    Online(RuneBuffered<RuneDecoder<StreamDownload<TempStorageProvider>>>),
 }
 
 impl Debug for AnySource {
@@ -471,13 +472,17 @@ impl PlayerInternal {
                             let stream = fsio
                                 .open(&item.path, "r")
                                 .with_context(|| format!("Failed to open file: {:?}", item.path))?;
-                            let decoder = Decoder::new(BufReader::new(stream))?;
+                            let ext = std::path::Path::new(&item.path)
+                                .extension()
+                                .and_then(|e| e.to_str());
+                            let decoder = RuneDecoder::new(BufReader::new(stream), ext)?;
                             Ok(AnySource::Local(rune_buffered(decoder)))
                         }
                         PlayingItem::Online(url, _) => {
                             info!("Downloading from url: {url}");
+                            let ext = url.split('?').next().and_then(|u| u.rsplit('.').next());
                             let reader = crate::stream_utils::create_stream_from_url(url).await?;
-                            let decoder = Decoder::new(reader)?;
+                            let decoder = RuneDecoder::new(reader, ext)?;
                             Ok(AnySource::Online(rune_buffered(decoder)))
                         }
                         PlayingItem::Unknown => {

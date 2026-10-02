@@ -147,7 +147,7 @@ impl FFTProcessor {
         self.duration_in_seconds = duration_in_seconds;
 
         let dec_opts: DecoderOptions = Default::default();
-        let mut decoder = symphonia::default::get_codecs()
+        let mut decoder = fsio_media_source::get_codecs()
             .make(&track.codec_params, &dec_opts)
             .expect("unsupported codec");
 

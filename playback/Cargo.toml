@@ -46,6 +46,9 @@ simple_channel = { path = "../simple-channel" }
 url = "2.5.7"
 stream-download = "0.22.4"
 symphonia = { version = "0.5.4", features = ["all-codecs", "all-formats"] }
+symphonia-adapter-fdk-aac = "0.1.3"
+symphonia-adapter-libopus = "0.2.9"
+fsio_media_source = { path = "../fsio-media-source" }
 
 [target.'cfg(not(any(target_os = "android")))'.dependencies]
 souvlaki = { git = "https://github.com/Losses/souvlaki", rev = "e60e9b9a6a2774306718a0c561609083f1acc617", default-features = false, features = [

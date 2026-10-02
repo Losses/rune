@@ -2,18 +2,16 @@ use std::sync::{Arc, Mutex};
 
 use log::debug;
 
+use fsio_media_source::get_codecs;
 use rubato::{FftFixedInOut, Resampler};
 use rustfft::num_complex::Complex;
-use symphonia::{
-    core::{
-        audio::{AudioBuffer, AudioBufferRef, Signal},
-        codecs::{CODEC_TYPE_NULL, Decoder, DecoderOptions},
-        conv::IntoSample,
-        errors::Error,
-        formats::FormatReader,
-        sample::Sample,
-    },
-    default::get_codecs,
+use symphonia::core::{
+    audio::{AudioBuffer, AudioBufferRef, Signal},
+    codecs::{CODEC_TYPE_NULL, Decoder, DecoderOptions},
+    conv::IntoSample,
+    errors::Error,
+    formats::FormatReader,
+    sample::Sample,
 };
 use tokio_util::sync::CancellationToken;
 

@@ -104,7 +104,7 @@ impl IntervalSampler {
 
         // Initialize decoder with default options
         let dec_opts: DecoderOptions = Default::default();
-        let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)?;
+        let mut decoder = fsio_media_source::get_codecs().make(&track.codec_params, &dec_opts)?;
 
         // Process the audio stream using the format reader, decoder, and resampler
         self.process_audio_stream(&mut format, &mut decoder, track_id, sample_rate, duration)?;

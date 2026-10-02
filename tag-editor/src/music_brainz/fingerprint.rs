@@ -56,7 +56,7 @@ impl AudioReader {
 
         let dec_opts: DecoderOptions = Default::default();
 
-        let decoder = symphonia::default::get_codecs()
+        let decoder = fsio_media_source::get_codecs()
             .make(&track.codec_params, &dec_opts)
             .context("unsupported codec")?;
 
@@ -204,4 +204,57 @@ pub fn get_track_duration_in_secs(fingerprint: &[u32], config: &Configuration) -
     let item_duration = config.item_duration_in_seconds();
     let num_items = fingerprint.len();
     item_duration * num_items as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fingerprint_opus() {
+        let file_path = "/tmp/test_startup.opus";
+        if !Path::new(file_path).exists() {
+            return;
+        }
+        let fsio = FsIo::new();
+        let config = Configuration::default();
+        let result = calc_fingerprint(&fsio, file_path, &config);
+        assert!(
+            result.is_ok(),
+            "Failed to calculate fingerprint for opus: {:?}",
+            result.err()
+        );
+        let (raw, duration) = result.unwrap();
+        assert!(!raw.is_empty(), "Fingerprint should not be empty");
+        assert!(duration.as_secs_f32() > 0.0, "Duration should be positive");
+        println!(
+            "Opus fingerprint items: {}, duration: {:?}",
+            raw.len(),
+            duration
+        );
+    }
+
+    #[test]
+    fn test_fingerprint_aac() {
+        let file_path = "/tmp/test_startup.m4a";
+        if !Path::new(file_path).exists() {
+            return;
+        }
+        let fsio = FsIo::new();
+        let config = Configuration::default();
+        let result = calc_fingerprint(&fsio, file_path, &config);
+        assert!(
+            result.is_ok(),
+            "Failed to calculate fingerprint for aac: {:?}",
+            result.err()
+        );
+        let (raw, duration) = result.unwrap();
+        assert!(!raw.is_empty(), "Fingerprint should not be empty");
+        assert!(duration.as_secs_f32() > 0.0, "Duration should be positive");
+        println!(
+            "AAC fingerprint items: {}, duration: {:?}",
+            raw.len(),
+            duration
+        );
+    }
 }

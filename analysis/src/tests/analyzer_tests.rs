@@ -151,4 +151,44 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_analyze_opus() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+        let file_path = "/tmp/test_startup.opus";
+        if !std::path::Path::new(file_path).exists() {
+            return;
+        }
+        let fsio = FsIo::new();
+        let mut analyzer = Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None);
+        let result = analyzer.process(&fsio, file_path);
+        assert!(result.is_some(), "Opus analysis should succeed");
+        let desc = result.unwrap();
+        assert!(desc.total_samples > 0);
+        assert_eq!(desc.sample_rate, 48000);
+        info!(
+            "Opus analysis result: sample_rate={}, duration={}, total_samples={}",
+            desc.sample_rate, desc.duration, desc.total_samples
+        );
+    }
+
+    #[test]
+    fn test_analyze_aac() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+        let file_path = "/tmp/test_startup.m4a";
+        if !std::path::Path::new(file_path).exists() {
+            return;
+        }
+        let fsio = FsIo::new();
+        let mut analyzer = Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None);
+        let result = analyzer.process(&fsio, file_path);
+        assert!(result.is_some(), "AAC analysis should succeed");
+        let desc = result.unwrap();
+        assert!(desc.total_samples > 0);
+        assert_eq!(desc.sample_rate, 44100);
+        info!(
+            "AAC analysis result: sample_rate={}, duration={}, total_samples={}",
+            desc.sample_rate, desc.duration, desc.total_samples
+        );
+    }
 }
