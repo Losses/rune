@@ -145,7 +145,6 @@ pkgs.mkShell {
     NIX_CXXFLAGS = "-I${sysrootPath}/usr/include/c++/v1";
     NIX_BINDGEN_EXTRA_CLANG_ARGS = "--sysroot=${sysrootPath}";
     NIX_RUSTFLAGS = "-Clink-arg=--sysroot=${sysrootPath}";
-    NIX_CMAKE_TOOLCHAIN_FILE = cmakeToolchainFile;
     NIX_TOOLCHAIN_BIN_PATH = toolchainBinPath;
     NIX_ANDROID_SDK = androidSdk;
     NIX_PINNED_JDK = pinnedJDK;

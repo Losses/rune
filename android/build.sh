@@ -39,7 +39,7 @@ if [[ "${NIX_NIX_DEV_SHELL}" = "true" ]]; then
     export CXXFLAGS="-I$WORK_DIR/compat $NIX_CXXFLAGS"
     export BINDGEN_EXTRA_CLANG_ARGS=$NIX_BINDGEN_EXTRA_CLANG_ARGS
     export RUSTFLAGS=$NIX_RUSTFLAGS
-    export CMAKE_TOOLCHAIN_FILE=$NIX_CMAKE_TOOLCHAIN_FILE
+    unset CMAKE_TOOLCHAIN_FILE
     export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=$NIX_ANDROID_SDK/share/android-sdk/build-tools/34.0.0/aapt2"
     export PATH=$NIX_TOOLCHAIN_BIN_PATH:$NIX_ANDROID_SDK/share/android-sdk/platform-tools:$NIX_ANDROID_SDK/share/android-sdk/tools:$NIX_ANDROID_SDK/share/android-sdk/tools/bin:$PATH
     export _JAVA_OPTIONS="-Dorg.gradle.projectcachedir=$(mktemp -d)"
@@ -65,6 +65,7 @@ if [[ "$CFLAGS" != *"-I$WORK_DIR/compat"* ]]; then
     export CFLAGS="-I$WORK_DIR/compat $CFLAGS"
     export CXXFLAGS="-I$WORK_DIR/compat $CXXFLAGS"
 fi
+unset CMAKE_TOOLCHAIN_FILE
 
 # Print env variables for debugging purpose
 echo "=== General Environment Setup ==="
