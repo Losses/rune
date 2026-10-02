@@ -189,8 +189,8 @@ pkgs.mkShell {
       export _NATIVE_PATH=$PATH
       export ANDROID_NDK_ROOT="${ndkRoot}"
       export ANDROID_NDK_PATH="${ndkRoot}"
-      export CMAKE_TOOLCHAIN_FILE="${cmakeToolchainFile}"
-      export CFLAGS="-I${sysrootPath}/usr/include"
+      export CFLAGS="-I$PWD/android/compat -I${sysrootPath}/usr/include"
+      export CXXFLAGS="-I$PWD/android/compat -I${sysrootPath}/usr/include/c++/v1"
       export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=${sysrootPath}"
       export RUSTFLAGS="-Clink-arg=--sysroot=${sysrootPath}"
       export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${aapt2Path}"

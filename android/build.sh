@@ -35,8 +35,8 @@ export X86_64_LINUX_ANDROID_OPENSSL_DIR="$WORK_DIR/openssl/x86_64"
 
 if [[ "${NIX_NIX_DEV_SHELL}" = "true" ]]; then
     export ANDROID_NDK_ROOT=$NIX_ANDROID_NDK_ROOT
-    export CFLAGS=$NIX_CFLAGS
-    export CXXFLAGS=$NIX_CXXFLAGS
+    export CFLAGS="-I$WORK_DIR/compat $NIX_CFLAGS"
+    export CXXFLAGS="-I$WORK_DIR/compat $NIX_CXXFLAGS"
     export BINDGEN_EXTRA_CLANG_ARGS=$NIX_BINDGEN_EXTRA_CLANG_ARGS
     export RUSTFLAGS=$NIX_RUSTFLAGS
     export CMAKE_TOOLCHAIN_FILE=$NIX_CMAKE_TOOLCHAIN_FILE
@@ -59,6 +59,11 @@ if [[ "${NIX_NIX_DEV_SHELL}" = "true" ]]; then
 
     flutter config --jdk-dir $NIX_PINNED_JDK
     echo "=================="
+fi
+
+if [[ "$CFLAGS" != *"-I$WORK_DIR/compat"* ]]; then
+    export CFLAGS="-I$WORK_DIR/compat $CFLAGS"
+    export CXXFLAGS="-I$WORK_DIR/compat $CXXFLAGS"
 fi
 
 # Print env variables for debugging purpose
