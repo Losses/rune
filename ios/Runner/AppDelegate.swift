@@ -14,7 +14,7 @@ func initAudioSession() {
 }
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate, @preconcurrency FlutterImplicitEngineDelegate {
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -23,6 +23,8 @@ func initAudioSession() {
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
+  // Flutter invokes this delegate on the main thread, but its protocol is not actor-annotated.
+  @MainActor
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
@@ -37,6 +39,7 @@ func initAudioSession() {
   }
 }
 
+@MainActor
 class FileSelector: NSObject, UIDocumentPickerDelegate {
   static let shared = FileSelector()
 

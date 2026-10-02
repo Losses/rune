@@ -64,7 +64,7 @@ fn build_apple_bridge() -> Result<()> {
         "-emit-library",
         "-static",
         "-swift-version",
-        "5",
+        "6",
         "-module-name",
         "apple_bridge_library",
         "-target",
