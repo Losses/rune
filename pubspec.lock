@@ -381,10 +381,10 @@ packages:
     dependency: transitive
     description:
       name: file_selector_ios
-      sha256: fe9f52123af16bba4ad65bd7e03defbbb4b172a38a8e6aaa2a869a0c56a5f5fb
+      sha256: "97269e5307a0ab813b1fa2430bada0a96e0afb74848417f8676f64ba5de0051c"
       url: "https://pub.dev"
     source: hosted
-    version: "0.5.3+2"
+    version: "0.5.3+6"
   file_selector_linux:
     dependency: transitive
     description:
@@ -1282,10 +1282,10 @@ packages:
     dependency: transitive
     description:
       name: url_launcher_ios
-      sha256: d80b3f567a617cb923546034cc94bfe44eb15f989fe670b37f26abdb9d939cb7
+      sha256: "8faa1aab294f1ab4040b43660c887b0418d5fa4f0cffef76a484e6aa1092eb4a"
       url: "https://pub.dev"
     source: hosted
-    version: "6.3.4"
+    version: "6.4.2"
   url_launcher_linux:
     dependency: transitive
     description:
@@ -1472,4 +1472,4 @@ packages:
     version: "3.1.3"
 sdks:
   dart: ">=3.11.0-0 <4.0.0"
-  flutter: ">=3.29.0"
+  flutter: ">=3.38.0"

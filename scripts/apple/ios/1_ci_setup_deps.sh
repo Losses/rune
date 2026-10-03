@@ -2,7 +2,7 @@
 
 set -e
 
-sudo xcode-select -s /Applications/Xcode_16.4.app
+sudo xcode-select -s /Applications/Xcode_27.0.app
 
 cd "$(dirname "$0")"
 cd ../../..
@@ -16,7 +16,7 @@ if ! command -v rustup >/dev/null 2>&1; then
 fi
 rustup default stable || true
 rustup target add aarch64-apple-ios x86_64-apple-ios aarch64-apple-ios-sim || true
-cargo install rinf_cli || true
+cargo install rinf_cli --version 8.7.1 --locked
 
 # Flutter
 if ! command -v flutter >/dev/null 2>&1; then
