@@ -70,18 +70,38 @@ if (-not $SkipRustBuild) {
 
 # Step 4: Ensure Flutter dependencies & patch cargokit.cmake
 Write-Host "`n[4/5] Preparing Flutter and Patching CargoKit..." -ForegroundColor Yellow
-flutter pub get
+
+# Flutter's first run in CI can hang during toolchain init (analytics ping +
+# SDK cache validation) BEFORE pub resolution even starts. Suppress analytics
+# and warm up with `flutter --version` first so a broken SDK fails fast and
+# the hang is isolated to a named sub-step.
+$env:FLUTTER_SUPPRESS_ANALYTICS = "true"
+$env:FLUTTER_DISABLE_ANALYTICS = "true"
+$env:CI = "true"
+
+Write-Host "  -> [4a] Warming up Flutter toolchain (flutter --version)..." -ForegroundColor Cyan
+flutter --suppress-analytics --version
+if ($LASTEXITCODE -ne 0) {
+    throw "flutter --version failed with exit code $LASTEXITCODE (Flutter SDK broken or not on PATH)"
+}
+Write-Host "  -> [4a] Flutter toolchain warm-up finished." -ForegroundColor Green
+
+Write-Host "  -> [4b] flutter pub get (network; cold cache can take minutes)..." -ForegroundColor Cyan
+flutter --suppress-analytics pub get --verbose
 if ($LASTEXITCODE -ne 0) {
     throw "flutter pub get failed with exit code $LASTEXITCODE"
 }
+Write-Host "  -> [4b] flutter pub get finished." -ForegroundColor Green
 
 # Generate Dart bindings from Rust structs (lib/bindings/bindings.dart).
 # rinf's cargokit build_tool only runs `cargo build`, so the Dart codegen is a
 # separate explicit step here (same `rinf gen` call used by the other workflows).
+Write-Host "  -> [4c] rinf gen (local codegen; no cargo/network)..." -ForegroundColor Cyan
 rinf gen
 if ($LASTEXITCODE -ne 0) {
     throw "rinf gen failed with exit code $LASTEXITCODE"
 }
+Write-Host "  -> [4c] rinf gen finished." -ForegroundColor Green
 
 # Locate cargokit.cmake in ephemeral plugin symlinks
 $CargokitCmake = Join-Path $ProjectRoot "windows\flutter\ephemeral\.plugin_symlinks\rinf\cargokit\cmake\cargokit.cmake"
