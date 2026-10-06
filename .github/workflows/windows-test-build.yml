@@ -40,6 +40,7 @@ jobs:
     needs: select-archs
     name: Build Windows (${{ matrix.arch }})
     runs-on: windows-latest
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select-archs.outputs.matrix) }}
@@ -47,6 +48,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Test Windows command monitor
+        shell: pwsh
+        timeout-minutes: 3
+        run: ./scripts/test_windows_monitor.ps1
 
       # 1. Install nova-nix (Native Windows Nix engine)
       - name: Setup nova-nix
@@ -224,6 +230,8 @@ jobs:
 
       # 9. Run One-Click Windows Build (MSVC + CargoKit Shim + Runner + Inno Setup)
       - name: Run Windows One-Click Build
+        # Stage maxima total 125 minutes; leave cleanup and artifact upload room.
+        timeout-minutes: 135
         shell: pwsh
         run: |
           if ("${{ matrix.arch }}" -eq "arm64") {
@@ -232,6 +240,18 @@ jobs:
           } else {
             .\scripts\windows_build.ps1 -Arch ${{ matrix.arch }} -BuildInstaller
           }
+
+      - name: Upload Windows diagnostics and Cargo timings
+        if: always()
+        timeout-minutes: 10
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-diagnostics-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: |
+            build/diagnostics/
+            target/cargo-timings/
+            target/**/cargo-timings/
+          if-no-files-found: warn
 
       # 10. Upload ARM64 hub.dll (cross-compiled Rust core; Flutter runner is x64-only)
       - name: Upload ARM64 hub.dll

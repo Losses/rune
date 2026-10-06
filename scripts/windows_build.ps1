@@ -23,6 +23,9 @@ param(
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $ProjectRoot = Resolve-Path "$ScriptDir\.."
+. "$ScriptDir\windows_monitor.ps1"
+$Diagnostics = Join-Path $ProjectRoot "build\diagnostics\$Arch"
+$Monitor = @{ DiagnosticDirectory = $Diagnostics }
 
 Set-Location $ProjectRoot
 Write-Host "==========================================================" -ForegroundColor Cyan
@@ -52,14 +55,9 @@ $HubLib = Join-Path $ProjectRoot "$TargetDir\hub.dll.lib"
 
 if (-not $SkipRustBuild) {
     Write-Host "`n[3/5] Compiling Rust Core (hub.dll for $RustTarget)..." -ForegroundColor Yellow
-    if ($Arch -eq "arm64") {
-        cargo build --release --target $RustTarget -p hub
-    } else {
-        cargo build --release -p hub
-    }
-    if ($LASTEXITCODE -ne 0) {
-        throw "cargo build failed with exit code $LASTEXITCODE (see compiler output above)"
-    }
+    $CargoArguments = @("build", "--release", "-p", "hub", "-vv", "--timings")
+    if ($Arch -eq "arm64") { $CargoArguments += @("--target", $RustTarget) }
+    Invoke-MonitoredCommand @Monitor -Stage "3-cargo" -FilePath cargo -ArgumentList $CargoArguments -TimeoutSeconds 2700
     if (-not (Test-Path $HubDll)) {
         throw "Failed to produce hub.dll at $HubDll"
     }
@@ -80,27 +78,19 @@ $env:FLUTTER_DISABLE_ANALYTICS = "true"
 $env:CI = "true"
 
 Write-Host "  -> [4a] Warming up Flutter toolchain (flutter --version)..." -ForegroundColor Cyan
-flutter --suppress-analytics --version
-if ($LASTEXITCODE -ne 0) {
-    throw "flutter --version failed with exit code $LASTEXITCODE (Flutter SDK broken or not on PATH)"
-}
+Write-FlutterPreflight -DiagnosticDirectory $Diagnostics
+Invoke-MonitoredCommand @Monitor -Stage "4a-flutter-version" -FilePath flutter -ArgumentList @("--suppress-analytics", "--version") -TimeoutSeconds 600
 Write-Host "  -> [4a] Flutter toolchain warm-up finished." -ForegroundColor Green
 
 Write-Host "  -> [4b] flutter pub get (network; cold cache can take minutes)..." -ForegroundColor Cyan
-flutter --suppress-analytics pub get --verbose
-if ($LASTEXITCODE -ne 0) {
-    throw "flutter pub get failed with exit code $LASTEXITCODE"
-}
+Invoke-MonitoredCommand @Monitor -Stage "4b-pub-get" -FilePath flutter -ArgumentList @("--suppress-analytics", "pub", "get", "--verbose") -TimeoutSeconds 900
 Write-Host "  -> [4b] flutter pub get finished." -ForegroundColor Green
 
 # Generate Dart bindings from Rust structs (lib/bindings/bindings.dart).
 # rinf's cargokit build_tool only runs `cargo build`, so the Dart codegen is a
 # separate explicit step here (same `rinf gen` call used by the other workflows).
 Write-Host "  -> [4c] rinf gen (local codegen; no cargo/network)..." -ForegroundColor Cyan
-rinf gen
-if ($LASTEXITCODE -ne 0) {
-    throw "rinf gen failed with exit code $LASTEXITCODE"
-}
+Invoke-MonitoredCommand @Monitor -Stage "4c-rinf-gen" -FilePath rinf -ArgumentList @("gen") -TimeoutSeconds 600
 Write-Host "  -> [4c] rinf gen finished." -ForegroundColor Green
 
 # Locate cargokit.cmake in ephemeral plugin symlinks
@@ -136,10 +126,7 @@ if (-not $SkipFlutterBuild) {
         Write-Host "  Build the ARM64 runner on a Windows ARM64 host: flutter build windows --release" -ForegroundColor Cyan
     } else {
         Write-Host "`n[5/5] Building Flutter Windows Application (MSVC - $Arch)..." -ForegroundColor Yellow
-        flutter build windows --release
-        if ($LASTEXITCODE -ne 0) {
-            throw "flutter build windows failed with exit code $LASTEXITCODE"
-        }
+        Invoke-MonitoredCommand @Monitor -Stage "5-flutter-build" -FilePath flutter -ArgumentList @("build", "windows", "--release") -TimeoutSeconds 2700
         
         # Ensure hub.dll is placed in release directory alongside rune.exe
         Copy-Item -Path $HubDll -Destination $OutputDir -Force
