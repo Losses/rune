@@ -135,7 +135,9 @@ jobs:
           # Build Rust toolchain (x64 host; the aarch64 MSI cannot run on x64).
           # The package IS the fetchurl store path — the verified MSI file
           # itself.  msiexec /a runs here (outside the sandbox), so it can
-          # open the store-path MSI file directly.
+          # open the store-path MSI file directly.  The standalone MSI ships
+          # rustc/cargo/etc. but NOT rustup.exe; locate cargo.exe to find the
+          # toolchain root (the shims intercept CargoKit's rustup calls).
           Set-Content -Path ".\rust-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).rust.package"
           $msiPath = Get-NixStorePath -AttrFile ".\rust-attr.nix" -Label "Rust"
           $rustOut = "$env:RUNNER_TEMP\rust-extract"
@@ -146,45 +148,37 @@ jobs:
           Write-Host "Rust MSI extracted to: $rustOut"
           Write-Host "=== MSI extraction layout (depth 3) ==="
           Get-ChildItem -Recurse -Depth 3 "$rustOut" | ForEach-Object { Write-Host $_.FullName }
-          $rustupExe = Get-ChildItem -Recurse -Path "$rustOut" -Filter "rustup.exe" | Select-Object -First 1
-          if (-not $rustupExe) { throw "rustup.exe not found under $rustOut after MSI extraction" }
-          $rustBin = $rustupExe.Directory.FullName
+          $cargoExe = Get-ChildItem -Recurse -Path "$rustOut" -Filter "cargo.exe" | Select-Object -First 1
+          if (-not $cargoExe) { throw "cargo.exe not found under $rustOut after MSI extraction" }
+          $rustBin = $cargoExe.Directory.FullName
           $rustRoot = Split-Path -Parent $rustBin
           Write-Host "Rust toolchain root: $rustRoot"
           Write-Host "Rust bin dir: $rustBin"
           $env:PATH = "$rustBin;" + $env:PATH
 
-          # Link the nova-nix toolchain so rustup can add cross-compile targets.
-          & "$rustupExe" toolchain link nova-nix "$rustRoot"
-          & "$rustupExe" default nova-nix
-
-          # ARM64 cross-compile: rustup needs to write the aarch64 std library
-          # into the toolchain directory.  The msiexec extraction target is
-          # already writable (RUNNER_TEMP), but we still copy to a fresh
-          # directory so the x64 path stays pristine.
+          # ARM64 cross-compile: the x64 MSI ships only the x86_64 std.  Fetch
+          # the aarch64 std component tarball (same pinned 1.99.0) and drop its
+          # lib/rustlib/aarch64-pc-windows-msvc into the toolchain so that
+          # `cargo build --target aarch64-pc-windows-msvc` finds its rlibs.
           if ("${{ matrix.arch }}" -eq "arm64") {
-            Write-Host "Copying Rust toolchain for cross-compile target install..."
-            $oldBin = $rustBin
-            $oldRoot = $rustRoot
-            $rustOut = "$env:RUNNER_TEMP\nova-nix-rust"
-            New-Item -ItemType Directory -Force -Path "$rustOut" | Out-Null
-            Copy-Item -Recurse -Force "$oldRoot\*" "$rustOut\"
-            $newRustup = Get-ChildItem -Recurse -Path "$rustOut" -Filter "rustup.exe" | Select-Object -First 1
-            if (-not $newRustup) { throw "rustup.exe not found under copied $rustOut" }
-            $rustBin = $newRustup.Directory.FullName
-            $rustRoot = Split-Path -Parent $rustBin
-            $env:PATH = ($env:PATH -replace [regex]::Escape($oldBin), $rustBin)
-            & "$newRustup" toolchain link nova-nix "$rustRoot"
-            & "$newRustup" default nova-nix
-            Write-Host "Adding aarch64-pc-windows-msvc cross-compile target..."
-            & "$newRustup" target add aarch64-pc-windows-msvc
-            if ($LASTEXITCODE -ne 0) { throw "rustup target add aarch64-pc-windows-msvc failed" }
-            Write-Host "Rust toolchain ready at: $rustOut"
+            Write-Host "Fetching aarch64-pc-windows-msvc std for cross-compile..."
+            $stdArchive = "$env:RUNNER_TEMP\rust-std-aarch64.tar.xz"
+            $stdExtract = "$env:RUNNER_TEMP\rust-std-aarch64"
+            Invoke-WebRequest -Uri "https://static.rust-lang.org/dist/rust-std-1.99.0-aarch64-pc-windows-msvc.tar.xz" -OutFile $stdArchive
+            New-Item -ItemType Directory -Force -Path "$stdExtract" | Out-Null
+            tar.exe -xf $stdArchive -C "$stdExtract"
+            if ($LASTEXITCODE -ne 0) { throw "tar.exe failed to extract aarch64 std tarball" }
+            $stdTarget = Get-ChildItem -Recurse -Path "$stdExtract" -Directory -Filter "aarch64-pc-windows-msvc" | Select-Object -First 1
+            if (-not $stdTarget) { throw "aarch64-pc-windows-msvc dir not found in std tarball" }
+            $destDir = "$rustRoot\lib\rustlib\aarch64-pc-windows-msvc"
+            New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+            Copy-Item -Recurse -Force "$($stdTarget.FullName)\*" "$destDir\"
+            Write-Host "Installed aarch64 std to: $destDir"
           }
 
-          # Publish the final Rust bin dir for downstream steps (store for x64,
-          # writable temp copy for arm64) - exactly one entry, so cargo resolves
-          # to the toolchain that has the aarch64 std on arm64.
+          # Publish the final Rust bin dir for downstream steps - exactly one
+          # entry, so cargo resolves to the extracted toolchain (which now has
+          # the aarch64 std on arm64).
           Add-Content $env:GITHUB_PATH "$rustBin"
 
           # Build Flutter SDK (architecture-independent zip shared by both arches)
