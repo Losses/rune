@@ -133,11 +133,11 @@ jobs:
           Add-Content $env:GITHUB_PATH "$ninjaOut"
 
           # Build Rust toolchain (x64 host; the aarch64 MSI cannot run on x64).
-          # The derivation only stages the MSI (fetchurl -> copy); msiexec /a
-          # cannot run inside nova-nix's build sandbox (exit 1619).
+          # The package IS the fetchurl store path — the verified MSI file
+          # itself.  msiexec /a runs here (outside the sandbox), so it can
+          # open the store-path MSI file directly.
           Set-Content -Path ".\rust-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).rust.package"
-          $rustStorePath = Get-NixStorePath -AttrFile ".\rust-attr.nix" -Label "Rust"
-          $msiPath = "$rustStorePath\rust.msi"
+          $msiPath = Get-NixStorePath -AttrFile ".\rust-attr.nix" -Label "Rust"
           $rustOut = "$env:RUNNER_TEMP\rust-extract"
           New-Item -ItemType Directory -Force -Path "$rustOut" | Out-Null
           Write-Host "Extracting Rust MSI from: $msiPath"
