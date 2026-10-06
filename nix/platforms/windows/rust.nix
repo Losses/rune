@@ -50,18 +50,14 @@ let
   # /E sinks rust-std-<target>/* into rustc/), reproducing the flat
   # layout that rustup's install.sh creates.  Without this merge rustc
   # cannot find its target std rlibs.
+  # Proven single-line cmd.exe pattern (matching tools.nix & flutter.nix):
+  # && chaining avoids multi-line issues; no quotes around env vars
+  # (store paths have no spaces).
   package = derivation {
     name = "rust-${target}-${version}";
     system = system;
     builder = "cmd.exe";
-    args = [
-      "/c"
-      ''
-        mkdir "%out%"
-        tar.exe -xf "%src%" --strip-components=1 -C "%out%"
-        xcopy /E /I /Y "%out%\rust-std-${target}" "%out%\rustc"
-      ''
-    ];
+    args = [ "/c" "mkdir %out% && tar.exe -xf %src% --strip-components=1 -C %out% && xcopy /E /I /Y %out%\\rust-std-${target} %out%\\rustc" ];
     src = rustArchive;
     PATH = "C:\\Windows\\System32";
   };
