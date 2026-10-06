@@ -38,10 +38,20 @@ $RustTarget = if ($Arch -eq "arm64") { "aarch64-pc-windows-msvc" } else { "x86_6
 Write-Host "`n[2/5] Injecting CargoKit Interception Shims (Target: $RustTarget)..." -ForegroundColor Yellow
 $ShimDir = Join-Path $ProjectRoot "nix\platforms\windows\shims"
 $env:PATH = "$ShimDir;$env:PATH"
+# Cargo treats CARGO_BUILD_TARGET exactly like --target, so artifacts for BOTH
+# architectures land under target/<triple>/release (never under plain target/release).
 $env:CARGO_BUILD_TARGET = $RustTarget
+if ($Arch -eq "arm64") {
+    # fdk-aac-sys 0.5.0's FDK_archdef.h recognizes __aarch64__ and _M_ARM but not MSVC's
+    # _M_ARM64, so the ARM64 build falls into its "unknown platform" #warning branch.
+    # MSVC 14.51 (VS 18) makes #warning a fatal error C1188 unless /std:c++23preview or
+    # later is selected (CWG 2518 / C++23 conformance). cc-rs honors this per-target var.
+    $env:CXXFLAGS_aarch64_pc_windows_msvc = "/std:c++23preview"
+}
 
 # Step 3: Build Rust Hub (hub.dll + hub.dll.lib)
-$TargetDir = if ($Arch -eq "arm64") { "target\$RustTarget\release" } else { "target\release" }
+# CARGO_BUILD_TARGET is set for both arches, so the target subdirectory is always used.
+$TargetDir = "target\$RustTarget\release"
 $HubDll = Join-Path $ProjectRoot "$TargetDir\hub.dll"
 $HubLib = Join-Path $ProjectRoot "$TargetDir\hub.dll.lib"
 
@@ -51,6 +61,9 @@ if (-not $SkipRustBuild) {
         cargo build --release --target $RustTarget -p hub
     } else {
         cargo build --release -p hub
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "cargo build failed with exit code $LASTEXITCODE (see compiler output above)"
     }
     if (-not (Test-Path $HubDll)) {
         throw "Failed to produce hub.dll at $HubDll"
