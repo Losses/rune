@@ -48,7 +48,7 @@ in rec {
   binPath = "${package}/flutter/bin";
 
   # Flags to pass to flutter build windows
-  buildFlag = if arch == "arm64" then "--arm64" else "";
+  buildFlag = ""; # Flutter 'build windows' targets the host arch only; --arm64 is not a valid flag
 
   env = {
     PUB_CACHE = "$env:LOCALAPPDATA\\Pub\\Cache";
