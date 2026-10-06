@@ -14,20 +14,35 @@ on:
           - 'arm64'
 
 jobs:
+  # Resolve the dispatch input into a concrete build matrix so that an
+  # unselected architecture never creates a job at all (instead of a job that
+  # skips every step and reports a misleading green checkmark).
+  select-archs:
+    name: Select target architectures
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Compute build matrix
+        id: set-matrix
+        env:
+          ARCH: ${{ github.event.inputs.arch }}
+        run: |
+          x64='{"arch":"x64","system":"x86_64-windows","rust_target":"x86_64-pc-windows-msvc"}'
+          arm64='{"arch":"arm64","system":"aarch64-windows","rust_target":"aarch64-pc-windows-msvc"}'
+          case "$ARCH" in
+            both)  echo "matrix={\"include\":[$x64,$arm64]}" >> "$GITHUB_OUTPUT" ;;
+            x64)   echo "matrix={\"include\":[$x64]}" >> "$GITHUB_OUTPUT" ;;
+            arm64) echo "matrix={\"include\":[$arm64]}" >> "$GITHUB_OUTPUT" ;;
+          esac
+
   build-windows:
+    needs: select-archs
     name: Build Windows (${{ matrix.arch }})
     runs-on: windows-latest
-    if: github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - arch: 'x64'
-            system: 'x86_64-windows'
-            rust_target: 'x86_64-pc-windows-msvc'
-          - arch: 'arm64'
-            system: 'aarch64-windows'
-            rust_target: 'aarch64-pc-windows-msvc'
+      matrix: ${{ fromJSON(needs.select-archs.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
