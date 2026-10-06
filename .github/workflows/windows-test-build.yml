@@ -140,7 +140,7 @@ jobs:
       # 9. Install Rinf CLI
       - name: Install Rinf CLI
         run: |
-          cargo install rinf_cli --version 8.7.2 --locked
+          cargo install rinf_cli --version 8.7.2 --locked --force
 
       # 10. Run One-Click Windows Build (MSVC + CargoKit Shim + Runner + Inno Setup)
       - name: Run Windows One-Click Build
