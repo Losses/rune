@@ -1,9 +1,11 @@
-# Flutter SDK for Windows
+# Flutter SDK for Windows (supports x64 and arm64 targets)
 #
 # Fetches the official portable Windows archive and unpacks it into the store.
 
 { fetchurl ? (import <nix/fetchurl.nix>)
 , version ? "3.27.1"
+, system ? "x86_64-windows"
+, arch ? (if system == "aarch64-windows" then "arm64" else "x64")
 }:
 
 let
@@ -13,16 +15,19 @@ let
   };
 
   package = derivation {
-    name = "flutter-windows-${version}";
-    system = "x86_64-windows";
+    name = "flutter-windows-${arch}-${version}";
+    system = system;
     builder = "builtin:unpack";
     srcs = [ flutterArchive ];
   };
 
 in rec {
-  inherit version package;
+  inherit version arch package;
 
   binPath = "${package}/bin";
+
+  # Flags to pass to flutter build windows
+  buildFlag = if arch == "arm64" then "--arm64" else "";
 
   env = {
     PUB_CACHE = "$env:LOCALAPPDATA\\Pub\\Cache";

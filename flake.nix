@@ -25,11 +25,12 @@
 
   outputs = { self, nixpkgs, master-nixpkgs, rust-overlay, flake-utils, flake-compat, android-nixpkgs, ... }@inputs:
     let
-      supportedSystems = flake-utils.lib.defaultSystems ++ [ "x86_64-windows" ];
+      supportedSystems = flake-utils.lib.defaultSystems ++ [ "x86_64-windows" "aarch64-windows" ];
 
       platformAdapters = {
-        "x86_64-windows" = import ./nix/platforms/windows;
-        default = import ./nix/platforms/posix.nix;
+        "x86_64-windows"  = import ./nix/platforms/windows;
+        "aarch64-windows" = import ./nix/platforms/windows;
+        default           = import ./nix/platforms/posix.nix;
       };
 
       getAdapter = system:

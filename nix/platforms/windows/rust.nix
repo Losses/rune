@@ -1,31 +1,32 @@
-# Official Rust Toolchain targeting x86_64-pc-windows-msvc
+# Official Rust Toolchain targeting Windows (x86_64 or aarch64 MSVC)
 #
-# Fetched directly as a store path to ensure pure, reproducible builds
-# without requiring ambient rustup or administrator permissions.
+# Supports:
+# - x86_64-pc-windows-msvc (x64)
+# - aarch64-pc-windows-msvc (Windows on ARM)
 
 { fetchurl ? (import <nix/fetchurl.nix>)
 , version ? "1.98.1"
+, system ? "x86_64-windows"
+, arch ? (if system == "aarch64-windows" then "arm64" else "x64")
 }:
 
 let
-  target = "x86_64-pc-windows-msvc";
+  target = if arch == "arm64" then "aarch64-pc-windows-msvc" else "x86_64-pc-windows-msvc";
 
-  # Rust toolchain archive from rust-lang static CDN
   rustArchive = fetchurl {
     url = "https://static.rust-lang.org/dist/rust-${version}-${target}.tar.zst";
-    # Fallback to .tar.gz / .zip if needed depending on CDN format
     sha256 = "0000000000000000000000000000000000000000000000000000000000000000";
   };
 
   package = derivation {
     name = "rust-${version}-${target}";
-    system = "x86_64-windows";
+    system = system;
     builder = "builtin:unpack";
     srcs = [ rustArchive ];
   };
 
 in rec {
-  inherit version target package;
+  inherit version target arch package;
 
   binPath = "${package}/bin";
 

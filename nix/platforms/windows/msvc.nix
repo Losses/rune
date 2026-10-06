@@ -1,4 +1,5 @@
 # Portable MSVC and Windows SDK toolchain for Windows-native Nix / nova-nix.
+# Supports both x86_64 (x64) and Windows on ARM (arm64).
 #
 # Unlike the official Visual Studio Installer, this derivation avoids machine-level
 # registry writes and administrative elevation, using portable file layouts (similar
@@ -12,31 +13,25 @@
 { lib ? null
 , fetchurl ? (import <nix/fetchurl.nix>)
 , customMsvcRoot ? null
+, system ? "x86_64-windows"
+, arch ? (if system == "aarch64-windows" then "arm64" else "x64")
+, hostArch ? "x64"
 }:
 
 let
-  # Default release of pre-extracted portable-msvc bundle (VCTools + WinSDK)
-  # Can be overridden or substituted via binary cache / nova-cache.
   version = "17.10";
   sdkVersion = "10.0.22621.0";
 
   # Store package for portable MSVC (when built in pure Nix store)
   msvcPackage = derivation {
-    name = "portable-msvc-${version}";
-    system = "x86_64-windows";
+    name = "portable-msvc-${arch}-${version}";
+    system = system;
     builder = "builtin:unpack";
 
-    # The archive should contain:
-    #   VC/Tools/MSVC/<version>/bin/Hostx64/x64/...
-    #   VC/Tools/MSVC/<version>/include/...
-    #   VC/Tools/MSVC/<version>/lib/x64/...
-    #   Windows Kits/10/Include/<sdkVersion>/...
-    #   Windows Kits/10/Lib/<sdkVersion>/...
-    #   Windows Kits/10/bin/<sdkVersion>/x64/...
     srcs = [
       (fetchurl {
-        url = "https://github.com/Losses/rune-toolchain-cache/releases/download/v1.0.0/portable-msvc-${version}-${sdkVersion}.tar.zst";
-        sha256 = "0000000000000000000000000000000000000000000000000000000000000000"; # Pin hash when uploaded
+        url = "https://github.com/Losses/rune-toolchain-cache/releases/download/v1.0.0/portable-msvc-${arch}-${version}-${sdkVersion}.tar.zst";
+        sha256 = "0000000000000000000000000000000000000000000000000000000000000000";
       })
     ];
   };
@@ -48,14 +43,17 @@ let
   winSdkDir = "${root}/Windows Kits/10";
 
 in rec {
-  inherit version sdkVersion msvcPackage;
+  inherit version sdkVersion arch hostArch msvcPackage;
 
-  # Directory paths
+  # Directory paths: adjusted dynamically for target arch (x64 vs arm64)
   paths = {
-    vcBin = "${vcToolsDir}/bin/Hostx64/x64";
+    # Compiler binary directory (e.g. Hostx64/x64 or Hostx64/arm64)
+    vcBin = "${vcToolsDir}/bin/Host${hostArch}/${arch}";
     vcInclude = "${vcToolsDir}/include";
-    vcLib = "${vcToolsDir}/lib/x64";
-    sdkBin = "${winSdkDir}/bin/${sdkVersion}/x64";
+    # Libraries targeting chosen arch (lib/x64 or lib/arm64)
+    vcLib = "${vcToolsDir}/lib/${arch}";
+    # SDK host executables (rc.exe, mt.exe run on host)
+    sdkBin = "${winSdkDir}/bin/${sdkVersion}/${hostArch}";
     sdkInclude = [
       "${winSdkDir}/Include/${sdkVersion}/ucrt"
       "${winSdkDir}/Include/${sdkVersion}/um"
@@ -63,21 +61,21 @@ in rec {
       "${winSdkDir}/Include/${sdkVersion}/winrt"
     ];
     sdkLib = [
-      "${winSdkDir}/Lib/${sdkVersion}/ucrt/x64"
-      "${winSdkDir}/Lib/${sdkVersion}/um/x64"
+      "${winSdkDir}/Lib/${sdkVersion}/ucrt/${arch}"
+      "${winSdkDir}/Lib/${sdkVersion}/um/${arch}"
     ];
   };
 
-  # Computed environment variables matching vcvars64.bat
+  # Computed environment variables matching vcvars (vcvars64 or vcvarsamd64_arm64)
   env = {
     VCINSTALLDIR = "${vcToolsDir}/";
     WindowsSdkDir = "${winSdkDir}/";
     WindowsSDKVersion = "${sdkVersion}\\";
 
-    # Headers
+    # Headers (architecture-independent)
     INCLUDE = builtins.concatStringsSep ";" ([ paths.vcInclude ] ++ paths.sdkInclude);
 
-    # Linker Libraries (needed by rustc / cc-rs / link.exe)
+    # Linker Libraries (needed by rustc / cc-rs / link.exe for target arch)
     LIB = builtins.concatStringsSep ";" ([ paths.vcLib ] ++ paths.sdkLib);
 
     # Executables on PATH (cl.exe, link.exe, rc.exe, mt.exe)
@@ -89,7 +87,7 @@ in rec {
     AR = "lib.exe";
   };
 
-  # Shell hook snippet for Windows PowerShell or CMD
+  # Shell hook snippet for Windows PowerShell
   setupHookPwsh = ''
     $env:VCINSTALLDIR = "${env.VCINSTALLDIR}"
     $env:WindowsSdkDir = "${env.WindowsSdkDir}"

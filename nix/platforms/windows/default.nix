@@ -1,4 +1,5 @@
 # Windows Platform Adapter
+# Supports both x86_64-windows (x64) and aarch64-windows (arm64).
 #
 # Exposes the standard contract:
 # - devShells.default: Complete MSVC + Rust + Flutter dev shell
@@ -8,6 +9,7 @@
 #   nova-nix build nix/platforms/windows/default.nix
 
 { system ? "x86_64-windows"
+, arch ? (if system == "aarch64-windows" then "arm64" else "x64")
 , inputs ? {}
 , customMsvcRoot ? null
 }:
@@ -20,15 +22,15 @@ let
     (import <nix/fetchurl.nix>);
 
   msvc = import ./msvc.nix {
-    inherit fetchurl customMsvcRoot;
+    inherit fetchurl customMsvcRoot system arch;
   };
 
   rust = import ./rust.nix {
-    inherit fetchurl;
+    inherit fetchurl system arch;
   };
 
   flutter = import ./flutter.nix {
-    inherit fetchurl;
+    inherit fetchurl system arch;
   };
 
   tools = import ./tools.nix {
@@ -36,15 +38,15 @@ let
   };
 
   devshell = import ./devshell.nix {
-    inherit msvc rust flutter tools;
+    inherit msvc rust flutter tools system arch;
   };
 
   runeWindows = import ./package.nix {
-    inherit msvc rust flutter tools;
+    inherit msvc rust flutter tools system arch;
   };
 
 in {
-  inherit msvc rust flutter tools;
+  inherit msvc rust flutter tools arch system;
 
   devShells = {
     default = devshell;

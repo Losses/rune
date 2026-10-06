@@ -1,8 +1,9 @@
 # Development Shell for Rune on Windows (MSVC)
+# Supports both x86_64 (x64) and Windows on ARM (arm64).
 #
 # Combines:
-# - Portable MSVC + Windows SDK (cl.exe, link.exe, Windows headers & libs)
-# - Rust toolchain targeting x86_64-pc-windows-msvc
+# - Portable MSVC + Windows SDK (cl.exe, link.exe, Windows headers & libs for target arch)
+# - Rust toolchain targeting MSVC (x86_64-pc-windows-msvc or aarch64-pc-windows-msvc)
 # - Flutter SDK for Windows
 # - CMake, Ninja, rinf_cli
 
@@ -10,12 +11,14 @@
 , rust
 , flutter
 , tools
+, system ? "x86_64-windows"
+, arch ? (if system == "aarch64-windows" then "arm64" else "x64")
 }:
 
 derivation {
-  name = "rune-windows-devshell";
-  system = "x86_64-windows";
-  builder = "builtin:unpack"; # Dummy builder for evaluation / shell realization
+  name = "rune-windows-devshell-${arch}";
+  system = system;
+  builder = "builtin:unpack";
   srcs = [];
 
   # Environment variables for MSVC, Rust, and Flutter
@@ -29,7 +32,7 @@ derivation {
   AR = msvc.env.AR;
 
   RUST_BACKTRACE = rust.env.RUST_BACKTRACE;
-  CARGO_BUILD_TARGET = rust.env.CARGO_BUILD_TARGET;
+  CARGO_BUILD_TARGET = rust.target;
 
   # Combined search PATH (shims placed first to intercept CargoKit)
   PATH = builtins.concatStringsSep ";" [
@@ -43,8 +46,8 @@ derivation {
   # Combined PowerShell activation snippet
   shellHookPwsh = ''
     Write-Host "==========================================================" -ForegroundColor Cyan
-    Write-Host "  Rune Windows Development Environment (MSVC)" -ForegroundColor Green
-    Write-Host "  Toolchains: MSVC ${msvc.version}, Rust ${rust.version}, Flutter ${flutter.version}" -ForegroundColor Gray
+    Write-Host "  Rune Windows Development Environment (MSVC - ${arch})" -ForegroundColor Green
+    Write-Host "  Toolchains: MSVC ${msvc.version}, Rust ${rust.version} (${rust.target})" -ForegroundColor Gray
     Write-Host "==========================================================" -ForegroundColor Cyan
     ${msvc.setupHookPwsh}
     ${rust.setupHookPwsh}
