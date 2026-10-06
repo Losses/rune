@@ -1,30 +1,51 @@
 # Flutter SDK for Windows (supports x64 and arm64 targets)
-#
-# Fetches the official portable Windows archive and unpacks it into the store.
+# Sourced directly from official Google Flutter Infra matching Scoop Extras bucket.
 
 { fetchurl ? (import <nix/fetchurl.nix>)
-, version ? "3.27.1"
+, version ? "3.47.6"
 , system ? "x86_64-windows"
 , arch ? (if system == "aarch64-windows" then "arm64" else "x64")
 }:
 
 let
+  flutterManifests = {
+    "3.47.6" = {
+      archive = "flutter_windows_3.47.6-stable.zip";
+      sha256 = "a01bb0d26de91bc23c97cd9ccfaad281a612fb8304213fdd5df1119a09404796";
+    };
+    "3.27.4" = {
+      archive = "flutter_windows_3.27.4-stable.zip";
+      sha256 = "1141d3edb64c454273feac88f31f84945a1f3309a72c58aa9a5f2bb2b0fc8db3";
+    };
+    "3.27.1" = {
+      archive = "flutter_windows_3.27.1-stable.zip";
+      sha256 = "7e72b71b3570a117c6070a5935bcf3ccd0254a6d63e5eff99d4bc4ddb5006ca9";
+    };
+  };
+
+  selected = flutterManifests.${version};
+
   flutterArchive = fetchurl {
-    url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/windows/flutter_windows_${version}-stable.tar.zst";
-    sha256 = "0000000000000000000000000000000000000000000000000000000000000000";
+    url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/windows/${selected.archive}";
+    sha256 = selected.sha256;
   };
 
   package = derivation {
     name = "flutter-windows-${arch}-${version}";
     system = system;
-    builder = "builtin:unpack";
-    srcs = [ flutterArchive ];
+    builder = "cmd.exe";
+    args = [
+      "/c"
+      "mkdir %out% && tar.exe -xf %src% -C %out%"
+    ];
+    src = flutterArchive;
+    PATH = "C:\\Windows\\System32";
   };
 
 in rec {
   inherit version arch package;
 
-  binPath = "${package}/bin";
+  binPath = "${package}/flutter/bin";
 
   # Flags to pass to flutter build windows
   buildFlag = if arch == "arm64" then "--arm64" else "";

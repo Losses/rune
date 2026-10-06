@@ -6,7 +6,7 @@
 # - packages.default: Rune Windows application package
 #
 # Can be evaluated through flake.nix or standalone by nova-nix:
-#   nova-nix build nix/platforms/windows/default.nix
+#   nova-nix eval nix/platforms/windows/default.nix
 
 { system ? "x86_64-windows"
 , arch ? (if system == "aarch64-windows" then "arm64" else "x64")
@@ -22,7 +22,7 @@ let
     (import <nix/fetchurl.nix>);
 
   msvc = import ./msvc.nix {
-    inherit fetchurl customMsvcRoot system arch;
+    inherit customMsvcRoot system arch;
   };
 
   rust = import ./rust.nix {
@@ -34,7 +34,7 @@ let
   };
 
   tools = import ./tools.nix {
-    inherit fetchurl;
+    inherit fetchurl system arch;
   };
 
   devshell = import ./devshell.nix {

@@ -22,8 +22,10 @@ jobs:
       matrix:
         include:
           - arch: 'x64'
+            system: 'x86_64-windows'
             rust_target: 'x86_64-pc-windows-msvc'
           - arch: 'arm64'
+            system: 'aarch64-windows'
             rust_target: 'aarch64-pc-windows-msvc'
 
     steps:
@@ -31,30 +33,33 @@ jobs:
         if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
         uses: actions/checkout@v4
 
-      # 1. Setup Flutter with built-in action
-      - name: Setup Flutter
+      # 1. Install nova-nix (Native Windows Nix engine)
+      - name: Setup nova-nix
         if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
+        shell: pwsh
+        run: |
+          $dest = "$env:USERPROFILE\.nova-nix"
+          $zip = "$dest\nova-nix.zip"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/Novavero-AI/nova-nix/releases/download/v0.7.0.0/nova-nix-windows-x64.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          Remove-Item $zip
+          $novaBin = "$dest\nova-nix-windows-x64\bin"
+          Add-Content $env:GITHUB_PATH "$novaBin"
+          Write-Host "nova-nix installed successfully to $novaBin"
 
-      # 2. Setup Rust toolchain targeting chosen architecture
-      - name: Setup Rust toolchain
+      # 2. Nix Store Cache (C:\nix\store)
+      - name: Cache Nix Store
         if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions/cache@v4
         with:
-          targets: ${{ matrix.rust_target }}
+          path: C:\nix\store
+          key: nova-nix-store-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('nix/platforms/windows/**', 'windows.nix') }}
+          restore-keys: |
+            nova-nix-store-${{ runner.os }}-${{ matrix.arch }}-
+            nova-nix-store-${{ runner.os }}-
 
-      # 3. Rust build cache (Cargo registry, git, target artifacts)
-      - name: Rust Cache
-        if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.arch }}
-          prefix-key: "v1-rust-${{ matrix.arch }}"
-
-      # 4. Flutter Pub package cache
+      # 3. Flutter Pub Dependencies Cache
       - name: Cache Flutter Pub dependencies
         if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
         uses: actions/cache@v4
@@ -65,26 +70,75 @@ jobs:
           restore-keys: |
             pub-cache-${{ runner.os }}-
 
-      # 5. Install Inno Setup compiler for installer generation
+      # 4. Cargo registry and git cache
+      - name: Cache Cargo Dependencies
+        if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-deps-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('native/**/Cargo.lock', 'Cargo.lock') }}
+          restore-keys: |
+            cargo-deps-${{ runner.os }}-${{ matrix.arch }}-
+            cargo-deps-${{ runner.os }}-
+
+      # 5. Evaluate and verify Windows platform derivations with nova-nix
+      - name: Evaluate Platform Nix Derivations
+        if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
+        shell: pwsh
+        run: |
+          nova-nix eval windows.nix
+          nova-nix eval --expr '(import ./nix/platforms/windows/default.nix { system = "${{ matrix.system }}"; }).devShells.default.name'
+
+      # 6. Build CMake and Ninja from Nix store via nova-nix
+      - name: Realize Build Tools from Nix Store
+        if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
+        shell: pwsh
+        run: |
+          $cmakeOut = nova-nix build --expr '(import ./nix/platforms/windows/default.nix { system = "${{ matrix.system }}"; }).tools.cmake'
+          $ninjaOut = nova-nix build --expr '(import ./nix/platforms/windows/default.nix { system = "${{ matrix.system }}"; }).tools.ninja'
+          Write-Host "CMake in Nix store: $cmakeOut"
+          Write-Host "Ninja in Nix store: $ninjaOut"
+          Add-Content $env:GITHUB_PATH "$cmakeOut\bin"
+          Add-Content $env:GITHUB_PATH "$ninjaOut"
+
+      # 7. Setup Rust & Flutter for build execution (dtolnay & flutter for runner environment)
+      - name: Setup Rust Toolchain
+        if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Setup Flutter SDK
+        if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      # 8. Install Inno Setup compiler for installer generation
       - name: Install Inno Setup
         if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
         run: |
           choco install innosetup --no-progress -y
 
-      # 6. Install Rinf CLI
+      # 9. Install Rinf CLI
       - name: Install Rinf CLI
         if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
         run: |
-          cargo install rinf_cli
+          cargo install rinf_cli --version 8.7.1 --locked
 
-      # 7. Run One-Click Windows Build (MSVC + CargoKit Shim + Runner + Inno Setup)
+      # 10. Run One-Click Windows Build (MSVC + CargoKit Shim + Runner + Inno Setup)
       - name: Run Windows One-Click Build
         if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
         shell: pwsh
         run: |
           .\scripts\windows_build.ps1 -Arch ${{ matrix.arch }} -BuildInstaller
 
-      # 8. Upload Portable Folder Artifact
+      # 11. Upload Portable Application Artifact
       - name: Upload Portable Application Artifact
         if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
         uses: actions/upload-artifact@v4
@@ -93,7 +147,7 @@ jobs:
           path: build/windows/${{ matrix.arch }}/runner/Release/
           if-no-files-found: error
 
-      # 9. Upload Inno Setup Installer Artifact
+      # 12. Upload Inno Setup Installer Artifact
       - name: Upload Inno Setup Installer Artifact
         if: github.event.inputs.arch == '' || github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
         uses: actions/upload-artifact@v4
