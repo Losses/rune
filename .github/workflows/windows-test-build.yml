@@ -144,12 +144,19 @@ jobs:
           Start-Process msiexec -ArgumentList "/a `"$msiPath`" /qn TARGETDIR=`"$rustOut`"" -Wait -NoNewWindow
           if ($LASTEXITCODE -ne 0) { throw "msiexec /a failed (exit $LASTEXITCODE) on $msiPath" }
           Write-Host "Rust MSI extracted to: $rustOut"
-          $rustBin = "$rustOut\Rust\bin"
+          Write-Host "=== MSI extraction layout (depth 3) ==="
+          Get-ChildItem -Recurse -Depth 3 "$rustOut" | ForEach-Object { Write-Host $_.FullName }
+          $rustupExe = Get-ChildItem -Recurse -Path "$rustOut" -Filter "rustup.exe" | Select-Object -First 1
+          if (-not $rustupExe) { throw "rustup.exe not found under $rustOut after MSI extraction" }
+          $rustBin = $rustupExe.Directory.FullName
+          $rustRoot = Split-Path -Parent $rustBin
+          Write-Host "Rust toolchain root: $rustRoot"
+          Write-Host "Rust bin dir: $rustBin"
           $env:PATH = "$rustBin;" + $env:PATH
 
           # Link the nova-nix toolchain so rustup can add cross-compile targets.
-          & "$rustBin\rustup.exe" toolchain link nova-nix "$rustOut\Rust"
-          & "$rustBin\rustup.exe" default nova-nix
+          & "$rustupExe" toolchain link nova-nix "$rustRoot"
+          & "$rustupExe" default nova-nix
 
           # ARM64 cross-compile: rustup needs to write the aarch64 std library
           # into the toolchain directory.  The msiexec extraction target is
@@ -157,17 +164,20 @@ jobs:
           # directory so the x64 path stays pristine.
           if ("${{ matrix.arch }}" -eq "arm64") {
             Write-Host "Copying Rust toolchain for cross-compile target install..."
-            $rustStore = $rustOut
+            $oldBin = $rustBin
+            $oldRoot = $rustRoot
             $rustOut = "$env:RUNNER_TEMP\nova-nix-rust"
             New-Item -ItemType Directory -Force -Path "$rustOut" | Out-Null
-            Copy-Item -Recurse -Force "$rustStore\Rust\*" "$rustOut\"
-            $rustBin = "$rustOut\bin"
-            $env:PATH = ($env:PATH -replace [regex]::Escape("$rustStore\Rust\bin"), $rustBin)
-            # Re-link rustup to the writable copy.
-            & "$rustBin\rustup.exe" toolchain link nova-nix "$rustOut"
-            & "$rustBin\rustup.exe" default nova-nix
+            Copy-Item -Recurse -Force "$oldRoot\*" "$rustOut\"
+            $newRustup = Get-ChildItem -Recurse -Path "$rustOut" -Filter "rustup.exe" | Select-Object -First 1
+            if (-not $newRustup) { throw "rustup.exe not found under copied $rustOut" }
+            $rustBin = $newRustup.Directory.FullName
+            $rustRoot = Split-Path -Parent $rustBin
+            $env:PATH = ($env:PATH -replace [regex]::Escape($oldBin), $rustBin)
+            & "$newRustup" toolchain link nova-nix "$rustRoot"
+            & "$newRustup" default nova-nix
             Write-Host "Adding aarch64-pc-windows-msvc cross-compile target..."
-            & "$rustBin\rustup.exe" target add aarch64-pc-windows-msvc
+            & "$newRustup" target add aarch64-pc-windows-msvc
             if ($LASTEXITCODE -ne 0) { throw "rustup target add aarch64-pc-windows-msvc failed" }
             Write-Host "Rust toolchain ready at: $rustOut"
           }
