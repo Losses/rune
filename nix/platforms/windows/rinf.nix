@@ -51,7 +51,7 @@ let
     name = "rinf-${version}";
     system = system;
     builder = "cmd.exe";
-    args = [ "/c" "mkdir %out% && mkdir %out%\\.cargo-home && set CARGO_HOME=%out%\\.cargo-home && cd /d %src% && ${rust.cargoExe} install --path %src%\\rinf_cli-${version} --locked --offline --frozen --root %out%" ];
+    args = [ "/c" "mkdir %out%&&mkdir %out%\\.cargo-home&&set CARGO_HOME=%out%\\.cargo-home&&cd /d %src%&&${rust.cargoExe} install --path %src%\\rinf_cli-${version} --locked --offline --frozen --root %out%" ];
     src = rinfSource;
     PATH = "C:\\Windows\\System32;${msvc.env.PATH};${rust.binPath}";
     VCINSTALLDIR = msvc.env.VCINSTALLDIR;
