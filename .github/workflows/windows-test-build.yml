@@ -1,0 +1,95 @@
+name: Windows Test Build (x64 & ARM64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: 'Target Architecture to build'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - 'both'
+          - 'x64'
+          - 'arm64'
+
+jobs:
+  build-windows:
+    name: Build Windows (${{ matrix.arch }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: 'x64'
+            rust_target: 'x86_64-pc-windows-msvc'
+          - arch: 'arm64'
+            rust_target: 'aarch64-pc-windows-msvc'
+
+    if: github.event.inputs.arch == 'both' || github.event.inputs.arch == matrix.arch
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 1. Setup Flutter with built-in action
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      # 2. Setup Rust toolchain targeting chosen architecture
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      # 3. Rust build cache (Cargo registry, git, target artifacts)
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }}
+          prefix-key: "v1-rust-${{ matrix.arch }}"
+
+      # 4. Flutter Pub package cache
+      - name: Cache Flutter Pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\Pub\Cache
+          key: pub-cache-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            pub-cache-${{ runner.os }}-
+
+      # 5. Install Inno Setup compiler for installer generation
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --no-progress -y
+
+      # 6. Install Rinf CLI
+      - name: Install Rinf CLI
+        run: |
+          cargo install rinf_cli
+
+      # 7. Run One-Click Windows Build (MSVC + CargoKit Shim + Runner + Inno Setup)
+      - name: Run Windows One-Click Build
+        shell: pwsh
+        run: |
+          .\scripts\windows_build.ps1 -Arch ${{ matrix.arch }} -BuildInstaller
+
+      # 8. Upload Portable Folder Artifact
+      - name: Upload Portable Application Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rune-windows-${{ matrix.arch }}-portable
+          path: build/windows/${{ matrix.arch }}/runner/Release/
+          if-no-files-found: error
+
+      # 9. Upload Inno Setup Installer Artifact
+      - name: Upload Inno Setup Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rune-windows-${{ matrix.arch }}-installer
+          path: Output/Rune-${{ matrix.arch }}-Setup.exe
+          if-no-files-found: warn

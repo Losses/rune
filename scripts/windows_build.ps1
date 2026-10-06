@@ -16,7 +16,8 @@ param(
     [ValidateSet("x64", "arm64")]
     [string]$Arch = "x64",
     [switch]$SkipRustBuild = $false,
-    [switch]$SkipFlutterBuild = $false
+    [switch]$SkipFlutterBuild = $false,
+    [switch]$BuildInstaller = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -101,3 +102,29 @@ if (-not $SkipFlutterBuild) {
 } else {
     Write-Host "`n[5/5] Skipping Flutter build as requested." -ForegroundColor DarkGray
 }
+
+# Step 6 (Optional): Package installer via Inno Setup
+if ($BuildInstaller) {
+    Write-Host "`n[6/6] Packaging Installer with Inno Setup (ISCC)..." -ForegroundColor Yellow
+    $IsccCmd = Get-Command iscc.exe -ErrorAction SilentlyContinue
+    $IsccPath = if ($IsccCmd) { $IsccCmd.Source } else {
+        $DefaultPaths = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
+        )
+        $DefaultPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+    }
+    
+    if (-not $IsccPath) {
+        Write-Warning "ISCC.exe (Inno Setup) not found. Skipping installer creation. (Install with: choco install innosetup -y)"
+    } else {
+        $IssFile = Join-Path $ProjectRoot "rune.iss"
+        Write-Host "  -> Running: $IsccPath /DAppArch=$Arch $IssFile" -ForegroundColor Cyan
+        & "$IsccPath" "/DAppArch=$Arch" "$IssFile"
+        $InstallerPath = Join-Path $ProjectRoot "Output\Rune-$Arch-Setup.exe"
+        if (Test-Path $InstallerPath) {
+            Write-Host "  -> Installer generated successfully at: $InstallerPath" -ForegroundColor Green
+        }
+    }
+}
+
