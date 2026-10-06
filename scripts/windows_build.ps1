@@ -41,16 +41,8 @@ $env:PATH = "$ShimDir;$env:PATH"
 # Cargo treats CARGO_BUILD_TARGET exactly like --target, so artifacts for BOTH
 # architectures land under target/<triple>/release (never under plain target/release).
 $env:CARGO_BUILD_TARGET = $RustTarget
-if ($Arch -eq "arm64") {
-    # fdk-aac-sys 0.5.0's FDK_archdef.h recognizes __aarch64__ and _M_ARM but not MSVC's
-    # _M_ARM64, so the ARM64 build falls into its "unknown platform" #warning branch.
-    # MSVC 14.51 (VS 18) makes #warning a fatal error C1188 unless /std:c++23preview or
-    # later is selected (CWG 2518 / C++23 conformance). cc-rs compiles the crate's .cpp
-    # files in C mode (cpp=false), so it reads CFLAGS_* (not CXXFLAGS_*) — set the
-    # target-specific CFLAGS to inject /std:c++23preview. cl.exe auto-detects .cpp files
-    # as C++ and accepts the flag; for genuine .c files it emits a warning and ignores it.
-    $env:CFLAGS_aarch64_pc_windows_msvc = "/std:c++23preview"
-}
+# fdk-aac-sys 0.5.0 is vendored at native/fdk-aac-sys with an MSVC ARM64 patch
+# in FDK_archdef.h (see [patch.crates-io] in Cargo.toml). No CFLAGS override needed.
 
 # Step 3: Build Rust Hub (hub.dll + hub.dll.lib)
 # CARGO_BUILD_TARGET is set for both arches, so the target subdirectory is always used.

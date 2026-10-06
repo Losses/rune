@@ -2231,8 +2231,6 @@ dependencies = [
 [[package]]
 name = "fdk-aac-sys"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24516d2611506d5cb1833555adc75f6baf9fe2706b9c13e6fc33a6b22c51ca83"
 dependencies = [
  "cc",
 ]
