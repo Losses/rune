@@ -28,7 +28,7 @@ let
     maintainers = with lib.maintainers; [ losses ];
   };
 
-  pubspecLock = lib.importJSON ./pubspec.lock.json;
+  pubspecLock = lib.importJSON ../../pubspec.lock.json;
 
   gitHashes = {
     macos_secure_bookmarks = "sha256-qC3Ytxkg5bGh6rns0Z/hG3uLYf0Qyw6y6Hq+da1Je0I=";
