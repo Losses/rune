@@ -148,16 +148,19 @@ jobs:
         run: |
           .\scripts\windows_build.ps1 -Arch ${{ matrix.arch }} -BuildInstaller
 
-      # 11. Upload Portable Application Artifact
+      # 11. Upload Portable Application Artifact (x64 only; ARM64 Flutter
+      #     runner cannot be cross-compiled from an x64 host)
       - name: Upload Portable Application Artifact
+        if: matrix.arch == 'x64'
         uses: actions/upload-artifact@v4
         with:
           name: Rune-windows-${{ matrix.arch }}-portable
           path: build/windows/${{ matrix.arch }}/runner/Release/
           if-no-files-found: error
 
-      # 12. Upload Inno Setup Installer Artifact
+      # 12. Upload Inno Setup Installer Artifact (x64 only)
       - name: Upload Inno Setup Installer Artifact
+        if: matrix.arch == 'x64'
         uses: actions/upload-artifact@v4
         with:
           name: Rune-windows-${{ matrix.arch }}-installer

@@ -103,30 +103,38 @@ if (Test-Path $CargokitCmake) {
 }
 
 # Step 5: Build Flutter Windows Release
+# NOTE: Flutter builds for the HOST architecture only (HOST x64 -> x64 runner;
+# HOST arm64 -> arm64 runner). GitHub Actions windows-latest is always x64, so
+# an ARM64 Flutter runner cannot be cross-compiled here. The Rust hub.dll HAS
+# been cross-compiled for aarch64-pc-windows-msvc above; build the ARM64
+# Flutter runner on a Windows ARM64 host with: flutter build windows --release
 $OutputDir = Join-Path $ProjectRoot "build\windows\$Arch\runner\Release"
 if (-not $SkipFlutterBuild) {
-    Write-Host "`n[5/5] Building Flutter Windows Application (MSVC - $Arch)..." -ForegroundColor Yellow
     if ($Arch -eq "arm64") {
-        flutter build windows --release --arm64
+        Write-Host "`n[5/5] Skipping Flutter runner build for arm64 (Flutter builds for the host architecture only)." -ForegroundColor Yellow
+        Write-Host "  hub.dll for aarch64-pc-windows-msvc was cross-compiled above." -ForegroundColor Cyan
+        Write-Host "  Build the ARM64 runner on a Windows ARM64 host: flutter build windows --release" -ForegroundColor Cyan
     } else {
+        Write-Host "`n[5/5] Building Flutter Windows Application (MSVC - $Arch)..." -ForegroundColor Yellow
         flutter build windows --release
+        if ($LASTEXITCODE -ne 0) {
+            throw "flutter build windows failed with exit code $LASTEXITCODE"
+        }
+        
+        # Ensure hub.dll is placed in release directory alongside rune.exe
+        Copy-Item -Path $HubDll -Destination $OutputDir -Force
+        Write-Host "`n==========================================================" -ForegroundColor Green
+        Write-Host "  Build Complete ($Arch)! Standalone application located at:" -ForegroundColor Green
+        Write-Host "  $OutputDir" -ForegroundColor Cyan
+        Write-Host "==========================================================" -ForegroundColor Green
     }
-    if ($LASTEXITCODE -ne 0) {
-        throw "flutter build windows failed with exit code $LASTEXITCODE"
-    }
-    
-    # Ensure hub.dll is placed in release directory alongside rune.exe
-    Copy-Item -Path $HubDll -Destination $OutputDir -Force
-    Write-Host "`n==========================================================" -ForegroundColor Green
-    Write-Host "  Build Complete ($Arch)! Standalone application located at:" -ForegroundColor Green
-    Write-Host "  $OutputDir" -ForegroundColor Cyan
-    Write-Host "==========================================================" -ForegroundColor Green
 } else {
     Write-Host "`n[5/5] Skipping Flutter build as requested." -ForegroundColor DarkGray
 }
 
 # Step 6 (Optional): Package installer via Inno Setup
-if ($BuildInstaller) {
+# The installer is only produced for x64; Flutter ARM64 requires an ARM64 host.
+if ($BuildInstaller -and $Arch -ne "arm64") {
     Write-Host "`n[6/6] Packaging Installer with Inno Setup (ISCC)..." -ForegroundColor Yellow
     $IsccCmd = Get-Command iscc.exe -ErrorAction SilentlyContinue
     $IsccPath = if ($IsccCmd) { $IsccCmd.Source } else {
