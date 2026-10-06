@@ -45,8 +45,14 @@ if ($Arch -eq "arm64") {
     # fdk-aac-sys 0.5.0's FDK_archdef.h recognizes __aarch64__ and _M_ARM but not MSVC's
     # _M_ARM64, so the ARM64 build falls into its "unknown platform" #warning branch.
     # MSVC 14.51 (VS 18) makes #warning a fatal error C1188 unless /std:c++23preview or
-    # later is selected (CWG 2518 / C++23 conformance). cc-rs honors this per-target var.
-    $env:CXXFLAGS_aarch64_pc_windows_msvc = "/std:c++23preview"
+    # later is selected (CWG 2518 / C++23 conformance). cc-rs compiles the crate's .cpp
+    # files in C mode (it only reads CFLAGS_* for them) while cl.exe still compiles them
+    # as C++ by file extension, so no CXXFLAGS_* variable can reach the command line.
+    # Route aarch64 compiles through a shim that adds /std:c++23preview for
+    # fdk-aac-sys C++ files only; everything else passes through unchanged.
+    $ClShim = Join-Path $ScriptDir "cl_stdfix_arm64.ps1"
+    $env:CC_aarch64_pc_windows_msvc = $ClShim
+    $env:"CC_aarch64-pc-windows-msvc" = $ClShim
 }
 
 # Step 3: Build Rust Hub (hub.dll + hub.dll.lib)
