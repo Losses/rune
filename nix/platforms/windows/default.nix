@@ -39,15 +39,8 @@ let
     inherit msvc rust flutter tools;
   };
 
-  runeWindows = (derivation {
-    name = "rune-windows";
-    system = "x86_64-windows";
-    builder = "builtin:unpack";
-    srcs = [];
-  }) // {
-    passthru = {
-      inherit msvc rust flutter tools devshell;
-    };
+  runeWindows = import ./package.nix {
+    inherit msvc rust flutter tools;
   };
 
 in {

@@ -31,8 +31,9 @@ derivation {
   RUST_BACKTRACE = rust.env.RUST_BACKTRACE;
   CARGO_BUILD_TARGET = rust.env.CARGO_BUILD_TARGET;
 
-  # Combined search PATH
+  # Combined search PATH (shims placed first to intercept CargoKit)
   PATH = builtins.concatStringsSep ";" [
+    "${./shims}"
     msvc.env.PATH
     rust.binPath
     flutter.binPath
