@@ -71,6 +71,17 @@ if (-not $SkipRustBuild) {
 # Step 4: Ensure Flutter dependencies & patch cargokit.cmake
 Write-Host "`n[4/5] Preparing Flutter and Patching CargoKit..." -ForegroundColor Yellow
 flutter pub get
+if ($LASTEXITCODE -ne 0) {
+    throw "flutter pub get failed with exit code $LASTEXITCODE"
+}
+
+# Generate Dart bindings from Rust structs (lib/bindings/bindings.dart).
+# rinf's cargokit build_tool only runs `cargo build`, so the Dart codegen is a
+# separate explicit step here (same `rinf gen` call used by the other workflows).
+rinf gen
+if ($LASTEXITCODE -ne 0) {
+    throw "rinf gen failed with exit code $LASTEXITCODE"
+}
 
 # Locate cargokit.cmake in ephemeral plugin symlinks
 $CargokitCmake = Join-Path $ProjectRoot "windows\flutter\ephemeral\.plugin_symlinks\rinf\cargokit\cmake\cargokit.cmake"
@@ -99,6 +110,9 @@ if (-not $SkipFlutterBuild) {
         flutter build windows --release --arm64
     } else {
         flutter build windows --release
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "flutter build windows failed with exit code $LASTEXITCODE"
     }
     
     # Ensure hub.dll is placed in release directory alongside rune.exe

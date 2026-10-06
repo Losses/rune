@@ -109,8 +109,8 @@ jobs:
         run: |
           # nova-nix v0.7.0.0's `build` only accepts a .nix file as its target
           # (`--expr` exists for `eval` only), so wrap the attribute paths in files.
-          Set-Content -Path ".\cmake-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"${{ matrix.system }}`"; }).tools.cmake"
-          Set-Content -Path ".\ninja-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"${{ matrix.system }}`"; }).tools.ninja"
+          Set-Content -Path ".\cmake-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).tools.cmake"
+          Set-Content -Path ".\ninja-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).tools.ninja"
           $cmakeOut = nova-nix build .\cmake-attr.nix 2>&1 | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
           $ninjaOut = nova-nix build .\ninja-attr.nix 2>&1 | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
           if (-not $cmakeOut) { throw "nova-nix build did not report a store path for cmake (see output above)" }
@@ -140,7 +140,7 @@ jobs:
       # 9. Install Rinf CLI
       - name: Install Rinf CLI
         run: |
-          cargo install rinf_cli --version 8.7.1 --locked
+          cargo install rinf_cli --version 8.7.2 --locked
 
       # 10. Run One-Click Windows Build (MSVC + CargoKit Shim + Runner + Inno Setup)
       - name: Run Windows One-Click Build
