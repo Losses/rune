@@ -132,9 +132,18 @@ jobs:
           Add-Content $env:GITHUB_PATH "$cmakeOut\bin"
           Add-Content $env:GITHUB_PATH "$ninjaOut"
 
-          # Build Rust toolchain (x64 host; the aarch64 MSI cannot run on x64)
+          # Build Rust toolchain (x64 host; the aarch64 MSI cannot run on x64).
+          # The derivation only stages the MSI (fetchurl -> copy); msiexec /a
+          # cannot run inside nova-nix's build sandbox (exit 1619).
           Set-Content -Path ".\rust-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).rust.package"
-          $rustOut = Get-NixStorePath -AttrFile ".\rust-attr.nix" -Label "Rust"
+          $rustStorePath = Get-NixStorePath -AttrFile ".\rust-attr.nix" -Label "Rust"
+          $msiPath = "$rustStorePath\rust.msi"
+          $rustOut = "$env:RUNNER_TEMP\rust-extract"
+          New-Item -ItemType Directory -Force -Path "$rustOut" | Out-Null
+          Write-Host "Extracting Rust MSI from: $msiPath"
+          Start-Process msiexec -ArgumentList "/a `"$msiPath`" /qn TARGETDIR=`"$rustOut`"" -Wait -NoNewWindow
+          if ($LASTEXITCODE -ne 0) { throw "msiexec /a failed (exit $LASTEXITCODE) on $msiPath" }
+          Write-Host "Rust MSI extracted to: $rustOut"
           $rustBin = "$rustOut\Rust\bin"
           $env:PATH = "$rustBin;" + $env:PATH
 
@@ -142,11 +151,12 @@ jobs:
           & "$rustBin\rustup.exe" toolchain link nova-nix "$rustOut\Rust"
           & "$rustBin\rustup.exe" default nova-nix
 
-          # ARM64 cross-compile: the nova-nix store may be read-only, so
-          # copy the x64-host toolchain to a writable temp directory before
-          # letting rustup download the aarch64 standard library.
+          # ARM64 cross-compile: rustup needs to write the aarch64 std library
+          # into the toolchain directory.  The msiexec extraction target is
+          # already writable (RUNNER_TEMP), but we still copy to a fresh
+          # directory so the x64 path stays pristine.
           if ("${{ matrix.arch }}" -eq "arm64") {
-            Write-Host "Copying Rust toolchain to writable temp for cross-compile targets..."
+            Write-Host "Copying Rust toolchain for cross-compile target install..."
             $rustStore = $rustOut
             $rustOut = "$env:RUNNER_TEMP\nova-nix-rust"
             New-Item -ItemType Directory -Force -Path "$rustOut" | Out-Null

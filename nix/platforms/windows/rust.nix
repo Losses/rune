@@ -43,13 +43,20 @@ let
     inherit (selected) url sha256;
   };
 
+  # NOTE: The derivation only stages the raw MSI into the Nix store
+  # (fetchurl -> copy).  msiexec /a cannot run inside the nova-nix build
+  # sandbox because it delegates to the Windows Installer service
+  # (msiserver.exe), which is outside the sandbox and cannot open %src%
+  # (exit 1619 / ERROR_INSTALL_PACKAGE_OPEN_FAILED).
+  # Extraction is done by the CI workflow step AFTER retrieving the store
+  # path, where msiexec runs freely outside the sandbox.
   package = derivation {
     name = "rust-${version}-${target}";
     system = system;
     builder = "cmd.exe";
     args = [
       "/c"
-      "mkdir %out% && msiexec /a %src% /qn TARGETDIR=%out%"
+      "mkdir %out% && copy %src% %out%\\rust.msi"
     ];
     src = rustArchive;
     PATH = "C:\\Windows\\System32";
