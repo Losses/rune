@@ -109,22 +109,32 @@ jobs:
         run: |
           # nova-nix v0.7.0.0's `build` only accepts a .nix file as its target
           # (`--expr` exists for `eval` only), so wrap the attribute paths in files.
+          #
+          # Helper: build a .nix attr file and return the store path.
+          # On failure, prints the FULL nova-nix output before throwing.
+          function Get-NixStorePath {
+            param([string]$AttrFile, [string]$Label)
+            $out = nova-nix build $AttrFile 2>&1
+            $path = $out | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
+            if (-not $path) {
+              Write-Host "=== nova-nix build $AttrFile ($Label) FULL OUTPUT ==="
+              $out | ForEach-Object { Write-Host $_ }
+              throw "nova-nix build did not report a store path for $Label (see output above)"
+            }
+            Write-Host "$Label in Nix store: $path"
+            return $path
+          }
+
           Set-Content -Path ".\cmake-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).tools.cmake"
           Set-Content -Path ".\ninja-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).tools.ninja"
-          $cmakeOut = nova-nix build .\cmake-attr.nix 2>&1 | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
-          $ninjaOut = nova-nix build .\ninja-attr.nix 2>&1 | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
-          if (-not $cmakeOut) { throw "nova-nix build did not report a store path for cmake (see output above)" }
-          if (-not $ninjaOut) { throw "nova-nix build did not report a store path for ninja (see output above)" }
-          Write-Host "CMake in Nix store: $cmakeOut"
-          Write-Host "Ninja in Nix store: $ninjaOut"
+          $cmakeOut = Get-NixStorePath -AttrFile ".\cmake-attr.nix" -Label "CMake"
+          $ninjaOut = Get-NixStorePath -AttrFile ".\ninja-attr.nix" -Label "Ninja"
           Add-Content $env:GITHUB_PATH "$cmakeOut\bin"
           Add-Content $env:GITHUB_PATH "$ninjaOut"
 
           # Build Rust toolchain (x64 host; the aarch64 MSI cannot run on x64)
           Set-Content -Path ".\rust-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).rust.package"
-          $rustOut = nova-nix build .\rust-attr.nix 2>&1 | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
-          if (-not $rustOut) { throw "nova-nix build did not report a store path for rust (see output above)" }
-          Write-Host "Rust in Nix store: $rustOut"
+          $rustOut = Get-NixStorePath -AttrFile ".\rust-attr.nix" -Label "Rust"
           $rustBin = "$rustOut\Rust\bin"
           $env:PATH = "$rustBin;" + $env:PATH
 
@@ -159,9 +169,7 @@ jobs:
 
           # Build Flutter SDK (architecture-independent zip shared by both arches)
           Set-Content -Path ".\flutter-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).flutter.package"
-          $flutterOut = nova-nix build .\flutter-attr.nix 2>&1 | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
-          if (-not $flutterOut) { throw "nova-nix build did not report a store path for flutter (see output above)" }
-          Write-Host "Flutter in Nix store: $flutterOut"
+          $flutterOut = Get-NixStorePath -AttrFile ".\flutter-attr.nix" -Label "Flutter"
           Add-Content $env:GITHUB_PATH "$flutterOut\flutter\bin"
 
       # 7. Install Inno Setup compiler for installer generation
