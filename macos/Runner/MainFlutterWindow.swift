@@ -9,6 +9,15 @@ class MainFlutterWindow: BitsdojoWindow {
   }
 
   override func awakeFromNib() {
+    // Main-window nib loading is synchronous on the main thread.
+    MainActor.assumeIsolated {
+      configureFlutterWindow()
+    }
+
+    super.awakeFromNib()
+  }
+
+  private func configureFlutterWindow() {
     let flutterViewController = FlutterViewController.init()
     let windowFrame = self.frame
     self.contentViewController = flutterViewController
@@ -33,31 +42,36 @@ class MainFlutterWindow: BitsdojoWindow {
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     WindowButtonPositioner.shared.prepare(window: self)
-
-    super.awakeFromNib()
   }
 }
 
+@MainActor
 class WindowButtonPositioner: NSObject {
   static let shared = WindowButtonPositioner()
 
   var mainFlutterWindow: NSWindow? = nil
+  private var superviewObservation: NSKeyValueObservation?
 
   private override init() {}
 
-  deinit {
+  nonisolated deinit {
+    // The KVO token invalidates itself; notification cleanup needs no AppKit access.
     NotificationCenter.default.removeObserver(self)
-    removeSuperviewObserver()
   }
 
   func addSuperviewObserver() {
     let button = mainFlutterWindow!.standardWindowButton(.miniaturizeButton)
-    button?.addObserver(self, forKeyPath: "superview", options: [.new, .old], context: nil)
+    superviewObservation = button?.observe(\.superview, options: [.new, .old]) { [weak self] _, _ in
+      // AppKit view changes deliver KVO synchronously on the main thread.
+      MainActor.assumeIsolated {
+        self?.setVertical()
+      }
+    }
   }
 
   func removeSuperviewObserver() {
-    let button = mainFlutterWindow!.standardWindowButton(.miniaturizeButton)
-    button?.removeObserver(self, forKeyPath: "superview")
+    superviewObservation?.invalidate()
+    superviewObservation = nil
   }
 
   func prepare(window: NSWindow) {
@@ -152,14 +166,5 @@ class WindowButtonPositioner: NSObject {
       standardWindowButton.topAnchor.constraint(
         equalTo: contentView.topAnchor, constant: offset.y),
     ])
-  }
-
-  override func observeValue(
-    forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?,
-    context: UnsafeMutableRawPointer?
-  ) {
-    if keyPath == "superview" {
-      setVertical()
-    }
   }
 }

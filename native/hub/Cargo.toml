@@ -101,8 +101,5 @@ vergen = { version = "9.0.4", features = ["build", "cargo", "rustc", "si"] }
 [target.'cfg(target_os = "android")'.dependencies]
 tracing-logcat = "0.1.0"
 
-[target.'cfg(target_os = "macos")'.dependencies]
-swift-rs = "1.0.7"
-
 [target.'cfg(target_os = "macos")'.build-dependencies]
 swift-rs = { version = "1.0.7", features = ["build"] }

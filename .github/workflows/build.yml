@@ -282,7 +282,10 @@ jobs:
           makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
 
   build-macos:
-    runs-on: macos-15
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
     permissions:
       contents: write
     steps:
@@ -298,6 +301,8 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
 
@@ -408,7 +413,10 @@ jobs:
           rm -f .env
 
   build-and-release-mac-app-store:
-    runs-on: macos-15
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout repository
@@ -423,6 +431,8 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
 
@@ -504,7 +514,10 @@ jobs:
           rm -f .env
           rm -f $RUNNER_TEMP/*.p8
   build-and-release-ios-app-store:
-    runs-on: macos-15
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      IPHONEOS_DEPLOYMENT_TARGET: "15.0"
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout repository

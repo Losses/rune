@@ -510,7 +510,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.player.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/player.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/player";
 			};
 			name = Debug;
@@ -525,7 +525,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.player.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/player.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/player";
 			};
 			name = Release;
@@ -540,7 +540,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.player.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/player.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/player";
 			};
 			name = Profile;
@@ -625,7 +625,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "Rune Notarized";
-				SWIFT_VERSION = 5.0;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Profile;
 		};
@@ -772,7 +773,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.0;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -806,7 +808,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "Rune Notarized";
-				SWIFT_VERSION = 5.0;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
