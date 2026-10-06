@@ -186,15 +186,27 @@ jobs:
           $flutterOut = Get-NixStorePath -AttrFile ".\flutter-attr.nix" -Label "Flutter"
           Add-Content $env:GITHUB_PATH "$flutterOut\flutter\bin"
 
-      # 7. Install Inno Setup compiler for installer generation
-      - name: Install Inno Setup
-        run: |
-          choco install innosetup --no-progress -y
+          # Inno Setup: fetchurl the verified installer .exe from Nix store,
+          # then silent-install it to a temp directory.  Inno Setup is only
+          # needed for the x64 installer; ARM64 runs skip it.
+          if ("${{ matrix.arch }}" -eq "x64") {
+            Set-Content -Path ".\inno-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).innosetup.package"
+            $innoExe = Get-NixStorePath -AttrFile ".\inno-attr.nix" -Label "Inno Setup"
+            $innoOut = "$env:RUNNER_TEMP\inno-setup"
+            New-Item -ItemType Directory -Force -Path "$innoOut" | Out-Null
+            Write-Host "Installing Inno Setup from: $innoExe"
+            $proc = Start-Process -FilePath $innoExe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$innoOut`"" -Wait -PassThru -NoNewWindow
+            if ($proc.ExitCode -ne 0) { throw "Inno Setup silent install failed (exit $($proc.ExitCode)) on $innoExe" }
+            $iscc = Join-Path $innoOut "ISCC.exe"
+            if (-not (Test-Path $iscc)) { throw "ISCC.exe not found under $innoOut after Inno Setup install" }
+            Write-Host "Inno Setup installed to: $innoOut"
+            Add-Content $env:GITHUB_PATH "$innoOut"
+          }
 
       # 8. Install Rinf CLI
       - name: Install Rinf CLI
         run: |
-          cargo install rinf_cli --version 8.7.2 --locked --force
+          cargo install rinf_cli --version 8.7.1 --locked --force
 
       # 9. Run One-Click Windows Build (MSVC + CargoKit Shim + Runner + Inno Setup)
       - name: Run Windows One-Click Build

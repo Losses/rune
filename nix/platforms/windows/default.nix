@@ -37,6 +37,10 @@ let
     inherit fetchurl system arch;
   };
 
+  innosetup = import ./innosetup.nix {
+    inherit fetchurl system arch;
+  };
+
   devshell = import ./devshell.nix {
     inherit msvc rust flutter tools system arch;
   };
@@ -46,7 +50,7 @@ let
   };
 
 in {
-  inherit msvc rust flutter tools arch system;
+  inherit msvc rust flutter tools innosetup arch system;
 
   devShells = {
     default = devshell;
