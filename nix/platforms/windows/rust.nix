@@ -4,6 +4,15 @@
 # Supports:
 # - x86_64-pc-windows-msvc (x64)
 # - aarch64-pc-windows-msvc (Windows on ARM)
+#
+# Distribution format: the standalone .tar.xz (NOT the MSI).  The tarball
+# extracts in the nova-nix sandbox via cmd.exe + tar.exe (same pattern as
+# flutter.nix), so the toolchain lands fully inside the Nix store instead of
+# being pulled apart by msiexec in a CI step.
+#
+# The standalone tarball ships rustc and its target std in SEPARATE
+# component dirs (rustc/ and rust-std-<target>/); we xcopy the std tree
+# into rustc/ so that cargo's sysroot resolution finds rlibs.
 
 { fetchurl ? (import <nix/fetchurl.nix>)
 , version ? "1.99.0"
@@ -14,26 +23,16 @@
 let
   target = if arch == "arm64" then "aarch64-pc-windows-msvc" else "x86_64-pc-windows-msvc";
 
-  # Verified SHA256 checksums from static.rust-lang.org matching Scoop Main
+  # Verified SHA256 checksums from static.rust-lang.org (standalone tar.xz).
   rustManifests = {
     "1.99.0" = {
       "x86_64-pc-windows-msvc" = {
-        url = "https://static.rust-lang.org/dist/rust-1.99.0-x86_64-pc-windows-msvc.msi";
-        sha256 = "0ccecc0d77722cf4ab3288ecdcf541530bec129b530f91618cbdd9e3a0dbe7fd";
+        url = "https://static.rust-lang.org/dist/rust-1.99.0-x86_64-pc-windows-msvc.tar.xz";
+        sha256 = "209f916c04cd7ed1938a4592e8adc1b1017adada67dc8f8a0a92bca9c4963966";
       };
       "aarch64-pc-windows-msvc" = {
-        url = "https://static.rust-lang.org/dist/rust-1.99.0-aarch64-pc-windows-msvc.msi";
-        sha256 = "c936b4067ed3b53f7ea8fc8044f7d66ed17dfa3675005976a452ab93a1110052";
-      };
-    };
-    "1.98.1" = {
-      "x86_64-pc-windows-msvc" = {
-        url = "https://static.rust-lang.org/dist/rust-1.98.1-x86_64-pc-windows-msvc.msi";
-        sha256 = "346bea0c3076a33e291624b3d7e71bb3cf661422fadaf643612de641b3e7599a";
-      };
-      "aarch64-pc-windows-msvc" = {
-        url = "https://static.rust-lang.org/dist/rust-1.98.1-aarch64-pc-windows-msvc.msi";
-        sha256 = "6bcda8cbf1151a0854e87c51080c7ff2d77356dd87ff4b2157b93aa870093ae6";
+        url = "https://static.rust-lang.org/dist/rust-1.99.0-aarch64-pc-windows-msvc.tar.xz";
+        sha256 = "d877f4b3727eb2f6702da4b083a9701c9f4135c6d0c1bc03d516534bec89c8c0";
       };
     };
   };
@@ -43,18 +42,44 @@ let
     inherit (selected) url sha256;
   };
 
-  # The package is directly the fetchurl output — i.e. the verified MSI
-  # file itself, already resident in the Nix store.  We skip a wrapper
-  # derivation because cmd.exe builtins (mkdir, copy) fail inside the
-  # nova-nix build sandbox (the sandbox environment is not a full cmd
-  # session).  msiexec /a extraction happens in the CI workflow step
-  # outside the sandbox, where it can access the store-path MSI file.
-  package = rustArchive;
+  # Extract the tarball into the store.  --strip-components=1 drops the
+  # leading rust-1.99.0-<target>/ so $out holds cargo/, rustc/,
+  # rust-std-<target>/, ...
+  #
+  # After extraction we merge the target std libs into rustc/ (xcopy
+  # /E sinks rust-std-<target>/* into rustc/), reproducing the flat
+  # layout that rustup's install.sh creates.  Without this merge rustc
+  # cannot find its target std rlibs.
+  package = derivation {
+    name = "rust-${target}-${version}";
+    system = system;
+    builder = "cmd.exe";
+    args = [
+      "/c"
+      ''
+        mkdir "%out%"
+        tar.exe -xf "%src%" --strip-components=1 -C "%out%"
+        xcopy /E /I /Y "%out%\rust-std-${target}" "%out%\rustc"
+      ''
+    ];
+    src = rustArchive;
+    PATH = "C:\\Windows\\System32";
+  };
 
 in rec {
   inherit version target arch package;
 
-  binPath = "${package}/Rust/bin";
+  # cargo and rustc live in separate top-level dirs after extraction; both
+  # must be on PATH for cargo to locate rustc.
+  rustcBin = "${package}/rustc/bin";
+  cargoBin = "${package}/cargo/bin";
+
+  cargoExe = "${cargoBin}/cargo.exe";
+  rustcExe = "${rustcBin}/rustc.exe";
+
+  # Semicolon-joined PATH fragment (back-compat with devshell.nix/package.nix,
+  # which interpolate rust.binPath into a single PATH string).
+  binPath = "${cargoBin};${rustcBin}";
 
   env = {
     RUST_BACKTRACE = "1";
@@ -67,3 +92,4 @@ in rec {
     $env:CARGO_BUILD_TARGET = "${target}"
   '';
 }
+

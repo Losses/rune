@@ -132,34 +132,31 @@ jobs:
           Add-Content $env:GITHUB_PATH "$cmakeOut\bin"
           Add-Content $env:GITHUB_PATH "$ninjaOut"
 
-          # Build Rust toolchain (x64 host; the aarch64 MSI cannot run on x64).
-          # The package IS the fetchurl store path — the verified MSI file
-          # itself.  msiexec /a runs here (outside the sandbox), so it can
-          # open the store-path MSI file directly.  The standalone MSI ships
-          # rustc/cargo/etc. but NOT rustup.exe; locate cargo.exe to find the
-          # toolchain root (the shims intercept CargoKit's rustup calls).
+          # Build Rust toolchain (x64 host via tar.xz derivation; aarch64
+          # binaries cannot run on x64).  The derivation fetches the
+          # standalone tar.xz, extracts it with tar.exe, and xcopies
+          # rust-std-<target>/ into rustc/ — all inside the sandbox.  The
+          # output is the fully assembled toolchain store path.  No msiexec
+          # needed; two bin dirs (rustc/bin + cargo/bin) both go on PATH.
+          #
+          # The standalone tarball ships rustc and cargo in SEPARATE
+          # top-level dirs (not the merged flat layout of rustup) so BOTH
+          # must appear on PATH for cargo to locate rustc.
           Set-Content -Path ".\rust-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).rust.package"
-          $msiPath = Get-NixStorePath -AttrFile ".\rust-attr.nix" -Label "Rust"
-          $rustOut = "$env:RUNNER_TEMP\rust-extract"
-          New-Item -ItemType Directory -Force -Path "$rustOut" | Out-Null
-          Write-Host "Extracting Rust MSI from: $msiPath"
-          Start-Process msiexec -ArgumentList "/a `"$msiPath`" /qn TARGETDIR=`"$rustOut`"" -Wait -NoNewWindow
-          if ($LASTEXITCODE -ne 0) { throw "msiexec /a failed (exit $LASTEXITCODE) on $msiPath" }
-          Write-Host "Rust MSI extracted to: $rustOut"
-          Write-Host "=== MSI extraction layout (depth 3) ==="
-          Get-ChildItem -Recurse -Depth 3 "$rustOut" | ForEach-Object { Write-Host $_.FullName }
-          $cargoExe = Get-ChildItem -Recurse -Path "$rustOut" -Filter "cargo.exe" | Select-Object -First 1
-          if (-not $cargoExe) { throw "cargo.exe not found under $rustOut after MSI extraction" }
-          $rustBin = $cargoExe.Directory.FullName
-          $rustRoot = Split-Path -Parent $rustBin
-          Write-Host "Rust toolchain root: $rustRoot"
-          Write-Host "Rust bin dir: $rustBin"
-          $env:PATH = "$rustBin;" + $env:PATH
+          $rustOut = Get-NixStorePath -AttrFile ".\rust-attr.nix" -Label "Rust"
+          Write-Host "Rust toolchain in Nix store: $rustOut"
+          $rustcBin = "$rustOut\rustc\bin"
+          $cargoBin = "$rustOut\cargo\bin"
+          if (-not (Test-Path "$rustcBin\rustc.exe")) { throw "rustc.exe not found at $rustcBin" }
+          if (-not (Test-Path "$cargoBin\cargo.exe")) { throw "cargo.exe not found at $cargoBin" }
+          $env:PATH = "$cargoBin;$rustcBin;" + $env:PATH
+          Write-Host "Rust bin dirs added to PATH: $cargoBin; $rustcBin"
 
-          # ARM64 cross-compile: the x64 MSI ships only the x86_64 std.  Fetch
-          # the aarch64 std component tarball (same pinned 1.99.0) and drop its
-          # lib/rustlib/aarch64-pc-windows-msvc into the toolchain so that
-          # `cargo build --target aarch64-pc-windows-msvc` finds its rlibs.
+          # ARM64 cross-compile: the x64 tar.xz ships only the x86_64 std
+          # (the aarch64 tar.xz has aarch64 binaries that cannot run here).
+          # Fetch the aarch64 std component tarball (same pinned 1.99.0) and
+          # drop its lib/rustlib/aarch64-pc-windows-msvc into the sysroot so
+          # that `cargo build --target aarch64-pc-windows-msvc` finds rlibs.
           if ("${{ matrix.arch }}" -eq "arm64") {
             Write-Host "Fetching aarch64-pc-windows-msvc std for cross-compile..."
             $stdArchive = "$env:RUNNER_TEMP\rust-std-aarch64.tar.xz"
@@ -170,16 +167,20 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "tar.exe failed to extract aarch64 std tarball" }
             $stdTarget = Get-ChildItem -Recurse -Path "$stdExtract" -Directory -Filter "aarch64-pc-windows-msvc" | Select-Object -First 1
             if (-not $stdTarget) { throw "aarch64-pc-windows-msvc dir not found in std tarball" }
-            $destDir = "$rustRoot\lib\rustlib\aarch64-pc-windows-msvc"
+            # After the xcopy merge in the derivation, target std lives under
+            # rustc\lib\rustlib (alongside the x64 std).  Drop the aarch64
+            # std next to it.
+            $destDir = "$rustOut\rustc\lib\rustlib\aarch64-pc-windows-msvc"
             New-Item -ItemType Directory -Force -Path $destDir | Out-Null
             Copy-Item -Recurse -Force "$($stdTarget.FullName)\*" "$destDir\"
             Write-Host "Installed aarch64 std to: $destDir"
           }
 
-          # Publish the final Rust bin dir for downstream steps - exactly one
-          # entry, so cargo resolves to the extracted toolchain (which now has
-          # the aarch64 std on arm64).
-          Add-Content $env:GITHUB_PATH "$rustBin"
+          # Publish the Rust bin dirs for downstream steps.  Two entries:
+          # cargo/bin and rustc/bin (the standalone tarball keeps them
+          # separate).  cargo resolves rustc from PATH.
+          Add-Content $env:GITHUB_PATH "$cargoBin"
+          Add-Content $env:GITHUB_PATH "$rustcBin"
 
           # Build Flutter SDK (architecture-independent zip shared by both arches)
           Set-Content -Path ".\flutter-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).flutter.package"
@@ -203,10 +204,23 @@ jobs:
             Add-Content $env:GITHUB_PATH "$innoOut"
           }
 
-      # 8. Install Rinf CLI
-      - name: Install Rinf CLI
+      # 8. Build rinf CLI from Nix store (source-build via hash-verified .crate)
+      #    Replaces the previous `cargo install rinf_cli` so the binary is
+      #    reproducible and pinned.  The derivation fetches the .crate, unpacks
+      #    it, and runs cargo install --path --locked inside the sandbox.
+      - name: Build Rinf CLI from Nix Store
+        shell: pwsh
         run: |
-          cargo install rinf_cli --version 8.7.1 --locked --force
+          Set-Content -Path ".\rinf-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).rinf.package"
+          $out = nova-nix build .\rinf-attr.nix 2>&1
+          $rinfPath = $out | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
+          if (-not $rinfPath) {
+            Write-Host "=== nova-nix build rinf FULL OUTPUT ==="
+            $out | ForEach-Object { Write-Host $_ }
+            throw "nova-nix build did not report a store path for rinf (see output above)"
+          }
+          Write-Host "Rinf in Nix store: $rinfPath"
+          Add-Content $env:GITHUB_PATH "$rinfPath\bin"
 
       # 9. Run One-Click Windows Build (MSVC + CargoKit Shim + Runner + Inno Setup)
       - name: Run Windows One-Click Build

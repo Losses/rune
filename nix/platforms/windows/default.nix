@@ -49,8 +49,12 @@ let
     inherit msvc rust flutter tools system arch;
   };
 
+  rinf = import ./rinf.nix {
+    inherit fetchurl rust msvc system;
+  };
+
 in {
-  inherit msvc rust flutter tools innosetup arch system;
+  inherit msvc rust flutter tools innosetup rinf arch system;
 
   devShells = {
     default = devshell;
