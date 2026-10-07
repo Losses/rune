@@ -1,7 +1,7 @@
 # Package-owned writable facade; never chmod, hardlink, or copy the full SDK.
 $ErrorActionPreference = 'Stop'
 $package = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$source = Join-Path $package 'sdk'
+$source = (Get-Content (Join-Path $Package 'sdk-path.txt') -Raw).Trim()
 $key = Split-Path $package -Leaf
 $base = Join-Path $env:LOCALAPPDATA 'Rune\Flutter'
 $root = Join-Path $base $key
@@ -68,8 +68,10 @@ try {
             else { Link-Directory $item.FullName $dest }
         }
         # Nested CMake invocations must also bypass upstream batch bootstrap.
-        Copy-Item "$PSScriptRoot\flutter.bat" "$root\bin\flutter.bat" -Force
-        Copy-Item "$PSScriptRoot\dart.bat" "$root\bin\dart.bat" -Force
+        foreach ($name in @('flutter', 'dart')) {
+            $batch = (Get-Content "$PSScriptRoot\$name.bat" -Raw).Replace('%~dp0flutter-launcher.ps1', "$PSScriptRoot\flutter-launcher.ps1")
+            Set-Content "$root\bin\$name.bat" $batch -Encoding ASCII
+        }
         Set-Content "$root\.ready.tmp" $source
         Move-Item "$root\.ready.tmp" "$root\.ready"
     }

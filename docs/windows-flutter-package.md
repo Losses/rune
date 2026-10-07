@@ -1,6 +1,6 @@
 # Windows Flutter package boundary
 
-The derivation unpacks the hash-pinned official archive, checks its bundled Dart executable and Flutter snapshot, and installs launchers. It does not run the upstream batch bootstrap or rebuild the already bundled snapshot.
+The original raw derivation retains the known-working cmd.exe mkdir/tar extraction, unchanged name, inputs, and flutter directory layout so its existing Store result can be reused. A separate small wrapper derivation checks the bundled Dart executable and Flutter snapshot and installs launchers plus sdk-path.txt referencing the raw SDK. It contains no SDK copy or junction for nova-nix output copying to traverse. No archive fixtures are excluded. Neither derivation runs the upstream batch bootstrap or rebuilds the bundled snapshot.
 
 The launcher uses FLUTTER_ROOT to select a per-Store-output facade in LOCALAPPDATA/Rune/Flutter. Flutter 3.47.6 hardcodes both cache lookup and lock acquisition below this root; there is no assumed cache environment override. The facade copies bin/cache except dart-sdk, and packages/flutter_tools (whose PubDependencies artifact may regenerate package configuration). All other SDK directories, including Dart and repository metadata, remain junctions to immutable package content. Root metadata and launcher files are small writable copies. No hardlinks or Store attribute changes are used.
 

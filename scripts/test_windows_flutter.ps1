@@ -2,7 +2,7 @@ param([Parameter(Mandatory)][string]$Package)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\windows_monitor.ps1"
 $diagnostics = 'build/diagnostics/flutter-smoke'
-$source = Join-Path $Package 'sdk'
+$source = (Get-Content (Join-Path $Package 'sdk-path.txt') -Raw).Trim()
 $root = Join-Path $env:LOCALAPPDATA ('Rune\Flutter\' + (Split-Path $Package -Leaf))
 # Metadata inventory detects additions/removals/content-size/mtime/attribute changes.
 function Inventory {

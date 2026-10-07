@@ -1,12 +1,10 @@
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory $env:out | Out-Null
-# Engine test fixtures are not used by the prebuilt Flutter SDK. Some iOS
-# golden filenames exceed nova-nix output-copy Windows path limits.
-& tar.exe --exclude="flutter/engine/src/flutter/testing" -xf $env:src -C $env:out
-if ($LASTEXITCODE) { throw 'Flutter archive extraction failed' }
-Move-Item "$env:out\flutter" "$env:out\sdk"
+# The wrapper output contains no SDK tree or junction for nova-nix to copy.
+$source = $env:sdk.Replace('/', '\')
+Set-Content "$env:out\sdk-path.txt" $source -Encoding UTF8
 foreach ($required in @('bin\cache\dart-sdk\bin\dart.exe', 'bin\cache\flutter_tools.snapshot')) {
-    if (-not (Test-Path "$env:out\sdk\$required")) { throw "Pinned Flutter archive missing $required" }
+    if (-not (Test-Path "$source\$required")) { throw "Pinned Flutter archive missing $required" }
 }
 New-Item -ItemType Directory "$env:out\flutter\bin" -Force | Out-Null
 Copy-Item $env:launcher "$env:out\flutter\bin\flutter-launcher.ps1"
@@ -16,7 +14,7 @@ foreach ($command in @('flutter', 'dart')) {
 @echo off
 setlocal
 set "RUNE_DART_LAUNCH=$mode"
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$env:out\flutter\bin\flutter-launcher.ps1" %*
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0flutter-launcher.ps1" %*
 exit /b %errorlevel%
 "@ | Set-Content "$env:out\flutter\bin\$command.bat" -Encoding ASCII
 }

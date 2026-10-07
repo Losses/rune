@@ -30,18 +30,28 @@ let
     sha256 = selected.sha256;
   };
 
+  # Keep the previously working archive derivation byte-for-byte equivalent.
+  rawPackage = derivation {
+    name = "flutter-windows-${arch}-${version}";
+    system = system;
+    builder = "cmd.exe";
+    args = [ "/c" "mkdir %out% && tar.exe -xf %src% -C %out%" ];
+    src = flutterArchive;
+    PATH = "C:\\Windows\\System32";
+  };
+
   package = derivation {
     name = "flutter-windows-${arch}-${version}";
     system = system;
     builder = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
     args = [ "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" ./flutter-build.ps1 ];
-    src = flutterArchive;
+    sdk = "${rawPackage}/flutter";
     launcher = ./flutter-launcher.ps1;
     PATH = "C:\\Windows\\System32;C:\\Windows\\System32\\WindowsPowerShell\\v1.0";
   };
 
 in rec {
-  inherit version arch package;
+  inherit version arch package rawPackage;
 
   binPath = "${package}/flutter/bin";
 
