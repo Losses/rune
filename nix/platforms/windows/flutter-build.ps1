@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory $env:out | Out-Null
-& tar.exe -xf $env:src -C $env:out
+# Engine test fixtures are not used by the prebuilt Flutter SDK. Some iOS
+# golden filenames exceed nova-nix output-copy Windows path limits.
+& tar.exe --exclude="flutter/engine/src/flutter/testing" -xf $env:src -C $env:out
 if ($LASTEXITCODE) { throw 'Flutter archive extraction failed' }
 Move-Item "$env:out\flutter" "$env:out\sdk"
 foreach ($required in @('bin\cache\dart-sdk\bin\dart.exe', 'bin\cache\flutter_tools.snapshot')) {
