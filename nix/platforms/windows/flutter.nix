@@ -11,6 +11,8 @@ let
   flutterManifests = {
     "3.47.6" = {
       archive = "flutter_windows_3.47.6-stable.zip";
+      engine = "692136cb6582dbfc5af3fb33c2515a069f2f66d0";
+      dartArm64Sha256 = "97b07b183089179d005b43ad77ec06462b3fd7d6f72f561c6592c85c47ce451a";
       sha256 = "a01bb0d26de91bc23c97cd9ccfaad281a612fb8304213fdd5df1119a09404796";
     };
     "3.27.4" = {
@@ -40,12 +42,27 @@ let
     PATH = "C:\\Windows\\System32";
   };
 
+  # The generic archive ships x64 Dart. Native Dart remains a separate immutable output.
+  nativeDart = if arch != "arm64" then null else derivation {
+    name = "flutter-dart-windows-arm64-${version}";
+    inherit system;
+    builder = "cmd.exe";
+    args = [ "/c" "mkdir %out% && tar.exe -xf %src% -C %out%" ];
+    src = fetchurl {
+      url = "https://storage.googleapis.com/flutter_infra_release/flutter/${selected.engine}/dart-sdk-windows-arm64.zip";
+      sha256 = selected.dartArm64Sha256;
+    };
+    PATH = "C:\\Windows\\System32";
+  };
+
   package = derivation {
     name = "flutter-windows-${arch}-${version}";
     system = system;
     builder = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
     args = [ "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" ./flutter-build.ps1 ];
     sdk = "${rawPackage}/flutter";
+    dartSdk = if nativeDart == null then "${rawPackage}/flutter/bin/cache/dart-sdk" else "${nativeDart}/dart-sdk";
+    inherit arch;
     launcher = ./flutter-launcher.ps1;
     PATH = "C:\\Windows\\System32;C:\\Windows\\System32\\WindowsPowerShell\\v1.0";
   };

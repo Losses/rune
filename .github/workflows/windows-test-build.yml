@@ -28,8 +28,8 @@ jobs:
         env:
           ARCH: ${{ github.event.inputs.arch }}
         run: |
-          x64='{"arch":"x64","system":"x86_64-windows","rust_target":"x86_64-pc-windows-msvc"}'
-          arm64='{"arch":"arm64","system":"aarch64-windows","rust_target":"aarch64-pc-windows-msvc"}'
+          x64='{"arch":"x64","runner":"windows-latest","system":"x86_64-windows","rust_target":"x86_64-pc-windows-msvc"}'
+          arm64='{"arch":"arm64","runner":"windows-11-arm","system":"aarch64-windows","rust_target":"aarch64-pc-windows-msvc"}'
           case "$ARCH" in
             both)  echo "matrix={\"include\":[$x64,$arm64]}" >> "$GITHUB_OUTPUT" ;;
             x64)   echo "matrix={\"include\":[$x64]}" >> "$GITHUB_OUTPUT" ;;
@@ -39,7 +39,7 @@ jobs:
   build-windows:
     needs: select-archs
     name: Build Windows (${{ matrix.arch }})
-    runs-on: windows-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     strategy:
       fail-fast: false
@@ -73,10 +73,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\nix\store
-          key: nova-nix-store-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('nix/platforms/windows/**', 'windows.nix') }}
+          key: nova-nix-store-${{ runner.os }}-${{ runner.arch }}-${{ matrix.arch }}-${{ hashFiles('nix/platforms/windows/**', 'windows.nix') }}
           restore-keys: |
-            nova-nix-store-${{ runner.os }}-${{ matrix.arch }}-
-            nova-nix-store-${{ runner.os }}-
+            nova-nix-store-${{ runner.os }}-${{ runner.arch }}-${{ matrix.arch }}-
+            nova-nix-store-${{ runner.os }}-${{ runner.arch }}-
 
       # 3. Flutter Pub Dependencies Cache
       - name: Cache Flutter Pub dependencies
@@ -139,7 +139,7 @@ jobs:
           Add-Content $env:GITHUB_PATH "$ninjaOut"
 
           # Fail fast on immutable Flutter integration before realizing Rust.
-          Set-Content -Path ".\flutter-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).flutter.package"
+          Set-Content -Path ".\flutter-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"${{ matrix.system }}`"; }).flutter.package"
           $flutterOut = Get-NixStorePath -AttrFile ".\flutter-attr.nix" -Label "Flutter"
           Add-Content $env:GITHUB_PATH "$flutterOut\flutter\bin"
           ./scripts/test_windows_flutter.ps1 -Package $flutterOut
@@ -195,21 +195,18 @@ jobs:
           Add-Content $env:GITHUB_PATH "$rustcBin"
 
           # Inno Setup: fetchurl the verified installer .exe from Nix store,
-          # then silent-install it to a temp directory.  Inno Setup is only
-          # needed for the x64 installer; ARM64 runs skip it.
-          if ("${{ matrix.arch }}" -eq "x64") {
-            Set-Content -Path ".\inno-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).innosetup.package"
-            $innoExe = Get-NixStorePath -AttrFile ".\inno-attr.nix" -Label "Inno Setup"
-            $innoOut = "$env:RUNNER_TEMP\inno-setup"
-            New-Item -ItemType Directory -Force -Path "$innoOut" | Out-Null
-            Write-Host "Installing Inno Setup from: $innoExe"
-            $proc = Start-Process -FilePath $innoExe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$innoOut`"" -Wait -PassThru -NoNewWindow
-            if ($proc.ExitCode -ne 0) { throw "Inno Setup silent install failed (exit $($proc.ExitCode)) on $innoExe" }
-            $iscc = Join-Path $innoOut "ISCC.exe"
-            if (-not (Test-Path $iscc)) { throw "ISCC.exe not found under $innoOut after Inno Setup install" }
-            Write-Host "Inno Setup installed to: $innoOut"
-            Add-Content $env:GITHUB_PATH "$innoOut"
-          }
+          # then silent-install it for both target architectures.
+          Set-Content -Path ".\inno-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).innosetup.package"
+          $innoExe = Get-NixStorePath -AttrFile ".\inno-attr.nix" -Label "Inno Setup"
+          $innoOut = "$env:RUNNER_TEMP\inno-setup"
+          New-Item -ItemType Directory -Force -Path "$innoOut" | Out-Null
+          Write-Host "Installing Inno Setup from: $innoExe"
+          $proc = Start-Process -FilePath $innoExe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$innoOut`"" -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -ne 0) { throw "Inno Setup silent install failed (exit $($proc.ExitCode)) on $innoExe" }
+          $iscc = Join-Path $innoOut "ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found under $innoOut after Inno Setup install" }
+          Write-Host "Inno Setup installed to: $innoOut"
+          Add-Content $env:GITHUB_PATH "$innoOut"
 
       # 8. Build rinf CLI from Nix store (source-build via hash-verified .crate)
       #    Replaces the previous `cargo install rinf_cli` so the binary is
@@ -235,12 +232,7 @@ jobs:
         timeout-minutes: 135
         shell: pwsh
         run: |
-          if ("${{ matrix.arch }}" -eq "arm64") {
-            # Flutter runner cannot cross-compile to ARM64 from an x64 host.
-            .\scripts\windows_build.ps1 -Arch arm64 -SkipFlutterBuild
-          } else {
-            .\scripts\windows_build.ps1 -Arch ${{ matrix.arch }} -BuildInstaller
-          }
+          .\scripts\windows_build.ps1 -Arch ${{ matrix.arch }} -BuildInstaller
 
       - name: Upload Windows diagnostics and Cargo timings
         if: always()
@@ -254,30 +246,42 @@ jobs:
             target/**/cargo-timings/
           if-no-files-found: warn
 
-      # 10. Upload ARM64 hub.dll (cross-compiled Rust core; Flutter runner is x64-only)
-      - name: Upload ARM64 hub.dll
-        if: matrix.arch == 'arm64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Rune-windows-arm64-hub
-          path: target/aarch64-pc-windows-msvc/release/hub.dll
-          if-no-files-found: error
+      # Match build.yml: upload the complete runner before MSIX adds packaging files.
+      - name: Compute artifact identity
+        id: artifact
+        shell: pwsh
+        run: |
+          $safeRef = $env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-'
+          $shortSha = $env:GITHUB_SHA.Substring(0, 7)
+          "prefix=Rune-$safeRef-$shortSha-windows" >> $env:GITHUB_OUTPUT
 
-      # 11. Upload Portable Application Artifact (x64 only; ARM64 Flutter
-      #     runner cannot be cross-compiled from an x64 host)
       - name: Upload Portable Application Artifact
-        if: matrix.arch == 'x64'
         uses: actions/upload-artifact@v4
         with:
-          name: Rune-windows-${{ matrix.arch }}-portable
+          name: ${{ steps.artifact.outputs.prefix }}-${{ matrix.arch }}
           path: build/windows/${{ matrix.arch }}/runner/Release/
           if-no-files-found: error
 
-      # 12. Upload Inno Setup Installer Artifact (x64 only)
-      - name: Upload Inno Setup Installer Artifact
-        if: matrix.arch == 'x64'
+      - name: Build MSIX from existing application
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          # msix 3.16.12: configuration.dart defines both options; no second Flutter build.
+          dart run msix:create --release --build-windows false --architecture ${{ matrix.arch }}
+          if ($LASTEXITCODE -ne 0) { throw "MSIX packaging failed (exit $LASTEXITCODE)" }
+          ./scripts/test_windows_msix.ps1 -Arch ${{ matrix.arch }}
+
+      - name: Upload MSIX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rune-windows-${{ matrix.arch }}-installer
+          name: ${{ steps.artifact.outputs.prefix }}-${{ matrix.arch }}-msix
+          path: build/windows/${{ matrix.arch }}/runner/Release/rune.msix
+          if-no-files-found: error
+
+      # Retain the direct-install Inno package alongside the reference MSIX output.
+      - name: Upload Inno Setup Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.prefix }}-${{ matrix.arch }}-installer
           path: Output/Rune-${{ matrix.arch }}-Setup.exe
-          if-no-files-found: warn
+          if-no-files-found: error

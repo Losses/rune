@@ -2,6 +2,9 @@
 $ErrorActionPreference = 'Stop'
 $package = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $source = (Get-Content (Join-Path $Package 'sdk-path.txt') -Raw).Trim()
+$dartSdk = (Get-Content (Join-Path $package 'dart-sdk-path.txt') -Raw).Trim()
+$architecture = (Get-Content (Join-Path $package 'architecture.txt') -Raw).Trim()
+$dart = Join-Path $dartSdk 'bin\dart.exe'
 $key = Split-Path $package -Leaf
 $base = Join-Path $env:LOCALAPPDATA 'Rune\Flutter'
 $root = Join-Path $base $key
@@ -57,7 +60,7 @@ try {
         foreach ($item in Get-ChildItem "$source\bin\cache" -Force) {
             if ($item.Name -in @('lockfile', 'flutter.bat.lock')) { continue }
             $dest = Join-Path "$root\bin\cache" $item.Name
-            if ($item.Name -eq 'dart-sdk') { Link-Directory $item.FullName $dest }
+            if ($item.Name -eq 'dart-sdk') { Link-Directory $dartSdk $dest }
             elseif ($item.PSIsContainer) { Copy-WritableTree $item.FullName $dest }
             else { Copy-WritableFile $item.FullName $dest }
         }
@@ -81,7 +84,24 @@ $env:FLUTTER_ROOT = $root
 $env:GIT_OPTIONAL_LOCKS = '0'
 if (-not $env:PUB_CACHE) { $env:PUB_CACHE = Join-Path $env:LOCALAPPDATA 'Pub\Cache' }
 Remove-Item Env:FLUTTER_ALREADY_LOCKED -ErrorAction SilentlyContinue
-$dart = "$source\bin\cache\dart-sdk\bin\dart.exe"
+# ARM64 cannot execute the archive's x64 tool snapshot. Resolve dependencies
+# only in the writable facade, under the same initialization lock.
+if ($architecture -eq 'arm64') {
+    $toolLock = [IO.File]::Open("$root.tool-lock", 'OpenOrCreate', 'ReadWrite', 'None')
+    try {
+        if (-not (Test-Path "$root\.native-tool-ready")) {
+            Push-Location "$root\packages\flutter_tools"
+            try {
+                & $dart pub get
+                if ($LASTEXITCODE -ne 0) { throw 'Native Flutter tool dependency resolution failed' }
+            } finally { Pop-Location }
+            Set-Content "$root\.native-tool-ready" $dartSdk
+        }
+    } finally { $toolLock.Dispose() }
+}
 if ($env:RUNE_DART_LAUNCH -eq '1') { & $dart @args }
+elseif ($architecture -eq 'arm64') {
+    & $dart "--packages=$root\packages\flutter_tools\.dart_tool\package_config.json" "$root\packages\flutter_tools\bin\flutter_tools.dart" @args
+}
 else { & $dart "$root\bin\cache\flutter_tools.snapshot" @args }
 exit $LASTEXITCODE
