@@ -138,6 +138,12 @@ jobs:
           Add-Content $env:GITHUB_PATH "$cmakeOut\bin"
           Add-Content $env:GITHUB_PATH "$ninjaOut"
 
+          # Fail fast on immutable Flutter integration before realizing Rust.
+          Set-Content -Path ".\flutter-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).flutter.package"
+          $flutterOut = Get-NixStorePath -AttrFile ".\flutter-attr.nix" -Label "Flutter"
+          Add-Content $env:GITHUB_PATH "$flutterOut\flutter\bin"
+          ./scripts/test_windows_flutter.ps1 -Package $flutterOut
+
           # Build Rust toolchain (x64 host via tar.xz derivation; aarch64
           # binaries cannot run on x64).  The derivation fetches the
           # standalone tar.xz, extracts it with tar.exe, and xcopies
@@ -187,11 +193,6 @@ jobs:
           # separate).  cargo resolves rustc from PATH.
           Add-Content $env:GITHUB_PATH "$cargoBin"
           Add-Content $env:GITHUB_PATH "$rustcBin"
-
-          # Build Flutter SDK (architecture-independent zip shared by both arches)
-          Set-Content -Path ".\flutter-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).flutter.package"
-          $flutterOut = Get-NixStorePath -AttrFile ".\flutter-attr.nix" -Label "Flutter"
-          Add-Content $env:GITHUB_PATH "$flutterOut\flutter\bin"
 
           # Inno Setup: fetchurl the verified installer .exe from Nix store,
           # then silent-install it to a temp directory.  Inno Setup is only

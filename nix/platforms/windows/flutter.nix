@@ -33,13 +33,11 @@ let
   package = derivation {
     name = "flutter-windows-${arch}-${version}";
     system = system;
-    builder = "cmd.exe";
-    args = [
-      "/c"
-      "mkdir %out% && tar.exe -xf %src% -C %out%"
-    ];
+    builder = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+    args = [ "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" ./flutter-build.ps1 ];
     src = flutterArchive;
-    PATH = "C:\\Windows\\System32";
+    launcher = ./flutter-launcher.ps1;
+    PATH = "C:\\Windows\\System32;C:\\Windows\\System32\\WindowsPowerShell\\v1.0";
   };
 
 in rec {
