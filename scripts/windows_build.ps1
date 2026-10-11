@@ -23,6 +23,9 @@ param(
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $ProjectRoot = Resolve-Path "$ScriptDir\.."
+. "$ScriptDir\windows_monitor.ps1"
+$Diagnostics = Join-Path $ProjectRoot "build\diagnostics\$Arch"
+$Monitor = @{ DiagnosticDirectory = $Diagnostics }
 
 Set-Location $ProjectRoot
 Write-Host "==========================================================" -ForegroundColor Cyan
@@ -52,14 +55,9 @@ $HubLib = Join-Path $ProjectRoot "$TargetDir\hub.dll.lib"
 
 if (-not $SkipRustBuild) {
     Write-Host "`n[3/5] Compiling Rust Core (hub.dll for $RustTarget)..." -ForegroundColor Yellow
-    if ($Arch -eq "arm64") {
-        cargo build --release --target $RustTarget -p hub
-    } else {
-        cargo build --release -p hub
-    }
-    if ($LASTEXITCODE -ne 0) {
-        throw "cargo build failed with exit code $LASTEXITCODE (see compiler output above)"
-    }
+    $CargoArguments = @("build", "--release", "-p", "hub", "-vv", "--timings")
+    if ($Arch -eq "arm64") { $CargoArguments += @("--target", $RustTarget) }
+    Invoke-MonitoredCommand @Monitor -Stage "3-cargo" -FilePath cargo -ArgumentList $CargoArguments -TimeoutSeconds 2700
     if (-not (Test-Path $HubDll)) {
         throw "Failed to produce hub.dll at $HubDll"
     }
@@ -80,27 +78,19 @@ $env:FLUTTER_DISABLE_ANALYTICS = "true"
 $env:CI = "true"
 
 Write-Host "  -> [4a] Warming up Flutter toolchain (flutter --version)..." -ForegroundColor Cyan
-flutter --suppress-analytics --version
-if ($LASTEXITCODE -ne 0) {
-    throw "flutter --version failed with exit code $LASTEXITCODE (Flutter SDK broken or not on PATH)"
-}
+Write-FlutterPreflight -DiagnosticDirectory $Diagnostics
+Invoke-MonitoredCommand @Monitor -Stage "4a-flutter-version" -FilePath flutter -ArgumentList @("--suppress-analytics", "--version") -TimeoutSeconds 600
 Write-Host "  -> [4a] Flutter toolchain warm-up finished." -ForegroundColor Green
 
 Write-Host "  -> [4b] flutter pub get (network; cold cache can take minutes)..." -ForegroundColor Cyan
-flutter --suppress-analytics pub get --verbose
-if ($LASTEXITCODE -ne 0) {
-    throw "flutter pub get failed with exit code $LASTEXITCODE"
-}
+Invoke-MonitoredCommand @Monitor -Stage "4b-pub-get" -FilePath flutter -ArgumentList @("--suppress-analytics", "pub", "get", "--verbose") -TimeoutSeconds 900
 Write-Host "  -> [4b] flutter pub get finished." -ForegroundColor Green
 
 # Generate Dart bindings from Rust structs (lib/bindings/bindings.dart).
 # rinf's cargokit build_tool only runs `cargo build`, so the Dart codegen is a
 # separate explicit step here (same `rinf gen` call used by the other workflows).
 Write-Host "  -> [4c] rinf gen (local codegen; no cargo/network)..." -ForegroundColor Cyan
-rinf gen
-if ($LASTEXITCODE -ne 0) {
-    throw "rinf gen failed with exit code $LASTEXITCODE"
-}
+Invoke-MonitoredCommand @Monitor -Stage "4c-rinf-gen" -FilePath rinf -ArgumentList @("gen") -TimeoutSeconds 600
 Write-Host "  -> [4c] rinf gen finished." -ForegroundColor Green
 
 # Locate cargokit.cmake in ephemeral plugin symlinks
@@ -110,51 +100,68 @@ if (Test-Path $CargokitCmake) {
     $CmakeLibPath = ($HubLib -replace '\\', '/')
     $Content = Get-Content -Raw $CargokitCmake
     
-    # Replace CMake target dependencies and link targets if not already patched
-    if ($Content -match 'add_custom_target\("\$\{target\}_cargokit" DEPENDS \$\{OUTPUT_LIB\}\)') {
-        $Content = $Content -replace 'add_custom_target\("\$\{target\}_cargokit" DEPENDS \$\{OUTPUT_LIB\}\)', "add_custom_target(`"`${target}_cargokit`" DEPENDS `"$CmakeLibPath`")"
-        $Content = $Content -replace 'target_link_libraries\("\$\{target\}" PRIVATE "\$\{OUTPUT_LIB\}\$\{IMPORT_LIB_EXTENSION\}"\)', "target_link_libraries(`"`${target}`" PRIVATE `"$CmakeLibPath`")"
-        $Content = $Content -replace 'set\("\$\{target\}_cargokit_lib" \$\{OUTPUT_LIB\} PARENT_SCOPE\)', "set(`"`${target}_cargokit_lib`" `"$CmakeLibPath`" PARENT_SCOPE)"
-        Set-Content -Path $CargokitCmake -Value $Content -NoNewline
-        Write-Host "  -> cargokit.cmake successfully intercepted." -ForegroundColor Green
-    } else {
-        Write-Host "  -> cargokit.cmake already patched or modified." -ForegroundColor Gray
+    # Refresh upstream or previously patched paths on every architecture switch.
+    #
+    # NOTE: each replacement string MUST be parenthesized. Inside a comma-
+    # separated @(...) array literal, PowerShell parses `,` as binding
+    # tighter than the string-concatenation `+` here, so an unparenthesized
+    # 'a' + $Var + 'b' silently splits into three separate array elements
+    # (verified empirically) instead of one concatenated string - which
+    # flattens these nested @(pattern, replacement) pairs into a single
+    # flat list and truncates $rule[1] down to just the literal prefix,
+    # corrupting the patched cargokit.cmake (CMake then fails to parse it:
+    # "Argument not separated from preceding token by whitespace" /
+    # "unterminated string").
+    $rules = @(
+        @('add_custom_target\("\$\{target\}_cargokit" DEPENDS [^\r\n]*\)', ('add_custom_target("${target}_cargokit" DEPENDS "' + $CmakeLibPath + '")')),
+        @('target_link_libraries\("\$\{target\}" PRIVATE [^\r\n]*\)', ('target_link_libraries("${target}" PRIVATE "' + $CmakeLibPath + '")')),
+        @('set\("\$\{target\}_cargokit_lib" [^\r\n]* PARENT_SCOPE\)', ('set("${target}_cargokit_lib" "' + $CmakeLibPath + '" PARENT_SCOPE)'))
+    )
+    foreach ($rule in $rules) {
+        if ([regex]::Matches($Content, $rule[0]).Count -ne 1) { throw "Unsupported CargoKit CMake layout: $($rule[0])" }
+        $replacement = $rule[1]
+        $Content = [regex]::Replace($Content, $rule[0], [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $replacement })
     }
-}
+    Set-Content -Path $CargokitCmake -Value $Content -NoNewline
+} else { throw "CargoKit CMake file missing: $CargokitCmake" }
 
-# Step 5: Build Flutter Windows Release
-# NOTE: Flutter builds for the HOST architecture only (HOST x64 -> x64 runner;
-# HOST arm64 -> arm64 runner). GitHub Actions windows-latest is always x64, so
-# an ARM64 Flutter runner cannot be cross-compiled here. The Rust hub.dll HAS
-# been cross-compiled for aarch64-pc-windows-msvc above; build the ARM64
-# Flutter runner on a Windows ARM64 host with: flutter build windows --release
+# Step 5: Build a full native release. Flutter targets the host Dart ABI.
 $OutputDir = Join-Path $ProjectRoot "build\windows\$Arch\runner\Release"
 if (-not $SkipFlutterBuild) {
-    if ($Arch -eq "arm64") {
-        Write-Host "`n[5/5] Skipping Flutter runner build for arm64 (Flutter builds for the host architecture only)." -ForegroundColor Yellow
-        Write-Host "  hub.dll for aarch64-pc-windows-msvc was cross-compiled above." -ForegroundColor Cyan
-        Write-Host "  Build the ARM64 runner on a Windows ARM64 host: flutter build windows --release" -ForegroundColor Cyan
-    } else {
-        Write-Host "`n[5/5] Building Flutter Windows Application (MSVC - $Arch)..." -ForegroundColor Yellow
-        flutter build windows --release
-        if ($LASTEXITCODE -ne 0) {
-            throw "flutter build windows failed with exit code $LASTEXITCODE"
-        }
-        
-        # Ensure hub.dll is placed in release directory alongside rune.exe
-        Copy-Item -Path $HubDll -Destination $OutputDir -Force
-        Write-Host "`n==========================================================" -ForegroundColor Green
-        Write-Host "  Build Complete ($Arch)! Standalone application located at:" -ForegroundColor Green
-        Write-Host "  $OutputDir" -ForegroundColor Cyan
-        Write-Host "==========================================================" -ForegroundColor Green
-    }
-} else {
-    Write-Host "`n[5/5] Skipping Flutter build as requested." -ForegroundColor DarkGray
+    Invoke-MonitoredCommand @Monitor -Stage "5-flutter-build" -FilePath flutter -ArgumentList @("build", "windows", "--release") -TimeoutSeconds 2700
+    if (-not (Test-Path $OutputDir -PathType Container)) { throw "No $Arch Release directory" }
+    Copy-Item -Path $HubDll -Destination $OutputDir -Force
 }
+function Assert-PeArchitecture([string]$Path) {
+    if (-not (Test-Path $Path -PathType Leaf)) { throw "Missing release binary: $Path" }
+    $reader = [IO.BinaryReader]::new([IO.File]::OpenRead($Path))
+    try {
+        if ($reader.ReadUInt16() -ne 0x5A4D) { throw "Not a PE binary: $Path" }
+        $reader.BaseStream.Position = 0x3C
+        $offset = $reader.ReadInt32()
+        if ($offset -lt 0 -or $offset -gt ($reader.BaseStream.Length - 6)) { throw "Invalid PE header: $Path" }
+        $reader.BaseStream.Position = $offset
+        if ($reader.ReadUInt32() -ne 0x00004550) { throw "Invalid PE signature: $Path" }
+        $machine = $reader.ReadUInt16()
+        $expected = if ($Arch -eq 'arm64') { 0xAA64 } else { 0x8664 }
+        if ($machine -ne $expected) { throw "Wrong PE architecture: $Path (expected $Arch, machine $machine)" }
+    } finally { $reader.Dispose() }
+}
+foreach ($binary in @('rune.exe', 'hub.dll', 'flutter_windows.dll')) {
+    Assert-PeArchitecture (Join-Path $OutputDir $binary)
+}
+foreach ($asset in @('data\app.so', 'data\icudtl.dat')) {
+    $path = Join-Path $OutputDir $asset
+    if (-not (Test-Path $path -PathType Leaf) -or (Get-Item $path).Length -eq 0) { throw "Missing/empty release asset: $path" }
+}
+$assets = Join-Path $OutputDir 'data\flutter_assets'
+if (-not (Test-Path $assets -PathType Container) -or -not (Get-ChildItem $assets -File -Recurse | Select-Object -First 1)) {
+    throw "Missing/empty Flutter assets: $assets"
+}
+Write-Host "Complete $Arch application validated: $OutputDir" -ForegroundColor Green
 
 # Step 6 (Optional): Package installer via Inno Setup
-# The installer is only produced for x64; Flutter ARM64 requires an ARM64 host.
-if ($BuildInstaller -and $Arch -ne "arm64") {
+if ($BuildInstaller) {
     Write-Host "`n[6/6] Packaging Installer with Inno Setup (ISCC)..." -ForegroundColor Yellow
     $IsccCmd = Get-Command iscc.exe -ErrorAction SilentlyContinue
     $IsccPath = if ($IsccCmd) { $IsccCmd.Source } else {
@@ -166,12 +173,16 @@ if ($BuildInstaller -and $Arch -ne "arm64") {
     }
     
     if (-not $IsccPath) {
-        Write-Warning "ISCC.exe (Inno Setup) not found. Skipping installer creation. (Install with: choco install innosetup -y)"
+        throw "ISCC.exe not found; installer creation is required."
     } else {
         $IssFile = Join-Path $ProjectRoot "rune.iss"
         Write-Host "  -> Running: $IsccPath /DAppArch=$Arch $IssFile" -ForegroundColor Cyan
-        & "$IsccPath" "/DAppArch=$Arch" "$IssFile"
         $InstallerPath = Join-Path $ProjectRoot "Output\Rune-$Arch-Setup.exe"
+        # The absolute target is the explicitly named installer, never a directory.
+        if (Test-Path $InstallerPath) { Remove-Item -LiteralPath $InstallerPath -Force }
+        & "$IsccPath" "/DAppArch=$Arch" "$IssFile"
+        if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: exit $LASTEXITCODE" }
+        if (-not (Test-Path $InstallerPath -PathType Leaf) -or (Get-Item $InstallerPath).Length -eq 0) { throw "Installer output missing: $InstallerPath" }
         if (Test-Path $InstallerPath) {
             Write-Host "  -> Installer generated successfully at: $InstallerPath" -ForegroundColor Green
         }
