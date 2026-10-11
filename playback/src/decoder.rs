@@ -137,7 +137,7 @@ impl SymphoniaDecoder {
         let spec = decoded.spec().to_owned();
         let buffer = Self::get_buffer(decoded, &spec);
 
-        Ok(Self {
+        let mut this = Self {
             decoder,
             current_frame_offset: 0,
             format: probed.format,
@@ -145,7 +145,14 @@ impl SymphoniaDecoder {
             buffer,
             spec,
             track_id,
-        })
+        };
+        // Some codecs (e.g. Vorbis) emit an empty first packet; an empty
+        // buffer would make `current_frame_len` report end of stream.
+        if this.buffer.is_empty() {
+            this.decode_next_buffer();
+        }
+
+        Ok(this)
     }
 
     #[inline]
@@ -196,6 +203,41 @@ impl SymphoniaDecoder {
         self.buffer = Self::get_buffer(decoded, &self.spec);
         self.current_frame_offset = samples_to_pass as usize * self.channels() as usize;
         Ok(())
+    }
+}
+
+impl SymphoniaDecoder {
+    /// Decodes the next non-empty packet of the selected track into `buffer`.
+    /// Returns `false` at end of stream or after too many decode errors.
+    fn decode_next_buffer(&mut self) -> bool {
+        let mut decode_errors = 0;
+        loop {
+            let packet = loop {
+                match self.format.next_packet() {
+                    Ok(pkt) if pkt.track_id() == self.track_id => break pkt,
+                    Ok(_) => continue,
+                    Err(_) => return false,
+                }
+            };
+
+            match self.decoder.decode(&packet) {
+                Ok(decoded) => {
+                    if decoded.frames() == 0 {
+                        continue;
+                    }
+                    decoded.spec().clone_into(&mut self.spec);
+                    self.buffer = Self::get_buffer(decoded, &self.spec);
+                    self.current_frame_offset = 0;
+                    return true;
+                }
+                Err(_) => {
+                    decode_errors += 1;
+                    if decode_errors > MAX_DECODE_RETRIES {
+                        return false;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -277,33 +319,20 @@ impl Iterator for SymphoniaDecoder {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_frame_offset >= self.buffer.len() {
-            let packet = loop {
-                let pkt = self.format.next_packet().ok()?;
-                if pkt.track_id() == self.track_id {
-                    break pkt;
-                }
-            };
-            let mut decoded = self.decoder.decode(&packet);
-            for _ in 0..MAX_DECODE_RETRIES {
-                if decoded.is_err() {
-                    let packet = loop {
-                        let pkt = self.format.next_packet().ok()?;
-                        if pkt.track_id() == self.track_id {
-                            break pkt;
-                        }
-                    };
-                    decoded = self.decoder.decode(&packet);
-                }
-            }
-            let decoded = decoded.ok()?;
-            decoded.spec().clone_into(&mut self.spec);
-            self.buffer = Self::get_buffer(decoded, &self.spec);
-            self.current_frame_offset = 0;
+        if self.current_frame_offset >= self.buffer.len() && !self.decode_next_buffer() {
+            return None;
         }
 
         let sample = *self.buffer.samples().get(self.current_frame_offset)?;
         self.current_frame_offset += 1;
+
+        // Refill eagerly so `current_frame_len` never reports `Some(0)` at a
+        // packet boundary, which consumers (e.g. `RuneBuffered`) treat as the
+        // end of the stream.
+        if self.current_frame_offset >= self.buffer.len() {
+            self.decode_next_buffer();
+        }
+
         Some(sample)
     }
 }
@@ -502,6 +531,27 @@ mod tests {
             }
         }
         assert_eq!(count_after, 1000);
+    }
+
+    #[test]
+    fn test_buffered_decodes_past_first_packet() {
+        let path = "../assets/startup_0.ogg";
+        if !std::path::Path::new(path).exists() {
+            return;
+        }
+
+        let file = File::open(path).expect("open ogg file");
+        let decoder = RuneDecoder::new(BufReader::new(file), Some("ogg"))
+            .expect("create rune decoder for ogg");
+        let expected = decoder.total_duration().expect("duration").as_secs_f64()
+            * decoder.sample_rate() as f64
+            * decoder.channels() as f64;
+
+        let decoded = rune_buffered(decoder).count() as f64;
+        assert!(
+            (decoded - expected).abs() / expected < 0.01,
+            "decoded {decoded} samples, expected about {expected}"
+        );
     }
 
     #[test]
