@@ -101,10 +101,21 @@ if (Test-Path $CargokitCmake) {
     $Content = Get-Content -Raw $CargokitCmake
     
     # Refresh upstream or previously patched paths on every architecture switch.
+    #
+    # NOTE: each replacement string MUST be parenthesized. Inside a comma-
+    # separated @(...) array literal, PowerShell parses `,` as binding
+    # tighter than the string-concatenation `+` here, so an unparenthesized
+    # 'a' + $Var + 'b' silently splits into three separate array elements
+    # (verified empirically) instead of one concatenated string - which
+    # flattens these nested @(pattern, replacement) pairs into a single
+    # flat list and truncates $rule[1] down to just the literal prefix,
+    # corrupting the patched cargokit.cmake (CMake then fails to parse it:
+    # "Argument not separated from preceding token by whitespace" /
+    # "unterminated string").
     $rules = @(
-        @('add_custom_target\("\$\{target\}_cargokit" DEPENDS [^\r\n]*\)', 'add_custom_target("${target}_cargokit" DEPENDS "' + $CmakeLibPath + '")'),
-        @('target_link_libraries\("\$\{target\}" PRIVATE [^\r\n]*\)', 'target_link_libraries("${target}" PRIVATE "' + $CmakeLibPath + '")'),
-        @('set\("\$\{target\}_cargokit_lib" [^\r\n]* PARENT_SCOPE\)', 'set("${target}_cargokit_lib" "' + $CmakeLibPath + '" PARENT_SCOPE)')
+        @('add_custom_target\("\$\{target\}_cargokit" DEPENDS [^\r\n]*\)', ('add_custom_target("${target}_cargokit" DEPENDS "' + $CmakeLibPath + '")')),
+        @('target_link_libraries\("\$\{target\}" PRIVATE [^\r\n]*\)', ('target_link_libraries("${target}" PRIVATE "' + $CmakeLibPath + '")')),
+        @('set\("\$\{target\}_cargokit_lib" [^\r\n]* PARENT_SCOPE\)', ('set("${target}_cargokit_lib" "' + $CmakeLibPath + '" PARENT_SCOPE)'))
     )
     foreach ($rule in $rules) {
         if ([regex]::Matches($Content, $rule[0]).Count -ne 1) { throw "Unsupported CargoKit CMake layout: $($rule[0])" }
