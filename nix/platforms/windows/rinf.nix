@@ -2,7 +2,7 @@
 #
 # Replaces the CI "cargo install rinf_cli --locked --force" step: the rinf
 # source .crate is hash-verified by fetchurl (fixed-output, network), and its
-# 148 transitive dependencies are provided as a deterministic, hash-verified
+# 147 transitive dependencies are provided as a deterministic, hash-verified
 # vendor tarball (hosted on Losses/rune).  A cmd.exe derivation then compiles
 # the crate fully offline (--offline --frozen) against the store Rust toolchain
 # and copies the single rinf.exe into $out/bin.
@@ -24,12 +24,12 @@ let
     sha256 = "1e82b79df638977ca905e91ede963b8849b7665cb8a445ab2b147dc76c890ab7";
   };
 
-  # Deterministic vendor tarball: 148 crates under vendor/ plus
+  # Deterministic vendor tarball: 147 crates under vendor/ plus
   # .cargo/config.toml that redirects crates-io to the vendored directory,
   # so the build needs no network.
   rinfVendor = fetchurl {
     url = "https://github.com/Losses/rune/releases/download/rinf-vendor-8.7.1/rinf-vendor-8.7.1.tar.gz";
-    sha256 = "df94942846c68c984c7b592f2be1105732aa0003bef5b974099bd8eec173abf2";
+    sha256 = "0043cf406619f021dbb41520e6cc78b959e93832cca35b7b2120c8673ade0cd8";
   };
 
   # Step 1: unpack the .crate (a gzipped tar) AND the vendor tarball, so $out
