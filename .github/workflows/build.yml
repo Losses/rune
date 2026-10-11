@@ -7,120 +7,304 @@ on:
       - v*
 
 jobs:
+  # Nix-based Windows build (x64 + arm64): replaces the former subosito/
+  # dtolnay/vcpkg pipeline. Rust, Flutter, CMake/Ninja and Inno Setup all come
+  # from nix/platforms/windows via nova-nix for reproducibility; the actual
+  # build + CargoKit interception lives in scripts/windows_build.ps1, the
+  # same script exercised by .github/workflows/windows-test-build.yml.
   build-windows:
-    runs-on: windows-latest
-    env:
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+    name: Build Windows (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            system: x86_64-windows
+            rust_target: x86_64-pc-windows-msvc
+            release_suffix: amd64
+          - arch: arm64
+            runner: windows-11-arm
+            system: aarch64-windows
+            rust_target: aarch64-pc-windows-msvc
+            release_suffix: arm64
+
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - name: Test Windows command monitor
+        shell: pwsh
+        timeout-minutes: 3
+        run: ./scripts/test_windows_monitor.ps1
+
+      # 1. Install nova-nix (Native Windows Nix engine)
+      - name: Setup nova-nix
+        shell: pwsh
+        run: |
+          $dest = "$env:USERPROFILE\.nova-nix"
+          $zip = "$dest\nova-nix.zip"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/Novavero-AI/nova-nix/releases/download/v0.7.0.0/nova-nix-windows-x64.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          Remove-Item $zip
+          $novaBin = "$dest\nova-nix-windows-x64\bin"
+          Add-Content $env:GITHUB_PATH "$novaBin"
+          Write-Host "nova-nix installed successfully to $novaBin"
+
+      # 2. Nix Store Cache (C:\nix\store)
+      - name: Cache Nix Store
+        uses: actions/cache@v4
         with:
-          channel: "stable"
+          path: C:\nix\store
+          key: nova-nix-store-${{ runner.os }}-${{ runner.arch }}-${{ matrix.arch }}-${{ hashFiles('nix/platforms/windows/**', 'windows.nix') }}
+          restore-keys: |
+            nova-nix-store-${{ runner.os }}-${{ runner.arch }}-${{ matrix.arch }}-
+            nova-nix-store-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      # 3. Flutter Pub Dependencies Cache
+      - name: Cache Flutter Pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\Pub\Cache
+          key: pub-cache-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            pub-cache-${{ runner.os }}-
 
-      - uses: Swatinem/rust-cache@v2
+      # 4. Evaluate and verify Windows platform derivations with nova-nix
+      - name: Evaluate Platform Nix Derivations
+        shell: pwsh
+        run: |
+          nova-nix eval windows.nix
+          nova-nix eval --expr '(import ./nix/platforms/windows/default.nix { system = "${{ matrix.system }}"; }).devShells.default.name'
 
-      - name: Install the Rust dependencies
-        run: cargo install rinf_cli
+      # 5. Build all toolchains from Nix store via nova-nix
+      #    (Rust and Flutter now come from Nix, replacing external actions)
+      - name: Realize Toolchains from Nix Store
+        shell: pwsh
+        run: |
+          # nova-nix v0.7.0.0's `build` only accepts a .nix file as its target
+          # (`--expr` exists for `eval` only), so wrap the attribute paths in files.
+          #
+          # Helper: build a .nix attr file and return the store path.
+          # On failure, prints the FULL nova-nix output before throwing.
+          function Get-NixStorePath {
+            param([string]$AttrFile, [string]$Label)
+            $out = nova-nix build $AttrFile 2>&1
+            $path = $out | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
+            if (-not $path) {
+              Write-Host "=== nova-nix build $AttrFile ($Label) FULL OUTPUT ==="
+              $out | ForEach-Object { Write-Host $_ }
+              throw "nova-nix build did not report a store path for $Label (see output above)"
+            }
+            Write-Host "$Label in Nix store: $path"
+            return $path
+          }
 
-      - name: Flutter pub get
-        run: flutter pub get
+          Set-Content -Path ".\cmake-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).tools.cmake"
+          Set-Content -Path ".\ninja-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).tools.ninja"
+          $cmakeOut = Get-NixStorePath -AttrFile ".\cmake-attr.nix" -Label "CMake"
+          $ninjaOut = Get-NixStorePath -AttrFile ".\ninja-attr.nix" -Label "Ninja"
+          Add-Content $env:GITHUB_PATH "$cmakeOut\bin"
+          Add-Content $env:GITHUB_PATH "$ninjaOut"
 
-      - name: Generate message files
-        run: rinf gen
+          # Fail fast on immutable Flutter integration before realizing Rust.
+          Set-Content -Path ".\flutter-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"${{ matrix.system }}`"; }).flutter.package"
+          $flutterOut = Get-NixStorePath -AttrFile ".\flutter-attr.nix" -Label "Flutter"
+          Add-Content $env:GITHUB_PATH "$flutterOut\flutter\bin"
+          ./scripts/test_windows_flutter.ps1 -Package $flutterOut
 
-      - name: Build Windows
-        run: flutter build windows --release --verbose
+          # Build Rust toolchain (x64 host via tar.xz derivation; aarch64
+          # binaries cannot run on x64).  The derivation fetches the
+          # standalone tar.xz, extracts it with tar.exe, and xcopies
+          # rust-std-<target>/ into rustc/ — all inside the sandbox.  The
+          # output is the fully assembled toolchain store path.  No msiexec
+          # needed; two bin dirs (rustc/bin + cargo/bin) both go on PATH.
+          #
+          # The standalone tarball ships rustc and cargo in SEPARATE
+          # top-level dirs (not the merged flat layout of rustup) so BOTH
+          # must appear on PATH for cargo to locate rustc.
+          Set-Content -Path ".\rust-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).rust.package"
+          $rustOut = Get-NixStorePath -AttrFile ".\rust-attr.nix" -Label "Rust"
+          Write-Host "Rust toolchain in Nix store: $rustOut"
+          $rustcBin = "$rustOut\rustc\bin"
+          $cargoBin = "$rustOut\cargo\bin"
+          if (-not (Test-Path "$rustcBin\rustc.exe")) { throw "rustc.exe not found at $rustcBin" }
+          if (-not (Test-Path "$cargoBin\cargo.exe")) { throw "cargo.exe not found at $cargoBin" }
+          $env:PATH = "$cargoBin;$rustcBin;" + $env:PATH
+          Write-Host "Rust bin dirs added to PATH: $cargoBin; $rustcBin"
+
+          # ARM64 cross-compile: the x64 tar.xz ships only the x86_64 std
+          # (the aarch64 tar.xz has aarch64 binaries that cannot run here).
+          # Fetch the aarch64 std component tarball (same pinned 1.99.0) and
+          # drop its lib/rustlib/aarch64-pc-windows-msvc into the sysroot so
+          # that `cargo build --target aarch64-pc-windows-msvc` finds rlibs.
+          if ("${{ matrix.arch }}" -eq "arm64") {
+            Write-Host "Fetching aarch64-pc-windows-msvc std for cross-compile..."
+            $stdArchive = "$env:RUNNER_TEMP\rust-std-aarch64.tar.xz"
+            $stdExtract = "$env:RUNNER_TEMP\rust-std-aarch64"
+            Invoke-WebRequest -Uri "https://static.rust-lang.org/dist/rust-std-1.99.0-aarch64-pc-windows-msvc.tar.xz" -OutFile $stdArchive
+            New-Item -ItemType Directory -Force -Path "$stdExtract" | Out-Null
+            tar.exe -xf $stdArchive -C "$stdExtract"
+            if ($LASTEXITCODE -ne 0) { throw "tar.exe failed to extract aarch64 std tarball" }
+            $stdTarget = Get-ChildItem -Recurse -Path "$stdExtract" -Directory -Filter "aarch64-pc-windows-msvc" | Select-Object -First 1
+            if (-not $stdTarget) { throw "aarch64-pc-windows-msvc dir not found in std tarball" }
+            # After the xcopy merge in the derivation, target std lives under
+            # rustc\lib\rustlib (alongside the x64 std).  Drop the aarch64
+            # std next to it.
+            $destDir = "$rustOut\rustc\lib\rustlib\aarch64-pc-windows-msvc"
+            New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+            Copy-Item -Recurse -Force "$($stdTarget.FullName)\*" "$destDir\"
+            Write-Host "Installed aarch64 std to: $destDir"
+          }
+
+          # Publish the Rust bin dirs for downstream steps.  Two entries:
+          # cargo/bin and rustc/bin (the standalone tarball keeps them
+          # separate).  cargo resolves rustc from PATH.
+          Add-Content $env:GITHUB_PATH "$cargoBin"
+          Add-Content $env:GITHUB_PATH "$rustcBin"
+
+          # Inno Setup: fetchurl the verified installer .exe from Nix store,
+          # then silent-install it for both target architectures.
+          Set-Content -Path ".\inno-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).innosetup.package"
+          $innoExe = Get-NixStorePath -AttrFile ".\inno-attr.nix" -Label "Inno Setup"
+          $innoOut = "$env:RUNNER_TEMP\inno-setup"
+          New-Item -ItemType Directory -Force -Path "$innoOut" | Out-Null
+          Write-Host "Installing Inno Setup from: $innoExe"
+          $proc = Start-Process -FilePath $innoExe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$innoOut`"" -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -ne 0) { throw "Inno Setup silent install failed (exit $($proc.ExitCode)) on $innoExe" }
+          $iscc = Join-Path $innoOut "ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found under $innoOut after Inno Setup install" }
+          Write-Host "Inno Setup installed to: $innoOut"
+          Add-Content $env:GITHUB_PATH "$innoOut"
+
+      # 6. Cache compiled Rust build artifacts (target/), keyed per
+      #    architecture since x64 and arm64 both build under
+      #    target/<rust_target>/release. This is on top of (not a
+      #    replacement for) the Cargo registry/git source cache that
+      #    Swatinem/rust-cache also manages; it is what actually skips
+      #    recompiling hub's dependency graph between runs. Placed after
+      #    Rust is realized from Nix (needs rustc/cargo on PATH to key
+      #    itself) and before the cargo build inside windows_build.ps1.
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: ${{ matrix.arch }}
+          cache-targets: "true"
+
+      # 7. Build rinf CLI from Nix store (source-build via hash-verified .crate)
+      #    Replaces the previous `cargo install rinf_cli` so the binary is
+      #    reproducible and pinned.  The derivation fetches the .crate, unpacks
+      #    it, and runs cargo install --path --locked inside the sandbox.
+      - name: Build Rinf CLI from Nix Store
+        shell: pwsh
+        run: |
+          Set-Content -Path ".\rinf-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).rinf.package"
+          $out = nova-nix build .\rinf-attr.nix 2>&1
+          $rinfPath = $out | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
+          if (-not $rinfPath) {
+            Write-Host "=== nova-nix build rinf FULL OUTPUT ==="
+            $out | ForEach-Object { Write-Host $_ }
+            throw "nova-nix build did not report a store path for rinf (see output above)"
+          }
+          Write-Host "Rinf in Nix store: $rinfPath"
+          Add-Content $env:GITHUB_PATH "$rinfPath\bin"
+
+      # 8. Run One-Click Windows Build (MSVC + CargoKit Shim + Runner + Inno Setup)
+      - name: Run Windows One-Click Build
+        # Stage maxima total 125 minutes; leave cleanup and artifact upload room.
+        timeout-minutes: 135
+        shell: pwsh
+        run: |
+          .\scripts\windows_build.ps1 -Arch ${{ matrix.arch }} -BuildInstaller
+
+      - name: Upload Windows diagnostics and Cargo timings
+        if: always()
+        timeout-minutes: 10
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-diagnostics-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: |
+            build/diagnostics/
+            target/cargo-timings/
+            target/**/cargo-timings/
+          if-no-files-found: warn
 
       - uses: benjlevesque/short-sha@v3.0
         id: short-sha
         with:
           length: 7
 
-      - name: Upload artifact
+      - name: Compute artifact identity
+        id: artifact
+        shell: pwsh
+        run: |
+          # Sanitize the ref name: unlike tag pushes, workflow_dispatch can
+          # run from a branch name containing "/" (e.g. ci/windows-diagnostics),
+          # which upload-artifact rejects outright.
+          $safeRef = $env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-'
+          $suffix = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { "-$($env:SHORT_SHA)" } else { "" }
+          "prefix=Rune-$safeRef$suffix-windows" >> $env:GITHUB_OUTPUT
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
+      - name: Upload Portable Application Artifact
         uses: actions/upload-artifact@v4
         with:
-          path: build/windows/x64/runner/Release/
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows
+          name: ${{ steps.artifact.outputs.prefix }}-${{ matrix.arch }}
+          path: build/windows/${{ matrix.arch }}/runner/Release/
+          if-no-files-found: error
+
+      - name: Build MSIX from existing application
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          # msix 3.16.12: configuration.dart defines both options; no second Flutter build.
+          dart run msix:create --release --build-windows false --architecture ${{ matrix.arch }}
+          if ($LASTEXITCODE -ne 0) { throw "MSIX packaging failed (exit $LASTEXITCODE)" }
+          ./scripts/test_windows_msix.ps1 -Arch ${{ matrix.arch }}
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.prefix }}-${{ matrix.arch }}-msix
+          path: build/windows/${{ matrix.arch }}/runner/Release/rune.msix
+          if-no-files-found: error
+
+      # Retain the direct-install Inno package alongside the reference MSIX output.
+      - name: Upload Inno Setup Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.prefix }}-${{ matrix.arch }}-installer
+          path: Output/Rune-${{ matrix.arch }}-Setup.exe
+          if-no-files-found: error
 
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}-windows-amd64.zip
-          directory: build/windows/x64/runner/Release/
+          filename: Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}.zip
+          directory: build/windows/${{ matrix.arch }}/runner/Release/
 
-      - name: Release
-        uses: ncipollo/release-action@v1
+      - name: Rename MSIX and Installer for Release
         if: startsWith(github.ref, 'refs/tags/v')
-        with:
-          artifacts: "build/windows/x64/runner/Release/Rune-${{ github.ref_name }}-windows-amd64.zip"
-          allowUpdates: true
-          replacesArtifacts: false
-          omitBodyDuringUpdate: true
-          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
-
-  build-windows-msix:
-    runs-on: windows-latest
-    env:
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: "stable"
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install the Rust dependencies
-        run: cargo install rinf_cli
-
-      - name: Flutter pub get
-        run: flutter pub get
-
-      - name: Generate message files
-        run: rinf gen
-
-      - name: Build MSIX
-        run: dart run msix:create --release
-
-      - uses: benjlevesque/short-sha@v3.0
-        id: short-sha
-        with:
-          length: 7
-
-      - name: Upload MSIX artifact
-        uses: actions/upload-artifact@v4
-        with:
-          path: build/windows/x64/runner/Release/rune.msix
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows-msix
-
-      - name: Rename MSIX
-        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
         run: |
-          mv build/windows/x64/runner/Release/rune.msix "build/windows/x64/runner/Release/Rune-${{ github.ref_name }}-windows-amd64.msix"
+          Move-Item -Force "build/windows/${{ matrix.arch }}/runner/Release/rune.msix" "build/windows/${{ matrix.arch }}/runner/Release/Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}.msix"
+          Move-Item -Force "Output/Rune-${{ matrix.arch }}-Setup.exe" "Output/Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}-Setup.exe"
 
       - name: Release
         uses: ncipollo/release-action@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          artifacts: "build/windows/x64/runner/Release/Rune-${{ github.ref_name }}-windows-amd64.msix"
+          artifacts: "build/windows/${{ matrix.arch }}/runner/Release/Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}.zip,build/windows/${{ matrix.arch }}/runner/Release/Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}.msix,Output/Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}-Setup.exe"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
