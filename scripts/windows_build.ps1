@@ -44,8 +44,8 @@ $env:PATH = "$ShimDir;$env:PATH"
 # Cargo treats CARGO_BUILD_TARGET exactly like --target, so artifacts for BOTH
 # architectures land under target/<triple>/release (never under plain target/release).
 $env:CARGO_BUILD_TARGET = $RustTarget
-# fdk-aac-sys 0.5.0 is vendored at native/fdk-aac-sys with an MSVC ARM64 patch
-# in FDK_archdef.h (see [patch.crates-io] in Cargo.toml). No CFLAGS override needed.
+# fdk-aac-sys uses a patched fork (Losses/fdk-aac-rs branch msvc-arm64) with an MSVC ARM64
+# fix in FDK_archdef.h (see [patch.crates-io] in Cargo.toml). No CFLAGS override needed.
 
 # Step 3: Build Rust Hub (hub.dll + hub.dll.lib)
 # CARGO_BUILD_TARGET is set for both arches, so the target subdirectory is always used.

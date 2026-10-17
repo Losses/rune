@@ -2231,6 +2231,7 @@ dependencies = [
 [[package]]
 name = "fdk-aac-sys"
 version = "0.5.0"
+source = "git+https://github.com/Losses/fdk-aac-rs?branch=msvc-arm64#e7dabad03a1b9f96866bab5f18f1035d1ee0b557"
 dependencies = [
  "cc",
 ]
