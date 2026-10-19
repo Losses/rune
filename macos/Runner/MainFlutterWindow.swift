@@ -1,6 +1,6 @@
 import AppKit
 import Cocoa
-import FlutterMacOS
+@preconcurrency import FlutterMacOS
 import bitsdojo_window_macos
 
 class MainFlutterWindow: BitsdojoWindow {
@@ -8,7 +8,7 @@ class MainFlutterWindow: BitsdojoWindow {
     return BDW_CUSTOM_FRAME | BDW_HIDE_ON_STARTUP
   }
 
-  override func awakeFromNib() {
+  nonisolated override func awakeFromNib() {
     // Main-window nib loading is synchronous on the main thread.
     MainActor.assumeIsolated {
       configureFlutterWindow()

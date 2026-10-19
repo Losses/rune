@@ -68,7 +68,7 @@ dependencies:
   macos_secure_bookmarks:
     git:
       url: https://github.com/XMLHexagram/macos_secure_bookmarks.git
-      ref: c07abbf7c186c543de09a9c7df8577bbf5e27748
+      ref: 826ae1ad16a89d89e6345462dd520c01314e1fe1
   permission_handler: ^11.3.1
   animated_flip_counter: ^0.3.4
   intl: ^0.20.2
