@@ -16,3 +16,5 @@ rtrb = "0.3.2"
 pollster = "0.4"
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl"] }
 lactea = { git = "https://github.com/XMLHexagram/lactea", rev = "22a19f9cdac0fe7db43d854d72bda3a2bbf742c7" }
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
+lactea-host = { git = "https://github.com/XMLHexagram/lactea", rev = "22a19f9cdac0fe7db43d854d72bda3a2bbf742c7", version = "0.2.2" }

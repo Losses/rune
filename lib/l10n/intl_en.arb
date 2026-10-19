@@ -1388,5 +1388,13 @@
   "visualizerExit": "Exit visualizer",
   "@visualizerExit": {
     "description": "Tooltip of the button that closes the visualizer."
+  },
+  "visualizerSourceBuiltin": "MilkDrop Original",
+  "@visualizerSourceBuiltin": {
+    "description": "Label of the visualizer button that uses the built-in MilkDrop Original preset pack. A product name, usually not translated."
+  },
+  "visualizerSourceFolder": "Folder",
+  "@visualizerSourceFolder": {
+    "description": "Label of the visualizer button that uses the preset folder chosen by the user."
   }
 }

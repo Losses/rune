@@ -5,11 +5,13 @@
 //! tightly packed pixels as the latest [`Frame`]. Readers ([`Visualizer::latest_frame`]) only
 //! clone an `Arc` under a short lock and never wait for the GPU.
 
+mod pack;
 mod pipeline;
 mod presets;
+mod textures;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -21,8 +23,12 @@ use lactea::FrameClock;
 use log::{error, info};
 use rtrb::Consumer;
 
+use pack::Zip;
 use pipeline::Pipeline;
-use presets::PresetList;
+use presets::{Location, Preset, PresetList};
+use textures::TextureSource;
+
+pub use pack::{BUILTIN_NAME, builtin_pack};
 
 pub use lactea::Transition;
 
@@ -54,6 +60,18 @@ pub struct Frame {
     pub bgra: Vec<u8>,
 }
 
+/// Where next, previous and random take presets (and textures) from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Source {
+    /// Nothing selected yet.
+    #[default]
+    None,
+    /// The pack embedded at build time, if there is one ([`builtin_pack`]).
+    Builtin,
+    /// The folder given to [`Visualizer::set_preset_dir`].
+    Folder,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Status {
     pub running: bool,
@@ -62,7 +80,11 @@ pub struct Status {
     pub target_fps: u32,
     pub measured_fps: f32,
     pub preset_name: String,
+    /// Presets in the selected [`Source`].
     pub preset_count: usize,
+    pub source: Source,
+    /// Whether this build embeds a preset pack.
+    pub builtin_available: bool,
     pub adapter: String,
     pub last_error: Option<String>,
 }
@@ -74,7 +96,35 @@ enum Command {
         name: String,
         transition: Transition,
     },
+    SetTextures(TextureSource),
     Stop,
+}
+
+/// The preset lists of both sources and which one is selected.
+#[derive(Default)]
+struct Library {
+    source: Source,
+    builtin: PresetList,
+    folder: PresetList,
+    folder_dir: Option<PathBuf>,
+}
+
+impl Library {
+    fn list(&mut self) -> Result<&mut PresetList> {
+        match self.source {
+            Source::Builtin => Ok(&mut self.builtin),
+            Source::Folder => Ok(&mut self.folder),
+            Source::None => bail!("No preset source is selected"),
+        }
+    }
+
+    fn texture_source(&self) -> Option<TextureSource> {
+        match self.source {
+            Source::Builtin => Some(TextureSource::Builtin),
+            Source::Folder => self.folder_dir.clone().map(TextureSource::Folder),
+            Source::None => None,
+        }
+    }
 }
 
 struct Shared {
@@ -102,7 +152,7 @@ struct Worker {
 pub struct Visualizer {
     shared: Arc<Shared>,
     worker: Mutex<Option<Worker>>,
-    presets: Mutex<PresetList>,
+    library: Mutex<Library>,
 }
 
 impl Default for Visualizer {
@@ -120,7 +170,7 @@ impl Visualizer {
                 next_frame_id: AtomicU64::new(1),
             }),
             worker: Mutex::new(None),
-            presets: Mutex::new(PresetList::default()),
+            library: Mutex::new(Library::default()),
         }
     }
 
@@ -128,20 +178,30 @@ impl Visualizer {
     /// in [`Status::last_error`] with `running` false. Fails if a thread is already there, so
     /// call [`Self::stop`] first (it gives the `PcmInput` back).
     pub fn start(&self, input: PcmInput, width: u32, height: u32, fps: u32) -> Result<()> {
+        let (width, height, fps) = (width.max(1), height.max(1), fps.clamp(1, 240));
+        // Without a folder the built-in pack, if there is one, is the default source. This
+        // comes before the worker lock, which `publish_source` takes to reach the renderer.
+        let textures = {
+            let mut library = lock(&self.library);
+            if library.source == Source::None && builtin_pack().is_some() {
+                self.select_builtin(&mut library)?;
+            }
+            library.texture_source()
+        };
         let mut worker = lock(&self.worker);
         if worker.is_some() {
             bail!("The visualizer is already started");
         }
-        let (width, height, fps) = (width.max(1), height.max(1), fps.clamp(1, 240));
         {
             let mut status = self.shared.status();
-            let preset_count = status.preset_count;
+            let (preset_count, source) = (status.preset_count, status.source);
             *status = Status {
                 running: true,
                 width,
                 height,
                 target_fps: fps,
                 preset_count,
+                source,
                 ..Status::default()
             };
         }
@@ -149,7 +209,7 @@ impl Visualizer {
         let shared = Arc::clone(&self.shared);
         let handle = thread::Builder::new()
             .name("visualizer".into())
-            .spawn(move || worker_main(shared, input, (width, height, fps), receiver))
+            .spawn(move || worker_main(shared, input, (width, height, fps), textures, receiver))
             .context("Failed to spawn the visualizer thread")?;
         *worker = Some(Worker { commands, handle });
         Ok(())
@@ -177,34 +237,96 @@ impl Visualizer {
     }
 
     pub fn load_preset_path(&self, path: &Path, transition: Transition) -> Result<()> {
-        let bytes =
-            std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
-        let name = path
-            .file_stem()
-            .map_or_else(|| "preset".into(), |s| s.to_string_lossy().into_owned());
-        self.load_preset(bytes, &name, transition)
+        self.load_entry(&Preset::from_path(path), transition)
+    }
+
+    fn load_entry(&self, preset: &Preset, transition: Transition) -> Result<()> {
+        let bytes = match &preset.location {
+            Location::File(path) => {
+                std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?
+            }
+            Location::Pack(path) => Zip::builtin()?.read(path)?,
+        };
+        self.load_preset(bytes, &preset.name, transition)
     }
 
     /// Scan `dir` for `.milk` / `.milk2` files for next/previous/random. Returns their count.
+    /// The folder becomes the source unless one was chosen already (see [`Self::set_source`]);
+    /// its `textures` subfolder, or the folder itself, supplies the textures.
     pub fn set_preset_dir(&self, dir: &Path) -> Result<usize> {
-        let count = lock(&self.presets).scan(dir)?;
-        self.shared.status().preset_count = count;
+        let mut library = lock(&self.library);
+        let count = library.folder.scan(dir)?;
+        library.folder_dir = Some(dir.to_path_buf());
+        if library.source == Source::None {
+            library.source = Source::Folder;
+        }
+        if library.source == Source::Folder {
+            self.publish_source(&library);
+        }
         Ok(count)
     }
 
+    /// Choose where presets and textures come from. [`Source::Builtin`] needs a build with the
+    /// pack, [`Source::Folder`] a folder from [`Self::set_preset_dir`].
+    pub fn set_source(&self, source: Source) -> Result<()> {
+        let mut library = lock(&self.library);
+        match source {
+            Source::None => bail!("A preset source must be Builtin or Folder"),
+            Source::Builtin => self.select_builtin(&mut library)?,
+            Source::Folder => {
+                if library.folder_dir.is_none() {
+                    bail!("No preset folder was chosen");
+                }
+                library.source = Source::Folder;
+            }
+        }
+        self.publish_source(&library);
+        Ok(())
+    }
+
+    fn select_builtin(&self, library: &mut Library) -> Result<()> {
+        if library.builtin.len() == 0 {
+            let count = library.builtin.scan_pack(&Zip::builtin()?);
+            if count == 0 {
+                bail!("The built-in preset pack is empty");
+            }
+        }
+        library.source = Source::Builtin;
+        self.publish_source(library);
+        Ok(())
+    }
+
+    /// Show the selection in the status and give the renderer the matching textures.
+    fn publish_source(&self, library: &Library) {
+        let count = match library.source {
+            Source::Builtin => library.builtin.len(),
+            Source::Folder => library.folder.len(),
+            Source::None => 0,
+        };
+        {
+            let mut status = self.shared.status();
+            status.source = library.source;
+            status.preset_count = count;
+        }
+        if let Some(textures) = library.texture_source() {
+            // Not running: `start` hands over the current source.
+            let _ = self.send(Command::SetTextures(textures));
+        }
+    }
+
     pub fn next_preset(&self, transition: Transition) -> Result<()> {
-        let path = lock(&self.presets).next()?;
-        self.load_preset_path(&path, transition)
+        let preset = lock(&self.library).list()?.next()?;
+        self.load_entry(&preset, transition)
     }
 
     pub fn previous_preset(&self, transition: Transition) -> Result<()> {
-        let path = lock(&self.presets).previous()?;
-        self.load_preset_path(&path, transition)
+        let preset = lock(&self.library).list()?.previous()?;
+        self.load_entry(&preset, transition)
     }
 
     pub fn random_preset(&self, transition: Transition) -> Result<()> {
-        let path = lock(&self.presets).random()?;
-        self.load_preset_path(&path, transition)
+        let preset = lock(&self.library).list()?.random()?;
+        self.load_entry(&preset, transition)
     }
 
     /// Record an error that happened outside the render thread, for [`Status::last_error`].
@@ -213,7 +335,10 @@ impl Visualizer {
     }
 
     pub fn status(&self) -> Status {
-        self.shared.status().clone()
+        Status {
+            builtin_available: builtin_pack().is_some(),
+            ..self.shared.status().clone()
+        }
     }
 
     /// The most recent frame, if the visualizer is running and has rendered one.
@@ -240,10 +365,17 @@ fn worker_main(
     shared: Arc<Shared>,
     mut input: PcmInput,
     (width, height, fps): (u32, u32, u32),
+    textures: Option<TextureSource>,
     commands: Receiver<Command>,
 ) -> PcmInput {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        run(&shared, &mut input, width, height, fps, &commands)
+        run(
+            &shared,
+            &mut input,
+            (width, height, fps),
+            textures,
+            &commands,
+        )
     }));
     let failure = match result {
         Ok(Ok(())) => None,
@@ -260,9 +392,8 @@ fn worker_main(
 fn run(
     shared: &Arc<Shared>,
     input: &mut PcmInput,
-    width: u32,
-    height: u32,
-    fps: u32,
+    (width, height, fps): (u32, u32, u32),
+    textures: Option<TextureSource>,
     commands: &Receiver<Command>,
 ) -> Result<()> {
     let sample_rate = match input.sample_rate.load(Ordering::Relaxed) {
@@ -275,6 +406,11 @@ fn run(
     };
     let mut pipeline = Pipeline::new(width, height, fps, sample_rate, on_gpu_error)?;
     info!("Visualizer started on {}", pipeline.adapter_name);
+    if let Some(source) = textures
+        && let Err(e) = pipeline.set_textures(&source)
+    {
+        shared.set_error(format!("{e:#}"));
+    }
     {
         let mut status = shared.status();
         status.adapter = pipeline.adapter_name.clone();
@@ -356,6 +492,7 @@ fn apply(shared: &Shared, pipeline: &mut Pipeline, command: Command) {
         } => pipeline
             .load_preset(&bytes, &name, transition)
             .map(|()| shared.status().preset_name = name),
+        Command::SetTextures(source) => pipeline.set_textures(&source),
         Command::Stop => Ok(()),
     };
     match result {

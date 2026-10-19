@@ -1380,5 +1380,13 @@
   "visualizerExit": "退出可视化",
   "@visualizerExit": {
     "description": "关闭可视化的按钮提示文字。"
+  },
+  "visualizerSourceBuiltin": "MilkDrop Original",
+  "@visualizerSourceBuiltin": {
+    "description": "使用内置 MilkDrop Original 预设包的可视化按钮标签。"
+  },
+  "visualizerSourceFolder": "文件夹",
+  "@visualizerSourceFolder": {
+    "description": "用户所选预设文件夹的可视化按钮标签。"
   }
 }

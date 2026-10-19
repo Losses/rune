@@ -1,13 +1,55 @@
-//! A sorted list of the `.milk` / `.milk2` files under a directory, with a cursor.
+//! A sorted list of the `.milk` / `.milk2` presets of a directory (or of the built-in pack),
+//! with a cursor.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use rand::Rng;
 
+use crate::pack::Zip;
+
+/// Where a preset's bytes are.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Location {
+    File(PathBuf),
+    /// A path inside the built-in pack.
+    Pack(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Preset {
+    pub location: Location,
+    /// The file name without its extension.
+    pub name: String,
+}
+
+impl Preset {
+    fn new(location: Location) -> Self {
+        let full = match &location {
+            Location::File(path) => path.to_string_lossy().into_owned(),
+            Location::Pack(path) => path.clone(),
+        };
+        let file = full.rsplit(['/', '\\']).next().unwrap_or(&full);
+        let name = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
+        Self {
+            name: if name.is_empty() { "preset" } else { name }.to_string(),
+            location,
+        }
+    }
+
+    pub fn from_path(path: &Path) -> Self {
+        Self::new(Location::File(path.to_path_buf()))
+    }
+}
+
+fn is_preset_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".milk") || lower.ends_with(".milk2")
+}
+
 #[derive(Default)]
 pub struct PresetList {
-    files: Vec<PathBuf>,
+    presets: Vec<Preset>,
     /// Index of the preset loaded last, if it came from this list.
     current: Option<usize>,
 }
@@ -17,7 +59,7 @@ impl PresetList {
     /// into theme folders. Hidden directories and symlinked directories (possible cycles) are
     /// skipped. Returns the number of presets found.
     pub fn scan(&mut self, dir: &Path) -> Result<usize> {
-        let mut files = Vec::new();
+        let mut presets = Vec::new();
         let mut pending = vec![dir.to_path_buf()];
         while let Some(current) = pending.pop() {
             let entries = std::fs::read_dir(&current)
@@ -31,31 +73,46 @@ impl PresetList {
                     }
                     continue;
                 }
-                let extension = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map(str::to_ascii_lowercase);
-                if matches!(extension.as_deref(), Some("milk" | "milk2")) {
-                    files.push(path);
+                if path.to_str().is_some_and(is_preset_name) {
+                    presets.push(Preset::new(Location::File(path)));
                 }
             }
         }
-        files.sort();
-        self.files = files;
-        self.current = None;
-        Ok(self.files.len())
+        Ok(self.replace(presets))
     }
 
-    pub fn next(&mut self) -> Result<PathBuf> {
+    /// Replace the list with the presets of `zip` (`presets/**.milk`, `.milk2`). Returns their count.
+    pub fn scan_pack(&mut self, zip: &Zip) -> usize {
+        let presets = zip
+            .file_names()
+            .into_iter()
+            .filter(|name| name.starts_with("presets/") && is_preset_name(name))
+            .map(|name| Preset::new(Location::Pack(name)))
+            .collect();
+        self.replace(presets)
+    }
+
+    fn replace(&mut self, mut presets: Vec<Preset>) -> usize {
+        presets.sort();
+        self.presets = presets;
+        self.current = None;
+        self.presets.len()
+    }
+
+    pub fn len(&self) -> usize {
+        self.presets.len()
+    }
+
+    pub fn next(&mut self) -> Result<Preset> {
         let index = match self.current {
-            Some(i) => (i + 1) % self.files.len().max(1),
+            Some(i) => (i + 1) % self.presets.len().max(1),
             None => 0,
         };
         self.select(index)
     }
 
-    pub fn previous(&mut self) -> Result<PathBuf> {
-        let len = self.files.len().max(1);
+    pub fn previous(&mut self) -> Result<Preset> {
+        let len = self.presets.len().max(1);
         let index = match self.current {
             Some(i) => (i + len - 1) % len,
             None => len - 1,
@@ -63,17 +120,17 @@ impl PresetList {
         self.select(index)
     }
 
-    pub fn random(&mut self) -> Result<PathBuf> {
-        let index = rand::thread_rng().gen_range(0..self.files.len().max(1));
+    pub fn random(&mut self) -> Result<Preset> {
+        let index = rand::thread_rng().gen_range(0..self.presets.len().max(1));
         self.select(index)
     }
 
-    fn select(&mut self, index: usize) -> Result<PathBuf> {
-        if self.files.is_empty() {
+    fn select(&mut self, index: usize) -> Result<Preset> {
+        if self.presets.is_empty() {
             bail!("No presets in the preset directory");
         }
         self.current = Some(index);
-        Ok(self.files[index].clone())
+        Ok(self.presets[index].clone())
     }
 }
 
@@ -90,12 +147,12 @@ mod tests {
         }
         let mut list = PresetList::default();
         assert_eq!(list.scan(&dir).unwrap(), 3);
-        let name = |p: PathBuf| p.file_name().unwrap().to_str().unwrap().to_string();
-        assert_eq!(name(list.next().unwrap()), "a.MILK");
-        assert_eq!(name(list.next().unwrap()), "b.milk");
-        assert_eq!(name(list.previous().unwrap()), "a.MILK");
-        assert_eq!(name(list.previous().unwrap()), "c.milk2");
-        assert_eq!(name(list.next().unwrap()), "a.MILK");
+        let name = |p: Preset| p.name;
+        assert_eq!(name(list.next().unwrap()), "a");
+        assert_eq!(name(list.next().unwrap()), "b");
+        assert_eq!(name(list.previous().unwrap()), "a");
+        assert_eq!(name(list.previous().unwrap()), "c");
+        assert_eq!(name(list.next().unwrap()), "a");
         assert!(list.random().is_ok());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -117,6 +174,32 @@ mod tests {
         let mut list = PresetList::default();
         assert_eq!(list.scan(&dir).unwrap(), 3);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn pack_presets_are_sorted_and_cycle() {
+        let bytes = crate::pack::test_zip(&[
+            ("presets/b.milk", b""),
+            ("presets/a.MILK", b""),
+            ("presets/sub/c.milk2", b""),
+            ("textures/t.jpg", b""),
+            ("presets/readme.txt", b""),
+            ("SOURCES.txt", b""),
+        ]);
+        let zip = Zip::new(bytes).unwrap();
+        let mut list = PresetList::default();
+        assert_eq!(list.scan_pack(&zip), 3);
+        assert_eq!(list.len(), 3);
+        let first = list.next().unwrap();
+        assert_eq!(first.name, "a");
+        assert_eq!(first.location, Location::Pack("presets/a.MILK".into()));
+        assert_eq!(list.next().unwrap().name, "b");
+        assert_eq!(list.next().unwrap().name, "c");
+        assert_eq!(list.next().unwrap().name, "a");
+        assert_eq!(list.previous().unwrap().name, "c");
+        for _ in 0..20 {
+            assert!(matches!(list.random().unwrap().location, Location::Pack(_)));
+        }
     }
 
     #[test]

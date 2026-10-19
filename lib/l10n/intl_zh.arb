@@ -1370,5 +1370,13 @@
   "visualizerExit": "退出視覺化",
   "@visualizerExit": {
     "description": "關閉視覺化的按鈕提示文字。"
+  },
+  "visualizerSourceBuiltin": "MilkDrop Original",
+  "@visualizerSourceBuiltin": {
+    "description": "使用內建 MilkDrop Original 預設包的視覺化按鈕標籤。"
+  },
+  "visualizerSourceFolder": "資料夾",
+  "@visualizerSourceFolder": {
+    "description": "使用者所選預設資料夾的視覺化按鈕標籤。"
   }
 }

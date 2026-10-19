@@ -5,7 +5,7 @@ use anyhow::Result;
 use tokio::sync::Mutex;
 
 use ::playback::player::Playable;
-use ::visualizer::{PcmInput, Transition};
+use ::visualizer::{PcmInput, Source, Transition};
 
 use crate::{
     Session, Signal,
@@ -147,6 +147,31 @@ impl Signal for SetVisualizerPresetDirRequest {
     }
 }
 
+impl ParamsExtractor for SetVisualizerSourceRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for SetVisualizerSourceRequest {
+    type Params = ();
+    type Response = ();
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let source = match dart_signal.source {
+            VisualizerSource::None => return Ok(Some(())),
+            VisualizerSource::Builtin => Source::Builtin,
+            VisualizerSource::Folder => Source::Folder,
+        };
+        report(VISUALIZER.set_source(source))
+    }
+}
+
 impl ParamsExtractor for LoadVisualizerPresetRequest {
     type Params = ();
 
@@ -255,6 +280,12 @@ impl Signal for VisualizerStatusRequest {
             measured_fps: status.measured_fps,
             preset_name: status.preset_name,
             preset_count: u32::try_from(status.preset_count).unwrap_or(u32::MAX),
+            source: match status.source {
+                Source::None => VisualizerSource::None,
+                Source::Builtin => VisualizerSource::Builtin,
+                Source::Folder => VisualizerSource::Folder,
+            },
+            builtin_available: status.builtin_available,
             adapter: status.adapter,
             last_error: status.last_error,
         }))

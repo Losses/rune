@@ -58,6 +58,8 @@ class _VisualizerPageState extends State<VisualizerPage> {
   bool _controlsVisible = true;
 
   String? _presetDir;
+  // The saved choice between the built-in pack and the folder; null = never chosen.
+  VisualizerSource? _sourcePref;
   bool _firstPresetLoaded = false;
   VisualizerStatusResponse? _status;
   int _pollTick = 0;
@@ -111,6 +113,17 @@ class _VisualizerPageState extends State<VisualizerPage> {
         return;
       }
 
+      final savedSource = await _settings.getValue<String>(kVisualizerSourceKey);
+      if (_disposed) {
+        await _channel.invokeMethod<void>('dispose');
+        return;
+      }
+      _sourcePref = switch (savedSource) {
+        'builtin' => VisualizerSource.builtin,
+        'folder' => VisualizerSource.folder,
+        _ => null,
+      };
+
       if (dir != null && dir.isNotEmpty) {
         SetVisualizerPresetDirRequest(path: dir).sendSignalToRust();
       }
@@ -160,8 +173,21 @@ class _VisualizerPageState extends State<VisualizerPage> {
 
       // Until the render thread is up there is nothing to send commands to.
       if (!_firstPresetLoaded && status.running && status.presetCount > 0) {
-        _firstPresetLoaded = true;
-        RandomVisualizerPresetRequest(transitionSeconds: 0).sendSignalToRust();
+        // Rust starts with the folder if one is set, else with the built-in
+        // pack. Apply a saved choice first and pick the preset on a later tick,
+        // when the new source is in place.
+        final wanted = _sourcePref;
+        if (status.builtinAvailable &&
+            wanted != null &&
+            wanted != VisualizerSource.none &&
+            wanted != status.source &&
+            (wanted == VisualizerSource.builtin || _presetDir != null)) {
+          SetVisualizerSourceRequest(source: wanted).sendSignalToRust();
+        } else {
+          _firstPresetLoaded = true;
+          RandomVisualizerPresetRequest(transitionSeconds: 0)
+              .sendSignalToRust();
+        }
       }
 
       setState(() => _status = status);
@@ -196,6 +222,23 @@ class _VisualizerPageState extends State<VisualizerPage> {
         transitionSeconds: _presetTransitionSeconds,
       ).sendSignalToRust();
 
+  Future<void> _selectSource(VisualizerSource source) async {
+    if (source == VisualizerSource.folder && _presetDir == null) {
+      await _chooseFolder();
+      return;
+    }
+    await _settings.setValue(
+      kVisualizerSourceKey,
+      source == VisualizerSource.builtin ? 'builtin' : 'folder',
+    );
+    if (_disposed) return;
+
+    SetVisualizerSourceRequest(source: source).sendSignalToRust();
+    RandomVisualizerPresetRequest(transitionSeconds: 0).sendSignalToRust();
+    _firstPresetLoaded = true;
+    setState(() => _sourcePref = source);
+  }
+
   Future<void> _chooseFolder() async {
     // The system picker is a modal panel; keep the controls up meanwhile.
     _hideTimer?.cancel();
@@ -209,12 +252,19 @@ class _VisualizerPageState extends State<VisualizerPage> {
       error$('Failed to keep access to $dir: $e');
     }
     await _settings.setValue(kVisualizerPresetDirKey, dir);
+    await _settings.setValue(kVisualizerSourceKey, 'folder');
     if (_disposed) return;
 
+    // Choosing a folder also switches to it.
     SetVisualizerPresetDirRequest(path: dir).sendSignalToRust();
+    SetVisualizerSourceRequest(source: VisualizerSource.folder)
+        .sendSignalToRust();
     RandomVisualizerPresetRequest(transitionSeconds: 0).sendSignalToRust();
     _firstPresetLoaded = true;
-    setState(() => _presetDir = dir);
+    setState(() {
+      _presetDir = dir;
+      _sourcePref = VisualizerSource.folder;
+    });
   }
 
   @override
@@ -290,7 +340,9 @@ class _VisualizerPageState extends State<VisualizerPage> {
     final theme = FluentTheme.of(context);
     final error = status?.lastError;
 
-    final hint = _presetDir == null
+    final hasPresets =
+        _presetDir != null || (status?.builtinAvailable ?? false);
+    final hint = !hasPresets
         ? S.of(context).visualizerNoPresets
         : error ?? status?.presetName ?? '';
 
@@ -321,7 +373,7 @@ class _VisualizerPageState extends State<VisualizerPage> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.typography.bodyStrong?.copyWith(
-                        color: error != null && _presetDir != null
+                        color: error != null && hasPresets
                             ? Colors.red
                             : Colors.white,
                       ),
@@ -367,6 +419,22 @@ class _VisualizerPageState extends State<VisualizerPage> {
                     ),
                   ),
                   const SizedBox(width: 24),
+                  if (status != null && status.builtinAvailable) ...[
+                    ToggleButton(
+                      checked: status.source == VisualizerSource.builtin,
+                      onChanged: (_) =>
+                          _selectSource(VisualizerSource.builtin),
+                      child: Text(S.of(context).visualizerSourceBuiltin),
+                    ),
+                    const SizedBox(width: 8),
+                    ToggleButton(
+                      checked: status.source == VisualizerSource.folder,
+                      onChanged: (_) =>
+                          _selectSource(VisualizerSource.folder),
+                      child: Text(S.of(context).visualizerSourceFolder),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   Tooltip(
                     message: S.of(context).visualizerChooseFolder,
                     child: IconButton(

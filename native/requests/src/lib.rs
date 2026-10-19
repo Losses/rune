@@ -129,6 +129,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: true,
         },
         RequestResponse {
+            request: "SetVisualizerSourceRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
             request: "LoadVisualizerPresetRequest".to_string(),
             response: None,
             local_only: true,

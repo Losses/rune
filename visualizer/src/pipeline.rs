@@ -5,6 +5,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use lactea::{Engine, EngineConfig, FrameClock, Transition};
 
+use crate::textures::{PackTextures, TextureSource};
+
 /// `kCVPixelFormatType_32BGRA`. The engine only compensates for `*Srgb` targets, so with this
 /// linear format the bytes are exactly what the preset drew.
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
@@ -131,6 +133,12 @@ impl Pipeline {
             .load_preset(bytes, name, transition)
             .map(|_| ())
             .map_err(|e| anyhow!("Failed to load preset {name}: {e}"))
+    }
+
+    pub fn set_textures(&mut self, source: &TextureSource) -> Result<()> {
+        self.engine
+            .set_texture_provider(Box::new(PackTextures::new(source)?));
+        Ok(())
     }
 
     pub fn push_pcm(&mut self, interleaved: &[f32], channels: usize) {
