@@ -1348,5 +1348,37 @@
   "deduplicating": "正在去重",
   "@deduplicating": {
     "description": "表示当前正在执行去重过程的标签。向用户展示系统正在移除音乐库或播放列表中的重复曲目。也可使用“正在移除重复项”或“去重进行中”等表达。"
+  },
+  "visualizer": "可视化",
+  "@visualizer": {
+    "description": "控制播放的按钮提示文字，用于打开音乐可视化页面。"
+  },
+  "visualizerSubtitle": "跟随音乐律动的 MilkDrop 风格动画",
+  "@visualizerSubtitle": {
+    "description": "媒体控制器设置中可视化条目的副标题。"
+  },
+  "visualizerPrevious": "上一个预设",
+  "@visualizerPrevious": {
+    "description": "可视化中切换到上一个预设的按钮提示文字。"
+  },
+  "visualizerNext": "下一个预设",
+  "@visualizerNext": {
+    "description": "可视化中切换到下一个预设的按钮提示文字。"
+  },
+  "visualizerRandom": "随机预设",
+  "@visualizerRandom": {
+    "description": "可视化中切换到随机预设的按钮提示文字。"
+  },
+  "visualizerChooseFolder": "选择预设文件夹",
+  "@visualizerChooseFolder": {
+    "description": "可视化中选择存放 MilkDrop 预设文件的文件夹的按钮提示文字。"
+  },
+  "visualizerNoPresets": "请选择包含 MilkDrop 预设（.milk）的文件夹以便切换",
+  "@visualizerNoPresets": {
+    "description": "未设置预设文件夹时可视化中显示的提示。"
+  },
+  "visualizerExit": "退出可视化",
+  "@visualizerExit": {
+    "description": "关闭可视化的按钮提示文字。"
   }
 }

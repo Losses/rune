@@ -1356,5 +1356,37 @@
   "linuxCustomWindowControlsSubtitle": "Enable custom window controls for a frameless window experience similar to Windows mode",
   "@linuxCustomWindowControlsSubtitle": {
     "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
+  "visualizer": "Visualizer",
+  "@visualizer": {
+    "description": "Button prompt text for controlling playback, used to open the music visualizer page."
+  },
+  "visualizerSubtitle": "Animated MilkDrop-style visuals that follow the music",
+  "@visualizerSubtitle": {
+    "description": "Subtitle of the visualizer entry in the media controller settings."
+  },
+  "visualizerPrevious": "Previous preset",
+  "@visualizerPrevious": {
+    "description": "Tooltip of the visualizer button that switches to the previous preset."
+  },
+  "visualizerNext": "Next preset",
+  "@visualizerNext": {
+    "description": "Tooltip of the visualizer button that switches to the next preset."
+  },
+  "visualizerRandom": "Random preset",
+  "@visualizerRandom": {
+    "description": "Tooltip of the visualizer button that switches to a random preset."
+  },
+  "visualizerChooseFolder": "Choose preset folder",
+  "@visualizerChooseFolder": {
+    "description": "Tooltip of the visualizer button that picks the folder with MilkDrop preset files."
+  },
+  "visualizerNoPresets": "Choose a folder with MilkDrop presets (.milk) to switch between them",
+  "@visualizerNoPresets": {
+    "description": "Hint shown in the visualizer when no preset folder is set."
+  },
+  "visualizerExit": "Exit visualizer",
+  "@visualizerExit": {
+    "description": "Tooltip of the button that closes the visualizer."
   }
 }

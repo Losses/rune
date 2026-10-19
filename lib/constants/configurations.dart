@@ -155,3 +155,8 @@ const kLinuxCustomWindowControlsKey = 'linux_custom_window_controls';
 /// theme or use a fixed color mode. Options include "auto" (follows system theme),
 /// "light" (always use light icon), and "dark" (always use dark icon).
 const kTrayIconColorModeKey = 'tray_icon_color_mode';
+
+/// The folder with MilkDrop presets (`.milk`) that the visualizer cycles
+/// through. On macOS its security-scoped bookmark is kept by
+/// `MacSecureManager` so the folder stays readable after a restart.
+const kVisualizerPresetDirKey = 'visualizer_preset_dir';

@@ -4,6 +4,8 @@ import Cocoa
 import bitsdojo_window_macos
 
 class MainFlutterWindow: BitsdojoWindow {
+  private let visualizerChannel = VisualizerChannel()
+
   override func bitsdojo_window_configure() -> UInt {
     return BDW_CUSTOM_FRAME | BDW_HIDE_ON_STARTUP
   }
@@ -38,6 +40,8 @@ class MainFlutterWindow: BitsdojoWindow {
         result(FlutterMethodNotImplemented)
       }
     }
+
+    visualizerChannel.register(with: flutterViewController)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
