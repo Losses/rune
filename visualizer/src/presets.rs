@@ -1,4 +1,4 @@
-//! A sorted list of the `.milk` / `.milk2` files in a directory, with a cursor.
+//! A sorted list of the `.milk` / `.milk2` files under a directory, with a cursor.
 
 use std::path::{Path, PathBuf};
 
@@ -13,19 +13,31 @@ pub struct PresetList {
 }
 
 impl PresetList {
-    /// Scan `dir` (not recursively) and replace the list. Returns the number of presets found.
+    /// Scan `dir` and its subdirectories and replace the list. Preset packs are usually sorted
+    /// into theme folders. Hidden directories and symlinked directories (possible cycles) are
+    /// skipped. Returns the number of presets found.
     pub fn scan(&mut self, dir: &Path) -> Result<usize> {
         let mut files = Vec::new();
-        for entry in
-            std::fs::read_dir(dir).with_context(|| format!("Failed to read {}", dir.display()))?
-        {
-            let path = entry?.path();
-            let extension = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(str::to_ascii_lowercase);
-            if matches!(extension.as_deref(), Some("milk" | "milk2")) {
-                files.push(path);
+        let mut pending = vec![dir.to_path_buf()];
+        while let Some(current) = pending.pop() {
+            let entries = std::fs::read_dir(&current)
+                .with_context(|| format!("Failed to read {}", current.display()))?;
+            for entry in entries {
+                let entry = entry?;
+                let path = entry.path();
+                if entry.file_type()?.is_dir() {
+                    if !entry.file_name().to_string_lossy().starts_with('.') {
+                        pending.push(path);
+                    }
+                    continue;
+                }
+                let extension = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(str::to_ascii_lowercase);
+                if matches!(extension.as_deref(), Some("milk" | "milk2")) {
+                    files.push(path);
+                }
             }
         }
         files.sort();
@@ -85,6 +97,25 @@ mod tests {
         assert_eq!(name(list.previous().unwrap()), "c.milk2");
         assert_eq!(name(list.next().unwrap()), "a.MILK");
         assert!(list.random().is_ok());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn scans_theme_folders_but_not_hidden_ones() {
+        let dir = std::env::temp_dir().join(format!("rune-presets-nested-{}", std::process::id()));
+        for sub in ["Fractal/Deep", "Waveform", ".git"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        for file in [
+            "top.milk",
+            "Fractal/Deep/a.milk",
+            "Waveform/b.milk2",
+            ".git/c.milk",
+        ] {
+            std::fs::write(dir.join(file), "").unwrap();
+        }
+        let mut list = PresetList::default();
+        assert_eq!(list.scan(&dir).unwrap(), 3);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
