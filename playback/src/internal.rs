@@ -20,6 +20,7 @@ use tokio_util::sync::CancellationToken;
 use crate::buffered::{RuneBuffered, rune_buffered};
 use crate::decoder::RuneDecoder;
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
+use crate::pcm_tap::PcmTap;
 use crate::player::PlayingItem;
 use crate::realtime_fft::RealTimeFFT;
 use crate::shared_source::SharedSource;
@@ -277,6 +278,7 @@ pub(crate) struct PlayerInternal {
     fsio: Arc<FsIo>,
     realtime_fft: Arc<Mutex<RealTimeFFT>>,
     fft_enabled: Arc<Mutex<bool>>,
+    pcm_tap: Arc<PcmTap>,
     playlist: Vec<PlaylistItem>,
     current_item: Option<PlayingItem>,
     current_track_index: Option<usize>,
@@ -302,6 +304,7 @@ impl PlayerInternal {
         cancellation_token: CancellationToken,
         commands_sender: mpsc::UnboundedSender<PlayerCommand>,
         fsio: Arc<FsIo>,
+        pcm_tap: Arc<PcmTap>,
     ) -> Self {
         let (stream_error_sender, stream_error_receiver) = mpsc::unbounded_channel();
         Self {
@@ -323,6 +326,7 @@ impl PlayerInternal {
             playback_strategy: Box::new(SequentialStrategy),
             volume: 1.0,
             fft_enabled: Arc::new(Mutex::new(false)),
+            pcm_tap,
             stream_error_sender,
             stream_error_receiver,
             stream_retry_count: 0,
@@ -543,7 +547,7 @@ impl PlayerInternal {
         });
 
         sink.set_volume(self.volume);
-        sink.append(source.periodic_access(
+        let source = source.periodic_access(
             Duration::from_millis(12),
             move |_sample: &mut SharedSource<_>| {
                 if let Ok(guard) = source_for_fft.lock() {
@@ -555,7 +559,8 @@ impl PlayerInternal {
                     }
                 }
             },
-        ));
+        );
+        sink.append(self.pcm_tap.wrap(source));
 
         if !play {
             sink.pause();

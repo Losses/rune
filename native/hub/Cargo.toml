@@ -29,6 +29,7 @@ database = { path = "../../database" }
 sync = { path = "../../sync" }
 analysis = { path = "../../analysis" }
 playback = { path = "../../playback" }
+visualizer = { path = "../../visualizer" }
 scrobbling = { path = "../../scrobbling" }
 metadata = { path = "../../metadata" }
 discovery = { path = "../../discovery" }

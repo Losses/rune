@@ -21,6 +21,7 @@ mod search;
 mod sfx;
 mod stat;
 mod system;
+mod visualizer;
 
 pub use album::*;
 pub use analyze::*;
@@ -45,3 +46,4 @@ pub use search::*;
 pub use sfx::*;
 pub use stat::*;
 pub use system::*;
+pub use visualizer::*;

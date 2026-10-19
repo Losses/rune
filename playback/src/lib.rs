@@ -7,6 +7,7 @@ pub mod buffered;
 pub mod controller;
 pub mod decoder;
 pub mod output_stream;
+pub mod pcm_tap;
 pub mod player;
 pub mod sfx_player;
 pub mod strategies;

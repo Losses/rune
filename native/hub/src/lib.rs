@@ -8,6 +8,7 @@ pub mod messages;
 #[macro_use]
 pub mod server;
 pub mod utils;
+pub mod visualizer;
 
 use std::{future::Future, sync::Arc, time::Duration};
 

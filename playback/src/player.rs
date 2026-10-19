@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::internal::{InternalLog, PlaybackMode, PlayerCommand, PlayerEvent, PlayerInternal};
+use crate::pcm_tap::PcmTap;
 use crate::strategies::AddMode;
 
 #[derive(Debug, Clone)]
@@ -106,6 +107,8 @@ pub trait Playable: Send {
     fn set_playback_mode(&mut self, mode: PlaybackMode);
     fn set_volume(&mut self, volume: f32);
     fn set_realtime_fft_enabled(&mut self, enabled: bool);
+    /// The raw PCM tap (disabled by default); see [`PcmTap`].
+    fn pcm_tap(&self) -> Arc<PcmTap>;
     fn set_adaptive_switching_enabled(&mut self, enabled: bool);
     fn terminate(&self);
     fn get_status(&self) -> PlayerStatus;
@@ -127,6 +130,7 @@ pub struct Player {
     played_through_sender: SimpleSender<PlayingItem>,
     log_sender: SimpleSender<InternalLog>,
     realtime_fft_sender: SimpleSender<Vec<f32>>,
+    pcm_tap: Arc<PcmTap>,
     crash_sender: SimpleSender<String>,
     cancellation_token: CancellationToken,
 }
@@ -172,6 +176,8 @@ impl Player {
             volume: 1.0,
         }));
 
+        let pcm_tap = PcmTap::new();
+
         let commands = Arc::new(Mutex::new(cmd_tx.clone()));
         // Create the Player instance and wrap the command sender in Arc<Mutex>
         let player = Player {
@@ -181,6 +187,7 @@ impl Player {
             playlist_sender: playlist_sender.clone(),
             played_through_sender: played_through_sender.clone(),
             realtime_fft_sender: realtime_fft_sender.clone(),
+            pcm_tap: pcm_tap.clone(),
             crash_sender: crash_sender.clone(),
             log_sender: log_sender.clone(),
             cancellation_token: cancellation_token.clone(),
@@ -196,6 +203,7 @@ impl Player {
                 internal_cancellation_token.clone(),
                 cmd_tx.clone(),
                 fsio,
+                pcm_tap,
             );
             // Create a new Tokio runtime for asynchronous tasks
             let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
@@ -408,6 +416,10 @@ impl Playable for Player {
         self.command(PlayerCommand::SetRealtimeFFTEnabled(enabled));
     }
 
+    fn pcm_tap(&self) -> Arc<PcmTap> {
+        Arc::clone(&self.pcm_tap)
+    }
+
     fn set_adaptive_switching_enabled(&mut self, enabled: bool) {
         self.command(PlayerCommand::SetAdaptiveSwitchingEnabled(enabled));
     }
@@ -467,6 +479,9 @@ impl Playable for MockPlayer {
     fn set_playback_mode(&mut self, _mode: PlaybackMode) {}
     fn set_volume(&mut self, _volume: f32) {}
     fn set_realtime_fft_enabled(&mut self, _enabled: bool) {}
+    fn pcm_tap(&self) -> Arc<PcmTap> {
+        PcmTap::with_capacity(1)
+    }
     fn set_adaptive_switching_enabled(&mut self, _enabled: bool) {}
     fn terminate(&self) {}
     fn get_status(&self) -> PlayerStatus {

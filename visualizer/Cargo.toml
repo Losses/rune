@@ -1,0 +1,18 @@
+[package]
+name = "visualizer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "visualizer"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.98"
+log = "0.4.22"
+rand = "0.8.5"
+rtrb = "0.3.2"
+pollster = "0.4"
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl"] }
+lactea = { git = "https://github.com/XMLHexagram/lactea", rev = "22a19f9cdac0fe7db43d854d72bda3a2bbf742c7" }
