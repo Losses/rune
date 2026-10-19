@@ -50,6 +50,8 @@ class _VisualizerPageState extends State<VisualizerPage> {
   int? _textureId;
   (int, int)? _renderedSize;
   bool _starting = false;
+  // Why the texture could not be set up, shown instead of a silent black screen.
+  String? _startError;
   bool _disposed = false;
 
   Timer? _resizeTimer;
@@ -140,6 +142,8 @@ class _VisualizerPageState extends State<VisualizerPage> {
       });
     } catch (e) {
       error$('Failed to start the visualizer: $e');
+      // Leave `_starting` set so the next frames don't retry in a loop; reopening retries.
+      if (mounted) setState(() => _startError = e.toString());
     }
   }
 
@@ -342,9 +346,10 @@ class _VisualizerPageState extends State<VisualizerPage> {
 
     final hasPresets =
         _presetDir != null || (status?.builtinAvailable ?? false);
-    final hint = !hasPresets
-        ? S.of(context).visualizerNoPresets
-        : error ?? status?.presetName ?? '';
+    final hint = _startError ??
+        (!hasPresets
+            ? S.of(context).visualizerNoPresets
+            : error ?? status?.presetName ?? '');
 
     return IgnorePointer(
       ignoring: !_controlsVisible,

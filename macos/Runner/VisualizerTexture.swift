@@ -227,31 +227,32 @@ final class VisualizerChannel {
   private var texture: VisualizerTexture?
 
   func register(with controller: FlutterViewController) {
+    // Keep the engine itself: it is the texture registry and lives as long as the app. A weak
+    // reference to the view controller turned out to be nil by the time Dart asked for a texture.
+    let engine = controller.engine
     let channel = FlutterMethodChannel(
       name: "not.ci.rune/visualizer",
-      binaryMessenger: controller.engine.binaryMessenger)
-    channel.setMethodCallHandler { [weak self, weak controller] call, result in
+      binaryMessenger: engine.binaryMessenger)
+    // The window owns this object for the app's lifetime, so the handler can hold it strongly.
+    channel.setMethodCallHandler { call, result in
       // Method channel handlers run on the platform (main) thread.
       MainActor.assumeIsolated {
         switch call.method {
         case "create":
-          guard let self, let controller else {
-            result(FlutterError(code: "unavailable", message: "No Flutter view", details: nil))
-            return
-          }
           self.texture?.dispose()
-          let texture = VisualizerTexture(
-            registry: controller.engine, hostView: controller.view)
+          // The view only drives the display link; without it the texture falls back to a timer.
+          let texture = VisualizerTexture(registry: engine, hostView: engine.viewController?.view)
           self.texture = texture
           result(texture.register())
         case "dispose":
-          self?.texture?.dispose()
-          self?.texture = nil
+          self.texture?.dispose()
+          self.texture = nil
           result(nil)
         default:
           result(FlutterMethodNotImplemented)
         }
       }
     }
+    log.info("channel registered")
   }
 }
