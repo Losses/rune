@@ -1,14 +1,19 @@
 //! The process-wide visualizer and its C interface.
 //!
-//! The Swift side of the macOS app pulls finished frames through these functions, so that the
-//! pixels never travel through Dart. On macOS a frame is normally an IOSurface-backed pixel buffer
-//! ([`rune_visualizer_copy_pixel_buffer`]); [`rune_visualizer_copy_frame`] serves frames that
-//! were read back instead. The functions are exported from `rinf.framework` (and from
-//! the cdylib / staticlib on other platforms).
+//! The native side of the app pulls finished frames through these functions, so that the pixels
+//! never travel through Dart:
+//! - macOS: an IOSurface-backed pixel buffer ([`rune_visualizer_copy_pixel_buffer`]), or a copy of
+//!   a read-back frame ([`rune_visualizer_copy_frame`]) if pixel buffers failed;
+//! - Windows and Linux: the read-back frame itself, held until released
+//!   ([`rune_visualizer_acquire_frame`], [`rune_visualizer_release_frame`]).
+//!
+//! The functions are exported from `rinf.framework` on macOS and from the hub library
+//! (`hub.dll`, `libhub.so`) elsewhere.
 
-use std::sync::LazyLock;
+use std::ffi::c_void;
+use std::sync::{Arc, LazyLock};
 
-use visualizer::Visualizer;
+use visualizer::{Frame, Visualizer};
 
 pub static VISUALIZER: LazyLock<Visualizer> = LazyLock::new(Visualizer::new);
 
@@ -63,16 +68,26 @@ pub unsafe extern "C" fn rune_visualizer_copy_frame(
     let Some(frame) = VISUALIZER.latest_frame() else {
         return 0;
     };
-    let Some(bgra) = frame.bgra() else {
+    let Some((pixels, stride)) = frame.pixels() else {
         return 0;
     };
-    if frame.width != width || frame.height != height || bgra.len() != row * height as usize {
+    let rows = height as usize;
+    if frame.width != width
+        || frame.height != height
+        || stride < row
+        || pixels.len() < stride * (rows - 1) + row
+    {
         return 0;
     }
-    for (y, source) in bgra.chunks_exact(row).enumerate() {
-        // SAFETY: row `y` ends at `dst_stride * y + row`, within the range the caller guarantees.
+    for y in 0..rows {
+        // SAFETY: the source row is in bounds (checked above); the destination row ends at
+        // `dst_stride * y + row`, within the range the caller guarantees.
         unsafe {
-            std::ptr::copy_nonoverlapping(source.as_ptr(), dst.add(dst_stride * y), row);
+            std::ptr::copy_nonoverlapping(
+                pixels.as_ptr().add(stride * y),
+                dst.add(dst_stride * y),
+                row,
+            );
         }
     }
     frame.id
@@ -104,4 +119,65 @@ pub unsafe extern "C" fn rune_visualizer_copy_pixel_buffer(
         unsafe { *out_id = id };
     }
     buffer.unwrap_or(std::ptr::null_mut())
+}
+
+/// A read-back frame, as filled in by [`rune_visualizer_acquire_frame`].
+#[repr(C)]
+pub struct RuneVisualizerFrame {
+    /// `height` rows of `stride` bytes; the first `width * 4` of each are the pixels, RGBA on
+    /// Windows and Linux (BGRA on macOS). Valid until the frame is released.
+    pub pixels: *const u8,
+    pub width: u32,
+    pub height: u32,
+    /// Equal to `width * 4` when the width is a multiple of 64.
+    pub stride: usize,
+    pub id: u64,
+}
+
+/// Hold the latest frame if it was read back, and describe it in `out`. Returns a handle for
+/// [`rune_visualizer_release_frame`], or null (nothing written) if there is no such frame. While
+/// held, the frame's buffer is not reused, so release it as soon as it has been shown: the
+/// renderer skips frames while every buffer is held.
+///
+/// # Safety
+///
+/// `out` must be valid for writing a [`RuneVisualizerFrame`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rune_visualizer_acquire_frame(
+    out: *mut RuneVisualizerFrame,
+) -> *const c_void {
+    if out.is_null() {
+        return std::ptr::null();
+    }
+    let Some(frame) = VISUALIZER.latest_frame() else {
+        return std::ptr::null();
+    };
+    let Some((pixels, stride)) = frame.pixels() else {
+        return std::ptr::null();
+    };
+    // SAFETY: the caller guarantees that `out` is writable.
+    unsafe {
+        out.write(RuneVisualizerFrame {
+            pixels: pixels.as_ptr(),
+            width: frame.width,
+            height: frame.height,
+            stride,
+            id: frame.id,
+        });
+    }
+    Arc::into_raw(frame).cast()
+}
+
+/// Give back a frame from [`rune_visualizer_acquire_frame`]. Null is ignored.
+///
+/// # Safety
+///
+/// `handle` must be null or a handle from [`rune_visualizer_acquire_frame`] that was not released
+/// yet. Any thread may release it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rune_visualizer_release_frame(handle: *const c_void) {
+    if !handle.is_null() {
+        // SAFETY: the handle is an `Arc<Frame>` from `acquire`, released exactly once.
+        drop(unsafe { Arc::from_raw(handle.cast::<Frame>()) });
+    }
 }

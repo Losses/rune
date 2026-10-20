@@ -1,6 +1,6 @@
 //! The GPU side: a headless device, the lactea engine and where frames go: on macOS straight into
 //! IOSurface-backed pixel buffers ([`crate::surface`]), elsewhere (or if that fails) an offscreen
-//! target that is read back.
+//! target that is read back into mapped buffers ([`crate::readback`]).
 
 use std::sync::Arc;
 
@@ -8,30 +8,37 @@ use anyhow::{Context, Result, anyhow};
 use lactea::{Engine, EngineConfig, FrameClock, Transition};
 use log::warn;
 
+use crate::readback::{MappedFrame, Target};
 #[cfg(target_os = "macos")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
 use crate::textures::{PackTextures, TextureSource};
 
-/// `kCVPixelFormatType_32BGRA`. The engine only compensates for `*Srgb` targets, so with this
+/// `kCVPixelFormatType_32BGRA` on macOS. Windows' `FlutterDesktopPixelBuffer` and Linux's
+/// `FlPixelBufferTexture` take RGBA. The engine only compensates for `*Srgb` targets, so with a
 /// linear format the bytes are exactly what the preset drew.
+#[cfg(target_os = "macos")]
 pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
+#[cfg(not(target_os = "macos"))]
+pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 pub struct Pipeline {
     device: wgpu::Device,
     queue: wgpu::Queue,
     engine: Engine,
     output: Output,
+    readback: bool,
     pub adapter_name: String,
 }
 
 /// What a rendered frame became.
 pub enum Rendered {
-    /// Tightly packed BGRA in the `pixels` passed to [`Pipeline::render`].
-    Pixels,
+    /// A read-back frame (on the readback path a frame comes out a call or two after it was
+    /// drawn).
+    Mapped(MappedFrame),
     #[cfg(target_os = "macos")]
     PixelBuffer(PixelBuffer),
-    /// Every pixel buffer is still in use; nothing was drawn.
-    Skipped,
+    /// Nothing new: every buffer is still in use, or the GPU has not finished one yet.
+    Nothing,
 }
 
 /// How frames leave the GPU.
@@ -48,12 +55,17 @@ enum Output {
 }
 
 impl Output {
-    fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
+    /// Pixel buffers on macOS unless `readback`, else (or if they fail) the readback target.
+    fn new(device: &wgpu::Device, width: u32, height: u32, readback: bool) -> Self {
         #[cfg(target_os = "macos")]
-        match SurfaceTargets::new(device, width, height) {
-            Ok(surfaces) => return Self::Surfaces(surfaces),
-            Err(e) => warn!("Falling back to reading frames back: {e:#}"),
+        if !readback {
+            match SurfaceTargets::new(device, width, height) {
+                Ok(surfaces) => return Self::Surfaces(surfaces),
+                Err(e) => warn!("Falling back to reading frames back: {e:#}"),
+            }
         }
+        #[cfg(not(target_os = "macos"))]
+        let _ = readback;
         Self::Readback(Target::new(device, width, height))
     }
 
@@ -66,59 +78,13 @@ impl Output {
     }
 }
 
-struct Target {
-    texture: wgpu::Texture,
-    view: wgpu::TextureView,
-    readback: wgpu::Buffer,
-    width: u32,
-    height: u32,
-    /// Bytes per row in the readback buffer, padded to `COPY_BYTES_PER_ROW_ALIGNMENT`.
-    padded_row: u32,
-}
-
-impl Target {
-    fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("visualizer target"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&Default::default());
-        let padded_row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let readback = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("visualizer readback"),
-            size: u64::from(padded_row) * u64::from(height),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        Self {
-            texture,
-            view,
-            readback,
-            width,
-            height,
-            padded_row,
-        }
-    }
-}
-
 impl Pipeline {
     pub fn new(
         width: u32,
         height: u32,
         fps: u32,
         sample_rate: u32,
+        readback: bool,
         on_gpu_error: Arc<dyn Fn(String) + Send + Sync>,
     ) -> Result<Self> {
         let instance = wgpu::Instance::default();
@@ -152,13 +118,14 @@ impl Pipeline {
         engine
             .load_idle_preset()
             .map_err(|e| anyhow!("Failed to load the idle preset: {e}"))?;
-        let output = Output::new(&device, width, height);
+        let output = Output::new(&device, width, height, readback);
         Ok(Self {
             adapter_name: adapter.get_info().name,
             device,
             queue,
             engine,
             output,
+            readback,
         })
     }
 
@@ -179,7 +146,7 @@ impl Pipeline {
         self.engine
             .resize(width, height)
             .map_err(|e| anyhow!("Failed to resize the engine: {e}"))?;
-        self.output = Output::new(&self.device, width, height);
+        self.output = Output::new(&self.device, width, height, self.readback);
         Ok(())
     }
 
@@ -200,8 +167,8 @@ impl Pipeline {
         self.engine.push_pcm_f32(interleaved, channels);
     }
 
-    /// Render one frame: into the next pixel buffer, or read back into `pixels`.
-    pub fn render(&mut self, clock: FrameClock, pixels: &mut Vec<u8>) -> Result<Rendered> {
+    /// Render one frame: into the next pixel buffer, or into the target that is read back.
+    pub fn render(&mut self, clock: FrameClock) -> Result<Rendered> {
         #[cfg(target_os = "macos")]
         if let Output::Surfaces(surfaces) = &mut self.output {
             match surfaces.next(&self.device) {
@@ -219,7 +186,7 @@ impl Pipeline {
                     surfaces.keep(buffer.clone());
                     return Ok(Rendered::PixelBuffer(buffer));
                 }
-                Ok(None) => return Ok(Rendered::Skipped),
+                Ok(None) => return Ok(Rendered::Nothing),
                 Err(e) => {
                     warn!("Falling back to reading frames back: {e:#}");
                     let (width, height) = surfaces.size();
@@ -227,78 +194,13 @@ impl Pipeline {
                 }
             }
         }
-        let Output::Readback(target) = &self.output else {
+        let Output::Readback(target) = &mut self.output else {
             unreachable!("only macOS has other outputs")
         };
-        read_back(
-            &self.device,
-            &self.queue,
-            &mut self.engine,
-            target,
-            clock,
-            pixels,
-        )?;
-        Ok(Rendered::Pixels)
+        let engine = &mut self.engine;
+        let frame = target.render(&self.device, &self.queue, |encoder, view| {
+            engine.render(encoder, view, clock);
+        })?;
+        Ok(frame.map_or(Rendered::Nothing, Rendered::Mapped))
     }
-}
-
-/// Render into the offscreen target and write the frame, tightly packed BGRA, into `out`.
-fn read_back(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    engine: &mut Engine,
-    target: &Target,
-    clock: FrameClock,
-    out: &mut Vec<u8>,
-) -> Result<()> {
-    let mut encoder = device.create_command_encoder(&Default::default());
-    engine.render(&mut encoder, &target.view, clock);
-    encoder.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo {
-            texture: &target.texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        wgpu::TexelCopyBufferInfo {
-            buffer: &target.readback,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(target.padded_row),
-                rows_per_image: Some(target.height),
-            },
-        },
-        wgpu::Extent3d {
-            width: target.width,
-            height: target.height,
-            depth_or_array_layers: 1,
-        },
-    );
-    queue.submit(Some(encoder.finish()));
-
-    let slice = target.readback.slice(..);
-    let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |r| {
-        let _ = tx.send(r);
-    });
-    device
-        .poll(wgpu::PollType::wait_indefinitely())
-        .map_err(|e| anyhow!("GPU poll failed: {e:?}"))?;
-    rx.recv()
-        .context("GPU readback callback was dropped")?
-        .context("Failed to map the readback buffer")?;
-    {
-        let mapped = slice
-            .get_mapped_range()
-            .map_err(|e| anyhow!("Failed to read the mapped buffer: {e}"))?;
-        let row = target.width as usize * 4;
-        let padded_row = target.padded_row as usize;
-        out.clear();
-        out.reserve(row * target.height as usize);
-        for y in 0..target.height as usize {
-            out.extend_from_slice(&mapped[y * padded_row..y * padded_row + row]);
-        }
-    }
-    target.readback.unmap();
-    Ok(())
 }

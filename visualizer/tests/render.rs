@@ -39,6 +39,11 @@ impl Feeder {
 }
 
 fn start(width: u32, height: u32) -> Option<(Visualizer, Feeder)> {
+    start_with(width, height, false)
+}
+
+/// `readback`: read frames back even on macOS (see `Visualizer::prefer_readback`).
+fn start_with(width: u32, height: u32, readback: bool) -> Option<(Visualizer, Feeder)> {
     let (producer, consumer) = RingBuffer::new(1 << 16);
     let input = PcmInput {
         consumer,
@@ -46,6 +51,7 @@ fn start(width: u32, height: u32) -> Option<(Visualizer, Feeder)> {
         sample_rate: Arc::new(AtomicU32::new(SAMPLE_RATE)),
     };
     let visualizer = Visualizer::new();
+    visualizer.prefer_readback(readback);
     visualizer.start(input, width, height, 60).unwrap();
     let feeder = Feeder {
         producer,
@@ -86,7 +92,7 @@ impl Captured {
             id: frame.id,
             width: frame.width,
             height: frame.height,
-            pixels: frame.to_bgra().unwrap(),
+            pixels: frame.to_packed().unwrap(),
         }
     }
 }
@@ -168,6 +174,30 @@ fn idle_and_real_preset_render_changing_frames() {
     assert!(input.is_some());
     assert!(visualizer.latest_frame().is_none());
     assert!(!visualizer.status().running);
+}
+
+#[test]
+fn readback_renders_changing_frames() {
+    // 640 is a multiple of 64, so rows have no padding; 630 has padding.
+    for (width, height) in [(640, 360), (630, 354)] {
+        let Some((visualizer, mut feeder)) = start_with(width, height, true) else {
+            return;
+        };
+        assert_eq!(
+            visualizer.status().transport,
+            Some(visualizer::Transport::Readback)
+        );
+        visualizer
+            .load_preset(NEBULA_FORGE.to_vec(), "nebula_forge", Transition::Cut)
+            .unwrap();
+        let (frames, fps) = collect(&visualizer, &mut feeder, 60);
+        check_frames(&frames, width, height);
+        let latest = visualizer.latest_frame().unwrap();
+        let (_, stride) = latest.pixels().unwrap();
+        assert_eq!(stride == width as usize * 4, width % 64 == 0);
+        println!("readback {width}x{height}: {fps:.1} fps, stride {stride}");
+        visualizer.stop();
+    }
 }
 
 #[test]

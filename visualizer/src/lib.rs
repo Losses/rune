@@ -3,13 +3,15 @@
 //! The thread owns a headless wgpu device and a [`lactea`] engine. Each frame it drains the PCM
 //! ring buffer and renders. On macOS it draws straight into an IOSurface-backed pixel buffer that
 //! the app can show without a copy; elsewhere, or if that fails, it renders into an offscreen
-//! `Bgra8Unorm` texture and reads it back as tightly packed pixels. Either way the result is the
-//! latest [`Frame`]. Readers ([`Visualizer::latest_frame`]) only clone an `Arc` under a short lock
-//! and never wait for the GPU.
+//! texture that is copied into a readback buffer, and the mapped buffer itself is the frame.
+//! Either way the result is the latest [`Frame`]. Readers ([`Visualizer::latest_frame`]) only
+//! clone an `Arc` under a short lock and never wait for the GPU. A reader that keeps frames holds
+//! their buffers, and the renderer skips frames while none is free.
 
 mod pack;
 mod pipeline;
 mod presets;
+mod readback;
 #[cfg(target_os = "macos")]
 mod surface;
 mod textures;
@@ -66,18 +68,19 @@ pub struct Frame {
 }
 
 pub enum FrameData {
-    /// `width * height * 4` bytes, BGRA, rows top to bottom with no padding.
-    Bgra(Vec<u8>),
+    /// A mapped readback buffer: rows top to bottom, BGRA on macOS and RGBA elsewhere.
+    Mapped(readback::MappedFrame),
     /// An IOSurface-backed `kCVPixelFormatType_32BGRA` pixel buffer.
     #[cfg(target_os = "macos")]
     PixelBuffer(surface::PixelBuffer),
 }
 
 impl Frame {
-    /// The packed pixels, if the frame was read back.
-    pub fn bgra(&self) -> Option<&[u8]> {
+    /// The pixels and the bytes from one row to the next (at least `width * 4`; equal to it when
+    /// the width is a multiple of 64), if the frame was read back. BGRA on macOS, RGBA elsewhere.
+    pub fn pixels(&self) -> Option<(&[u8], usize)> {
         match &self.data {
-            FrameData::Bgra(pixels) => Some(pixels),
+            FrameData::Mapped(frame) => Some((frame.bytes(), frame.stride())),
             #[cfg(target_os = "macos")]
             FrameData::PixelBuffer(_) => None,
         }
@@ -89,14 +92,24 @@ impl Frame {
     pub fn retained_pixel_buffer(&self) -> Option<*mut std::ffi::c_void> {
         match &self.data {
             FrameData::PixelBuffer(buffer) => Some(buffer.clone().into_retained_raw()),
-            FrameData::Bgra(_) => None,
+            FrameData::Mapped(_) => None,
         }
     }
 
-    /// The pixels as packed BGRA, copied out of a pixel buffer if need be. For tests.
-    pub fn to_bgra(&self) -> Result<Vec<u8>> {
+    /// The pixels as tightly packed rows (BGRA on macOS, RGBA elsewhere). Copies; for tests.
+    pub fn to_packed(&self) -> Result<Vec<u8>> {
         match &self.data {
-            FrameData::Bgra(pixels) => Ok(pixels.clone()),
+            FrameData::Mapped(frame) => {
+                let row = self.width as usize * 4;
+                let (bytes, stride) = (frame.bytes(), frame.stride());
+                if stride < row || bytes.len() < stride * (self.height as usize - 1) + row {
+                    bail!("The frame is smaller than its size says");
+                }
+                Ok((0..self.height as usize)
+                    .flat_map(|y| &bytes[y * stride..y * stride + row])
+                    .copied()
+                    .collect())
+            }
             #[cfg(target_os = "macos")]
             FrameData::PixelBuffer(buffer) => buffer.read_bgra(self.width, self.height),
         }
@@ -185,6 +198,8 @@ struct Shared {
     /// Whether the automatic preset switching waits (the user locked the preset or a menu is
     /// open).
     auto_switch_paused: AtomicBool,
+    /// Read frames back even where pixel buffers work (tests, and comparing the two paths).
+    prefer_readback: AtomicBool,
 }
 
 impl Shared {
@@ -224,10 +239,22 @@ impl Visualizer {
                 status: Mutex::new(Status::default()),
                 next_frame_id: AtomicU64::new(1),
                 auto_switch_paused: AtomicBool::new(false),
+                // `RUNE_VISUALIZER_READBACK=1` picks the readback path, to compare the two.
+                prefer_readback: AtomicBool::new(
+                    std::env::var_os("RUNE_VISUALIZER_READBACK").is_some_and(|v| v == "1"),
+                ),
             }),
             worker: Mutex::new(None),
             library: Arc::new(Mutex::new(Library::default())),
         }
+    }
+
+    /// Read frames back even on macOS, where they normally go into IOSurface-backed pixel
+    /// buffers. Applies from the next [`Self::start`].
+    pub fn prefer_readback(&self, readback: bool) {
+        self.shared
+            .prefer_readback
+            .store(readback, Ordering::Relaxed);
     }
 
     /// Start the render thread. It returns at once; a missing GPU or an engine error shows up
@@ -497,7 +524,8 @@ fn run(
         let shared = Arc::clone(shared);
         Arc::new(move |message: String| shared.set_error(message))
     };
-    let mut pipeline = Pipeline::new(width, height, fps, sample_rate, on_gpu_error)?;
+    let readback = shared.prefer_readback.load(Ordering::Relaxed);
+    let mut pipeline = Pipeline::new(width, height, fps, sample_rate, readback, on_gpu_error)?;
     let mut transport = pipeline.transport();
     info!(
         "Visualizer started on {} ({transport:?})",
@@ -520,7 +548,6 @@ fn run(
     let mut deadline = started;
     let mut frame_index = 0u32;
     let mut pcm: Vec<f32> = Vec::new();
-    let mut pixels: Vec<u8> = Vec::new();
     let mut window_start = started;
     let mut window_frames = 0u32;
     let mut auto_switch = AutoSwitch::default();
@@ -581,16 +608,16 @@ fn run(
             time,
             frame: frame_index,
         };
-        let rendered = pipeline.render(clock, &mut pixels)?;
+        let rendered = pipeline.render(clock)?;
         frame_index = frame_index.wrapping_add(1);
         let (width, height) = pipeline.size();
         match rendered {
-            Rendered::Pixels => pixels = publish(shared, width, height, pixels),
+            Rendered::Mapped(frame) => publish(shared, width, height, FrameData::Mapped(frame)),
             #[cfg(target_os = "macos")]
             Rendered::PixelBuffer(buffer) => {
-                publish_frame(shared, width, height, FrameData::PixelBuffer(buffer));
+                publish(shared, width, height, FrameData::PixelBuffer(buffer));
             }
-            Rendered::Skipped => {}
+            Rendered::Nothing => {}
         }
         // The output falls back to reading frames back if pixel buffers stop working.
         if pipeline.transport() != transport {
@@ -671,26 +698,16 @@ fn drain(consumer: &mut Consumer<f32>, pcm: &mut Vec<f32>, channels: usize, samp
     }
 }
 
-/// Make `pixels` the latest frame. Returns a buffer to render the next one into: the previous
-/// frame's, unless a reader still holds it.
-fn publish(shared: &Shared, width: u32, height: u32, pixels: Vec<u8>) -> Vec<u8> {
-    let previous = publish_frame(shared, width, height, FrameData::Bgra(pixels));
-    match previous.and_then(|frame| Arc::try_unwrap(frame).ok()) {
-        Some(Frame {
-            data: FrameData::Bgra(pixels),
-            ..
-        }) => pixels,
-        _ => Vec::new(),
-    }
-}
-
-/// Make `data` the latest frame and return the one it replaces.
-fn publish_frame(shared: &Shared, width: u32, height: u32, data: FrameData) -> Option<Arc<Frame>> {
+/// Make `data` the latest frame. The one it replaces gives its buffer back once no reader holds
+/// it any more.
+fn publish(shared: &Shared, width: u32, height: u32, data: FrameData) {
     let frame = Arc::new(Frame {
         id: shared.next_frame_id.fetch_add(1, Ordering::Relaxed),
         width,
         height,
         data,
     });
-    lock(&shared.latest).replace(frame)
+    let previous = lock(&shared.latest).replace(frame);
+    // Dropped outside the lock: releasing a readback buffer unmaps it.
+    drop(previous);
 }
