@@ -15,12 +15,18 @@ class LyricSection extends StatefulWidget {
   final bool isActive;
   final bool isPassed;
 
+  /// The section is the whole line: the lyrics are timed by line, not by word,
+  /// so the line lights up at once instead of being swept, which would also
+  /// sweep every wrapped row at the same time.
+  final bool wholeLine;
+
   const LyricSection({
     super.key,
     required this.section,
     required this.interpolatedTime,
     required this.isActive,
     required this.isPassed,
+    this.wholeLine = false,
   });
 
   @override
@@ -107,6 +113,7 @@ class _LyricSectionState extends State<LyricSection>
   double calculateProgress(double currentTime) {
     if (widget.isPassed) return 1.0;
     if (!widget.isActive) return 0.0;
+    if (widget.wholeLine) return 1.0;
 
     final section = widget.section;
     final duration = section.endTime - section.startTime;
@@ -124,7 +131,7 @@ class _LyricSectionState extends State<LyricSection>
     return AnimatedBuilder(
       animation: Listenable.merge([
         _blurAnimation,
-        if (widget.isActive) widget.interpolatedTime,
+        if (widget.isActive && !widget.wholeLine) widget.interpolatedTime,
       ]),
       builder: (context, child) {
         return _LyricContent(

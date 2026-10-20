@@ -273,6 +273,7 @@ class _LyricLineState extends State<LyricLine>
                               interpolatedTime: widget.interpolatedTime,
                               isActive: widget.isActive,
                               isPassed: widget.isPassed,
+                              wholeLine: widget.sections.length == 1,
                             );
                           }).toList(),
                         ),
