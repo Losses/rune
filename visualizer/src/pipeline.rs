@@ -1,22 +1,69 @@
-//! The GPU side: a headless device, the lactea engine, an offscreen target and a readback buffer.
+//! The GPU side: a headless device, the lactea engine and where frames go: on macOS straight into
+//! IOSurface-backed pixel buffers ([`crate::surface`]), elsewhere (or if that fails) an offscreen
+//! target that is read back.
 
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use lactea::{Engine, EngineConfig, FrameClock, Transition};
+use log::warn;
 
+#[cfg(target_os = "macos")]
+use crate::surface::{PixelBuffer, SurfaceTargets};
 use crate::textures::{PackTextures, TextureSource};
 
 /// `kCVPixelFormatType_32BGRA`. The engine only compensates for `*Srgb` targets, so with this
 /// linear format the bytes are exactly what the preset drew.
-const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
+pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 
 pub struct Pipeline {
     device: wgpu::Device,
     queue: wgpu::Queue,
     engine: Engine,
-    target: Target,
+    output: Output,
     pub adapter_name: String,
+}
+
+/// What a rendered frame became.
+pub enum Rendered {
+    /// Tightly packed BGRA in the `pixels` passed to [`Pipeline::render`].
+    Pixels,
+    #[cfg(target_os = "macos")]
+    PixelBuffer(PixelBuffer),
+    /// Every pixel buffer is still in use; nothing was drawn.
+    Skipped,
+}
+
+/// How frames leave the GPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transport {
+    Readback,
+    IoSurface,
+}
+
+enum Output {
+    Readback(Target),
+    #[cfg(target_os = "macos")]
+    Surfaces(SurfaceTargets),
+}
+
+impl Output {
+    fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
+        #[cfg(target_os = "macos")]
+        match SurfaceTargets::new(device, width, height) {
+            Ok(surfaces) => return Self::Surfaces(surfaces),
+            Err(e) => warn!("Falling back to reading frames back: {e:#}"),
+        }
+        Self::Readback(Target::new(device, width, height))
+    }
+
+    fn size(&self) -> (u32, u32) {
+        match self {
+            Self::Readback(target) => (target.width, target.height),
+            #[cfg(target_os = "macos")]
+            Self::Surfaces(surfaces) => surfaces.size(),
+        }
+    }
 }
 
 struct Target {
@@ -105,18 +152,26 @@ impl Pipeline {
         engine
             .load_idle_preset()
             .map_err(|e| anyhow!("Failed to load the idle preset: {e}"))?;
-        let target = Target::new(&device, width, height);
+        let output = Output::new(&device, width, height);
         Ok(Self {
             adapter_name: adapter.get_info().name,
             device,
             queue,
             engine,
-            target,
+            output,
         })
     }
 
     pub fn size(&self) -> (u32, u32) {
-        (self.target.width, self.target.height)
+        self.output.size()
+    }
+
+    pub fn transport(&self) -> Transport {
+        match self.output {
+            Output::Readback(_) => Transport::Readback,
+            #[cfg(target_os = "macos")]
+            Output::Surfaces(_) => Transport::IoSurface,
+        }
     }
 
     pub fn resize(&mut self, width: u32, height: u32) -> Result<()> {
@@ -124,7 +179,7 @@ impl Pipeline {
         self.engine
             .resize(width, height)
             .map_err(|e| anyhow!("Failed to resize the engine: {e}"))?;
-        self.target = Target::new(&self.device, width, height);
+        self.output = Output::new(&self.device, width, height);
         Ok(())
     }
 
@@ -145,58 +200,105 @@ impl Pipeline {
         self.engine.push_pcm_f32(interleaved, channels);
     }
 
-    /// Render one frame and write it, tightly packed BGRA, into `out`.
-    pub fn render(&mut self, clock: FrameClock, out: &mut Vec<u8>) -> Result<()> {
-        let target = &self.target;
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        self.engine.render(&mut encoder, &target.view, clock);
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &target.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &target.readback,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(target.padded_row),
-                    rows_per_image: Some(target.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: target.width,
-                height: target.height,
-                depth_or_array_layers: 1,
-            },
-        );
-        self.queue.submit(Some(encoder.finish()));
-
-        let slice = target.readback.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r);
-        });
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .map_err(|e| anyhow!("GPU poll failed: {e:?}"))?;
-        rx.recv()
-            .context("GPU readback callback was dropped")?
-            .context("Failed to map the readback buffer")?;
-        {
-            let mapped = slice
-                .get_mapped_range()
-                .map_err(|e| anyhow!("Failed to read the mapped buffer: {e}"))?;
-            let row = target.width as usize * 4;
-            let padded_row = target.padded_row as usize;
-            out.clear();
-            out.reserve(row * target.height as usize);
-            for y in 0..target.height as usize {
-                out.extend_from_slice(&mapped[y * padded_row..y * padded_row + row]);
+    /// Render one frame: into the next pixel buffer, or read back into `pixels`.
+    pub fn render(&mut self, clock: FrameClock, pixels: &mut Vec<u8>) -> Result<Rendered> {
+        #[cfg(target_os = "macos")]
+        if let Output::Surfaces(surfaces) = &mut self.output {
+            match surfaces.next(&self.device) {
+                Ok(Some((buffer, view))) => {
+                    let mut encoder = self.device.create_command_encoder(&Default::default());
+                    self.engine.render(&mut encoder, &view, clock);
+                    let submission = self.queue.submit(Some(encoder.finish()));
+                    // Hand the buffer out only once the GPU has finished drawing into it.
+                    self.device
+                        .poll(wgpu::PollType::Wait {
+                            submission_index: Some(submission),
+                            timeout: None,
+                        })
+                        .map_err(|e| anyhow!("GPU poll failed: {e:?}"))?;
+                    surfaces.keep(buffer.clone());
+                    return Ok(Rendered::PixelBuffer(buffer));
+                }
+                Ok(None) => return Ok(Rendered::Skipped),
+                Err(e) => {
+                    warn!("Falling back to reading frames back: {e:#}");
+                    let (width, height) = surfaces.size();
+                    self.output = Output::Readback(Target::new(&self.device, width, height));
+                }
             }
         }
-        target.readback.unmap();
-        Ok(())
+        let Output::Readback(target) = &self.output else {
+            unreachable!("only macOS has other outputs")
+        };
+        read_back(
+            &self.device,
+            &self.queue,
+            &mut self.engine,
+            target,
+            clock,
+            pixels,
+        )?;
+        Ok(Rendered::Pixels)
     }
+}
+
+/// Render into the offscreen target and write the frame, tightly packed BGRA, into `out`.
+fn read_back(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    engine: &mut Engine,
+    target: &Target,
+    clock: FrameClock,
+    out: &mut Vec<u8>,
+) -> Result<()> {
+    let mut encoder = device.create_command_encoder(&Default::default());
+    engine.render(&mut encoder, &target.view, clock);
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &target.texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &target.readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(target.padded_row),
+                rows_per_image: Some(target.height),
+            },
+        },
+        wgpu::Extent3d {
+            width: target.width,
+            height: target.height,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+
+    let slice = target.readback.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        let _ = tx.send(r);
+    });
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .map_err(|e| anyhow!("GPU poll failed: {e:?}"))?;
+    rx.recv()
+        .context("GPU readback callback was dropped")?
+        .context("Failed to map the readback buffer")?;
+    {
+        let mapped = slice
+            .get_mapped_range()
+            .map_err(|e| anyhow!("Failed to read the mapped buffer: {e}"))?;
+        let row = target.width as usize * 4;
+        let padded_row = target.padded_row as usize;
+        out.clear();
+        out.reserve(row * target.height as usize);
+        for y in 0..target.height as usize {
+            out.extend_from_slice(&mapped[y * padded_row..y * padded_row + row]);
+        }
+    }
+    target.readback.unmap();
+    Ok(())
 }

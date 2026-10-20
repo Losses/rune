@@ -18,6 +18,9 @@ private typealias FrameInfoFunction = @convention(c) (
 private typealias CopyFrameFunction = @convention(c) (
   UnsafeMutablePointer<UInt8>?, Int, UInt32, UInt32
 ) -> UInt64
+private typealias CopyPixelBufferFunction = @convention(c) (
+  UnsafeMutablePointer<UInt64>?
+) -> UnsafeMutableRawPointer?
 
 /// The state read by Flutter's raster thread. Every access goes through `lock`, so the class is
 /// safe to share although the compiler cannot see that.
@@ -25,12 +28,14 @@ nonisolated private final class VisualizerPixelSource: @unchecked Sendable {
   private let lock = NSLock()
   private let frameInfo: FrameInfoFunction?
   private let copyFrame: CopyFrameFunction?
+  private let copyRustPixelBuffer: CopyPixelBufferFunction?
   private var pool: CVPixelBufferPool?
   private var poolWidth: UInt32 = 0
   private var poolHeight: UInt32 = 0
   private var lastBuffer: CVPixelBuffer?
   private var lastFrameId: UInt64 = 0
   private var copies = 0
+  private var handOvers = 0
   private var failures = 0
 
   init() {
@@ -46,8 +51,13 @@ nonisolated private final class VisualizerPixelSource: @unchecked Sendable {
     } else {
       copyFrame = nil
     }
+    if let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "rune_visualizer_copy_pixel_buffer") {
+      copyRustPixelBuffer = unsafeBitCast(symbol, to: CopyPixelBufferFunction.self)
+    } else {
+      copyRustPixelBuffer = nil
+    }
     log.info(
-      "symbols: frame_info=\(self.frameInfo != nil, privacy: .public) copy_frame=\(self.copyFrame != nil, privacy: .public)"
+      "symbols: frame_info=\(self.frameInfo != nil, privacy: .public) copy_frame=\(self.copyFrame != nil, privacy: .public) copy_pixel_buffer=\(self.copyRustPixelBuffer != nil, privacy: .public)"
     )
   }
 
@@ -71,10 +81,25 @@ nonisolated private final class VisualizerPixelSource: @unchecked Sendable {
 
   /// Called on the raster thread.
   func copyPixelBuffer() -> CVPixelBuffer? {
-    guard let frameInfo, let copyFrame else { return nil }
-
     lock.lock()
     defer { lock.unlock() }
+
+    // Normally Rust draws straight into an IOSurface-backed buffer: hand it over as it is.
+    var surfaceFrameId: UInt64 = 0
+    if let copyRustPixelBuffer, let raw = copyRustPixelBuffer(&surfaceFrameId) {
+      let buffer = Unmanaged<CVPixelBuffer>.fromOpaque(raw).takeRetainedValue()
+      // A copy kept from reading frames back is not needed any more.
+      lastBuffer = nil
+      handOvers += 1
+      if shouldLog(handOvers) {
+        log.info(
+          "copyPixelBuffer #\(self.handOvers, privacy: .public): frame \(surfaceFrameId, privacy: .public) handed over without a copy (\(CVPixelBufferGetWidth(buffer), privacy: .public)x\(CVPixelBufferGetHeight(buffer), privacy: .public))"
+        )
+      }
+      return buffer
+    }
+
+    guard let frameInfo, let copyFrame else { return nil }
 
     var width: UInt32 = 0
     var height: UInt32 = 0

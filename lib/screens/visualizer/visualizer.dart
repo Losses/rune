@@ -444,7 +444,12 @@ class _VisualizerPageState extends State<VisualizerPage> {
                   ),
                   if (status != null && status.running)
                     Text(
-                      '${status.measuredFps.toStringAsFixed(0)} fps',
+                      // The transport is a diagnostic: "iosurface" means no
+                      // copies on the way to the screen.
+                      [
+                        '${status.measuredFps.toStringAsFixed(0)} fps',
+                        if (status.transport.isNotEmpty) status.transport,
+                      ].join(' · '),
                       style: theme.typography.caption
                           ?.copyWith(color: Colors.white),
                     ),

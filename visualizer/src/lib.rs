@@ -1,13 +1,17 @@
 //! A MilkDrop-style visualizer: a render thread that turns PCM into BGRA frames.
 //!
 //! The thread owns a headless wgpu device and a [`lactea`] engine. Each frame it drains the PCM
-//! ring buffer, renders into an offscreen `Bgra8Unorm` texture, reads it back and publishes the
-//! tightly packed pixels as the latest [`Frame`]. Readers ([`Visualizer::latest_frame`]) only
-//! clone an `Arc` under a short lock and never wait for the GPU.
+//! ring buffer and renders. On macOS it draws straight into an IOSurface-backed pixel buffer that
+//! the app can show without a copy; elsewhere, or if that fails, it renders into an offscreen
+//! `Bgra8Unorm` texture and reads it back as tightly packed pixels. Either way the result is the
+//! latest [`Frame`]. Readers ([`Visualizer::latest_frame`]) only clone an `Arc` under a short lock
+//! and never wait for the GPU.
 
 mod pack;
 mod pipeline;
 mod presets;
+#[cfg(target_os = "macos")]
+mod surface;
 mod textures;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -25,7 +29,8 @@ use rand::rngs::ThreadRng;
 use rtrb::Consumer;
 
 use pack::Zip;
-use pipeline::Pipeline;
+pub use pipeline::Transport;
+use pipeline::{Pipeline, Rendered};
 use presets::{AutoSwitch, Location, Preset, PresetList};
 use textures::TextureSource;
 
@@ -57,8 +62,45 @@ pub struct Frame {
     pub id: u64,
     pub width: u32,
     pub height: u32,
+    pub data: FrameData,
+}
+
+pub enum FrameData {
     /// `width * height * 4` bytes, BGRA, rows top to bottom with no padding.
-    pub bgra: Vec<u8>,
+    Bgra(Vec<u8>),
+    /// An IOSurface-backed `kCVPixelFormatType_32BGRA` pixel buffer.
+    #[cfg(target_os = "macos")]
+    PixelBuffer(surface::PixelBuffer),
+}
+
+impl Frame {
+    /// The packed pixels, if the frame was read back.
+    pub fn bgra(&self) -> Option<&[u8]> {
+        match &self.data {
+            FrameData::Bgra(pixels) => Some(pixels),
+            #[cfg(target_os = "macos")]
+            FrameData::PixelBuffer(_) => None,
+        }
+    }
+
+    /// A `CVPixelBufferRef` with one more reference for the receiver to release, if the frame is
+    /// in a pixel buffer.
+    #[cfg(target_os = "macos")]
+    pub fn retained_pixel_buffer(&self) -> Option<*mut std::ffi::c_void> {
+        match &self.data {
+            FrameData::PixelBuffer(buffer) => Some(buffer.clone().into_retained_raw()),
+            FrameData::Bgra(_) => None,
+        }
+    }
+
+    /// The pixels as packed BGRA, copied out of a pixel buffer if need be. For tests.
+    pub fn to_bgra(&self) -> Result<Vec<u8>> {
+        match &self.data {
+            FrameData::Bgra(pixels) => Ok(pixels.clone()),
+            #[cfg(target_os = "macos")]
+            FrameData::PixelBuffer(buffer) => buffer.read_bgra(self.width, self.height),
+        }
+    }
 }
 
 /// Where next, previous and random take presets (and textures) from.
@@ -87,6 +129,8 @@ pub struct Status {
     /// Whether this build embeds a preset pack.
     pub builtin_available: bool,
     pub adapter: String,
+    /// How frames leave the GPU, once the render thread runs.
+    pub transport: Option<Transport>,
     pub last_error: Option<String>,
 }
 
@@ -454,7 +498,11 @@ fn run(
         Arc::new(move |message: String| shared.set_error(message))
     };
     let mut pipeline = Pipeline::new(width, height, fps, sample_rate, on_gpu_error)?;
-    info!("Visualizer started on {}", pipeline.adapter_name);
+    let mut transport = pipeline.transport();
+    info!(
+        "Visualizer started on {} ({transport:?})",
+        pipeline.adapter_name
+    );
     if let Some(source) = textures
         && let Err(e) = pipeline.set_textures(&source)
     {
@@ -463,6 +511,7 @@ fn run(
     {
         let mut status = shared.status();
         status.adapter = pipeline.adapter_name.clone();
+        status.transport = Some(transport);
         status.preset_name = lactea::IDLE_PRESET_NAME.to_string();
     }
 
@@ -532,10 +581,23 @@ fn run(
             time,
             frame: frame_index,
         };
-        pipeline.render(clock, &mut pixels)?;
+        let rendered = pipeline.render(clock, &mut pixels)?;
         frame_index = frame_index.wrapping_add(1);
         let (width, height) = pipeline.size();
-        pixels = publish(shared, width, height, pixels);
+        match rendered {
+            Rendered::Pixels => pixels = publish(shared, width, height, pixels),
+            #[cfg(target_os = "macos")]
+            Rendered::PixelBuffer(buffer) => {
+                publish_frame(shared, width, height, FrameData::PixelBuffer(buffer));
+            }
+            Rendered::Skipped => {}
+        }
+        // The output falls back to reading frames back if pixel buffers stop working.
+        if pipeline.transport() != transport {
+            transport = pipeline.transport();
+            info!("Visualizer frames now leave the GPU by {transport:?}");
+            shared.status().transport = Some(transport);
+        }
 
         window_frames += 1;
         let elapsed = window_start.elapsed();
@@ -612,15 +674,23 @@ fn drain(consumer: &mut Consumer<f32>, pcm: &mut Vec<f32>, channels: usize, samp
 /// Make `pixels` the latest frame. Returns a buffer to render the next one into: the previous
 /// frame's, unless a reader still holds it.
 fn publish(shared: &Shared, width: u32, height: u32, pixels: Vec<u8>) -> Vec<u8> {
+    let previous = publish_frame(shared, width, height, FrameData::Bgra(pixels));
+    match previous.and_then(|frame| Arc::try_unwrap(frame).ok()) {
+        Some(Frame {
+            data: FrameData::Bgra(pixels),
+            ..
+        }) => pixels,
+        _ => Vec::new(),
+    }
+}
+
+/// Make `data` the latest frame and return the one it replaces.
+fn publish_frame(shared: &Shared, width: u32, height: u32, data: FrameData) -> Option<Arc<Frame>> {
     let frame = Arc::new(Frame {
         id: shared.next_frame_id.fetch_add(1, Ordering::Relaxed),
         width,
         height,
-        bgra: pixels,
+        data,
     });
-    let previous = lock(&shared.latest).replace(frame);
-    previous
-        .and_then(|frame| Arc::try_unwrap(frame).ok())
-        .map(|frame| frame.bgra)
-        .unwrap_or_default()
+    lock(&shared.latest).replace(frame)
 }

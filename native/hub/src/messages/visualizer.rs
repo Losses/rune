@@ -82,5 +82,8 @@ pub struct VisualizerStatusResponse {
     pub source: VisualizerSource,
     pub builtin_available: bool,
     pub adapter: String,
+    /// How frames reach the screen: "iosurface" (no copies, macOS), "readback", or empty before
+    /// the render thread runs.
+    pub transport: String,
     pub last_error: Option<String>,
 }

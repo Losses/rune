@@ -18,3 +18,12 @@ wgpu = { version = "30", default-features = false, features = ["std", "parking_l
 lactea = { git = "https://github.com/XMLHexagram/lactea", rev = "22a19f9cdac0fe7db43d854d72bda3a2bbf742c7" }
 zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 lactea-host = { git = "https://github.com/XMLHexagram/lactea", rev = "22a19f9cdac0fe7db43d854d72bda3a2bbf742c7", version = "0.2.2" }
+
+# The IOSurface frame path of macOS. The objc2 crates are the versions
+# wgpu-hal's Metal backend uses, so its texture types are ours.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFDictionary", "CFNumber", "CFString"] }
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-io-surface", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferIOSurface", "CVPixelBufferPool", "CVReturn"] }
+objc2-io-surface = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-core-foundation", "IOSurfaceRef", "IOSurfaceTypes"] }
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "objc2-io-surface", "MTLAllocation", "MTLDevice", "MTLPixelFormat", "MTLResource", "MTLTexture", "MTLTypes"] }

@@ -5,7 +5,7 @@ use anyhow::Result;
 use tokio::sync::Mutex;
 
 use ::playback::player::Playable;
-use ::visualizer::{PcmInput, Source, Transition};
+use ::visualizer::{PcmInput, Source, Transition, Transport};
 
 use crate::{
     Session, Signal,
@@ -308,6 +308,12 @@ impl Signal for VisualizerStatusRequest {
             },
             builtin_available: status.builtin_available,
             adapter: status.adapter,
+            transport: match status.transport {
+                Some(Transport::IoSurface) => "iosurface",
+                Some(Transport::Readback) => "readback",
+                None => "",
+            }
+            .to_string(),
             last_error: status.last_error,
         }))
     }

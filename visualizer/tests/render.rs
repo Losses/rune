@@ -71,8 +71,28 @@ fn start(width: u32, height: u32) -> Option<(Visualizer, Feeder)> {
 }
 
 /// Pull frames for `count` new frame ids while feeding audio. Returns the frames and the fps.
-fn collect(visualizer: &Visualizer, feeder: &mut Feeder, count: usize) -> (Vec<Arc<Frame>>, f64) {
-    let mut frames: Vec<Arc<Frame>> = Vec::new();
+/// A frame's pixels, copied out right away: on macOS frames are IOSurface-backed pixel buffers
+/// from a small pool, so holding on to them would stall the renderer like a slow reader would.
+struct Captured {
+    id: u64,
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+
+impl Captured {
+    fn new(frame: &Frame) -> Self {
+        Self {
+            id: frame.id,
+            width: frame.width,
+            height: frame.height,
+            pixels: frame.to_bgra().unwrap(),
+        }
+    }
+}
+
+fn collect(visualizer: &Visualizer, feeder: &mut Feeder, count: usize) -> (Vec<Captured>, f64) {
+    let mut frames: Vec<Captured> = Vec::new();
     let started = Instant::now();
     let deadline = started + Duration::from_secs(60);
     while frames.len() < count {
@@ -81,7 +101,7 @@ fn collect(visualizer: &Visualizer, feeder: &mut Feeder, count: usize) -> (Vec<A
         if let Some(frame) = visualizer.latest_frame()
             && frames.last().is_none_or(|last| last.id < frame.id)
         {
-            frames.push(frame);
+            frames.push(Captured::new(&frame));
         }
         std::thread::sleep(Duration::from_millis(2));
     }
@@ -89,22 +109,22 @@ fn collect(visualizer: &Visualizer, feeder: &mut Feeder, count: usize) -> (Vec<A
     (frames, fps)
 }
 
-fn is_black(frame: &Frame) -> bool {
-    frame.bgra.chunks_exact(4).all(|p| p[..3] == [0, 0, 0])
+fn is_black(pixels: &[u8]) -> bool {
+    pixels.chunks_exact(4).all(|p| p[..3] == [0, 0, 0])
 }
 
-fn check_frames(frames: &[Arc<Frame>], width: u32, height: u32) {
+fn check_frames(frames: &[Captured], width: u32, height: u32) {
     for pair in frames.windows(2) {
         assert!(pair[0].id < pair[1].id);
     }
     for frame in frames {
         assert_eq!((frame.width, frame.height), (width, height));
-        assert_eq!(frame.bgra.len(), (width * height * 4) as usize);
+        assert_eq!(frame.pixels.len(), (width * height * 4) as usize);
     }
     let last = frames.last().unwrap();
-    assert!(!is_black(last), "the last frame is black");
+    assert!(!is_black(&last.pixels), "the last frame is black");
     assert!(
-        frames.iter().any(|f| f.bgra != last.bgra),
+        frames.iter().any(|f| f.pixels != last.pixels),
         "the picture never changes"
     );
 }
@@ -117,6 +137,9 @@ fn idle_and_real_preset_render_changing_frames() {
     let status = visualizer.status();
     assert!(status.running);
     assert_eq!(status.preset_name, lactea::IDLE_PRESET_NAME);
+    // macOS renders straight into IOSurface-backed pixel buffers.
+    #[cfg(target_os = "macos")]
+    assert_eq!(status.transport, Some(visualizer::Transport::IoSurface));
 
     let (frames, fps) = collect(&visualizer, &mut feeder, 60);
     check_frames(&frames, 640, 360);
@@ -211,6 +234,6 @@ fn builtin_pack_presets_render() {
         assert_eq!(status.last_error, None, "{}", status.preset_name);
     }
     let (frames, _) = collect(&visualizer, &mut feeder, 30);
-    assert!(!is_black(frames.last().unwrap()));
+    assert!(!is_black(&frames.last().unwrap().pixels));
     visualizer.stop();
 }
