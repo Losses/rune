@@ -1,4 +1,4 @@
-//! Textures for presets (`sampler_<name>`, `rand##`) from the preset folder. Names, extensions and
+//! Textures for presets (`sampler_<name>`, `rand##`) from the preset folders. Names, extensions and
 //! the random pool follow lactea-host's `DirTextures` (projectM's `TextureManager`): lowercase base
 //! names without a folder or a known image extension, files in path order, and one random-pool
 //! entry per file, sorted.
@@ -43,7 +43,8 @@ fn normalize(name: &str) -> String {
 }
 
 pub struct FolderTextures {
-    dir: DirTextures,
+    /// One per preset folder, in the order of the folders: the first that has a name wins.
+    dirs: Vec<DirTextures>,
     /// Decoded plain textures by name (`None` = not found / undecodable), oldest first out.
     cache: HashMap<String, Option<Image>>,
     order: VecDeque<String>,
@@ -51,14 +52,14 @@ pub struct FolderTextures {
 }
 
 impl FolderTextures {
-    /// The textures of the preset folder `dir`, none without one.
-    pub fn new(dir: Option<&Path>) -> Self {
-        let dir = match dir {
-            Some(dir) => DirTextures::scan(&texture_root(dir)),
-            None => DirTextures::new(&[]),
-        };
+    /// The textures of the preset folders `dirs`, none without any.
+    pub fn new(dirs: &[PathBuf]) -> Self {
+        let dirs = dirs
+            .iter()
+            .map(|dir| DirTextures::scan(&texture_root(dir)))
+            .collect();
         Self {
-            dir,
+            dirs,
             cache: HashMap::new(),
             order: VecDeque::new(),
             cached_bytes: 0,
@@ -87,21 +88,26 @@ impl TextureProvider for FolderTextures {
         if let Some(hit) = self.cache.get(&key) {
             return hit.clone();
         }
-        let image = self.dir.load(name);
+        let image = self.dirs.iter_mut().find_map(|dir| dir.load(name));
         self.remember(key, image.clone());
         image
     }
 
     fn random_pool(&self) -> Vec<String> {
-        self.dir.random_pool()
+        let mut pool: Vec<String> = self.dirs.iter().flat_map(|dir| dir.random_pool()).collect();
+        pool.sort();
+        pool.dedup();
+        pool
     }
 
     fn load_md3_texture(&mut self, name: &str) -> Option<Media> {
-        self.dir.load_md3_texture(name)
+        self.dirs
+            .iter_mut()
+            .find_map(|dir| dir.load_md3_texture(name))
     }
 
     fn load_sprite(&mut self, path: &str) -> Option<Media> {
-        self.dir.load_sprite(path)
+        self.dirs.iter_mut().find_map(|dir| dir.load_sprite(path))
     }
 }
 
@@ -133,7 +139,7 @@ mod tests {
 
     #[test]
     fn cache_is_bounded() {
-        let mut textures = FolderTextures::new(None);
+        let mut textures = FolderTextures::new(&[]);
         for i in 0..1000 {
             textures.remember(
                 format!("k{i}"),
@@ -160,11 +166,11 @@ mod tests {
         std::fs::write(with.join("outer.bmp"), bmp(1, 1, [1, 1, 1])).unwrap();
         std::fs::write(without.join("flat.bmp"), bmp(5, 1, [1, 1, 1])).unwrap();
 
-        let mut a = FolderTextures::new(Some(&with));
+        let mut a = FolderTextures::new(&[with]);
         assert_eq!(a.load("inner").unwrap().width, 3);
         assert!(a.load("outer").is_none());
         assert_eq!(a.random_pool(), ["inner"]);
-        let mut b = FolderTextures::new(Some(&without));
+        let mut b = FolderTextures::new(&[without]);
         assert_eq!(b.load("flat").unwrap().width, 5);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -183,13 +189,31 @@ mod tests {
         std::fs::write(own.join("mine.bmp"), bmp(2, 1, [1, 1, 1])).unwrap();
 
         // No images in the folder: the `textures` folder next to it is used.
-        let mut a = FolderTextures::new(Some(&presets));
+        let mut a = FolderTextures::new(&[presets]);
         assert_eq!(a.load("beside").unwrap().width, 4);
         assert_eq!(a.random_pool(), ["beside"]);
         // Images in the folder itself win over the one next to it.
-        let mut b = FolderTextures::new(Some(&own));
+        let mut b = FolderTextures::new(&[own]);
         assert_eq!(b.load("mine").unwrap().width, 2);
         assert!(b.load("beside").is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn several_folders_are_looked_up_in_order() {
+        let root = std::env::temp_dir().join(format!("rune-textures-two-{}", std::process::id()));
+        let (first, second) = (root.join("first"), root.join("second"));
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        std::fs::write(first.join("both.bmp"), bmp(1, 1, [1, 1, 1])).unwrap();
+        std::fs::write(second.join("both.bmp"), bmp(2, 1, [1, 1, 1])).unwrap();
+        std::fs::write(second.join("only.bmp"), bmp(3, 1, [1, 1, 1])).unwrap();
+
+        let mut textures = FolderTextures::new(&[first, second]);
+        assert_eq!(textures.load("both").unwrap().width, 1);
+        assert_eq!(textures.load("only").unwrap().width, 3);
+        assert!(textures.load("none").is_none());
+        assert_eq!(textures.random_pool(), ["both", "only"]);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

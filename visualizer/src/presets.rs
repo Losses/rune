@@ -78,6 +78,35 @@ struct Entry {
     rating: f32,
 }
 
+/// Add the presets of `dir` and its subfolders to `entries`; nothing of `dir` on an error.
+fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
+    let mut found = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        let read = std::fs::read_dir(&current)
+            .with_context(|| format!("Failed to read {}", current.display()))?;
+        for entry in read {
+            let entry = entry?;
+            let path = entry.path();
+            if entry.file_type()?.is_dir() {
+                if !entry.file_name().to_string_lossy().starts_with('.') {
+                    pending.push(path);
+                }
+                continue;
+            }
+            if path.to_str().is_some_and(is_preset_name) {
+                let rating = read_rating(&path);
+                found.push(Entry {
+                    preset: Preset::new(Location::File(path)),
+                    rating,
+                });
+            }
+        }
+    }
+    entries.extend(found);
+    Ok(())
+}
+
 /// The presets that take part in rotation, with the history of what was loaded. The rules are
 /// those of MilkDrop 2 (Nullsoft, BSD-3): random picks are weighted by rating, "previous" walks
 /// back through the last [`HISTORY_LEN`] presets and "next" walks forward again before it picks
@@ -92,42 +121,24 @@ pub struct PresetList {
 }
 
 impl PresetList {
-    /// Scan `dir` and its subfolders and replace the list. Hidden folders and symlinked folders
-    /// (possible cycles) are skipped. Returns the number of presets found.
-    pub fn scan(&mut self, dir: &Path) -> Result<usize> {
+    /// Scan every folder of `dirs` and its subfolders and replace the list with the presets of
+    /// all of them, once per file. Hidden folders and symlinked folders (possible cycles) are
+    /// skipped. A folder that cannot be read is skipped; its error is in the
+    /// second part of the result. Returns the number of presets found.
+    pub fn scan_all(&mut self, dirs: &[PathBuf]) -> (usize, Vec<anyhow::Error>) {
         let mut entries = Vec::new();
-        let mut pending = vec![dir.to_path_buf()];
-        while let Some(current) = pending.pop() {
-            let read = std::fs::read_dir(&current)
-                .with_context(|| format!("Failed to read {}", current.display()))?;
-            for entry in read {
-                let entry = entry?;
-                let path = entry.path();
-                if entry.file_type()?.is_dir() {
-                    if !entry.file_name().to_string_lossy().starts_with('.') {
-                        pending.push(path);
-                    }
-                    continue;
-                }
-                if path.to_str().is_some_and(is_preset_name) {
-                    let rating = read_rating(&path);
-                    entries.push(Entry {
-                        preset: Preset::new(Location::File(path)),
-                        rating,
-                    });
-                }
+        let mut errors = Vec::new();
+        for dir in dirs {
+            if let Err(e) = collect(dir, &mut entries) {
+                errors.push(e);
             }
         }
-        Ok(self.replace(entries))
-    }
-
-    /// Empty the list and its history.
-    pub fn clear(&mut self) {
-        self.replace(Vec::new());
+        (self.replace(entries), errors)
     }
 
     fn replace(&mut self, mut entries: Vec<Entry>) -> usize {
         entries.sort_by(|a, b| a.preset.cmp(&b.preset));
+        entries.dedup_by(|a, b| a.preset == b.preset);
         self.entries = entries;
         self.history.clear();
         self.cursor = 0;
@@ -283,7 +294,7 @@ mod tests {
             std::os::unix::fs::symlink(&dir, dir.join("loop")).unwrap();
             std::os::unix::fs::symlink(dir.join("Fractal"), dir.join("link")).unwrap();
         }
-        assert_eq!(list.scan(&dir).unwrap(), 4);
+        assert_eq!(list.scan_all(std::slice::from_ref(&dir)).0, 4);
         let mut rng = rng();
         let mut names: Vec<String> = (0..50)
             .map(|_| list.random(&mut rng).unwrap().name)
@@ -295,13 +306,34 @@ mod tests {
     }
 
     #[test]
+    fn scan_all_combines_folders_once_per_file_and_skips_unreadable_ones() {
+        let root = std::env::temp_dir().join(format!("rune-presets-many-{}", std::process::id()));
+        let (one, two) = (root.join("one"), root.join("one/two"));
+        let other = root.join("other");
+        for dir in [&two, &other] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        for file in ["one/a.milk", "one/two/b.milk", "other/c.milk"] {
+            std::fs::write(root.join(file), "").unwrap();
+        }
+        let mut list = PresetList::default();
+        // `two` lies inside `one`: its preset is not counted twice.
+        let dirs = [one.clone(), two, other.clone(), root.join("missing")];
+        let (count, errors) = list.scan_all(&dirs);
+        assert_eq!((count, errors.len()), (3, 1));
+        assert_eq!(list.scan_all(&[]).0, 0);
+        assert_eq!(list.len(), 0);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn folder_scan_reads_ratings() {
         let dir = std::env::temp_dir().join(format!("rune-presets-rated-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("zero.milk"), "[preset00]\nfRating=0.0\n").unwrap();
         std::fs::write(dir.join("five.milk"), "[preset00]\r\nfRating=5.0\r\n").unwrap();
         let mut list = PresetList::default();
-        assert_eq!(list.scan(&dir).unwrap(), 2);
+        assert_eq!(list.scan_all(std::slice::from_ref(&dir)).0, 2);
         let mut rng = rng();
         for _ in 0..30 {
             assert_eq!(list.random(&mut rng).unwrap().name, "five");
@@ -395,7 +427,7 @@ mod tests {
     #[test]
     fn empty_list_is_an_error() {
         let mut list = PresetList::default();
-        list.clear();
+        list.scan_all(&[]);
         assert!(list.next(&mut rng()).is_err());
         assert!(list.previous().is_err());
         assert!(list.random(&mut rng()).is_err());

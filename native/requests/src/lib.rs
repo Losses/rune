@@ -124,12 +124,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: true,
         },
         RequestResponse {
-            request: "SetVisualizerPresetDirRequest".to_string(),
-            response: None,
-            local_only: true,
-        },
-        RequestResponse {
-            request: "ClearVisualizerPresetDirRequest".to_string(),
+            request: "SetVisualizerPresetDirsRequest".to_string(),
             response: None,
             local_only: true,
         },

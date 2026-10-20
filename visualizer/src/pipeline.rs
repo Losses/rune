@@ -2,7 +2,7 @@
 //! IOSurface-backed pixel buffers ([`crate::surface`]), elsewhere (or if that fails) an offscreen
 //! target that is read back into mapped buffers ([`crate::readback`]).
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
@@ -201,10 +201,10 @@ impl Pipeline {
         self.load_preset(default_preset(light), DEFAULT_PRESET_NAME, transition)
     }
 
-    /// The textures of the preset folder `dir`, none without one.
-    pub fn set_textures(&mut self, dir: Option<&Path>) -> Result<()> {
+    /// The textures of the preset folders `dirs`, none without one.
+    pub fn set_textures(&mut self, dirs: &[PathBuf]) -> Result<()> {
         self.engine
-            .set_texture_provider(Box::new(FolderTextures::new(dir)));
+            .set_texture_provider(Box::new(FolderTextures::new(dirs)));
         Ok(())
     }
 

@@ -1377,23 +1377,19 @@
   "@visualizerUnlockPreset": {
     "description": "Context menu item of the visualizer that lets it switch to other presets by itself again."
   },
-  "visualizerChooseFolder": "Visualizer preset folder",
-  "@visualizerChooseFolder": {
-    "description": "Title of the setting that picks the folder with MilkDrop preset files for the visualizer."
+  "visualizerAddPresetFolder": "Add preset folder",
+  "@visualizerAddPresetFolder": {
+    "description": "Title of the setting that adds a folder with MilkDrop preset files for the visualizer."
   },
-  "visualizerPresetFolderNotSet": "Not set, showing the default preset",
-  "@visualizerPresetFolderNotSet": {
-    "description": "Subtitle of the visualizer preset folder setting when no folder has been chosen; the visualizer shows its default preset."
+  "visualizerAddPresetFolderSubtitle": "Add a folder with visualizer presets. Presets of all folders are combined.",
+  "@visualizerAddPresetFolderSubtitle": {
+    "description": "Subtitle of the setting that adds a visualizer preset folder."
   },
-  "visualizerStopUsingFolder": "Stop using the preset folder",
-  "@visualizerStopUsingFolder": {
-    "description": "Title of the button that stops the visualizer from using the chosen preset folder."
+  "visualizerRemovePresetFolder": "Remove",
+  "@visualizerRemovePresetFolder": {
+    "description": "Button that removes a folder from the visualizer preset folders; the folder itself is not deleted."
   },
-  "visualizerStopUsingFolderSubtitle": "Go back to the default preset",
-  "@visualizerStopUsingFolderSubtitle": {
-    "description": "Subtitle of the button that stops using the preset folder."
-  },
-  "visualizerNoPresets": "Choose a preset folder in Settings > Theme",
+  "visualizerNoPresets": "Add a preset folder in Settings > Theme",
   "@visualizerNoPresets": {
     "description": "Hint shown in the visualizer when no preset folder is set."
   },

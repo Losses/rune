@@ -255,14 +255,14 @@ fn commands_before_start_are_errors() {
     assert!(visualizer.latest_frame().is_none());
 }
 
-/// A folder gives presets; clearing it brings the default preset back.
+/// A folder gives presets; an empty list of folders brings the default preset back.
 #[test]
-fn clearing_the_folder_shows_the_default_preset() {
+fn no_folders_show_the_default_preset() {
     let Some((visualizer, mut feeder)) = start(320, 180) else {
         return;
     };
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    assert_eq!(visualizer.set_preset_dir(&dir).unwrap(), 1);
+    assert_eq!(visualizer.set_preset_dirs(&[dir.clone(), dir]).unwrap(), 1);
     assert_eq!(visualizer.status().preset_count, 1);
     let wait_for = |feeder: &mut Feeder, name: &str| {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -274,7 +274,7 @@ fn clearing_the_folder_shows_the_default_preset() {
     };
     visualizer.random_preset(Transition::Cut).unwrap();
     wait_for(&mut feeder, "nebula_forge");
-    visualizer.clear_preset_dir();
+    assert_eq!(visualizer.set_preset_dirs(&[]).unwrap(), 0);
     assert_eq!(visualizer.status().preset_count, 0);
     wait_for(&mut feeder, visualizer::DEFAULT_PRESET_NAME);
     visualizer.random_preset(Transition::Cut).unwrap();

@@ -17,16 +17,12 @@ pub struct ResizeVisualizerRequest {
     pub height: u32,
 }
 
-/// Directory with `.milk` / `.milk2` files used by next, previous and random.
+/// Directories with `.milk` / `.milk2` files used by next, previous and random. An empty list
+/// stops using preset folders: a running visualizer changes to the default preset.
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct SetVisualizerPresetDirRequest {
-    pub path: String,
+pub struct SetVisualizerPresetDirsRequest {
+    pub paths: Vec<String>,
 }
-
-/// Stops using the preset folder: next, previous and random do nothing, and a running visualizer
-/// changes to the default preset.
-#[derive(Serialize, Deserialize, DartSignal)]
-pub struct ClearVisualizerPresetDirRequest {}
 
 /// The app's appearance, which picks the light or the dark version of the default preset.
 #[derive(Serialize, Deserialize, DartSignal)]

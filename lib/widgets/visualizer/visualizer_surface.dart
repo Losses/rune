@@ -7,11 +7,10 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../bindings/bindings.dart';
-import '../../constants/configurations.dart';
-import '../../constants/settings_manager.dart';
 import '../../providers/cover_wall_display.dart';
 import '../../utils/rune_log.dart';
 import '../../utils/visualizer_appearance.dart';
+import '../../utils/visualizer_preset_dirs.dart';
 import '../../utils/file_storage/mac_secure_manager.dart';
 
 import 'visualizer_controller.dart';
@@ -122,18 +121,16 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
       }
 
       // Bookmarks are resolved when the manager is created; wait for them
-      // before Rust reads the saved folder.
+      // before Rust reads the saved folders.
       if (Platform.isMacOS) await MacSecureManager().completed;
-      final dir = await $settingsManager.getValue<String>(
-        kVisualizerPresetDirKey,
-      );
+      final dirs = await loadVisualizerPresetDirs();
       if (_disposed) {
         await _channel.invokeMethod<void>('dispose');
         return;
       }
 
-      if (dir != null && dir.isNotEmpty) {
-        SetVisualizerPresetDirRequest(path: dir).sendSignalToRust();
+      if (dirs.isNotEmpty) {
+        SetVisualizerPresetDirsRequest(paths: dirs).sendSignalToRust();
       }
       StartVisualizerRequest(
         width: size.$1,
@@ -141,7 +138,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
         fps: _targetFps,
       ).sendSignalToRust();
 
-      _controller.hasPresets = dir != null && dir.isNotEmpty;
+      _controller.hasPresets = dirs.isNotEmpty;
       setState(() {
         _textureId = id;
         _renderedSize = size;

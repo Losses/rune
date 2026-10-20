@@ -1,13 +1,13 @@
 # Visualizer presets
 
-Rune ships no MilkDrop presets of its own except one default preset. Everything else comes from a folder the user picks.
+Rune ships no MilkDrop presets of its own except one default preset. Everything else comes from folders the user picks.
 
 ## Where presets come from
 
-- The default preset is `visualizer/presets/Rune.milk`, written for Rune (MPL-2.0 like the rest of it). The visualizer shows it when no preset folder is set, and again when the user stops using the folder. `cargo run -p visualizer --example snapshot -- <dir>` renders it (or any `.milk`) to images.
-- A preset folder is chosen in Settings > Theme. Its `.milk` and `.milk2` files, also those in its subfolders, take part in next, previous, random and the automatic switching. Hidden folders (names starting with `.`) and symlinked folders are skipped. Without a folder, next, previous and random do nothing.
-- Clearing the folder empties the list and the history, and a running visualizer softly (1.7 s) changes to the default preset.
-- Textures (`sampler_<name>`, `rand##`) are looked up relative to the chosen folder, not per subfolder: in `<folder>/textures`, else in `<folder>` itself if it holds images, else in `<folder>/../textures` (a folder laid out like Winamp's, with the presets in a subfolder and `textures` next to it). The lookup rules are those of lactea-host's `DirTextures`. Textures are decoded on first use and cached up to 64 MiB.
+- The default preset is `visualizer/presets/Rune.milk`, written for Rune (MPL-2.0 like the rest of it). The visualizer shows it when no preset folder is set, and again when the user removes the last one. `cargo run -p visualizer --example snapshot -- <dir>` renders it (or any `.milk`) to images.
+- Preset folders are added and removed in Settings > Theme, any number of them. Their `.milk` and `.milk2` files, also those in their subfolders, take part in next, previous, random and the automatic switching, once per file even if folders overlap. Hidden folders (names starting with `.`) and symlinked folders are skipped. A folder that cannot be read is skipped and reported in the status error. Without a folder, next, previous and random do nothing.
+- Setting the folders (`Visualizer::set_preset_dirs`) empties the list and the history. With no presets left, a running visualizer softly (1.7 s) changes to the default preset; otherwise the app asks for a random preset.
+- Textures (`sampler_<name>`, `rand##`) are looked up relative to each chosen folder, not per subfolder, folders in their order and the first match wins: in `<folder>/textures`, else in `<folder>` itself if it holds images, else in `<folder>/../textures` (a folder laid out like Winamp's, with the presets in a subfolder and `textures` next to it). The lookup rules are those of lactea-host's `DirTextures`. Textures are decoded on first use and cached up to 64 MiB.
 
 ## Preset switching
 

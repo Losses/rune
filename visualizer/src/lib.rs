@@ -124,7 +124,7 @@ pub struct Status {
     pub target_fps: u32,
     pub measured_fps: f32,
     pub preset_name: String,
-    /// Presets in the chosen folder (0 without one).
+    /// Presets in the chosen folders (0 without any).
     pub preset_count: usize,
     pub adapter: String,
     /// How frames leave the GPU, once the render thread runs.
@@ -139,18 +139,18 @@ enum Command {
         name: String,
         transition: Transition,
     },
-    /// Show the default preset (the folder was cleared).
+    /// Show the default preset (no preset folder is left).
     LoadDefaultPreset(Transition),
-    /// The textures of this preset folder, none without one.
-    SetTextures(Option<PathBuf>),
+    /// The textures of these preset folders, none without one.
+    SetTextures(Vec<PathBuf>),
     Stop,
 }
 
-/// The presets of the folder the user chose, if any.
+/// The presets of the folders the user chose, if any.
 #[derive(Default)]
 struct Library {
     folder: PresetList,
-    folder_dir: Option<PathBuf>,
+    folder_dirs: Vec<PathBuf>,
 }
 
 impl Library {
@@ -260,7 +260,7 @@ impl Visualizer {
     pub fn start(&self, input: PcmInput, width: u32, height: u32, fps: u32) -> Result<()> {
         let (width, height, fps) = (width.max(1), height.max(1), fps.clamp(1, 240));
         // Before the worker lock, which `publish_folder` takes to reach the renderer.
-        let textures = lock(&self.library).folder_dir.clone();
+        let textures = lock(&self.library).folder_dirs.clone();
         let mut worker = lock(&self.worker);
         if worker.is_some() {
             bail!("The visualizer is already started");
@@ -329,30 +329,29 @@ impl Visualizer {
         self.load_preset(read_preset(preset)?, &preset.name, transition)
     }
 
-    /// Scan `dir` and its subfolders for `.milk` / `.milk2` files for next/previous/random.
-    /// Returns their count. Textures come from `dir/textures`, else `dir` if it has images,
-    /// else `dir/../textures`.
-    pub fn set_preset_dir(&self, dir: &Path) -> Result<usize> {
+    /// Scan the folders `dirs` and their subfolders for `.milk` / `.milk2` files for
+    /// next/previous/random, replacing the earlier folders and emptying the history. Returns the
+    /// number of presets, each file once. A folder that cannot be read is skipped and shows up in
+    /// [`Status::last_error`]. Textures come from the folders in the order of `dirs`, each from
+    /// `dir/textures`, else `dir` if it has images, else `dir/../textures`. Without presets a
+    /// running visualizer softly changes to the default preset; otherwise the caller loads one.
+    pub fn set_preset_dirs(&self, dirs: &[PathBuf]) -> Result<usize> {
         let mut library = lock(&self.library);
-        let count = library.folder.scan(dir)?;
-        library.folder_dir = Some(dir.to_path_buf());
+        let (count, errors) = library.folder.scan_all(dirs);
+        library.folder_dirs = dirs.to_vec();
         self.shared.status().preset_count = count;
-        // Not running: `start` hands over the current folder.
-        let _ = self.send(Command::SetTextures(Some(dir.to_path_buf())));
+        if !errors.is_empty() {
+            let message: Vec<String> = errors.iter().map(|e| format!("{e:#}")).collect();
+            self.shared.set_error(message.join("; "));
+        }
+        // Not running: `start` hands over the current folders.
+        let _ = self.send(Command::SetTextures(dirs.to_vec()));
+        if count == 0 {
+            let _ = self.send(Command::LoadDefaultPreset(Transition::Soft {
+                seconds: MANUAL_BLEND_SECONDS,
+            }));
+        }
         Ok(count)
-    }
-
-    /// Stop using the preset folder: the list and its history are emptied, and a running
-    /// visualizer softly changes to the default preset.
-    pub fn clear_preset_dir(&self) {
-        let mut library = lock(&self.library);
-        library.folder.clear();
-        library.folder_dir = None;
-        self.shared.status().preset_count = 0;
-        let _ = self.send(Command::SetTextures(None));
-        let _ = self.send(Command::LoadDefaultPreset(Transition::Soft {
-            seconds: MANUAL_BLEND_SECONDS,
-        }));
     }
 
     /// Forward in the history if [`Self::previous_preset`] went back, else a new random preset
@@ -442,7 +441,7 @@ fn worker_main(
     library: Arc<Mutex<Library>>,
     mut input: PcmInput,
     (width, height, fps): (u32, u32, u32),
-    textures: Option<PathBuf>,
+    textures: Vec<PathBuf>,
     commands: Receiver<Command>,
 ) -> PcmInput {
     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -472,7 +471,7 @@ fn run(
     library: &Mutex<Library>,
     input: &mut PcmInput,
     (width, height, fps): (u32, u32, u32),
-    textures: Option<PathBuf>,
+    textures: Vec<PathBuf>,
     commands: &Receiver<Command>,
 ) -> Result<()> {
     let sample_rate = match input.sample_rate.load(Ordering::Relaxed) {
@@ -499,8 +498,8 @@ fn run(
         "Visualizer started on {} ({transport:?})",
         pipeline.adapter_name
     );
-    if let Some(dir) = textures
-        && let Err(e) = pipeline.set_textures(Some(&dir))
+    if !textures.is_empty()
+        && let Err(e) = pipeline.set_textures(&textures)
     {
         shared.set_error(format!("{e:#}"));
     }
@@ -668,7 +667,7 @@ fn apply(shared: &Shared, pipeline: &mut Pipeline, auto_switch: &mut AutoSwitch,
         Command::LoadDefaultPreset(transition) => pipeline
             .load_default_preset(shared.light.load(Ordering::Relaxed), transition)
             .map(|()| shared.status().preset_name = DEFAULT_PRESET_NAME.to_string()),
-        Command::SetTextures(dir) => pipeline.set_textures(dir.as_deref()),
+        Command::SetTextures(dirs) => pipeline.set_textures(&dirs),
         Command::Stop => Ok(()),
     };
     match result {

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -123,13 +123,13 @@ impl Signal for ResizeVisualizerRequest {
     }
 }
 
-impl ParamsExtractor for SetVisualizerPresetDirRequest {
+impl ParamsExtractor for SetVisualizerPresetDirsRequest {
     type Params = ();
 
     fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
 }
 
-impl Signal for SetVisualizerPresetDirRequest {
+impl Signal for SetVisualizerPresetDirsRequest {
     type Params = ();
     type Response = ();
 
@@ -139,32 +139,8 @@ impl Signal for SetVisualizerPresetDirRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        report(
-            VISUALIZER
-                .set_preset_dir(Path::new(&dart_signal.path))
-                .map(|_| ()),
-        )
-    }
-}
-
-impl ParamsExtractor for ClearVisualizerPresetDirRequest {
-    type Params = ();
-
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
-}
-
-impl Signal for ClearVisualizerPresetDirRequest {
-    type Params = ();
-    type Response = ();
-
-    async fn handle(
-        &self,
-        _: Self::Params,
-        _session: Option<Session>,
-        _dart_signal: &Self,
-    ) -> Result<Option<Self::Response>> {
-        VISUALIZER.clear_preset_dir();
-        Ok(Some(()))
+        let dirs: Vec<PathBuf> = dart_signal.paths.iter().map(PathBuf::from).collect();
+        report(VISUALIZER.set_preset_dirs(&dirs).map(|_| ()))
     }
 }
 
