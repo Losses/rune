@@ -1377,6 +1377,14 @@
   "@visualizerRandom": {
     "description": "Context menu item of the visualizer that switches to a random preset."
   },
+  "visualizerLockPreset": "Lock preset",
+  "@visualizerLockPreset": {
+    "description": "Context menu item of the visualizer that stops it from switching to other presets by itself, so the current preset stays."
+  },
+  "visualizerUnlockPreset": "Unlock preset",
+  "@visualizerUnlockPreset": {
+    "description": "Context menu item of the visualizer that lets it switch to other presets by itself again."
+  },
   "visualizerChooseFolder": "Visualizer preset folder",
   "@visualizerChooseFolder": {
     "description": "Title of the setting that picks the folder with MilkDrop preset files for the visualizer."

@@ -28,8 +28,18 @@ RUNE_BUILTIN_PRESETS=/path/to/milkdrop-original.zip cargo test -p visualizer
 ## Behaviour
 
 - With a build that has the pack and no preset folder chosen, the visualizer starts with the pack and a random preset. With a folder chosen, it starts with the folder. The switcher in the controls (shown only when the pack is available) changes the source, and the choice is saved in the settings (`visualizer_source`).
+- Only the presets directly in `presets/` take part in switching (475 of the 552). The 77 in `presets/affected/` are in the pack but never shown by next, previous, random or the automatic switching. A folder source works the same way: only the `.milk` / `.milk2` files directly in the chosen folder count, subfolders are not searched.
 - Presets are read from the embedded zip on demand. Textures are decoded on first use and cached up to 64 MiB; the pack is never decoded up front.
 - A folder source uses its `textures` subfolder for textures if it has one, otherwise the folder itself, with lactea-host's `DirTextures` lookup rules.
+
+## Preset switching
+
+The rules follow MilkDrop 2's defaults (Nullsoft, BSD-3), for the pack and for a folder alike:
+
+- Random picks are weighted by each preset's `fRating=` line (missing or unreadable: 3, clamped to 0..5). A preset rated 0 is never picked; if all are 0, the pick is uniform. Ratings are read when the list is built and never written.
+- The last 64 loaded presets are kept. Previous walks back through them (and does nothing at the start). Next walks forward again after going back, otherwise it loads a new random preset. Random always loads a new one and drops the way forward.
+- The visualizer switches by itself 2.7 s (blend) + 16 s + 0..10 s (random) after the last load, with a 2.7 s blend. Manual switches blend for 1.7 s. The wait starts over after every load. While the preset is locked (context menu) or the context menu is open, the wait keeps starting over.
+- Hard cuts on beats are off, as in MilkDrop 2.
 
 ## Licensing caveat
 

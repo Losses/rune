@@ -255,6 +255,27 @@ impl Signal for RandomVisualizerPresetRequest {
     }
 }
 
+impl ParamsExtractor for SetVisualizerAutoSwitchPausedRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for SetVisualizerAutoSwitchPausedRequest {
+    type Params = ();
+    type Response = ();
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        VISUALIZER.set_auto_switch_paused(dart_signal.paused);
+        Ok(Some(()))
+    }
+}
+
 impl ParamsExtractor for VisualizerStatusRequest {
     type Params = ();
 

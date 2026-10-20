@@ -20,7 +20,7 @@ const _channel = MethodChannel('not.ci.rune/visualizer');
 const _targetFps = 60;
 const _maxRenderWidth = 1920;
 const _maxRenderHeight = 1080;
-const _presetTransitionSeconds = 2.5;
+const _presetTransitionSeconds = 1.7;
 const _controlsHideDelay = Duration(seconds: 3);
 const _resizeDebounce = Duration(milliseconds: 300);
 
@@ -59,6 +59,9 @@ class _VisualizerPageState extends State<VisualizerPage> {
   Timer? _statusTimer;
   bool _controlsVisible = true;
   bool _contextMenuIsOpen = false;
+  // The user stopped the automatic preset switching (MilkDrop's Scroll Lock).
+  bool _presetLocked = false;
+  bool _autoSwitchPaused = false;
 
   final _contextController = RouterAwareFlyoutController();
   final _contextAttachKey = GlobalKey();
@@ -218,12 +221,27 @@ class _VisualizerPageState extends State<VisualizerPage> {
   void _handleContextControllerUpdate() {
     if (!mounted) return;
     _contextMenuIsOpen = _contextController.isOpen;
+    _syncAutoSwitchPaused();
     if (_contextMenuIsOpen) {
       _hideTimer?.cancel();
       if (!_controlsVisible) setState(() => _controlsVisible = true);
     } else {
       _scheduleHide();
     }
+  }
+
+  // Rust waits with the automatic switching while the preset is locked or the
+  // menu is open, and counts again from zero afterwards.
+  void _syncAutoSwitchPaused() {
+    final paused = _presetLocked || _contextMenuIsOpen;
+    if (paused == _autoSwitchPaused) return;
+    _autoSwitchPaused = paused;
+    SetVisualizerAutoSwitchPausedRequest(paused: paused).sendSignalToRust();
+  }
+
+  void _toggleLock() {
+    setState(() => _presetLocked = !_presetLocked);
+    _syncAutoSwitchPaused();
   }
 
   void _openContextMenu(Offset localPosition) {
@@ -258,6 +276,16 @@ class _VisualizerPageState extends State<VisualizerPage> {
               leading: const Icon(Symbols.shuffle),
               text: Text(s.visualizerRandom),
               onPressed: _random,
+            ),
+            const MenuFlyoutSeparator(),
+            MenuFlyoutItem(
+              leading: Icon(_presetLocked ? Symbols.lock_open : Symbols.lock),
+              text: Text(
+                _presetLocked
+                    ? s.visualizerUnlockPreset
+                    : s.visualizerLockPreset,
+              ),
+              onPressed: _toggleLock,
             ),
           ],
         );
@@ -398,6 +426,10 @@ class _VisualizerPageState extends State<VisualizerPage> {
                     ),
                   ),
                   const SizedBox(width: 12),
+                  if (_presetLocked) ...[
+                    const Icon(Symbols.lock, size: 16, color: Colors.white),
+                    const SizedBox(width: 6),
+                  ],
                   Expanded(
                     child: Text(
                       hint,

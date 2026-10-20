@@ -1359,6 +1359,14 @@
   "@visualizerRandom": {
     "description": "視覺化中切換到隨機預設的右鍵選單項。"
   },
+  "visualizerLockPreset": "鎖定預設",
+  "@visualizerLockPreset": {
+    "description": "視覺化右鍵選單項，使其不再自動切換預設，保持目前的預設。"
+  },
+  "visualizerUnlockPreset": "解除鎖定預設",
+  "@visualizerUnlockPreset": {
+    "description": "視覺化右鍵選單項，使其重新自動切換預設。"
+  },
   "visualizerChooseFolder": "視覺化預設資料夾",
   "@visualizerChooseFolder": {
     "description": "設定中選擇存放視覺化 MilkDrop 預設檔案的資料夾的標題。"

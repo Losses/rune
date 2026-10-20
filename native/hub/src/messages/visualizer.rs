@@ -61,6 +61,12 @@ pub struct RandomVisualizerPresetRequest {
     pub transition_seconds: f64,
 }
 
+/// Pauses the automatic switching of presets while `paused`; the timer starts over when it ends.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SetVisualizerAutoSwitchPausedRequest {
+    pub paused: bool,
+}
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct VisualizerStatusRequest {}
 

@@ -154,6 +154,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: true,
         },
         RequestResponse {
+            request: "SetVisualizerAutoSwitchPausedRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
             request: "VisualizerStatusRequest".to_string(),
             response: Some("VisualizerStatusResponse".to_string()),
             local_only: true,

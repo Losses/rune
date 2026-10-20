@@ -12,20 +12,21 @@ mod textures;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use lactea::FrameClock;
 use log::{error, info};
+use rand::rngs::ThreadRng;
 use rtrb::Consumer;
 
 use pack::Zip;
 use pipeline::Pipeline;
-use presets::{Location, Preset, PresetList};
+use presets::{AutoSwitch, Location, Preset, PresetList};
 use textures::TextureSource;
 
 pub use pack::{BUILTIN_NAME, builtin_pack};
@@ -118,6 +119,12 @@ impl Library {
         }
     }
 
+    /// The preset for an automatic switch, if there are presets to choose from.
+    fn auto_next(&mut self, rng: &mut ThreadRng) -> Option<Result<Preset>> {
+        let list = self.list().ok().filter(|list| list.len() > 0)?;
+        Some(list.next(rng))
+    }
+
     fn texture_source(&self) -> Option<TextureSource> {
         match self.source {
             Source::Builtin => Some(TextureSource::Builtin),
@@ -131,6 +138,9 @@ struct Shared {
     latest: Mutex<Option<Arc<Frame>>>,
     status: Mutex<Status>,
     next_frame_id: AtomicU64,
+    /// Whether the automatic preset switching waits (the user locked the preset or a menu is
+    /// open).
+    auto_switch_paused: AtomicBool,
 }
 
 impl Shared {
@@ -152,7 +162,8 @@ struct Worker {
 pub struct Visualizer {
     shared: Arc<Shared>,
     worker: Mutex<Option<Worker>>,
-    library: Mutex<Library>,
+    /// Shared with the render thread, which picks the presets of the automatic switching.
+    library: Arc<Mutex<Library>>,
 }
 
 impl Default for Visualizer {
@@ -168,9 +179,10 @@ impl Visualizer {
                 latest: Mutex::new(None),
                 status: Mutex::new(Status::default()),
                 next_frame_id: AtomicU64::new(1),
+                auto_switch_paused: AtomicBool::new(false),
             }),
             worker: Mutex::new(None),
-            library: Mutex::new(Library::default()),
+            library: Arc::new(Mutex::new(Library::default())),
         }
     }
 
@@ -205,11 +217,24 @@ impl Visualizer {
                 ..Status::default()
             };
         }
+        self.shared
+            .auto_switch_paused
+            .store(false, Ordering::Relaxed);
         let (commands, receiver) = mpsc::channel();
         let shared = Arc::clone(&self.shared);
+        let library = Arc::clone(&self.library);
         let handle = thread::Builder::new()
             .name("visualizer".into())
-            .spawn(move || worker_main(shared, input, (width, height, fps), textures, receiver))
+            .spawn(move || {
+                worker_main(
+                    shared,
+                    library,
+                    input,
+                    (width, height, fps),
+                    textures,
+                    receiver,
+                )
+            })
             .context("Failed to spawn the visualizer thread")?;
         *worker = Some(Worker { commands, handle });
         Ok(())
@@ -241,13 +266,7 @@ impl Visualizer {
     }
 
     fn load_entry(&self, preset: &Preset, transition: Transition) -> Result<()> {
-        let bytes = match &preset.location {
-            Location::File(path) => {
-                std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?
-            }
-            Location::Pack(path) => Zip::builtin()?.read(path)?,
-        };
-        self.load_preset(bytes, &preset.name, transition)
+        self.load_preset(read_preset(preset)?, &preset.name, transition)
     }
 
     /// Scan `dir` for `.milk` / `.milk2` files for next/previous/random. Returns their count.
@@ -286,7 +305,7 @@ impl Visualizer {
 
     fn select_builtin(&self, library: &mut Library) -> Result<()> {
         if library.builtin.len() == 0 {
-            let count = library.builtin.scan_pack(&Zip::builtin()?);
+            let count = library.builtin.scan_pack(&mut Zip::builtin()?);
             if count == 0 {
                 bail!("The built-in preset pack is empty");
             }
@@ -314,19 +333,36 @@ impl Visualizer {
         }
     }
 
+    /// Forward in the history if [`Self::previous_preset`] went back, else a new random preset
+    /// (weighted by the presets' ratings, as in MilkDrop 2).
     pub fn next_preset(&self, transition: Transition) -> Result<()> {
-        let preset = lock(&self.library).list()?.next()?;
+        let preset = lock(&self.library).list()?.next(&mut rand::thread_rng())?;
         self.load_entry(&preset, transition)
     }
 
+    /// One step back in the history of loaded presets; nothing happens at its start.
     pub fn previous_preset(&self, transition: Transition) -> Result<()> {
         let preset = lock(&self.library).list()?.previous()?;
+        match preset {
+            Some(preset) => self.load_entry(&preset, transition),
+            None => Ok(()),
+        }
+    }
+
+    /// A new random preset (weighted by rating); the history ahead of the current one is dropped.
+    pub fn random_preset(&self, transition: Transition) -> Result<()> {
+        let preset = lock(&self.library)
+            .list()?
+            .random(&mut rand::thread_rng())?;
         self.load_entry(&preset, transition)
     }
 
-    pub fn random_preset(&self, transition: Transition) -> Result<()> {
-        let preset = lock(&self.library).list()?.random()?;
-        self.load_entry(&preset, transition)
+    /// Pause or resume the automatic switching of presets. A pause makes the timer start over
+    /// when it ends. A new render thread starts unpaused.
+    pub fn set_auto_switch_paused(&self, paused: bool) {
+        self.shared
+            .auto_switch_paused
+            .store(paused, Ordering::Relaxed);
     }
 
     /// Record an error that happened outside the render thread, for [`Status::last_error`].
@@ -361,8 +397,19 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// The bytes of a preset file.
+fn read_preset(preset: &Preset) -> Result<Vec<u8>> {
+    match &preset.location {
+        Location::File(path) => {
+            std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))
+        }
+        Location::Pack(path) => Zip::builtin()?.read(path),
+    }
+}
+
 fn worker_main(
     shared: Arc<Shared>,
+    library: Arc<Mutex<Library>>,
     mut input: PcmInput,
     (width, height, fps): (u32, u32, u32),
     textures: Option<TextureSource>,
@@ -371,6 +418,7 @@ fn worker_main(
     let result = catch_unwind(AssertUnwindSafe(|| {
         run(
             &shared,
+            &library,
             &mut input,
             (width, height, fps),
             textures,
@@ -391,6 +439,7 @@ fn worker_main(
 
 fn run(
     shared: &Arc<Shared>,
+    library: &Mutex<Library>,
     input: &mut PcmInput,
     (width, height, fps): (u32, u32, u32),
     textures: Option<TextureSource>,
@@ -425,12 +474,14 @@ fn run(
     let mut pixels: Vec<u8> = Vec::new();
     let mut window_start = started;
     let mut window_frames = 0u32;
+    let mut auto_switch = AutoSwitch::default();
+    let mut rng = rand::thread_rng();
 
     loop {
         loop {
             match commands.try_recv() {
                 Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(()),
-                Ok(command) => apply(shared, &mut pipeline, command),
+                Ok(command) => apply(shared, &mut pipeline, &mut auto_switch, command),
                 Err(TryRecvError::Empty) => break,
             }
         }
@@ -444,8 +495,41 @@ fn run(
             pipeline.push_pcm(&pcm, channels);
         }
 
+        let time = started.elapsed().as_secs_f64();
+        let paused = shared.auto_switch_paused.load(Ordering::Relaxed);
+        // A scan holds the library while it reads every file; try again on the next frame
+        // instead of stalling this one.
+        let free = || match library.try_lock() {
+            Ok(guard) => Some(guard),
+            Err(TryLockError::Poisoned(e)) => Some(e.into_inner()),
+            Err(TryLockError::WouldBlock) => None,
+        };
+        if auto_switch.tick(time, paused, &mut rng)
+            && let Some(mut library) = free()
+        {
+            // The list is built already; only the one preset file is read here.
+            let next = library.auto_next(&mut rng);
+            drop(library);
+            if let Some(next) = next {
+                let load = next.and_then(|preset| {
+                    Ok(Command::LoadPreset {
+                        bytes: read_preset(&preset)?,
+                        name: preset.name,
+                        transition: Transition::Soft {
+                            seconds: AutoSwitch::BLEND_SECONDS,
+                        },
+                    })
+                });
+                match load {
+                    Ok(command) => apply(shared, &mut pipeline, &mut auto_switch, command),
+                    Err(e) => shared.set_error(format!("{e:#}")),
+                }
+            }
+            auto_switch.restart();
+        }
+
         let clock = FrameClock {
-            time: started.elapsed().as_secs_f64(),
+            time,
             frame: frame_index,
         };
         pipeline.render(clock, &mut pixels)?;
@@ -467,7 +551,7 @@ fn run(
         if deadline > now {
             match commands.recv_timeout(deadline - now) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
-                Ok(command) => apply(shared, &mut pipeline, command),
+                Ok(command) => apply(shared, &mut pipeline, &mut auto_switch, command),
                 Err(RecvTimeoutError::Timeout) => {}
             }
         } else {
@@ -477,7 +561,11 @@ fn run(
     }
 }
 
-fn apply(shared: &Shared, pipeline: &mut Pipeline, command: Command) {
+fn apply(shared: &Shared, pipeline: &mut Pipeline, auto_switch: &mut AutoSwitch, command: Command) {
+    // Any load, manual or automatic, starts the wait for the next automatic switch again.
+    if matches!(command, Command::LoadPreset { .. }) {
+        auto_switch.restart();
+    }
     let result = match command {
         Command::Resize(width, height) => pipeline.resize(width, height).map(|()| {
             let (width, height) = pipeline.size();
