@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use lactea::FrameClock;
@@ -138,6 +138,8 @@ enum Command {
         bytes: Vec<u8>,
         name: String,
         transition: Transition,
+        /// The file the preset came from, which is then watched for changes.
+        path: Option<PathBuf>,
     },
     /// Show the default preset (no preset folder is left).
     LoadDefaultPreset(Transition),
@@ -318,6 +320,7 @@ impl Visualizer {
             bytes,
             name: name.to_string(),
             transition,
+            path: None,
         })
     }
 
@@ -326,7 +329,13 @@ impl Visualizer {
     }
 
     fn load_entry(&self, preset: &Preset, transition: Transition) -> Result<()> {
-        self.load_preset(read_preset(preset)?, &preset.name, transition)
+        let Location::File(path) = &preset.location;
+        self.send(Command::LoadPreset {
+            bytes: read_preset(preset)?,
+            name: preset.name.clone(),
+            transition,
+            path: Some(path.clone()),
+        })
     }
 
     /// Scan the folders `dirs` and their subfolders for `.milk` / `.milk2` files for
@@ -524,12 +533,20 @@ fn run(
     // While paused one frame is drawn (the first one, or after a command such as a resize) and
     // then held.
     let mut still_drawn = false;
+    // The file of the preset on screen, reloaded when it is saved (live editing).
+    let mut watched: Option<Watched> = None;
 
     loop {
         loop {
             match commands.try_recv() {
                 Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(()),
-                Ok(command) => apply(shared, &mut pipeline, &mut auto_switch, command),
+                Ok(command) => apply(
+                    shared,
+                    &mut pipeline,
+                    &mut auto_switch,
+                    &mut watched,
+                    command,
+                ),
                 Err(TryRecvError::Empty) => break,
             }
         }
@@ -540,6 +557,13 @@ fn run(
         };
         drain(&mut input.consumer, &mut pcm, channels, sample_rate);
 
+        if let Some(file) = &mut watched
+            && file.reload_if_saved(shared, &mut pipeline)
+        {
+            // Show the new version even while the music is paused.
+            still_drawn = false;
+        }
+
         let paused = !shared.playing.load(Ordering::Relaxed);
         if paused && still_drawn {
             // Keep the last frame on screen and wait, for commands or for the music.
@@ -547,7 +571,13 @@ fn run(
             match commands.recv_timeout(PAUSED_POLL) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
                 Ok(command) => {
-                    apply(shared, &mut pipeline, &mut auto_switch, command);
+                    apply(
+                        shared,
+                        &mut pipeline,
+                        &mut auto_switch,
+                        &mut watched,
+                        command,
+                    );
                     still_drawn = false;
                 }
                 Err(RecvTimeoutError::Timeout) => {}
@@ -580,8 +610,10 @@ fn run(
             drop(library);
             if let Some(next) = next {
                 let load = next.and_then(|preset| {
+                    let Location::File(path) = &preset.location;
                     Ok(Command::LoadPreset {
                         bytes: read_preset(&preset)?,
+                        path: Some(path.clone()),
                         name: preset.name,
                         transition: Transition::Soft {
                             seconds: AutoSwitch::BLEND_SECONDS,
@@ -589,7 +621,13 @@ fn run(
                     })
                 });
                 match load {
-                    Ok(command) => apply(shared, &mut pipeline, &mut auto_switch, command),
+                    Ok(command) => apply(
+                        shared,
+                        &mut pipeline,
+                        &mut auto_switch,
+                        &mut watched,
+                        command,
+                    ),
                     Err(e) => shared.set_error(format!("{e:#}")),
                 }
             }
@@ -632,7 +670,13 @@ fn run(
         if deadline > now {
             match commands.recv_timeout(deadline - now) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
-                Ok(command) => apply(shared, &mut pipeline, &mut auto_switch, command),
+                Ok(command) => apply(
+                    shared,
+                    &mut pipeline,
+                    &mut auto_switch,
+                    &mut watched,
+                    command,
+                ),
                 Err(RecvTimeoutError::Timeout) => {}
             }
         } else {
@@ -642,7 +686,13 @@ fn run(
     }
 }
 
-fn apply(shared: &Shared, pipeline: &mut Pipeline, auto_switch: &mut AutoSwitch, command: Command) {
+fn apply(
+    shared: &Shared,
+    pipeline: &mut Pipeline,
+    auto_switch: &mut AutoSwitch,
+    watched: &mut Option<Watched>,
+    command: Command,
+) {
     // Any load, manual or automatic, starts the wait for the next automatic switch again.
     if matches!(
         command,
@@ -661,12 +711,17 @@ fn apply(shared: &Shared, pipeline: &mut Pipeline, auto_switch: &mut AutoSwitch,
             bytes,
             name,
             transition,
-        } => pipeline
-            .load_preset(&bytes, &name, transition)
-            .map(|()| shared.status().preset_name = name),
+            path,
+        } => pipeline.load_preset(&bytes, &name, transition).map(|()| {
+            *watched = path.map(|path| Watched::new(path, name.clone()));
+            shared.status().preset_name = name;
+        }),
         Command::LoadDefaultPreset(transition) => pipeline
             .load_default_preset(shared.light.load(Ordering::Relaxed), transition)
-            .map(|()| shared.status().preset_name = DEFAULT_PRESET_NAME.to_string()),
+            .map(|()| {
+                *watched = None;
+                shared.status().preset_name = DEFAULT_PRESET_NAME.to_string();
+            }),
         Command::SetTextures(dirs) => pipeline.set_textures(&dirs),
         Command::Stop => Ok(()),
     };
@@ -674,6 +729,74 @@ fn apply(shared: &Shared, pipeline: &mut Pipeline, auto_switch: &mut AutoSwitch,
         Ok(()) => shared.status().last_error = None,
         Err(e) => shared.set_error(format!("{e:#}")),
     }
+}
+
+/// The file of the preset on screen. When it is saved, the preset is loaded again with a cut, so
+/// presets can be written while watching them; a version that does not load shows its error and
+/// the next save tries again.
+struct Watched {
+    path: PathBuf,
+    name: String,
+    modified: Option<SystemTime>,
+    next_check: Instant,
+}
+
+impl Watched {
+    /// How often the file is looked at: a `stat` twice a second costs nothing.
+    const INTERVAL: Duration = Duration::from_millis(500);
+
+    fn new(path: PathBuf, name: String) -> Self {
+        Self {
+            modified: modified(&path),
+            path,
+            name,
+            next_check: Instant::now() + Self::INTERVAL,
+        }
+    }
+
+    /// Whether the preset was loaded again.
+    fn reload_if_saved(&mut self, shared: &Shared, pipeline: &mut Pipeline) -> bool {
+        let now = Instant::now();
+        if now < self.next_check {
+            return false;
+        }
+        self.next_check = now + Self::INTERVAL;
+        let current = modified(&self.path);
+        if current.is_none() || current == self.modified {
+            return false;
+        }
+        self.modified = current;
+        let result = std::fs::read(&self.path)
+            .with_context(|| format!("Failed to read {}", self.path.display()))
+            .and_then(|bytes| pipeline.load_preset_reporting(&bytes, &self.name, Transition::Cut));
+        match result {
+            Ok(report) => {
+                info!("Reloaded {}", self.path.display());
+                // While writing a preset, a shader that did not compile matters even though a
+                // default one stands in for it.
+                let problems: Vec<String> = report
+                    .shader_fallbacks
+                    .iter()
+                    .map(|f| format!("{:?} shader: {}", f.pass, f.reason))
+                    .chain(report.warnings.iter().cloned())
+                    .collect();
+                if problems.is_empty() {
+                    shared.status().last_error = None;
+                } else {
+                    shared.set_error(problems.join("; "));
+                }
+                true
+            }
+            Err(e) => {
+                shared.set_error(format!("{e:#}"));
+                false
+            }
+        }
+    }
+}
+
+fn modified(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 /// Move everything the ring holds into `pcm`, keeping at most the last quarter second.

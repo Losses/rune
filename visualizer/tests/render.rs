@@ -280,3 +280,48 @@ fn no_folders_show_the_default_preset() {
     visualizer.random_preset(Transition::Cut).unwrap();
     visualizer.stop();
 }
+
+#[test]
+fn saving_the_preset_on_screen_reloads_it() {
+    let Some((visualizer, mut feeder)) = start(320, 180) else {
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("rune-visualizer-reload-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("mine.milk");
+    std::fs::write(&file, NEBULA_FORGE).unwrap();
+    assert_eq!(
+        visualizer
+            .set_preset_dirs(std::slice::from_ref(&dir))
+            .unwrap(),
+        1
+    );
+    visualizer.random_preset(Transition::Cut).unwrap();
+
+    let wait = |feeder: &mut Feeder, done: &dyn Fn() -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !done() && Instant::now() < deadline {
+            feeder.pump();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(done(), "{:?}", visualizer.status());
+    };
+    wait(&mut feeder, &|| visualizer.status().preset_name == "mine");
+
+    // A broken save shows its error; fixing it clears the error. Both go through the watcher,
+    // nothing else loads the file. Modification times can be coarse, so wait a moment between.
+    std::thread::sleep(Duration::from_millis(1100));
+    std::fs::write(
+        &file,
+        "[preset00]\nMILKDROP_PRESET_VERSION=201\nPSVERSION=2\nPSVERSION_WARP=2\nPSVERSION_COMP=2\n\
+         warp_1=`shader_body\nwarp_2=`{\nwarp_3=`  ret = nope(;\nwarp_4=`}\n",
+    )
+    .unwrap();
+    wait(&mut feeder, &|| visualizer.status().last_error.is_some());
+    std::thread::sleep(Duration::from_millis(1100));
+    std::fs::write(&file, NEBULA_FORGE).unwrap();
+    wait(&mut feeder, &|| visualizer.status().last_error.is_none());
+
+    visualizer.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}

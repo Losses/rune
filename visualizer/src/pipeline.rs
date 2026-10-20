@@ -191,9 +191,20 @@ impl Pipeline {
     }
 
     pub fn load_preset(&mut self, bytes: &[u8], name: &str, transition: Transition) -> Result<()> {
+        self.load_preset_reporting(bytes, name, transition)
+            .map(|_| ())
+    }
+
+    /// Like [`Self::load_preset`], with what lactea found: warnings, and shaders it replaced
+    /// because they did not compile.
+    pub fn load_preset_reporting(
+        &mut self,
+        bytes: &[u8],
+        name: &str,
+        transition: Transition,
+    ) -> Result<lactea::PresetReport> {
         self.engine
             .load_preset(bytes, name, transition)
-            .map(|_| ())
             .map_err(|e| anyhow!("Failed to load preset {name}: {e}"))
     }
 
