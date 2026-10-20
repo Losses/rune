@@ -22,6 +22,7 @@ import '../../providers/crash.dart';
 import '../../providers/router_path.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
+import '../visualizer/visualizer_dark_theme.dart';
 
 import '../../bindings/bindings.dart';
 
@@ -82,9 +83,13 @@ class _RuneRouterFrameImplementationState
     // Create the PlaybackController with a key once
     final playbackController = KeyedSubtree(
       key: _playbackControllerKey,
-      child: const FocusTraversalOrder(
-        order: NumericFocusOrder(3),
-        child: PlaybackController(),
+      // Over the visualizer the cover wall is dark, so is the controller.
+      child: VisualizerDarkTheme(
+        enabled: path == '/cover_wall',
+        child: const FocusTraversalOrder(
+          order: NumericFocusOrder(3),
+          child: PlaybackController(),
+        ),
       ),
     );
 
