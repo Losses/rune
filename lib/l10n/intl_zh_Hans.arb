@@ -1381,10 +1381,6 @@
   "@visualizerRemovePresetFolder": {
     "description": "从可视化预设文件夹中移除一个文件夹的按钮；文件夹本身不会被删除。"
   },
-  "visualizerNoPresets": "请在“设置 > 主题”中添加预设文件夹",
-  "@visualizerNoPresets": {
-    "description": "未设置预设文件夹时可视化中显示的提示。"
-  },
   "coverWallDisplay": "封面墙显示内容",
   "@coverWallDisplay": {
     "description": "选择封面墙页面显示内容的设置项标题。"

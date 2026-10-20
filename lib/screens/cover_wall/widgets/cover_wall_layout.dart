@@ -10,6 +10,7 @@ import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../widgets/visualizer/visualizer_controller.dart';
 import '../../../widgets/visualizer/visualizer_surface.dart';
+import '../../../widgets/visualizer/visualizer_preset_name.dart';
 import '../../../widgets/cover_wall_background/gradient_container.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
 import '../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
@@ -102,56 +103,35 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
               CoverWallDisplay.visualizer,
               s.coverWallDisplayVisualizer,
             ),
-            if (showVisualizer) ...[
+            if (showVisualizer && _visualizer.hasPresets) ...[
               const MenuFlyoutSeparator(),
               MenuFlyoutItem(
-                text: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 280),
-                  child: Text(
-                    _visualizer.infoText(s),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                onPressed: null,
+                leading: const Icon(Symbols.skip_previous),
+                text: Text(s.visualizerPrevious),
+                onPressed: _visualizer.previous,
+              ),
+              MenuFlyoutItem(
+                leading: const Icon(Symbols.skip_next),
+                text: Text(s.visualizerNext),
+                onPressed: _visualizer.next,
+              ),
+              MenuFlyoutItem(
+                leading: const Icon(Symbols.shuffle),
+                text: Text(s.visualizerRandom),
+                onPressed: _visualizer.random,
               ),
               const MenuFlyoutSeparator(),
-              if (_visualizer.hasPresets) ...[
-                MenuFlyoutItem(
-                  leading: const Icon(Symbols.skip_previous),
-                  text: Text(s.visualizerPrevious),
-                  onPressed: _visualizer.previous,
+              MenuFlyoutItem(
+                leading: Icon(
+                  _visualizer.locked ? Symbols.lock_open : Symbols.lock,
                 ),
-                MenuFlyoutItem(
-                  leading: const Icon(Symbols.skip_next),
-                  text: Text(s.visualizerNext),
-                  onPressed: _visualizer.next,
+                text: Text(
+                  _visualizer.locked
+                      ? s.visualizerUnlockPreset
+                      : s.visualizerLockPreset,
                 ),
-                MenuFlyoutItem(
-                  leading: const Icon(Symbols.shuffle),
-                  text: Text(s.visualizerRandom),
-                  onPressed: _visualizer.random,
-                ),
-                const MenuFlyoutSeparator(),
-                MenuFlyoutItem(
-                  leading: Icon(
-                    _visualizer.locked ? Symbols.lock_open : Symbols.lock,
-                  ),
-                  text: Text(
-                    _visualizer.locked
-                        ? s.visualizerUnlockPreset
-                        : s.visualizerLockPreset,
-                  ),
-                  onPressed: _visualizer.toggleLock,
-                ),
-              ] else
-                MenuFlyoutItem(
-                  text: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 280),
-                    child: Text(s.visualizerNoPresets),
-                  ),
-                  onPressed: null,
-                ),
+                onPressed: _visualizer.toggleLock,
+              ),
             ],
           ],
         );
@@ -240,7 +220,9 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
               top: 0,
               left: 0,
               child: BackButton(),
-            )
+            ),
+            // The name of a preset that just started, in the corner.
+            if (showVisualizer) VisualizerPresetName(controller: _visualizer),
           ],
         );
 

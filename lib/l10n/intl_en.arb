@@ -1389,10 +1389,6 @@
   "@visualizerRemovePresetFolder": {
     "description": "Button that removes a folder from the visualizer preset folders; the folder itself is not deleted."
   },
-  "visualizerNoPresets": "Add a preset folder in Settings > Theme",
-  "@visualizerNoPresets": {
-    "description": "Hint shown in the visualizer when no preset folder is set."
-  },
   "coverWallDisplay": "Cover wall display",
   "@coverWallDisplay": {
     "description": "Title of the setting that chooses what the cover wall page shows."

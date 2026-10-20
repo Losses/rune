@@ -1,7 +1,18 @@
+import 'package:flutter/foundation.dart';
+
 import '../../bindings/bindings.dart';
-import '../../l10n/app_localizations.dart';
 
 const _presetTransitionSeconds = 1.7;
+
+/// What the corner of the visualizer shows: the name of a preset that just
+/// started, or a problem.
+@immutable
+class VisualizerLabel {
+  const VisualizerLabel(this.text, {this.isError = false});
+
+  final String text;
+  final bool isError;
+}
 
 /// The commands and the state of a [VisualizerSurface] for the widgets around
 /// it, such as a context menu and keyboard shortcuts. The commands do nothing
@@ -17,6 +28,10 @@ class VisualizerController {
   String? startError;
   bool hasPresets = false;
 
+  /// Set by the surface whenever a preset from a folder starts or a problem
+  /// comes up; null while the default preset shows.
+  final ValueNotifier<VisualizerLabel?> label = ValueNotifier(null);
+
   /// The user stopped the automatic preset switching (MilkDrop's Scroll Lock).
   bool get locked => _locked;
 
@@ -29,6 +44,7 @@ class VisualizerController {
     status = null;
     startError = null;
     hasPresets = false;
+    label.value = null;
   }
 
   void detach() => _attached = false;
@@ -72,25 +88,5 @@ class VisualizerController {
     if (paused == _autoSwitchPaused) return;
     _autoSwitchPaused = paused;
     SetVisualizerAutoSwitchPausedRequest(paused: paused).sendSignalToRust();
-  }
-
-  /// The preset name, or what is wrong, followed by the frame rate and the
-  /// transport.
-  String infoText(AppLocalizations s) {
-    final startError = this.startError;
-    if (startError != null) return startError;
-
-    final status = this.status;
-    if (status == null) return '';
-    final error = status.lastError;
-    return [
-      error ?? status.presetName,
-      if (status.running) ...[
-        '${status.measuredFps.toStringAsFixed(0)} fps',
-        // The transport is a diagnostic: "iosurface" means no copies on the
-        // way to the screen.
-        if (status.transport.isNotEmpty) status.transport,
-      ],
-    ].where((part) => part.isNotEmpty).join(' · ');
   }
 }

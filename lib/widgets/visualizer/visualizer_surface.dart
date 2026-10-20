@@ -79,6 +79,27 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
   // The appearance last sent to Rust, which picks the default preset's
   // version; null before the first build.
   bool? _light;
+  // The preset name the corner label last announced.
+  String? _announced;
+
+  // A preset from a folder that just started gets its name shown; a problem
+  // shows until it is gone; the default preset shows nothing.
+  void _updateLabel(VisualizerStatusResponse status) {
+    final error = status.lastError;
+    if (error != null) {
+      _announced = null;
+      _controller.label.value = VisualizerLabel(error, isError: true);
+      return;
+    }
+    if (!status.running || status.presetCount == 0) {
+      _announced = null;
+      _controller.label.value = null;
+      return;
+    }
+    if (status.presetName == _announced) return;
+    _announced = status.presetName;
+    _controller.label.value = VisualizerLabel(status.presetName);
+  }
   // Kept for dispose, where the context may no longer be used.
   late final CoverWallDisplayProvider _coverWallDisplay =
       context.read<CoverWallDisplayProvider>();
@@ -148,6 +169,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
       // Leave `_starting` set so the next frames don't retry in a loop; showing
       // the surface again retries.
       _controller.startError = e.toString();
+      _controller.label.value = VisualizerLabel(e.toString(), isError: true);
     }
   }
 
@@ -193,6 +215,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
       }
 
       _controller.status = status;
+      _updateLabel(status);
       // A folder without presets counts as none.
       if (status.running) {
         _controller.hasPresets = status.presetCount > 0;

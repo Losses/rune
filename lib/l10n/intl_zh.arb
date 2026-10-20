@@ -1371,10 +1371,6 @@
   "@visualizerRemovePresetFolder": {
     "description": "從視覺化預設資料夾中移除一個資料夾的按鈕；資料夾本身不會被刪除。"
   },
-  "visualizerNoPresets": "請在「設置 > 主題」中新增預設資料夾",
-  "@visualizerNoPresets": {
-    "description": "未設定預設資料夾時視覺化中顯示的提示。"
-  },
   "coverWallDisplay": "封面牆顯示內容",
   "@coverWallDisplay": {
     "description": "選擇封面牆頁面顯示內容的設置項標題。"
