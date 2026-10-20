@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
 use rtrb::{Producer, RingBuffer};
-use visualizer::{Frame, PcmInput, Source, Transition, Visualizer};
+use visualizer::{Frame, PcmInput, Transition, Visualizer};
 
 const SAMPLE_RATE: u32 = 48_000;
 const NEBULA_FORGE: &[u8] = include_bytes!("fixtures/nebula_forge.milk");
@@ -228,47 +228,33 @@ fn bad_preset_keeps_running_and_reports_the_error() {
 fn commands_before_start_are_errors() {
     let visualizer = Visualizer::new();
     assert!(visualizer.resize(10, 10).is_err());
-    assert!(visualizer.next_preset(Transition::Cut).is_err());
+    // Without presets next, previous and random do nothing.
+    assert!(visualizer.next_preset(Transition::Cut).is_ok());
     assert!(visualizer.latest_frame().is_none());
 }
 
-/// Loads presets from the real built-in pack. Skips unless the build embedded one
-/// (`RUNE_BUILTIN_PRESETS` at build time).
+/// A folder gives presets; clearing it brings the default preset back.
 #[test]
-fn builtin_pack_presets_render() {
-    if visualizer::builtin_pack().is_none() {
-        eprintln!("SKIPPED: RUNE_BUILTIN_PRESETS was not set at build time");
-        return;
-    }
+fn clearing_the_folder_shows_the_default_preset() {
     let Some((visualizer, mut feeder)) = start(320, 180) else {
         return;
     };
-    // Nothing chosen: the built-in pack is the default source.
-    let status = visualizer.status();
-    assert!(status.builtin_available);
-    assert_eq!(status.source, Source::Builtin);
-    assert!(status.preset_count > 100, "{}", status.preset_count);
-
-    for _ in 0..12 {
-        let before = visualizer.status().preset_name;
-        visualizer.random_preset(Transition::Cut).unwrap();
-        // A load either changes the name or reports an error; the random pick may also be the
-        // preset that is already loaded, so do not wait forever.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    assert_eq!(visualizer.set_preset_dir(&dir).unwrap(), 1);
+    assert_eq!(visualizer.status().preset_count, 1);
+    let wait_for = |feeder: &mut Feeder, name: &str| {
         let deadline = Instant::now() + Duration::from_secs(5);
-        let status = loop {
+        while visualizer.status().preset_name != name && Instant::now() < deadline {
             feeder.pump();
-            let status = visualizer.status();
-            if status.last_error.is_some()
-                || status.preset_name != before
-                || Instant::now() > deadline
-            {
-                break status;
-            }
             std::thread::sleep(Duration::from_millis(5));
-        };
-        assert_eq!(status.last_error, None, "{}", status.preset_name);
-    }
-    let (frames, _) = collect(&visualizer, &mut feeder, 30);
-    assert!(!is_black(&frames.last().unwrap().pixels));
+        }
+        assert_eq!(visualizer.status().preset_name, name);
+    };
+    visualizer.random_preset(Transition::Cut).unwrap();
+    wait_for(&mut feeder, "nebula_forge");
+    visualizer.clear_preset_dir();
+    assert_eq!(visualizer.status().preset_count, 0);
+    wait_for(&mut feeder, visualizer::DEFAULT_PRESET_NAME);
+    visualizer.random_preset(Transition::Cut).unwrap();
     visualizer.stop();
 }

@@ -59,9 +59,6 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
   Timer? _resizeTimer;
   Timer? _statusTimer;
 
-  String? _presetDir;
-  // The saved choice between the built-in pack and the folder; null = never chosen.
-  VisualizerSource? _sourcePref;
   bool _firstPresetLoaded = false;
   int _pollTick = 0;
 
@@ -117,19 +114,6 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
         return;
       }
 
-      final savedSource = await $settingsManager.getValue<String>(
-        kVisualizerSourceKey,
-      );
-      if (_disposed) {
-        await _channel.invokeMethod<void>('dispose');
-        return;
-      }
-      _sourcePref = switch (savedSource) {
-        'builtin' => VisualizerSource.builtin,
-        'folder' => VisualizerSource.folder,
-        _ => null,
-      };
-
       if (dir != null && dir.isNotEmpty) {
         SetVisualizerPresetDirRequest(path: dir).sendSignalToRust();
       }
@@ -143,7 +127,6 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
       setState(() {
         _textureId = id;
         _renderedSize = size;
-        _presetDir = dir;
       });
     } catch (e) {
       error$('Failed to start the visualizer: $e');
@@ -185,18 +168,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
 
       // Until the render thread is up there is nothing to send commands to.
       if (!_firstPresetLoaded && status.running) {
-        // Rust starts with the folder if one is set, else with the built-in
-        // pack. Apply a saved choice first, even if the starting source has no
-        // presets, and pick the preset on a later tick, when the new source is
-        // in place.
-        final wanted = _sourcePref;
-        if (status.builtinAvailable &&
-            wanted != null &&
-            wanted != VisualizerSource.none &&
-            wanted != status.source &&
-            (wanted == VisualizerSource.builtin || _presetDir != null)) {
-          SetVisualizerSourceRequest(source: wanted).sendSignalToRust();
-        } else if (status.presetCount > 0) {
+        // Without presets the visualizer stays on its default preset.
+        if (status.presetCount > 0) {
           _firstPresetLoaded = true;
           RandomVisualizerPresetRequest(
             transitionSeconds: 0,
@@ -205,7 +178,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
       }
 
       _controller.status = status;
-      // A folder without presets directly in it counts as none.
+      // A folder without presets counts as none.
       if (status.running) _controller.hasPresets = status.presetCount > 0;
     } on TimeoutException {
       // The next tick asks again.

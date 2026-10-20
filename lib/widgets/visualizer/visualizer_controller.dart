@@ -82,7 +82,6 @@ class VisualizerController {
 
     final status = this.status;
     if (status == null) return '';
-    if (!hasPresets) return s.visualizerNoPresets;
     final error = status.lastError;
     return [
       error ?? status.presetName,

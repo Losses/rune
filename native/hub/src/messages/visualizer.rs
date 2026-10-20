@@ -1,4 +1,4 @@
-use rinf::{DartSignal, RustSignal, SignalPiece};
+use rinf::{DartSignal, RustSignal};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -23,21 +23,10 @@ pub struct SetVisualizerPresetDirRequest {
     pub path: String,
 }
 
-#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum VisualizerSource {
-    /// Nothing selected yet.
-    None,
-    /// The preset pack embedded in builds that opt in.
-    Builtin,
-    /// The folder of `SetVisualizerPresetDirRequest`.
-    Folder,
-}
-
-/// Where next, previous and random take presets and textures from. `None` is ignored.
+/// Stops using the preset folder: next, previous and random do nothing, and a running visualizer
+/// changes to the default preset.
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct SetVisualizerSourceRequest {
-    pub source: VisualizerSource,
-}
+pub struct ClearVisualizerPresetDirRequest {}
 
 /// A transition of 0 seconds or less is a hard cut.
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -79,8 +68,6 @@ pub struct VisualizerStatusResponse {
     pub measured_fps: f32,
     pub preset_name: String,
     pub preset_count: u32,
-    pub source: VisualizerSource,
-    pub builtin_available: bool,
     pub adapter: String,
     /// How frames reach the screen: "iosurface" (no copies, macOS), "readback", or empty before
     /// the render thread runs.

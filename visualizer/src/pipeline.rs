@@ -2,6 +2,7 @@
 //! IOSurface-backed pixel buffers ([`crate::surface`]), elsewhere (or if that fails) an offscreen
 //! target that is read back into mapped buffers ([`crate::readback`]).
 
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
@@ -11,7 +12,7 @@ use log::warn;
 use crate::readback::{MappedFrame, Target};
 #[cfg(target_os = "macos")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
-use crate::textures::{PackTextures, TextureSource};
+use crate::textures::FolderTextures;
 
 /// `kCVPixelFormatType_32BGRA` on macOS. Windows' `FlutterDesktopPixelBuffer` and Linux's
 /// `FlPixelBufferTexture` take RGBA. The engine only compensates for `*Srgb` targets, so with a
@@ -184,9 +185,14 @@ impl Pipeline {
             .map_err(|e| anyhow!("Failed to load preset {name}: {e}"))
     }
 
-    pub fn set_textures(&mut self, source: &TextureSource) -> Result<()> {
+    pub fn load_default_preset(&mut self, transition: Transition) -> Result<()> {
+        self.load_preset(DEFAULT_PRESET, DEFAULT_PRESET_NAME, transition)
+    }
+
+    /// The textures of the preset folder `dir`, none without one.
+    pub fn set_textures(&mut self, dir: Option<&Path>) -> Result<()> {
         self.engine
-            .set_texture_provider(Box::new(PackTextures::new(source)?));
+            .set_texture_provider(Box::new(FolderTextures::new(dir)));
         Ok(())
     }
 

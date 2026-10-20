@@ -1381,29 +1381,21 @@
   "@visualizerChooseFolder": {
     "description": "Title of the setting that picks the folder with MilkDrop preset files for the visualizer."
   },
-  "visualizerPresetSource": "Visualizer preset source",
-  "@visualizerPresetSource": {
-    "description": "Title of the setting that chooses between the built-in presets and the preset folder for the visualizer."
-  },
-  "visualizerPresetSourceSubtitle": "Use the built-in presets or the presets in your folder",
-  "@visualizerPresetSourceSubtitle": {
-    "description": "Subtitle of the visualizer preset source setting."
-  },
-  "visualizerPresetFolderNotSet": "Not set",
+  "visualizerPresetFolderNotSet": "Not set, showing the default preset",
   "@visualizerPresetFolderNotSet": {
-    "description": "Subtitle of the visualizer preset folder setting when no folder has been chosen."
+    "description": "Subtitle of the visualizer preset folder setting when no folder has been chosen; the visualizer shows its default preset."
+  },
+  "visualizerStopUsingFolder": "Stop using the preset folder",
+  "@visualizerStopUsingFolder": {
+    "description": "Title of the button that stops the visualizer from using the chosen preset folder."
+  },
+  "visualizerStopUsingFolderSubtitle": "Go back to the default preset",
+  "@visualizerStopUsingFolderSubtitle": {
+    "description": "Subtitle of the button that stops using the preset folder."
   },
   "visualizerNoPresets": "Choose a preset folder in Settings > Theme",
   "@visualizerNoPresets": {
     "description": "Hint shown in the visualizer when no preset folder is set."
-  },
-  "visualizerSourceBuiltin": "Built-in",
-  "@visualizerSourceBuiltin": {
-    "description": "Label of the visualizer preset source option that uses the built-in preset pack."
-  },
-  "visualizerSourceFolder": "Folder",
-  "@visualizerSourceFolder": {
-    "description": "Label of the visualizer preset source option that uses the preset folder chosen by the user."
   },
   "coverWallDisplay": "Cover wall display",
   "@coverWallDisplay": {

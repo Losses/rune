@@ -1373,29 +1373,21 @@
   "@visualizerChooseFolder": {
     "description": "设置中选择存放可视化 MilkDrop 预设文件的文件夹的标题。"
   },
-  "visualizerPresetSource": "可视化预设来源",
-  "@visualizerPresetSource": {
-    "description": "设置中选择可视化使用内置预设还是预设文件夹的标题。"
-  },
-  "visualizerPresetSourceSubtitle": "使用内置预设，或你文件夹中的预设",
-  "@visualizerPresetSourceSubtitle": {
-    "description": "可视化预设来源设置的副标题。"
-  },
-  "visualizerPresetFolderNotSet": "未设置",
+  "visualizerPresetFolderNotSet": "未设置，显示默认预设",
   "@visualizerPresetFolderNotSet": {
-    "description": "尚未选择文件夹时，可视化预设文件夹设置的副标题。"
+    "description": "尚未选择文件夹时，可视化预设文件夹设置的副标题；此时可视化显示其默认效果。"
+  },
+  "visualizerStopUsingFolder": "不再使用预设文件夹",
+  "@visualizerStopUsingFolder": {
+    "description": "停止使用已选择的可视化预设文件夹的按钮标题。"
+  },
+  "visualizerStopUsingFolderSubtitle": "回到默认的可视化效果",
+  "@visualizerStopUsingFolderSubtitle": {
+    "description": "停止使用预设文件夹的按钮副标题。"
   },
   "visualizerNoPresets": "请在“设置 > 主题”中选择预设文件夹",
   "@visualizerNoPresets": {
     "description": "未设置预设文件夹时可视化中显示的提示。"
-  },
-  "visualizerSourceBuiltin": "内置",
-  "@visualizerSourceBuiltin": {
-    "description": "使用内置 MilkDrop Original 预设包的可视化按钮标签。"
-  },
-  "visualizerSourceFolder": "文件夹",
-  "@visualizerSourceFolder": {
-    "description": "用户所选预设文件夹的可视化按钮标签。"
   },
   "coverWallDisplay": "封面墙显示内容",
   "@coverWallDisplay": {

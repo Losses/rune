@@ -5,7 +5,7 @@ use anyhow::Result;
 use tokio::sync::Mutex;
 
 use ::playback::player::Playable;
-use ::visualizer::{PcmInput, Source, Transition, Transport};
+use ::visualizer::{PcmInput, Transition, Transport};
 
 use crate::{
     Session, Signal,
@@ -147,13 +147,13 @@ impl Signal for SetVisualizerPresetDirRequest {
     }
 }
 
-impl ParamsExtractor for SetVisualizerSourceRequest {
+impl ParamsExtractor for ClearVisualizerPresetDirRequest {
     type Params = ();
 
     fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
 }
 
-impl Signal for SetVisualizerSourceRequest {
+impl Signal for ClearVisualizerPresetDirRequest {
     type Params = ();
     type Response = ();
 
@@ -161,14 +161,10 @@ impl Signal for SetVisualizerSourceRequest {
         &self,
         _: Self::Params,
         _session: Option<Session>,
-        dart_signal: &Self,
+        _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let source = match dart_signal.source {
-            VisualizerSource::None => return Ok(Some(())),
-            VisualizerSource::Builtin => Source::Builtin,
-            VisualizerSource::Folder => Source::Folder,
-        };
-        report(VISUALIZER.set_source(source))
+        VISUALIZER.clear_preset_dir();
+        Ok(Some(()))
     }
 }
 
@@ -301,12 +297,6 @@ impl Signal for VisualizerStatusRequest {
             measured_fps: status.measured_fps,
             preset_name: status.preset_name,
             preset_count: u32::try_from(status.preset_count).unwrap_or(u32::MAX),
-            source: match status.source {
-                Source::None => VisualizerSource::None,
-                Source::Builtin => VisualizerSource::Builtin,
-                Source::Folder => VisualizerSource::Folder,
-            },
-            builtin_available: status.builtin_available,
             adapter: status.adapter,
             transport: match status.transport {
                 Some(Transport::IoSurface) => "iosurface",

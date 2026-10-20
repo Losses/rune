@@ -1363,29 +1363,21 @@
   "@visualizerChooseFolder": {
     "description": "設定中選擇存放視覺化 MilkDrop 預設檔案的資料夾的標題。"
   },
-  "visualizerPresetSource": "視覺化預設來源",
-  "@visualizerPresetSource": {
-    "description": "設定中選擇視覺化使用內建預設還是預設資料夾的標題。"
-  },
-  "visualizerPresetSourceSubtitle": "使用內建預設，或你資料夾中的預設",
-  "@visualizerPresetSourceSubtitle": {
-    "description": "視覺化預設來源設定的副標題。"
-  },
-  "visualizerPresetFolderNotSet": "未設定",
+  "visualizerPresetFolderNotSet": "未設置，顯示預設畫面",
   "@visualizerPresetFolderNotSet": {
-    "description": "尚未選擇資料夾時，視覺化預設資料夾設定的副標題。"
+    "description": "尚未選擇資料夾時，視覺化預設資料夾設定的副標題；此時視覺化顯示其預設效果。"
+  },
+  "visualizerStopUsingFolder": "不再使用預設資料夾",
+  "@visualizerStopUsingFolder": {
+    "description": "停止使用已選擇的視覺化預設資料夾的按鈕標題。"
+  },
+  "visualizerStopUsingFolderSubtitle": "回到預設的視覺化效果",
+  "@visualizerStopUsingFolderSubtitle": {
+    "description": "停止使用預設資料夾的按鈕副標題。"
   },
   "visualizerNoPresets": "請在「設置 > 主題」中選擇預設資料夾",
   "@visualizerNoPresets": {
     "description": "未設定預設資料夾時視覺化中顯示的提示。"
-  },
-  "visualizerSourceBuiltin": "內建",
-  "@visualizerSourceBuiltin": {
-    "description": "使用內建 MilkDrop Original 預設包的視覺化按鈕標籤。"
-  },
-  "visualizerSourceFolder": "資料夾",
-  "@visualizerSourceFolder": {
-    "description": "使用者所選預設資料夾的視覺化按鈕標籤。"
   },
   "coverWallDisplay": "封面牆顯示內容",
   "@coverWallDisplay": {

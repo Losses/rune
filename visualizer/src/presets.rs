@@ -1,4 +1,4 @@
-//! The `.milk` / `.milk2` presets of a directory (or of the built-in pack), picked the way
+//! The `.milk` / `.milk2` presets of a directory , picked the way
 //! MilkDrop 2 does it: weighted by rating, with a history, and on a timer.
 
 use std::collections::VecDeque;
@@ -8,14 +8,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use rand::Rng;
 
-use crate::pack::Zip;
-
 /// Where a preset's bytes are.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Location {
     File(PathBuf),
-    /// A path inside the built-in pack.
-    Pack(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -27,10 +23,8 @@ pub struct Preset {
 
 impl Preset {
     fn new(location: Location) -> Self {
-        let full = match &location {
-            Location::File(path) => path.to_string_lossy().into_owned(),
-            Location::Pack(path) => path.clone(),
-        };
+        let Location::File(path) = &location;
+        let full = path.to_string_lossy().into_owned();
         let file = full.rsplit(['/', '\\']).next().unwrap_or(&full);
         let name = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
         Self {
@@ -98,50 +92,38 @@ pub struct PresetList {
 }
 
 impl PresetList {
-    /// Scan `dir` and replace the list. Only the files directly in `dir` take part, as in
-    /// MilkDrop 2, which rotates through the files of the current folder; subfolders are not
-    /// searched. Returns the number of presets found.
+    /// Scan `dir` and its subfolders and replace the list. Hidden folders and symlinked folders
+    /// (possible cycles) are skipped. Returns the number of presets found.
     pub fn scan(&mut self, dir: &Path) -> Result<usize> {
         let mut entries = Vec::new();
-        let read =
-            std::fs::read_dir(dir).with_context(|| format!("Failed to read {}", dir.display()))?;
-        for entry in read {
-            let entry = entry?;
-            let path = entry.path();
-            if !entry.file_type()?.is_dir() && path.to_str().is_some_and(is_preset_name) {
-                let rating = read_rating(&path);
-                entries.push(Entry {
-                    preset: Preset::new(Location::File(path)),
-                    rating,
-                });
+        let mut pending = vec![dir.to_path_buf()];
+        while let Some(current) = pending.pop() {
+            let read = std::fs::read_dir(&current)
+                .with_context(|| format!("Failed to read {}", current.display()))?;
+            for entry in read {
+                let entry = entry?;
+                let path = entry.path();
+                if entry.file_type()?.is_dir() {
+                    if !entry.file_name().to_string_lossy().starts_with('.') {
+                        pending.push(path);
+                    }
+                    continue;
+                }
+                if path.to_str().is_some_and(is_preset_name) {
+                    let rating = read_rating(&path);
+                    entries.push(Entry {
+                        preset: Preset::new(Location::File(path)),
+                        rating,
+                    });
+                }
             }
         }
         Ok(self.replace(entries))
     }
 
-    /// Replace the list with the presets of `zip` that lie directly in `presets/`
-    /// (`.milk`, `.milk2`); those in subfolders such as `presets/affected/` are left out.
-    /// Returns their count.
-    pub fn scan_pack(&mut self, zip: &mut Zip) -> usize {
-        let names: Vec<String> = zip
-            .file_names()
-            .into_iter()
-            .filter(|name| {
-                name.strip_prefix("presets/")
-                    .is_some_and(|rest| !rest.contains('/') && is_preset_name(rest))
-            })
-            .collect();
-        let entries = names
-            .into_iter()
-            .map(|name| {
-                let rating = zip.read(&name).map_or(DEFAULT_RATING, |b| parse_rating(&b));
-                Entry {
-                    preset: Preset::new(Location::Pack(name)),
-                    rating,
-                }
-            })
-            .collect();
-        self.replace(entries)
+    /// Empty the list and its history.
+    pub fn clear(&mut self) {
+        self.replace(Vec::new());
     }
 
     fn replace(&mut self, mut entries: Vec<Entry>) -> usize {
@@ -266,27 +248,21 @@ mod tests {
         StdRng::seed_from_u64(7)
     }
 
-    fn pack_list(files: &[(&str, &[u8])]) -> PresetList {
-        let mut zip = Zip::new(crate::pack::test_zip(files)).unwrap();
+    fn rated(ratings: &[(&str, &str)]) -> PresetList {
+        let entries = ratings
+            .iter()
+            .map(|(name, rating)| Entry {
+                preset: Preset::new(Location::File(format!("{name}.milk").into())),
+                rating: parse_rating(format!("[preset00]\nfRating={rating}\n").as_bytes()),
+            })
+            .collect();
         let mut list = PresetList::default();
-        list.scan_pack(&mut zip);
+        list.replace(entries);
         list
     }
 
-    fn rated(ratings: &[(&str, &str)]) -> PresetList {
-        let files: Vec<(String, Vec<u8>)> = ratings
-            .iter()
-            .map(|(name, rating)| {
-                let body = format!("[preset00]\nfRating={rating}\n").into_bytes();
-                (format!("presets/{name}.milk"), body)
-            })
-            .collect();
-        let files: Vec<(&str, &[u8])> = files.iter().map(|(n, b)| (n.as_str(), &b[..])).collect();
-        pack_list(&files)
-    }
-
     #[test]
-    fn scan_is_not_recursive() {
+    fn scan_is_recursive_but_skips_hidden_and_symlinked_folders() {
         let dir = std::env::temp_dir().join(format!("rune-presets-{}", std::process::id()));
         for sub in ["Fractal", ".git"] {
             std::fs::create_dir_all(dir.join(sub)).unwrap();
@@ -302,14 +278,19 @@ mod tests {
             std::fs::write(dir.join(name), "").unwrap();
         }
         let mut list = PresetList::default();
-        assert_eq!(list.scan(&dir).unwrap(), 3);
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&dir, dir.join("loop")).unwrap();
+            std::os::unix::fs::symlink(dir.join("Fractal"), dir.join("link")).unwrap();
+        }
+        assert_eq!(list.scan(&dir).unwrap(), 4);
         let mut rng = rng();
         let mut names: Vec<String> = (0..50)
             .map(|_| list.random(&mut rng).unwrap().name)
             .collect();
         names.sort();
         names.dedup();
-        assert_eq!(names, ["a", "b", "c"]);
+        assert_eq!(names, ["a", "b", "c", "deep"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -326,35 +307,6 @@ mod tests {
             assert_eq!(list.random(&mut rng).unwrap().name, "five");
         }
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn pack_lists_only_the_root_of_presets() {
-        let list = pack_list(&[
-            ("presets/b.milk", b""),
-            ("presets/a.MILK", b""),
-            ("presets/affected/c.milk2", b""),
-            ("textures/t.jpg", b""),
-            ("presets/readme.txt", b""),
-            ("SOURCES.txt", b""),
-        ]);
-        assert_eq!(list.len(), 2);
-        let first = &list.entries[0].preset;
-        assert_eq!(first.name, "a");
-        assert_eq!(first.location, Location::Pack("presets/a.MILK".into()));
-    }
-
-    #[test]
-    #[cfg(builtin_presets)]
-    fn builtin_pack_rotates_only_its_root() {
-        let mut zip = Zip::builtin().unwrap();
-        let mut list = PresetList::default();
-        let count = list.scan_pack(&mut zip);
-        assert!(count > 100, "{count}");
-        assert!(list.entries.iter().all(|e| match &e.preset.location {
-            Location::Pack(path) => path.matches('/').count() == 1,
-            Location::File(_) => false,
-        }));
     }
 
     #[test]
@@ -443,6 +395,7 @@ mod tests {
     #[test]
     fn empty_list_is_an_error() {
         let mut list = PresetList::default();
+        list.clear();
         assert!(list.next(&mut rng()).is_err());
         assert!(list.previous().is_err());
         assert!(list.random(&mut rng()).is_err());

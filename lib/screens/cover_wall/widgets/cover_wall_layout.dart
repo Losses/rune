@@ -116,33 +116,42 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
                 onPressed: null,
               ),
               const MenuFlyoutSeparator(),
-              MenuFlyoutItem(
-                leading: const Icon(Symbols.skip_previous),
-                text: Text(s.visualizerPrevious),
-                onPressed: _visualizer.previous,
-              ),
-              MenuFlyoutItem(
-                leading: const Icon(Symbols.skip_next),
-                text: Text(s.visualizerNext),
-                onPressed: _visualizer.next,
-              ),
-              MenuFlyoutItem(
-                leading: const Icon(Symbols.shuffle),
-                text: Text(s.visualizerRandom),
-                onPressed: _visualizer.random,
-              ),
-              const MenuFlyoutSeparator(),
-              MenuFlyoutItem(
-                leading: Icon(
-                  _visualizer.locked ? Symbols.lock_open : Symbols.lock,
+              if (_visualizer.hasPresets) ...[
+                MenuFlyoutItem(
+                  leading: const Icon(Symbols.skip_previous),
+                  text: Text(s.visualizerPrevious),
+                  onPressed: _visualizer.previous,
                 ),
-                text: Text(
-                  _visualizer.locked
-                      ? s.visualizerUnlockPreset
-                      : s.visualizerLockPreset,
+                MenuFlyoutItem(
+                  leading: const Icon(Symbols.skip_next),
+                  text: Text(s.visualizerNext),
+                  onPressed: _visualizer.next,
                 ),
-                onPressed: _visualizer.toggleLock,
-              ),
+                MenuFlyoutItem(
+                  leading: const Icon(Symbols.shuffle),
+                  text: Text(s.visualizerRandom),
+                  onPressed: _visualizer.random,
+                ),
+                const MenuFlyoutSeparator(),
+                MenuFlyoutItem(
+                  leading: Icon(
+                    _visualizer.locked ? Symbols.lock_open : Symbols.lock,
+                  ),
+                  text: Text(
+                    _visualizer.locked
+                        ? s.visualizerUnlockPreset
+                        : s.visualizerLockPreset,
+                  ),
+                  onPressed: _visualizer.toggleLock,
+                ),
+              ] else
+                MenuFlyoutItem(
+                  text: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 280),
+                    child: Text(s.visualizerNoPresets),
+                  ),
+                  onPressed: null,
+                ),
             ],
           ],
         );

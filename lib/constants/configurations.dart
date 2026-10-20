@@ -160,8 +160,6 @@ const kTrayIconColorModeKey = 'tray_icon_color_mode';
 /// through. On macOS its security-scoped bookmark is kept by
 /// `MacSecureManager` so the folder stays readable after a restart.
 const kVisualizerPresetDirKey = 'visualizer_preset_dir';
-/// 'builtin' or 'folder': where the visualizer takes presets from.
-const kVisualizerSourceKey = 'visualizer_source';
 
 /// 'covers' or 'visualizer': what the cover wall page shows behind the
 /// playing track, the wall of cover art or the MilkDrop visualizer. This
