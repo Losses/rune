@@ -79,18 +79,15 @@ class RouterAwareFlyoutController {
         barrierRecognizer: barrierRecognizer,
       );
 
-      // Clean up the navigation history entry when the flyout is closed
-      if ($history.isCurrentContextMenu) {
-        $history.pop();
-      }
+      // Clean up the navigation history entry when the flyout is closed. A
+      // menu item may already have pushed a page on top of it.
+      $history.remove(modalEntry);
 
       // Return the result from the flyout
       return result;
     } catch (e) {
       // If there's an error, make sure we clean up the navigation history
-      if ($history.isCurrentContextMenu) {
-        $history.pop();
-      }
+      $history.remove(modalEntry);
       rethrow;
     }
   }
