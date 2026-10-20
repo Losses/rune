@@ -1,14 +1,25 @@
+import 'dart:async';
+
 import '../../bindings/bindings.dart';
 import '../playing_item.dart';
 
 Future<List<LyricContentLine>> getLyricByTrackId(PlayingItem? item) async {
   if (item == null) return [];
 
-  final updateRequest = GetLyricByTrackIdRequest(item: item.toRequest());
-  updateRequest.sendSignalToRust(); // GENERATED
+  // Subscribe before sending so the response cannot be missed, and only
+  // accept the response that belongs to the requested item.
+  final response = GetLyricByTrackIdResponse.rustSignalStream
+      .map((x) => x.message)
+      .firstWhere((x) => PlayingItem.fromRequest(x.item) == item)
+      .timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => GetLyricByTrackIdResponse(
+          item: item.toRequest(),
+          lines: [],
+        ),
+      );
 
-  final rustSignal = await GetLyricByTrackIdResponse.rustSignalStream.first;
-  final response = rustSignal.message.lines;
+  GetLyricByTrackIdRequest(item: item.toRequest()).sendSignalToRust(); // GENERATED
 
-  return response;
+  return (await response).lines;
 }

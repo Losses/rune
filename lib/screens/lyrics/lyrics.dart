@@ -38,8 +38,8 @@ class _LyricsPageState extends State<LyricsPage> {
 
   @override
   void dispose() {
-    super.dispose();
     playbackStatus.removeListener(_handlePlaybackStatusUpdate);
+    super.dispose();
   }
 
   List<LyricContentLine> _createNormalizedLyrics(
@@ -67,8 +67,11 @@ class _LyricsPageState extends State<LyricsPage> {
       setState(() {
         final item = playbackStatus.playingItem;
         _cachedPlayingItem = item;
+        _rawLyrics = [];
         _lyric = getLyricByTrackId(item).then((lyrics) {
-          _rawLyrics = lyrics;
+          if (mounted && _cachedPlayingItem == item) {
+            _rawLyrics = lyrics;
+          }
           return lyrics;
         });
       });

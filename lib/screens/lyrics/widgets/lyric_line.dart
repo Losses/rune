@@ -112,11 +112,17 @@ class _LyricLineState extends State<LyricLine>
     _animationController.forward(from: 0.0);
   }
 
+  int get _startTime =>
+      widget.sections.isEmpty ? 0 : widget.sections.first.startTime;
+
+  int get _endTime =>
+      widget.sections.isEmpty ? _startTime : widget.sections.last.endTime;
+
   double _calculateTargetBlur() {
     if (widget.isActive) return 0.0;
 
-    final startTime = widget.sections.first.startTime;
-    final endTime = widget.sections.last.endTime;
+    final startTime = _startTime;
+    final endTime = _endTime;
 
     final timeDiff = widget.isPassed
         ? widget.currentTimeMilliseconds - endTime
@@ -190,7 +196,8 @@ class _LyricLineState extends State<LyricLine>
       },
       child: GestureDetector(
           onTap: () {
-            seekAbsolute(widget.sections.first.startTime);
+            if (widget.sections.isEmpty) return;
+            seekAbsolute(_startTime);
           },
           child: ContextMenuWrapper(
               onContextMenu: _openLyricContextMenu,
