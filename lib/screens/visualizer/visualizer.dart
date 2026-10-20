@@ -7,7 +7,6 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../bindings/bindings.dart';
 import '../../constants/configurations.dart';
-import '../../utils/get_dir_path.dart';
 import '../../utils/l10n.dart';
 import '../../utils/rune_log.dart';
 import '../../utils/settings_manager.dart';
@@ -226,51 +225,6 @@ class _VisualizerPageState extends State<VisualizerPage> {
         transitionSeconds: _presetTransitionSeconds,
       ).sendSignalToRust();
 
-  Future<void> _selectSource(VisualizerSource source) async {
-    if (source == VisualizerSource.folder && _presetDir == null) {
-      await _chooseFolder();
-      return;
-    }
-    await _settings.setValue(
-      kVisualizerSourceKey,
-      source == VisualizerSource.builtin ? 'builtin' : 'folder',
-    );
-    if (_disposed) return;
-
-    SetVisualizerSourceRequest(source: source).sendSignalToRust();
-    RandomVisualizerPresetRequest(transitionSeconds: 0).sendSignalToRust();
-    _firstPresetLoaded = true;
-    setState(() => _sourcePref = source);
-  }
-
-  Future<void> _chooseFolder() async {
-    // The system picker is a modal panel; keep the controls up meanwhile.
-    _hideTimer?.cancel();
-    final dir = await getDirPath();
-    _scheduleHide();
-    if (dir == null || _disposed) return;
-
-    try {
-      await MacSecureManager().saveBookmark(dir);
-    } catch (e) {
-      error$('Failed to keep access to $dir: $e');
-    }
-    await _settings.setValue(kVisualizerPresetDirKey, dir);
-    await _settings.setValue(kVisualizerSourceKey, 'folder');
-    if (_disposed) return;
-
-    // Choosing a folder also switches to it.
-    SetVisualizerPresetDirRequest(path: dir).sendSignalToRust();
-    SetVisualizerSourceRequest(source: VisualizerSource.folder)
-        .sendSignalToRust();
-    RandomVisualizerPresetRequest(transitionSeconds: 0).sendSignalToRust();
-    _firstPresetLoaded = true;
-    setState(() {
-      _presetDir = dir;
-      _sourcePref = VisualizerSource.folder;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final pixelRatio = MediaQuery.devicePixelRatioOf(context);
@@ -421,30 +375,6 @@ class _VisualizerPageState extends State<VisualizerPage> {
                     child: IconButton(
                       icon: const Icon(Symbols.skip_next, size: 24),
                       onPressed: _next,
-                    ),
-                  ),
-                  const SizedBox(width: 24),
-                  if (status != null && status.builtinAvailable) ...[
-                    ToggleButton(
-                      checked: status.source == VisualizerSource.builtin,
-                      onChanged: (_) =>
-                          _selectSource(VisualizerSource.builtin),
-                      child: Text(S.of(context).visualizerSourceBuiltin),
-                    ),
-                    const SizedBox(width: 8),
-                    ToggleButton(
-                      checked: status.source == VisualizerSource.folder,
-                      onChanged: (_) =>
-                          _selectSource(VisualizerSource.folder),
-                      child: Text(S.of(context).visualizerSourceFolder),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  Tooltip(
-                    message: S.of(context).visualizerChooseFolder,
-                    child: IconButton(
-                      icon: const Icon(Symbols.folder_open, size: 24),
-                      onPressed: _chooseFolder,
                     ),
                   ),
                 ],

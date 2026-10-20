@@ -1359,11 +1359,23 @@
   "@visualizerRandom": {
     "description": "視覺化中切換到隨機預設的按鈕提示文字。"
   },
-  "visualizerChooseFolder": "選擇預設資料夾",
+  "visualizerChooseFolder": "視覺化預設資料夾",
   "@visualizerChooseFolder": {
-    "description": "視覺化中選擇存放 MilkDrop 預設檔案的資料夾的按鈕提示文字。"
+    "description": "設定中選擇存放視覺化 MilkDrop 預設檔案的資料夾的標題。"
   },
-  "visualizerNoPresets": "請選擇包含 MilkDrop 預設（.milk）的資料夾以便切換",
+  "visualizerPresetSource": "視覺化預設來源",
+  "@visualizerPresetSource": {
+    "description": "設定中選擇視覺化使用內建預設還是預設資料夾的標題。"
+  },
+  "visualizerPresetSourceSubtitle": "使用內建的 MilkDrop 預設，或你資料夾中的預設",
+  "@visualizerPresetSourceSubtitle": {
+    "description": "視覺化預設來源設定的副標題。"
+  },
+  "visualizerPresetFolderNotSet": "未設定",
+  "@visualizerPresetFolderNotSet": {
+    "description": "尚未選擇資料夾時，視覺化預設資料夾設定的副標題。"
+  },
+  "visualizerNoPresets": "請在「設置 > 主題」中選擇預設資料夾，以切換 MilkDrop 預設（.milk）",
   "@visualizerNoPresets": {
     "description": "未設定預設資料夾時視覺化中顯示的提示。"
   },

@@ -11,6 +11,7 @@ import 'widgets/dynamic_colors_setting.dart';
 import 'widgets/branding_animation_setting.dart';
 import 'widgets/remember_window_size_setting_state.dart';
 import 'widgets/linux_custom_window_controls_setting.dart';
+import 'widgets/visualizer_preset_setting.dart';
 
 class SettingsTheme extends StatefulWidget {
   const SettingsTheme({super.key});
@@ -36,6 +37,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
                 WindowSizeSetting(),
                 RememberWindowSizeSetting(),
                 LinuxCustomWindowControlsSetting(),
+                VisualizerPresetSetting(),
               ],
             ),
           ),

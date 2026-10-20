@@ -1377,11 +1377,23 @@
   "@visualizerRandom": {
     "description": "Tooltip of the visualizer button that switches to a random preset."
   },
-  "visualizerChooseFolder": "Choose preset folder",
+  "visualizerChooseFolder": "Visualizer preset folder",
   "@visualizerChooseFolder": {
-    "description": "Tooltip of the visualizer button that picks the folder with MilkDrop preset files."
+    "description": "Title of the setting that picks the folder with MilkDrop preset files for the visualizer."
   },
-  "visualizerNoPresets": "Choose a folder with MilkDrop presets (.milk) to switch between them",
+  "visualizerPresetSource": "Visualizer preset source",
+  "@visualizerPresetSource": {
+    "description": "Title of the setting that chooses between the built-in presets and the preset folder for the visualizer."
+  },
+  "visualizerPresetSourceSubtitle": "Use the built-in MilkDrop presets or the presets in your folder",
+  "@visualizerPresetSourceSubtitle": {
+    "description": "Subtitle of the visualizer preset source setting."
+  },
+  "visualizerPresetFolderNotSet": "Not set",
+  "@visualizerPresetFolderNotSet": {
+    "description": "Subtitle of the visualizer preset folder setting when no folder has been chosen."
+  },
+  "visualizerNoPresets": "Choose a preset folder in Settings > Theme to switch between MilkDrop presets (.milk)",
   "@visualizerNoPresets": {
     "description": "Hint shown in the visualizer when no preset folder is set."
   },
@@ -1391,10 +1403,10 @@
   },
   "visualizerSourceBuiltin": "MilkDrop Original",
   "@visualizerSourceBuiltin": {
-    "description": "Label of the visualizer button that uses the built-in MilkDrop Original preset pack. A product name, usually not translated."
+    "description": "Label of the visualizer preset source option that uses the built-in MilkDrop Original preset pack. A product name, usually not translated."
   },
   "visualizerSourceFolder": "Folder",
   "@visualizerSourceFolder": {
-    "description": "Label of the visualizer button that uses the preset folder chosen by the user."
+    "description": "Label of the visualizer preset source option that uses the preset folder chosen by the user."
   }
 }
