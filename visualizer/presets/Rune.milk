@@ -178,9 +178,9 @@ wave_1_per_point6=h = 0.5 + 0.5*sin(ang*2.0 - time*0.5);
 wave_1_per_point7=r = 1.0;
 wave_1_per_point8=g = 0.35 + 0.30*h;
 wave_1_per_point9=b = 0.12;
-wave_1_per_point10=a = 0.35;
-shape_0_per_frame1=rad = 0.06 + 0.07*q1;
-shape_0_per_frame2=a = 0.18 + 0.30*q1;
+wave_1_per_point10=a = 0.22;
+shape_0_per_frame1=rad = 0.045 + 0.045*q1;
+shape_0_per_frame2=a = 0.07 + 0.12*q1;
 warp_1=`shader_body
 warp_2=`{
 warp_3=`  float ar = texsize.x*texsize.w;
@@ -205,7 +205,7 @@ comp_4=`  float2 p = (uv - 0.5)*float2(ar, 1);
 comp_5=`  float3 c = tex2D(sampler_main, uv).rgb;
 comp_6=`  float3 glow = GetBlur1(uv)*0.55 + GetBlur2(uv)*0.45;
 comp_7=`  float3 col = c + glow*0.9;
-comp_8=`  float x = saturate(dot(col, float3(0.30, 0.59, 0.11))*1.15);
+comp_8=`  float x = 1.0 - exp(-dot(col, float3(0.30, 0.59, 0.11))*1.4);
 comp_9=`  float3 a0 = float3(0.05, 0.01, 0.09);
 comp_10=`  float3 a1 = float3(0.86, 0.07, 0.48);
 comp_11=`  float3 a2 = float3(1.00, 0.43, 0.08);
@@ -217,7 +217,7 @@ comp_16=`  float3 k2 = lerp(a2, s2, q4*0.6);
 comp_17=`  float3 pal = lerp(a0, k1, saturate(x*3.0));
 comp_18=`  pal = lerp(pal, k2, saturate(x*3.0 - 1.0));
 comp_19=`  pal = lerp(pal, a3, saturate(x*3.0 - 2.0));
-comp_20=`  float3 o = lerp(col, pal*(0.55 + 0.6*x), 0.85);
+comp_20=`  float3 o = lerp(col, pal*(0.5 + 0.45*x), 0.85);
 comp_21=`  o *= 1.0 - 0.45*saturate(dot(p, p)*0.9);
 comp_22=`  ret = o;
 comp_23=`}

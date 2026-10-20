@@ -171,6 +171,8 @@ struct Shared {
     prefer_readback: AtomicBool,
     /// Whether the music plays. While it does not, the picture and its clock stand still.
     playing: AtomicBool,
+    /// The app's appearance, which picks the light or the dark default preset.
+    light: AtomicBool,
 }
 
 impl Shared {
@@ -216,9 +218,24 @@ impl Visualizer {
                 ),
                 // Until the player says otherwise, draw.
                 playing: AtomicBool::new(true),
+                light: AtomicBool::new(false),
             }),
             worker: Mutex::new(None),
             library: Arc::new(Mutex::new(Library::default())),
+        }
+    }
+
+    /// Follow the app's appearance: the default preset comes in a light and a dark version. If
+    /// the default preset is showing (no preset folder), a running visualizer changes to the
+    /// other version softly.
+    pub fn set_light_appearance(&self, light: bool) {
+        if self.shared.light.swap(light, Ordering::Relaxed) == light {
+            return;
+        }
+        if lock(&self.library).folder.len() == 0 {
+            let _ = self.send(Command::LoadDefaultPreset(Transition::Soft {
+                seconds: MANUAL_BLEND_SECONDS,
+            }));
         }
     }
 
@@ -467,7 +484,16 @@ fn run(
         Arc::new(move |message: String| shared.set_error(message))
     };
     let readback = shared.prefer_readback.load(Ordering::Relaxed);
-    let mut pipeline = Pipeline::new(width, height, fps, sample_rate, readback, on_gpu_error)?;
+    let light = shared.light.load(Ordering::Relaxed);
+    let mut pipeline = Pipeline::new(
+        width,
+        height,
+        fps,
+        sample_rate,
+        readback,
+        light,
+        on_gpu_error,
+    )?;
     let mut transport = pipeline.transport();
     info!(
         "Visualizer started on {} ({transport:?})",
@@ -640,7 +666,7 @@ fn apply(shared: &Shared, pipeline: &mut Pipeline, auto_switch: &mut AutoSwitch,
             .load_preset(&bytes, &name, transition)
             .map(|()| shared.status().preset_name = name),
         Command::LoadDefaultPreset(transition) => pipeline
-            .load_default_preset(transition)
+            .load_default_preset(shared.light.load(Ordering::Relaxed), transition)
             .map(|()| shared.status().preset_name = DEFAULT_PRESET_NAME.to_string()),
         Command::SetTextures(dir) => pipeline.set_textures(dir.as_deref()),
         Command::Stop => Ok(()),

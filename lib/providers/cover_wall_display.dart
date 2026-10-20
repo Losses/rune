@@ -16,6 +16,18 @@ class CoverWallDisplayProvider extends ChangeNotifier {
 
   CoverWallDisplay get display => _display;
 
+  bool _presetsLoaded = false;
+
+  /// Whether the visualizer shows presets from the user's folder (which draw
+  /// on black) rather than its default preset (which follows the app's
+  /// appearance).
+  bool get presetsLoaded => _presetsLoaded;
+  set presetsLoaded(bool value) {
+    if (value == _presetsLoaded) return;
+    _presetsLoaded = value;
+    notifyListeners();
+  }
+
   /// The visualizer is only shown where the platform supports it.
   bool get showVisualizer =>
       _display == CoverWallDisplay.visualizer && isVisualizerSupported;

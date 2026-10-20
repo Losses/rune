@@ -34,6 +34,17 @@ pub struct Pipeline {
 /// Rune's own preset (`presets/Rune.milk`, MPL-2.0 like the rest of Rune), shown before a preset
 /// is chosen.
 const DEFAULT_PRESET: &[u8] = include_bytes!("../presets/Rune.milk");
+/// The same preset drawn on a light background, for the app's light appearance.
+const DEFAULT_PRESET_LIGHT: &[u8] = include_bytes!("../presets/Rune Light.milk");
+
+/// The default preset for the app's appearance.
+fn default_preset(light: bool) -> &'static [u8] {
+    if light {
+        DEFAULT_PRESET_LIGHT
+    } else {
+        DEFAULT_PRESET
+    }
+}
 /// The name [`DEFAULT_PRESET`] is loaded under.
 pub const DEFAULT_PRESET_NAME: &str = "Rune";
 
@@ -92,6 +103,7 @@ impl Pipeline {
         fps: u32,
         sample_rate: u32,
         readback: bool,
+        light: bool,
         on_gpu_error: Arc<dyn Fn(String) + Send + Sync>,
     ) -> Result<Self> {
         let instance = wgpu::Instance::default();
@@ -124,7 +136,7 @@ impl Pipeline {
         .map_err(|e| anyhow!("Failed to create the engine: {e}"))?;
         // Rune's own preset is what shows before anything else is chosen; lactea's idle preset
         // is the fallback should it ever fail to load.
-        match engine.load_preset(DEFAULT_PRESET, DEFAULT_PRESET_NAME, Transition::Cut) {
+        match engine.load_preset(default_preset(light), DEFAULT_PRESET_NAME, Transition::Cut) {
             Ok(report) if !report.warnings.is_empty() || !report.shader_fallbacks.is_empty() => {
                 warn!(
                     "The default preset loaded with problems: {:?}, fallbacks {:?}",
@@ -185,8 +197,8 @@ impl Pipeline {
             .map_err(|e| anyhow!("Failed to load preset {name}: {e}"))
     }
 
-    pub fn load_default_preset(&mut self, transition: Transition) -> Result<()> {
-        self.load_preset(DEFAULT_PRESET, DEFAULT_PRESET_NAME, transition)
+    pub fn load_default_preset(&mut self, light: bool, transition: Transition) -> Result<()> {
+        self.load_preset(default_preset(light), DEFAULT_PRESET_NAME, transition)
     }
 
     /// The textures of the preset folder `dir`, none without one.
@@ -267,14 +279,16 @@ mod tests {
             },
         )
         .unwrap();
-        let report = engine
-            .load_preset(DEFAULT_PRESET, DEFAULT_PRESET_NAME, Transition::Cut)
-            .unwrap();
-        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
-        assert!(
-            report.shader_fallbacks.is_empty(),
-            "{:?}",
-            report.shader_fallbacks
-        );
+        for preset in [DEFAULT_PRESET, DEFAULT_PRESET_LIGHT] {
+            let report = engine
+                .load_preset(preset, DEFAULT_PRESET_NAME, Transition::Cut)
+                .unwrap();
+            assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+            assert!(
+                report.shader_fallbacks.is_empty(),
+                "{:?}",
+                report.shader_fallbacks
+            );
+        }
     }
 }

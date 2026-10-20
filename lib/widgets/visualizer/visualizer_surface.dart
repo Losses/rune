@@ -3,12 +3,15 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../bindings/bindings.dart';
 import '../../constants/configurations.dart';
 import '../../constants/settings_manager.dart';
+import '../../providers/cover_wall_display.dart';
 import '../../utils/rune_log.dart';
+import '../../utils/visualizer_appearance.dart';
 import '../../utils/file_storage/mac_secure_manager.dart';
 
 import 'visualizer_controller.dart';
@@ -74,12 +77,27 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
     );
   }
 
+  // The appearance last sent to Rust, which picks the default preset's
+  // version; null before the first build.
+  bool? _light;
+  // Kept for dispose, where the context may no longer be used.
+  late final CoverWallDisplayProvider _coverWallDisplay =
+      context.read<CoverWallDisplayProvider>();
+
+  void _syncAppearance(bool light) {
+    if (_light == light) return;
+    _light = light;
+    SetVisualizerAppearanceRequest(light: light).sendSignalToRust();
+  }
+
   @override
   void dispose() {
     _disposed = true;
     _resizeTimer?.cancel();
     _statusTimer?.cancel();
     _controller.detach();
+    // Not while the tree is being torn down: listeners rebuild.
+    scheduleMicrotask(() => _coverWallDisplay.presetsLoaded = false);
 
     if (_textureId != null || _starting) {
       StopVisualizerRequest().sendSignalToRust();
@@ -179,7 +197,13 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
 
       _controller.status = status;
       // A folder without presets counts as none.
-      if (status.running) _controller.hasPresets = status.presetCount > 0;
+      if (status.running) {
+        _controller.hasPresets = status.presetCount > 0;
+        // Presets from the folder draw on black; the cover wall darkens for
+        // them, but not for the default preset, which follows the app.
+        context.read<CoverWallDisplayProvider>().presetsLoaded =
+            status.presetCount > 0;
+      }
     } on TimeoutException {
       // The next tick asks again.
     }
@@ -188,9 +212,13 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
   @override
   Widget build(BuildContext context) {
     final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final light = isAppLight(context);
+    _syncAppearance(light);
 
     return ColoredBox(
-      color: Colors.black,
+      // Under the letterbox bars and before the first frame, match the
+      // default preset's background.
+      color: light ? visualizerLightPaper : Colors.black,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final size = constraints.biggest;

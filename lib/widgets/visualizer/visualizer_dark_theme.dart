@@ -3,9 +3,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../providers/cover_wall_display.dart';
 
-/// MilkDrop presets draw on black, so while the cover wall shows the
-/// visualizer, [child] uses the dark variant of the app theme even in light
-/// mode: dark overlays and light text stay readable over the picture.
+/// Presets from the user's folder draw on black, so while the cover wall shows
+/// them, [child] uses the dark variant of the app theme even in light mode:
+/// dark overlays and light text stay readable over the picture. The default
+/// preset has a light version and needs no change.
 class VisualizerDarkTheme extends StatelessWidget {
   const VisualizerDarkTheme({
     super.key,
@@ -21,7 +22,7 @@ class VisualizerDarkTheme extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final showVisualizer = context.select<CoverWallDisplayProvider, bool>(
-      (p) => p.showVisualizer,
+      (p) => p.showVisualizer && p.presetsLoaded,
     );
     final theme = FluentTheme.of(context);
     if (!enabled || !showVisualizer || theme.brightness.isDark) return child;

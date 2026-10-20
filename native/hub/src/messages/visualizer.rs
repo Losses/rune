@@ -28,6 +28,12 @@ pub struct SetVisualizerPresetDirRequest {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ClearVisualizerPresetDirRequest {}
 
+/// The app's appearance, which picks the light or the dark version of the default preset.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SetVisualizerAppearanceRequest {
+    pub light: bool,
+}
+
 /// A transition of 0 seconds or less is a hard cut.
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct LoadVisualizerPresetRequest {

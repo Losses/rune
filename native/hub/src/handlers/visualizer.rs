@@ -168,6 +168,27 @@ impl Signal for ClearVisualizerPresetDirRequest {
     }
 }
 
+impl ParamsExtractor for SetVisualizerAppearanceRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for SetVisualizerAppearanceRequest {
+    type Params = ();
+    type Response = ();
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        VISUALIZER.set_light_appearance(dart_signal.light);
+        Ok(Some(()))
+    }
+}
+
 impl ParamsExtractor for LoadVisualizerPresetRequest {
     type Params = ();
 
