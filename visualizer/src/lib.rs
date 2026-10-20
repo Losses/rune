@@ -45,6 +45,8 @@ const MANUAL_BLEND_SECONDS: f64 = 1.7;
 
 /// How often the measured fps in [`Status`] is refreshed.
 const FPS_WINDOW: Duration = Duration::from_millis(500);
+/// How often a paused render thread looks at whether the music plays again.
+const PAUSED_POLL: Duration = Duration::from_millis(50);
 
 /// The audio the visualizer listens to.
 pub struct PcmInput {
@@ -167,6 +169,8 @@ struct Shared {
     auto_switch_paused: AtomicBool,
     /// Read frames back even where pixel buffers work (tests, and comparing the two paths).
     prefer_readback: AtomicBool,
+    /// Whether the music plays. While it does not, the picture and its clock stand still.
+    playing: AtomicBool,
 }
 
 impl Shared {
@@ -210,10 +214,19 @@ impl Visualizer {
                 prefer_readback: AtomicBool::new(
                     std::env::var_os("RUNE_VISUALIZER_READBACK").is_some_and(|v| v == "1"),
                 ),
+                // Until the player says otherwise, draw.
+                playing: AtomicBool::new(true),
             }),
             worker: Mutex::new(None),
             library: Arc::new(Mutex::new(Library::default())),
         }
+    }
+
+    /// Follow the player: while the music is paused or stopped the visualizer draws nothing and
+    /// its clock stops, so presets, transitions and the automatic switching resume where they
+    /// were.
+    pub fn set_playing(&self, playing: bool) {
+        self.shared.playing.store(playing, Ordering::Relaxed);
     }
 
     /// Read frames back even on macOS, where they normally go into IOSurface-backed pixel
@@ -481,6 +494,11 @@ fn run(
     let mut window_frames = 0u32;
     let mut auto_switch = AutoSwitch::default();
     let mut rng = rand::thread_rng();
+    // Time spent with the music paused, which the visualizer's clock leaves out.
+    let mut frozen = Duration::ZERO;
+    // While paused one frame is drawn (the first one, or after a command such as a resize) and
+    // then held.
+    let mut still_drawn = false;
 
     loop {
         loop {
@@ -496,12 +514,32 @@ fn run(
             n => n as usize,
         };
         drain(&mut input.consumer, &mut pcm, channels, sample_rate);
+
+        let paused = !shared.playing.load(Ordering::Relaxed);
+        if paused && still_drawn {
+            // Keep the last frame on screen and wait, for commands or for the music.
+            let since = Instant::now();
+            match commands.recv_timeout(PAUSED_POLL) {
+                Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
+                Ok(command) => {
+                    apply(shared, &mut pipeline, &mut auto_switch, command);
+                    still_drawn = false;
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            frozen += since.elapsed();
+            deadline = Instant::now();
+            window_start = deadline;
+            window_frames = 0;
+            continue;
+        }
+        still_drawn = paused;
         if !pcm.is_empty() {
             pipeline.push_pcm(&pcm, channels);
         }
 
-        let time = started.elapsed().as_secs_f64();
-        let paused = shared.auto_switch_paused.load(Ordering::Relaxed);
+        let time = (started.elapsed() - frozen).as_secs_f64();
+        let switch_paused = shared.auto_switch_paused.load(Ordering::Relaxed);
         // A scan holds the library while it reads every file; try again on the next frame
         // instead of stalling this one.
         let free = || match library.try_lock() {
@@ -509,7 +547,7 @@ fn run(
             Err(TryLockError::Poisoned(e)) => Some(e.into_inner()),
             Err(TryLockError::WouldBlock) => None,
         };
-        if auto_switch.tick(time, paused, &mut rng)
+        if auto_switch.tick(time, switch_paused, &mut rng)
             && let Some(mut library) = free()
         {
             // The list is built already; only the one preset file is read here.

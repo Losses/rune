@@ -29,7 +29,7 @@ use ::fsio::FsIo;
 use ::playback::{
     MediaMetadata, MediaPlayback, MediaPosition,
     controller::{MediaControlManager, get_default_cover_art_path, handle_media_control_event},
-    player::{Playable, PlayingItem, PlaylistStatus},
+    player::{Playable, PlaybackState, PlayingItem, PlaylistStatus},
 };
 use ::scrobbling::{ScrobblingTrack, manager::ScrobblingServiceManager};
 
@@ -115,6 +115,8 @@ pub async fn initialize_local_player(
 
         while let Ok(status) = status_receiver.recv().await {
             debug!("Player status updated: {status:?}");
+            // The visualizer stands still while the music does.
+            crate::visualizer::VISUALIZER.set_playing(status.state == PlaybackState::Playing);
 
             let item = status.item.clone();
 
