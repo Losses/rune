@@ -1367,7 +1367,7 @@
   "@visualizerPresetSource": {
     "description": "設定中選擇視覺化使用內建預設還是預設資料夾的標題。"
   },
-  "visualizerPresetSourceSubtitle": "使用內建的 MilkDrop 預設，或你資料夾中的預設",
+  "visualizerPresetSourceSubtitle": "使用內建預設，或你資料夾中的預設",
   "@visualizerPresetSourceSubtitle": {
     "description": "視覺化預設來源設定的副標題。"
   },
@@ -1375,11 +1375,11 @@
   "@visualizerPresetFolderNotSet": {
     "description": "尚未選擇資料夾時，視覺化預設資料夾設定的副標題。"
   },
-  "visualizerNoPresets": "請在「設置 > 主題」中選擇預設資料夾，以切換 MilkDrop 預設（.milk）",
+  "visualizerNoPresets": "請在「設置 > 主題」中選擇預設資料夾",
   "@visualizerNoPresets": {
     "description": "未設定預設資料夾時視覺化中顯示的提示。"
   },
-  "visualizerSourceBuiltin": "MilkDrop Original",
+  "visualizerSourceBuiltin": "內建",
   "@visualizerSourceBuiltin": {
     "description": "使用內建 MilkDrop Original 預設包的視覺化按鈕標籤。"
   },
@@ -1391,7 +1391,7 @@
   "@coverWallDisplay": {
     "description": "選擇封面牆頁面顯示內容的設置項標題。"
   },
-  "coverWallDisplaySubtitle": "在封面牆頁面顯示封面牆或 MilkDrop 視覺化",
+  "coverWallDisplaySubtitle": "在封面牆頁面顯示封面或視覺化",
   "@coverWallDisplaySubtitle": {
     "description": "封面牆顯示內容設置項的副標題。"
   },
@@ -1399,8 +1399,12 @@
   "@coverWallDisplayCovers": {
     "description": "封面牆顯示內容設置項的選項，也是封面牆頁面右鍵選單項，顯示專輯封面牆。"
   },
-  "coverWallDisplayVisualizer": "MilkDrop 視覺化",
+  "coverWallDisplayVisualizer": "視覺化",
   "@coverWallDisplayVisualizer": {
     "description": "封面牆顯示內容設置項的選項，也是封面牆頁面右鍵選單項，顯示音樂視覺化。MilkDrop 是產品名稱，通常不翻譯。"
+  },
+  "coverWallVisualizerSubtitle": "隨音樂變化的畫面",
+  "@coverWallVisualizerSubtitle": {
+    "description": "封面牆設為顯示視覺化時，播放控制列中開啟封面牆的項目的副標題。"
   }
 }

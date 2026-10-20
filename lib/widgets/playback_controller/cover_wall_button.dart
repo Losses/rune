@@ -1,7 +1,9 @@
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../providers/router_path.dart';
+import '../../providers/cover_wall_display.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/navigation/utils/escape_from_cover_art_wall.dart';
 
@@ -30,10 +32,14 @@ class CoverWallButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final visualizer = context.select<CoverWallDisplayProvider, bool>(
+      (p) => p.showVisualizer,
+    );
+
     return RuneClickable(
       onPressed: () => showCoverArtWall(),
       child: Icon(
-        Symbols.photo_frame,
+        visualizer ? Symbols.graphic_eq : Symbols.photo_frame,
         shadows: shadows,
       ),
     );

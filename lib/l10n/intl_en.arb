@@ -1385,7 +1385,7 @@
   "@visualizerPresetSource": {
     "description": "Title of the setting that chooses between the built-in presets and the preset folder for the visualizer."
   },
-  "visualizerPresetSourceSubtitle": "Use the built-in MilkDrop presets or the presets in your folder",
+  "visualizerPresetSourceSubtitle": "Use the built-in presets or the presets in your folder",
   "@visualizerPresetSourceSubtitle": {
     "description": "Subtitle of the visualizer preset source setting."
   },
@@ -1393,13 +1393,13 @@
   "@visualizerPresetFolderNotSet": {
     "description": "Subtitle of the visualizer preset folder setting when no folder has been chosen."
   },
-  "visualizerNoPresets": "Choose a preset folder in Settings > Theme to switch between MilkDrop presets (.milk)",
+  "visualizerNoPresets": "Choose a preset folder in Settings > Theme",
   "@visualizerNoPresets": {
     "description": "Hint shown in the visualizer when no preset folder is set."
   },
-  "visualizerSourceBuiltin": "MilkDrop Original",
+  "visualizerSourceBuiltin": "Built-in",
   "@visualizerSourceBuiltin": {
-    "description": "Label of the visualizer preset source option that uses the built-in MilkDrop Original preset pack. A product name, usually not translated."
+    "description": "Label of the visualizer preset source option that uses the built-in preset pack."
   },
   "visualizerSourceFolder": "Folder",
   "@visualizerSourceFolder": {
@@ -1409,7 +1409,7 @@
   "@coverWallDisplay": {
     "description": "Title of the setting that chooses what the cover wall page shows."
   },
-  "coverWallDisplaySubtitle": "Show the wall of cover art or the MilkDrop visualizer on the cover wall page",
+  "coverWallDisplaySubtitle": "Show cover art or the visualizer on the cover wall page",
   "@coverWallDisplaySubtitle": {
     "description": "Subtitle of the cover wall display setting."
   },
@@ -1417,8 +1417,12 @@
   "@coverWallDisplayCovers": {
     "description": "Option of the cover wall display setting, also a context menu item of the cover wall page, that shows the wall of album covers."
   },
-  "coverWallDisplayVisualizer": "MilkDrop visualizer",
+  "coverWallDisplayVisualizer": "Visualizer",
   "@coverWallDisplayVisualizer": {
     "description": "Option of the cover wall display setting, also a context menu item of the cover wall page, that shows the music visualizer. MilkDrop is a product name, usually not translated."
+  },
+  "coverWallVisualizerSubtitle": "Visuals that follow the music",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
   }
 }

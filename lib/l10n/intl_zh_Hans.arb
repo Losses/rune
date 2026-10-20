@@ -1377,7 +1377,7 @@
   "@visualizerPresetSource": {
     "description": "设置中选择可视化使用内置预设还是预设文件夹的标题。"
   },
-  "visualizerPresetSourceSubtitle": "使用内置的 MilkDrop 预设，或你文件夹中的预设",
+  "visualizerPresetSourceSubtitle": "使用内置预设，或你文件夹中的预设",
   "@visualizerPresetSourceSubtitle": {
     "description": "可视化预设来源设置的副标题。"
   },
@@ -1385,11 +1385,11 @@
   "@visualizerPresetFolderNotSet": {
     "description": "尚未选择文件夹时，可视化预设文件夹设置的副标题。"
   },
-  "visualizerNoPresets": "请在“设置 > 主题”中选择预设文件夹，以切换 MilkDrop 预设（.milk）",
+  "visualizerNoPresets": "请在“设置 > 主题”中选择预设文件夹",
   "@visualizerNoPresets": {
     "description": "未设置预设文件夹时可视化中显示的提示。"
   },
-  "visualizerSourceBuiltin": "MilkDrop Original",
+  "visualizerSourceBuiltin": "内置",
   "@visualizerSourceBuiltin": {
     "description": "使用内置 MilkDrop Original 预设包的可视化按钮标签。"
   },
@@ -1401,7 +1401,7 @@
   "@coverWallDisplay": {
     "description": "选择封面墙页面显示内容的设置项标题。"
   },
-  "coverWallDisplaySubtitle": "在封面墙页面显示封面墙或 MilkDrop 可视化",
+  "coverWallDisplaySubtitle": "在封面墙页面显示封面或可视化",
   "@coverWallDisplaySubtitle": {
     "description": "封面墙显示内容设置项的副标题。"
   },
@@ -1409,8 +1409,12 @@
   "@coverWallDisplayCovers": {
     "description": "封面墙显示内容设置项的选项，也是封面墙页面右键菜单项，显示专辑封面墙。"
   },
-  "coverWallDisplayVisualizer": "MilkDrop 可视化",
+  "coverWallDisplayVisualizer": "可视化",
   "@coverWallDisplayVisualizer": {
-    "description": "封面墙显示内容设置项的选项，也是封面墙页面右键菜单项，显示音乐可视化。MilkDrop 是产品名称，通常不翻译。"
+    "description": "封面墙显示内容设置项的选项，也是封面墙页面右键菜单项，显示音乐可视化。"
+  },
+  "coverWallVisualizerSubtitle": "随音乐变化的画面",
+  "@coverWallVisualizerSubtitle": {
+    "description": "封面墙设为显示可视化时，播放控制栏中打开封面墙的项目的副标题。"
   }
 }
