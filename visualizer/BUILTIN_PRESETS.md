@@ -27,6 +27,8 @@ RUNE_BUILTIN_PRESETS=/path/to/milkdrop-original.zip cargo test -p visualizer
 
 ## Behaviour
 
+- Before any preset is chosen, and in builds without the pack, the visualizer shows Rune's own preset, `visualizer/presets/Rune.milk` (written for Rune, MPL-2.0 like the rest of it). `cargo run -p visualizer --example snapshot -- <dir>` renders it (or any `.milk`) to images.
+
 - With a build that has the pack and no preset folder chosen, the visualizer starts with the pack and a random preset. With a folder chosen, it starts with the folder. The switcher in the controls (shown only when the pack is available) changes the source, and the choice is saved in the settings (`visualizer_source`).
 - Only the presets directly in `presets/` take part in switching (475 of the 552). The 77 in `presets/affected/` are in the pack but never shown by next, previous, random or the automatic switching. A folder source works the same way: only the `.milk` / `.milk2` files directly in the chosen folder count, subfolders are not searched.
 - Presets are read from the embedded zip on demand. Textures are decoded on first use and cached up to 64 MiB; the pack is never decoded up front.

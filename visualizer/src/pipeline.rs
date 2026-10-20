@@ -30,6 +30,12 @@ pub struct Pipeline {
     pub adapter_name: String,
 }
 
+/// Rune's own preset (`presets/Rune.milk`, MPL-2.0 like the rest of Rune), shown before a preset
+/// is chosen.
+const DEFAULT_PRESET: &[u8] = include_bytes!("../presets/Rune.milk");
+/// The name [`DEFAULT_PRESET`] is loaded under.
+pub const DEFAULT_PRESET_NAME: &str = "Rune";
+
 /// What a rendered frame became.
 pub enum Rendered {
     /// A read-back frame (on the readback path a frame comes out a call or two after it was
@@ -115,9 +121,23 @@ impl Pipeline {
             },
         )
         .map_err(|e| anyhow!("Failed to create the engine: {e}"))?;
-        engine
-            .load_idle_preset()
-            .map_err(|e| anyhow!("Failed to load the idle preset: {e}"))?;
+        // Rune's own preset is what shows before anything else is chosen; lactea's idle preset
+        // is the fallback should it ever fail to load.
+        match engine.load_preset(DEFAULT_PRESET, DEFAULT_PRESET_NAME, Transition::Cut) {
+            Ok(report) if !report.warnings.is_empty() || !report.shader_fallbacks.is_empty() => {
+                warn!(
+                    "The default preset loaded with problems: {:?}, fallbacks {:?}",
+                    report.warnings, report.shader_fallbacks
+                );
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Failed to load the default preset: {e}");
+                engine
+                    .load_idle_preset()
+                    .map_err(|e| anyhow!("Failed to load the idle preset: {e}"))?;
+            }
+        }
         let output = Output::new(&device, width, height, readback);
         Ok(Self {
             adapter_name: adapter.get_info().name,
@@ -131,6 +151,13 @@ impl Pipeline {
 
     pub fn size(&self) -> (u32, u32) {
         self.output.size()
+    }
+
+    /// The name of the loaded preset.
+    pub fn preset_name(&self) -> &str {
+        self.engine
+            .preset_name()
+            .unwrap_or(lactea::IDLE_PRESET_NAME)
     }
 
     pub fn transport(&self) -> Transport {
@@ -202,5 +229,46 @@ impl Pipeline {
             engine.render(encoder, view, clock);
         })?;
         Ok(frame.map_or(Rendered::Nothing, Rendered::Mapped))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rune's preset must load cleanly: a shader that fails to translate would be silently
+    /// replaced by a default one.
+    #[test]
+    fn default_preset_loads_without_fallbacks() {
+        let instance = wgpu::Instance::default();
+        let Ok(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        else {
+            eprintln!("SKIPPED: no GPU adapter");
+            return;
+        };
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let mut engine = Engine::new(
+            &device,
+            &queue,
+            EngineConfig {
+                width: 640,
+                height: 360,
+                output_format: FORMAT,
+                auto_compat: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = engine
+            .load_preset(DEFAULT_PRESET, DEFAULT_PRESET_NAME, Transition::Cut)
+            .unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        assert!(
+            report.shader_fallbacks.is_empty(),
+            "{:?}",
+            report.shader_fallbacks
+        );
     }
 }

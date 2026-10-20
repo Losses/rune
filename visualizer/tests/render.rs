@@ -142,7 +142,12 @@ fn idle_and_real_preset_render_changing_frames() {
     };
     let status = visualizer.status();
     assert!(status.running);
-    assert_eq!(status.preset_name, lactea::IDLE_PRESET_NAME);
+    assert_eq!(
+        status.preset_name,
+        visualizer::DEFAULT_PRESET_NAME,
+        "{:?}",
+        status.last_error
+    );
     // macOS renders straight into IOSurface-backed pixel buffers.
     #[cfg(target_os = "macos")]
     assert_eq!(status.transport, Some(visualizer::Transport::IoSurface));

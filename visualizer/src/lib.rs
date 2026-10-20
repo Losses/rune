@@ -31,7 +31,7 @@ use rand::rngs::ThreadRng;
 use rtrb::Consumer;
 
 use pack::Zip;
-pub use pipeline::Transport;
+pub use pipeline::{DEFAULT_PRESET_NAME, Transport};
 use pipeline::{Pipeline, Rendered};
 use presets::{AutoSwitch, Location, Preset, PresetList};
 use textures::TextureSource;
@@ -540,7 +540,7 @@ fn run(
         let mut status = shared.status();
         status.adapter = pipeline.adapter_name.clone();
         status.transport = Some(transport);
-        status.preset_name = lactea::IDLE_PRESET_NAME.to_string();
+        status.preset_name = pipeline.preset_name().to_string();
     }
 
     let interval = Duration::from_secs_f64(1.0 / f64::from(fps));
