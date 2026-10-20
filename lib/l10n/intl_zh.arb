@@ -1349,15 +1349,15 @@
   },
   "visualizerPrevious": "上一個預設",
   "@visualizerPrevious": {
-    "description": "視覺化中切換到上一個預設的按鈕提示文字。"
+    "description": "視覺化中切換到上一個預設的右鍵選單項。"
   },
   "visualizerNext": "下一個預設",
   "@visualizerNext": {
-    "description": "視覺化中切換到下一個預設的按鈕提示文字。"
+    "description": "視覺化中切換到下一個預設的右鍵選單項。"
   },
   "visualizerRandom": "隨機預設",
   "@visualizerRandom": {
-    "description": "視覺化中切換到隨機預設的按鈕提示文字。"
+    "description": "視覺化中切換到隨機預設的右鍵選單項。"
   },
   "visualizerChooseFolder": "視覺化預設資料夾",
   "@visualizerChooseFolder": {

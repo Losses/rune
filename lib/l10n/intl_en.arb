@@ -1367,15 +1367,15 @@
   },
   "visualizerPrevious": "Previous preset",
   "@visualizerPrevious": {
-    "description": "Tooltip of the visualizer button that switches to the previous preset."
+    "description": "Context menu item of the visualizer that switches to the previous preset."
   },
   "visualizerNext": "Next preset",
   "@visualizerNext": {
-    "description": "Tooltip of the visualizer button that switches to the next preset."
+    "description": "Context menu item of the visualizer that switches to the next preset."
   },
   "visualizerRandom": "Random preset",
   "@visualizerRandom": {
-    "description": "Tooltip of the visualizer button that switches to a random preset."
+    "description": "Context menu item of the visualizer that switches to a random preset."
   },
   "visualizerChooseFolder": "Visualizer preset folder",
   "@visualizerChooseFolder": {

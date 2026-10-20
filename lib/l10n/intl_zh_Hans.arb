@@ -1359,15 +1359,15 @@
   },
   "visualizerPrevious": "上一个预设",
   "@visualizerPrevious": {
-    "description": "可视化中切换到上一个预设的按钮提示文字。"
+    "description": "可视化中切换到上一个预设的右键菜单项。"
   },
   "visualizerNext": "下一个预设",
   "@visualizerNext": {
-    "description": "可视化中切换到下一个预设的按钮提示文字。"
+    "description": "可视化中切换到下一个预设的右键菜单项。"
   },
   "visualizerRandom": "随机预设",
   "@visualizerRandom": {
-    "description": "可视化中切换到随机预设的按钮提示文字。"
+    "description": "可视化中切换到随机预设的右键菜单项。"
   },
   "visualizerChooseFolder": "可视化预设文件夹",
   "@visualizerChooseFolder": {

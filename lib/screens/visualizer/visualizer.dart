@@ -12,7 +12,8 @@ import '../../utils/rune_log.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/file_storage/mac_secure_manager.dart';
 import '../../utils/navigation/utils/escape_from_visualizer.dart';
-import '../../widgets/playback_controller/constants/playback_controller_height.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
+import '../../widgets/context_menu_wrapper.dart';
 
 const _channel = MethodChannel('not.ci.rune/visualizer');
 
@@ -57,6 +58,10 @@ class _VisualizerPageState extends State<VisualizerPage> {
   Timer? _hideTimer;
   Timer? _statusTimer;
   bool _controlsVisible = true;
+  bool _contextMenuIsOpen = false;
+
+  final _contextController = RouterAwareFlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   String? _presetDir;
   // The saved choice between the built-in pack and the folder; null = never chosen.
@@ -69,6 +74,7 @@ class _VisualizerPageState extends State<VisualizerPage> {
   void initState() {
     super.initState();
     _scheduleHide();
+    _contextController.controller.addListener(_handleContextControllerUpdate);
     _statusTimer = Timer.periodic(
       const Duration(milliseconds: 250),
       (_) => _pollStatus(),
@@ -81,6 +87,9 @@ class _VisualizerPageState extends State<VisualizerPage> {
     _resizeTimer?.cancel();
     _hideTimer?.cancel();
     _statusTimer?.cancel();
+    _contextController.controller
+        .removeListener(_handleContextControllerUpdate);
+    _contextController.dispose();
     _focusNode.dispose();
 
     if (_textureId != null || _starting) {
@@ -204,8 +213,61 @@ class _VisualizerPageState extends State<VisualizerPage> {
     _scheduleHide();
   }
 
+  // Keep the controls and the cursor visible while the menu is open, and let
+  // them hide again once it closes.
+  void _handleContextControllerUpdate() {
+    if (!mounted) return;
+    _contextMenuIsOpen = _contextController.isOpen;
+    if (_contextMenuIsOpen) {
+      _hideTimer?.cancel();
+      if (!_controlsVisible) setState(() => _controlsVisible = true);
+    } else {
+      _scheduleHide();
+    }
+  }
+
+  void _openContextMenu(Offset localPosition) {
+    if (!mounted) return;
+    final targetContext = _contextAttachKey.currentContext;
+
+    if (targetContext == null) return;
+    final box = targetContext.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(
+      localPosition,
+      ancestor: Navigator.of(context).context.findRenderObject(),
+    );
+
+    final s = S.of(context);
+
+    _contextController.showFlyout(
+      position: position,
+      builder: (_) {
+        return MenuFlyout(
+          items: [
+            MenuFlyoutItem(
+              leading: const Icon(Symbols.skip_previous),
+              text: Text(s.visualizerPrevious),
+              onPressed: _previous,
+            ),
+            MenuFlyoutItem(
+              leading: const Icon(Symbols.skip_next),
+              text: Text(s.visualizerNext),
+              onPressed: _next,
+            ),
+            MenuFlyoutItem(
+              leading: const Icon(Symbols.shuffle),
+              text: Text(s.visualizerRandom),
+              onPressed: _random,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _scheduleHide() {
     _hideTimer?.cancel();
+    if (_contextMenuIsOpen) return;
     _hideTimer = Timer(_controlsHideDelay, () {
       if (mounted && _controlsVisible) {
         setState(() => _controlsVisible = false);
@@ -266,7 +328,17 @@ class _VisualizerPageState extends State<VisualizerPage> {
                 return Stack(
                   fit: StackFit.expand,
                   children: [
-                    _buildTexture(),
+                    ContextMenuWrapper(
+                      onContextMenu: _openContextMenu,
+                      onMiddleClick: (_) {},
+                      contextAttachKey: _contextAttachKey,
+                      contextController: _contextController,
+                      // Opaque, so the letterbox bars take right-clicks too.
+                      child: ColoredBox(
+                        color: Colors.black,
+                        child: _buildTexture(),
+                      ),
+                    ),
                     _buildControls(context),
                   ],
                 );
@@ -344,39 +416,6 @@ class _VisualizerPageState extends State<VisualizerPage> {
                       style: theme.typography.caption
                           ?.copyWith(color: Colors.white),
                     ),
-                ],
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: playbackControllerHeight + 16,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Tooltip(
-                    message: S.of(context).visualizerPrevious,
-                    child: IconButton(
-                      icon: const Icon(Symbols.skip_previous, size: 24),
-                      onPressed: _previous,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Tooltip(
-                    message: S.of(context).visualizerRandom,
-                    child: IconButton(
-                      icon: const Icon(Symbols.shuffle, size: 24),
-                      onPressed: _random,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Tooltip(
-                    message: S.of(context).visualizerNext,
-                    child: IconButton(
-                      icon: const Icon(Symbols.skip_next, size: 24),
-                      onPressed: _next,
-                    ),
-                  ),
                 ],
               ),
             ),
