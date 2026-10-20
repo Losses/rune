@@ -44,6 +44,8 @@ class PlayingItem {
   @override
   int get hashCode => Object.hash(inLibrary, independentFile, isUnknown);
 
+  static const independentFilePrefix = 'PlayingItem::IndependentFile(';
+
   static PlayingItem fromString(String str) {
     if (str.startsWith('PlayingItem::InLibrary(') && str.endsWith(')')) {
       final idStr = str.substring(23, str.length - 1);
@@ -51,14 +53,13 @@ class PlayingItem {
       if (id != null) {
         return PlayingItem.inLibrary(id);
       }
-    } else if (str.startsWith('PlayingItem::IndependentFile(') &&
+    } else if (str.startsWith(independentFilePrefix) &&
         str.endsWith(')')) {
-      final path = str.substring(28, str.length - 1);
+      final path = str.substring(independentFilePrefix.length, str.length - 1);
       return PlayingItem.independentFile(path);
-    } else if (str == 'PlayingItem::Unknown()') {
-      return PlayingItem.unknown();
     }
-    throw ArgumentError('Invalid string format');
+    // Unknown, Online and anything else the Dart side cannot represent
+    return PlayingItem.unknown();
   }
 
   @override
