@@ -141,13 +141,15 @@ fn update_end_times(lyrics: &mut [LyricLine]) {
         }
 
         let line = &mut lyrics[i];
-        line.end_time = end_time.clone();
+        // Absurd times past DUMMY_END_TIME must not end before they start
+        line.end_time = end_time.clone().max_millis(&line.start_time);
+        let line_end = line.end_time.clone();
         // A trailing `<mm:ss.xx>` tag says when the last word ends; keep it
         // unless it runs past the line. Without one, the word lasts the line.
         if let Some(last_detail) = line.word_time_tags.last_mut()
-            && (last_detail.1 == DUMMY_END_TIME || last_detail.1.as_millis() > end_time.as_millis())
+            && (last_detail.1 == DUMMY_END_TIME || last_detail.1.as_millis() > line_end.as_millis())
         {
-            last_detail.1 = end_time.clone();
+            last_detail.1 = line_end;
         }
     }
 }

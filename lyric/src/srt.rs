@@ -39,7 +39,8 @@ pub fn parse_srt(content: &str) -> Result<LyricFile> {
 
     for block in subrip.subtitles {
         let start_time: TimeTag = block.start.into();
-        let end_time: TimeTag = block.end.into();
+        // A subtitle that ends before it starts is malformed; keep it a moment
+        let end_time = TimeTag::from(block.end).max_millis(&start_time);
 
         let (text, word_time_tags) =
             parse_word_time_tags(&block.text.join("\n"), &start_time, &end_time);

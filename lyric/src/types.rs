@@ -26,6 +26,15 @@ impl TimeTag {
             .saturating_add(self.seconds as u64 * 1000)
             .saturating_add(self.milliseconds as u64)
     }
+
+    /// This time, or `other` if that is later.
+    pub fn max_millis(self, other: &TimeTag) -> Self {
+        if self.as_millis() < other.as_millis() {
+            other.clone()
+        } else {
+            self
+        }
+    }
 }
 
 impl From<TimeTag> for i32 {

@@ -32,7 +32,8 @@ pub fn parse_vtt(content: &str) -> Result<LyricFile> {
         }) = block
         {
             let start_time = to_time_tag(&timings.start);
-            let end_time = to_time_tag(&timings.end);
+            // A cue that ends before it starts is malformed; keep it a moment
+            let end_time = to_time_tag(&timings.end).max_millis(&start_time);
 
             let (text, word_time_tags) =
                 parse_word_time_tags(&payload.join("\n"), &start_time, &end_time);

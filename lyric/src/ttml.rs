@@ -194,6 +194,8 @@ fn parse_paragraph(p: &Element) -> Option<LyricLine> {
             Piece::Text(_) => None,
         })
     })?;
+    // A paragraph that ends before it begins is malformed; keep it a moment
+    let end = end.max(start);
 
     if !pieces
         .iter()
