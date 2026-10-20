@@ -184,10 +184,11 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
       final status = signal.message;
 
       // Until the render thread is up there is nothing to send commands to.
-      if (!_firstPresetLoaded && status.running && status.presetCount > 0) {
+      if (!_firstPresetLoaded && status.running) {
         // Rust starts with the folder if one is set, else with the built-in
-        // pack. Apply a saved choice first and pick the preset on a later tick,
-        // when the new source is in place.
+        // pack. Apply a saved choice first, even if the starting source has no
+        // presets, and pick the preset on a later tick, when the new source is
+        // in place.
         final wanted = _sourcePref;
         if (status.builtinAvailable &&
             wanted != null &&
@@ -195,7 +196,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
             wanted != status.source &&
             (wanted == VisualizerSource.builtin || _presetDir != null)) {
           SetVisualizerSourceRequest(source: wanted).sendSignalToRust();
-        } else {
+        } else if (status.presetCount > 0) {
           _firstPresetLoaded = true;
           RandomVisualizerPresetRequest(
             transitionSeconds: 0,
@@ -204,7 +205,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
       }
 
       _controller.status = status;
-      _controller.hasPresets = _presetDir != null || status.builtinAvailable;
+      // A folder without presets directly in it counts as none.
+      if (status.running) _controller.hasPresets = status.presetCount > 0;
     } on TimeoutException {
       // The next tick asks again.
     }
