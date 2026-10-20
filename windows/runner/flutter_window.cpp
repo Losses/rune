@@ -1,5 +1,7 @@
 #include "flutter_window.h"
 
+#include <flutter/plugin_registrar_windows.h>
+
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
@@ -25,6 +27,15 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  // The engine itself exposes no texture registrar; a plugin registrar does.
+  // The manager owns it and destroys it with the engine.
+  auto* registrar =
+      flutter::PluginRegistrarManager::GetInstance()
+          ->GetRegistrar<flutter::PluginRegistrarWindows>(
+              flutter_controller_->engine()->GetRegistrarForPlugin(
+                  "VisualizerTexture"));
+  visualizer_channel_ = std::make_unique<VisualizerChannel>(
+      registrar->messenger(), registrar->texture_registrar());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -40,6 +51,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  visualizer_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

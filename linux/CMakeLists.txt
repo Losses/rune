@@ -63,6 +63,7 @@ add_definitions(-DAPPLICATION_ID="${APPLICATION_ID}")
 add_executable(${BINARY_NAME}
   "main.cc"
   "my_application.cc"
+  "visualizer_texture.cc"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
 )
 
@@ -72,6 +73,7 @@ apply_standard_settings(${BINARY_NAME})
 
 # Add dependency libraries. Add any application-specific dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter)
+target_link_libraries(${BINARY_NAME} PRIVATE ${CMAKE_DL_LIBS})
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
 
 # Run the Flutter tool portions of the build. This must not be removed.

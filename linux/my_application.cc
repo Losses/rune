@@ -7,6 +7,7 @@
 #endif
 
 #include "flutter/generated_plugin_registrant.h"
+#include "visualizer_texture.h"
 
 // Global reference to the bitsdojo window for dynamic frame control
 static GtkWindow* main_window = nullptr;
@@ -95,6 +96,14 @@ static void my_application_activate(GApplication* application) {
   main_window = window;
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+
+  // The visualizer texture bridge lives as long as the view, whose destruction
+  // frees it while the engine is still alive.
+  VisualizerChannel* visualizer_channel =
+      visualizer_channel_new(fl_view_get_engine(view));
+  g_signal_connect_swapped(view, "destroy",
+                           G_CALLBACK(visualizer_channel_free),
+                           visualizer_channel);
 
   // Initialize bitsdojo window
   g_bdw = bitsdojo_window_from(window);
