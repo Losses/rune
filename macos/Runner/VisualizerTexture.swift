@@ -227,8 +227,7 @@ final class VisualizerChannel {
   private var texture: VisualizerTexture?
 
   func register(with controller: FlutterViewController) {
-    // Keep the engine itself: it is the texture registry and lives as long as the app. A weak
-    // reference to the view controller turned out to be nil by the time Dart asked for a texture.
+    // Keep the engine itself: it is the texture registry and lives as long as the app.
     let engine = controller.engine
     let channel = FlutterMethodChannel(
       name: "not.ci.rune/visualizer",

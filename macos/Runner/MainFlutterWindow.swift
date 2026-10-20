@@ -4,7 +4,9 @@ import Cocoa
 import bitsdojo_window_macos
 
 class MainFlutterWindow: BitsdojoWindow {
-  private let visualizerChannel = VisualizerChannel()
+  // The nib creates this window through an inherited Objective-C initializer, so Swift property
+  // initializers never run here; an optional starts as nil from the zeroed storage instead.
+  private var visualizerChannel: VisualizerChannel?
 
   override func bitsdojo_window_configure() -> UInt {
     return BDW_CUSTOM_FRAME | BDW_HIDE_ON_STARTUP
@@ -41,7 +43,9 @@ class MainFlutterWindow: BitsdojoWindow {
       }
     }
 
+    let visualizerChannel = VisualizerChannel()
     visualizerChannel.register(with: flutterViewController)
+    self.visualizerChannel = visualizerChannel
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
