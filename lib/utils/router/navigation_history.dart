@@ -36,6 +36,12 @@ class NavigationHistory {
     );
   }
 
+  /// Removes [entry] wherever it is; a route pushed while it was closing may
+  /// already be on top of it.
+  void remove(BaseRouteEntry entry) {
+    history.remove(entry);
+  }
+
   (bool, BaseRouteEntry?) pop() {
     if (history.isEmpty) return (false, null);
 
