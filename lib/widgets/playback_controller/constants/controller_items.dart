@@ -20,7 +20,6 @@ import '../../../providers/volume.dart';
 import '../../../providers/full_screen.dart';
 
 import '../lyric_button.dart';
-import '../visualizer_button.dart';
 import '../next_button.dart';
 import '../volume_button.dart';
 import '../queue_button.dart';
@@ -492,38 +491,6 @@ List<ControllerEntry> controllerItems = [
       );
     },
   ),
-  // The texture bridge to the Rust visualizer exists only on macOS for now.
-  if (Platform.isMacOS)
-    ControllerEntry(
-      id: 'visualizer',
-      icon: (context) => Symbols.graphic_eq,
-      titleBuilder: (context) => S.of(context).visualizer,
-      subtitleBuilder: (context) => S.of(context).visualizerSubtitle,
-      shortcuts: [const SingleActivator(LogicalKeyboardKey.keyV, alt: true)],
-      onShortcut: (context) {
-        showVisualizer();
-      },
-      tooltipBuilder: (context) => S.of(context).visualizer,
-      controllerButtonBuilder: (context, shadows) => VisualizerButton(
-        shadows: shadows,
-      ),
-      flyoutEntryBuilder: (context) async {
-        return MenuFlyoutItem(
-          leading: const Icon(Symbols.graphic_eq),
-          text: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(S.of(context).visualizer),
-              const ShortcutText('⌥+V'),
-            ],
-          ),
-          onPressed: () {
-            Navigator.pop(context);
-            showVisualizer();
-          },
-        );
-      },
-    ),
   ControllerEntry(
     id: 'fullscreen',
     icon: (context) {

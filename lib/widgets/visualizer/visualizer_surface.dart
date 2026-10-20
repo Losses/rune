@@ -1,0 +1,253 @@
+import 'dart:io';
+import 'dart:async';
+import 'dart:math';
+
+import 'package:flutter/services.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+
+import '../../bindings/bindings.dart';
+import '../../constants/configurations.dart';
+import '../../constants/settings_manager.dart';
+import '../../utils/rune_log.dart';
+import '../../utils/file_storage/mac_secure_manager.dart';
+
+import 'visualizer_controller.dart';
+
+const _channel = MethodChannel('not.ci.rune/visualizer');
+
+const _targetFps = 60;
+const _maxRenderWidth = 1920;
+const _maxRenderHeight = 1080;
+const _resizeDebounce = Duration(milliseconds: 300);
+
+/// The physical size of the view, shrunk to fit 1920x1080 with its aspect
+/// ratio kept. The width is rounded down to a multiple of 64, because
+/// Windows and Linux hand the frames to Flutter without copying only when
+/// the rows are tightly packed; the height follows the width so the aspect
+/// ratio stays the view's, and is rounded to an even number.
+(int, int) _renderSize(Size logical, double pixelRatio) {
+  final width = logical.width * pixelRatio;
+  final height = logical.height * pixelRatio;
+  final scale = min(
+    1.0,
+    min(_maxRenderWidth / width, _maxRenderHeight / height),
+  );
+  final renderWidth = max(64, (width * scale).floor() ~/ 64 * 64);
+  final renderHeight = max(2, (renderWidth * height / width).round() & ~1);
+  return (renderWidth, renderHeight);
+}
+
+/// The MilkDrop visualizer, drawn into a texture that fills the available
+/// space. The texture and the Rust render thread exist as long as this widget
+/// is in the tree. [controller] gives the widgets around it access to the
+/// presets.
+class VisualizerSurface extends StatefulWidget {
+  final VisualizerController controller;
+
+  const VisualizerSurface({super.key, required this.controller});
+
+  @override
+  State<VisualizerSurface> createState() => _VisualizerSurfaceState();
+}
+
+class _VisualizerSurfaceState extends State<VisualizerSurface> {
+  int? _textureId;
+  (int, int)? _renderedSize;
+  bool _starting = false;
+  bool _disposed = false;
+
+  Timer? _resizeTimer;
+  Timer? _statusTimer;
+
+  String? _presetDir;
+  // The saved choice between the built-in pack and the folder; null = never chosen.
+  VisualizerSource? _sourcePref;
+  bool _firstPresetLoaded = false;
+  int _pollTick = 0;
+
+  VisualizerController get _controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.attach();
+    _statusTimer = Timer.periodic(
+      const Duration(milliseconds: 250),
+      (_) => _pollStatus(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _resizeTimer?.cancel();
+    _statusTimer?.cancel();
+    _controller.detach();
+
+    if (_textureId != null || _starting) {
+      StopVisualizerRequest().sendSignalToRust();
+      _channel.invokeMethod<void>('dispose').catchError((Object e) {
+        error$('Failed to dispose the visualizer texture: $e');
+      });
+    }
+    super.dispose();
+  }
+
+  Future<void> _start(Size logical, double pixelRatio) async {
+    if (_starting || _textureId != null) return;
+    _starting = true;
+
+    try {
+      final size = _renderSize(logical, pixelRatio);
+
+      final id = await _channel.invokeMethod<int>('create');
+      if (_disposed) {
+        await _channel.invokeMethod<void>('dispose');
+        return;
+      }
+
+      // Bookmarks are resolved when the manager is created; wait for them
+      // before Rust reads the saved folder.
+      if (Platform.isMacOS) await MacSecureManager().completed;
+      final dir = await $settingsManager.getValue<String>(
+        kVisualizerPresetDirKey,
+      );
+      if (_disposed) {
+        await _channel.invokeMethod<void>('dispose');
+        return;
+      }
+
+      final savedSource = await $settingsManager.getValue<String>(
+        kVisualizerSourceKey,
+      );
+      if (_disposed) {
+        await _channel.invokeMethod<void>('dispose');
+        return;
+      }
+      _sourcePref = switch (savedSource) {
+        'builtin' => VisualizerSource.builtin,
+        'folder' => VisualizerSource.folder,
+        _ => null,
+      };
+
+      if (dir != null && dir.isNotEmpty) {
+        SetVisualizerPresetDirRequest(path: dir).sendSignalToRust();
+      }
+      StartVisualizerRequest(
+        width: size.$1,
+        height: size.$2,
+        fps: _targetFps,
+      ).sendSignalToRust();
+
+      _controller.hasPresets = dir != null && dir.isNotEmpty;
+      setState(() {
+        _textureId = id;
+        _renderedSize = size;
+        _presetDir = dir;
+      });
+    } catch (e) {
+      error$('Failed to start the visualizer: $e');
+      // Leave `_starting` set so the next frames don't retry in a loop; showing
+      // the surface again retries.
+      _controller.startError = e.toString();
+    }
+  }
+
+  void _scheduleResize(Size logical, double pixelRatio) {
+    if (_textureId == null) return;
+    final size = _renderSize(logical, pixelRatio);
+    if (size == _renderedSize) return;
+
+    _resizeTimer?.cancel();
+    _resizeTimer = Timer(_resizeDebounce, () {
+      if (_disposed) return;
+      ResizeVisualizerRequest(
+        width: size.$1,
+        height: size.$2,
+      ).sendSignalToRust();
+      setState(() => _renderedSize = size);
+    });
+  }
+
+  Future<void> _pollStatus() async {
+    if (_textureId == null || _disposed) return;
+
+    // About 1 Hz, but 4 Hz while waiting for the render thread to come up.
+    final waiting = _controller.status?.running != true;
+    if (!waiting && ++_pollTick % 4 != 0) return;
+
+    VisualizerStatusRequest().sendSignalToRust();
+    try {
+      final signal = await VisualizerStatusResponse.rustSignalStream.first
+          .timeout(const Duration(seconds: 1));
+      if (_disposed || !mounted) return;
+      final status = signal.message;
+
+      // Until the render thread is up there is nothing to send commands to.
+      if (!_firstPresetLoaded && status.running && status.presetCount > 0) {
+        // Rust starts with the folder if one is set, else with the built-in
+        // pack. Apply a saved choice first and pick the preset on a later tick,
+        // when the new source is in place.
+        final wanted = _sourcePref;
+        if (status.builtinAvailable &&
+            wanted != null &&
+            wanted != VisualizerSource.none &&
+            wanted != status.source &&
+            (wanted == VisualizerSource.builtin || _presetDir != null)) {
+          SetVisualizerSourceRequest(source: wanted).sendSignalToRust();
+        } else {
+          _firstPresetLoaded = true;
+          RandomVisualizerPresetRequest(
+            transitionSeconds: 0,
+          ).sendSignalToRust();
+        }
+      }
+
+      _controller.status = status;
+      _controller.hasPresets = _presetDir != null || status.builtinAvailable;
+    } on TimeoutException {
+      // The next tick asks again.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+
+    return ColoredBox(
+      color: Colors.black,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final size = constraints.biggest;
+          if (size.width > 0 && size.height > 0) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              if (_textureId == null) {
+                _start(size, pixelRatio);
+              } else {
+                _scheduleResize(size, pixelRatio);
+              }
+            });
+          }
+
+          return _buildTexture();
+        },
+      ),
+    );
+  }
+
+  /// Letterboxed: the texture keeps the aspect ratio of the size that was
+  /// requested from Rust, so a window that changes shape never stretches it.
+  Widget _buildTexture() {
+    final id = _textureId;
+    final size = _renderedSize;
+    if (id == null || size == null) return const SizedBox.expand();
+
+    return Center(
+      child: AspectRatio(
+        aspectRatio: size.$1 / size.$2,
+        child: Texture(textureId: id),
+      ),
+    );
+  }
+}

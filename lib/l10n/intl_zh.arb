@@ -1339,14 +1339,6 @@
   "@deduplicating": {
     "description": "表示當前正在執行去重過程的標籤。向用戶展示系統正在移除音樂庫或播放列表中的重複曲目。也可使用“正在移除重複項”或“去重進行中”等表達。"
   },
-  "visualizer": "視覺化",
-  "@visualizer": {
-    "description": "控制播放的按鈕提示文字，用於開啟音樂視覺化頁面。"
-  },
-  "visualizerSubtitle": "跟隨音樂律動的 MilkDrop 風格動畫",
-  "@visualizerSubtitle": {
-    "description": "媒體控制器設定中視覺化項目的副標題。"
-  },
   "visualizerPrevious": "上一個預設",
   "@visualizerPrevious": {
     "description": "視覺化中切換到上一個預設的右鍵選單項。"
@@ -1387,10 +1379,6 @@
   "@visualizerNoPresets": {
     "description": "未設定預設資料夾時視覺化中顯示的提示。"
   },
-  "visualizerExit": "退出視覺化",
-  "@visualizerExit": {
-    "description": "關閉視覺化的按鈕提示文字。"
-  },
   "visualizerSourceBuiltin": "MilkDrop Original",
   "@visualizerSourceBuiltin": {
     "description": "使用內建 MilkDrop Original 預設包的視覺化按鈕標籤。"
@@ -1398,5 +1386,21 @@
   "visualizerSourceFolder": "資料夾",
   "@visualizerSourceFolder": {
     "description": "使用者所選預設資料夾的視覺化按鈕標籤。"
+  },
+  "coverWallDisplay": "封面牆顯示內容",
+  "@coverWallDisplay": {
+    "description": "選擇封面牆頁面顯示內容的設置項標題。"
+  },
+  "coverWallDisplaySubtitle": "在封面牆頁面顯示封面牆或 MilkDrop 視覺化",
+  "@coverWallDisplaySubtitle": {
+    "description": "封面牆顯示內容設置項的副標題。"
+  },
+  "coverWallDisplayCovers": "封面牆",
+  "@coverWallDisplayCovers": {
+    "description": "封面牆顯示內容設置項的選項，也是封面牆頁面右鍵選單項，顯示專輯封面牆。"
+  },
+  "coverWallDisplayVisualizer": "MilkDrop 視覺化",
+  "@coverWallDisplayVisualizer": {
+    "description": "封面牆顯示內容設置項的選項，也是封面牆頁面右鍵選單項，顯示音樂視覺化。MilkDrop 是產品名稱，通常不翻譯。"
   }
 }

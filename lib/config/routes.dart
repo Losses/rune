@@ -8,7 +8,6 @@ import '../routes/home.dart' as home;
 import '../routes/mixes.dart' as mixes;
 import '../routes/tracks.dart' as tracks;
 import '../routes/lyrics.dart' as lyrics;
-import '../routes/visualizer.dart' as visualizer;
 import '../routes/search.dart' as search;
 import '../routes/welcome.dart' as welcome;
 import '../routes/settings.dart' as settings;
@@ -135,5 +134,4 @@ final Map<String, WidgetBuilder> routes = {
   '/search': (context) => const search.SearchPage(),
   '/cover_wall': (context) => const cover_wall.CoverWallPage(),
   '/lyrics': (context) => const lyrics.LyricsPage(),
-  '/visualizer': (context) => const visualizer.VisualizerPage(),
 };

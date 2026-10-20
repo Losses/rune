@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -7,6 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/rune_log.dart';
 import '../../../utils/get_dir_path.dart';
+import '../../../utils/visualizer_supported.dart';
 import '../../../utils/file_storage/mac_secure_manager.dart';
 import '../../../widgets/settings/settings_button.dart';
 import '../../../widgets/settings/settings_box_combo_box.dart';
@@ -15,7 +15,7 @@ import '../../../constants/settings_manager.dart';
 import '../../../bindings/bindings.dart';
 
 /// The preset source and folder of the visualizer. They are only saved here;
-/// the visualizer page applies them when it is opened.
+/// the visualizer applies them when it starts.
 class VisualizerPresetSetting extends StatefulWidget {
   const VisualizerPresetSetting({super.key});
 
@@ -32,7 +32,7 @@ class _VisualizerPresetSettingState extends State<VisualizerPresetSetting> {
   @override
   void initState() {
     super.initState();
-    if (Platform.isMacOS) _load();
+    if (isVisualizerSupported) _load();
   }
 
   Future<void> _load() async {
@@ -96,7 +96,7 @@ class _VisualizerPresetSettingState extends State<VisualizerPresetSetting> {
 
   @override
   Widget build(BuildContext context) {
-    if (!Platform.isMacOS) {
+    if (!isVisualizerSupported) {
       return const SizedBox.shrink();
     }
 
