@@ -44,6 +44,11 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
   // layout, size changes). It is consumed once the list reports positions.
   bool _snapPending = true;
 
+  // The scroll offset the item positions were measured at. The list does not
+  // report new positions after every jump, so they can be older than the
+  // current offset.
+  double? _measuredScrollOffset;
+
   @override
   void initState() {
     super.initState();
@@ -94,6 +99,11 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
   }
 
   void _offsetListener() {
+    final scrollController = _itemScrollController.scrollController;
+    if (scrollController != null && scrollController.hasClients) {
+      _measuredScrollOffset = scrollController.offset;
+    }
+
     if (!_snapPending || !mounted) return;
     if (_itemPositionsListener.itemPositions.value.isEmpty) return;
 
@@ -144,7 +154,8 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
       return false;
     }
 
-    // `offset` is the item's top-left relative to the viewport.
+    // `offset` is the item's top-left relative to the viewport, as it was at
+    // `_measuredScrollOffset`.
     double totalCentre = 0;
     for (final i in _targetLines) {
       final item = visible[i + 1]!;
@@ -153,8 +164,9 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
 
     final position = scrollController.position;
     final averageCentre = totalCentre / _targetLines.length;
-    final scrollOffset = scrollController.offset +
-        (averageCentre - position.viewportDimension / 2);
+    final scrollOffset =
+        (_measuredScrollOffset ?? scrollController.offset) +
+            (averageCentre - position.viewportDimension / 2);
     final clamped = max(0.0, min(scrollOffset, position.maxScrollExtent));
 
     if (animate) {
@@ -227,6 +239,16 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        // A minimized window on Windows is 0 x 0. The list divides by its
+        // viewport size and is left with non-finite offsets, so drop it and
+        // build a fresh one, placed on the current line, once the window is
+        // back.
+        if (constraints.maxWidth == 0 || constraints.maxHeight == 0) {
+          _measuredScrollOffset = null;
+          _lastConstraints = null;
+          return const SizedBox.shrink();
+        }
+
         return GradientMask(
           child: _buildLyricsList(constraints, isMini),
         );
