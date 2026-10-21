@@ -1,7 +1,12 @@
+import 'dart:io';
+
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:rune/constants/configurations.dart';
 import 'package:rune/utils/file_storage/file_storage_service.dart';
 import 'package:rune/utils/settings_manager.dart';
+import 'package:rune/utils/storage_key_manager.dart';
 
 void main() {
   group('castSetting', () {
@@ -40,7 +45,7 @@ void main() {
         '/old/library',
       ]);
       expect(entries.map((e) => e['path']), ['/music', '/old/library']);
-      expect(entries.last['alias'], isA<String>());
+      expect(entries.last['alias'], 'library');
     });
 
     test('drops entries without a path', () {
@@ -50,10 +55,50 @@ void main() {
         {'alias': 'no path'},
         {'path': 3},
         ['/music'],
+        '',
+        {'path': ''},
+        <dynamic, dynamic>{'path': '/other', 1: 'not a string key'},
         {'path': '/music'},
       ]);
       expect(entries, [
         {'path': '/music'},
+      ]);
+    });
+  });
+
+  group('stored settings', () {
+    late SettingsManager settings;
+
+    setUpAll(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final directory = await Directory.systemTemp.createTemp('rune-settings');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (call) async => directory.path,
+          );
+      addTearDown(() => directory.delete(recursive: true));
+      StorageKeyManager.initialize(null);
+      settings = SettingsManager();
+    });
+
+    test('getValue ignores a stored value of the wrong type', () async {
+      await settings.setValue('test_wrong_type', 'three');
+      expect(await settings.getValue<int>('test_wrong_type'), isNull);
+      expect(await settings.getValue<String>('test_wrong_type'), 'three');
+    });
+
+    // A data version of the wrong type reads as version 1 and starts the
+    // migration from bare paths
+    test('migrating keeps entries that are already current', () async {
+      await settings.setValue(kOpenedFilesKey, [
+        {'path': '/music', 'alias': 'music', 'createdAt': ''},
+        '/old/library',
+      ]);
+      await settings.setValue(kDataVersionKey, '2');
+      expect(await FileStorageService().getAllOpenedFiles(), [
+        '/music',
+        '/old/library',
       ]);
     });
   });

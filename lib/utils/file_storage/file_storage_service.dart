@@ -29,9 +29,11 @@ class FileStorageService {
   List<Map<String, dynamic>> normalizeOpenedFiles(List<dynamic> raw) {
     final entries = <Map<String, dynamic>>[];
     for (final item in raw) {
-      if (item is String) {
+      if (item is String && item.isNotEmpty) {
         entries.add(_migrateLegacyPath(item));
-      } else if (item is Map && item['path'] is String) {
+      } else if (item is Map<String, dynamic> &&
+          item['path'] is String &&
+          item['path'] != '') {
         entries.add(Map<String, dynamic>.from(item));
       } else {
         warn$("Ignoring opened library entry: $item");
@@ -42,16 +44,11 @@ class FileStorageService {
 
   Future<void> _migrateData(int oldVersion) async {
     if (oldVersion == 1) {
-      final List<String> legacyPaths =
-          ((await settingsManager.getValue<List<dynamic>>(kOpenedFilesKey)) ??
-                  [])
-              .map((x) => x.toString())
-              .toList();
+      final raw =
+          await settingsManager.getValue<List<dynamic>>(kOpenedFilesKey);
 
-      final migrated =
-          legacyPaths.map((path) => _migrateLegacyPath(path)).toList();
-
-      await settingsManager.setValue(kOpenedFilesKey, migrated);
+      await settingsManager.setValue(
+          kOpenedFilesKey, normalizeOpenedFiles(raw ?? []));
       await settingsManager.setValue(kDataVersionKey, _currentDataVersion);
     }
   }
