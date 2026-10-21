@@ -39,7 +39,7 @@ impl From<CollectionQueryType> for i32 {
             CollectionQueryType::Mix => 3,
             CollectionQueryType::Track => 4,
             CollectionQueryType::Directory => 5,
-            CollectionQueryType::Genre => 5,
+            CollectionQueryType::Genre => 6,
         }
     }
 }
@@ -55,6 +55,7 @@ impl FromStr for CollectionQueryType {
             "album" => Ok(CollectionQueryType::Album),
             "playlist" => Ok(CollectionQueryType::Playlist),
             "mix" => Ok(CollectionQueryType::Mix),
+            "genre" => Ok(CollectionQueryType::Genre),
             _ => Err(ParseCollectionTypeError::InvalidType),
         }
     }
