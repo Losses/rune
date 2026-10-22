@@ -13,22 +13,18 @@ class PlayingItem {
       : this._(independentFile: path);
   const PlayingItem.unknown() : this._(isUnknown: true);
 
+  // Mirrors `From<PlayingItemRequest> for PlayingItem` in the hub: a file
+  // outside the library is sent without `inLibrary`.
   static PlayingItem fromRequest(PlayingItemRequest request) {
     final inLibrary = request.inLibrary;
+    final independentFile = request.independentFile;
 
-    if (inLibrary == null) {
-      return PlayingItem.unknown();
+    if (inLibrary != null && inLibrary.fileId != 0) {
+      return PlayingItem.inLibrary(inLibrary.fileId);
+    } else if (independentFile != null && independentFile.rawPath.isNotEmpty) {
+      return PlayingItem.independentFile(independentFile.rawPath);
     } else {
-      final fileId = inLibrary.fileId;
-      final independentFile = request.independentFile;
-
-      if (fileId != 0) {
-        return PlayingItem.inLibrary(fileId);
-      } else if (independentFile != null) {
-        return PlayingItem.independentFile(independentFile.rawPath);
-      } else {
-        return PlayingItem.unknown();
-      }
+      return PlayingItem.unknown();
     }
   }
 
