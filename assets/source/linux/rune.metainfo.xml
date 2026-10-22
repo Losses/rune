@@ -57,6 +57,27 @@
   </screenshots>
 
   <releases>
+    <release version="2.0.0-alpha.12" date="2026-10-22">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Show only the playing track's lyrics and keep the current line centred.</li>
+          <li>Parse lyrics leniently (LRC, TTML, WebVTT, SRT) and preserve timing.</li>
+          <li>Match search words in any order with prefix matching.</li>
+          <li>Ignore stored settings of unexpected types.</li>
+          <li>Handle Genre in collection type conversions.</li>
+          <li>Improve audio packet decoding and empty buffer handling.</li>
+          <li>Support macOS and iOS builds with Xcode 27.1 and SDK 27.</li>
+          <li>Fix Android NDK build compatibility for fdk-aac.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Build native Windows ARM64 application and installer artifacts.</li>
+          <li>Leave full screen, lyrics, and the cover wall with Esc.</li>
+          <li>Reproducible Nix-based build matrix for Windows CI.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.11" date="2026-10-02">
       <description>
         <p>Bugs</p>
