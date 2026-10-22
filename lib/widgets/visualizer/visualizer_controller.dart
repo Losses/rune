@@ -49,24 +49,28 @@ class VisualizerController {
 
   void detach() => _attached = false;
 
+  // A locked preset is one the user is watching on purpose, so changing it by
+  // hand cuts straight to the new one instead of blending.
+  double get _transitionSeconds => _locked ? 0 : _presetTransitionSeconds;
+
   void next() {
     if (!_attached) return;
     NextVisualizerPresetRequest(
-      transitionSeconds: _presetTransitionSeconds,
+      transitionSeconds: _transitionSeconds,
     ).sendSignalToRust();
   }
 
   void previous() {
     if (!_attached) return;
     PreviousVisualizerPresetRequest(
-      transitionSeconds: _presetTransitionSeconds,
+      transitionSeconds: _transitionSeconds,
     ).sendSignalToRust();
   }
 
   void random() {
     if (!_attached) return;
     RandomVisualizerPresetRequest(
-      transitionSeconds: _presetTransitionSeconds,
+      transitionSeconds: _transitionSeconds,
     ).sendSignalToRust();
   }
 
