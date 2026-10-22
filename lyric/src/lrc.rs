@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::{
     types::{LyricFile, LyricLine, TimeTag, VoiceType},
-    utils::strip_bom,
+    utils::{push_section, strip_bom},
 };
 
 const DUMMY_END_TIME: TimeTag = TimeTag {
@@ -202,18 +202,6 @@ fn parse_enhanced_lrc(content: &str, line_start: &TimeTag) -> Vec<Section> {
         sections.push((line_start.clone(), DUMMY_END_TIME, String::new()));
     }
     sections
-}
-
-/// Adds a section; whitespace-only text is glued to the previous section so the
-/// spaces between words are kept exactly as in the source.
-fn push_section(sections: &mut Vec<Section>, start: &TimeTag, end: &TimeTag, text: &str) {
-    if text.trim().is_empty() {
-        if let Some(last) = sections.last_mut() {
-            last.2.push_str(text);
-        }
-    } else {
-        sections.push((start.clone(), end.clone(), text.to_string()));
-    }
 }
 
 #[cfg(test)]

@@ -21,38 +21,8 @@ pub fn strip_bom(content: &str) -> &str {
     content.strip_prefix('\u{FEFF}').unwrap_or(content)
 }
 
-fn tag_name(tag: &str) -> &str {
-    let inner = tag.trim_start_matches('<').trim_start_matches('/');
-    inner
-        .split(['.', '>', ' ', '\t'])
-        .next()
-        .unwrap_or_default()
-}
-
 pub fn clean_style_tags(text: &str) -> String {
-    let mut stack: Vec<String> = vec![];
-    let mut result = String::new();
-    let mut last_pos = 0;
-
-    for cap in STYLE_RE.captures_iter(text) {
-        if let Some(pos) = cap.get(0) {
-            let tag = tag_name(&cap[0]);
-            // The text before any tag is kept; the tag itself is always dropped
-            result.push_str(&text[last_pos..pos.start()]);
-            last_pos = pos.end();
-            if cap[0].starts_with("</") {
-                // Remove the matched tag and any tags above it; unmatched closing tags are ignored
-                if let Some(i) = stack.iter().rposition(|open_tag| open_tag == tag) {
-                    stack.drain(i..);
-                }
-            } else {
-                stack.push(tag.to_string());
-            }
-        }
-    }
-
-    result.push_str(&text[last_pos..]);
-    result
+    STYLE_RE.replace_all(text, "").into_owned()
 }
 
 pub fn parse_word_time_tags(
@@ -100,7 +70,7 @@ pub fn parse_word_time_tags(
 
 /// Adds a section; text that is only whitespace is glued to the previous section
 /// (or dropped when there is none) so that the spaces between words survive.
-fn push_section(
+pub(crate) fn push_section(
     sections: &mut Vec<(TimeTag, TimeTag, String)>,
     start: &TimeTag,
     end: &TimeTag,

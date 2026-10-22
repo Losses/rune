@@ -30,7 +30,7 @@ impl TimeTag {
     }
 
     /// This time, or `other` if that is later.
-    pub fn max_millis(self, other: &TimeTag) -> Self {
+    pub(crate) fn max_millis(self, other: &TimeTag) -> Self {
         if self.as_millis() < other.as_millis() {
             other.clone()
         } else {
@@ -46,8 +46,9 @@ impl From<TimeTag> for i32 {
 }
 
 /// Converts the digits after the decimal separator into milliseconds,
-/// so `5` is 500, `50` is 500 and `500` is 500. Extra digits are dropped.
-pub fn fraction_to_millis(fraction: &str) -> Result<u32> {
+/// so `5` is 500, `50` is 500 and `500` is 500. Digits past the third are
+/// dropped (TTML); LRC time tags reject them before getting here.
+pub(crate) fn fraction_to_millis(fraction: &str) -> Result<u32> {
     if fraction.is_empty() || !fraction.bytes().all(|b| b.is_ascii_digit()) {
         bail!("Invalid fraction format");
     }

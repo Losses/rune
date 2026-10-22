@@ -66,7 +66,7 @@ fn collapse_whitespace(text: &str) -> String {
         result.push(' ');
     }
     result.push_str(&text.split_whitespace().collect::<Vec<_>>().join(" "));
-    if text.len() > 1 && text.ends_with(char::is_whitespace) && !result.ends_with(' ') {
+    if text.ends_with(char::is_whitespace) && !result.ends_with(' ') {
         result.push(' ');
     }
     result
@@ -120,7 +120,7 @@ fn collect_pieces(p: &Element) -> Vec<Piece> {
             }
             XMLNode::Element(e) if e.name == "br" => pieces.push(Piece::Text(" ".to_string())),
             XMLNode::Element(e) if is_secondary(e) => {}
-            XMLNode::Element(e) => match span_times(e).filter(|_| e.name == "span") {
+            XMLNode::Element(e) => match (e.name == "span").then(|| span_times(e)).flatten() {
                 Some((start, end)) => pieces.push(Piece::Span {
                     start,
                     end,
