@@ -228,6 +228,27 @@ fn paused_music_holds_the_picture() {
 }
 
 #[test]
+fn hidden_window_holds_the_picture() {
+    let Some((visualizer, mut feeder)) = start(640, 360) else {
+        return;
+    };
+    collect(&visualizer, &mut feeder, 10);
+    visualizer.set_visible(false);
+    std::thread::sleep(Duration::from_millis(300));
+    let held = visualizer.latest_frame().unwrap().id;
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        visualizer.latest_frame().unwrap().id,
+        held,
+        "drew while hidden"
+    );
+    visualizer.set_visible(true);
+    let (frames, _) = collect(&visualizer, &mut feeder, 10);
+    assert!(frames.last().unwrap().id > held, "did not resume");
+    visualizer.stop();
+}
+
+#[test]
 fn bad_preset_keeps_running_and_reports_the_error() {
     let Some((visualizer, _feeder)) = start(320, 180) else {
         return;

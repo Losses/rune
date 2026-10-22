@@ -30,6 +30,12 @@ pub struct SetVisualizerAppearanceRequest {
     pub light: bool,
 }
 
+/// Whether the app's window can be seen. While it cannot, the visualizer stands still.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SetVisualizerVisibleRequest {
+    pub visible: bool,
+}
+
 /// A transition of 0 seconds or less is a hard cut.
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct LoadVisualizerPresetRequest {

@@ -173,6 +173,9 @@ struct Shared {
     prefer_readback: AtomicBool,
     /// Whether the music plays. While it does not, the picture and its clock stand still.
     playing: AtomicBool,
+    /// Whether the app's window can be seen. While it cannot, nothing is drawn and the clock
+    /// stands still, as while the music is paused.
+    visible: AtomicBool,
     /// The app's appearance, which picks the light or the dark default preset.
     light: AtomicBool,
 }
@@ -220,6 +223,7 @@ impl Visualizer {
                 ),
                 // Until the player says otherwise, draw.
                 playing: AtomicBool::new(true),
+                visible: AtomicBool::new(true),
                 light: AtomicBool::new(false),
             }),
             worker: Mutex::new(None),
@@ -246,6 +250,13 @@ impl Visualizer {
     /// were.
     pub fn set_playing(&self, playing: bool) {
         self.shared.playing.store(playing, Ordering::Relaxed);
+    }
+
+    /// Follow the app's window: while it is minimised, hidden or covered, the visualizer stands
+    /// still like it does while the music is paused, and picks up where it was when it shows
+    /// again.
+    pub fn set_visible(&self, visible: bool) {
+        self.shared.visible.store(visible, Ordering::Relaxed);
     }
 
     /// Read frames back even on macOS, where they normally go into IOSurface-backed pixel
@@ -528,10 +539,11 @@ fn run(
     let mut window_frames = 0u32;
     let mut auto_switch = AutoSwitch::default();
     let mut rng = rand::thread_rng();
-    // Time spent with the music paused, which the visualizer's clock leaves out.
+    // Time spent with the music paused or the window out of sight, which the visualizer's clock
+    // leaves out.
     let mut frozen = Duration::ZERO;
-    // While paused one frame is drawn (the first one, or after a command such as a resize) and
-    // then held.
+    // While paused or out of sight one frame is drawn (the first one, or after a command such as
+    // a resize) and then held.
     let mut still_drawn = false;
     // The file of the preset on screen, reloaded when it is saved (live editing).
     let mut watched: Option<Watched> = None;
@@ -564,9 +576,10 @@ fn run(
             still_drawn = false;
         }
 
-        let paused = !shared.playing.load(Ordering::Relaxed);
+        let paused =
+            !shared.playing.load(Ordering::Relaxed) || !shared.visible.load(Ordering::Relaxed);
         if paused && still_drawn {
-            // Keep the last frame on screen and wait, for commands or for the music.
+            // Keep the last frame on screen and wait, for commands, the music or the window.
             let since = Instant::now();
             match commands.recv_timeout(PAUSED_POLL) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),

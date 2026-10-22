@@ -52,7 +52,8 @@ class VisualizerSurface extends StatefulWidget {
   State<VisualizerSurface> createState() => _VisualizerSurfaceState();
 }
 
-class _VisualizerSurfaceState extends State<VisualizerSurface> {
+class _VisualizerSurfaceState extends State<VisualizerSurface>
+    with WidgetsBindingObserver {
   int? _textureId;
   (int, int)? _renderedSize;
   bool _starting = false;
@@ -70,6 +71,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
   void initState() {
     super.initState();
     _controller.attach();
+    WidgetsBinding.instance.addObserver(this);
+    _syncVisible(WidgetsBinding.instance.lifecycleState);
     _statusTimer = Timer.periodic(
       const Duration(milliseconds: 250),
       (_) => _pollStatus(),
@@ -110,9 +113,32 @@ class _VisualizerSurfaceState extends State<VisualizerSurface> {
     SetVisualizerAppearanceRequest(light: light).sendSignalToRust();
   }
 
+  // Whether Rust was last told the window can be seen; null until it is told.
+  bool? _visible;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) =>
+      _syncVisible(state);
+
+  // A window in the background still shows (inactive); a minimised, hidden or
+  // fully covered one does not, and the visualizer stands still until it
+  // shows again.
+  void _syncVisible(AppLifecycleState? state) {
+    final visible = switch (state) {
+      AppLifecycleState.hidden ||
+      AppLifecycleState.paused ||
+      AppLifecycleState.detached => false,
+      _ => true,
+    };
+    if (_visible == visible) return;
+    _visible = visible;
+    SetVisualizerVisibleRequest(visible: visible).sendSignalToRust();
+  }
+
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _resizeTimer?.cancel();
     _statusTimer?.cancel();
     _controller.detach();
