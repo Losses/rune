@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/foundation.dart' as foundation;
 import 'package:provider/provider.dart';
@@ -138,9 +137,7 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
 
     if (!allVisible) {
       // Far away: only fresh positions are reliable, so jump by index.
-      final averageIndex =
-          _targetLines.reduce((a, b) => a + b) / _targetLines.length;
-      final index = averageIndex.round() + 1;
+      final index = _centreIndex();
       if (animate) {
         _itemScrollController
             .scrollTo(
@@ -171,7 +168,7 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
     final scrollOffset =
         (_measuredScrollOffset ?? scrollController.offset) +
             (averageCentre - position.viewportDimension / 2);
-    final clamped = max(0.0, min(scrollOffset, position.maxScrollExtent));
+    final clamped = scrollOffset.clamp(0.0, position.maxScrollExtent);
 
     if (animate) {
       scrollController.animateTo(
@@ -185,7 +182,8 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
     return true;
   }
 
-  int _initialScrollIndex() {
+  /// The list item in the middle of the target lines.
+  int _centreIndex() {
     final average = _targetLines.reduce((a, b) => a + b) / _targetLines.length;
     return average.round() + 1;
   }
@@ -207,7 +205,7 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
         itemPositionsListener: _itemPositionsListener,
         scrollOffsetController: _scrollOffsetController,
         initialScrollIndex:
-            _targetLines.isEmpty ? 0 : _initialScrollIndex(),
+            _targetLines.isEmpty ? 0 : _centreIndex(),
         initialAlignment: _targetLines.isEmpty ? 0 : 0.5,
         itemCount: widget.lyrics.length + 2,
         itemBuilder: (context, index) {

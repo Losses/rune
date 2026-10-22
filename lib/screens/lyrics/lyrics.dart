@@ -21,6 +21,8 @@ class LyricsPage extends StatefulWidget {
   State<LyricsPage> createState() => _LyricsPageState();
 }
 
+// The end time the lyric parser gives the last line (`DUMMY_END_TIME`, 9999
+// minutes); it is replaced with the track duration.
 const _sentinelEndTime = 599940000;
 
 // How far the interpolated position may run ahead of the last real update.
