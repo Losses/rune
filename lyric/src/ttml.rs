@@ -40,7 +40,14 @@ fn parse_time(s: &str) -> Option<u64> {
     };
     let seconds = seconds.parse::<u64>().ok()?;
 
-    Some(((hours * 60 + minutes) * 60 + seconds) * 1000 + milliseconds)
+    // Times that do not fit are rejected like any other bad value
+    hours
+        .checked_mul(60)?
+        .checked_add(minutes)?
+        .checked_mul(60)?
+        .checked_add(seconds)?
+        .checked_mul(1000)?
+        .checked_add(milliseconds)
 }
 
 /// Translations and romanisations are not part of the main sections.
@@ -96,7 +103,7 @@ fn span_times(element: &Element) -> Option<(u64, Option<u64>)> {
         .and_then(|end| parse_time(end))
         .or_else(|| {
             let dur = parse_time(element.attributes.get("dur")?)?;
-            Some(start + dur)
+            start.checked_add(dur)
         });
     Some((start, end))
 }
@@ -483,6 +490,24 @@ mod tests {
         assert_eq!(parse_time("1h"), Some(3_600_000));
         assert_eq!(parse_time("01:00:01.250"), Some(3_601_250));
         assert_eq!(parse_time("bogus"), None);
+        assert_eq!(parse_time("9999999999999:00:00"), None);
+    }
+
+    #[test]
+    fn test_parse_huge_times() {
+        let ttml_content = r#"
+            <tt><body><div>
+                <p begin="1e30s" dur="1s">huge</p>
+                <p begin="18446744073709551615ms" end="1s"><span begin="1e30s" dur="1s">max</span></p>
+            </div></body></tt>
+        "#;
+
+        for line in parse_ttml(ttml_content).unwrap().lyrics {
+            assert!(ms_of(&line.start_time) <= ms_of(&line.end_time));
+            for (start, end, _) in &line.word_time_tags {
+                assert!(ms_of(start) <= ms_of(end));
+            }
+        }
     }
 
     #[test]

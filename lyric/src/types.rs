@@ -11,8 +11,10 @@ pub struct TimeTag {
 
 impl TimeTag {
     pub fn from_millis(total: u64) -> Self {
-        // Saturate so that absurd inputs cannot overflow the u32 fields
-        let minutes = (total / 60_000).min(u32::MAX as u64) as u32;
+        // Saturate so that absurd inputs cannot overflow the u32 fields, and
+        // saturate the total so that a later time never becomes an earlier one
+        let total = total.min(u32::MAX as u64 * 60_000 + 59_999);
+        let minutes = (total / 60_000) as u32;
         TimeTag {
             minutes,
             seconds: (total / 1000 % 60) as u32,
@@ -139,5 +141,21 @@ impl LyricFile {
             metadata: HashMap::new(),
             lyrics: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_millis_keeps_order_past_the_limit() {
+        let limit = u32::MAX as u64 * 60_000 + 59_999;
+        let times = [limit - 1, limit, limit + 1, limit + 60_000, u64::MAX];
+        for pair in times.windows(2) {
+            let (a, b) = (TimeTag::from_millis(pair[0]), TimeTag::from_millis(pair[1]));
+            assert!(a.as_millis() <= b.as_millis(), "{pair:?}");
+        }
+        assert_eq!(TimeTag::from_millis(u64::MAX).as_millis(), limit);
     }
 }
