@@ -6,4 +6,5 @@ const searchIcons = [
   Symbols.face,
   Symbols.album,
   Symbols.queue_music,
+  Symbols.genres,
 ];

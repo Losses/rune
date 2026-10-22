@@ -52,6 +52,14 @@ class SmallScreenSearchTrackList extends StatelessWidget {
                     groupId: 2,
                     direction: Axis.vertical,
                   ),
+                  if (items[CollectionType.genre]?.isNotEmpty ?? false)
+                    SearchListSectionTitle(text: S.of(context).genres),
+                  SmallScreenSearchTrackListImplementation(
+                    collectionType: CollectionType.genre,
+                    items: items[CollectionType.genre],
+                    groupId: 4,
+                    direction: Axis.vertical,
+                  ),
                   if (items[CollectionType.track]?.isNotEmpty ?? false)
                     SearchListSectionTitle(text: S.of(context).tracks),
                   SmallScreenSearchTrackListImplementation(

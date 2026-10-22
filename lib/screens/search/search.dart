@@ -194,6 +194,12 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
           CollectionType.playlist,
         );
       }
+      if (response.genres.isNotEmpty) {
+        found[CollectionType.genre] = await collectionResponseToSearchCard(
+          response.genres,
+          CollectionType.genre,
+        );
+      }
 
       // The text changed while this search ran; its results are out of date
       // and the new text is searched below.

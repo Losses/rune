@@ -133,6 +133,7 @@ pub async fn search_for(
         CollectionQueryType::Artist,
         CollectionQueryType::Album,
         CollectionQueryType::Playlist,
+        CollectionQueryType::Genre,
     ] {
         if let Some(ref search_fields) = search_fields
             && !search_fields.contains(&collection_type)

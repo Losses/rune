@@ -14,4 +14,5 @@ pub struct SearchForResponse {
     pub albums: Vec<i32>,
     pub playlists: Vec<i32>,
     pub tracks: Vec<i32>,
+    pub genres: Vec<i32>,
 }
