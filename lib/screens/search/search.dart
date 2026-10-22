@@ -159,37 +159,40 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
 
     try {
       final response = await searchFor(query);
-      setState(() {
-        _searchResults = response;
-      });
 
-      items = {};
+      final Map<CollectionType, List<SearchCard>> found = {};
 
       if (response.tracks.isNotEmpty) {
-        items[CollectionType.track] = trackItemsToSearchCard(
+        found[CollectionType.track] = trackItemsToSearchCard(
           await fetchMediaFileByIds(response.tracks, true),
         );
       }
       if (response.artists.isNotEmpty) {
-        items[CollectionType.artist] = await collectionResponseToSearchCard(
+        found[CollectionType.artist] = await collectionResponseToSearchCard(
           response.artists,
           CollectionType.artist,
         );
       }
       if (response.albums.isNotEmpty) {
-        items[CollectionType.album] = await collectionResponseToSearchCard(
+        found[CollectionType.album] = await collectionResponseToSearchCard(
           response.albums,
           CollectionType.album,
         );
       }
       if (response.playlists.isNotEmpty) {
-        items[CollectionType.playlist] = await collectionResponseToSearchCard(
+        found[CollectionType.playlist] = await collectionResponseToSearchCard(
           response.playlists,
           CollectionType.playlist,
         );
       }
 
+      // The text changed while this search ran; its results are out of date
+      // and the new text is searched below.
+      if (!mounted || searchController.text != query) return;
+
       setState(() {
+        _searchResults = response;
+        items = found;
         resetAnimations();
         playAnimations();
       });
@@ -197,6 +200,18 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
       // Handle error
     } finally {
       _isRequestInProgress = false;
+      _catchUp(query);
+    }
+  }
+
+  // A debounced search that fires while another one runs is skipped. Once
+  // that one is done, search for what the box says now.
+  void _catchUp(String searched) {
+    if (!mounted || (_debounce?.isActive ?? false)) return;
+
+    final text = searchController.text;
+    if (text != searched && text.trim().isNotEmpty) {
+      _performSearch(text);
     }
   }
 
