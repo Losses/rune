@@ -6,13 +6,11 @@ on:
       target:
         description: "Target pipeline to run"
         required: true
-        default: "windows-x64"
+        default: "windows"
         type: choice
         options:
           - all
           - windows
-          - windows-x64
-          - windows-arm64
           - linux
           - macos
           - steam-sniper
@@ -30,11 +28,7 @@ jobs:
   # same script exercised by .github/workflows/windows-test-build.yml.
   build-windows:
     name: Build Windows (${{ matrix.arch }})
-    if: |
-      github.event_name != 'workflow_dispatch' ||
-      inputs.target == 'all' ||
-      inputs.target == 'windows' ||
-      inputs.target == format('windows-{0}', matrix.arch)
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'windows'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     permissions:
