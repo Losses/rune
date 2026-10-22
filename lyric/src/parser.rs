@@ -93,6 +93,19 @@ mod tests {
     }
 
     #[test]
+    fn test_decode_text_utf16_with_bom() {
+        let text = "[00:01.00]歌";
+        let mut le = vec![0xFF, 0xFE];
+        let mut be = vec![0xFE, 0xFF];
+        for unit in text.encode_utf16() {
+            le.extend(unit.to_le_bytes());
+            be.extend(unit.to_be_bytes());
+        }
+        assert_eq!(decode_text(&le), text);
+        assert_eq!(decode_text(&be), text);
+    }
+
+    #[test]
     fn test_sidecar_falls_through_to_next_extension() {
         let dir = std::env::temp_dir().join(format!("lyric-test-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
