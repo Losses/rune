@@ -8,6 +8,7 @@ class SearchTask<T, P> extends ChangeNotifier {
   bool notifyWhenStateChange;
 
   bool _isRequestInProgress = false;
+  bool _disposed = false;
   List<T> searchResults = [];
   final Future<List<T>> Function(P) searchDelegate;
 
@@ -41,17 +42,34 @@ class SearchTask<T, P> extends ChangeNotifier {
 
     try {
       final response = await searchDelegate(query);
-      searchResults = response;
+      // Results for text that has changed since are replaced below.
+      if (_lastSearched == query) searchResults = response;
     } catch (e) {
       searchResults = [];
     } finally {
       _isRequestInProgress = false;
-      notifyListeners();
+      if (!_disposed) {
+        notifyListeners();
+        _catchUp(query);
+      }
     }
+  }
+
+  /// A debounced search that fires while another one runs is skipped. Once
+  /// that one is done, search for the latest task.
+  void _catchUp(P searched) {
+    final latest = _lastSearched;
+    if (latest == null ||
+        latest == searched ||
+        (_debounce?.isActive ?? false)) {
+      return;
+    }
+    _performSearch(latest);
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _debounce?.cancel();
     super.dispose();
   }
