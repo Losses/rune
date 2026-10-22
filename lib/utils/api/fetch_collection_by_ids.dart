@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../../bindings/bindings.dart';
+import '../order_by_ids.dart';
 
 Future<List<Collection>> fetchCollectionByIds(
   CollectionType collectionType,
@@ -13,7 +14,8 @@ Future<List<Collection>> fetchCollectionByIds(
   );
   request.sendSignalToRust(); // GENERATED
 
-  return (await FetchCollectionByIdsResponse.rustSignalStream.first)
-      .message
-      .result;
+  final response =
+      (await FetchCollectionByIdsResponse.rustSignalStream.first).message;
+
+  return orderByIds(ids, response.result, (x) => x.id);
 }

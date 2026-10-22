@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../bindings/bindings.dart';
+import '../order_by_ids.dart';
 
 Future<List<InternalMediaFile>> fetchMediaFileByIds(
   List<int> ids,
@@ -16,7 +17,7 @@ Future<List<InternalMediaFile>> fetchMediaFileByIds(
   final response =
       (await FetchMediaFileByIdsResponse.rustSignalStream.first).message;
 
-  return response.mediaFiles
+  return orderByIds(ids, response.mediaFiles, (x) => x.id)
       .map(
         (x) => InternalMediaFile(
           id: x.id,
