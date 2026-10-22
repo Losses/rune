@@ -15,6 +15,7 @@ import '../../screens/search/widgets/small_screen_search_track_list.dart';
 import '../../screens/search/constants/search_categories.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
+import '../../utils/rune_log.dart';
 
 import 'utils/track_items_to_search_card.dart';
 import 'utils/collection_items_to_search_card.dart';
@@ -134,6 +135,14 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
 
     _lastSearched = task;
     if (_debounce?.isActive ?? false) _debounce!.cancel();
+
+    // An empty box shows nothing; a search still running is dropped when it
+    // finishes, since the text no longer matches.
+    if (task.trim().isEmpty) {
+      _clearResults();
+      return;
+    }
+
     _debounce = Timer(const Duration(milliseconds: 300), () {
       if (!_isRequestInProgress && searchController.text.trim().isNotEmpty) {
         _performSearch(searchController.text);
@@ -197,11 +206,21 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
         playAnimations();
       });
     } catch (e) {
-      // Handle error
+      // A failed request is reported by the hub; the page keeps searching.
+      error$('Search for "$query" failed: $e');
+      // Do not leave the results of an earlier text under this one.
+      if (mounted && searchController.text == query) _clearResults();
     } finally {
       _isRequestInProgress = false;
       _catchUp(query);
     }
+  }
+
+  void _clearResults() {
+    setState(() {
+      _searchResults = null;
+      items = {};
+    });
   }
 
   // A debounced search that fires while another one runs is skipped. Once
