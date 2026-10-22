@@ -70,7 +70,11 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
     final targetLines = _computeTargetLines();
 
     // Nothing active and nothing upcoming (after the last line): stay put.
-    if (targetLines.isEmpty) return;
+    // Lines of other lyrics are no place to stay, though.
+    if (targetLines.isEmpty) {
+      if (lyricsChanged) _targetLines = const [];
+      return;
+    }
 
     if (lyricsChanged || !foundation.listEquals(_targetLines, targetLines)) {
       _targetLines = targetLines;
