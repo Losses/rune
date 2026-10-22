@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -23,12 +24,14 @@ class LyricsLayout extends StatefulWidget {
   final List<LyricContentLine> lyrics;
   final int currentTimeMilliseconds;
   final List<int> activeLines;
+  final ValueListenable<double> interpolatedTime;
   const LyricsLayout({
     super.key,
     required this.item,
     required this.lyrics,
     required this.currentTimeMilliseconds,
     required this.activeLines,
+    required this.interpolatedTime,
   });
 
   @override
@@ -135,6 +138,7 @@ class LyricsLayoutState extends State<LyricsLayout> {
                     lyrics: widget.lyrics,
                     currentTimeMilliseconds: widget.currentTimeMilliseconds,
                     activeLines: widget.activeLines,
+                    interpolatedTime: widget.interpolatedTime,
                   ),
                 ),
               ),
