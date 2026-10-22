@@ -358,6 +358,7 @@ impl Signal for VisualizerStatusRequest {
             transport: match status.transport {
                 Some(Transport::IoSurface) => "iosurface",
                 Some(Transport::Readback) => "readback",
+                Some(Transport::DxgiShared) => "dxgi-shared",
                 None => "",
             }
             .to_string(),

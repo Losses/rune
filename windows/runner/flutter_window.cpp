@@ -35,7 +35,8 @@ bool FlutterWindow::OnCreate() {
               flutter_controller_->engine()->GetRegistrarForPlugin(
                   "VisualizerTexture"));
   visualizer_channel_ = std::make_unique<VisualizerChannel>(
-      registrar->messenger(), registrar->texture_registrar());
+      registrar->messenger(), registrar->texture_registrar(),
+      registrar->registrar());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {

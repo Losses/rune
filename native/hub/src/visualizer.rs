@@ -4,6 +4,9 @@
 //! never travel through Dart:
 //! - macOS: an IOSurface-backed pixel buffer ([`rune_visualizer_copy_pixel_buffer`]), or a copy of
 //!   a read-back frame ([`rune_visualizer_copy_frame`]) if pixel buffers failed;
+//! - Windows: a DirectX 12 texture shared through an NT handle, held until released
+//!   (`rune_visualizer_acquire_shared_frame`), once the app told which adapter Flutter renders on
+//!   (`rune_visualizer_set_graphics_adapter`); else, or if sharing failed, as on Linux;
 //! - Windows and Linux: the read-back frame itself, held until released
 //!   ([`rune_visualizer_acquire_frame`], [`rune_visualizer_release_frame`]).
 //!
@@ -274,16 +277,78 @@ pub unsafe extern "C" fn rune_visualizer_acquire_frame(
     Arc::into_raw(frame).cast()
 }
 
-/// Give back a frame from [`rune_visualizer_acquire_frame`]. Null is ignored.
+/// Tell the visualizer which adapter Flutter renders on, by the parts of its DXGI LUID
+/// (`DXGI_ADAPTER_DESC::AdapterLuid`); both 0 if it is unknown. Frames are shared with Flutter only
+/// when the visualizer renders on that adapter, otherwise they are read back. Applies from the
+/// next start of the visualizer, so call it before the app asks for one.
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub extern "C" fn rune_visualizer_set_graphics_adapter(luid_low: u32, luid_high: i32) {
+    let luid = (luid_low != 0 || luid_high != 0).then_some((luid_low, luid_high));
+    VISUALIZER.set_graphics_adapter(luid);
+}
+
+/// A frame in a shared texture, as filled in by `rune_visualizer_acquire_shared_frame`.
+#[cfg(target_os = "windows")]
+#[repr(C)]
+pub struct RuneVisualizerSharedFrame {
+    /// The NT handle of a `DXGI_FORMAT_R8G8B8A8_UNORM` texture of `width` x `height`, for
+    /// `ID3D11Device1::OpenSharedResource1` or Flutter's
+    /// `kFlutterDesktopGpuSurfaceTypeDxgiSharedHandle`. Valid until the frame is released; do not
+    /// close it.
+    pub handle: *mut c_void,
+    pub width: u32,
+    pub height: u32,
+    pub id: u64,
+}
+
+/// Hold the latest frame if it is in a shared texture, and describe it in `out`. Returns a
+/// handle for [`rune_visualizer_release_frame`], or null (nothing written) if there is no such
+/// frame. The GPU has finished drawing it, and the visualizer does not draw into the texture again
+/// while it is held, nor for a few frames after. Release it once a newer frame is shown: the
+/// renderer skips frames while every texture is held.
 ///
 /// # Safety
 ///
-/// `handle` must be null or a handle from [`rune_visualizer_acquire_frame`] that was not released
-/// yet. Any thread may release it.
+/// `out` must be null or valid for writing a [`RuneVisualizerSharedFrame`].
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rune_visualizer_acquire_shared_frame(
+    out: *mut RuneVisualizerSharedFrame,
+) -> *const c_void {
+    if out.is_null() {
+        return std::ptr::null();
+    }
+    let Some(frame) = VISUALIZER.latest_frame() else {
+        return std::ptr::null();
+    };
+    let Some(handle) = frame.shared_handle() else {
+        return std::ptr::null();
+    };
+    // SAFETY: the caller guarantees that `out` is writable.
+    unsafe {
+        out.write(RuneVisualizerSharedFrame {
+            handle,
+            width: frame.width,
+            height: frame.height,
+            id: frame.id,
+        });
+    }
+    Arc::into_raw(frame).cast()
+}
+
+/// Give back a frame from [`rune_visualizer_acquire_frame`] or
+/// `rune_visualizer_acquire_shared_frame`. Null is ignored.
+///
+/// # Safety
+///
+/// `handle` must be null or a handle from [`rune_visualizer_acquire_frame`] or
+/// `rune_visualizer_acquire_shared_frame` that was not released yet. Any thread may release it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rune_visualizer_release_frame(handle: *const c_void) {
     if !handle.is_null() {
-        // SAFETY: the handle is an `Arc<Frame>` from `acquire`, released exactly once.
+        // SAFETY: the handle is an `Arc<Frame>` from one of the acquire functions, released
+        // exactly once.
         drop(unsafe { Arc::from_raw(handle.cast::<Frame>()) });
     }
 }

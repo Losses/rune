@@ -56,6 +56,13 @@ class VisualizerSurface extends StatefulWidget {
 class _VisualizerSurfaceState extends State<VisualizerSurface>
     with WidgetsBindingObserver {
   int? _textureId;
+  // Windows: the texture fed with shared DirectX textures, shown unless the
+  // visualizer reads its frames back; null elsewhere or if the native side
+  // cannot share frames.
+  int? _gpuTextureId;
+  // How frames leave the GPU, from the last status; empty until it is known.
+  // Only followed while there is a GPU texture.
+  String _transport = '';
   (int, int)? _renderedSize;
   bool _starting = false;
   bool _disposed = false;
@@ -172,7 +179,12 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     try {
       final size = _renderSize(logical, pixelRatio);
 
-      final id = await _channel.invokeMethod<int>('create');
+      // An id, or on Windows a map of the ids of the pixel and the GPU
+      // textures.
+      final created = await _channel.invokeMethod<Object>('create');
+      final ids = created is Map ? created : const {};
+      final id = created is int ? created : ids['pixels'] as int?;
+      final gpuId = ids['gpu'] as int?;
       if (_disposed) {
         await _channel.invokeMethod<void>('dispose');
         return;
@@ -199,6 +211,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       _controller.hasPresets = dirs.isNotEmpty;
       setState(() {
         _textureId = id;
+        _gpuTextureId = gpuId;
         _renderedSize = size;
       });
     } catch (e) {
@@ -252,6 +265,10 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       }
 
       _controller.status = status;
+      // Windows changes to the pixel texture once frames are read back.
+      if (_gpuTextureId != null && status.transport != _transport) {
+        setState(() => _transport = status.transport);
+      }
       _updateLabel(status);
       // A folder without presets counts as none.
       if (status.running) {
@@ -300,7 +317,11 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   /// Letterboxed: the texture keeps the aspect ratio of the size that was
   /// requested from Rust, so a window that changes shape never stretches it.
   Widget _buildTexture() {
-    final id = _textureId;
+    // The GPU texture unless the visualizer reads frames back, which only the
+    // pixel texture shows.
+    final id = _gpuTextureId != null && _transport != 'readback'
+        ? _gpuTextureId
+        : _textureId;
     final size = _renderedSize;
     if (id == null || size == null) return const SizedBox.expand();
 

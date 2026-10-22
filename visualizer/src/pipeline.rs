@@ -1,6 +1,7 @@
 //! The GPU side: a headless device, the lactea engine and where frames go: on macOS straight into
-//! IOSurface-backed pixel buffers ([`crate::surface`]), elsewhere (or if that fails) an offscreen
-//! target that is read back into mapped buffers ([`crate::readback`]).
+//! IOSurface-backed pixel buffers ([`crate::surface`]), on Windows into DirectX 12 textures shared
+//! with Flutter's adapter (`crate::shared_dx12`), elsewhere (or if that fails) an offscreen target
+//! that is read back into mapped buffers ([`crate::readback`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,13 +15,16 @@ use crate::covers::{Atlas, Cell};
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
 use crate::scene::{FrameInput, Scene};
+#[cfg(target_os = "windows")]
+use crate::shared_dx12::{SharedTargets, SharedTexture};
 #[cfg(target_os = "macos")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
 use crate::textures::FolderTextures;
 
 /// `kCVPixelFormatType_32BGRA` on macOS. Windows' `FlutterDesktopPixelBuffer` and Linux's
-/// `FlPixelBufferTexture` take RGBA. The engine only compensates for `*Srgb` targets, so with a
-/// linear format the bytes are exactly what the preset drew.
+/// `FlPixelBufferTexture` take RGBA, and so does ANGLE for a shared texture. The engine only
+/// compensates for `*Srgb` targets, so with a linear format the bytes are exactly what the preset
+/// drew.
 #[cfg(target_os = "macos")]
 pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 #[cfg(not(target_os = "macos"))]
@@ -71,6 +75,8 @@ pub enum Rendered {
     Mapped(MappedFrame),
     #[cfg(target_os = "macos")]
     PixelBuffer(PixelBuffer),
+    #[cfg(target_os = "windows")]
+    Shared(SharedTexture),
     /// Nothing new: every buffer is still in use, or the GPU has not finished one yet.
     Nothing,
 }
@@ -79,17 +85,23 @@ pub enum Rendered {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transport {
     Readback,
+    /// macOS: IOSurface-backed pixel buffers.
     IoSurface,
+    /// Windows: DirectX 12 textures shared through NT handles.
+    DxgiShared,
 }
 
 enum Output {
     Readback(Target),
     #[cfg(target_os = "macos")]
     Surfaces(SurfaceTargets),
+    #[cfg(target_os = "windows")]
+    Shared(SharedTargets),
 }
 
 impl Output {
-    /// Pixel buffers on macOS unless `readback`, else (or if they fail) the readback target.
+    /// Pixel buffers on macOS and shared textures on Windows unless `readback`, else (or if they
+    /// fail) the readback target.
     fn new(device: &wgpu::Device, width: u32, height: u32, readback: bool) -> Self {
         #[cfg(target_os = "macos")]
         if !readback {
@@ -98,7 +110,14 @@ impl Output {
                 Err(e) => warn!("Falling back to reading frames back: {e:#}"),
             }
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        if !readback {
+            match SharedTargets::new(device, width, height) {
+                Ok(targets) => return Self::Shared(targets),
+                Err(e) => warn!("Falling back to reading frames back: {e:#}"),
+            }
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         let _ = readback;
         Self::Readback(Target::new(device, width, height))
     }
@@ -108,26 +127,76 @@ impl Output {
             Self::Readback(target) => (target.width, target.height),
             #[cfg(target_os = "macos")]
             Self::Surfaces(surfaces) => surfaces.size(),
+            #[cfg(target_os = "windows")]
+            Self::Shared(targets) => targets.size(),
         }
     }
 }
 
+/// The adapter to render on, and whether frames may leave it without being read back. On Windows
+/// that is only so on the adapter Flutter renders on (`adapter_luid`, see
+/// [`crate::Visualizer::set_graphics_adapter`]), because a shared texture cannot be opened on
+/// another one; without it, the adapter is chosen as elsewhere and frames are read back.
+fn choose_adapter(
+    instance: &wgpu::Instance,
+    adapter_luid: Option<u64>,
+) -> Result<(wgpu::Adapter, bool)> {
+    #[cfg(target_os = "windows")]
+    match adapter_luid {
+        Some(luid) => match crate::shared_dx12::adapter_with_luid(instance, luid) {
+            Some(adapter) => return Ok((adapter, true)),
+            None => {
+                warn!("No DirectX 12 adapter has Flutter's LUID {luid:#x}; reading frames back")
+            }
+        },
+        None => log::info!("Flutter's adapter is unknown; reading frames back"),
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = adapter_luid;
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        ..Default::default()
+    }))
+    .map_err(|e| anyhow!("No GPU adapter: {e}"))?;
+    Ok((adapter, cfg!(not(target_os = "windows"))))
+}
+
+/// Draw a frame into `view` and wait until the GPU has finished it, so that the target can be
+/// handed out.
+fn render_and_wait(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    paint: impl FnOnce(&mut wgpu::CommandEncoder),
+) -> Result<()> {
+    let mut encoder = device.create_command_encoder(&Default::default());
+    paint(&mut encoder);
+    let submission = queue.submit(Some(encoder.finish()));
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(submission),
+            timeout: None,
+        })
+        .map_err(|e| anyhow!("GPU poll failed: {e:?}"))?;
+    Ok(())
+}
+
 impl Pipeline {
+    /// `adapter_luid`: the adapter Flutter renders on, which only Windows uses (see
+    /// [`choose_adapter`]).
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         width: u32,
         height: u32,
         fps: u32,
         sample_rate: u32,
         readback: bool,
+        adapter_luid: Option<u64>,
         light: bool,
         on_gpu_error: Arc<dyn Fn(String) + Send + Sync>,
     ) -> Result<Self> {
         let instance = wgpu::Instance::default();
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            ..Default::default()
-        }))
-        .map_err(|e| anyhow!("No GPU adapter: {e}"))?;
+        let (adapter, shareable) = choose_adapter(&instance, adapter_luid)?;
+        let readback = readback || !shareable;
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
                 .context("Failed to create the GPU device")?;
@@ -205,6 +274,8 @@ impl Pipeline {
             Output::Readback(_) => Transport::Readback,
             #[cfg(target_os = "macos")]
             Output::Surfaces(_) => Transport::IoSurface,
+            #[cfg(target_os = "windows")]
+            Output::Shared(_) => Transport::DxgiShared,
         }
     }
 
@@ -385,29 +456,25 @@ impl Pipeline {
         }
     }
 
-    /// Render one frame: into the next pixel buffer, or into the target that is read back.
+    /// Render one frame: into the next pixel buffer or shared texture, or into the target that
+    /// is read back.
     pub fn render(&mut self, clock: FrameClock) -> Result<Rendered> {
         #[cfg(target_os = "macos")]
         if let Output::Surfaces(surfaces) = &mut self.output {
             match surfaces.next(&self.device) {
                 Ok(Some((buffer, view))) => {
-                    let mut encoder = self.device.create_command_encoder(&Default::default());
-                    draw(
-                        (&mut self.engine, &mut self.scene),
-                        (&self.device, &self.queue),
-                        &mut encoder,
-                        &view,
-                        clock,
-                        (&self.rhythm, self.chart.as_ref(), self.song, self.accent),
-                    );
-                    let submission = self.queue.submit(Some(encoder.finish()));
-                    // Hand the buffer out only once the GPU has finished drawing into it.
-                    self.device
-                        .poll(wgpu::PollType::Wait {
-                            submission_index: Some(submission),
-                            timeout: None,
-                        })
-                        .map_err(|e| anyhow!("GPU poll failed: {e:?}"))?;
+                    let (engine, scene) = (&mut self.engine, &mut self.scene);
+                    let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+                    render_and_wait(&self.device, &self.queue, |encoder| {
+                        draw(
+                            (engine, scene),
+                            (&self.device, &self.queue),
+                            encoder,
+                            &view,
+                            clock,
+                            heard,
+                        )
+                    })?;
                     surfaces.keep(buffer.clone());
                     return Ok(Rendered::PixelBuffer(buffer));
                 }
@@ -419,8 +486,35 @@ impl Pipeline {
                 }
             }
         }
+        #[cfg(target_os = "windows")]
+        if let Output::Shared(targets) = &mut self.output {
+            match targets.next(&self.device) {
+                Ok(Some((texture, view))) => {
+                    let (engine, scene) = (&mut self.engine, &mut self.scene);
+                    let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+                    render_and_wait(&self.device, &self.queue, |encoder| {
+                        draw(
+                            (engine, scene),
+                            (&self.device, &self.queue),
+                            encoder,
+                            &view,
+                            clock,
+                            heard,
+                        )
+                    })?;
+                    targets.keep(texture.clone());
+                    return Ok(Rendered::Shared(texture));
+                }
+                Ok(None) => return Ok(Rendered::Nothing),
+                Err(e) => {
+                    warn!("Falling back to reading frames back: {e:#}");
+                    let (width, height) = targets.size();
+                    self.output = Output::Readback(Target::new(&self.device, width, height));
+                }
+            }
+        }
         let Output::Readback(target) = &mut self.output else {
-            unreachable!("only macOS has other outputs")
+            unreachable!("the other outputs returned or were replaced above")
         };
         let (engine, scene) = (&mut self.engine, &mut self.scene);
         let (device, queue) = (&self.device, &self.queue);
@@ -520,7 +614,7 @@ mod tests {
     /// What the beat tracker found reaches a preset's per-frame code.
     #[test]
     fn presets_see_the_rhythm() {
-        let Ok(mut pipeline) = Pipeline::new(64, 36, 60, 44_100, true, false, Arc::new(|_| {}))
+        let Ok(mut pipeline) = Pipeline::new(64, 36, 60, 44_100, true, None, false, Arc::new(|_| {}))
         else {
             eprintln!("SKIPPED: no GPU adapter");
             return;
@@ -556,7 +650,7 @@ mod tests {
     /// A song's chart reaches a preset's per-frame code, and without one it reads zeros.
     #[test]
     fn presets_see_the_chart() {
-        let Ok(mut pipeline) = Pipeline::new(64, 36, 60, 44_100, true, false, Arc::new(|_| {}))
+        let Ok(mut pipeline) = Pipeline::new(64, 36, 60, 44_100, true, None, false, Arc::new(|_| {}))
         else {
             eprintln!("SKIPPED: no GPU adapter");
             return;

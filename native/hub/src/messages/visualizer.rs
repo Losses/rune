@@ -83,8 +83,8 @@ pub struct VisualizerStatusResponse {
     pub preset_name: String,
     pub preset_count: u32,
     pub adapter: String,
-    /// How frames reach the screen: "iosurface" (no copies, macOS), "readback", or empty before
-    /// the render thread runs.
+    /// How frames reach the screen: "iosurface" (no copies, macOS), "dxgi-shared" (no copies,
+    /// Windows), "readback", or empty before the render thread runs.
     pub transport: String,
     pub last_error: Option<String>,
 }

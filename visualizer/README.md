@@ -64,3 +64,14 @@ With a chart, `rune_bpm`, `rune_beat_count`, `rune_beat_phase` and `rune_beat_co
 | `rune_ev_low`, `rune_ev_mid`, `rune_ev_high`, `rune_ev_harm`, `rune_ev_phrase` | Onsets of the percussive low, mid and high bands, of pitched sounds and of phrases: the latest one's strength, fading within about 0.1 s (0.6 s for phrases). |
 | `rune_lead`, `rune_lead_ev` | The stream that stands out now (0 none, 1 low, 2 mid, 3 high, 4 pitched) and its onsets. |
 | `rune_loud`, `rune_bright`, `rune_perc`, `rune_pulse` | Loudness, brightness, how percussive the sound is and how clear the pulse is, 0 to 1 within the song. |
+## How frames reach the screen
+
+The render thread draws each frame on the GPU, and the app's native side hands it to Flutter as a texture. The status reports the way it took (`transport`) and the adapter it renders on.
+
+- macOS (`iosurface`): frames are drawn straight into IOSurface-backed pixel buffers, which Flutter shows without a copy.
+- Windows (`dxgi-shared`): frames are drawn straight into DirectX 12 textures shared through NT handles, which Flutter opens on its own device (through ANGLE) without a copy. That only works on the adapter Flutter renders on, so the app tells the visualizer that adapter's LUID before it starts, and the visualizer renders there. The app registers a second texture for read-back frames and shows whichever matches the transport.
+- Linux, and the fallback everywhere (`readback`): frames are drawn into an offscreen texture and copied into a buffer that is mapped for reading; Flutter uploads the pixels again. With rows that are a multiple of 64 pixels wide, the native side hands over the mapped buffer without copying it on the CPU.
+
+Frames are read back instead when `RUNE_VISUALIZER_READBACK=1` is set (or a test asks for it), when the zero-copy targets cannot be created, or when they fail while running (the switch shows in the status). On Windows also when the app could not tell Flutter's adapter, or when no DirectX 12 adapter has its LUID; the visualizer then lets wgpu pick an adapter, preferring a high-performance one, as on the other platforms.
+
+The zero-copy paths keep the last three published frames, and every frame someone still holds, away from the renderer, because Flutter may sample a frame after it let go of it. With every target in use the renderer skips a frame instead of drawing over one.

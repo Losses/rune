@@ -5,19 +5,24 @@
 #include <flutter/encodable_value.h>
 #include <flutter/method_channel.h>
 #include <flutter/texture_registrar.h>
+#include <flutter_plugin_registrar.h>
 
 #include <memory>
 
 class VisualizerTexture;
 
-// Owns the single visualizer texture and serves the `not.ci.rune/visualizer`
-// method channel (`create` returns the texture id, `dispose` releases it).
+// Owns the visualizer textures and serves the `not.ci.rune/visualizer` method
+// channel: `create` returns `{"pixels": id}` for the texture fed with
+// read-back frames, plus `"gpu": id` for the one fed with shared DirectX
+// textures when the hub can share them; `dispose` releases both.
 // Must be created, used and destroyed on the platform thread.
 class VisualizerChannel {
  public:
-  // |messenger| and |registrar| must outlive this object.
+  // |messenger|, |registrar| and |plugin_registrar| (which tells the adapter
+  // Flutter renders on) must outlive this object.
   VisualizerChannel(flutter::BinaryMessenger* messenger,
-                    flutter::TextureRegistrar* registrar);
+                    flutter::TextureRegistrar* registrar,
+                    FlutterDesktopPluginRegistrarRef plugin_registrar);
   ~VisualizerChannel();
 
   VisualizerChannel(const VisualizerChannel&) = delete;
@@ -25,6 +30,7 @@ class VisualizerChannel {
 
  private:
   flutter::TextureRegistrar* registrar_;
+  FlutterDesktopPluginRegistrarRef plugin_registrar_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
   std::unique_ptr<VisualizerTexture> texture_;
 };

@@ -35,3 +35,10 @@ objc2-core-foundation = { version = "0.3", default-features = false, features = 
 objc2-core-video = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-io-surface", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferIOSurface", "CVPixelBufferPool", "CVReturn"] }
 objc2-io-surface = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-core-foundation", "IOSurfaceRef", "IOSurfaceTypes"] }
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "objc2-io-surface", "MTLAllocation", "MTLDevice", "MTLPixelFormat", "MTLResource", "MTLTexture", "MTLTypes"] }
+
+# The shared-texture frame path of Windows. wgpu-hal's DirectX 12 backend uses this version of the
+# windows crate, so its COM types are ours. lactea enables `dx12` already; it is named here because
+# this crate uses the backend directly.
+[target.'cfg(target_os = "windows")'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["dx12"] }
+windows = { version = "0.62", default-features = false, features = ["Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Security"] }
