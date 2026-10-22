@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -202,11 +204,33 @@ class _MixEditorState extends State<MixEditor> {
 }
 
 Future<Map<String, List<int>>> searchFor(String query, String field) async {
-  final searchRequest =
-      SearchForRequest(queryStr: query, fields: [field], n: 30);
-  searchRequest.sendSignalToRust();
+  // Match the word being typed as a prefix, like the search page.
+  if (!query.endsWith('*')) {
+    query = '$query*';
+  }
 
-  final message = (await SearchForResponse.rustSignalStream.first).message;
+  // Subscribe before sending so the response cannot be missed. A request that
+  // fails in the hub sends no response; give up instead of waiting forever,
+  // which would keep this field from searching again.
+  final response = Completer<SearchForResponse>();
+  final subscription = SearchForResponse.rustSignalStream.listen((x) {
+    if (!response.isCompleted) response.complete(x.message);
+  });
+
+  final SearchForResponse message;
+  try {
+    final searchRequest = SearchForRequest(
+      queryStr: query,
+      fields: [field],
+      n: 30,
+    );
+    searchRequest.sendSignalToRust();
+
+    message = await response.future.timeout(const Duration(seconds: 10));
+  } finally {
+    // A timed-out request must not keep listening
+    await subscription.cancel();
+  }
 
   final Map<String, List<int>> result = {};
 
