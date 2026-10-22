@@ -8,9 +8,11 @@ G_BEGIN_DECLS
 /**
  * VisualizerChannel:
  *
- * Owns the single visualizer texture and serves the `not.ci.rune/visualizer`
- * method channel (`create` returns the texture id, `dispose` releases it).
- * Everything runs on the GTK main thread, except the texture's pixel callback,
+ * Owns the visualizer textures and serves the `not.ci.rune/visualizer` method
+ * channel: `create` returns `{"pixels": id}` for the texture fed with
+ * read-back frames, plus `"gpu": id` for the one fed with Vulkan images that
+ * Flutter's OpenGL context imports, when it can; `dispose` releases both.
+ * Everything runs on the GTK main thread, except the textures' callbacks,
  * which the engine calls on its raster thread.
  */
 typedef struct _VisualizerChannel VisualizerChannel;

@@ -1,10 +1,11 @@
 //! A MilkDrop-style visualizer: a render thread that turns PCM into BGRA frames.
 //!
 //! The thread owns a headless wgpu device and a [`lactea`] engine. Each frame it drains the PCM
-//! ring buffer and renders. On macOS it draws straight into an IOSurface-backed pixel buffer, and
-//! on Windows into a DirectX 12 texture shared with Flutter's adapter, which the app can show
-//! without a copy; elsewhere, or if that fails, it renders into an offscreen texture that is
-//! copied into a readback buffer, and the mapped buffer itself is the frame.
+//! ring buffer and renders. On macOS it draws straight into an IOSurface-backed pixel buffer, on
+//! Windows into a DirectX 12 texture shared with Flutter's adapter, and on Linux into a Vulkan
+//! image whose memory Flutter's OpenGL context imports, which the app can show without a copy;
+//! elsewhere, or if that fails, it renders into an offscreen texture that is copied into a
+//! readback buffer, and the mapped buffer itself is the frame.
 //! Either way the result is the latest [`Frame`]. Readers ([`Visualizer::latest_frame`]) only
 //! clone an `Arc` under a short lock and never wait for the GPU. A reader that keeps frames holds
 //! their buffers, and the renderer skips frames while none is free.
@@ -18,6 +19,8 @@ mod rhythm;
 mod scene;
 #[cfg(target_os = "windows")]
 mod shared_dx12;
+#[cfg(target_os = "linux")]
+mod shared_vulkan;
 #[cfg(target_os = "macos")]
 mod surface;
 mod textures;
@@ -43,6 +46,8 @@ use pipeline::{Pipeline, Rendered};
 pub use presets::PresetInfo;
 use presets::{AutoSwitch, Location, Preset, PresetList};
 pub use rhythm::{BeatTracker, Rhythm};
+#[cfg(target_os = "linux")]
+pub use shared_vulkan::SharedFrame;
 
 pub use lactea::Transition;
 
@@ -87,6 +92,10 @@ pub enum FrameData {
     /// A DirectX 12 texture (`DXGI_FORMAT_R8G8B8A8_UNORM`) shared through an NT handle.
     #[cfg(target_os = "windows")]
     Shared(shared_dx12::SharedTexture),
+    /// A Vulkan image (`VK_FORMAT_R8G8B8A8_UNORM`) whose memory and semaphore can be exported as
+    /// file descriptors.
+    #[cfg(target_os = "linux")]
+    Shared(shared_vulkan::SharedFrame),
 }
 
 impl Frame {
@@ -97,7 +106,7 @@ impl Frame {
             FrameData::Mapped(frame) => Some((frame.bytes(), frame.stride())),
             #[cfg(target_os = "macos")]
             FrameData::PixelBuffer(_) => None,
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             FrameData::Shared(_) => None,
         }
     }
@@ -122,8 +131,18 @@ impl Frame {
         }
     }
 
+    /// The shared image the frame is in, if it is in one. Its memory and semaphore are exported
+    /// from it while the frame is held.
+    #[cfg(target_os = "linux")]
+    pub fn shared_image(&self) -> Option<&shared_vulkan::SharedFrame> {
+        match &self.data {
+            FrameData::Shared(frame) => Some(frame),
+            FrameData::Mapped(_) => None,
+        }
+    }
+
     /// The pixels as tightly packed rows (BGRA on macOS, RGBA elsewhere). Copies; for tests. A
-    /// frame in a shared texture (Windows) has no pixels to copy here.
+    /// frame in a shared texture (Windows) or image (Linux) has no pixels to copy here.
     pub fn to_packed(&self) -> Result<Vec<u8>> {
         match &self.data {
             FrameData::Mapped(frame) => {
@@ -139,10 +158,18 @@ impl Frame {
             }
             #[cfg(target_os = "macos")]
             FrameData::PixelBuffer(buffer) => buffer.read_bgra(self.width, self.height),
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             FrameData::Shared(_) => bail!("The frame is in a shared texture"),
         }
     }
+}
+
+/// The device and driver UUIDs of a GPU, as Vulkan (`VkPhysicalDeviceIDProperties`) and OpenGL
+/// (`GL_DEVICE_UUID_EXT`, `GL_DRIVER_UUID_EXT`) report them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeviceUuids {
+    pub device: [u8; 16],
+    pub driver: [u8; 16],
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -226,6 +253,11 @@ struct Shared {
     covers_requester: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// The LUID of the adapter Flutter renders on (see [`adapter_luid`]), 0 while unknown.
     adapter_luid: AtomicU64,
+    /// The UUIDs of the GPU Flutter renders on, while known.
+    device_uuids: Mutex<Option<DeviceUuids>>,
+    /// The app could not show a shared frame: the render thread reads frames back from its next
+    /// frame on.
+    fall_back: AtomicBool,
 }
 
 /// The atlas of covers made last (none: there are no covers) and how often it was replaced.
@@ -296,6 +328,8 @@ impl Visualizer {
                 playing_cover_job: AtomicU64::new(0),
                 covers_requester: Mutex::new(None),
                 adapter_luid: AtomicU64::new(0),
+                device_uuids: Mutex::new(None),
+                fall_back: AtomicBool::new(false),
             }),
             worker: Mutex::new(None),
             library: Arc::new(Mutex::new(Library::default())),
@@ -408,8 +442,9 @@ impl Visualizer {
         self.shared.visible.store(visible, Ordering::Relaxed);
     }
 
-    /// Read frames back even on macOS and Windows, where they normally go into IOSurface-backed
-    /// pixel buffers or shared textures. Applies from the next [`Self::start`].
+    /// Read frames back even on macOS, Windows and Linux, where they normally go into
+    /// IOSurface-backed pixel buffers, shared textures or shared images. Applies from the next
+    /// [`Self::start`].
     pub fn prefer_readback(&self, readback: bool) {
         self.shared
             .prefer_readback
@@ -423,6 +458,21 @@ impl Visualizer {
     pub fn set_graphics_adapter(&self, luid: Option<(u32, i32)>) {
         let luid = luid.map_or(0, |(low, high)| adapter_luid(low, high));
         self.shared.adapter_luid.store(luid, Ordering::Relaxed);
+    }
+
+    /// The GPU Flutter's OpenGL context runs on, by its device and driver UUIDs (`None` if unknown
+    /// or if that context cannot import Vulkan memory). On Linux frames go to Flutter in Vulkan
+    /// images whose memory OpenGL imports, which only works on that GPU and driver: with it the
+    /// visualizer renders there, without it frames are read back. Elsewhere it has no effect.
+    /// Applies from the next [`Self::start`].
+    pub fn set_graphics_device(&self, uuids: Option<DeviceUuids>) {
+        *lock(&self.shared.device_uuids) = uuids;
+    }
+
+    /// Read frames back from the next frame on, until the render thread stops: the app could not
+    /// show a frame it was handed in a shared image.
+    pub fn fall_back_to_readback(&self) {
+        self.shared.fall_back.store(true, Ordering::Relaxed);
     }
 
     /// Start the render thread. It returns at once; a missing GPU or an engine error shows up
@@ -451,6 +501,7 @@ impl Visualizer {
         self.shared
             .auto_switch_paused
             .store(false, Ordering::Relaxed);
+        self.shared.fall_back.store(false, Ordering::Relaxed);
         let (commands, receiver) = mpsc::channel();
         let shared = Arc::clone(&self.shared);
         let library = Arc::clone(&self.library);
@@ -679,6 +730,7 @@ fn run(
         0 => None,
         luid => Some(luid),
     };
+    let device_uuids = *lock(&shared.device_uuids);
     let mut pipeline = Pipeline::new(
         width,
         height,
@@ -686,6 +738,7 @@ fn run(
         sample_rate,
         readback,
         adapter_luid,
+        device_uuids,
         light,
         on_gpu_error,
     )?;
@@ -873,6 +926,9 @@ fn run(
             0 => None,
             argb => Some(scene::argb_to_linear(argb)),
         });
+        if shared.fall_back.swap(false, Ordering::Relaxed) {
+            pipeline.fall_back_to_readback();
+        }
         let clock = FrameClock {
             time,
             frame: frame_index,
@@ -886,12 +942,12 @@ fn run(
             Rendered::PixelBuffer(buffer) => {
                 publish(shared, width, height, FrameData::PixelBuffer(buffer));
             }
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             Rendered::Shared(texture) => publish(shared, width, height, FrameData::Shared(texture)),
             Rendered::Nothing => {}
         }
-        // The output falls back to reading frames back if pixel buffers or shared textures stop
-        // working.
+        // The output falls back to reading frames back if pixel buffers, shared textures or shared
+        // images stop working, or the app could not show them.
         if pipeline.transport() != transport {
             transport = pipeline.transport();
             info!("Visualizer frames now leave the GPU by {transport:?}");

@@ -359,6 +359,7 @@ impl Signal for VisualizerStatusRequest {
                 Some(Transport::IoSurface) => "iosurface",
                 Some(Transport::Readback) => "readback",
                 Some(Transport::DxgiShared) => "dxgi-shared",
+                Some(Transport::VulkanShared) => "vulkan-shared",
                 None => "",
             }
             .to_string(),

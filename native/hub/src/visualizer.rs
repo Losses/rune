@@ -6,8 +6,12 @@
 //!   a read-back frame ([`rune_visualizer_copy_frame`]) if pixel buffers failed;
 //! - Windows: a DirectX 12 texture shared through an NT handle, held until released
 //!   (`rune_visualizer_acquire_shared_frame`), once the app told which adapter Flutter renders on
-//!   (`rune_visualizer_set_graphics_adapter`); else, or if sharing failed, as on Linux;
-//! - Windows and Linux: the read-back frame itself, held until released
+//!   (`rune_visualizer_set_graphics_adapter`); else, or if sharing failed, read back;
+//! - Linux: a Vulkan image whose memory and a semaphore OpenGL imports from file descriptors, held
+//!   until released (`rune_visualizer_acquire_shared_frame`), once the app told which GPU its
+//!   OpenGL context runs on (`rune_visualizer_set_graphics_device`); else, or if sharing failed,
+//!   read back;
+//! - Windows and Linux, read back: the read-back frame itself, held until released
 //!   ([`rune_visualizer_acquire_frame`], [`rune_visualizer_release_frame`]).
 //!
 //! The functions are exported from `rinf.framework` on macOS and from the hub library
@@ -24,6 +28,15 @@ use ::database::{
 use ::fsio::FsIo;
 use anyhow::Result;
 use log::warn;
+#[cfg(target_os = "linux")]
+use std::ffi::c_int;
+#[cfg(target_os = "linux")]
+use std::os::fd::{IntoRawFd, OwnedFd};
+
+#[cfg(target_os = "linux")]
+use log::error;
+#[cfg(target_os = "linux")]
+use visualizer::{DeviceUuids, SharedFrame};
 use visualizer::{Frame, Visualizer};
 
 pub static VISUALIZER: LazyLock<Visualizer> = LazyLock::new(Visualizer::new);
@@ -335,6 +348,161 @@ pub unsafe extern "C" fn rune_visualizer_acquire_shared_frame(
         });
     }
     Arc::into_raw(frame).cast()
+}
+
+/// Tell the visualizer which GPU Flutter's OpenGL context runs on, by its device and driver UUIDs
+/// (`GL_DEVICE_UUID_EXT`, `GL_DRIVER_UUID_EXT`); either null if it is unknown or if the context
+/// cannot import Vulkan memory and semaphores (`GL_EXT_memory_object_fd`, `GL_EXT_semaphore_fd`).
+/// Frames are shared with Flutter only when the visualizer renders on that GPU and driver,
+/// otherwise they are read back. Applies from the next start of the visualizer, so call it before
+/// the app asks for one.
+///
+/// # Safety
+///
+/// `device_uuid` and `driver_uuid` must each be null or valid for reading 16 bytes.
+#[cfg(target_os = "linux")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rune_visualizer_set_graphics_device(
+    device_uuid: *const u8,
+    driver_uuid: *const u8,
+) {
+    let uuids = (!device_uuid.is_null() && !driver_uuid.is_null()).then(|| {
+        // SAFETY: the caller guarantees 16 readable bytes behind each pointer, which are not null.
+        unsafe {
+            DeviceUuids {
+                device: device_uuid.cast::<[u8; 16]>().read_unaligned(),
+                driver: driver_uuid.cast::<[u8; 16]>().read_unaligned(),
+            }
+        }
+    });
+    VISUALIZER.set_graphics_device(uuids);
+}
+
+/// A frame in a shared image, as filled in by `rune_visualizer_acquire_shared_frame`.
+#[cfg(target_os = "linux")]
+#[repr(C)]
+pub struct RuneVisualizerSharedFrame {
+    /// The `VK_FORMAT_R8G8B8A8_UNORM` image with optimal tiling the frame is in, to be imported
+    /// as a `GL_RGBA8` texture with `GL_OPTIMAL_TILING_EXT`. Frames in the same image have the
+    /// same id, and ids are never reused: import an image's memory once
+    /// (`rune_visualizer_export_frame_memory`) and keep the texture under this id.
+    pub image_id: u64,
+    /// The set of images the frame's image belongs to, one per size and start. The visualizer no
+    /// longer draws into images of an earlier set, so their textures can be deleted once Flutter
+    /// no longer samples them.
+    pub image_set: u64,
+    /// The size in bytes of the image's dedicated allocation, for `glImportMemoryFdEXT` (whose
+    /// memory object is `GL_DEDICATED_MEMORY_OBJECT_EXT`, the texture at offset 0).
+    pub memory_size: u64,
+    pub width: u32,
+    pub height: u32,
+    pub id: u64,
+}
+
+/// Hold the latest frame if it is in a shared image, and describe it in `out`. Returns a handle for
+/// [`rune_visualizer_release_frame`], or null (nothing written) if there is no such frame. Before
+/// sampling the frame, wait once for its semaphore (`rune_visualizer_export_frame_semaphore`) with
+/// `glWaitSemaphoreEXT`, naming the texture with the layout `GL_LAYOUT_SHADER_READ_ONLY_EXT`. The
+/// visualizer does not draw into the image again while the frame is held, nor for a few frames
+/// after. Release it once a newer frame is shown: the renderer skips frames while every image is
+/// held.
+///
+/// # Safety
+///
+/// `out` must be null or valid for writing a [`RuneVisualizerSharedFrame`].
+#[cfg(target_os = "linux")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rune_visualizer_acquire_shared_frame(
+    out: *mut RuneVisualizerSharedFrame,
+) -> *const c_void {
+    if out.is_null() {
+        return std::ptr::null();
+    }
+    let Some(frame) = VISUALIZER.latest_frame() else {
+        return std::ptr::null();
+    };
+    let Some(shared) = frame.shared_image() else {
+        return std::ptr::null();
+    };
+    // SAFETY: the caller guarantees that `out` is writable.
+    unsafe {
+        out.write(RuneVisualizerSharedFrame {
+            image_id: shared.image_id(),
+            image_set: shared.image_set(),
+            memory_size: shared.memory_size(),
+            width: frame.width,
+            height: frame.height,
+            id: frame.id,
+        });
+    }
+    Arc::into_raw(frame).cast()
+}
+
+/// A new file descriptor for the memory of the image a held shared frame is in
+/// (`GL_HANDLE_TYPE_OPAQUE_FD_EXT`), or -1 if it cannot be exported. The caller owns it: hand it
+/// to `glImportMemoryFdEXT`, which takes it over when it succeeds, or close it.
+///
+/// # Safety
+///
+/// `handle` must be null (which gives -1) or a handle from `rune_visualizer_acquire_shared_frame`
+/// that was not released yet.
+#[cfg(target_os = "linux")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rune_visualizer_export_frame_memory(handle: *const c_void) -> c_int {
+    // SAFETY: the caller guarantees a held frame or null.
+    unsafe { export_fd(handle, SharedFrame::export_memory) }
+}
+
+/// A new file descriptor for the semaphore signalled once a held shared frame was drawn
+/// (`GL_HANDLE_TYPE_OPAQUE_FD_EXT`), or -1 if it cannot be exported. The caller owns it: hand it
+/// to `glImportSemaphoreFdEXT`, which takes it over when it succeeds, or close it. Each frame has
+/// a semaphore of its own, signalled once: wait for it at most once.
+///
+/// # Safety
+///
+/// `handle` must be null (which gives -1) or a handle from `rune_visualizer_acquire_shared_frame`
+/// that was not released yet.
+#[cfg(target_os = "linux")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rune_visualizer_export_frame_semaphore(handle: *const c_void) -> c_int {
+    // SAFETY: the caller guarantees a held frame or null.
+    unsafe { export_fd(handle, SharedFrame::export_semaphore) }
+}
+
+/// The file descriptor `export` makes of the shared frame `handle` holds, or -1 (logged) if it
+/// fails, `handle` is null or the frame is not in a shared image.
+///
+/// # Safety
+///
+/// `handle` must be null or a handle from `rune_visualizer_acquire_shared_frame` that was not
+/// released yet.
+#[cfg(target_os = "linux")]
+unsafe fn export_fd(
+    handle: *const c_void,
+    export: impl FnOnce(&SharedFrame) -> anyhow::Result<OwnedFd>,
+) -> c_int {
+    if handle.is_null() {
+        return -1;
+    }
+    // SAFETY: the caller guarantees an `Arc<Frame>` from `acquire`, held during the call.
+    let frame = unsafe { &*handle.cast::<Frame>() };
+    match frame.shared_image().map(export) {
+        Some(Ok(fd)) => fd.into_raw_fd(),
+        Some(Err(e)) => {
+            error!("Visualizer: {e:#}");
+            -1
+        }
+        None => -1,
+    }
+}
+
+/// The app could not show a shared frame (it failed to import it into OpenGL): the visualizer
+/// reads frames back from its next frame on, until it stops. Its transport then becomes
+/// "readback", which tells the app to show the texture fed with read-back frames.
+#[cfg(target_os = "linux")]
+#[unsafe(no_mangle)]
+pub extern "C" fn rune_visualizer_fall_back_to_readback() {
+    VISUALIZER.fall_back_to_readback();
 }
 
 /// Give back a frame from [`rune_visualizer_acquire_frame`] or

@@ -56,9 +56,9 @@ class VisualizerSurface extends StatefulWidget {
 class _VisualizerSurfaceState extends State<VisualizerSurface>
     with WidgetsBindingObserver {
   int? _textureId;
-  // Windows: the texture fed with shared DirectX textures, shown unless the
-  // visualizer reads its frames back; null elsewhere or if the native side
-  // cannot share frames.
+  // Windows and Linux: the texture fed with shared DirectX textures or Vulkan
+  // images, shown unless the visualizer reads its frames back; null elsewhere
+  // or if the native side cannot share frames.
   int? _gpuTextureId;
   // How frames leave the GPU, from the last status; empty until it is known.
   // Only followed while there is a GPU texture.
@@ -179,8 +179,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     try {
       final size = _renderSize(logical, pixelRatio);
 
-      // An id, or on Windows a map of the ids of the pixel and the GPU
-      // textures.
+      // An id, or on Windows and Linux a map of the ids of the pixel and the
+      // GPU textures.
       final created = await _channel.invokeMethod<Object>('create');
       final ids = created is Map ? created : const {};
       final id = created is int ? created : ids['pixels'] as int?;
@@ -265,7 +265,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       }
 
       _controller.status = status;
-      // Windows changes to the pixel texture once frames are read back.
+      // Windows and Linux change to the pixel texture once frames are read
+      // back.
       if (_gpuTextureId != null && status.transport != _transport) {
         setState(() => _transport = status.transport);
       }

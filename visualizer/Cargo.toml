@@ -42,3 +42,10 @@ objc2-metal = { version = "0.3", default-features = false, features = ["std", "o
 [target.'cfg(target_os = "windows")'.dependencies]
 wgpu = { version = "30", default-features = false, features = ["dx12"] }
 windows = { version = "0.62", default-features = false, features = ["Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Security"] }
+
+# The shared-image frame path of Linux. wgpu-hal's Vulkan backend uses this version of ash, so
+# its Vulkan types are ours. lactea enables `vulkan` already; it is named here because this crate
+# uses the backend directly.
+[target.'cfg(target_os = "linux")'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["vulkan"] }
+ash = { version = "0.38", default-features = false, features = ["std"] }
