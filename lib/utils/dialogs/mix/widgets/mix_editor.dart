@@ -214,6 +214,7 @@ Future<Map<String, List<int>>> searchFor(String query, String field) async {
   result['albums'] = message.albums;
   result['playlists'] = message.playlists;
   result['tracks'] = message.tracks;
+  result['genres'] = message.genres;
 
   return result;
 }

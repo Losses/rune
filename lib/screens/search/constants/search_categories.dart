@@ -8,4 +8,5 @@ final List<(CollectionType, String Function(BuildContext))> searchCategories = [
   (CollectionType.artist, (context) => S.of(context).artists),
   (CollectionType.album, (context) => S.of(context).albums),
   (CollectionType.playlist, (context) => S.of(context).playlists),
+  (CollectionType.genre, (context) => S.of(context).genres),
 ];
