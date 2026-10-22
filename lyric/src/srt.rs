@@ -3,7 +3,7 @@ use subtp::srt::{SrtTimestamp, SubRip};
 
 use crate::{
     types::{LyricFile, LyricLine, TimeTag, VoiceType},
-    utils::parse_word_time_tags,
+    utils::{parse_word_time_tags, strip_bom},
 };
 
 impl From<SrtTimestamp> for TimeTag {
@@ -23,6 +23,8 @@ impl From<SrtTimestamp> for TimeTag {
 pub fn parse_srt(content: &str) -> Result<LyricFile> {
     let mut srt = LyricFile::new();
 
+    let content = strip_bom(content);
+
     if content.trim().is_empty() {
         return Ok(srt);
     }
@@ -37,7 +39,8 @@ pub fn parse_srt(content: &str) -> Result<LyricFile> {
 
     for block in subrip.subtitles {
         let start_time: TimeTag = block.start.into();
-        let end_time: TimeTag = block.end.into();
+        // A subtitle that ends before it starts is malformed; keep it a moment
+        let end_time = TimeTag::from(block.end).max_millis(&start_time);
 
         let (text, word_time_tags) =
             parse_word_time_tags(&block.text.join("\n"), &start_time, &end_time);
@@ -151,8 +154,8 @@ Another <00:00:07,500>line"#;
 
         let first_line = &result.lyrics[0];
         assert_eq!(first_line.word_time_tags.len(), 3);
-        assert_eq!(first_line.word_time_tags[0].2, "Hello world");
-        assert_eq!(first_line.word_time_tags[1].2, "this is");
+        assert_eq!(first_line.word_time_tags[0].2, "Hello world ");
+        assert_eq!(first_line.word_time_tags[1].2, "this is ");
         assert_eq!(first_line.word_time_tags[2].2, "a test");
 
         assert_eq!(
@@ -209,5 +212,11 @@ Text spanning over an hour"#;
                 milliseconds: 0
             }
         );
+    }
+
+    #[test]
+    fn test_parse_srt_bom() {
+        let result = parse_srt("\u{FEFF}1\n00:00:01,000 --> 00:00:02,000\nHi").unwrap();
+        assert_eq!(result.lyrics.len(), 1);
     }
 }

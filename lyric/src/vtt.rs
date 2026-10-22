@@ -1,31 +1,39 @@
 use anyhow::Result;
-use subtp::vtt::{VttBlock, VttCue, WebVtt};
+use subtp::vtt::{VttBlock, VttCue, VttTimestamp, WebVtt};
 
 use crate::{
     types::{LyricFile, LyricLine, TimeTag, VoiceType},
-    utils::parse_word_time_tags,
+    utils::{parse_word_time_tags, strip_bom},
 };
+
+fn to_time_tag(timestamp: &VttTimestamp) -> TimeTag {
+    let total = ((timestamp.hours as u64 * 60 + timestamp.minutes as u64) * 60
+        + timestamp.seconds as u64)
+        * 1000
+        + timestamp.milliseconds as u64;
+    TimeTag::from_millis(total)
+}
 
 pub fn parse_vtt(content: &str) -> Result<LyricFile> {
     let mut vtt = LyricFile::new();
-    let webvtt = WebVtt::parse(content.trim_start())?;
+
+    // The cue parser wants the file to end with a blank line (see srt.rs)
+    let content = strip_bom(content).trim_start();
+    let content = if content.ends_with("\n\n") {
+        content.to_string()
+    } else {
+        format!("{content}\n\n")
+    };
+    let webvtt = WebVtt::parse(&content)?;
 
     for block in webvtt.blocks {
         if let VttBlock::Que(VttCue {
             timings, payload, ..
         }) = block
         {
-            let start_time = TimeTag {
-                minutes: (timings.start.seconds / 60) as u32,
-                seconds: (timings.start.seconds % 60) as u32,
-                milliseconds: timings.start.milliseconds as u32,
-            };
-
-            let end_time = TimeTag {
-                minutes: (timings.end.seconds / 60) as u32,
-                seconds: (timings.end.seconds % 60) as u32,
-                milliseconds: timings.end.milliseconds as u32,
-            };
+            let start_time = to_time_tag(&timings.start);
+            // A cue that ends before it starts is malformed; keep it a moment
+            let end_time = to_time_tag(&timings.end).max_millis(&start_time);
 
             let (text, word_time_tags) =
                 parse_word_time_tags(&payload.join("\n"), &start_time, &end_time);
@@ -200,7 +208,10 @@ This is a <b>test</b>
             "Hello world this is a test <00:00:03.000>."
         );
         assert_eq!(first_line.word_time_tags.len(), 2);
-        assert_eq!(first_line.word_time_tags[0].2, "Hello world this is a test");
+        assert_eq!(
+            first_line.word_time_tags[0].2,
+            "Hello world this is a test "
+        );
 
         let second_line = &result.lyrics[1];
         assert_eq!(
@@ -226,7 +237,7 @@ This is a <b>test</b>
         );
         assert_eq!(
             second_line.word_time_tags[0].2,
-            "Another line with styles and"
+            "Another line with styles and "
         );
         assert_eq!(
             second_line.word_time_tags[1].0,
@@ -245,5 +256,34 @@ This is a <b>test</b>
             }
         );
         assert_eq!(second_line.word_time_tags[1].2, "time.");
+    }
+
+    #[test]
+    fn test_parse_vtt_hours_minutes_and_no_trailing_newline() {
+        let content = "\u{FEFF}WEBVTT\n\n01:02:03.004 --> 01:02:05.500\nLate cue\n\n10:00.000 --> 10:01.000\nTen minutes";
+        let result = parse_vtt(content).unwrap();
+        assert_eq!(result.lyrics.len(), 2);
+        assert_eq!(result.lyrics[0].start_time.as_millis(), 3_723_004);
+        assert_eq!(result.lyrics[0].end_time.as_millis(), 3_725_500);
+        assert_eq!(result.lyrics[1].start_time.as_millis(), 600_000);
+    }
+
+    #[test]
+    fn test_parse_vtt_short_word_tags_keep_spaces() {
+        let content = "WEBVTT\n\n00:01.000 --> 00:05.000\nHello <00:02.500>big <c.x>world</c>\n";
+        let line = &parse_vtt(content).unwrap().lyrics[0];
+        let words: Vec<&str> = line.word_time_tags.iter().map(|w| w.2.as_str()).collect();
+        assert_eq!(words, ["Hello ", "big world"]);
+        assert_eq!(line.word_time_tags[1].0.as_millis(), 2500);
+    }
+
+    #[test]
+    fn test_clean_style_tags_keeps_plain_angle_brackets() {
+        assert_eq!(clean_style_tags("a<b and c>d"), "a<b and c>d");
+        assert_eq!(clean_style_tags("1 < 2 > 0"), "1 < 2 > 0");
+        assert_eq!(
+            clean_style_tags("<v Bob><i>hi</i></v> <lang en>x</lang> <ruby>a<rt>b</rt></ruby>"),
+            "hi x ab"
+        );
     }
 }
