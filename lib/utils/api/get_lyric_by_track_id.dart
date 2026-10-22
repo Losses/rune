@@ -8,18 +8,23 @@ Future<List<LyricContentLine>> getLyricByTrackId(PlayingItem? item) async {
 
   // Subscribe before sending so the response cannot be missed, and only
   // accept the response that belongs to the requested item.
-  final response = GetLyricByTrackIdResponse.rustSignalStream
-      .map((x) => x.message)
-      .firstWhere((x) => PlayingItem.fromRequest(x.item) == item)
-      .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => GetLyricByTrackIdResponse(
-          item: item.toRequest(),
-          lines: [],
-        ),
-      );
+  final response = Completer<List<LyricContentLine>>();
+  final subscription = GetLyricByTrackIdResponse.rustSignalStream.listen((x) {
+    if (!response.isCompleted &&
+        PlayingItem.fromRequest(x.message.item) == item) {
+      response.complete(x.message.lines);
+    }
+  });
 
   GetLyricByTrackIdRequest(item: item.toRequest()).sendSignalToRust(); // GENERATED
 
-  return (await response).lines;
+  try {
+    return await response.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => [],
+    );
+  } finally {
+    // A timed-out request must not keep listening
+    await subscription.cancel();
+  }
 }
