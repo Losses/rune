@@ -114,23 +114,35 @@ async fn load_lyric_lines(
         },
     };
 
-    Ok(lyric
+    Ok(content_lines(lyric))
+}
+
+fn content_lines(lyric: LyricFile) -> Vec<LyricContentLine> {
+    lyric
         .lyrics
         .into_iter()
-        .map(|x| LyricContentLine {
-            start_time: x.start_time.into(),
-            end_time: x.end_time.into(),
-            sections: x
-                .word_time_tags
-                .into_iter()
-                .map(|tag| LyricContentLineSection {
-                    start_time: tag.0.into(),
-                    end_time: tag.1.into(),
-                    content: tag.2,
-                })
-                .collect(),
+        .map(|x| {
+            // A line without word timing is one section as long as the line
+            let word_time_tags = if x.word_time_tags.is_empty() && !x.text.is_empty() {
+                vec![(x.start_time.clone(), x.end_time.clone(), x.text)]
+            } else {
+                x.word_time_tags
+            };
+
+            LyricContentLine {
+                start_time: x.start_time.into(),
+                end_time: x.end_time.into(),
+                sections: word_time_tags
+                    .into_iter()
+                    .map(|tag| LyricContentLineSection {
+                        start_time: tag.0.into(),
+                        end_time: tag.1.into(),
+                        content: tag.2,
+                    })
+                    .collect(),
+            }
         })
-        .collect())
+        .collect()
 }
 
 fn parse_embedded_lyric(content: &str) -> Result<LyricFile> {
@@ -156,4 +168,29 @@ fn looks_like_srt(content: &str) -> bool {
         && first.chars().all(|c| c.is_ascii_digit())
         && second.contains("-->")
         && second.contains(',')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_untimed_words_become_one_section() {
+        let lyric = parse_ttml(
+            r#"<tt><body><div><p begin="00:01.000" end="00:02.000">Hello</p></div></body></tt>"#,
+        )
+        .unwrap();
+        let lines = content_lines(lyric);
+        assert_eq!(lines.len(), 1);
+        let sections = &lines[0].sections;
+        assert_eq!(sections.len(), 1);
+        assert_eq!(
+            (
+                sections[0].start_time,
+                sections[0].end_time,
+                sections[0].content.as_str()
+            ),
+            (1000, 2000, "Hello")
+        );
+    }
 }
