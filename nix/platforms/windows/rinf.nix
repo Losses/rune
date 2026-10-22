@@ -36,10 +36,14 @@ let
   deps = map mkDep depPackages;
   depTarballs = map (d: d.tarball) deps;
 
+  # Convert Nix store path string into a clean Windows backslash path
+  # so cmd.exe never misinterprets forward slashes as command switches.
+  toWinPath = p: builtins.replaceStrings [ "/" ] [ "\\" ] (builtins.unsafeDiscardStringContext "${p}");
+
   # Build the Windows batch script that unpacks all vendored crates and
   # generates .cargo-checksum.json matching cargo's vendor layout.
   mkUnpackLine = d: let
-    tb = builtins.unsafeDiscardStringContext "${d.tarball}";
+    tb = toWinPath d.tarball;
     dir = "%out%\\vendor\\${d.name}-${d.version}";
   in "mkdir \"${dir}\"\r\ntar.exe -xf \"${tb}\" --strip-components=1 -C \"${dir}\"\r\necho {\"files\":{},\"package\":\"${d.checksum}\"}>\"${dir}\\.cargo-checksum.json\"";
 
@@ -47,16 +51,14 @@ let
     "@echo off\r\n" +
     "mkdir \"%out%\\vendor\"\r\n" +
     (builtins.concatStringsSep "\r\n" (map mkUnpackLine deps)) +
-    "\r\n"
+    "\r\n" +
+    "mkdir \"%out%\\.cargo\"\r\n" +
+    "echo [source.crates-io]>\"%out%\\.cargo\\config.toml\"\r\n" +
+    "echo replace-with = \"vendored-sources\">>\"%out%\\.cargo\\config.toml\"\r\n" +
+    "echo [source.vendored-sources]>>\"%out%\\.cargo\\config.toml\"\r\n" +
+    "echo directory = \"vendor\">>\"%out%\\.cargo\\config.toml\"\r\n" +
+    "exit /b 0\r\n"
   );
-
-  cargoConfig = builtins.toFile "config.toml" ''
-    [source.crates-io]
-    replace-with = "vendored-sources"
-
-    [source.vendored-sources]
-    directory = "vendor"
-  '';
 
   # Step 1: unpack the rinf crate AND all vendored dependencies into $out,
   # setting up .cargo/config.toml so cargo resolves deps offline.
@@ -66,11 +68,11 @@ let
     builder = "cmd.exe";
     args = [
       "/c"
-      "mkdir %out% && tar.exe -xf %src% -C %out% && call %unpackScript% && mkdir %out%\\.cargo && copy %cargoConfig% %out%\\.cargo\\config.toml"
+      "mkdir %out% && tar.exe -xf %src% -C %out% && call %unpackScript%"
     ];
     src = rinfCrate;
     srcs = depTarballs;
-    inherit unpackScript cargoConfig;
+    inherit unpackScript;
     PATH = "C:\\Windows\\System32";
   };
 
