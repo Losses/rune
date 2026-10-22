@@ -27,6 +27,7 @@ rune-linux
 .svn/
 !pubspec.lock
 !Cargo.lock
+!nix/platforms/windows/rinf-Cargo.lock
 
 # IntelliJ related
 *.iml
