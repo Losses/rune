@@ -149,7 +149,8 @@ fn parse_embedded_lyric(content: &str) -> Result<LyricFile> {
     let content = content.trim_start_matches('\u{feff}');
     let trimmed = content.trim_start();
 
-    if trimmed.starts_with("<?xml") || trimmed.contains("<tt") {
+    // LRC lines start with `[`, so anything starting with markup is TTML
+    if trimmed.starts_with('<') {
         parse_ttml(content)
     } else if trimmed.starts_with("WEBVTT") {
         parse_vtt(trimmed)
