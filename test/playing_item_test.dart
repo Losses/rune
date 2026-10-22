@@ -22,4 +22,21 @@ void main() {
       const PlayingItem.unknown(),
     );
   });
+
+  test('items are read back from their status strings', () {
+    for (final item in const [
+      PlayingItem.inLibrary(42),
+      PlayingItem.independentFile('/Music/outside/song (live).flac'),
+      PlayingItem.unknown(),
+    ]) {
+      expect(PlayingItem.fromString(item.toString()), item);
+    }
+    // The Dart side has no online items
+    expect(
+      PlayingItem.fromString(
+        'PlayingItem::Online(https://example.com/a, None)',
+      ),
+      const PlayingItem.unknown(),
+    );
+  });
 }
