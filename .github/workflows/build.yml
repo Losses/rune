@@ -615,7 +615,7 @@ jobs:
       - name: Clean up
         if: ${{ always() }}
         run: |
-          just macos-ci-clean
+          command -v just &>/dev/null && just macos-ci-clean || true
           if [ -f "$RUNNER_TEMP/rune-signing.keychain-db" ]; then
             echo "$RUNNER_TEMP/rune-signing.keychain-db"
             security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db
@@ -716,7 +716,7 @@ jobs:
       - name: Clean up
         if: ${{ always() }}
         run: |
-          just macos-ci-clean
+          command -v just &>/dev/null && just macos-ci-clean || true
           if [ -f "$RUNNER_TEMP/rune-signing.keychain-db" ]; then
             echo "$RUNNER_TEMP/rune-signing.keychain-db"
             security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db

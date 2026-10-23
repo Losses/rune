@@ -75,8 +75,10 @@ jobs:
             sudo apt update
             sudo apt install gh
 
+            export GH_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}"
+
             # Upload to GitHub release
-            gh release upload ${TAG} ${ARTIFACT} --clobber
+            gh release upload "${TAG}" "${ARTIFACT}" --repo Losses/rune --clobber
 
   build-android:
     docker:
@@ -139,6 +141,7 @@ jobs:
 
       - run:
           name: Build APKs
+          no_output_timeout: 45m
           command: |
             nix --extra-experimental-features "nix-command flakes" develop . --command bash ./android/build.sh
 
@@ -168,10 +171,12 @@ jobs:
             # Verify installation
             gh --version
 
+            export GH_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}"
+
             # Upload to GitHub release
-            gh release upload ${TAG} "dist/Rune-${TAG}-android-armeabi-v7a.apk" --clobber
-            gh release upload ${TAG} "dist/Rune-${TAG}-android-arm64-v8a.apk" --clobber
-            gh release upload ${TAG} "dist/Rune-${TAG}-android-x86_64.apk" --clobber
+            gh release upload "${TAG}" "dist/Rune-${TAG}-android-armeabi-v7a.apk" --repo Losses/rune --clobber
+            gh release upload "${TAG}" "dist/Rune-${TAG}-android-arm64-v8a.apk" --repo Losses/rune --clobber
+            gh release upload "${TAG}" "dist/Rune-${TAG}-android-x86_64.apk" --repo Losses/rune --clobber
 
 workflows:
   version: 2
