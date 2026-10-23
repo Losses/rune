@@ -57,6 +57,21 @@
   </screenshots>
 
   <releases>
+    <release version="2.0.0-alpha.13" date="2026-10-23">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Keep items fetched by ID in the order they were requested.</li>
+          <li>Keep the search page in step with the search box and clear results when search text is cleared.</li>
+          <li>Keep the mix editor's suggestions in step with typed text and recover from failed searches.</li>
+          <li>Fix Windows CI build with offline vendored crates and preserve pre-release status during release asset uploads.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Support searching for genres in library search.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.12" date="2026-10-22">
       <description>
         <p>Bugs</p>
