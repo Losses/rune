@@ -115,8 +115,14 @@ pub async fn initialize_local_player(
 
         while let Ok(status) = status_receiver.recv().await {
             debug!("Player status updated: {status:?}");
-            // The visualizer stands still while the music does.
-            crate::visualizer::VISUALIZER.set_playing(status.state == PlaybackState::Playing);
+            // The visualizer stands still while the music does, and finds the song's chart.
+            let playing = status.state == PlaybackState::Playing;
+            crate::visualizer::VISUALIZER.set_playing(playing);
+            crate::visualizer::VISUALIZER.set_playback(
+                status.path.as_deref(),
+                status.position,
+                playing,
+            );
 
             let item = status.item.clone();
 

@@ -8307,6 +8307,7 @@ name = "visualizer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "directories",
  "lactea",
  "lactea-host",
  "log",
@@ -8319,6 +8320,9 @@ dependencies = [
  "rand 0.8.5",
  "realfft",
  "rtrb",
+ "serde",
+ "serde_json",
+ "unicode-normalization",
  "wgpu 30.0.1",
 ]
 

@@ -8,6 +8,7 @@
 //! clone an `Arc` under a short lock and never wait for the GPU. A reader that keeps frames holds
 //! their buffers, and the renderer skips frames while none is free.
 
+mod chart;
 mod pipeline;
 mod presets;
 mod readback;
@@ -30,6 +31,8 @@ use log::{error, info};
 use rand::rngs::ThreadRng;
 use rtrb::Consumer;
 
+pub use chart::{Chart, ChartState, chart_dir, chart_key};
+use chart::{ChartFollower, Playback};
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport};
 use pipeline::{Pipeline, Rendered};
 use presets::{AutoSwitch, Location, Preset, PresetList};
@@ -180,6 +183,8 @@ struct Shared {
     visible: AtomicBool,
     /// The app's appearance, which picks the light or the dark default preset.
     light: AtomicBool,
+    /// The file that plays and where, for finding its chart and the time in it.
+    playback: Mutex<Playback>,
 }
 
 impl Shared {
@@ -227,6 +232,7 @@ impl Visualizer {
                 playing: AtomicBool::new(true),
                 visible: AtomicBool::new(true),
                 light: AtomicBool::new(false),
+                playback: Mutex::new(Playback::default()),
             }),
             worker: Mutex::new(None),
             library: Arc::new(Mutex::new(Library::default())),
@@ -252,6 +258,18 @@ impl Visualizer {
     /// were.
     pub fn set_playing(&self, playing: bool) {
         self.shared.playing.store(playing, Ordering::Relaxed);
+    }
+
+    /// Follow the player's file and position (call it with every progress report). With a
+    /// chart of the file in [`chart_dir`], presets get the beats, bars and sections from it.
+    pub fn set_playback(&self, path: Option<&Path>, position: Duration, playing: bool) {
+        let mut playback = lock(&self.shared.playback);
+        if playback.path.as_deref() != path {
+            playback.path = path.map(Path::to_path_buf);
+        }
+        playback.position = position;
+        playback.playing = playing;
+        playback.at = Some(Instant::now());
     }
 
     /// Follow the app's window: while it is minimised, hidden or covered, the visualizer stands
@@ -550,6 +568,7 @@ fn run(
     // The file of the preset on screen, reloaded when it is saved (live editing).
     let mut watched: Option<Watched> = None;
     let mut tracker = BeatTracker::new(sample_rate);
+    let mut charts = ChartFollower::new(chart_dir());
 
     loop {
         loop {
@@ -659,7 +678,18 @@ fn run(
             auto_switch.restart();
         }
 
-        pipeline.set_rhythm(&tracker.rhythm());
+        // A chart knows the beats of the whole song: they replace the tracker's guess.
+        let chart = charts.tick(&lock(&shared.playback), Instant::now());
+        let mut rhythm = tracker.rhythm();
+        if let Some(chart) = &chart
+            && chart.bpm > 0.0
+        {
+            rhythm.bpm = chart.bpm;
+            rhythm.beat = chart.beat;
+            rhythm.confidence = chart.beat_confidence;
+        }
+        pipeline.set_rhythm(&rhythm);
+        pipeline.set_chart(chart.as_ref());
         let clock = FrameClock {
             time,
             frame: frame_index,

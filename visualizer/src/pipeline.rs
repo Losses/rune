@@ -9,6 +9,7 @@ use anyhow::{Context, Result, anyhow};
 use lactea::{Engine, EngineConfig, FrameClock, Transition};
 use log::warn;
 
+use crate::chart::ChartState;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
 #[cfg(target_os = "macos")]
@@ -238,6 +239,41 @@ impl Pipeline {
         }
     }
 
+    /// The song's chart at this frame, or zeros (and `rune_chart` 0) without one.
+    pub fn set_chart(&mut self, chart: Option<&ChartState>) {
+        let c = chart.copied().unwrap_or_default();
+        let bar = c.bar.floor();
+        for (name, value) in [
+            ("rune_chart", if chart.is_some() { 1.0 } else { 0.0 }),
+            ("rune_bar_count", bar),
+            ("rune_bar_phase", c.bar - bar),
+            ("rune_beats_per_bar", c.beats_per_bar),
+            ("rune_meter_conf", c.meter_confidence),
+            ("rune_section", c.section),
+            ("rune_section_label", c.section_label),
+            ("rune_section_repeat", c.section_repeat),
+            ("rune_section_energy", c.section_energy),
+            ("rune_next_label", c.next_label),
+            ("rune_next_energy", c.next_energy),
+            ("rune_section_time", c.section_time),
+            ("rune_section_left", c.section_left),
+            ("rune_section_conf", c.section_confidence),
+            ("rune_ev_low", c.events[0]),
+            ("rune_ev_mid", c.events[1]),
+            ("rune_ev_high", c.events[2]),
+            ("rune_ev_harm", c.events[3]),
+            ("rune_ev_phrase", c.events[4]),
+            ("rune_lead", c.lead),
+            ("rune_lead_ev", c.lead_event),
+            ("rune_loud", c.loudness),
+            ("rune_bright", c.brightness),
+            ("rune_perc", c.percussive),
+            ("rune_pulse", c.pulse),
+        ] {
+            self.engine.set_host_var(name, value);
+        }
+    }
+
     pub fn push_pcm(&mut self, interleaved: &[f32], channels: usize) {
         self.engine.push_pcm_f32(interleaved, channels);
     }
@@ -356,5 +392,54 @@ mod tests {
         assert_eq!(var("seen_kick"), Some(0.5));
         assert_eq!(var("seen_conf"), Some(0.75));
         assert_eq!(var("seen_energy"), Some(1.5));
+    }
+
+    /// A song's chart reaches a preset's per-frame code, and without one it reads zeros.
+    #[test]
+    fn presets_see_the_chart() {
+        let Ok(mut pipeline) = Pipeline::new(64, 36, 60, 44_100, true, false, Arc::new(|_| {}))
+        else {
+            eprintln!("SKIPPED: no GPU adapter");
+            return;
+        };
+        let preset = b"MILKDROP_PRESET_VERSION=201\n[preset00]\n\
+            per_frame_1=seen_chart=rune_chart; seen_bar=rune_bar_count; seen_phase=rune_bar_phase;\n\
+            per_frame_2=seen_left=rune_section_left; seen_next=rune_next_label; seen_low=rune_ev_low;\n";
+        pipeline.load_preset(preset, "p", Transition::Cut).unwrap();
+        let mut frame = 0;
+        let mut seen = |pipeline: &mut Pipeline, chart: Option<&ChartState>| {
+            pipeline.set_chart(chart);
+            pipeline.render(FrameClock { time: 0.0, frame }).unwrap();
+            frame += 1;
+            let vars = pipeline.engine.frame_vars();
+            let var = |name: &str| {
+                vars.iter()
+                    .find(|(n, _)| n == name)
+                    .map_or(f64::NAN, |(_, v)| *v)
+            };
+            [
+                "seen_chart",
+                "seen_bar",
+                "seen_phase",
+                "seen_left",
+                "seen_next",
+                "seen_low",
+            ]
+            .map(var)
+        };
+        let mut events = [0.0; 5];
+        events[0] = 0.5;
+        let chart = ChartState {
+            bar: 7.25,
+            section_left: 3.5,
+            next_label: 2.0,
+            events,
+            ..Default::default()
+        };
+        assert_eq!(
+            seen(&mut pipeline, Some(&chart)),
+            [1.0, 7.0, 0.25, 3.5, 2.0, 0.5]
+        );
+        assert_eq!(seen(&mut pipeline, None), [0.0; 6]);
     }
 }

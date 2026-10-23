@@ -35,3 +35,21 @@ MilkDrop tells presets how loud three bands are, relative to their recent averag
 | `rune_energy` | Loudness of the last second against the last 20 seconds: about 1, more in a chorus or a drop, less in a break, 0 in silence. |
 
 Only the per-frame code sees them. Pass what the shaders need through `q` variables. `cargo run -p visualizer --example beat_track -- <rate> <channels>` runs the tracker over raw `f32` samples from stdin.
+
+## The song's chart
+
+A chart is what an analysis of the whole file found: its beats, bars, sections and onsets. The player tells the visualizer which file plays and where (`Visualizer::set_playback`, with every progress report), and the visualizer looks for the file's chart in the chart folder (`RUNE_CHART_DIR`, else `rune/charts` in the user's cache folder, `~/Library/Caches` on macOS), named after a hash of the path (`chart_key`). A Python chart analyzer writes them. `cargo run -p visualizer --example chart_at -- <audio file> [seconds...]` prints what presets would see.
+
+With a chart, `rune_bpm`, `rune_beat_count`, `rune_beat_phase` and `rune_beat_conf` come from its beats (the count is then beats since the song's first beat, and jumps on a seek), and these are set too. Without one, they read 0.
+
+| Variable | |
+| --- | --- |
+| `rune_chart` | 1 while the playing file has a chart. |
+| `rune_bar_count`, `rune_bar_phase` | Bars since the first, and the phase within the bar (0 on the downbeat). |
+| `rune_beats_per_bar`, `rune_meter_conf` | The meter (3 or 4), and 0 to 1: how sure the analysis is of where bars start. |
+| `rune_section`, `rune_section_label`, `rune_section_repeat` | Index of the section, its label (0 for the first kind of section, 1 for the next new kind; the same label for sections that sound alike) and how many earlier sections had that label. |
+| `rune_section_energy`, `rune_next_label`, `rune_next_energy` | Loudness of this section and the label and loudness of the next one, 0 to 1 within the song. |
+| `rune_section_time`, `rune_section_left`, `rune_section_conf` | Seconds since the section started and until the next one, and 0 to 1: how clear the change into it was. |
+| `rune_ev_low`, `rune_ev_mid`, `rune_ev_high`, `rune_ev_harm`, `rune_ev_phrase` | Onsets of the percussive low, mid and high bands, of pitched sounds and of phrases: the latest one's strength, fading within about 0.1 s (0.6 s for phrases). |
+| `rune_lead`, `rune_lead_ev` | The stream that stands out now (0 none, 1 low, 2 mid, 3 high, 4 pitched) and its onsets. |
+| `rune_loud`, `rune_bright`, `rune_perc`, `rune_pulse` | Loudness, brightness, how percussive the sound is and how clear the pulse is, 0 to 1 within the song. |
