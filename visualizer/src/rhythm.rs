@@ -13,7 +13,9 @@
 //! 2. **Tempo.** Every quarter second, the autocorrelation of the last 8 s of onset strength,
 //!    with each lag scored together with its multiples and its half (a beat repeats over the
 //!    bar and is divided in two, a syncopated accent every three eighths is neither), weighted
-//!    by a prior around 120 bpm against octave errors (Ellis 2007). A different tempo has to win
+//!    by a prior around 150 bpm against octave errors (Ellis 2007). The prior sits above the usual
+//!    120 so that between a tempo and its double fitting about as well, the faster one wins:
+//!    better too fast than too slow. A different tempo has to win
 //!    for a second before it replaces the current one, which otherwise follows small changes
 //!    smoothly.
 //! 3. **Beat clock.** A phase that advances by one per beat period, pulled towards the phase the
@@ -75,8 +77,9 @@ const TEMPO_MIN_SECONDS: f64 = 2.5;
 const TEMPO_EVERY: u32 = 25;
 const MIN_BPM: f64 = 50.0;
 const MAX_BPM: f64 = 220.0;
-/// Centre and width (in octaves) of the tempo prior.
-const PRIOR_BPM: f64 = 120.0;
+/// Centre and width (in octaves) of the tempo prior; above 120 so that the faster of two
+/// readings that fit about as well wins.
+const PRIOR_BPM: f64 = 150.0;
 const PRIOR_OCTAVES: f64 = 1.0;
 /// The multiples of a lag that make its score, with their weights. Tuned on songs mixed from
 /// Apple Loops of known tempo: with these, 2% of the estimates on songs with drums were neither
@@ -717,17 +720,15 @@ mod tests {
         }
     }
 
-    /// Hats on every off-beat as loud as the kicks on the beat: a pulse at either speed is right.
+    /// Hats on every off-beat as loud as the kicks on the beat: a pulse at either speed is right,
+    /// and the faster one is taken (better too fast than too slow).
     #[test]
-    fn off_beat_hats_give_the_beat_or_its_double() {
+    fn off_beat_hats_give_the_double() {
         let (samples, beats) = drums(16.0, |_| 90.0, true);
         let run = track(&samples);
         let (_, last) = run.last().unwrap();
         let ratio = last.bpm / 90.0;
-        assert!(
-            (ratio - 1.0).abs() < 0.015 || (ratio - 2.0).abs() < 0.03,
-            "{last:?}"
-        );
+        assert!((ratio - 2.0).abs() < 0.03, "{last:?}");
         let halves: Vec<f64> = beats.iter().flat_map(|b| [*b, b + 60.0 / 180.0]).collect();
         for t in ticks(&run).into_iter().filter(|&t| t > 8.0) {
             assert!(off(t, &halves) < 0.03, "tick at {t:.3} is off");
