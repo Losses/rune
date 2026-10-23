@@ -13,6 +13,7 @@ mod pipeline;
 mod presets;
 mod readback;
 mod rhythm;
+mod scene;
 #[cfg(target_os = "macos")]
 mod surface;
 mod textures;
@@ -369,7 +370,7 @@ impl Visualizer {
         })
     }
 
-    /// Scan the folders `dirs` and their subfolders for `.milk` / `.milk2` files for
+    /// Scan the folders `dirs` and their subfolders for `.milk` / `.milk2` files and scenes for
     /// next/previous/random, replacing the earlier folders and emptying the history. Returns the
     /// number of presets, each file once. A folder that cannot be read is skipped and shows up in
     /// [`Status::last_error`]. Textures come from the folders in the order of `dirs`, each from
@@ -470,9 +471,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// The bytes of a preset file.
+/// The bytes of a preset file; none for a scene's folder, which is read when it loads.
 fn read_preset(preset: &Preset) -> Result<Vec<u8>> {
     let Location::File(path) = &preset.location;
+    if scene::is_scene(path) {
+        return Ok(Vec::new());
+    }
     std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))
 }
 
@@ -690,6 +694,7 @@ fn run(
         }
         pipeline.set_rhythm(&rhythm);
         pipeline.set_chart(chart.as_ref());
+        pipeline.set_song(charts.song_time(), shared.playing.load(Ordering::Relaxed));
         let clock = FrameClock {
             time,
             frame: frame_index,
@@ -768,10 +773,17 @@ fn apply(
             name,
             transition,
             path,
-        } => pipeline.load_preset(&bytes, &name, transition).map(|()| {
-            *watched = path.map(|path| Watched::new(path, name.clone()));
-            shared.status().preset_name = name;
-        }),
+        } => match path {
+            // Scenes cut in; blending into or out of them is still to come.
+            Some(dir) if scene::is_scene(&dir) => pipeline.load_scene(&dir).map(|()| {
+                *watched = Some(Watched::new(dir, name));
+                shared.status().preset_name = pipeline.preset_name().to_string();
+            }),
+            path => pipeline.load_preset(&bytes, &name, transition).map(|()| {
+                *watched = path.map(|path| Watched::new(path, name.clone()));
+                shared.status().preset_name = name;
+            }),
+        },
         Command::LoadDefaultPreset(transition) => pipeline
             .load_default_preset(shared.light.load(Ordering::Relaxed), transition)
             .map(|()| {
@@ -817,6 +829,25 @@ impl Watched {
             return false;
         }
         self.next_check = now + Self::INTERVAL;
+        if scene::is_scene(&self.path) {
+            // A scene compares its files' contents itself: a few small files twice a second.
+            return match pipeline.reload_scene() {
+                Ok(changed) => {
+                    if changed {
+                        info!("Reloaded {}", self.path.display());
+                        shared.status().last_error = None;
+                    }
+                    changed
+                }
+                Err(e) => {
+                    let message = format!("{e:#}");
+                    if shared.status().last_error.as_deref() != Some(message.as_str()) {
+                        shared.set_error(message);
+                    }
+                    false
+                }
+            };
+        }
         let current = modified(&self.path);
         if current.is_none() || current == self.modified {
             return false;

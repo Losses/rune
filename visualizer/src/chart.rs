@@ -375,6 +375,8 @@ pub struct ChartFollower {
     chart: Option<Chart>,
     loading: Option<Receiver<Option<Chart>>>,
     clock: SongClock,
+    /// The song time of the last tick.
+    time: f64,
 }
 
 impl ChartFollower {
@@ -385,6 +387,7 @@ impl ChartFollower {
             chart: None,
             loading: None,
             clock: SongClock::default(),
+            time: 0.0,
         }
     }
 
@@ -425,7 +428,13 @@ impl ChartFollower {
             }
         }
         let t = self.clock.tick(playback, now);
+        self.time = t;
         self.chart.as_ref().map(|chart| chart.at(t))
+    }
+
+    /// The song time of the last [`Self::tick`], with or without a chart.
+    pub fn song_time(&self) -> f64 {
+        self.time
     }
 }
 

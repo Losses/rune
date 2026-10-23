@@ -1,6 +1,6 @@
 //! Render a preset with a synthetic beat and save frames as BMP files, for working on presets.
 //!
-//!   cargo run -p visualizer --example snapshot -- <out-dir> [preset.milk] [seconds,...]
+//!   cargo run -p visualizer --example snapshot -- <out-dir> [preset.milk or scene folder] [seconds,...]
 //!
 //! Without a preset it shows the default one (`presets/Rune.milk`). The seconds default to
 //! 2, 6 and 12.
@@ -15,6 +15,17 @@ use visualizer::{PcmInput, Transition, Visualizer};
 const SAMPLE_RATE: u32 = 48_000;
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
+
+/// `SNAPSHOT_SIZE=1920x1080` renders at another size.
+fn size() -> (u32, u32) {
+    std::env::var("SNAPSHOT_SIZE")
+        .ok()
+        .and_then(|s| {
+            let (w, h) = s.split_once('x')?;
+            Some((w.parse().ok()?, h.parse().ok()?))
+        })
+        .unwrap_or((WIDTH, HEIGHT))
+}
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -33,12 +44,17 @@ fn main() -> anyhow::Result<()> {
             channels: Arc::new(AtomicU32::new(2)),
             sample_rate: Arc::new(AtomicU32::new(SAMPLE_RATE)),
         },
-        WIDTH,
-        HEIGHT,
+        size().0,
+        size().1,
         60,
     )?;
     if let Some(path) = preset {
-        visualizer.load_preset(std::fs::read(path)?, path, Transition::Cut)?;
+        // A scene is a folder, loaded by its path.
+        if std::path::Path::new(path).is_dir() {
+            visualizer.load_preset_path(std::path::Path::new(path), Transition::Cut)?;
+        } else {
+            visualizer.load_preset(std::fs::read(path)?, path, Transition::Cut)?;
+        }
     }
 
     // A kick at 120 bpm under a chord, so bass and treble both move.
@@ -68,7 +84,11 @@ fn main() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("no frame"))?;
         let path = format!("{out}/snapshot-{at:05.1}s.bmp");
         write_bmp(&path, frame.width, frame.height, &frame.to_packed()?)?;
-        println!("{path}: {}", visualizer.status().preset_name);
+        let status = visualizer.status();
+        println!(
+            "{path}: {} at {:.1} fps",
+            status.preset_name, status.measured_fps
+        );
     }
     visualizer.stop();
     Ok(())

@@ -8308,9 +8308,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "directories",
+ "half",
+ "image",
  "lactea",
  "lactea-host",
  "log",
+ "naga 30.0.1",
  "objc2",
  "objc2-core-foundation",
  "objc2-core-video",
@@ -8322,6 +8325,7 @@ dependencies = [
  "rtrb",
  "serde",
  "serde_json",
+ "toml",
  "unicode-normalization",
  "wgpu 30.0.1",
 ]

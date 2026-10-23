@@ -22,6 +22,15 @@ The rules follow MilkDrop 2's defaults (Nullsoft, BSD-3):
 
 The preset on screen is reloaded (with a cut) whenever its file is saved, so a preset can be written in any editor while it plays. Put it in a folder of its own, add that folder in Settings > Theme, and lock the preset from the cover wall's context menu so the automatic switching leaves it alone. A save that does not load, or whose shaders do not compile (lactea then draws with a default shader), shows the problem in the visualizer's corner until the next save fixes it. `cargo run -p visualizer --example snapshot -- <dir> <preset.milk>` renders a preset to images without the app.
 
+## Scenes in Rune's own format
+
+Besides MilkDrop presets, a preset folder can hold scenes: a folder with a `scene.toml` is one scene (nothing inside it is scanned for presets). A scene is written in WGSL only. `update()` runs once per frame on the GPU and keeps whatever `struct State` declares. Its passes draw into HDR buffers that can keep the last frame. The runtime adds bloom, AgX tone mapping, chromatic aberration, vignette, grain and dithering. The scene reads the music as named fields: beat, bar and section with how many of each went by since the last frame, the chart's energy, onsets and leading stream, a spectrum and the waveform. Parameters with labels, ranges and units are declared in `scene.toml` and appear as `params.<id>`.
+
+- `src/scene/manifest.rs` is the reference for `scene.toml`, `src/scene/wgsl.rs` for what every shader sees (the prelude), and `src/scene/stdlib.wgsl` for the `rv_*` functions.
+- The scene on screen reloads when its files change. When only parameter defaults changed, nothing else is rebuilt. When `struct State` reads the same, the state carries over. Errors name the file and line.
+- Switching into or out of a scene cuts (no blend yet).
+- `cargo run -p visualizer --example snapshot -- <dir> <scene folder>` renders a scene to images. `SNAPSHOT_SIZE=1920x1080` sets the size, and the frame rate is printed.
+
 ## The beat, for presets
 
 MilkDrop tells presets how loud three bands are, relative to their recent average, and nothing about tempo. Rune also runs a beat tracker on the music (`src/rhythm.rs`) and sets these variables before every frame's per-frame code (and before the init code of a preset it loads). A preset that does not use them is not affected, and elsewhere they read 0, so a preset can fall back on `bass` when `rune_beat_conf` is low.

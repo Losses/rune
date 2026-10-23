@@ -1,4 +1,4 @@
-//! The `.milk` / `.milk2` presets of a directory , picked the way
+//! The `.milk` / `.milk2` presets and scene folders of a directory, picked the way
 //! MilkDrop 2 does it: weighted by rating, with a history, and on a timer.
 
 use std::collections::VecDeque;
@@ -26,7 +26,12 @@ impl Preset {
         let Location::File(path) = &location;
         let full = path.to_string_lossy().into_owned();
         let file = full.rsplit(['/', '\\']).next().unwrap_or(&full);
-        let name = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
+        // A scene is a folder: its whole name, dots and all.
+        let name = if crate::scene::is_scene(path) {
+            file
+        } else {
+            file.rsplit_once('.').map_or(file, |(stem, _)| stem)
+        };
         Self {
             name: if name.is_empty() { "preset" } else { name }.to_string(),
             location,
@@ -89,7 +94,16 @@ fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
             let entry = entry?;
             let path = entry.path();
             if entry.file_type()?.is_dir() {
-                if !entry.file_name().to_string_lossy().starts_with('.') {
+                if entry.file_name().to_string_lossy().starts_with('.') {
+                    continue;
+                }
+                // A scene in Rune's own format is a folder; what is inside it belongs to it.
+                if crate::scene::is_scene(&path) {
+                    found.push(Entry {
+                        preset: Preset::new(Location::File(path)),
+                        rating: DEFAULT_RATING,
+                    });
+                } else {
                     pending.push(path);
                 }
                 continue;
