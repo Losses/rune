@@ -3671,7 +3671,7 @@ dependencies = [
 [[package]]
 name = "lactea"
 version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=22a19f9cdac0fe7db43d854d72bda3a2bbf742c7#22a19f9cdac0fe7db43d854d72bda3a2bbf742c7"
+source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
 dependencies = [
  "gif 0.14.2",
  "lactea-abi",
@@ -3688,7 +3688,7 @@ dependencies = [
 [[package]]
 name = "lactea-abi"
 version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=22a19f9cdac0fe7db43d854d72bda3a2bbf742c7#22a19f9cdac0fe7db43d854d72bda3a2bbf742c7"
+source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
 dependencies = [
  "bytemuck",
 ]
@@ -3696,17 +3696,17 @@ dependencies = [
 [[package]]
 name = "lactea-audio"
 version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=22a19f9cdac0fe7db43d854d72bda3a2bbf742c7#22a19f9cdac0fe7db43d854d72bda3a2bbf742c7"
+source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
 
 [[package]]
 name = "lactea-eel"
 version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=22a19f9cdac0fe7db43d854d72bda3a2bbf742c7#22a19f9cdac0fe7db43d854d72bda3a2bbf742c7"
+source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
 
 [[package]]
 name = "lactea-hlsl"
 version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=22a19f9cdac0fe7db43d854d72bda3a2bbf742c7#22a19f9cdac0fe7db43d854d72bda3a2bbf742c7"
+source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
 dependencies = [
  "lactea-abi",
 ]
@@ -3714,7 +3714,7 @@ dependencies = [
 [[package]]
 name = "lactea-host"
 version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=22a19f9cdac0fe7db43d854d72bda3a2bbf742c7#22a19f9cdac0fe7db43d854d72bda3a2bbf742c7"
+source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
 dependencies = [
  "image",
  "lactea",
@@ -3726,17 +3726,17 @@ dependencies = [
 [[package]]
 name = "lactea-jpeg"
 version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=22a19f9cdac0fe7db43d854d72bda3a2bbf742c7#22a19f9cdac0fe7db43d854d72bda3a2bbf742c7"
+source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
 
 [[package]]
 name = "lactea-preset"
 version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=22a19f9cdac0fe7db43d854d72bda3a2bbf742c7#22a19f9cdac0fe7db43d854d72bda3a2bbf742c7"
+source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
 
 [[package]]
 name = "lactea-render"
 version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=22a19f9cdac0fe7db43d854d72bda3a2bbf742c7#22a19f9cdac0fe7db43d854d72bda3a2bbf742c7"
+source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
 dependencies = [
  "bytemuck",
  "lactea-abi",
@@ -8317,6 +8317,7 @@ dependencies = [
  "objc2-metal",
  "pollster 0.4.0",
  "rand 0.8.5",
+ "realfft",
  "rtrb",
  "wgpu 30.0.1",
 ]

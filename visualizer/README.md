@@ -21,3 +21,17 @@ The rules follow MilkDrop 2's defaults (Nullsoft, BSD-3):
 ## Writing presets
 
 The preset on screen is reloaded (with a cut) whenever its file is saved, so a preset can be written in any editor while it plays. Put it in a folder of its own, add that folder in Settings > Theme, and lock the preset from the cover wall's context menu so the automatic switching leaves it alone. A save that does not load, or whose shaders do not compile (lactea then draws with a default shader), shows the problem in the visualizer's corner until the next save fixes it. `cargo run -p visualizer --example snapshot -- <dir> <preset.milk>` renders a preset to images without the app.
+
+## The beat, for presets
+
+MilkDrop tells presets how loud three bands are, relative to their recent average, and nothing about tempo. Rune also runs a beat tracker on the music (`src/rhythm.rs`) and sets these variables before every frame's per-frame code (and before the init code of a preset it loads). A preset that does not use them is not affected, and elsewhere they read 0, so a preset can fall back on `bass` when `rune_beat_conf` is low.
+
+| Variable | |
+| --- | --- |
+| `rune_bpm` | The tempo, 0 until one is found. It may be double or half the tempo a listener would tap. |
+| `rune_beat_count`, `rune_beat_phase` | A beat clock: whole beats since the visualizer started, and the phase within the beat (0 on the beat, rising to 1). `rune_beat_count + rune_beat_phase` only grows, so a preset can shift it ahead (`+ seconds * rune_bpm / 60`) to make up for latency and still count beats by its whole part. The clock keeps time through breaks. |
+| `rune_beat_conf` | 0 to 1: how clearly the music has a beat the clock follows. Low in silence, rubato and music without drums. It cannot tell an off-beat lock from the beat. |
+| `rune_kick`, `rune_snare`, `rune_hat` | Onsets of three bands (30 to 160 Hz, 160 Hz to 4 kHz, 5 to 16 kHz), 0 to 1, 1 on a hit as strong as the strongest of the last few seconds, falling within about 0.1 s. They follow the sound, about 25 ms late. |
+| `rune_energy` | Loudness of the last second against the last 20 seconds: about 1, more in a chorus or a drop, less in a break, 0 in silence. |
+
+Only the per-frame code sees them. Pass what the shaders need through `q` variables. `cargo run -p visualizer --example beat_track -- <rate> <channels>` runs the tracker over raw `f32` samples from stdin.

@@ -10,6 +10,7 @@ use lactea::{Engine, EngineConfig, FrameClock, Transition};
 use log::warn;
 
 use crate::readback::{MappedFrame, Target};
+use crate::rhythm::Rhythm;
 #[cfg(target_os = "macos")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
 use crate::textures::FolderTextures;
@@ -219,6 +220,24 @@ impl Pipeline {
         Ok(())
     }
 
+    /// Hand the beat tracker's findings to the presets' per-frame code, as the variables listed
+    /// in the README.
+    pub fn set_rhythm(&mut self, rhythm: &Rhythm) {
+        let count = rhythm.beat.floor();
+        for (name, value) in [
+            ("rune_bpm", rhythm.bpm),
+            ("rune_beat_count", count),
+            ("rune_beat_phase", rhythm.beat - count),
+            ("rune_beat_conf", rhythm.confidence),
+            ("rune_kick", rhythm.kick),
+            ("rune_snare", rhythm.snare),
+            ("rune_hat", rhythm.hat),
+            ("rune_energy", rhythm.energy),
+        ] {
+            self.engine.set_host_var(name, value);
+        }
+    }
+
     pub fn push_pcm(&mut self, interleaved: &[f32], channels: usize) {
         self.engine.push_pcm_f32(interleaved, channels);
     }
@@ -301,5 +320,41 @@ mod tests {
                 report.shader_fallbacks
             );
         }
+    }
+
+    /// What the beat tracker found reaches a preset's per-frame code.
+    #[test]
+    fn presets_see_the_rhythm() {
+        let Ok(mut pipeline) = Pipeline::new(64, 36, 60, 44_100, true, false, Arc::new(|_| {}))
+        else {
+            eprintln!("SKIPPED: no GPU adapter");
+            return;
+        };
+        let preset = b"MILKDROP_PRESET_VERSION=201\n[preset00]\n\
+            per_frame_1=seen_bpm=rune_bpm; seen_phase=rune_beat_phase; seen_count=rune_beat_count;\n\
+            per_frame_2=seen_kick=rune_kick; seen_conf=rune_beat_conf; seen_energy=rune_energy;\n";
+        pipeline.load_preset(preset, "p", Transition::Cut).unwrap();
+        pipeline.set_rhythm(&Rhythm {
+            bpm: 128.0,
+            beat: 41.25,
+            confidence: 0.75,
+            kick: 0.5,
+            energy: 1.5,
+            ..Default::default()
+        });
+        pipeline
+            .render(FrameClock {
+                time: 0.0,
+                frame: 0,
+            })
+            .unwrap();
+        let vars = pipeline.engine.frame_vars();
+        let var = |name: &str| vars.iter().find(|(n, _)| n == name).map(|(_, v)| *v);
+        assert_eq!(var("seen_bpm"), Some(128.0));
+        assert_eq!(var("seen_count"), Some(41.0));
+        assert_eq!(var("seen_phase"), Some(0.25));
+        assert_eq!(var("seen_kick"), Some(0.5));
+        assert_eq!(var("seen_conf"), Some(0.75));
+        assert_eq!(var("seen_energy"), Some(1.5));
     }
 }

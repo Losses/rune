@@ -11,6 +11,7 @@
 mod pipeline;
 mod presets;
 mod readback;
+mod rhythm;
 #[cfg(target_os = "macos")]
 mod surface;
 mod textures;
@@ -32,6 +33,7 @@ use rtrb::Consumer;
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport};
 use pipeline::{Pipeline, Rendered};
 use presets::{AutoSwitch, Location, Preset, PresetList};
+pub use rhythm::{BeatTracker, Rhythm};
 
 pub use lactea::Transition;
 
@@ -547,6 +549,7 @@ fn run(
     let mut still_drawn = false;
     // The file of the preset on screen, reloaded when it is saved (live editing).
     let mut watched: Option<Watched> = None;
+    let mut tracker = BeatTracker::new(sample_rate);
 
     loop {
         loop {
@@ -567,7 +570,16 @@ fn run(
             0 => 2,
             n => n as usize,
         };
-        drain(&mut input.consumer, &mut pcm, channels, sample_rate);
+        drain(&mut input.consumer, &mut pcm);
+        // The tracker hears every sample, also while the window is out of sight, so it keeps
+        // the beat for when it is back.
+        match input.sample_rate.load(Ordering::Relaxed) {
+            0 => {}
+            rate if rate != tracker.sample_rate() => tracker = BeatTracker::new(rate),
+            _ => {}
+        }
+        tracker.push(&pcm, channels);
+        keep_recent(&mut pcm, channels, sample_rate);
 
         if let Some(file) = &mut watched
             && file.reload_if_saved(shared, &mut pipeline)
@@ -647,6 +659,7 @@ fn run(
             auto_switch.restart();
         }
 
+        pipeline.set_rhythm(&tracker.rhythm());
         let clock = FrameClock {
             time,
             frame: frame_index,
@@ -812,8 +825,8 @@ fn modified(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
-/// Move everything the ring holds into `pcm`, keeping at most the last quarter second.
-fn drain(consumer: &mut Consumer<f32>, pcm: &mut Vec<f32>, channels: usize, sample_rate: u32) {
+/// Move everything the ring holds into `pcm`.
+fn drain(consumer: &mut Consumer<f32>, pcm: &mut Vec<f32>) {
     pcm.clear();
     let available = consumer.slots();
     if available == 0 {
@@ -825,6 +838,11 @@ fn drain(consumer: &mut Consumer<f32>, pcm: &mut Vec<f32>, channels: usize, samp
         pcm.extend_from_slice(second);
         chunk.commit_all();
     }
+}
+
+/// Keep at most the last quarter second of `pcm` (after a stall, the engine only needs the
+/// newest samples).
+fn keep_recent(pcm: &mut Vec<f32>, channels: usize, sample_rate: u32) {
     let keep = (sample_rate as usize / 4) * channels;
     if pcm.len() > keep {
         let skip = pcm.len() - keep;

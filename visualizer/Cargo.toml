@@ -12,11 +12,12 @@ path = "src/lib.rs"
 anyhow = "1.0.98"
 log = "0.4.22"
 rand = "0.8.5"
+realfft = "3.4.0"
 rtrb = "0.3.2"
 pollster = "0.4"
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl"] }
-lactea = { git = "https://github.com/XMLHexagram/lactea", rev = "22a19f9cdac0fe7db43d854d72bda3a2bbf742c7" }
-lactea-host = { git = "https://github.com/XMLHexagram/lactea", rev = "22a19f9cdac0fe7db43d854d72bda3a2bbf742c7", version = "0.2.2" }
+lactea = { git = "https://github.com/XMLHexagram/lactea", rev = "d329fd85ebf2e6a307841015169b1945ff7f19f7" }
+lactea-host = { git = "https://github.com/XMLHexagram/lactea", rev = "d329fd85ebf2e6a307841015169b1945ff7f19f7", version = "0.2.2" }
 
 # The IOSurface frame path of macOS. The objc2 crates are the versions
 # wgpu-hal's Metal backend uses, so its texture types are ours.
