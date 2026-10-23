@@ -304,6 +304,9 @@ pub struct Asset {
     pub file: String,
     #[serde(default)]
     pub source: Option<String>,
+    /// The pixels are data (a distance field, a height map), not sRGB colours.
+    #[serde(default)]
+    pub linear: bool,
 }
 
 impl Manifest {

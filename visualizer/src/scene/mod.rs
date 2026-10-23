@@ -691,21 +691,44 @@ impl Scene {
         write_texture(queue, &noise_texture, noise::rgba(), 4);
         let mut keep = vec![noise_texture.clone()];
         let mut assets = Vec::new();
+        let mut mipper = Mipper::new(device);
         for asset in &manifest.assets {
             let bytes = std::fs::read(dir.join(&asset.file))
                 .with_context(|| format!("Failed to read {}", asset.file))?;
             let image = image::load_from_memory(&bytes)
                 .with_context(|| format!("Failed to decode {}", asset.file))?
                 .to_rgba8();
+            let format = if asset.linear {
+                wgpu::TextureFormat::Rgba8Unorm
+            } else {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            };
+            let (w, h) = image.dimensions();
+            let mips = 32 - w.max(h).leading_zeros();
             let texture = plain_texture(
                 device,
                 &asset.id,
-                image.dimensions(),
-                wgpu::TextureFormat::Rgba8UnormSrgb,
-                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                1,
+                (w, h),
+                format,
+                wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                mips,
             );
             write_texture(queue, &texture, image.as_raw(), 4);
+            // Mips, so an image seen small does not shimmer.
+            let levels: Vec<wgpu::TextureView> = (0..mips)
+                .map(|i| {
+                    texture.create_view(&wgpu::TextureViewDescriptor {
+                        base_mip_level: i,
+                        mip_level_count: Some(1),
+                        ..Default::default()
+                    })
+                })
+                .collect();
+            let mut encoder = device.create_command_encoder(&Default::default());
+            mipper.generate(device, &mut encoder, format, &levels);
+            queue.submit(Some(encoder.finish()));
             assets.push(texture.create_view(&Default::default()));
             keep.push(texture);
         }
@@ -930,7 +953,7 @@ impl Scene {
             update,
             passes,
             sized,
-            mipper: Mipper::new(device),
+            mipper,
             output_format,
             output_size,
             analyzer: Analyzer::new(sample_rate),

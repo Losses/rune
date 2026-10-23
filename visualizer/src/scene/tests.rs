@@ -296,3 +296,33 @@ fn the_post_processing_makes_a_sensible_frame() {
         "{c:?}"
     );
 }
+
+#[test]
+fn a_linear_asset_keeps_its_values() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    // Mid grey as data must read 0.5, not the 0.22 an sRGB decode would make of it.
+    let dir = folder(
+        "asset",
+        &[
+            (
+                MANIFEST,
+                "format = 1\nname = \"Data\"\nlicense = \"MPL-2.0\"\n[[asset]]\nid = \"field\"\nfile = \"field.png\"\nlinear = true\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n[post]\ntonemap = \"none\"\ngrain = 0.0\nchromatic = 0.0\nvignette = 0.0\nbloom = { intensity = 0.0 }\n",
+            ),
+            (
+                "a.wgsl",
+                "fn shade(px: Pixel) -> vec4f {\n  return vec4f(textureSampleLevel(asset_field, linear_clamp, px.uv, 0.0).rgb, 1.0);\n}\n",
+            ),
+        ],
+    );
+    image::RgbaImage::from_pixel(8, 8, image::Rgba([128, 128, 128, 255]))
+        .save(dir.join("field.png"))
+        .unwrap();
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    let screen = Screen::new(&device);
+    frame(&mut scene, (&device, &queue), &screen, 0.0, 0.0);
+    let c = screen.middle(&device, &queue);
+    assert!((c[0] - 0.502).abs() < 0.02, "{c:?}");
+}

@@ -26,6 +26,7 @@ The preset on screen is reloaded (with a cut) whenever its file is saved, so a p
 
 Besides MilkDrop presets, a preset folder can hold scenes: a folder with a `scene.toml` is one scene (nothing inside it is scanned for presets). A scene is written in WGSL only. `update()` runs once per frame on the GPU and keeps whatever `struct State` declares. Its passes draw into HDR buffers that can keep the last frame. The runtime adds bloom, AgX tone mapping, chromatic aberration, vignette, grain and dithering. The scene reads the music as named fields: beat, bar and section with how many of each went by since the last frame, the chart's energy, onsets and leading stream, a spectrum and the waveform. Parameters with labels, ranges and units are declared in `scene.toml` and appear as `params.<id>`.
 
+- Images are `[[asset]]`s (PNG or JPEG, `asset_<id>` in WGSL, with mips). `linear = true` marks data such as a distance field, which must not be decoded as sRGB.
 - Code that several passes share goes in files listed as `common = [...]` in `scene.toml`; every pass includes them (the update does not).
 - `src/scene/manifest.rs` is the reference for `scene.toml`, `src/scene/wgsl.rs` for what every shader sees (the prelude), and `src/scene/stdlib.wgsl` for the `rv_*` functions.
 - The scene on screen reloads when its files change. When only parameter defaults changed, nothing else is rebuilt. When `struct State` reads the same, the state carries over. Errors name the file and line.
