@@ -54,6 +54,9 @@ pub struct Manifest {
     pub render: Render,
     #[serde(default)]
     pub state: Option<StateFiles>,
+    /// WGSL files that every pass includes (the update does not): code the passes share.
+    #[serde(default)]
+    pub common: Vec<String>,
     #[serde(default, rename = "param")]
     pub params: Vec<Param>,
     #[serde(default, rename = "buffer")]
@@ -404,6 +407,9 @@ impl Manifest {
             if let Some(update) = &state.update {
                 check_path(update)?;
             }
+        }
+        for file in &self.common {
+            check_path(file)?;
         }
         for asset in &self.assets {
             check_path(&asset.file)?;

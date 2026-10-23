@@ -332,11 +332,12 @@ pub fn update_source(manifest: &Manifest, state: (&str, &str), update: (&str, &s
     source
 }
 
-/// A pass's module: prelude, state file, its inputs, its file and the entry points. `scale` is
-/// the target's size against the internal resolution.
+/// A pass's module: prelude, state file, the common files, its inputs, its file and the entry
+/// points. `scale` is the target's size against the internal resolution.
 pub fn pass_source(
     manifest: &Manifest,
     state: (&str, &str),
+    common: &[(String, String)],
     inputs: &[String],
     shader: (&str, &str),
     scale: f32,
@@ -344,6 +345,9 @@ pub fn pass_source(
     let mut source = Source::default();
     source.push("<runtime>", &prelude(manifest, Stage::Pass));
     source.push(state.0, state.1);
+    for (name, text) in common {
+        source.push(name, text);
+    }
     let mut bindings = String::new();
     for (i, input) in inputs.iter().enumerate() {
         let _ = writeln!(
@@ -448,6 +452,7 @@ inputs = ["prev:trail"]
         let pass = pass_source(
             &m,
             ("state.wgsl", STATE),
+            &[],
             &["prev:trail".to_string()],
             (
                 "a.wgsl",
@@ -465,6 +470,7 @@ inputs = ["prev:trail"]
             &m,
             ("state.wgsl", STATE),
             &[],
+            &[],
             (
                 "a.wgsl",
                 "fn shade(px: Pixel) -> vec4f {\n  let x = 1.0;\n  return vec4f(y);\n}\n",
@@ -478,6 +484,7 @@ inputs = ["prev:trail"]
             &m,
             ("state.wgsl", STATE),
             &[],
+            &[],
             (
                 "a.wgsl",
                 "fn shade(px: Pixel) -> vec4f {\n  state.kick = 1.0;\n  return vec4f(0.0);\n}\n",
@@ -489,15 +496,19 @@ inputs = ["prev:trail"]
     }
 
     #[test]
-    fn the_library_and_a_scene_without_state_validate() {
+    fn the_library_common_files_and_a_scene_without_state_validate() {
         let m = manifest();
         let pass = pass_source(
             &m,
             ("<runtime>", state_text(None)),
+            &[(
+                "lib.wgsl".to_string(),
+                "fn twice(x: f32) -> f32 {\n  return 2.0 * x;\n}\n".to_string(),
+            )],
             &["prev:trail".to_string()],
             (
                 "a.wgsl",
-                "fn shade(px: Pixel) -> vec4f {\n  return vec4f(rv_fbm(px.p, 4), rv_hue_rotate(vec3f(1.0, 0.0, 0.0), 1.0).g, rv_blue_noise(px.coord, true).r, 1.0);\n}\n",
+                "fn shade(px: Pixel) -> vec4f {\n  return vec4f(twice(rv_fbm(px.p, 4)), rv_hue_rotate(vec3f(1.0, 0.0, 0.0), 1.0).g, rv_blue_noise(px.coord, true).r, 1.0);\n}\n",
             ),
             0.5,
         );

@@ -39,6 +39,7 @@ struct Files {
     manifest: Manifest,
     state: Option<(String, String)>,
     update: Option<(String, String)>,
+    common: Vec<(String, String)>,
     shaders: Vec<(String, String)>,
 }
 
@@ -60,6 +61,11 @@ impl Files {
             Some(file) => Some(read_text(dir, file)?),
             None => None,
         };
+        let common = manifest
+            .common
+            .iter()
+            .map(|file| read_text(dir, file))
+            .collect::<Result<_>>()?;
         let shaders = manifest
             .passes
             .iter()
@@ -69,6 +75,7 @@ impl Files {
             manifest,
             state,
             update,
+            common,
             shaders,
         })
     }
@@ -78,6 +85,7 @@ impl Files {
         self.manifest.without_defaults() == other.manifest.without_defaults()
             && self.state == other.state
             && self.update == other.update
+            && self.common == other.common
             && self.shaders == other.shaders
     }
 
@@ -608,7 +616,14 @@ impl Scene {
                 Some(b) => b.scale,
                 None => 1.0,
             };
-            let source = wgsl::pass_source(manifest, state, &pass.inputs, (name, text), scale);
+            let source = wgsl::pass_source(
+                manifest,
+                state,
+                &files.common,
+                &pass.inputs,
+                (name, text),
+                scale,
+            );
             let module = source.check()?;
             pass_sources.push((source.text, module));
         }
