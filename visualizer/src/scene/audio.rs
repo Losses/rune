@@ -25,6 +25,125 @@ const BANDS: [(f32, f32); 3] = [(20.0, 250.0), (250.0, 4_000.0), (4_000.0, 16_00
 const LEVEL_ATTACK: f32 = 0.03;
 const LEVEL_RELEASE: f32 = 0.15;
 const LEVEL_AVERAGE: f32 = 5.0;
+/// The perceived speed: the spectrum's change over this many seconds, measured this often, up to
+/// this frequency (the chart analyzer's 22.05 kHz audio ends there).
+const FEEL_WINDOW: f32 = 8.0;
+const FEEL_EVERY: f32 = 0.5;
+const FEEL_TOP_HZ: f32 = 11_025.0;
+/// The change is resampled at this rate for its modulation spectrum.
+const FEEL_RATE: f32 = 100.0;
+const FEEL_FFT: usize = 1024;
+/// The song's own speed is the perceived speed averaged over about this long.
+const FEEL_SONG: f32 = 60.0;
+
+/// How fast the music sounds, as the chart analyzer measures it (`feel` in the prototype): the
+/// log-frequency centroid of the modulation spectrum (0.5 to 12 Hz) of the spectrum's positive
+/// change over the last 8 s. About 3 Hz for a ballad, 5 for pop, 7 for drum and bass.
+struct FeelMeter {
+    last: Vec<f32>,
+    /// (seconds since the frame before, change) per frame, oldest first.
+    change: VecDeque<(f32, f32)>,
+    since: f32,
+    fft: Arc<dyn RealToComplex<f32>>,
+    input: Vec<f32>,
+    output: Vec<realfft::num_complex::Complex<f32>>,
+    now: f32,
+    song: f32,
+}
+
+impl FeelMeter {
+    fn new() -> Self {
+        let fft = RealFftPlanner::<f32>::new().plan_fft_forward(FEEL_FFT);
+        Self {
+            last: Vec::new(),
+            change: VecDeque::new(),
+            since: 0.0,
+            input: fft.make_input_vec(),
+            output: fft.make_output_vec(),
+            fft,
+            now: 0.0,
+            song: 0.0,
+        }
+    }
+
+    /// One frame: the magnitudes up to the top frequency, `dt` seconds after the last.
+    fn push(&mut self, magnitudes: impl Iterator<Item = f32>, dt: f32) {
+        let now: Vec<f32> = magnitudes.map(|m| (1.0 + 1000.0 * m).ln()).collect();
+        if self.last.len() == now.len() {
+            let change: f32 = now
+                .iter()
+                .zip(&self.last)
+                .map(|(a, b)| (a - b).max(0.0))
+                .sum();
+            self.change.push_back((dt.max(1e-4), change));
+        }
+        self.last = now;
+        let mut span: f32 = self.change.iter().map(|(dt, _)| dt).sum();
+        while span > FEEL_WINDOW && self.change.len() > 1 {
+            span -= self.change.pop_front().map_or(0.0, |(dt, _)| dt);
+        }
+        self.since += dt;
+        if self.since >= FEEL_EVERY && span >= 0.5 * FEEL_WINDOW {
+            self.since = 0.0;
+            self.measure(span);
+        }
+    }
+
+    fn measure(&mut self, span: f32) {
+        // Resample at a steady rate (frames come as fast as the screen draws).
+        let n = ((span * FEEL_RATE) as usize).min(FEEL_FFT);
+        let mut t = 0.0;
+        let mut samples = Vec::with_capacity(n);
+        let mut frames = self.change.iter().peekable();
+        let mut at = 0.0;
+        let mut value = 0.0;
+        for i in 0..n {
+            t = i as f32 / FEEL_RATE;
+            while let Some(&&(dt, change)) = frames.peek() {
+                if at + dt > t {
+                    break;
+                }
+                at += dt;
+                value = change;
+                frames.next();
+            }
+            samples.push(value);
+        }
+        let _ = t;
+        let mean = samples.iter().sum::<f32>() / n.max(1) as f32;
+        let spread =
+            (samples.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / n.max(1) as f32).sqrt();
+        if spread < 1e-4 {
+            // Silence or a held note: no news about the speed.
+            return;
+        }
+        self.input.iter_mut().for_each(|x| *x = 0.0);
+        for (i, v) in samples.iter().enumerate() {
+            let hann = 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / n as f32).cos();
+            self.input[i] = (v - mean) * hann;
+        }
+        let _ = self.fft.process(&mut self.input, &mut self.output);
+        let hz_per_bin = FEEL_RATE / FEEL_FFT as f32;
+        let (mut weighted, mut total) = (0.0f32, 0.0f32);
+        for (k, c) in self.output.iter().enumerate() {
+            let f = k as f32 * hz_per_bin;
+            if (0.5..=12.0).contains(&f) {
+                let p = c.norm_sqr();
+                weighted += p * f.ln();
+                total += p;
+            }
+        }
+        if total <= 0.0 {
+            return;
+        }
+        self.now = (weighted / total).exp();
+        self.song = if self.song == 0.0 {
+            self.now
+        } else {
+            self.song + (self.now - self.song) * (1.0 - (-FEEL_EVERY / FEEL_SONG).exp())
+        };
+    }
+}
 
 pub struct Analyzer {
     sample_rate: f32,
@@ -40,6 +159,7 @@ pub struct Analyzer {
     peak_db: f32,
     level: [f32; 3],
     average: [f32; 3],
+    feel: FeelMeter,
 }
 
 impl Analyzer {
@@ -60,6 +180,7 @@ impl Analyzer {
             peak_db: -60.0,
             level: [0.0; 3],
             average: [0.0; 3],
+            feel: FeelMeter::new(),
         }
     }
 
@@ -96,6 +217,11 @@ impl Analyzer {
         let norm = 4.0 / (FFT_SIZE as f32 * FFT_SIZE as f32 * 0.25);
         let power: Vec<f32> = self.output.iter().map(|c| c.norm_sqr() * norm).collect();
         let hz_per_bin = self.sample_rate / FFT_SIZE as f32;
+        let top = ((FEEL_TOP_HZ / hz_per_bin) as usize).min(self.output.len());
+        // Magnitudes on the chart analyzer's scale: a full-scale sine is about 1.
+        let scale = 4.0 / FFT_SIZE as f32;
+        self.feel
+            .push(self.output[..top].iter().map(|c| c.norm() * scale), dt);
 
         self.spectrum
             .copy_within(0..SPECTRUM_WIDTH * (SPECTRUM_ROWS - 1), SPECTRUM_WIDTH);
@@ -160,6 +286,8 @@ impl Analyzer {
             bass: levels[0],
             mids: levels[1],
             treble: levels[2],
+            feel: self.feel.now,
+            song_feel: self.feel.song,
         }
     }
 }
@@ -201,6 +329,49 @@ mod tests {
             a.waveform[WAVEFORM_WIDTH - 1][0],
             a.waveform[WAVEFORM_WIDTH - 1][1]
         );
+    }
+
+    /// Clicks of noise every `period` seconds, with a little noise between.
+    fn clicks(period: f32, seconds: f32) -> Vec<f32> {
+        let rate = 48_000.0;
+        let mut seed = 1u32;
+        (0..(seconds * rate) as usize)
+            .flat_map(|i| {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                let noise = (seed as f32 / u32::MAX as f32) * 2.0 - 1.0;
+                let t = i as f32 / rate;
+                let phase = t % period;
+                let s = noise * ((-phase * 60.0).exp() * 0.8 + 0.002);
+                [s, s]
+            })
+            .collect()
+    }
+
+    fn feel_of(period: f32) -> Levels {
+        let mut a = Analyzer::new(48_000);
+        let pcm = clicks(period, 12.0);
+        let mut levels = Levels::default();
+        for frame in pcm.chunks(800 * 2) {
+            a.push(frame, 2);
+            levels = a.update(1.0 / 60.0);
+        }
+        levels
+    }
+
+    #[test]
+    fn busier_music_sounds_faster() {
+        let slow = feel_of(0.6);
+        let fast = feel_of(0.15);
+        assert!(slow.feel > 0.0 && fast.feel > 0.0, "{slow:?} {fast:?}");
+        assert!(
+            fast.feel > slow.feel + 0.5,
+            "slow {} fast {}",
+            slow.feel,
+            fast.feel
+        );
+        assert!(slow.song_feel > 0.0);
     }
 
     #[test]

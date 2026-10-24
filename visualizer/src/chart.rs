@@ -54,6 +54,15 @@ struct RawChart {
     streams: std::collections::HashMap<String, RawStream>,
     lead: Vec<RawLead>,
     curves: RawCurves,
+    #[serde(default)]
+    tempo: RawTempo,
+}
+
+#[derive(Deserialize, Default)]
+struct RawTempo {
+    /// How fast the whole song sounds (Hz); 0 in charts made before it was measured.
+    #[serde(default)]
+    feel: f64,
 }
 
 #[derive(Deserialize)]
@@ -99,6 +108,9 @@ struct RawCurves {
     brightness: Vec<f64>,
     percussive: Vec<f64>,
     beat_conf: Vec<f64>,
+    /// How fast it sounds at each moment (Hz); empty in older charts.
+    #[serde(default)]
+    feel: Vec<f64>,
 }
 
 struct Section {
@@ -127,6 +139,7 @@ pub struct Chart {
     streams: [Vec<(f64, f64)>; 5],
     lead: Vec<Lead>,
     curves: RawCurves,
+    song_feel: f64,
 }
 
 /// The chart at one moment, for the presets.
@@ -165,6 +178,11 @@ pub struct ChartState {
     pub percussive: f64,
     /// How clear the pulse is around now.
     pub pulse: f64,
+    /// How fast it sounds now and over the whole song: the centroid of the modulation spectrum
+    /// of the spectrum's change, about 3 Hz for a ballad to 7 for drum and bass; 0 if the chart
+    /// predates it.
+    pub feel: f64,
+    pub song_feel: f64,
 }
 
 impl Chart {
@@ -218,6 +236,7 @@ impl Chart {
             streams,
             lead,
             curves: raw.curves,
+            song_feel: raw.tempo.feel,
         })
     }
 
@@ -244,6 +263,10 @@ impl Chart {
         state.brightness = curve(&c.brightness, c.hop, t);
         state.percussive = curve(&c.percussive, c.hop, t);
         state.pulse = curve(&c.beat_conf, c.hop, t);
+        if !c.feel.is_empty() {
+            state.feel = curve(&c.feel, c.hop, t);
+            state.song_feel = self.song_feel;
+        }
         state
     }
 
@@ -444,7 +467,7 @@ mod tests {
 
     const CHART: &str = r#"{
         "version": 1, "title": "t", "audio": "/a.wav", "duration": 20,
-        "tempo": {"bpm": 120, "confidence": 0.9},
+        "tempo": {"bpm": 120, "confidence": 0.9, "feel": 5.0},
         "beats": [
             {"t": 1.0, "bar": 0, "pos": 0, "strength": 1, "confidence": 0.8},
             {"t": 1.5, "bar": 0, "pos": 1, "strength": 1, "confidence": 0.8},
@@ -466,7 +489,7 @@ mod tests {
         },
         "lead": [{"start": 0, "end": 8, "stream": "low"}, {"start": 8, "end": 20, "stream": null}],
         "curves": {"hop": 0.5, "loudness": [0, 1, 0.5], "brightness": [0], "percussive": [0],
-                   "beat_conf": [0]}
+                   "beat_conf": [0], "feel": [4, 6]}
     }"#;
 
     fn chart() -> Chart {
@@ -515,6 +538,8 @@ mod tests {
     #[test]
     fn curves_are_interpolated() {
         assert!((chart().at(0.25).loudness - 0.5).abs() < 1e-9);
+        assert!((chart().at(0.25).feel - 5.0).abs() < 1e-9);
+        assert_eq!(chart().at(0.25).song_feel, 5.0);
         assert!((chart().at(0.75).loudness - 0.75).abs() < 1e-9);
         assert_eq!(chart().at(99.0).loudness, 0.5);
     }

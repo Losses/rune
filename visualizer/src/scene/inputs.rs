@@ -18,6 +18,9 @@ pub struct Levels {
     pub bass: f32,
     pub mids: f32,
     pub treble: f32,
+    /// How fast it sounds now and over the song so far (Hz, 0 until measured).
+    pub feel: f32,
+    pub song_feel: f32,
 }
 
 /// The values of `struct Music`; see the format draft for what each one means.
@@ -59,11 +62,13 @@ pub struct MusicValues {
     pub treble: f32,
     pub energy: f32,
     pub has_chart: u32,
+    pub feel: f32,
+    pub song_feel: f32,
 }
 
 impl MusicValues {
     /// Name and value of every field, in the order of `struct Music`. New fields go at the end.
-    pub fn fields(&self) -> [(&'static str, Word); 36] {
+    pub fn fields(&self) -> [(&'static str, Word); 38] {
         use Word::{F, U};
         [
             ("song_time", F(self.song_time)),
@@ -102,6 +107,8 @@ impl MusicValues {
             ("treble", F(self.treble)),
             ("energy", F(self.energy)),
             ("has_chart", U(self.has_chart)),
+            ("feel", F(self.feel)),
+            ("song_feel", F(self.song_feel)),
         ]
     }
 
@@ -169,6 +176,8 @@ pub fn music(
         treble: levels.treble,
         energy: rhythm.energy as f32,
         lead: -1.0,
+        feel: levels.feel,
+        song_feel: levels.song_feel,
         ..Default::default()
     };
     let (bar, section) = match chart {
@@ -198,6 +207,11 @@ pub fn music(
             m.brightness = c.brightness as f32;
             m.percussive = c.percussive as f32;
             m.pulse = c.pulse as f32;
+            // The chart heard the whole song; older charts lack it, and the live measure stays.
+            if c.feel > 0.0 {
+                m.feel = c.feel as f32;
+                m.song_feel = c.song_feel as f32;
+            }
             (c.bar, c.section)
         }
         None => {
@@ -252,7 +266,7 @@ mod tests {
             ..Default::default()
         };
         let bytes = m.bytes();
-        assert_eq!(bytes.len(), 144);
+        assert_eq!(bytes.len(), 160);
         assert_eq!(&bytes[0..4], &2.0f32.to_le_bytes());
         assert_eq!(&bytes[140..144], &1u32.to_le_bytes());
     }
