@@ -272,6 +272,8 @@ pub struct Scene {
     /// The visualizer's time when the scene started, and of the last frame.
     started: Option<f64>,
     last: Option<f64>,
+    /// The song time of the last frame.
+    last_song: f64,
     index: u32,
     first: bool,
     _keep: Vec<wgpu::Texture>,
@@ -960,6 +962,7 @@ impl Scene {
             events: EventCounter::default(),
             started: None,
             last: None,
+            last_song: 0.0,
             index: 0,
             first: true,
             files,
@@ -1046,6 +1049,11 @@ impl Scene {
             None => 1.0 / 60.0,
         };
         self.last = Some(input.time);
+        // The song time going back is a new song, or a seek back.
+        if input.song.0 < self.last_song - 1.0 {
+            self.analyzer.new_song();
+        }
+        self.last_song = input.song.0;
         let levels = self.analyzer.update(dt as f32);
 
         let (w, h) = self.sized.size;

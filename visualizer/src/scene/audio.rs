@@ -33,12 +33,12 @@ const FEEL_TOP_HZ: f32 = 11_025.0;
 /// The change is resampled at this rate for its modulation spectrum.
 const FEEL_RATE: f32 = 100.0;
 const FEEL_FFT: usize = 1024;
-/// The song's own speed is the perceived speed averaged over about this long.
-const FEEL_SONG: f32 = 60.0;
 
 /// How fast the music sounds, as the chart analyzer measures it (`feel` in the prototype): the
 /// log-frequency centroid of the modulation spectrum (0.5 to 12 Hz) of the spectrum's positive
-/// change over the last 8 s. About 3 Hz for a ballad, 5 for pop, 7 for drum and bass.
+/// change over the last 8 s. About 3 Hz for a ballad, 5 for pop, 7 for drum and bass. The song's
+/// own speed is the average since the song began, weighted by how much the music moves, as the
+/// chart weighs it: a quiet intro counts for little.
 struct FeelMeter {
     last: Vec<f32>,
     /// (seconds since the frame before, change) per frame, oldest first.
@@ -49,6 +49,9 @@ struct FeelMeter {
     output: Vec<realfft::num_complex::Complex<f32>>,
     now: f32,
     song: f32,
+    /// The weighted sum of the measures since the song began, and their weight.
+    sum: f32,
+    weight: f32,
 }
 
 impl FeelMeter {
@@ -63,7 +66,19 @@ impl FeelMeter {
             fft,
             now: 0.0,
             song: 0.0,
+            sum: 0.0,
+            weight: 0.0,
         }
+    }
+
+    /// A new song: forget the old one.
+    fn restart(&mut self) {
+        self.change.clear();
+        self.since = 0.0;
+        self.now = 0.0;
+        self.song = 0.0;
+        self.sum = 0.0;
+        self.weight = 0.0;
     }
 
     /// One frame: the magnitudes up to the top frequency, `dt` seconds after the last.
@@ -122,6 +137,8 @@ impl FeelMeter {
             let hann = 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / n as f32).cos();
             self.input[i] = (v - mean) * hann;
         }
+        // How much the music moves in this window: the weight of its measure in the song's.
+        let activity = (self.input[..n].iter().map(|x| x * x).sum::<f32>() / n as f32).sqrt();
         let _ = self.fft.process(&mut self.input, &mut self.output);
         let hz_per_bin = FEEL_RATE / FEEL_FFT as f32;
         let (mut weighted, mut total) = (0.0f32, 0.0f32);
@@ -137,11 +154,9 @@ impl FeelMeter {
             return;
         }
         self.now = (weighted / total).exp();
-        self.song = if self.song == 0.0 {
-            self.now
-        } else {
-            self.song + (self.now - self.song) * (1.0 - (-FEEL_EVERY / FEEL_SONG).exp())
-        };
+        self.sum += self.now * activity;
+        self.weight += activity;
+        self.song = self.sum / self.weight.max(1e-9);
     }
 }
 
@@ -186,6 +201,11 @@ impl Analyzer {
 
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate as u32
+    }
+
+    /// A new song began (or the song went back): its perceived speed is measured afresh.
+    pub fn new_song(&mut self) {
+        self.feel.restart();
     }
 
     pub fn push(&mut self, interleaved: &[f32], channels: usize) {
@@ -372,6 +392,35 @@ mod tests {
             fast.feel
         );
         assert!(slow.song_feel > 0.0);
+    }
+
+    /// The song's feel after a fast song and then a slow one, told of the new song or not.
+    fn after_a_fast_song(told: bool) -> f32 {
+        let mut a = Analyzer::new(48_000);
+        for frame in clicks(0.1, 30.0).chunks(800 * 2) {
+            a.push(frame, 2);
+            a.update(1.0 / 60.0);
+        }
+        if told {
+            a.new_song();
+        }
+        let mut levels = Levels::default();
+        for frame in clicks(0.6, 12.0).chunks(800 * 2) {
+            a.push(frame, 2);
+            levels = a.update(1.0 / 60.0);
+        }
+        levels.song_feel
+    }
+
+    #[test]
+    fn a_new_song_forgets_the_last() {
+        let alone = feel_of(0.6).song_feel;
+        let told = after_a_fast_song(true);
+        let untold = after_a_fast_song(false);
+        assert!(
+            (told - alone).abs() < 0.2 && (untold - alone).abs() > 0.5,
+            "alone {alone} told {told} untold {untold}"
+        );
     }
 
     #[test]
