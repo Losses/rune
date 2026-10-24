@@ -35,6 +35,8 @@ pub struct Pipeline {
     rhythm: Rhythm,
     chart: Option<ChartState>,
     song: (f64, bool),
+    /// The app's accent colour (linear), once the app has told it.
+    accent: Option<[f32; 3]>,
     output: Output,
     readback: bool,
     pub adapter_name: String,
@@ -171,6 +173,7 @@ impl Pipeline {
             rhythm: Rhythm::default(),
             chart: None,
             song: (0.0, false),
+            accent: None,
             output,
             readback,
         })
@@ -302,6 +305,11 @@ impl Pipeline {
         self.song = (time, playing);
     }
 
+    /// The app's accent colour (linear), for scenes.
+    pub fn set_accent(&mut self, accent: Option<[f32; 3]>) {
+        self.accent = accent;
+    }
+
     pub fn push_pcm(&mut self, interleaved: &[f32], channels: usize) {
         self.engine.push_pcm_f32(interleaved, channels);
         if let Some(scene) = &mut self.scene {
@@ -351,7 +359,7 @@ impl Pipeline {
                         &mut encoder,
                         &view,
                         clock,
-                        (&self.rhythm, self.chart.as_ref(), self.song),
+                        (&self.rhythm, self.chart.as_ref(), self.song, self.accent),
                     );
                     let submission = self.queue.submit(Some(encoder.finish()));
                     // Hand the buffer out only once the GPU has finished drawing into it.
@@ -377,7 +385,7 @@ impl Pipeline {
         };
         let (engine, scene) = (&mut self.engine, &mut self.scene);
         let (device, queue) = (&self.device, &self.queue);
-        let heard = (&self.rhythm, self.chart.as_ref(), self.song);
+        let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
         let frame = target.render(device, queue, |encoder, view| {
             draw(
                 (engine, scene),
@@ -392,6 +400,15 @@ impl Pipeline {
     }
 }
 
+/// What a scene hears and sees of the player: the rhythm, the chart, the song time and whether
+/// it plays, and the app's accent colour.
+type Heard<'a> = (
+    &'a Rhythm,
+    Option<&'a ChartState>,
+    (f64, bool),
+    Option<[f32; 3]>,
+);
+
 /// A frame of the scene if there is one, else of the engine.
 fn draw(
     (engine, scene): (&mut Engine, &mut Option<Scene>),
@@ -399,7 +416,7 @@ fn draw(
     encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
     clock: FrameClock,
-    (rhythm, chart, song): (&Rhythm, Option<&ChartState>, (f64, bool)),
+    (rhythm, chart, song, accent): Heard,
 ) {
     match scene {
         Some(scene) => scene.render(
@@ -412,6 +429,7 @@ fn draw(
                 rhythm,
                 chart,
                 song,
+                accent,
             },
         ),
         None => engine.render(encoder, view, clock),

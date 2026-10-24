@@ -172,6 +172,11 @@ pub fn parse_color(text: &str) -> Result<[f32; 3]> {
     Ok(rgb)
 }
 
+/// A colour given as 0xAARRGGBB (sRGB), linear; the alpha is dropped.
+pub fn argb_to_linear(argb: u32) -> [f32; 3] {
+    [16, 8, 0].map(|shift| srgb_to_linear(((argb >> shift) & 0xff) as f32 / 255.0))
+}
+
 fn srgb_to_linear(c: f32) -> f32 {
     if c <= 0.04045 {
         c / 12.92

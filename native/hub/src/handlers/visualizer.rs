@@ -165,6 +165,27 @@ impl Signal for SetVisualizerAppearanceRequest {
     }
 }
 
+impl ParamsExtractor for SetVisualizerAccentRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for SetVisualizerAccentRequest {
+    type Params = ();
+    type Response = ();
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        VISUALIZER.set_accent(dart_signal.argb);
+        Ok(Some(()))
+    }
+}
+
 impl ParamsExtractor for SetVisualizerVisibleRequest {
     type Params = ();
 

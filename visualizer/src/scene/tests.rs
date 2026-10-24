@@ -172,6 +172,7 @@ fn frame(
             rhythm: &rhythm,
             chart: None,
             song: (time, true),
+            accent: None,
         },
     );
     queue.submit(Some(encoder.finish()));
@@ -325,4 +326,46 @@ fn a_linear_asset_keeps_its_values() {
     frame(&mut scene, (&device, &queue), &screen, 0.0, 0.0);
     let c = screen.middle(&device, &queue);
     assert!((c[0] - 0.502).abs() < 0.02, "{c:?}");
+}
+
+#[test]
+fn a_scene_sees_the_accent_colour() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let dir = folder(
+        "accent",
+        &[
+            (
+                MANIFEST,
+                "format = 1\nname = \"Accent\"\nlicense = \"MPL-2.0\"\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n[post]\ntonemap = \"none\"\ngrain = 0.0\nchromatic = 0.0\nvignette = 0.0\nbloom = { intensity = 0.0 }\n",
+            ),
+            (
+                "a.wgsl",
+                "fn shade(px: Pixel) -> vec4f {\n  return vec4f(frame.accent.rgb * frame.accent.a, 1.0);\n}\n",
+            ),
+        ],
+    );
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    let screen = Screen::new(&device);
+    let rhythm = Rhythm::default();
+    let mut encoder = device.create_command_encoder(&Default::default());
+    // #0080ff: blue, green at half (0.216 once linear), no red.
+    scene.render(
+        &device,
+        &queue,
+        &mut encoder,
+        &screen.view,
+        &FrameInput {
+            time: 0.0,
+            rhythm: &rhythm,
+            chart: None,
+            song: (0.0, true),
+            accent: Some(argb_to_linear(0xff0080ff)),
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+    let c = screen.middle(&device, &queue);
+    assert!(close(c, [0.0, 0.216, 1.0]), "{c:?}");
 }

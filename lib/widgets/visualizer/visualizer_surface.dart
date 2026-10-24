@@ -8,6 +8,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../bindings/bindings.dart';
 import '../../providers/cover_wall_display.dart';
+import '../../utils/color_brightness.dart';
 import '../../utils/rune_log.dart';
 import '../../utils/visualizer_appearance.dart';
 import '../../utils/visualizer_preset_dirs.dart';
@@ -82,6 +83,9 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   // The appearance last sent to Rust, which picks the default preset's
   // version; null before the first build.
   bool? _light;
+  // The accent colour last sent to Rust, for scenes; null before the first
+  // build.
+  int? _accent;
   // The preset name the corner label last announced.
   String? _announced;
 
@@ -111,6 +115,13 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     if (_light == light) return;
     _light = light;
     SetVisualizerAppearanceRequest(light: light).sendSignalToRust();
+  }
+
+  void _syncAccent(Color accent) {
+    final argb = accent.hexValue;
+    if (_accent == argb) return;
+    _accent = argb;
+    SetVisualizerAccentRequest(argb: argb).sendSignalToRust();
   }
 
   // Whether Rust was last told the window can be seen; null until it is told.
@@ -260,6 +271,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     final pixelRatio = MediaQuery.devicePixelRatioOf(context);
     final light = isAppLight(context);
     _syncAppearance(light);
+    _syncAccent(FluentTheme.of(context).accentColor);
 
     return ColoredBox(
       // Under the letterbox bars and before the first frame, match the

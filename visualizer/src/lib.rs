@@ -184,6 +184,8 @@ struct Shared {
     visible: AtomicBool,
     /// The app's appearance, which picks the light or the dark default preset.
     light: AtomicBool,
+    /// The app's accent colour (0xAARRGGBB) for scenes, or 0 before the app tells it.
+    accent: AtomicU32,
     /// The file that plays and where, for finding its chart and the time in it.
     playback: Mutex<Playback>,
 }
@@ -233,6 +235,7 @@ impl Visualizer {
                 playing: AtomicBool::new(true),
                 visible: AtomicBool::new(true),
                 light: AtomicBool::new(false),
+                accent: AtomicU32::new(0),
                 playback: Mutex::new(Playback::default()),
             }),
             worker: Mutex::new(None),
@@ -252,6 +255,11 @@ impl Visualizer {
                 seconds: MANUAL_BLEND_SECONDS,
             }));
         }
+    }
+
+    /// Follow the app's accent colour (0xAARRGGBB), which scenes may draw in.
+    pub fn set_accent(&self, argb: u32) {
+        self.shared.accent.store(argb, Ordering::Relaxed);
     }
 
     /// Follow the player: while the music is paused or stopped the visualizer draws nothing and
@@ -695,6 +703,10 @@ fn run(
         pipeline.set_rhythm(&rhythm);
         pipeline.set_chart(chart.as_ref());
         pipeline.set_song(charts.song_time(), shared.playing.load(Ordering::Relaxed));
+        pipeline.set_accent(match shared.accent.load(Ordering::Relaxed) {
+            0 => None,
+            argb => Some(scene::argb_to_linear(argb)),
+        });
         let clock = FrameClock {
             time,
             frame: frame_index,

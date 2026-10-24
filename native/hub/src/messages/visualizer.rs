@@ -30,6 +30,12 @@ pub struct SetVisualizerAppearanceRequest {
     pub light: bool,
 }
 
+/// The app's accent colour as 0xAARRGGBB, for scenes that draw in it.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SetVisualizerAccentRequest {
+    pub argb: u32,
+}
+
 /// Whether the app's window can be seen. While it cannot, the visualizer stands still.
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetVisualizerVisibleRequest {

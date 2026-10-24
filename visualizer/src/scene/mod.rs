@@ -21,7 +21,7 @@ use inputs::EventCounter;
 use manifest::{Format, Manifest, OUT, PREV, Value};
 use wgsl::ParamsLayout;
 
-pub use manifest::MANIFEST;
+pub use manifest::{MANIFEST, argb_to_linear};
 
 /// Buffers of a scene may take this much memory together.
 const MAX_BUFFER_BYTES: u64 = 256 << 20;
@@ -114,6 +114,8 @@ pub struct FrameInput<'a> {
     pub chart: Option<&'a ChartState>,
     /// The song time and whether it plays.
     pub song: (f64, bool),
+    /// The app's accent colour (linear), once the app has told it.
+    pub accent: Option<[f32; 3]>,
 }
 
 /// A buffer of the manifest: one texture, or two taking turns when it is persistent.
@@ -1066,6 +1068,10 @@ impl Scene {
         frame.extend((h as f32).to_le_bytes());
         frame.extend((w as f32 / h as f32).to_le_bytes());
         frame.extend(rand::random::<u32>().to_le_bytes());
+        let [r, g, b] = input.accent.unwrap_or_default();
+        for v in [r, g, b, f32::from(u8::from(input.accent.is_some()))] {
+            frame.extend(v.to_le_bytes());
+        }
         queue.write_buffer(&self.frame, 0, &frame);
         let music = inputs::music(
             input.rhythm,

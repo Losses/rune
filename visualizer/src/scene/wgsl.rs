@@ -24,8 +24,9 @@ pub const BIND_LINEAR_REPEAT: u32 = 9;
 pub const BIND_NEAREST_CLAMP: u32 = 10;
 pub const BIND_ASSETS: u32 = 11;
 
-/// `struct Frame` is 32 bytes: time, dt, index, first, resolution (vec2f), aspect, seed.
-pub const FRAME_SIZE: u64 = 32;
+/// `struct Frame` is 48 bytes: time, dt, index, first, resolution (vec2f), aspect, seed, and the
+/// app's accent colour (vec4f) at 32.
+pub const FRAME_SIZE: u64 = 48;
 /// `struct Post` is 64 bytes: eight f32, the tint (vec4f) at 32, contrast and saturation, padding.
 pub const POST_SIZE: u64 = 64;
 
@@ -37,6 +38,7 @@ pub const FRAME: &str = "struct Frame {
   resolution: vec2f,
   aspect: f32,
   seed: u32,
+  accent: vec4f,
 }
 ";
 
