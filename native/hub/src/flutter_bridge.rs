@@ -1,6 +1,7 @@
 //! The visualizer's frames in a Flutter texture of our own texture layer (`flutter_texture`).
 //!
-//! The runner hands the engine over at launch ([`rune_flutter_attach`]); when the visualizer runs,
+//! The runner hands the engine over at launch (`rune_flutter_attach`, on Android
+//! `MainActivity.attachFlutter`); when the visualizer runs,
 //! a texture showing its latest frame is registered and its id is sent to Dart
 //! (`VisualizerTextureResponse`). A texture that replaces another one is sent the same way;
 //! the old one is unregistered once Dart says it shows the new one
@@ -14,6 +15,11 @@
 //!   so the texture is made once the visualizer says how its frames leave the GPU, and replaced
 //!   when that changes (a fall back to reading frames back). If the GPU texture cannot be
 //!   registered the visualizer falls back to reading frames back, which ends in a pixel texture.
+//! - Android: the texture is a `SurfaceProducer`, made before the visualizer starts, whose native
+//!   window the visualizer presents frames into ([`prepare_visualizer`]); nothing is handed over
+//!   frame by frame. A resize gives the producer the new size and the visualizer the producer's
+//!   new window ([`resize_visualizer`]). Frames read back would show nowhere, so there is no
+//!   fallback: a window the visualizer cannot present into shows up in its status.
 
 use std::sync::{Arc, LazyLock};
 
@@ -33,7 +39,8 @@ use crate::visualizer::VISUALIZER;
 const TEXTURE_LAYER: bool = cfg!(any(
     target_vendor = "apple",
     target_os = "windows",
-    target_os = "linux"
+    target_os = "linux",
+    target_os = "android"
 ));
 
 /// Hand the engine's texture registry over to `flutter_texture`. Called by the runner once the
@@ -66,11 +73,53 @@ pub unsafe extern "C" fn rune_flutter_attach(registry: *mut std::ffi::c_void) ->
     }
 }
 
+/// Android: hand the engine's texture registry (`flutterEngine.renderer`) over to
+/// `flutter_texture`. Called by `MainActivity` on the main thread once the engine is configured;
+/// returns whether it worked.
+///
+/// # Safety
+///
+/// Called by the JVM, on the main thread, with that thread's `JNIEnv*` and a live reference to an
+/// `io.flutter.view.TextureRegistry`.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_ci_not_rune_MainActivity_attachFlutter(
+    env: *mut std::ffi::c_void,
+    _activity: *mut std::ffi::c_void,
+    registry: *mut std::ffi::c_void,
+) -> u8 {
+    let (Some(env), Some(registry)) = (
+        std::ptr::NonNull::new(env),
+        std::ptr::NonNull::new(registry),
+    ) else {
+        return 0;
+    };
+    let handle = flutter_texture::PlatformHandle::JniTextureRegistry { env, registry };
+    // A panic must not unwind into the JVM.
+    // SAFETY: the JVM passes this thread's `JNIEnv` and the registry the activity hands over.
+    match std::panic::catch_unwind(|| unsafe { flutter_texture::attach(handle) }) {
+        Ok(Ok(())) => 1,
+        Ok(Err(e)) => {
+            error!("Failed to attach the Flutter texture registry: {e}");
+            0
+        }
+        Err(_) => {
+            error!("Attaching the Flutter texture registry panicked");
+            0
+        }
+    }
+}
+
 /// Tell the visualizer what it needs to know about the engine before it starts: on Windows the
 /// adapter Flutter renders on, on Linux the GPU and driver of Flutter's OpenGL context (probed on
 /// the platform thread the first time), so that frames are shared with it (else they are read
-/// back). Applies from the visualizer's next start.
-pub async fn prepare_visualizer() {
+/// back). On Android, the window of the texture (of `width` by `height`) to present into, which
+/// is registered now. Applies from the visualizer's next start.
+pub async fn prepare_visualizer(width: u32, height: u32) {
+    #[cfg(target_os = "android")]
+    prepare_window(width, height).await;
+    #[cfg(not(target_os = "android"))]
+    let _ = (width, height);
     if TEXTURE_LAYER {
         let capabilities = flutter_texture::capabilities().await;
         VISUALIZER.set_graphics_adapter(capabilities.adapter_luid);
@@ -79,6 +128,51 @@ pub async fn prepare_visualizer() {
             driver: uuids.driver,
         }));
     }
+}
+
+/// Android: make sure there is a texture of `width` by `height` to show the visualizer (the one
+/// of a run before, if the visualizer restarts), and give the visualizer its window. Without one,
+/// the visualizer has nothing to present into, which shows up in its status.
+#[cfg(target_os = "android")]
+async fn prepare_window(width: u32, height: u32) {
+    VISUALIZER.set_window(None);
+    let mut textures = TEXTURES.lock().await;
+    if textures.current.is_none() {
+        match flutter_texture::register_surface(width, height).await {
+            Ok(texture) => install(&mut textures, Kind::Surface, texture),
+            Err(e) => {
+                VISUALIZER.report_error(format!("Failed to register the visualizer texture: {e}"));
+                return;
+            }
+        }
+    } else if let Some((_, texture)) = &textures.current
+        && let Err(e) = texture.set_size(width, height).await
+    {
+        VISUALIZER.report_error(format!("Failed to resize the visualizer texture: {e}"));
+        return;
+    }
+    let Some((_, texture)) = &textures.current else {
+        return;
+    };
+    match texture.window().await {
+        Ok(window) => VISUALIZER.set_window(Some(Box::new(window))),
+        Err(e) => VISUALIZER.report_error(format!("The visualizer texture has no window: {e}")),
+    }
+}
+
+/// Frames of `width` by `height` from now on. On Android the texture's producer is told the new
+/// size, and the visualizer presents into the window it hands out for it.
+pub async fn resize_visualizer(width: u32, height: u32) -> anyhow::Result<()> {
+    #[cfg(target_os = "android")]
+    {
+        let textures = TEXTURES.lock().await;
+        if let Some((_, texture)) = &textures.current {
+            texture.set_size(width, height).await?;
+            let window = texture.window().await?;
+            return VISUALIZER.replace_window(Box::new(window), width, height);
+        }
+    }
+    VISUALIZER.resize(width, height)
 }
 
 /// The visualizer's latest frame, as it is: on the GPU (a pixel buffer, a shared texture or image)
@@ -208,8 +302,14 @@ fn wanted_kind(transport: Option<Transport>) -> Option<Kind> {
         Some(_) => Some(Kind::Pixels),
         None => None,
     };
+    // The texture's window, made before the visualizer started (see `prepare_window`).
+    #[cfg(target_os = "android")]
+    {
+        let _ = transport;
+        Some(Kind::Surface)
+    }
     // One texture takes all the frames there (on the GPU and read back).
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "android")))]
     {
         let _ = transport;
         Some(Kind::Pixels)
@@ -248,6 +348,11 @@ async fn show(kind: Kind) {
         return;
     }
     if textures.current.as_ref().map(|(current, _)| *current) != Some(kind) {
+        // Android: the texture is made with its window before the visualizer starts; without
+        // one, the error is in the status already.
+        if cfg!(target_os = "android") {
+            return;
+        }
         match flutter_texture::register(Arc::new(VisualizerFrames), kind).await {
             Ok(texture) => install(&mut textures, kind, texture),
             Err(e) if kind != Kind::Pixels => {
@@ -309,6 +414,9 @@ pub async fn stop_visualizer() -> Option<PcmInput> {
     VISUALIZER.set_transport_listener(None);
     VISUALIZER.set_frame_listener(None);
     let input = VISUALIZER.stop();
+    // The window of a texture whose visualizer did not start.
+    #[cfg(target_os = "android")]
+    VISUALIZER.set_window(None);
     let textures = std::mem::take(&mut *TEXTURES.lock().await);
     for texture in textures
         .current
@@ -333,7 +441,9 @@ mod tests {
             assert_eq!(wanted_kind(Some(Transport::DxgiShared)), Some(Kind::Dxgi));
             assert_eq!(wanted_kind(None), None);
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "android")]
+        assert_eq!(wanted_kind(None), Some(Kind::Surface));
+        #[cfg(not(any(target_os = "windows", target_os = "android")))]
         assert_eq!(wanted_kind(None), Some(Kind::Pixels));
     }
 }

@@ -4,7 +4,11 @@
 //! - Windows: none; the engine takes register, unregister and mark calls from any thread.
 //! - Linux: the thread that owns GLib's default main context (GTK's main loop), through an idle
 //!   source on that context.
+//! - Android: the main thread, through its looper: an eventfd the looper watches wakes it, and
+//!   the callback runs the queued calls.
 
+#[cfg(target_os = "android")]
+pub(crate) use android::*;
 #[cfg(target_vendor = "apple")]
 pub(crate) use apple::*;
 #[cfg(target_os = "linux")]
@@ -184,5 +188,154 @@ mod glib {
         if catch_unwind(AssertUnwindSafe(|| drop(call))).is_err() {
             error!("Dropping a call for the platform thread panicked");
         }
+    }
+}
+
+#[cfg(target_os = "android")]
+mod android {
+    use std::collections::VecDeque;
+    use std::ffi::{c_int, c_void};
+    use std::marker::PhantomData;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::{Mutex, OnceLock};
+    use std::thread::ThreadId;
+
+    use futures_channel::oneshot;
+    use log::error;
+
+    use crate::android::ndk;
+    use crate::{Result, TextureError, lock};
+
+    /// Proof that the code runs on the main thread, where the engine wants its registry used.
+    #[derive(Clone, Copy)]
+    pub(crate) struct MainThread(PhantomData<*const ()>);
+
+    /// A call waiting for the main thread.
+    type Call = Box<dyn FnOnce(MainThread) + Send>;
+
+    /// The main thread and how to wake its looper.
+    struct MainLooper {
+        thread: ThreadId,
+        /// An eventfd the looper watches; a write wakes it.
+        wake: OwnedFd,
+        calls: Mutex<VecDeque<Call>>,
+    }
+
+    /// Set once, by the first [`hook_main_looper`]; the main looper lives as long as the process.
+    static MAIN: OnceLock<MainLooper> = OnceLock::new();
+
+    /// Make the calling thread, which must be the main thread, the one [`run`] runs calls on. The
+    /// first call watches an eventfd with the thread's looper; later ones (a new engine, after the
+    /// activity was recreated) only check that they run on the same thread.
+    pub(crate) fn hook_main_looper() -> Result<()> {
+        let thread = std::thread::current().id();
+        if let Some(main) = MAIN.get() {
+            return if main.thread == thread {
+                Ok(())
+            } else {
+                error!("A Flutter texture registry was attached off the main thread");
+                Err(TextureError::PlatformThread)
+            };
+        }
+        // SAFETY: a plain call; the looper is acquired below, before it is used.
+        let looper = unsafe { ndk::ALooper_forThread() };
+        if looper.is_null() {
+            error!("The thread that attached a Flutter texture registry has no looper");
+            return Err(TextureError::PlatformThread);
+        }
+        // SAFETY: a plain call; the descriptor is owned right away.
+        let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
+        if fd < 0 {
+            error!(
+                "No eventfd for the main looper: {}",
+                std::io::Error::last_os_error()
+            );
+            return Err(TextureError::PlatformThread);
+        }
+        // SAFETY: `fd` is a new descriptor nothing else owns.
+        let wake = unsafe { OwnedFd::from_raw_fd(fd) };
+        // Only the main thread gets here, so nothing else sets it in between.
+        let main = MAIN.get_or_init(|| MainLooper {
+            thread,
+            wake,
+            calls: Mutex::new(VecDeque::new()),
+        });
+        // SAFETY: `looper` is this thread's. It is acquired for good, so it outlives the watch;
+        // the descriptor lives in `MAIN` for the rest of the process. `drain` takes no data.
+        let added = unsafe {
+            ndk::ALooper_acquire(looper);
+            ndk::ALooper_addFd(
+                looper,
+                main.wake.as_raw_fd(),
+                ndk::ALOOPER_POLL_CALLBACK,
+                ndk::ALOOPER_EVENT_INPUT,
+                Some(drain),
+                std::ptr::null_mut(),
+            )
+        };
+        if added != 1 {
+            error!("The main looper does not watch the eventfd");
+            return Err(TextureError::PlatformThread);
+        }
+        Ok(())
+    }
+
+    /// Run `f` on the main thread: right away if this is it, else later from its looper. Before
+    /// a registry was attached, `f` is dropped without running.
+    pub(crate) fn run(f: impl FnOnce(MainThread) + Send + 'static) {
+        let Some(main) = MAIN.get() else {
+            error!("A call for the platform thread is dropped: no registry was attached");
+            return;
+        };
+        if std::thread::current().id() == main.thread {
+            guarded(Box::new(f));
+            return;
+        }
+        lock(&main.calls).push_back(Box::new(f));
+        let one: u64 = 1;
+        // SAFETY: writes the 8 bytes of `one` to the eventfd. It only fails once the counter is
+        // about to overflow, and then the looper has a wake-up pending anyway.
+        unsafe { libc::write(main.wake.as_raw_fd(), (&raw const one).cast(), 8) };
+    }
+
+    /// Run `f` on the main thread (see [`run`]) and wait for its result.
+    pub(crate) async fn call<R: Send + 'static>(
+        f: impl FnOnce(MainThread) -> R + Send + 'static,
+    ) -> Result<R> {
+        let (sender, receiver) = oneshot::channel();
+        run(move |main| {
+            let _ = sender.send(f(main));
+        });
+        receiver.await.map_err(|_| TextureError::PlatformThread)
+    }
+
+    /// Run `call` on the main thread, which this is.
+    fn guarded(call: Call) {
+        // A panic must not unwind into the looper (or the caller on the main thread).
+        if catch_unwind(AssertUnwindSafe(|| call(MainThread(PhantomData)))).is_err() {
+            error!("A call on the platform thread panicked");
+        }
+    }
+
+    /// The looper's callback for the eventfd, on the main thread: run the calls queued so far.
+    unsafe extern "C" fn drain(fd: c_int, _events: c_int, _data: *mut c_void) -> c_int {
+        let drained = catch_unwind(|| {
+            let mut count: u64 = 0;
+            // SAFETY: reads the eventfd's counter into `count`, which resets it.
+            unsafe { libc::read(fd, (&raw mut count).cast(), 8) };
+            let Some(main) = MAIN.get() else { return };
+            // Taken one at a time, without holding the queue: a call may queue another.
+            loop {
+                let call = lock(&main.calls).pop_front();
+                let Some(call) = call else { break };
+                guarded(call);
+            }
+        });
+        if drained.is_err() {
+            error!("Running the calls for the platform thread panicked");
+        }
+        // Keep watching.
+        1
     }
 }

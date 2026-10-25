@@ -2332,11 +2332,13 @@ version = "0.1.0"
 dependencies = [
  "dispatch2",
  "futures-channel",
+ "jni",
  "libc",
  "log",
  "objc2",
  "objc2-core-foundation",
  "objc2-core-video",
+ "raw-window-handle 0.6.2",
  "windows 0.62.2",
 ]
 

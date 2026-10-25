@@ -71,8 +71,8 @@ pub struct VisualizerStatusResponse {
     pub preset_count: u32,
     pub adapter: String,
     /// How frames reach the screen: "iosurface" (no copies, macOS), "dxgi-shared" (no copies,
-    /// Windows), "vulkan-shared" (no copies, Linux), "readback", or empty before the render
-    /// thread runs.
+    /// Windows), "vulkan-shared" (no copies, Linux), "surface" (no copies, Android: presented
+    /// into the texture's window), "readback", or empty before the render thread runs.
     pub transport: String,
     pub last_error: Option<String>,
 }

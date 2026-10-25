@@ -20,8 +20,15 @@
 //!   into Flutter's OpenGL context without a copy; pixels are uploaded into a texture of our own.
 //!   One texture takes both, so a producer may fall back from one to the other under the same
 //!   texture id. The registrar is used on the GLib main context (the platform thread).
+//! - Android: the registry is the engine's `TextureRegistry` (the `FlutterRenderer`), a Java
+//!   object used through JNI on the main thread. A texture is a `SurfaceProducer`
+//!   ([`register_surface`]), and the producer presents frames into the native window of its
+//!   surface ([`Texture::window`]) itself, which Flutter samples without a copy: there are no
+//!   frames to pull and nothing to notify.
 //! - Elsewhere: not yet ([`TextureError::Unsupported`]).
 
+#[cfg(target_os = "android")]
+mod android;
 #[cfg(target_vendor = "apple")]
 mod darwin;
 #[cfg(target_os = "linux")]
@@ -36,11 +43,18 @@ mod windows;
 
 #[cfg(windows)]
 use self::windows as platform;
+#[cfg(target_os = "android")]
+use android as platform;
 #[cfg(target_vendor = "apple")]
 use darwin as platform;
 #[cfg(target_os = "linux")]
 use linux as platform;
-#[cfg(not(any(target_vendor = "apple", windows, target_os = "linux")))]
+#[cfg(not(any(
+    target_vendor = "apple",
+    windows,
+    target_os = "linux",
+    target_os = "android"
+)))]
 use unsupported as platform;
 
 use std::any::Any;
@@ -50,6 +64,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use log::info;
 
+#[cfg(target_os = "android")]
+pub use android::NativeWindow;
 #[cfg(target_vendor = "apple")]
 use objc2_core_foundation::CFRetained;
 #[cfg(target_vendor = "apple")]
@@ -72,6 +88,9 @@ pub enum TextureError {
     /// A frame in GPU memory shared with Flutter could not be shown (Linux: Flutter's OpenGL
     /// context could not import it). The producer should hand over pixels from now on.
     SharedFrame(String),
+    /// The engine's registry failed a call (Android: a Java exception, as when the engine was
+    /// detached from its activity).
+    Engine(String),
 }
 
 impl fmt::Display for TextureError {
@@ -85,6 +104,7 @@ impl fmt::Display for TextureError {
             Self::SharedFrame(message) => {
                 write!(f, "A frame in GPU memory could not be shown: {message}")
             }
+            Self::Engine(message) => write!(f, "The Flutter texture registry failed: {message}"),
         }
     }
 }
@@ -104,16 +124,30 @@ pub enum PlatformHandle {
     /// An `FlEngine*` on Linux (`fl_view_get_engine`). Its texture registrar is retained.
     #[cfg(target_os = "linux")]
     FlEngine(std::ptr::NonNull<std::ffi::c_void>),
+    /// Android: the `JNIEnv*` of the main thread and a reference (`jobject`) to the engine's
+    /// `io.flutter.view.TextureRegistry` (`flutterEngine.renderer`), which gets a global reference
+    /// of its own. Attached on the main thread, whose looper calls into the registry from then
+    /// on.
+    #[cfg(target_os = "android")]
+    JniTextureRegistry {
+        env: std::ptr::NonNull<std::ffi::c_void>,
+        registry: std::ptr::NonNull<std::ffi::c_void>,
+    },
 }
 
 /// What a texture shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// [`Frame::Pixels`] (and on Apple [`Frame::PixelBuffer`], on Linux [`Frame::VulkanImage`]).
+    /// Not on Android, whose textures are [`Kind::Surface`].
     Pixels,
     /// Windows: [`Frame::Dxgi`].
     #[cfg(windows)]
     Dxgi,
+    /// Android: frames the producer presents into the texture's window ([`Texture::window`]),
+    /// registered with [`register_surface`].
+    #[cfg(target_os = "android")]
+    Surface,
 }
 
 /// What the attached engine can do.
@@ -349,13 +383,19 @@ pub async fn register(source: Arc<dyn FrameSource>, kind: Kind) -> Result<Textur
         .current()
         .ok_or(TextureError::NotAttached)?;
     let registered = platform::register(registry, source, kind).await?;
-    let id = registered.id();
-    info!("Registered Flutter texture {id} (registry {generation})");
-    Ok(Texture {
-        id,
-        notifier: registered.notifier(),
-        registered: Some(registered),
-    })
+    Ok(Texture::new(generation, registered))
+}
+
+/// Android: register a texture of the attached registry whose frames a producer presents into
+/// its window ([`Texture::window`]), of `width` by `height` pixels. This hops to the main thread,
+/// where the engine wants it.
+#[cfg(target_os = "android")]
+pub async fn register_surface(width: u32, height: u32) -> Result<Texture> {
+    let (generation, registry) = lock(&ATTACHMENT)
+        .current()
+        .ok_or(TextureError::NotAttached)?;
+    let registered = platform::register_surface(registry, width, height).await?;
+    Ok(Texture::new(generation, registered))
 }
 
 /// A registered texture. Dropping it unregisters it too, without waiting.
@@ -367,6 +407,16 @@ pub struct Texture {
 }
 
 impl Texture {
+    fn new(generation: u64, registered: platform::Registered) -> Self {
+        let id = registered.id();
+        info!("Registered Flutter texture {id} (registry {generation})");
+        Self {
+            id,
+            notifier: registered.notifier(),
+            registered: Some(registered),
+        }
+    }
+
     /// The id for Flutter's `Texture` widget.
     pub fn id(&self) -> i64 {
         self.id
@@ -385,6 +435,25 @@ impl Texture {
             registered.unregister().await;
             info!("Unregistered Flutter texture {}", self.id);
         }
+    }
+}
+
+/// Android: the window of a [`Kind::Surface`] texture.
+#[cfg(target_os = "android")]
+impl Texture {
+    /// The size of the frames from the next [`Self::window`] on, which is a new window then: the
+    /// one before stops reaching Flutter soon after.
+    pub async fn set_size(&self, width: u32, height: u32) -> Result<()> {
+        let registered = self.registered.as_ref().ok_or(TextureError::NotAttached)?;
+        registered.set_size(width, height).await
+    }
+
+    /// The native window the producer presents frames into. Ask again after [`Self::set_size`].
+    /// The texture must outlive whatever presents into the window: unregister it only after that
+    /// stopped.
+    pub async fn window(&self) -> Result<NativeWindow> {
+        let registered = self.registered.as_ref().ok_or(TextureError::NotAttached)?;
+        registered.window().await
     }
 }
 
@@ -418,7 +487,12 @@ struct Notice {
 
 impl FrameNotifier {
     #[cfg_attr(
-        not(any(target_vendor = "apple", windows, target_os = "linux")),
+        not(any(
+            target_vendor = "apple",
+            windows,
+            target_os = "linux",
+            target_os = "android"
+        )),
         allow(dead_code)
     )]
     fn new(
@@ -487,7 +561,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Platforms without a texture layer yet: nothing can be attached, so nothing is registered.
-#[cfg(not(any(target_vendor = "apple", windows, target_os = "linux")))]
+#[cfg(not(any(
+    target_vendor = "apple",
+    windows,
+    target_os = "linux",
+    target_os = "android"
+)))]
 mod unsupported {
     use std::sync::Arc;
 

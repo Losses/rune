@@ -29,3 +29,11 @@ windows = { version = "0.62", default-features = false, features = ["Win32_Found
 # links against them.
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+
+# On Android the engine's `TextureRegistry` is a Java object reached through JNI (the jni crate is
+# the version the playback crate uses); the main looper and native windows come from libandroid.
+# A native window is handed to wgpu through raw-window-handle, the version wgpu uses.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
+libc = "0.2"
+raw-window-handle = "0.6"

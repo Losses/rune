@@ -3,10 +3,11 @@
 //! The thread owns a headless wgpu device and the scene on screen (see [`scene`]). Each frame it
 //! drains the PCM ring buffer and renders. On Apple platforms it draws straight into an IOSurface-backed pixel buffer, on
 //! Windows into a DirectX 12 texture shared with Flutter's adapter, and on Linux into a Vulkan
-//! image whose memory Flutter's OpenGL context imports, which the app can show without a copy;
-//! elsewhere, or if that fails, it renders into an offscreen texture that is copied into a
-//! readback buffer, and the mapped buffer itself is the frame.
-//! Either way the result is the latest [`Frame`]. Readers ([`Visualizer::latest_frame`]) only
+//! image whose memory Flutter's OpenGL context imports, which the app can show without a copy.
+//! On Android it presents into the native window of a Flutter texture (`Visualizer::set_window`),
+//! where Flutter takes the frame itself, so no [`Frame`] is made. Elsewhere, or if that fails, it
+//! renders into an offscreen texture that is copied into a readback buffer, and the mapped
+//! buffer itself is the frame. Apart from Android, the result is the latest [`Frame`]. Readers ([`Visualizer::latest_frame`]) only
 //! clone an `Arc` under a short lock and never wait for the GPU. A reader that keeps frames holds
 //! their buffers, and the renderer skips frames while none is free.
 
@@ -23,6 +24,8 @@ mod shared_dx12;
 mod shared_vulkan;
 #[cfg(target_vendor = "apple")]
 mod surface;
+#[cfg(target_os = "android")]
+mod window;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
@@ -46,6 +49,8 @@ use presets::{AutoSwitch, Preset, PresetList};
 pub use rhythm::{BeatTracker, Rhythm};
 #[cfg(target_os = "linux")]
 pub use shared_vulkan::SharedFrame;
+#[cfg(target_os = "android")]
+pub use window::Window;
 
 pub const DEFAULT_FPS: u32 = 60;
 
@@ -195,6 +200,9 @@ enum Command {
     LoadScene(PathBuf),
     /// Show the built-in scene (no scene folder is left).
     LoadDefaultScene,
+    /// Android: present frames of this size into this window from now on.
+    #[cfg(target_os = "android")]
+    ReplaceWindow(Window, u32, u32),
     Stop,
 }
 
@@ -253,6 +261,9 @@ struct Shared {
     /// The app could not show a shared frame: the render thread reads frames back from its next
     /// frame on.
     fall_back: AtomicBool,
+    /// Android: the window the next render thread presents into, which it takes.
+    #[cfg(target_os = "android")]
+    window: Mutex<Option<Window>>,
 }
 
 /// The atlas of covers made last (none: there are no covers) and how often it was replaced.
@@ -326,6 +337,8 @@ impl Visualizer {
                 adapter_luid: AtomicU64::new(0),
                 device_uuids: Mutex::new(None),
                 fall_back: AtomicBool::new(false),
+                #[cfg(target_os = "android")]
+                window: Mutex::new(None),
             }),
             worker: Mutex::new(None),
             library: Arc::new(Mutex::new(Library::default())),
@@ -456,6 +469,21 @@ impl Visualizer {
     /// for them).
     pub fn fall_back_to_readback(&self) {
         self.shared.fall_back.store(true, Ordering::Relaxed);
+    }
+
+    /// Android: the window the render thread presents frames into, from the next [`Self::start`]
+    /// (`None`: no window, so frames are read back and nothing shows them). The render thread
+    /// takes it and holds it until it stops or is given another one ([`Self::replace_window`]).
+    #[cfg(target_os = "android")]
+    pub fn set_window(&self, window: Option<Window>) {
+        *lock(&self.shared.window) = window;
+    }
+
+    /// Android: present frames of `width` by `height` into `window` from now on, in place of the
+    /// running render thread's window, which it lets go of first.
+    #[cfg(target_os = "android")]
+    pub fn replace_window(&self, window: Window, width: u32, height: u32) -> Result<()> {
+        self.send(Command::ReplaceWindow(window, width, height))
     }
 
     /// Start the render thread. It returns at once; a missing GPU or an engine error shows up
@@ -695,6 +723,8 @@ fn run(
         adapter_luid,
         device_uuids,
         on_gpu_error,
+        #[cfg(target_os = "android")]
+        lock(&shared.window).take(),
     )?;
     let mut transport = pipeline.transport();
     info!(
@@ -875,6 +905,8 @@ fn run(
             }
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             Rendered::Shared(texture) => publish(shared, width, height, FrameData::Shared(texture)),
+            #[cfg(target_os = "android")]
+            Rendered::Presented => {}
             Rendered::Nothing => {}
         }
         // The output falls back to reading frames back if pixel buffers, shared textures or shared
@@ -949,6 +981,15 @@ fn apply(
             *watched = None;
             shared.status().preset_name = pipeline.preset_name().to_string();
         }),
+        #[cfg(target_os = "android")]
+        Command::ReplaceWindow(window, width, height) => {
+            pipeline.replace_window(window, width, height).map(|()| {
+                let (width, height) = pipeline.size();
+                let mut status = shared.status();
+                status.width = width;
+                status.height = height;
+            })
+        }
         Command::Stop => Ok(()),
     };
     match result {

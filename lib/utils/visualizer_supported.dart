@@ -5,5 +5,6 @@ bool get isVisualizerSupported {
   return Platform.isMacOS ||
       Platform.isIOS ||
       Platform.isWindows ||
-      Platform.isLinux;
+      Platform.isLinux ||
+      Platform.isAndroid;
 }

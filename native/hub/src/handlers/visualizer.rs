@@ -73,7 +73,7 @@ impl Signal for StartVisualizerRequest {
             channels: tap.channels(),
             sample_rate: tap.sample_rate(),
         };
-        flutter_bridge::prepare_visualizer().await;
+        flutter_bridge::prepare_visualizer(dart_signal.width, dart_signal.height).await;
         let result = VISUALIZER.start(
             input,
             dart_signal.width,
@@ -132,7 +132,7 @@ impl Signal for ResizeVisualizerRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        report(VISUALIZER.resize(dart_signal.width, dart_signal.height))
+        report(flutter_bridge::resize_visualizer(dart_signal.width, dart_signal.height).await)
     }
 }
 
@@ -331,6 +331,7 @@ impl Signal for VisualizerStatusRequest {
                 Some(Transport::Readback) => "readback",
                 Some(Transport::DxgiShared) => "dxgi-shared",
                 Some(Transport::VulkanShared) => "vulkan-shared",
+                Some(Transport::Surface) => "surface",
                 None => "",
             }
             .to_string(),

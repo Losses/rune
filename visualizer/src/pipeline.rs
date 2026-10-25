@@ -1,12 +1,15 @@
 //! The GPU side: a headless device, the scene being drawn and where frames go: on Apple platforms straight into
 //! IOSurface-backed pixel buffers ([`crate::surface`]), on Windows into DirectX 12 textures shared
 //! with Flutter's adapter (`crate::shared_dx12`), on Linux into Vulkan images that Flutter's
-//! OpenGL context imports (`crate::shared_vulkan`), elsewhere (or if that fails) an offscreen
-//! target that is read back into mapped buffers ([`crate::readback`]).
+//! OpenGL context imports (`crate::shared_vulkan`), on Android presented into the native window
+//! of a Flutter texture (`crate::window`), elsewhere (or if that fails) an offscreen target that
+//! is read back into mapped buffers ([`crate::readback`]).
 
 use std::path::Path;
 use std::sync::Arc;
 
+#[cfg(target_os = "android")]
+use anyhow::bail;
 use anyhow::{Context, Result, anyhow};
 use log::warn;
 
@@ -22,11 +25,13 @@ use crate::shared_dx12::{SharedTargets, SharedTexture};
 use crate::shared_vulkan::{SharedFrame, SharedTargets};
 #[cfg(target_vendor = "apple")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
+#[cfg(target_os = "android")]
+use crate::window::{Window, WindowSurface};
 
 /// `kCVPixelFormatType_32BGRA` on Apple. Windows' `FlutterDesktopPixelBuffer` and Linux's
 /// `FlPixelBufferTexture` take RGBA, and so do ANGLE for a shared texture and Linux's `FlTextureGL`
 /// (`GL_RGBA8`). Scenes draw the target as it is, so with a linear format the bytes are exactly
-/// what the scene drew.
+/// what the scene drew. Android's swapchains take RGBA too (see `crate::window`).
 #[cfg(target_vendor = "apple")]
 pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 #[cfg(not(target_vendor = "apple"))]
@@ -47,6 +52,8 @@ pub struct Pipeline {
     /// The cell of the track playing, which stays over cell 0 of the atlas.
     playing_cover: Option<Arc<Cell>>,
     output: Output,
+    /// The format scenes draw in: [`FORMAT`], or what the window takes (Android).
+    format: wgpu::TextureFormat,
     readback: bool,
     pub adapter_name: String,
 }
@@ -77,6 +84,9 @@ pub enum Rendered {
     Shared(SharedTexture),
     #[cfg(target_os = "linux")]
     Shared(SharedFrame),
+    /// Android: presented into the window, where Flutter takes it.
+    #[cfg(target_os = "android")]
+    Presented,
     /// Nothing new: every buffer is still in use, or the GPU has not finished one yet.
     Nothing,
 }
@@ -91,6 +101,8 @@ pub enum Transport {
     DxgiShared,
     /// Linux: Vulkan images whose memory Flutter's OpenGL context imports.
     VulkanShared,
+    /// Android: presented into the native window of a Flutter texture.
+    Surface,
 }
 
 enum Output {
@@ -99,6 +111,8 @@ enum Output {
     Surfaces(SurfaceTargets),
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     Shared(SharedTargets),
+    #[cfg(target_os = "android")]
+    Surface(WindowSurface),
 }
 
 impl Output {
@@ -131,6 +145,8 @@ impl Output {
             Self::Surfaces(surfaces) => surfaces.size(),
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             Self::Shared(targets) => targets.size(),
+            #[cfg(target_os = "android")]
+            Self::Surface(surface) => surface.size(),
         }
     }
 }
@@ -140,9 +156,11 @@ impl Output {
 /// [`crate::Visualizer::set_graphics_adapter`]), because a shared texture cannot be opened on
 /// another one; on Linux likewise only on the GPU and driver of Flutter's OpenGL context
 /// (`device_uuids`, see [`crate::Visualizer::set_graphics_device`]). Without it, the adapter is
-/// chosen as elsewhere and frames are read back.
+/// chosen as elsewhere and frames are read back. Elsewhere the adapter can present into
+/// `compatible_surface`, if there is one.
 fn choose_adapter(
     instance: &wgpu::Instance,
+    compatible_surface: Option<&wgpu::Surface<'_>>,
     adapter_luid: Option<u64>,
     device_uuids: Option<DeviceUuids>,
 ) -> Result<(wgpu::Adapter, bool)> {
@@ -170,6 +188,7 @@ fn choose_adapter(
     let _ = device_uuids;
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface,
         ..Default::default()
     }))
     .map_err(|e| anyhow!("No GPU adapter: {e}"))?;
@@ -221,7 +240,10 @@ fn render_and_wait(
 
 impl Pipeline {
     /// `adapter_luid` and `device_uuids`: the GPU Flutter renders on, which only Windows and
-    /// Linux use (see [`choose_adapter`]).
+    /// Linux use (see [`choose_adapter`]). Android: frames are presented into `window` (unless
+    /// `readback`, or without a window: then they are read back, and nothing shows them); a
+    /// window the GPU cannot present into is an error, since nothing else would show the frames.
+    #[cfg_attr(target_os = "android", allow(clippy::too_many_arguments))]
     pub fn new(
         width: u32,
         height: u32,
@@ -230,21 +252,58 @@ impl Pipeline {
         adapter_luid: Option<u64>,
         device_uuids: Option<DeviceUuids>,
         on_gpu_error: Arc<dyn Fn(String) + Send + Sync>,
+        #[cfg(target_os = "android")] window: Option<Window>,
     ) -> Result<Self> {
         let instance = wgpu::Instance::default();
-        let (adapter, shareable) = choose_adapter(&instance, adapter_luid, device_uuids)?;
+        // The surface comes first, so that the adapter is one that can present into it.
+        #[cfg(target_os = "android")]
+        let surface = match window {
+            Some(window) if !readback => Some(crate::window::create_surface(&instance, window)?),
+            _ => None,
+        };
+        #[cfg(target_os = "android")]
+        let compatible_surface = surface.as_ref();
+        #[cfg(not(target_os = "android"))]
+        let compatible_surface = None;
+        let (adapter, shareable) =
+            choose_adapter(&instance, compatible_surface, adapter_luid, device_uuids)?;
         let (device, queue, shareable) = request_device(&adapter, shareable && !readback)?;
         let readback = !shareable;
         // Without a handler wgpu panics on validation errors.
+        #[cfg(target_os = "android")]
+        let report = Arc::clone(&on_gpu_error);
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| on_gpu_error(e.to_string())));
 
         let (width, height) = (width.max(1), height.max(1));
+        #[cfg(target_os = "android")]
+        let output = match surface {
+            Some(surface) => {
+                if !adapter.is_surface_supported(&surface) {
+                    bail!("The GPU cannot present into the visualizer's window");
+                }
+                Output::Surface(WindowSurface::new(
+                    &instance,
+                    &adapter,
+                    &device,
+                    surface,
+                    (width, height),
+                    report,
+                )?)
+            }
+            None => Output::new(&device, width, height, readback),
+        };
+        #[cfg(not(target_os = "android"))]
         let output = Output::new(&device, width, height, readback);
+        let format = match &output {
+            #[cfg(target_os = "android")]
+            Output::Surface(surface) => surface.format(),
+            _ => FORMAT,
+        };
         let scene = Scene::load_from(
             &device,
             &queue,
             DEFAULT_SCENE,
-            FORMAT,
+            format,
             (width, height),
             sample_rate,
         )
@@ -262,6 +321,7 @@ impl Pipeline {
             covers: None,
             playing_cover: None,
             output,
+            format,
             readback,
         })
     }
@@ -284,12 +344,19 @@ impl Pipeline {
             Output::Shared(_) => Transport::DxgiShared,
             #[cfg(target_os = "linux")]
             Output::Shared(_) => Transport::VulkanShared,
+            #[cfg(target_os = "android")]
+            Output::Surface(_) => Transport::Surface,
         }
     }
 
     /// Read frames back from the next frame on, also after a resize: the app could not show the
-    /// frames this output hands over.
+    /// frames this output hands over. Frames presented into a window (Android) hand nothing over,
+    /// and read-back frames would show nowhere there, so they stay as they are.
     pub fn fall_back_to_readback(&mut self) {
+        #[cfg(target_os = "android")]
+        if matches!(self.output, Output::Surface(_)) {
+            return;
+        }
         self.readback = true;
         if !matches!(self.output, Output::Readback(_)) {
             let (width, height) = self.output.size();
@@ -300,8 +367,31 @@ impl Pipeline {
     pub fn resize(&mut self, width: u32, height: u32) -> Result<()> {
         let (width, height) = (width.max(1), height.max(1));
         self.scene.resize(&self.device, width, height)?;
+        #[cfg(target_os = "android")]
+        if let Output::Surface(surface) = &mut self.output {
+            surface.resize(&self.device, width, height);
+            return Ok(());
+        }
         self.output = Output::new(&self.device, width, height, self.readback);
         Ok(())
+    }
+
+    /// Android: present frames of `width` by `height` into `window` from now on, in place of the
+    /// window before (a Flutter texture hands out a new window when its size changes). Frames
+    /// that are read back stay so, and `window` is let go of.
+    #[cfg(target_os = "android")]
+    pub fn replace_window(&mut self, window: Window, width: u32, height: u32) -> Result<()> {
+        let (width, height) = (width.max(1), height.max(1));
+        self.scene.resize(&self.device, width, height)?;
+        match &mut self.output {
+            Output::Surface(surface) => surface.replace(&self.device, window, width, height),
+            Output::Readback(_) => {
+                warn!("Frames are read back, so the visualizer does not present into its window");
+                drop(window);
+                self.output = Output::Readback(Target::new(&self.device, width, height));
+                Ok(())
+            }
+        }
     }
 
     /// Keep the beat tracker's findings for the scenes.
@@ -368,7 +458,7 @@ impl Pipeline {
             &self.device,
             &self.queue,
             source,
-            FORMAT,
+            self.format,
             (width, height),
             self.sample_rate,
         )?;
@@ -390,9 +480,23 @@ impl Pipeline {
             .with_context(|| format!("Scene {source}"))
     }
 
-    /// Render one frame: into the next pixel buffer, shared texture or shared image, or into the
-    /// target that is read back.
+    /// Render one frame: into the next pixel buffer, shared texture, shared image or image of the
+    /// window's swapchain, or into the target that is read back.
     pub fn render(&mut self, time: f64) -> Result<Rendered> {
+        #[cfg(target_os = "android")]
+        if let Output::Surface(surface) = &mut self.output {
+            let scene = &mut self.scene;
+            let (device, queue) = (&self.device, &self.queue);
+            let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+            let presented = surface.present(device, queue, |encoder, view| {
+                draw(scene, (device, queue), encoder, view, time, heard);
+            });
+            return Ok(if presented {
+                Rendered::Presented
+            } else {
+                Rendered::Nothing
+            });
+        }
         #[cfg(target_vendor = "apple")]
         if let Output::Surfaces(surfaces) = &mut self.output {
             match surfaces.next(&self.device) {
@@ -524,8 +628,17 @@ mod tests {
     /// The built-in scene loads and draws a frame that is not black.
     #[test]
     fn default_scene_renders_a_frame() {
-        let Ok(mut pipeline) = Pipeline::new(64, 36, 44_100, true, None, None, Arc::new(|_| {}))
-        else {
+        let Ok(mut pipeline) = Pipeline::new(
+            64,
+            36,
+            44_100,
+            true,
+            None,
+            None,
+            Arc::new(|_| {}),
+            #[cfg(target_os = "android")]
+            None,
+        ) else {
             eprintln!("SKIPPED: no GPU adapter");
             return;
         };
