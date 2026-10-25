@@ -2320,6 +2320,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "flutter-texture"
+version = "0.1.0"
+dependencies = [
+ "dispatch2",
+ "futures-channel",
+ "log",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-core-video",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3026,6 +3038,7 @@ dependencies = [
  "database",
  "directories",
  "discovery",
+ "flutter-texture",
  "fsio",
  "futures",
  "futures-channel",

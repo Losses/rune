@@ -1,0 +1,21 @@
+[package]
+name = "flutter-texture"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "flutter_texture"
+path = "src/lib.rs"
+
+[dependencies]
+futures-channel = "0.3.31"
+log = "0.4.22"
+
+# The objc2 crates are the versions wgpu-hal's Metal backend and the visualizer use, so a pixel
+# buffer the visualizer renders into is a frame here without conversion.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFDictionary", "CFNumber", "CFString"] }
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "objc2", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferPool", "CVReturn"] }

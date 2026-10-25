@@ -30,6 +30,7 @@ sync = { path = "../../sync" }
 analysis = { path = "../../analysis" }
 playback = { path = "../../playback" }
 visualizer = { path = "../../visualizer" }
+flutter-texture = { path = "../../flutter-texture" }
 scrobbling = { path = "../../scrobbling" }
 metadata = { path = "../../metadata" }
 discovery = { path = "../../discovery" }

@@ -53,7 +53,11 @@ class VisualizerSurface extends StatefulWidget {
 
 class _VisualizerSurfaceState extends State<VisualizerSurface>
     with WidgetsBindingObserver {
+  // macOS: the texture Rust registered and sent the id of; elsewhere the one
+  // the runner made.
   int? _textureId;
+  // macOS: the texture ids from Rust.
+  StreamSubscription<Object?>? _textureSubscription;
   // Windows and Linux: the texture fed with shared DirectX textures or Vulkan
   // images, shown unless the visualizer reads its frames back; null elsewhere
   // or if the native side cannot share frames.
@@ -148,15 +152,19 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     WidgetsBinding.instance.removeObserver(this);
     _resizeTimer?.cancel();
     _statusTimer?.cancel();
+    _textureSubscription?.cancel();
     _controller.detach();
     // Not while the tree is being torn down: listeners rebuild.
     scheduleMicrotask(() => _coverWallDisplay.presetsLoaded = false);
 
     if (_textureId != null || _starting) {
       StopVisualizerRequest().sendSignalToRust();
-      _channel.invokeMethod<void>('dispose').catchError((Object e) {
-        error$('Failed to dispose the visualizer texture: $e');
-      });
+      // macOS: Rust unregisters its texture when the visualizer stops.
+      if (!Platform.isMacOS) {
+        _channel.invokeMethod<void>('dispose').catchError((Object e) {
+          error$('Failed to dispose the visualizer texture: $e');
+        });
+      }
     }
     super.dispose();
   }
@@ -168,15 +176,23 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     try {
       final size = _renderSize(logical, pixelRatio);
 
-      // An id, or on Windows and Linux a map of the ids of the pixel and the
-      // GPU textures.
-      final created = await _channel.invokeMethod<Object>('create');
-      final ids = created is Map ? created : const {};
-      final id = created is int ? created : ids['pixels'] as int?;
-      final gpuId = ids['gpu'] as int?;
-      if (_disposed) {
-        await _channel.invokeMethod<void>('dispose');
-        return;
+      // macOS: Rust registers the texture once the visualizer runs and sends
+      // its id. Elsewhere the runner makes it: an id, or on Windows and Linux
+      // a map of the ids of the pixel and the GPU textures.
+      int? id;
+      int? gpuId;
+      if (Platform.isMacOS) {
+        _textureSubscription ??= VisualizerTextureResponse.rustSignalStream
+            .listen((signal) => _showTexture(signal.message.textureId));
+      } else {
+        final created = await _channel.invokeMethod<Object>('create');
+        final ids = created is Map ? created : const {};
+        id = created is int ? created : ids['pixels'] as int?;
+        gpuId = ids['gpu'] as int?;
+        if (_disposed) {
+          await _channel.invokeMethod<void>('dispose');
+          return;
+        }
       }
 
       // Bookmarks are resolved when the manager is created; wait for them
@@ -184,7 +200,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       if (Platform.isMacOS) await MacSecureManager().completed;
       final dirs = await loadVisualizerPresetDirs();
       if (_disposed) {
-        await _channel.invokeMethod<void>('dispose');
+        if (!Platform.isMacOS) await _channel.invokeMethod<void>('dispose');
         return;
       }
 
@@ -199,8 +215,10 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
 
       _controller.hasPresets = dirs.isNotEmpty;
       setState(() {
-        _textureId = id;
-        _gpuTextureId = gpuId;
+        if (!Platform.isMacOS) {
+          _textureId = id;
+          _gpuTextureId = gpuId;
+        }
         _renderedSize = size;
       });
     } catch (e) {
@@ -212,8 +230,19 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     }
   }
 
+  // macOS: show the texture Rust sent, then tell Rust that it is on screen,
+  // so that a texture it replaced can go.
+  void _showTexture(int id) {
+    if (_disposed || !mounted) return;
+    setState(() => _textureId = id);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed) return;
+      VisualizerTextureShownRequest(textureId: id).sendSignalToRust();
+    });
+  }
+
   void _scheduleResize(Size logical, double pixelRatio) {
-    if (_textureId == null) return;
+    if (_renderedSize == null) return;
     final size = _renderSize(logical, pixelRatio);
     if (size == _renderedSize) return;
 
@@ -229,7 +258,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   }
 
   Future<void> _pollStatus() async {
-    if (_textureId == null || _disposed) return;
+    if (_renderedSize == null || _disposed) return;
 
     // About 1 Hz, but 4 Hz while waiting for the render thread to come up.
     final waiting = _controller.status?.running != true;
@@ -283,7 +312,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
           if (size.width > 0 && size.height > 0) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
-              if (_textureId == null) {
+              if (_renderedSize == null) {
                 _start(size, pixelRatio);
               } else {
                 _scheduleResize(size, pixelRatio);

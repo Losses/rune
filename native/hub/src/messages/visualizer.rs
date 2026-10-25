@@ -77,6 +77,19 @@ pub struct VisualizerStatusResponse {
     pub last_error: Option<String>,
 }
 
+/// The texture that shows the visualizer (macOS), sent once it started and whenever another one
+/// replaces it. Show it, then confirm with `VisualizerTextureShownRequest`.
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct VisualizerTextureResponse {
+    pub texture_id: i64,
+}
+
+/// The app shows the texture `texture_id`: the textures it replaced can go.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct VisualizerTextureShownRequest {
+    pub texture_id: i64,
+}
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ListVisualizerPresetsRequest {}
 

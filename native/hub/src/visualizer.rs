@@ -1,9 +1,8 @@
 //! The process-wide visualizer and its C interface.
 //!
-//! The native side of the app pulls finished frames through these functions, so that the pixels
-//! never travel through Dart:
-//! - macOS: an IOSurface-backed pixel buffer ([`rune_visualizer_copy_pixel_buffer`]), or a copy of
-//!   a read-back frame ([`rune_visualizer_copy_frame`]) if pixel buffers failed;
+//! The native side of the app on Windows and Linux pulls finished frames through these functions,
+//! so that the pixels never travel through Dart (macOS shows them through
+//! [`crate::flutter_bridge`] instead):
 //! - Windows: a DirectX 12 texture shared through an NT handle, held until released
 //!   (`rune_visualizer_acquire_shared_frame`), once the app told which adapter Flutter renders on
 //!   (`rune_visualizer_set_graphics_adapter`); else, or if sharing failed, read back;
@@ -14,8 +13,7 @@
 //! - Windows and Linux, read back: the read-back frame itself, held until released
 //!   ([`rune_visualizer_acquire_frame`], [`rune_visualizer_release_frame`]).
 //!
-//! The functions are exported from `rinf.framework` on macOS and from the hub library
-//! (`hub.dll`, `libhub.so`) elsewhere.
+//! The functions are exported from the hub library (`hub.dll`, `libhub.so`).
 
 use std::ffi::c_void;
 use std::path::PathBuf;
@@ -163,84 +161,6 @@ pub unsafe extern "C" fn rune_visualizer_frame_info(
         }
     }
     frame.id
-}
-
-/// Copy the latest frame (BGRA, rows top to bottom) into `dst`, `dst_stride` bytes per row, if
-/// its size is exactly `width` x `height`. Returns the frame id, or 0 if nothing was copied
-/// (no frame, a frame in a pixel buffer, a different size, a null `dst`, a zero width, or
-/// `dst_stride` below `width * 4`). Only the
-/// first `width * 4` bytes of each row are written; padding is left alone.
-///
-/// # Safety
-///
-/// `dst` must be null or valid for writing `dst_stride * (height - 1) + width * 4` bytes, and
-/// must not overlap memory that another thread uses during the call.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn rune_visualizer_copy_frame(
-    dst: *mut u8,
-    dst_stride: usize,
-    width: u32,
-    height: u32,
-) -> u64 {
-    let row = width as usize * 4;
-    // A zero-sized row would make `chunks_exact` panic, and a panic must not unwind into C.
-    if dst.is_null() || row == 0 || dst_stride < row {
-        return 0;
-    }
-    let Some(frame) = VISUALIZER.latest_frame() else {
-        return 0;
-    };
-    let Some((pixels, stride)) = frame.pixels() else {
-        return 0;
-    };
-    let rows = height as usize;
-    if frame.width != width
-        || frame.height != height
-        || stride < row
-        || pixels.len() < stride * (rows - 1) + row
-    {
-        return 0;
-    }
-    for y in 0..rows {
-        // SAFETY: the source row is in bounds (checked above); the destination row ends at
-        // `dst_stride * y + row`, within the range the caller guarantees.
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                pixels.as_ptr().add(stride * y),
-                dst.add(dst_stride * y),
-                row,
-            );
-        }
-    }
-    frame.id
-}
-
-/// The latest frame as a `CVPixelBufferRef` (IOSurface-backed `kCVPixelFormatType_32BGRA`) with
-/// one reference that the caller owns and must release, or null if there is no frame or it was
-/// read back (use [`rune_visualizer_copy_frame`] then). If `out_id` is not null, the frame id is
-/// written to it, or 0 when null is returned.
-///
-/// # Safety
-///
-/// `out_id` must be null or valid for writing a `u64`.
-#[cfg(target_os = "macos")]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn rune_visualizer_copy_pixel_buffer(
-    out_id: *mut u64,
-) -> *mut std::ffi::c_void {
-    let frame = VISUALIZER.latest_frame();
-    let buffer = frame
-        .as_ref()
-        .and_then(|frame| frame.retained_pixel_buffer());
-    if !out_id.is_null() {
-        let id = match (&frame, buffer) {
-            (Some(frame), Some(_)) => frame.id,
-            _ => 0,
-        };
-        // SAFETY: the caller guarantees that the pointer is null or writable.
-        unsafe { *out_id = id };
-    }
-    buffer.unwrap_or(std::ptr::null_mut())
 }
 
 /// A read-back frame, as filled in by [`rune_visualizer_acquire_frame`].

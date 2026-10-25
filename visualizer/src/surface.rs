@@ -6,7 +6,6 @@
 //! it any more, so a frame that Flutter (or the latest-frame slot) still has is never drawn over.
 
 use std::collections::{HashMap, VecDeque};
-use std::ffi::c_void;
 use std::ptr::NonNull;
 
 use anyhow::{Context, Result, bail};
@@ -48,9 +47,9 @@ unsafe impl Send for PixelBuffer {}
 unsafe impl Sync for PixelBuffer {}
 
 impl PixelBuffer {
-    /// A `CVPixelBufferRef` with one more reference, which the receiver must release.
-    pub fn into_retained_raw(self) -> *mut c_void {
-        CFRetained::into_raw(self.0).as_ptr().cast()
+    /// The buffer, with one more reference.
+    pub fn retained(&self) -> CFRetained<CVPixelBuffer> {
+        self.0.clone()
     }
 
     /// The pixels as tightly packed BGRA rows. Copies; meant for tests and diagnostics.

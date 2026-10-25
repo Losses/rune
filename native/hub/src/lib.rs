@@ -1,4 +1,5 @@
 mod apple_bridge;
+pub mod flutter_bridge;
 #[macro_use]
 mod macros;
 mod handlers;

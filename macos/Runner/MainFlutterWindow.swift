@@ -4,10 +4,6 @@ import Cocoa
 import bitsdojo_window_macos
 
 class MainFlutterWindow: BitsdojoWindow {
-  // The nib creates this window through an inherited Objective-C initializer, so Swift property
-  // initializers never run here; an optional starts as nil from the zeroed storage instead.
-  private var visualizerChannel: VisualizerChannel?
-
   override func bitsdojo_window_configure() -> UInt {
     return BDW_CUSTOM_FRAME | BDW_HIDE_ON_STARTUP
   }
@@ -43,9 +39,14 @@ class MainFlutterWindow: BitsdojoWindow {
       }
     }
 
-    let visualizerChannel = VisualizerChannel()
-    visualizerChannel.register(with: flutterViewController)
-    self.visualizerChannel = visualizerChannel
+    // The Rust hub registers the visualizer's texture with the engine itself. Its symbols live in
+    // rinf.framework, which is loaded in-process; resolving at run time avoids a link-time
+    // dependency.
+    if let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "rune_flutter_attach") {
+      typealias Attach = @convention(c) (UnsafeMutableRawPointer) -> Bool
+      let attach = unsafeBitCast(symbol, to: Attach.self)
+      _ = attach(Unmanaged.passUnretained(flutterViewController.engine).toOpaque())
+    }
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 

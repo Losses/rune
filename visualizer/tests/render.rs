@@ -218,6 +218,38 @@ fn readback_renders_changing_frames() {
 }
 
 #[test]
+fn frame_listener_hears_every_frame() {
+    let Some((visualizer, mut feeder)) = start(320, 180) else {
+        return;
+    };
+    let visualizer = Arc::new(visualizer);
+    let heard = Arc::new(std::sync::Mutex::new(Vec::new()));
+    visualizer.set_frame_listener(Some(Arc::new({
+        let heard = Arc::clone(&heard);
+        let visualizer = Arc::downgrade(&visualizer);
+        move |id| {
+            // Told after the frame became the latest one.
+            let latest = visualizer.upgrade().and_then(|v| v.latest_frame());
+            heard
+                .lock()
+                .unwrap()
+                .push((id, latest.map(|frame| frame.id)));
+        }
+    })));
+    collect(&visualizer, &mut feeder, 10);
+    visualizer.set_frame_listener(None);
+    let heard = std::mem::take(&mut *heard.lock().unwrap());
+    assert!(heard.len() >= 9, "heard {} frames", heard.len());
+    for pair in heard.windows(2) {
+        assert_eq!(pair[1].0, pair[0].0 + 1, "a frame was not heard");
+    }
+    for (id, latest) in &heard {
+        assert!(latest.is_some_and(|latest| latest >= *id));
+    }
+    visualizer.stop();
+}
+
+#[test]
 fn paused_music_holds_the_picture() {
     let Some((visualizer, mut feeder)) = start(640, 360) else {
         return;

@@ -49,6 +49,9 @@ pub use shared_vulkan::SharedFrame;
 
 pub const DEFAULT_FPS: u32 = 60;
 
+/// Told the id of each new frame (see [`Visualizer::set_frame_listener`]).
+pub type FrameListener = Arc<dyn Fn(u64) + Send + Sync>;
+
 /// Sample rate assumed until the first track tells the real one.
 const FALLBACK_SAMPLE_RATE: u32 = 44_100;
 
@@ -104,12 +107,14 @@ impl Frame {
         }
     }
 
-    /// A `CVPixelBufferRef` with one more reference for the receiver to release, if the frame is
-    /// in a pixel buffer.
+    /// The IOSurface-backed `kCVPixelFormatType_32BGRA` pixel buffer the frame is in, if it is in
+    /// one.
     #[cfg(target_os = "macos")]
-    pub fn retained_pixel_buffer(&self) -> Option<*mut std::ffi::c_void> {
+    pub fn pixel_buffer(
+        &self,
+    ) -> Option<objc2_core_foundation::CFRetained<objc2_core_video::CVPixelBuffer>> {
         match &self.data {
-            FrameData::PixelBuffer(buffer) => Some(buffer.clone().into_retained_raw()),
+            FrameData::PixelBuffer(buffer) => Some(buffer.retained()),
             FrameData::Mapped(_) => None,
         }
     }
@@ -234,6 +239,8 @@ struct Shared {
     /// Asked to provide covers (by calling [`Visualizer::set_covers`]) when a scene that reads
     /// them is loaded.
     covers_requester: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Told the id of every new frame.
+    frame_listener: Mutex<Option<FrameListener>>,
     /// The LUID of the adapter Flutter renders on (see [`adapter_luid`]), 0 while unknown.
     adapter_luid: AtomicU64,
     /// The UUIDs of the GPU Flutter renders on, while known.
@@ -309,6 +316,7 @@ impl Visualizer {
                 playing_cover: Mutex::new(PlayingCover::default()),
                 playing_cover_job: AtomicU64::new(0),
                 covers_requester: Mutex::new(None),
+                frame_listener: Mutex::new(None),
                 adapter_luid: AtomicU64::new(0),
                 device_uuids: Mutex::new(None),
                 fall_back: AtomicBool::new(false),
@@ -585,6 +593,13 @@ impl Visualizer {
     /// The most recent frame, if the visualizer is running and has rendered one.
     pub fn latest_frame(&self) -> Option<Arc<Frame>> {
         lock(&self.shared.latest).clone()
+    }
+
+    /// `listener` is called with the id of every new frame, from the render thread right after
+    /// [`Self::latest_frame`] returns it, so it must not block; `None` stops the calls. It
+    /// replaces an earlier listener and stays across restarts.
+    pub fn set_frame_listener(&self, listener: Option<FrameListener>) {
+        *lock(&self.shared.frame_listener) = listener;
     }
 
     fn send(&self, command: Command) -> Result<()> {
@@ -994,11 +1009,12 @@ fn keep_recent(pcm: &mut Vec<f32>, channels: usize, sample_rate: u32) {
     }
 }
 
-/// Make `data` the latest frame. The one it replaces gives its buffer back once no reader holds
-/// it any more.
+/// Make `data` the latest frame and tell the frame listener. The one it replaces gives its buffer
+/// back once no reader holds it any more.
 fn publish(shared: &Shared, width: u32, height: u32, data: FrameData) {
+    let id = shared.next_frame_id.fetch_add(1, Ordering::Relaxed);
     let frame = Arc::new(Frame {
-        id: shared.next_frame_id.fetch_add(1, Ordering::Relaxed),
+        id,
         width,
         height,
         data,
@@ -1006,4 +1022,8 @@ fn publish(shared: &Shared, width: u32, height: u32, data: FrameData) {
     let previous = lock(&shared.latest).replace(frame);
     // Dropped outside the lock: releasing a readback buffer unmaps it.
     drop(previous);
+    let listener = lock(&shared.frame_listener).clone();
+    if let Some(listener) = listener {
+        listener(id);
+    }
 }

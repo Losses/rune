@@ -10,7 +10,7 @@ use ::playback::player::Playable;
 use ::visualizer::{PcmInput, Transport};
 
 use crate::{
-    Session, Signal,
+    Session, Signal, flutter_bridge,
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
     visualizer::{VISUALIZER, provide_covers},
@@ -81,8 +81,10 @@ impl Signal for StartVisualizerRequest {
         );
         if result.is_err() {
             tap.set_enabled(false);
+            return report(result);
         }
-        report(result)
+        flutter_bridge::visualizer_started().await;
+        Ok(Some(()))
     }
 }
 
@@ -106,7 +108,7 @@ impl Signal for StopVisualizerRequest {
     ) -> Result<Option<Self::Response>> {
         let tap = player.lock().await.pcm_tap();
         tap.set_enabled(false);
-        if let Some(input) = VISUALIZER.stop() {
+        if let Some(input) = flutter_bridge::stop_visualizer().await {
             tap.restore_consumer(input.consumer);
         }
         Ok(Some(()))
@@ -333,6 +335,27 @@ impl Signal for VisualizerStatusRequest {
             .to_string(),
             last_error: status.last_error,
         }))
+    }
+}
+
+impl ParamsExtractor for VisualizerTextureShownRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for VisualizerTextureShownRequest {
+    type Params = ();
+    type Response = ();
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        flutter_bridge::texture_shown(dart_signal.texture_id).await;
+        Ok(Some(()))
     }
 }
 
