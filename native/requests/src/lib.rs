@@ -173,6 +173,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("VisualizerStatusResponse".to_string()),
             local_only: true,
         },
+        RequestResponse {
+            request: "ListVisualizerPresetsRequest".to_string(),
+            response: Some("ListVisualizerPresetsResponse".to_string()),
+            local_only: true,
+        },
         // SFX
         RequestResponse {
             request: "SfxPlayRequest".to_string(),

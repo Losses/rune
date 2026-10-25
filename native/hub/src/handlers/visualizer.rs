@@ -365,3 +365,33 @@ impl Signal for VisualizerStatusRequest {
         }))
     }
 }
+
+impl ParamsExtractor for ListVisualizerPresetsRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for ListVisualizerPresetsRequest {
+    type Params = ();
+    type Response = ListVisualizerPresetsResponse;
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        _dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let presets = VISUALIZER
+            .list_presets()
+            .into_iter()
+            .map(|info| VisualizerPresetEntry {
+                name: info.name,
+                path: info.path.to_string_lossy().into_owned(),
+                group: info.group,
+                scene: info.scene,
+            })
+            .collect();
+        Ok(Some(ListVisualizerPresetsResponse { presets }))
+    }
+}

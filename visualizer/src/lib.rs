@@ -37,6 +37,7 @@ pub use chart::{Chart, ChartState, chart_dir, chart_key};
 use chart::{ChartFollower, Playback};
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport};
 use pipeline::{Pipeline, Rendered};
+pub use presets::PresetInfo;
 use presets::{AutoSwitch, Location, Preset, PresetList};
 pub use rhythm::{BeatTracker, Rhythm};
 
@@ -335,7 +336,11 @@ impl Visualizer {
     /// the atlas changes, the random covers stay. The file is decoded on a background thread and
     /// the scene picks it up with the next frame; a later call replaces an earlier one.
     pub fn set_playing_cover(&self, path: Option<PathBuf>) {
-        let job = self.shared.playing_cover_job.fetch_add(1, Ordering::Relaxed) + 1;
+        let job = self
+            .shared
+            .playing_cover_job
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
         let shared = Arc::clone(&self.shared);
         let spawned = thread::Builder::new()
             .name("visualizer-cover".into())
@@ -492,6 +497,11 @@ impl Visualizer {
             }));
         }
         Ok(count)
+    }
+
+    /// Every preset and scene of the preset folders, by group and name, for choosing one.
+    pub fn list_presets(&self) -> Vec<PresetInfo> {
+        lock(&self.library).folder.infos()
     }
 
     /// Forward in the history if [`Self::previous_preset`] went back, else a new random preset

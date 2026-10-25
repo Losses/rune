@@ -81,6 +81,37 @@ fn read_rating(path: &Path) -> f32 {
 struct Entry {
     preset: Preset,
     rating: f32,
+    /// The folder the preset is in, relative to the preset folder it was found under.
+    group: String,
+    scene: bool,
+}
+
+/// A preset of the library as the preset menu shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresetInfo {
+    pub name: String,
+    pub path: PathBuf,
+    pub group: String,
+    pub scene: bool,
+}
+
+/// The folder of `path` relative to `root`, with `/` between the folders; the name of `root`
+/// itself for what lies directly in it.
+fn group_of(root: &Path, path: &Path) -> String {
+    let relative = path
+        .parent()
+        .and_then(|parent| parent.strip_prefix(root).ok())
+        .unwrap_or(Path::new(""));
+    let parts: Vec<_> = relative
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect();
+    if parts.is_empty() {
+        root.file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+    } else {
+        parts.join("/")
+    }
 }
 
 /// Add the presets of `dir` and its subfolders to `entries`; nothing of `dir` on an error.
@@ -100,8 +131,10 @@ fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
                 // A scene in Rune's own format is a folder; what is inside it belongs to it.
                 if crate::scene::is_scene(&path) {
                     found.push(Entry {
+                        group: group_of(dir, &path),
                         preset: Preset::new(Location::File(path)),
                         rating: DEFAULT_RATING,
+                        scene: true,
                     });
                 } else {
                     pending.push(path);
@@ -111,8 +144,10 @@ fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
             if path.to_str().is_some_and(is_preset_name) {
                 let rating = read_rating(&path);
                 found.push(Entry {
+                    group: group_of(dir, &path),
                     preset: Preset::new(Location::File(path)),
                     rating,
+                    scene: false,
                 });
             }
         }
@@ -161,6 +196,31 @@ impl PresetList {
 
     pub fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    /// Every preset, by group and then by name, ignoring case.
+    pub fn infos(&self) -> Vec<PresetInfo> {
+        let mut infos: Vec<PresetInfo> = self
+            .entries
+            .iter()
+            .map(|entry| {
+                let Location::File(path) = &entry.preset.location;
+                PresetInfo {
+                    name: entry.preset.name.clone(),
+                    path: path.clone(),
+                    group: entry.group.clone(),
+                    scene: entry.scene,
+                }
+            })
+            .collect();
+        infos.sort_by_cached_key(|i| {
+            (
+                i.group.to_lowercase(),
+                i.name.to_lowercase(),
+                i.path.clone(),
+            )
+        });
+        infos
     }
 
     /// MilkDrop 2's `NextPreset`: forward in the history if the user went back, else a new
@@ -279,6 +339,8 @@ mod tests {
             .map(|(name, rating)| Entry {
                 preset: Preset::new(Location::File(format!("{name}.milk").into())),
                 rating: parse_rating(format!("[preset00]\nfRating={rating}\n").as_bytes()),
+                group: String::new(),
+                scene: false,
             })
             .collect();
         let mut list = PresetList::default();
@@ -338,6 +400,48 @@ mod tests {
         assert_eq!(list.scan_all(&[]).0, 0);
         assert_eq!(list.len(), 0);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn groups_are_relative_to_the_preset_folder() {
+        let root = Path::new("/music/MilkDrop");
+        assert_eq!(group_of(root, &root.join("a.milk")), "MilkDrop");
+        assert_eq!(
+            group_of(root, &root.join("Cream of the Crop/Fractal/x.milk")),
+            "Cream of the Crop/Fractal"
+        );
+        assert_eq!(group_of(root, &root.join("Scenes/Neon")), "Scenes");
+    }
+
+    #[test]
+    fn infos_are_sorted_by_group_then_name_ignoring_case() {
+        let dir = std::env::temp_dir().join(format!("rune-presets-infos-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("b")).unwrap();
+        std::fs::create_dir_all(dir.join("A")).unwrap();
+        std::fs::create_dir_all(dir.join("scene")).unwrap();
+        std::fs::write(dir.join("scene/scene.toml"), "").unwrap();
+        for file in ["b/z.milk", "b/Y.milk", "A/q.milk", "root.milk"] {
+            std::fs::write(dir.join(file), "").unwrap();
+        }
+        let mut list = PresetList::default();
+        list.scan_all(std::slice::from_ref(&dir));
+        let root = dir.file_name().unwrap().to_string_lossy().into_owned();
+        let got: Vec<(String, String, bool)> = list
+            .infos()
+            .into_iter()
+            .map(|i| (i.group, i.name, i.scene))
+            .collect();
+        let expected = |g: &str, n: &str, s: bool| (g.to_string(), n.to_string(), s);
+        let mut want = vec![
+            expected("A", "q", false),
+            expected("b", "Y", false),
+            expected("b", "z", false),
+            expected(&root, "root", false),
+            expected(&root, "scene", true),
+        ];
+        want.sort_by_key(|(g, n, _)| (g.to_lowercase(), n.to_lowercase()));
+        assert_eq!(got, want);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

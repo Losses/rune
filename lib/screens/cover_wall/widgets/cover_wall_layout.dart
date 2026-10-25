@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../bindings/bindings.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/color_brightness.dart';
 import '../../../utils/visualizer_supported.dart';
@@ -67,7 +68,7 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
     _visualizer.setMenuOpen(_contextController.isOpen);
   }
 
-  void _openContextMenu(Offset localPosition) {
+  Future<void> _openContextMenu(Offset localPosition) async {
     if (!mounted) return;
     final targetContext = _contextAttachKey.currentContext;
 
@@ -81,6 +82,10 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
     final s = S.of(context);
     final provider = context.read<CoverWallDisplayProvider>();
     final showVisualizer = provider.showVisualizer;
+    if (showVisualizer && _visualizer.hasPresets) {
+      await _visualizer.refreshPresets();
+      if (!mounted) return;
+    }
 
     MenuFlyoutItem displayItem(CoverWallDisplay display, String title) {
       final active = provider.display == display;
@@ -90,6 +95,38 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
         ),
         text: Text(title),
         onPressed: () => provider.setDisplay(display),
+      );
+    }
+
+    MenuFlyoutItem presetItem(VisualizerPresetEntry preset) {
+      final current = _visualizer.status?.presetName == preset.name;
+      return MenuFlyoutItem(
+        leading: current ? const Icon(Symbols.check) : null,
+        text: Text(preset.name),
+        onPressed: () => _visualizer.loadPreset(preset.path),
+      );
+    }
+
+    // Scenes first, then a submenu for each folder of presets.
+    MenuFlyoutItemBase presetMenu() {
+      final scenes = _visualizer.presets.where((x) => x.scene);
+      final groups = <String, List<VisualizerPresetEntry>>{};
+      for (final preset in _visualizer.presets) {
+        if (!preset.scene) (groups[preset.group] ??= []).add(preset);
+      }
+      return MenuFlyoutSubItem(
+        leading: const Icon(Symbols.list),
+        text: Text(s.visualizerChoosePreset),
+        items: (_) => [
+          ...scenes.map(presetItem),
+          if (scenes.isNotEmpty && groups.isNotEmpty)
+            const MenuFlyoutSeparator(),
+          for (final group in groups.entries)
+            MenuFlyoutSubItem(
+              text: Text(group.key),
+              items: (_) => group.value.map(presetItem).toList(),
+            ),
+        ],
       );
     }
 
@@ -120,6 +157,7 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
                 text: Text(s.visualizerRandom),
                 onPressed: _visualizer.random,
               ),
+              if (_visualizer.presets.isNotEmpty) presetMenu(),
               const MenuFlyoutSeparator(),
               MenuFlyoutItem(
                 leading: Icon(

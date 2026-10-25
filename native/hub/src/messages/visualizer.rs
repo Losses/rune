@@ -1,4 +1,4 @@
-use rinf::{DartSignal, RustSignal};
+use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -87,4 +87,23 @@ pub struct VisualizerStatusResponse {
     /// the render thread runs.
     pub transport: String,
     pub last_error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct ListVisualizerPresetsRequest {}
+
+#[derive(Serialize, Deserialize, SignalPiece)]
+pub struct VisualizerPresetEntry {
+    pub name: String,
+    pub path: String,
+    /// The folder the preset is in, relative to its preset folder.
+    pub group: String,
+    /// A scene (a folder with a `scene.toml`) rather than a `.milk` file.
+    pub scene: bool,
+}
+
+/// Every preset of the preset folders, by group and name.
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct ListVisualizerPresetsResponse {
+    pub presets: Vec<VisualizerPresetEntry>,
 }

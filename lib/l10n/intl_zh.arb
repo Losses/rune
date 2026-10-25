@@ -1351,6 +1351,10 @@
   "@visualizerRandom": {
     "description": "視覺化中切換到隨機預設的右鍵選單項。"
   },
+  "visualizerChoosePreset": "選擇預設",
+  "@visualizerChoosePreset": {
+    "description": "視覺化右鍵選單項，開啟子選單依名稱選擇某個預設或場景。"
+  },
   "visualizerLockPreset": "鎖定預設",
   "@visualizerLockPreset": {
     "description": "視覺化右鍵選單項，使其不再自動切換預設，保持目前的預設。"
