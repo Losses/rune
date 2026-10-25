@@ -22,14 +22,15 @@ class LensFlareEffect extends StatefulWidget {
 
 class _LensFlareEffectState extends State<LensFlareEffect>
     with SingleTickerProviderStateMixin {
-  late Future<ui.FragmentProgram> _shaderProgram;
+  late Future<ui.FragmentShader> _shader;
+  ui.FragmentShader? _fragmentShader;
   late final Ticker _ticker;
   double _time = 0.0;
 
   @override
   void initState() {
     super.initState();
-    _shaderProgram = _loadShader();
+    _shader = _loadShader();
 
     // Advance the shader time from the frame pipeline instead of a
     // free-running Timer.periodic. A Ticker follows the animation clock, is
@@ -45,9 +46,19 @@ class _LensFlareEffectState extends State<LensFlareEffect>
     });
   }
 
-  Future<ui.FragmentProgram> _loadShader() async {
+  Future<ui.FragmentShader> _loadShader() async {
     try {
-      return await ui.FragmentProgram.fromAsset('lib/shaders/lens_flare.frag');
+      final program = await ui.FragmentProgram.fromAsset(
+        'lib/shaders/lens_flare.frag',
+      );
+
+      // Create the shader once and reuse it for every frame. A shader keeps
+      // the image passed to setImageSampler alive until it is disposed, and
+      // AnimatedSampler hands us a new full-size snapshot of the child every
+      // frame. A fresh shader per frame left every snapshot to the garbage
+      // collector; on iOS (Impeller) they piled up to gigabytes within a few
+      // seconds and the app was killed for exceeding its memory limit.
+      return _fragmentShader = program.fragmentShader();
     } catch (e) {
       rethrow;
     }
@@ -56,24 +67,23 @@ class _LensFlareEffectState extends State<LensFlareEffect>
   @override
   void dispose() {
     _ticker.dispose();
+    _fragmentShader?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<ui.FragmentProgram>(
-      future: _shaderProgram,
+    return FutureBuilder<ui.FragmentShader>(
+      future: _shader,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return Container();
         }
 
-        final shader = snapshot.data!;
+        final fragmentShader = snapshot.data!;
 
         return AnimatedSampler(
           (image, size, canvas) {
-            final fragmentShader = shader.fragmentShader();
-
             fragmentShader
               ..setImageSampler(0, image)
               // resolution
