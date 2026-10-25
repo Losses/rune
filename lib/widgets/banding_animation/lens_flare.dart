@@ -1,7 +1,7 @@
-import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_shaders/flutter_shaders.dart';
 
 class LensFlareEffect extends StatefulWidget {
@@ -20,9 +20,10 @@ class LensFlareEffect extends StatefulWidget {
   State<LensFlareEffect> createState() => _LensFlareEffectState();
 }
 
-class _LensFlareEffectState extends State<LensFlareEffect> {
+class _LensFlareEffectState extends State<LensFlareEffect>
+    with SingleTickerProviderStateMixin {
   late Future<ui.FragmentProgram> _shaderProgram;
-  late Timer _timer;
+  late final Ticker _ticker;
   double _time = 0.0;
 
   @override
@@ -30,11 +31,17 @@ class _LensFlareEffectState extends State<LensFlareEffect> {
     super.initState();
     _shaderProgram = _loadShader();
 
-    // Start a timer to update the time every frame
-    _timer = Timer.periodic(const Duration(milliseconds: 16), (Timer timer) {
-      setState(() {
-        _time += 0.016 / 10; // Increment time by 16 milliseconds
-      });
+    // Advance the shader time from the frame pipeline instead of a
+    // free-running Timer.periodic. A Ticker follows the animation clock, is
+    // muted by TickerMode together with the rest of the app, and stops as soon
+    // as this widget is disposed.
+    _ticker = createTicker(_handleTick)..start();
+  }
+
+  void _handleTick(Duration elapsed) {
+    setState(() {
+      // Keep the old speed: 0.1 unit per second of elapsed time.
+      _time = elapsed.inMicroseconds / 10000000;
     });
   }
 
@@ -48,7 +55,7 @@ class _LensFlareEffectState extends State<LensFlareEffect> {
 
   @override
   void dispose() {
-    _timer.cancel();
+    _ticker.dispose();
     super.dispose();
   }
 
