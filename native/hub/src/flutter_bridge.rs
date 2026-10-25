@@ -6,7 +6,7 @@
 //! the old one is unregistered once Dart says it shows the new one
 //! (`VisualizerTextureShownRequest`).
 //!
-//! - macOS and Linux: one texture takes the frames on the GPU (pixel buffers, Vulkan images) and
+//! - Apple and Linux: one texture takes the frames on the GPU (pixel buffers, Vulkan images) and
 //!   the read-back frames alike, so it is made when the visualizer starts. On Linux, if Flutter's
 //!   OpenGL context cannot import a Vulkan image, the visualizer reads frames back from then on,
 //!   into the same texture.
@@ -31,7 +31,7 @@ use crate::visualizer::VISUALIZER;
 
 /// Whether the visualizer is shown through `flutter_texture` here (else not at all).
 const TEXTURE_LAYER: bool = cfg!(any(
-    target_os = "macos",
+    target_vendor = "apple",
     target_os = "windows",
     target_os = "linux"
 ));
@@ -41,16 +41,16 @@ const TEXTURE_LAYER: bool = cfg!(any(
 ///
 /// # Safety
 ///
-/// `registry` must be null or, on macOS, point to the `FlutterEngine`; on Windows, be the
+/// `registry` must be null or, on macOS, point to the `FlutterEngine`, on iOS to the registrar's `FlutterTextureRegistry` (`FlutterPluginRegistrar.textures()`); on Windows, be the
 /// engine's `FlutterDesktopPluginRegistrarRef` (`FlutterEngine::GetRegistrarForPlugin`); on Linux,
 /// be the `FlEngine*` (`fl_view_get_engine`), called on the GTK main thread.
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_vendor = "apple", target_os = "windows", target_os = "linux"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rune_flutter_attach(registry: *mut std::ffi::c_void) -> bool {
     let Some(registry) = std::ptr::NonNull::new(registry) else {
         return false;
     };
-    #[cfg(target_os = "macos")]
+    #[cfg(target_vendor = "apple")]
     let handle = flutter_texture::PlatformHandle::TextureRegistry(registry);
     #[cfg(target_os = "windows")]
     let handle = flutter_texture::PlatformHandle::PluginRegistrar(registry);
@@ -88,7 +88,7 @@ struct VisualizerFrames;
 impl FrameSource for VisualizerFrames {
     fn acquire(&self) -> Option<Acquired> {
         let frame = VISUALIZER.latest_frame()?;
-        #[cfg(target_os = "macos")]
+        #[cfg(target_vendor = "apple")]
         if let Some(buffer) = frame.pixel_buffer() {
             return Some(Acquired {
                 id: frame.id,
@@ -124,8 +124,8 @@ impl FrameSource for VisualizerFrames {
             });
         }
         let (bytes, stride) = frame.pixels()?;
-        // Read back frames are BGRA on macOS and RGBA elsewhere.
-        let format = if cfg!(target_os = "macos") {
+        // Read back frames are BGRA on Apple and RGBA elsewhere.
+        let format = if cfg!(target_vendor = "apple") {
             PixelFormat::Bgra8
         } else {
             PixelFormat::Rgba8

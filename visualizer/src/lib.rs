@@ -1,7 +1,7 @@
 //! A scene visualizer: a render thread that turns PCM into BGRA frames.
 //!
 //! The thread owns a headless wgpu device and the scene on screen (see [`scene`]). Each frame it
-//! drains the PCM ring buffer and renders. On macOS it draws straight into an IOSurface-backed pixel buffer, on
+//! drains the PCM ring buffer and renders. On Apple platforms it draws straight into an IOSurface-backed pixel buffer, on
 //! Windows into a DirectX 12 texture shared with Flutter's adapter, and on Linux into a Vulkan
 //! image whose memory Flutter's OpenGL context imports, which the app can show without a copy;
 //! elsewhere, or if that fails, it renders into an offscreen texture that is copied into a
@@ -21,7 +21,7 @@ mod scene;
 mod shared_dx12;
 #[cfg(target_os = "linux")]
 mod shared_vulkan;
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 mod surface;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -83,10 +83,10 @@ pub struct Frame {
 }
 
 pub enum FrameData {
-    /// A mapped readback buffer: rows top to bottom, BGRA on macOS and RGBA elsewhere.
+    /// A mapped readback buffer: rows top to bottom, BGRA on Apple and RGBA elsewhere.
     Mapped(readback::MappedFrame),
     /// An IOSurface-backed `kCVPixelFormatType_32BGRA` pixel buffer.
-    #[cfg(target_os = "macos")]
+    #[cfg(target_vendor = "apple")]
     PixelBuffer(surface::PixelBuffer),
     /// A DirectX 12 texture (`DXGI_FORMAT_R8G8B8A8_UNORM`) shared through an NT handle.
     #[cfg(target_os = "windows")]
@@ -99,11 +99,11 @@ pub enum FrameData {
 
 impl Frame {
     /// The pixels and the bytes from one row to the next (at least `width * 4`; equal to it when
-    /// the width is a multiple of 64), if the frame was read back. BGRA on macOS, RGBA elsewhere.
+    /// the width is a multiple of 64), if the frame was read back. BGRA on Apple, RGBA elsewhere.
     pub fn pixels(&self) -> Option<(&[u8], usize)> {
         match &self.data {
             FrameData::Mapped(frame) => Some((frame.bytes(), frame.stride())),
-            #[cfg(target_os = "macos")]
+            #[cfg(target_vendor = "apple")]
             FrameData::PixelBuffer(_) => None,
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             FrameData::Shared(_) => None,
@@ -112,7 +112,7 @@ impl Frame {
 
     /// The IOSurface-backed `kCVPixelFormatType_32BGRA` pixel buffer the frame is in, if it is in
     /// one.
-    #[cfg(target_os = "macos")]
+    #[cfg(target_vendor = "apple")]
     pub fn pixel_buffer(
         &self,
     ) -> Option<objc2_core_foundation::CFRetained<objc2_core_video::CVPixelBuffer>> {
@@ -142,7 +142,7 @@ impl Frame {
         }
     }
 
-    /// The pixels as tightly packed rows (BGRA on macOS, RGBA elsewhere). Copies; for tests. A
+    /// The pixels as tightly packed rows (BGRA on Apple, RGBA elsewhere). Copies; for tests. A
     /// frame in a shared texture (Windows) or image (Linux) has no pixels to copy here.
     pub fn to_packed(&self) -> Result<Vec<u8>> {
         match &self.data {
@@ -157,7 +157,7 @@ impl Frame {
                     .copied()
                     .collect())
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(target_vendor = "apple")]
             FrameData::PixelBuffer(buffer) => buffer.read_bgra(self.width, self.height),
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             FrameData::Shared(_) => bail!("The frame is in a shared texture"),
@@ -424,7 +424,7 @@ impl Visualizer {
         self.shared.visible.store(visible, Ordering::Relaxed);
     }
 
-    /// Read frames back even on macOS, Windows and Linux, where they normally go into
+    /// Read frames back even on Apple, Windows and Linux, where they normally go into
     /// IOSurface-backed pixel buffers, shared textures or shared images. Applies from the next
     /// [`Self::start`].
     pub fn prefer_readback(&self, readback: bool) {
@@ -869,7 +869,7 @@ fn run(
         let (width, height) = pipeline.size();
         match rendered {
             Rendered::Mapped(frame) => publish(shared, width, height, FrameData::Mapped(frame)),
-            #[cfg(target_os = "macos")]
+            #[cfg(target_vendor = "apple")]
             Rendered::PixelBuffer(buffer) => {
                 publish(shared, width, height, FrameData::PixelBuffer(buffer));
             }

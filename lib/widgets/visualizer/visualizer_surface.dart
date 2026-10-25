@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:async';
 import 'dart:math';
 
@@ -167,7 +166,9 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
 
       // Bookmarks are resolved when the manager is created; wait for them
       // before Rust reads the saved folders.
-      if (Platform.isMacOS) await MacSecureManager().completed;
+      if (MacSecureManager.isApplePlatform()) {
+        await MacSecureManager().completed;
+      }
       final dirs = await loadVisualizerPresetDirs();
       if (_disposed) return;
 

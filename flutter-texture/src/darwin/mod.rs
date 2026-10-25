@@ -1,4 +1,4 @@
-//! Apple: textures of a `FlutterTextureRegistry` (the `FlutterEngine` on macOS).
+//! Apple: textures of a `FlutterTextureRegistry` (the `FlutterEngine` on macOS, a registrar's on iOS).
 //!
 //! The registry is messaged on the main thread only, as the engine requires (`registerTexture:`,
 //! `unregisterTexture:`, and `textureFrameAvailable:`, which ends in a check for the platform

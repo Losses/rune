@@ -25,21 +25,20 @@ toml = "0.8.20"
 pollster = "0.4"
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl"] }
 
-# The backends of the platform's native graphics API.
+# The backends of the platform's native graphics API. The objc2 crates are the IOSurface frame
+# path of macOS and iOS, the versions wgpu-hal's Metal backend uses, so its
+# texture types are ours.
 [target.'cfg(target_vendor = "apple")'.dependencies]
 wgpu = { version = "30", default-features = false, features = ["metal"] }
 
-[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
-wgpu = { version = "30", default-features = false, features = ["vulkan"] }
-
-# The IOSurface frame path of macOS. The objc2 crates are the versions
-# wgpu-hal's Metal backend uses, so its texture types are ours.
-[target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFDictionary", "CFNumber", "CFString"] }
 objc2-core-video = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-io-surface", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferIOSurface", "CVPixelBufferPool", "CVReturn"] }
 objc2-io-surface = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-core-foundation", "IOSurfaceRef", "IOSurfaceTypes"] }
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "objc2-io-surface", "MTLAllocation", "MTLDevice", "MTLPixelFormat", "MTLResource", "MTLTexture", "MTLTypes"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["vulkan"] }
 
 # The shared-texture frame path of Windows. wgpu-hal's DirectX 12 backend uses this version of the
 # windows crate, so its COM types are ours.

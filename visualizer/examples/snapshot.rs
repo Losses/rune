@@ -89,7 +89,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A top-down 32-bit BMP; `pixels` are packed BGRA (macOS) or RGBA (elsewhere, swapped here).
+/// A top-down 32-bit BMP; `pixels` are packed BGRA (Apple) or RGBA (elsewhere, swapped here).
 fn write_bmp(path: &str, width: u32, height: u32, pixels: &[u8]) -> std::io::Result<()> {
     let size = pixels.len() as u32;
     let mut out = Vec::with_capacity(54 + pixels.len());
@@ -106,7 +106,7 @@ fn write_bmp(path: &str, width: u32, height: u32, pixels: &[u8]) -> std::io::Res
     out.extend_from_slice(&size.to_le_bytes());
     out.extend_from_slice(&[0; 16]);
     for pixel in pixels.chunks_exact(4) {
-        if cfg!(target_os = "macos") {
+        if cfg!(target_vendor = "apple") {
             out.extend_from_slice(pixel);
         } else {
             out.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);

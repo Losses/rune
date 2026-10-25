@@ -168,7 +168,7 @@ fn default_and_loaded_scenes_render_changing_frames() {
         status.last_error
     );
     // macOS renders straight into IOSurface-backed pixel buffers.
-    #[cfg(target_os = "macos")]
+    #[cfg(target_vendor = "apple")]
     assert_eq!(status.transport, Some(visualizer::Transport::IoSurface));
 
     let (frames, fps) = collect(&visualizer, &mut feeder, 60);

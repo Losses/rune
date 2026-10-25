@@ -6,7 +6,7 @@
 //! and Flutter pulls it from the source when it draws next. Everything Flutter offers is looked up
 //! at run time, so the crate builds without Flutter's headers or libraries.
 //!
-//! - Apple: the registry is the `FlutterEngine` (macOS). A frame in an IOSurface-backed
+//! - Apple: the registry is the `FlutterEngine` (macOS) or the `FlutterTextureRegistry` of a plugin registrar (iOS). A frame in an IOSurface-backed
 //!   `CVPixelBuffer` is handed over without a copy; pixels are copied into one. One texture
 //!   takes both, so a producer may fall back from one to the other under the same texture id.
 //! - Windows: the registry is the engine's plugin registrar, whose C API is looked up in
@@ -94,7 +94,7 @@ impl std::error::Error for TextureError {}
 /// What the app hands over in [`attach`].
 #[non_exhaustive]
 pub enum PlatformHandle {
-    /// An object that answers `FlutterTextureRegistry`'s messages: the `FlutterEngine` on macOS.
+    /// An object that answers `FlutterTextureRegistry`'s messages: the `FlutterEngine` on macOS, the `FlutterTextureRegistry` of a plugin registrar on iOS.
     #[cfg(target_vendor = "apple")]
     TextureRegistry(std::ptr::NonNull<std::ffi::c_void>),
     /// A `FlutterDesktopPluginRegistrarRef` on Windows, which the runner gets from the engine

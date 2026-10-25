@@ -1,4 +1,4 @@
-//! The GPU side: a headless device, the scene being drawn and where frames go: on macOS straight into
+//! The GPU side: a headless device, the scene being drawn and where frames go: on Apple platforms straight into
 //! IOSurface-backed pixel buffers ([`crate::surface`]), on Windows into DirectX 12 textures shared
 //! with Flutter's adapter (`crate::shared_dx12`), on Linux into Vulkan images that Flutter's
 //! OpenGL context imports (`crate::shared_vulkan`), elsewhere (or if that fails) an offscreen
@@ -20,16 +20,16 @@ use crate::scene::{FrameInput, Scene, Source};
 use crate::shared_dx12::{SharedTargets, SharedTexture};
 #[cfg(target_os = "linux")]
 use crate::shared_vulkan::{SharedFrame, SharedTargets};
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
 
-/// `kCVPixelFormatType_32BGRA` on macOS. Windows' `FlutterDesktopPixelBuffer` and Linux's
+/// `kCVPixelFormatType_32BGRA` on Apple. Windows' `FlutterDesktopPixelBuffer` and Linux's
 /// `FlPixelBufferTexture` take RGBA, and so do ANGLE for a shared texture and Linux's `FlTextureGL`
 /// (`GL_RGBA8`). Scenes draw the target as it is, so with a linear format the bytes are exactly
 /// what the scene drew.
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(target_vendor = "apple"))]
 pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 pub struct Pipeline {
@@ -71,7 +71,7 @@ pub enum Rendered {
     /// A read-back frame (on the readback path a frame comes out a call or two after it was
     /// drawn).
     Mapped(MappedFrame),
-    #[cfg(target_os = "macos")]
+    #[cfg(target_vendor = "apple")]
     PixelBuffer(PixelBuffer),
     #[cfg(target_os = "windows")]
     Shared(SharedTexture),
@@ -85,7 +85,7 @@ pub enum Rendered {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transport {
     Readback,
-    /// macOS: IOSurface-backed pixel buffers.
+    /// Apple: IOSurface-backed pixel buffers.
     IoSurface,
     /// Windows: DirectX 12 textures shared through NT handles.
     DxgiShared,
@@ -95,17 +95,17 @@ pub enum Transport {
 
 enum Output {
     Readback(Target),
-    #[cfg(target_os = "macos")]
+    #[cfg(target_vendor = "apple")]
     Surfaces(SurfaceTargets),
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     Shared(SharedTargets),
 }
 
 impl Output {
-    /// Pixel buffers on macOS, shared textures on Windows and shared images on Linux unless
+    /// Pixel buffers on Apple platforms, shared textures on Windows and shared images on Linux unless
     /// `readback`, else (or if they fail) the readback target.
     fn new(device: &wgpu::Device, width: u32, height: u32, readback: bool) -> Self {
-        #[cfg(target_os = "macos")]
+        #[cfg(target_vendor = "apple")]
         if !readback {
             match SurfaceTargets::new(device, width, height) {
                 Ok(surfaces) => return Self::Surfaces(surfaces),
@@ -119,7 +119,7 @@ impl Output {
                 Err(e) => warn!("Falling back to reading frames back: {e:#}"),
             }
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        #[cfg(not(any(target_vendor = "apple", target_os = "windows", target_os = "linux")))]
         let _ = readback;
         Self::Readback(Target::new(device, width, height))
     }
@@ -127,7 +127,7 @@ impl Output {
     fn size(&self) -> (u32, u32) {
         match self {
             Self::Readback(target) => (target.width, target.height),
-            #[cfg(target_os = "macos")]
+            #[cfg(target_vendor = "apple")]
             Self::Surfaces(surfaces) => surfaces.size(),
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             Self::Shared(targets) => targets.size(),
@@ -201,7 +201,7 @@ fn request_device(
 
 /// Draw a frame into `view` and wait until the GPU has finished it, so that the target can be
 /// handed out.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_vendor = "apple", target_os = "windows"))]
 fn render_and_wait(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -278,7 +278,7 @@ impl Pipeline {
     pub fn transport(&self) -> Transport {
         match self.output {
             Output::Readback(_) => Transport::Readback,
-            #[cfg(target_os = "macos")]
+            #[cfg(target_vendor = "apple")]
             Output::Surfaces(_) => Transport::IoSurface,
             #[cfg(target_os = "windows")]
             Output::Shared(_) => Transport::DxgiShared,
@@ -393,7 +393,7 @@ impl Pipeline {
     /// Render one frame: into the next pixel buffer, shared texture or shared image, or into the
     /// target that is read back.
     pub fn render(&mut self, time: f64) -> Result<Rendered> {
-        #[cfg(target_os = "macos")]
+        #[cfg(target_vendor = "apple")]
         if let Output::Surfaces(surfaces) = &mut self.output {
             match surfaces.next(&self.device) {
                 Ok(Some((buffer, view))) => {
