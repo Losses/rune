@@ -153,6 +153,8 @@ pub async fn initialize_local_player(
                             }
                             Err(_) => None,
                         };
+                        // Scenes of the visualizer that read covers get new ones.
+                        crate::visualizer::playing_cover_changed(cover_art.as_deref());
 
                         match dispatcher
                             .lock()
@@ -203,6 +205,9 @@ pub async fn initialize_local_player(
                 }
                 none => {
                     // If the index is None, send empty metadata
+                    if last_status_item.is_some() {
+                        crate::visualizer::playing_cover_changed(None);
+                    }
                     last_status_item = none;
                     PlayingItemMetadataSummary::default()
                 }

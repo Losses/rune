@@ -4,6 +4,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::Mutex;
 
+use ::database::connection::{MainDbConnection, RecommendationDbConnection};
+use ::fsio::FsIo;
 use ::playback::player::Playable;
 use ::visualizer::{PcmInput, Transition, Transport};
 
@@ -11,7 +13,7 @@ use crate::{
     Session, Signal,
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    visualizer::VISUALIZER,
+    visualizer::{VISUALIZER, provide_covers},
 };
 
 /// Errors of the visualizer controls go to the status (`last_error`) instead of crashing the
@@ -32,23 +34,39 @@ fn transition(seconds: f64) -> Transition {
 }
 
 impl ParamsExtractor for StartVisualizerRequest {
-    type Params = (Arc<Mutex<dyn Playable>>,);
+    type Params = (
+        Arc<Mutex<dyn Playable>>,
+        Arc<FsIo>,
+        Arc<MainDbConnection>,
+        Arc<RecommendationDbConnection>,
+    );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.player),)
+        (
+            Arc::clone(&all_params.player),
+            Arc::clone(&all_params.fsio),
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.recommend_db),
+        )
     }
 }
 
 impl Signal for StartVisualizerRequest {
-    type Params = (Arc<Mutex<dyn Playable>>,);
+    type Params = (
+        Arc<Mutex<dyn Playable>>,
+        Arc<FsIo>,
+        Arc<MainDbConnection>,
+        Arc<RecommendationDbConnection>,
+    );
     type Response = ();
 
     async fn handle(
         &self,
-        (player,): Self::Params,
+        (player, fsio, main_db, recommend_db): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        provide_covers(fsio, main_db, recommend_db);
         let tap = player.lock().await.pcm_tap();
         // A restart: take the audio back from the running visualizer first.
         if let Some(input) = VISUALIZER.stop() {

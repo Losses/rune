@@ -369,3 +369,60 @@ fn a_scene_sees_the_accent_colour() {
     let c = screen.middle(&device, &queue);
     assert!(close(c, [0.0, 0.216, 1.0]), "{c:?}");
 }
+
+#[test]
+fn a_scene_reads_the_covers_atlas() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let manifest = |covers: bool| {
+        format!(
+            "format = 1\nname = \"Covers\"\nlicense = \"MPL-2.0\"\ncovers = {covers}\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n[post]\ntonemap = \"none\"\ngrain = 0.0\nchromatic = 0.0\nvignette = 0.0\nbloom = {{ intensity = 0.0 }}\n"
+        )
+    };
+    // Red from the middle of cell 0, green is the number of covers in tenths.
+    let shader = "fn shade(px: Pixel) -> vec4f {\n  let c = textureSampleLevel(covers, linear_clamp, vec2f(0.0625, 0.0625), 0.0);\n  return vec4f(c.r, f32(frame.covers) * 0.1, c.a, 1.0);\n}\n";
+    let screen = Screen::new(&device);
+    let draw = |scene: &mut Scene| {
+        let rhythm = Rhythm::default();
+        let mut encoder = device.create_command_encoder(&Default::default());
+        scene.render(
+            &device,
+            &queue,
+            &mut encoder,
+            &screen.view,
+            &FrameInput {
+                time: 0.0,
+                rhythm: &rhythm,
+                chart: None,
+                song: (0.0, true),
+                accent: None,
+            },
+        );
+        queue.submit(Some(encoder.finish()));
+        screen.middle(&device, &queue)
+    };
+    let red = image::RgbaImage::from_pixel(50, 50, image::Rgba([255, 0, 0, 255]));
+    let blue = image::RgbaImage::from_pixel(50, 50, image::Rgba([0, 0, 255, 255]));
+    let atlas = Arc::new(covers::pack(Some(&red), &[blue.clone(), blue]).unwrap());
+    assert_eq!(atlas.count, 3);
+
+    let dir = folder("covers", &[(MANIFEST, &manifest(true)), ("a.wgsl", shader)]);
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    assert!(scene.wants_covers());
+    // Without covers: nothing valid, a clear texture.
+    assert!(close(draw(&mut scene), [0.0, 0.0, 0.0]));
+    scene.set_covers(&device, &queue, Some(Arc::clone(&atlas)));
+    assert!(close(draw(&mut scene), [1.0, 0.3, 1.0]));
+
+    // A scene that did not ask sees none, whatever it is given.
+    let dir = folder(
+        "no-covers",
+        &[(MANIFEST, &manifest(false)), ("a.wgsl", shader)],
+    );
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    assert!(!scene.wants_covers());
+    scene.set_covers(&device, &queue, Some(atlas));
+    assert!(close(draw(&mut scene), [0.0, 0.0, 0.0]));
+}

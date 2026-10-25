@@ -11,10 +11,12 @@ mod wgsl;
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 
 use crate::chart::ChartState;
+use crate::covers::{self, Atlas};
 use crate::rhythm::Rhythm;
 use audio::{Analyzer, SPECTRUM_ROWS, SPECTRUM_WIDTH, WAVEFORM_WIDTH};
 use inputs::EventCounter;
@@ -262,6 +264,11 @@ pub struct Scene {
     spectrum: wgpu::Texture,
     waveform: wgpu::Texture,
     noise: wgpu::TextureView,
+    /// The covers atlas (mip views of it) if the scene asked for one, else a 1x1 placeholder.
+    covers: Option<(wgpu::Texture, Vec<wgpu::TextureView>)>,
+    /// The atlas last given, kept for a rebuild of the scene, and how many of its cells are valid.
+    covers_atlas: Option<Arc<Atlas>>,
+    covers_count: u32,
     pass_globals: wgpu::BindGroup,
     update: Option<(wgpu::ComputePipeline, wgpu::BindGroup)>,
     passes: Vec<Pass>,
@@ -694,6 +701,29 @@ impl Scene {
         );
         write_texture(queue, &noise_texture, noise::rgba(), 4);
         let mut keep = vec![noise_texture.clone()];
+        // The covers: an atlas that fills in later if the scene asked for it, else one clear texel.
+        let covers_size = if manifest.covers { covers::SIZE } else { 1 };
+        let covers_mips = 32 - covers_size.leading_zeros();
+        let covers_texture = plain_texture(
+            device,
+            "scene covers",
+            (covers_size, covers_size),
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            covers_mips,
+        );
+        let covers_levels: Vec<wgpu::TextureView> = (0..covers_mips)
+            .map(|i| {
+                covers_texture.create_view(&wgpu::TextureViewDescriptor {
+                    base_mip_level: i,
+                    mip_level_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        let covers_view = covers_texture.create_view(&Default::default());
         let mut assets = Vec::new();
         let mut mipper = Mipper::new(device);
         for asset in &manifest.assets {
@@ -771,6 +801,7 @@ impl Scene {
                 texture_entry(wgsl::BIND_SPECTRUM, visibility, true),
                 texture_entry(wgsl::BIND_WAVEFORM, visibility, true),
                 texture_entry(wgsl::BIND_BLUE_NOISE, visibility, true),
+                texture_entry(wgsl::BIND_COVERS, visibility, true),
                 sampler_entry(wgsl::BIND_LINEAR_CLAMP, visibility),
                 sampler_entry(wgsl::BIND_LINEAR_REPEAT, visibility),
                 sampler_entry(wgsl::BIND_NEAREST_CLAMP, visibility),
@@ -809,6 +840,10 @@ impl Scene {
                 (
                     wgsl::BIND_BLUE_NOISE,
                     wgpu::BindingResource::TextureView(&views.2),
+                ),
+                (
+                    wgsl::BIND_COVERS,
+                    wgpu::BindingResource::TextureView(&covers_view),
                 ),
                 (
                     wgsl::BIND_LINEAR_CLAMP,
@@ -953,6 +988,9 @@ impl Scene {
             spectrum,
             waveform,
             noise: views.2,
+            covers: manifest.covers.then_some((covers_texture, covers_levels)),
+            covers_atlas: None,
+            covers_count: 0,
             pass_globals,
             update,
             passes,
@@ -1012,11 +1050,43 @@ impl Scene {
         }
         std::mem::swap(&mut next.analyzer, &mut self.analyzer);
         std::mem::swap(&mut next.events, &mut self.events);
+        next.set_covers(device, queue, self.covers_atlas.clone());
         next.started = self.started;
         next.last = self.last;
         next.index = self.index;
         *self = next;
         Ok(true)
+    }
+
+    /// Whether the scene reads the covers atlas (`covers = true`).
+    pub fn wants_covers(&self) -> bool {
+        self.files.manifest.covers
+    }
+
+    /// Give the scene the atlas of covers (none: no covers). Does nothing for a scene that did
+    /// not ask for them.
+    pub fn set_covers(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        atlas: Option<Arc<Atlas>>,
+    ) {
+        let Some((texture, levels)) = &self.covers else {
+            return;
+        };
+        self.covers_count = atlas.as_ref().map_or(0, |a| a.count);
+        if let Some(atlas) = &atlas {
+            write_texture(queue, texture, &atlas.rgba, 4);
+            let mut encoder = device.create_command_encoder(&Default::default());
+            self.mipper.generate(
+                device,
+                &mut encoder,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+                levels,
+            );
+            queue.submit(Some(encoder.finish()));
+        }
+        self.covers_atlas = atlas;
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) -> Result<()> {
@@ -1072,6 +1142,8 @@ impl Scene {
         for v in [r, g, b, f32::from(u8::from(input.accent.is_some()))] {
             frame.extend(v.to_le_bytes());
         }
+        frame.extend(self.covers_count.to_le_bytes());
+        frame.resize(wgsl::FRAME_SIZE as usize, 0);
         queue.write_buffer(&self.frame, 0, &frame);
         let music = inputs::music(
             input.rhythm,

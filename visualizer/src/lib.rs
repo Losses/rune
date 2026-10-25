@@ -9,6 +9,7 @@
 //! their buffers, and the renderer skips frames while none is free.
 
 mod chart;
+mod covers;
 mod pipeline;
 mod presets;
 mod readback;
@@ -188,6 +189,22 @@ struct Shared {
     accent: AtomicU32,
     /// The file that plays and where, for finding its chart and the time in it.
     playback: Mutex<Playback>,
+    /// Whether the scene on screen reads the atlas of album covers.
+    wants_covers: AtomicBool,
+    /// The latest atlas of covers and its version, which the render thread uploads.
+    covers: Mutex<CoverAtlas>,
+    /// The number of the latest `set_covers` job; an older job drops its result.
+    covers_job: AtomicU64,
+    /// Asked to provide covers (by calling [`Visualizer::set_covers`]) when a scene that reads
+    /// them is loaded.
+    covers_requester: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+}
+
+/// The atlas of covers made last (none: there are no covers) and how often it was replaced.
+#[derive(Default)]
+struct CoverAtlas {
+    atlas: Option<Arc<covers::Atlas>>,
+    version: u64,
 }
 
 impl Shared {
@@ -237,6 +254,10 @@ impl Visualizer {
                 light: AtomicBool::new(false),
                 accent: AtomicU32::new(0),
                 playback: Mutex::new(Playback::default()),
+                wants_covers: AtomicBool::new(false),
+                covers: Mutex::new(CoverAtlas::default()),
+                covers_job: AtomicU64::new(0),
+                covers_requester: Mutex::new(None),
             }),
             worker: Mutex::new(None),
             library: Arc::new(Mutex::new(Library::default())),
@@ -260,6 +281,41 @@ impl Visualizer {
     /// Follow the app's accent colour (0xAARRGGBB), which scenes may draw in.
     pub fn set_accent(&self, argb: u32) {
         self.shared.accent.store(argb, Ordering::Relaxed);
+    }
+
+    /// Whether the scene on screen reads the atlas of album covers (`covers = true`). Only then
+    /// is it worth finding covers for [`Self::set_covers`].
+    pub fn wants_covers(&self) -> bool {
+        self.shared.wants_covers.load(Ordering::Relaxed)
+    }
+
+    /// `request` is called (from the render thread, so it must not block) whenever a scene that
+    /// reads covers is loaded; it should end in [`Self::set_covers`].
+    pub fn set_covers_requester(&self, request: impl Fn() + Send + Sync + 'static) {
+        *lock(&self.shared.covers_requester) = Some(Arc::new(request));
+    }
+
+    /// The album covers for scenes that read them: the cover of the track playing (none if it has
+    /// none) and random ones from the library, image files. The atlas is built on a background
+    /// thread (a file that does not decode is skipped) and the scene picks it up with the next
+    /// frame; a later call replaces an earlier one.
+    pub fn set_covers(&self, current: Option<PathBuf>, random: Vec<PathBuf>) {
+        let job = self.shared.covers_job.fetch_add(1, Ordering::Relaxed) + 1;
+        let shared = Arc::clone(&self.shared);
+        let spawned = thread::Builder::new()
+            .name("visualizer-covers".into())
+            .spawn(move || {
+                let atlas = covers::build(current.as_ref(), &random).map(Arc::new);
+                if shared.covers_job.load(Ordering::Relaxed) != job {
+                    return;
+                }
+                let mut state = lock(&shared.covers);
+                state.atlas = atlas;
+                state.version += 1;
+            });
+        if let Err(e) = spawned {
+            error!("Visualizer: no thread for the covers: {e}");
+        }
     }
 
     /// Follow the player: while the music is paused or stopped the visualizer draws nothing and
@@ -581,6 +637,8 @@ fn run(
     let mut watched: Option<Watched> = None;
     let mut tracker = BeatTracker::new(sample_rate);
     let mut charts = ChartFollower::new(chart_dir());
+    // The version of the atlas of covers the pipeline has.
+    let mut covers_seen: Option<u64> = None;
 
     loop {
         loop {
@@ -617,6 +675,17 @@ fn run(
         {
             // Show the new version even while the music is paused.
             still_drawn = false;
+        }
+
+        shared
+            .wants_covers
+            .store(pipeline.wants_covers(), Ordering::Relaxed);
+        {
+            let state = lock(&shared.covers);
+            if covers_seen != Some(state.version) {
+                covers_seen = Some(state.version);
+                pipeline.set_covers(state.atlas.clone());
+            }
         }
 
         let paused =
@@ -790,6 +859,13 @@ fn apply(
             Some(dir) if scene::is_scene(&dir) => pipeline.load_scene(&dir).map(|()| {
                 *watched = Some(Watched::new(dir, name));
                 shared.status().preset_name = pipeline.preset_name().to_string();
+                if pipeline.wants_covers() {
+                    shared.wants_covers.store(true, Ordering::Relaxed);
+                    let request = lock(&shared.covers_requester).clone();
+                    if let Some(request) = request {
+                        request();
+                    }
+                }
             }),
             path => pipeline.load_preset(&bytes, &name, transition).map(|()| {
                 *watched = path.map(|path| Watched::new(path, name.clone()));

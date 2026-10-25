@@ -10,6 +10,7 @@ use lactea::{Engine, EngineConfig, FrameClock, Transition};
 use log::warn;
 
 use crate::chart::ChartState;
+use crate::covers::Atlas;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
 use crate::scene::{FrameInput, Scene};
@@ -37,6 +38,8 @@ pub struct Pipeline {
     song: (f64, bool),
     /// The app's accent colour (linear), once the app has told it.
     accent: Option<[f32; 3]>,
+    /// The atlas of covers for scenes that read one.
+    covers: Option<Arc<Atlas>>,
     output: Output,
     readback: bool,
     pub adapter_name: String,
@@ -174,6 +177,7 @@ impl Pipeline {
             chart: None,
             song: (0.0, false),
             accent: None,
+            covers: None,
             output,
             readback,
         })
@@ -310,6 +314,19 @@ impl Pipeline {
         self.accent = accent;
     }
 
+    /// The atlas of album covers for scenes with `covers = true` (none: no covers).
+    pub fn set_covers(&mut self, covers: Option<Arc<Atlas>>) {
+        if let Some(scene) = &mut self.scene {
+            scene.set_covers(&self.device, &self.queue, covers.clone());
+        }
+        self.covers = covers;
+    }
+
+    /// Whether the scene on screen reads the atlas of covers.
+    pub fn wants_covers(&self) -> bool {
+        self.scene.as_ref().is_some_and(Scene::wants_covers)
+    }
+
     pub fn push_pcm(&mut self, interleaved: &[f32], channels: usize) {
         self.engine.push_pcm_f32(interleaved, channels);
         if let Some(scene) = &mut self.scene {
@@ -320,7 +337,7 @@ impl Pipeline {
     /// Show the scene in the folder `dir` (Rune's own format) instead of a MilkDrop preset.
     pub fn load_scene(&mut self, dir: &Path) -> Result<()> {
         let (width, height) = self.size();
-        let scene = Scene::load(
+        let mut scene = Scene::load(
             &self.device,
             &self.queue,
             dir,
@@ -329,6 +346,7 @@ impl Pipeline {
             self.sample_rate,
         )
         .with_context(|| format!("Scene {}", dir.display()))?;
+        scene.set_covers(&self.device, &self.queue, self.covers.clone());
         self.scene = Some(scene);
         Ok(())
     }

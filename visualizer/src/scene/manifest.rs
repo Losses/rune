@@ -67,6 +67,9 @@ pub struct Manifest {
     pub post: PostDefaults,
     #[serde(default, rename = "asset")]
     pub assets: Vec<Asset>,
+    /// Whether the scene reads the `covers` texture: an atlas of album covers from the library.
+    #[serde(default)]
+    pub covers: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -532,6 +535,17 @@ tonemap = "aces"
         assert_eq!(m.post.bloom.threshold, 1.0);
         assert_eq!(m.post.tonemap, Tonemap::Aces);
         assert_eq!(m.render.scale, 1.0);
+    }
+
+    #[test]
+    fn covers_are_off_unless_declared() {
+        assert!(!Manifest::parse(SMALL).unwrap().covers);
+        let with = SMALL.replacen(
+            "license = \"MPL-2.0\"\n",
+            "license = \"MPL-2.0\"\ncovers = true\n",
+            1,
+        );
+        assert!(Manifest::parse(&with).unwrap().covers);
     }
 
     fn broken(from: &str, to: &str) -> String {

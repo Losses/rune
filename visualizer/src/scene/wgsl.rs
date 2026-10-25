@@ -22,11 +22,12 @@ pub const BIND_BLUE_NOISE: u32 = 7;
 pub const BIND_LINEAR_CLAMP: u32 = 8;
 pub const BIND_LINEAR_REPEAT: u32 = 9;
 pub const BIND_NEAREST_CLAMP: u32 = 10;
-pub const BIND_ASSETS: u32 = 11;
+pub const BIND_COVERS: u32 = 11;
+pub const BIND_ASSETS: u32 = 12;
 
-/// `struct Frame` is 48 bytes: time, dt, index, first, resolution (vec2f), aspect, seed, and the
-/// app's accent colour (vec4f) at 32.
-pub const FRAME_SIZE: u64 = 48;
+/// `struct Frame` is 64 bytes: time, dt, index, first, resolution (vec2f), aspect, seed, the
+/// app's accent colour (vec4f) at 32, and how many covers the atlas holds (u32) at 48, padded.
+pub const FRAME_SIZE: u64 = 64;
 /// `struct Post` is 64 bytes: eight f32, the tint (vec4f) at 32, contrast and saturation, padding.
 pub const POST_SIZE: u64 = 64;
 
@@ -39,6 +40,7 @@ pub const FRAME: &str = "struct Frame {
   aspect: f32,
   seed: u32,
   accent: vec4f,
+  covers: u32,
 }
 ";
 
@@ -182,6 +184,12 @@ pub fn prelude(manifest: &Manifest, stage: Stage) -> String {
         let _ = writeln!(
             s,
             "@group(0) @binding({BIND_POST}) var<storage, read_write> post: Post;"
+        );
+    }
+    if stage == Stage::Pass {
+        let _ = writeln!(
+            s,
+            "@group(0) @binding({BIND_COVERS}) var covers: texture_2d<f32>;"
         );
     }
     for (i, asset) in manifest.assets.iter().enumerate() {
@@ -436,6 +444,46 @@ inputs = ["prev:trail"]
         assert_eq!(&bytes[0..4], &1.5f32.to_le_bytes());
         assert_eq!(&bytes[28..32], &1.0f32.to_le_bytes());
         assert_eq!(&bytes[32..36], &1u32.to_le_bytes());
+    }
+
+    #[test]
+    fn frame_is_laid_out_as_wgsl_wants() {
+        // time, dt, index, first, resolution (2), aspect, seed, accent (4), covers, padding.
+        assert_eq!(FRAME_SIZE, 64);
+        let frame = format!(
+            "{FRAME}@group(0) @binding(0) var<uniform> frame: Frame;\n@fragment fn f() -> @location(0) vec4f {{ return vec4f(f32(frame.covers)); }}\n"
+        );
+        let module = naga::front::wgsl::parse_str(&frame).unwrap();
+        let mut layouter = naga::proc::Layouter::default();
+        layouter.update(module.to_ctx()).unwrap();
+        let (handle, _) = module
+            .types
+            .iter()
+            .find(|(_, t)| t.name.as_deref() == Some("Frame"))
+            .unwrap();
+        assert_eq!(u64::from(layouter[handle].size), FRAME_SIZE);
+        let naga::TypeInner::Struct { members, .. } = &module.types[handle].inner else {
+            panic!("not a struct");
+        };
+        let offset = |name: &str| {
+            members
+                .iter()
+                .find(|m| m.name.as_deref() == Some(name))
+                .unwrap()
+                .offset
+        };
+        assert_eq!((offset("accent"), offset("covers")), (32, 48));
+    }
+
+    #[test]
+    fn passes_see_the_covers_texture_and_the_update_does_not() {
+        let m = manifest();
+        let pass = prelude(&m, Stage::Pass);
+        assert!(pass.contains(&format!(
+            "@binding({BIND_COVERS}) var covers: texture_2d<f32>;"
+        )));
+        assert!(!prelude(&m, Stage::Update).contains("var covers"));
+        assert!(BIND_COVERS < BIND_ASSETS);
     }
 
     #[test]
