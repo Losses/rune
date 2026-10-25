@@ -43,7 +43,6 @@ num_cpus = "1.16.0"
 anyhow = { version = "1.0.98", features = ["backtrace"] }
 futures = "0.3.30"
 async-trait = "0.1.83"
-sysinfo = { version = "0.31.4", features = ["windows", "apple-app-store"] }
 tracing-appender = "0.2.3"
 chrono = { version = "0.4.38", features = ["serde"] }
 windows = { version = "0.58.0", features = ["Services", "Services_Store"] }
@@ -98,6 +97,10 @@ vergen = { version = "9.0.4", features = ["build", "cargo", "rustc", "si"] }
 # Uncomment below to target the web.
 # tokio_with_wasm = { version = "0.6.0", features = ["sync", "rt"] }
 # wasm-bindgen = "0.2.92"
+
+# sysinfo does not build for iOS with the current libc
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+sysinfo = { version = "0.31.4", features = ["windows", "apple-app-store"] }
 
 # Android dependencies
 [target.'cfg(target_os = "android")'.dependencies]
