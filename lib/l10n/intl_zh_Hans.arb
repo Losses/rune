@@ -1349,41 +1349,41 @@
   "@deduplicating": {
     "description": "表示当前正在执行去重过程的标签。向用户展示系统正在移除音乐库或播放列表中的重复曲目。也可使用“正在移除重复项”或“去重进行中”等表达。"
   },
-  "visualizerPrevious": "上一个预设",
+  "visualizerPrevious": "上一个场景",
   "@visualizerPrevious": {
-    "description": "可视化中切换到上一个预设的右键菜单项。"
+    "description": "可视化中切换到上一个场景的右键菜单项。"
   },
-  "visualizerNext": "下一个预设",
+  "visualizerNext": "下一个场景",
   "@visualizerNext": {
-    "description": "可视化中切换到下一个预设的右键菜单项。"
+    "description": "可视化中切换到下一个场景的右键菜单项。"
   },
-  "visualizerRandom": "随机预设",
+  "visualizerRandom": "随机场景",
   "@visualizerRandom": {
-    "description": "可视化中切换到随机预设的右键菜单项。"
+    "description": "可视化中切换到随机场景的右键菜单项。"
   },
-  "visualizerChoosePreset": "选择预设",
+  "visualizerChoosePreset": "选择场景",
   "@visualizerChoosePreset": {
-    "description": "可视化右键菜单项，打开子菜单按名称选择某个预设或场景。"
+    "description": "可视化右键菜单项，打开子菜单按名称选择某个场景。"
   },
-  "visualizerLockPreset": "锁定预设",
+  "visualizerLockPreset": "锁定场景",
   "@visualizerLockPreset": {
-    "description": "可视化右键菜单项，使其不再自动切换预设，保持当前的预设。"
+    "description": "可视化右键菜单项，使其不再自动切换场景，保持当前的场景。"
   },
-  "visualizerUnlockPreset": "解除锁定预设",
+  "visualizerUnlockPreset": "解除锁定场景",
   "@visualizerUnlockPreset": {
-    "description": "可视化右键菜单项，使其重新自动切换预设。"
+    "description": "可视化右键菜单项，使其重新自动切换场景。"
   },
-  "visualizerAddPresetFolder": "添加预设文件夹",
+  "visualizerAddPresetFolder": "添加场景文件夹",
   "@visualizerAddPresetFolder": {
-    "description": "设置中添加存放可视化 MilkDrop 预设文件的文件夹的标题。"
+    "description": "设置中添加存放可视化场景的文件夹的标题。"
   },
-  "visualizerAddPresetFolderSubtitle": "添加一个可视化预设文件夹，所有文件夹的预设会合并使用。",
+  "visualizerAddPresetFolderSubtitle": "添加一个可视化场景文件夹，所有文件夹的场景会合并使用。",
   "@visualizerAddPresetFolderSubtitle": {
-    "description": "添加可视化预设文件夹的设置的副标题。"
+    "description": "添加可视化场景文件夹的设置的副标题。"
   },
   "visualizerRemovePresetFolder": "移除",
   "@visualizerRemovePresetFolder": {
-    "description": "从可视化预设文件夹中移除一个文件夹的按钮；文件夹本身不会被删除。"
+    "description": "从可视化场景文件夹中移除一个文件夹的按钮；文件夹本身不会被删除。"
   },
   "coverWallDisplay": "封面墙显示内容",
   "@coverWallDisplay": {

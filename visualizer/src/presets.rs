@@ -1,98 +1,46 @@
-//! The `.milk` / `.milk2` presets and scene folders of a directory, picked the way
-//! MilkDrop 2 does it: weighted by rating, with a history, and on a timer.
+//! The scene folders of a directory, picked at random with a history and on a timer, the way
+//! MilkDrop 2 does it.
 
 use std::collections::VecDeque;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use rand::Rng;
 
-/// Where a preset's bytes are.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Location {
-    File(PathBuf),
-}
-
+/// A scene's folder and its name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Preset {
-    pub location: Location,
-    /// The file name without its extension.
+    pub path: PathBuf,
+    /// The folder's name, dots and all.
     pub name: String,
 }
 
 impl Preset {
-    fn new(location: Location) -> Self {
-        let Location::File(path) = &location;
-        let full = path.to_string_lossy().into_owned();
+    pub fn from_path(path: &Path) -> Self {
+        let full = path.to_string_lossy();
         let file = full.rsplit(['/', '\\']).next().unwrap_or(&full);
-        // A scene is a folder: its whole name, dots and all.
-        let name = if crate::scene::is_scene(path) {
-            file
-        } else {
-            file.rsplit_once('.').map_or(file, |(stem, _)| stem)
-        };
         Self {
-            name: if name.is_empty() { "preset" } else { name }.to_string(),
-            location,
+            name: if file.is_empty() { "scene" } else { file }.to_string(),
+            path: path.to_path_buf(),
         }
     }
-
-    pub fn from_path(path: &Path) -> Self {
-        Self::new(Location::File(path.to_path_buf()))
-    }
 }
 
-fn is_preset_name(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.ends_with(".milk") || lower.ends_with(".milk2")
-}
-
-/// Rating of presets that have none, and the range ratings are clamped to (MilkDrop 2).
-const DEFAULT_RATING: f32 = 3.0;
-const MAX_RATING: f32 = 5.0;
-
-/// How many loaded presets "previous" can walk back through (MilkDrop 2: `PRESET_HIST_LEN`).
+/// How many loaded scenes "previous" can walk back through (MilkDrop 2: `PRESET_HIST_LEN`).
 const HISTORY_LEN: usize = 64;
-
-/// How many bytes of a preset file are searched for its rating; it sits near the top.
-const RATING_SCAN_BYTES: u64 = 16 * 1024;
-
-/// The `fRating=` value of a preset file, `3.0` if there is none or it is not a number, clamped
-/// to `0..=5`.
-fn parse_rating(text: &[u8]) -> f32 {
-    text.split(|&b| b == b'\n')
-        .find_map(|line| line.strip_prefix(b"fRating="))
-        .and_then(|value| std::str::from_utf8(value).ok()?.trim().parse::<f32>().ok())
-        .filter(|rating| rating.is_finite())
-        .map_or(DEFAULT_RATING, |rating| rating.clamp(0.0, MAX_RATING))
-}
-
-fn read_rating(path: &Path) -> f32 {
-    let mut head = Vec::new();
-    let read = std::fs::File::open(path)
-        .and_then(|file| file.take(RATING_SCAN_BYTES).read_to_end(&mut head));
-    if read.is_err() {
-        return DEFAULT_RATING;
-    }
-    parse_rating(&head)
-}
 
 struct Entry {
     preset: Preset,
-    rating: f32,
-    /// The folder the preset is in, relative to the preset folder it was found under.
+    /// The folder the scene is in, relative to the folder it was found under.
     group: String,
-    scene: bool,
 }
 
-/// A preset of the library as the preset menu shows it.
+/// A scene of the library as the preset menu shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresetInfo {
     pub name: String,
     pub path: PathBuf,
     pub group: String,
-    pub scene: bool,
 }
 
 /// The folder of `path` relative to `root`, with `/` between the folders; the name of `root`
@@ -114,7 +62,8 @@ fn group_of(root: &Path, path: &Path) -> String {
     }
 }
 
-/// Add the presets of `dir` and its subfolders to `entries`; nothing of `dir` on an error.
+/// Add the scenes of `dir` and its subfolders to `entries`; nothing of `dir` on an error. A scene
+/// is a folder with a `scene.toml`; what is inside it belongs to it and is not scanned.
 fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
     let mut found = Vec::new();
     let mut pending = vec![dir.to_path_buf()];
@@ -124,31 +73,17 @@ fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
         for entry in read {
             let entry = entry?;
             let path = entry.path();
-            if entry.file_type()?.is_dir() {
-                if entry.file_name().to_string_lossy().starts_with('.') {
-                    continue;
-                }
-                // A scene in Rune's own format is a folder; what is inside it belongs to it.
-                if crate::scene::is_scene(&path) {
-                    found.push(Entry {
-                        group: group_of(dir, &path),
-                        preset: Preset::new(Location::File(path)),
-                        rating: DEFAULT_RATING,
-                        scene: true,
-                    });
-                } else {
-                    pending.push(path);
-                }
+            if !entry.file_type()?.is_dir() || entry.file_name().to_string_lossy().starts_with('.')
+            {
                 continue;
             }
-            if path.to_str().is_some_and(is_preset_name) {
-                let rating = read_rating(&path);
+            if crate::scene::is_scene(&path) {
                 found.push(Entry {
                     group: group_of(dir, &path),
-                    preset: Preset::new(Location::File(path)),
-                    rating,
-                    scene: false,
+                    preset: Preset::from_path(&path),
                 });
+            } else {
+                pending.push(path);
             }
         }
     }
@@ -156,10 +91,9 @@ fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
     Ok(())
 }
 
-/// The presets that take part in rotation, with the history of what was loaded. The rules are
-/// those of MilkDrop 2 (Nullsoft, BSD-3): random picks are weighted by rating, "previous" walks
-/// back through the last [`HISTORY_LEN`] presets and "next" walks forward again before it picks
-/// a new one.
+/// The scenes that take part in rotation, with the history of what was loaded. The rules are
+/// those of MilkDrop 2 (Nullsoft, BSD-3): "previous" walks back through the last
+/// [`HISTORY_LEN`] scenes and "next" walks forward again before it picks a new random one.
 #[derive(Default)]
 pub struct PresetList {
     entries: Vec<Entry>,
@@ -170,10 +104,10 @@ pub struct PresetList {
 }
 
 impl PresetList {
-    /// Scan every folder of `dirs` and its subfolders and replace the list with the presets of
-    /// all of them, once per file. Hidden folders and symlinked folders (possible cycles) are
+    /// Scan every folder of `dirs` and its subfolders and replace the list with the scenes of
+    /// all of them, once per folder. Hidden folders and symlinked folders (possible cycles) are
     /// skipped. A folder that cannot be read is skipped; its error is in the
-    /// second part of the result. Returns the number of presets found.
+    /// second part of the result. Returns the number of scenes found.
     pub fn scan_all(&mut self, dirs: &[PathBuf]) -> (usize, Vec<anyhow::Error>) {
         let mut entries = Vec::new();
         let mut errors = Vec::new();
@@ -198,19 +132,15 @@ impl PresetList {
         self.entries.len()
     }
 
-    /// Every preset, by group and then by name, ignoring case.
+    /// Every scene, by group and then by name, ignoring case.
     pub fn infos(&self) -> Vec<PresetInfo> {
         let mut infos: Vec<PresetInfo> = self
             .entries
             .iter()
-            .map(|entry| {
-                let Location::File(path) = &entry.preset.location;
-                PresetInfo {
-                    name: entry.preset.name.clone(),
-                    path: path.clone(),
-                    group: entry.group.clone(),
-                    scene: entry.scene,
-                }
+            .map(|entry| PresetInfo {
+                name: entry.preset.name.clone(),
+                path: entry.preset.path.clone(),
+                group: entry.group.clone(),
             })
             .collect();
         infos.sort_by_cached_key(|i| {
@@ -224,7 +154,7 @@ impl PresetList {
     }
 
     /// MilkDrop 2's `NextPreset`: forward in the history if the user went back, else a new
-    /// rating-weighted random preset.
+    /// random scene.
     pub fn next(&mut self, rng: &mut impl Rng) -> Result<Preset> {
         if !self.history.is_empty() && self.cursor + 1 < self.history.len() {
             self.cursor += 1;
@@ -243,10 +173,12 @@ impl PresetList {
         Ok(Some(self.history[self.cursor].clone()))
     }
 
-    /// A new rating-weighted random preset. Forward history is dropped.
+    /// A new random scene. Forward history is dropped.
     pub fn random(&mut self, rng: &mut impl Rng) -> Result<Preset> {
         self.check_not_empty()?;
-        let preset = self.entries[self.pick(rng)].preset.clone();
+        let preset = self.entries[rng.gen_range(0..self.entries.len())]
+            .preset
+            .clone();
         if !self.history.is_empty() {
             self.history.truncate(self.cursor + 1);
         }
@@ -260,53 +192,31 @@ impl PresetList {
 
     fn check_not_empty(&self) -> Result<()> {
         if self.entries.is_empty() {
-            bail!("No presets in the preset directory");
+            bail!("No scenes in the scene directory");
         }
         Ok(())
-    }
-
-    /// Index of a random entry with a probability proportional to its rating, so a rating of 0
-    /// is never picked; uniform if the ratings add up to (almost) nothing.
-    fn pick(&self, rng: &mut impl Rng) -> usize {
-        let total: f32 = self.entries.iter().map(|e| e.rating).sum();
-        if total < 0.1 {
-            return rng.gen_range(0..self.entries.len());
-        }
-        let target = rng.gen_range(0.0..total);
-        let mut cumulative = 0.0;
-        for (i, entry) in self.entries.iter().enumerate() {
-            cumulative += entry.rating;
-            if target < cumulative {
-                return i;
-            }
-        }
-        // Rounding of the sum: the last preset that can be picked.
-        self.entries
-            .iter()
-            .rposition(|e| e.rating > 0.0)
-            .unwrap_or(0)
     }
 }
 
 /// When the next automatic switch is due, on the render loop's clock (seconds). MilkDrop 2:
-/// a preset is shown for the blend time, 16 s and up to 10 s more at random.
+/// a scene is shown for the blend time, 16 s and up to 10 s more at random.
 #[derive(Default)]
 pub struct AutoSwitch {
     due: Option<f64>,
 }
 
 impl AutoSwitch {
-    /// Blend time of an automatic switch.
+    /// MilkDrop 2's blend time, kept in the wait (scenes cut).
     pub const BLEND_SECONDS: f64 = 2.7;
     const BETWEEN_SECONDS: f64 = 16.0;
     const RANDOM_SECONDS: f64 = 10.0;
 
-    /// A preset was loaded: count again from the next frame.
+    /// A scene was loaded: count again from the next frame.
     pub fn restart(&mut self) {
         self.due = None;
     }
 
-    /// Call once per frame. Returns whether a switch is due now; the caller then loads a preset
+    /// Call once per frame. Returns whether a switch is due now; the caller then loads a scene
     /// and calls [`Self::restart`]. While `paused` the timer keeps starting over.
     pub fn tick(&mut self, now: f64, paused: bool, rng: &mut impl Rng) -> bool {
         if paused {
@@ -333,14 +243,12 @@ mod tests {
         StdRng::seed_from_u64(7)
     }
 
-    fn rated(ratings: &[(&str, &str)]) -> PresetList {
-        let entries = ratings
+    fn listed(names: &[&str]) -> PresetList {
+        let entries = names
             .iter()
-            .map(|(name, rating)| Entry {
-                preset: Preset::new(Location::File(format!("{name}.milk").into())),
-                rating: parse_rating(format!("[preset00]\nfRating={rating}\n").as_bytes()),
+            .map(|name| Entry {
+                preset: Preset::from_path(Path::new(name)),
                 group: String::new(),
-                scene: false,
             })
             .collect();
         let mut list = PresetList::default();
@@ -348,52 +256,54 @@ mod tests {
         list
     }
 
+    /// A scene folder `name` under `root`: an empty `scene.toml` is enough to be found.
+    fn scene(root: &Path, name: &str) {
+        std::fs::create_dir_all(root.join(name)).unwrap();
+        std::fs::write(root.join(name).join("scene.toml"), "").unwrap();
+    }
+
     #[test]
     fn scan_is_recursive_but_skips_hidden_and_symlinked_folders() {
         let dir = std::env::temp_dir().join(format!("rune-presets-{}", std::process::id()));
-        for sub in ["Fractal", ".git"] {
-            std::fs::create_dir_all(dir.join(sub)).unwrap();
-        }
         for name in [
-            "b.milk",
-            "a.MILK",
-            "c.milk2",
-            "ignored.txt",
-            "Fractal/deep.milk",
-            ".git/hidden.milk",
+            "b",
+            "a",
+            "Fractal/deep",
+            ".git/hidden",
+            "Fractal/deep/inner",
         ] {
-            std::fs::write(dir.join(name), "").unwrap();
+            scene(&dir, name);
         }
+        std::fs::write(dir.join("ignored.milk"), "").unwrap();
+        std::fs::write(dir.join("Fractal/also.milk"), "").unwrap();
         let mut list = PresetList::default();
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(&dir, dir.join("loop")).unwrap();
             std::os::unix::fs::symlink(dir.join("Fractal"), dir.join("link")).unwrap();
         }
-        assert_eq!(list.scan_all(std::slice::from_ref(&dir)).0, 4);
+        // `inner` is inside a scene: it is not scanned.
+        assert_eq!(list.scan_all(std::slice::from_ref(&dir)).0, 3);
         let mut rng = rng();
         let mut names: Vec<String> = (0..50)
             .map(|_| list.random(&mut rng).unwrap().name)
             .collect();
         names.sort();
         names.dedup();
-        assert_eq!(names, ["a", "b", "c", "deep"]);
+        assert_eq!(names, ["a", "b", "deep"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
-    fn scan_all_combines_folders_once_per_file_and_skips_unreadable_ones() {
+    fn scan_all_combines_folders_once_per_scene_and_skips_unreadable_ones() {
         let root = std::env::temp_dir().join(format!("rune-presets-many-{}", std::process::id()));
         let (one, two) = (root.join("one"), root.join("one/two"));
         let other = root.join("other");
-        for dir in [&two, &other] {
-            std::fs::create_dir_all(dir).unwrap();
-        }
-        for file in ["one/a.milk", "one/two/b.milk", "other/c.milk"] {
-            std::fs::write(root.join(file), "").unwrap();
+        for name in ["one/a", "one/two/b", "other/c"] {
+            scene(&root, name);
         }
         let mut list = PresetList::default();
-        // `two` lies inside `one`: its preset is not counted twice.
+        // `two` lies inside `one`: its scene is not counted twice.
         let dirs = [one.clone(), two, other.clone(), root.join("missing")];
         let (count, errors) = list.scan_all(&dirs);
         assert_eq!((count, errors.len()), (3, 1));
@@ -403,105 +313,41 @@ mod tests {
     }
 
     #[test]
-    fn groups_are_relative_to_the_preset_folder() {
-        let root = Path::new("/music/MilkDrop");
-        assert_eq!(group_of(root, &root.join("a.milk")), "MilkDrop");
-        assert_eq!(
-            group_of(root, &root.join("Cream of the Crop/Fractal/x.milk")),
-            "Cream of the Crop/Fractal"
-        );
-        assert_eq!(group_of(root, &root.join("Scenes/Neon")), "Scenes");
+    fn groups_are_relative_to_the_scene_folder() {
+        let root = Path::new("/music/Scenes");
+        assert_eq!(group_of(root, &root.join("a")), "Scenes");
+        assert_eq!(group_of(root, &root.join("Night/Calm/x")), "Night/Calm");
     }
 
     #[test]
     fn infos_are_sorted_by_group_then_name_ignoring_case() {
         let dir = std::env::temp_dir().join(format!("rune-presets-infos-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("b")).unwrap();
-        std::fs::create_dir_all(dir.join("A")).unwrap();
-        std::fs::create_dir_all(dir.join("scene")).unwrap();
-        std::fs::write(dir.join("scene/scene.toml"), "").unwrap();
-        for file in ["b/z.milk", "b/Y.milk", "A/q.milk", "root.milk"] {
-            std::fs::write(dir.join(file), "").unwrap();
+        for name in ["b/z", "b/Y", "A/q", "root"] {
+            scene(&dir, name);
         }
         let mut list = PresetList::default();
         list.scan_all(std::slice::from_ref(&dir));
         let root = dir.file_name().unwrap().to_string_lossy().into_owned();
-        let got: Vec<(String, String, bool)> = list
+        let got: Vec<(String, String)> = list
             .infos()
             .into_iter()
-            .map(|i| (i.group, i.name, i.scene))
+            .map(|i| (i.group, i.name))
             .collect();
-        let expected = |g: &str, n: &str, s: bool| (g.to_string(), n.to_string(), s);
+        let expected = |g: &str, n: &str| (g.to_string(), n.to_string());
         let mut want = vec![
-            expected("A", "q", false),
-            expected("b", "Y", false),
-            expected("b", "z", false),
-            expected(&root, "root", false),
-            expected(&root, "scene", true),
+            expected("A", "q"),
+            expected("b", "Y"),
+            expected("b", "z"),
+            expected(&root, "root"),
         ];
-        want.sort_by_key(|(g, n, _)| (g.to_lowercase(), n.to_lowercase()));
+        want.sort_by_key(|(g, n)| (g.to_lowercase(), n.to_lowercase()));
         assert_eq!(got, want);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
-    fn folder_scan_reads_ratings() {
-        let dir = std::env::temp_dir().join(format!("rune-presets-rated-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("zero.milk"), "[preset00]\nfRating=0.0\n").unwrap();
-        std::fs::write(dir.join("five.milk"), "[preset00]\r\nfRating=5.0\r\n").unwrap();
-        let mut list = PresetList::default();
-        assert_eq!(list.scan_all(std::slice::from_ref(&dir)).0, 2);
-        let mut rng = rng();
-        for _ in 0..30 {
-            assert_eq!(list.random(&mut rng).unwrap().name, "five");
-        }
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn parses_ratings() {
-        assert_eq!(parse_rating(b"[preset00]\nfRating=2.5\nzoom=1"), 2.5);
-        assert_eq!(parse_rating(b"[preset00]\r\nfRating=1\r\n"), 1.0);
-        assert_eq!(parse_rating(b"[preset00]\nzoom=1\n"), 3.0);
-        assert_eq!(parse_rating(b""), 3.0);
-        assert_eq!(parse_rating(b"fRating=abc\n"), 3.0);
-        assert_eq!(parse_rating(b"fRating=nan\n"), 3.0);
-        assert_eq!(parse_rating(b"fRating=\xff\xfe\n"), 3.0);
-        assert_eq!(parse_rating(b"fRating=9\n"), 5.0);
-        assert_eq!(parse_rating(b"fRating=-2\n"), 0.0);
-    }
-
-    #[test]
-    fn weighted_pick_never_returns_a_zero_rating() {
-        let mut list = rated(&[("zero", "0"), ("one", "1"), ("five", "5")]);
-        let mut rng = rng();
-        let (mut one, mut five) = (0, 0);
-        for _ in 0..600 {
-            match list.random(&mut rng).unwrap().name.as_str() {
-                "one" => one += 1,
-                "five" => five += 1,
-                other => panic!("picked {other}"),
-            }
-        }
-        // 1:5 odds, so "five" comes up far more often.
-        assert!(five > 2 * one, "{one} {five}");
-    }
-
-    #[test]
-    fn all_zero_ratings_pick_uniformly() {
-        let mut list = rated(&[("a", "0"), ("b", "0"), ("c", "0")]);
-        let mut rng = rng();
-        let mut seen = std::collections::BTreeSet::new();
-        for _ in 0..100 {
-            seen.insert(list.random(&mut rng).unwrap().name);
-        }
-        assert_eq!(seen.len(), 3);
-    }
-
-    #[test]
     fn history_walks_back_and_forward() {
-        let mut list = rated(&[("a", "3"), ("b", "3"), ("c", "3"), ("d", "3")]);
+        let mut list = listed(&["a", "b", "c", "d"]);
         let mut rng = rng();
         assert!(list.previous().unwrap().is_none());
         let first = list.random(&mut rng).unwrap();
@@ -513,7 +359,7 @@ mod tests {
 
     #[test]
     fn random_after_previous_drops_forward_history() {
-        let mut list = rated(&[("a", "3"), ("b", "3"), ("c", "3")]);
+        let mut list = listed(&["a", "b", "c"]);
         let mut rng = rng();
         list.random(&mut rng).unwrap();
         list.random(&mut rng).unwrap();
@@ -530,7 +376,7 @@ mod tests {
 
     #[test]
     fn history_keeps_the_last_64() {
-        let mut list = rated(&[("a", "3"), ("b", "3")]);
+        let mut list = listed(&["a", "b"]);
         let mut rng = rng();
         for _ in 0..100 {
             list.random(&mut rng).unwrap();

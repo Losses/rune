@@ -129,11 +129,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: true,
         },
         RequestResponse {
-            request: "SetVisualizerAppearanceRequest".to_string(),
-            response: None,
-            local_only: true,
-        },
-        RequestResponse {
             request: "SetVisualizerAccentRequest".to_string(),
             response: None,
             local_only: true,

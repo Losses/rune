@@ -3,7 +3,7 @@
 //! A chart is the JSON that the chart analyzer writes for one audio file (beats, bars, sections,
 //! onset streams, the leading stream and loudness curves; every level is relative to the song).
 //! Charts live in one folder, named after a hash of the file's path ([`chart_key`]). With a
-//! chart the presets know what is coming: the next section, the next downbeat.
+//! chart the scenes know what is coming: the next section, the next downbeat.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -142,7 +142,7 @@ pub struct Chart {
     song_feel: f64,
 }
 
-/// The chart at one moment, for the presets.
+/// The chart at one moment, for the scenes.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ChartState {
     /// Tempo over the beats around now; 0 without beats.

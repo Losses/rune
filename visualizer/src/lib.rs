@@ -1,7 +1,7 @@
-//! A MilkDrop-style visualizer: a render thread that turns PCM into BGRA frames.
+//! A scene visualizer: a render thread that turns PCM into BGRA frames.
 //!
-//! The thread owns a headless wgpu device and a [`lactea`] engine. Each frame it drains the PCM
-//! ring buffer and renders. On macOS it draws straight into an IOSurface-backed pixel buffer, on
+//! The thread owns a headless wgpu device and the scene on screen (see [`scene`]). Each frame it
+//! drains the PCM ring buffer and renders. On macOS it draws straight into an IOSurface-backed pixel buffer, on
 //! Windows into a DirectX 12 texture shared with Flutter's adapter, and on Linux into a Vulkan
 //! image whose memory Flutter's OpenGL context imports, which the app can show without a copy;
 //! elsewhere, or if that fails, it renders into an offscreen texture that is copied into a
@@ -23,7 +23,6 @@ mod shared_dx12;
 mod shared_vulkan;
 #[cfg(target_os = "macos")]
 mod surface;
-mod textures;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
@@ -31,10 +30,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use lactea::FrameClock;
 use log::{error, info};
 use rand::rngs::ThreadRng;
 use rtrb::Consumer;
@@ -44,20 +42,15 @@ use chart::{ChartFollower, Playback};
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport};
 use pipeline::{Pipeline, Rendered};
 pub use presets::PresetInfo;
-use presets::{AutoSwitch, Location, Preset, PresetList};
+use presets::{AutoSwitch, Preset, PresetList};
 pub use rhythm::{BeatTracker, Rhythm};
 #[cfg(target_os = "linux")]
 pub use shared_vulkan::SharedFrame;
-
-pub use lactea::Transition;
 
 pub const DEFAULT_FPS: u32 = 60;
 
 /// Sample rate assumed until the first track tells the real one.
 const FALLBACK_SAMPLE_RATE: u32 = 44_100;
-
-/// The blend of a switch the user asked for (MilkDrop 2: 1.7 s).
-const MANUAL_BLEND_SECONDS: f64 = 1.7;
 
 /// How often the measured fps in [`Status`] is refreshed.
 const FPS_WINDOW: Duration = Duration::from_millis(500);
@@ -190,29 +183,21 @@ pub struct Status {
 
 enum Command {
     Resize(u32, u32),
-    LoadPreset {
-        bytes: Vec<u8>,
-        name: String,
-        transition: Transition,
-        /// The file the preset came from, which is then watched for changes.
-        path: Option<PathBuf>,
-    },
-    /// Show the default preset (no preset folder is left).
-    LoadDefaultPreset(Transition),
-    /// The textures of these preset folders, none without one.
-    SetTextures(Vec<PathBuf>),
+    /// Show the scene in this folder, which is then watched for changes.
+    LoadScene(PathBuf),
+    /// Show the built-in scene (no scene folder is left).
+    LoadDefaultScene,
     Stop,
 }
 
-/// The presets of the folders the user chose, if any.
+/// The scenes of the folders the user chose, if any.
 #[derive(Default)]
 struct Library {
     folder: PresetList,
-    folder_dirs: Vec<PathBuf>,
 }
 
 impl Library {
-    /// The preset for an automatic switch, if there are presets to choose from.
+    /// The scene for an automatic switch, if there are scenes to choose from.
     fn auto_next(&mut self, rng: &mut ThreadRng) -> Option<Result<Preset>> {
         (self.folder.len() > 0).then(|| self.folder.next(rng))
     }
@@ -232,8 +217,6 @@ struct Shared {
     /// Whether the app's window can be seen. While it cannot, nothing is drawn and the clock
     /// stands still, as while the music is paused.
     visible: AtomicBool,
-    /// The app's appearance, which picks the light or the dark default preset.
-    light: AtomicBool,
     /// The app's accent colour (0xAARRGGBB) for scenes, or 0 before the app tells it.
     accent: AtomicU32,
     /// The file that plays and where, for finding its chart and the time in it.
@@ -318,7 +301,6 @@ impl Visualizer {
                 // Until the player says otherwise, draw.
                 playing: AtomicBool::new(true),
                 visible: AtomicBool::new(true),
-                light: AtomicBool::new(false),
                 accent: AtomicU32::new(0),
                 playback: Mutex::new(Playback::default()),
                 wants_covers: AtomicBool::new(false),
@@ -333,20 +315,6 @@ impl Visualizer {
             }),
             worker: Mutex::new(None),
             library: Arc::new(Mutex::new(Library::default())),
-        }
-    }
-
-    /// Follow the app's appearance: the default preset comes in a light and a dark version. If
-    /// the default preset is showing (no preset folder), a running visualizer changes to the
-    /// other version softly.
-    pub fn set_light_appearance(&self, light: bool) {
-        if self.shared.light.swap(light, Ordering::Relaxed) == light {
-            return;
-        }
-        if lock(&self.library).folder.len() == 0 {
-            let _ = self.send(Command::LoadDefaultPreset(Transition::Soft {
-                seconds: MANUAL_BLEND_SECONDS,
-            }));
         }
     }
 
@@ -417,14 +385,14 @@ impl Visualizer {
     }
 
     /// Follow the player: while the music is paused or stopped the visualizer draws nothing and
-    /// its clock stops, so presets, transitions and the automatic switching resume where they
+    /// its clock stops, so scenes and the automatic switching resume where they
     /// were.
     pub fn set_playing(&self, playing: bool) {
         self.shared.playing.store(playing, Ordering::Relaxed);
     }
 
     /// Follow the player's file and position (call it with every progress report). With a
-    /// chart of the file in [`chart_dir`], presets get the beats, bars and sections from it.
+    /// chart of the file in [`chart_dir`], scenes get the beats, bars and sections from it.
     pub fn set_playback(&self, path: Option<&Path>, position: Duration, playing: bool) {
         let mut playback = lock(&self.shared.playback);
         if playback.path.as_deref() != path {
@@ -480,8 +448,6 @@ impl Visualizer {
     /// call [`Self::stop`] first (it gives the `PcmInput` back).
     pub fn start(&self, input: PcmInput, width: u32, height: u32, fps: u32) -> Result<()> {
         let (width, height, fps) = (width.max(1), height.max(1), fps.clamp(1, 240));
-        // Before the worker lock, which `publish_folder` takes to reach the renderer.
-        let textures = lock(&self.library).folder_dirs.clone();
         let mut worker = lock(&self.worker);
         if worker.is_some() {
             bail!("The visualizer is already started");
@@ -507,16 +473,7 @@ impl Visualizer {
         let library = Arc::clone(&self.library);
         let handle = thread::Builder::new()
             .name("visualizer".into())
-            .spawn(move || {
-                worker_main(
-                    shared,
-                    library,
-                    input,
-                    (width, height, fps),
-                    textures,
-                    receiver,
-                )
-            })
+            .spawn(move || worker_main(shared, library, input, (width, height, fps), receiver))
             .context("Failed to spawn the visualizer thread")?;
         *worker = Some(Worker { commands, handle });
         Ok(())
@@ -535,74 +492,55 @@ impl Visualizer {
         self.send(Command::Resize(width, height))
     }
 
-    pub fn load_preset(&self, bytes: Vec<u8>, name: &str, transition: Transition) -> Result<()> {
-        self.send(Command::LoadPreset {
-            bytes,
-            name: name.to_string(),
-            transition,
-            path: None,
-        })
+    /// Show the scene in the folder `path`, which is watched for changes.
+    pub fn load_preset_path(&self, path: &Path) -> Result<()> {
+        self.load_entry(&Preset::from_path(path))
     }
 
-    pub fn load_preset_path(&self, path: &Path, transition: Transition) -> Result<()> {
-        self.load_entry(&Preset::from_path(path), transition)
+    fn load_entry(&self, preset: &Preset) -> Result<()> {
+        self.send(Command::LoadScene(preset.path.clone()))
     }
 
-    fn load_entry(&self, preset: &Preset, transition: Transition) -> Result<()> {
-        let Location::File(path) = &preset.location;
-        self.send(Command::LoadPreset {
-            bytes: read_preset(preset)?,
-            name: preset.name.clone(),
-            transition,
-            path: Some(path.clone()),
-        })
-    }
-
-    /// Scan the folders `dirs` and their subfolders for `.milk` / `.milk2` files and scenes for
+    /// Scan the folders `dirs` and their subfolders for scenes (folders with a `scene.toml`) for
     /// next/previous/random, replacing the earlier folders and emptying the history. Returns the
-    /// number of presets, each file once. A folder that cannot be read is skipped and shows up in
-    /// [`Status::last_error`]. Textures come from the folders in the order of `dirs`, each from
-    /// `dir/textures`, else `dir` if it has images, else `dir/../textures`. Without presets a
-    /// running visualizer softly changes to the default preset; otherwise the caller loads one.
+    /// number of scenes, each folder once. A folder that cannot be read is skipped and shows up in
+    /// [`Status::last_error`]. Without scenes a running visualizer changes to the built-in one;
+    /// otherwise the caller loads one.
     pub fn set_preset_dirs(&self, dirs: &[PathBuf]) -> Result<usize> {
         let mut library = lock(&self.library);
         let (count, errors) = library.folder.scan_all(dirs);
-        library.folder_dirs = dirs.to_vec();
         self.shared.status().preset_count = count;
         if !errors.is_empty() {
             let message: Vec<String> = errors.iter().map(|e| format!("{e:#}")).collect();
             self.shared.set_error(message.join("; "));
         }
-        // Not running: `start` hands over the current folders.
-        let _ = self.send(Command::SetTextures(dirs.to_vec()));
+        // Not running: `start` begins with the built-in scene anyway.
         if count == 0 {
-            let _ = self.send(Command::LoadDefaultPreset(Transition::Soft {
-                seconds: MANUAL_BLEND_SECONDS,
-            }));
+            let _ = self.send(Command::LoadDefaultScene);
         }
         Ok(count)
     }
 
-    /// Every preset and scene of the preset folders, by group and name, for choosing one.
+    /// Every scene of the scene folders, by group and name, for choosing one.
     pub fn list_presets(&self) -> Vec<PresetInfo> {
         lock(&self.library).folder.infos()
     }
 
-    /// Forward in the history if [`Self::previous_preset`] went back, else a new random preset
-    /// (weighted by the presets' ratings, as in MilkDrop 2). Nothing happens without presets.
-    pub fn next_preset(&self, transition: Transition) -> Result<()> {
+    /// Forward in the history if [`Self::previous_preset`] went back, else a new random scene.
+    /// Nothing happens without scenes.
+    pub fn next_preset(&self) -> Result<()> {
         let mut library = lock(&self.library);
         if library.folder.len() == 0 {
             return Ok(());
         }
         let preset = library.folder.next(&mut rand::thread_rng())?;
         drop(library);
-        self.load_entry(&preset, transition)
+        self.load_entry(&preset)
     }
 
-    /// One step back in the history of loaded presets; nothing happens at its start or without
-    /// presets.
-    pub fn previous_preset(&self, transition: Transition) -> Result<()> {
+    /// One step back in the history of loaded scenes; nothing happens at its start or without
+    /// scenes.
+    pub fn previous_preset(&self) -> Result<()> {
         let mut library = lock(&self.library);
         if library.folder.len() == 0 {
             return Ok(());
@@ -610,24 +548,24 @@ impl Visualizer {
         let preset = library.folder.previous()?;
         drop(library);
         match preset {
-            Some(preset) => self.load_entry(&preset, transition),
+            Some(preset) => self.load_entry(&preset),
             None => Ok(()),
         }
     }
 
-    /// A new random preset (weighted by rating); the history ahead of the current one is dropped.
-    /// Nothing happens without presets.
-    pub fn random_preset(&self, transition: Transition) -> Result<()> {
+    /// A new random scene; the history ahead of the current one is dropped. Nothing happens
+    /// without scenes.
+    pub fn random_preset(&self) -> Result<()> {
         let mut library = lock(&self.library);
         if library.folder.len() == 0 {
             return Ok(());
         }
         let preset = library.folder.random(&mut rand::thread_rng())?;
         drop(library);
-        self.load_entry(&preset, transition)
+        self.load_entry(&preset)
     }
 
-    /// Pause or resume the automatic switching of presets. A pause makes the timer start over
+    /// Pause or resume the automatic switching of scenes. A pause makes the timer start over
     /// when it ends. A new render thread starts unpaused.
     pub fn set_auto_switch_paused(&self, paused: bool) {
         self.shared
@@ -669,21 +607,11 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// The bytes of a preset file; none for a scene's folder, which is read when it loads.
-fn read_preset(preset: &Preset) -> Result<Vec<u8>> {
-    let Location::File(path) = &preset.location;
-    if scene::is_scene(path) {
-        return Ok(Vec::new());
-    }
-    std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))
-}
-
 fn worker_main(
     shared: Arc<Shared>,
     library: Arc<Mutex<Library>>,
     mut input: PcmInput,
     (width, height, fps): (u32, u32, u32),
-    textures: Vec<PathBuf>,
     commands: Receiver<Command>,
 ) -> PcmInput {
     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -692,7 +620,6 @@ fn worker_main(
             &library,
             &mut input,
             (width, height, fps),
-            textures,
             &commands,
         )
     }));
@@ -713,7 +640,6 @@ fn run(
     library: &Mutex<Library>,
     input: &mut PcmInput,
     (width, height, fps): (u32, u32, u32),
-    textures: Vec<PathBuf>,
     commands: &Receiver<Command>,
 ) -> Result<()> {
     let sample_rate = match input.sample_rate.load(Ordering::Relaxed) {
@@ -725,7 +651,6 @@ fn run(
         Arc::new(move |message: String| shared.set_error(message))
     };
     let readback = shared.prefer_readback.load(Ordering::Relaxed);
-    let light = shared.light.load(Ordering::Relaxed);
     let adapter_luid = match shared.adapter_luid.load(Ordering::Relaxed) {
         0 => None,
         luid => Some(luid),
@@ -734,12 +659,10 @@ fn run(
     let mut pipeline = Pipeline::new(
         width,
         height,
-        fps,
         sample_rate,
         readback,
         adapter_luid,
         device_uuids,
-        light,
         on_gpu_error,
     )?;
     let mut transport = pipeline.transport();
@@ -747,11 +670,6 @@ fn run(
         "Visualizer started on {} ({transport:?})",
         pipeline.adapter_name
     );
-    if !textures.is_empty()
-        && let Err(e) = pipeline.set_textures(&textures)
-    {
-        shared.set_error(format!("{e:#}"));
-    }
     {
         let mut status = shared.status();
         status.adapter = pipeline.adapter_name.clone();
@@ -762,7 +680,6 @@ fn run(
     let interval = Duration::from_secs_f64(1.0 / f64::from(fps));
     let started = Instant::now();
     let mut deadline = started;
-    let mut frame_index = 0u32;
     let mut pcm: Vec<f32> = Vec::new();
     let mut window_start = started;
     let mut window_frames = 0u32;
@@ -774,7 +691,7 @@ fn run(
     // While paused or out of sight one frame is drawn (the first one, or after a command such as
     // a resize) and then held.
     let mut still_drawn = false;
-    // The file of the preset on screen, reloaded when it is saved (live editing).
+    // The folder of the scene on screen, reloaded when it is saved (live editing).
     let mut watched: Option<Watched> = None;
     let mut tracker = BeatTracker::new(sample_rate);
     let mut charts = ChartFollower::new(chart_dir());
@@ -880,31 +797,18 @@ fn run(
         if auto_switch.tick(time, switch_paused, &mut rng)
             && let Some(mut library) = free()
         {
-            // The list is built already; only the one preset file is read here.
             let next = library.auto_next(&mut rng);
             drop(library);
-            if let Some(next) = next {
-                let load = next.and_then(|preset| {
-                    let Location::File(path) = &preset.location;
-                    Ok(Command::LoadPreset {
-                        bytes: read_preset(&preset)?,
-                        path: Some(path.clone()),
-                        name: preset.name,
-                        transition: Transition::Soft {
-                            seconds: AutoSwitch::BLEND_SECONDS,
-                        },
-                    })
-                });
-                match load {
-                    Ok(command) => apply(
-                        shared,
-                        &mut pipeline,
-                        &mut auto_switch,
-                        &mut watched,
-                        command,
-                    ),
-                    Err(e) => shared.set_error(format!("{e:#}")),
-                }
+            match next {
+                Some(Ok(preset)) => apply(
+                    shared,
+                    &mut pipeline,
+                    &mut auto_switch,
+                    &mut watched,
+                    Command::LoadScene(preset.path),
+                ),
+                Some(Err(e)) => shared.set_error(format!("{e:#}")),
+                None => {}
             }
             auto_switch.restart();
         }
@@ -929,12 +833,7 @@ fn run(
         if shared.fall_back.swap(false, Ordering::Relaxed) {
             pipeline.fall_back_to_readback();
         }
-        let clock = FrameClock {
-            time,
-            frame: frame_index,
-        };
-        let rendered = pipeline.render(clock)?;
-        frame_index = frame_index.wrapping_add(1);
+        let rendered = pipeline.render(time)?;
         let (width, height) = pipeline.size();
         match rendered {
             Rendered::Mapped(frame) => publish(shared, width, height, FrameData::Mapped(frame)),
@@ -992,10 +891,7 @@ fn apply(
     command: Command,
 ) {
     // Any load, manual or automatic, starts the wait for the next automatic switch again.
-    if matches!(
-        command,
-        Command::LoadPreset { .. } | Command::LoadDefaultPreset(_)
-    ) {
+    if matches!(command, Command::LoadScene(_) | Command::LoadDefaultScene) {
         auto_switch.restart();
     }
     let result = match command {
@@ -1005,36 +901,21 @@ fn apply(
             status.width = width;
             status.height = height;
         }),
-        Command::LoadPreset {
-            bytes,
-            name,
-            transition,
-            path,
-        } => match path {
-            // Scenes cut in; blending into or out of them is still to come.
-            Some(dir) if scene::is_scene(&dir) => pipeline.load_scene(&dir).map(|()| {
-                *watched = Some(Watched::new(dir, name));
-                shared.status().preset_name = pipeline.preset_name().to_string();
-                if pipeline.wants_covers() {
-                    shared.wants_covers.store(true, Ordering::Relaxed);
-                    let request = lock(&shared.covers_requester).clone();
-                    if let Some(request) = request {
-                        request();
-                    }
+        Command::LoadScene(dir) => pipeline.load_scene(&dir).map(|()| {
+            *watched = Some(Watched::new(dir));
+            shared.status().preset_name = pipeline.preset_name().to_string();
+            if pipeline.wants_covers() {
+                shared.wants_covers.store(true, Ordering::Relaxed);
+                let request = lock(&shared.covers_requester).clone();
+                if let Some(request) = request {
+                    request();
                 }
-            }),
-            path => pipeline.load_preset(&bytes, &name, transition).map(|()| {
-                *watched = path.map(|path| Watched::new(path, name.clone()));
-                shared.status().preset_name = name;
-            }),
-        },
-        Command::LoadDefaultPreset(transition) => pipeline
-            .load_default_preset(shared.light.load(Ordering::Relaxed), transition)
-            .map(|()| {
-                *watched = None;
-                shared.status().preset_name = DEFAULT_PRESET_NAME.to_string();
-            }),
-        Command::SetTextures(dirs) => pipeline.set_textures(&dirs),
+            }
+        }),
+        Command::LoadDefaultScene => pipeline.load_default_scene().map(|()| {
+            *watched = None;
+            shared.status().preset_name = pipeline.preset_name().to_string();
+        }),
         Command::Stop => Ok(()),
     };
     match result {
@@ -1043,91 +924,49 @@ fn apply(
     }
 }
 
-/// The file of the preset on screen. When it is saved, the preset is loaded again with a cut, so
-/// presets can be written while watching them; a version that does not load shows its error and
-/// the next save tries again.
+/// The folder of the scene on screen. Its files are looked at twice a second and the scene is
+/// built again when they changed, so scenes can be written while watching them; a version that
+/// does not load shows its error and the next save tries again.
 struct Watched {
-    path: PathBuf,
-    name: String,
-    modified: Option<SystemTime>,
+    dir: PathBuf,
     next_check: Instant,
 }
 
 impl Watched {
-    /// How often the file is looked at: a `stat` twice a second costs nothing.
+    /// How often the files are looked at: a few small files cost nothing.
     const INTERVAL: Duration = Duration::from_millis(500);
 
-    fn new(path: PathBuf, name: String) -> Self {
+    fn new(dir: PathBuf) -> Self {
         Self {
-            modified: modified(&path),
-            path,
-            name,
+            dir,
             next_check: Instant::now() + Self::INTERVAL,
         }
     }
 
-    /// Whether the preset was loaded again.
+    /// Whether the scene was loaded again.
     fn reload_if_saved(&mut self, shared: &Shared, pipeline: &mut Pipeline) -> bool {
         let now = Instant::now();
         if now < self.next_check {
             return false;
         }
         self.next_check = now + Self::INTERVAL;
-        if scene::is_scene(&self.path) {
-            // A scene compares its files' contents itself: a few small files twice a second.
-            return match pipeline.reload_scene() {
-                Ok(changed) => {
-                    if changed {
-                        info!("Reloaded {}", self.path.display());
-                        shared.status().last_error = None;
-                    }
-                    changed
-                }
-                Err(e) => {
-                    let message = format!("{e:#}");
-                    if shared.status().last_error.as_deref() != Some(message.as_str()) {
-                        shared.set_error(message);
-                    }
-                    false
-                }
-            };
-        }
-        let current = modified(&self.path);
-        if current.is_none() || current == self.modified {
-            return false;
-        }
-        self.modified = current;
-        let result = std::fs::read(&self.path)
-            .with_context(|| format!("Failed to read {}", self.path.display()))
-            .and_then(|bytes| pipeline.load_preset_reporting(&bytes, &self.name, Transition::Cut));
-        match result {
-            Ok(report) => {
-                info!("Reloaded {}", self.path.display());
-                // While writing a preset, a shader that did not compile matters even though a
-                // default one stands in for it.
-                let problems: Vec<String> = report
-                    .shader_fallbacks
-                    .iter()
-                    .map(|f| format!("{:?} shader: {}", f.pass, f.reason))
-                    .chain(report.warnings.iter().cloned())
-                    .collect();
-                if problems.is_empty() {
+        match pipeline.reload_scene() {
+            Ok(changed) => {
+                if changed {
+                    info!("Reloaded {}", self.dir.display());
                     shared.status().last_error = None;
-                } else {
-                    shared.set_error(problems.join("; "));
                 }
-                true
+                changed
             }
             Err(e) => {
-                shared.set_error(format!("{e:#}"));
+                let message = format!("{e:#}");
+                if shared.status().last_error.as_deref() != Some(message.as_str()) {
+                    shared.set_error(message);
+                }
                 false
             }
         }
     }
-}
-
-fn modified(path: &Path) -> Option<SystemTime> {
-    std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 /// Move everything the ring holds into `pcm`.
@@ -1145,7 +984,7 @@ fn drain(consumer: &mut Consumer<f32>, pcm: &mut Vec<f32>) {
     }
 }
 
-/// Keep at most the last quarter second of `pcm` (after a stall, the engine only needs the
+/// Keep at most the last quarter second of `pcm` (after a stall, the scene only needs the
 /// newest samples).
 fn keep_recent(pcm: &mut Vec<f32>, channels: usize, sample_rate: u32) {
     let keep = (sample_rate as usize / 4) * channels;

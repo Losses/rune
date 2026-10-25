@@ -1,34 +1,32 @@
-//! The GPU side: a headless device, the lactea engine and where frames go: on macOS straight into
+//! The GPU side: a headless device, the scene being drawn and where frames go: on macOS straight into
 //! IOSurface-backed pixel buffers ([`crate::surface`]), on Windows into DirectX 12 textures shared
 //! with Flutter's adapter (`crate::shared_dx12`), on Linux into Vulkan images that Flutter's
 //! OpenGL context imports (`crate::shared_vulkan`), elsewhere (or if that fails) an offscreen
 //! target that is read back into mapped buffers ([`crate::readback`]).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
-use lactea::{Engine, EngineConfig, FrameClock, Transition};
 use log::warn;
 
+use crate::DeviceUuids;
 use crate::chart::ChartState;
 use crate::covers::{Atlas, Cell};
-use crate::DeviceUuids;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
-use crate::scene::{FrameInput, Scene};
+use crate::scene::{FrameInput, Scene, Source};
 #[cfg(target_os = "windows")]
 use crate::shared_dx12::{SharedTargets, SharedTexture};
 #[cfg(target_os = "linux")]
 use crate::shared_vulkan::{SharedFrame, SharedTargets};
 #[cfg(target_os = "macos")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
-use crate::textures::FolderTextures;
 
 /// `kCVPixelFormatType_32BGRA` on macOS. Windows' `FlutterDesktopPixelBuffer` and Linux's
 /// `FlPixelBufferTexture` take RGBA, and so do ANGLE for a shared texture and Linux's `FlTextureGL`
-/// (`GL_RGBA8`). The engine only compensates for `*Srgb` targets, so with a linear format the
-/// bytes are exactly what the preset drew.
+/// (`GL_RGBA8`). Scenes draw the target as it is, so with a linear format the bytes are exactly
+/// what the scene drew.
 #[cfg(target_os = "macos")]
 pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 #[cfg(not(target_os = "macos"))]
@@ -37,9 +35,7 @@ pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 pub struct Pipeline {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    engine: Engine,
-    /// A scene in Rune's own format; while there is one it is drawn instead of the engine.
-    scene: Option<Scene>,
+    scene: Scene,
     sample_rate: u32,
     rhythm: Rhythm,
     chart: Option<ChartState>,
@@ -55,22 +51,20 @@ pub struct Pipeline {
     pub adapter_name: String,
 }
 
-/// Rune's own preset (`presets/Rune.milk`, MPL-2.0 like the rest of Rune), shown before a preset
-/// is chosen.
-const DEFAULT_PRESET: &[u8] = include_bytes!("../presets/Rune.milk");
-/// The same preset drawn on a light background, for the app's light appearance.
-const DEFAULT_PRESET_LIGHT: &[u8] = include_bytes!("../presets/Rune Light.milk");
-
-/// The default preset for the app's appearance.
-fn default_preset(light: bool) -> &'static [u8] {
-    if light {
-        DEFAULT_PRESET_LIGHT
-    } else {
-        DEFAULT_PRESET
-    }
-}
-/// The name [`DEFAULT_PRESET`] is loaded under.
-pub const DEFAULT_PRESET_NAME: &str = "Rune";
+/// The scene shown before another is chosen, compiled into the binary (MPL-2.0 like the rest of
+/// Rune).
+const DEFAULT_SCENE: Source = Source::Embedded(&[
+    ("scene.toml", include_str!("../scenes/armillary/scene.toml")),
+    ("state.wgsl", include_str!("../scenes/armillary/state.wgsl")),
+    (
+        "update.wgsl",
+        include_str!("../scenes/armillary/update.wgsl"),
+    ),
+    ("view.wgsl", include_str!("../scenes/armillary/view.wgsl")),
+    ("world.wgsl", include_str!("../scenes/armillary/world.wgsl")),
+]);
+/// The name of [`DEFAULT_SCENE`].
+pub const DEFAULT_PRESET_NAME: &str = "Armillary";
 
 /// What a rendered frame became.
 pub enum Rendered {
@@ -228,16 +222,13 @@ fn render_and_wait(
 impl Pipeline {
     /// `adapter_luid` and `device_uuids`: the GPU Flutter renders on, which only Windows and
     /// Linux use (see [`choose_adapter`]).
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         width: u32,
         height: u32,
-        fps: u32,
         sample_rate: u32,
         readback: bool,
         adapter_luid: Option<u64>,
         device_uuids: Option<DeviceUuids>,
-        light: bool,
         on_gpu_error: Arc<dyn Fn(String) + Send + Sync>,
     ) -> Result<Self> {
         let instance = wgpu::Instance::default();
@@ -248,45 +239,21 @@ impl Pipeline {
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| on_gpu_error(e.to_string())));
 
         let (width, height) = (width.max(1), height.max(1));
-        let mut engine = Engine::new(
+        let output = Output::new(&device, width, height, readback);
+        let scene = Scene::load_from(
             &device,
             &queue,
-            EngineConfig {
-                width,
-                height,
-                output_format: FORMAT,
-                sample_rate,
-                fps,
-                // Pick projectM or MilkDrop 3 semantics per preset (and allow `.milk2`).
-                auto_compat: true,
-                ..Default::default()
-            },
+            DEFAULT_SCENE,
+            FORMAT,
+            (width, height),
+            sample_rate,
         )
-        .map_err(|e| anyhow!("Failed to create the engine: {e}"))?;
-        // Rune's own preset is what shows before anything else is chosen; lactea's idle preset
-        // is the fallback should it ever fail to load.
-        match engine.load_preset(default_preset(light), DEFAULT_PRESET_NAME, Transition::Cut) {
-            Ok(report) if !report.warnings.is_empty() || !report.shader_fallbacks.is_empty() => {
-                warn!(
-                    "The default preset loaded with problems: {:?}, fallbacks {:?}",
-                    report.warnings, report.shader_fallbacks
-                );
-            }
-            Ok(_) => {}
-            Err(e) => {
-                warn!("Failed to load the default preset: {e}");
-                engine
-                    .load_idle_preset()
-                    .map_err(|e| anyhow!("Failed to load the idle preset: {e}"))?;
-            }
-        }
-        let output = Output::new(&device, width, height, readback);
+        .context("The default scene")?;
         Ok(Self {
             adapter_name: adapter.get_info().name,
             device,
             queue,
-            engine,
-            scene: None,
+            scene,
             sample_rate,
             rhythm: Rhythm::default(),
             chart: None,
@@ -303,14 +270,9 @@ impl Pipeline {
         self.output.size()
     }
 
-    /// The name of the loaded preset.
+    /// The name of the scene on screen.
     pub fn preset_name(&self) -> &str {
-        if let Some(scene) = &self.scene {
-            return &scene.name;
-        }
-        self.engine
-            .preset_name()
-            .unwrap_or(lactea::IDLE_PRESET_NAME)
+        &self.scene.name
     }
 
     pub fn transport(&self) -> Transport {
@@ -337,101 +299,19 @@ impl Pipeline {
 
     pub fn resize(&mut self, width: u32, height: u32) -> Result<()> {
         let (width, height) = (width.max(1), height.max(1));
-        self.engine
-            .resize(width, height)
-            .map_err(|e| anyhow!("Failed to resize the engine: {e}"))?;
-        if let Some(scene) = &mut self.scene {
-            scene.resize(&self.device, width, height)?;
-        }
+        self.scene.resize(&self.device, width, height)?;
         self.output = Output::new(&self.device, width, height, self.readback);
         Ok(())
     }
 
-    pub fn load_preset(&mut self, bytes: &[u8], name: &str, transition: Transition) -> Result<()> {
-        self.load_preset_reporting(bytes, name, transition)
-            .map(|_| ())
-    }
-
-    /// Like [`Self::load_preset`], with what lactea found: warnings, and shaders it replaced
-    /// because they did not compile.
-    pub fn load_preset_reporting(
-        &mut self,
-        bytes: &[u8],
-        name: &str,
-        transition: Transition,
-    ) -> Result<lactea::PresetReport> {
-        let report = self
-            .engine
-            .load_preset(bytes, name, transition)
-            .map_err(|e| anyhow!("Failed to load preset {name}: {e}"))?;
-        self.scene = None;
-        Ok(report)
-    }
-
-    pub fn load_default_preset(&mut self, light: bool, transition: Transition) -> Result<()> {
-        self.load_preset(default_preset(light), DEFAULT_PRESET_NAME, transition)
-    }
-
-    /// The textures of the preset folders `dirs`, none without one.
-    pub fn set_textures(&mut self, dirs: &[PathBuf]) -> Result<()> {
-        self.engine
-            .set_texture_provider(Box::new(FolderTextures::new(dirs)));
-        Ok(())
-    }
-
-    /// Hand the beat tracker's findings to the presets' per-frame code, as the variables listed
-    /// in the README.
+    /// Keep the beat tracker's findings for the scenes.
     pub fn set_rhythm(&mut self, rhythm: &Rhythm) {
         self.rhythm = *rhythm;
-        let count = rhythm.beat.floor();
-        for (name, value) in [
-            ("rune_bpm", rhythm.bpm),
-            ("rune_beat_count", count),
-            ("rune_beat_phase", rhythm.beat - count),
-            ("rune_beat_conf", rhythm.confidence),
-            ("rune_kick", rhythm.kick),
-            ("rune_snare", rhythm.snare),
-            ("rune_hat", rhythm.hat),
-            ("rune_energy", rhythm.energy),
-        ] {
-            self.engine.set_host_var(name, value);
-        }
     }
 
-    /// The song's chart at this frame, or zeros (and `rune_chart` 0) without one.
+    /// The song's chart at this frame, or none without one.
     pub fn set_chart(&mut self, chart: Option<&ChartState>) {
         self.chart = chart.copied();
-        let c = chart.copied().unwrap_or_default();
-        let bar = c.bar.floor();
-        for (name, value) in [
-            ("rune_chart", if chart.is_some() { 1.0 } else { 0.0 }),
-            ("rune_bar_count", bar),
-            ("rune_bar_phase", c.bar - bar),
-            ("rune_beats_per_bar", c.beats_per_bar),
-            ("rune_meter_conf", c.meter_confidence),
-            ("rune_section", c.section),
-            ("rune_section_label", c.section_label),
-            ("rune_section_repeat", c.section_repeat),
-            ("rune_section_energy", c.section_energy),
-            ("rune_next_label", c.next_label),
-            ("rune_next_energy", c.next_energy),
-            ("rune_section_time", c.section_time),
-            ("rune_section_left", c.section_left),
-            ("rune_section_conf", c.section_confidence),
-            ("rune_ev_low", c.events[0]),
-            ("rune_ev_mid", c.events[1]),
-            ("rune_ev_high", c.events[2]),
-            ("rune_ev_harm", c.events[3]),
-            ("rune_ev_phrase", c.events[4]),
-            ("rune_lead", c.lead),
-            ("rune_lead_ev", c.lead_event),
-            ("rune_loud", c.loudness),
-            ("rune_bright", c.brightness),
-            ("rune_perc", c.percussive),
-            ("rune_pulse", c.pulse),
-        ] {
-            self.engine.set_host_var(name, value);
-        }
     }
 
     /// The song time and whether it plays, for scenes.
@@ -446,88 +326,86 @@ impl Pipeline {
 
     /// The atlas of album covers for scenes with `covers = true` (none: no covers).
     pub fn set_covers(&mut self, covers: Option<Arc<Atlas>>) {
-        if let Some(scene) = &mut self.scene {
-            scene.set_covers(
-                &self.device,
-                &self.queue,
-                covers.clone(),
-                self.playing_cover.clone(),
-            );
-        }
+        self.scene.set_covers(
+            &self.device,
+            &self.queue,
+            covers.clone(),
+            self.playing_cover.clone(),
+        );
         self.covers = covers;
     }
 
     /// The cell of the cover of the track playing, for cell 0 of the atlas (none: not known yet).
     pub fn set_playing_cover(&mut self, cell: Option<Arc<Cell>>) {
-        if let Some(scene) = &mut self.scene {
-            scene.set_playing_cover(&self.device, &self.queue, cell.clone());
-        }
+        self.scene
+            .set_playing_cover(&self.device, &self.queue, cell.clone());
         self.playing_cover = cell;
     }
 
     /// Whether the scene on screen reads the atlas of covers.
     pub fn wants_covers(&self) -> bool {
-        self.scene.as_ref().is_some_and(Scene::wants_covers)
+        self.scene.wants_covers()
     }
 
     pub fn push_pcm(&mut self, interleaved: &[f32], channels: usize) {
-        self.engine.push_pcm_f32(interleaved, channels);
-        if let Some(scene) = &mut self.scene {
-            scene.push_pcm(interleaved, channels);
-        }
+        self.scene.push_pcm(interleaved, channels);
     }
 
-    /// Show the scene in the folder `dir` (Rune's own format) instead of a MilkDrop preset.
+    /// Show the scene in the folder `dir`.
     pub fn load_scene(&mut self, dir: &Path) -> Result<()> {
+        self.load_source(Source::Dir(dir.to_path_buf()))
+            .with_context(|| format!("Scene {}", dir.display()))
+    }
+
+    /// Show the built-in scene.
+    pub fn load_default_scene(&mut self) -> Result<()> {
+        self.load_source(DEFAULT_SCENE).context("The default scene")
+    }
+
+    fn load_source(&mut self, source: Source) -> Result<()> {
         let (width, height) = self.size();
-        let mut scene = Scene::load(
+        let mut scene = Scene::load_from(
             &self.device,
             &self.queue,
-            dir,
+            source,
             FORMAT,
             (width, height),
             self.sample_rate,
-        )
-        .with_context(|| format!("Scene {}", dir.display()))?;
+        )?;
         scene.set_covers(
             &self.device,
             &self.queue,
             self.covers.clone(),
             self.playing_cover.clone(),
         );
-        self.scene = Some(scene);
+        self.scene = scene;
         Ok(())
     }
 
     /// Read the scene on screen again if its files changed; whether it did.
     pub fn reload_scene(&mut self) -> Result<bool> {
-        match &mut self.scene {
-            Some(scene) => {
-                let dir = scene.dir().display().to_string();
-                scene
-                    .reload(&self.device, &self.queue)
-                    .with_context(|| format!("Scene {dir}"))
-            }
-            None => Ok(false),
-        }
+        let source = self.scene.source().to_string();
+        self.scene
+            .reload(&self.device, &self.queue)
+            .with_context(|| format!("Scene {source}"))
     }
 
     /// Render one frame: into the next pixel buffer, shared texture or shared image, or into the
     /// target that is read back.
-    pub fn render(&mut self, clock: FrameClock) -> Result<Rendered> {
+    pub fn render(&mut self, time: f64) -> Result<Rendered> {
         #[cfg(target_os = "macos")]
         if let Output::Surfaces(surfaces) = &mut self.output {
             match surfaces.next(&self.device) {
                 Ok(Some((buffer, view))) => {
-                    let (engine, scene) = (&mut self.engine, &mut self.scene);
+                    let scene = &mut self.scene;
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
                     render_and_wait(&self.device, &self.queue, |encoder| {
                         draw(
-                            (engine, scene),
+                            scene,
                             (&self.device, &self.queue),
                             encoder,
                             &view,
-                            clock,
+                            time,
                             heard,
                         )
                     })?;
@@ -546,15 +424,15 @@ impl Pipeline {
         if let Output::Shared(targets) = &mut self.output {
             match targets.next(&self.device) {
                 Ok(Some((texture, view))) => {
-                    let (engine, scene) = (&mut self.engine, &mut self.scene);
+                    let scene = &mut self.scene;
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
                     render_and_wait(&self.device, &self.queue, |encoder| {
                         draw(
-                            (engine, scene),
+                            scene,
                             (&self.device, &self.queue),
                             encoder,
                             &view,
-                            clock,
+                            time,
                             heard,
                         )
                     })?;
@@ -573,18 +451,11 @@ impl Pipeline {
         if let Output::Shared(targets) = &mut self.output {
             match targets.next(&self.device) {
                 Ok(Some(next)) => {
-                    let (engine, scene) = (&mut self.engine, &mut self.scene);
+                    let scene = &mut self.scene;
                     let (device, queue) = (&self.device, &self.queue);
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
                     let frame = targets.render(device, queue, next, |encoder, view| {
-                        draw(
-                            (engine, scene),
-                            (device, queue),
-                            encoder,
-                            view,
-                            clock,
-                            heard,
-                        );
+                        draw(scene, (device, queue), encoder, view, time, heard);
                     })?;
                     let Some(frame) = frame else {
                         return Ok(Rendered::Nothing);
@@ -603,18 +474,11 @@ impl Pipeline {
         let Output::Readback(target) = &mut self.output else {
             unreachable!("the other outputs returned or were replaced above")
         };
-        let (engine, scene) = (&mut self.engine, &mut self.scene);
+        let scene = &mut self.scene;
         let (device, queue) = (&self.device, &self.queue);
         let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
         let frame = target.render(device, queue, |encoder, view| {
-            draw(
-                (engine, scene),
-                (device, queue),
-                encoder,
-                view,
-                clock,
-                heard,
-            );
+            draw(scene, (device, queue), encoder, view, time, heard);
         })?;
         Ok(frame.map_or(Rendered::Nothing, Rendered::Mapped))
     }
@@ -629,157 +493,54 @@ type Heard<'a> = (
     Option<[f32; 3]>,
 );
 
-/// A frame of the scene if there is one, else of the engine.
+/// A frame of the scene.
 fn draw(
-    (engine, scene): (&mut Engine, &mut Option<Scene>),
+    scene: &mut Scene,
     (device, queue): (&wgpu::Device, &wgpu::Queue),
     encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
-    clock: FrameClock,
+    time: f64,
     (rhythm, chart, song, accent): Heard,
 ) {
-    match scene {
-        Some(scene) => scene.render(
-            device,
-            queue,
-            encoder,
-            view,
-            &FrameInput {
-                time: clock.time,
-                rhythm,
-                chart,
-                song,
-                accent,
-            },
-        ),
-        None => engine.render(encoder, view, clock),
-    }
+    scene.render(
+        device,
+        queue,
+        encoder,
+        view,
+        &FrameInput {
+            time,
+            rhythm,
+            chart,
+            song,
+            accent,
+        },
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Rune's preset must load cleanly: a shader that fails to translate would be silently
-    /// replaced by a default one.
+    /// The built-in scene loads and draws a frame that is not black.
     #[test]
-    fn default_preset_loads_without_fallbacks() {
-        let instance = wgpu::Instance::default();
-        let Ok(adapter) =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+    fn default_scene_renders_a_frame() {
+        let Ok(mut pipeline) = Pipeline::new(64, 36, 44_100, true, None, None, Arc::new(|_| {}))
         else {
             eprintln!("SKIPPED: no GPU adapter");
             return;
         };
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
-        let mut engine = Engine::new(
-            &device,
-            &queue,
-            EngineConfig {
-                width: 640,
-                height: 360,
-                output_format: FORMAT,
-                auto_compat: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        for preset in [DEFAULT_PRESET, DEFAULT_PRESET_LIGHT] {
-            let report = engine
-                .load_preset(preset, DEFAULT_PRESET_NAME, Transition::Cut)
-                .unwrap();
-            assert!(report.warnings.is_empty(), "{:?}", report.warnings);
-            assert!(
-                report.shader_fallbacks.is_empty(),
-                "{:?}",
-                report.shader_fallbacks
-            );
+        assert_eq!(pipeline.preset_name(), DEFAULT_PRESET_NAME);
+        // A frame on the readback path comes out a few calls after it was drawn.
+        let mut frame = None;
+        for i in 0..500 {
+            if let Rendered::Mapped(mapped) = pipeline.render(f64::from(i) / 60.0).unwrap() {
+                frame = Some(mapped);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
-    }
-
-    /// What the beat tracker found reaches a preset's per-frame code.
-    #[test]
-    fn presets_see_the_rhythm() {
-        let Ok(mut pipeline) = Pipeline::new(64, 36, 60, 44_100, true, None, None, false, Arc::new(|_| {}))
-        else {
-            eprintln!("SKIPPED: no GPU adapter");
-            return;
-        };
-        let preset = b"MILKDROP_PRESET_VERSION=201\n[preset00]\n\
-            per_frame_1=seen_bpm=rune_bpm; seen_phase=rune_beat_phase; seen_count=rune_beat_count;\n\
-            per_frame_2=seen_kick=rune_kick; seen_conf=rune_beat_conf; seen_energy=rune_energy;\n";
-        pipeline.load_preset(preset, "p", Transition::Cut).unwrap();
-        pipeline.set_rhythm(&Rhythm {
-            bpm: 128.0,
-            beat: 41.25,
-            confidence: 0.75,
-            kick: 0.5,
-            energy: 1.5,
-            ..Default::default()
-        });
-        pipeline
-            .render(FrameClock {
-                time: 0.0,
-                frame: 0,
-            })
-            .unwrap();
-        let vars = pipeline.engine.frame_vars();
-        let var = |name: &str| vars.iter().find(|(n, _)| n == name).map(|(_, v)| *v);
-        assert_eq!(var("seen_bpm"), Some(128.0));
-        assert_eq!(var("seen_count"), Some(41.0));
-        assert_eq!(var("seen_phase"), Some(0.25));
-        assert_eq!(var("seen_kick"), Some(0.5));
-        assert_eq!(var("seen_conf"), Some(0.75));
-        assert_eq!(var("seen_energy"), Some(1.5));
-    }
-
-    /// A song's chart reaches a preset's per-frame code, and without one it reads zeros.
-    #[test]
-    fn presets_see_the_chart() {
-        let Ok(mut pipeline) = Pipeline::new(64, 36, 60, 44_100, true, None, None, false, Arc::new(|_| {}))
-        else {
-            eprintln!("SKIPPED: no GPU adapter");
-            return;
-        };
-        let preset = b"MILKDROP_PRESET_VERSION=201\n[preset00]\n\
-            per_frame_1=seen_chart=rune_chart; seen_bar=rune_bar_count; seen_phase=rune_bar_phase;\n\
-            per_frame_2=seen_left=rune_section_left; seen_next=rune_next_label; seen_low=rune_ev_low;\n";
-        pipeline.load_preset(preset, "p", Transition::Cut).unwrap();
-        let mut frame = 0;
-        let mut seen = |pipeline: &mut Pipeline, chart: Option<&ChartState>| {
-            pipeline.set_chart(chart);
-            pipeline.render(FrameClock { time: 0.0, frame }).unwrap();
-            frame += 1;
-            let vars = pipeline.engine.frame_vars();
-            let var = |name: &str| {
-                vars.iter()
-                    .find(|(n, _)| n == name)
-                    .map_or(f64::NAN, |(_, v)| *v)
-            };
-            [
-                "seen_chart",
-                "seen_bar",
-                "seen_phase",
-                "seen_left",
-                "seen_next",
-                "seen_low",
-            ]
-            .map(var)
-        };
-        let mut events = [0.0; 5];
-        events[0] = 0.5;
-        let chart = ChartState {
-            bar: 7.25,
-            section_left: 3.5,
-            next_label: 2.0,
-            events,
-            ..Default::default()
-        };
-        assert_eq!(
-            seen(&mut pipeline, Some(&chart)),
-            [1.0, 7.0, 0.25, 3.5, 2.0, 0.5]
-        );
-        assert_eq!(seen(&mut pipeline, None), [0.0; 6]);
+        let frame = frame.expect("no frame came out");
+        assert!(frame.bytes().iter().any(|&b| b != 0), "the frame is black");
+        assert!(!pipeline.reload_scene().unwrap());
     }
 }

@@ -17,17 +17,11 @@ pub struct ResizeVisualizerRequest {
     pub height: u32,
 }
 
-/// Directories with `.milk` / `.milk2` files used by next, previous and random. An empty list
-/// stops using preset folders: a running visualizer changes to the default preset.
+/// Directories with scenes (folders with a `scene.toml`) used by next, previous and random. An
+/// empty list stops using scene folders: a running visualizer changes to the built-in scene.
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetVisualizerPresetDirsRequest {
     pub paths: Vec<String>,
-}
-
-/// The app's appearance, which picks the light or the dark version of the default preset.
-#[derive(Serialize, Deserialize, DartSignal)]
-pub struct SetVisualizerAppearanceRequest {
-    pub light: bool,
 }
 
 /// The app's accent colour as 0xAARRGGBB, for scenes that draw in it.
@@ -42,29 +36,22 @@ pub struct SetVisualizerVisibleRequest {
     pub visible: bool,
 }
 
-/// A transition of 0 seconds or less is a hard cut.
+/// Shows the scene in the folder `path`.
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct LoadVisualizerPresetRequest {
     pub path: String,
-    pub transition_seconds: f64,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct NextVisualizerPresetRequest {
-    pub transition_seconds: f64,
-}
+pub struct NextVisualizerPresetRequest {}
 
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct PreviousVisualizerPresetRequest {
-    pub transition_seconds: f64,
-}
+pub struct PreviousVisualizerPresetRequest {}
 
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct RandomVisualizerPresetRequest {
-    pub transition_seconds: f64,
-}
+pub struct RandomVisualizerPresetRequest {}
 
-/// Pauses the automatic switching of presets while `paused`; the timer starts over when it ends.
+/// Pauses the automatic switching of scenes while `paused`; the timer starts over when it ends.
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetVisualizerAutoSwitchPausedRequest {
     pub paused: bool,
@@ -97,13 +84,11 @@ pub struct ListVisualizerPresetsRequest {}
 pub struct VisualizerPresetEntry {
     pub name: String,
     pub path: String,
-    /// The folder the preset is in, relative to its preset folder.
+    /// The folder the scene is in, relative to its scene folder.
     pub group: String,
-    /// A scene (a folder with a `scene.toml`) rather than a `.milk` file.
-    pub scene: bool,
 }
 
-/// Every preset of the preset folders, by group and name.
+/// Every scene of the scene folders, by group and name.
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct ListVisualizerPresetsResponse {
     pub presets: Vec<VisualizerPresetEntry>,

@@ -3,10 +3,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../providers/cover_wall_display.dart';
 
-/// Presets from the user's folder draw on black, so while the cover wall shows
-/// them, [child] uses the dark variant of the app theme even in light mode:
-/// dark overlays and light text stay readable over the picture. The default
-/// preset has a light version and needs no change.
+/// Scenes draw on black, so while the cover wall shows one, [child] uses the
+/// dark variant of the app theme even in light mode: dark overlays and light
+/// text stay readable over the picture.
 class VisualizerDarkTheme extends StatelessWidget {
   const VisualizerDarkTheme({
     super.key,

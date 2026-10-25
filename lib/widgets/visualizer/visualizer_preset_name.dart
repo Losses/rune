@@ -11,10 +11,10 @@ import 'visualizer_controller.dart';
 const _shownFor = Duration(seconds: 4);
 const _fade = Duration(milliseconds: 400);
 
-/// The name of the preset that just started, in the top left corner of the
+/// The name of the scene that just started, in the top left corner of the
 /// visualizer for a few seconds, the way Winamp shows a preset's name. It
 /// keeps clear of the macOS window buttons and the cover wall's back button.
-/// A problem (the texture could not be set up, a preset failed) stays until
+/// A problem (the texture could not be set up, a scene failed) stays until
 /// it is gone.
 class VisualizerPresetName extends StatefulWidget {
   const VisualizerPresetName({super.key, required this.controller});

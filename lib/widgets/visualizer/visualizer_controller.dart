@@ -4,9 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../bindings/bindings.dart';
 
-const _presetTransitionSeconds = 1.7;
-
-/// What the corner of the visualizer shows: the name of a preset that just
+/// What the corner of the visualizer shows: the name of a scene that just
 /// started, or a problem.
 @immutable
 class VisualizerLabel {
@@ -29,14 +27,14 @@ class VisualizerController {
   // Why the texture could not be set up.
   String? startError;
   bool hasPresets = false;
-  // The presets of the folders, as of the last time the menu opened.
+  // The scenes of the folders, as of the last time the menu opened.
   List<VisualizerPresetEntry> presets = const [];
 
-  /// Set by the surface whenever a preset from a folder starts or a problem
-  /// comes up; null while the default preset shows.
+  /// Set by the surface whenever a scene from a folder starts or a problem
+  /// comes up; null while the built-in scene shows.
   final ValueNotifier<VisualizerLabel?> label = ValueNotifier(null);
 
-  /// The user stopped the automatic preset switching (MilkDrop's Scroll Lock).
+  /// The user stopped the automatic scene switching.
   bool get locked => _locked;
 
   /// A new surface starts with a new render thread, so the old state is gone.
@@ -54,40 +52,27 @@ class VisualizerController {
 
   void detach() => _attached = false;
 
-  // A locked preset is one the user is watching on purpose, so changing it by
-  // hand cuts straight to the new one instead of blending.
-  double get _transitionSeconds => _locked ? 0 : _presetTransitionSeconds;
-
   void next() {
     if (!_attached) return;
-    NextVisualizerPresetRequest(
-      transitionSeconds: _transitionSeconds,
-    ).sendSignalToRust();
+    NextVisualizerPresetRequest().sendSignalToRust();
   }
 
   void previous() {
     if (!_attached) return;
-    PreviousVisualizerPresetRequest(
-      transitionSeconds: _transitionSeconds,
-    ).sendSignalToRust();
+    PreviousVisualizerPresetRequest().sendSignalToRust();
   }
 
   void random() {
     if (!_attached) return;
-    RandomVisualizerPresetRequest(
-      transitionSeconds: _transitionSeconds,
-    ).sendSignalToRust();
+    RandomVisualizerPresetRequest().sendSignalToRust();
   }
 
   void loadPreset(String path) {
     if (!_attached) return;
-    LoadVisualizerPresetRequest(
-      path: path,
-      transitionSeconds: _transitionSeconds,
-    ).sendSignalToRust();
+    LoadVisualizerPresetRequest(path: path).sendSignalToRust();
   }
 
-  /// Asks Rust for the presets of the folders, which a menu lists. Keeps the
+  /// Asks Rust for the scenes of the folders, which a menu lists. Keeps the
   /// earlier list if Rust does not answer.
   Future<void> refreshPresets() async {
     if (!_attached) return;
@@ -111,7 +96,7 @@ class VisualizerController {
     _syncAutoSwitchPaused();
   }
 
-  // Rust waits with the automatic switching while the preset is locked or the
+  // Rust waits with the automatic switching while the scene is locked or the
   // menu is open, and counts again from zero afterwards.
   void _syncAutoSwitchPaused() {
     if (!_attached) return;

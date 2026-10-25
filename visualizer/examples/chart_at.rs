@@ -1,4 +1,4 @@
-//! What presets would see from the chart of an audio file: `chart_at AUDIO [SECONDS...]`.
+//! What scenes would see from the chart of an audio file: `chart_at AUDIO [SECONDS...]`.
 //! Looks the chart up as the visualizer does (chart folder, path key) and prints the chart's
 //! state at each time (default: every 2 s of the first half minute).
 

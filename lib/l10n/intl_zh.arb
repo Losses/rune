@@ -1339,41 +1339,41 @@
   "@deduplicating": {
     "description": "表示當前正在執行去重過程的標籤。向用戶展示系統正在移除音樂庫或播放列表中的重複曲目。也可使用“正在移除重複項”或“去重進行中”等表達。"
   },
-  "visualizerPrevious": "上一個預設",
+  "visualizerPrevious": "上一個場景",
   "@visualizerPrevious": {
-    "description": "視覺化中切換到上一個預設的右鍵選單項。"
+    "description": "視覺化中切換到上一個場景的右鍵選單項。"
   },
-  "visualizerNext": "下一個預設",
+  "visualizerNext": "下一個場景",
   "@visualizerNext": {
-    "description": "視覺化中切換到下一個預設的右鍵選單項。"
+    "description": "視覺化中切換到下一個場景的右鍵選單項。"
   },
-  "visualizerRandom": "隨機預設",
+  "visualizerRandom": "隨機場景",
   "@visualizerRandom": {
-    "description": "視覺化中切換到隨機預設的右鍵選單項。"
+    "description": "視覺化中切換到隨機場景的右鍵選單項。"
   },
-  "visualizerChoosePreset": "選擇預設",
+  "visualizerChoosePreset": "選擇場景",
   "@visualizerChoosePreset": {
-    "description": "視覺化右鍵選單項，開啟子選單依名稱選擇某個預設或場景。"
+    "description": "視覺化右鍵選單項，開啟子選單依名稱選擇某個場景。"
   },
-  "visualizerLockPreset": "鎖定預設",
+  "visualizerLockPreset": "鎖定場景",
   "@visualizerLockPreset": {
-    "description": "視覺化右鍵選單項，使其不再自動切換預設，保持目前的預設。"
+    "description": "視覺化右鍵選單項，使其不再自動切換場景，保持目前的場景。"
   },
-  "visualizerUnlockPreset": "解除鎖定預設",
+  "visualizerUnlockPreset": "解除鎖定場景",
   "@visualizerUnlockPreset": {
-    "description": "視覺化右鍵選單項，使其重新自動切換預設。"
+    "description": "視覺化右鍵選單項，使其重新自動切換場景。"
   },
-  "visualizerAddPresetFolder": "新增預設資料夾",
+  "visualizerAddPresetFolder": "新增場景資料夾",
   "@visualizerAddPresetFolder": {
-    "description": "設定中新增存放視覺化 MilkDrop 預設檔案的資料夾的標題。"
+    "description": "設定中新增存放視覺化場景的資料夾的標題。"
   },
-  "visualizerAddPresetFolderSubtitle": "新增一個視覺化預設資料夾，所有資料夾的預設會合併使用。",
+  "visualizerAddPresetFolderSubtitle": "新增一個視覺化場景資料夾，所有資料夾的場景會合併使用。",
   "@visualizerAddPresetFolderSubtitle": {
-    "description": "新增視覺化預設資料夾的設定的副標題。"
+    "description": "新增視覺化場景資料夾的設定的副標題。"
   },
   "visualizerRemovePresetFolder": "移除",
   "@visualizerRemovePresetFolder": {
-    "description": "從視覺化預設資料夾中移除一個資料夾的按鈕；資料夾本身不會被刪除。"
+    "description": "從視覺化場景資料夾中移除一個資料夾的按鈕；資料夾本身不會被刪除。"
   },
   "coverWallDisplay": "封面牆顯示內容",
   "@coverWallDisplay": {
@@ -1389,7 +1389,7 @@
   },
   "coverWallDisplayVisualizer": "視覺化",
   "@coverWallDisplayVisualizer": {
-    "description": "封面牆顯示內容設置項的選項，也是封面牆頁面右鍵選單項，顯示音樂視覺化。MilkDrop 是產品名稱，通常不翻譯。"
+    "description": "封面牆顯示內容設置項的選項，也是封面牆頁面右鍵選單項，顯示音樂視覺化。"
   },
   "coverWallVisualizerSubtitle": "隨音樂變化的畫面",
   "@coverWallVisualizerSubtitle": {

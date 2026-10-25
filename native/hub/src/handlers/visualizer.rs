@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::fsio::FsIo;
 use ::playback::player::Playable;
-use ::visualizer::{PcmInput, Transition, Transport};
+use ::visualizer::{PcmInput, Transport};
 
 use crate::{
     Session, Signal,
@@ -23,14 +23,6 @@ fn report(result: Result<()>) -> Result<Option<()>> {
         VISUALIZER.report_error(format!("{e:#}"));
     }
     Ok(Some(()))
-}
-
-fn transition(seconds: f64) -> Transition {
-    if seconds > 0.0 {
-        Transition::Soft { seconds }
-    } else {
-        Transition::Cut
-    }
 }
 
 impl ParamsExtractor for StartVisualizerRequest {
@@ -162,27 +154,6 @@ impl Signal for SetVisualizerPresetDirsRequest {
     }
 }
 
-impl ParamsExtractor for SetVisualizerAppearanceRequest {
-    type Params = ();
-
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
-}
-
-impl Signal for SetVisualizerAppearanceRequest {
-    type Params = ();
-    type Response = ();
-
-    async fn handle(
-        &self,
-        _: Self::Params,
-        _session: Option<Session>,
-        dart_signal: &Self,
-    ) -> Result<Option<Self::Response>> {
-        VISUALIZER.set_light_appearance(dart_signal.light);
-        Ok(Some(()))
-    }
-}
-
 impl ParamsExtractor for SetVisualizerAccentRequest {
     type Params = ();
 
@@ -241,10 +212,7 @@ impl Signal for LoadVisualizerPresetRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        report(VISUALIZER.load_preset_path(
-            Path::new(&dart_signal.path),
-            transition(dart_signal.transition_seconds),
-        ))
+        report(VISUALIZER.load_preset_path(Path::new(&dart_signal.path)))
     }
 }
 
@@ -262,9 +230,9 @@ impl Signal for NextVisualizerPresetRequest {
         &self,
         _: Self::Params,
         _session: Option<Session>,
-        dart_signal: &Self,
+        _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        report(VISUALIZER.next_preset(transition(dart_signal.transition_seconds)))
+        report(VISUALIZER.next_preset())
     }
 }
 
@@ -282,9 +250,9 @@ impl Signal for PreviousVisualizerPresetRequest {
         &self,
         _: Self::Params,
         _session: Option<Session>,
-        dart_signal: &Self,
+        _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        report(VISUALIZER.previous_preset(transition(dart_signal.transition_seconds)))
+        report(VISUALIZER.previous_preset())
     }
 }
 
@@ -302,9 +270,9 @@ impl Signal for RandomVisualizerPresetRequest {
         &self,
         _: Self::Params,
         _session: Option<Session>,
-        dart_signal: &Self,
+        _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        report(VISUALIZER.random_preset(transition(dart_signal.transition_seconds)))
+        report(VISUALIZER.random_preset())
     }
 }
 
@@ -391,7 +359,6 @@ impl Signal for ListVisualizerPresetsRequest {
                 name: info.name,
                 path: info.path.to_string_lossy().into_owned(),
                 group: info.group,
-                scene: info.scene,
             })
             .collect();
         Ok(Some(ListVisualizerPresetsResponse { presets }))

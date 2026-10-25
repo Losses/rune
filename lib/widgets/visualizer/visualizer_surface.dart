@@ -10,7 +10,6 @@ import '../../bindings/bindings.dart';
 import '../../providers/cover_wall_display.dart';
 import '../../utils/color_brightness.dart';
 import '../../utils/rune_log.dart';
-import '../../utils/visualizer_appearance.dart';
 import '../../utils/visualizer_preset_dirs.dart';
 import '../../utils/file_storage/mac_secure_manager.dart';
 
@@ -40,10 +39,9 @@ const _resizeDebounce = Duration(milliseconds: 300);
   return (renderWidth, renderHeight);
 }
 
-/// The MilkDrop visualizer, drawn into a texture that fills the available
-/// space. The texture and the Rust render thread exist as long as this widget
-/// is in the tree. [controller] gives the widgets around it access to the
-/// presets.
+/// The visualizer, drawn into a texture that fills the available space. The
+/// texture and the Rust render thread exist as long as this widget is in the
+/// tree. [controller] gives the widgets around it access to the scenes.
 class VisualizerSurface extends StatefulWidget {
   final VisualizerController controller;
 
@@ -87,17 +85,14 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     );
   }
 
-  // The appearance last sent to Rust, which picks the default preset's
-  // version; null before the first build.
-  bool? _light;
   // The accent colour last sent to Rust, for scenes; null before the first
   // build.
   int? _accent;
-  // The preset name the corner label last announced.
+  // The scene name the corner label last announced.
   String? _announced;
 
-  // A preset from a folder that just started gets its name shown; a problem
-  // shows until it is gone; the default preset shows nothing.
+  // A scene from a folder that just started gets its name shown; a problem
+  // shows until it is gone; the built-in scene shows nothing.
   void _updateLabel(VisualizerStatusResponse status) {
     final error = status.lastError;
     if (error != null) {
@@ -117,12 +112,6 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   // Kept for dispose, where the context may no longer be used.
   late final CoverWallDisplayProvider _coverWallDisplay =
       context.read<CoverWallDisplayProvider>();
-
-  void _syncAppearance(bool light) {
-    if (_light == light) return;
-    _light = light;
-    SetVisualizerAppearanceRequest(light: light).sendSignalToRust();
-  }
 
   void _syncAccent(Color accent) {
     final argb = accent.hexValue;
@@ -255,12 +244,10 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
 
       // Until the render thread is up there is nothing to send commands to.
       if (!_firstPresetLoaded && status.running) {
-        // Without presets the visualizer stays on its default preset.
+        // Without scenes the visualizer stays on its built-in scene.
         if (status.presetCount > 0) {
           _firstPresetLoaded = true;
-          RandomVisualizerPresetRequest(
-            transitionSeconds: 0,
-          ).sendSignalToRust();
+          RandomVisualizerPresetRequest().sendSignalToRust();
         }
       }
 
@@ -271,13 +258,11 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
         setState(() => _transport = status.transport);
       }
       _updateLabel(status);
-      // A folder without presets counts as none.
+      // A folder without scenes counts as none.
       if (status.running) {
         _controller.hasPresets = status.presetCount > 0;
-        // Presets from the folder draw on black; the cover wall darkens for
-        // them, but not for the default preset, which follows the app.
-        context.read<CoverWallDisplayProvider>().presetsLoaded =
-            status.presetCount > 0;
+        // Scenes draw on black; the cover wall darkens for them.
+        context.read<CoverWallDisplayProvider>().presetsLoaded = true;
       }
     } on TimeoutException {
       // The next tick asks again.
@@ -287,14 +272,11 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   @override
   Widget build(BuildContext context) {
     final pixelRatio = MediaQuery.devicePixelRatioOf(context);
-    final light = isAppLight(context);
-    _syncAppearance(light);
     _syncAccent(FluentTheme.of(context).accentColor);
 
     return ColoredBox(
-      // Under the letterbox bars and before the first frame, match the
-      // default preset's background.
-      color: light ? visualizerLightPaper : Colors.black,
+      // Under the letterbox bars and before the first frame.
+      color: Colors.black,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final size = constraints.biggest;

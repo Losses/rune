@@ -5,10 +5,29 @@ use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
 use rtrb::{Producer, RingBuffer};
-use visualizer::{Frame, PcmInput, Transition, Visualizer};
+use visualizer::{Frame, PcmInput, Visualizer};
 
 const SAMPLE_RATE: u32 = 48_000;
-const NEBULA_FORGE: &[u8] = include_bytes!("fixtures/nebula_forge.milk");
+
+/// A copy of the built-in scene under the name `name`, in a folder of its own that the test
+/// removes afterwards.
+fn copied_scene(name: &str) -> std::path::PathBuf {
+    let from = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scenes/armillary");
+    let dir = std::env::temp_dir()
+        .join(format!("rune-visualizer-{name}-{}", std::process::id()))
+        .join(name);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for file in std::fs::read_dir(from).unwrap() {
+        let file = file.unwrap().path();
+        let mut text = std::fs::read_to_string(&file).unwrap();
+        if file.file_name().unwrap() == "scene.toml" {
+            text = text.replacen("name = \"Armillary\"", &format!("name = \"{name}\""), 1);
+        }
+        std::fs::write(dir.join(file.file_name().unwrap()), text).unwrap();
+    }
+    dir
+}
 
 /// Feeds a stereo test signal (a decaying 110 Hz tone burst four times per second plus a little
 /// noise) at real time speed.
@@ -136,7 +155,7 @@ fn check_frames(frames: &[Captured], width: u32, height: u32) {
 }
 
 #[test]
-fn idle_and_real_preset_render_changing_frames() {
+fn default_and_loaded_scenes_render_changing_frames() {
     let Some((visualizer, mut feeder)) = start(640, 360) else {
         return;
     };
@@ -154,31 +173,27 @@ fn idle_and_real_preset_render_changing_frames() {
 
     let (frames, fps) = collect(&visualizer, &mut feeder, 60);
     check_frames(&frames, 640, 360);
-    println!("idle preset 640x360: {fps:.1} fps on {}", status.adapter);
+    println!("default scene 640x360: {fps:.1} fps on {}", status.adapter);
 
-    visualizer
-        .load_preset(NEBULA_FORGE.to_vec(), "nebula_forge", Transition::Cut)
-        .unwrap();
+    let dir = copied_scene("copy");
+    visualizer.load_preset_path(&dir).unwrap();
     let (frames, fps) = collect(&visualizer, &mut feeder, 60);
     check_frames(&frames, 640, 360);
     let status = visualizer.status();
-    assert_eq!(
-        status.preset_name, "nebula_forge",
-        "{:?}",
-        status.last_error
-    );
-    println!("nebula_forge 640x360: {fps:.1} fps");
+    assert_eq!(status.preset_name, "copy", "{:?}", status.last_error);
+    println!("copied scene 640x360: {fps:.1} fps");
 
     visualizer.resize(1280, 720).unwrap();
     // Frames of the old size may still be in flight.
     let (frames, fps) = collect(&visualizer, &mut feeder, 90);
     check_frames(&frames[30..], 1280, 720);
-    println!("nebula_forge 1280x720: {fps:.1} fps");
+    println!("copied scene 1280x720: {fps:.1} fps");
 
     let input = visualizer.stop();
     assert!(input.is_some());
     assert!(visualizer.latest_frame().is_none());
     assert!(!visualizer.status().running);
+    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
 }
 
 #[test]
@@ -192,9 +207,6 @@ fn readback_renders_changing_frames() {
             visualizer.status().transport,
             Some(visualizer::Transport::Readback)
         );
-        visualizer
-            .load_preset(NEBULA_FORGE.to_vec(), "nebula_forge", Transition::Cut)
-            .unwrap();
         let (frames, fps) = collect(&visualizer, &mut feeder, 60);
         check_frames(&frames, width, height);
         let latest = visualizer.latest_frame().unwrap();
@@ -249,12 +261,12 @@ fn hidden_window_holds_the_picture() {
 }
 
 #[test]
-fn bad_preset_keeps_running_and_reports_the_error() {
+fn missing_scene_keeps_running_and_reports_the_error() {
     let Some((visualizer, _feeder)) = start(320, 180) else {
         return;
     };
     visualizer
-        .load_preset(b"\0binary".to_vec(), "junk", Transition::Cut)
+        .load_preset_path(std::path::Path::new("/nonexistent/scene"))
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     while visualizer.status().last_error.is_none() {
@@ -263,7 +275,7 @@ fn bad_preset_keeps_running_and_reports_the_error() {
     }
     let status = visualizer.status();
     assert!(status.running);
-    assert_ne!(status.preset_name, "junk");
+    assert_eq!(status.preset_name, visualizer::DEFAULT_PRESET_NAME);
     visualizer.stop();
 }
 
@@ -271,19 +283,25 @@ fn bad_preset_keeps_running_and_reports_the_error() {
 fn commands_before_start_are_errors() {
     let visualizer = Visualizer::new();
     assert!(visualizer.resize(10, 10).is_err());
-    // Without presets next, previous and random do nothing.
-    assert!(visualizer.next_preset(Transition::Cut).is_ok());
+    // Without scenes next, previous and random do nothing.
+    assert!(visualizer.next_preset().is_ok());
     assert!(visualizer.latest_frame().is_none());
 }
 
-/// A folder gives presets; an empty list of folders brings the default preset back.
+/// A folder gives scenes; an empty list of folders brings the built-in scene back.
 #[test]
-fn no_folders_show_the_default_preset() {
+fn no_folders_show_the_default_scene() {
     let Some((visualizer, mut feeder)) = start(320, 180) else {
         return;
     };
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    assert_eq!(visualizer.set_preset_dirs(&[dir.clone(), dir]).unwrap(), 1);
+    let dir = copied_scene("listed");
+    let root = dir.parent().unwrap().to_path_buf();
+    assert_eq!(
+        visualizer
+            .set_preset_dirs(&[root.clone(), root.clone()])
+            .unwrap(),
+        1
+    );
     assert_eq!(visualizer.status().preset_count, 1);
     let wait_for = |feeder: &mut Feeder, name: &str| {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -293,31 +311,23 @@ fn no_folders_show_the_default_preset() {
         }
         assert_eq!(visualizer.status().preset_name, name);
     };
-    visualizer.random_preset(Transition::Cut).unwrap();
-    wait_for(&mut feeder, "nebula_forge");
+    visualizer.random_preset().unwrap();
+    wait_for(&mut feeder, "listed");
     assert_eq!(visualizer.set_preset_dirs(&[]).unwrap(), 0);
     assert_eq!(visualizer.status().preset_count, 0);
     wait_for(&mut feeder, visualizer::DEFAULT_PRESET_NAME);
-    visualizer.random_preset(Transition::Cut).unwrap();
+    visualizer.random_preset().unwrap();
     visualizer.stop();
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
-fn saving_the_preset_on_screen_reloads_it() {
+fn saving_the_scene_on_screen_reloads_it() {
     let Some((visualizer, mut feeder)) = start(320, 180) else {
         return;
     };
-    let dir = std::env::temp_dir().join(format!("rune-visualizer-reload-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let file = dir.join("mine.milk");
-    std::fs::write(&file, NEBULA_FORGE).unwrap();
-    assert_eq!(
-        visualizer
-            .set_preset_dirs(std::slice::from_ref(&dir))
-            .unwrap(),
-        1
-    );
-    visualizer.random_preset(Transition::Cut).unwrap();
+    let dir = copied_scene("mine");
+    visualizer.load_preset_path(&dir).unwrap();
 
     let wait = |feeder: &mut Feeder, done: &dyn Fn() -> bool| {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -330,19 +340,15 @@ fn saving_the_preset_on_screen_reloads_it() {
     wait(&mut feeder, &|| visualizer.status().preset_name == "mine");
 
     // A broken save shows its error; fixing it clears the error. Both go through the watcher,
-    // nothing else loads the file. Modification times can be coarse, so wait a moment between.
-    std::thread::sleep(Duration::from_millis(1100));
-    std::fs::write(
-        &file,
-        "[preset00]\nMILKDROP_PRESET_VERSION=201\nPSVERSION=2\nPSVERSION_WARP=2\nPSVERSION_COMP=2\n\
-         warp_1=`shader_body\nwarp_2=`{\nwarp_3=`  ret = nope(;\nwarp_4=`}\n",
-    )
-    .unwrap();
+    // nothing else loads the files.
+    let shader = dir.join("view.wgsl");
+    let good = std::fs::read_to_string(&shader).unwrap();
+    std::fs::write(&shader, "this is not wgsl").unwrap();
     wait(&mut feeder, &|| visualizer.status().last_error.is_some());
-    std::thread::sleep(Duration::from_millis(1100));
-    std::fs::write(&file, NEBULA_FORGE).unwrap();
+    // Not the very text the scene still has: only a change makes it look again.
+    std::fs::write(&shader, format!("{good}\n// fixed\n")).unwrap();
     wait(&mut feeder, &|| visualizer.status().last_error.is_none());
 
     visualizer.stop();
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
 }

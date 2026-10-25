@@ -1340,8 +1340,6 @@ version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681"
 dependencies = [
- "serde",
- "termcolor",
  "unicode-width 0.2.0",
 ]
 
@@ -2616,15 +2614,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gif"
-version = "0.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee8cfcc411d9adbbaba82fb72661cc1bcca13e8bba98b364e62b2dba8f960159"
-dependencies = [
- "weezl",
-]
-
-[[package]]
 name = "gimli"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3356,7 +3345,7 @@ dependencies = [
  "byteorder-lite",
  "color_quant",
  "exr",
- "gif 0.13.1",
+ "gif",
  "image-webp",
  "num-traits",
  "png",
@@ -3666,82 +3655,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0de8b303297635ad57c9f5059fd9cee7a47f8e8daa09df0fcd07dd39fb22977f"
 dependencies = [
  "log",
-]
-
-[[package]]
-name = "lactea"
-version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
-dependencies = [
- "gif 0.14.2",
- "lactea-abi",
- "lactea-audio",
- "lactea-eel",
- "lactea-hlsl",
- "lactea-preset",
- "lactea-render",
- "log",
- "thiserror 2.0.12",
- "wgpu 30.0.1",
-]
-
-[[package]]
-name = "lactea-abi"
-version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
-dependencies = [
- "bytemuck",
-]
-
-[[package]]
-name = "lactea-audio"
-version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
-
-[[package]]
-name = "lactea-eel"
-version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
-
-[[package]]
-name = "lactea-hlsl"
-version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
-dependencies = [
- "lactea-abi",
-]
-
-[[package]]
-name = "lactea-host"
-version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
-dependencies = [
- "image",
- "lactea",
- "lactea-jpeg",
- "pollster 1.0.1",
- "wgpu 30.0.1",
-]
-
-[[package]]
-name = "lactea-jpeg"
-version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
-
-[[package]]
-name = "lactea-preset"
-version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
-
-[[package]]
-name = "lactea-render"
-version = "0.2.2"
-source = "git+https://github.com/XMLHexagram/lactea?rev=d329fd85ebf2e6a307841015169b1945ff7f19f7#d329fd85ebf2e6a307841015169b1945ff7f19f7"
-dependencies = [
- "bytemuck",
- "lactea-abi",
- "pollster 1.0.1",
- "wgpu 30.0.1",
 ]
 
 [[package]]
@@ -5232,12 +5145,6 @@ name = "pollster"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
-
-[[package]]
-name = "pollster"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc6355899e1c9462875b6757c79f3caa011a1fdae12bbb1a2e72dd1f234f8336"
 
 [[package]]
 name = "portable-atomic"
@@ -8311,8 +8218,6 @@ dependencies = [
  "directories",
  "half",
  "image",
- "lactea",
- "lactea-host",
  "log",
  "naga 30.0.1",
  "objc2",
@@ -8512,7 +8417,6 @@ dependencies = [
  "hashbrown 0.17.1",
  "js-sys",
  "log",
- "naga 30.0.1",
  "parking_lot",
  "portable-atomic",
  "profiling",

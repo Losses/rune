@@ -13,10 +13,10 @@ import '../../../widgets/settings/settings_button.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
 import '../../../bindings/bindings.dart';
 
-/// The preset folders of the visualizer, managed like the library folders.
+/// The scene folders of the visualizer, managed like the library folders.
 /// They are saved here and also sent to Rust, which is shared by all
 /// visualizers of the app, so a running visualizer follows at once. Without
-/// a folder the visualizer shows its default preset.
+/// a folder the visualizer shows its built-in scene.
 class VisualizerPresetSetting extends StatefulWidget {
   const VisualizerPresetSetting({super.key});
 
@@ -73,9 +73,7 @@ class _VisualizerPresetSettingState extends State<VisualizerPresetSetting> {
     try {
       final status = (await response).message;
       if (status.running && status.presetCount > 0) {
-        RandomVisualizerPresetRequest(
-          transitionSeconds: 1.7,
-        ).sendSignalToRust();
+        RandomVisualizerPresetRequest().sendSignalToRust();
       }
     } on TimeoutException {
       // Without an answer the visualizer is not running.

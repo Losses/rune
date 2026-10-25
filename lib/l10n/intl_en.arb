@@ -1357,41 +1357,41 @@
   "@linuxCustomWindowControlsSubtitle": {
     "description": "Subtitle explaining what the Linux custom window controls setting does."
   },
-  "visualizerPrevious": "Previous preset",
+  "visualizerPrevious": "Previous scene",
   "@visualizerPrevious": {
-    "description": "Context menu item of the visualizer that switches to the previous preset."
+    "description": "Context menu item of the visualizer that switches to the previous scene."
   },
-  "visualizerNext": "Next preset",
+  "visualizerNext": "Next scene",
   "@visualizerNext": {
-    "description": "Context menu item of the visualizer that switches to the next preset."
+    "description": "Context menu item of the visualizer that switches to the next scene."
   },
-  "visualizerRandom": "Random preset",
+  "visualizerRandom": "Random scene",
   "@visualizerRandom": {
-    "description": "Context menu item of the visualizer that switches to a random preset."
+    "description": "Context menu item of the visualizer that switches to a random scene."
   },
-  "visualizerChoosePreset": "Choose preset",
+  "visualizerChoosePreset": "Choose scene",
   "@visualizerChoosePreset": {
-    "description": "Context menu item of the visualizer that opens a submenu to pick one preset or scene by name."
+    "description": "Context menu item of the visualizer that opens a submenu to pick one scene by name."
   },
-  "visualizerLockPreset": "Lock preset",
+  "visualizerLockPreset": "Lock scene",
   "@visualizerLockPreset": {
-    "description": "Context menu item of the visualizer that stops it from switching to other presets by itself, so the current preset stays."
+    "description": "Context menu item of the visualizer that stops it from switching to other scenes by itself, so the current scene stays."
   },
-  "visualizerUnlockPreset": "Unlock preset",
+  "visualizerUnlockPreset": "Unlock scene",
   "@visualizerUnlockPreset": {
-    "description": "Context menu item of the visualizer that lets it switch to other presets by itself again."
+    "description": "Context menu item of the visualizer that lets it switch to other scenes by itself again."
   },
-  "visualizerAddPresetFolder": "Add preset folder",
+  "visualizerAddPresetFolder": "Add scene folder",
   "@visualizerAddPresetFolder": {
-    "description": "Title of the setting that adds a folder with MilkDrop preset files for the visualizer."
+    "description": "Title of the setting that adds a folder with scenes for the visualizer."
   },
-  "visualizerAddPresetFolderSubtitle": "Add a folder with visualizer presets. Presets of all folders are combined.",
+  "visualizerAddPresetFolderSubtitle": "Add a folder with visualizer scenes. Scenes of all folders are combined.",
   "@visualizerAddPresetFolderSubtitle": {
-    "description": "Subtitle of the setting that adds a visualizer preset folder."
+    "description": "Subtitle of the setting that adds a visualizer scene folder."
   },
   "visualizerRemovePresetFolder": "Remove",
   "@visualizerRemovePresetFolder": {
-    "description": "Button that removes a folder from the visualizer preset folders; the folder itself is not deleted."
+    "description": "Button that removes a folder from the visualizer scene folders; the folder itself is not deleted."
   },
   "coverWallDisplay": "Cover wall display",
   "@coverWallDisplay": {
@@ -1407,7 +1407,7 @@
   },
   "coverWallDisplayVisualizer": "Visualizer",
   "@coverWallDisplayVisualizer": {
-    "description": "Option of the cover wall display setting, also a context menu item of the cover wall page, that shows the music visualizer. MilkDrop is a product name, usually not translated."
+    "description": "Option of the cover wall display setting, also a context menu item of the cover wall page, that shows the music visualizer."
   },
   "coverWallVisualizerSubtitle": "Visuals that follow the music",
   "@coverWallVisualizerSubtitle": {

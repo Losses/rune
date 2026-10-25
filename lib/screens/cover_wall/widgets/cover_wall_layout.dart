@@ -107,20 +107,16 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
       );
     }
 
-    // Scenes first, then a submenu for each folder of presets.
+    // A submenu for each folder of scenes.
     MenuFlyoutItemBase presetMenu() {
-      final scenes = _visualizer.presets.where((x) => x.scene);
       final groups = <String, List<VisualizerPresetEntry>>{};
       for (final preset in _visualizer.presets) {
-        if (!preset.scene) (groups[preset.group] ??= []).add(preset);
+        (groups[preset.group] ??= []).add(preset);
       }
       return MenuFlyoutSubItem(
         leading: const Icon(Symbols.list),
         text: Text(s.visualizerChoosePreset),
         items: (_) => [
-          ...scenes.map(presetItem),
-          if (scenes.isNotEmpty && groups.isNotEmpty)
-            const MenuFlyoutSeparator(),
           for (final group in groups.entries)
             MenuFlyoutSubItem(
               text: Text(group.key),

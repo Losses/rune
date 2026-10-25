@@ -156,8 +156,8 @@ const kLinuxCustomWindowControlsKey = 'linux_custom_window_controls';
 /// "light" (always use light icon), and "dark" (always use dark icon).
 const kTrayIconColorModeKey = 'tray_icon_color_mode';
 
-/// The folders with MilkDrop presets (`.milk`) that the visualizer cycles
-/// through, a list of paths. On macOS their security-scoped bookmarks are
+/// The folders with scenes (folders with a `scene.toml`) that the visualizer
+/// cycles through, a list of paths. On macOS their security-scoped bookmarks are
 /// kept by `MacSecureManager` so the folders stay readable after a restart.
 const kVisualizerPresetDirsKey = 'visualizer_preset_dirs';
 
@@ -166,6 +166,6 @@ const kVisualizerPresetDirsKey = 'visualizer_preset_dirs';
 const kVisualizerPresetDirKey = 'visualizer_preset_dir';
 
 /// 'covers' or 'visualizer': what the cover wall page shows behind the
-/// playing track, the wall of cover art or the MilkDrop visualizer. This
+/// playing track, the wall of cover art or the visualizer. This
 /// defaults to 'covers' when the setting is missing.
 const kCoverWallDisplayKey = 'cover_wall_display';

@@ -1,7 +1,6 @@
-//! A real-time beat tracker, so that presets can move with the music's tempo instead of only its
-//! loudness. MilkDrop gives presets three band levels (`bass`, `mid`, `treb`) relative to their
-//! recent average and nothing about time; this adds the tempo, a beat clock that runs ahead of
-//! the detected onsets, and onsets per drum-like band.
+//! A real-time beat tracker, so that scenes can move with the music's tempo instead of only its
+//! loudness: the tempo, a beat clock that runs ahead of the detected onsets, and onsets per
+//! drum-like band.
 //!
 //! The method is the textbook one (Müller, *Fundamentals of Music Processing*, ch. 6):
 //!

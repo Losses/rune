@@ -1,8 +1,8 @@
-//! Render a preset with a synthetic beat and save frames as BMP files, for working on presets.
+//! Render a scene with a synthetic beat and save frames as BMP files, for working on scenes.
 //!
-//!   cargo run -p visualizer --example snapshot -- <out-dir> [preset.milk or scene folder] [seconds,...]
+//!   cargo run -p visualizer --example snapshot -- <out-dir> [scene folder] [seconds,...]
 //!
-//! Without a preset it shows the default one (`presets/Rune.milk`). The seconds default to
+//! Without a folder it shows the built-in scene (`scenes/armillary`). The seconds default to
 //! 2, 6 and 12.
 
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
 use rtrb::RingBuffer;
-use visualizer::{PcmInput, Transition, Visualizer};
+use visualizer::{PcmInput, Visualizer};
 
 const SAMPLE_RATE: u32 = 48_000;
 const WIDTH: u32 = 1280;
@@ -30,7 +30,7 @@ fn size() -> (u32, u32) {
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let out = args.first().map(String::as_str).unwrap_or(".");
-    let preset = args.get(1).filter(|a| !a.is_empty());
+    let scene = args.get(1).filter(|a| !a.is_empty());
     let times: Vec<f64> = args
         .get(2)
         .map(|t| t.split(',').filter_map(|s| s.parse().ok()).collect())
@@ -48,13 +48,8 @@ fn main() -> anyhow::Result<()> {
         size().1,
         60,
     )?;
-    if let Some(path) = preset {
-        // A scene is a folder, loaded by its path.
-        if std::path::Path::new(path).is_dir() {
-            visualizer.load_preset_path(std::path::Path::new(path), Transition::Cut)?;
-        } else {
-            visualizer.load_preset(std::fs::read(path)?, path, Transition::Cut)?;
-        }
+    if let Some(path) = scene {
+        visualizer.load_preset_path(std::path::Path::new(path))?;
     }
 
     // A kick at 120 bpm under a chord, so bass and treble both move.

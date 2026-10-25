@@ -1,3 +1,0 @@
-nebula_forge.milk is "M0Rf30 - Nebula Forge.milk" from examples/web/presets of
-https://github.com/XMLHexagram/lactea (fork of M0Rf30/lactea), which is licensed
-MIT OR Apache-2.0. It is used only as a test input.

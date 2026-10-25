@@ -1,0 +1,378 @@
+format = 1
+name = "Armillary"
+license = "MPL-2.0"
+description = "An armillary sphere floating in space, its glassy rings each keeping its own time, its core breathing with the music, polygons drawn in lines round it lit by the accents"
+
+common = ["world.wgsl"]
+
+[state]
+file = "state.wgsl"
+update = "update.wgsl"
+
+# The whole picture's resolution, per side, stretched to the screen after: 1 draws every pixel,
+# 0.5 a quarter of them.
+[render]
+scale = 0.75
+
+[[pass]]
+shader = "view.wgsl"
+target = "out"
+
+# Kept dark: it is watched mostly at night.
+[post]
+exposure = -0.2
+bloom = { intensity = 0.45, threshold = 1.0, radius = 0.7 }
+tonemap = "agx"
+grain = 0.02
+chromatic = 0.0008
+vignette = 0.4
+contrast = 1.05
+saturation = 1.1
+
+
+# ---- Beat ----
+
+[[param]]
+id = "conf"
+group = "Beat"
+label = "Beat confidence needed"
+default = 0.4
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "motion"
+type = "choice"
+group = "Beat"
+label = "How the rings move"
+default = 1
+options = ["Free: each always tumbling on its own, pushed to tumble a new way, surging and easing back", "Pendulums: resting in place, swinging or turning a whole turn back to it when pushed"]
+
+[[param]]
+id = "ring_spin"
+group = "Beat"
+label = "Free: how fast the rings tumble of themselves (with the tempo)"
+default = 1.0
+min = 0.0
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "whirl_time"
+group = "Beat"
+label = "How long a ring takes over a whole turn (the big ones slower, the small ones quicker)"
+unit = "s"
+default = 1.6
+min = 0.4
+max = 4.0
+step = 0.1
+
+[[param]]
+id = "sway"
+group = "Beat"
+label = "How hard a ring is pushed each bar (pendulums: how far it swings out; free: six times that further round)"
+unit = "°"
+default = 8.0
+min = 0.0
+max = 30.0
+step = 1.0
+
+[[param]]
+id = "flow"
+group = "Beat"
+label = "How fast things keep turning and flowing between beats (faster as it is louder)"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+# ---- Colour ----
+
+[[param]]
+id = "follow"
+type = "bool"
+group = "Colour"
+label = "Follow the player's theme colour (the system's accent, the chosen colour or the cover's)"
+default = true
+
+[[param]]
+id = "theme"
+type = "color"
+group = "Colour"
+label = "The theme colour when not following the player; only its hue is taken, and every colour is made from it"
+default = "#007aff"
+
+[[param]]
+id = "chroma"
+group = "Colour"
+label = "How colourful (0 is black and white)"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+# ---- Sphere ----
+
+[[param]]
+id = "core"
+group = "Sphere"
+label = "The core's light (brighter as it is louder)"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "core_look"
+type = "choice"
+group = "Sphere"
+label = "How the core looks"
+default = 5
+options = ["As it was: flowing bands of light", "A little star: white-hot middle, darker orange edge, grained surface boiling", "A glass lamp: a small bright light in a clear globe", "A gem: a ball of crystal cut all over, the light inside it, its facets flashing as it turns", "A gem in lines: only its facets' edges, drawn as the rings are, a small light in its heart", "A planet in character art: drawn in . : - + = % * # @ by how bright it is, its markings turning with it"]
+
+[[param]]
+id = "core_kick"
+group = "Sphere"
+label = "How hard the core swells on the kick"
+default = 2.5
+min = 0.0
+max = 8.0
+step = 0.1
+
+[[param]]
+id = "nebula"
+group = "Sphere"
+label = "The nebula's brightness"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "latitude"
+group = "Sphere"
+label = "Latitude (how the pole tips)"
+unit = "°"
+default = 35.0
+min = 0.0
+max = 90.0
+step = 1.0
+
+[[param]]
+id = "look"
+type = "choice"
+group = "Sphere"
+label = "How the rings look"
+default = 3
+options = ["Glass: clear gold, glowing edges and ticks", "Instrument: dark bronze, lit only by the core", "Lines: fine lines of light, as a star chart", "Marks: strings of dots and crosses, bigger as they are nearer, a comet running round on an accent"]
+
+[[param]]
+id = "accent"
+group = "Sphere"
+label = "How strong a beat must be to light (downbeats about 0.55 to 1, weak beats 0.3 to 0.5, stronger when louder)"
+default = 0.35
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "lit_beats"
+group = "Sphere"
+label = "How many beats a lit ring or shape takes to fade by half"
+unit = "beats"
+default = 0.5
+min = 0.1
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "layer_bars"
+type = "int"
+group = "Sphere"
+label = "Bars before the rings and the shapes swap turns at lighting"
+default = 4
+min = 1
+max = 16
+step = 1
+
+[[param]]
+id = "renew"
+group = "Sphere"
+label = "Lines: the chance a ring takes a new tilt as it lights (free motion)"
+default = 0.7
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "tick_spec"
+group = "Sphere"
+label = "Lines: how far the ecliptic's ticks reach with the spectrum"
+unit = "m"
+default = 0.4
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "spec_amp"
+group = "Sphere"
+label = "Lines: how far the ring drawn as the spectrum reaches out (another ring every four bars)"
+unit = "m"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "bead_gap"
+group = "Sphere"
+label = "Marks: how far apart the dots round a ring are"
+unit = "m"
+default = 0.13
+min = 0.05
+max = 0.4
+step = 0.01
+
+[[param]]
+id = "gap_grow"
+group = "Sphere"
+label = "Marks: how much further apart the dots are round the outer rings (0 the same)"
+default = 0.8
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "bead_size"
+group = "Sphere"
+label = "Marks: how big the dots are"
+unit = "m"
+default = 0.022
+min = 0.005
+max = 0.08
+step = 0.001
+
+[[param]]
+id = "comet_reach"
+group = "Sphere"
+label = "Marks: how far round a comet rushes (turns)"
+default = 0.3
+min = 0.05
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "comet_beats"
+group = "Sphere"
+label = "Marks: beats before a comet has faded by half"
+unit = "beats"
+default = 2.0
+min = 0.25
+max = 8.0
+step = 0.25
+
+[[param]]
+id = "trail_beads"
+group = "Sphere"
+label = "Marks: how many dots a comet's trail reaches back"
+default = 12.0
+min = 2.0
+max = 40.0
+step = 1.0
+
+[[param]]
+id = "planet"
+group = "Sphere"
+label = "The text planet's radius"
+unit = "m"
+default = 1.0
+min = 0.3
+max = 1.4
+step = 0.05
+
+[[param]]
+id = "text_rows"
+group = "Sphere"
+label = "Rows of characters across the planet"
+default = 22.0
+min = 8.0
+max = 48.0
+step = 1.0
+
+[[param]]
+id = "ring_glow"
+group = "Sphere"
+label = "The rings' glowing edges and haze"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+# ---- Polygons ----
+
+[[param]]
+id = "shapes"
+group = "Shapes"
+label = "How many shapes each accent lights (at most 24 a batch)"
+default = 0.75
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "shape_size"
+group = "Shapes"
+label = "Shape size"
+default = 1.0
+min = 0.3
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "shape_glow"
+group = "Shapes"
+label = "How bright the shapes are"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+# ---- Camera ----
+
+[[param]]
+id = "view"
+type = "choice"
+group = "Camera"
+label = "Shot"
+default = 0
+options = ["By section", "From a little below, pushing in", "Far off", "Close, through the rings", "From above"]
+
+[[param]]
+id = "lens"
+group = "Camera"
+label = "How far back, with a longer lens (higher flattens the perspective)"
+default = 1.8
+min = 0.6
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "drift"
+group = "Camera"
+label = "How fast the camera pushes in or circles within a shot (0 still)"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "shot_time"
+group = "Camera"
+label = "Seconds between shots without a chart"
+unit = "s"
+default = 16.0
+min = 4.0
+max = 60.0
+step = 1.0

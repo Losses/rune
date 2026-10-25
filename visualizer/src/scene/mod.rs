@@ -45,33 +45,64 @@ struct Files {
     shaders: Vec<(String, String)>,
 }
 
-fn read_text(dir: &Path, name: &str) -> Result<(String, String)> {
-    let text = std::fs::read_to_string(dir.join(name))
-        .with_context(|| format!("Failed to read {name}"))?;
-    Ok((name.to_string(), text))
+/// Where a scene's files are: a folder, or a fixed list of (path, contents) pairs compiled into
+/// the binary, which never changes and so is never reloaded.
+#[derive(Debug, Clone)]
+pub enum Source {
+    Dir(PathBuf),
+    Embedded(&'static [(&'static str, &'static str)]),
+}
+
+impl Source {
+    fn read(&self, name: &str) -> Result<Vec<u8>> {
+        match self {
+            Self::Dir(dir) => std::fs::read(dir.join(name)),
+            Self::Embedded(files) => files
+                .iter()
+                .find(|(path, _)| *path == name)
+                .map(|(_, text)| text.as_bytes().to_vec())
+                .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound)),
+        }
+        .with_context(|| format!("Failed to read {name}"))
+    }
+
+    fn read_text(&self, name: &str) -> Result<(String, String)> {
+        let text = String::from_utf8(self.read(name)?)
+            .with_context(|| format!("{name} is not UTF-8 text"))?;
+        Ok((name.to_string(), text))
+    }
+}
+
+impl std::fmt::Display for Source {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dir(dir) => dir.display().fmt(f),
+            Self::Embedded(_) => f.write_str("(built in)"),
+        }
+    }
 }
 
 impl Files {
-    fn read(dir: &Path) -> Result<Self> {
-        let (_, text) = read_text(dir, MANIFEST)?;
+    fn read(source: &Source) -> Result<Self> {
+        let (_, text) = source.read_text(MANIFEST)?;
         let manifest = Manifest::parse(&text).context(MANIFEST)?;
         let state = match &manifest.state {
-            Some(s) => Some(read_text(dir, &s.file)?),
+            Some(s) => Some(source.read_text(&s.file)?),
             None => None,
         };
         let update = match manifest.state.as_ref().and_then(|s| s.update.as_ref()) {
-            Some(file) => Some(read_text(dir, file)?),
+            Some(file) => Some(source.read_text(file)?),
             None => None,
         };
         let common = manifest
             .common
             .iter()
-            .map(|file| read_text(dir, file))
+            .map(|file| source.read_text(file))
             .collect::<Result<_>>()?;
         let shaders = manifest
             .passes
             .iter()
-            .map(|p| read_text(dir, &p.shader))
+            .map(|p| source.read_text(&p.shader))
             .collect::<Result<_>>()?;
         Ok(Self {
             manifest,
@@ -251,7 +282,7 @@ impl Mipper {
 
 pub struct Scene {
     pub name: String,
-    dir: PathBuf,
+    source: Source,
     files: Files,
     params: ParamsLayout,
     frame: wgpu::Buffer,
@@ -599,6 +630,7 @@ fn post_defaults(manifest: &Manifest) -> Vec<u8> {
 
 impl Scene {
     /// Build the scene in `dir`, drawing frames of `output_size` in `output_format`.
+    #[cfg(test)]
     pub fn load(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -607,11 +639,30 @@ impl Scene {
         output_size: (u32, u32),
         sample_rate: u32,
     ) -> Result<Self> {
-        let files = Files::read(dir)?;
+        Self::load_from(
+            device,
+            queue,
+            Source::Dir(dir.to_path_buf()),
+            output_format,
+            output_size,
+            sample_rate,
+        )
+    }
+
+    /// Build the scene `source` holds, drawing frames of `output_size` in `output_format`.
+    pub fn load_from(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        source: Source,
+        output_format: wgpu::TextureFormat,
+        output_size: (u32, u32),
+        sample_rate: u32,
+    ) -> Result<Self> {
+        let files = Files::read(&source)?;
         Self::build(
             device,
             queue,
-            dir,
+            source,
             files,
             output_format,
             output_size,
@@ -622,7 +673,7 @@ impl Scene {
     fn build(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        dir: &Path,
+        source: Source,
         files: Files,
         output_format: wgpu::TextureFormat,
         output_size: (u32, u32),
@@ -753,8 +804,7 @@ impl Scene {
         let mut assets = Vec::new();
         let mut mipper = Mipper::new(device);
         for asset in &manifest.assets {
-            let bytes = std::fs::read(dir.join(&asset.file))
-                .with_context(|| format!("Failed to read {}", asset.file))?;
+            let bytes = source.read(&asset.file)?;
             let image = image::load_from_memory(&bytes)
                 .with_context(|| format!("Failed to decode {}", asset.file))?
                 .to_rgba8();
@@ -1002,7 +1052,7 @@ impl Scene {
         keep.push(spectrum.clone());
         Ok(Self {
             name: manifest.name.clone(),
-            dir: dir.to_path_buf(),
+            source,
             params,
             frame,
             music,
@@ -1037,8 +1087,8 @@ impl Scene {
         })
     }
 
-    pub fn dir(&self) -> &Path {
-        &self.dir
+    pub fn source(&self) -> &Source {
+        &self.source
     }
 
     /// Read the scene's files again. When only parameter defaults changed, only those are
@@ -1046,7 +1096,10 @@ impl Scene {
     /// the same, its state. Returns whether anything changed; on an error the scene stays as it
     /// was.
     pub fn reload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<bool> {
-        let files = Files::read(&self.dir)?;
+        if matches!(self.source, Source::Embedded(_)) {
+            return Ok(false);
+        }
+        let files = Files::read(&self.source)?;
         if files == self.files {
             return Ok(false);
         }
@@ -1063,7 +1116,7 @@ impl Scene {
         let mut next = Self::build(
             device,
             queue,
-            &self.dir,
+            self.source.clone(),
             files,
             self.output_format,
             self.output_size,
