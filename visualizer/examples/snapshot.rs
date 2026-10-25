@@ -2,7 +2,7 @@
 //!
 //!   cargo run -p visualizer --example snapshot -- <out-dir> [scene folder] [seconds,...]
 //!
-//! Without a folder it shows the built-in scene (`scenes/armillary`). The seconds default to
+//! Without a folder it shows the first built-in scene (`scenes/armillary`). The seconds default to
 //! 2, 6 and 12.
 
 use std::sync::Arc;

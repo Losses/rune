@@ -526,15 +526,12 @@ fn set_gem(t: f32) {
 // and bright, fading back over a moment (a strong one lights two); most times it also takes a
 // new tilt as it lights, so the accent brings a new shape, not only light.
 
-// Ring i lit as strongly as `strength`. Drawn in marks, it sends a comet round itself from
-// somewhere new, the other way from the last, flung off fast and slowing over half a beat to a
-// drift, so it has gone about `comet_reach` of the way round.
+// Ring i lit as strongly as `strength`. Drawn in marks, its dots switch on, one after another
+// both ways from somewhere new, until `light_reach` of the ring is lit; then they dim together.
 fn light_ring(i: u32, strength: f32, n: u32) {
   state.ring_lit[i].x = max(state.ring_lit[i].x, strength);
   if (params.look == 3u) {
-    let beat = 60.0 / max(state.tempo, 40.0);
-    let way = select(1.0, -1.0, state.ring_comet[i].w > 0.0);
-    state.ring_comet[i] = vec4f(random(60u + n), params.comet_reach / (0.5 * beat), strength, way);
+    state.ring_on[i] = vec4f(random(60u + n), 0.0, strength, 0.5 * params.light_reach);
   }
   if (params.look >= 2u && params.motion == 0u && random(20u + n) < params.renew) {
     let up = random(30u + n) * 2.0 - 1.0;
@@ -847,15 +844,15 @@ fn update() {
   }
   let fade = exp(-dt * 0.693 / (params.lit_beats * 60.0 / max(state.tempo, 40.0)));
   let beat_time = 60.0 / max(state.tempo, 40.0);
-  let comet_fade = exp(-dt * 0.693 / (params.comet_beats * beat_time));
+  let on_fade = exp(-dt * 0.693 / (params.light_beats * beat_time));
   for (var i = 0u; i < RINGS; i++) {
     state.ring_lit[i].x *= fade;
-    // A comet slows to a drift and dims.
-    var comet = state.ring_comet[i];
-    comet.y = max(comet.y * exp(-dt / (0.5 * beat_time)), 0.02);
-    comet.x = fract(comet.x + comet.w * comet.y * dt);
-    comet.z *= comet_fade;
-    state.ring_comet[i] = comet;
+    // The dots come on quickly at first and slower as they reach the last ones, and all dim
+    // together.
+    var on = state.ring_on[i];
+    on.y += (on.w - on.y) * (1.0 - exp(-dt * 3.0 / max(params.light_spread * beat_time, 0.01)));
+    on.z *= on_fade;
+    state.ring_on[i] = on;
     // The ring of the spectrum eases out of its circle, the one before back into it.
     let to = f32(f32(i) == state.spec_ring);
     state.ring_spec[i].x += (to - state.ring_spec[i].x) * (1.0 - exp(-dt / 0.6));

@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::fsio::FsIo;
 use ::playback::player::Playable;
-use ::visualizer::{PcmInput, Transport};
+use ::visualizer::{Location, PcmInput, Transport};
 
 use crate::{
     Session, Signal, flutter_bridge,
@@ -215,7 +215,7 @@ impl Signal for LoadVisualizerPresetRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        report(VISUALIZER.load_preset_path(Path::new(&dart_signal.path)))
+        report(VISUALIZER.load_preset(Location::parse(&dart_signal.path)))
     }
 }
 
@@ -382,8 +382,9 @@ impl Signal for ListVisualizerPresetsRequest {
             .into_iter()
             .map(|info| VisualizerPresetEntry {
                 name: info.name,
-                path: info.path.to_string_lossy().into_owned(),
+                path: info.location.to_string(),
                 group: info.group,
+                builtin: matches!(info.location, Location::Builtin(_)),
             })
             .collect();
         Ok(Some(ListVisualizerPresetsResponse { presets }))

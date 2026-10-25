@@ -7,11 +7,41 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use rand::Rng;
 
-/// A scene's folder and its name.
+/// Where a scene is: a folder, or the program (a built-in scene, by name).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Location {
+    Folder(PathBuf),
+    Builtin(String),
+}
+
+impl Location {
+    /// What the path of a built-in scene starts with where a folder's path is expected (the
+    /// app's messages). A folder's path is absolute, so the two cannot be mixed up.
+    const BUILTIN_PREFIX: &'static str = "builtin:";
+
+    /// The location a path of [`Self::to_string`] names.
+    pub fn parse(text: &str) -> Self {
+        match text.strip_prefix(Self::BUILTIN_PREFIX) {
+            Some(name) => Self::Builtin(name.to_string()),
+            None => Self::Folder(PathBuf::from(text)),
+        }
+    }
+}
+
+impl std::fmt::Display for Location {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Folder(path) => path.display().fmt(f),
+            Self::Builtin(name) => write!(f, "{}{name}", Self::BUILTIN_PREFIX),
+        }
+    }
+}
+
+/// A scene and its name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Preset {
-    pub path: PathBuf,
-    /// The folder's name, dots and all.
+    pub location: Location,
+    /// The folder's name, dots and all; a built-in scene's `name`.
     pub name: String,
 }
 
@@ -21,7 +51,14 @@ impl Preset {
         let file = full.rsplit(['/', '\\']).next().unwrap_or(&full);
         Self {
             name: if file.is_empty() { "scene" } else { file }.to_string(),
-            path: path.to_path_buf(),
+            location: Location::Folder(path.to_path_buf()),
+        }
+    }
+
+    pub fn builtin(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            location: Location::Builtin(name.to_string()),
         }
     }
 }
@@ -39,7 +76,8 @@ struct Entry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresetInfo {
     pub name: String,
-    pub path: PathBuf,
+    pub location: Location,
+    /// Empty for a built-in scene.
     pub group: String,
 }
 
@@ -91,11 +129,14 @@ fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
     Ok(())
 }
 
-/// The scenes that take part in rotation, with the history of what was loaded. The rules are
+/// The scenes that take part in rotation (the built-in ones and those of the scene folders),
+/// with the history of what was loaded. The rules are
 /// those of MilkDrop 2 (Nullsoft, BSD-3): "previous" walks back through the last
 /// [`HISTORY_LEN`] scenes and "next" walks forward again before it picks a new random one.
 #[derive(Default)]
 pub struct PresetList {
+    /// The names of the built-in scenes.
+    builtins: Vec<String>,
     entries: Vec<Entry>,
     /// The presets loaded through this list, oldest first.
     history: VecDeque<Preset>,
@@ -104,10 +145,21 @@ pub struct PresetList {
 }
 
 impl PresetList {
+    /// A list with these built-in scenes, which are all it holds until folders are scanned.
+    pub fn with_builtins(names: Vec<String>) -> Self {
+        let mut list = Self {
+            builtins: names,
+            ..Self::default()
+        };
+        list.replace(Vec::new());
+        list
+    }
+
     /// Scan every folder of `dirs` and its subfolders and replace the list with the scenes of
-    /// all of them, once per folder. Hidden folders and symlinked folders (possible cycles) are
+    /// all of them, once per folder, next to the built-in scenes; a scene folder with the name of a
+    /// built-in scene replaces it. Hidden folders and symlinked folders (possible cycles) are
     /// skipped. A folder that cannot be read is skipped; its error is in the
-    /// second part of the result. Returns the number of scenes found.
+    /// second part of the result. Returns the number of scenes in the list.
     pub fn scan_all(&mut self, dirs: &[PathBuf]) -> (usize, Vec<anyhow::Error>) {
         let mut entries = Vec::new();
         let mut errors = Vec::new();
@@ -120,6 +172,14 @@ impl PresetList {
     }
 
     fn replace(&mut self, mut entries: Vec<Entry>) -> usize {
+        for name in &self.builtins {
+            if !entries.iter().any(|e| e.preset.name == *name) {
+                entries.push(Entry {
+                    preset: Preset::builtin(name),
+                    group: String::new(),
+                });
+            }
+        }
         entries.sort_by(|a, b| a.preset.cmp(&b.preset));
         entries.dedup_by(|a, b| a.preset == b.preset);
         self.entries = entries;
@@ -132,6 +192,14 @@ impl PresetList {
         self.entries.len()
     }
 
+    /// The number of scenes that come from folders.
+    pub fn folder_len(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|e| matches!(e.preset.location, Location::Folder(_)))
+            .count()
+    }
+
     /// Every scene, by group and then by name, ignoring case.
     pub fn infos(&self) -> Vec<PresetInfo> {
         let mut infos: Vec<PresetInfo> = self
@@ -139,7 +207,7 @@ impl PresetList {
             .iter()
             .map(|entry| PresetInfo {
                 name: entry.preset.name.clone(),
-                path: entry.preset.path.clone(),
+                location: entry.preset.location.clone(),
                 group: entry.group.clone(),
             })
             .collect();
@@ -147,7 +215,7 @@ impl PresetList {
             (
                 i.group.to_lowercase(),
                 i.name.to_lowercase(),
-                i.path.clone(),
+                i.location.clone(),
             )
         });
         infos
@@ -343,6 +411,62 @@ mod tests {
         want.sort_by_key(|(g, n)| (g.to_lowercase(), n.to_lowercase()));
         assert_eq!(got, want);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn builtins_are_listed_and_a_folder_scene_of_the_same_name_replaces_one() {
+        let names = ["Alpha", "Beta"].map(String::from).to_vec();
+        let mut list = PresetList::with_builtins(names);
+        // Before any scan the built-in scenes are there.
+        assert_eq!((list.len(), list.folder_len()), (2, 0));
+        let dir = std::env::temp_dir().join(format!("rune-presets-builtin-{}", std::process::id()));
+        for name in ["Beta", "Gamma"] {
+            scene(&dir, name);
+        }
+        assert_eq!(list.scan_all(std::slice::from_ref(&dir)).0, 3);
+        assert_eq!(list.folder_len(), 2);
+        let infos = list.infos();
+        let beta: Vec<_> = infos.iter().filter(|i| i.name == "Beta").collect();
+        assert_eq!(beta.len(), 1);
+        assert_eq!(beta[0].location, Location::Folder(dir.join("Beta")));
+        assert!(infos.contains(&PresetInfo {
+            name: "Alpha".into(),
+            location: Location::Builtin("Alpha".into()),
+            group: String::new(),
+        }));
+        // Built-in scenes take part in random picks and the history.
+        let mut rng = rng();
+        let mut seen = Vec::new();
+        for _ in 0..60 {
+            let preset = list.random(&mut rng).unwrap();
+            if !seen.contains(&preset.location) {
+                seen.push(preset.location);
+            }
+        }
+        assert_eq!(seen.len(), 3);
+        assert!(seen.contains(&Location::Builtin("Alpha".into())));
+        // Without the folder the built-in Beta is back.
+        assert_eq!(list.scan_all(&[]).0, 2);
+        assert!(
+            list.infos()
+                .iter()
+                .any(|i| i.location == Location::Builtin("Beta".into()))
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn locations_round_trip_through_their_text() {
+        for location in [
+            Location::Folder(PathBuf::from("/music/Scenes/a b")),
+            Location::Builtin("CRT Wall".into()),
+        ] {
+            assert_eq!(Location::parse(&location.to_string()), location);
+        }
+        assert_eq!(
+            Location::Builtin("Growth".into()).to_string(),
+            "builtin:Growth"
+        );
     }
 
     #[test]

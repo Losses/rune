@@ -1,0 +1,334 @@
+format = 1
+name = "Badge Tunnel"
+license = "MPL-2.0"
+description = "Flying down a tunnel of light past lacquered tortoiseshell badges printed with family crests in gold leaf"
+
+common = ["badge.wgsl"]
+
+[state]
+file = "state.wgsl"
+update = "update.wgsl"
+
+# The whole picture's resolution, per side, stretched to the screen after: 1 draws every pixel,
+# 0.5 a quarter of them.
+[render]
+scale = 0.75
+
+[[asset]]
+id = "emoji"
+file = "assets/emoji.png"
+source = "Noto Color Emoji (3D), Apache License 2.0: https://github.com/googlefonts/noto-emoji. Packed by tools/make_emoji.py"
+
+[[asset]]
+id = "crests"
+file = "assets/crests.png"
+# Data, not colour: each crest's signed distance field.
+linear = true
+source = "Drawn by tools/make_crests.py"
+
+[[pass]]
+shader = "tunnel.wgsl"
+target = "out"
+
+# Kept dark: it is watched mostly at night.
+[post]
+exposure = -0.3
+bloom = { intensity = 0.4, threshold = 1.2, radius = 0.7 }
+tonemap = "agx"
+grain = 0.02
+chromatic = 0.001
+vignette = 0.35
+contrast = 1.1
+saturation = 1.3
+
+
+# ---- Beat ----
+
+[[param]]
+id = "conf"
+group = "Beat"
+label = "Beat confidence needed"
+default = 0.4
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "per_beat"
+group = "Beat"
+label = "How far it flies a beat"
+unit = "m"
+default = 6.0
+min = 1.0
+max = 20.0
+step = 0.5
+
+[[param]]
+id = "cruise"
+group = "Beat"
+label = "Speed without a beat"
+unit = "m/s"
+default = 10.0
+min = 0.0
+max = 40.0
+step = 0.5
+
+[[param]]
+id = "surge"
+group = "Beat"
+label = "Surge forward on the kick"
+default = 0.6
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "beat_turn"
+group = "Beat"
+label = "How far the badges turn each beat"
+unit = "rad"
+default = 0.35
+min = 0.0
+max = 1.6
+step = 0.05
+
+# ---- Badges ----
+
+[[param]]
+id = "content"
+type = "choice"
+group = "Badges"
+label = "What flies past"
+default = 0
+options = ["Emoji", "Badges with crests"]
+
+[[param]]
+id = "spin"
+group = "Badges"
+label = "How fast the emoji turn"
+unit = "rad/s"
+default = 0.8
+min = 0.0
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "rock"
+group = "Badges"
+label = "How much further the emoji turn on the kick"
+unit = "rad"
+default = 0.35
+min = 0.0
+max = 1.2
+step = 0.05
+
+[[param]]
+id = "dance"
+group = "Badges"
+label = "How many emoji answer each note of the melody (each its own way: swelling, spinning, flipping either way, hopping, rocking)"
+default = 0.3
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "move_time"
+group = "Badges"
+label = "How long a move takes"
+unit = "s"
+default = 0.6
+min = 0.2
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "note_rise"
+group = "Badges"
+label = "Without a chart: how far over their late average the mids must rise to make a note"
+default = 0.35
+min = 0.05
+max = 1.5
+step = 0.05
+
+[[param]]
+id = "badges"
+group = "Badges"
+label = "How many badges (or emoji)"
+default = 0.75
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "crowd"
+group = "Badges"
+label = "How far the number follows the music (the section's energy, more while the melody is busy; 0 for a fixed number)"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "badge_size"
+group = "Badges"
+label = "Badge (or emoji) size"
+default = 1.4
+min = 0.3
+max = 2.5
+step = 0.05
+
+[[param]]
+id = "tumble"
+group = "Badges"
+label = "Share of badges tumbling over (badges only)"
+default = 0.25
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "palette"
+type = "choice"
+group = "Badges"
+label = "Lacquer and leaf"
+default = 0
+options = ["By section", "Black lacquer, gold", "Vermilion, gold", "Indigo, silver"]
+
+[[param]]
+id = "cubes"
+group = "Badges"
+label = "How many flakes of leaf"
+default = 0.4
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "sparks"
+group = "Badges"
+label = "How many sparkles"
+default = 0.5
+min = 0.0
+max = 0.8
+step = 0.01
+
+# ---- Tunnel ----
+
+[[param]]
+id = "inner"
+group = "Tunnel"
+label = "Clear radius down the middle"
+unit = "m"
+default = 1.6
+min = 0.5
+max = 5.0
+step = 0.1
+
+[[param]]
+id = "outer"
+group = "Tunnel"
+label = "How far out the badges reach"
+unit = "m"
+default = 8.0
+min = 3.0
+max = 20.0
+step = 0.5
+
+[[param]]
+id = "core"
+group = "Tunnel"
+label = "The core's light (brighter as it is louder)"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "lines"
+group = "Tunnel"
+label = "How many speed lines"
+default = 0.2
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "glints"
+group = "Tunnel"
+label = "Glints round the middle"
+default = 0.25
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "clouds"
+group = "Tunnel"
+label = "Violet haze"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+# ---- Camera ----
+
+[[param]]
+id = "player_colour"
+type = "bool"
+group = "Colour"
+label = "Follow the player's theme colour (the system's accent, the chosen colour or the cover's): every colour keeps its lights and darks and how colourful it is, in its hue"
+default = true
+
+[[param]]
+id = "chroma"
+group = "Colour"
+label = "How colourful, following the player (0 is black and white)"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "view"
+type = "choice"
+group = "Camera"
+label = "Shot"
+default = 0
+options = ["Gliding from place to place with the music", "Down the middle, the core on a third", "Low, looking up, the emoji going by overhead", "From one side, looking across", "Rolled hard", "A long lens, flattened", "Looking back, the emoji going away"]
+
+[[param]]
+id = "focal"
+group = "Camera"
+label = "Focal length (smaller is wider)"
+default = 0.65
+min = 0.35
+max = 1.5
+step = 0.05
+
+[[param]]
+id = "shot_bars"
+type = "int"
+group = "Camera"
+label = "Bars before the camera moves on (at a section, after half as many)"
+default = 16
+min = 4
+max = 64
+step = 1
+
+[[param]]
+id = "glide_bars"
+group = "Camera"
+label = "Bars the glide to the next place takes"
+default = 4.0
+min = 1.0
+max = 8.0
+step = 0.5
+
+[[param]]
+id = "drift"
+group = "Camera"
+label = "How far the camera drifts while it stays (0 still)"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05

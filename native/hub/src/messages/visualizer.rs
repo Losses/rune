@@ -36,7 +36,8 @@ pub struct SetVisualizerVisibleRequest {
     pub visible: bool,
 }
 
-/// Shows the scene in the folder `path`.
+/// Shows the scene at `path`: a scene folder, or `builtin:<name>` for a built-in scene (as the
+/// scenes of [`ListVisualizerPresetsResponse`] say).
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct LoadVisualizerPresetRequest {
     pub path: String,
@@ -97,11 +98,13 @@ pub struct ListVisualizerPresetsRequest {}
 pub struct VisualizerPresetEntry {
     pub name: String,
     pub path: String,
-    /// The folder the scene is in, relative to its scene folder.
+    /// The folder the scene is in, relative to its scene folder; empty for a built-in scene.
     pub group: String,
+    /// Whether the scene is compiled into the program (its `path` is `builtin:<name>`).
+    pub builtin: bool,
 }
 
-/// Every scene of the scene folders, by group and name.
+/// Every scene, the built-in ones and those of the scene folders, by group and name.
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct ListVisualizerPresetsResponse {
     pub presets: Vec<VisualizerPresetEntry>,

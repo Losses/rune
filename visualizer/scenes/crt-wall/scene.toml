@@ -1,0 +1,544 @@
+format = 1
+name = "CRT Wall"
+license = "MPL-2.0"
+description = "An endless wall of old television sets piled every which way, each flicking to another channel on its own beat"
+
+common = ["wall.wgsl"]
+# Covers from the library, for the screens that show one.
+covers = true
+
+[state]
+file = "state.wgsl"
+update = "update.wgsl"
+
+# The whole picture's resolution, per side, stretched to the screen after. 1 draws every pixel;
+# for phones 0.6 keeps the scan lines and grilles readable close up, 0.5 softens them.
+[render]
+scale = 1.0
+
+[[asset]]
+id = "plastic"
+file = "assets/plastic.png"
+# Data, not colour: the normal, how open each spot is and the face's tone.
+linear = true
+source = "Made by tools/make_textures.py"
+
+# The scopes' trace, small: it is only ever seen on a screen.
+[[buffer]]
+id = "scope_buf"
+scale = 0.3
+persistent = true
+
+[[pass]]
+shader = "scope.wgsl"
+target = "scope_buf"
+inputs = ["prev:scope_buf"]
+
+[[pass]]
+shader = "view.wgsl"
+target = "out"
+inputs = ["scope_buf"]
+
+[post]
+exposure = 0.0
+bloom = { intensity = 0.25, threshold = 1.0, radius = 0.6 }
+tonemap = "agx"
+grain = 0.025
+chromatic = 0.0
+vignette = 0.4
+contrast = 1.1
+saturation = 1.0
+
+# ---- Beat ----
+
+[[param]]
+id = "conf"
+group = "Beat"
+label = "Beat confidence needed"
+default = 0.4
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "hits"
+group = "Beat"
+label = "Kicks between beats"
+default = 0.4
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "kick_decay"
+group = "Beat"
+label = "Kick decay"
+unit = "s"
+default = 0.2
+min = 0.04
+max = 1.0
+step = 0.01
+
+# ---- Screens ----
+
+[[param]]
+id = "share"
+group = "Screens"
+label = "Share of screens changing channel on a beat"
+default = 0.25
+min = 0.02
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "stagger"
+group = "Screens"
+label = "Most a screen lags the beat (in quarter beats)"
+unit = "beats"
+default = 0.75
+min = 0.0
+max = 2.0
+step = 0.25
+
+[[param]]
+id = "flash"
+group = "Screens"
+label = "Flash on a change of channel"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "flash_time"
+group = "Screens"
+label = "How fast the flash fades"
+unit = "s"
+default = 0.12
+min = 0.02
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "react"
+group = "Screens"
+label = "Share of screens jolted by a beat (snow torn, figures sped)"
+default = 0.5
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "snow"
+group = "Screens"
+label = "Weight of snow"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "scope"
+group = "Screens"
+label = "Weight of scopes"
+default = 0.35
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "cover"
+group = "Screens"
+label = "Weight of covers"
+default = 1.4
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "now_playing"
+group = "Screens"
+label = "Share of covers that are the song playing"
+default = 0.3
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "cover_light"
+group = "Screens"
+label = "Cover brightness"
+default = 0.6
+min = 0.1
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "group"
+group = "Screens"
+label = "How much neighbouring screens share a channel"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "off_always"
+group = "Screens"
+label = "Screens always off"
+default = 0.2
+min = 0.0
+max = 0.8
+step = 0.05
+
+[[param]]
+id = "off"
+group = "Screens"
+label = "Screens dark in quiet sections (with a chart)"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "brightness"
+group = "Screens"
+label = "Screen brightness"
+default = 0.9
+min = 0.1
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "persist"
+group = "Screens"
+label = "Scope persistence"
+unit = "s"
+default = 0.12
+min = 0.01
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "gaps"
+group = "Screens"
+label = "Empty slots"
+default = 0.04
+min = 0.0
+max = 0.5
+step = 0.01
+
+# ---- Material and light ----
+
+[[param]]
+id = "cabinet"
+group = "Material and light"
+label = "Charcoal cabinet albedo"
+default = 0.045
+min = 0.005
+max = 0.5
+step = 0.005
+
+[[param]]
+id = "wear"
+group = "Material and light"
+label = "Wear (grime, dust, rubbed edges, yellowing, stickers and tape, lost knobs)"
+default = 0.8
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "odd"
+group = "Material and light"
+label = "Share of red cabinets"
+default = 0.04
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "surface"
+group = "Material and light"
+label = "Plastic surface detail (normal map)"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "glass"
+group = "Material and light"
+label = "Glass reflections"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "key"
+group = "Material and light"
+label = "Key light"
+default = 0.8
+min = 0.0
+max = 10.0
+step = 0.1
+
+[[param]]
+id = "shadows"
+group = "Material and light"
+label = "Shadows"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "spill"
+group = "Material and light"
+label = "Screens lighting the sets beside them"
+default = 3.0
+min = 0.0
+max = 10.0
+step = 0.1
+
+[[param]]
+id = "pools"
+group = "Material and light"
+label = "Key light in pools (0 is even)"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "fill"
+group = "Material and light"
+label = "The room's fill light"
+default = 0.02
+min = 0.0
+max = 0.3
+step = 0.005
+
+# ---- Camera ----
+
+[[param]]
+id = "distance"
+group = "Camera"
+label = "Front view's distance from the wall"
+unit = "m"
+default = 4.0
+min = 1.0
+max = 8.0
+step = 0.1
+
+[[param]]
+id = "side_angle"
+group = "Camera"
+label = "Side view's turn"
+unit = "°"
+default = 30.0
+min = 5.0
+max = 60.0
+step = 1
+
+[[param]]
+id = "front"
+group = "Camera"
+label = "Weight of the front view"
+default = 3.0
+min = 0.0
+max = 10.0
+step = 0.5
+
+[[param]]
+id = "side"
+group = "Camera"
+label = "Weight of the side view"
+default = 2.0
+min = 0.0
+max = 10.0
+step = 0.5
+
+[[param]]
+id = "far"
+group = "Camera"
+label = "Weight of the far view"
+default = 1.0
+min = 0.0
+max = 10.0
+step = 0.5
+
+[[param]]
+id = "close"
+group = "Camera"
+label = "Weight of the close view"
+default = 0.5
+min = 0.0
+max = 10.0
+step = 0.5
+
+[[param]]
+id = "cruise"
+group = "Camera"
+label = "Cruise speed (a song of middling pace)"
+unit = "m/s"
+default = 0.35
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "push"
+group = "Camera"
+label = "Push on each beat"
+default = 0.6
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "ease"
+group = "Camera"
+label = "Easing back to cruise"
+unit = "s"
+default = 0.6
+min = 0.05
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "accel"
+group = "Camera"
+label = "Speed smoothing"
+unit = "s"
+default = 0.25
+min = 0.01
+max = 2.0
+step = 0.01
+
+[[param]]
+id = "energy_speed"
+group = "Camera"
+label = "Section energy on speed"
+default = 0.4
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "feel_smooth"
+group = "Camera"
+label = "Smoothing of how fast it sounds"
+unit = "s"
+default = 4.0
+min = 0.5
+max = 20.0
+step = 0.5
+
+[[param]]
+id = "song_pace"
+group = "Camera"
+label = "The song's pace on speed"
+default = 1.5
+min = 0.0
+max = 4.0
+step = 0.1
+
+[[param]]
+id = "moment_pace"
+group = "Camera"
+label = "This moment's pace against the song's"
+default = 2.0
+min = 0.0
+max = 4.0
+step = 0.1
+
+[[param]]
+id = "view_bars"
+group = "Camera"
+label = "Bars between possible view changes"
+default = 16.0
+min = 1.0
+max = 64.0
+step = 1
+
+[[param]]
+id = "view_gap"
+group = "Camera"
+label = "Least time between view changes"
+unit = "s"
+default = 20.0
+min = 2.0
+max = 120.0
+step = 1
+
+[[param]]
+id = "view_chance"
+group = "Camera"
+label = "Chance of a view change when due"
+unit = "%"
+default = 60.0
+min = 0.0
+max = 100.0
+step = 5
+
+[[param]]
+id = "same_view"
+type = "bool"
+group = "Camera"
+label = "Same view for the same kind of section"
+default = true
+
+# ---- Colour and look ----
+
+[[param]]
+id = "player_colour"
+type = "bool"
+group = "Colour and look"
+label = "Phosphor in the player's theme colour (the system's accent, the chosen colour or the cover's)"
+default = true
+
+[[param]]
+id = "tint"
+type = "color"
+group = "Colour and look"
+label = "Phosphor colour when not following"
+default = "#8cf0b0"
+
+[[param]]
+id = "chroma"
+group = "Colour and look"
+label = "How colourful the phosphor is"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "exposure"
+group = "Colour and look"
+label = "Exposure"
+unit = "EV"
+default = -1.6
+min = -3.0
+max = 3.0
+step = 0.1
+
+[[param]]
+id = "glow"
+group = "Colour and look"
+label = "Glow"
+default = 0.5
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "grain"
+group = "Colour and look"
+label = "Grain"
+default = 0.045
+min = 0.0
+max = 0.2
+step = 0.005

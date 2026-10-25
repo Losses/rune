@@ -61,7 +61,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   Timer? _resizeTimer;
   Timer? _statusTimer;
 
-  bool _firstPresetLoaded = false;
+  // Whether the scene the visualizer began with was seen.
+  bool _beganSeen = false;
   int _pollTick = 0;
 
   VisualizerController get _controller => widget.controller;
@@ -84,8 +85,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   // The scene name the corner label last announced.
   String? _announced;
 
-  // A scene from a folder that just started gets its name shown; a problem
-  // shows until it is gone; the built-in scene shows nothing.
+  // A scene that just started gets its name shown, except the one the
+  // visualizer begins with; a problem shows until it is gone.
   void _updateLabel(VisualizerStatusResponse status) {
     final error = status.lastError;
     if (error != null) {
@@ -93,14 +94,16 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       _controller.label.value = VisualizerLabel(error, isError: true);
       return;
     }
-    if (!status.running || status.presetCount == 0) {
+    if (!status.running) {
       _announced = null;
       _controller.label.value = null;
       return;
     }
     if (status.presetName == _announced) return;
     _announced = status.presetName;
-    _controller.label.value = VisualizerLabel(status.presetName);
+    _controller.label.value =
+        _beganSeen ? VisualizerLabel(status.presetName) : null;
+    _beganSeen = true;
   }
   // Kept for dispose, where the context may no longer be used.
   late final CoverWallDisplayProvider _coverWallDisplay =
@@ -181,7 +184,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
         fps: _targetFps,
       ).sendSignalToRust();
 
-      _controller.hasPresets = dirs.isNotEmpty;
+      // The built-in scenes are always there.
+      _controller.hasPresets = true;
       setState(() => _renderedSize = size);
     } catch (e) {
       error$('Failed to start the visualizer: $e');
@@ -233,18 +237,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       if (_disposed || !mounted) return;
       final status = signal.message;
 
-      // Until the render thread is up there is nothing to send commands to.
-      if (!_firstPresetLoaded && status.running) {
-        // Without scenes the visualizer stays on its built-in scene.
-        if (status.presetCount > 0) {
-          _firstPresetLoaded = true;
-          RandomVisualizerPresetRequest().sendSignalToRust();
-        }
-      }
-
       _controller.status = status;
       _updateLabel(status);
-      // A folder without scenes counts as none.
       if (status.running) {
         _controller.hasPresets = status.presetCount > 0;
         // Scenes draw on black; the cover wall darkens for them.

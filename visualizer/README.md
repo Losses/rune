@@ -1,12 +1,12 @@
 # Visualizer scenes
 
-The visualizer draws scenes in Rune's own format and nothing else. Rune ships one, Armillary, compiled into the binary. Everything else comes from folders the user picks.
+The visualizer draws scenes in Rune's own format and nothing else. Rune ships seven (Armillary, Badge Tunnel, CRT Wall, Growth, Neon Street, Paperclip, Torii Sea), compiled into the binary on every platform. More come from folders the user picks.
 
 ## Where scenes come from
 
-- The built-in scene is `visualizer/scenes/armillary` (MPL-2.0 like the rest of Rune), embedded with `include_str!`. The visualizer shows it when no scene folder is set, and again when the user removes the last one. An embedded scene is read from memory and never reloads. It is used for the light and the dark appearance alike.
-- Scene folders are added and removed in Settings > Theme, any number of them. A folder inside them with a `scene.toml` is one scene; the folders in between, also subfolders, are searched, and a scene's own contents are not. All take part in next, previous, random and the automatic switching, once per scene even if folders overlap. Hidden folders (names starting with `.`) and symlinked folders are skipped. A folder that cannot be read is skipped and reported in the status error. Without a folder, next, previous and random do nothing.
-- Setting the folders (`Visualizer::set_preset_dirs`) empties the list and the history. With no scenes left, a running visualizer changes to the built-in scene; otherwise the app asks for a random scene.
+- The built-in scenes are the folders of `visualizer/scenes/` (MPL-2.0 like the rest of Rune). `build.rs` walks them, sorted and without hidden files, and embeds every file with `include_bytes!`, images included (`scene::Source::Embedded`). A scene is added by putting a folder with a `scene.toml` there. Armillary is shown first and when the user removes the last scene folder. An embedded scene is read from memory and never reloads. They are used for the light and the dark appearance alike.
+- Scene folders are added and removed in Settings > Theme, any number of them. A folder inside them with a `scene.toml` is one scene; the folders in between, also subfolders, are searched, and a scene's own contents are not. The built-in scenes and the folder scenes all take part in next, previous, random and the automatic switching, once per scene even if folders overlap. A folder scene with the same name as a built-in scene (the folder's name, as the menu shows it) replaces it, so a built-in scene can be edited from a folder with hot reload; without that folder the built-in one is back. Hidden folders (names starting with `.`) and symlinked folders are skipped. A folder that cannot be read is skipped and reported in the status error. In the preset list a built-in scene has the path `builtin:<name>` and no group; the cover wall's menu shows them under "Built in".
+- Setting the folders (`Visualizer::set_preset_dirs`) empties the list and the history. With no scene left in the folders, a running visualizer changes to Armillary; otherwise the app asks for a random scene.
 
 ## Scene switching
 
@@ -26,9 +26,9 @@ A scene is a folder with a `scene.toml` (nothing inside it is scanned for other 
 - Images are `[[asset]]`s (PNG or JPEG, `asset_<id>` in WGSL, with mips). `linear = true` marks data such as a distance field, which must not be decoded as sRGB.
 - Code that several passes share goes in files listed as `common = [...]` in `scene.toml`; every pass includes them (the update does not).
 - `src/scene/manifest.rs` is the reference for `scene.toml`, `src/scene/wgsl.rs` for what every shader sees (the prelude), and `src/scene/stdlib.wgsl` for the `rv_*` functions.
-- The scene on screen reloads when its files change (the built-in one never does). When only parameter defaults changed, nothing else is rebuilt. When `struct State` reads the same, the state carries over. Errors name the file and line.
+- The scene on screen reloads when its files change (a built-in one never does). When only parameter defaults changed, nothing else is rebuilt. When `struct State` reads the same, the state carries over. Errors name the file and line.
 - Switching between scenes cuts.
-- `cargo run -p visualizer --example snapshot -- <dir> [scene folder]` renders a scene to images, the built-in one without a folder. `SNAPSHOT_SIZE=1920x1080` sets the size, and the frame rate is printed.
+- `cargo run -p visualizer --example snapshot -- <dir> [scene folder]` renders a scene to images, Armillary without a folder. `SNAPSHOT_SIZE=1920x1080` sets the size, and the frame rate is printed.
 
 ## The beat
 

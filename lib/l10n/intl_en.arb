@@ -1373,6 +1373,10 @@
   "@visualizerChoosePreset": {
     "description": "Context menu item of the visualizer that opens a submenu to pick one scene by name."
   },
+  "visualizerBuiltInPresets": "Built in",
+  "@visualizerBuiltInPresets": {
+    "description": "Submenu of the visualizer context menu that lists the scenes compiled into the app."
+  },
   "visualizerLockPreset": "Lock scene",
   "@visualizerLockPreset": {
     "description": "Context menu item of the visualizer that stops it from switching to other scenes by itself, so the current scene stays."

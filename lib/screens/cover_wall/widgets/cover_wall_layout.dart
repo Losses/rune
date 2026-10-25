@@ -107,11 +107,16 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
       );
     }
 
-    // A submenu for each folder of scenes.
+    // A submenu for each folder of scenes, and one for the built-in scenes.
     MenuFlyoutItemBase presetMenu() {
       final groups = <String, List<VisualizerPresetEntry>>{};
+      final builtIn = <VisualizerPresetEntry>[];
       for (final preset in _visualizer.presets) {
-        (groups[preset.group] ??= []).add(preset);
+        if (preset.builtin) {
+          builtIn.add(preset);
+        } else {
+          (groups[preset.group] ??= []).add(preset);
+        }
       }
       return MenuFlyoutSubItem(
         leading: const Icon(Symbols.list),
@@ -121,6 +126,11 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
             MenuFlyoutSubItem(
               text: Text(group.key),
               items: (_) => group.value.map(presetItem).toList(),
+            ),
+          if (builtIn.isNotEmpty)
+            MenuFlyoutSubItem(
+              text: Text(s.visualizerBuiltInPresets),
+              items: (_) => builtIn.map(presetItem).toList(),
             ),
         ],
       );

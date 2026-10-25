@@ -165,7 +165,7 @@ type = "choice"
 group = "Sphere"
 label = "How the rings look"
 default = 3
-options = ["Glass: clear gold, glowing edges and ticks", "Instrument: dark bronze, lit only by the core", "Lines: fine lines of light, as a star chart", "Marks: strings of dots and crosses, bigger as they are nearer, a comet running round on an accent"]
+options = ["Glass: clear gold, glowing edges and ticks", "Instrument: dark bronze, lit only by the core", "Lines: fine lines of light, as a star chart", "Marks: strings of dots and crosses, bigger as they are nearer, an accent lighting a ring's dots"]
 
 [[param]]
 id = "accent"
@@ -255,32 +255,33 @@ max = 0.08
 step = 0.001
 
 [[param]]
-id = "comet_reach"
+id = "light_reach"
 group = "Sphere"
-label = "Marks: how far round a comet rushes (turns)"
-default = 0.3
+label = "Marks: how much of a ring an accent lights (turns)"
+default = 1.0
 min = 0.05
 max = 1.0
 step = 0.05
 
 [[param]]
-id = "comet_beats"
+id = "light_spread"
 group = "Sphere"
-label = "Marks: beats before a comet has faded by half"
+label = "Marks: beats for the lighting to spread (0: all at once)"
+unit = "beats"
+default = 0.5
+min = 0.0
+max = 4.0
+step = 0.25
+
+[[param]]
+id = "light_beats"
+group = "Sphere"
+label = "Marks: beats before a lit ring has dimmed by half"
 unit = "beats"
 default = 2.0
 min = 0.25
 max = 8.0
 step = 0.25
-
-[[param]]
-id = "trail_beads"
-group = "Sphere"
-label = "Marks: how many dots a comet's trail reaches back"
-default = 12.0
-min = 2.0
-max = 40.0
-step = 1.0
 
 [[param]]
 id = "planet"

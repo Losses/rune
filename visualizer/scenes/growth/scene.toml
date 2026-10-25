@@ -1,0 +1,548 @@
+format = 1
+name = "Growth"
+license = "MPL-2.0"
+description = "A tower of plates growing up into white light, a step on every beat"
+
+common = ["tower.wgsl"]
+
+[state]
+file = "state.wgsl"
+update = "update.wgsl"
+
+[[asset]]
+id = "concrete"
+file = "assets/surface.png"
+# Data, not colour: the normal, how open each spot is and the face's tone.
+linear = true
+source = "Made by tools/make_surface.py"
+
+[[buffer]]
+id = "lit"
+# Drawn at two thirds of the screen's resolution: the haze and the depth of field hide it, and
+# it costs under half as much (for phones). 0.5 is faster still, with a little stair-stepping.
+scale = 0.67
+
+[[pass]]
+shader = "view.wgsl"
+target = "lit"
+
+[[pass]]
+shader = "dof.wgsl"
+target = "out"
+inputs = ["lit"]
+
+[post]
+exposure = 0.0
+bloom = { intensity = 0.7, threshold = 0.95, radius = 0.8 }
+tonemap = "agx"
+grain = 0.04
+chromatic = 0.0008
+vignette = 0.12
+contrast = 0.95
+saturation = 0.85
+
+# ---- Beat ----
+
+[[param]]
+id = "conf"
+group = "Beat"
+label = "Beat confidence needed"
+default = 0.4
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "hits"
+group = "Beat"
+label = "Kicks between beats"
+default = 0.5
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "kick_decay"
+group = "Beat"
+label = "Kick decay"
+unit = "s"
+default = 0.15
+min = 0.04
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "glow"
+group = "Beat"
+label = "Glow"
+default = 0.7
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "glow_beat"
+group = "Beat"
+label = "Glow on the beat"
+default = 0.5
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "pump"
+group = "Beat"
+label = "Brighten on the beat"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "zoom"
+group = "Beat"
+label = "Zoom on the beat"
+default = 0.012
+min = 0.0
+max = 0.1
+step = 0.002
+
+[[param]]
+id = "accent_level"
+group = "Beat"
+label = "How strong an accent must be"
+default = 0.95
+min = 0.5
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "accent_gap"
+group = "Beat"
+label = "Least time between accent flashes"
+unit = "s"
+default = 6.0
+min = 1.0
+max = 30.0
+step = 0.5
+
+[[param]]
+id = "build_bars"
+group = "Beat"
+label = "Bars of build-up before a section"
+default = 4.0
+min = 0.25
+max = 16.0
+step = 0.25
+
+# ---- Growth ----
+
+[[param]]
+id = "grow"
+group = "Growth"
+label = "Layers grown on a beat"
+default = 1.5
+min = 0.5
+max = 8.0
+step = 0.25
+
+[[param]]
+id = "bar_boost"
+group = "Growth"
+label = "Growth on a bar's first beat (times)"
+default = 2.5
+min = 1.0
+max = 6.0
+step = 0.25
+
+[[param]]
+id = "snap"
+group = "Growth"
+label = "How fast each growth snaps up"
+unit = "s"
+default = 0.12
+min = 0.02
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "arrive"
+group = "Growth"
+label = "How fast new plates slam into place"
+unit = "s"
+default = 0.2
+min = 0.04
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "fly"
+group = "Growth"
+label = "How far new plates fly in from (cells)"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "scatter"
+group = "Tower"
+label = "Small plates between the big ones"
+default = 0.35
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "fresh"
+group = "Growth"
+label = "Flash of new plates"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "song_pace"
+group = "Growth"
+label = "How much the song's pace sets the growth"
+default = 1.2
+min = 0.0
+max = 3.0
+step = 0.1
+
+[[param]]
+id = "moment_pace"
+group = "Growth"
+label = "How much the moment's pace changes it"
+default = 1.5
+min = 0.0
+max = 4.0
+step = 0.1
+
+[[param]]
+id = "feel_smooth"
+group = "Growth"
+label = "Smoothing of the pace"
+unit = "s"
+default = 4.0
+min = 0.5
+max = 20.0
+step = 0.5
+
+# ---- Tower ----
+
+[[param]]
+id = "girth"
+group = "Tower"
+label = "Girth of the tower"
+unit = "m"
+default = 5.0
+min = 2.0
+max = 16.0
+step = 0.25
+
+[[param]]
+id = "vary"
+group = "Tower"
+label = "How much each layer's width varies"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "taper"
+group = "Tower"
+label = "Length of the taper to the tip"
+unit = "m"
+default = 16.0
+min = 2.0
+max = 60.0
+step = 1.0
+
+[[param]]
+id = "density"
+group = "Tower"
+label = "How many slabs each layer lays"
+default = 0.8
+min = 0.05
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "loose"
+group = "Tower"
+label = "Loose plates floating round"
+default = 0.3
+min = 0.0
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "core"
+group = "Tower"
+label = "Radius of the hollow core"
+unit = "m"
+default = 1.2
+min = 0.0
+max = 4.0
+step = 0.1
+
+# ---- Camera ----
+
+[[param]]
+id = "same_view"
+type = "bool"
+group = "Camera"
+label = "Same view for the same kind of section"
+default = true
+
+[[param]]
+id = "glide"
+group = "Camera"
+label = "Time to glide between views"
+unit = "s"
+default = 4.0
+min = 0.5
+max = 20.0
+step = 0.5
+
+[[param]]
+id = "follow"
+group = "Camera"
+label = "Time for the camera to catch the tip"
+unit = "s"
+default = 0.8
+min = 0.05
+max = 5.0
+step = 0.05
+
+[[param]]
+id = "keep_below"
+group = "Camera"
+label = "How much of the tower below the camera is kept (less is cheaper)"
+unit = "m"
+default = 10.0
+min = 0.0
+max = 60.0
+step = 1.0
+
+[[param]]
+id = "view_bars"
+group = "Camera"
+label = "Bars between possible view changes"
+default = 8.0
+min = 1.0
+max = 32.0
+step = 1.0
+
+[[param]]
+id = "view_chance"
+group = "Camera"
+label = "Chance of changing then"
+unit = "%"
+default = 40.0
+min = 0.0
+max = 100.0
+step = 1.0
+
+[[param]]
+id = "view_gap"
+group = "Camera"
+label = "Least time between view changes"
+unit = "s"
+default = 8.0
+min = 1.0
+max = 60.0
+step = 1.0
+
+# ---- Look ----
+
+[[param]]
+id = "style"
+type = "choice"
+group = "Look"
+label = "Style"
+default = 1
+options = ["White light (the video)", "Concrete"]
+
+[[param]]
+id = "light"
+type = "choice"
+group = "Look"
+label = "Light on the concrete"
+default = 1
+options = ["By section", "Low warm sun", "High white sun", "Blue hour"]
+
+[[param]]
+id = "surface"
+group = "Look"
+label = "Surface detail (pores, seams, tie holes)"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "bevel"
+group = "Look"
+label = "Rounding of the edges"
+unit = "m"
+default = 0.05
+min = 0.0
+max = 0.15
+step = 0.005
+
+[[param]]
+id = "shadows"
+group = "Look"
+label = "Shadows"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "rod_light"
+group = "Look"
+label = "The rod lighting the core"
+default = 0.3
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "player_colour"
+type = "bool"
+group = "Look"
+label = "Follow the player's theme colour (the system's accent, the chosen colour or the cover's): each theme keeps its lights and darks and how colourful it is, in its hue"
+default = true
+
+[[param]]
+id = "chroma"
+group = "Look"
+label = "How colourful, following the player (0 is black and white)"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "theme"
+type = "choice"
+group = "Look"
+label = "Theme of the white light"
+default = 0
+options = ["By section", "Ivory", "Gold", "Midnight", "Rose", "Ice"]
+
+[[param]]
+id = "theme_fade"
+group = "Look"
+label = "Time to fade between themes"
+unit = "s"
+default = 0.5
+min = 0.05
+max = 10.0
+step = 0.05
+
+[[param]]
+id = "theme_bars"
+group = "Look"
+label = "Bars between themes without a chart"
+default = 16.0
+min = 4.0
+max = 64.0
+step = 4.0
+
+[[param]]
+id = "fog"
+group = "Look"
+label = "Haze"
+default = 0.6
+min = 0.0
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "dof"
+group = "Look"
+label = "Depth of field"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "rod_width"
+group = "Look"
+label = "Width of the rod of light"
+unit = "m"
+default = 0.07
+min = 0.0
+max = 0.5
+step = 0.01
+
+[[param]]
+id = "rod_glow"
+group = "Look"
+label = "Glow of the rod"
+default = 1.0
+min = 0.0
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "dust"
+group = "Look"
+label = "Dust"
+default = 1.0
+min = 0.0
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "flash"
+group = "Look"
+label = "Flash on accents"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "warm_kick"
+group = "Look"
+label = "Warm overexposure on the kick"
+default = 0.6
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "glitch"
+group = "Look"
+label = "Strength of the inverted glitch"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "glitch_bars"
+group = "Look"
+label = "Bars between glitches (0: only on accents)"
+default = 4.0
+min = 0.0
+max = 32.0
+step = 1.0
+
+[[param]]
+id = "exposure"
+group = "Look"
+label = "Exposure"
+unit = "EV"
+default = 0.5
+min = -3.0
+max = 3.0
+step = 0.05

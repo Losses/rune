@@ -58,20 +58,15 @@ pub struct Pipeline {
     pub adapter_name: String,
 }
 
-/// The scene shown before another is chosen, compiled into the binary (MPL-2.0 like the rest of
-/// Rune).
-const DEFAULT_SCENE: Source = Source::Embedded(&[
-    ("scene.toml", include_str!("../scenes/armillary/scene.toml")),
-    ("state.wgsl", include_str!("../scenes/armillary/state.wgsl")),
-    (
-        "update.wgsl",
-        include_str!("../scenes/armillary/update.wgsl"),
-    ),
-    ("view.wgsl", include_str!("../scenes/armillary/view.wgsl")),
-    ("world.wgsl", include_str!("../scenes/armillary/world.wgsl")),
-]);
-/// The name of [`DEFAULT_SCENE`].
+/// The name of the built-in scene shown before another is chosen.
 pub const DEFAULT_PRESET_NAME: &str = "Armillary";
+
+/// The built-in scene called `name`.
+fn builtin_source(name: &str) -> Result<Source> {
+    crate::builtin::find(name)
+        .map(|scene| scene.source)
+        .with_context(|| format!("There is no built-in scene {name}"))
+}
 
 /// What a rendered frame became.
 pub enum Rendered {
@@ -302,7 +297,7 @@ impl Pipeline {
         let scene = Scene::load_from(
             &device,
             &queue,
-            DEFAULT_SCENE,
+            builtin_source(DEFAULT_PRESET_NAME)?,
             format,
             (width, height),
             sample_rate,
@@ -447,9 +442,15 @@ impl Pipeline {
             .with_context(|| format!("Scene {}", dir.display()))
     }
 
-    /// Show the built-in scene.
+    /// Show the built-in scene `name`.
+    pub fn load_builtin_scene(&mut self, name: &str) -> Result<()> {
+        self.load_source(builtin_source(name)?)
+            .with_context(|| format!("Built-in scene {name}"))
+    }
+
+    /// Show the built-in scene that comes first.
     pub fn load_default_scene(&mut self) -> Result<()> {
-        self.load_source(DEFAULT_SCENE).context("The default scene")
+        self.load_builtin_scene(DEFAULT_PRESET_NAME)
     }
 
     fn load_source(&mut self, source: Source) -> Result<()> {

@@ -1365,6 +1365,10 @@
   "@visualizerChoosePreset": {
     "description": "可视化右键菜单项，打开子菜单按名称选择某个场景。"
   },
+  "visualizerBuiltInPresets": "内置",
+  "@visualizerBuiltInPresets": {
+    "description": "可视化右键菜单的子菜单，列出内置于应用的场景。"
+  },
   "visualizerLockPreset": "锁定场景",
   "@visualizerLockPreset": {
     "description": "可视化右键菜单项，使其不再自动切换场景，保持当前的场景。"

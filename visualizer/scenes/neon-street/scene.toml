@@ -1,0 +1,761 @@
+format = 1
+name = "Neon Street"
+license = "MPL-2.0"
+description = "A shopping street at night, walked on the beat"
+
+common = ["glyphs.wgsl", "city.wgsl"]
+
+[state]
+file = "state.wgsl"
+update = "update.wgsl"
+
+[[asset]]
+id = "glyphs"
+file = "assets/glyphs.png"
+linear = true
+source = "Rendered from Noto Sans JP (SIL Open Font License 1.1, assets/OFL.txt) by tools/make_glyphs.py"
+
+# The street is drawn at 0.75 of the screen's size and scaled up: about 1.75 times as fast.
+[render]
+scale = 0.75
+
+[[buffer]]
+id = "street"
+
+[[buffer]]
+id = "inked"
+
+[[buffer]]
+id = "trail"
+persistent = true
+
+[[pass]]
+shader = "street.wgsl"
+target = "street"
+
+[[pass]]
+shader = "ink.wgsl"
+target = "inked"
+inputs = ["street"]
+
+[[pass]]
+shader = "compose.wgsl"
+target = "trail"
+inputs = ["inked", "prev:trail"]
+
+[[pass]]
+shader = "grade.wgsl"
+target = "out"
+inputs = ["trail"]
+
+[post]
+exposure = 0.0
+bloom = { intensity = 0.55, threshold = 1.0, radius = 0.7 }
+tonemap = "agx"
+grain = 0.035
+chromatic = 0.0012
+vignette = 0.45
+contrast = 1.22
+saturation = 1.05
+
+# ---- Beat ----
+
+[[param]]
+id = "conf"
+group = "Beat"
+label = "Beat confidence needed"
+default = 0.4
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "hits"
+group = "Beat"
+label = "Kicks between beats"
+default = 0.5
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "kick_decay"
+group = "Beat"
+label = "Kick decay"
+unit = "s"
+default = 0.15
+min = 0.04
+max = 0.6
+step = 0.01
+
+[[param]]
+id = "shake"
+group = "Beat"
+label = "Shake"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "shake_energy"
+group = "Beat"
+label = "Shake follows loudness"
+default = 1.0
+min = 0.0
+max = 1.5
+step = 0.05
+
+[[param]]
+id = "accent_level"
+group = "Beat"
+label = "How hard a hit must be to shake"
+default = 0.97
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "shake_gap"
+group = "Beat"
+label = "Shortest gap between shakes"
+unit = "s"
+default = 10.0
+min = 0.5
+max = 20.0
+step = 0.5
+
+[[param]]
+id = "shake_decay"
+group = "Beat"
+label = "How long a shake lasts"
+unit = "s"
+default = 0.35
+min = 0.05
+max = 1.5
+step = 0.05
+
+[[param]]
+id = "pump"
+group = "Beat"
+label = "Brightness on the kick"
+default = 0.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "zoom"
+group = "Beat"
+label = "Zoom on the kick"
+default = 0.0
+min = 0.0
+max = 0.2
+step = 0.005
+
+# ---- Camera ----
+
+[[param]]
+id = "cruise"
+group = "Camera"
+label = "Speed for music of middling pace"
+unit = "m/s"
+default = 4.5
+min = 0.0
+max = 15.0
+step = 0.1
+
+[[param]]
+id = "song_pace"
+group = "Camera"
+label = "Speed follows how fast the song sounds"
+default = 1.5
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "moment_pace"
+group = "Camera"
+label = "How much faster and slower parts differ"
+default = 2.5
+min = 0.0
+max = 5.0
+step = 0.1
+
+[[param]]
+id = "feel_smooth"
+group = "Camera"
+label = "How long the speed takes to follow"
+unit = "s"
+default = 4.0
+min = 0.5
+max = 20.0
+step = 0.5
+
+[[param]]
+id = "energy_speed"
+group = "Camera"
+label = "Speed follows the energy"
+default = 0.3
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "push"
+group = "Camera"
+label = "Push on the beat"
+unit = "m/s"
+default = 1.5
+min = 0.0
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "ease"
+group = "Camera"
+label = "Back to cruise"
+unit = "s"
+default = 0.5
+min = 0.05
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "accel"
+group = "Camera"
+label = "Smoothness"
+unit = "s"
+default = 0.12
+min = 0.01
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "build_bars"
+group = "Camera"
+label = "Build-up bars"
+default = 2.0
+min = 0.25
+max = 8.0
+step = 0.25
+
+[[param]]
+id = "build"
+group = "Camera"
+label = "Push in before a louder section"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+# ---- Hard cuts ----
+
+[[param]]
+id = "same_view"
+type = "bool"
+group = "Cuts"
+label = "Same view for the same kind of section"
+default = true
+
+[[param]]
+id = "cut_bars"
+group = "Cuts"
+label = "Bars between cut chances"
+default = 4.0
+min = 1.0
+max = 16.0
+step = 1.0
+
+[[param]]
+id = "cut_chance"
+group = "Cuts"
+label = "Cut chance"
+unit = "%"
+default = 40.0
+min = 0.0
+max = 100.0
+step = 1.0
+
+[[param]]
+id = "cut_gap"
+group = "Cuts"
+label = "Shortest gap between cuts"
+unit = "s"
+default = 2.0
+min = 0.5
+max = 10.0
+step = 0.5
+
+[[param]]
+id = "side"
+group = "Cuts"
+label = "Side view chance"
+unit = "%"
+default = 30.0
+min = 0.0
+max = 100.0
+step = 1.0
+
+[[param]]
+id = "yaw"
+group = "Cuts"
+label = "Side view angle"
+unit = "°"
+default = 18.0
+min = 0.0
+max = 60.0
+step = 1.0
+
+[[param]]
+id = "yaw_var"
+group = "Cuts"
+label = "Side view angle spread"
+unit = "°"
+default = 10.0
+min = 0.0
+max = 30.0
+step = 1.0
+
+[[param]]
+id = "eye"
+group = "Cuts"
+label = "Street view height"
+unit = "m"
+default = 3.0
+min = 1.5
+max = 6.0
+step = 0.1
+
+[[param]]
+id = "high"
+group = "Cuts"
+label = "High view chance"
+unit = "%"
+default = 15.0
+min = 0.0
+max = 100.0
+step = 1.0
+
+[[param]]
+id = "high_eye"
+group = "Cuts"
+label = "High view height"
+unit = "m"
+default = 10.0
+min = 3.0
+max = 20.0
+step = 0.5
+
+[[param]]
+id = "overview"
+group = "Cuts"
+label = "Overview chance"
+unit = "%"
+default = 15.0
+min = 0.0
+max = 100.0
+step = 1.0
+
+[[param]]
+id = "overview_height"
+group = "Cuts"
+label = "Overview height"
+unit = "m"
+default = 45.0
+min = 15.0
+max = 120.0
+step = 1.0
+
+[[param]]
+id = "overview_pitch"
+group = "Cuts"
+label = "Overview pitch"
+unit = "°"
+default = 55.0
+min = 20.0
+max = 89.0
+step = 1.0
+
+[[param]]
+id = "flash"
+group = "Cuts"
+label = "Flash on a cut"
+default = 0.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+# ---- Signs ----
+
+[[param]]
+id = "swing"
+group = "Signs"
+label = "How far the lanterns swing with the beat"
+default = 0.25
+min = 0.0
+max = 0.8
+step = 0.01
+
+[[param]]
+id = "pulse"
+group = "Signs"
+label = "Sign pulse"
+default = 0.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "react"
+group = "Signs"
+label = "Share of signs on a beat"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "stagger"
+group = "Signs"
+label = "Stagger"
+unit = "s"
+default = 0.25
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "switch_share"
+group = "Signs"
+label = "Share of signs changing text on a beat"
+default = 0.5
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "dark_quiet"
+group = "Signs"
+label = "Signs off in the quietest sections"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "bass_glow"
+group = "Signs"
+label = "Glow with the bass"
+default = 0.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "street_things"
+group = "Street"
+label = "How many shops have things out front (banners, standing boards, bicycles)"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "shrines"
+group = "Street"
+label = "How many little roadside shrines"
+default = 0.05
+min = 0.0
+max = 0.3
+step = 0.01
+
+[[param]]
+id = "arches"
+group = "Street"
+label = "How many blocks start with the shopping street's arch"
+default = 0.7
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "roof_torii"
+group = "Street"
+label = "How many buildings have a small torii on the roof"
+default = 0.2
+min = 0.0
+max = 0.5
+step = 0.01
+
+[[param]]
+id = "people"
+group = "Street"
+label = "People in the street"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "detail"
+group = "Street"
+label = "How far small things are drawn (m; people 60% further)"
+default = 45.0
+min = 15.0
+max = 120.0
+step = 5.0
+
+[[param]]
+id = "palette_spread"
+group = "Signs"
+label = "Colour spread within a district"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "sign_saturation"
+group = "Signs"
+label = "Sign saturation"
+default = 0.78
+min = 0.0
+max = 1.0
+step = 0.02
+
+# ---- Look ----
+
+[[param]]
+id = "exposure"
+group = "Look"
+label = "Exposure"
+unit = "EV"
+default = 0.0
+min = -3.0
+max = 3.0
+step = 0.1
+
+[[param]]
+id = "ambient"
+group = "Look"
+label = "Night light on the buildings"
+default = 0.025
+min = 0.0
+max = 0.15
+step = 0.005
+
+[[param]]
+id = "glow"
+group = "Look"
+label = "Bloom"
+default = 0.55
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "glow_beat"
+group = "Look"
+label = "Bloom on the kick"
+default = 0.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "chroma"
+group = "Look"
+label = "Chromatic aberration"
+default = 1.0
+min = 0.0
+max = 5.0
+step = 0.1
+
+[[param]]
+id = "blur"
+group = "Look"
+label = "Motion blur"
+default = 0.25
+min = 0.0
+max = 0.9
+step = 0.01
+
+[[param]]
+id = "wet"
+group = "Look"
+label = "Wet street"
+default = 0.25
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "puddles"
+group = "Look"
+label = "Puddles"
+default = 0.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "sheen"
+group = "Look"
+label = "Light pools on the street"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "spill"
+group = "Look"
+label = "Shop light on the street"
+default = 0.7
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "wet_dark"
+group = "Look"
+label = "Wet street darkens"
+default = 0.8
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "roughness"
+group = "Look"
+label = "Frosted street"
+default = 0.3
+min = 0.1
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "fog"
+group = "Look"
+label = "Fog"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "cool_shadows"
+group = "Look"
+label = "Cool shadows"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "palette"
+type = "choice"
+group = "Look"
+label = "Palette"
+default = 5
+options = ["Own colours", "Reds", "Ink, red lights only", "Reds and ink by section", "The theme colour (the player's accent)", "The theme colour and ink by section"]
+
+[[param]]
+id = "palette_key"
+group = "Look"
+label = "Palette midpoint"
+default = 0.2
+min = 0.02
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "relief"
+group = "Look"
+label = "Relief on the walls (floor bands and sills standing out, windows set in)"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "ink"
+group = "Look"
+label = "Ink lines round things (as in a comic)"
+default = 0.85
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "ink_width"
+group = "Look"
+label = "How wide the ink lines are"
+unit = "px"
+default = 2.0
+min = 0.5
+max = 4.0
+step = 0.25
+
+[[param]]
+id = "halftone"
+group = "Look"
+label = "Halftone dots between the tone steps (0 none)"
+unit = "px"
+default = 5.0
+min = 0.0
+max = 12.0
+step = 0.5
+
+[[param]]
+id = "crush"
+group = "Look"
+label = "In a single-colour palette, the darkest step solid black (as Persona 5's black shapes)"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "wipe_time"
+group = "Look"
+label = "How long the slanted red and black wipe at a cut takes (0 none)"
+unit = "s"
+default = 0.3
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "posterize"
+group = "Look"
+label = "Posterize steps (0 off)"
+default = 5.0
+min = 0.0
+max = 10.0
+step = 1.0
+
+[[param]]
+id = "accent"
+group = "Look"
+label = "Red lights kept in ink"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "player_colour"
+type = "bool"
+group = "Look"
+label = "The theme colour palette follows the player's theme colour (the system's accent, the chosen colour or the cover's)"
+default = true
+
+[[param]]
+id = "theme"
+type = "color"
+group = "Look"
+label = "The theme colour when not following the player; only its hue is taken"
+default = "#007aff"

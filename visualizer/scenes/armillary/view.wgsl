@@ -304,8 +304,8 @@ fn ring_lines(o: vec3f, at: vec2f, step: f32, pixel: f32, limit: f32) -> vec3f {
 // The rings drawn in marks (look 3): each a string of small round dots, or (every other ring) of
 // little crosses, bigger and brighter on the near side and small and faint on the far, so the
 // depth is in their size; the ecliptic's ticks short columns of dots, as many as the spectrum is loud there.
-// An accent sends a comet round a ring: the dots behind its head swell and take the theme's
-// colour, fading back along a trail (the dots never move; the light runs along them). Each dot is
+// An accent lights a ring: its dots switch on one after another both ways from one place, each
+// at once and fully, a little bigger and in the theme's colour, and dim together. Each dot is
 // found exactly: the few nearest where the ray crosses the ring's plane and where it passes
 // nearest the ring, each put on the screen and measured there. Hidden behind the core (further
 // than `limit`).
@@ -351,14 +351,14 @@ fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
     let n = max(round(6.2831853 * r / gap), 12.0);
     let spec = state.ring_spec[i].x;
     let amp = spec * params.spec_amp;
-    let comet = state.ring_comet[i];
+    let on = state.ring_on[i];
     let rest = (select(0.15, 0.24, main) * mix(1.0, 0.3, state.layer_mix)) * params.ring_glow;
     // The ring of the spectrum is a solid line in the theme's colour, the brightest thing at rest
-    // and lit further where it reaches out; its dots give way to it, and a comet on it lights the
+    // and lit further where it reaches out; its dots give way to it, and lighting it lights the
     // whole line a moment.
     if (spec > 0.01) {
       let line = line_at(o, d, dx, dy, i, r, amp, 1.8, 0.4, limit);
-      col += state.palette[1].rgb * line.x * spec * (0.55 + comet.z * 0.8) * params.ring_glow * mix(0.45, 1.0, line.y);
+      col += state.palette[1].rgb * line.x * spec * (0.55 + on.z * 0.8) * params.ring_glow * mix(0.45, 1.0, line.y);
     }
     // Where to look: round the angle where the ray crosses the plane, and where it comes nearest.
     var angles = vec2f(-10.0);
@@ -393,17 +393,17 @@ fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
         let ang = u * 6.2831853;
         let out = x * cos(ang) + y * sin(ang);
         let b = c0 + out * (r + amp * round_spectrum(u));
-        // The comet: how far behind its head this dot is, in dots.
-        let behind = fract((comet.x - u) * comet.w) * n;
-        let glow = comet.z * exp(-behind / params.trail_beads) * f32(behind < n * 0.5);
+        // Whether this dot has come on: within how far the lighting has spread from where it began.
+        let from_start = min(fract(u - on.x), fract(on.x - u));
+        let glow = on.z * f32(from_start <= on.y + 0.5 / n);
         let side = clamp(dot(b - c0, -state.cam_fwd) / r, -1.0, 1.0) * 0.5 + 0.5;
-        let size = params.bead_size * mix(0.7, 1.15, side) * (1.0 + 2.8 * glow);
+        let size = params.bead_size * mix(0.7, 1.15, side) * (1.0 + 0.6 * glow);
         // (Every other ring is all crosses, the rest all dots.)
         let plus = (i % 2u) == 1u;
         var m = mark(at, b, o, size, plus, px1, limit);
         m.x *= 1.0 - spec;
         if (m.x > 0.0) {
-          let ink = state.ring_tint[i].rgb * rest * mix(0.3, 1.0, side) + mix(state.palette[1].rgb, vec3f(1.0), smoothstep(0.88, 1.0, glow)) * glow * 4.0;
+          let ink = state.ring_tint[i].rgb * rest * mix(0.3, 1.0, side) + state.palette[1].rgb * glow * 2.5;
           best = max(best, ink * m.x);
         }
         // The ecliptic's ticks: inward from every sixth dot, as many dots as it is loud there.

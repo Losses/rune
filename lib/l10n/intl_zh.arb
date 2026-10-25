@@ -1355,6 +1355,10 @@
   "@visualizerChoosePreset": {
     "description": "視覺化右鍵選單項，開啟子選單依名稱選擇某個場景。"
   },
+  "visualizerBuiltInPresets": "內建",
+  "@visualizerBuiltInPresets": {
+    "description": "視覺化右鍵選單的子選單，列出內建於應用程式的場景。"
+  },
   "visualizerLockPreset": "鎖定場景",
   "@visualizerLockPreset": {
     "description": "視覺化右鍵選單項，使其不再自動切換場景，保持目前的場景。"

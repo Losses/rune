@@ -1,0 +1,2115 @@
+// The city, shared by the passes that draw the street, in linear HDR.
+//
+// The city is a grid. Across, column 0 is the street (|x| < HALF), columns ±1 the row of shops on
+// either side (COL deep) and ±2 onwards the blocks behind. Along the street every row is UNIT
+// long and every BLOCK-th row is a cross street. A ray walks the grid cell by cell (a 2D DDA)
+// and stops at the first building: its wall or its roof. Over the street hang signs facing the
+// camera, strings of lanterns or a tangle of wires on poles, traffic lights at the crossings,
+// and people walk the street. Signs, shops and lanterns light the street, which is wet.
+// Some blocks are busy (more and bigger signs, more people), some quiet; each has one big sign.
+// The colours are those of the lights that make them: warm and cool white shops, red, yellow
+// and white signs, a sky the city stains brown.
+//
+// The grid's sizes and what stands where along the street are in state.wgsl, as update works out
+// once a frame what the rows ahead hold.
+
+// ---- Colour ----
+
+fn hsv(h: f32, s: f32, v: f32) -> vec3f {
+  let p = abs(fract(vec3f(h) + vec3f(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+  return v * mix(vec3f(1.0), clamp(p - 1.0, vec3f(0.0), vec3f(1.0)), s);
+}
+
+// Sign colours as a real street has them: mostly red, yellow and white, some orange, now and
+// then green or blue, rarely pink. Each district has a favourite it uses more.
+fn palette(i: f32) -> vec3f {
+  if (i < 1.0) {
+    return vec3f(1.0, 0.07, 0.05);
+  }
+  if (i < 2.0) {
+    return vec3f(1.0, 0.68, 0.08);
+  }
+  if (i < 3.0) {
+    return vec3f(1.0, 0.84, 0.6);
+  }
+  if (i < 4.0) {
+    return vec3f(0.84, 0.93, 1.0);
+  }
+  if (i < 5.0) {
+    return vec3f(1.0, 0.33, 0.06);
+  }
+  if (i < 6.0) {
+    return vec3f(0.1, 0.78, 0.3);
+  }
+  if (i < 7.0) {
+    return vec3f(0.12, 0.33, 1.0);
+  }
+  return vec3f(1.0, 0.15, 0.42);
+}
+
+fn neon(k: f32) -> vec3f {
+  let r = fract(k);
+  var i: f32;
+  if (fract(r * 7.31) < 0.3) {
+    // The district's favourite: red, yellow, warm white or orange.
+    i = select(select(select(4.0, 2.0, state.district < 0.75), 1.0, state.district < 0.5), 0.0, state.district < 0.25);
+  } else if (r < 0.3) {
+    i = 0.0;
+  } else if (r < 0.46) {
+    i = 1.0;
+  } else if (r < 0.62) {
+    i = 2.0;
+  } else if (r < 0.72) {
+    i = 3.0;
+  } else if (r < 0.82) {
+    i = 4.0;
+  } else if (r < 0.9) {
+    i = 5.0;
+  } else if (r < 0.97) {
+    i = 6.0;
+  } else {
+    i = 7.0;
+  }
+  let c = palette(i);
+  return mix(vec3f(rv_luma(c)), c, params.sign_saturation);
+}
+
+// ---- The beat on lights ----
+
+// How long light `id` waits after beat bi before it jumps.
+fn lag_of(id: vec2f, bi: f32) -> f32 {
+  return h21(id * 0.73 + bi * vec2f(1.7, 9.1)) * params.stagger;
+}
+
+// How much brighter light `id` is now: each takes each beat after its own delay, some skip it.
+fn light_kick(id: vec2f) -> f32 {
+  let since_beat = frame.time - state.beat_time;
+  var bi = state.beat_count;
+  var since = since_beat - lag_of(id, bi);
+  if (since < 0.0) {
+    bi -= 1.0;
+    since = since_beat + state.beat_gap - lag_of(id, bi);
+  }
+  let share = params.react * (0.5 + state.energy);
+  let react = step(h21(id * 1.9 + bi * vec2f(4.3, 2.7)), share) * (0.5 + h21(id * 2.3 + bi * vec2f(7.1, 5.5)));
+  return params.pulse * react * exp(-max(since, 0.0) / params.kick_decay) * step(0.0, since);
+}
+
+// Which pattern sign `id` shows: some signs change on every beat.
+fn pattern_of(id: vec2f) -> f32 {
+  return floor(state.changes * params.switch_share + h21(id + 0.5) * 5.3);
+}
+
+// Quiet sections leave some signs dark; each section picks its own.
+fn lit(id: vec2f) -> f32 {
+  return step(state.dark, h21(id * 3.71 + vec2f(music.section * 1.37, 2.9)));
+}
+
+fn glow_now(id: vec2f) -> f32 {
+  return (1.0 + light_kick(id)) * (0.85 + params.bass_glow * 0.3 * min(music.bass, 2.0));
+}
+
+// ---- Layout ----
+
+// The column x is in: 0 the street, ±1 the shops, ±2 and on the blocks behind.
+fn column(x: f32) -> i32 {
+  if (abs(x) < HALF) {
+    return 0;
+  }
+  let j = i32(floor((abs(x) - HALF) / COL)) + 1;
+  return select(-j, j, x > 0.0);
+}
+
+// Where column i starts and ends across.
+fn column_span(i: i32) -> vec2f {
+  if (i == 0) {
+    return vec2f(-HALF, HALF);
+  }
+  let a = HALF + f32(abs(i) - 1) * COL;
+  return select(vec2f(-a - COL, -a), vec2f(a, a + COL), i > 0);
+}
+
+// The box of the building in column i, row n across (x0, x1) and along (z0, z1). Shop buildings
+// may stand back from the street; behind them alleys run between the buildings.
+fn cell_box(i: i32, n: f32) -> vec4f {
+  let span = column_span(i);
+  if (abs(i) == 1) {
+    let w = wall_x(n, f32(i));
+    return select(vec4f(span.x, -w, n * UNIT, n * UNIT + UNIT), vec4f(w, span.y, n * UNIT, n * UNIT + UNIT), i > 0);
+  }
+  var z0 = n * UNIT;
+  var z1 = z0 + UNIT;
+  if (fract(n * 0.5) < 0.25) {
+    z0 += 0.6;
+  } else {
+    z1 -= 0.6;
+  }
+  return vec4f(span.x + 0.6, span.y - 0.6, z0, z1);
+}
+
+// The billboard on the roof of shop building n (side s): its bottom and top, 0 for none.
+fn billboard_of(n: f32, s: f32) -> vec2f {
+  let b = first_row(n, s);
+  let hb = height_of(i32(s), n);
+  let on = h21(vec2f(b, s) + 33.3) < 0.35 && hb > 3.0 * STOREY;
+  return select(vec2f(0.0), vec2f(hb, hb + 2.5 + 2.0 * h21(vec2f(b, s) + 3.3)), on);
+}
+
+// Now and then a building has a small shrine's torii on its roof, as Japanese city roofs do: its
+// gate facing along the street, so it is seen square on going down it, towards the roof's street
+// side so it shows over the edge. Where it stands (x, z of
+// its middle), its size (1 is 3 m tall) and the roof's height; size 0 for none. Not on a roof
+// with a billboard. The same for every cell of a building.
+fn torii_of(i: i32, n: f32) -> vec4f {
+  let hb = height_of(i, n);
+  if (hb <= 0.0) {
+    return vec4f(0.0);
+  }
+  var x0: f32;
+  var x1: f32;
+  var z0: f32;
+  var z1: f32;
+  var id: vec2f;
+  if (abs(i) == 1) {
+    let s = f32(i);
+    if (billboard_of(n, s).y > 0.0) {
+      return vec4f(0.0);
+    }
+    let b = first_row(n, s);
+    let w = wall_x(n, s);
+    let span = column_span(i);
+    x0 = select(span.x, w, s > 0.0);
+    x1 = select(-w, span.y, s > 0.0);
+    z0 = b * UNIT;
+    z1 = z0 + rows_of(n, s) * UNIT;
+    id = vec2f(b, s);
+  } else {
+    // Behind the shops a building is two rows long.
+    let box = cell_box(i, n);
+    let k = floor(n * 0.5);
+    x0 = box.x;
+    x1 = box.y;
+    z0 = k * 2.0 * UNIT + 0.6;
+    z1 = z0 + 2.0 * UNIT - 1.2;
+    id = vec2f(k, f32(i) * 7.3);
+  }
+  if (h21(id + 71.3) >= params.roof_torii) {
+    return vec4f(0.0);
+  }
+  let size = min(0.85 + 0.45 * h21(id + 72.1), (x1 - x0) / 3.6);
+  // Towards the street side of the roof, so it shows over the edge from the street.
+  let street_side = select(x0, x1, f32(i) < 0.0);
+  let x = mix(street_side, 0.5 * (x0 + x1), 0.45);
+  return vec4f(x, mix(z0 + 1.0, z1 - 1.0, h21(id + 73.7)), size, hb);
+}
+
+// The ray against roof torii r (from torii_of): t and the face (as box_hit), and the piece (0 a
+// pillar, 1 the nuki, 2 the kasagi); t < 0 for a miss. Straight boxes: pillars, the nuki through
+// them, the kasagi over it overhanging both sides.
+fn torii_hit(o: vec3f, inv: vec3f, r: vec4f) -> vec3f {
+  let base = vec3f(r.x, r.w, r.y);
+  let k = r.z;
+  var best = vec3f(-1.0, 0.0, 0.0);
+  for (var piece = 0; piece < 4; piece++) {
+    var c: vec3f;
+    var h: vec3f;
+    if (piece < 2) {
+      c = vec3f(select(-1.0, 1.0, piece == 1), 1.4, 0.0);
+      h = vec3f(0.12, 1.4, 0.12);
+    } else if (piece == 2) {
+      c = vec3f(0.0, 2.25, 0.0);
+      h = vec3f(1.25, 0.08, 0.07);
+    } else {
+      c = vec3f(0.0, 2.88, 0.0);
+      h = vec3f(1.6, 0.13, 0.17);
+    }
+    let q = box_hit(o, inv, base + (c - h) * k, base + (c + h) * k);
+    if (q.x > 0.0 && (best.x < 0.0 || q.x < best.x)) {
+      best = vec3f(q, f32(max(piece - 1, 0)));
+    }
+  }
+  return best;
+}
+
+// Where the ray enters the box lo..hi (t > 0) and through which face (1 across, 2 along,
+// 3 top or bottom), or t < 0.
+fn box_hit(o: vec3f, inv: vec3f, lo: vec3f, hi: vec3f) -> vec2f {
+  let t0 = (lo - o) * inv;
+  let t1 = (hi - o) * inv;
+  let tn = min(t0, t1);
+  let tf = max(t0, t1);
+  let near = max(max(tn.x, tn.y), tn.z);
+  let far = min(min(tf.x, tf.y), tf.z);
+  if (near > far || near < 1e-4) {
+    return vec2f(-1.0, 0.0);
+  }
+  return vec2f(near, select(select(2.0, 3.0, near == tn.y), 1.0, near == tn.x));
+}
+
+fn inverse(d: vec3f) -> vec3f {
+  return 1.0 / select(d, vec3f(1e-6), abs(d) < vec3f(1e-6));
+}
+
+// A sign's light, steady (as it lights the street) and with the beat (as it is seen).
+fn sign_colour(n: f32, s: f32) -> vec3f {
+  let id = vec2f(n, s);
+  let strength = select(1.2, 2.2, h21(id + 6.1) > 0.4);
+  return neon(h21(id + 4.7)) * strength * lit(id);
+}
+
+fn sign_light(n: f32, s: f32) -> vec3f {
+  return sign_colour(n, s) * glow_now(vec2f(n, s));
+}
+
+
+// What the shop of building n on side s gives off (black for a shutter or a cross street),
+// steady (as it lights the street) and swelling with the bass (as it is seen).
+fn shop_light(n: f32, s: f32) -> vec3f {
+  return shop_colour(n, s) * (0.8 + params.bass_glow * 0.25 * min(music.bass, 2.0));
+}
+
+fn shop_colour(n: f32, s: f32) -> vec3f {
+  if (crossing(n)) {
+    return vec3f(0.0);
+  }
+  let id = vec2f(n, s);
+  let kind = shop_kind(n, s);
+  var c = vec3f(0.0);
+  if (kind == KONBINI) {
+    c = vec3f(0.85, 0.95, 1.0) * 1.1;
+  } else if (kind == IZAKAYA) {
+    c = vec3f(1.0, 0.5, 0.2) * 0.8;
+  } else if (kind == GAMES) {
+    c = mix(neon(h21(id + 5.5)), vec3f(1.0), 0.5) * 1.2;
+  } else if (kind == BOUTIQUE) {
+    c = vec3f(1.0, 0.85, 0.7) * 0.3;
+  } else if (kind == DRUGSTORE) {
+    c = vec3f(1.0, 0.95, 0.7) * 1.2;
+  } else if (kind == CAFE) {
+    c = vec3f(1.0, 0.65, 0.35) * 0.55;
+  } else if (kind == BAR) {
+    c = neon(h21(id + 5.5)) * 0.25;
+  } else if (kind == VENDING) {
+    c = mix(vec3f(0.9, 0.95, 1.0), vec3f(1.0, 0.25, 0.2), step(0.5, h21(id + 2.2))) * 0.5;
+  }
+  return c;
+}
+
+// Lantern strings hang across the street over every other row (not over cross streets).
+fn string_z(m: f32) -> f32 {
+  return m * 2.0 * UNIT + 2.1;
+}
+
+fn string_on(m: f32) -> bool {
+  let n = floor(string_z(m) / UNIT);
+  return !crossing(n) && lantern_block(n) && h21(vec2f(m, 31.7)) < 0.85;
+}
+
+fn string_y(m: f32, x: f32) -> f32 {
+  let x1 = x / HALF;
+  return 5.2 + 0.9 * h21(vec2f(m, 2.3)) - 0.55 * (1.0 - x1 * x1);
+}
+
+fn lantern_colour(m: f32) -> vec3f {
+  return select(vec3f(1.0, 0.3, 0.15) * 2.4, vec3f(1.0, 0.82, 0.58) * 2.2, h21(vec2f(m, 5.9)) < 0.35);
+}
+
+// ---- The grid ----
+
+struct Hit {
+  t: f32,
+  // 0 nothing, 1 a face across, 2 a face along, 3 a roof.
+  kind: f32,
+  i: i32,
+  n: f32,
+  // 0 the building, 1 the billboard on its roof, 2 a torii on its roof (and which piece: 2 a
+  // pillar, 3 the nuki, 4 the kasagi).
+  part: f32,
+}
+
+fn trace(o: vec3f, d: vec3f, steps: f32, tmax: f32) -> Hit {
+  var hit: Hit;
+  hit.t = tmax;
+  hit.kind = 0.0;
+  hit.part = 0.0;
+  let inv = inverse(d);
+  var i = column(o.x);
+  var n = floor(o.z / UNIT);
+  var t = 0.0;
+  for (var k = 0.0; k < 72.0; k += 1.0) {
+    if (k >= steps) {
+      break;
+    }
+    let span = column_span(i);
+    var tx = 1e9;
+    if (d.x > 1e-6) {
+      tx = (span.y - o.x) / d.x;
+    } else if (d.x < -1e-6) {
+      tx = (span.x - o.x) / d.x;
+    }
+    var tz = 1e9;
+    if (d.z > 1e-6) {
+      tz = ((n + 1.0) * UNIT - o.z) / d.z;
+    } else if (d.z < -1e-6) {
+      tz = (n * UNIT - o.z) / d.z;
+    }
+    let exit = min(tx, tz);
+    let h = height_of(i, n);
+    if (h > 0.0) {
+      let b = cell_box(i, n);
+      let r = box_hit(o, inv, vec3f(b.x, 0.0, b.z), vec3f(b.y, h, b.w));
+      if (r.x > 0.0 && r.x < hit.t) {
+        hit.t = r.x;
+        hit.kind = r.y;
+        hit.i = i;
+        hit.n = n;
+      }
+      if (abs(i) == 1) {
+        let s = f32(i);
+        let bb = billboard_of(n, s);
+        if (bb.y > 0.0) {
+          let w = wall_x(n, s);
+          let z0 = first_row(n, s) * UNIT + 0.4;
+          let z1 = z0 + rows_of(n, s) * UNIT - 0.8;
+          let x0 = select(-w - 0.3, w, s > 0.0);
+          let rb = box_hit(o, inv, vec3f(x0, bb.x, z0), vec3f(x0 + 0.3, bb.y, z1));
+          if (rb.x > 0.0 && rb.x < hit.t) {
+            hit.t = rb.x;
+            hit.kind = rb.y;
+            hit.i = i;
+            hit.n = n;
+            hit.part = 1.0;
+          }
+        }
+      }
+      let shrine = torii_of(i, n);
+      if (shrine.z > 0.0) {
+        let rt = torii_hit(o, inv, shrine);
+        if (rt.x > 0.0 && rt.x < hit.t) {
+          hit.t = rt.x;
+          hit.kind = rt.y;
+          hit.i = i;
+          hit.n = n;
+          hit.part = 2.0 + rt.z;
+        }
+      }
+      if (hit.kind > 0.5) {
+        return hit;
+      }
+    }
+    if (exit >= tmax) {
+      break;
+    }
+    t = exit;
+    if (tx < tz) {
+      i += select(-1, 1, d.x > 0.0);
+    } else {
+      n += select(-1.0, 1.0, d.z > 0.0);
+    }
+  }
+  return hit;
+}
+
+// ---- Words on signs ----
+
+// How much of a pixel character ci of word w covers at g (0..1 across its cell). `vertical`
+// takes the upright forms; aa is a pixel in cell units. With outline > 0 only a tube that wide
+// (in cell units) along the outline, as neon letters are.
+fn glyph_ink(w: f32, ci: f32, g: vec2f, vertical: bool, aa: f32, outline: f32) -> f32 {
+  let size = vec2f(textureDimensions(asset_glyphs));
+  let row = ci + select(WORD_ROWS, 0.0, vertical);
+  let q = clamp(g, vec2f(0.02), vec2f(0.98));
+  let uv = (vec2f(w, row) + q) * GLYPH_CELL / size;
+  let lod = max(log2(aa * GLYPH_CELL), 0.0);
+  let d = textureSampleLevel(asset_glyphs, linear_clamp, uv, lod).r;
+  // The field changes by 1 / (2 * spread) per atlas pixel.
+  let per = 1.0 / (2.0 * GLYPH_SPREAD);
+  let soft = max(aa * GLYPH_CELL * per * 0.7, 0.008);
+  let inside = step(0.0, g.x) * step(g.x, 1.0) * step(0.0, g.y) * step(g.y, 1.0);
+  if (outline > 0.0) {
+    let half = outline * GLYPH_CELL * per;
+    return smoothstep(half + soft, max(half - soft, 0.0), abs(d - 0.5)) * inside;
+  }
+  return smoothstep(0.5 - soft, 0.5 + soft, d) * inside;
+}
+
+// The word sign `id` shows, one that fits in `room` characters.
+fn word_for(id: vec2f, room: f32) -> f32 {
+  for (var k = 0.0; k < 4.0; k += 1.0) {
+    let w = floor(h21(id + vec2f(k * 5.1, 2.2)) * SIGN_WORDS);
+    if (word_length(w) <= room) {
+      return w;
+    }
+  }
+  // The one-character words: the characters for medicine, book and pawn.
+  let r = h21(id + 9.4);
+  return select(select(5.0, 23.0, r < 0.6), 27.0, r < 0.25);
+}
+
+// Coverage of word w written down a strip `width` wide; x, v in metres from its top left, the
+// characters centred in `height`.
+fn vertical_word(w: f32, x: f32, v: f32, width: f32, height: f32, aa: f32, outline: f32) -> f32 {
+  let len = word_length(w);
+  let top = 0.5 * (height - len * width);
+  let ci = floor((v - top) / width);
+  let g = vec2f(x / width, (v - top) / width - ci);
+  return glyph_ink(w, ci, g, true, aa / width, outline) * step(0.0, ci) * step(ci, len - 1.0);
+}
+
+// Coverage of word w written along a band `height` tall, centred in `width`.
+fn horizontal_word(w: f32, x: f32, y: f32, width: f32, height: f32, aa: f32, outline: f32) -> f32 {
+  let len = word_length(w);
+  let left = 0.5 * (width - len * height);
+  let ci = floor((x - left) / height);
+  let g = vec2f((x - left) / height - ci, y / height);
+  return glyph_ink(w, ci, g, false, aa / height, outline) * step(0.0, ci) * step(ci, len - 1.0);
+}
+
+// A few tubes are failing: they flicker.
+fn flicker(id: vec2f) -> f32 {
+  let failing = step(0.94, h21(id + 7.3));
+  return mix(1.0, 0.15 + 0.85 * step(0.35, rv_value_noise(vec2f(frame.time * 9.0, id.x * 7.0 + id.y))), failing);
+}
+
+fn sign_face(n: f32, s: f32, p: vec3f, aa: f32) -> vec3f {
+  let id = vec2f(n, s);
+  let sg = sign_of(n, s);
+  let w = sg.y;
+  let h = sg.w - sg.z;
+  // Across as read from the street, and down from the top.
+  let a = (wall_x(n, s) - 0.12) - s * p.x;
+  let x = select(a, w - a, s > 0.0);
+  let v = sg.w - p.y;
+  let bg = neon(h21(id + 4.7));
+  // Older signs are dimmer.
+  let glow = glow_now(id) * (0.7 + 0.45 * h21(id + 2.8)) * flicker(id);
+  let m = 0.08 * w;
+  let edge = min(min(x, w - x), min(v, h - v));
+  let style = h21(id + 6.1);
+  var col: vec3f;
+  if (style < 0.42) {
+    // A lightbox with a word down it, brighter in the middle where the tubes are.
+    let cell = w - 2.0 * m;
+    let word = word_for(id, floor((h - 2.0 * m) / cell));
+    let ink = vertical_word(word, x - m, v - m, cell, h - 2.0 * m, aa, 0.0);
+    let fill = bg * (0.7 + 0.4 * (1.0 - pow(2.0 * x / w - 1.0, 2.0))) * 1.2 * glow;
+    let text = select(vec3f(1.6, 1.55, 1.45) * glow, vec3f(0.02, 0.016, 0.014), rv_luma(bg) > 0.4);
+    col = mix(fill, text, ink);
+    col = mix(col, vec3f(0.05, 0.05, 0.055), smoothstep(m * 0.3 + aa, m * 0.3, edge));
+  } else if (style < 0.66) {
+    // Neon letters on a dark board, a tube round its edge.
+    let cell = w - 2.0 * m;
+    let word = word_for(id, floor((h - 2.0 * m) / cell));
+    let tube = vertical_word(word, x - m, v - m, cell, h - 2.0 * m, aa, 0.045);
+    let halo = vertical_word(word, x - m, v - m, cell, h - 2.0 * m, aa * 3.0 + 0.05, 0.0);
+    let border = smoothstep(0.025 + aa, 0.0, abs(edge - m * 0.45));
+    col = vec3f(0.012, 0.011, 0.012) + bg * glow * (3.0 * max(tube, border) + 0.12 * halo);
+  } else if (style < 0.9) {
+    // A stack of boxes, one per tenant floor, each its own colour and word.
+    let count = max(floor(h / 1.3), 1.0);
+    let seg = h / count;
+    let si = min(floor(v / seg), count - 1.0);
+    let sv = v - si * seg;
+    let sid = id + vec2f(si * 3.1, 7.7);
+    let sbg = neon(h21(sid + 4.7));
+    let cell = min(w - 2.0 * m, 0.5 * (seg - 0.2));
+    let word = word_for(sid, floor((seg - 0.2) / cell));
+    let ink = vertical_word(word, x - 0.5 * (w - cell), sv - 0.1, cell, seg - 0.2, aa, 0.0);
+    let fill = sbg * 1.1 * glow * (0.85 + 0.3 * h21(sid + 1.0));
+    let text = select(vec3f(1.5) * glow, vec3f(0.02), rv_luma(sbg) > 0.4);
+    col = mix(fill, text, ink);
+    let gap = 1.0 - rv_band(sv, 0.04, seg - 0.04, aa);
+    col = mix(col, vec3f(0.03), max(gap, smoothstep(m * 0.25 + aa, m * 0.25, edge)));
+  } else {
+    // An amber dot-matrix board scrolling a step on every beat.
+    let pitch = 0.075;
+    let dot_id = floor(vec2f(x, v) / pitch);
+    let f = fract(vec2f(x, v) / pitch) - 0.5;
+    let pattern = pattern_of(id);
+    let on = step(0.5, fract((dot_id.y + dot_id.x * 0.7) / 6.0 - state.changes * 0.5 + pattern * 0.13));
+    let led = mix(smoothstep(0.42, 0.25, length(f)), 0.45, smoothstep(0.3, 1.0, aa / pitch));
+    col = vec3f(0.01) + vec3f(1.0, 0.45, 0.06) * 2.6 * glow * on * led;
+  }
+  return mix(col * 0.03 + vec3f(0.01), col, lit(id));
+}
+
+// A board along a facade with word w on it; x, y in metres from its top left. Styles: 0 a lit
+// board with dark letters, 1 lit letters on a dark board, 2 white letters on dark wood.
+fn board(id: vec2f, w: f32, style: f32, x: f32, y: f32, width: f32, height: f32, light: vec3f, aa: f32) -> vec3f {
+  let bg = neon(h21(id + 4.7));
+  let glow = glow_now(id) * (0.75 + 0.4 * h21(id + 2.8)) * flicker(id);
+  let ink = horizontal_word(w, x, y - 0.1 * height, width, height * 0.8, aa, 0.0);
+  var col: vec3f;
+  if (style < 0.5) {
+    let text = select(vec3f(1.5) * glow, vec3f(0.02), rv_luma(bg) > 0.4);
+    col = mix(bg * 0.95 * glow, text, ink);
+  } else if (style < 1.5) {
+    col = vec3f(0.015) + bg * 2.6 * glow * ink;
+  } else {
+    let wood = vec3f(0.22, 0.11, 0.05) * (light * 3.0 + vec3f(0.01));
+    col = mix(wood, vec3f(1.2, 1.1, 0.95) * (0.4 + light * 6.0), ink);
+  }
+  let edge = min(min(x, width - x), min(y, height - y));
+  return mix(col, vec3f(0.04), smoothstep(0.03 + aa, 0.03, edge));
+}
+
+// A panel along a facade; x, y in metres from its top left: a screen showing the spectrum, or a
+// board with a word.
+fn panel(id: vec2f, x: f32, y: f32, w: f32, h: f32, aa: f32) -> vec3f {
+  let glow = glow_now(id);
+  var col: vec3f;
+  if (h > 1.0 && h21(id + 2.9) < 0.35) {
+    // A screen: bars of the spectrum, in LED cells.
+    let nc = neon(h21(id + 4.7));
+    let nc2 = neon(h21(id + 8.8));
+    let bars = 32.0;
+    let b = floor(x / w * bars);
+    let level = rv_spectrum(0.06 + 0.8 * (b + 0.5) / bars, 0.0);
+    let height = 1.0 - y / h;
+    let cell = rv_band(fract(x / w * bars), 0.12, 0.88, aa * bars / w) * rv_band(fract(y / h * 16.0), 0.15, 0.85, aa * 16.0 / h);
+    let on = step(height, level * level * 1.2) * cell;
+    col = vec3f(0.006, 0.006, 0.01) + mix(nc, nc2, height) * 2.4 * on * glow;
+  } else {
+    let word = word_for(id, floor(w / (h * 0.8)));
+    col = board(id, word, floor(h21(id + 3.6) * 2.0), x, y, w, h, vec3f(0.0), aa);
+  }
+  return mix(col * 0.03 + vec3f(0.01), col, lit(id));
+}
+
+// A big screen; x, y in metres from its top left. What it shows changes every 16 beats: the
+// spectrum as bars, a ring from the middle on every beat, or bands sweeping a step a beat.
+fn big_screen(id: vec2f, x: f32, y: f32, w: f32, h: f32, aa: f32) -> vec3f {
+  let mode = floor(h21(id + vec2f(floor(state.beat_count / 16.0), 4.2)) * 3.0);
+  let uv = vec2f(x / w, y / h);
+  let nc = neon(h21(id + 4.7));
+  let nc2 = neon(h21(id + 8.8));
+  var c: vec3f;
+  if (mode < 1.0) {
+    let bars = 24.0;
+    let b = floor(uv.x * bars);
+    let level = rv_spectrum(0.05 + 0.8 * (b + 0.5) / bars, 0.0);
+    let up = 1.0 - uv.y;
+    c = mix(nc, nc2, up) * step(up, level * level * 1.3) * rv_band(fract(uv.x * bars), 0.1, 0.9, aa * bars / w);
+  } else if (mode < 2.0) {
+    let r = length((uv - 0.5) * vec2f(w / h, 1.0));
+    let since = frame.time - state.beat_time;
+    let ring = exp(-abs(r - since * 1.2) * 18.0) + 0.5 * exp(-abs(r - (since + state.beat_gap) * 1.2) * 18.0);
+    c = mix(nc, nc2, smoothstep(0.0, 0.8, r)) * ring + nc2 * 0.05;
+  } else {
+    let band = fract(uv.x * 3.0 + uv.y * 1.5 - state.changes * 0.25);
+    c = mix(nc, nc2, step(0.5, band)) * (0.3 + 0.7 * smoothstep(0.5, 0.0, abs(band - 0.5)));
+  }
+  let cell = 0.1;
+  let px = rv_band(fract(x / cell), 0.1, 0.9, aa / cell) * rv_band(fract(y / cell), 0.1, 0.9, aa / cell);
+  let pixels = mix(px, 0.8, smoothstep(0.3, 1.0, aa / cell));
+  return vec3f(0.004) + c * 1.8 * glow_now(id) * pixels * lit(id);
+}
+
+// ---- Buildings ----
+
+fn albedo_of(id: vec2f) -> vec3f {
+  let k = h21(id + 3.1);
+  if (k < 0.3) {
+    return vec3f(0.3, 0.29, 0.28);
+  }
+  if (k < 0.55) {
+    return vec3f(0.42, 0.36, 0.3);
+  }
+  if (k < 0.75) {
+    return vec3f(0.08, 0.09, 0.11);
+  }
+  return vec3f(0.4, 0.17, 0.13);
+}
+
+// Floors of windows on any wall; u metres along it, y up, `light` what falls on it.
+// k picks the style: below 0.3 plain, to 0.55 tiled, to 0.75 a glass curtain wall, above 0.88
+// with balconies.
+// The wall is not flat (`relief`): at the foot of each floor a band stands out, its top catching
+// the sky's cool light and the wall under it in its shade; the windows are set in, the top of
+// each opening in shadow and its sides darker, a sill standing out under it, lit on top with a
+// shadow beneath; the parapet's coping is lit along its top.
+fn storeys(id: vec2f, k: f32, u: f32, y: f32, hb: f32, light: vec3f, aa: f32) -> vec3f {
+  let albedo = albedo_of(id);
+  var c = albedo * light;
+  let fl = floor(y / STOREY);
+  let fy = y / STOREY - fl;
+  let relief = params.relief;
+  let sky = params.ambient * vec3f(0.75, 0.85, 1.25) * 3.0;
+  let ay = aa / STOREY;
+  if (y > hb - 0.6) {
+    // The parapet.
+    return c * 0.7 + vec3f(0.01) * rv_band(y, hb - 0.12, hb, aa) + sky * albedo * relief * rv_band(y, hb - 0.05, hb, aa);
+  }
+  if (k >= 0.55 && k < 0.75) {
+    // A glass curtain wall: dark glass with mullions, whole floors lit.
+    let mull = rv_band(fract(u / 1.2), 0.04, 0.96, aa / 1.2) * rv_band(fy, 0.08, 0.95, aa / STOREY);
+    let office = step(h21(vec2f(fl, id.x * 3.0 + id.y)), 0.3);
+    let glass = mix(vec3f(0.01, 0.014, 0.025), vec3f(0.55, 0.65, 0.8) * 0.5, office);
+    return mix(c * 0.6, glass, mull);
+  }
+  // Rain has streaked the walls under the windows.
+  c *= 1.0 - 0.2 * smoothstep(0.55, 0.85, rv_value_noise(vec2f(u * 2.5 + id.x * 13.0, y * 0.12 + id.y)));
+  // The floor's band, standing out at its foot: lighter, its top lit, the wall under the next
+  // floor's band in shade.
+  c *= 1.0 + 0.25 * relief * rv_band(fy, 0.0, 0.09, ay);
+  c += sky * albedo * relief * rv_band(fy, 0.075, 0.09, ay);
+  c *= 1.0 - 0.45 * relief * rv_band(fy, 0.94, 1.0, ay);
+  // Windows, some lit (behind curtains); tiled walls show their joints; some buildings have
+  // balconies.
+  if (k < 0.55 && k > 0.3) {
+    c *= 0.85 + 0.15 * rv_band(fract(u / 0.3), 0.06, 0.94, aa / 0.3) * rv_band(fract(y / 0.15), 0.08, 0.92, aa / 0.15);
+  }
+  let wi = floor(u / 1.5);
+  let win = rv_band(fract(u / 1.5), 0.15, 0.85, aa / 1.5) * rv_band(fy, 0.25, 0.8, aa / STOREY);
+  let on = h21(vec2f(id.x * 5.0 + wi + id.y * 7.0, fl * 3.0));
+  let curtain = 0.55 + 0.45 * rv_value_noise(vec2f(u * 3.0, fl * 7.0 + id.x));
+  let lamp = select(vec3f(1.0, 0.72, 0.45), vec3f(0.75, 0.85, 1.0), on > 0.2) * 0.45 * curtain;
+  let glass = select(vec3f(0.006, 0.007, 0.01) + light * 0.1, lamp, on < 0.3);
+  // The sill under the window, standing out: lighter, its top lit, a shadow under it.
+  let fu = fract(u / 1.5);
+  let sill_span = rv_band(fu, 0.12, 0.88, aa / 1.5);
+  c *= 1.0 + 0.2 * relief * sill_span * rv_band(fy, 0.2, 0.25, ay);
+  c += sky * albedo * relief * sill_span * rv_band(fy, 0.24, 0.25, ay);
+  c *= 1.0 - 0.4 * relief * sill_span * rv_band(fy, 0.15, 0.2, ay);
+  // The opening set in: its top in shadow, its sides darker.
+  let reveal = max(rv_band(fy, 0.72, 0.8, ay) * 0.6, max(rv_band(fu, 0.15, 0.19, aa / 1.5), rv_band(fu, 0.81, 0.85, aa / 1.5)) * 0.35);
+  c = mix(c, glass * (1.0 - relief * reveal), win);
+  if (k > 0.88) {
+    let rail = rv_band(fy, 0.0, 0.22, aa / STOREY) * (0.6 + 0.4 * rv_band(fract(u / 0.12), 0.0, 0.25, aa / 0.12));
+    c = mix(c, vec3f(0.5) * light + vec3f(0.004), rail * 0.8);
+  }
+  return c;
+}
+
+// The ground floor of shop (n, s) up to its fascia: u metres along it, `along` as read from the
+// street, y up, `light` what falls on it.
+fn shop_front(n: f32, s: f32, u: f32, along: f32, y: f32, light: vec3f, aa: f32) -> vec3f {
+  let id = vec2f(n, s);
+  let kind = shop_kind(n, s);
+  let shop = shop_light(n, s);
+  let wall = albedo_of(id) * light;
+  let glow = glow_now(id);
+  if (y >= 2.45) {
+    // The fascia.
+    let t = (y - 2.45) / 0.65;
+    if (kind == KONBINI) {
+      // Three stripes in the chain's colours.
+      let chain = floor(h21(id + 1.9) * 3.0);
+      let a = select(select(vec3f(0.1, 0.35, 1.0), vec3f(1.0, 0.45, 0.05), chain == 1.0), vec3f(0.1, 0.75, 0.3), chain == 2.0);
+      let b = select(vec3f(1.0, 0.2, 0.15), vec3f(0.15, 0.4, 1.0), chain == 2.0);
+      return mix(mix(a, vec3f(1.0), step(0.33, t)), b, step(0.66, t)) * 0.9 * glow;
+    }
+    let fx = along - 0.15;
+    let fy = 3.05 - y;
+    if (kind == GAMES) {
+      // The katakana word for "game" in white between rows of chasing bulbs.
+      let k = floor(along / 0.15);
+      let f = vec2f(fract(along / 0.15) - 0.5, (fract(t * 2.0) - 0.5) * 2.0);
+      let on = step(0.6, fract((k + floor(frame.time * 10.0)) / 3.0));
+      let bulb = smoothstep(0.35, 0.15, length(f)) * (1.0 - rv_band(t, 0.2, 0.8, 0.0));
+      let ink = horizontal_word(10.0, fx, fy - 0.12, UNIT - 0.3, 0.32, aa, 0.0);
+      return neon(h21(id + 4.7)) * 0.2 * glow + vec3f(3.0, 2.6, 1.8) * bulb * (0.15 + 0.85 * on) * glow + vec3f(1.6) * ink * glow;
+    }
+    if (kind == DRUGSTORE) {
+      // The one-character sign for medicine, big and red on yellow.
+      let ink = horizontal_word(5.0, fx, fy - 0.03, UNIT - 0.3, 0.5, aa, 0.0);
+      return mix(vec3f(1.0, 0.8, 0.05), vec3f(0.9, 0.05, 0.04), ink) * glow;
+    }
+    if (kind == IZAKAYA) {
+      // Its word in white on dark wood, under a small lamp.
+      var words = array<f32, 4>(2.0, 8.0, 7.0, 3.0);
+      let w = words[u32(h21(id + 3.3) * 3.99)];
+      return board(id, w, 2.0, fx, fy, UNIT - 0.3, 0.55, light + shop * 0.08 * exp(-abs(along - 0.5 * UNIT)), aa);
+    }
+    if (kind == CAFE) {
+      let w = select(6.0, 20.0, h21(id + 3.3) < 0.5);
+      return board(id, w, 2.0, fx, fy, UNIT - 0.3, 0.55, light + shop * 0.05, aa);
+    }
+    if (kind == BAR) {
+      return wall * 0.5 + board(id, 24.0, 1.0, fx, fy, UNIT - 0.3, 0.55, light, aa) * lit(id);
+    }
+    if (kind == BOUTIQUE) {
+      return wall * 0.5 + neon(h21(id + 4.7)) * 2.5 * rv_band(y, 2.74, 2.78, aa) * glow * lit(id);
+    }
+    if (kind == SHUTTER || kind == VENDING) {
+      return wall;
+    }
+    return panel(id + 0.37, along - 0.15, 3.05 - y, UNIT - 0.3, 0.55, aa);
+  }
+
+  if (kind == KONBINI) {
+    // Glass from end to end, bright inside: shelves, magazines along the window, ceiling lights.
+    let mull = 1.0 - rv_band(fract(u / 1.5), 0.03, 0.97, aa / 1.5) * rv_band(y, 0.15, 2.4, aa);
+    var c = shop * 0.55;
+    let goods = rv_band(fract(y / 0.42), 0.12, 0.8, aa / 0.42) * rv_band(fract(u / 0.16), 0.08, 0.92, aa / 0.16)
+      * step(h21(vec2f(floor(u / 0.16) + n * 31.0, floor(y / 0.42) + s * 7.0)), 0.8) * rv_band(y, 0.9, 1.95, aa);
+    c = mix(c, hsv(h21(vec2f(floor(u / 0.16) * 0.37 + n, floor(y / 0.42))), 0.35, 1.0) * 0.8, goods * smoothstep(0.08, 0.02, aa));
+    let magazines = rv_band(y, 0.35, 0.85, aa) * rv_band(fract(u / 0.22), 0.1, 0.9, aa / 0.22);
+    c = mix(c, hsv(h21(vec2f(floor(u / 0.22), n)), 0.6, 1.0) * 0.8, magazines * 0.8);
+    c += vec3f(2.0) * rv_band(y, 2.25, 2.32, aa);
+    return mix(c, vec3f(0.05), mull * 0.9);
+  }
+  if (kind == IZAKAYA) {
+    // Dark wood; a lattice over a warm window; a door hung with a noren; a red lantern.
+    var c = vec3f(0.12, 0.06, 0.03) * (light * 2.0 + vec3f(0.02));
+    let window = rv_band(u, 0.25, 1.2, aa) * rv_band(y, 0.5, 2.1, aa);
+    let slat = rv_band(fract(u / 0.09), 0.25, 0.75, aa / 0.09);
+    c = mix(c, mix(shop * 0.9, vec3f(0.08, 0.04, 0.02), slat), window);
+    let doorway = rv_band(u, 1.8, 3.4, aa) * rv_band(y, 0.0, 2.3, aa);
+    c = mix(c, shop * 0.6, doorway);
+    let pf = fract((u - 1.8) / 0.533);
+    let noren = rv_band(u, 1.8, 3.4, aa) * rv_band(y, 1.55, 2.3, aa) * rv_band(pf, 0.04, 0.96, aa / 0.533);
+    let cloth = select(vec3f(0.05, 0.08, 0.3), vec3f(0.5, 0.05, 0.04), h21(id + 3.7) < 0.5);
+    let emblem = smoothstep(0.17 + aa, 0.17 - aa, length(vec2f(u - 2.6, y - 1.95)));
+    c = mix(c, mix(cloth, vec3f(0.85), emblem) * (light * 3.0 + shop * 0.5), noren);
+    let lp = vec2f((u - 1.45) / 0.2, (y - 1.75) / 0.3);
+    let lantern = smoothstep(1.0 + aa * 5.0, 1.0, length(lp));
+    return mix(c, vec3f(2.4, 0.25, 0.08) * (1.0 + light_kick(id)) * (1.1 - 0.5 * dot(lp, lp)), lantern);
+  }
+  if (kind == GAMES) {
+    // Wide open, rows of machines flickering inside, a frame of chasing bulbs.
+    let open = rv_band(u, 0.3, UNIT - 0.3, aa) * rv_band(y, 0.0, 2.3, aa);
+    let ci = floor(u / 0.45);
+    let flicker = 0.6 + 0.4 * sin(frame.time * (6.0 + 7.0 * h21(vec2f(ci, n))) + ci);
+    let machine = rv_band(fract(u / 0.45), 0.12, 0.88, aa / 0.45) * rv_band(y, 0.4, 1.7, aa);
+    var c = mix(wall, shop * 0.3 + neon(h21(vec2f(ci, n) + 2.0)) * 1.4 * machine * flicker, open);
+    let top = vec2f(fract(u / 0.15) - 0.5, (y - 2.38) / 0.15);
+    let side = vec2f(min(abs(u - 0.18), abs(u - (UNIT - 0.18))) / 0.15, fract(y / 0.15) - 0.5);
+    let bulb = max(smoothstep(0.3, 0.1, length(top)) * rv_band(u, 0.15, UNIT - 0.15, 0.0), smoothstep(0.3, 0.1, length(side)) * step(y, 2.38));
+    let on = step(0.6, fract((floor(u / 0.15) + floor(y / 0.15) + floor(frame.time * 10.0)) / 3.0));
+    return c + vec3f(3.0, 2.5, 1.6) * bulb * (0.15 + 0.85 * on) * glow;
+  }
+  if (kind == BOUTIQUE) {
+    // A dark room with figures standing in spotlights.
+    var c = shop * 0.05;
+    for (var k = 0.0; k < 3.0; k += 1.0) {
+      let x = 0.9 + k * 1.35;
+      let cone = exp(-pow((u - x) / (0.25 + 0.3 * (2.4 - y) / 2.4), 2.0));
+      c += shop * 0.8 * cone * smoothstep(0.0, 0.5, y);
+      let body = rv_sd_round_box(vec2f(u - x, y - 1.0), vec2f(0.17, 0.75), 0.15);
+      let head = length(vec2f(u - x, y - 1.95)) - 0.12;
+      c = mix(c, vec3f(0.9, 0.86, 0.8) * shop * 2.5, smoothstep(aa, -aa, min(body, head)));
+    }
+    return mix(wall, c, rv_band(u, 0.2, UNIT - 0.2, aa) * rv_band(y, 0.1, 2.4, aa));
+  }
+  if (kind == DRUGSTORE) {
+    // Bright inside, the window covered in price boards.
+    var c = shop * 0.6;
+    let cell = floor(vec2f(u / 0.55, y / 0.45));
+    let f = fract(vec2f(u / 0.55, y / 0.45));
+    let board = rv_band(f.x, 0.06, 0.94, aa / 0.55) * rv_band(f.y, 0.08, 0.92, aa / 0.45) * step(h21(cell + id), 0.6) * rv_band(y, 0.45, 2.3, aa);
+    let colour = select(vec3f(1.0, 0.85, 0.05), vec3f(1.0, 0.12, 0.1), h21(cell + id + 0.5) < 0.4);
+    let price = smoothstep(aa, -aa, rv_sd_box(f - 0.5, vec2f(0.25, 0.08)));
+    return mix(c, mix(colour, vec3f(0.05), price * 0.8), board);
+  }
+  if (kind == CAFE) {
+    // A wooden frame round a warm window: pendant lamps, tables.
+    var c = vec3f(0.18, 0.1, 0.05) * (light * 2.0 + vec3f(0.01));
+    var inside = shop * 0.35 * (0.5 + 0.5 * smoothstep(0.3, 2.3, y));
+    let lamp_at = vec2f(0.6 + round((u - 0.6) / 0.9) * 0.9, 1.95);
+    let r = length(vec2f(u, y) - lamp_at);
+    inside += vec3f(3.0, 2.0, 1.1) * smoothstep(0.09 + aa, 0.09 - aa, r) + vec3f(1.0, 0.6, 0.3) * 0.25 * exp(-r * 3.0);
+    inside = mix(inside, vec3f(0.02), smoothstep(0.008 + aa, 0.0, abs(u - lamp_at.x)) * step(2.0, y));
+    let table = rv_band(y, 0.72, 0.78, aa) * rv_band(fract(u / 1.4), 0.2, 0.75, aa / 1.4);
+    inside = mix(inside, vec3f(0.03, 0.02, 0.015), table);
+    return mix(c, inside, rv_band(u, 0.2, UNIT - 0.2, aa) * rv_band(y, 0.3, 2.35, aa));
+  }
+  if (kind == BAR) {
+    // Almost black: a small glowing window, a door framed in neon.
+    var c = vec3f(0.02, 0.018, 0.022) + wall * 0.3;
+    let nc = neon(h21(id + 4.7));
+    c = mix(c, shop * 0.8 + nc * 0.1, rv_band(u, 0.5, 1.3, aa) * rv_band(y, 1.2, 1.9, aa));
+    let d = rv_sd_box(vec2f(u - 2.6, y - 1.1), vec2f(0.5, 1.1));
+    c = mix(c, shop * 0.15, smoothstep(aa, -aa, d));
+    return c + nc * 3.0 * smoothstep(0.035 + aa, 0.0, abs(d - 0.06)) * glow * lit(id);
+  }
+  if (kind == VENDING) {
+    let mu = fract(u / 0.95);
+    let inside = rv_band(mu, 0.05, 0.95, aa / 0.95) * rv_band(y, 0.0, 1.85, aa);
+    let rows = rv_band(fract(y * 3.0), 0.2, 0.8, aa * 3.0) * rv_band(y, 0.9, 1.8, aa) * rv_band(mu, 0.15, 0.85, aa / 0.95);
+    return mix(wall * 0.5, mix(shop * 0.8, vec3f(1.1, 1.05, 0.95), rows), inside);
+  }
+  // A shutter, with some paint on it.
+  let slats = 0.75 + 0.25 * smoothstep(0.3, 0.7, abs(fract(y * 12.0) - 0.5) * 2.0);
+  let c = vec3f(0.3, 0.3, 0.32) * light * 2.0 * slats;
+  let paint = smoothstep(0.35, 0.6, rv_fbm(vec2f(u + n * 7.0, y) * 1.3, 3)) * step(y, 1.9);
+  return mix(c, hsv(h21(id + 6.6), 0.7, 0.4) * light * 3.0 + vec3f(0.004), paint * 0.6);
+}
+
+// The front of shop building n on side s, facing the street: u metres along it, y up.
+fn facade(n: f32, s: f32, u: f32, y: f32, aa: f32) -> vec3f {
+  let id = vec2f(n, s);
+  let hb = height_of(i32(s), n);
+  let sg = sign_of(n, s);
+  let near_sign = select(0.0, exp(-abs(n * UNIT + u - sg.x) * 0.9) * smoothstep(sg.z - 2.0, sg.z, y) * smoothstep(sg.w + 2.0, sg.w, y), sg.y > 0.0);
+  let light = params.ambient * vec3f(0.9, 0.95, 1.1) + shop_light(n, s) * 0.12 * exp(-max(y - 2.5, 0.0) * 0.45) + sign_light(n, s) * 0.08 * near_sign;
+  // As read standing in the street facing the wall: on the right side +z is on the left.
+  let along = select(u, UNIT - u, s > 0.0);
+  if (y < 3.1) {
+    // Grime along the foot of the wall.
+    let foot = 0.7 + 0.3 * smoothstep(0.0, 0.35, y);
+    return shop_front(n, s, u, along, y, light, aa) * (0.3 + 0.7 * rv_band(u, 0.08, UNIT - 0.08, aa)) * foot;
+  }
+  // The building may span two rows: ub runs along all of it, ab as read from the street.
+  let b = first_row(n, s);
+  let bid = vec2f(b, s);
+  let width = rows_of(n, s) * UNIT;
+  let ub = n * UNIT + u - b * UNIT;
+  let ab = select(ub, width - ub, s > 0.0);
+  let kind = front_kind(n, s);
+  var c: vec3f;
+  if (kind < 0.16 && hb > 12.0) {
+    // A giant screen over four floors.
+    let top = min(hb - 1.2, 3.4 + 4.0 * STOREY);
+    c = albedo_of(bid) * light * 0.5;
+    if (y > 3.4 && y < top && ab > 0.3 && ab < width - 0.3) {
+      c = big_screen(bid, ab - 0.3, top - y, width - 0.6, top - 3.4, aa);
+    }
+  } else if (kind < 0.32) {
+    // Neon tubes up the front, each pulsing on its own beat.
+    c = storeys(bid, 0.2, ub, y - 0.1, hb, light, aa) * 0.5;
+    let k = floor(ub / 0.75);
+    let x = fract(ub / 0.75) - 0.5;
+    let tube = smoothstep(0.06 + aa, 0.0, abs(x)) * rv_band(y, 3.3, hb - 0.8, aa) * step(0.5, k) * step(k, width / 0.75 - 1.5);
+    c += neon(h21(vec2f(k, b) + 5.5)) * 3.0 * tube * (1.0 + light_kick(vec2f(b * 7.0 + k, s))) * lit(bid);
+  } else if (kind < 0.47) {
+    // Glass offices.
+    c = storeys(bid, 0.65, ub, y - 0.1, hb, light, aa);
+  } else if (kind < 0.6) {
+    // Flats: balconies, and air conditioners under some windows.
+    c = storeys(bid, 0.95, ub, y - 0.1, hb, light, aa);
+    let fy = fract((y - 0.1) / STOREY);
+    let ac = rv_band(fract(ub / 1.5), 0.55, 0.85, aa / 1.5) * rv_band(fy, 0.24, 0.4, aa / STOREY)
+      * step(h21(vec2f(floor(ub / 1.5), floor((y - 0.1) / STOREY)) + bid), 0.5);
+    c = mix(c, vec3f(0.5, 0.5, 0.48) * light * 2.0 + vec3f(0.006), ac);
+  } else {
+    // Windows, with panels on some of the lower floors.
+    let fl = floor((y - 3.1) / STOREY);
+    let fy = (y - 3.1) / STOREY - fl;
+    let fid = vec2f(n * 7.0 + fl, s * 13.0 + 1.0);
+    if (h21(fid) < 0.22 && fl < 3.0 && y < hb - 0.6) {
+      c = panel(fid, along - 0.25, (0.88 - fy) * STOREY, UNIT - 0.5, 0.76 * STOREY, aa);
+    } else {
+      c = storeys(bid, h21(bid + 3.1), ub, y - 0.1, hb, light, aa);
+    }
+  }
+  // Darker into the corners and under the fascia.
+  let corner = 0.7 + 0.3 * smoothstep(0.0, 0.4, min(ub, width - ub));
+  let under = 0.6 + 0.4 * smoothstep(3.1, 3.7, y);
+  return c * (0.3 + 0.7 * rv_band(ub, 0.08, width - 0.08, aa)) * corner * under;
+}
+
+// A roof seen from above: concrete with a parapet, machinery, now and then a red light.
+fn roof(i: i32, n: f32, xz: vec2f, size: vec2f, aa: f32) -> vec3f {
+  let id = vec2f(f32(i) * 7.3, n);
+  var c = vec3f(0.035, 0.035, 0.04);
+  let edge = min(min(xz.x, size.x - xz.x), min(xz.y, size.y - xz.y));
+  c = mix(c, vec3f(0.08, 0.08, 0.09), rv_band(edge, 0.0, 0.25, aa));
+  // Boxes of machinery on a coarse grid.
+  let cell = floor(xz / 1.5);
+  let f = fract(xz / 1.5) - 0.5;
+  let box_on = step(h21(cell + id), 0.18) * step(0.6, edge);
+  c = mix(c, vec3f(0.12, 0.12, 0.13), box_on * smoothstep(0.3 + aa, 0.3 - aa, max(abs(f.x), abs(f.y))));
+  // A red light at a corner, blinking with the beat.
+  let beacon = step(h21(id + 4.4), 0.3) * smoothstep(0.25 + aa, 0.0, length(xz - vec2f(0.4)));
+  c += vec3f(5.0, 0.4, 0.25) * beacon * (0.3 + 1.7 * exp(-(frame.time - state.beat_time) * 5.0));
+  return c;
+}
+
+// A wall of the city that does not face the street.
+fn city_wall(i: i32, n: f32, p: vec3f, kind: f32, aa: f32) -> vec3f {
+  let hb = height_of(i, n);
+  let id = vec2f(f32(i) * 7.3, select(n, floor(n * 0.5), abs(i) > 1));
+  let u = select(abs(p.x), p.z, kind < 1.5);
+  // Lit faintly by the city's glow from below.
+  let light = params.ambient * vec3f(0.9, 0.95, 1.1) + vec3f(0.025, 0.018, 0.012) * exp(-p.y * 0.08);
+  return storeys(id, h21(id + 3.1), u, p.y, hb, light, aa);
+}
+
+// ---- Things over the street ----
+
+// The face of the sign sg (as sign_of) on side s, whose wall stands at `wall`, along the ray, or
+// FAR.
+fn hit_sign(o: vec3f, d: vec3f, s: f32, sg: vec4f, wall: f32) -> f32 {
+  let t = (sg.x - o.z) / d.z;
+  let p = o + d * t;
+  let a = (wall - 0.12) - s * p.x;
+  if (sg.y > 0.0 && t > 0.0 && a > 0.0 && a < sg.y && p.y > sg.z && p.y < sg.w) {
+    return t;
+  }
+  return FAR;
+}
+
+// The traffic light at the near corner of cross street n on side s, or FAR.
+fn hit_signal(o: vec3f, d: vec3f, n: f32, s: f32) -> f32 {
+  let t = (n * UNIT + 0.25 - o.z) / d.z;
+  let p = o + d * t;
+  let x = p.x - s * (HALF - 0.45);
+  let head = abs(x) < 0.17 && p.y > 3.0 && p.y < 3.95;
+  let pole = abs(x) < 0.045 && p.y > 0.0 && p.y < 3.0;
+  if (t > 0.0 && (head || pole)) {
+    return t;
+  }
+  return FAR;
+}
+
+fn signal_face(n: f32, s: f32, p: vec3f, aa: f32) -> vec3f {
+  let x = p.x - s * (HALF - 0.45);
+  if (p.y < 3.0) {
+    return vec3f(0.02);
+  }
+  var c = vec3f(0.015, 0.016, 0.018);
+  let q = vec2f(x, p.y);
+  let r = 0.11;
+  let go = state.signal > 0.5;
+  c += select(vec3f(0.05, 0.0, 0.0), vec3f(6.0, 0.25, 0.1), !go) * smoothstep(r + aa, r - aa, length(q - vec2f(0.0, 3.78)));
+  c += vec3f(0.05, 0.03, 0.0) * smoothstep(r + aa, r - aa, length(q - vec2f(0.0, 3.475)));
+  c += select(vec3f(0.0, 0.05, 0.03), vec3f(0.2, 6.0, 2.5), go) * smoothstep(r + aa, r - aa, length(q - vec2f(0.0, 3.17)));
+  return c;
+}
+
+// ---- Poles and wires ----
+
+fn pole_x(s: f32) -> f32 {
+  return s * (HALF - 0.3);
+}
+
+// The pole of row n on side s along the ray, or FAR: the pole, its cross-arm, and on some a
+// transformer.
+fn hit_pole(o: vec3f, d: vec3f, n: f32, s: f32) -> f32 {
+  let t = (n * UNIT + 0.35 - o.z) / d.z;
+  let p = o + d * t;
+  let x = p.x - pole_x(s);
+  let pole = abs(x) < 0.13 && p.y > 0.0 && p.y < 9.5;
+  let arm = abs(x) < 0.85 && abs(p.y - 8.7) < 0.06;
+  let box = h21(vec2f(n, s) + 6.6) < 0.4 && abs(x + s * 0.32) < 0.22 && p.y > 6.2 && p.y < 7.0;
+  if (t > 0.0 && (pole || arm || box)) {
+    return t;
+  }
+  return FAR;
+}
+
+fn pole_face(p: vec3f, s: f32) -> vec3f {
+  // Concrete, lit from the street below and darker up high, with a band of posters.
+  let light = street_light(vec3f(p.x, 0.0, p.z), true) * 0.5 * exp(-p.y * 0.12) + params.ambient * vec3f(0.9, 0.95, 1.1);
+  var albedo = vec3f(0.35, 0.34, 0.32);
+  albedo = mix(albedo, vec3f(0.6, 0.55, 0.4), rv_band(p.y, 1.4, 2.2, 0.01) * 0.6);
+  return albedo * light;
+}
+
+// Wires running along the street from pole to pole, sagging between them: how much of the pixel
+// they cover before tmax.
+fn wires(o: vec3f, d: vec3f, tmax: f32, pix: f32) -> f32 {
+  let len = length(d);
+  let dxy = d.xy;
+  let dd = dot(dxy, dxy);
+  if (dd < 1e-6) {
+    return 0.0;
+  }
+  var cover = 0.0;
+  for (var k = 0.0; k < 6.0; k += 1.0) {
+    let s = select(-1.0, 1.0, k < 3.0);
+    let j = k - 3.0 * floor(k / 3.0);
+    let x0 = pole_x(s) + s * (0.35 * j - 0.35);
+    let y0 = 7.6 + 0.45 * j;
+    var t = dot(vec2f(x0, y0) - o.xy, dxy) / dd;
+    var p = o + d * t;
+    let f = fract((p.z - 0.35) / (2.0 * UNIT));
+    let y = y0 - 0.5 * (1.0 - pow(2.0 * f - 1.0, 2.0));
+    t = dot(vec2f(x0, y) - o.xy, dxy) / dd;
+    p = o + d * t;
+    if (t <= 0.0 || t > tmax || lantern_block(floor(p.z / UNIT))) {
+      continue;
+    }
+    let footprint = t * len * pix;
+    let r = 0.015;
+    let dist = length(p.xy - vec2f(x0, y));
+    cover = max(cover, smoothstep(r + footprint, 0.0, dist) * min(2.0 * r / (r + footprint), 1.0));
+  }
+  return cover;
+}
+
+// ---- People ----
+
+// Distance to a walking figure, q from between its feet, metres. `build` widens the coat.
+fn figure(q: vec2f, height: f32, phase: f32, build: f32) -> f32 {
+  let k = height / 1.7;
+  let head = length((q - vec2f(0.0, 1.585 * k)) * vec2f(1.0, 0.9)) - 0.1 * k;
+  let neck = rv_sd_box(q - vec2f(0.0, 1.47 * k), vec2f(0.04, 0.05) * k);
+  // A coat narrowing from the shoulders and flaring a little to the hem.
+  let top = 1.43 * k;
+  let hem = (0.62 - 0.12 * build) * k;
+  let t = clamp((top - q.y) / (top - hem), 0.0, 1.0);
+  let half_width = mix(0.2, 0.15 + 0.06 * build, t) * k;
+  let coat = max(abs(q.x) - half_width, max(q.y - top, hem - q.y));
+  let shoulders = length((q - vec2f(0.0, 1.36 * k)) / vec2f(0.21, 0.09)) * 0.09 * k - 0.09 * k;
+  let swing = sin(phase) * 0.11 * k;
+  let leg1 = rv_sd_segment(q, vec2f(-0.06 * k, hem + 0.05), vec2f(-0.06 * k + swing, 0.03)) - 0.05 * k;
+  let leg2 = rv_sd_segment(q, vec2f(0.06 * k, hem + 0.05), vec2f(0.06 * k - swing, 0.03)) - 0.05 * k;
+  let arm1 = rv_sd_segment(q, vec2f(-0.19 * k, 1.34 * k), vec2f(-0.2 * k - swing * 0.4, 0.84 * k)) - 0.045 * k;
+  let arm2 = rv_sd_segment(q, vec2f(0.19 * k, 1.34 * k), vec2f(0.2 * k + swing * 0.4, 0.84 * k)) - 0.045 * k;
+  return min(min(min(head, neck), min(coat, shoulders)), min(min(leg1, leg2), min(arm1, arm2)));
+}
+
+// Person m of stream k (`who`, as person(); height 0 for nobody) along the ray, or FAR.
+fn hit_person(o: vec3f, d: vec3f, who: vec4f, m: f32, k: f32, pix: f32) -> f32 {
+  if (who.z <= 0.0) {
+    return FAR;
+  }
+  let t = (who.y - o.z) / d.z;
+  if (t <= 0.0) {
+    return FAR;
+  }
+  let p = o + d * t;
+  let q = vec2f(p.x - who.x, p.y);
+  if (abs(q.x) > 0.4 || q.y > who.z + 0.05 || q.y < 0.0) {
+    return FAR;
+  }
+  if (figure(q, who.z, who.w, h21(vec2f(m, k) + 9.1)) < 0.5 * t * length(d) * pix) {
+    return t;
+  }
+  return FAR;
+}
+
+fn person_face(m: f32, k: f32, p: vec3f, d: vec3f, pix: f32) -> vec3f {
+  let who = person(m, k);
+  let id = vec2f(m, k);
+  let q = vec2f(p.x - who.x, p.y);
+  let sd = figure(q, who.z, who.w, h21(id + 9.1));
+  // Dark clothes, a little of the street's light on them, more at the edge.
+  let clothes = mix(vec3f(0.02, 0.02, 0.024), vec3f(0.07, 0.055, 0.045), h21(id + 8.8));
+  let light = street_light(vec3f(p.x, 0.0, p.z), true) * 0.3 + params.ambient * vec3f(0.9, 0.95, 1.1);
+  let rim = smoothstep(-0.025, 0.0, sd) * smoothstep(0.6, 1.4, q.y);
+  return clothes * light + light * rim * 0.25;
+}
+
+fn awning_face(n: f32, s: f32, p: vec3f, axis: f32, d: vec3f) -> vec3f {
+  let id = vec2f(n, s);
+  let canvas = mix(neon(h21(id + 7.7)), vec3f(0.9), 0.25);
+  let stripe = step(0.5, fract((p.z - n * UNIT) / 0.45));
+  let cloth = mix(canvas, vec3f(0.85, 0.82, 0.78), stripe * 0.7);
+  let shop = shop_light(n, s);
+  if (axis > 2.5) {
+    // Underneath it glows with the shop; on top it is dark.
+    return select(cloth * 0.03, cloth * shop * 0.6 + cloth * 0.01, d.y > 0.0);
+  }
+  return cloth * (0.04 + 0.3 * rv_luma(shop));
+}
+
+// The signs, traffic lights, awnings, poles and people along the ray before `best`:
+// (distance, kind, row, side or number); kind 4 a sign, 5 a traffic light, 6..8 an awning hit
+// across, along or from below, 9 a pole, 10 a person.
+// ---- What stands out from the fronts ----
+// The fronts along the street are not flat: flats have a balcony on every floor (a slab and a
+// frosted parapet), window buildings a hood over every floor's windows, glass offices a row of
+// fins, giant screens a frame. The ray against those of shop building (n, s) within row n, for
+// the floors between heights y0 and y1; `front` is the building's first row, rows, height and
+// kind (as State's row_front), w its wall. t and the part (0 a slab or hood, 1 a parapet, 2 a fin,
+// 3 a frame) with the face it meets (as box_hit) in tenths; t FAR for a miss.
+fn front_parts(o: vec3f, inv: vec3f, n: f32, s: f32, front: vec4f, w: f32, y0: f32, y1: f32) -> vec2f {
+  var best = vec2f(FAR, 0.0);
+  let b = front.x;
+  let width = front.y * UNIT;
+  let hb = front.z;
+  let kind = front.w;
+  // This row's share of the building's length.
+  let za = max(n * UNIT, b * UNIT + 0.2);
+  let zb = min(n * UNIT + UNIT, b * UNIT + width - 0.2);
+  if (kind < 0.16) {
+    if (hb <= 12.0) {
+      return best;
+    }
+    // The giant screen's frame.
+    let top = min(hb - 1.2, 3.4 + 4.0 * STOREY);
+    for (var k = 0; k < 4; k++) {
+      var y = vec2f(3.15, 3.4);
+      var z = vec2f(za, zb);
+      if (k == 1) {
+        y = vec2f(top, top + 0.25);
+      } else if (k == 2) {
+        y = vec2f(3.15, top + 0.25);
+        z = vec2f(b * UNIT + 0.05, b * UNIT + 0.3);
+      } else if (k == 3) {
+        y = vec2f(3.15, top + 0.25);
+        z = vec2f(b * UNIT + width - 0.3, b * UNIT + width - 0.05);
+      }
+      z = vec2f(max(z.x, n * UNIT), min(z.y, n * UNIT + UNIT));
+      if (z.y <= z.x) {
+        continue;
+      }
+      let xa = s * w;
+      let xb = s * (w - 0.35);
+      let r = box_hit(o, inv, vec3f(min(xa, xb), y.x, z.x), vec3f(max(xa, xb), y.y, z.y));
+      if (r.x > 0.0 && r.x < best.x) {
+        best = vec2f(r.x, 3.0 + 0.1 * r.y);
+      }
+    }
+    return best;
+  }
+  if (kind < 0.32) {
+    return best;
+  }
+  if (kind < 0.47) {
+    // Glass offices: fins every 1.2 m up the whole front.
+    let first = ceil((za - b * UNIT - 0.3) / 1.2);
+    for (var k = 0.0; k < 5.0; k += 1.0) {
+      let zf = b * UNIT + 0.3 + (first + k) * 1.2;
+      if (zf > zb) {
+        break;
+      }
+      let xa = s * w;
+      let xb = s * (w - 0.3);
+      let r = box_hit(o, inv, vec3f(min(xa, xb), 3.3, zf - 0.03), vec3f(max(xa, xb), hb - 0.6, zf + 0.03));
+      if (r.x > 0.0 && r.x < best.x) {
+        best = vec2f(r.x, 2.0 + 0.1 * r.y);
+      }
+    }
+    return best;
+  }
+  // Flats and window buildings: a balcony or a hood on every floor the ray's height takes in.
+  let flats = kind < 0.6;
+  let deep = select(0.45, 0.95, flats);
+  let f0 = max(floor((y0 - 3.3) / STOREY) - 1.0, 0.0);
+  let f1 = floor((y1 - 3.3) / STOREY);
+  for (var f = f0; f <= f1 && f < f0 + 6.0; f += 1.0) {
+    let yb = 3.3 + f * STOREY;
+    if (yb + STOREY > hb - 0.6) {
+      break;
+    }
+    let xa = s * w;
+    let xb = s * (w - deep);
+    let slab_y = select(vec2f(yb + 2.6, yb + 2.7), vec2f(yb, yb + 0.15), flats);
+    let r = box_hit(o, inv, vec3f(min(xa, xb), slab_y.x, za), vec3f(max(xa, xb), slab_y.y, zb));
+    if (r.x > 0.0 && r.x < best.x) {
+      best = vec2f(r.x, 0.1 * r.y);
+    }
+    if (flats) {
+      let xc = s * (w - deep + 0.05);
+      let rp = box_hit(o, inv, vec3f(min(xb, xc), yb + 0.15, za), vec3f(max(xb, xc), yb + 1.1, zb));
+      if (rp.x > 0.0 && rp.x < best.x) {
+        best = vec2f(rp.x, 1.0 + 0.1 * rp.y);
+      }
+    }
+  }
+  return best;
+}
+
+fn front_part_face(n: f32, s: f32, part: f32, p: vec3f, dn: vec3f, aa: f32) -> vec3f {
+  let piece = floor(part + 1e-3);
+  let face = round(fract(part) * 10.0);
+  let bid = vec2f(first_row(n, s), s);
+  let below = shop_colour(n, s) * 0.12 * exp(-max(p.y - 2.5, 0.0) * 0.45);
+  let ambient = params.ambient * vec3f(0.9, 0.95, 1.1);
+  let sky = params.ambient * vec3f(0.75, 0.85, 1.25) * 3.0;
+  // Tops catch the sky, undersides the shops' light below, fronts a little of both.
+  var light = ambient + below * 0.6 + sky * 0.25;
+  if (face > 2.5) {
+    light = select(ambient * 0.5 + below * 1.4, ambient + sky, dn.y < 0.0);
+  }
+  if (piece > 2.5) {
+    return vec3f(0.06, 0.06, 0.07) * light;
+  }
+  if (piece > 1.5) {
+    return vec3f(0.18, 0.2, 0.24) * light;
+  }
+  if (piece > 0.5) {
+    // A frosted parapet in a frame, its posts every 0.9 m.
+    let post = rv_band(fract(p.z / 0.9), 0.0, 0.06, aa / 0.9);
+    let rim = 1.0 - rv_band(fract((p.y - 3.3) / STOREY) * STOREY, 0.2, 1.05, aa);
+    return mix(vec3f(0.35, 0.38, 0.42), albedo_of(bid) * 1.2, max(post, rim)) * light;
+  }
+  return albedo_of(bid) * 1.15 * light;
+}
+
+// Vending machines against the wall of shop (n, s): two or three side by side, their fronts to
+// the road, lit from within: rows of bottles behind glass, buttons, the dark slot below.
+fn vendings_of(n: f32, s: f32) -> f32 {
+  return 2.0 + floor(h21(vec2f(n, s) + 97.1) * 2.0);
+}
+
+fn vending_hit(o: vec3f, inv: vec3f, n: f32, s: f32, k: f32) -> f32 {
+  let w = wall_x(n, s);
+  let z0 = n * UNIT + 0.5 + k * 0.95;
+  let xa = s * (w - 0.05);
+  let xb = s * (w - 0.75);
+  let r = box_hit(o, inv, vec3f(min(xa, xb), 0.0, z0), vec3f(max(xa, xb), 1.85, z0 + 0.9));
+  return select(FAR, r.x, r.x > 0.0);
+}
+
+fn vending_face(n: f32, s: f32, k: f32, p: vec3f, aa: f32) -> vec3f {
+  let id = vec2f(n * 3.0 + k, s);
+  var bodies = array<vec3f, 4>(vec3f(0.55, 0.05, 0.04), vec3f(0.75, 0.75, 0.72), vec3f(0.05, 0.15, 0.45), vec3f(0.08, 0.3, 0.12));
+  let body = bodies[min(u32(h21(id + 98.3) * 4.0), 3u)];
+  let light = street_light(vec3f(p.x, 0.0, p.z), true) * 0.25 + params.ambient * vec3f(0.9, 0.95, 1.1) * 2.0;
+  let w = wall_x(n, s);
+  let front = abs(p.x - s * (w - 0.75)) < 0.01;
+  if (!front) {
+    return body * light;
+  }
+  let z0 = n * UNIT + 0.5 + k * 0.95;
+  let u = p.z - z0;
+  var c = body * light;
+  // The glass with three rows of bottles, lit white from behind.
+  let glass = rv_band(u, 0.08, 0.82, aa) * rv_band(p.y, 0.95, 1.75, aa);
+  if (glass > 0.0) {
+    let row = floor((p.y - 0.95) / 0.27);
+    let fy = fract((p.y - 0.95) / 0.27);
+    let col = floor((u - 0.08) / 0.09);
+    let fx = fract((u - 0.08) / 0.09);
+    let bottle = rv_band(fx, 0.2, 0.8, aa / 0.09) * rv_band(fy, 0.12, 0.7, aa / 0.27);
+    var hues = array<vec3f, 5>(vec3f(0.9, 0.15, 0.1), vec3f(0.95, 0.75, 0.1), vec3f(0.15, 0.4, 0.9), vec3f(0.2, 0.75, 0.3), vec3f(0.9, 0.9, 0.85));
+    let drink = hues[min(u32(h21(vec2f(col, row) + id) * 5.0), 4u)];
+    c = mix(c, mix(vec3f(1.1, 1.1, 1.05), drink, bottle), glass);
+  }
+  // A strip of lit buttons, and the dark slot at the foot.
+  c = mix(c, vec3f(0.9, 0.5, 0.2) * 1.2, rv_band(u, 0.1, 0.8, aa) * rv_band(p.y, 0.88, 0.92, aa) * step(0.5, fract(u / 0.09)));
+  c = mix(c, vec3f(0.01), rv_band(u, 0.15, 0.75, aa) * rv_band(p.y, 0.2, 0.45, aa));
+  return c;
+}
+
+// ---- The street's furniture ----
+// What makes it a Japanese shopping street at eye level: banners (nobori) on poles before the
+// shops, flapping with the beat; standing boards; rows of bicycles; now and then a small
+// roadside shrine against a wall, its torii facing the road; and over the street at the start of
+// most blocks, the shopping street's arch with its name.
+
+// Banner j (0 or 1) of shop (n, s): on its pole at the street's edge, the cloth hanging from the
+// pole towards the middle and turning on it with the beat's swing. The ray against it: t, which
+// part (0 the cloth, 1 the pole) and how far across the cloth from the pole; t FAR for a miss.
+fn banner_hit(o: vec3f, d: vec3f, n: f32, s: f32, j: f32) -> vec3f {
+  let pole = vec3f(s * (HALF - 0.3), 0.0, n * UNIT + 0.9 + 1.7 * j);
+  var best = vec3f(FAR, 0.0, 0.0);
+  let turn = state.sway * mix(0.9, 1.5, h21(vec2f(n * 2.0 + j, s) + 3.3));
+  let u = vec3f(-s * cos(turn), 0.0, sin(turn));
+  let nrm = vec3f(-u.z, 0.0, u.x);
+  let den = dot(d, nrm);
+  if (abs(den) > 1e-5) {
+    let t = dot(pole - o, nrm) / den;
+    let p = o + d * t;
+    let a = dot(p - pole, u);
+    if (t > 0.0 && a > 0.03 && a < 0.48 && p.y > 0.55 && p.y < 2.05) {
+      best = vec3f(t, 0.0, a);
+    }
+  }
+  // The pole: a thin post, met where the ray passes nearest it.
+  let dd = dot(d.xz, d.xz);
+  if (dd > 1e-6) {
+    let t = dot(pole.xz - o.xz, d.xz) / dd;
+    let p = o + d * t;
+    if (t > 0.0 && t < best.x && length(p.xz - pole.xz) < 0.025 && p.y < 2.2) {
+      best = vec3f(t, 1.0, 0.0);
+    }
+  }
+  return best;
+}
+
+fn banner_face(n: f32, s: f32, j: f32, a: f32, p: vec3f, aa: f32, pole: bool) -> vec3f {
+  let light = shop_colour(n, s) * 0.5 + params.ambient * vec3f(0.9, 0.95, 1.1) * 2.0;
+  if (pole) {
+    return vec3f(0.3) * light;
+  }
+  let id = vec2f(n * 2.0 + j, s);
+  var cloths = array<vec3f, 5>(vec3f(0.6, 0.05, 0.04), vec3f(0.8, 0.78, 0.72), vec3f(0.85, 0.62, 0.05), vec3f(0.04, 0.1, 0.42), vec3f(0.03, 0.03, 0.03));
+  let pick = u32(h21(id + 4.1) * 5.0);
+  let cloth = cloths[pick];
+  let ink = select(vec3f(0.95, 0.93, 0.88), vec3f(0.05, 0.03, 0.03), pick == 1u || pick == 2u);
+  var words = array<f32, 5>(11.0, 37.0, 38.0, 39.0, 40.0);
+  let w = words[u32(h21(id + 5.7) * 5.0)];
+  // (Read from the street: on the right side the cloth reaches leftwards from its pole.)
+  let x = select(a - 0.05, 0.43 - a, s > 0.0);
+  let letters = vertical_word(w, x, 1.95 - p.y, 0.38, 1.3, aa, 0.0);
+  // Ripples running across it as it flaps.
+  let flap = 0.85 + 0.15 * sin(a * 18.0 - frame.time * 4.0 + j * 2.0) * (0.3 + 2.0 * abs(state.sway));
+  return mix(cloth, ink, letters) * light * flap;
+}
+
+// The roadside shrine before shop (n, s): a stone base and a little wooden shrine against the
+// wall, a small torii before it facing the road (its beams along the street). The ray against
+// it: t and the part (0 the base, 1 the shrine, 2 its roof, 3 the torii, 4 its kasagi).
+fn shrine_hit(o: vec3f, d: vec3f, inv: vec3f, n: f32, s: f32) -> vec2f {
+  let w = s * wall_x(n, s);
+  let zc = n * UNIT + 2.25;
+  var best = vec2f(FAR, 0.0);
+  // Pieces as (x from the wall towards the road: near, far), (z half), (y bottom, top).
+  for (var k = 0; k < 8; k++) {
+    var x = vec2f(0.05, 0.95);
+    var hz = 0.5;
+    var y = vec2f(0.0, 0.5);
+    var part = 0.0;
+    if (k == 1) {
+      x = vec2f(0.15, 0.8);
+      hz = 0.38;
+      y = vec2f(0.5, 1.25);
+      part = 1.0;
+    } else if (k == 2) {
+      x = vec2f(0.05, 0.92);
+      hz = 0.5;
+      y = vec2f(1.25, 1.42);
+      part = 2.0;
+    } else if (k == 3 || k == 4) {
+      // The torii's pillars.
+      x = vec2f(1.47, 1.55);
+      hz = 0.035;
+      y = vec2f(0.0, 1.5);
+      part = 3.0;
+    } else if (k == 5) {
+      x = vec2f(1.49, 1.53);
+      hz = 0.55;
+      y = vec2f(1.15, 1.21);
+      part = 3.0;
+    } else if (k == 6) {
+      x = vec2f(1.46, 1.56);
+      hz = 0.68;
+      y = vec2f(1.42, 1.5);
+      part = 4.0;
+    } else if (k == 7) {
+      break;
+    }
+    var z0 = zc - hz;
+    var z1 = zc + hz;
+    if (k == 3) {
+      z0 = zc - 0.48;
+      z1 = zc - 0.41;
+    } else if (k == 4) {
+      z0 = zc + 0.41;
+      z1 = zc + 0.48;
+    }
+    let xa = w - s * x.x;
+    let xb = w - s * x.y;
+    let r = box_hit(o, inv, vec3f(min(xa, xb), y.x, z0), vec3f(max(xa, xb), y.y, z1));
+    if (r.x > 0.0 && r.x < best.x) {
+      best = vec2f(r.x, part + 0.1 * r.y);
+    }
+  }
+  return best;
+}
+
+fn shrine_face(n: f32, s: f32, part: f32, p: vec3f) -> vec3f {
+  let light = street_light(vec3f(p.x, 0.0, p.z), true) * 0.4 + params.ambient * vec3f(0.9, 0.95, 1.1) * 2.0;
+  let piece = floor(part);
+  let face = round(fract(part) * 10.0);
+  if (piece > 3.5) {
+    // The kasagi, black on top.
+    return select(vec3f(0.55, 0.06, 0.025), vec3f(0.02), face > 2.5) * light;
+  }
+  if (piece > 2.5) {
+    return vec3f(0.55, 0.06, 0.025) * light;
+  }
+  if (piece > 1.5) {
+    return vec3f(0.05, 0.05, 0.055) * light;
+  }
+  if (piece > 0.5) {
+    // Old wood; a candle's light through the open front facing the road.
+    let w = s * wall_x(n, s);
+    let front = face < 1.5 && abs(p.x - (w - s * 0.8)) < 0.02;
+    let glow = select(0.0, 1.0, front) * smoothstep(0.25, 0.0, abs(p.z - (n * UNIT + 2.25))) * smoothstep(0.3, 0.0, abs(p.y - 0.85));
+    return vec3f(0.22, 0.13, 0.07) * light + vec3f(1.0, 0.55, 0.2) * 1.5 * glow;
+  }
+  return vec3f(0.32, 0.31, 0.3) * light;
+}
+
+// The shopping street's arch at the start of block n (its first row past the cross street), on
+// most blocks: two posts and a board over the whole street with the street's name.
+fn arch_on(n: f32) -> bool {
+  let b = floor(n / BLOCK);
+  return n - b * BLOCK > 0.5 && n - b * BLOCK < 1.5 && h21(vec2f(b, 61.1)) < params.arches;
+}
+
+// The ray against the arch of row n: t and the part (0 a post, 1 the board, 2 its cap).
+fn arch_hit(o: vec3f, inv: vec3f, n: f32) -> vec2f {
+  let z0 = n * UNIT + 0.4;
+  var best = vec2f(FAR, 0.0);
+  for (var k = 0; k < 4; k++) {
+    var lo = vec3f(-HALF + 0.23, 0.0, z0);
+    var hi = vec3f(-HALF + 0.47, 5.6, z0 + 0.3);
+    var part = 0.0;
+    if (k == 1) {
+      lo = vec3f(HALF - 0.47, 0.0, z0);
+      hi = vec3f(HALF - 0.23, 5.6, z0 + 0.3);
+    } else if (k == 2) {
+      lo = vec3f(-HALF + 0.15, 5.6, z0);
+      hi = vec3f(HALF - 0.15, 7.0, z0 + 0.3);
+      part = 1.0;
+    } else if (k == 3) {
+      lo = vec3f(-HALF - 0.1, 7.0, z0 - 0.1);
+      hi = vec3f(HALF + 0.1, 7.15, z0 + 0.4);
+      part = 2.0;
+    }
+    let r = box_hit(o, inv, lo, hi);
+    if (r.x > 0.0 && r.x < best.x) {
+      best = vec2f(r.x, part);
+    }
+  }
+  return best;
+}
+
+fn arch_face(n: f32, part: f32, p: vec3f, aa: f32) -> vec3f {
+  let light = params.ambient * vec3f(0.9, 0.95, 1.1) * 2.0 + street_light(vec3f(p.x, 0.0, p.z), true) * 0.2;
+  if (part < 0.5 || part > 1.5) {
+    return vec3f(0.12, 0.12, 0.13) * light;
+  }
+  // The board: red, its name (one of four, then the shopping street's name) in white letters lit
+  // from within, a row of bulbs along its top and its foot.
+  let z0 = n * UNIT + 0.4;
+  var c = vec3f(0.5, 0.03, 0.03) * (light + vec3f(0.08, 0.01, 0.01));
+  let bulb_row = min(abs(p.y - 5.7), abs(p.y - 6.9));
+  let bulb = smoothstep(0.05 + aa, 0.03, length(vec2f(fract(p.x / 0.3 + 0.5) - 0.5, bulb_row / 0.3) * 0.3));
+  c += vec3f(1.0, 0.75, 0.4) * 3.0 * bulb;
+  if (p.z < z0 + 0.02) {
+    let name = 33.0 + floor(h21(vec2f(floor(n / BLOCK), 62.7)) * 4.0);
+    let h = 0.8;
+    let ln = word_length(name);
+    let left = -0.5 * (ln + 3.0) * h;
+    let v = 6.7 - p.y;
+    let first = horizontal_word(name, p.x - left, v, ln * h, h, aa, 0.0);
+    let second = horizontal_word(32.0, p.x - left - ln * h, v, 3.0 * h, h, aa, 0.0);
+    c = mix(c, vec3f(1.6, 1.5, 1.4), max(first, second));
+  }
+  return c;
+}
+
+// A standing board before shop (n, s): dark, in a wooden frame, a word chalked down it, facing
+// the way the street is walked. The ray against it: t.
+fn board_hit(o: vec3f, inv: vec3f, n: f32, s: f32) -> f32 {
+  let zc = n * UNIT + 1.2 + 2.0 * h21(vec2f(n, s) + 93.1);
+  let xc = s * (HALF - 0.55);
+  let r = box_hit(o, inv, vec3f(xc - 0.24, 0.0, zc - 0.17), vec3f(xc + 0.24, 0.92, zc + 0.17));
+  return select(FAR, r.x, r.x > 0.0);
+}
+
+fn board_face(n: f32, s: f32, p: vec3f, aa: f32) -> vec3f {
+  let light = shop_colour(n, s) * 0.6 + params.ambient * vec3f(0.9, 0.95, 1.1) * 2.0;
+  let zc = n * UNIT + 1.2 + 2.0 * h21(vec2f(n, s) + 93.1);
+  let xc = s * (HALF - 0.55);
+  if (p.z > zc - 0.16) {
+    return vec3f(0.2, 0.13, 0.07) * light;
+  }
+  let x = p.x - (xc - 0.24);
+  let frame_band = 1.0 - rv_band(x, 0.04, 0.44, aa) * rv_band(p.y, 0.1, 0.88, aa);
+  var words = array<f32, 6>(9.0, 37.0, 38.0, 20.0, 6.0, 30.0);
+  let w = words[u32(h21(vec2f(n, s) + 94.3) * 6.0)];
+  let chalk = vertical_word(w, x - 0.08, 0.84 - p.y, 0.32, 0.7, aa, 0.0);
+  var c = mix(vec3f(0.03, 0.05, 0.04), vec3f(0.85, 0.85, 0.8), chalk * 0.9);
+  c = mix(c, vec3f(0.25, 0.15, 0.08), frame_band);
+  return c * light;
+}
+
+// Bicycles parked in a row before shop (n, s), side by side, their backs to the wall (seen side
+// on from the street: two wheels, a step-through frame, a basket in front). Bicycle k: how many,
+// where it stands along the street, and its outline (negative inside), q along it from its back
+// wheel and up.
+fn bikes_of(n: f32, s: f32) -> f32 {
+  return 2.0 + floor(h21(vec2f(n, s) + 95.1) * 3.0);
+}
+
+fn bike_z(n: f32, k: f32) -> f32 {
+  return n * UNIT + 0.8 + k * 0.5;
+}
+
+fn bike(q: vec2f) -> f32 {
+  let r = 0.3;
+  let back = abs(length(q - vec2f(0.0, r)) - r) - 0.022;
+  let front = abs(length(q - vec2f(1.0, r)) - r) - 0.022;
+  var f = min(back, front);
+  f = min(f, rv_sd_segment(q, vec2f(0.0, r), vec2f(0.45, 0.28)) - 0.018);
+  f = min(f, rv_sd_segment(q, vec2f(0.45, 0.28), vec2f(0.86, 0.86)) - 0.02);
+  f = min(f, rv_sd_segment(q, vec2f(0.86, 0.86), vec2f(1.0, r)) - 0.018);
+  f = min(f, rv_sd_segment(q, vec2f(0.4, 0.3), vec2f(0.33, 0.88)) - 0.018);
+  f = min(f, rv_sd_segment(q, vec2f(0.24, 0.9), vec2f(0.42, 0.9)) - 0.03);
+  f = min(f, rv_sd_segment(q, vec2f(0.86, 0.86), vec2f(0.76, 1.04)) - 0.016);
+  f = min(f, rv_sd_box(q - vec2f(1.04, 0.86), vec2f(0.13, 0.1)));
+  return f;
+}
+
+fn bike_hit(o: vec3f, d: vec3f, n: f32, s: f32, k: f32, pix: f32) -> f32 {
+  let t = (bike_z(n, k) - o.z) / d.z;
+  if (t <= 0.0) {
+    return FAR;
+  }
+  let p = o + d * t;
+  let q = vec2f(s * (s * (HALF - 0.32) - p.x), p.y);
+  if (q.x < -0.4 || q.x > 1.4 || q.y > 1.15) {
+    return FAR;
+  }
+  if (bike(q) < 0.5 * t * length(d) * pix) {
+    return t;
+  }
+  return FAR;
+}
+
+fn bike_face(n: f32, s: f32, k: f32, p: vec3f) -> vec3f {
+  let light = street_light(vec3f(p.x, 0.0, p.z), true) * 0.3 + params.ambient * vec3f(0.9, 0.95, 1.1);
+  let paint = select(vec3f(0.3, 0.3, 0.32), vec3f(0.35, 0.06, 0.05), h21(vec2f(n * 3.0 + k, s) + 7.7) < 0.3);
+  return paint * light * 0.8;
+}
+
+// The things in the street along the ray from the camera (o is always the camera: the rows come
+// from the tables update fills for it), nearer than `best`: t, kind and two numbers naming the
+// thing. Small things far off are left out, dissolving in a dither pattern (`dither`, 0..1 for
+// the pixel) over 15 m past params.detail; people from 1.6 times as far.
+fn hit_street(o: vec3f, d: vec3f, best: f32, steps: f32, pix: f32, dither: f32) -> vec4f {
+  var r = vec4f(best, 0.0, 0.0, 0.0);
+  if (d.z < 1e-3) {
+    return r;
+  }
+  let inv = inverse(d);
+  let len = length(d);
+  let n0 = state.row0;
+  for (var i = 0u; i < ROWS; i++) {
+    let n = n0 + f32(i);
+    let ta = (n * UNIT - o.z) / d.z;
+    if (f32(i) >= steps || ta > r.x) {
+      break;
+    }
+    // How far the row is, and whether its small things and its people are drawn.
+    let far = max(ta, 0.0) * len - params.detail;
+    let small = far < 15.0 * dither;
+    let people = far < 0.6 * params.detail + 20.0 * dither;
+    // Where the ray runs within the row (from where it enters it, or the camera, to where it
+    // leaves it): each kind of thing stands in its own part of the row, and one the ray cannot
+    // reach is passed by before any of its sums are done.
+    let pa = o + d * max((n * UNIT - o.z) / d.z, 0.0);
+    let pb = o + d * (((n + 1.0) * UNIT - o.z) / d.z);
+    let lo = min(pa.xy, pb.xy);
+    let hi = max(pa.xy, pb.xy);
+    for (var k = 0u; k < 2u; k++) {
+      let s = f32(k) * 2.0 - 1.0;
+      let row = i * 2u + k;
+      // This side's wall, what stands before it, an awning, a pole.
+      let shop = state.row_shop[row];
+      let wall = shop.x;
+      // How far out towards this side's wall the ray gets in the row.
+      let out = select(-lo.x, hi.x, s > 0.0);
+      // Signs hang from the walls, from 3 m up.
+      if (out > 1.4 && hi.y > 3.2) {
+        let ts = hit_sign(o, d, s, state.row_sign[row], wall);
+        if (ts < r.x) {
+          r = vec4f(ts, 4.0, n, s);
+        }
+      }
+      if (crossing(n)) {
+        // Traffic lights stand at the kerb, under 4 m.
+        if (out > HALF - 0.7 && lo.y < 3.95) {
+          let tl = hit_signal(o, d, n, s);
+          if (tl < r.x) {
+            r = vec4f(tl, 5.0, n, s);
+          }
+        }
+      } else if (out > HALF - 1.0 && lo.y < 2.6 && hi.y > 2.3 && shop.z > 0.5) {
+        // Awnings jut a metre from the walls, 2.3 to 2.6 m up.
+        let x0 = select(-wall, wall - 1.0, s > 0.0);
+        let ra = box_hit(o, inv, vec3f(x0, 2.3, n * UNIT + 0.15), vec3f(x0 + 1.0, 2.6, n * UNIT + UNIT - 0.15));
+        if (ra.x > 0.0 && ra.x < r.x) {
+          r = vec4f(ra.x, 5.0 + ra.y, n, s);
+        }
+      }
+      // On the pavement before the shop, under 2.2 m: its banners, board, bicycles or shrine.
+      if (small && out > HALF - 2.0 && lo.y < 2.2) {
+        let what = shop.y;
+        if (what == 1.0 && out > HALF - 0.85) {
+          for (var j = 0.0; j < 2.0; j += 1.0) {
+            if (j > 0.5 && h21(vec2f(n, s) + 96.1) < 0.5) {
+              break;
+            }
+            let tb = banner_hit(o, d, n, s, j);
+            if (tb.x < r.x) {
+              r = vec4f(tb.x, 11.0 + 0.5 * tb.y, n + 0.5 * j + tb.z * 0.2, s);
+            }
+          }
+        } else if (what == 2.0 && out > HALF - 0.85 && lo.y < 0.95) {
+          let tb = board_hit(o, inv, n, s);
+          if (tb < r.x) {
+            r = vec4f(tb, 14.0, n, s);
+          }
+        } else if (what == 3.0 && lo.y < 1.2) {
+          for (var b = 0.0; b < 4.0; b += 1.0) {
+            if (b >= bikes_of(n, s)) {
+              break;
+            }
+            let tb = bike_hit(o, d, n, s, b, pix);
+            if (tb < r.x) {
+              r = vec4f(tb, 15.0, n + 0.2 * b, s);
+            }
+          }
+        } else if (what == 4.0 && lo.y < 1.6) {
+          let tb = shrine_hit(o, d, inv, n, s);
+          if (tb.x < r.x) {
+            r = vec4f(tb.x, 12.0 + 0.1 * tb.y, n, s);
+          }
+        } else if (what == 5.0 && out > wall - 0.8 && lo.y < 1.9) {
+          for (var v = 0.0; v < 3.0; v += 1.0) {
+            if (v >= vendings_of(n, s)) {
+              break;
+            }
+            let tv = vending_hit(o, inv, n, s, v);
+            if (tv < r.x) {
+              r = vec4f(tv, 17.0, n + 0.2 * v, s);
+            }
+          }
+        }
+      }
+      // What stands out from the front above the shop: within a metre of the wall, above 3 m.
+      if (small && !crossing(n) && hi.y > 3.1 && out > wall - 1.0) {
+        let tf = front_parts(o, inv, n, s, state.row_front[row], wall, lo.y, hi.y);
+        if (tf.x < r.x) {
+          r = vec4f(tf.x, 16.0 + 0.1 * tf.y, n, s);
+        }
+      }
+      // Poles stand at the kerb, under 9.5 m, their arms reaching 0.85 m.
+      if (out > HALF - 1.2 && lo.y < 9.5 && shop.w > 0.5) {
+        let tp = hit_pole(o, d, n, s);
+        if (tp < r.x) {
+          r = vec4f(tp, 9.0, n, s);
+        }
+      }
+    }
+    // The arch over the street at the start of a block, under 7.2 m.
+    if (lo.y < 7.2 && arch_on(n)) {
+      let ta = arch_hit(o, inv, n);
+      if (ta.x < r.x) {
+        r = vec4f(ta.x, 13.0 + 0.1 * ta.y, n, 0.0);
+      }
+    }
+    // People walk the road, under 2 m.
+    if (people && lo.y < 2.0 && lo.x < ROAD + 0.2 && hi.x > -ROAD - 0.2) {
+      for (var k = 0u; k < 3u; k++) {
+        for (var j = 0u; j < 2u; j++) {
+          let m = person_in_row(n, f32(k), f32(j));
+          let tq = hit_person(o, d, state.row_people[i * 6u + k * 2u + j], m, f32(k), pix);
+          if (tq < r.x) {
+            r = vec4f(tq, 10.0, m, f32(k));
+          }
+        }
+      }
+    }
+  }
+  return r;
+}
+
+// Lantern strings before tmax: the colour they add and how much of the pixel they cover.
+fn strings(o: vec3f, d: vec3f, tmax: f32, pix: f32) -> vec4f {
+  if (d.z < 1e-3) {
+    return vec4f(0.0);
+  }
+  let len = length(d);
+  let m0 = floor((o.z - 2.1) / (2.0 * UNIT));
+  for (var i = 0.0; i < 12.0; i += 1.0) {
+    let m = m0 + i;
+    let t = (string_z(m) - o.z) / d.z;
+    if (t > tmax) {
+      break;
+    }
+    if (t <= 0.0 || !string_on(m)) {
+      continue;
+    }
+    let p = o + d * t;
+    if (abs(p.x) > HALF) {
+      continue;
+    }
+    let footprint = t * len * pix;
+    let wire_y = string_y(m, p.x);
+    let wire = smoothstep(0.012 + footprint, 0.0, abs(p.y - wire_y)) * min(0.012 / (0.012 + footprint), 1.0) * 2.0;
+    // Each lantern hangs from the string and swings on its cord with the beat (a little more or
+    // less than its neighbours), turning about where it hangs.
+    let k = round(p.x / 0.72);
+    let a = state.sway * mix(0.7, 1.15, h21(vec2f(m, k) + 6.1));
+    let top = vec2f(k * 0.72, string_y(m, k * 0.72));
+    let c = top + vec2f(sin(a), -cos(a)) * 0.24;
+    let q = vec2f(cos(a) * (p.x - c.x) + sin(a) * (p.y - c.y), -sin(a) * (p.x - c.x) + cos(a) * (p.y - c.y)) / vec2f(0.15, 0.21);
+    let r = length(q);
+    let aa = footprint / 0.15;
+    let lantern = smoothstep(1.0 + aa, 1.0 - aa, r) * step(abs(k * 0.72), HALF - 0.4);
+    if (lantern > 0.0 || wire > 0.0) {
+      let glow = 1.0 + light_kick(vec2f(m, k));
+      let colour = lantern_colour(m) * glow * (1.3 - 0.6 * r * r) * (0.75 + 0.25 * cos(q.y * 9.0));
+      return vec4f(colour * lantern, max(lantern, min(wire, 1.0) * 0.9));
+    }
+  }
+  return vec4f(0.0);
+}
+
+// ---- Sky and air ----
+
+fn sky(d: vec3f) -> vec3f {
+  let up = d.y;
+  var c = mix(vec3f(0.06, 0.047, 0.038), vec3f(0.007, 0.009, 0.016), smoothstep(-0.02, 0.5, up));
+  // Low clouds, lit from below by the city.
+  let q = d.xz / max(up, 0.05);
+  let cloud = smoothstep(-0.1, 0.5, rv_fbm(q * 0.25 + vec2f(frame.time * 0.01, 0.0), 4));
+  c += vec3f(0.05, 0.04, 0.032) * cloud * smoothstep(0.6, 0.05, up) * step(0.0, up);
+  return c;
+}
+
+fn fogged(c: vec3f, dist: f32, d: vec3f) -> vec3f {
+  let haze = mix(vec3f(0.055, 0.045, 0.04), vec3f(0.02, 0.022, 0.03), smoothstep(0.0, 0.4, d.y));
+  return mix(c, haze, 1.0 - exp(-dist * 0.012 * params.fog));
+}
+
+// ---- The street's surface ----
+
+// A shopping street's paving, as Japanese shotengai are paved: interlocking blocks in a running
+// bond, a band of light blocks with a diamond laid in blocks every two rows (it marks the
+// distance as the camera glides), a yellow guide line for the blind with warning dots before each
+// cross street, steel gutters along the shops, and now and then a manhole. The albedo, and an id
+// per block.
+fn paving(p: vec3f, n: f32, aa: f32) -> vec4f {
+  let ax = abs(p.x);
+  let far = smoothstep(0.01, 0.06, aa);
+  // Steel gutters along the shops: slots across, and their frame.
+  if (ax > ROAD && ax < ROAD + 0.24) {
+    let slot = rv_band(fract(p.z / 0.035), 0.25, 0.75, aa / 0.035);
+    let frame = 1.0 - rv_band(ax, ROAD + 0.025, ROAD + 0.215, aa);
+    let steel = mix(vec3f(0.11, 0.105, 0.1), vec3f(0.012), slot * (1.0 - far) * 0.85);
+    return vec4f(mix(steel, vec3f(0.2, 0.19, 0.18), frame), 0.0);
+  }
+  // The guide line, on one side of the street: bars along it, dots before a cross street.
+  if (p.x > 1.55 && p.x < 1.85) {
+    let tile = smoothstep(0.004, 0.01 + aa, min(abs(fract(p.z / 0.3) - 0.5), 0.5 - abs(p.x - 1.7) / 0.3) * 0.3);
+    let warn = crossing(n + 1.0) && p.z > (n + 1.0) * UNIT - 0.9;
+    var bump: f32;
+    if (warn) {
+      let q = fract(vec2f(p.x - 1.55, p.z) / 0.06) - 0.5;
+      bump = smoothstep(0.32, 0.22, length(q));
+    } else {
+      bump = rv_band(fract((p.x - 1.55) / 0.075), 0.3, 0.7, aa / 0.075);
+    }
+    let yellow = vec3f(0.62, 0.45, 0.04) * (0.85 + 0.25 * bump * (1.0 - far));
+    return vec4f(mix(vec3f(0.08, 0.06, 0.02), yellow, mix(tile, 1.0, far)), 0.0);
+  }
+  // A manhole in some rows.
+  if (h21(vec2f(n, 3.3)) < 0.4) {
+    let c = vec2f((h21(vec2f(n, 4.4)) - 0.5) * 2.4, n * UNIT + 1.0 + 2.5 * h21(vec2f(n, 5.5)));
+    let r = length(p.xz - c);
+    if (r < 0.33) {
+      let q = (p.xz - c) / 0.05;
+      let grip = step(0.5, fract(q.x + 0.5 * floor(q.y))) * rv_band(r, 0.0, 0.25, aa);
+      let ring = rv_band(r, 0.26, 0.3, aa);
+      let iron = vec3f(0.1, 0.095, 0.09) * (1.0 + 0.6 * grip * (1.0 - far)) + vec3f(0.08) * ring;
+      return vec4f(mix(vec3f(0.03), iron, smoothstep(0.33, 0.32 - aa, r)), 0.0);
+    }
+  }
+  // The blocks, 0.2 m along and 0.1 m across; the pattern is read at each block's centre so it
+  // is laid in whole blocks.
+  let row = floor(p.x / 0.1);
+  let shift = 0.5 * step(0.25, fract(row * 0.5));
+  let zz = p.z / 0.2 + shift;
+  let bi = floor(zz);
+  let f = vec2f(fract(zz) * 0.2, (p.x / 0.1 - row) * 0.1);
+  let joint = smoothstep(0.003, 0.009 + aa, min(min(f.x, 0.2 - f.x), min(f.y, 0.1 - f.y)));
+  let c = vec2f((row + 0.5) * 0.1, (bi + 0.5 - shift) * 0.2);
+  let hv = h21(vec2f(bi, row));
+  // Close in tone, so that posterizing never breaks the street into noise.
+  var block = vec3f(0.24, 0.215, 0.19) * (0.94 + 0.1 * hv);
+  if (ax > ROAD) {
+    // In front of the shops: smaller, darker square tiles.
+    let t = abs(fract(p.xz / 0.3) - 0.5) * 0.3;
+    let m = smoothstep(0.0, 0.01 + aa, 0.15 - max(t.x, t.y));
+    let tile = vec3f(0.15, 0.145, 0.14) * (0.95 + 0.1 * h21(floor(p.xz / 0.3)));
+    return vec4f(mix(mix(vec3f(0.05), tile, m), tile * 0.9, far), 0.0);
+  }
+  let zb = c.y - 2.0 * UNIT * floor(c.y / (2.0 * UNIT));
+  if (zb < 1.4) {
+    let d = abs(c.x) / 1.3 + abs(zb - 0.7) / 0.7;
+    block = vec3f(0.4, 0.37, 0.32) * (0.96 + 0.06 * hv);
+    if (d < 1.0 && d > 0.55) {
+      block = vec3f(0.3, 0.14, 0.1);
+    } else if (d <= 0.3) {
+      block = vec3f(0.46, 0.34, 0.13);
+    }
+  }
+  let col = mix(vec3f(0.05, 0.045, 0.04), block, joint);
+  return vec4f(mix(col, block * 0.88, far), hv + row * 0.37);
+}
+
+// What lights things near the ground at p: shops (unless `shops` is false), signs and lantern
+// strings nearby.
+fn street_light(p: vec3f, shops: bool) -> vec3f {
+  var e = params.ambient * vec3f(0.9, 0.95, 1.1);
+  let n0 = floor(p.z / UNIT);
+  for (var i = -2.0; i <= 2.0; i += 1.0) {
+    let n = n0 + i;
+    for (var k = 0.0; k < 2.0; k += 1.0) {
+      let s = k * 2.0 - 1.0;
+      let sp = vec3f(s * (wall_x(n, s) - 0.1), 1.2, n * UNIT + 0.5 * UNIT);
+      let ds = sp - p;
+      e += select(vec3f(0.0), shop_light(n, s), shops) * 1.1 * sp.y / pow(dot(ds, ds) + 1.0, 1.5);
+      let sg = sign_of(n, s);
+      if (sg.y > 0.0) {
+        let lp = vec3f(s * (wall_x(n, s) - 0.12 - 0.5 * sg.y), 0.5 * (sg.z + sg.w), sg.x);
+        let dl = lp - p;
+        e += sign_light(n, s) * (sg.w - sg.z) * 0.6 * lp.y / pow(dot(dl, dl) + 0.5, 1.5);
+      }
+    }
+  }
+  return e + lantern_light(p);
+}
+
+// The lantern strings' light at p, as lines of light across the street.
+fn lantern_light(p: vec3f) -> vec3f {
+  var e = vec3f(0.0);
+  let m0 = floor((p.z - 2.1) / (2.0 * UNIT));
+  for (var m = m0; m <= m0 + 1.0; m += 1.0) {
+    if (string_on(m) && abs(p.x) < HALF) {
+      let h = string_y(m, p.x) - 0.24;
+      let dz = string_z(m) - p.z;
+      e += lantern_colour(m) * 0.35 * h / (dz * dz + h * h);
+    }
+  }
+  return e;
+}
+
+// The light a shop throws out of its open front onto the street, as background painters lay it
+// in: a pool the width of the shop, its edges softening and its light fading away from the door.
+// A shutter throws none, so the street is bright and dark by turns.
+fn shop_spill(p: vec3f) -> vec3f {
+  var e = vec3f(0.0);
+  let n0 = floor(p.z / UNIT);
+  for (var i = -1.0; i <= 1.0; i += 1.0) {
+    let n = n0 + i;
+    for (var k = 0.0; k < 2.0; k += 1.0) {
+      let s = k * 2.0 - 1.0;
+      let dx = wall_x(n, s) - s * p.x;
+      if (dx < 0.0) {
+        continue;
+      }
+      let out = max(max(n * UNIT + 0.3 - p.z, p.z - (n * UNIT + UNIT - 0.3)), 0.0);
+      let side = 1.0 - smoothstep(0.0, 0.2 + 0.6 * dx, out);
+      e += shop_colour(n, s) * side / (1.0 + 0.3 * dx * dx);
+    }
+  }
+  return e;
+}
+
+// What lights the ground at p: only the shops' pools and a little of the lantern strings, all
+// steady. The signs high up light it too faintly to show, and nothing on it beats: the street is
+// the calm ground the lights above dance over.
+fn ground_light(p: vec3f) -> vec3f {
+  return params.ambient * vec3f(0.9, 0.95, 1.1) + shop_spill(p) * params.spill + lantern_light(p) * 0.5;
+}
+
+// The wet street mirrors the lights, blurred: a sign, a shop window or a lantern string is a
+// glowing rectangle, and a point of the street gets its light by how far its mirrored ray misses
+// the rectangle, measured as an angle, little across and much up and down. So every sign leaves
+// a soft streak of its own colour running towards the camera, as on a wet street at night, and
+// nothing else on the street is mirrored (no words, no shapes). Light reflected off a wet street
+// is as bright near and far: it does not fall off with distance.
+
+struct Blur {
+  // The mirrored ray, the spread across and up and down (radians).
+  o: vec3f,
+  r: vec3f,
+  across: f32,
+  up: f32,
+}
+
+// How much of a rectangle at z = plane (x from x0 to x1, y from y0 to y1) the blurred ray sees.
+fn facing_z(b: Blur, plane: f32, x0: f32, x1: f32, y0: f32, y1: f32) -> f32 {
+  let t = (plane - b.o.z) / b.r.z;
+  if (t <= 0.05) {
+    return 0.0;
+  }
+  let h = b.o + b.r * t;
+  let miss = vec2f(h.x - clamp(h.x, min(x0, x1), max(x0, x1)), h.y - clamp(h.y, y0, y1)) / t;
+  // A rectangle narrower than the spread lights less of it.
+  let cover = min(abs(x1 - x0) / t / (1.8 * b.across), 1.0);
+  return exp(-dot(miss / vec2f(b.across, b.up), miss / vec2f(b.across, b.up))) * cover;
+}
+
+// The same for a rectangle on a wall at x = plane (z from z0 to z1, y from y0 to y1).
+fn facing_x(b: Blur, plane: f32, z0: f32, z1: f32, y0: f32, y1: f32) -> f32 {
+  let t = (plane - b.o.x) / b.r.x;
+  if (t <= 0.05) {
+    return 0.0;
+  }
+  let h = b.o + b.r * t;
+  let miss = vec2f(h.z - clamp(h.z, z0, z1), h.y - clamp(h.y, y0, y1)) / t;
+  return exp(-dot(miss / vec2f(b.across, b.up), miss / vec2f(b.across, b.up)));
+}
+
+// What the wet street at p mirrors, seen from the direction v, with the surface normal n and
+// roughness rough (0 a mirror, 1 matte).
+fn street_sheen(p: vec3f, v: vec3f, n: vec3f, rough: f32) -> vec3f {
+  var b: Blur;
+  b.o = p;
+  b.r = reflect(-v, n);
+  b.across = 0.006 + 0.09 * rough;
+  b.up = 0.02 + 0.7 * rough;
+  if (b.r.y <= 0.0) {
+    return vec3f(0.0);
+  }
+  var e = vec3f(0.0);
+  // The rows the ray passes on its way up past the signs, fading at both ends so no seam shows.
+  let z0 = p.z - UNIT;
+  let z1 = p.z + b.r.z / max(b.r.y, 0.04) * 14.0 + UNIT;
+  let first = floor(min(z0, z1) / UNIT);
+  let last = min(floor(max(z0, z1) / UNIT), first + 11.0);
+  for (var nn = first; nn <= last; nn += 1.0) {
+    let mid = nn * UNIT + 0.5 * UNIT;
+    let fade = clamp((mid - min(z0, z1)) / UNIT + 0.5, 0.0, 1.0) * clamp((max(z0, z1) - mid) / UNIT + 0.5, 0.0, 1.0);
+    var row = vec3f(0.0);
+    for (var k = 0.0; k < 2.0; k += 1.0) {
+      let s = k * 2.0 - 1.0;
+      let w = wall_x(nn, s);
+      let window = facing_x(b, s * w, nn * UNIT + 0.3, nn * UNIT + UNIT - 0.3, 0.2, 2.4);
+      row += shop_colour(nn, s) * 0.8 * window;
+      let sg = sign_of(nn, s);
+      if (sg.y > 0.0) {
+        let x0 = s * (w - 0.12);
+        let seen = facing_z(b, sg.x, x0, x0 - s * sg.y, sg.z, sg.w);
+        row += sign_colour(nn, s) * 0.8 * seen;
+      }
+    }
+    e += row * fade;
+  }
+  let m0 = floor((min(z0, z1) - 2.1) / (2.0 * UNIT));
+  for (var m = m0; m <= m0 + 6.0; m += 1.0) {
+    if (string_on(m) && string_z(m) < max(z0, z1) + UNIT) {
+      let y = string_y(m, 0.0) - 0.24;
+      e += lantern_colour(m) * 0.45 * facing_z(b, string_z(m), -HALF, HALF, y - 0.25, y + 0.25);
+    }
+  }
+  // Water mirrors more at a grazing angle.
+  let fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  return e * fresnel;
+}
+
+// The ground at p (the street, a cross street or an empty lot): its albedo, then the tilt of
+// its surface and how wet it is.
+fn ground(p: vec3f, aa: f32) -> mat2x3f {
+  let ax = abs(p.x);
+  let n = floor(p.z / UNIT);
+  var albedo: vec3f;
+  var tilt = vec2f(0.0);
+  if (!crossing(n) && ax < wall_x(n, select(-1.0, 1.0, p.x > 0.0))) {
+    let b = paving(p, n, aa);
+    albedo = b.rgb;
+    // Each block sits at its own small angle, so what the wet street mirrors breaks into blocks.
+    tilt = (vec2f(h21(vec2f(b.w, 1.3)), h21(vec2f(b.w, 7.1))) - 0.5) * 0.06 * (1.0 - smoothstep(0.01, 0.05, aa)) * step(0.001, b.w);
+  } else {
+    // Asphalt; across the main street a zebra crossing, along the cross street a centre line.
+    albedo = vec3f(0.045, 0.045, 0.05);
+    let zl = p.z - n * UNIT;
+    if (ax < HALF) {
+      let stripe = rv_band(fract(p.x / 0.9), 0.0, 0.5, aa / 0.9) * rv_band(zl, 0.7, 3.8, aa);
+      albedo = mix(albedo, vec3f(0.55), stripe);
+    } else {
+      albedo = mix(albedo, vec3f(0.5, 0.42, 0.1), rv_band(zl, 2.2, 2.3, aa) * step(0.5, fract(p.x / 3.0)));
+    }
+  }
+  // Puddles here and there: dark, wet and smooth, rippling a little. They alone mirror much.
+  // None at all when puddles is 0.
+  var puddle = 0.0;
+  if (params.puddles > 0.0) {
+    puddle = smoothstep(0.08, 0.2, rv_fbm(p.xz * 0.3 + vec2f(3.1, 7.7), 4) + params.puddles * 0.25 - 0.2);
+    tilt = mix(tilt, vec2f(rv_noise(p.xz * 6.0 + frame.time * 0.7), rv_noise(p.zx * 6.0 - frame.time * 0.6)) * 0.008, puddle);
+  }
+  albedo *= 1.0 - 0.6 * puddle;
+  let wet = mix(0.35 * params.wet, 0.8, puddle);
+  return mat2x3f(albedo, vec3f(tilt, wet));
+}
+
+// ---- Putting it together ----
+
+// The colour along a ray, stopping at tmax (the ground), and how far it went (FAR: the sky).
+// `dither` (0..1, a pattern over the pixels) dissolves far small things (see hit_street).
+fn scene(o: vec3f, d: vec3f, pix: f32, grid_steps: f32, street_steps: f32, tmax: f32, dither: f32) -> vec4f {
+  let len = length(d);
+  let dn = d / len;
+  let hit = trace(o, d, grid_steps, tmax);
+  let things = hit_street(o, d, hit.t, street_steps, pix, dither);
+  let found = things.y > 0.5 || hit.kind > 0.5;
+  if (!found) {
+    return vec4f(sky(dn), select(FAR, tmax, tmax < FAR));
+  }
+  let t = things.x;
+  let p = o + d * t;
+  let dist = t * len;
+  var col: vec3f;
+  if (things.y > 16.5) {
+    col = vending_face(floor(things.z), things.w, round(fract(things.z) * 5.0), p, dist * pix / max(abs(dn.x), 0.15));
+  } else if (things.y > 15.5) {
+    col = front_part_face(things.z, things.w, (things.y - 16.0) * 10.0, p, dn, dist * pix / max(abs(dn.x), 0.15));
+  } else if (things.y > 14.5) {
+    col = bike_face(floor(things.z), things.w, round(fract(things.z) * 5.0), p);
+  } else if (things.y > 13.5) {
+    col = board_face(things.z, things.w, p, dist * pix / max(abs(dn.z), 0.2));
+  } else if (things.y > 12.5) {
+    col = arch_face(things.z, (things.y - 13.0) * 10.0, p, dist * pix / max(abs(dn.z), 0.2));
+  } else if (things.y > 11.5) {
+    col = shrine_face(things.z, things.w, (things.y - 12.0) * 10.0, p);
+  } else if (things.y > 10.5) {
+    let j = floor(fract(things.z) * 2.0 + 1e-3);
+    let a = (fract(things.z) - 0.5 * j) * 5.0;
+    col = banner_face(floor(things.z), things.w, j, a, p, dist * pix / max(abs(dn.z), 0.2), things.y > 11.25);
+  } else if (things.y > 9.5) {
+    col = person_face(things.z, things.w, p, dn, pix);
+  } else if (things.y > 8.5) {
+    col = pole_face(p, things.w);
+  } else if (things.y > 5.5) {
+    col = awning_face(things.z, things.w, p, things.y - 5.0, dn);
+  } else if (things.y > 4.5) {
+    col = signal_face(things.z, things.w, p, dist * pix);
+  } else if (things.y > 3.5) {
+    col = sign_face(things.z, things.w, p, dist * pix / max(abs(dn.z), 0.2));
+  } else if (hit.part > 1.5) {
+    // A roof torii: vermilion, the kasagi's top black, lit from below by a small light at its
+    // feet and faintly by the city.
+    let r = torii_of(hit.i, hit.n);
+    let up = (p.y - r.w) / r.z;
+    var albedo = vec3f(0.55, 0.06, 0.025);
+    if (hit.part > 3.5 && hit.kind > 2.5) {
+      albedo = vec3f(0.02);
+    }
+    let face = select(select(0.8, 1.0, hit.kind < 1.5), 0.6, hit.kind > 2.5);
+    let light = params.ambient * vec3f(0.9, 0.95, 1.1) * 4.0 + vec3f(0.45, 0.24, 0.12) * exp(-up * 0.9);
+    col = albedo * light * face;
+  } else if (hit.part > 0.5) {
+    // A billboard: its face to the street is a screen, the rest a dark frame.
+    let s = f32(hit.i);
+    col = vec3f(0.015, 0.015, 0.018);
+    if (hit.kind < 1.5 && (s > 0.0) == (d.x > 0.0)) {
+      let bb = billboard_of(hit.n, s);
+      let z0 = first_row(hit.n, s) * UNIT + 0.4;
+      let w = rows_of(hit.n, s) * UNIT - 0.8;
+      let along = select(p.z - z0, w - (p.z - z0), s > 0.0);
+      col = big_screen(vec2f(first_row(hit.n, s), s) + 0.71, along, bb.y - p.y, w, bb.y - bb.x, dist * pix / max(abs(dn.x), 0.08));
+    }
+  } else if (hit.kind > 2.5) {
+    let span = column_span(hit.i);
+    let xz = vec2f(p.x - span.x, p.z - hit.n * UNIT);
+    col = roof(hit.i, hit.n, xz, vec2f(COL, UNIT), dist * pix / max(abs(dn.y), 0.1));
+  } else {
+    let faces_street = hit.kind < 1.5 && abs(hit.i) == 1 && (hit.i > 0) == (d.x > 0.0);
+    let grazing = select(abs(dn.z), abs(dn.x), hit.kind < 1.5);
+    let aa = dist * pix / max(grazing, 0.08);
+    if (faces_street) {
+      col = facade(hit.n, f32(hit.i), p.z - hit.n * UNIT, p.y, aa);
+    } else {
+      col = city_wall(hit.i, hit.n, p, hit.kind, aa);
+    }
+  }
+  return vec4f(fogged(col, dist, dn), t);
+}
+
+// The camera's ray through a pixel: where it starts, its direction (not normalised) and the
+// size of a pixel one unit away.
+struct Ray {
+  o: vec3f,
+  d: vec3f,
+  pix: f32,
+}
+
+fn camera_ray(px: Pixel) -> Ray {
+  let p2 = rv_rotate(px.p, state.roll) * state.lens * 0.72;
+  var d = vec3f(p2.x, p2.y, 1.0);
+  // Pitch up for a positive pitch, yaw left for a positive yaw.
+  let dyz = rv_rotate(d.yz, -state.pitch);
+  d = vec3f(d.x, dyz.x, dyz.y);
+  let dxz = rv_rotate(d.xz, state.yaw);
+  d = vec3f(dxz.x, d.y, dxz.y);
+  var ray: Ray;
+  ray.o = state.pos;
+  ray.d = d;
+  ray.pix = state.lens * 0.72 / px.size.y * 1.2;
+  return ray;
+}

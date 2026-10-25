@@ -1,0 +1,846 @@
+format = 1
+name = "Torii Sea"
+license = "MPL-2.0"
+description = "Endless torii winding over the sea, waves breaking with the music"
+
+common = ["sea.wgsl"]
+
+[state]
+file = "state.wgsl"
+update = "update.wgsl"
+
+# The whole picture's resolution, per side, stretched to the screen after: 1 draws every pixel;
+# 0.75 keeps the sea's crosses crosses (at 0.5 they blur into dots; the torii, listed per tile of
+# the screen, cost a quarter of what they did, which pays for it); 0.5 a quarter of the pixels,
+# 0.35 a little soft, below 0.25 the torii's edges turn to steps.
+[render]
+scale = 0.75
+
+[[pass]]
+shader = "view.wgsl"
+target = "out"
+
+[post]
+exposure = 0.0
+bloom = { intensity = 0.4, threshold = 1.0, radius = 0.7 }
+tonemap = "agx"
+grain = 0.03
+chromatic = 0.0
+vignette = 0.2
+contrast = 1.12
+saturation = 1.05
+
+# ---- Beat ----
+
+[[param]]
+id = "conf"
+group = "Beat"
+label = "Beat confidence needed"
+default = 0.4
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "hits"
+group = "Beat"
+label = "Kicks between beats"
+default = 0.5
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "kick_decay"
+group = "Beat"
+label = "Kick decay"
+unit = "s"
+default = 0.18
+min = 0.04
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "beat_lock"
+group = "Beat"
+label = "Pass a torii on the beat"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "lanterns"
+group = "Beat"
+label = "Lanterns (glowing with the music)"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "lantern_swing"
+group = "Look"
+label = "How far the lanterns sway, slowly"
+unit = "rad"
+default = 0.08
+min = 0.0
+max = 0.8
+step = 0.01
+
+[[param]]
+id = "sea_beats"
+group = "Beat"
+label = "Beats between new sets of the sea's triangles"
+default = 2.0
+min = 1.0
+max = 16.0
+step = 1.0
+
+[[param]]
+id = "wave_kick"
+group = "Beat"
+label = "A set coming on a kick stands taller"
+default = 0.7
+min = 0.0
+max = 1.5
+step = 0.05
+
+[[param]]
+id = "glow"
+group = "Beat"
+label = "Glow"
+default = 0.25
+min = 0.0
+max = 2.0
+step = 0.05
+
+# ---- Light spirits ----
+
+[[param]]
+id = "mode"
+type = "choice"
+group = "Spirits"
+label = "How the spirits move"
+default = 0
+options = ["By section", "Braid", "Snake", "Fan", "Weaving in and out"]
+
+[[param]]
+id = "min_spirits"
+group = "Spirits"
+label = "Fewest spirits (up to 5)"
+default = 3.0
+min = 1.0
+max = 5.0
+step = 1.0
+
+[[param]]
+id = "mode_bars"
+group = "Spirits"
+label = "Bars between changes of pattern"
+default = 8.0
+min = 1.0
+max = 32.0
+step = 1.0
+
+[[param]]
+id = "spread"
+group = "Spirits"
+label = "How far the spirits spread between gates"
+unit = "m"
+default = 1.6
+min = 0.2
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "pinch"
+group = "Spirits"
+label = "How close they draw in at a gate"
+default = 0.3
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "orbit"
+group = "Spirits"
+label = "How far they turn on a beat"
+default = 1.0
+min = 0.0
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "stagger"
+group = "Spirits"
+label = "How far they string out"
+unit = "m"
+default = 1.5
+min = 0.0
+max = 5.0
+step = 0.1
+
+[[param]]
+id = "stiff"
+group = "Spirits"
+label = "How hard each keeps its place"
+default = 30
+min = 2.0
+max = 200.0
+step = 1.0
+
+[[param]]
+id = "damp"
+group = "Spirits"
+label = "Damping of the spirits"
+default = 0.75
+min = 0.2
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "weave"
+group = "Spirits"
+label = "How far they swing out of the gates when weaving"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "breathe"
+group = "Spirits"
+label = "Formation opening with the loudness"
+default = 0.8
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "pose_beats"
+group = "Spirits"
+label = "Beats between moves to a new spot"
+default = 2.0
+min = 1.0
+max = 8.0
+step = 1.0
+
+[[param]]
+id = "kick_burst"
+group = "Spirits"
+label = "How far a kick throws them out"
+default = 0.4
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "energy_motion"
+group = "Spirits"
+label = "How much the loudness of the moment drives the spirits' moves"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "wander"
+group = "Spirits"
+label = "How far each moves to a new spot"
+unit = "m"
+default = 0.6
+min = 0.0
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "trip_chance"
+group = "Spirits"
+label = "Chance on a beat that one strays off"
+default = 0.12
+min = 0.0
+max = 0.6
+step = 0.01
+
+[[param]]
+id = "surge"
+group = "Spirits"
+label = "How far they surge on the beat"
+unit = "m"
+default = 3.0
+min = 0.0
+max = 6.0
+step = 0.1
+
+[[param]]
+id = "surge_decay"
+group = "Spirits"
+label = "How fast a surge dies away"
+unit = "s"
+default = 0.25
+min = 0.03
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "react"
+group = "Spirits"
+label = "How much each trail follows its band"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "flick"
+group = "Spirits"
+label = "How far a snare flicks them"
+unit = "m"
+default = 0.3
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "leap"
+group = "Spirits"
+label = "How high they leap on an accent"
+unit = "m"
+default = 12.0
+min = 0.0
+max = 40.0
+step = 0.5
+
+[[param]]
+id = "leap_time"
+group = "Spirits"
+label = "How long a leap takes"
+unit = "s"
+default = 1.6
+min = 0.3
+max = 5.0
+step = 0.1
+
+[[param]]
+id = "trail_time"
+group = "Spirits"
+label = "Length of the trails"
+unit = "s"
+default = 2.5
+min = 0.2
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "trail_width"
+group = "Spirits"
+label = "Width of the paper ribbon"
+unit = "m"
+default = 0.35
+min = 0.05
+max = 1.2
+step = 0.01
+
+[[param]]
+id = "twist"
+group = "Spirits"
+label = "Twist of the ribbon (per point)"
+unit = "rad"
+default = 0.35
+min = 0.0
+max = 1.5
+step = 0.01
+
+[[param]]
+id = "zigzag"
+group = "Spirits"
+label = "Folds of the ribbon (zigzag, as shide paper)"
+default = 0.5
+min = 0.0
+max = 1.5
+step = 0.05
+
+[[param]]
+id = "trail_fade"
+group = "Spirits"
+label = "How fast the ribbon's glow fades"
+default = 0.8
+min = 0.2
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "trail_glow"
+group = "Spirits"
+label = "The ribbon's own glow"
+default = 0.8
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "glitter_amount"
+group = "Spirits"
+label = "Flakes shed by the ribbon (chance per point)"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "glitter_size"
+group = "Spirits"
+label = "Size of the flakes"
+unit = "m"
+default = 0.14
+min = 0.02
+max = 0.6
+step = 0.01
+
+[[param]]
+id = "flake_fall"
+group = "Spirits"
+label = "How fast the flakes fall"
+unit = "m/s"
+default = 1.2
+min = 0.0
+max = 5.0
+step = 0.05
+
+# ---- Speed ----
+
+[[param]]
+id = "cruise"
+group = "Speed"
+label = "Cruise speed"
+unit = "m/s"
+default = 8.0
+min = 1.0
+max = 30.0
+step = 0.5
+
+[[param]]
+id = "song_pace"
+group = "Speed"
+label = "How much the song's pace sets the speed"
+default = 1.5
+min = 0.0
+max = 3.0
+step = 0.1
+
+[[param]]
+id = "moment_pace"
+group = "Speed"
+label = "How much the moment's pace changes it"
+default = 2.0
+min = 0.0
+max = 4.0
+step = 0.1
+
+[[param]]
+id = "feel_smooth"
+group = "Speed"
+label = "Smoothing of the pace"
+unit = "s"
+default = 4.0
+min = 0.5
+max = 20.0
+step = 0.5
+
+[[param]]
+id = "energy_speed"
+group = "Speed"
+label = "Energy on the speed"
+default = 0.3
+min = 0.0
+max = 1.0
+step = 0.05
+
+# ---- Camera ----
+
+[[param]]
+id = "same_view"
+type = "bool"
+group = "Camera"
+label = "Same view for the same kind of section"
+default = true
+
+[[param]]
+id = "through"
+group = "Camera"
+label = "Height through the gates"
+unit = "m"
+default = 3.0
+min = 1.0
+max = 4.0
+step = 0.1
+
+[[param]]
+id = "rear_height"
+group = "Camera"
+label = "Height of the shot from behind and to the side"
+unit = "m"
+default = 6.0
+min = 2.0
+max = 20.0
+step = 0.5
+
+[[param]]
+id = "high"
+group = "Camera"
+label = "Height of the high shot from the left, a little behind"
+unit = "m"
+default = 22.0
+min = 4.0
+max = 40.0
+step = 1.0
+
+[[param]]
+id = "low"
+group = "Camera"
+label = "Height low over the water"
+unit = "m"
+default = 2.0
+min = 1.0
+max = 5.0
+step = 0.1
+
+[[param]]
+id = "side_offset"
+group = "Camera"
+label = "Distance beside the line"
+unit = "m"
+default = 8.0
+min = 4.0
+max = 20.0
+step = 0.5
+
+[[param]]
+id = "cam_dist"
+group = "Camera"
+label = "How far behind the spirits the camera chases"
+unit = "m"
+default = 10.0
+min = 3.0
+max = 40.0
+step = 0.5
+
+[[param]]
+id = "view_bars"
+group = "Camera"
+label = "Bars between possible view changes"
+default = 16.0
+min = 1.0
+max = 32.0
+step = 1.0
+
+# ---- Torii ----
+
+[[param]]
+id = "spacing"
+group = "Torii"
+label = "Spacing of the torii"
+unit = "m"
+default = 10
+min = 4.0
+max = 30.0
+step = 0.5
+
+[[param]]
+id = "winding"
+group = "Torii"
+label = "How much the line winds"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.1
+
+[[param]]
+id = "stone"
+group = "Torii"
+label = "Share of stone torii"
+default = 0.12
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "old"
+group = "Torii"
+label = "Share of old, faded torii"
+default = 0.12
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "broken"
+group = "Torii"
+label = "Share of the strays broken"
+default = 0.75
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "line_jitter"
+group = "Torii"
+label = "How uneven the line's gaps are (share of the spacing, 0.3 for ±30%)"
+default = 0.3
+min = 0.0
+max = 0.9
+step = 0.01
+
+[[param]]
+id = "line_ruin"
+group = "Torii"
+label = "Share of the line's torii broken"
+default = 0.35
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "line_crooked"
+group = "Torii"
+label = "Share of the line's torii crooked (leaning, turned, kasagi slipped)"
+default = 0.35
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "missing"
+group = "Torii"
+label = "Share of gaps"
+default = 0.04
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "scatter"
+group = "Torii"
+label = "How far the line's torii stray across"
+unit = "m"
+default = 0.6
+min = 0.0
+max = 6.0
+step = 0.1
+
+[[param]]
+id = "sunk"
+group = "Torii"
+label = "Share of the strays half sunk"
+default = 0.4
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "stray_reach"
+group = "Torii"
+label = "How far out the strays reach"
+unit = "m"
+default = 60.0
+min = 5.0
+max = 150.0
+step = 1.0
+
+[[param]]
+id = "strays"
+group = "Torii"
+label = "Torii strewn on either side"
+default = 0.7
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "grand_every"
+group = "Torii"
+label = "A grand torii every so many (0 none)"
+default = 13.0
+min = 0.0
+max = 50.0
+step = 1.0
+
+# ---- Sea ----
+
+[[param]]
+id = "wave_height"
+group = "Sea"
+label = "Wave height"
+unit = "m"
+default = 0.6
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "wave_energy"
+group = "Sea"
+label = "Loudness on the waves"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "swell"
+group = "Sea"
+label = "Big swell on accents"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "accent_level"
+group = "Sea"
+label = "How strong an accent must be"
+default = 0.95
+min = 0.5
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "accent_gap"
+group = "Sea"
+label = "Least time between big swells"
+unit = "s"
+default = 6.0
+min = 1.0
+max = 30.0
+step = 0.5
+
+[[param]]
+id = "build_bars"
+group = "Sea"
+label = "Bars of build-up before a section"
+default = 4.0
+min = 0.25
+max = 16.0
+step = 0.25
+
+[[param]]
+id = "stacks"
+group = "Sea"
+label = "Sea stacks"
+default = 0.35
+min = 0.0
+max = 1.0
+step = 0.01
+
+# ---- Light ----
+
+[[param]]
+id = "light_mode"
+type = "choice"
+group = "Light"
+label = "Light"
+default = 0
+options = ["By section (with the cut)", "Day", "A low sun ahead (backlight)", "Blue hour", "Night"]
+
+[[param]]
+id = "shadows"
+group = "Look"
+label = "Shadows of the torii"
+default = 1
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "spirit_light"
+group = "Look"
+label = "Spirits lighting the torii and the water"
+default = 1.0
+min = 0.0
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "facet"
+group = "Look"
+label = "Side of the sea's triangles"
+unit = "m"
+default = 4.9
+min = 1.0
+max = 12.0
+step = 0.1
+
+[[param]]
+id = "facet_rough"
+group = "Look"
+label = "Roughness of the triangles"
+unit = "m"
+default = 0.18
+min = 0.0
+max = 1.5
+step = 0.05
+
+[[param]]
+id = "exposure"
+group = "Light"
+label = "Exposure"
+unit = "EV"
+default = 0.0
+min = -3.0
+max = 3.0
+step = 0.05
+
+# ---- Sea ----
+
+[[param]]
+id = "sea_look"
+type = "choice"
+group = "Sea"
+label = "How the sea looks"
+default = 0
+options = ["Marks: a grid of small crosses riding the swells, thinning far off into the dark", "Low-poly: lit triangles"]
+
+[[param]]
+id = "mark_size"
+group = "Sea"
+label = "Marks: how big the crosses are"
+unit = "m"
+default = 0.06
+min = 0.02
+max = 0.2
+step = 0.005
+
+[[param]]
+id = "mark_glow"
+group = "Sea"
+label = "Marks: how bright the crosses are"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+# ---- Colour ----
+
+[[param]]
+id = "player_colour"
+type = "bool"
+group = "Colour"
+label = "The spirits and the sea follow the player's theme colour (the system's accent, the chosen colour or the cover's); the torii keep theirs"
+default = true
+
+[[param]]
+id = "theme"
+type = "color"
+group = "Colour"
+label = "The theme colour when not following the player; only its hue is taken"
+default = "#007aff"
+
+[[param]]
+id = "colourful"
+group = "Colour"
+label = "How colourful the spirits and the sea are (0 white)"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05

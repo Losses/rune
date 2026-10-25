@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
 use rtrb::{Producer, RingBuffer};
-use visualizer::{Frame, PcmInput, Visualizer};
+use visualizer::{Frame, Location, PcmInput, Visualizer};
 
 const SAMPLE_RATE: u32 = 48_000;
 
@@ -342,12 +342,12 @@ fn missing_scene_keeps_running_and_reports_the_error() {
 fn commands_before_start_are_errors() {
     let visualizer = Visualizer::new();
     assert!(visualizer.resize(10, 10).is_err());
-    // Without scenes next, previous and random do nothing.
-    assert!(visualizer.next_preset().is_ok());
+    assert!(visualizer.next_preset().is_err());
     assert!(visualizer.latest_frame().is_none());
 }
 
-/// A folder gives scenes; an empty list of folders brings the built-in scene back.
+/// A folder adds scenes to the built-in ones; an empty list of folders brings the first built-in
+/// scene back.
 #[test]
 fn no_folders_show_the_default_scene() {
     let Some((visualizer, mut feeder)) = start(320, 180) else {
@@ -355,13 +355,16 @@ fn no_folders_show_the_default_scene() {
     };
     let dir = copied_scene("listed");
     let root = dir.parent().unwrap().to_path_buf();
+    let builtin = visualizer.list_presets().len();
+    assert!(builtin >= 7);
+    assert_eq!(visualizer.status().preset_count, builtin);
     assert_eq!(
         visualizer
             .set_preset_dirs(&[root.clone(), root.clone()])
             .unwrap(),
-        1
+        builtin + 1
     );
-    assert_eq!(visualizer.status().preset_count, 1);
+    assert_eq!(visualizer.status().preset_count, builtin + 1);
     let wait_for = |feeder: &mut Feeder, name: &str| {
         let deadline = Instant::now() + Duration::from_secs(5);
         while visualizer.status().preset_name != name && Instant::now() < deadline {
@@ -370,10 +373,12 @@ fn no_folders_show_the_default_scene() {
         }
         assert_eq!(visualizer.status().preset_name, name);
     };
-    visualizer.random_preset().unwrap();
+    visualizer
+        .load_preset(Location::Folder(dir.clone()))
+        .unwrap();
     wait_for(&mut feeder, "listed");
-    assert_eq!(visualizer.set_preset_dirs(&[]).unwrap(), 0);
-    assert_eq!(visualizer.status().preset_count, 0);
+    assert_eq!(visualizer.set_preset_dirs(&[]).unwrap(), builtin);
+    assert_eq!(visualizer.status().preset_count, builtin);
     wait_for(&mut feeder, visualizer::DEFAULT_PRESET_NAME);
     visualizer.random_preset().unwrap();
     visualizer.stop();
@@ -410,4 +415,40 @@ fn saving_the_scene_on_screen_reloads_it() {
 
     visualizer.stop();
     let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+}
+
+/// Every built-in scene loads and draws, on the readback path.
+#[test]
+fn every_builtin_scene_renders() {
+    let Some((visualizer, mut feeder)) = start_with(320, 180, true) else {
+        println!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let scenes: Vec<_> = visualizer
+        .list_presets()
+        .into_iter()
+        .filter(|p| matches!(p.location, Location::Builtin(_)))
+        .collect();
+    assert!(scenes.len() >= 7, "{scenes:?}");
+    for scene in scenes {
+        visualizer.load_preset(scene.location.clone()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while visualizer.status().preset_name != scene.name {
+            assert!(
+                Instant::now() < deadline,
+                "{} did not load: {:?}",
+                scene.name,
+                visualizer.status().last_error
+            );
+            feeder.pump();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let (frames, fps) = collect(&visualizer, &mut feeder, 40);
+        let status = visualizer.status();
+        assert_eq!(status.last_error, None, "{}", scene.name);
+        assert_eq!(status.preset_name, scene.name);
+        check_frames(&frames[20..], 320, 180);
+        println!("{}: {fps:.1} fps", scene.name);
+    }
+    visualizer.stop();
 }

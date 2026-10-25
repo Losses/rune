@@ -46,11 +46,11 @@ struct Files {
 }
 
 /// Where a scene's files are: a folder, or a fixed list of (path, contents) pairs compiled into
-/// the binary, which never changes and so is never reloaded.
+/// the binary (files may be images), which never changes and so is never reloaded.
 #[derive(Debug, Clone)]
 pub enum Source {
     Dir(PathBuf),
-    Embedded(&'static [(&'static str, &'static str)]),
+    Embedded(&'static [(&'static str, &'static [u8])]),
 }
 
 impl Source {
@@ -60,10 +60,16 @@ impl Source {
             Self::Embedded(files) => files
                 .iter()
                 .find(|(path, _)| *path == name)
-                .map(|(_, text)| text.as_bytes().to_vec())
+                .map(|(_, bytes)| bytes.to_vec())
                 .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound)),
         }
         .with_context(|| format!("Failed to read {name}"))
+    }
+
+    /// The `name` in the scene's manifest.
+    pub fn scene_name(&self) -> Result<String> {
+        let (_, text) = self.read_text(MANIFEST)?;
+        Ok(Manifest::parse(&text).context(MANIFEST)?.name)
     }
 
     fn read_text(&self, name: &str) -> Result<(String, String)> {

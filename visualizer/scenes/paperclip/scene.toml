@@ -1,0 +1,258 @@
+format = 1
+name = "Paperclip"
+license = "MPL-2.0"
+description = "A paperclip dancing on its sheet of paper, a field of them dancing behind"
+
+common = ["clip.wgsl"]
+
+[state]
+file = "state.wgsl"
+update = "update.wgsl"
+
+# The dancers are drawn at a fraction of the screen's resolution and blown up into big pixels (see
+# the buffer below); this is the size of the finished picture.
+[render]
+scale = 1.0
+
+# The picture in a few big pixels, as a nineties render was: 0.25 of the screen per side (a
+# quarter is about 480 by 270 on a 1080p screen). Smaller is chunkier, and cheaper.
+[[buffer]]
+id = "lo"
+scale = 0.25
+
+[[pass]]
+shader = "view.wgsl"
+target = "lo"
+
+[[pass]]
+shader = "pixel.wgsl"
+target = "out"
+inputs = ["lo"]
+
+# The pixel pass sets the colours itself: no tone mapping and nothing on top.
+[post]
+exposure = 0.0
+bloom = { intensity = 0.0, threshold = 1.0, radius = 0.5 }
+tonemap = "none"
+grain = 0.0
+chromatic = 0.0
+vignette = 0.0
+contrast = 1.0
+saturation = 1.0
+
+# ---- Dance ----
+
+[[param]]
+id = "conf"
+group = "Dance"
+label = "Beat confidence needed"
+default = 0.4
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "dance"
+group = "Dance"
+label = "How hard they dance"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "chorus"
+group = "Dance"
+label = "How hard the chorus dances (0: no chorus)"
+default = 0.7
+min = 0.0
+max = 1.5
+step = 0.05
+
+[[param]]
+id = "wave"
+group = "Dance"
+label = "Beats later per unit from the lead (the wave)"
+unit = "beats"
+default = 0.06
+min = 0.0
+max = 0.3
+step = 0.01
+
+[[param]]
+id = "turn_beats"
+group = "Dance"
+label = "Beats to turn round to the camera"
+default = 2.0
+min = 0.5
+max = 8.0
+step = 0.5
+
+[[param]]
+id = "dizzy"
+group = "Dance"
+label = "Chance of getting dizzy (@ @) after a turn or a backflip"
+default = 0.3
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "flip_level"
+group = "Dance"
+label = "How hard they must be dancing to backflip"
+default = 0.6
+min = 0.0
+max = 1.5
+step = 0.05
+
+[[param]]
+id = "mood_bars"
+group = "Dance"
+label = "Bars a face (the mood) is held at least without a chart (with one it changes with the section)"
+default = 8.0
+min = 1.0
+max = 32.0
+step = 1
+
+[[param]]
+id = "face_lock"
+group = "Dance"
+label = "Hold one face (0 by the music; 1 open, 2 >_<, 3 ^ ^, 4 @ @, 5 wide, 6 drowsy, 7 stars, 8 shut)"
+default = 0.0
+min = 0.0
+max = 8.0
+step = 1
+
+[[param]]
+id = "peak"
+group = "Dance"
+label = "Energy above which the eyes go >_<"
+default = 0.65
+min = 0.3
+max = 1.1
+step = 0.05
+
+# ---- Camera ----
+
+[[param]]
+id = "view_lock"
+group = "Camera"
+label = "Hold one view (0 by the music; 1 front, 2 low, 3 high and far, 4 close beside, 5 behind the chorus, 6 circling)"
+default = 0.0
+min = 0.0
+max = 6.0
+step = 1
+
+[[param]]
+id = "ring_bars"
+group = "Camera"
+label = "Bars for the circling view to go round once"
+default = 16.0
+min = 2.0
+max = 64.0
+step = 1
+
+[[param]]
+id = "glide"
+group = "Camera"
+label = "Bars to glide to another view"
+default = 2.0
+min = 0.25
+max = 8.0
+step = 0.25
+
+[[param]]
+id = "view_bars"
+group = "Camera"
+label = "Bars between possible view changes"
+default = 16.0
+min = 1.0
+max = 64.0
+step = 1
+
+[[param]]
+id = "view_gap"
+group = "Camera"
+label = "Least time between view changes"
+unit = "s"
+default = 20.0
+min = 2.0
+max = 120.0
+step = 1
+
+[[param]]
+id = "drift"
+group = "Camera"
+label = "How far the camera moves within a view"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.1
+
+# ---- Look ----
+
+[[param]]
+id = "metal"
+type = "color"
+group = "Look"
+label = "The clip's metal"
+default = "#8f95c4"
+
+[[param]]
+id = "paper"
+type = "color"
+group = "Look"
+label = "The paper"
+default = "#e2d79a"
+
+[[param]]
+id = "player_colour"
+type = "bool"
+group = "Look"
+label = "Paper in the player's theme colour"
+default = false
+
+[[param]]
+id = "background"
+type = "color"
+group = "Look"
+label = "Background"
+default = "#0c0f16"
+
+[[param]]
+id = "shadow"
+group = "Look"
+label = "Shadow on the paper"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "fade"
+group = "Look"
+label = "How fast the distance fades to dark"
+default = 0.08
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "levels"
+group = "Look"
+label = "Levels per colour channel"
+default = 7.0
+min = 2.0
+max = 32.0
+step = 1
+
+[[param]]
+id = "exposure"
+group = "Look"
+label = "Exposure"
+unit = "EV"
+default = 0.0
+min = -3.0
+max = 3.0
+step = 0.1
