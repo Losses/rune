@@ -41,8 +41,8 @@ static COVER_SOURCE: Mutex<Option<Arc<CoverSource>>> = Mutex::new(None);
 static PLAYING_COVER: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Let the visualizer's scenes read covers from this library: whenever a scene that asks for them
-/// loads, and whenever the playing track changes while one is on screen, they are found and
-/// handed over. Call it within the runtime.
+/// loads they are found and handed over, and whenever the playing track changes while one is on
+/// screen, so is its cover. Call it within the runtime.
 pub fn provide_covers(
     fsio: Arc<FsIo>,
     main_db: Arc<MainDbConnection>,
@@ -57,19 +57,27 @@ pub fn provide_covers(
     VISUALIZER.set_covers_requester(refresh_covers);
 }
 
-/// The player moved to another track, whose cover file is `cover` (none if it has none): scenes
-/// that read covers get new ones.
+/// The player moved to another track, whose cover file is `cover` (none if it has none): a scene
+/// that reads covers gets it in cell 0, the random covers stay.
 pub fn playing_cover_changed(cover: Option<&str>) {
-    *PLAYING_COVER.lock().unwrap_or_else(|e| e.into_inner()) =
-        cover.filter(|path| !path.is_empty()).map(PathBuf::from);
+    let cover = cover.filter(|path| !path.is_empty()).map(PathBuf::from);
+    *PLAYING_COVER.lock().unwrap_or_else(|e| e.into_inner()) = cover.clone();
     if VISUALIZER.wants_covers() {
-        refresh_covers();
+        VISUALIZER.set_playing_cover(cover);
     }
 }
 
 /// Find 63 random covers in the background and give them to the visualizer with the playing
 /// track's.
 fn refresh_covers() {
+    // The cell of the track playing too: it may have changed while no such scene was on screen,
+    // and the one the visualizer kept would cover the new atlas's.
+    VISUALIZER.set_playing_cover(
+        PLAYING_COVER
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone(),
+    );
     let source = COVER_SOURCE
         .lock()
         .unwrap_or_else(|e| e.into_inner())

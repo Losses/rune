@@ -381,8 +381,9 @@ fn a_scene_reads_the_covers_atlas() {
             "format = 1\nname = \"Covers\"\nlicense = \"MPL-2.0\"\ncovers = {covers}\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n[post]\ntonemap = \"none\"\ngrain = 0.0\nchromatic = 0.0\nvignette = 0.0\nbloom = {{ intensity = 0.0 }}\n"
         )
     };
-    // Red from the middle of cell 0, green is the number of covers in tenths.
-    let shader = "fn shade(px: Pixel) -> vec4f {\n  let c = textureSampleLevel(covers, linear_clamp, vec2f(0.0625, 0.0625), 0.0);\n  return vec4f(c.r, f32(frame.covers) * 0.1, c.a, 1.0);\n}\n";
+    // Red from the middle of cell 0, green is half its green plus the number of covers in tenths,
+    // blue is from the middle of cell 1.
+    let shader = "fn shade(px: Pixel) -> vec4f {\n  let c = textureSampleLevel(covers, linear_clamp, vec2f(0.0625, 0.0625), 0.0);\n  let d = textureSampleLevel(covers, linear_clamp, vec2f(0.1875, 0.0625), 0.0);\n  return vec4f(c.r, c.g * 0.5 + f32(frame.covers) * 0.1, d.b, 1.0);\n}\n";
     let screen = Screen::new(&device);
     let draw = |scene: &mut Scene| {
         let rhythm = Rhythm::default();
@@ -413,8 +414,20 @@ fn a_scene_reads_the_covers_atlas() {
     assert!(scene.wants_covers());
     // Without covers: nothing valid, a clear texture.
     assert!(close(draw(&mut scene), [0.0, 0.0, 0.0]));
-    scene.set_covers(&device, &queue, Some(Arc::clone(&atlas)));
+    scene.set_covers(&device, &queue, Some(Arc::clone(&atlas)), None);
     assert!(close(draw(&mut scene), [1.0, 0.3, 1.0]));
+
+    // The playing cover replaces cell 0 only: the green cell 1 stays, and a later atlas does not
+    // bring the old cell 0 back.
+    let green = image::RgbaImage::from_pixel(50, 50, image::Rgba([0, 255, 0, 255]));
+    let cell = Arc::new(covers::Cell::new(Some(&green)));
+    scene.set_playing_cover(&device, &queue, Some(Arc::clone(&cell)));
+    assert!(close(draw(&mut scene), [0.0, 0.8, 1.0]));
+    scene.set_covers(&device, &queue, Some(Arc::clone(&atlas)), Some(cell));
+    assert!(close(draw(&mut scene), [0.0, 0.8, 1.0]));
+    // A track without a cover leaves cell 0 clear, still counted.
+    scene.set_playing_cover(&device, &queue, Some(Arc::new(covers::Cell::new(None))));
+    assert!(close(draw(&mut scene), [0.0, 0.3, 1.0]));
 
     // A scene that did not ask sees none, whatever it is given.
     let dir = folder(
@@ -423,6 +436,6 @@ fn a_scene_reads_the_covers_atlas() {
     );
     let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
     assert!(!scene.wants_covers());
-    scene.set_covers(&device, &queue, Some(atlas));
+    scene.set_covers(&device, &queue, Some(atlas), None);
     assert!(close(draw(&mut scene), [0.0, 0.0, 0.0]));
 }

@@ -195,6 +195,10 @@ struct Shared {
     covers: Mutex<CoverAtlas>,
     /// The number of the latest `set_covers` job; an older job drops its result.
     covers_job: AtomicU64,
+    /// The latest cell for the cover of the track playing and its version.
+    playing_cover: Mutex<PlayingCover>,
+    /// The number of the latest `set_playing_cover` job; an older job drops its result.
+    playing_cover_job: AtomicU64,
     /// Asked to provide covers (by calling [`Visualizer::set_covers`]) when a scene that reads
     /// them is loaded.
     covers_requester: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -204,6 +208,13 @@ struct Shared {
 #[derive(Default)]
 struct CoverAtlas {
     atlas: Option<Arc<covers::Atlas>>,
+    version: u64,
+}
+
+/// The cell made last for the track playing (none: not told yet) and how often it was replaced.
+#[derive(Default)]
+struct PlayingCover {
+    cell: Option<Arc<covers::Cell>>,
     version: u64,
 }
 
@@ -257,6 +268,8 @@ impl Visualizer {
                 wants_covers: AtomicBool::new(false),
                 covers: Mutex::new(CoverAtlas::default()),
                 covers_job: AtomicU64::new(0),
+                playing_cover: Mutex::new(PlayingCover::default()),
+                playing_cover_job: AtomicU64::new(0),
                 covers_requester: Mutex::new(None),
             }),
             worker: Mutex::new(None),
@@ -315,6 +328,28 @@ impl Visualizer {
             });
         if let Err(e) = spawned {
             error!("Visualizer: no thread for the covers: {e}");
+        }
+    }
+
+    /// The track playing changed: its cover file is `path` (none if it has none). Only cell 0 of
+    /// the atlas changes, the random covers stay. The file is decoded on a background thread and
+    /// the scene picks it up with the next frame; a later call replaces an earlier one.
+    pub fn set_playing_cover(&self, path: Option<PathBuf>) {
+        let job = self.shared.playing_cover_job.fetch_add(1, Ordering::Relaxed) + 1;
+        let shared = Arc::clone(&self.shared);
+        let spawned = thread::Builder::new()
+            .name("visualizer-cover".into())
+            .spawn(move || {
+                let cell = Arc::new(covers::build_cell(path.as_ref()));
+                if shared.playing_cover_job.load(Ordering::Relaxed) != job {
+                    return;
+                }
+                let mut state = lock(&shared.playing_cover);
+                state.cell = Some(cell);
+                state.version += 1;
+            });
+        if let Err(e) = spawned {
+            error!("Visualizer: no thread for the playing cover: {e}");
         }
     }
 
@@ -639,6 +674,8 @@ fn run(
     let mut charts = ChartFollower::new(chart_dir());
     // The version of the atlas of covers the pipeline has.
     let mut covers_seen: Option<u64> = None;
+    // The same for the cell of the track playing.
+    let mut playing_cover_seen: Option<u64> = None;
 
     loop {
         loop {
@@ -685,6 +722,13 @@ fn run(
             if covers_seen != Some(state.version) {
                 covers_seen = Some(state.version);
                 pipeline.set_covers(state.atlas.clone());
+            }
+        }
+        {
+            let state = lock(&shared.playing_cover);
+            if playing_cover_seen != Some(state.version) {
+                playing_cover_seen = Some(state.version);
+                pipeline.set_playing_cover(state.cell.clone());
             }
         }
 

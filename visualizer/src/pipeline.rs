@@ -10,7 +10,7 @@ use lactea::{Engine, EngineConfig, FrameClock, Transition};
 use log::warn;
 
 use crate::chart::ChartState;
-use crate::covers::Atlas;
+use crate::covers::{Atlas, Cell};
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
 use crate::scene::{FrameInput, Scene};
@@ -40,6 +40,8 @@ pub struct Pipeline {
     accent: Option<[f32; 3]>,
     /// The atlas of covers for scenes that read one.
     covers: Option<Arc<Atlas>>,
+    /// The cell of the track playing, which stays over cell 0 of the atlas.
+    playing_cover: Option<Arc<Cell>>,
     output: Output,
     readback: bool,
     pub adapter_name: String,
@@ -178,6 +180,7 @@ impl Pipeline {
             song: (0.0, false),
             accent: None,
             covers: None,
+            playing_cover: None,
             output,
             readback,
         })
@@ -317,9 +320,22 @@ impl Pipeline {
     /// The atlas of album covers for scenes with `covers = true` (none: no covers).
     pub fn set_covers(&mut self, covers: Option<Arc<Atlas>>) {
         if let Some(scene) = &mut self.scene {
-            scene.set_covers(&self.device, &self.queue, covers.clone());
+            scene.set_covers(
+                &self.device,
+                &self.queue,
+                covers.clone(),
+                self.playing_cover.clone(),
+            );
         }
         self.covers = covers;
+    }
+
+    /// The cell of the cover of the track playing, for cell 0 of the atlas (none: not known yet).
+    pub fn set_playing_cover(&mut self, cell: Option<Arc<Cell>>) {
+        if let Some(scene) = &mut self.scene {
+            scene.set_playing_cover(&self.device, &self.queue, cell.clone());
+        }
+        self.playing_cover = cell;
     }
 
     /// Whether the scene on screen reads the atlas of covers.
@@ -346,7 +362,12 @@ impl Pipeline {
             self.sample_rate,
         )
         .with_context(|| format!("Scene {}", dir.display()))?;
-        scene.set_covers(&self.device, &self.queue, self.covers.clone());
+        scene.set_covers(
+            &self.device,
+            &self.queue,
+            self.covers.clone(),
+            self.playing_cover.clone(),
+        );
         self.scene = Some(scene);
         Ok(())
     }

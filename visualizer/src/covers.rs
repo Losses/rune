@@ -23,6 +23,40 @@ pub struct Atlas {
     pub count: u32,
 }
 
+/// One cell of the atlas on its own: the cover of the track playing, which changes without the
+/// random ones changing with it.
+#[derive(Debug, PartialEq)]
+pub struct Cell {
+    /// RGBA8 (sRGB) pixels of `CELL` by `CELL`; all clear if there is no cover.
+    pub rgba: Vec<u8>,
+    pub has_cover: bool,
+}
+
+impl Cell {
+    /// The cell of `image`, centre-cropped and scaled (none: a clear cell).
+    pub fn new(image: Option<&RgbaImage>) -> Self {
+        match image {
+            Some(image) => Self {
+                rgba: fit_cell(image).into_raw(),
+                has_cover: true,
+            },
+            None => Self {
+                rgba: vec![0; (CELL * CELL * 4) as usize],
+                has_cover: false,
+            },
+        }
+    }
+}
+
+/// How many cells of the scene's atlas are valid, as `frame.covers` tells it: the atlas's own
+/// count, or 1 if there is no atlas yet but the track playing has a cover to show.
+pub fn valid_cells(atlas: Option<&Atlas>, playing: Option<&Cell>) -> u32 {
+    match atlas {
+        Some(atlas) => atlas.count,
+        None => u32::from(playing.is_some_and(|cell| cell.has_cover)),
+    }
+}
+
 /// The largest centred square of `image`, scaled to a cell.
 pub fn fit_cell(image: &RgbaImage) -> RgbaImage {
     let (w, h) = image.dimensions();
@@ -75,6 +109,12 @@ fn decode(path: &PathBuf) -> Option<RgbaImage> {
     }
 }
 
+/// Decode the cover of the track playing into its cell (a file that does not decode, or none, is
+/// a clear cell).
+pub fn build_cell(path: Option<&PathBuf>) -> Cell {
+    Cell::new(path.and_then(decode).as_ref())
+}
+
 /// Decode the files and build the atlas; files that fail to decode are skipped.
 pub fn build(current: Option<&PathBuf>, random: &[PathBuf]) -> Option<Atlas> {
     let current = current.and_then(decode);
@@ -120,6 +160,30 @@ mod tests {
         assert_eq!(atlas.count, 2);
         assert_eq!(pixel(&atlas, 5, 5), [0, 0, 0, 0]);
         assert_eq!(pixel(&atlas, CELL + 5, 5), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn a_cell_is_a_cropped_cover_or_clear() {
+        let cell = Cell::new(Some(&solid(300, 100, [0, 255, 0, 255])));
+        assert!(cell.has_cover);
+        assert_eq!(cell.rgba.len(), (CELL * CELL * 4) as usize);
+        assert_eq!(cell.rgba[..4], [0, 255, 0, 255]);
+        let clear = Cell::new(None);
+        assert!(!clear.has_cover);
+        assert!(clear.rgba.iter().all(|&b| b == 0));
+        assert_eq!(build_cell(None), clear);
+    }
+
+    #[test]
+    fn the_playing_cover_makes_one_valid_cell_before_any_atlas() {
+        let cover = Cell::new(Some(&solid(4, 4, [1, 2, 3, 255])));
+        let clear = Cell::new(None);
+        assert_eq!(valid_cells(None, None), 0);
+        assert_eq!(valid_cells(None, Some(&clear)), 0);
+        assert_eq!(valid_cells(None, Some(&cover)), 1);
+        let atlas = pack(None, &[solid(4, 4, [9, 9, 9, 255])]).unwrap();
+        assert_eq!(valid_cells(Some(&atlas), Some(&clear)), 2);
+        assert_eq!(valid_cells(Some(&atlas), None), 2);
     }
 
     #[test]

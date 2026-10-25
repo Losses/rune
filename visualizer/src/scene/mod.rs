@@ -16,7 +16,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 
 use crate::chart::ChartState;
-use crate::covers::{self, Atlas};
+use crate::covers::{self, Atlas, Cell};
 use crate::rhythm::Rhythm;
 use audio::{Analyzer, SPECTRUM_ROWS, SPECTRUM_WIDTH, WAVEFORM_WIDTH};
 use inputs::EventCounter;
@@ -268,6 +268,9 @@ pub struct Scene {
     covers: Option<(wgpu::Texture, Vec<wgpu::TextureView>)>,
     /// The atlas last given, kept for a rebuild of the scene, and how many of its cells are valid.
     covers_atlas: Option<Arc<Atlas>>,
+    /// The cell of the track playing last given, which stays over cell 0 of any atlas (none: the
+    /// atlas's own cell 0 stands).
+    covers_playing: Option<Arc<Cell>>,
     covers_count: u32,
     pass_globals: wgpu::BindGroup,
     update: Option<(wgpu::ComputePipeline, wgpu::BindGroup)>,
@@ -449,6 +452,29 @@ fn write_texture(queue: &wgpu::Queue, texture: &wgpu::Texture, data: &[u8], byte
             rows_per_image: Some(size.height),
         },
         size,
+    );
+}
+
+/// Write a cell into cell 0 (mip 0, the top left corner) of the covers atlas.
+fn write_cell(queue: &wgpu::Queue, texture: &wgpu::Texture, cell: &Cell) {
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &cell.rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(covers::CELL * 4),
+            rows_per_image: Some(covers::CELL),
+        },
+        wgpu::Extent3d {
+            width: covers::CELL,
+            height: covers::CELL,
+            depth_or_array_layers: 1,
+        },
     );
 }
 
@@ -990,6 +1016,7 @@ impl Scene {
             noise: views.2,
             covers: manifest.covers.then_some((covers_texture, covers_levels)),
             covers_atlas: None,
+            covers_playing: None,
             covers_count: 0,
             pass_globals,
             update,
@@ -1050,7 +1077,12 @@ impl Scene {
         }
         std::mem::swap(&mut next.analyzer, &mut self.analyzer);
         std::mem::swap(&mut next.events, &mut self.events);
-        next.set_covers(device, queue, self.covers_atlas.clone());
+        next.set_covers(
+            device,
+            queue,
+            self.covers_atlas.clone(),
+            self.covers_playing.clone(),
+        );
         next.started = self.started;
         next.last = self.last;
         next.index = self.index;
@@ -1063,30 +1095,64 @@ impl Scene {
         self.files.manifest.covers
     }
 
-    /// Give the scene the atlas of covers (none: no covers). Does nothing for a scene that did
-    /// not ask for them.
+    /// Give the scene the atlas of covers (none: no covers) and the cell of the track playing,
+    /// which takes the place of the atlas's cell 0 if there is one. Does nothing for a scene that
+    /// did not ask for covers.
     pub fn set_covers(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         atlas: Option<Arc<Atlas>>,
+        playing: Option<Arc<Cell>>,
     ) {
-        let Some((texture, levels)) = &self.covers else {
+        let Some((texture, _)) = &self.covers else {
             return;
         };
-        self.covers_count = atlas.as_ref().map_or(0, |a| a.count);
+        self.covers_count = covers::valid_cells(atlas.as_deref(), playing.as_deref());
         if let Some(atlas) = &atlas {
             write_texture(queue, texture, &atlas.rgba, 4);
-            let mut encoder = device.create_command_encoder(&Default::default());
-            self.mipper.generate(
-                device,
-                &mut encoder,
-                wgpu::TextureFormat::Rgba8UnormSrgb,
-                levels,
-            );
-            queue.submit(Some(encoder.finish()));
+        }
+        if let Some(cell) = &playing {
+            write_cell(queue, texture, cell);
+        }
+        if atlas.is_some() || playing.is_some() {
+            self.mip_covers(device, queue);
         }
         self.covers_atlas = atlas;
+        self.covers_playing = playing;
+    }
+
+    /// Replace cell 0 of the atlas with the cell of the track playing (none: forget it, the
+    /// atlas's own cell 0 comes back with the next atlas) without touching the other cells.
+    pub fn set_playing_cover(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        playing: Option<Arc<Cell>>,
+    ) {
+        let Some((texture, _)) = &self.covers else {
+            return;
+        };
+        self.covers_count = covers::valid_cells(self.covers_atlas.as_deref(), playing.as_deref());
+        if let Some(cell) = &playing {
+            write_cell(queue, texture, cell);
+            self.mip_covers(device, queue);
+        }
+        self.covers_playing = playing;
+    }
+
+    fn mip_covers(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let Some((_, levels)) = &self.covers else {
+            return;
+        };
+        let mut encoder = device.create_command_encoder(&Default::default());
+        self.mipper.generate(
+            device,
+            &mut encoder,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            levels,
+        );
+        queue.submit(Some(encoder.finish()));
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) -> Result<()> {
