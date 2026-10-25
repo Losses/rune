@@ -1,51 +1,72 @@
 //! The visualizer's frames in a Flutter texture of our own texture layer (`flutter_texture`).
 //!
-//! On macOS the runner hands the engine over at launch ([`rune_flutter_attach`]); when the
-//! visualizer starts, a texture showing its latest frame is registered and its id is sent to Dart
-//! (`VisualizerTextureResponse`). A texture that replaces another one is sent the same way; the
-//! old one is unregistered once Dart says it shows the new one (`VisualizerTextureShownRequest`).
+//! On macOS and Windows the runner hands the engine over at launch ([`rune_flutter_attach`]); when
+//! the visualizer runs, a texture showing its latest frame is registered and its id is sent to
+//! Dart (`VisualizerTextureResponse`). A texture that replaces another one is sent the same way;
+//! the old one is unregistered once Dart says it shows the new one
+//! (`VisualizerTextureShownRequest`).
 //!
-//! Windows and Linux still have their own texture bridges in the runner, which pull frames through
-//! the C interface in [`crate::visualizer`].
+//! - macOS: one texture takes the pixel buffers and the read-back frames alike, so it is made
+//!   when the visualizer starts.
+//! - Windows: the engine has one texture type for shared DirectX textures and another for pixels,
+//!   so the texture is made once the visualizer says how its frames leave the GPU, and replaced
+//!   when that changes (a fall back to reading frames back). If the GPU texture cannot be
+//!   registered the visualizer falls back to reading frames back, which ends in a pixel texture.
+//!
+//! Linux still has its own texture bridge in the runner, which pulls frames through the C
+//! interface in [`crate::visualizer`].
 
 use std::sync::{Arc, LazyLock};
 
-use log::{error, info};
+use log::{error, info, warn};
 use rinf::RustSignal;
 use tokio::sync::Mutex;
 
-use ::flutter_texture::{Acquired, Frame, FrameSource, PixelFormat, Pixels, Texture, TextureError};
-use ::visualizer::PcmInput;
+use ::flutter_texture::{
+    Acquired, Frame, FrameSource, Kind, PixelFormat, Pixels, Texture, TextureError,
+};
+use ::visualizer::{PcmInput, Transport};
 
 use crate::messages::VisualizerTextureResponse;
 use crate::visualizer::VISUALIZER;
 
 /// Whether the visualizer is shown through `flutter_texture` here (else through the runner's own
 /// bridge).
-const TEXTURE_LAYER: bool = cfg!(target_os = "macos");
+const TEXTURE_LAYER: bool = cfg!(any(target_os = "macos", target_os = "windows"));
 
 /// Hand the engine's texture registry over to `flutter_texture`. Called by the runner once the
 /// engine exists; returns whether it worked.
 ///
 /// # Safety
 ///
-/// `registry` must be null or point to the `FlutterEngine`.
-#[cfg(target_os = "macos")]
+/// `registry` must be null or, on macOS, point to the `FlutterEngine`; on Windows, be the
+/// engine's `FlutterDesktopPluginRegistrarRef` (`FlutterEngine::GetRegistrarForPlugin`).
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rune_flutter_attach(registry: *mut std::ffi::c_void) -> bool {
     let Some(registry) = std::ptr::NonNull::new(registry) else {
         return false;
     };
-    // SAFETY: the caller guarantees the engine, which answers `FlutterTextureRegistry`.
-    let attached = unsafe {
-        flutter_texture::attach(flutter_texture::PlatformHandle::TextureRegistry(registry))
-    };
-    match attached {
+    #[cfg(target_os = "macos")]
+    let handle = flutter_texture::PlatformHandle::TextureRegistry(registry);
+    #[cfg(target_os = "windows")]
+    let handle = flutter_texture::PlatformHandle::PluginRegistrar(registry);
+    // SAFETY: the caller guarantees the object the handle stands for.
+    match unsafe { flutter_texture::attach(handle) } {
         Ok(()) => true,
         Err(e) => {
             error!("Failed to attach the Flutter texture registry: {e}");
             false
         }
+    }
+}
+
+/// Tell the visualizer what it needs to know about the engine before it starts: on Windows the
+/// adapter Flutter renders on, so that frames are shared with it (else they are read back).
+/// Applies from the visualizer's next start.
+pub fn prepare_visualizer() {
+    if TEXTURE_LAYER {
+        VISUALIZER.set_graphics_adapter(flutter_texture::capabilities().adapter_luid);
     }
 }
 
@@ -60,6 +81,18 @@ impl FrameSource for VisualizerFrames {
             return Some(Acquired {
                 id: frame.id,
                 frame: Frame::PixelBuffer(buffer),
+                keep: Box::new(frame),
+            });
+        }
+        #[cfg(target_os = "windows")]
+        if let Some(handle) = frame.shared_handle() {
+            return Some(Acquired {
+                id: frame.id,
+                frame: Frame::Dxgi {
+                    handle,
+                    width: frame.width,
+                    height: frame.height,
+                },
                 keep: Box::new(frame),
             });
         }
@@ -90,44 +123,97 @@ impl FrameSource for VisualizerFrames {
 /// replacement.
 #[derive(Default)]
 struct Textures {
-    current: Option<Texture>,
+    /// The visualizer runs and may have a texture.
+    running: bool,
+    /// The texture Dart is told to show and the kind of frames it takes.
+    current: Option<(Kind, Texture)>,
+    /// The id of `current` as last sent to Dart.
+    announced: Option<i64>,
     /// Each with the id of the texture that replaced it.
     retiring: Vec<(i64, Texture)>,
 }
 
 static TEXTURES: LazyLock<Mutex<Textures>> = LazyLock::new(Mutex::default);
 
-/// The visualizer started: make sure a texture shows it and tell Dart which one. A texture that
-/// cannot be registered shows up in the visualizer's status.
+/// The kind of texture that shows frames leaving the GPU by `transport`, or `None` while that is
+/// not known and the texture has to wait for it.
+fn wanted_kind(transport: Option<Transport>) -> Option<Kind> {
+    #[cfg(target_os = "windows")]
+    return match transport {
+        Some(Transport::DxgiShared) => Some(Kind::Dxgi),
+        Some(_) => Some(Kind::Pixels),
+        None => None,
+    };
+    // One texture takes all the frames there.
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = transport;
+        Some(Kind::Pixels)
+    }
+}
+
+/// The visualizer started: make sure a texture shows it, as soon as it is known which kind, and
+/// tell Dart which one. A texture that cannot be registered shows up in the visualizer's status.
 pub async fn visualizer_started() {
     if !TEXTURE_LAYER {
         return;
     }
+    {
+        let mut textures = TEXTURES.lock().await;
+        textures.running = true;
+        // Dart may not have been told about the texture of an earlier run.
+        textures.announced = None;
+    }
+    // The render thread tells how its frames leave the GPU once it is up, and when that changes.
+    let runtime = tokio::runtime::Handle::current();
+    VISUALIZER.set_transport_listener(Some(Arc::new(move |transport| {
+        if let Some(kind) = wanted_kind(Some(transport)) {
+            runtime.spawn(show(kind));
+        }
+    })));
+    // It may know already.
+    if let Some(kind) = wanted_kind(VISUALIZER.status().transport) {
+        show(kind).await;
+    }
+}
+
+/// Show the visualizer in a texture of `kind`, replacing the one of another kind, and tell Dart.
+async fn show(kind: Kind) {
     let mut textures = TEXTURES.lock().await;
-    if textures.current.is_none() {
-        match flutter_texture::register(Arc::new(VisualizerFrames)).await {
-            Ok(texture) => install(&mut textures, texture),
+    if !textures.running {
+        return;
+    }
+    if textures.current.as_ref().map(|(current, _)| *current) != Some(kind) {
+        match flutter_texture::register(Arc::new(VisualizerFrames), kind).await {
+            Ok(texture) => install(&mut textures, kind, texture),
+            Err(e) if kind != Kind::Pixels => {
+                // Not what the visualizer is told to avoid: it reads frames back from now on, and
+                // the pixel texture is made when it says so.
+                warn!("Failed to register the visualizer's GPU texture, reading frames back: {e}");
+                VISUALIZER.fall_back_to_readback();
+                return;
+            }
             Err(e) => {
                 VISUALIZER.report_error(format!("Failed to register the visualizer texture: {e}"));
                 return;
             }
         }
     }
-    let Some(texture) = &textures.current else {
+    let Some((_, texture)) = &textures.current else {
         return;
     };
     let notifier = texture.notifier();
     VISUALIZER.set_frame_listener(Some(Arc::new(move |_| notifier.mark_frame_available())));
-    VisualizerTextureResponse {
-        texture_id: texture.id(),
+    let id = texture.id();
+    if textures.announced.replace(id) != Some(id) {
+        VisualizerTextureResponse { texture_id: id }.send_signal_to_dart();
     }
-    .send_signal_to_dart();
 }
 
 /// Make `texture` the one Dart shows; the one it replaces goes once Dart shows it.
-fn install(textures: &mut Textures, texture: Texture) {
+fn install(textures: &mut Textures, kind: Kind, texture: Texture) {
     let id = texture.id();
-    if let Some(old) = textures.current.replace(texture) {
+    if let Some((_, old)) = textures.current.replace((kind, texture)) {
         info!("Visualizer texture {} replaces {}", id, old.id());
         textures.retiring.push((id, old));
     }
@@ -137,7 +223,7 @@ fn install(textures: &mut Textures, texture: Texture) {
 pub async fn texture_shown(texture_id: i64) {
     let retired = {
         let mut textures = TEXTURES.lock().await;
-        let current = textures.current.as_ref().map(Texture::id);
+        let current = textures.current.as_ref().map(|(_, texture)| texture.id());
         // The current texture shown: every earlier one can go, also any that were replaced before
         // Dart showed them.
         let (retired, kept) = std::mem::take(&mut textures.retiring)
@@ -156,15 +242,34 @@ pub async fn texture_shown(texture_id: i64) {
 /// Stop the visualizer: stop telling the texture about frames, stop the render thread, then
 /// unregister the textures. Returns the PCM input, as [`visualizer::Visualizer::stop`] does.
 pub async fn stop_visualizer() -> Option<PcmInput> {
+    VISUALIZER.set_transport_listener(None);
     VISUALIZER.set_frame_listener(None);
     let input = VISUALIZER.stop();
     let textures = std::mem::take(&mut *TEXTURES.lock().await);
     for texture in textures
         .current
         .into_iter()
+        .map(|(_, texture)| texture)
         .chain(textures.retiring.into_iter().map(|(_, texture)| texture))
     {
         texture.unregister().await;
     }
     input
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_transport_decides_the_kind_of_texture_on_windows_only() {
+        assert_eq!(wanted_kind(Some(Transport::Readback)), Some(Kind::Pixels));
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(wanted_kind(Some(Transport::DxgiShared)), Some(Kind::Dxgi));
+            assert_eq!(wanted_kind(None), None);
+        }
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(wanted_kind(None), Some(Kind::Pixels));
+    }
 }

@@ -1,19 +1,16 @@
 //! The process-wide visualizer and its C interface.
 //!
-//! The native side of the app on Windows and Linux pulls finished frames through these functions,
-//! so that the pixels never travel through Dart (macOS shows them through
-//! [`crate::flutter_bridge`] instead):
-//! - Windows: a DirectX 12 texture shared through an NT handle, held until released
-//!   (`rune_visualizer_acquire_shared_frame`), once the app told which adapter Flutter renders on
-//!   (`rune_visualizer_set_graphics_adapter`); else, or if sharing failed, read back;
-//! - Linux: a Vulkan image whose memory and a semaphore OpenGL imports from file descriptors, held
+//! macOS and Windows show the visualizer through [`crate::flutter_bridge`], which registers a
+//! texture with the engine from Rust, so the pixels never travel through Dart. On Linux the
+//! native side of the app pulls finished frames through the functions here instead:
+//! - a Vulkan image whose memory and a semaphore OpenGL imports from file descriptors, held
 //!   until released (`rune_visualizer_acquire_shared_frame`), once the app told which GPU its
 //!   OpenGL context runs on (`rune_visualizer_set_graphics_device`); else, or if sharing failed,
 //!   read back;
-//! - Windows and Linux, read back: the read-back frame itself, held until released
+//! - read back, the read-back frame itself, held until released
 //!   ([`rune_visualizer_acquire_frame`], [`rune_visualizer_release_frame`]).
 //!
-//! The functions are exported from the hub library (`hub.dll`, `libhub.so`).
+//! The functions are exported from the hub library (`hub.dll`, `libhub.so`, `rinf.framework`).
 
 use std::ffi::c_void;
 use std::path::PathBuf;
@@ -204,66 +201,6 @@ pub unsafe extern "C" fn rune_visualizer_acquire_frame(
             width: frame.width,
             height: frame.height,
             stride,
-            id: frame.id,
-        });
-    }
-    Arc::into_raw(frame).cast()
-}
-
-/// Tell the visualizer which adapter Flutter renders on, by the parts of its DXGI LUID
-/// (`DXGI_ADAPTER_DESC::AdapterLuid`); both 0 if it is unknown. Frames are shared with Flutter only
-/// when the visualizer renders on that adapter, otherwise they are read back. Applies from the
-/// next start of the visualizer, so call it before the app asks for one.
-#[cfg(target_os = "windows")]
-#[unsafe(no_mangle)]
-pub extern "C" fn rune_visualizer_set_graphics_adapter(luid_low: u32, luid_high: i32) {
-    let luid = (luid_low != 0 || luid_high != 0).then_some((luid_low, luid_high));
-    VISUALIZER.set_graphics_adapter(luid);
-}
-
-/// A frame in a shared texture, as filled in by `rune_visualizer_acquire_shared_frame`.
-#[cfg(target_os = "windows")]
-#[repr(C)]
-pub struct RuneVisualizerSharedFrame {
-    /// The NT handle of a `DXGI_FORMAT_R8G8B8A8_UNORM` texture of `width` x `height`, for
-    /// `ID3D11Device1::OpenSharedResource1` or Flutter's
-    /// `kFlutterDesktopGpuSurfaceTypeDxgiSharedHandle`. Valid until the frame is released; do not
-    /// close it.
-    pub handle: *mut c_void,
-    pub width: u32,
-    pub height: u32,
-    pub id: u64,
-}
-
-/// Hold the latest frame if it is in a shared texture, and describe it in `out`. Returns a
-/// handle for [`rune_visualizer_release_frame`], or null (nothing written) if there is no such
-/// frame. The GPU has finished drawing it, and the visualizer does not draw into the texture again
-/// while it is held, nor for a few frames after. Release it once a newer frame is shown: the
-/// renderer skips frames while every texture is held.
-///
-/// # Safety
-///
-/// `out` must be null or valid for writing a [`RuneVisualizerSharedFrame`].
-#[cfg(target_os = "windows")]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn rune_visualizer_acquire_shared_frame(
-    out: *mut RuneVisualizerSharedFrame,
-) -> *const c_void {
-    if out.is_null() {
-        return std::ptr::null();
-    }
-    let Some(frame) = VISUALIZER.latest_frame() else {
-        return std::ptr::null();
-    };
-    let Some(handle) = frame.shared_handle() else {
-        return std::ptr::null();
-    };
-    // SAFETY: the caller guarantees that `out` is writable.
-    unsafe {
-        out.write(RuneVisualizerSharedFrame {
-            handle,
-            width: frame.width,
-            height: frame.height,
             id: frame.id,
         });
     }

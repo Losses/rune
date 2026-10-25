@@ -250,6 +250,33 @@ fn frame_listener_hears_every_frame() {
 }
 
 #[test]
+fn transport_listener_hears_the_fall_back_to_readback() {
+    let Some((visualizer, mut feeder)) = start(320, 180) else {
+        return;
+    };
+    let heard = Arc::new(std::sync::Mutex::new(Vec::new()));
+    visualizer.set_transport_listener(Some(Arc::new({
+        let heard = Arc::clone(&heard);
+        move |transport| heard.lock().unwrap().push(transport)
+    })));
+    let before = visualizer.status().transport.unwrap();
+    visualizer.fall_back_to_readback();
+    collect(&visualizer, &mut feeder, 5);
+    let heard = std::mem::take(&mut *heard.lock().unwrap());
+    if before == visualizer::Transport::Readback {
+        // Nothing to fall back from on this machine.
+        assert!(heard.is_empty());
+    } else {
+        assert_eq!(heard, [visualizer::Transport::Readback]);
+    }
+    assert_eq!(
+        visualizer.status().transport,
+        Some(visualizer::Transport::Readback)
+    );
+    visualizer.stop();
+}
+
+#[test]
 fn paused_music_holds_the_picture() {
     let Some((visualizer, mut feeder)) = start(640, 360) else {
         return;

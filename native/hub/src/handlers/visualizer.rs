@@ -73,6 +73,7 @@ impl Signal for StartVisualizerRequest {
             channels: tap.channels(),
             sample_rate: tap.sample_rate(),
         };
+        flutter_bridge::prepare_visualizer();
         let result = VISUALIZER.start(
             input,
             dart_signal.width,

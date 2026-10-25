@@ -1,6 +1,7 @@
 //! Running code on the platform thread, where the engine wants its texture registry used.
 //!
 //! - Apple: the main thread, through the main dispatch queue.
+//! - Windows: none; the engine takes register, unregister and mark calls from any thread.
 
 #[cfg(target_vendor = "apple")]
 pub(crate) use apple::*;

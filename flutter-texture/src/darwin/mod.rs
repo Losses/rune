@@ -16,7 +16,7 @@ use objc2::runtime::AnyObject;
 use objc2::{MainThreadMarker, msg_send};
 
 use crate::thread::{self, MainThreadOnly};
-use crate::{FrameNotifier, FrameSource, PlatformHandle, Result, TextureError};
+use crate::{FrameNotifier, FrameSource, Kind, PlatformHandle, Result, TextureError};
 use texture::RuneTexture;
 
 /// The engine's texture registry, retained.
@@ -36,6 +36,11 @@ impl Registry {
                 Ok(Self(MainThreadOnly::new(object)))
             }
         }
+    }
+
+    /// Only Windows tells which adapter the engine renders on.
+    pub(crate) fn adapter_luid(&self) -> Option<(u32, i32)> {
+        None
     }
 
     fn object(&self, mtm: MainThreadMarker) -> &AnyObject {
@@ -95,6 +100,8 @@ impl Registered {
 pub(crate) async fn register(
     registry: Arc<Registry>,
     source: Arc<dyn FrameSource>,
+    // One texture takes both kinds of frames here.
+    _kind: Kind,
 ) -> Result<Registered> {
     thread::call(move |mtm| {
         let object = RuneTexture::new(source);

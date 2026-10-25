@@ -9,15 +9,25 @@
 //! - Apple: the registry is the `FlutterEngine` (macOS). A frame in an IOSurface-backed
 //!   `CVPixelBuffer` is handed over without a copy; pixels are copied into one. One texture
 //!   takes both, so a producer may fall back from one to the other under the same texture id.
+//! - Windows: the registry is the engine's plugin registrar, whose C API is looked up in
+//!   `flutter_windows.dll`. A frame in a shared DXGI texture ([`Kind::Dxgi`]) is opened by the
+//!   engine without a copy; pixels ([`Kind::Pixels`]) are uploaded. The two are separate
+//!   textures, so a producer that falls back from one to the other registers the other kind and
+//!   switches to it. The registry may be used from any thread, so there is no platform thread
+//!   hop; the engine reads frames on its raster thread.
 //! - Elsewhere: not yet ([`TextureError::Unsupported`]).
 
 #[cfg(target_vendor = "apple")]
 mod darwin;
 mod thread;
+#[cfg(windows)]
+mod windows;
 
+#[cfg(windows)]
+use self::windows as platform;
 #[cfg(target_vendor = "apple")]
 use darwin as platform;
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 use unsupported as platform;
 
 use std::any::Any;
@@ -68,6 +78,29 @@ pub enum PlatformHandle {
     /// An object that answers `FlutterTextureRegistry`'s messages: the `FlutterEngine` on macOS.
     #[cfg(target_vendor = "apple")]
     TextureRegistry(std::ptr::NonNull<std::ffi::c_void>),
+    /// A `FlutterDesktopPluginRegistrarRef` on Windows, which the runner gets from the engine
+    /// (`GetRegistrarForPlugin`). It stays valid until the engine is destroyed.
+    #[cfg(windows)]
+    PluginRegistrar(std::ptr::NonNull<std::ffi::c_void>),
+}
+
+/// What a texture shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// [`Frame::Pixels`] (and on Apple [`Frame::PixelBuffer`]).
+    Pixels,
+    /// Windows: [`Frame::Dxgi`].
+    #[cfg(windows)]
+    Dxgi,
+}
+
+/// What the attached engine can do.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Capabilities {
+    /// Windows: the LUID (`DXGI_ADAPTER_DESC::AdapterLuid`: low part, high part) of the adapter
+    /// Flutter renders on, which a [`Frame::Dxgi`] has to come from. `None` where it is unknown,
+    /// without an engine, and on other platforms.
+    pub adapter_luid: Option<(u32, i32)>,
 }
 
 /// The order of the four bytes of a pixel.
@@ -128,7 +161,7 @@ impl Pixels {
     }
 
     /// The bytes of the rows, or `None` if the size is empty or the rows overlap.
-    #[cfg_attr(not(target_vendor = "apple"), allow(dead_code))]
+    #[cfg_attr(not(any(target_vendor = "apple", windows)), allow(dead_code))]
     fn bytes(&self) -> Option<&[u8]> {
         let row = self.width as usize * 4;
         if self.ptr.is_null() || row == 0 || self.height == 0 || self.stride < row {
@@ -138,6 +171,18 @@ impl Pixels {
         // SAFETY: `new`'s caller guarantees `len` readable bytes while the frame is held, which
         // outlives this borrow.
         Some(unsafe { std::slice::from_raw_parts(self.ptr, len) })
+    }
+
+    /// The rows without padding (`width * 4` bytes each), for consumers that take no stride.
+    #[cfg_attr(not(any(windows, test)), allow(dead_code))]
+    fn packed(&self) -> Option<Vec<u8>> {
+        let bytes = self.bytes()?;
+        let row = self.width as usize * 4;
+        let mut packed = Vec::with_capacity(row * self.height as usize);
+        for y in 0..self.height as usize {
+            packed.extend_from_slice(&bytes[y * self.stride..][..row]);
+        }
+        Some(packed)
     }
 }
 
@@ -150,6 +195,16 @@ pub enum Frame {
     /// it (in practice: until a few newer frames were handed over).
     #[cfg(target_vendor = "apple")]
     PixelBuffer(CFRetained<CVPixelBuffer>),
+    /// A `DXGI_FORMAT_R8G8B8A8_UNORM` texture shared through an NT handle, which Flutter opens
+    /// without a copy. The handle belongs to the producer's frame: it must stay open, and the
+    /// producer must not draw into the texture again, while the [`Acquired::keep`] it comes with
+    /// is alive. For [`Kind::Dxgi`].
+    #[cfg(windows)]
+    Dxgi {
+        handle: *mut std::ffi::c_void,
+        width: u32,
+        height: u32,
+    },
 }
 
 /// The latest frame of a [`FrameSource`].
@@ -165,7 +220,9 @@ pub struct Acquired {
 /// Where a texture gets its frames.
 pub trait FrameSource: Send + Sync + 'static {
     /// The latest frame, if there is one. Called on Flutter's raster thread when it draws a frame
-    /// after [`FrameNotifier::mark_frame_available`]: it must not block.
+    /// after [`FrameNotifier::mark_frame_available`]: it must not block. A texture ignores a
+    /// frame of the other [`Kind`] (a [`Frame::Dxgi`] is no use to a [`Kind::Pixels`] texture and
+    /// the other way round); it keeps the last one it showed.
     fn acquire(&self) -> Option<Acquired>;
 
     /// A frame from [`Self::acquire`] could not be shown; the texture keeps the last one. Called
@@ -194,13 +251,21 @@ pub unsafe fn attach(handle: PlatformHandle) -> Result<()> {
     Ok(())
 }
 
-/// Register `source` as a texture of the attached registry. Hops to the platform thread, where
-/// the engine wants it.
-pub async fn register(source: Arc<dyn FrameSource>) -> Result<Texture> {
+/// What the attached engine can do, or the defaults if none is attached.
+pub fn capabilities() -> Capabilities {
+    let registry = lock(&ATTACHMENT).current();
+    Capabilities {
+        adapter_luid: registry.and_then(|(_, registry)| registry.adapter_luid()),
+    }
+}
+
+/// Register `source` as a texture of the attached registry, which shows frames of `kind`. On
+/// Apple this hops to the platform thread, where the engine wants it.
+pub async fn register(source: Arc<dyn FrameSource>, kind: Kind) -> Result<Texture> {
     let (generation, registry) = lock(&ATTACHMENT)
         .current()
         .ok_or(TextureError::NotAttached)?;
-    let registered = platform::register(registry, source).await?;
+    let registered = platform::register(registry, source, kind).await?;
     let id = registered.id();
     info!("Registered Flutter texture {id} (registry {generation})");
     Ok(Texture {
@@ -269,7 +334,7 @@ struct Notice {
 }
 
 impl FrameNotifier {
-    #[cfg_attr(not(target_vendor = "apple"), allow(dead_code))]
+    #[cfg_attr(not(any(target_vendor = "apple", windows)), allow(dead_code))]
     fn new(
         post: impl Fn(Task) + Send + Sync + 'static,
         fire: impl Fn() + Send + Sync + 'static,
@@ -336,17 +401,21 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Platforms without a texture layer yet: nothing can be attached, so nothing is registered.
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 mod unsupported {
     use std::sync::Arc;
 
-    use crate::{FrameNotifier, FrameSource, PlatformHandle, Result, TextureError};
+    use crate::{FrameNotifier, FrameSource, Kind, PlatformHandle, Result, TextureError};
 
     pub(crate) enum Registry {}
 
     impl Registry {
         pub(crate) unsafe fn new(handle: PlatformHandle) -> Result<Self> {
             match handle {}
+        }
+
+        pub(crate) fn adapter_luid(&self) -> Option<(u32, i32)> {
+            match *self {}
         }
     }
 
@@ -373,6 +442,7 @@ mod unsupported {
     pub(crate) async fn register(
         registry: Arc<Registry>,
         _source: Arc<dyn FrameSource>,
+        _kind: Kind,
     ) -> Result<Registered> {
         match *registry {}
         #[allow(unreachable_code)]
@@ -429,6 +499,18 @@ mod tests {
         assert_eq!(lock(&queue).len(), 1);
         run_all(&queue);
         assert_eq!(fired.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn packed_drops_the_padding() {
+        // Two rows of one pixel, each followed by four bytes of padding.
+        let bytes = [1, 2, 3, 4, 0, 0, 0, 0, 5, 6, 7, 8, 0, 0, 0, 0];
+        // SAFETY: `bytes` holds the rows and outlives `pixels`.
+        let pixels = unsafe { Pixels::new(bytes.as_ptr(), 1, 2, 8, PixelFormat::Rgba8) };
+        assert_eq!(pixels.packed().unwrap(), [1, 2, 3, 4, 5, 6, 7, 8]);
+        // SAFETY: as above.
+        let tight = unsafe { Pixels::new(bytes.as_ptr(), 2, 1, 8, PixelFormat::Rgba8) };
+        assert_eq!(tight.packed().unwrap(), [1, 2, 3, 4, 0, 0, 0, 0]);
     }
 
     #[test]

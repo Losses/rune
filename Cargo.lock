@@ -2329,6 +2329,7 @@ dependencies = [
  "objc2",
  "objc2-core-foundation",
  "objc2-core-video",
+ "windows 0.62.2",
 ]
 
 [[package]]

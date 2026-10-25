@@ -53,14 +53,18 @@ class VisualizerSurface extends StatefulWidget {
 
 class _VisualizerSurfaceState extends State<VisualizerSurface>
     with WidgetsBindingObserver {
-  // macOS: the texture Rust registered and sent the id of; elsewhere the one
-  // the runner made.
+  // Whether Rust registers the texture with the engine (else the runner does).
+  static final _rustTextures = Platform.isMacOS || Platform.isWindows;
+
+  // macOS and Windows: the texture Rust registered and sent the id of (on
+  // Windows a new one when frames start to be read back); Linux: the one the
+  // runner made.
   int? _textureId;
-  // macOS: the texture ids from Rust.
+  // macOS and Windows: the texture ids from Rust.
   StreamSubscription<Object?>? _textureSubscription;
-  // Windows and Linux: the texture fed with shared DirectX textures or Vulkan
-  // images, shown unless the visualizer reads its frames back; null elsewhere
-  // or if the native side cannot share frames.
+  // Linux: the texture fed with shared Vulkan images, shown unless the
+  // visualizer reads its frames back; null elsewhere or if the native side
+  // cannot share frames.
   int? _gpuTextureId;
   // How frames leave the GPU, from the last status; empty until it is known.
   // Only followed while there is a GPU texture.
@@ -159,8 +163,9 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
 
     if (_textureId != null || _starting) {
       StopVisualizerRequest().sendSignalToRust();
-      // macOS: Rust unregisters its texture when the visualizer stops.
-      if (!Platform.isMacOS) {
+      // macOS and Windows: Rust unregisters its textures when the visualizer
+      // stops.
+      if (!_rustTextures) {
         _channel.invokeMethod<void>('dispose').catchError((Object e) {
           error$('Failed to dispose the visualizer texture: $e');
         });
@@ -176,12 +181,12 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     try {
       final size = _renderSize(logical, pixelRatio);
 
-      // macOS: Rust registers the texture once the visualizer runs and sends
-      // its id. Elsewhere the runner makes it: an id, or on Windows and Linux
-      // a map of the ids of the pixel and the GPU textures.
+      // macOS and Windows: Rust registers the texture once the visualizer runs
+      // and sends its id. On Linux the runner makes it: an id, or a map of the
+      // ids of the pixel and the GPU textures.
       int? id;
       int? gpuId;
-      if (Platform.isMacOS) {
+      if (_rustTextures) {
         _textureSubscription ??= VisualizerTextureResponse.rustSignalStream
             .listen((signal) => _showTexture(signal.message.textureId));
       } else {
@@ -200,7 +205,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       if (Platform.isMacOS) await MacSecureManager().completed;
       final dirs = await loadVisualizerPresetDirs();
       if (_disposed) {
-        if (!Platform.isMacOS) await _channel.invokeMethod<void>('dispose');
+        if (!_rustTextures) await _channel.invokeMethod<void>('dispose');
         return;
       }
 
@@ -215,7 +220,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
 
       _controller.hasPresets = dirs.isNotEmpty;
       setState(() {
-        if (!Platform.isMacOS) {
+        if (!_rustTextures) {
           _textureId = id;
           _gpuTextureId = gpuId;
         }
@@ -230,8 +235,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     }
   }
 
-  // macOS: show the texture Rust sent, then tell Rust that it is on screen,
-  // so that a texture it replaced can go.
+  // macOS and Windows: show the texture Rust sent, then tell Rust that it is
+  // on screen, so that a texture it replaced can go.
   void _showTexture(int id) {
     if (_disposed || !mounted) return;
     setState(() => _textureId = id);
@@ -281,8 +286,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       }
 
       _controller.status = status;
-      // Windows and Linux change to the pixel texture once frames are read
-      // back.
+      // Linux changes to the pixel texture once frames are read back.
       if (_gpuTextureId != null && status.transport != _transport) {
         setState(() => _transport = status.transport);
       }

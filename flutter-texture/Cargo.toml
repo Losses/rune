@@ -19,3 +19,8 @@ dispatch2 = { version = "0.3", default-features = false, features = ["std", "obj
 objc2 = "0.6"
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFDictionary", "CFNumber", "CFString"] }
 objc2-core-video = { version = "0.3", default-features = false, features = ["std", "objc2", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferPool", "CVReturn"] }
+
+# The engine's C API on Windows is looked up at run time; the windows crate is the version
+# wgpu-hal's DirectX 12 backend (and the visualizer) uses.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", default-features = false, features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_System_LibraryLoader"] }

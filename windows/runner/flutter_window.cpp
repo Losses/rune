@@ -1,7 +1,5 @@
 #include "flutter_window.h"
 
-#include <flutter/plugin_registrar_windows.h>
-
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
@@ -27,16 +25,21 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
-  // The engine itself exposes no texture registrar; a plugin registrar does.
-  // The manager owns it and destroys it with the engine.
-  auto* registrar =
-      flutter::PluginRegistrarManager::GetInstance()
-          ->GetRegistrar<flutter::PluginRegistrarWindows>(
-              flutter_controller_->engine()->GetRegistrarForPlugin(
-                  "VisualizerTexture"));
-  visualizer_channel_ = std::make_unique<VisualizerChannel>(
-      registrar->messenger(), registrar->texture_registrar(),
-      registrar->registrar());
+  // The Rust hub registers the visualizer's texture with the engine itself. Its
+  // symbols are looked up at run time: the Dart side (rinf) loads hub.dll as
+  // well, and a missing library or symbol only leaves the visualizer without a
+  // texture.
+  HMODULE hub = GetModuleHandleW(L"hub.dll");
+  if (!hub) {
+    hub = LoadLibraryW(L"hub.dll");
+  }
+  if (hub) {
+    if (auto attach = reinterpret_cast<bool (*)(void*)>(
+            GetProcAddress(hub, "rune_flutter_attach"))) {
+      attach(flutter_controller_->engine()->GetRegistrarForPlugin(
+          "RuneFlutterTexture"));
+    }
+  }
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -52,7 +55,6 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
-  visualizer_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

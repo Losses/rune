@@ -52,6 +52,9 @@ pub const DEFAULT_FPS: u32 = 60;
 /// Told the id of each new frame (see [`Visualizer::set_frame_listener`]).
 pub type FrameListener = Arc<dyn Fn(u64) + Send + Sync>;
 
+/// Told how frames leave the GPU (see [`Visualizer::set_transport_listener`]).
+pub type TransportListener = Arc<dyn Fn(Transport) + Send + Sync>;
+
 /// Sample rate assumed until the first track tells the real one.
 const FALLBACK_SAMPLE_RATE: u32 = 44_100;
 
@@ -241,6 +244,8 @@ struct Shared {
     covers_requester: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Told the id of every new frame.
     frame_listener: Mutex<Option<FrameListener>>,
+    /// Told how frames leave the GPU, when the render thread knows and when that changes.
+    transport_listener: Mutex<Option<TransportListener>>,
     /// The LUID of the adapter Flutter renders on (see [`adapter_luid`]), 0 while unknown.
     adapter_luid: AtomicU64,
     /// The UUIDs of the GPU Flutter renders on, while known.
@@ -317,6 +322,7 @@ impl Visualizer {
                 playing_cover_job: AtomicU64::new(0),
                 covers_requester: Mutex::new(None),
                 frame_listener: Mutex::new(None),
+                transport_listener: Mutex::new(None),
                 adapter_luid: AtomicU64::new(0),
                 device_uuids: Mutex::new(None),
                 fall_back: AtomicBool::new(false),
@@ -446,7 +452,8 @@ impl Visualizer {
     }
 
     /// Read frames back from the next frame on, until the render thread stops: the app could not
-    /// show a frame it was handed in a shared image.
+    /// show a frame it was handed in a shared texture or image (or could not register a texture
+    /// for them).
     pub fn fall_back_to_readback(&self) {
         self.shared.fall_back.store(true, Ordering::Relaxed);
     }
@@ -602,6 +609,15 @@ impl Visualizer {
         *lock(&self.shared.frame_listener) = listener;
     }
 
+    /// `listener` is called with the transport once the render thread has chosen it, and again
+    /// whenever it changes (frames fall back to being read back), from the render thread: it must
+    /// not block. `None` stops the calls. It replaces an earlier listener and stays across
+    /// restarts; set it before [`Self::start`] to see the first call, or read
+    /// [`Status::transport`] after setting it.
+    pub fn set_transport_listener(&self, listener: Option<TransportListener>) {
+        *lock(&self.shared.transport_listener) = listener;
+    }
+
     fn send(&self, command: Command) -> Result<()> {
         let worker = lock(&self.worker);
         let worker = worker.as_ref().context("The visualizer is not running")?;
@@ -691,6 +707,7 @@ fn run(
         status.transport = Some(transport);
         status.preset_name = pipeline.preset_name().to_string();
     }
+    notify_transport(shared, transport);
 
     let interval = Duration::from_secs_f64(1.0 / f64::from(fps));
     let started = Instant::now();
@@ -866,6 +883,7 @@ fn run(
             transport = pipeline.transport();
             info!("Visualizer frames now leave the GPU by {transport:?}");
             shared.status().transport = Some(transport);
+            notify_transport(shared, transport);
         }
 
         window_frames += 1;
@@ -1006,6 +1024,14 @@ fn keep_recent(pcm: &mut Vec<f32>, channels: usize, sample_rate: u32) {
     if pcm.len() > keep {
         let skip = pcm.len() - keep;
         pcm.drain(..skip - skip % channels);
+    }
+}
+
+/// Tell the transport listener how frames leave the GPU.
+fn notify_transport(shared: &Shared, transport: Transport) {
+    let listener = lock(&shared.transport_listener).clone();
+    if let Some(listener) = listener {
+        listener(transport);
     }
 }
 
