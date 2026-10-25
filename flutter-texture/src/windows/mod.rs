@@ -23,7 +23,9 @@ use ::windows::core::Interface;
 use futures_channel::oneshot;
 use log::{error, info};
 
-use crate::{FrameNotifier, FrameSource, Kind, PlatformHandle, Result, TextureError, lock};
+use crate::{
+    DeviceUuids, FrameNotifier, FrameSource, Kind, PlatformHandle, Result, TextureError, lock,
+};
 use api::{
     Api, GpuSurfaceConfig, PixelBufferConfig, PluginRegistrar, TextureInfo, TextureRegistrar,
 };
@@ -147,6 +149,11 @@ impl Registry {
             *known = state.query_adapter();
         }
         *known
+    }
+
+    /// Only Linux tells which GPU the engine renders on by its UUIDs.
+    pub(crate) async fn device_uuids(&self) -> Option<DeviceUuids> {
+        None
     }
 }
 

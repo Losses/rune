@@ -2325,6 +2325,7 @@ version = "0.1.0"
 dependencies = [
  "dispatch2",
  "futures-channel",
+ "libc",
  "log",
  "objc2",
  "objc2-core-foundation",

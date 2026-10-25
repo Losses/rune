@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:async';
 import 'dart:math';
 
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -15,18 +14,16 @@ import '../../utils/file_storage/mac_secure_manager.dart';
 
 import 'visualizer_controller.dart';
 
-const _channel = MethodChannel('not.ci.rune/visualizer');
-
 const _targetFps = 60;
 const _maxRenderWidth = 1920;
 const _maxRenderHeight = 1080;
 const _resizeDebounce = Duration(milliseconds: 300);
 
 /// The physical size of the view, shrunk to fit 1920x1080 with its aspect
-/// ratio kept. The width is rounded down to a multiple of 64, because
-/// Windows and Linux hand the frames to Flutter without copying only when
-/// the rows are tightly packed; the height follows the width so the aspect
-/// ratio stays the view's, and is rounded to an even number.
+/// ratio kept. The width is rounded down to a multiple of 64, because frames
+/// read back from the GPU have tightly packed rows only then, which Windows
+/// hands to Flutter without copying them first; the height follows the width
+/// so the aspect ratio stays the view's, and is rounded to an even number.
 (int, int) _renderSize(Size logical, double pixelRatio) {
   final width = logical.width * pixelRatio;
   final height = logical.height * pixelRatio;
@@ -53,22 +50,11 @@ class VisualizerSurface extends StatefulWidget {
 
 class _VisualizerSurfaceState extends State<VisualizerSurface>
     with WidgetsBindingObserver {
-  // Whether Rust registers the texture with the engine (else the runner does).
-  static final _rustTextures = Platform.isMacOS || Platform.isWindows;
-
-  // macOS and Windows: the texture Rust registered and sent the id of (on
-  // Windows a new one when frames start to be read back); Linux: the one the
-  // runner made.
+  // The texture Rust registered and sent the id of (on Windows a new one when
+  // frames start to be read back).
   int? _textureId;
-  // macOS and Windows: the texture ids from Rust.
+  // The texture ids from Rust.
   StreamSubscription<Object?>? _textureSubscription;
-  // Linux: the texture fed with shared Vulkan images, shown unless the
-  // visualizer reads its frames back; null elsewhere or if the native side
-  // cannot share frames.
-  int? _gpuTextureId;
-  // How frames leave the GPU, from the last status; empty until it is known.
-  // Only followed while there is a GPU texture.
-  String _transport = '';
   (int, int)? _renderedSize;
   bool _starting = false;
   bool _disposed = false;
@@ -161,15 +147,9 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     // Not while the tree is being torn down: listeners rebuild.
     scheduleMicrotask(() => _coverWallDisplay.presetsLoaded = false);
 
+    // Rust unregisters its textures when the visualizer stops.
     if (_textureId != null || _starting) {
       StopVisualizerRequest().sendSignalToRust();
-      // macOS and Windows: Rust unregisters its textures when the visualizer
-      // stops.
-      if (!_rustTextures) {
-        _channel.invokeMethod<void>('dispose').catchError((Object e) {
-          error$('Failed to dispose the visualizer texture: $e');
-        });
-      }
     }
     super.dispose();
   }
@@ -181,33 +161,15 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     try {
       final size = _renderSize(logical, pixelRatio);
 
-      // macOS and Windows: Rust registers the texture once the visualizer runs
-      // and sends its id. On Linux the runner makes it: an id, or a map of the
-      // ids of the pixel and the GPU textures.
-      int? id;
-      int? gpuId;
-      if (_rustTextures) {
-        _textureSubscription ??= VisualizerTextureResponse.rustSignalStream
-            .listen((signal) => _showTexture(signal.message.textureId));
-      } else {
-        final created = await _channel.invokeMethod<Object>('create');
-        final ids = created is Map ? created : const {};
-        id = created is int ? created : ids['pixels'] as int?;
-        gpuId = ids['gpu'] as int?;
-        if (_disposed) {
-          await _channel.invokeMethod<void>('dispose');
-          return;
-        }
-      }
+      // Rust registers the texture once the visualizer runs and sends its id.
+      _textureSubscription ??= VisualizerTextureResponse.rustSignalStream
+          .listen((signal) => _showTexture(signal.message.textureId));
 
       // Bookmarks are resolved when the manager is created; wait for them
       // before Rust reads the saved folders.
       if (Platform.isMacOS) await MacSecureManager().completed;
       final dirs = await loadVisualizerPresetDirs();
-      if (_disposed) {
-        if (!_rustTextures) await _channel.invokeMethod<void>('dispose');
-        return;
-      }
+      if (_disposed) return;
 
       if (dirs.isNotEmpty) {
         SetVisualizerPresetDirsRequest(paths: dirs).sendSignalToRust();
@@ -219,13 +181,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       ).sendSignalToRust();
 
       _controller.hasPresets = dirs.isNotEmpty;
-      setState(() {
-        if (!_rustTextures) {
-          _textureId = id;
-          _gpuTextureId = gpuId;
-        }
-        _renderedSize = size;
-      });
+      setState(() => _renderedSize = size);
     } catch (e) {
       error$('Failed to start the visualizer: $e');
       // Leave `_starting` set so the next frames don't retry in a loop; showing
@@ -235,8 +191,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     }
   }
 
-  // macOS and Windows: show the texture Rust sent, then tell Rust that it is
-  // on screen, so that a texture it replaced can go.
+  // Show the texture Rust sent, then tell Rust that it is on screen, so that a
+  // texture it replaced can go.
   void _showTexture(int id) {
     if (_disposed || !mounted) return;
     setState(() => _textureId = id);
@@ -286,10 +242,6 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       }
 
       _controller.status = status;
-      // Linux changes to the pixel texture once frames are read back.
-      if (_gpuTextureId != null && status.transport != _transport) {
-        setState(() => _transport = status.transport);
-      }
       _updateLabel(status);
       // A folder without scenes counts as none.
       if (status.running) {
@@ -333,11 +285,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   /// Letterboxed: the texture keeps the aspect ratio of the size that was
   /// requested from Rust, so a window that changes shape never stretches it.
   Widget _buildTexture() {
-    // The GPU texture unless the visualizer reads frames back, which only the
-    // pixel texture shows.
-    final id = _gpuTextureId != null && _transport != 'readback'
-        ? _gpuTextureId
-        : _textureId;
+    final id = _textureId;
     final size = _renderedSize;
     if (id == null || size == null) return const SizedBox.expand();
 

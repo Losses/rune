@@ -1,20 +1,19 @@
 //! The visualizer's frames in a Flutter texture of our own texture layer (`flutter_texture`).
 //!
-//! On macOS and Windows the runner hands the engine over at launch ([`rune_flutter_attach`]); when
-//! the visualizer runs, a texture showing its latest frame is registered and its id is sent to
-//! Dart (`VisualizerTextureResponse`). A texture that replaces another one is sent the same way;
+//! The runner hands the engine over at launch ([`rune_flutter_attach`]); when the visualizer runs,
+//! a texture showing its latest frame is registered and its id is sent to Dart
+//! (`VisualizerTextureResponse`). A texture that replaces another one is sent the same way;
 //! the old one is unregistered once Dart says it shows the new one
 //! (`VisualizerTextureShownRequest`).
 //!
-//! - macOS: one texture takes the pixel buffers and the read-back frames alike, so it is made
-//!   when the visualizer starts.
+//! - macOS and Linux: one texture takes the frames on the GPU (pixel buffers, Vulkan images) and
+//!   the read-back frames alike, so it is made when the visualizer starts. On Linux, if Flutter's
+//!   OpenGL context cannot import a Vulkan image, the visualizer reads frames back from then on,
+//!   into the same texture.
 //! - Windows: the engine has one texture type for shared DirectX textures and another for pixels,
 //!   so the texture is made once the visualizer says how its frames leave the GPU, and replaced
 //!   when that changes (a fall back to reading frames back). If the GPU texture cannot be
 //!   registered the visualizer falls back to reading frames back, which ends in a pixel texture.
-//!
-//! Linux still has its own texture bridge in the runner, which pulls frames through the C
-//! interface in [`crate::visualizer`].
 
 use std::sync::{Arc, LazyLock};
 
@@ -25,14 +24,17 @@ use tokio::sync::Mutex;
 use ::flutter_texture::{
     Acquired, Frame, FrameSource, Kind, PixelFormat, Pixels, Texture, TextureError,
 };
-use ::visualizer::{PcmInput, Transport};
+use ::visualizer::{DeviceUuids, PcmInput, Transport};
 
 use crate::messages::VisualizerTextureResponse;
 use crate::visualizer::VISUALIZER;
 
-/// Whether the visualizer is shown through `flutter_texture` here (else through the runner's own
-/// bridge).
-const TEXTURE_LAYER: bool = cfg!(any(target_os = "macos", target_os = "windows"));
+/// Whether the visualizer is shown through `flutter_texture` here (else not at all).
+const TEXTURE_LAYER: bool = cfg!(any(
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "linux"
+));
 
 /// Hand the engine's texture registry over to `flutter_texture`. Called by the runner once the
 /// engine exists; returns whether it worked.
@@ -40,8 +42,9 @@ const TEXTURE_LAYER: bool = cfg!(any(target_os = "macos", target_os = "windows")
 /// # Safety
 ///
 /// `registry` must be null or, on macOS, point to the `FlutterEngine`; on Windows, be the
-/// engine's `FlutterDesktopPluginRegistrarRef` (`FlutterEngine::GetRegistrarForPlugin`).
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+/// engine's `FlutterDesktopPluginRegistrarRef` (`FlutterEngine::GetRegistrarForPlugin`); on Linux,
+/// be the `FlEngine*` (`fl_view_get_engine`), called on the GTK main thread.
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rune_flutter_attach(registry: *mut std::ffi::c_void) -> bool {
     let Some(registry) = std::ptr::NonNull::new(registry) else {
@@ -51,6 +54,8 @@ pub unsafe extern "C" fn rune_flutter_attach(registry: *mut std::ffi::c_void) ->
     let handle = flutter_texture::PlatformHandle::TextureRegistry(registry);
     #[cfg(target_os = "windows")]
     let handle = flutter_texture::PlatformHandle::PluginRegistrar(registry);
+    #[cfg(target_os = "linux")]
+    let handle = flutter_texture::PlatformHandle::FlEngine(registry);
     // SAFETY: the caller guarantees the object the handle stands for.
     match unsafe { flutter_texture::attach(handle) } {
         Ok(()) => true,
@@ -62,15 +67,22 @@ pub unsafe extern "C" fn rune_flutter_attach(registry: *mut std::ffi::c_void) ->
 }
 
 /// Tell the visualizer what it needs to know about the engine before it starts: on Windows the
-/// adapter Flutter renders on, so that frames are shared with it (else they are read back).
-/// Applies from the visualizer's next start.
-pub fn prepare_visualizer() {
+/// adapter Flutter renders on, on Linux the GPU and driver of Flutter's OpenGL context (probed on
+/// the platform thread the first time), so that frames are shared with it (else they are read
+/// back). Applies from the visualizer's next start.
+pub async fn prepare_visualizer() {
     if TEXTURE_LAYER {
-        VISUALIZER.set_graphics_adapter(flutter_texture::capabilities().adapter_luid);
+        let capabilities = flutter_texture::capabilities().await;
+        VISUALIZER.set_graphics_adapter(capabilities.adapter_luid);
+        VISUALIZER.set_graphics_device(capabilities.device_uuids.map(|uuids| DeviceUuids {
+            device: uuids.device,
+            driver: uuids.driver,
+        }));
     }
 }
 
-/// The visualizer's latest frame, as it is: in a pixel buffer or read back.
+/// The visualizer's latest frame, as it is: on the GPU (a pixel buffer, a shared texture or image)
+/// or read back.
 struct VisualizerFrames;
 
 impl FrameSource for VisualizerFrames {
@@ -96,6 +108,21 @@ impl FrameSource for VisualizerFrames {
                 keep: Box::new(frame),
             });
         }
+        #[cfg(target_os = "linux")]
+        if let Some(image) = frame.shared_image() {
+            return Some(Acquired {
+                id: frame.id,
+                frame: Frame::VulkanImage(flutter_texture::VulkanImage {
+                    image_id: image.image_id(),
+                    image_set: image.image_set(),
+                    memory_size: image.memory_size(),
+                    width: frame.width,
+                    height: frame.height,
+                    fds: Box::new(SharedImage(Arc::clone(&frame))),
+                }),
+                keep: Box::new(frame),
+            });
+        }
         let (bytes, stride) = frame.pixels()?;
         // Read back frames are BGRA on macOS and RGBA elsewhere.
         let format = if cfg!(target_os = "macos") {
@@ -115,7 +142,44 @@ impl FrameSource for VisualizerFrames {
     }
 
     fn failed(&self, error: TextureError) {
-        VISUALIZER.report_error(error.to_string());
+        match error {
+            // Linux: the frame in a Vulkan image could not be imported. The same texture shows
+            // read-back frames.
+            TextureError::SharedFrame(_) => {
+                warn!("{error}; the visualizer reads frames back");
+                VISUALIZER.fall_back_to_readback();
+            }
+            error => VISUALIZER.report_error(error.to_string()),
+        }
+    }
+}
+
+/// Exports what OpenGL imports of a frame in a Vulkan image, while the frame is held.
+#[cfg(target_os = "linux")]
+struct SharedImage(Arc<::visualizer::Frame>);
+
+#[cfg(target_os = "linux")]
+impl SharedImage {
+    fn export(
+        &self,
+        export: impl FnOnce(&::visualizer::SharedFrame) -> anyhow::Result<std::os::fd::OwnedFd>,
+    ) -> Result<std::os::fd::OwnedFd, String> {
+        let image = self
+            .0
+            .shared_image()
+            .ok_or("the frame is not in a shared image")?;
+        export(image).map_err(|e| format!("{e:#}"))
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl flutter_texture::VulkanFds for SharedImage {
+    fn export_memory(&self) -> Result<std::os::fd::OwnedFd, String> {
+        self.export(::visualizer::SharedFrame::export_memory)
+    }
+
+    fn export_semaphore(&self) -> Result<std::os::fd::OwnedFd, String> {
+        self.export(::visualizer::SharedFrame::export_semaphore)
     }
 }
 
@@ -144,7 +208,7 @@ fn wanted_kind(transport: Option<Transport>) -> Option<Kind> {
         Some(_) => Some(Kind::Pixels),
         None => None,
     };
-    // One texture takes all the frames there.
+    // One texture takes all the frames there (on the GPU and read back).
     #[cfg(not(target_os = "windows"))]
     {
         let _ = transport;

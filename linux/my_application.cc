@@ -1,5 +1,6 @@
 #include "my_application.h"
 
+#include <dlfcn.h>
 #include <flutter_linux/flutter_linux.h>
 #include <bitsdojo_window_linux/bitsdojo_window_plugin.h>
 #ifdef GDK_WINDOWING_X11
@@ -7,7 +8,6 @@
 #endif
 
 #include "flutter/generated_plugin_registrant.h"
-#include "visualizer_texture.h"
 
 // Global reference to the bitsdojo window for dynamic frame control
 static GtkWindow* main_window = nullptr;
@@ -97,13 +97,20 @@ static void my_application_activate(GApplication* application) {
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
-  // The visualizer texture bridge lives as long as the view, whose destruction
-  // frees it while the engine is still alive.
-  VisualizerChannel* visualizer_channel =
-      visualizer_channel_new(fl_view_get_engine(view));
-  g_signal_connect_swapped(view, "destroy",
-                           G_CALLBACK(visualizer_channel_free),
-                           visualizer_channel);
+  // The Rust hub registers the visualizer's texture with the engine itself. Its
+  // symbols are looked up at run time: the Dart side (rinf) loads libhub.so as
+  // well, and a missing library or symbol only leaves the visualizer without a
+  // texture.
+  void* hub = dlopen("libhub.so", RTLD_NOW | RTLD_NOLOAD);
+  if (hub == nullptr) {
+    hub = dlopen("libhub.so", RTLD_NOW);
+  }
+  if (hub != nullptr) {
+    if (auto attach = reinterpret_cast<bool (*)(void*)>(
+            dlsym(hub, "rune_flutter_attach"))) {
+      attach(fl_view_get_engine(view));
+    }
+  }
 
   // Initialize bitsdojo window
   g_bdw = bitsdojo_window_from(window);

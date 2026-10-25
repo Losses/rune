@@ -24,3 +24,8 @@ objc2-core-video = { version = "0.3", default-features = false, features = ["std
 # wgpu-hal's DirectX 12 backend (and the visualizer) uses.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", default-features = false, features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_System_LibraryLoader"] }
+
+# On Linux the engine, GLib, GDK, EGL and OpenGL are looked up at run time (`dlsym`), so nothing
+# links against them.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"

@@ -15,10 +15,21 @@
 //!   textures, so a producer that falls back from one to the other registers the other kind and
 //!   switches to it. The registry may be used from any thread, so there is no platform thread
 //!   hop; the engine reads frames on its raster thread.
+//! - Linux: the registry is the `FlEngine`'s `FlTextureRegistrar`; the engine and GLib are
+//!   looked up in the process. A frame in a Vulkan image ([`Frame::VulkanImage`]) is imported
+//!   into Flutter's OpenGL context without a copy; pixels are uploaded into a texture of our own.
+//!   One texture takes both, so a producer may fall back from one to the other under the same
+//!   texture id. The registrar is used on the GLib main context (the platform thread).
 //! - Elsewhere: not yet ([`TextureError::Unsupported`]).
 
 #[cfg(target_vendor = "apple")]
 mod darwin;
+#[cfg(target_os = "linux")]
+mod linux;
+/// The plain bookkeeping of the Linux textures, tested on every host.
+#[cfg(all(test, not(target_os = "linux")))]
+#[path = "linux/logic.rs"]
+mod linux_logic;
 mod thread;
 #[cfg(windows)]
 mod windows;
@@ -27,7 +38,9 @@ mod windows;
 use self::windows as platform;
 #[cfg(target_vendor = "apple")]
 use darwin as platform;
-#[cfg(not(any(target_vendor = "apple", windows)))]
+#[cfg(target_os = "linux")]
+use linux as platform;
+#[cfg(not(any(target_vendor = "apple", windows, target_os = "linux")))]
 use unsupported as platform;
 
 use std::any::Any;
@@ -56,6 +69,9 @@ pub enum TextureError {
     PlatformThread,
     /// A frame could not be handed to Flutter.
     Frame(String),
+    /// A frame in GPU memory shared with Flutter could not be shown (Linux: Flutter's OpenGL
+    /// context could not import it). The producer should hand over pixels from now on.
+    SharedFrame(String),
 }
 
 impl fmt::Display for TextureError {
@@ -66,6 +82,9 @@ impl fmt::Display for TextureError {
             Self::InvalidHandle => f.write_str("The Flutter texture registry handle is not usable"),
             Self::PlatformThread => f.write_str("The platform thread did not run the call"),
             Self::Frame(message) => write!(f, "A frame could not be handed to Flutter: {message}"),
+            Self::SharedFrame(message) => {
+                write!(f, "A frame in GPU memory could not be shown: {message}")
+            }
         }
     }
 }
@@ -82,12 +101,15 @@ pub enum PlatformHandle {
     /// (`GetRegistrarForPlugin`). It stays valid until the engine is destroyed.
     #[cfg(windows)]
     PluginRegistrar(std::ptr::NonNull<std::ffi::c_void>),
+    /// An `FlEngine*` on Linux (`fl_view_get_engine`). Its texture registrar is retained.
+    #[cfg(target_os = "linux")]
+    FlEngine(std::ptr::NonNull<std::ffi::c_void>),
 }
 
 /// What a texture shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
-    /// [`Frame::Pixels`] (and on Apple [`Frame::PixelBuffer`]).
+    /// [`Frame::Pixels`] (and on Apple [`Frame::PixelBuffer`], on Linux [`Frame::VulkanImage`]).
     Pixels,
     /// Windows: [`Frame::Dxgi`].
     #[cfg(windows)]
@@ -101,6 +123,19 @@ pub struct Capabilities {
     /// Flutter renders on, which a [`Frame::Dxgi`] has to come from. `None` where it is unknown,
     /// without an engine, and on other platforms.
     pub adapter_luid: Option<(u32, i32)>,
+    /// Linux: the GPU and driver of Flutter's OpenGL context, which a [`Frame::VulkanImage`] has
+    /// to come from. `None` where the context cannot import Vulkan memory and semaphores (or
+    /// runs on several GPUs, or in software), once an import failed, without an engine, and on
+    /// other platforms.
+    pub device_uuids: Option<DeviceUuids>,
+}
+
+/// The device and driver UUIDs of a GPU, as Vulkan (`VkPhysicalDeviceIDProperties`) and OpenGL
+/// (`GL_DEVICE_UUID_EXT`, `GL_DRIVER_UUID_EXT`) report them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeviceUuids {
+    pub device: [u8; 16],
+    pub driver: [u8; 16],
 }
 
 /// The order of the four bytes of a pixel.
@@ -161,7 +196,10 @@ impl Pixels {
     }
 
     /// The bytes of the rows, or `None` if the size is empty or the rows overlap.
-    #[cfg_attr(not(any(target_vendor = "apple", windows)), allow(dead_code))]
+    #[cfg_attr(
+        not(any(target_vendor = "apple", windows, target_os = "linux")),
+        allow(dead_code)
+    )]
     fn bytes(&self) -> Option<&[u8]> {
         let row = self.width as usize * 4;
         if self.ptr.is_null() || row == 0 || self.height == 0 || self.stride < row {
@@ -205,6 +243,44 @@ pub enum Frame {
         width: u32,
         height: u32,
     },
+    /// Linux: a frame in a Vulkan image, which the texture imports into Flutter's OpenGL context
+    /// without a copy.
+    #[cfg(target_os = "linux")]
+    VulkanImage(VulkanImage),
+}
+
+/// A frame in a `VK_FORMAT_R8G8B8A8_UNORM` image with optimal tiling, in a dedicated allocation
+/// exported as an opaque file descriptor. The producer released the image to
+/// `VK_QUEUE_FAMILY_EXTERNAL` in `VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL` and signals the
+/// frame's semaphore once it is drawn. It must not draw into the image again while the
+/// [`Acquired::keep`] it comes with is alive, nor for a few frames after: OpenGL never says when
+/// it is done sampling.
+#[cfg(target_os = "linux")]
+pub struct VulkanImage {
+    /// The image the frame is in. Frames in the same image have the same id, and ids are never
+    /// reused: the texture imports an image's memory once and keeps it under this id.
+    pub image_id: u64,
+    /// The set of images the image belongs to. The producer no longer draws into images of an
+    /// earlier set, so the texture lets go of them once a frame of a newer set is shown.
+    pub image_set: u64,
+    /// The size in bytes of the image's dedicated allocation.
+    pub memory_size: u64,
+    pub width: u32,
+    pub height: u32,
+    /// Exports the image's memory and the frame's semaphore.
+    pub fds: Box<dyn VulkanFds>,
+}
+
+/// New file descriptors for what Flutter's OpenGL context imports of a [`VulkanImage`]. Each call
+/// returns a new descriptor that the caller owns.
+#[cfg(target_os = "linux")]
+pub trait VulkanFds {
+    /// The image's memory (`VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT`).
+    fn export_memory(&self) -> Result<std::os::fd::OwnedFd, String>;
+    /// The semaphore the frame's submission signals
+    /// (`VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT`). It is signalled once, so it is waited
+    /// for at most once.
+    fn export_semaphore(&self) -> Result<std::os::fd::OwnedFd, String>;
 }
 
 /// The latest frame of a [`FrameSource`].
@@ -226,7 +302,9 @@ pub trait FrameSource: Send + Sync + 'static {
     fn acquire(&self) -> Option<Acquired>;
 
     /// A frame from [`Self::acquire`] could not be shown; the texture keeps the last one. Called
-    /// on the raster thread once per run of failures.
+    /// on the raster thread once per run of failures. A [`TextureError::SharedFrame`] means
+    /// frames on the GPU cannot be shown at all: the texture ignores them from now on and the
+    /// producer should hand over pixels.
     fn failed(&self, _error: TextureError) {}
 }
 
@@ -251,16 +329,21 @@ pub unsafe fn attach(handle: PlatformHandle) -> Result<()> {
     Ok(())
 }
 
-/// What the attached engine can do, or the defaults if none is attached.
-pub fn capabilities() -> Capabilities {
-    let registry = lock(&ATTACHMENT).current();
+/// What the attached engine can do, or the defaults if none is attached. On Linux the first call
+/// probes Flutter's OpenGL context on the platform thread.
+pub async fn capabilities() -> Capabilities {
+    let current = lock(&ATTACHMENT).current();
+    let Some((_, registry)) = current else {
+        return Capabilities::default();
+    };
     Capabilities {
-        adapter_luid: registry.and_then(|(_, registry)| registry.adapter_luid()),
+        adapter_luid: registry.adapter_luid(),
+        device_uuids: registry.device_uuids().await,
     }
 }
 
 /// Register `source` as a texture of the attached registry, which shows frames of `kind`. On
-/// Apple this hops to the platform thread, where the engine wants it.
+/// Apple and Linux this hops to the platform thread, where the engine wants it.
 pub async fn register(source: Arc<dyn FrameSource>, kind: Kind) -> Result<Texture> {
     let (generation, registry) = lock(&ATTACHMENT)
         .current()
@@ -334,7 +417,10 @@ struct Notice {
 }
 
 impl FrameNotifier {
-    #[cfg_attr(not(any(target_vendor = "apple", windows)), allow(dead_code))]
+    #[cfg_attr(
+        not(any(target_vendor = "apple", windows, target_os = "linux")),
+        allow(dead_code)
+    )]
     fn new(
         post: impl Fn(Task) + Send + Sync + 'static,
         fire: impl Fn() + Send + Sync + 'static,
@@ -401,11 +487,13 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Platforms without a texture layer yet: nothing can be attached, so nothing is registered.
-#[cfg(not(any(target_vendor = "apple", windows)))]
+#[cfg(not(any(target_vendor = "apple", windows, target_os = "linux")))]
 mod unsupported {
     use std::sync::Arc;
 
-    use crate::{FrameNotifier, FrameSource, Kind, PlatformHandle, Result, TextureError};
+    use crate::{
+        DeviceUuids, FrameNotifier, FrameSource, Kind, PlatformHandle, Result, TextureError,
+    };
 
     pub(crate) enum Registry {}
 
@@ -415,6 +503,10 @@ mod unsupported {
         }
 
         pub(crate) fn adapter_luid(&self) -> Option<(u32, i32)> {
+            match *self {}
+        }
+
+        pub(crate) async fn device_uuids(&self) -> Option<DeviceUuids> {
             match *self {}
         }
     }
