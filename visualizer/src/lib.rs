@@ -907,16 +907,10 @@ fn run(
             auto_switch.restart();
         }
 
-        // A chart knows the beats of the whole song: they replace the tracker's guess.
+        // A chart knows the beats of the whole song, or that it has none: it replaces the
+        // tracker's guess either way.
         let chart = charts.tick(&lock(&shared.playback), Instant::now());
-        let mut rhythm = tracker.rhythm();
-        if let Some(chart) = &chart
-            && chart.bpm > 0.0
-        {
-            rhythm.bpm = chart.bpm;
-            rhythm.beat = chart.beat;
-            rhythm.confidence = chart.beat_confidence;
-        }
+        let rhythm = chart::trusted_rhythm(tracker.rhythm(), chart.as_ref());
         pipeline.set_rhythm(&rhythm);
         pipeline.set_chart(chart.as_ref());
         pipeline.set_song(charts.song_time(), shared.playing.load(Ordering::Relaxed));

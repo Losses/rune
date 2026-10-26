@@ -18,6 +18,8 @@ use chart_analyzer::decode::Cancelled;
 use fsio::FsIo;
 use log::{info, warn};
 
+use crate::rhythm::Rhythm;
+
 /// The streams, in the order of [`ChartState::events`]; a lead of `i + 1` is stream `i`.
 const STREAMS: [&str; 5] = ["low", "mid", "high", "harmonic", "phrase"];
 /// How fast an onset fades in [`ChartState::events`], per stream (seconds).
@@ -58,6 +60,19 @@ pub struct Chart {
     song_feel: f64,
 }
 
+/// The latest onset of a stream at one moment: how many there have been and the last one.
+///
+/// Comparing the counts of two frames tells exactly how many onsets lay between them, which the
+/// fading envelope in [`ChartState::events`] cannot (two quick onsets blur into one).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct LatestOnset {
+    /// Onsets at or before now; 0 means none yet (then `time` and `strength` are 0 too).
+    pub count: usize,
+    /// Song time (seconds) and strength (0 to about 1) of the latest one.
+    pub time: f64,
+    pub strength: f64,
+}
+
 /// The chart at one moment, for the scenes.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ChartState {
@@ -86,6 +101,8 @@ pub struct ChartState {
     /// Onset envelopes of the streams (low, mid, high, harmonic, phrase): the latest onset's
     /// strength, fading.
     pub events: [f64; 5],
+    /// The latest onset of each stream, in the order of [`ChartState::events`].
+    pub latest: [LatestOnset; 5],
     /// The leading stream (0 none, 1 low, 2 mid, 3 high, 4 harmonic) and its envelope.
     pub lead: f64,
     pub lead_event: f64,
@@ -169,6 +186,7 @@ impl Chart {
         self.section_at(t, &mut state);
         for (i, events) in self.streams.iter().enumerate() {
             state.events[i] = envelope(events, t, EVENT_DECAY[i]);
+            state.latest[i] = latest_onset(events, t);
         }
         if let Some(lead) = span_at(&self.lead, t, |l| (l.start, l.end)) {
             state.lead = lead.stream;
@@ -228,11 +246,51 @@ impl Chart {
     }
 }
 
+/// The rhythm the scenes get: what the song's chart says when it has one, the live tracker's
+/// otherwise.
+///
+/// A chart with beats replaces the tracker's tempo, beat and confidence. A chart without beats
+/// (the whole song was heard and has no steady pulse) is the verdict: no tempo, no beat, no
+/// confidence, whatever the tracker thinks; its levels and onsets stay the tracker's.
+pub fn trusted_rhythm(live: Rhythm, chart: Option<&ChartState>) -> Rhythm {
+    let Some(chart) = chart else {
+        return live;
+    };
+    if chart.bpm > 0.0 {
+        Rhythm {
+            bpm: chart.bpm,
+            beat: chart.beat,
+            confidence: chart.beat_confidence,
+            ..live
+        }
+    } else {
+        Rhythm {
+            bpm: 0.0,
+            beat: 0.0,
+            confidence: 0.0,
+            ..live
+        }
+    }
+}
+
 /// The span that contains `t`, if any (spans are sorted and do not overlap).
 fn span_at<T>(spans: &[T], t: f64, range: impl Fn(&T) -> (f64, f64)) -> Option<&T> {
     let i = spans.partition_point(|s| range(s).0 <= t).checked_sub(1)?;
     let span = &spans[i];
     (t < range(span).1).then_some(span)
+}
+
+/// The onsets at or before `t` counted, and the last of them.
+fn latest_onset(events: &[(f64, f64)], t: f64) -> LatestOnset {
+    let count = events.partition_point(|e| e.0 <= t);
+    match count.checked_sub(1) {
+        Some(i) => LatestOnset {
+            count,
+            time: events[i].0,
+            strength: events[i].1,
+        },
+        None => LatestOnset::default(),
+    }
 }
 
 /// The strongest of the recent onsets, each fading by `decay` seconds.
@@ -479,6 +537,31 @@ mod tests {
     }
 
     #[test]
+    fn a_chart_without_beats_silences_the_trackers_beat() {
+        let live = Rhythm {
+            bpm: 120.0,
+            beat: 30.0,
+            confidence: 0.9,
+            kick: 0.4,
+            ..Default::default()
+        };
+        assert_eq!(trusted_rhythm(live, None), live);
+        let with = ChartState {
+            bpm: 100.0,
+            beat: 5.5,
+            beat_confidence: 0.7,
+            ..Default::default()
+        };
+        let r = trusted_rhythm(live, Some(&with));
+        assert_eq!(
+            (r.bpm, r.beat, r.confidence, r.kick),
+            (100.0, 5.5, 0.7, 0.4)
+        );
+        let r = trusted_rhythm(live, Some(&ChartState::default()));
+        assert_eq!((r.bpm, r.beat, r.confidence, r.kick), (0.0, 0.0, 0.0, 0.4));
+    }
+
+    #[test]
     fn sections_tell_what_is_coming() {
         let s = chart().at(6.5);
         assert_eq!(
@@ -502,6 +585,29 @@ mod tests {
         // No lead in the second section, though the harmonic stream has an onset there.
         assert_eq!((at(9.0).lead, at(9.0).lead_event), (0.0, 0.0));
         assert!((at(9.0).events[3] - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_latest_onset_is_counted_exactly() {
+        let at = |t| chart().at(t).latest[0];
+        assert_eq!(at(0.9), LatestOnset::default());
+        assert_eq!(
+            at(1.0),
+            LatestOnset {
+                count: 1,
+                time: 1.0,
+                strength: 0.8
+            }
+        );
+        assert_eq!(at(1.99).count, 1);
+        assert_eq!(
+            at(2.5),
+            LatestOnset {
+                count: 2,
+                time: 2.0,
+                strength: 0.5
+            }
+        );
     }
 
     #[test]
