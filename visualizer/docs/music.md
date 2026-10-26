@@ -297,6 +297,14 @@ The reference device is an iPhone 13 mini (A15), whose full-resolution output is
 
 - **Hard rule.** After optimising, a scene holds 60 fps on the reference device. The runtime may lower the resolution and the quality to get there, but the picture it falls back to must be one that is still good to look at.
 - **Goal.** Scene and post-processing take at most 10 ms at full quality and full resolution (quality 1, factor 1), and at most 6 ms at the lowest level (factor 0.5, quality 0), leaving room for Flutter's 2 to 4 ms.
+- **The update.** `update()` runs on one GPU thread, and every pass after it waits for it; one thread of a phone GPU is slow. It gets at most 1 ms of the budget on the reference device.
+
+### Measuring
+
+- **Frame rate and frame time:** the benchmark mode, `RUNE_VISUALIZER_BENCH=<seconds per scene>` with `RUNE_VISUALIZER_BENCH_SCENES` to pick scenes (see `README.md`). Its `gpu_avg` is the span from the scene's first pass to the end of post-processing, so on a busy GPU it includes other work (Flutter, the system compositor): it is how long a frame took, not purely what it cost.
+- **Cost per pass:** Metal System Trace on the device.
+- **That an optimisation keeps the picture:** the ignored test `probe_scene_compare`, which renders a scene on a fixed timeline and seed and compares it pixel by pixel.
+- **Measure on the phone.** A desktop GPU is limited by throughput, a phone GPU by the number of loop iterations per pixel and by latency, so timings on a Mac do not stand for the phone.
 
 ### Rules for scene authors
 
