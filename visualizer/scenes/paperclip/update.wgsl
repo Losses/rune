@@ -291,7 +291,7 @@ const TURN: f32 = 1.0;
 
 // A place to film from: where the camera is round the lead (bearing, distance out over the
 // floor, height), where it looks and the lens.
-struct Shot {
+struct ViewShot {
   pol: vec3f,
   aim: vec3f,
   lens: f32,
@@ -301,10 +301,10 @@ struct Shot {
 // 0 in front of the lead, the chorus behind, pushing in; 1 low and to one side, looking up at the
 // lead, edging round; 2 high and far, the whole field of dancers, craning down; 3 close beside the
 // lead, edging round; 4 above the chorus looking back to the lead, sinking; 5 circling the lead.
-fn shot(v: f32, side: f32, s: f32) -> Shot {
+fn view_shot(v: f32, side: f32, s: f32) -> ViewShot {
   var a = vec3f(0.0);
   var b = vec3f(0.0);
-  var sh: Shot;
+  var sh: ViewShot;
   sh.aim = vec3f(0.0, 0.6, 0.0);
   sh.lens = 0.42;
   if (v < 0.5) {
@@ -450,7 +450,7 @@ fn update() {
   state.glide = min(state.glide + dt / max(state.glide_len, 0.1), 1.0);
   state.shot = min(state.shot + dt / max(params.view_bars * bar_len, 1.0), 1.0);
   let s = 1.0 - (1.0 - state.shot) * (1.0 - state.shot);
-  let to = shot(state.view, state.side, s);
+  let to = view_shot(state.view, state.side, s);
   let k = smoothstep(0.0, 1.0, state.glide);
   let round_by = atan2(sin(to.pol.x - state.pol_from.x), cos(to.pol.x - state.pol_from.x));
   state.pol = vec3f(state.pol_from.x + round_by * k, mix(state.pol_from.yz, to.pol.yz, k));

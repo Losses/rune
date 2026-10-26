@@ -70,6 +70,56 @@ pub struct Manifest {
     /// Whether the scene reads the `covers` texture: an atlas of album covers from the library.
     #[serde(default)]
     pub covers: bool,
+    /// How the camera director may tilt and cut the scene's view (see `director`).
+    #[serde(default)]
+    pub camera: Camera,
+    /// The camera setups the scene can be shown from. Without any, the scene has no director.
+    #[serde(default, rename = "shot")]
+    pub shots: Vec<Shot>,
+}
+
+/// The `[camera]` table: what the director may do with the scene's shots.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Default)]
+#[serde(default)]
+pub struct Camera {
+    /// The largest dutch angle (roll) in radians; 0 means the scene never tilts.
+    pub dutch: f32,
+    /// Whether the director may cut on every beat before a section or a phrase ends.
+    pub fill: bool,
+}
+
+/// How near a shot looks at its subject. The order is the order of the numbers `struct Shot`
+/// gives the scene as `size`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShotSize {
+    Wide,
+    Medium,
+    Close,
+    Detail,
+    Top,
+}
+
+/// How a scene gets from one shot to the next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShotMove {
+    /// The view jumps (the transition layer may dress it).
+    #[default]
+    Cut,
+    /// The scene slides to the new view itself.
+    Glide,
+}
+
+/// One `[[shot]]`: a camera setup of the scene.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Shot {
+    /// For people.
+    #[serde(default)]
+    pub name: String,
+    pub size: ShotSize,
+    #[serde(default, rename = "move")]
+    pub motion: ShotMove,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -423,9 +473,19 @@ impl Manifest {
         for file in &self.common {
             check_path(file)?;
         }
+        ensure!(
+            self.camera.dutch.is_finite()
+                && (0.0..=std::f32::consts::FRAC_PI_2).contains(&self.camera.dutch),
+            "camera.dutch must be from 0 to {:.4} radians",
+            std::f32::consts::FRAC_PI_2
+        );
         for asset in &self.assets {
             check_path(&asset.file)?;
         }
+        ensure!(
+            self.camera == Camera::default() || !self.shots.is_empty(),
+            "[camera] needs at least one [[shot]]"
+        );
         Ok(())
     }
 
@@ -581,5 +641,61 @@ tonemap = "aces"
         let b = Manifest::parse(&SMALL.replace("default = 2", "default = 3")).unwrap();
         assert_ne!(a, b);
         assert_eq!(a.without_defaults(), b.without_defaults());
+    }
+
+    const SHOTS: &str = r##"
+[camera]
+dutch = 0.35
+fill = true
+
+[[shot]]
+name = "below"
+size = "medium"
+move = "cut"
+
+[[shot]]
+size = "top"
+move = "glide"
+"##;
+
+    #[test]
+    fn shots_and_the_camera_are_read() {
+        let plain = Manifest::parse(SMALL).unwrap();
+        assert!(plain.shots.is_empty());
+        assert_eq!(plain.camera, Camera::default());
+        assert!(!plain.camera.fill && plain.camera.dutch == 0.0);
+
+        let m = Manifest::parse(&format!("{SMALL}{SHOTS}")).unwrap();
+        assert_eq!(m.camera.dutch, 0.35);
+        assert!(m.camera.fill);
+        assert_eq!(m.shots.len(), 2);
+        assert_eq!(m.shots[0].name, "below");
+        assert_eq!(m.shots[0].size, ShotSize::Medium);
+        assert_eq!(m.shots[0].motion, ShotMove::Cut);
+        assert_eq!(m.shots[1].name, "");
+        assert_eq!(m.shots[1].size, ShotSize::Top);
+        assert_eq!(m.shots[1].motion, ShotMove::Glide);
+    }
+
+    #[test]
+    fn a_bad_shot_is_named() {
+        let with = |from: &str, to: &str| {
+            let text = format!("{SMALL}{SHOTS}").replacen(from, to, 1);
+            assert_ne!(
+                text,
+                format!("{SMALL}{SHOTS}"),
+                "{from:?} is not in the shots"
+            );
+            format!("{:#}", Manifest::parse(&text).unwrap_err())
+        };
+        let size = with("size = \"medium\"", "size = \"huge\"");
+        assert!(size.contains("huge") && size.contains("wide"), "{size}");
+        let motion = with("move = \"glide\"", "move = \"fly\"");
+        assert!(motion.contains("fly") && motion.contains("cut"), "{motion}");
+        assert!(with("size = \"top\"", "").contains("size"));
+        assert!(with("dutch = 0.35", "dutch = 4.0").contains("camera.dutch"));
+        let none = format!("{SMALL}\n[camera]\nfill = true\n");
+        let none = format!("{:#}", Manifest::parse(&none).unwrap_err());
+        assert!(none.contains("at least one [[shot]]"), "{none}");
     }
 }

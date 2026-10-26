@@ -272,6 +272,61 @@ fn update() {
 
 (`armed` is 1 when the scene has not yet moved for the cue it is waiting for. It should start at 1 on `frame.first`. A view picked from `section_label` instead of `rv_hash` makes every chorus use the same view: `u32(rv_label_hash(music.section_label, 7u) * 4.0)`.)
 
+## Shots and the director
+
+A scene that has more than one way to look at its subject declares them as shots, and the runtime's camera director decides when the view cuts and to which shot, following the music. The scene frames itself from what the director says and never decides a cut of its own. A scene without `[[shot]]` has no director: it works as it always did, and `shot` reads zeros. The director is per scene, so its counts start again at a scene switch (`src/scene/director.rs`). The numbers below are initial defaults, like the other constants of this document.
+
+### What a scene declares
+
+```toml
+[camera]
+dutch = 0.35   # the largest dutch angle (roll) in radians; 0 means this scene never tilts
+fill = true    # allows the burst of cuts before a section or a phrase ends
+
+[[shot]]
+name = "below"     # for people
+size = "medium"    # wide | medium | close | detail | top
+move = "cut"       # cut | glide
+```
+
+- `size` says how near the shot is. `top` is a view from above, a special shot that is never the nearest to another size.
+- `move = "cut"` means the view jumps to the new shot (the transition layer may dress the jump later). `move = "glide"` means the scene slides there itself, over its own duration in beats. The director's timing is the same for both; it only reports the move.
+- At least one `[[shot]]` is needed if `[camera]` is given. `fill = true` is only used when the scene has a `close` or a `detail` shot.
+- A scene lacking a size gets the nearest one it has.
+
+### What `struct Shot` holds
+
+`shot` is available to `update()` and to every pass, on a binding of its own (`struct Music` is not changed).
+
+| Field | Type, range | Meaning |
+|---|---|---|
+| `index` | u32 | Which `[[shot]]`, from 0, in the order of `scene.toml`. |
+| `cuts` | u32 | How many cuts so far. The scene frames its view again when this changes. |
+| `size` | u32 | The size of the shot: 0 wide, 1 medium, 2 close, 3 detail, 4 top. |
+| `roll` | f32, radians, signed | The dutch angle for this shot. Fixed within a shot. |
+| `seed` | f32, 0 to 1 | Fixed within a shot: which side to come from, a little nearer or farther. |
+| `age` | f32, seconds | Seconds since the shot began. |
+| `length` | f32, seconds, -1 if unknown | The planned length of the shot (the time to the next cut at the pace in force when it began, a beat in a burst). A section start or a burst may cut it short. -1 before the first cut. |
+| `fill` | u32 | 0 normally; 1 to 4 is the position in a burst of cuts. |
+
+The director starts on a wide shot before any cut, with `cuts` 0.
+
+### The rules
+
+**Pace follows the section.** The energy is `section_energy` with a chart and `drive` without. A quiet section (below 0.35) cuts every 4 bars, an ordinary one every 2 bars and a high one (above 0.65) every bar. A cut lands on a downbeat (`bars > 0`) while the beat is followed (`locked` above 0.5). Without a followed beat the times are 12 s, 6 s and 3 s, and a cut that is due waits for a hit (`hits > 0`), or happens at once 2 s after it was due.
+
+**Size follows the place in the section.** A section start (`cues > 0` with `cue` of 0.5 or more) cuts to a wide shot, which establishes the section. Each later cut steps one size closer: medium, close, detail, and then again from medium. In a high section the steps stop at close, and the cuts alternate between detail, medium and close from there. A quiet section alternates wide and medium. A section start always begins the progression again.
+
+**Consecutive shots differ.** The director never cuts to the shot it is on, unless the scene has only one shot, and then a cut changes `seed`. Among the shots of the size it wants, it picks by a hash of the section's label and the cut's place in the section, so that every chorus picks the same (the hash is `rv_label_hash`'s).
+
+**Dutch angle.** Wide and top shots never tilt. Medium, close and detail shots tilt alternately to the left and to the right, by `dutch * (0.5 + 0.5 * seed)`.
+
+**Glide.** A shot with `move = "glide"` is reported as it is; the scene does the sliding. The director waits no longer and no shorter for it.
+
+**The burst before a change (`fill`).** With the song's analysis, a followed beat, `fill = true` and a near shot, the director cuts on each of the last 4 beats before two places: a section start that lifts the energy (`cue_in` is known and `next_energy` is 0.1 or more above `section_energy`), and the end of every 8-bar phrase in a high section (phrases count in bars from the section's start). The cuts go to medium, close, detail and top (wide if the scene has no top), with `fill` 1 to 4, tilting alternately. Then the normal rules take over at the section start, or at the phrase start, with a wide shot. A scene with a burst should not also plan a move of its own at those beats.
+
+A scene that wants to dress its cuts reads `cuts`; the runtime itself knows each cut too (`Scene::cut_this_frame`), which the transition layer will use.
+
 ## Parameters for tuning
 
 The standard fixes how the music is measured. How much a scene reacts is the scene's own and is tuned by hand, with the scene reloading as it is edited. For that:

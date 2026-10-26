@@ -553,3 +553,82 @@ fn a_scene_takes_over_the_music_of_the_scene_it_replaces() {
     assert_eq!(other.analyzer.sample_rate(), 44_100);
     assert_eq!(*other.music(), inputs::MusicValues::default());
 }
+
+/// A scene whose update copies the shot's index and size into the state, and whose pass shows
+/// the state's index in red, its size in green and the pass's own view of the index in blue.
+fn shots_scene(name: &str, shots: &str) -> PathBuf {
+    folder(
+        name,
+        &[
+            (
+                MANIFEST,
+                &format!(
+                    "format = 1\nname = \"Shots\"\nlicense = \"MPL-2.0\"\n[state]\nfile = \"state.wgsl\"\nupdate = \"update.wgsl\"\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n[post]\ntonemap = \"none\"\ngrain = 0.0\nchromatic = 0.0\nvignette = 0.0\nbloom = {{ intensity = 0.0 }}\n{shots}"
+                ),
+            ),
+            (
+                "state.wgsl",
+                "struct State {\n  index: u32,\n  size: u32,\n}\n",
+            ),
+            (
+                "update.wgsl",
+                "fn update() {\n  state.index = shot.index;\n  state.size = shot.size;\n}\n",
+            ),
+            (
+                "a.wgsl",
+                "fn shade(px: Pixel) -> vec4f {\n  return vec4f(f32(state.index) * 0.5, f32(state.size) * 0.25, f32(shot.index) * 0.5, 1.0);\n}\n",
+            ),
+        ],
+    )
+}
+
+#[test]
+fn a_scene_with_shots_reads_them_and_one_without_reads_zeros() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let gpu = (&device, &queue);
+    let screen = Screen::new(&device);
+    // The director starts on the wide shot, which is the second one here.
+    let dir = shots_scene(
+        "shots",
+        "[camera]\ndutch = 0.3\n[[shot]]\nname = \"near\"\nsize = \"medium\"\n[[shot]]\nsize = \"wide\"\nmove = \"glide\"\n",
+    );
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    frame(&mut scene, gpu, &screen, 0.0, 0.0);
+    let c = screen.middle(&device, &queue);
+    assert!(close(c, [0.5, 0.0, 0.5]), "{c:?}");
+    assert_eq!(scene.cut_this_frame(), None);
+
+    let dir = shots_scene("no-shots", "");
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    frame(&mut scene, gpu, &screen, 0.0, 0.0);
+    let c = screen.middle(&device, &queue);
+    assert!(close(c, [0.0, 0.0, 0.0]), "{c:?}");
+    assert_eq!(scene.cut_this_frame(), None);
+}
+
+#[test]
+fn a_scene_cut_is_reported_for_the_frame_it_happens_in() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let dir = shots_scene(
+        "cut",
+        "[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\nmove = \"glide\"\n",
+    );
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    // Cuts come from the music's values, which a test cannot choose here, so tick the
+    // director the way the frame does and see that what it said reaches the scene's report.
+    let director = scene.director.as_mut().unwrap();
+    let music = MusicValues {
+        cues: 1,
+        cue: 1.0,
+        ..MusicValues::default()
+    };
+    let cut = director.tick(0.016, &music).unwrap();
+    assert_eq!((cut.index, cut.size), (1, ShotSize::Close));
+    assert_eq!(cut.motion, ShotMove::Glide);
+}

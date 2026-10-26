@@ -3,6 +3,7 @@
 //! draw into HDR buffers, and the runtime's post-processing makes the frame.
 
 mod audio;
+mod director;
 mod inputs;
 pub use inputs::MusicValues;
 mod manifest;
@@ -22,11 +23,23 @@ use crate::chart::ChartState;
 use crate::covers::{self, Atlas, Cell};
 use crate::rhythm::Rhythm;
 use audio::{Analyzer, SPECTRUM_ROWS, SPECTRUM_WIDTH, WAVEFORM_WIDTH};
+use director::Director;
 use inputs::EventCounter;
-use manifest::{Format, Manifest, OUT, PREV, Value};
+use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
 use wgsl::ParamsLayout;
 
 pub use manifest::{MANIFEST, argb_to_linear};
+
+/// A camera cut the director made in a frame, for the transition layer to dress later.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CutInfo {
+    /// The size and the move of the shot cut to.
+    pub size: ShotSize,
+    pub motion: ShotMove,
+    /// The strength of the music's cue in that frame (0 to 1): a cut on a section start is 0.5
+    /// or 1, one on the beat or the cadence is whatever the cue's envelope has left.
+    pub cue: f32,
+}
 
 /// Buffers of a scene may take this much memory together.
 const MAX_BUFFER_BYTES: u64 = 256 << 20;
@@ -386,6 +399,8 @@ pub struct Scene {
     params: ParamsLayout,
     frame: wgpu::Buffer,
     music: wgpu::Buffer,
+    /// `struct Shot`, the camera director's word to the scene.
+    shot: wgpu::Buffer,
     params_buffer: wgpu::Buffer,
     state: wgpu::Buffer,
     state_size: u64,
@@ -415,6 +430,10 @@ pub struct Scene {
     events: EventCounter,
     /// The values `struct Music` got for the last frame.
     music_values: inputs::MusicValues,
+    /// Decides the camera cuts, if the scene declares shots.
+    director: Option<Director>,
+    /// The cut the director made in the last frame.
+    cut: Option<CutInfo>,
     /// The visualizer's time when the scene started, and of the last frame.
     started: Option<f64>,
     last: Option<f64>,
@@ -875,6 +894,7 @@ impl Scene {
             "scene music",
             inputs::MusicValues::default().bytes().len() as u64,
         );
+        let shot = uniform("scene shot", wgsl::SHOT_SIZE);
         let params_buffer = uniform("scene params", params.size);
         queue.write_buffer(&params_buffer, 0, &params.pack(&files.param_values()));
         let storage = |label, size| {
@@ -1007,6 +1027,7 @@ impl Scene {
                 buffer_entry(wgsl::BIND_FRAME, visibility, uniform),
                 buffer_entry(wgsl::BIND_MUSIC, visibility, uniform),
                 buffer_entry(wgsl::BIND_PARAMS, visibility, uniform),
+                buffer_entry(wgsl::BIND_SHOT, visibility, uniform),
                 buffer_entry(
                     wgsl::BIND_STATE,
                     visibility,
@@ -1044,6 +1065,7 @@ impl Scene {
                 (wgsl::BIND_FRAME, frame.as_entire_binding()),
                 (wgsl::BIND_MUSIC, music.as_entire_binding()),
                 (wgsl::BIND_PARAMS, params_buffer.as_entire_binding()),
+                (wgsl::BIND_SHOT, shot.as_entire_binding()),
                 (wgsl::BIND_STATE, state_buffer.as_entire_binding()),
                 (
                     wgsl::BIND_SPECTRUM,
@@ -1198,6 +1220,7 @@ impl Scene {
             params,
             frame,
             music,
+            shot,
             params_buffer,
             state: state_buffer,
             state_size,
@@ -1221,6 +1244,8 @@ impl Scene {
             analyzer: Analyzer::new(sample_rate),
             events: EventCounter::default(),
             music_values: inputs::MusicValues::default(),
+            director: Director::for_manifest(manifest),
+            cut: None,
             started: None,
             last: None,
             last_song: 0.0,
@@ -1261,6 +1286,13 @@ impl Scene {
     /// for the scene switching that follows the music.
     pub fn music(&self) -> &inputs::MusicValues {
         &self.music_values
+    }
+
+    /// The camera cut the director made in the last frame drawn, if any: for the transition layer
+    /// to dress (a hard cut for now).
+    #[cfg_attr(not(test), allow(dead_code, reason = "for the transition layer"))]
+    pub fn cut_this_frame(&self) -> Option<CutInfo> {
+        self.cut
     }
 
     /// Read the scene's files again. When only parameter defaults changed, only those are
@@ -1543,6 +1575,19 @@ impl Scene {
         );
         queue.write_buffer(&self.music, 0, &music.bytes());
         self.music_values = music;
+        self.cut = None;
+        let shot = match &mut self.director {
+            Some(director) => {
+                self.cut = director.tick(dt as f32, &music).map(|cut| CutInfo {
+                    size: cut.size,
+                    motion: cut.motion,
+                    cue: music.cue,
+                });
+                director.state().bytes()
+            }
+            None => [0; wgsl::SHOT_SIZE as usize],
+        };
+        queue.write_buffer(&self.shot, 0, &shot);
         queue.write_buffer(&self.post_buffer, 0, &self.post_defaults);
         write_texture(
             queue,

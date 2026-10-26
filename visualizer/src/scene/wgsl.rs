@@ -24,6 +24,8 @@ pub const BIND_LINEAR_REPEAT: u32 = 9;
 pub const BIND_NEAREST_CLAMP: u32 = 10;
 pub const BIND_COVERS: u32 = 11;
 pub const BIND_ASSETS: u32 = 12;
+/// After the bindings the assets can take (`BIND_ASSETS` up to `MAX_ASSETS` of them).
+pub const BIND_SHOT: u32 = 16;
 
 /// `struct Frame` is 64 bytes: time, dt, index, first, resolution (vec2f), aspect, seed, the
 /// app's accent colour (vec4f) at 32, how many covers the atlas holds (u32) at 48 and the quality
@@ -31,6 +33,8 @@ pub const BIND_ASSETS: u32 = 12;
 pub const FRAME_SIZE: u64 = 64;
 /// `struct Post` is 64 bytes: eight f32, the tint (vec4f) at 32, contrast and saturation, padding.
 pub const POST_SIZE: u64 = 64;
+/// `struct Shot` is 32 bytes: eight words, see [`SHOT`].
+pub const SHOT_SIZE: u64 = 32;
 
 pub const FRAME: &str = "struct Frame {
   time: f32,
@@ -45,6 +49,28 @@ pub const FRAME: &str = "struct Frame {
   // 1 at full quality; lower (in steps, down to 0) when the frame rate cannot be held even at
   // the lowest internal resolution. A scene may take fewer steps or samples then.
   quality: f32,
+}
+";
+
+/// What the camera director tells the scene (see `docs/music.md`, "Shots and the director"); all
+/// zeros for a scene without `[[shot]]`s.
+pub const SHOT: &str = "struct Shot {
+  // Which [[shot]] of scene.toml is on, from 0.
+  index: u32,
+  // How many cuts so far: the scene frames its view again when this changes.
+  cuts: u32,
+  // The size of the shot: 0 wide, 1 medium, 2 close, 3 detail, 4 top.
+  size: u32,
+  // The dutch angle (roll) of this shot in radians, signed; 0 for wide and top.
+  roll: f32,
+  // 0..1, fixed for the shot: which side, a little nearer or farther.
+  seed: f32,
+  // Seconds since the shot began.
+  age: f32,
+  // The planned seconds of the shot, -1 when unknown.
+  length: f32,
+  // 0 normally; 1.. is the position in the burst of cuts before a section or a phrase ends.
+  fill: u32,
 }
 ";
 
@@ -162,6 +188,7 @@ pub fn prelude(manifest: &Manifest, stage: Stage) -> String {
     let mut s = String::new();
     s.push_str(FRAME);
     s.push_str(&music_struct());
+    s.push_str(SHOT);
     s.push_str(POST);
     s.push_str(PIXEL);
     s.push_str(&ParamsLayout::new(manifest).wgsl);
@@ -175,6 +202,7 @@ pub fn prelude(manifest: &Manifest, stage: Stage) -> String {
         "@group(0) @binding({BIND_FRAME}) var<uniform> frame: Frame;
 @group(0) @binding({BIND_MUSIC}) var<uniform> music: Music;
 @group(0) @binding({BIND_PARAMS}) var<uniform> params: Params;
+@group(0) @binding({BIND_SHOT}) var<uniform> shot: Shot;
 @group(0) @binding({BIND_STATE}) var<storage, {state_access}> state: State;
 @group(0) @binding({BIND_SPECTRUM}) var spectrum: texture_2d<f32>;
 @group(0) @binding({BIND_WAVEFORM}) var waveform: texture_2d<f32>;
@@ -492,6 +520,18 @@ inputs = ["prev:trail"]
         )));
         assert!(!prelude(&m, Stage::Update).contains("var covers"));
         assert!(BIND_COVERS < BIND_ASSETS);
+    }
+
+    #[test]
+    fn every_module_sees_the_shot() {
+        let m = manifest();
+        for stage in [Stage::Update, Stage::Pass] {
+            assert!(
+                prelude(&m, stage)
+                    .contains(&format!("@binding({BIND_SHOT}) var<uniform> shot: Shot;"))
+            );
+        }
+        assert!(BIND_ASSETS + super::super::manifest::MAX_ASSETS as u32 <= BIND_SHOT);
     }
 
     #[test]
