@@ -9,13 +9,8 @@ fn shade(px: Pixel) -> vec4f {
   let pix = ray.pix;
   let len = length(d);
 
-  // A 4×4 ordered dither, over which far small things dissolve.
-  let cell = vec2u(px.coord) % 4u;
-  var bayer = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
-  let dither = (bayer[cell.y * 4u + cell.x] + 0.5) / 16.0;
-
   let tg = select(FAR, -o.y / d.y, d.y < 0.0);
-  let hit = scene(o, d, pix, 72.0, 28.0, min(tg, FAR), dither);
+  let hit = scene(o, d, pix, min(tg, FAR), textureLoad(seen, vec2i(px.coord), 0));
   var col = hit.rgb;
   var tmax = hit.w;
   if (d.y < 0.0 && tg <= hit.w) {

@@ -19,6 +19,12 @@ source = "Rendered from Noto Sans JP (SIL Open Font License 1.1, assets/OFL.txt)
 [render]
 scale = 0.75
 
+# What each pixel's ray meets first (hit.wgsl), exactly, for street.wgsl to draw: in two passes a
+# phone's GPU keeps more pixels in flight than in one.
+[[buffer]]
+id = "seen"
+format = "rgba32float"
+
 [[buffer]]
 id = "street"
 
@@ -30,8 +36,13 @@ id = "trail"
 persistent = true
 
 [[pass]]
+shader = "hit.wgsl"
+target = "seen"
+
+[[pass]]
 shader = "street.wgsl"
 target = "street"
+inputs = ["seen"]
 
 [[pass]]
 shader = "ink.wgsl"
