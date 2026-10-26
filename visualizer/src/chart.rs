@@ -1,19 +1,22 @@
 //! Charts: what an analysis of the whole song found, looked up at the song time of each frame.
 //!
-//! A chart is the JSON that the chart analyzer writes for one audio file (beats, bars, sections,
-//! onset streams, the leading stream and loudness curves; every level is relative to the song).
-//! Charts live in one folder, named after a hash of the file's path ([`chart_key`]). With a
+//! A chart is what the chart analyzer (`chart_analyzer`) finds in one audio file (beats, bars,
+//! sections, onset streams, the leading stream and loudness curves; every level is relative to
+//! the song). The visualizer analyses the file that plays itself, in the background
+//! ([`ChartFollower`]); until the chart is ready the live beat tracker drives the scenes. With a
 //! chart the scenes know what is coming: the next section, the next downbeat.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
-use log::{info, warn};
-use serde::Deserialize;
-use unicode_normalization::UnicodeNormalization;
+use chart_analyzer::chart::{Beat, Curves};
+use chart_analyzer::decode::Cancelled;
+use fsio::FsIo;
+use log::{debug, info, warn};
 
 /// The streams, in the order of [`ChartState::events`]; a lead of `i + 1` is stream `i`.
 const STREAMS: [&str; 5] = ["low", "mid", "high", "harmonic", "phrase"];
@@ -25,93 +28,6 @@ const SEEK_THRESHOLD: f64 = 0.3;
 /// Share of the gap to the reported song time closed each frame, which smooths the 100 ms
 /// steps of the player's reports.
 const CLOCK_PULL: f64 = 0.1;
-
-/// The chart folder: `RUNE_CHART_DIR`, else `rune/charts` in the user's cache folder.
-pub fn chart_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("RUNE_CHART_DIR") {
-        return Some(PathBuf::from(dir));
-    }
-    directories::BaseDirs::new().map(|dirs| dirs.cache_dir().join("rune").join("charts"))
-}
-
-/// File name of the chart of the audio file at `path`: FNV-1a (64 bit) of the path in NFC,
-/// so that the chart analyzer and the player agree however the file system spells it.
-pub fn chart_key(path: &Path) -> String {
-    let text: String = path.to_string_lossy().nfc().collect();
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for byte in text.bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    format!("{hash:016x}.json")
-}
-
-#[derive(Deserialize)]
-struct RawChart {
-    beats: Vec<RawBeat>,
-    meter: RawMeter,
-    sections: Vec<RawSection>,
-    streams: std::collections::HashMap<String, RawStream>,
-    lead: Vec<RawLead>,
-    curves: RawCurves,
-    #[serde(default)]
-    tempo: RawTempo,
-}
-
-#[derive(Deserialize, Default)]
-struct RawTempo {
-    /// How fast the whole song sounds (Hz); 0 in charts made before it was measured.
-    #[serde(default)]
-    feel: f64,
-}
-
-#[derive(Deserialize)]
-struct RawBeat {
-    t: f64,
-    bar: i64,
-    pos: u32,
-    confidence: f64,
-}
-
-#[derive(Deserialize)]
-struct RawMeter {
-    beats_per_bar: u32,
-    confidence: f64,
-}
-
-#[derive(Deserialize)]
-struct RawSection {
-    start: f64,
-    end: f64,
-    label: String,
-    energy: f64,
-    repeat: u32,
-    confidence: f64,
-}
-
-#[derive(Deserialize)]
-struct RawStream {
-    events: Vec<(f64, f64)>,
-}
-
-#[derive(Deserialize)]
-struct RawLead {
-    start: f64,
-    end: f64,
-    stream: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct RawCurves {
-    hop: f64,
-    loudness: Vec<f64>,
-    brightness: Vec<f64>,
-    percussive: Vec<f64>,
-    beat_conf: Vec<f64>,
-    /// How fast it sounds at each moment (Hz); empty in older charts.
-    #[serde(default)]
-    feel: Vec<f64>,
-}
 
 struct Section {
     start: f64,
@@ -131,14 +47,14 @@ struct Lead {
 }
 
 pub struct Chart {
-    beats: Vec<RawBeat>,
+    beats: Vec<Beat>,
     beats_per_bar: f64,
     meter_confidence: f64,
     sections: Vec<Section>,
     /// `(time, strength)` per stream, in the order of [`STREAMS`].
     streams: [Vec<(f64, f64)>; 5],
     lead: Vec<Lead>,
-    curves: RawCurves,
+    curves: Curves,
     song_feel: f64,
 }
 
@@ -186,21 +102,23 @@ pub struct ChartState {
 }
 
 impl Chart {
-    pub fn load(path: &Path) -> Result<Self> {
-        let text =
-            std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
-        Self::parse(&text).with_context(|| format!("Failed to parse {}", path.display()))
-    }
-
-    pub fn parse(json: &[u8]) -> Result<Self> {
-        let raw: RawChart = serde_json::from_slice(json)?;
-        let streams = STREAMS.map(|name| {
-            raw.streams
-                .get(name)
-                .map(|s| s.events.clone())
-                .unwrap_or_default()
+    /// The chart of an analysis, as the scenes look it up.
+    pub fn from_analysis(chart: chart_analyzer::Chart) -> Self {
+        let streams = chart.streams;
+        let streams = [
+            streams.low,
+            streams.mid,
+            streams.high,
+            streams.harmonic,
+            streams.phrase,
+        ]
+        .map(|s| {
+            s.events
+                .into_iter()
+                .map(|[t, strength]| (t, strength))
+                .collect()
         });
-        let sections = raw
+        let sections = chart
             .sections
             .into_iter()
             .map(|s| Section {
@@ -216,7 +134,7 @@ impl Chart {
                 confidence: s.confidence,
             })
             .collect();
-        let lead = raw
+        let lead = chart
             .lead
             .into_iter()
             .map(|l| Lead {
@@ -228,16 +146,16 @@ impl Chart {
                     .map_or(0.0, |i| (i + 1) as f64),
             })
             .collect();
-        Ok(Self {
-            beats: raw.beats,
-            beats_per_bar: f64::from(raw.meter.beats_per_bar.max(1)),
-            meter_confidence: raw.meter.confidence,
+        Self {
+            beats: chart.beats,
+            beats_per_bar: f64::from(chart.meter.beats_per_bar.max(1)),
+            meter_confidence: chart.meter.confidence,
             sections,
             streams,
             lead,
-            curves: raw.curves,
-            song_feel: raw.tempo.feel,
-        })
+            curves: chart.curves,
+            song_feel: chart.tempo.feel,
+        }
     }
 
     /// The chart at song time `t` (seconds).
@@ -287,7 +205,7 @@ impl Chart {
         let (lo, hi) = (i.saturating_sub(4), (i + 4).min(beats.len() - 1));
         state.bpm = 60.0 * (hi - lo) as f64 / (beats[hi].t - beats[lo].t).max(1e-3);
         state.beat_confidence = a.confidence;
-        state.bar = a.bar as f64 + (f64::from(a.pos) + phase) / self.beats_per_bar;
+        state.bar = a.bar as f64 + (a.pos as f64 + phase) / self.beats_per_bar;
     }
 
     fn section_at(&self, t: f64, state: &mut ChartState) {
@@ -391,24 +309,32 @@ impl SongClock {
     }
 }
 
-/// The chart of the file that plays, loaded off the render thread, and the song time.
+/// The chart of the file that plays, made off the render thread, and the song time.
+///
+/// On a new file it starts analysing it in a thread of its own and drops the analysis of the
+/// file before, which stops at its next decoded packet; a burst of track changes thus leaves
+/// one analysis running for long. Without a chart the caller falls back on the live tracker.
 pub struct ChartFollower {
-    dir: Option<PathBuf>,
+    /// Where files are opened from; without it nothing is analysed.
+    fsio: Option<Arc<FsIo>>,
     path: Option<PathBuf>,
     chart: Option<Chart>,
     loading: Option<Receiver<Option<Chart>>>,
+    /// Stops the running analysis, if any.
+    cancel: Option<Arc<AtomicBool>>,
     clock: SongClock,
     /// The song time of the last tick.
     time: f64,
 }
 
 impl ChartFollower {
-    pub fn new(dir: Option<PathBuf>) -> Self {
+    pub fn new(fsio: Option<Arc<FsIo>>) -> Self {
         Self {
-            dir,
+            fsio,
             path: None,
             chart: None,
             loading: None,
+            cancel: None,
             clock: SongClock::default(),
             time: 0.0,
         }
@@ -420,24 +346,11 @@ impl ChartFollower {
             self.path = playback.path.clone();
             self.chart = None;
             self.clock.reset();
-            self.loading = None;
-            if let (Some(dir), Some(path)) = (&self.dir, &self.path) {
-                let file = dir.join(chart_key(path));
-                let path = path.clone();
-                let (sender, receiver) = mpsc::channel();
-                thread::spawn(move || {
-                    let chart = if !file.exists() {
-                        info!("No chart for {} ({})", path.display(), file.display());
-                        None
-                    } else {
-                        Chart::load(&file)
-                            .inspect(|_| info!("Chart for {}", path.display()))
-                            .inspect_err(|e| warn!("{e:#}"))
-                            .ok()
-                    };
-                    let _ = sender.send(chart);
-                });
-                self.loading = Some(receiver);
+            self.cancel_analysis();
+            if let (Some(fsio), Some(path)) = (&self.fsio, &self.path)
+                && !path.as_os_str().is_empty()
+            {
+                self.loading = Some(self.analyse(Arc::clone(fsio), path.clone()));
             }
         }
         if let Some(receiver) = &self.loading {
@@ -459,14 +372,63 @@ impl ChartFollower {
     pub fn song_time(&self) -> f64 {
         self.time
     }
+
+    /// Stops the running analysis and forgets it.
+    fn cancel_analysis(&mut self) {
+        self.loading = None;
+        if let Some(cancel) = self.cancel.take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Starts analysing `path`; the chart (none if it failed) comes over the receiver.
+    fn analyse(&mut self, fsio: Arc<FsIo>, path: PathBuf) -> Receiver<Option<Chart>> {
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.cancel = Some(Arc::clone(&cancel));
+        let (sender, receiver) = mpsc::channel();
+        let job = move || {
+            let start = Instant::now();
+            let chart = match chart_analyzer::analyze_file(&fsio, &path, &cancel) {
+                Ok(chart) => {
+                    info!("Analysed {} in {:.2?}", path.display(), start.elapsed());
+                    Some(Chart::from_analysis(chart))
+                }
+                Err(e) if e.downcast_ref::<Cancelled>().is_some() => {
+                    debug!("Analysis of {} cancelled", path.display());
+                    None
+                }
+                Err(e) => {
+                    warn!("Failed to analyse {}: {e:#}", path.display());
+                    None
+                }
+            };
+            let _ = sender.send(chart);
+        };
+        if let Err(e) = thread::Builder::new()
+            .name("chart analyzer".into())
+            .spawn(job)
+        {
+            warn!("Failed to start the chart analyzer: {e}");
+        }
+        receiver
+    }
+}
+
+impl Drop for ChartFollower {
+    /// The visualizer stops: so does the analysis.
+    fn drop(&mut self) {
+        self.cancel_analysis();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::{Path, PathBuf};
 
     const CHART: &str = r#"{
         "version": 1, "title": "t", "audio": "/a.wav", "duration": 20,
+        "analysis_seconds": 1, "analyzer": "test",
         "tempo": {"bpm": 120, "confidence": 0.9, "feel": 5.0},
         "beats": [
             {"t": 1.0, "bar": 0, "pos": 0, "strength": 1, "confidence": 0.8},
@@ -493,7 +455,7 @@ mod tests {
     }"#;
 
     fn chart() -> Chart {
-        Chart::parse(CHART.as_bytes()).unwrap()
+        Chart::from_analysis(serde_json::from_str(CHART).unwrap())
     }
 
     #[test]
@@ -545,15 +507,6 @@ mod tests {
     }
 
     #[test]
-    fn the_key_matches_the_analyzer() {
-        // From the Python prototype's chart_key for the same path, in NFC and in NFD.
-        let nfc = "/music/Café/Été/09 Façade.flac";
-        let nfd: String = nfc.nfd().collect();
-        assert_eq!(chart_key(Path::new(nfc)), "f7ca7b5cb168a3be.json");
-        assert_eq!(chart_key(Path::new(&nfd)), "f7ca7b5cb168a3be.json");
-    }
-
-    #[test]
     fn the_song_clock_smooths_reports_and_jumps_on_seeks() {
         let start = Instant::now();
         let mut clock = SongClock::default();
@@ -580,5 +533,115 @@ mod tests {
         let t1 = clock.tick(&playback, frame + Duration::from_millis(40));
         let t2 = clock.tick(&playback, frame + Duration::from_millis(400));
         assert_eq!(t1, t2);
+    }
+
+    /// Clicks with a low thump under each, at 120 beats per minute, as a mono 16-bit WAV of
+    /// `seconds` in a folder of its own.
+    fn write_clicks(name: &str, seconds: usize) -> PathBuf {
+        const RATE: u32 = 22050;
+        let dir =
+            std::env::temp_dir().join(format!("visualizer_chart_{name}_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut samples = vec![0i16; seconds * RATE as usize];
+        for start in (0..samples.len()).step_by(RATE as usize / 2) {
+            for i in 0..2000.min(samples.len() - start) {
+                let t = i as f64 / f64::from(RATE);
+                let thump = (2.0 * std::f64::consts::PI * 60.0 * t).sin() * (-t * 30.0).exp();
+                let click = if i < 40 { 0.5 } else { 0.0 };
+                samples[start + i] = ((thump * 0.8 + click) * 30000.0) as i16;
+            }
+        }
+        let data = samples.len() as u32 * 2;
+        let mut bytes = b"RIFF".to_vec();
+        bytes.extend_from_slice(&(36 + data).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&[1, 0, 1, 0]);
+        bytes.extend_from_slice(&RATE.to_le_bytes());
+        bytes.extend_from_slice(&(RATE * 2).to_le_bytes());
+        bytes.extend_from_slice(&[2, 0, 16, 0]);
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data.to_le_bytes());
+        for s in samples {
+            bytes.extend_from_slice(&s.to_le_bytes());
+        }
+        let path = dir.join("clicks.wav");
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    fn playing(path: &Path, position: f64) -> Playback {
+        Playback {
+            path: Some(path.to_path_buf()),
+            position: Duration::from_secs_f64(position),
+            playing: false,
+            at: Some(Instant::now()),
+        }
+    }
+
+    /// Ticks until a chart arrives (at most 30 s).
+    fn wait_for_chart(follower: &mut ChartFollower, playback: &Playback) -> Option<ChartState> {
+        let until = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < until {
+            if let Some(state) = follower.tick(playback, Instant::now()) {
+                return Some(state);
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        None
+    }
+
+    #[test]
+    fn the_follower_analyses_the_playing_file() {
+        let path = write_clicks("follows", 20);
+        let mut follower = ChartFollower::new(Some(Arc::new(FsIo::new())));
+        let playback = playing(&path, 10.0);
+        // The live tracker has the say until the analysis is done.
+        assert!(follower.tick(&playback, Instant::now()).is_none());
+        let state = wait_for_chart(&mut follower, &playback).expect("no chart in time");
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+        // What the analyzer gives for it: the clicks' own 120 beats per minute.
+        assert!((state.bpm - 120.0).abs() < 1.0, "{}", state.bpm);
+        assert!(state.beat > 5.0 && state.beats_per_bar >= 1.0);
+    }
+
+    #[test]
+    fn no_file_system_or_no_path_means_no_analysis() {
+        let path = write_clicks("none", 5);
+        let mut follower = ChartFollower::new(None);
+        assert!(
+            follower
+                .tick(&playing(&path, 1.0), Instant::now())
+                .is_none()
+        );
+        assert!(follower.loading.is_none());
+        let mut follower = ChartFollower::new(Some(Arc::new(FsIo::new())));
+        let online = Playback {
+            path: Some(PathBuf::new()),
+            ..playing(&path, 1.0)
+        };
+        assert!(follower.tick(&online, Instant::now()).is_none());
+        assert!(follower.loading.is_none() && follower.cancel.is_none());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn a_new_path_or_a_drop_cancels_the_analysis() {
+        // Ten minutes take several seconds to analyse.
+        let long = write_clicks("long", 600);
+        let short = write_clicks("short", 5);
+        let mut follower = ChartFollower::new(Some(Arc::new(FsIo::new())));
+        follower.tick(&playing(&long, 0.0), Instant::now());
+        let first = follower.cancel.clone().expect("analysing");
+        assert!(!first.load(Ordering::Relaxed));
+        follower.tick(&playing(&short, 0.0), Instant::now());
+        assert!(first.load(Ordering::Relaxed));
+        let second = follower.cancel.clone().expect("analysing");
+        assert!(!second.load(Ordering::Relaxed));
+        drop(follower);
+        assert!(second.load(Ordering::Relaxed));
+        for path in [long, short] {
+            std::fs::remove_dir_all(path.parent().unwrap()).ok();
+        }
     }
 }

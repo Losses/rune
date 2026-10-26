@@ -32,16 +32,17 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, TryLockError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use fsio::FsIo;
 use log::{error, info};
 use rand::rngs::ThreadRng;
 use rtrb::Consumer;
 
-pub use chart::{Chart, ChartState, chart_dir, chart_key};
+pub use chart::{Chart, ChartState};
 use chart::{ChartFollower, Playback};
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport};
 use pipeline::{Pipeline, Rendered};
@@ -244,8 +245,10 @@ struct Shared {
     visible: AtomicBool,
     /// The app's accent colour (0xAARRGGBB) for scenes, or 0 before the app tells it.
     accent: AtomicU32,
-    /// The file that plays and where, for finding its chart and the time in it.
+    /// The file that plays and where, for analysing it into a chart and the time in it.
     playback: Mutex<Playback>,
+    /// Where the player's files are opened from, set once; without it files are not analysed.
+    fsio: OnceLock<Arc<FsIo>>,
     /// Whether the scene on screen reads the atlas of album covers.
     wants_covers: AtomicBool,
     /// The latest atlas of covers and its version, which the render thread uploads.
@@ -340,6 +343,7 @@ impl Visualizer {
                 visible: AtomicBool::new(true),
                 accent: AtomicU32::new(0),
                 playback: Mutex::new(Playback::default()),
+                fsio: OnceLock::new(),
                 wants_covers: AtomicBool::new(false),
                 covers: Mutex::new(CoverAtlas::default()),
                 covers_job: AtomicU64::new(0),
@@ -432,8 +436,16 @@ impl Visualizer {
         self.shared.playing.store(playing, Ordering::Relaxed);
     }
 
-    /// Follow the player's file and position (call it with every progress report). With a
-    /// chart of the file in [`chart_dir`], scenes get the beats, bars and sections from it.
+    /// Open the player's files through `fsio` (once, before [`Self::start`]), so that the
+    /// visualizer can analyse the file that plays. Without it scenes stay on the live beat
+    /// tracker.
+    pub fn set_fsio(&self, fsio: Arc<FsIo>) {
+        let _ = self.shared.fsio.set(fsio);
+    }
+
+    /// Follow the player's file and position (call it with every progress report). The file
+    /// is analysed in the background (see [`Self::set_fsio`]); once that is done, scenes get
+    /// the beats, bars and sections from the chart.
     pub fn set_playback(&self, path: Option<&Path>, position: Duration, playing: bool) {
         let mut playback = lock(&self.shared.playback);
         if playback.path.as_deref() != path {
@@ -776,7 +788,7 @@ fn run(
     // The folder of the scene on screen, reloaded when it is saved (live editing).
     let mut watched: Option<Watched> = None;
     let mut tracker = BeatTracker::new(sample_rate);
-    let mut charts = ChartFollower::new(chart_dir());
+    let mut charts = ChartFollower::new(shared.fsio.get().cloned());
     // The version of the atlas of covers the pipeline has.
     let mut covers_seen: Option<u64> = None;
     // The same for the cell of the track playing.

@@ -8,7 +8,9 @@
 //! window, cubic interpolation between 256 oversampled filters), the cutoff as high as the
 //! window allows without a ripple in the pass band.
 
+use std::fmt;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, anyhow, bail};
 use rubato::{
@@ -39,17 +41,38 @@ const OVERSAMPLING: usize = 256;
 /// Frames the resampler takes at a time.
 const CHUNK: usize = 4096;
 
+/// What `decode_with` fails with when its `cancel` flag was set: not a fault of the file, so
+/// that a caller can tell it by `error.downcast_ref::<Cancelled>()` and not log it as one.
+#[derive(Debug)]
+pub struct Cancelled;
+
+impl fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
 /// `decode`: the whole file at `path` as mono `f32` at 22050 Hz (the channels' mean), in one
 /// vector. `decode_with` does the same without holding the song.
 pub fn decode(fsio: &FsIo, path: &Path) -> Result<Vec<f32>> {
     let mut samples = Vec::new();
-    decode_with(fsio, path, &mut |chunk| samples.extend_from_slice(chunk))?;
+    decode_with(fsio, path, &AtomicBool::new(false), &mut |chunk| {
+        samples.extend_from_slice(chunk)
+    })?;
     Ok(samples)
 }
 
 /// The file at `path` as mono `f32` at 22050 Hz (the channels' mean), handed to `sink` in
 /// pieces as it is decoded and resampled: only a packet and the resampler's buffers are held.
-pub fn decode_with(fsio: &FsIo, path: &Path, sink: &mut dyn FnMut(&[f32])) -> Result<()> {
+/// Once `cancel` is set (by another thread), it stops at the next packet with [`Cancelled`].
+pub fn decode_with(
+    fsio: &FsIo,
+    path: &Path,
+    cancel: &AtomicBool,
+    sink: &mut dyn FnMut(&[f32]),
+) -> Result<()> {
     let src = fsio
         .open(path, "r")
         .with_context(|| format!("failed to open {}", path.display()))?;
@@ -83,6 +106,9 @@ pub fn decode_with(fsio: &FsIo, path: &Path, sink: &mut dyn FnMut(&[f32])) -> Re
     let (mut errors, mut mono) = (0, Vec::new());
     let mut buffer: Option<SampleBuffer<f32>> = None;
     loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(Cancelled.into());
+        }
         let packet = match format.next_packet() {
             Ok(p) => p,
             // The end of the stream is an end-of-file error.

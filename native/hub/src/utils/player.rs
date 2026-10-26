@@ -106,6 +106,8 @@ pub async fn initialize_local_player(
     manager.lock().await.initialize()?;
 
     info!("Initializing event listeners");
+    // The visualizer opens the playing file through it, to analyse it.
+    crate::visualizer::VISUALIZER.set_fsio(Arc::clone(&fsio_for_status));
     task::spawn(async move {
         let fsio = Arc::clone(&fsio_for_status);
         let main_db = Arc::clone(&main_db_for_status);

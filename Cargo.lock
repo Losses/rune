@@ -8286,7 +8286,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ash",
- "directories",
+ "chart_analyzer",
+ "fsio",
  "half",
  "image",
  "log",
@@ -8303,7 +8304,6 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
- "unicode-normalization",
  "wgpu 30.0.1",
  "windows 0.62.2",
 ]

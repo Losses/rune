@@ -17,6 +17,7 @@ pub mod streams;
 pub mod tempo;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use anyhow::Result;
@@ -30,11 +31,17 @@ pub fn analyze(samples: &[f32]) -> Chart {
 }
 
 /// The chart of the audio file at `path`: its title is the file's stem, its `audio` the path
-/// as given, its `analysis_seconds` the time decoding and analysing took.
-pub fn analyze_file(fsio: &FsIo, path: &Path) -> Result<Chart> {
+/// as given, its `analysis_seconds` the time decoding and analysing took. Setting `cancel` (from
+/// another thread) stops it at the next decoded packet with [`decode::Cancelled`], so that an
+/// analysis nobody waits for any more does not run to its end.
+pub fn analyze_file(fsio: &FsIo, path: &Path, cancel: &AtomicBool) -> Result<Chart> {
     let start = Instant::now();
     let mut front = front::FrontBuilder::new();
-    decode::decode_with(fsio, path, &mut |samples| front.push(samples))?;
+    decode::decode_with(fsio, path, cancel, &mut |samples| front.push(samples))?;
+    // The back end takes a good part of a second and cannot be stopped half way.
+    if cancel.load(Ordering::Relaxed) {
+        return Err(decode::Cancelled.into());
+    }
     let mut chart = back::back(&front.finish(), None);
     chart.title = path
         .file_stem()

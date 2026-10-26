@@ -8,6 +8,7 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -65,7 +66,9 @@ fn main() -> Result<()> {
         let read = if file.extension().is_some_and(|e| e == "f32") {
             read_raw(&file, &mut front)
         } else {
-            decode_with(&fsio, &file, &mut |samples| front.push(samples))
+            decode_with(&fsio, &file, &AtomicBool::new(false), &mut |samples| {
+                front.push(samples)
+            })
         };
         if let Err(e) = read {
             println!("{stem}: failed: {e:#}");

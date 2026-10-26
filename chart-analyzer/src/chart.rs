@@ -1,12 +1,13 @@
 //! The chart, the analysis's output: plain data in the shape of the Python prototype's charts,
-//! so that it can be written as JSON and read by the Python tools.
+//! so that it can be written as JSON and read by the Python tools (and read back, as the
+//! visualizer's tests do).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Names the Python tools know the analyzer by.
 pub const ANALYZER: &str = "rune-1";
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Chart {
     pub version: u32,
     pub title: String,
@@ -24,7 +25,7 @@ pub struct Chart {
     pub curves: Curves,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Tempo {
     /// 0 when the music has no clear pulse.
     pub bpm: f64,
@@ -33,7 +34,7 @@ pub struct Tempo {
     pub feel: f64,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Beat {
     pub t: f64,
     pub bar: i64,
@@ -43,13 +44,13 @@ pub struct Beat {
     pub confidence: f64,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Meter {
     pub beats_per_bar: u32,
     pub confidence: f64,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Section {
     pub start: f64,
     pub end: f64,
@@ -60,13 +61,13 @@ pub struct Section {
 }
 
 /// One onset stream: a name for the viewer and its events, `[t, strength]`.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Stream {
     pub name: String,
     pub events: Vec<[f64; 2]>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Streams {
     pub low: Stream,
     pub mid: Stream,
@@ -75,7 +76,7 @@ pub struct Streams {
     pub phrase: Stream,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LeadSpan {
     pub start: f64,
     pub end: f64,
@@ -84,7 +85,7 @@ pub struct LeadSpan {
 }
 
 /// Curves sampled every `hop` seconds.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Curves {
     pub hop: f64,
     pub loudness: Vec<f64>,
