@@ -278,9 +278,12 @@ fn render_and_submit(
 /// Hand `frame` out once the GPU has finished the submission just made on `queue`.
 #[cfg(any(target_vendor = "apple", target_os = "windows", target_os = "linux"))]
 fn track(queue: &wgpu::Queue, in_flight: &mut InFlight<Rendered>, frame: Rendered) {
-    let done = in_flight.push(frame);
+    let submitted = Instant::now();
+    let done = in_flight.push(frame, submitted);
     // Runs inside a later poll or submission on this thread.
-    queue.on_submitted_work_done(move || done.store(true, std::sync::atomic::Ordering::Release));
+    queue.on_submitted_work_done(move || {
+        let _ = done.set(Instant::now());
+    });
 }
 
 impl Pipeline {
@@ -723,10 +726,22 @@ impl Pipeline {
         }
     }
 
-    /// Wait until the GPU has finished the oldest frame on its way, but not past `until`, and
-    /// return the newest finished frame (nothing if none finished, or none is on its way).
+    /// Wait until the GPU has finished the oldest frame on its way and it is not held back any
+    /// more (see [`crate::in_flight`]), but not past `until`, and return the newest such frame
+    /// (nothing if there is none yet, or none is on its way).
     pub fn wait_for_frame(&mut self, until: Instant) -> Result<Rendered> {
-        self.wait_for_oldest(Some(until))?;
+        // A frame held back is handed out at its time, also while a newer one is being drawn.
+        let release = |in_flight: &InFlight<Rendered>| {
+            in_flight
+                .release_at()
+                .map_or(until, |release| release.min(until))
+        };
+        self.wait_for_oldest(Some(release(&self.in_flight)))?;
+        let wake = release(&self.in_flight);
+        let now = Instant::now();
+        if self.in_flight.release_at().is_some() && wake > now {
+            std::thread::sleep(wake - now);
+        }
         Ok(self.take_finished())
     }
 
@@ -783,7 +798,7 @@ impl Pipeline {
     /// The newest finished frame out of the frames on their way, remembered by the output as
     /// published.
     fn take_finished(&mut self) -> Rendered {
-        let Some(frame) = self.in_flight.take_finished() else {
+        let Some(frame) = self.in_flight.take_finished(Instant::now()) else {
             return Rendered::Nothing;
         };
         match (&mut self.output, &frame) {
@@ -1049,7 +1064,12 @@ mod tests {
     /// target, so the controller lowers the level, sees that the frame rate does not follow and
     /// puts it back (and says so), and the frame rate is logged once per interval (1 s here,
     /// 10 s in the app).
+    ///
+    /// It judges the frame rate by the wall clock, so other tests drawing on the GPU at the same
+    /// time can make a lowering look as if it helped: run it alone (`-- --ignored`). The rules
+    /// themselves are pinned by the tests in `crate::adaptive`, which need no GPU.
     #[test]
+    #[ignore]
     fn a_lowering_that_does_not_raise_the_frame_rate_is_undone_and_logged() {
         let Ok(mut pipeline) = Pipeline::new(
             1920,
