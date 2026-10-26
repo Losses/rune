@@ -31,6 +31,7 @@ mod shared_dx12;
 mod shared_vulkan;
 #[cfg(target_vendor = "apple")]
 mod surface;
+mod switching;
 mod transition;
 #[cfg(target_os = "android")]
 mod window;
@@ -54,12 +55,13 @@ use chart::{ChartFollower, Playback};
 use loading::Loads;
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport};
 use pipeline::{Pipeline, Rendered, SceneBuild};
-use presets::{AutoSwitch, Preset, PresetList};
 pub use presets::{Location, PresetInfo};
+use presets::{Preset, PresetList};
 pub use rhythm::{BeatTracker, Rhythm};
 use scene::Scene;
 #[cfg(target_os = "linux")]
 pub use shared_vulkan::SharedFrame;
+use switching::{Decision, SceneSwitch};
 use transition::{Durations, Transition};
 #[cfg(target_os = "android")]
 pub use window::Window;
@@ -821,7 +823,7 @@ fn run(
     let mut pcm: Vec<f32> = Vec::new();
     let mut window_start = started;
     let mut window_frames = 0u32;
-    let mut auto_switch = AutoSwitch::default();
+    let mut auto = AutoScene::new();
     // Scenes being built on other threads (see [`loading`]).
     let mut loads = Loads::new();
     let mut rng = rand::thread_rng();
@@ -846,7 +848,7 @@ fn run(
         loop {
             match commands.try_recv() {
                 Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(()),
-                Ok(command) => apply(shared, &mut pipeline, &mut auto_switch, &mut loads, command),
+                Ok(command) => apply(shared, &mut pipeline, &mut auto, &mut loads, command),
                 Err(TryRecvError::Empty) => break,
             }
         }
@@ -870,6 +872,17 @@ fn run(
         if let Some(loaded) = loads.take() {
             install(shared, &mut pipeline, &mut watched, loaded);
             still_drawn = false;
+        }
+
+        // A scene built ahead is held until the switch; one that failed to build shows its error
+        // now and the wait starts again.
+        if let Some(loaded) = auto.loads.take() {
+            if loaded.scene.is_ok() {
+                auto.held = Some(loaded);
+            } else {
+                install(shared, &mut pipeline, &mut watched, loaded);
+                auto.restart();
+            }
         }
 
         if let Some(file) = &mut watched
@@ -908,7 +921,7 @@ fn run(
             match commands.recv_timeout(PAUSED_POLL) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
                 Ok(command) => {
-                    apply(shared, &mut pipeline, &mut auto_switch, &mut loads, command);
+                    apply(shared, &mut pipeline, &mut auto, &mut loads, command);
                     still_drawn = false;
                 }
                 Err(RecvTimeoutError::Timeout) => {}
@@ -934,26 +947,52 @@ fn run(
             Err(TryLockError::Poisoned(e)) => Some(e.into_inner()),
             Err(TryLockError::WouldBlock) => None,
         };
-        // No switch while a scene is still being built: the next one would only replace it.
-        if !loads.is_pending()
-            && auto_switch.tick(time, switch_paused, &mut rng)
-            && let Some(mut library) = free()
-        {
-            let next = library.auto_next(&mut rng);
-            drop(library);
-            match next {
-                Some(Ok(preset)) => apply_switching(
-                    shared,
-                    &mut pipeline,
-                    &mut auto_switch,
-                    &mut loads,
-                    Command::LoadScene(preset.location),
-                    AUTO_SWITCH,
-                ),
-                Some(Err(e)) => shared.set_error(format!("{e:#}")),
-                None => {}
+        // The switch follows the music (see [`switching`]). It only happens with the next scene
+        // built and no scene of the user's still on its way.
+        let ready = auto.held.is_some() && !loads.is_pending();
+        let decision = auto
+            .decider
+            .tick(time, pipeline.music(), switch_paused, ready);
+        if switch_paused {
+            // Nothing is built ahead while the switch waits.
+            auto.restart();
+        }
+        match decision {
+            Decision::Wait => {}
+            Decision::Prepare => {
+                if let Some(mut library) = free() {
+                    let next = library.auto_next(&mut rng);
+                    drop(library);
+                    match next {
+                        Some(Ok(preset)) => {
+                            start_scene_load(
+                                shared,
+                                &pipeline,
+                                &mut auto.loads,
+                                preset.location,
+                                PREPARED_SWITCH,
+                            );
+                            auto.decider.prepare_started();
+                        }
+                        Some(Err(e)) => {
+                            shared.set_error(format!("{e:#}"));
+                            auto.restart();
+                        }
+                        None => auto.restart(),
+                    }
+                }
             }
-            auto_switch.restart();
+            Decision::Switch {
+                transition,
+                durations,
+            } => {
+                if let Some(mut loaded) = auto.held.take() {
+                    loaded.switch = Switch(transition, durations);
+                    install(shared, &mut pipeline, &mut watched, loaded);
+                    still_drawn = false;
+                }
+                auto.restart();
+            }
         }
 
         // A chart knows the beats of the whole song, or that it has none: it replaces the
@@ -1024,7 +1063,7 @@ fn run(
         if deadline > now {
             match commands.recv_timeout(deadline - now) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
-                Ok(command) => apply(shared, &mut pipeline, &mut auto_switch, &mut loads, command),
+                Ok(command) => apply(shared, &mut pipeline, &mut auto, &mut loads, command),
                 Err(RecvTimeoutError::Timeout) => {}
             }
         } else if now - deadline >= interval {
@@ -1049,15 +1088,42 @@ const MANUAL_SWITCH: Switch = Switch(
     },
 );
 
-/// A scene chosen by the automatic switch (see [`AutoSwitch`]): a slower fade through black, 0.4 s
-/// out and 0.4 s in, since nobody asked for it and it should not startle.
-const AUTO_SWITCH: Switch = Switch(
-    Transition::Fade,
+/// How a scene built ahead for the automatic switch is shown until the switch picks the real
+/// one (see [`switching`]), when the scene is held and nothing is shown.
+const PREPARED_SWITCH: Switch = Switch(
+    Transition::Cut,
     Durations {
-        out: 0.4,
-        into: 0.4,
+        out: 0.0,
+        into: 0.0,
     },
 );
+
+/// The automatic scene switch: its decision ([`SceneSwitch`]) and the scene it has built ahead.
+struct AutoScene {
+    decider: SceneSwitch,
+    /// The scene being built ahead, on its own so that a load the user asks for neither replaces
+    /// it nor is replaced by it.
+    loads: Loads<Loaded>,
+    /// The scene built ahead, waiting for the moment to switch.
+    held: Option<Loaded>,
+}
+
+impl AutoScene {
+    fn new() -> Self {
+        Self {
+            decider: SceneSwitch::default(),
+            loads: Loads::new(),
+            held: None,
+        }
+    }
+
+    /// Start over: the wait counts again and what was built ahead is dropped.
+    fn restart(&mut self) {
+        self.decider.restart();
+        self.loads.discard();
+        self.held = None;
+    }
+}
 
 struct Loaded {
     /// How to show it.
@@ -1117,29 +1183,45 @@ fn install(
     }
 }
 
+/// Start building the scene at `location`, to be shown through `switch` (see [`start_load`]).
+fn start_scene_load(
+    shared: &Shared,
+    pipeline: &Pipeline,
+    loads: &mut Loads<Loaded>,
+    location: Location,
+    switch: Switch,
+) {
+    match location {
+        Location::Folder(dir) => {
+            let build = Ok(pipeline.scene_build_dir(&dir));
+            start_load(shared, loads, Some(dir), switch, build);
+        }
+        Location::Builtin(name) => {
+            start_load(
+                shared,
+                loads,
+                None,
+                switch,
+                pipeline.scene_build_builtin(&name),
+            );
+        }
+    }
+}
+
+/// Carry out a command. A scene it loads is shown through [`MANUAL_SWITCH`].
 fn apply(
     shared: &Shared,
     pipeline: &mut Pipeline,
-    auto_switch: &mut AutoSwitch,
+    auto: &mut AutoScene,
     loads: &mut Loads<Loaded>,
     command: Command,
 ) {
-    apply_switching(shared, pipeline, auto_switch, loads, command, MANUAL_SWITCH);
-}
-
-/// [`apply`], where a scene the command loads is shown through `switch`.
-fn apply_switching(
-    shared: &Shared,
-    pipeline: &mut Pipeline,
-    auto_switch: &mut AutoSwitch,
-    loads: &mut Loads<Loaded>,
-    command: Command,
-    switch: Switch,
-) {
-    // Any load, manual or automatic, starts the wait for the next automatic switch again.
+    // A load the user asked for replaces the scene built ahead and starts the wait for the next
+    // automatic switch again.
     if matches!(command, Command::LoadScene(_) | Command::LoadDefaultScene) {
-        auto_switch.restart();
+        auto.restart();
     }
+    let switch = MANUAL_SWITCH;
     let result = match command {
         Command::Resize(width, height) => pipeline.resize(width, height).map(|()| {
             let (width, height) = pipeline.size();
@@ -1148,19 +1230,8 @@ fn apply_switching(
             status.height = height;
         }),
         // Scenes are built on another thread; the loop shows them when they are done.
-        Command::LoadScene(Location::Folder(dir)) => {
-            let build = Ok(pipeline.scene_build_dir(&dir));
-            start_load(shared, loads, Some(dir), switch, build);
-            return;
-        }
-        Command::LoadScene(Location::Builtin(name)) => {
-            start_load(
-                shared,
-                loads,
-                None,
-                switch,
-                pipeline.scene_build_builtin(&name),
-            );
+        Command::LoadScene(location) => {
+            start_scene_load(shared, pipeline, loads, location, switch);
             return;
         }
         Command::LoadDefaultScene => {

@@ -24,7 +24,7 @@ use crate::gpu_time::GpuTimer;
 use crate::in_flight::InFlight;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
-use crate::scene::{FrameInput, Scene, Source};
+use crate::scene::{FrameInput, MusicValues, Scene, Source};
 #[cfg(target_os = "windows")]
 use crate::shared_dx12::{SharedTargets, SharedTexture};
 #[cfg(target_os = "linux")]
@@ -570,6 +570,12 @@ impl Pipeline {
     /// the app shows as the name of the scene.
     pub fn preset_name(&self) -> &str {
         &self.latest().name
+    }
+
+    /// The music's values of the frame drawn last, for the switching that follows the music. They
+    /// are the drawn scene's, which a switch that is still fading out has not replaced yet.
+    pub fn music(&self) -> &MusicValues {
+        self.scene.music()
     }
 
     /// The newest scene: the one waiting to be installed when a transition runs, else the one

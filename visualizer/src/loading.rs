@@ -49,6 +49,15 @@ impl<T: Send + 'static> Loads<T> {
         self.pending
     }
 
+    /// Forget the load that is running, if any: its result is dropped when it comes in, as if a
+    /// newer load had replaced it.
+    pub fn discard(&mut self) {
+        if self.pending {
+            self.newest += 1;
+            self.pending = false;
+        }
+    }
+
     /// The result of the newest load if it has finished, once. Results of older loads that came
     /// in are dropped.
     pub fn take(&mut self) -> Option<T> {
@@ -112,6 +121,26 @@ mod tests {
         thread::sleep(Duration::from_millis(50));
         assert_eq!(loads.take(), None);
         assert!(!loads.is_pending());
+    }
+
+    #[test]
+    fn a_discarded_load_never_shows() {
+        let mut loads = Loads::new();
+        let (release, held) = sync_channel::<()>(0);
+        loads
+            .start(move || {
+                held.recv().unwrap();
+                "old"
+            })
+            .unwrap();
+        loads.discard();
+        assert!(!loads.is_pending());
+        release.send(()).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        assert_eq!(loads.take(), None);
+        // A load started after it works as usual.
+        loads.start(|| "new").unwrap();
+        assert_eq!(wait(&mut loads), "new");
     }
 
     #[test]

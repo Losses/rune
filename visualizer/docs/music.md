@@ -332,7 +332,7 @@ One transition layer serves both the switch from one scene to the next and a cam
 
 - **Two entrances.** A scene switch is started by the runtime. A camera cut is started by the scene: it writes `post.cut = 1` in `update()` to say "my view jumped in this frame". Both use the same library of effects (a fade, a hard cut on the downbeat, a whip, a glitch cut, a light-leak cut). Which ones exist and which is the default is decided by the work on transitions.
 - **The runtime** keeps the old picture when a transition starts (a history frame; the old scene is no longer drawn during the switch), combines the old and new pictures according to the effect, and converts the duration to beats with `tempo`.
-- **Timing** reads the semantic signals. A scene switch waits for the next cue (using `cue_in` to see it coming) instead of a random timer. When the beat is followed it lands on a downbeat; when it is not, it picks a moment of low `intensity`. There is a longest wait, after which it switches anyway. A scene decides its own camera cuts from `cues`.
+- **Timing** reads the semantic signals (`src/switching.rs`). A scene switch waits for a section start where the music changes (using `cue_in` to start the fade early and land on it) instead of a random timer, and goes at the next beat or hit after a longest wait of 90 s. A scene decides its own camera cuts from `cues`.
 - **A scene may state a preference** in a `[transition]` table of `scene.toml`: which transitions suit it and the strongest it accepts.
 - **Taste.** Transitions are calm by default. Violent ones (a glitch cut, a flash cut) hang only on the strongest cues. There is no "transition on every beat".
 - Glitch and light leaks can be a filter triggered on a cue and a transition. They share one shader.

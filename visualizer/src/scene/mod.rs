@@ -4,6 +4,7 @@
 
 mod audio;
 mod inputs;
+pub use inputs::MusicValues;
 mod manifest;
 mod noise;
 mod post;
@@ -1258,7 +1259,6 @@ impl Scene {
 
     /// The values `struct Music` got for the last frame drawn (the defaults before the first),
     /// for the scene switching that follows the music.
-    #[allow(dead_code)]
     pub fn music(&self) -> &inputs::MusicValues {
         &self.music_values
     }

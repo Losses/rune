@@ -1,5 +1,4 @@
-//! The scene folders of a directory, picked at random with a history and on a timer, the way
-//! MilkDrop 2 does it.
+//! The scene folders of a directory, picked at random with a history, the way MilkDrop 2 does it.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -266,40 +265,6 @@ impl PresetList {
     }
 }
 
-/// When the next automatic switch is due, on the render loop's clock (seconds). MilkDrop 2:
-/// a scene is shown for the blend time, 16 s and up to 10 s more at random.
-#[derive(Default)]
-pub struct AutoSwitch {
-    due: Option<f64>,
-}
-
-impl AutoSwitch {
-    /// MilkDrop 2's blend time, kept in the wait (scenes cut).
-    pub const BLEND_SECONDS: f64 = 2.7;
-    const BETWEEN_SECONDS: f64 = 16.0;
-    const RANDOM_SECONDS: f64 = 10.0;
-
-    /// A scene was loaded: count again from the next frame.
-    pub fn restart(&mut self) {
-        self.due = None;
-    }
-
-    /// Call once per frame. Returns whether a switch is due now; the caller then loads a scene
-    /// and calls [`Self::restart`]. While `paused` the timer keeps starting over.
-    pub fn tick(&mut self, now: f64, paused: bool, rng: &mut impl Rng) -> bool {
-        if paused {
-            self.due = None;
-            return false;
-        }
-        let due = *self.due.get_or_insert_with(|| {
-            now + Self::BLEND_SECONDS
-                + Self::BETWEEN_SECONDS
-                + rng.gen_range(0.0..1.0) * Self::RANDOM_SECONDS
-        });
-        now > due
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use rand::SeedableRng;
@@ -519,35 +484,5 @@ mod tests {
         assert!(list.next(&mut rng()).is_err());
         assert!(list.previous().is_err());
         assert!(list.random(&mut rng()).is_err());
-    }
-
-    #[test]
-    fn auto_switch_schedule() {
-        let mut rng = rng();
-        let mut auto = AutoSwitch::default();
-        // The first tick fixes the due time: 2.7 + 16 + 0..10 s after it.
-        assert!(!auto.tick(100.0, false, &mut rng));
-        let due = auto.due.unwrap();
-        assert!((118.7..128.7).contains(&due), "{due}");
-        assert!(!auto.tick(due - 0.01, false, &mut rng));
-        assert!(auto.tick(due + 0.01, false, &mut rng));
-        // A load starts the count again.
-        auto.restart();
-        assert!(!auto.tick(due + 0.02, false, &mut rng));
-        assert!(auto.due.unwrap() >= due + 0.02 + 18.7);
-    }
-
-    #[test]
-    fn auto_switch_pause_keeps_pushing_the_start() {
-        let mut rng = rng();
-        let mut auto = AutoSwitch::default();
-        assert!(!auto.tick(0.0, false, &mut rng));
-        for t in [10.0, 100.0, 1000.0] {
-            assert!(!auto.tick(t, true, &mut rng));
-        }
-        // Unpausing counts from zero, not from the old due time.
-        assert!(!auto.tick(1000.5, false, &mut rng));
-        let due = auto.due.unwrap();
-        assert!((1019.2..1029.2).contains(&due), "{due}");
     }
 }

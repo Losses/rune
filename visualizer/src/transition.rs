@@ -12,8 +12,9 @@ use crate::scene::Scene;
 
 const SHADER: &str = include_str!("transition.wgsl");
 
-/// How a scene switch looks. Only fades are used so far (see `crate::MANUAL_SWITCH`); cuts are
-/// what [`crate::pipeline::Pipeline::install`] does and dissolves are tested.
+/// How a scene switch looks. Fades and dissolves are chosen by `crate::switching`; a cut is what
+/// [`crate::pipeline::Pipeline::install`] does and only the placeholder of a scene built ahead
+/// names it.
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transition {
