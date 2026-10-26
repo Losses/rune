@@ -85,7 +85,12 @@ fn main() -> anyhow::Result<()> {
             status.preset_name, status.measured_fps
         );
     }
+    let status = visualizer.status();
     visualizer.stop();
+    // A scene that does not load leaves the one before on screen, so say so and fail.
+    if let Some(error) = status.last_error {
+        anyhow::bail!("{error}");
+    }
     Ok(())
 }
 
