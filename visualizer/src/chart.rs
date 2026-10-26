@@ -246,15 +246,22 @@ impl Chart {
     }
 }
 
-/// The rhythm the scenes get: what the song's chart says when it has one, the live tracker's
-/// otherwise.
+/// The rhythm the scenes get: the beats come from the song's chart and from nothing else.
 ///
-/// A chart with beats replaces the tracker's tempo, beat and confidence. A chart without beats
-/// (the whole song was heard and has no steady pulse) is the verdict: no tempo, no beat, no
-/// confidence, whatever the tracker thinks; its levels and onsets stay the tracker's.
+/// A chart with beats gives the tempo, beat and confidence. A chart without beats (the whole
+/// song was heard and has no steady pulse) is the verdict: no tempo, no beat, no confidence.
+/// Without a chart (being made, failed, or an online track) there is no beat either: the live
+/// tracker's guesses are often off by half or double, and scenes move on what is heard instead
+/// (its onsets as hits, its levels, how fast the music feels). Its levels and onsets always
+/// stay.
 pub fn trusted_rhythm(live: Rhythm, chart: Option<&ChartState>) -> Rhythm {
     let Some(chart) = chart else {
-        return live;
+        return Rhythm {
+            bpm: 0.0,
+            beat: 0.0,
+            confidence: 0.0,
+            ..live
+        };
     };
     if chart.bpm > 0.0 {
         Rhythm {
@@ -545,7 +552,11 @@ mod tests {
             kick: 0.4,
             ..Default::default()
         };
-        assert_eq!(trusted_rhythm(live, None), live);
+        // Without a chart there is no beat, whatever the tracker thinks, but its levels and
+        // onsets stay.
+        let alone = trusted_rhythm(live, None);
+        assert_eq!((alone.bpm, alone.beat, alone.confidence), (0.0, 0.0, 0.0));
+        assert_eq!(alone.kick, live.kick);
         let with = ChartState {
             bpm: 100.0,
             beat: 5.5,

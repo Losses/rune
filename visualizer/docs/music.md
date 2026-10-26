@@ -29,10 +29,13 @@ They are added at the end of `struct Music`, after `hit`; the existing fields ke
 | `clock` | f32, beats | A beat clock that always runs. |
 | `meter` | f32, 2 to 7, never 0 | Beats per bar. |
 | `locked` | f32, 0 to 1 | Whether the music's beat is being followed right now. |
+| `flow` | f32, beats | A phase that moves on as much as the music does, beat or not. |
 
-**`tempo`.** With a trusted beat it equals `bpm`. Without one it is worked out from `feel`: 3 to 7 Hz map linearly to 70 to 110, and 90 when `feel` has not been measured. When the source changes (the chart arrives or leaves, the beat becomes trusted or is lost) or the target steps by more than 2 bpm in one frame (as when the tracker finds twice the tempo), it glides to the new value with a time constant of 1 s, until it is within 0.5 bpm or for at most 5 s. Otherwise a trusted tempo is told as it comes, and the tempo from `feel` is followed with a time constant of 1 s. Drive with it: speeds of continuous motion (flying, rotating, drifting) as `tempo` times a parameter, and durations given in beats (convert with `60.0 / music.tempo`). Do not read `bpm` or `feel` for this.
+**`tempo`.** With a trusted beat it equals `bpm`. Without one it is worked out from `feel`: 3 to 7 Hz map linearly to 70 to 110, and 90 when `feel` has not been measured. When the source changes (the chart arrives or leaves, the beat becomes trusted or is lost) or the target steps by more than 2 bpm in one frame (as where the chart's tempo changes), it glides to the new value with a time constant of 1 s, until it is within 0.5 bpm or for at most 5 s. Otherwise a trusted tempo is told as it comes, and the tempo from `feel` is followed with a time constant of 1 s. Drive with it: speeds of continuous motion (flying, rotating, drifting) as `tempo` times a parameter, and durations given in beats (convert with `60.0 / music.tempo`). Do not read `bpm` or `feel` for this.
 
-**`clock`.** With a trusted beat it is in phase with `beat`. Without one it runs on its own at `tempo`. It never goes backwards: where the beat's phase is behind it, the clock waits for it. When the beat becomes trusted, and after a seek or when the chart arrives or leaves (the beat then counts from elsewhere), the integer part is also aligned to the bar by moving forward once, by at most `meter - 1` beats, so that `floor(clock) % meter == 0` marks the downbeat; otherwise only the phase is corrected. The fractional part is the phase within the beat. Drive with it: one step or one pose per beat (`floor` for which beat, `fract` for the phase) and `rv_beat_pulse`. Do not keep your own `last_beat` or your own clock.
+**`clock`.** With a trusted beat it is in phase with `beat`. Without one it makes up no tempo: each hit moves it on to the next whole beat, easing there with a time constant of 0.08 s, and it rests between hits, so that what steps on it steps on what is heard (several hits in one frame are several steps). It never goes backwards: where the beat's phase is behind it, the clock waits for it. When the beat becomes trusted, and after a seek or when the chart arrives or leaves (the beat then counts from elsewhere), the integer part is also aligned to the bar by moving forward once, by at most `meter - 1` beats, so that `floor(clock) % meter == 0` marks the downbeat; otherwise only the phase is corrected. The fractional part is the phase within the beat. Drive with it: one step or one pose per beat (`floor` for which beat, `fract` for the phase) and `rv_beat_pulse`. Do not keep your own `last_beat` or your own clock.
+
+**`flow`.** A phase in beats that advances at `tempo` times how loud the three bands are against their average (`band_low`, `band_mid` and `band_high`, about 1 on average, at most 3 counted): it slows in quiet passages, speeds up when the music swells and stops in silence. It is MilkDrop's way of moving with `bass_att`, and it needs no beat. Drive with it: rotation and drift that should breathe with the music. Use `tempo` instead for a steady speed.
 
 **`meter`.** The chart's `beats_per_bar` when there is one, 4 when there is none, limited to 2 to 7. A downbeat is `floor(clock) % u32(meter) == 0`.
 
@@ -91,10 +94,11 @@ They rise with a time constant of 0.03 s and fall with 0.2 s. They are three sca
 
 | Signal | A (chart, beat) | B (chart, no beat) | C (live only) |
 |---|---|---|---|
-| `tempo` | `bpm` | from `feel` | `bpm` if the beat is trusted, else from `feel` |
-| `clock` | follows `beat` | runs on `tempo` | follows `beat` if trusted, else runs on `tempo` |
+| `tempo` | `bpm` | from `feel` | from `feel` |
+| `clock` | follows `beat` | steps on hits | steps on hits |
+| `flow` | tempo times activity | tempo times activity | tempo times activity |
 | `meter` | chart's | chart's | 4 |
-| `locked` | 0 or 1 by beats | 0 | 0 or 1 by beats |
+| `locked` | 0 or 1 by beats | 0 | 0 |
 | `drive` | section energy | section energy | smoothed loudness |
 | `cues` | section starts, and every 8 bars without one | section starts, and the first hit after 16 s without one | every 8 bars if locked, else the first hit after 16 s without one |
 | `cue_in` | `section_left` | `section_left` | -1 |
@@ -107,19 +111,19 @@ The three cases:
 
 - **A**: the song has a chart and the chart has a beat. `bpm`, `beat` and `beat_confidence` come from the chart's beats.
 - **B**: the song has a chart but the whole song has no steady pulse (a chart without beats). That is the verdict for the song, whatever the live tracker thinks. `bpm`, `beat` and `beat_confidence` read 0, and `beats` and `bars` never fire. Sections and levels still come from the chart.
-- **C**: no chart (not analysed yet, or an online track). The live beat tracker and the live spectrum are all there is. The tracker's beats count only while its confidence is at least 0.3 (`PULSE_CONFIDENCE`). Below that `bpm`, `beats` and `bars` read 0 ("untrusted"). `bpm > 0` therefore always means there is a beat to trust.
+- **C**: no chart (still being analysed, the analysis failed, or an online track). There is no beat: the live tracker's tempo is often off by half or double, and a beat that does not match what is heard looks worse than none. `bpm`, `beat`, `beat_confidence`, `beats` and `bars` read 0. What the live analysis hears still counts: its onsets (as `hits`), the levels of the spectrum and how fast the music feels (`feel`, so `tempo`). `bpm > 0` therefore always means there is a beat to trust, and only a chart has one.
 
-Without a chart, `music()` fills in as follows: `has_chart` is 0, `beats_per_bar` is 4, `bar` is `beat / 4` of the tracker, there is one long section (`section`, `section_label`, `section_repeat`, `section_time`, `section_left`, `section_confidence`, `next_label` and `sections` read 0), `low`, `mid` and `high` are the tracker's kick, snare and hat onsets, `loudness` is the tracker's `energy / 2` limited to 0 to 1, and `section_energy` and `next_energy` both equal that `loudness`. `pulse` is the tracker's confidence, `lead` is -1, and `harmonic`, `phrase`, `lead_onset`, `brightness`, `percussive` and `meter_confidence` read 0.
+Without a chart, `music()` fills in as follows: `has_chart` is 0, `beats_per_bar` is 4, `bar` is 0, there is one long section (`section`, `section_label`, `section_repeat`, `section_time`, `section_left`, `section_confidence`, `next_label` and `sections` read 0), `low`, `mid` and `high` are the tracker's kick, snare and hat onsets, `loudness` is the tracker's `energy / 2` limited to 0 to 1, and `section_energy` and `next_energy` both equal that `loudness`. `pulse` is 0, `lead` is -1, and `harmonic`, `phrase`, `lead_onset`, `brightness`, `percussive` and `meter_confidence` read 0.
 
 | Field | Meaning, range | A: chart with beat | B: chart without beat | C: live only | Built-in scene may read | Instead |
 |---|---|---|---|---|---|---|
 | `song_time` | Seconds into the song | same | same | same | not restricted | |
 | `playing` | u32, 1 while the song plays | same | same | same | not restricted | |
-| `bpm` | Tempo in beats per minute; 0 means no trusted beat | Chart's, over the 8 beats around now | 0 | Tracker's if confidence >= 0.3, else 0 | no | `tempo`, `locked` |
-| `beat` | Beat count; the integer part is which beat, the fraction is the phase (0 on the beat) | Beats since the song's first beat, so it jumps on a seek | 0 | Tracker's beat (not zeroed when untrusted, so it may still move; do not read it as a trusted beat) | no | `clock` |
-| `beat_confidence` | 0 to 1, how clearly the music has a beat | Chart's confidence at the nearest beat | 0 | Tracker's confidence | no | `locked` |
+| `bpm` | Tempo in beats per minute; 0 means no trusted beat | Chart's, over the 8 beats around now | 0 | 0 | no | `tempo`, `locked` |
+| `beat` | Beat count; the integer part is which beat, the fraction is the phase (0 on the beat) | Beats since the song's first beat, so it jumps on a seek | 0 | 0 | no | `clock` |
+| `beat_confidence` | 0 to 1, how clearly the music has a beat | Chart's confidence at the nearest beat | 0 | 0 | no | `locked` |
 | `beats_per_bar` | Beats in a bar | Chart's meter | Chart's meter | 4 | no | `meter` |
-| `bar` | Bar count with the phase in the bar as the fraction | Chart's | 0 | `beat / 4` of the tracker (also when untrusted) | yes | |
+| `bar` | Bar count with the phase in the bar as the fraction | Chart's | 0 | 0 | yes | |
 | `meter_confidence` | 0 to 1, how sure the meter is | Chart's | Chart's | 0 | not restricted | |
 | `beats` | u32, beats since the last frame | Counted, 0 unless trusted | 0 | Counted while trusted, else 0 | yes | |
 | `bars` | u32, bars since the last frame | Counted, 0 unless trusted | 0 | Counted while trusted, else 0 | yes | |
@@ -143,7 +147,7 @@ Without a chart, `music()` fills in as follows: `has_chart` is 0, `beats_per_bar
 | `loudness` | 0 to 1, loudness relative to this song | Chart's curve | Chart's curve | Tracker's `energy / 2`, limited to 0 to 1 | no | `intensity`, `drive` |
 | `brightness` | 0 to 1, spectral brightness | Chart's curve | Chart's curve | 0 | yes | |
 | `percussive` | 0 to 1, how percussive the sound is | Chart's curve | Chart's curve | 0 | yes | |
-| `pulse` | 0 to 1, how clear the rhythm is around now | Chart's curve | Chart's curve | Tracker's confidence | not restricted | |
+| `pulse` | 0 to 1, how clear the rhythm is around now | Chart's curve | Chart's curve | 0 | not restricted | |
 | `bass` | Live low level, about 1 on average | Live | Live | Live | no | `band_low` |
 | `mids` | Live mid level, about 1 on average | Live | Live | Live | no | `band_mid` |
 | `treble` | Live high level, about 1 on average | Live | Live | Live | no | `band_high` |
@@ -151,7 +155,7 @@ Without a chart, `music()` fills in as follows: `has_chart` is 0, `beats_per_bar
 | `has_chart` | u32, 1 when the values come from a chart | 1 | 1 | 0 | no | Scenes do not check this |
 | `feel` | How fast it sounds now, in Hz: about 3 for a ballad, 7 for drum and bass; 0 until measured | Chart's curve when the chart has one, else live | same as A | Live | no | `tempo` |
 | `song_feel` | `feel` over the whole song | Chart's when it has one, else live | same as A | Live, over the song so far | no | `tempo` |
-| `hits` | u32, moments to move on since the last frame | Every trusted beat, strength 1 | Onsets of the leading stream (the harmonic one if none leads) and phrase starts, at least 0.3 | Live kick, snare or hat onsets rising above 0.5 while the beat is untrusted; trusted beats count as hits | yes | |
+| `hits` | u32, moments to move on since the last frame | Every trusted beat, strength 1 | Onsets of the leading stream (the harmonic one if none leads) and phrase starts, at least 0.3 | Live kick, snare or hat onsets rising above 0.5 | yes | |
 | `hit` | Envelope of the last hit: jumps to its strength (0 to 1), decays with a time constant of 0.2 s | same | same | same | yes | |
 
 Notes on the table:
@@ -169,7 +173,7 @@ Always allowed besides these fields: `rv_spectrum`, `rv_waveform`, and every `fr
 
 | Role in the picture | Use | Do not use |
 |---|---|---|
-| Speed of continuous motion (advance, rotation, drift) | `tempo` times a parameter, `drive` may scale it by plus or minus 20 %, smoothed with a time constant of 0.5 s or more | `bpm`, `feel` |
+| Speed of continuous motion (advance, rotation, drift) | `tempo` times a parameter for a steady speed (`drive` may scale it by plus or minus 20 %, smoothed with a time constant of 0.5 s or more), or `flow` for motion that breathes with the music | `bpm`, `feel` |
 | One pose or step per beat, phase animation | `clock` (`fract` for the phase, `floor` for the beat) with `rv_beat_pulse` | A `last_beat` of your own, your own clock |
 | Small movements on the beat (a push, a sway, a turn by one step) | `hits` to trigger, `hit` or an `rv_env` envelope (time constant 0.15 to 0.3 s) | Treating `hits > 0` as a beat |
 | Movements at the scale of a bar | `bars`; they only run while the beat is followed, and a scene stays calm when it is not | Inventing bars from onsets |

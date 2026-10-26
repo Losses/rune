@@ -107,11 +107,14 @@ pub struct MusicValues {
     /// Hard hits inside a section since the last frame and their envelope.
     pub impacts: u32,
     pub impact: f32,
+    /// A phase in beats that moves on as much as the music does (MilkDrop's way of moving with
+    /// `bass_att`), for motion that needs no beat.
+    pub flow: f32,
 }
 
 impl MusicValues {
     /// Name and value of every field, in the order of `struct Music`. New fields go at the end.
-    pub fn fields(&self) -> [(&'static str, Word); 56] {
+    pub fn fields(&self) -> [(&'static str, Word); 57] {
         use Word::{F, U};
         [
             ("song_time", F(self.song_time)),
@@ -170,6 +173,7 @@ impl MusicValues {
             ("band_high", F(self.band_high)),
             ("impacts", U(self.impacts)),
             ("impact", F(self.impact)),
+            ("flow", F(self.flow)),
         ]
     }
 
@@ -391,13 +395,14 @@ mod tests {
             tempo: 120.0,
             cues: 2,
             impact: 0.25,
+            flow: 7.5,
             ..Default::default()
         };
         let bytes = m.bytes();
-        // 56 words, a multiple of 16 bytes already; the newest are last and the old ones have
+        // 57 words padded to a multiple of 16 bytes; the newest are last and the old ones have
         // not moved.
-        assert_eq!(m.fields().len(), 56);
-        assert_eq!(bytes.len(), 224);
+        assert_eq!(m.fields().len(), 57);
+        assert_eq!(bytes.len(), 240);
         assert_eq!(&bytes[0..4], &2.0f32.to_le_bytes());
         assert_eq!(&bytes[140..144], &1u32.to_le_bytes());
         assert_eq!(&bytes[152..156], &3u32.to_le_bytes());
@@ -405,9 +410,12 @@ mod tests {
         assert_eq!(&bytes[160..164], &120.0f32.to_le_bytes());
         assert_eq!(&bytes[184..188], &2u32.to_le_bytes());
         assert_eq!(&bytes[220..224], &0.25f32.to_le_bytes());
+        assert_eq!(&bytes[224..228], &7.5f32.to_le_bytes());
+        assert_eq!(&bytes[228..240], &[0; 12]);
         let names: Vec<_> = m.fields().iter().map(|(name, _)| *name).collect();
         assert_eq!(&names[39..42], ["hit", "tempo", "clock"]);
         assert_eq!(names[55], "impact");
+        assert_eq!(names[56], "flow");
     }
 
     #[test]

@@ -169,6 +169,13 @@ const TEMPO_DEFAULT: f64 = 90.0;
 /// slow music is told as slow and fast music as fast, in between linearly.
 const TEMPO_FEEL_SLOW: f64 = 70.0;
 const TEMPO_FEEL_FAST: f64 = 110.0;
+/// Without a beat to trust each hit moves `clock` on to the next whole beat, easing there with
+/// this time constant (seconds), and it is put on the beat once it is this close.
+const CLOCK_STEP: f64 = 0.08;
+const CLOCK_ARRIVED: f64 = 0.002;
+/// The most `flow` moves on in a beat's time: the bands are about 1 on average and up to 4 on a
+/// burst.
+const FLOW_MAX: f64 = 3.0;
 /// The fewest and the most beats a bar of `meter` has, and the meter without a chart.
 const METER_MIN: f64 = 2.0;
 const METER_MAX: f64 = 7.0;
@@ -275,9 +282,12 @@ pub struct Signals {
     tempo_target: f64,
     tempo_source: (bool, bool),
     glide: f64,
-    /// The beat clock, and whether the last frame had a beat to trust.
+    /// The beat clock, the whole beat it eases to after a hit while there is no beat to trust,
+    /// and whether the last frame had a beat to trust.
     clock: f64,
+    clock_target: f64,
     clock_trusted: bool,
+    flow: f64,
     /// Wall seconds since the last frame with a beat, and `locked`.
     since_beat: f64,
     locked: f64,
@@ -314,7 +324,9 @@ impl Default for Signals {
             tempo_source: (false, false),
             glide: 0.0,
             clock: 0.0,
+            clock_target: 0.0,
             clock_trusted: false,
+            flow: 0.0,
             since_beat: f64::INFINITY,
             locked: 0.0,
             drive: 0.0,
@@ -363,13 +375,14 @@ impl Signals {
         };
         self.follow_tempo(input, m, first, dt);
         // A seek or the chart arriving or leaving changes what the beat counts from.
-        self.run_clock(input, meter, !steady, dt);
+        self.run_clock(input, meter, m.hits, !steady, dt);
         self.follow_lock(input, m, dt);
         self.follow_energy(input, m, meter, first, dt);
         let cues = self.cues(input, m, steady, dt);
         let notes = self.notes(input, m, steady, dt);
         self.follow_bands(m, dt);
         let impacts = self.impacts(input, m, steady, dt);
+        self.follow_flow(dt);
         self.section_energy = f64::from(m.section_energy);
 
         m.tempo = self.tempo as f32;
@@ -388,6 +401,7 @@ impl Signals {
         m.band_high = self.bands[2] as f32;
         m.impacts = impacts;
         m.impact = self.impact as f32;
+        m.flow = self.flow as f32;
     }
 
     /// `tempo`: the trusted tempo as it comes, the tempo `feel` stands for otherwise, and a
@@ -420,12 +434,14 @@ impl Signals {
         (self.tempo_target, self.tempo_source) = (target, source);
     }
 
-    /// `clock`: runs at the tempo, takes the beat's phase when there is a beat to trust, and
-    /// when it gets one, or the beat counts from elsewhere after a seek or a chart (`realign`),
-    /// it also takes its place in the bar (by moving on, never back).
-    fn run_clock(&mut self, input: &SignalInput, meter: f64, realign: bool, dt: f64) {
-        let mut clock = self.clock + dt * self.tempo / 60.0;
+    /// `clock`: with a beat to trust it runs at the tempo with the beat's phase, and when it
+    /// gets one, or the beat counts from elsewhere after a seek or a chart (`realign`), it also
+    /// takes its place in the bar. Without one it does not make up a tempo: each hit moves it on to
+    /// the next whole beat and it rests between hits, so that what steps on it steps on what is
+    /// heard. It never goes back.
+    fn run_clock(&mut self, input: &SignalInput, meter: f64, hits: u32, realign: bool, dt: f64) {
         if input.trusted {
+            let mut clock = self.clock + dt * self.tempo / 60.0;
             let beat = input.rhythm.beat;
             let phase = beat - beat.floor();
             // The whole beat nearest the clock that keeps the phase of `beat`.
@@ -436,9 +452,25 @@ impl Signals {
                 whole += ahead as f64;
             }
             clock = whole + phase;
+            self.clock = clock.max(self.clock);
+            self.clock_target = self.clock;
+        } else {
+            if hits > 0 {
+                self.clock_target = self.clock_target.floor() + f64::from(hits);
+            }
+            self.clock = approach(self.clock, self.clock_target, dt, CLOCK_STEP);
+            if self.clock_target - self.clock < CLOCK_ARRIVED {
+                self.clock = self.clock_target;
+            }
         }
         self.clock_trusted = input.trusted;
-        self.clock = clock.max(self.clock);
+    }
+
+    /// `flow`: moves on at the tempo, as much as the bands are loud against their average, so
+    /// it slows in quiet passages and stops in silence.
+    fn follow_flow(&mut self, dt: f64) {
+        let activity = (self.bands.iter().sum::<f64>() / 3.0).clamp(0.0, FLOW_MAX);
+        self.flow += dt * self.tempo / 60.0 * activity;
     }
 
     /// `locked`: the beat is trusted and was heard within the last [`LOCK_BEATS`] beats.
@@ -1009,15 +1041,74 @@ mod tests {
     }
 
     #[test]
-    fn the_clock_runs_at_the_tempo_without_a_beat() {
+    fn without_a_beat_the_clock_steps_on_hits_and_rests_between_them() {
         let mut rig = Rig::default();
+        let nothing = Rhythm::default();
         let felt = MusicValues {
             feel: 5.0,
             ..Default::default()
         };
-        let m = rig.hold(felt, None, &Rhythm::default(), 10.0);
-        // 90 bpm for 10 s, less the first frame, which has no time behind it.
-        assert!((m.clock - 15.0).abs() < 0.1, "{}", m.clock);
+        // No hits: it makes up no tempo.
+        let m = rig.hold(felt, None, &nothing, 3.0);
+        assert_eq!(m.clock, 0.0);
+        // A hit: it eases on to the next whole beat and rests there.
+        let hit = MusicValues { hits: 1, ..felt };
+        let m = rig.step(hit, None, &nothing);
+        assert!(m.clock > 0.0 && m.clock < 1.0, "{}", m.clock);
+        let m = rig.hold(felt, None, &nothing, 1.0);
+        assert_eq!(m.clock, 1.0);
+        // Two hits in one frame are two steps.
+        rig.step(MusicValues { hits: 2, ..felt }, None, &nothing);
+        let m = rig.hold(felt, None, &nothing, 1.0);
+        assert_eq!(m.clock, 3.0);
+    }
+
+    #[test]
+    fn the_clock_steps_from_where_the_beat_left_it() {
+        let mut rig = Rig::default();
+        let m = rig.step(raw_bpm(120.0), None, &beating(120.0, 5.3));
+        assert!((m.clock.fract() - 0.3).abs() < 1e-3, "{}", m.clock);
+        // The beat is lost mid-beat: the clock waits there, and a hit takes it to the next one.
+        let nothing = Rhythm::default();
+        let held = rig.hold(MusicValues::default(), None, &nothing, 1.0);
+        assert!(
+            (held.clock - m.clock).abs() < 0.05,
+            "{} {}",
+            held.clock,
+            m.clock
+        );
+        rig.step(
+            MusicValues {
+                hits: 1,
+                ..Default::default()
+            },
+            None,
+            &nothing,
+        );
+        let m = rig.hold(MusicValues::default(), None, &nothing, 1.0);
+        assert_eq!(m.clock, held.clock.floor() + 1.0);
+    }
+
+    #[test]
+    fn flow_moves_with_how_much_is_going_on() {
+        let flow = |level: f32| {
+            let mut rig = Rig::default();
+            let raw = MusicValues {
+                bass: level,
+                mids: level,
+                treble: level,
+                feel: 5.0,
+                ..Default::default()
+            };
+            rig.hold(raw, None, &Rhythm::default(), 10.0).flow
+        };
+        // At the average level it moves at the tempo (90 bpm here), louder faster, and in
+        // silence not at all.
+        let average = flow(1.0);
+        assert!((average - 15.0).abs() < 0.3, "{average}");
+        assert!((flow(2.0) - 2.0 * average).abs() < 0.5);
+        assert_eq!(flow(0.0), 0.0);
+        assert!((flow(9.0) - 3.0 * average).abs() < 0.5);
     }
 
     #[test]
