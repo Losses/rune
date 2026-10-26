@@ -83,6 +83,8 @@ pub struct Pipeline {
     /// The GPU time of every frame since the last [`Pipeline::take_frame_times`], when the
     /// benchmark asked for them.
     recorded: Option<Vec<f64>>,
+    /// Frames not drawn because every target was still in use, so far and at the last report.
+    skipped: (u64, u64),
 }
 
 /// How often the GPU time of the frames is logged, in seconds.
@@ -378,6 +380,7 @@ impl Pipeline {
             times: Vec::new(),
             adaptive: true,
             recorded: None,
+            skipped: (0, 0),
             adapter_name: adapter.get_info().name,
             device,
             queue,
@@ -438,6 +441,11 @@ impl Pipeline {
             .unwrap_or_default()
     }
 
+    /// How many frames were not drawn so far because every target was still in use.
+    pub fn skipped(&self) -> u64 {
+        self.skipped.0
+    }
+
     fn now(&self) -> f64 {
         self.clock.elapsed().as_secs_f64()
     }
@@ -471,16 +479,19 @@ impl Pipeline {
             if let Some(summary) = self.report.frame(now, seconds) {
                 let level = self.controller.level();
                 let (width, height) = self.scene.internal_size();
+                let (skipped, reported) = &mut self.skipped;
                 info!(
-                    "Visualizer {}: {:.1} fps, GPU {:.1} ms on average, {:.1} ms at worst ({} frames); now resolution {:.2} ({width}x{height}), quality {:.2}",
+                    "Visualizer {}: {:.1} fps, GPU {:.1} ms on average, {:.1} ms at worst ({} frames, {} skipped without a free target); now resolution {:.2} ({width}x{height}), quality {:.2}",
                     self.scene.name,
                     summary.fps,
                     summary.average * 1e3,
                     summary.worst * 1e3,
                     summary.frames,
+                    *skipped - *reported,
                     level.factor,
                     level.quality,
                 );
+                *reported = *skipped;
             }
             if self.adaptive {
                 self.controller.sample(now, seconds);
@@ -849,7 +860,10 @@ impl Pipeline {
                     track(&self.queue, &mut self.in_flight, frame);
                     return Ok(Rendered::Nothing);
                 }
-                Ok(None) => return Ok(Rendered::Nothing),
+                Ok(None) => {
+                    self.skipped.0 += 1;
+                    return Ok(Rendered::Nothing);
+                }
                 Err(e) => {
                     warn!("Falling back to reading frames back: {e:#}");
                     let (width, height) = surfaces.size();
@@ -879,7 +893,10 @@ impl Pipeline {
                     track(&self.queue, &mut self.in_flight, frame);
                     return Ok(Rendered::Nothing);
                 }
-                Ok(None) => return Ok(Rendered::Nothing),
+                Ok(None) => {
+                    self.skipped.0 += 1;
+                    return Ok(Rendered::Nothing);
+                }
                 Err(e) => {
                     warn!("Falling back to reading frames back: {e:#}");
                     let (width, height) = targets.size();
@@ -903,7 +920,10 @@ impl Pipeline {
                     }
                     return Ok(Rendered::Nothing);
                 }
-                Ok(None) => return Ok(Rendered::Nothing),
+                Ok(None) => {
+                    self.skipped.0 += 1;
+                    return Ok(Rendered::Nothing);
+                }
                 Err(e) => {
                     warn!("Falling back to reading frames back: {e:#}");
                     let (width, height) = targets.size();

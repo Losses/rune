@@ -175,13 +175,14 @@ pub async fn resize_visualizer(width: u32, height: u32) -> anyhow::Result<()> {
     VISUALIZER.resize(width, height)
 }
 
-/// The visualizer's latest frame, as it is: on the GPU (a pixel buffer, a shared texture or image)
-/// or read back.
+/// The visualizer's frames, as they are: on the GPU (a pixel buffer, a shared texture or image)
+/// or read back. Each acquire takes the next frame in order, so that frames finished within one
+/// display refresh are shown on consecutive ones (see [`visualizer::Visualizer::next_frame`]).
 struct VisualizerFrames;
 
 impl FrameSource for VisualizerFrames {
     fn acquire(&self) -> Option<Acquired> {
-        let frame = VISUALIZER.latest_frame()?;
+        let frame = VISUALIZER.next_frame()?;
         #[cfg(target_vendor = "apple")]
         if let Some(buffer) = frame.pixel_buffer() {
             return Some(Acquired {

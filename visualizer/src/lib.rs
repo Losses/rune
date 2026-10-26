@@ -20,6 +20,7 @@ mod gpu_time;
 mod in_flight;
 mod pipeline;
 mod presets;
+mod published;
 mod readback;
 mod rhythm;
 mod scene;
@@ -234,7 +235,11 @@ impl Library {
 }
 
 struct Shared {
-    latest: Mutex<Option<Arc<Frame>>>,
+    /// The frames published for readers (see [`published`]).
+    frames: Mutex<published::Published<Arc<Frame>>>,
+    /// How long the frame taken last by [`Visualizer::next_frame`] waited from being published,
+    /// in nanoseconds plus one; 0 once the render thread has seen it.
+    taken_age: AtomicU64,
     status: Mutex<Status>,
     next_frame_id: AtomicU64,
     /// Whether the automatic preset switching waits (the user locked the preset or a menu is
@@ -334,7 +339,8 @@ impl Visualizer {
         };
         Self {
             shared: Arc::new(Shared {
-                latest: Mutex::new(None),
+                frames: Mutex::default(),
+                taken_age: AtomicU64::new(0),
                 status: Mutex::new(status),
                 next_frame_id: AtomicU64::new(1),
                 auto_switch_paused: AtomicBool::new(false),
@@ -557,7 +563,9 @@ impl Visualizer {
         let worker = lock(&self.worker).take()?;
         let _ = worker.commands.send(Command::Stop);
         let input = worker.handle.join().ok();
-        *lock(&self.shared.latest) = None;
+        let frames = lock(&self.shared.frames).clear();
+        drop(frames);
+        self.shared.taken_age.store(0, Ordering::Relaxed);
         input
     }
 
@@ -663,7 +671,28 @@ impl Visualizer {
 
     /// The most recent frame, if the visualizer is running and has rendered one.
     pub fn latest_frame(&self) -> Option<Arc<Frame>> {
-        lock(&self.shared.latest).clone()
+        lock(&self.shared.frames).newest()
+    }
+
+    /// The frame to show next: the oldest frame that was not handed out here yet, else the one
+    /// handed out last again (none before the first frame). A reader that calls this once per
+    /// display refresh shows every frame even when two were finished within one refresh (see
+    /// [`published`]); while another frame waits, the frame listener is told about it again.
+    pub fn next_frame(&self) -> Option<Arc<Frame>> {
+        let taken = lock(&self.shared.frames).take(Instant::now());
+        // Dropped outside the lock: releasing a readback buffer unmaps it.
+        drop(taken.replaced);
+        if let Some(age) = taken.age {
+            let nanos = u64::try_from(age.as_nanos()).unwrap_or(u64::MAX - 1);
+            self.shared.taken_age.store(nanos + 1, Ordering::Relaxed);
+        }
+        if let Some(next) = taken.next {
+            let listener = lock(&self.shared.frame_listener).clone();
+            if let Some(listener) = listener {
+                listener(next.id);
+            }
+        }
+        taken.frame
     }
 
     /// `listener` is called with the id of every new frame, from the render thread right after
@@ -938,8 +967,13 @@ fn run(
             shared.status().preset_name = pipeline.preset_name().to_string();
         }
         let rendered = pipeline.render(time)?;
+        let age = match shared.taken_age.swap(0, Ordering::Relaxed) {
+            0 => None,
+            nanos => Some(Duration::from_nanos(nanos - 1)),
+        };
         if let Some(bench) = &mut bench {
-            bench.frame(&mut pipeline, Instant::now());
+            let taken = lock(&shared.frames).count();
+            bench.frame(&mut pipeline, Instant::now(), taken, age);
         }
         show(shared, &pipeline, rendered);
         // The output falls back to reading frames back if pixel buffers, shared textures or shared
@@ -962,8 +996,22 @@ fn run(
         // Wait for the next frame: first for the frames still being drawn, to show each as soon as
         // the GPU has finished it, then for commands.
         deadline += interval;
+        // Publish frames a little before Flutter takes them (see [`published`]).
+        if let Some(age) = age {
+            let step = published::phase_step(age, interval);
+            let shift = Duration::from_secs_f64(step.abs());
+            deadline = if step >= 0.0 {
+                deadline + shift
+            } else {
+                deadline.checked_sub(shift).unwrap_or(deadline)
+            };
+        }
         show_finished(shared, &mut pipeline, deadline)?;
         let now = Instant::now();
+        // A frame that is late by less than one interval starts the next one at once, so that
+        // frames keep the target's rate on average. Counting again from a late frame made every
+        // frame that late: a wait for the GPU ends a little after its deadline more often than
+        // not, and on an iPhone that alone cost 52 fps instead of 60.
         if deadline > now {
             match commands.recv_timeout(deadline - now) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
@@ -976,7 +1024,7 @@ fn run(
                 ),
                 Err(RecvTimeoutError::Timeout) => {}
             }
-        } else {
+        } else if now - deadline >= interval {
             // Rendering is slower than the target: do not try to catch up.
             deadline = now;
         }
@@ -1156,9 +1204,9 @@ fn publish(shared: &Shared, width: u32, height: u32, data: FrameData) {
         height,
         data,
     });
-    let previous = lock(&shared.latest).replace(frame);
+    let dropped = lock(&shared.frames).push(frame, Instant::now());
     // Dropped outside the lock: releasing a readback buffer unmaps it.
-    drop(previous);
+    drop(dropped);
     let listener = lock(&shared.frame_listener).clone();
     if let Some(listener) = listener {
         listener(id);
