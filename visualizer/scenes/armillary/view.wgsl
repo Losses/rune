@@ -239,20 +239,54 @@ fn nearest_on_circle(o: vec3f, d: vec3f, ax: vec3f, r: f32) -> vec4f {
 // a pixel over and up: how much it covers the pixel (`width` pixels wide, with a little glow as
 // it is `lit`), and how near its side it is (0 far, 1 near); 0 where it is not.
 fn line_at(o: vec3f, d: vec3f, dx: vec3f, dy: vec3f, i: u32, r: f32, amp: f32, width: f32, lit: f32, limit: f32) -> vec2f {
-  let here = off_ring(o, d, i, r, amp);
-  let right = off_ring(o, dx, i, r, amp);
-  let above = off_ring(o, dy, i, r, amp);
-  // (Only near the circle itself: far off, by the line where the plane runs out of sight, the
-  // estimate of the distance on the screen fails.)
-  if (here.y > 0.5 && here.y < limit && right.y > 0.0 && above.y > 0.0 && abs(here.x) < 1.0) {
-    let gap = abs(here.x) / max(length(vec2f(right.x - here.x, above.x - here.x)), 1e-6);
-    let w = max(width, 1.0);
-    let ink = (1.0 - smoothstep(w * 0.5, w * 0.5 + 1.0, gap)) * width / w + exp(-gap / (2.0 + 2.0 * lit)) * lit * 0.12;
-    let q = o + d * here.y - state.centre;
-    let side = clamp(dot(q, -state.cam_fwd) / r, -1.0, 1.0);
-    return vec2f(ink, side * 0.5 + 0.5);
+  // First without the spectrum (no turning the point into an angle, no looking it up): where
+  // the ray and the rays of the next pixels meet the plane, and how far from the circle.
+  let ax = state.ring_z[i].xyz;
+  let hc = off_circle(o, d, ax, r);
+  let hr = off_circle(o, dx, ax, r);
+  let ha = off_circle(o, dy, ax, r);
+  if (!(hc.y > 0.5 && hc.y < limit && hr.y > 0.0 && ha.y > 0.0)) {
+    return vec2f(0.0);
   }
-  return vec2f(0.0);
+  // The spectrum moves the line out by up to amp (see off_ring), so the ray's point is at least
+  // `least` from it in the plane. (Only near the circle itself: far off, by the line where the
+  // plane runs out of sight, the estimate of the distance on the screen fails.)
+  let pushed = select(amp, 0.0, amp < 0.001);
+  let least = max(max(hc.x - pushed * 1.0001, -hc.x), 0.0);
+  if (least >= 1.0) {
+    return vec2f(0.0);
+  }
+  // From one pixel to the next the distance to the line changes by no more than the points move
+  // in the plane, and the spectrum by as fast as it can rise (a whole step of it between two of
+  // its 96 points) over the angle they turn through. Where that puts the pixel further than
+  // `far` pixels from the line, only the glow's tail would reach it (under a hundred-thousandth):
+  // left out. At half quality and below the glow ends sooner, at half that.
+  let p = o + d * hc.y - state.centre;
+  let sr = length(o + dx * hr.y - state.centre - p);
+  let sa = length(o + dy * ha.y - state.centre - p);
+  let inner = length(p) - max(sr, sa);
+  if (inner > 1e-3) {
+    let steep = (1.0 + pushed * 15.3 / inner) * length(vec2f(sr, sa));
+    let far = select(4.0, 8.0, frame.quality > 0.6) * (2.0 + 2.0 * lit);
+    if (least > far * 1.01 * max(steep, 1e-6)) {
+      return vec2f(0.0);
+    }
+  }
+  var none: RingAt;
+  none.k = -1.0;
+  let here = off_ring(o, d, i, r, amp, none);
+  if (!(abs(here.off.x) < 1.0)) {
+    return vec2f(0.0);
+  }
+  // (The next pixels' points mostly lie between the same two points of the spectrum.)
+  let right = off_ring(o, dx, i, r, amp, here).off;
+  let above = off_ring(o, dy, i, r, amp, here).off;
+  let gap = abs(here.off.x) / max(length(vec2f(right.x - here.off.x, above.x - here.off.x)), 1e-6);
+  let w = max(width, 1.0);
+  let ink = (1.0 - smoothstep(w * 0.5, w * 0.5 + 1.0, gap)) * width / w + exp(-gap / (2.0 + 2.0 * lit)) * lit * 0.12;
+  let q = o + d * here.off.y - state.centre;
+  let side = clamp(dot(q, -state.cam_fwd) / r, -1.0, 1.0);
+  return vec2f(ink, side * 0.5 + 0.5);
 }
 
 fn ring_lines(o: vec3f, at: vec2f, step: f32, pixel: f32, limit: f32) -> vec3f {
@@ -334,6 +368,48 @@ fn mark(at: vec2f, b: vec3f, o: vec3f, size: f32, plus: bool, px1: f32, limit: f
   return vec2f(ink * dim, zc);
 }
 
+// How far from the ray a mark of a ring (none bigger than `size`, none further from the core than
+// hi; crosses if `plus`) can be and still touch the pixel (`pixel` its width over the distance): its
+// reach on the screen, as mark draws it (a dot's radius and its soft edge, a cross's arms and
+// theirs, never under a pixel), taken back to the distance it is at, with a little to spare. A
+// mark further from the ray draws nothing there.
+fn mark_reach(o: vec3f, hi: f32, size: f32, pixel: f32, plus: bool) -> f32 {
+  let foot = pixel * (length(o - state.centre) + hi);
+  let rad = max(size, 0.6 * foot);
+  return select(1.02 * (rad + 0.5 * foot) + 1e-5, 2.0 * rad + 2.5 * foot, plus);
+}
+
+// Whether a dot or a tick of a ring (axis ax, its dots between radii lo and hi about the core)
+// could be within `reach` of the ray o, d at all: only if the ray comes within that of the ring's
+// plane while it is within that of the band between lo and hi.
+fn could_mark(o: vec3f, d: vec3f, ax: vec3f, lo: f32, hi: f32, reach: f32) -> bool {
+  let w = o - state.centre;
+  let den = dot(d, ax);
+  let height = dot(w, ax);
+  // How far from the core the ray is, |w + d t|², at its nearest and at the ends of the stretch
+  // within reach of the plane.
+  let wd = dot(w, d);
+  let ww = dot(w, w);
+  if (abs(den) < 1e-6) {
+    // (Along the plane: all of the ray, or none of it.)
+    return abs(height) <= reach && ww - wd * wd <= (hi + reach) * (hi + reach);
+  }
+  let tp = -height / den;
+  let half = reach / abs(den);
+  let t0 = tp - half;
+  let t1 = tp + half;
+  let tn = clamp(-wd, t0, t1);
+  let nearest = ww + tn * (2.0 * wd + tn);
+  if (nearest > (hi + reach) * (hi + reach)) {
+    return false;
+  }
+  // (The furthest is at an end of the stretch: if both ends are inside the hole, so is all of it.)
+  let low = max(lo - reach, 0.0);
+  let f0 = ww + t0 * (2.0 * wd + t0);
+  let f1 = ww + t1 * (2.0 * wd + t1);
+  return max(f0, f1) >= low * low;
+}
+
 fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
   var col = vec3f(0.0);
   let d = view_ray(at);
@@ -360,19 +436,43 @@ fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
       let line = line_at(o, d, dx, dy, i, r, amp, 1.8, 0.4, limit);
       col += state.palette[1].rgb * line.x * spec * (0.55 + on.z * 0.8) * params.ring_glow * mix(0.45, 1.0, line.y);
     }
+    // (Most pixels are far from every mark of a ring: there it is not looked at. Its dots are
+    // between r and r + amp from the core, the ecliptic's ticks between r - 3.6 gap and r - 0.9
+    // gap; each is looked for only where it could be.)
+    let lo = r + min(amp, 0.0);
+    let hi = r + max(amp, 0.0);
+    let biggest = params.bead_size * 1.15 * (1.0 + 0.6 * max(on.z, 0.0));
+    let reach = mark_reach(o, hi, biggest, px1 / state.focal, i % 2u == 1u);
+    let dots = could_mark(o, d, z, lo, hi, reach);
+    var ticks = false;
+    if (main) {
+      ticks = could_mark(o, d, z, r - 3.6 * gap, r - 0.9 * gap, mark_reach(o, r, params.bead_size * 0.945, px1 / state.focal, false));
+    }
+    if (!dots && !ticks) {
+      continue;
+    }
+    let lowest = select(lo, min(lo, r - 3.6 * gap), ticks);
     // Where to look: round the angle where the ray crosses the plane, and where it comes nearest.
     var angles = vec2f(-10.0);
     let den = dot(d, z);
+    // (The second look finds only dots more than a dot and a half round from the first's; where
+    // the ray crosses the plane steeply enough, any such dot is further than `reach` from it.)
+    var again = true;
+    var crossing = 0.0;
     if (abs(den) > 1e-4) {
       let tp = dot(c0 - o, z) / den;
       if (tp > 0.0) {
         let q = o + d * tp - c0;
+        crossing = length(q);
         angles.x = atan2(dot(q, y), dot(q, x));
+        again = 2.0 * sqrt(crossing * max(lowest, 0.0)) * sin(4.712389 / n) * abs(den) < reach * 1.01;
       }
     }
-    let near = nearest_on_circle(o, d, z, r);
-    let qn = near.yzw - c0;
-    angles.y = atan2(dot(qn, y), dot(qn, x));
+    if (again) {
+      let near = nearest_on_circle(o, d, z, r);
+      let qn = near.yzw - c0;
+      angles.y = atan2(dot(qn, y), dot(qn, x));
+    }
     var best = vec3f(0.0);
     var tried = vec3f(-1e9);
     for (var a = 0u; a < 2u; a++) {
@@ -389,10 +489,44 @@ fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
         if (a == 0u) {
           tried[u32(dk + 1.0)] = k;
         }
+        // (Only a dot with ticks, where only the ticks could reach.)
+        let has_ticks = main && (u32(k) % 6u) == 0u;
+        if (!dots && !(ticks && has_ticks)) {
+          continue;
+        }
+        // (Nor one so far round from where the ray crosses the plane that, crossing it as steeply
+        // as it does, the ray passes further than `reach` from it and its ticks.)
+        if (angles.x > -9.0) {
+          let round_off = abs(fract(k / n - angles.x / 6.2831853 + 0.5) - 0.5) * 6.2831853;
+          let inmost = select(lo, lowest, has_ticks);
+          if (2.0 * sqrt(crossing * max(inmost, 0.0)) * sin(round_off * 0.5) * abs(den) >= reach * 1.01) {
+            continue;
+          }
+        }
         let u = k / n;
         let ang = u * 6.2831853;
         let out = x * cos(ang) + y * sin(ang);
-        let b = c0 + out * (r + amp * round_spectrum(u));
+        // (A mark further than `reach` from the ray draws nothing on this pixel: the dot, which the
+        // spectrum moves out by up to amp, and each tick, are each looked at only nearer than that.)
+        let near_dot = dots && length(cross(c0 + out * r - o, d)) - max(amp, 0.0) * 1.0001 < reach * 1.01;
+        var near_ticks = false;
+        if (ticks && has_ticks) {
+          for (var j = 1.0; j <= 4.0; j += 1.0) {
+            near_ticks = near_ticks || length(cross(c0 + out * (r - j * gap * 0.9) - o, d)) < reach * 1.01;
+          }
+        }
+        if (!near_dot && !near_ticks) {
+          continue;
+        }
+        // (Where the spectrum would move the dot by less than the radius can show, it is not
+        // looked up.)
+        var lift = 0.0;
+        var loud = -1.0;
+        if (amp >= r * 2.9802322e-8) {
+          loud = round_spectrum(u);
+          lift = amp * loud;
+        }
+        let b = c0 + out * (r + lift);
         // Whether this dot has come on: within how far the lighting has spread from where it began.
         let from_start = min(fract(u - on.x), fract(on.x - u));
         let glow = on.z * f32(from_start <= on.y + 0.5 / n);
@@ -400,21 +534,29 @@ fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
         let size = params.bead_size * mix(0.7, 1.15, side) * (1.0 + 0.6 * glow);
         // (Every other ring is all crosses, the rest all dots.)
         let plus = (i % 2u) == 1u;
-        var m = mark(at, b, o, size, plus, px1, limit);
+        var m = vec2f(0.0);
+        if (near_dot && length(cross(b - o, d)) < reach * 1.01) {
+          m = mark(at, b, o, size, plus, px1, limit);
+        }
         m.x *= 1.0 - spec;
         if (m.x > 0.0) {
           let ink = state.ring_tint[i].rgb * rest * mix(0.3, 1.0, side) + state.palette[1].rgb * glow * 2.5;
           best = max(best, ink * m.x);
         }
         // The ecliptic's ticks: inward from every sixth dot, as many dots as it is loud there.
-        if (main && (u32(k) % 6u) == 0u) {
-          let loud = round_spectrum(u);
+        if (near_ticks) {
+          if (loud < 0.0) {
+            loud = round_spectrum(u);
+          }
           let count = floor(1.0 + loud * 4.0 * params.tick_spec / 0.4);
           for (var j = 1.0; j <= 4.0; j += 1.0) {
             if (j > count) {
               break;
             }
             let bt = c0 + out * (r - j * gap * 0.9);
+            if (length(cross(bt - o, d)) >= reach * 1.01) {
+              continue;
+            }
             let mt = mark(at, bt, o, params.bead_size * 0.7 * mix(0.75, 1.35, side), false, px1, limit);
             best = max(best, state.ring_tint[i].rgb * rest * mix(0.3, 1.0, side) * (0.6 + loud) * mt.x);
           }
@@ -454,18 +596,38 @@ fn round_spectrum(u: f32) -> f32 {
   return rv_spectrum(1.0 - abs(2.0 * fract(u) - 1.0), 0.0);
 }
 
+// A point met on a ring's line (see off_ring): how far off it and along the ray, and the two of
+// the 96 points of the spectrum it lies between (k the first, -1 for none) and their values.
+struct RingAt {
+  off: vec2f,
+  k: f32,
+  nodes: vec2f,
+}
+
 // As off_circle, for ring i (radius r) drawn as a line of the spectrum: pushed out by `amp`
-// times the spectrum at 96 points round it, straight from point to point.
-fn off_ring(o: vec3f, d: vec3f, i: u32, r: f32, amp: f32) -> vec2f {
+// times the spectrum at 96 points round it, straight from point to point. (`near` is a point met
+// before, whose two points of the spectrum are used again if they are the same.)
+fn off_ring(o: vec3f, d: vec3f, i: u32, r: f32, amp: f32, near: RingAt) -> RingAt {
+  var at_ring: RingAt;
+  at_ring.k = -1.0;
   let h = off_circle(o, d, state.ring_z[i].xyz, r);
   if (amp < 0.001 || h.y < 0.0) {
-    return h;
+    at_ring.off = h;
+    return at_ring;
   }
   let q = o + d * h.y - state.centre;
   let at = fract(atan2(dot(q, state.ring_y[i].xyz), dot(q, state.ring_x[i].xyz)) / 6.2831853) * 96.0;
   let k = floor(at);
-  let out = mix(round_spectrum(k / 96.0), round_spectrum((k + 1.0) / 96.0), at - k);
-  return vec2f(h.x - amp * out, h.y);
+  // (Between the same two points as `near`, the spectrum is not looked up again.)
+  var nodes = near.nodes;
+  if (k != near.k) {
+    nodes = vec2f(round_spectrum(k / 96.0), round_spectrum((k + 1.0) / 96.0));
+  }
+  let out = mix(nodes.x, nodes.y, at - k);
+  at_ring.off = vec2f(h.x - amp * out, h.y);
+  at_ring.k = k;
+  at_ring.nodes = nodes;
+  return at_ring;
 }
 
 // How far the ray meets the plane of the circle about the core (axis ax, radius r) from the
