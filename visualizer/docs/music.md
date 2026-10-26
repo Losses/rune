@@ -1,0 +1,355 @@
+# What a scene hears
+
+A scene reads the music as named fields of `music` (`struct Music`). This document says what each field means, where its value comes from, what a scene should drive with it, and what a built-in scene must not read. `README.md` describes the frame, the scene format and how the beat tracker and the song's chart work; `src/scene/inputs.rs` fills the raw fields and `src/scene/signals.rs` computes the semantic signals.
+
+The runtime does all the measuring and all the falling back. It decides whether there is a chart, whether the beat can be trusted, and what to tell a scene when something cannot be measured. A scene expresses what it wants to show. It never checks whether a chart exists and never writes a fallback of its own, so every scene gives the same answer to "is there a beat" and "is this a big moment".
+
+Two kinds of field exist:
+
+- The **semantic signals** (`tempo` to `impact`) say what the music is doing. They are the interface for built-in scenes and the one to prefer in any scene.
+- The **raw fields** (`song_time` to `hit`) are what the chart and the live analysis found, unprocessed. They stay available to every scene. Built-in scenes may not read the ones that have a semantic replacement (see "Raw fields").
+
+Principles the signals follow:
+
+1. One intent has one signal. "Move at the music's speed" is `tempo`, "now is a time to change the view" is `cues`.
+2. A signal is accurate and a scene decides how much to react. How large and how fast a reaction is belongs in the scene's `[[param]]`s (see "Parameters for tuning").
+3. The constants below (time constants, thresholds, gaps) are initial defaults. They will be tuned by ear, so a scene must not depend on their exact values.
+
+## Semantic signals
+
+They are added at the end of `struct Music`, after `hit`; the existing fields keep their places. All counts (`cues`, `notes`, `impacts`) are the number of events since the last frame, like `beats`. All moments below (cues, notes, impacts) fire only on a steady frame: the song time moved forward by about a frame's worth and the chart is the same as in the last frame. A seek, a stall, a new track and the chart arriving fire nothing.
+
+"Case A, B, C" mean the three sources of the raw fields (defined under "Raw fields"): A is a chart with a beat, B is a chart without a beat, C is no chart yet, with the live analysis only.
+
+### Tempo and clock
+
+| Field | Type, range | Meaning |
+|---|---|---|
+| `tempo` | f32, beats per minute, never 0 | The speed to take motion from. |
+| `clock` | f32, beats | A beat clock that always runs. |
+| `meter` | f32, 2 to 7, never 0 | Beats per bar. |
+| `locked` | f32, 0 to 1 | Whether the music's beat is being followed right now. |
+
+**`tempo`.** With a trusted beat it equals `bpm`. Without one it is worked out from `feel`: 3 to 7 Hz map linearly to 70 to 110, and 90 when `feel` has not been measured. When the source changes (the chart arrives or leaves, the beat becomes trusted or is lost) or the target steps by more than 2 bpm in one frame (as when the tracker finds twice the tempo), it glides to the new value with a time constant of 1 s, until it is within 0.5 bpm or for at most 5 s. Otherwise a trusted tempo is told as it comes, and the tempo from `feel` is followed with a time constant of 1 s. Drive with it: speeds of continuous motion (flying, rotating, drifting) as `tempo` times a parameter, and durations given in beats (convert with `60.0 / music.tempo`). Do not read `bpm` or `feel` for this.
+
+**`clock`.** With a trusted beat it is in phase with `beat`. Without one it runs on its own at `tempo`. It never goes backwards: where the beat's phase is behind it, the clock waits for it. When the beat becomes trusted, and after a seek or when the chart arrives or leaves (the beat then counts from elsewhere), the integer part is also aligned to the bar by moving forward once, by at most `meter - 1` beats, so that `floor(clock) % meter == 0` marks the downbeat; otherwise only the phase is corrected. The fractional part is the phase within the beat. Drive with it: one step or one pose per beat (`floor` for which beat, `fract` for the phase) and `rv_beat_pulse`. Do not keep your own `last_beat` or your own clock.
+
+**`meter`.** The chart's `beats_per_bar` when there is one, 4 when there is none, limited to 2 to 7. A downbeat is `floor(clock) % u32(meter) == 0`.
+
+**`locked`.** 1 when the beat is trusted and a beat arrived within the last 2.5 beats, else 0, smoothed to the output with a time constant of 0.3 s. It replaces the `sure` that scenes used to compute. Use it to fade grid motion (steps on the beat) in and out, so that a scene is quiet when the beat is lost.
+
+### Energy
+
+| Field | Type, range | Meaning |
+|---|---|---|
+| `drive` | f32, 0 to 1 | Slow energy, at the scale of a section. |
+| `intensity` | f32, 0 to 1 | Fast energy, at the scale of a phrase. |
+
+**`drive`.** With a chart it is the energy of the current section, moving to the next section's energy along a squared curve over the last 4 bars of the section (8 s when there is no beat). Without a chart it is the smoothed loudness with a time constant of 1.5 s. Drive with it: brightness, bloom, colour richness, how busy a scene is. It changes slowly on purpose. It can scale a speed by about plus or minus 20 % but should not replace `tempo`.
+
+**`intensity`.** How loud it is now, relative to the song, with a time constant of 0.8 s. Drive with it: the size of a core, the strength of a light, what changes within a phrase. Do not read `loudness` or `energy` for this.
+
+### Moments
+
+| Field | Type, range | Meaning |
+|---|---|---|
+| `cues` | u32 | Big moments since the last frame. |
+| `cue` | f32, 0 to 1 | Strength envelope of the last cue, decaying with a time constant of 1 s. |
+| `cue_in` | f32, seconds, -1 if unknown | Time until the next known cue. |
+| `notes` | u32 | Melody notes since the last frame. |
+| `note` | f32, 0 to 1 | Strength envelope of the last note. |
+| `impacts` | u32 | Hard hits in the middle of a section since the last frame. |
+| `impact` | f32, 0 to 1 | Strength envelope of the last impact, time constant 0.35 s. |
+
+**`cues` and `cue`.** A cue is a time that suits a change of view, colour scheme or formation, or a special effect. Where it comes from:
+
+| Case | Cue | Strength |
+|---|---|---|
+| A or B (a chart) | The start of a section | 1 when the section's energy rises by more than 0.1, else 0.5 |
+| Any case, while the beat is followed (`locked` above 0.5) | 8 bars after the last cue of any kind; a section start begins the count again | 0.3 |
+| Any case, while the beat is not followed | The first hit 16 s or more after the last cue | 0.2 |
+
+The two fallbacks do not depend on the chart, so that a chart with one long section still has cues.
+
+Two cues are at least 4 s apart. A scene should act on a cue only when its strength is enough for what it does (for example a camera cut at `cue >= 0.5`, a special effect at `cue >= 0.8`). Do not use timers for this, and do not check for a chart.
+
+**`cue_in`.** The time until the next cue that is known in advance. For now that is the chart's `section_left`; it is -1 when nothing is known, which is always the case in C. Use it to start a camera slide early so that the new view arrives on the section's start, and as a lead-in for transitions. Test for `cue_in >= 0.0` before using it.
+
+**`notes` and `note`.** Notes of the melody. With a chart they are onsets of the harmonic stream of strength 0.3 or more. Without one a note is the mid band rising above its recent average (rising threshold 0.35, slow average with a time constant of 0.6 s, with hysteresis, as Badge Tunnel did). Two notes are at least 0.1 s apart. Use them for melodic decoration (a spark, a ripple). Do not write note detection in a scene.
+
+**`impacts` and `impact`.** One hard hit inside a section: the low onset (the chart's `low` stream, or the live kick without a chart) rising above 0.95 while the music is loud enough (`drive > 0.55`), at least 6 s after the last one. An impact does not trigger a camera change; it is for a raised eyebrow, a jump, a single shake. The name avoids `frame.accent`, which is the player's theme colour.
+
+### Bands
+
+| Field | Type, range | Meaning |
+|---|---|---|
+| `band_low`, `band_mid`, `band_high` | f32, about 1 on average | Levels of the low, mid and high bands, fast up and slow down. |
+
+They rise with a time constant of 0.03 s and fall with 0.2 s. They are three scalars and not a `vec3f` because a `vec3f` in WGSL is aligned to 16 bytes, which would break the sequential layout of `struct Music`. They replace the `bass`, `mids` and `treble` that scenes smoothed themselves. For the shape of the spectrum itself read `rv_spectrum` and `rv_waveform`.
+
+### Fallbacks at a glance
+
+| Signal | A (chart, beat) | B (chart, no beat) | C (live only) |
+|---|---|---|---|
+| `tempo` | `bpm` | from `feel` | `bpm` if the beat is trusted, else from `feel` |
+| `clock` | follows `beat` | runs on `tempo` | follows `beat` if trusted, else runs on `tempo` |
+| `meter` | chart's | chart's | 4 |
+| `locked` | 0 or 1 by beats | 0 | 0 or 1 by beats |
+| `drive` | section energy | section energy | smoothed loudness |
+| `cues` | section starts, and every 8 bars without one | section starts, and the first hit after 16 s without one | every 8 bars if locked, else the first hit after 16 s without one |
+| `cue_in` | `section_left` | `section_left` | -1 |
+
+## Raw fields
+
+The raw fields keep the order of `MusicValues::fields()` in `src/scene/inputs.rs`. Third-party scenes may read any of them. Built-in scenes may read only the fields marked "yes" in the last column; the others are checked by a test that scans `visualizer/scenes`, and the table says what to read instead.
+
+The three cases:
+
+- **A**: the song has a chart and the chart has a beat. `bpm`, `beat` and `beat_confidence` come from the chart's beats.
+- **B**: the song has a chart but the whole song has no steady pulse (a chart without beats). That is the verdict for the song, whatever the live tracker thinks. `bpm`, `beat` and `beat_confidence` read 0, and `beats` and `bars` never fire. Sections and levels still come from the chart.
+- **C**: no chart (not analysed yet, or an online track). The live beat tracker and the live spectrum are all there is. The tracker's beats count only while its confidence is at least 0.3 (`PULSE_CONFIDENCE`). Below that `bpm`, `beats` and `bars` read 0 ("untrusted"). `bpm > 0` therefore always means there is a beat to trust.
+
+Without a chart, `music()` fills in as follows: `has_chart` is 0, `beats_per_bar` is 4, `bar` is `beat / 4` of the tracker, there is one long section (`section`, `section_label`, `section_repeat`, `section_time`, `section_left`, `section_confidence`, `next_label` and `sections` read 0), `low`, `mid` and `high` are the tracker's kick, snare and hat onsets, `loudness` is the tracker's `energy / 2` limited to 0 to 1, and `section_energy` and `next_energy` both equal that `loudness`. `pulse` is the tracker's confidence, `lead` is -1, and `harmonic`, `phrase`, `lead_onset`, `brightness`, `percussive` and `meter_confidence` read 0.
+
+| Field | Meaning, range | A: chart with beat | B: chart without beat | C: live only | Built-in scene may read | Instead |
+|---|---|---|---|---|---|---|
+| `song_time` | Seconds into the song | same | same | same | not restricted | |
+| `playing` | u32, 1 while the song plays | same | same | same | not restricted | |
+| `bpm` | Tempo in beats per minute; 0 means no trusted beat | Chart's, over the 8 beats around now | 0 | Tracker's if confidence >= 0.3, else 0 | no | `tempo`, `locked` |
+| `beat` | Beat count; the integer part is which beat, the fraction is the phase (0 on the beat) | Beats since the song's first beat, so it jumps on a seek | 0 | Tracker's beat (not zeroed when untrusted, so it may still move; do not read it as a trusted beat) | no | `clock` |
+| `beat_confidence` | 0 to 1, how clearly the music has a beat | Chart's confidence at the nearest beat | 0 | Tracker's confidence | no | `locked` |
+| `beats_per_bar` | Beats in a bar | Chart's meter | Chart's meter | 4 | no | `meter` |
+| `bar` | Bar count with the phase in the bar as the fraction | Chart's | 0 | `beat / 4` of the tracker (also when untrusted) | yes | |
+| `meter_confidence` | 0 to 1, how sure the meter is | Chart's | Chart's | 0 | not restricted | |
+| `beats` | u32, beats since the last frame | Counted, 0 unless trusted | 0 | Counted while trusted, else 0 | yes | |
+| `bars` | u32, bars since the last frame | Counted, 0 unless trusted | 0 | Counted while trusted, else 0 | yes | |
+| `sections` | u32, section starts since the last frame | Counted | Counted | 0 | no | `cues` |
+| `section` | Index of the section | Chart's | Chart's | 0 | yes | |
+| `section_label` | Same value for sections that repeat (every chorus); label A is 0, B is 1 and so on | Chart's | Chart's | 0 | yes | |
+| `section_repeat` | How often this label has appeared before | Chart's | Chart's | 0 | yes | |
+| `section_energy` | 0 to 1, loudness of this section | Chart's | Chart's | Same as `loudness` | no | `drive` |
+| `next_label` | Label of the next section (this one's in the last section) | Chart's | Chart's | 0 | yes | |
+| `next_energy` | 0 to 1, energy of the next section | Chart's | Chart's | Same as `loudness` | no | `drive` |
+| `section_time` | Seconds since this section started | Chart's | Chart's | 0 | not restricted | |
+| `section_left` | Seconds until this section ends | Chart's | Chart's | 0 | no | `cue_in` |
+| `section_confidence` | 0 to 1, how sure the section boundaries are | Chart's | Chart's | 0 | not restricted | |
+| `low` | Onset envelope of the percussive low band: jumps to the onset's strength, then decays | Chart's onsets | Chart's onsets | Tracker's kick (30 to 160 Hz) | yes | |
+| `mid` | Same, percussive mid band | Chart's onsets | Chart's onsets | Tracker's snare (160 Hz to 4 kHz) | yes | |
+| `high` | Same, percussive high band | Chart's onsets | Chart's onsets | Tracker's hat (5 to 16 kHz) | yes | |
+| `harmonic` | Same, pitched sounds | Chart's | Chart's | 0 | no | `notes` |
+| `phrase` | Same, phrase starts | Chart's | Chart's | 0 | yes | |
+| `lead` | Leading stream: -1 none, 0 low, 1 mid, 2 high, 3 harmonic | Chart's | Chart's | -1 | no | `notes` |
+| `lead_onset` | Onset envelope of the leading stream | Chart's | Chart's | 0 | no | `notes` |
+| `loudness` | 0 to 1, loudness relative to this song | Chart's curve | Chart's curve | Tracker's `energy / 2`, limited to 0 to 1 | no | `intensity`, `drive` |
+| `brightness` | 0 to 1, spectral brightness | Chart's curve | Chart's curve | 0 | yes | |
+| `percussive` | 0 to 1, how percussive the sound is | Chart's curve | Chart's curve | 0 | yes | |
+| `pulse` | 0 to 1, how clear the rhythm is around now | Chart's curve | Chart's curve | Tracker's confidence | not restricted | |
+| `bass` | Live low level, about 1 on average | Live | Live | Live | no | `band_low` |
+| `mids` | Live mid level, about 1 on average | Live | Live | Live | no | `band_mid` |
+| `treble` | Live high level, about 1 on average | Live | Live | Live | no | `band_high` |
+| `energy` | Loudness of the last second against the last 20 s, about 1 | Live | Live | Live | no | `drive`, `intensity` |
+| `has_chart` | u32, 1 when the values come from a chart | 1 | 1 | 0 | no | Scenes do not check this |
+| `feel` | How fast it sounds now, in Hz: about 3 for a ballad, 7 for drum and bass; 0 until measured | Chart's curve when the chart has one, else live | same as A | Live | no | `tempo` |
+| `song_feel` | `feel` over the whole song | Chart's when it has one, else live | same as A | Live, over the song so far | no | `tempo` |
+| `hits` | u32, moments to move on since the last frame | Every trusted beat, strength 1 | Onsets of the leading stream (the harmonic one if none leads) and phrase starts, at least 0.3 | Live kick, snare or hat onsets rising above 0.5 while the beat is untrusted; trusted beats count as hits | yes | |
+| `hit` | Envelope of the last hit: jumps to its strength (0 to 1), decays with a time constant of 0.2 s | same | same | same | yes | |
+
+Notes on the table:
+
+- Two hits made of onsets are at least 0.25 s apart, and a seek, a stall or the chart arriving fires none. `hits - beats` is the number of hits that were not beats.
+- The chart's `bar` is derived from its beats, so in B it is 0.
+- `pulse`, `section_time`, `section_confidence`, `meter_confidence`, `song_time` and `playing` have no semantic replacement and are not on the restricted list.
+- Fields that no case fills (a 0 in the table) stay 0 for the whole song, so a scene that reads one of them in a case that does not fill it gets a constant.
+
+Always allowed besides these fields: `rv_spectrum`, `rv_waveform`, and every `frame.*` field.
+
+## Recommended practice
+
+### Which signal for which role
+
+| Role in the picture | Use | Do not use |
+|---|---|---|
+| Speed of continuous motion (advance, rotation, drift) | `tempo` times a parameter, `drive` may scale it by plus or minus 20 %, smoothed with a time constant of 0.5 s or more | `bpm`, `feel` |
+| One pose or step per beat, phase animation | `clock` (`fract` for the phase, `floor` for the beat) with `rv_beat_pulse` | A `last_beat` of your own, your own clock |
+| Small movements on the beat (a push, a sway, a turn by one step) | `hits` to trigger, `hit` or an `rv_env` envelope (time constant 0.15 to 0.3 s) | Treating `hits > 0` as a beat |
+| Movements at the scale of a bar | `bars`; they only run while the beat is followed, and a scene stays calm when it is not | Inventing bars from onsets |
+| Camera moves, colour scheme or formation changes | `cues`, only when the strength is enough. Slide the camera (duration in beats, at least 2 bars, started early with `cue_in` when it is known), or jump and write `post.cut = 1` in the same frame so the transition layer takes over | Timers every N seconds, checks for a chart, transitions of your own |
+| How a section looks (every chorus the same) | `section_label` through `rv_label_hash` | |
+| Brightness, bloom, colour richness | `drive` (slow) | A flash on every beat |
+| Swell of the moment (size of a core, strength of a light) | `intensity` | `loudness`, `energy` |
+| One heavy hit inside a section (a jump, a shake) | `impacts`, `impact` | Your own `low > threshold` test |
+| Melodic decoration | `notes`, `note` | Your own note detection |
+| Spectrum and waveform graphics | `rv_spectrum`, `rv_waveform` | |
+| Colour | The hue of `frame.accent` with a `player_colour` parameter | A fixed multicolour rainbow |
+
+### Taste rules
+
+Built-in scenes follow these, and other scenes are asked to.
+
+- **No flashes by default.** `post.flash` is 0 by default. It is used only when `cue >= 0.8` and a parameter turns it on. No pulse of light happens more than twice a second.
+- **Calm transitions.** A change of view prefers a slide. A jump is handed to the transition layer with `post.cut = 1`. A hard transition belongs only to the strongest cues and lands on a downbeat.
+- **One colour family, night first.** Colours follow the player's accent. The default exposure is dark.
+- **Motion on the beat, not light on the beat.** Moving things follow the music; the light stays steady.
+- **Quiet when there is no beat.** When the beat is not followed (`locked` near 0), grid motion stops and only continuous motion and the small movements on `hits` remain.
+- **Design rules rather than random variety.** Variation comes from rules (what a chorus looks like, what a drop does), not from random picks.
+
+### Patterns
+
+The snippets are sketches; `state` is the scene's `struct State`, and the fields they use are assumed to be declared there.
+
+Speed from `tempo`. The advance is in beats per second of a parameter, smoothed so that a change of source is not seen:
+
+```wgsl
+fn update() {
+  let dt = rv_dt();
+  let goal = music.tempo / 60.0 * params.cruise_per_beat * (0.8 + 0.4 * music.drive);
+  if (frame.first == 1u) { state.speed = goal; }
+  state.speed = rv_approach(state.speed, goal, dt, 0.5);
+  state.z += state.speed * dt;
+}
+```
+
+One step per beat from `clock`. The step is the integer part, the ease inside the beat is the phase, and the pulse is in beat units:
+
+```wgsl
+fn beat_step() -> f32 {
+  let whole = floor(music.clock);
+  let phase = fract(music.clock);
+  let ease = phase * phase * (3.0 - 2.0 * phase);
+  return whole + ease;                       // advances one unit per beat
+}
+fn beat_bounce() -> f32 {
+  // A hop on each beat, for motion rather than light; quiet when the beat is lost.
+  return params.bounce_amount * rv_beat_pulse(music.clock, 6.0) * music.locked;
+}
+```
+
+A nudge on hits with `rv_env`. Hits work with or without a beat:
+
+```wgsl
+fn update() {
+  let dt = rv_dt();
+  // music.hit is already an envelope; this one is the scene's own, with a time constant it can tune.
+  state.nudge = rv_env(state.nudge, music.hit, dt, params.nudge_time);
+  state.pos.y = params.nudge_amount * state.nudge;
+}
+```
+
+A camera move on cues, started early with `cue_in`. The slide lasts a number of beats, and a scene that does not know the next cue in advance starts when the cue fires:
+
+```wgsl
+fn update() {
+  let dt = rv_dt();
+  let slide_time = params.slide_beats * 60.0 / music.tempo;   // seconds
+  let strong = music.cue >= params.cue_min;
+  var start = false;
+  if (state.sliding == 0u) {
+    if (music.cue_in >= 0.0 && music.cue_in < slide_time && state.armed == 1u) {
+      start = true;                          // arrive on the section's start
+    } else if (music.cues > 0u && strong && state.armed == 1u) {
+      start = true;                          // the cue was not known in advance
+    }
+  }
+  if (music.cues > 0u) { state.armed = 1u; }  // the next slide may start
+  if (start) {
+    state.armed = 0u;
+    state.sliding = 1u;
+    state.slide_t = 0.0;
+    state.from = state.view;
+    state.to = rv_hash(frame.seed + u32(state.slide_count)) % 4u;
+    state.slide_count += 1u;
+  }
+  if (state.sliding == 1u) {
+    state.slide_t += dt / slide_time;
+    if (state.slide_t >= 1.0) { state.sliding = 0u; state.view = state.to; }
+  }
+}
+```
+
+(`armed` is 1 when the scene has not yet moved for the cue it is waiting for. It should start at 1 on `frame.first`. A view picked from `section_label` instead of `rv_hash` makes every chorus use the same view: `u32(rv_label_hash(music.section_label, 7u) * 4.0)`.)
+
+## Parameters for tuning
+
+The standard fixes how the music is measured. How much a scene reacts is the scene's own and is tuned by hand, with the scene reloading as it is edited. For that:
+
+- Every quantity that decides how large or how fast a reaction is becomes a `[[param]]` with a unit and a range. The groups are fixed: beat, picture, camera, colour, performance.
+- Names: time constants end in `_time` (seconds) or `_beats` (beats), amounts end in `_amount`, switches are bool.
+- A duration that is tied to the music is written in beats and converted with `60 / tempo`, so that a fast song and a slow song feel the same.
+- A scene declares no parameter that nothing reads.
+
+## Performance
+
+The runtime keeps the frame rate by adapting. This is how it does so (the details of the controller are in `README.md`):
+
+- **Dynamic resolution.** A factor from 0.5 to 1.0 in steps of 0.05. The internal size is the output size times `[render] scale` times the factor. `[render] scale` is the upper limit. `[[buffer]] scale` is relative to the internal size and shrinks with it.
+- **`frame.quality`.** The levels are 1, 0.75, 0.5, 0.25 and 0. The resolution goes down first. Only when it is at 0.5 and the frame is still over budget does the quality go down. Going back up, the quality rises first and then the resolution.
+- **Trigger.** The average GPU time of the last 0.5 s over 85 % of the frame's time lowers the level, aiming at 70 %. Only a time under 55 % raises the quality. After a raise that had to be taken back, the next wait doubles.
+- **What is timed.** GPU timestamps of the scene and the post-processing. Flutter's own 2 to 4 ms per frame are not part of it.
+- The render size is limited to 1920 by 1080, and shaders are compiled on the render thread when a scene is loaded, so switching to a heavy scene can stall a frame.
+
+### Budget
+
+The reference device is an iPhone 13 mini (A15), whose full-resolution output is about 448 by 970.
+
+- **Hard rule.** After optimising, a scene holds 60 fps on the reference device. The runtime may lower the resolution and the quality to get there, but the picture it falls back to must be one that is still good to look at.
+- **Goal.** Scene and post-processing take at most 10 ms at full quality and full resolution (quality 1, factor 1), and at most 6 ms at the lowest level (factor 0.5, quality 0), leaving room for Flutter's 2 to 4 ms.
+
+### Rules for scene authors
+
+1. **Read `frame.quality`, and say in a comment what each level drops**: ray-march steps, samples, layers, particles. Quality may only cut detail, never composition or colour. At level 0 the scene must still be recognisable. A scene that does not read it makes the controller lower the resolution to the minimum and then run out of options.
+2. **Count the cost in rays, not pixels.** A long serial loop (ray marching, a pass over every object) does not get faster with a lower resolution. Multiply the step limit by a quality factor, exit early, and replace "every pixel loops over all objects" with tile lists.
+3. **Work out sizes in pixels from `frame.resolution` (or the pass's size) each frame.** Do not cache them. A buffer that keeps the last frame is stretched when the size changes, so the effect has to tolerate that.
+4. **A heavy scene sets `[render] scale` below 1** (0.75, for example). Buffers for blur or depth of field use 0.5. A deliberately coarse, large-pixel style is a legitimate saving, but it changes the look, so it should be shown to the user before it is chosen.
+5. **Bound every loop in `update()`.** It runs serially on the GPU once per frame.
+6. **Keep shaders small**, and keep the common files short. Compile time stalls the picture on a scene switch.
+7. **Declare `covers = true` only when the scene needs the covers.**
+
+## Shared effects
+
+This section describes interfaces that are planned. None of it is implemented yet, so no scene can use it today. They are written down so that scenes and the runtime agree on the shape.
+
+All shared effects read the same semantic signals, are declared in `scene.toml` with a strength (all off by default), and give way to quality: when the quality is lowered, they are lowered first.
+
+### Filters and lens effects (glitch, glare, light leaks, motion blur)
+
+The runtime puts them in the built-in post-processing and adds the matching fields to `struct Post`. They can be triggered in two ways: the scene writes `post.*` in `update()`, as it does now, or it declares them in an `[effects]` table of `scene.toml` and the runtime triggers them on cues, for example `glitch = { on = "cue", min = 0.8, amount = 0.3 }`. An automatic trigger can only hang on `cue` and `impact`. There is no "on every beat" option, by the taste rules above.
+
+### Transitions
+
+One transition layer serves both the switch from one scene to the next and a camera cut inside a scene.
+
+- **Two entrances.** A scene switch is started by the runtime. A camera cut is started by the scene: it writes `post.cut = 1` in `update()` to say "my view jumped in this frame". Both use the same library of effects (a fade, a hard cut on the downbeat, a whip, a glitch cut, a light-leak cut). Which ones exist and which is the default is decided by the work on transitions.
+- **The runtime** keeps the old picture when a transition starts (a history frame; the old scene is no longer drawn during the switch), combines the old and new pictures according to the effect, and converts the duration to beats with `tempo`.
+- **Timing** reads the semantic signals. A scene switch waits for the next cue (using `cue_in` to see it coming) instead of a random timer. When the beat is followed it lands on a downbeat; when it is not, it picks a moment of low `intensity`. There is a longest wait, after which it switches anyway. A scene decides its own camera cuts from `cues`.
+- **A scene may state a preference** in a `[transition]` table of `scene.toml`: which transitions suit it and the strongest it accepts.
+- **Taste.** Transitions are calm by default. Violent ones (a glitch cut, a flash cut) hang only on the strongest cues. There is no "transition on every beat".
+- Glitch and light leaks can be a filter triggered on a cue and a transition. They share one shader.
+
+### Lyrics
+
+Lyrics are an overlay drawn by the runtime after tone mapping, so the text is sharp and bloom does not smear it (an optional glow can be added). What a scene can read goes into a struct of its own, `struct Lyrics`, so the layout of `Music` does not change. Its fields are:
+
+- `has_lyrics`,
+- the current line's index, the time since it started and the time left in it,
+- the progress through the words,
+- `lines`: how many lines started in this frame.
+
+A scene may declare in a `[lyrics]` table of `scene.toml` that it shows no lyrics, or give the area and alignment for them and whether their colour follows the theme. It may also read the fields to respond, for example to darken the background a little when a new line starts. The start of a line is not a cue, because lines come too often. Passing the lyrics from Dart to the visualizer is separate work.
+
+### Later effects
+
+Later effects follow the same pattern: they read the semantic signals, are declared in `scene.toml` and off by default, give way to quality, and obey the taste rules.
+
+## Helpers for these patterns
+
+`stdlib.wgsl` provides stateless functions for them.
+
+| Function | Meaning |
+|---|---|
+| `rv_dt()` | `min(frame.dt, 0.05)`: one upper limit for the time step in every scene |
+| `rv_approach(x, goal, dt, tau)` | Exponential approach of `x` to `goal` (not `target`, a reserved word in WGSL) |
+| `rv_env(prev, input, dt, tau)` | `max(prev * exp(-dt / tau), input)`, an envelope |
+| `rv_beat_pulse(clock, sharpness)` | A spike on the beat, like `rv_pulse` with a beat clock as the phase |
+| `rv_label_hash(label, k)` | A number from 0 to 1 that is the same for the same section label and differs for each `k`, so that all scenes hash labels the same way |
+
+The random functions are `rv_unit`, `rv_rand1` and `rv_rand2` (there is no `rv_rand(seed)`).
