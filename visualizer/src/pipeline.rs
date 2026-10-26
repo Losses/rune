@@ -187,6 +187,15 @@ fn choose_adapter(
         ..Default::default()
     }))
     .map_err(|e| anyhow!("No GPU adapter: {e}"))?;
+    // Without a DirectX 12 GPU wgpu falls back to WARP, Windows' software renderer, whose shader
+    // compiler crashes the whole process on most scenes (its control-flow analysis overruns its
+    // own stack), so the visualizer does not start there.
+    #[cfg(target_os = "windows")]
+    if adapter.get_info().device_type == wgpu::DeviceType::Cpu {
+        return Err(anyhow!(
+            "The visualizer needs a DirectX 12 GPU; only Windows' software renderer is available"
+        ));
+    }
     Ok((
         adapter,
         cfg!(not(any(target_os = "windows", target_os = "linux"))),
