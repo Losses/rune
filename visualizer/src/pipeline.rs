@@ -462,6 +462,7 @@ impl Pipeline {
         self.timer
             .collect(&self.device, &self.queue, &mut self.times);
         let now = self.now();
+        self.report.tick(now);
         let mut change = None;
         if let Some(recorded) = &mut self.recorded {
             recorded.extend_from_slice(&self.times);
@@ -471,8 +472,9 @@ impl Pipeline {
                 let level = self.controller.level();
                 let (width, height) = self.scene.internal_size();
                 info!(
-                    "Visualizer {}: GPU {:.1} ms on average, {:.1} ms at worst ({} frames); now resolution {:.2} ({width}x{height}), quality {:.2}",
+                    "Visualizer {}: {:.1} fps, GPU {:.1} ms on average, {:.1} ms at worst ({} frames); now resolution {:.2} ({width}x{height}), quality {:.2}",
                     self.scene.name,
+                    summary.fps,
                     summary.average * 1e3,
                     summary.worst * 1e3,
                     summary.frames,
@@ -481,12 +483,31 @@ impl Pipeline {
                 );
             }
             if self.adaptive {
-                change = self.controller.frame(now, seconds).or(change);
+                self.controller.sample(now, seconds);
             }
         }
         self.times.clear();
-        if let Some(level) = change {
-            self.scene.set_level(&self.device, &self.queue, level);
+        if self.adaptive {
+            change = self.controller.tick(now);
+        }
+        if let Some(change) = change {
+            if let Some(undone) = change.undone {
+                info!(
+                    "Visualizer {}: {} did not help ({:.1} fps before, {:.1} after); back to resolution {:.2}, quality {:.2}",
+                    self.scene.name,
+                    if undone.raise {
+                        "the raise"
+                    } else {
+                        "the lowering"
+                    },
+                    undone.fps_before,
+                    undone.fps_after,
+                    change.level.factor,
+                    change.level.quality,
+                );
+            }
+            self.scene
+                .set_level(&self.device, &self.queue, change.level);
         }
     }
 
@@ -1003,10 +1024,13 @@ mod tests {
 
     static LINES: Lines = Lines(std::sync::Mutex::new(Vec::new()));
 
-    /// Growth with a budget of 1 ms a frame: the resolution goes down to its floor, then the
-    /// quality, and the frame times are logged once per interval (1 s here, 10 s in the app).
+    /// Growth with a budget of 1 ms a frame, drawn at about 200 fps by the sleep between frames,
+    /// whatever the resolution: the GPU time is over the budget and the frame rate under the
+    /// target, so the controller lowers the level, sees that the frame rate does not follow and
+    /// puts it back (and says so), and the frame rate is logged once per interval (1 s here,
+    /// 10 s in the app).
     #[test]
-    fn a_heavy_scene_lowers_its_level_and_logs_its_frame_times() {
+    fn a_lowering_that_does_not_raise_the_frame_rate_is_undone_and_logged() {
         let Ok(mut pipeline) = Pipeline::new(
             1920,
             1080,
@@ -1025,16 +1049,18 @@ mod tests {
             log::set_max_level(log::LevelFilter::Info);
         }
         pipeline.load_builtin_scene("Growth").unwrap();
-        let full = pipeline.scene.internal_size();
         pipeline.set_target_fps(1000);
         pipeline.report = Report::new(1.0);
-        let floor = crate::adaptive::Level {
-            factor: crate::adaptive::MIN_FACTOR,
-            quality: 0.0,
-        };
         let started = Instant::now();
         let mut levels = Vec::new();
-        while started.elapsed().as_secs_f64() < 15.0 && pipeline.controller.level() != floor {
+        let undone = |lines: &std::sync::Mutex<Vec<String>>| {
+            lines
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.starts_with("Visualizer Growth:") && l.contains("did not help"))
+        };
+        while started.elapsed().as_secs_f64() < 15.0 && !undone(&LINES.0) {
             pipeline.render(started.elapsed().as_secs_f64()).unwrap();
             let level = pipeline.controller.level();
             if levels.last() != Some(&level) {
@@ -1043,7 +1069,7 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(4));
         }
-        // One more second for a line at the lowest level.
+        // One more second for a line with the frame rate.
         let last = Instant::now();
         while last.elapsed().as_secs_f64() < 1.2 {
             pipeline.render(started.elapsed().as_secs_f64()).unwrap();
@@ -1054,19 +1080,16 @@ mod tests {
             .lock()
             .unwrap()
             .iter()
-            .filter(|l| l.starts_with("Visualizer Growth:") || l.contains("frame times come"))
+            .filter(|l| l.starts_with("Visualizer Growth:"))
             .cloned()
             .collect();
         for line in &lines {
             eprintln!("{line}");
         }
-        assert_eq!(pipeline.controller.level(), floor, "{levels:?}");
-        let size = pipeline.scene.internal_size();
-        assert!(
-            size.0 <= full.0 / 2 + 1 && size.1 <= full.1 / 2 + 1,
-            "{full:?} {size:?}"
-        );
-        assert!(lines.iter().any(|l| l.starts_with("Visualizer Growth:")));
+        assert!(undone(&LINES.0), "{levels:?}");
+        assert_eq!(pipeline.controller.level(), Level::FULL, "{levels:?}");
+        assert!(levels.len() >= 2, "it never lowered: {levels:?}");
+        assert!(lines.iter().any(|l| l.contains(" fps, GPU ")), "{lines:?}");
     }
 }
 
