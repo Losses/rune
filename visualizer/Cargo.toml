@@ -43,7 +43,10 @@ wgpu = { version = "30", default-features = false, features = ["vulkan"] }
 # The shared-texture frame path of Windows. wgpu-hal's DirectX 12 backend uses this version of the
 # windows crate, so its COM types are ours.
 [target.'cfg(target_os = "windows")'.dependencies]
-wgpu = { version = "30", default-features = false, features = ["dx12"] }
+# `static-dxc` builds DXC into the program, which wgpu then compiles shaders with in place of FXC
+# (old and very slow: a minute or more for one large scene shader). wgpu-hal links it on x86_64
+# only; on ARM64 wgpu looks for `dxcompiler.dll` and falls back to FXC.
+wgpu = { version = "30", default-features = false, features = ["dx12", "static-dxc"] }
 windows = { version = "0.62", default-features = false, features = ["Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Security"] }
 
 # The shared-image frame path of Linux. wgpu-hal's Vulkan backend uses this version of ash, so
