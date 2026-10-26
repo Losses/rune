@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use chart_analyzer::chart::{Beat, Curves};
 use chart_analyzer::decode::Cancelled;
 use fsio::FsIo;
-use log::{debug, info, warn};
+use log::{info, warn};
 
 /// The streams, in the order of [`ChartState::events`]; a lead of `i + 1` is stream `i`.
 const STREAMS: [&str; 5] = ["low", "mid", "high", "harmonic", "phrase"];
@@ -353,9 +353,11 @@ impl ChartFollower {
                 self.loading = Some(self.analyse(Arc::clone(fsio), path.clone()));
             }
         }
+        let mut arrived = false;
         if let Some(receiver) = &self.loading {
             match receiver.try_recv() {
                 Ok(chart) => {
+                    arrived = chart.is_some();
                     self.chart = chart;
                     self.loading = None;
                 }
@@ -365,6 +367,10 @@ impl ChartFollower {
         }
         let t = self.clock.tick(playback, now);
         self.time = t;
+        if arrived && let Some(path) = &self.path {
+            // Until now the live tracker had the beats.
+            info!("The chart of {} took over at {t:.1} s", path.display());
+        }
         self.chart.as_ref().map(|chart| chart.at(t))
     }
 
@@ -394,7 +400,7 @@ impl ChartFollower {
                     Some(Chart::from_analysis(chart))
                 }
                 Err(e) if e.downcast_ref::<Cancelled>().is_some() => {
-                    debug!("Analysis of {} cancelled", path.display());
+                    info!("Analysis of {} cancelled", path.display());
                     None
                 }
                 Err(e) => {
@@ -417,6 +423,7 @@ impl ChartFollower {
 impl Drop for ChartFollower {
     /// The visualizer stops: so does the analysis.
     fn drop(&mut self) {
+        info!("The visualizer stopped following the song");
         self.cancel_analysis();
     }
 }
