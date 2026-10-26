@@ -58,7 +58,17 @@ class _LensFlareEffectState extends State<LensFlareEffect>
       // frame. A fresh shader per frame left every snapshot to the garbage
       // collector; on iOS (Impeller) they piled up to gigabytes within a few
       // seconds and the app was killed for exceeding its memory limit.
-      return _fragmentShader = program.fragmentShader();
+      final shader = program.fragmentShader();
+
+      // The widget can be removed before the asset finishes loading. Its
+      // dispose has then already run with no shader to release.
+      if (!mounted) {
+        shader.dispose();
+      } else {
+        _fragmentShader = shader;
+      }
+
+      return shader;
     } catch (e) {
       rethrow;
     }
