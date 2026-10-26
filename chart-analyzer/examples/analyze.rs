@@ -1,25 +1,43 @@
 //! `analyze FILE... --out DIR`: analyse each file into `DIR/<stem>.json` (the stem of the given
-//! path, as the prototype names its charts) and print how long decoding and analysing took.
+//! path, as the prototype names its charts) and print how long decoding and analysing took
+//! (the front end runs as the file is decoded, so the time is split between its two halves
+//! only after that: the front end with the decoding, then the back end).
 //!
 //! A file ending in `.f32` is read as raw little-endian `f32` mono samples at 22050 Hz instead
 //! of decoded, so that the back end can be fed exactly the samples the Python analysed.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
-use chart_analyzer::{analyze, decode::decode, np::round_to};
+use chart_analyzer::{back::back, decode::decode_with, front::FrontBuilder, np::round_to};
 use fsio::FsIo;
 
-/// The samples of a raw `.f32` file.
-fn read_raw(path: &Path) -> Result<Vec<f32>> {
-    let bytes = std::fs::read(path)?;
-    Ok(bytes
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|b| f32::from_le_bytes(*b))
-        .collect())
+/// Feeds the samples of a raw `.f32` file to `front`, a piece at a time.
+fn read_raw(path: &Path, front: &mut FrontBuilder) -> Result<()> {
+    let mut file = std::fs::File::open(path)?;
+    let (mut bytes, mut samples) = (vec![0u8; 4 * 16384], Vec::new());
+    let mut filled = 0;
+    loop {
+        let n = file.read(&mut bytes[filled..])?;
+        filled += n;
+        let whole = filled / 4 * 4;
+        samples.clear();
+        samples.extend(
+            bytes[..whole]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b)),
+        );
+        front.push(&samples);
+        bytes.copy_within(whole..filled, 0);
+        filled -= whole;
+        if n == 0 {
+            return Ok(());
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -43,21 +61,20 @@ fn main() -> Result<()> {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         let t0 = Instant::now();
-        let samples = if file.extension().is_some_and(|e| e == "f32") {
-            read_raw(&file)
+        let mut front = FrontBuilder::new();
+        let read = if file.extension().is_some_and(|e| e == "f32") {
+            read_raw(&file, &mut front)
         } else {
-            decode(&fsio, &file)
+            decode_with(&fsio, &file, &mut |samples| front.push(samples))
         };
-        let samples = match samples {
-            Ok(s) => s,
-            Err(e) => {
-                println!("{stem}: failed: {e:#}");
-                continue;
-            }
-        };
+        if let Err(e) = read {
+            println!("{stem}: failed: {e:#}");
+            continue;
+        }
+        let front = front.finish();
         let decode_s = t0.elapsed().as_secs_f64();
         let t1 = Instant::now();
-        let mut chart = analyze(&samples);
+        let mut chart = back(&front, None);
         let analysis_s = t1.elapsed().as_secs_f64();
         chart.title = stem.clone();
         chart.audio = file
@@ -71,7 +88,7 @@ fn main() -> Result<()> {
             serde_json::to_vec(&chart)?,
         )?;
         println!(
-            "{stem}: decode {decode_s:.2} s, analysis {analysis_s:.2} s, {} bpm conf {}, {} beats",
+            "{stem}: decode and front {decode_s:.2} s, back {analysis_s:.2} s, {} bpm conf {}, {} beats",
             chart.tempo.bpm,
             chart.tempo.confidence,
             chart.beats.len()

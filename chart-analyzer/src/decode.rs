@@ -1,5 +1,6 @@
-//! Decoding a file the player can play into the analysis's input: the whole file as mono `f32`
-//! at 22050 Hz. The file is opened and probed the way `analysis`'s metadata reader does and
+//! Decoding a file the player can play into the analysis's input: the file as mono `f32` at
+//! 22050 Hz, handed on as it is decoded and resampled (see `decode_with`), so that no more than
+//! a packet and the resampler's buffers is held. The file is opened and probed the way `analysis`'s metadata reader does and
 //! decoded with the player's codecs (`fsio_media_source::get_codecs`: all of Symphonia's, with
 //! FDK-AAC and libopus for AAC and Opus), so every file the player can play can be analysed.
 //!
@@ -11,8 +12,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail};
 use rubato::{
-    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
-    calculate_cutoff,
+    Resampler as _, SincFixedIn, SincInterpolationParameters, SincInterpolationType,
+    WindowFunction, calculate_cutoff,
 };
 use symphonia::core::{
     audio::SampleBuffer,
@@ -38,14 +39,17 @@ const OVERSAMPLING: usize = 256;
 /// Frames the resampler takes at a time.
 const CHUNK: usize = 4096;
 
-/// `decode`: the whole file at `path` as mono `f32` at 22050 Hz (the channels' mean).
+/// `decode`: the whole file at `path` as mono `f32` at 22050 Hz (the channels' mean), in one
+/// vector. `decode_with` does the same without holding the song.
 pub fn decode(fsio: &FsIo, path: &Path) -> Result<Vec<f32>> {
-    let (mono, rate) = decode_native(fsio, path)?;
-    resample(mono, rate, SR as u32)
+    let mut samples = Vec::new();
+    decode_with(fsio, path, &mut |chunk| samples.extend_from_slice(chunk))?;
+    Ok(samples)
 }
 
-/// The whole file as mono `f32` at its own sample rate, which is returned with it.
-fn decode_native(fsio: &FsIo, path: &Path) -> Result<(Vec<f32>, u32)> {
+/// The file at `path` as mono `f32` at 22050 Hz (the channels' mean), handed to `sink` in
+/// pieces as it is decoded and resampled: only a packet and the resampler's buffers are held.
+pub fn decode_with(fsio: &FsIo, path: &Path, sink: &mut dyn FnMut(&[f32])) -> Result<()> {
     let src = fsio
         .open(path, "r")
         .with_context(|| format!("failed to open {}", path.display()))?;
@@ -72,9 +76,11 @@ fn decode_native(fsio: &FsIo, path: &Path) -> Result<(Vec<f32>, u32)> {
         .make(&params, &DecoderOptions::default())
         .map_err(|e| anyhow!("no decoder for the codec: {e}"))?;
 
-    let expected = params.n_frames.unwrap_or(0) as usize;
-    let mut mono = Vec::with_capacity(expected);
-    let (mut rate, mut errors) = (params.sample_rate.unwrap_or(0), 0);
+    if params.sample_rate.unwrap_or(1) == 0 {
+        bail!("the file has no sample rate");
+    }
+    let mut resampler: Option<Resampler> = None;
+    let (mut errors, mut mono) = (0, Vec::new());
     let mut buffer: Option<SampleBuffer<f32>> = None;
     loop {
         let packet = match format.next_packet() {
@@ -100,67 +106,149 @@ fn decode_native(fsio: &FsIo, path: &Path) -> Result<(Vec<f32>, u32)> {
         };
         errors = 0;
         let spec = *decoded.spec();
-        rate = spec.rate;
         let channels = spec.channels.count().max(1);
         let buf = match &mut buffer {
             Some(b) if b.capacity() >= decoded.capacity() * channels => b,
             slot => slot.insert(SampleBuffer::new(decoded.capacity() as u64, spec)),
         };
         buf.copy_interleaved_ref(decoded);
+        mono.clear();
         mono.extend(
             buf.samples()
                 .chunks_exact(channels)
                 .map(|f| f.iter().sum::<f32>() / channels as f32),
         );
+        // The rate is the first packet's.
+        let r = match &mut resampler {
+            Some(r) => r,
+            slot => slot.insert(Resampler::new(spec.rate, SR as u32)?),
+        };
+        r.push(&mono, sink)?;
     }
-    if rate == 0 {
+    if let Some(r) = resampler {
+        r.finish(sink)?;
+    } else if params.sample_rate.is_none() {
         bail!("the file has no sample rate");
     }
-    Ok((mono, rate))
+    Ok(())
 }
 
 /// `samples` at `from` Hz as `to` Hz, all of them: the length is `samples.len() * to / from`
 /// rounded, and what comes out lines up with what went in (rubato's sinc resampler has no
 /// delay to remove, which the impulse test checks).
 pub fn resample(samples: Vec<f32>, from: u32, to: u32) -> Result<Vec<f32>> {
-    if from == to || samples.is_empty() {
-        return Ok(samples);
-    }
-    let window = WindowFunction::BlackmanHarris2;
-    let parameters = SincInterpolationParameters {
-        sinc_len: SINC_LEN,
-        f_cutoff: calculate_cutoff(SINC_LEN, window),
-        oversampling_factor: OVERSAMPLING,
-        interpolation: SincInterpolationType::Cubic,
-        window,
-    };
-    let ratio = f64::from(to) / f64::from(from);
-    let mut resampler = SincFixedIn::<f32>::new(ratio, 1.0, parameters, CHUNK, 1)
-        .map_err(|e| anyhow!("cannot resample {from} Hz to {to} Hz: {e}"))?;
-    let n = samples.len();
-    let wanted = (n as f64 * ratio).round() as usize;
-    let mut chunk_out = resampler.output_buffer_allocate(true);
-    let mut out = Vec::with_capacity(wanted + CHUNK);
-    let mut pos = 0;
-    while n - pos >= resampler.input_frames_next() {
-        let end = pos + resampler.input_frames_next();
-        let (used, written) = resampler
-            .process_into_buffer(&[&samples[pos..end]], &mut chunk_out, None)
-            .map_err(|e| anyhow!("resampling failed: {e}"))?;
-        out.extend_from_slice(&chunk_out[0][..written]);
-        pos += used;
-    }
-    // The rest of the input, then silence until the filter has said everything it has.
-    let mut rest = (pos < n).then(|| &samples[pos..]);
-    while out.len() < wanted {
-        let input = rest.take().map(|r| [r]);
-        let (_, written) = resampler
-            .process_partial_into_buffer(input.as_ref().map(|i| i.as_slice()), &mut chunk_out, None)
-            .map_err(|e| anyhow!("resampling failed: {e}"))?;
-        out.extend_from_slice(&chunk_out[0][..written]);
-    }
-    out.truncate(wanted);
+    let mut out = Vec::with_capacity(samples.len() * to as usize / from as usize + CHUNK);
+    let mut resampler = Resampler::new(from, to)?;
+    resampler.push(&samples, &mut |chunk| out.extend_from_slice(chunk))?;
+    resampler.finish(&mut |chunk| out.extend_from_slice(chunk))?;
     Ok(out)
+}
+
+/// A sinc resampler fed as the samples come. What it has made is held back by `HELD` samples,
+/// which are the only ones the song's end may cut off (the output is exactly
+/// `round(input * to / from)` long).
+struct Resampler {
+    /// `None` when the rates are the same and the samples pass through.
+    sinc: Option<SincFixedIn<f32>>,
+    ratio: f64,
+    /// Input not yet resampled: less than a chunk.
+    pending: Vec<f32>,
+    out: Vec<Vec<f32>>,
+    /// Output made but not handed on yet.
+    held: Vec<f32>,
+    /// How many samples came in, and how many were handed on.
+    taken: usize,
+    given: usize,
+}
+
+/// How much output is held back until more has come, so that the end can be trimmed.
+const HELD: usize = 2 * CHUNK;
+
+/// Hands on all but the last `keep` samples of `held`, counting them in `given`.
+fn release(held: &mut Vec<f32>, given: &mut usize, keep: usize, sink: &mut dyn FnMut(&[f32])) {
+    let n = held.len().saturating_sub(keep);
+    if n > 0 {
+        sink(&held[..n]);
+        *given += n;
+        held.drain(..n);
+    }
+}
+
+impl Resampler {
+    fn new(from: u32, to: u32) -> Result<Resampler> {
+        let ratio = f64::from(to) / f64::from(from);
+        let sinc = if from == to {
+            None
+        } else {
+            let window = WindowFunction::BlackmanHarris2;
+            let parameters = SincInterpolationParameters {
+                sinc_len: SINC_LEN,
+                f_cutoff: calculate_cutoff(SINC_LEN, window),
+                oversampling_factor: OVERSAMPLING,
+                interpolation: SincInterpolationType::Cubic,
+                window,
+            };
+            Some(
+                SincFixedIn::<f32>::new(ratio, 1.0, parameters, CHUNK, 1)
+                    .map_err(|e| anyhow!("cannot resample {from} Hz to {to} Hz: {e}"))?,
+            )
+        };
+        let out = sinc
+            .as_ref()
+            .map_or_else(Vec::new, |s| s.output_buffer_allocate(true));
+        Ok(Resampler {
+            sinc,
+            ratio,
+            pending: Vec::new(),
+            out,
+            held: Vec::new(),
+            taken: 0,
+            given: 0,
+        })
+    }
+
+    fn push(&mut self, x: &[f32], sink: &mut dyn FnMut(&[f32])) -> Result<()> {
+        self.taken += x.len();
+        let Some(sinc) = &mut self.sinc else {
+            sink(x);
+            self.given += x.len();
+            return Ok(());
+        };
+        self.pending.extend_from_slice(x);
+        while self.pending.len() >= sinc.input_frames_next() {
+            let n = sinc.input_frames_next();
+            let (used, written) = sinc
+                .process_into_buffer(&[&self.pending[..n]], &mut self.out, None)
+                .map_err(|e| anyhow!("resampling failed: {e}"))?;
+            self.held.extend_from_slice(&self.out[0][..written]);
+            self.pending.drain(..used);
+            release(&mut self.held, &mut self.given, HELD, sink);
+        }
+        Ok(())
+    }
+
+    /// The end of the input: the rest of it, then silence until the filter has said everything
+    /// it has, and all that is held.
+    fn finish(mut self, sink: &mut dyn FnMut(&[f32])) -> Result<()> {
+        if let Some(sinc) = &mut self.sinc {
+            let wanted = (self.taken as f64 * self.ratio).round() as usize;
+            let mut rest = (!self.pending.is_empty()).then_some(&self.pending[..]);
+            while self.given + self.held.len() < wanted {
+                let input = rest.take().map(|r| [r]);
+                let (_, written) = sinc
+                    .process_partial_into_buffer(
+                        input.as_ref().map(|i| i.as_slice()),
+                        &mut self.out,
+                        None,
+                    )
+                    .map_err(|e| anyhow!("resampling failed: {e}"))?;
+                self.held.extend_from_slice(&self.out[0][..written]);
+            }
+            self.held.truncate(wanted.saturating_sub(self.given));
+        }
+        release(&mut self.held, &mut self.given, 0, sink);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

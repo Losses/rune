@@ -1,12 +1,18 @@
 //! The back end, a port of the Python prototype's `back()`: the decisions over a whole
-//! song, taken from `front`'s curves. This step covers the rhythm: the onset strengths, the
-//! tempo, the beats and the meter with the downbeats. The sections, phrases, event peaks, lead
-//! and curves (step 1b) follow `rhythm` in `back`, from the values `Rhythm` keeps.
+//! song, taken from `front`'s curves. First the rhythm: the onset strengths, the tempo, the
+//! beats and the meter with the downbeats (`rhythm`, which keeps what the rest needs in
+//! `Rhythm`). Then the sections and phrase starts (`sections`), the event streams' peaks and the
+//! lead (`streams`), and the curves.
+//!
+//! Where the Python's arrays are `float32` the values here are `f32`s held in `f64`s and the
+//! arithmetic that matters for the numbers it writes is done in `f32`, see each function.
 
-use crate::chart::{Beat, Chart, Meter, Tempo as ChartTempo};
-use crate::front::{CFPS, EPS, FPS, Front, SR};
+use crate::chart::{Beat, Chart, Curves, Meter, Tempo as ChartTempo};
+use crate::front::{CFPS, CHOP, EPS, EPS32, FPS, Front, SR};
 use crate::ndimage::{gaussian_filter1d, uniform_filter1d};
 use crate::np::{floor_div, interp, mean, median, modulo, percentile, round_to, searchsorted, std};
+use crate::sections::{SectionInput, feature_stack, phrase_starts, sections};
+use crate::streams::{GAPS, lead_stream, pick};
 use crate::tempo::{dp_beats, feel, near_max, tempo, tempo_window};
 
 /// A prefix shorter than this is too short for the tempo windows (8 s, see `window_acfs`).
@@ -53,6 +59,13 @@ const DOWNBEAT_WEIGHTS: [f64; 4] = [1.0, 0.7, -0.7, 0.3];
 const METER_MARGIN: f64 = 0.6;
 /// A beat's strength reads 1 at this much onset strength.
 const STRENGTH_FULL: f64 = 3.0;
+/// The width (s) of the Gaussian that smooths the percussive and harmonic energy for the share.
+const PERCUSSIVE_SIGMA: f64 = 0.1;
+/// The brightness curve spans these percentiles of the song's moments with sound, which are the
+/// ones louder than `SOUND` (0 to 1).
+const BRIGHT_LOW_PERCENTILE: f64 = 5.0;
+const BRIGHT_HIGH_PERCENTILE: f64 = 95.0;
+const SOUND: f32 = 0.1;
 /// The loudness curve spans the 5th to the 99th percentile of the song, at most this many dB.
 const LOUD_TOP_PERCENTILE: f64 = 99.0;
 const LOUD_FLOOR_PERCENTILE: f64 = 5.0;
@@ -77,14 +90,17 @@ pub fn cut(f: &Front, samples: Option<usize>) -> (usize, usize, usize) {
     }
 }
 
-/// `scale01(x, q)`: `x` divided by its q-th percentile, so a song's strong onsets read about 1.
+/// `scale01(x, q)` of `f32` values (held in `f64`s): `x` divided by its q-th percentile, so a
+/// song's strong onsets read about 1. The division is in `f32`, as numpy does it with a
+/// `float32` array and a `float64` scalar.
 pub fn scale01(x: &[f64], q: f64) -> Vec<f64> {
     let reference = if x.iter().any(|&v| v > 0.0) {
         percentile(x, q)
     } else {
         1.0
     };
-    x.iter().map(|v| v / (reference + EPS)).collect()
+    let divisor = (reference + EPS) as f32;
+    x.iter().map(|&v| f64::from(v as f32 / divisor)).collect()
 }
 
 /// The onset streams, each scaled to its own song.
@@ -96,10 +112,14 @@ pub struct Odfs {
 }
 
 /// The onset streams of the first `nf` frames: low, mid, high percussive and harmonic note
-/// onsets, smoothed, scaled to the song and capped.
+/// onsets, smoothed (a `float32` result), scaled to the song and capped.
 pub fn odf_streams(f: &Front, nf: usize) -> Odfs {
     let one = |raw: &[f64]| -> Vec<f64> {
-        scale01(&gaussian_filter1d(&raw[..nf], ODF_SIGMA), SCALE_PERCENTILE)
+        let smooth: Vec<f64> = gaussian_filter1d(&raw[..nf], ODF_SIGMA)
+            .iter()
+            .map(|&v| f64::from(v as f32))
+            .collect();
+        scale01(&smooth, SCALE_PERCENTILE)
             .into_iter()
             .map(|v| v.min(ODF_CEILING))
             .collect()
@@ -136,6 +156,9 @@ pub struct Rhythm {
     /// The onset strength for the beat.
     pub odf: Vec<f64>,
     pub song_feel: f64,
+    /// How fast the song sounds in each window and the windows' centres (s).
+    pub feels: Vec<f64>,
+    pub fcenters: Vec<f64>,
     /// Per fine frame, the beat period following the tempo through the song.
     pub period: Vec<f64>,
     /// The tempo windows' centres (s) and how clear the pulse is in each, 0 to 1.
@@ -153,12 +176,15 @@ pub struct Rhythm {
     pub beats: Vec<Beat>,
 }
 
-/// The loudness curve of the first `nc` coarse frames, 0 to 1 against the song's own range.
+/// The loudness curve of the first `nc` coarse frames, 0 to 1 against the song's own range. A
+/// `float32` curve: the Python's `float32` loudness minus and over `float64` scalars stays
+/// `float32`, the scalars cast to it.
 fn loudness01(loud: &[f64]) -> Vec<f64> {
     let top = percentile(loud, LOUD_TOP_PERCENTILE);
-    let floor = percentile(loud, LOUD_FLOOR_PERCENTILE).max(top - LOUD_RANGE_DB);
+    let floor_db = percentile(loud, LOUD_FLOOR_PERCENTILE).max(top - LOUD_RANGE_DB);
+    let (floor, range) = (floor_db as f32, (top - floor_db + EPS) as f32);
     loud.iter()
-        .map(|l| ((l - floor) / (top - floor + EPS)).clamp(0.0, 1.0))
+        .map(|&l| f64::from(((l as f32 - floor) / range).clamp(0.0, 1.0)))
         .collect()
 }
 
@@ -335,6 +361,8 @@ pub fn rhythm(f: &Front, nf: usize, nc: usize) -> Rhythm {
         odfs,
         odf,
         song_feel: 0.0,
+        feels: vec![],
+        fcenters: vec![],
         period: vec![],
         ccenters: vec![],
         conf_w: vec![],
@@ -353,10 +381,13 @@ pub fn rhythm(f: &Front, nf: usize, nc: usize) -> Rhythm {
         },
         beats: vec![],
     };
+    // How fast it sounds is a curve of its own, so it is there for a song too short for a tempo.
+    let fl = feel(&f.flux[..nf]);
     if nf < tempo_window() {
+        r.feels = fl.values;
+        r.fcenters = fl.centers;
         return r;
     }
-    let fl = feel(&f.flux[..nf]);
     let act_sum: f64 = fl.act.iter().sum();
     r.song_feel = fl
         .values
@@ -365,6 +396,8 @@ pub fn rhythm(f: &Front, nf: usize, nc: usize) -> Rhythm {
         .map(|(v, a)| v * a)
         .sum::<f64>()
         / (act_sum + EPS);
+    r.feels = fl.values;
+    r.fcenters = fl.centers;
     let t = tempo(&r.odf, r.song_feel);
     let periods: Vec<f64> = t.periods.iter().map(|&p| p as f64).collect();
     // The beat period at every frame, following the tempo through the song.
@@ -402,14 +435,119 @@ pub fn rhythm(f: &Front, nf: usize, nc: usize) -> Rhythm {
     r
 }
 
+/// The share of the sound that is percussive, smoothed (the energies are `float32`, so are the
+/// smoothed ones and what is made of them), at each coarse frame.
+fn percussive_curve(f: &Front, nf: usize, ctimes: &[f64]) -> Vec<f64> {
+    let smooth = |energy: &[f64]| -> Vec<f32> {
+        gaussian_filter1d(&energy[..nf], PERCUSSIVE_SIGMA * FPS)
+            .iter()
+            .map(|&v| v as f32)
+            .collect()
+    };
+    let (pe, he) = (smooth(&f.energy_p), smooth(&f.energy_h));
+    let share: Vec<f64> = pe
+        .iter()
+        .zip(&he)
+        .map(|(&p, &h)| f64::from(p / (p + h + EPS32)))
+        .collect();
+    let ftimes: Vec<f64> = (0..nf).map(|i| i as f64 / FPS).collect();
+    ctimes.iter().map(|&t| interp(t, &ftimes, &share)).collect()
+}
+
+/// The brightness curve: the log of the centroid, between its 5th and 95th percentile over the
+/// moments with sound, 0 to 1.
+fn brightness_curve(cent: &[f64], loud01: &[f64]) -> Vec<f64> {
+    let lc: Vec<f64> = cent.iter().map(|c| (c + 1.0).log2()).collect();
+    let sound: Vec<f64> = lc
+        .iter()
+        .zip(loud01)
+        .filter(|&(_, &l)| l as f32 > SOUND)
+        .map(|(&c, _)| c)
+        .collect();
+    let (q5, q95) = if sound.is_empty() {
+        (0.0, 1.0)
+    } else {
+        (
+            percentile(&sound, BRIGHT_LOW_PERCENTILE),
+            percentile(&sound, BRIGHT_HIGH_PERCENTILE),
+        )
+    };
+    lc.iter()
+        .map(|c| ((c - q5) / (q95 - q5 + EPS)).clamp(0.0, 1.0))
+        .collect()
+}
+
+/// `values` rounded to the 3 decimals the curves are written in.
+fn r3(values: &[f64]) -> Vec<f64> {
+    values.iter().map(|&v| round_to(v, 3)).collect()
+}
+
 /// The chart of the first `samples` samples of a `front` result (the whole song by default), as
 /// if the song ended there.
 pub fn back(f: &Front, samples: Option<usize>) -> Chart {
     let (samples, nf, nc) = cut(f, samples);
+    let duration = samples as f64 / SR as f64;
     let r = rhythm(f, nf, nc);
-    let mut chart = Chart::empty(round_to(samples as f64 / SR as f64, 3));
-    chart.tempo = r.tempo;
-    chart.beats = r.beats;
-    chart.meter = r.meter;
+    let mut chart = Chart::empty(round_to(duration, 3));
+    chart.tempo = r.tempo.clone();
+    chart.beats = r.beats.clone();
+    chart.meter = r.meter.clone();
+
+    let stack = feature_stack(&f.chroma[..nc], &f.timbre[..nc], &r.loud01);
+    chart.sections = sections(&SectionInput {
+        stack: &stack,
+        ctimes: &r.ctimes,
+        loud01: &r.loud01,
+        beats_t: &r.beats_t,
+        beats: &r.beats,
+        meter_confidence: r.meter.confidence,
+        duration,
+    });
+
+    let [low, mid, high, harmonic] =
+        [&r.odfs.low, &r.odfs.mid, &r.odfs.high, &r.odfs.harmonic].map(|odf| odf.as_slice());
+    chart.streams.low.events = pick(low, GAPS[0]);
+    chart.streams.mid.events = pick(mid, GAPS[1]);
+    chart.streams.high.events = pick(high, GAPS[2]);
+    chart.streams.harmonic.events = pick(harmonic, GAPS[3]);
+    chart.streams.phrase.events = phrase_starts(&stack, &r.ctimes, &r.loud01);
+    chart.lead = lead_stream(
+        f,
+        nf,
+        [
+            &chart.streams.low.events,
+            &chart.streams.mid.events,
+            &chart.streams.high.events,
+            &chart.streams.harmonic.events,
+        ],
+        &r.loud01,
+        &r.ctimes,
+        duration,
+    );
+
+    let bconf: Vec<f64> = r
+        .ctimes
+        .iter()
+        .map(|&t| {
+            if r.conf_w.is_empty() {
+                0.0
+            } else {
+                interp(t, &r.ccenters, &r.conf_w)
+            }
+        })
+        .collect();
+    let feel_curve: Vec<f64> = r
+        .ctimes
+        .iter()
+        .map(|&t| interp(t, &r.fcenters, &r.feels))
+        .collect();
+    chart.curves = Curves {
+        hop: round_to(CHOP as f64 / SR as f64, 6),
+        loudness: r3(&r.loud01),
+        brightness: r3(&brightness_curve(&f.cent[..nc], &r.loud01)),
+        percussive: r3(&percussive_curve(f, nf, &r.ctimes)),
+        beat_conf: r3(&bconf),
+        feel: r3(&feel_curve),
+    };
     chart
 }

@@ -22,10 +22,15 @@ pub fn round_half_even(x: f64) -> f64 {
     x.round_ties_even()
 }
 
-/// Python's `round(x, digits)` as the chart writes it, for the few digits it uses.
-pub fn round_to(x: f64, digits: i32) -> f64 {
-    let scale = 10f64.powi(digits);
-    (x * scale).round_ties_even() / scale
+/// Python's `round(x, digits)` as the chart writes it: `x` rounded to the nearest decimal
+/// number of `digits` places by its exact binary value (halves to the even one), which is what
+/// formatting it with that many places does. Scaling it by a power of ten instead would round
+/// the product, and make a tie of a number that lies just off one.
+pub fn round_to(x: f64, digits: usize) -> f64 {
+    if !x.is_finite() {
+        return x;
+    }
+    format!("{x:.digits$}").parse().unwrap_or(x)
 }
 
 /// `np.percentile(x, q)` with the default linear interpolation: the value at the fractional rank
@@ -139,6 +144,37 @@ pub fn geomspace(start: f64, stop: f64, num: usize) -> Vec<f64> {
     out
 }
 
+/// numpy's pairwise summation of a contiguous run, which `np.sum` of a one-dimensional array (and
+/// of a flat array of any shape) uses in the array's own type: fewer than 8 values are added in
+/// order; up to 128 in eight interleaved partial sums, combined as a tree; more are split in
+/// two halves (the first a multiple of 8) summed the same way. 0 for no values.
+pub fn pairwise_sum<T>(a: &[T]) -> T
+where
+    T: Copy + Default + std::ops::Add<Output = T>,
+{
+    const BLOCK: usize = 128;
+    let n = a.len();
+    if n < 8 {
+        return a.iter().fold(T::default(), |sum, &v| sum + v);
+    }
+    if n <= BLOCK {
+        let mut r: [T; 8] = std::array::from_fn(|j| a[j]);
+        let whole = n - n % 8;
+        for chunk in a[8..whole].as_chunks::<8>().0.iter() {
+            for (partial, &v) in r.iter_mut().zip(chunk) {
+                *partial = *partial + v;
+            }
+        }
+        let mut sum = ((r[0] + r[1]) + (r[2] + r[3])) + ((r[4] + r[5]) + (r[6] + r[7]));
+        for &v in &a[whole..] {
+            sum = sum + v;
+        }
+        return sum;
+    }
+    let half = n / 2 - (n / 2) % 8;
+    pairwise_sum(&a[..half]) + pairwise_sum(&a[half..])
+}
+
 /// Python's `a % m` for a positive `m`, the result never negative.
 pub fn modulo(a: i64, m: i64) -> i64 {
     a.rem_euclid(m)
@@ -187,6 +223,14 @@ mod tests {
         // Python: round(0.126, 2), round(0.125, 2)
         close(round_to(0.126, 2), 0.13);
         close(round_to(0.125, 2), 0.12);
+        // Exact ties go to the even digit, and a number just off a tie goes where it lies:
+        // Python: round(0.375, 2), round(0.0625, 3), round(3.0245, 3),
+        // round(3.7234999999999996, 3), round(-0.0004, 3)
+        assert_eq!(round_to(0.375, 2), 0.38);
+        assert_eq!(round_to(0.0625, 3), 0.062);
+        assert_eq!(round_to(3.0245, 3), 3.025);
+        assert_eq!(round_to(3.7234999999999996, 3), 3.723);
+        assert_eq!(round_to(-0.0004, 3), 0.0);
     }
 
     #[test]
@@ -259,6 +303,26 @@ mod tests {
         ] {
             assert!((got[i] - b).abs() < 1e-9 * b, "{} != {b}", got[i]);
         }
+    }
+
+    #[test]
+    fn pairwise_sum_matches_numpy() {
+        // x[i] = f32((i * 37) % 101) * 0.013 + 0.1 in float32 arithmetic; np.sum of it.
+        let x = |n: usize| -> Vec<f32> {
+            (0..n)
+                .map(|i| ((i * 37 % 101) as f32) * 0.013f32 + 0.1f32)
+                .collect()
+        };
+        for (n, want) in [
+            (7, 4.236000061035156),
+            (25, 18.125999450683594),
+            (200, 150.11700439453125),
+            (1000, 750.1300048828125),
+            (5000, 3749.779052734375),
+        ] {
+            assert_eq!(f64::from(pairwise_sum(&x(n))), want, "{n}");
+        }
+        assert_eq!(pairwise_sum::<f64>(&[]), 0.0);
     }
 
     #[test]

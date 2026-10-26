@@ -1,6 +1,5 @@
 //! The chart, the analysis's output: plain data in the shape of the Python prototype's charts,
-//! so that it can be written as JSON and read by the Python tools. The sections, the event
-//! streams' peaks, the lead and the curves are step 1b of the port and stay empty here.
+//! so that it can be written as JSON and read by the Python tools.
 
 use serde::Serialize;
 
