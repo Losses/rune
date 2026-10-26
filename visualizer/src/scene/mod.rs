@@ -176,6 +176,8 @@ enum Input {
 }
 
 struct Pass {
+    /// The shader's file name, which labels the pass (in GPU traces).
+    label: String,
     pipeline: wgpu::RenderPipeline,
     inputs_layout: wgpu::BindGroupLayout,
     inputs: Vec<Input>,
@@ -410,6 +412,10 @@ pub struct Scene {
     last_song: f64,
     index: u32,
     first: bool,
+    /// Tests only: each frame's seed comes from this and the frame's index instead of at random,
+    /// so that the same timeline draws the same pictures (see [`Scene::fix_seed`]).
+    #[cfg(test)]
+    fixed_seed: Option<u32>,
     _keep: Vec<wgpu::Texture>,
 }
 
@@ -1157,6 +1163,7 @@ impl Scene {
                 format,
             );
             passes.push(Pass {
+                label: format!("scene pass {}", pass.shader),
                 pipeline,
                 inputs_layout,
                 inputs,
@@ -1209,6 +1216,8 @@ impl Scene {
             index: 0,
             first: true,
             files,
+            #[cfg(test)]
+            fixed_seed: None,
             _keep: keep,
         })
     }
@@ -1368,6 +1377,14 @@ impl Scene {
         self.level = level;
     }
 
+    /// Tests only: seed each frame from `seed` and its index instead of at random (none: at random
+    /// again). The seed is all that differs between two runs of the same timeline: the scene's
+    /// choices and the grain.
+    #[cfg(test)]
+    pub(crate) fn fix_seed(&mut self, seed: Option<u32>) {
+        self.fixed_seed = seed;
+    }
+
     /// The internal resolution (that of `out`, `frame.resolution`).
     pub fn internal_size(&self) -> (u32, u32) {
         self.sized.size
@@ -1449,7 +1466,12 @@ impl Scene {
         frame.extend((w as f32).to_le_bytes());
         frame.extend((h as f32).to_le_bytes());
         frame.extend((w as f32 / h as f32).to_le_bytes());
-        frame.extend(rand::random::<u32>().to_le_bytes());
+        let seed = rand::random::<u32>();
+        #[cfg(test)]
+        let seed = self.fixed_seed.map_or(seed, |fixed| {
+            fixed.wrapping_add(self.index.wrapping_mul(0x9e37_79b9))
+        });
+        frame.extend(seed.to_le_bytes());
         let [r, g, b] = input.accent.unwrap_or_default();
         for v in [r, g, b, f32::from(u8::from(input.accent.is_some()))] {
             frame.extend(v.to_le_bytes());
@@ -1537,7 +1559,7 @@ impl Scene {
             {
                 let stamps = timestamp_writes(timestamps, begin, false);
                 begin = false;
-                let mut render = begin_pass(encoder, view, "scene pass", stamps);
+                let mut render = begin_pass(encoder, view, &pass.label, stamps);
                 render.set_pipeline(&pass.pipeline);
                 render.set_bind_group(0, &self.pass_globals, &[]);
                 render.set_bind_group(1, &inputs, &[]);

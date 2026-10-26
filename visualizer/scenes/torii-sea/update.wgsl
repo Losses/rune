@@ -375,6 +375,17 @@ fn list_torii() {
     state.tile_n[k] = 0u;
   }
   state.torii_n = 0u;
+  // (See gate: the highest a foot of the line stands, and how far out of the ball round where it
+  // can stand the box of the biggest, 1.8, can reach.)
+  let low = max(-0.3, params.through + 1.0 - 4.28 * 0.85);
+  let reach = 8.48 * 1.8 + sqrt(params.scatter * params.scatter + 0.25 * (low + 1.8) * (low + 1.8)) + 0.1;
+  var cam: Camera;
+  cam.pos = state.cam_pos;
+  cam.fwd = state.cam_fwd;
+  cam.right = state.cam_right;
+  cam.up = state.cam_up;
+  cam.ky = 0.5 * state.lens * 0.8;
+  cam.kx = frame.aspect * cam.ky;
   let sp = params.spacing;
   let here = floor(state.cam_pos.z / sp);
   let ahead = 3.0 + 157.0 * smoothstep(-0.2, 0.6, state.cam_fwd.z);
@@ -385,17 +396,49 @@ fn list_torii() {
         continue;
       }
       let i = here + k * way;
-      see_torii(gate(i), i);
+      // Only a torii that may be in sight is worked out (see may_see): one of the line stands
+      // with its feet within `scatter` of the line, from -1.8 up to `low`.
+      if (may_see(vec3f(path_x(gate_z(i)), 0.5 * (low - 1.8), gate_z(i)), reach, cam)) {
+        see_torii(gate(i), i);
+      }
       if (k * sp < 400.0) {
         for (var sd = 0.0; sd < 2.0; sd += 1.0) {
           let j = 2.0 * i + sd;
-          if (stray_place(j).w > 0.5) {
+          let place = stray_place(j);
+          // A stray's feet stand from -0.2 down to -1.8, or sunk to 3.64 of its size.
+          let deep = min(-3.64 * place.z, -1.8);
+          if (place.w > 0.5 && may_see(vec3f(place.x, 0.5 * (deep - 0.2), place.y), 8.48 * place.z + 0.5 * (-0.2 - deep) + 0.1, cam)) {
             see_torii(stray(j), -1.0 - j);
           }
         }
       }
     }
   }
+}
+
+// Whether a torii whose box lies within the ball round c of radius r may be listed: every
+// corner of its box lies within 8.48 of its size of its feet (turned and leaned any way). False
+// only when the ball lies wholly in front of the camera and wholly off one side of the screen: then
+// every corner of its box is put on the screen beyond that side, and see_torii passes it by
+// (it is not worth working out the torii to find that).
+fn may_see(c: vec3f, r: f32, cam: Camera) -> bool {
+  let q = c - cam.pos;
+  let z = dot(q, cam.fwd);
+  if (z - r < 0.3) {
+    return true;
+  }
+  return abs(dot(q, cam.right)) - cam.kx * z <= r * sqrt(1.0 + cam.kx * cam.kx) && abs(dot(q, cam.up)) - cam.ky * z <= r * sqrt(1.0 + cam.ky * cam.ky);
+}
+
+// The camera as may_see takes it: kx and ky how far off its axis the screen's edges are, across
+// and up, for each metre ahead.
+struct Camera {
+  pos: vec3f,
+  fwd: vec3f,
+  right: vec3f,
+  up: vec3f,
+  kx: f32,
+  ky: f32,
 }
 
 fn see_torii(g0: Gate, slot: f32) {

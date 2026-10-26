@@ -942,11 +942,18 @@ fn update() {
     set_rings(t);
   }
   set_palette();
-  set_gem(t);
+  // (Only the gem has facets: a single thread setting them every frame costs the phone dearly.)
+  if (params.core_look == 3u || params.core_look == 4u) {
+    set_gem(t);
+  }
   for (var k = 0u; k < TILES; k++) {
     state.tile_n[k] = 0u;
   }
+  // (An unlit shape is in no tile, so nothing draws it: it is placed again when it lights.)
   for (var i = 0u; i < SHAPES; i++) {
+    if (state.shape_look[i].y < 0.02) {
+      continue;
+    }
     place(i);
     project(i);
   }

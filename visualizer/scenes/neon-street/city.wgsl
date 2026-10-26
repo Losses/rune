@@ -83,6 +83,10 @@ fn lag_of(id: vec2f, bi: f32) -> f32 {
 
 // How much brighter light `id` is now: each takes each beat after its own delay, some skip it.
 fn light_kick(id: vec2f) -> f32 {
+  // Without pulses (the default) nothing below counts.
+  if (params.pulse == 0.0) {
+    return 0.0;
+  }
   let since_beat = frame.time - state.beat_time;
   var bi = state.beat_count;
   var since = since_beat - lag_of(id, bi);
@@ -336,7 +340,21 @@ fn trace(o: vec3f, d: vec3f, steps: f32, tmax: f32) -> Hit {
   var i = column(o.x);
   var n = floor(o.z / UNIT);
   var t = 0.0;
-  for (var k = 0.0; k < 72.0; k += 1.0) {
+  // Along the street (column 0) nothing stands: the rows the ray surely runs along it before it
+  // leaves it (or reaches tmax) are passed over at once, as the steps below would, one by one.
+  var first = 0.0;
+  if (i == 0 && d.z > 1e-3) {
+    var tx = 1e9;
+    if (d.x > 1e-6) {
+      tx = (HALF - o.x) / d.x;
+    } else if (d.x < -1e-6) {
+      tx = (-HALF - o.x) / d.x;
+    }
+    // A row short of the one it leaves in, so that rounding never takes it too far.
+    first = max(floor((o.z + d.z * min(tx, tmax)) / UNIT) - 1.0 - n, 0.0);
+    n += first;
+  }
+  for (var k = first; k < 72.0; k += 1.0) {
     if (k >= steps) {
       break;
     }
@@ -1018,12 +1036,16 @@ fn wires(o: vec3f, d: vec3f, tmax: f32, pix: f32) -> f32 {
     let y = y0 - 0.5 * (1.0 - pow(2.0 * f - 1.0, 2.0));
     t = dot(vec2f(x0, y) - o.xy, dxy) / dd;
     p = o + d * t;
-    if (t <= 0.0 || t > tmax || lantern_block(floor(p.z / UNIT))) {
+    if (t <= 0.0 || t > tmax) {
       continue;
     }
     let footprint = t * len * pix;
     let r = 0.015;
     let dist = length(p.xy - vec2f(x0, y));
+    // (Passing further off covers none of the pixel: the hash below is not needed then.)
+    if (dist >= r + footprint || lantern_block(floor(p.z / UNIT))) {
+      continue;
+    }
     cover = max(cover, smoothstep(r + footprint, 0.0, dist) * min(2.0 * r / (r + footprint), 1.0));
   }
   return cover;
@@ -1546,7 +1568,7 @@ fn bike_face(n: f32, s: f32, k: f32, p: vec3f) -> vec3f {
 // The things in the street along the ray from the camera (o is always the camera: the rows come
 // from the tables update fills for it), nearer than `best`: t, kind and two numbers naming the
 // thing. Small things far off are left out, dissolving in a dither pattern (`dither`, 0..1 for
-// the pixel) over 15 m past params.detail; people from 1.6 times as far.
+// the pixel) over 15 m past params.detail (less at lower quality); people from 1.6 times as far.
 fn hit_street(o: vec3f, d: vec3f, best: f32, steps: f32, pix: f32, dither: f32) -> vec4f {
   var r = vec4f(best, 0.0, 0.0, 0.0);
   if (d.z < 1e-3) {
@@ -1555,16 +1577,43 @@ fn hit_street(o: vec3f, d: vec3f, best: f32, steps: f32, pix: f32, dither: f32) 
   let inv = inverse(d);
   let len = length(d);
   let n0 = state.row0;
-  for (var i = 0u; i < ROWS; i++) {
+  // At lower quality (frame.quality below 1) small things and people dissolve nearer, down to
+  // 0.6 of the distance at the lowest.
+  let detail = params.detail * mix(0.6, 1.0, frame.quality);
+  // Over the middle of the street (within 1.85 m of it) nothing stands higher than the arch
+  // (7.15 m): while the ray runs there (from t = clear.x to clear.y, kept a little inside) the
+  // rows are passed over at once.
+  var clear = vec2f(-1e9, 1e9);
+  if (abs(d.x) > 1e-6) {
+    let ta = (-1.4 - o.x) / d.x;
+    let tb = (1.4 - o.x) / d.x;
+    clear = vec2f(min(ta, tb), max(ta, tb));
+  } else if (abs(o.x) >= 1.4) {
+    clear = vec2f(1.0, -1.0);
+  }
+  if (abs(d.y) > 1e-6) {
+    let ty = (7.3 - o.y) / d.y;
+    clear = select(vec2f(clear.x, min(clear.y, ty)), vec2f(max(clear.x, ty), clear.y), d.y > 0.0);
+  } else if (o.y <= 7.3) {
+    clear = vec2f(1.0, -1.0);
+  }
+  // Row 0 of the tables is the row behind the camera's, whose things the ray never meets.
+  for (var i = 1u; i < ROWS; i++) {
     let n = n0 + f32(i);
     let ta = (n * UNIT - o.z) / d.z;
     if (f32(i) >= steps || ta > r.x) {
       break;
     }
+    if (ta >= clear.x && ((n + 1.0) * UNIT - o.z) / d.z <= clear.y) {
+      // On to the last row the ray runs through clear (a row short, against rounding).
+      let last = floor((o.z + d.z * clear.y) / UNIT) - 2.0;
+      i = max(i, u32(max(last - n0, 0.0)));
+      continue;
+    }
     // How far the row is, and whether its small things and its people are drawn.
-    let far = max(ta, 0.0) * len - params.detail;
+    let far = max(ta, 0.0) * len - detail;
     let small = far < 15.0 * dither;
-    let people = far < 0.6 * params.detail + 20.0 * dither;
+    let people = far < 0.6 * detail + 20.0 * dither;
     // Where the ray runs within the row (from where it enters it, or the camera, to where it
     // leaves it): each kind of thing stands in its own part of the row, and one the ray cannot
     // reach is passed by before any of its sums are done.
@@ -1674,8 +1723,15 @@ fn hit_street(o: vec3f, d: vec3f, best: f32, steps: f32, pix: f32, dither: f32) 
     if (people && lo.y < 2.0 && lo.x < ROAD + 0.2 && hi.x > -ROAD - 0.2) {
       for (var k = 0u; k < 3u; k++) {
         for (var j = 0u; j < 2u; j++) {
-          let m = person_in_row(n, f32(k), f32(j));
-          let tq = hit_person(o, d, state.row_people[i * 6u + k * 2u + j], m, f32(k), pix);
+          let who = state.row_people[i * 6u + k * 2u + j];
+          if (who.z <= 0.0) {
+            continue;
+          }
+          // person_in_row(n, k, j), without stream()'s table (an array indexed per pixel lives in
+          // slow memory).
+          let pace = select(select(0.95, -1.15, k == 1u), 1.25, k == 0u);
+          let m = floor((n * UNIT - pace * frame.time) / UNIT) + f32(j);
+          let tq = hit_person(o, d, who, m, f32(k), pix);
           if (tq < r.x) {
             r = vec4f(tq, 10.0, m, f32(k));
           }
@@ -1699,15 +1755,28 @@ fn strings(o: vec3f, d: vec3f, tmax: f32, pix: f32) -> vec4f {
     if (t > tmax) {
       break;
     }
-    if (t <= 0.0 || !string_on(m)) {
+    if (t <= 0.0) {
       continue;
     }
     let p = o + d * t;
-    if (abs(p.x) > HALF) {
+    let footprint = t * len * pix;
+    // The strings hang between 4.65 and 6.1 m (see the miss below): a ray past them, rising
+    // above or falling below faster than its footprint grows, meets none further on.
+    let reach = 0.6 + 1.4 * footprint;
+    let steep = abs(d.y) >= 1.4 * len * pix;
+    if (steep && ((d.y > 0.0 && p.y - 6.1 >= reach) || (d.y < 0.0 && 4.65 - p.y >= reach))) {
+      break;
+    }
+    if (!string_on(m) || abs(p.x) > HALF) {
       continue;
     }
-    let footprint = t * len * pix;
     let wire_y = string_y(m, p.x);
+    // A lantern hangs within 0.24 + 0.21 m (and its edge's blur) of where its cord meets the
+    // string, which sags less than 0.11 m between there and here: a ray passing further from the
+    // string meets neither.
+    if (abs(p.y - wire_y) >= reach) {
+      continue;
+    }
     let wire = smoothstep(0.012 + footprint, 0.0, abs(p.y - wire_y)) * min(0.012 / (0.012 + footprint), 1.0) * 2.0;
     // Each lantern hangs from the string and swings on its cord with the beat (a little more or
     // less than its neighbours), turning about where it hangs.
@@ -1733,9 +1802,14 @@ fn strings(o: vec3f, d: vec3f, tmax: f32, pix: f32) -> vec4f {
 fn sky(d: vec3f) -> vec3f {
   let up = d.y;
   var c = mix(vec3f(0.06, 0.047, 0.038), vec3f(0.007, 0.009, 0.016), smoothstep(-0.02, 0.5, up));
-  // Low clouds, lit from below by the city.
+  // Low clouds, lit from below by the city; none below the horizon or high up.
+  if (up < 0.0 || up >= 0.6) {
+    return c;
+  }
   let q = d.xz / max(up, 0.05);
-  let cloud = smoothstep(-0.1, 0.5, rv_fbm(q * 0.25 + vec2f(frame.time * 0.01, 0.0), 4));
+  // Their finest detail goes first as the quality drops.
+  let octaves = select(select(4, 3, frame.quality < 0.75), 2, frame.quality < 0.25);
+  let cloud = smoothstep(-0.1, 0.5, rv_fbm(q * 0.25 + vec2f(frame.time * 0.01, 0.0), octaves));
   c += vec3f(0.05, 0.04, 0.032) * cloud * smoothstep(0.6, 0.05, up) * step(0.0, up);
   return c;
 }
@@ -1821,21 +1895,42 @@ fn paving(p: vec3f, n: f32, aa: f32) -> vec4f {
   return vec4f(mix(col, block * 0.88, far), hv + row * 0.37);
 }
 
+// The sign and the wall of shop (n, s), from the tables update fills (State's row_sign, row_shop)
+// where they reach.
+fn sign_at(n: f32, s: f32) -> vec4f {
+  let i = n - state.row0;
+  if (i >= 0.0 && i < f32(ROWS)) {
+    return state.row_sign[u32(i) * 2u + u32(s > 0.0)];
+  }
+  return sign_of(n, s);
+}
+
+fn wall_at(n: f32, s: f32) -> f32 {
+  let i = n - state.row0;
+  if (i >= 0.0 && i < f32(ROWS)) {
+    return state.row_shop[u32(i) * 2u + u32(s > 0.0)].x;
+  }
+  return wall_x(n, s);
+}
+
 // What lights things near the ground at p: shops (unless `shops` is false), signs and lantern
 // strings nearby.
 fn street_light(p: vec3f, shops: bool) -> vec3f {
   var e = params.ambient * vec3f(0.9, 0.95, 1.1);
   let n0 = floor(p.z / UNIT);
-  for (var i = -2.0; i <= 2.0; i += 1.0) {
+  // Two rows either way; at half quality and below only one.
+  let rows = select(2.0, 1.0, frame.quality < 0.5);
+  for (var i = -rows; i <= rows; i += 1.0) {
     let n = n0 + i;
     for (var k = 0.0; k < 2.0; k += 1.0) {
       let s = k * 2.0 - 1.0;
-      let sp = vec3f(s * (wall_x(n, s) - 0.1), 1.2, n * UNIT + 0.5 * UNIT);
+      let wall = wall_at(n, s);
+      let sp = vec3f(s * (wall - 0.1), 1.2, n * UNIT + 0.5 * UNIT);
       let ds = sp - p;
       e += select(vec3f(0.0), shop_light(n, s), shops) * 1.1 * sp.y / pow(dot(ds, ds) + 1.0, 1.5);
-      let sg = sign_of(n, s);
+      let sg = sign_at(n, s);
       if (sg.y > 0.0) {
-        let lp = vec3f(s * (wall_x(n, s) - 0.12 - 0.5 * sg.y), 0.5 * (sg.z + sg.w), sg.x);
+        let lp = vec3f(s * (wall - 0.12 - 0.5 * sg.y), 0.5 * (sg.z + sg.w), sg.x);
         let dl = lp - p;
         e += sign_light(n, s) * (sg.w - sg.z) * 0.6 * lp.y / pow(dot(dl, dl) + 0.5, 1.5);
       }
@@ -2010,13 +2105,41 @@ fn ground(p: vec3f, aa: f32) -> mat2x3f {
 
 // ---- Putting it together ----
 
-// The colour along a ray, stopping at tmax (the ground), and how far it went (FAR: the sky).
-// `dither` (0..1, a pattern over the pixels) dissolves far small things (see hit_street).
-fn scene(o: vec3f, d: vec3f, pix: f32, grid_steps: f32, street_steps: f32, tmax: f32, dither: f32) -> vec4f {
-  let len = length(d);
-  let dn = d / len;
+// What a ray meets first, stopping at tmax (the ground), for scene() in the next pass (hit.wgsl
+// finds it, street.wgsl draws it): as hit_street names a thing in the street (t, its kind 4..17
+// and two numbers), or a building's t, 100 + 10 × its part + the face (trace's Hit), column and
+// row; or tmax and 0 for nothing. `dither` (0..1, a pattern over the pixels) dissolves far small
+// things (see hit_street).
+fn find(o: vec3f, d: vec3f, pix: f32, grid_steps: f32, street_steps: f32, tmax: f32, dither: f32) -> vec4f {
   let hit = trace(o, d, grid_steps, tmax);
   let things = hit_street(o, d, hit.t, street_steps, pix, dither);
+  if (things.y > 0.5) {
+    return things;
+  }
+  if (hit.kind > 0.5) {
+    return vec4f(hit.t, 100.0 + 10.0 * hit.part + hit.kind, f32(hit.i), hit.n);
+  }
+  return vec4f(hit.t, 0.0, 0.0, 0.0);
+}
+
+// The colour along a ray, stopping at tmax (the ground), and how far it went (FAR: the sky), for
+// what it meets first (as find()).
+fn scene(o: vec3f, d: vec3f, pix: f32, tmax: f32, met: vec4f) -> vec4f {
+  let len = length(d);
+  let dn = d / len;
+  var hit: Hit;
+  hit.t = met.x;
+  hit.kind = 0.0;
+  hit.part = 0.0;
+  var things = met;
+  if (met.y > 99.5) {
+    let code = met.y - 100.0;
+    hit.part = floor(code * 0.1);
+    hit.kind = code - 10.0 * hit.part;
+    hit.i = i32(met.z);
+    hit.n = met.w;
+    things = vec4f(met.x, 0.0, 0.0, 0.0);
+  }
   let found = things.y > 0.5 || hit.kind > 0.5;
   if (!found) {
     return vec4f(sky(dn), select(FAR, tmax, tmax < FAR));

@@ -9,17 +9,13 @@ fn shade(px: Pixel) -> vec4f {
   let pix = ray.pix;
   let len = length(d);
 
-  // A 4×4 ordered dither, over which far small things dissolve.
-  let cell = vec2u(px.coord) % 4u;
-  var bayer = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
-  let dither = (bayer[cell.y * 4u + cell.x] + 0.5) / 16.0;
-
+  // Quality (frame.quality, 1 to 0; the picture keeps its composition at every level). What each
+  // level drops: small things and people dissolve nearer (hit_street: params.detail down to 0.6
+  // of it at 0, in hit.wgsl's pass), the lit street looks at one row of shops and signs instead of
+  // two below 0.5 (street_light), and the clouds lose octaves: 4 at 0.75 and above, 3 below, 2
+  // below 0.25 (sky). The grid walk and the rows over the street always take their full 72 and 28.
   let tg = select(FAR, -o.y / d.y, d.y < 0.0);
-  // Quality (frame.quality, 1 to 0) shortens the rays: at 1 the grid walk takes up to 72 steps and
-  // the things over the street 28 rows (today's picture); at 0 half of that, so the far end of
-  // the street ends sooner in the fog. Nothing else changes.
-  let reach = 0.5 + 0.5 * frame.quality;
-  let hit = scene(o, d, pix, ceil(72.0 * reach), ceil(28.0 * reach), min(tg, FAR), dither);
+  let hit = scene(o, d, pix, min(tg, FAR), textureLoad(seen, vec2i(px.coord), 0));
   var col = hit.rgb;
   var tmax = hit.w;
   if (d.y < 0.0 && tg <= hit.w) {

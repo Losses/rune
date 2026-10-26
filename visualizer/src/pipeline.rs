@@ -462,6 +462,7 @@ impl Pipeline {
         self.timer
             .collect(&self.device, &self.queue, &mut self.times);
         let now = self.now();
+        self.report.tick(now);
         let mut change = None;
         if let Some(recorded) = &mut self.recorded {
             recorded.extend_from_slice(&self.times);
@@ -471,8 +472,9 @@ impl Pipeline {
                 let level = self.controller.level();
                 let (width, height) = self.scene.internal_size();
                 info!(
-                    "Visualizer {}: GPU {:.1} ms on average, {:.1} ms at worst ({} frames); now resolution {:.2} ({width}x{height}), quality {:.2}",
+                    "Visualizer {}: {:.1} fps, GPU {:.1} ms on average, {:.1} ms at worst ({} frames); now resolution {:.2} ({width}x{height}), quality {:.2}",
                     self.scene.name,
+                    summary.fps,
                     summary.average * 1e3,
                     summary.worst * 1e3,
                     summary.frames,
@@ -481,12 +483,31 @@ impl Pipeline {
                 );
             }
             if self.adaptive {
-                change = self.controller.frame(now, seconds).or(change);
+                self.controller.sample(now, seconds);
             }
         }
         self.times.clear();
-        if let Some(level) = change {
-            self.scene.set_level(&self.device, &self.queue, level);
+        if self.adaptive {
+            change = self.controller.tick(now);
+        }
+        if let Some(change) = change {
+            if let Some(undone) = change.undone {
+                info!(
+                    "Visualizer {}: {} did not help ({:.1} fps before, {:.1} after); back to resolution {:.2}, quality {:.2}",
+                    self.scene.name,
+                    if undone.raise {
+                        "the raise"
+                    } else {
+                        "the lowering"
+                    },
+                    undone.fps_before,
+                    undone.fps_after,
+                    change.level.factor,
+                    change.level.quality,
+                );
+            }
+            self.scene
+                .set_level(&self.device, &self.queue, change.level);
         }
     }
 
@@ -1003,10 +1024,13 @@ mod tests {
 
     static LINES: Lines = Lines(std::sync::Mutex::new(Vec::new()));
 
-    /// Growth with a budget of 1 ms a frame: the resolution goes down to its floor, then the
-    /// quality, and the frame times are logged once per interval (1 s here, 10 s in the app).
+    /// Growth with a budget of 1 ms a frame, drawn at about 200 fps by the sleep between frames,
+    /// whatever the resolution: the GPU time is over the budget and the frame rate under the
+    /// target, so the controller lowers the level, sees that the frame rate does not follow and
+    /// puts it back (and says so), and the frame rate is logged once per interval (1 s here,
+    /// 10 s in the app).
     #[test]
-    fn a_heavy_scene_lowers_its_level_and_logs_its_frame_times() {
+    fn a_lowering_that_does_not_raise_the_frame_rate_is_undone_and_logged() {
         let Ok(mut pipeline) = Pipeline::new(
             1920,
             1080,
@@ -1025,16 +1049,18 @@ mod tests {
             log::set_max_level(log::LevelFilter::Info);
         }
         pipeline.load_builtin_scene("Growth").unwrap();
-        let full = pipeline.scene.internal_size();
         pipeline.set_target_fps(1000);
         pipeline.report = Report::new(1.0);
-        let floor = crate::adaptive::Level {
-            factor: crate::adaptive::MIN_FACTOR,
-            quality: 0.0,
-        };
         let started = Instant::now();
         let mut levels = Vec::new();
-        while started.elapsed().as_secs_f64() < 15.0 && pipeline.controller.level() != floor {
+        let undone = |lines: &std::sync::Mutex<Vec<String>>| {
+            lines
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.starts_with("Visualizer Growth:") && l.contains("did not help"))
+        };
+        while started.elapsed().as_secs_f64() < 15.0 && !undone(&LINES.0) {
             pipeline.render(started.elapsed().as_secs_f64()).unwrap();
             let level = pipeline.controller.level();
             if levels.last() != Some(&level) {
@@ -1043,7 +1069,7 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(4));
         }
-        // One more second for a line at the lowest level.
+        // One more second for a line with the frame rate.
         let last = Instant::now();
         while last.elapsed().as_secs_f64() < 1.2 {
             pipeline.render(started.elapsed().as_secs_f64()).unwrap();
@@ -1054,18 +1080,398 @@ mod tests {
             .lock()
             .unwrap()
             .iter()
-            .filter(|l| l.starts_with("Visualizer Growth:") || l.contains("frame times come"))
+            .filter(|l| l.starts_with("Visualizer Growth:"))
             .cloned()
             .collect();
         for line in &lines {
             eprintln!("{line}");
         }
-        assert_eq!(pipeline.controller.level(), floor, "{levels:?}");
-        let size = pipeline.scene.internal_size();
-        assert!(
-            size.0 <= full.0 / 2 + 1 && size.1 <= full.1 / 2 + 1,
-            "{full:?} {size:?}"
-        );
-        assert!(lines.iter().any(|l| l.starts_with("Visualizer Growth:")));
+        assert!(undone(&LINES.0), "{levels:?}");
+        assert_eq!(pipeline.controller.level(), Level::FULL, "{levels:?}");
+        assert!(levels.len() >= 2, "it never lowered: {levels:?}");
+        assert!(lines.iter().any(|l| l.contains(" fps, GPU ")), "{lines:?}");
+    }
+}
+
+/// Probes for making a scene cheaper without changing its picture: ignored tests, run by hand on
+/// a machine with a GPU, one at a time (`cargo test -p visualizer --lib probe_scene -- --ignored
+/// --nocapture --test-threads 1`).
+///
+/// Every probe draws at the phone's size on the same timeline: 60 frames a second, a steady
+/// 120 bpm in bars of four (so a scene grows, changes its view and its colours as it would with
+/// music), and each frame's seed fixed, so a scene draws the same frames on every run.
+///
+/// - `PROBE`: the scenes, built-in names or absolute scene folders, comma-separated (default
+///   Growth). `probe_scene_compare` takes one, and the scene to compare it with in `PROBE_B`.
+/// - `PROBE_LEVELS`: the levels, `factor:quality` pairs, comma-separated; `PROBE_LEVEL_A` the
+///   one level `probe_scene_compare` draws `PROBE` at (default 1:1).
+/// - `PROBE_FRAMES`: the frames to save or compare, by number from the scene's start.
+/// - `PROBE_OUT`: the folder PNGs are saved in.
+/// - `PROBE_SEED`: the seed of the scene's choices (default 1); another one is another timeline,
+///   with other views and colours.
+/// - `PROBE_COST_FRAMES`, `PROBE_REPEATS`: see `probe_scene_cost`.
+///
+/// For example, whether a changed copy of a scene still draws the same picture at full level,
+/// and how it looks at a lower quality:
+///
+/// ```text
+/// PROBE=/path/to/original PROBE_B=/path/to/changed PROBE_LEVELS=1:1,1:0.5 PROBE_OUT=/tmp/cmp \
+///   cargo test -p visualizer --lib probe_scene_compare -- --ignored --nocapture
+/// ```
+#[cfg(test)]
+mod probe {
+    use std::fmt::Write as _;
+    use std::path::PathBuf;
+
+    use super::*;
+
+    /// The visualizer's size on the phone (an iPhone 13 mini's cover wall).
+    const SIZE: (u32, u32) = (448, 970);
+    const FPS: f64 = 60.0;
+    const BPM: f64 = 120.0;
+    /// The visualizer's clock at frame 0 (a scene's own clock starts at 0 there).
+    const START: f64 = 30.0;
+    const COST_LEVELS: &str = "1:1,0.75:1,0.5:1,0.5:0,0.25:0";
+    /// Early and late in the tower's growth, and after each of the first two changes of light
+    /// (bar 16, frame 1920, and bar 32, frame 3840).
+    const FRAMES: &str = "120,600,1500,2100,2700,4000";
+
+    fn env_or(name: &str, default: &str) -> String {
+        std::env::var(name).unwrap_or_else(|_| default.to_string())
+    }
+
+    fn levels(default: &str) -> Vec<Level> {
+        levels_from("PROBE_LEVELS", default)
+    }
+
+    fn levels_from(name: &str, default: &str) -> Vec<Level> {
+        env_or(name, default)
+            .split(',')
+            .map(|pair| {
+                let (factor, quality) = pair.split_once(':').expect("levels are factor:quality");
+                Level {
+                    factor: factor.trim().parse().expect("a factor"),
+                    quality: quality.trim().parse().expect("a quality"),
+                }
+            })
+            .collect()
+    }
+
+    fn frame_numbers() -> Vec<u32> {
+        let mut frames: Vec<u32> = env_or("PROBE_FRAMES", FRAMES)
+            .split(',')
+            .map(|n| n.trim().parse().expect("a frame number"))
+            .collect();
+        frames.sort_unstable();
+        frames
+    }
+
+    fn out_dir() -> Option<PathBuf> {
+        let dir = PathBuf::from(std::env::var("PROBE_OUT").ok()?);
+        std::fs::create_dir_all(&dir).expect("PROBE_OUT can be made");
+        Some(dir)
+    }
+
+    /// A short name for file names: a built-in scene's name, or a folder's last two parts.
+    fn label(scene: &str) -> String {
+        let path = Path::new(scene);
+        let parts: Vec<_> = path
+            .components()
+            .rev()
+            .take(if path.is_absolute() { 2 } else { 1 })
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        parts
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("-")
+            .replace(' ', "_")
+    }
+
+    fn level_label(level: Level) -> String {
+        format!("f{}-q{}", level.factor, level.quality)
+    }
+
+    fn pipeline() -> Pipeline {
+        let mut pipeline = Pipeline::new(
+            SIZE.0,
+            SIZE.1,
+            44_100,
+            true,
+            None,
+            None,
+            Arc::new(|e| panic!("GPU error: {e}")),
+            #[cfg(target_os = "android")]
+            None,
+        )
+        .expect("a GPU");
+        assert!(pipeline.has_timestamps(), "the probe needs GPU timestamps");
+        pipeline.record_frame_times(true);
+        pipeline
+    }
+
+    /// Start `scene` from its beginning at `level`, with its seeds fixed (`PROBE_SEED`).
+    fn load(pipeline: &mut Pipeline, scene: &str, level: Level) {
+        if scene.starts_with('/') {
+            pipeline.load_scene(Path::new(scene)).unwrap();
+        } else {
+            pipeline.load_builtin_scene(scene).unwrap();
+        }
+        pipeline.set_adaptive(false);
+        pipeline
+            .scene
+            .set_level(&pipeline.device, &pipeline.queue, level);
+        let seed = env_or("PROBE_SEED", "1").parse().expect("a seed");
+        pipeline.scene.fix_seed(Some(seed));
+        pipeline.take_frame_times();
+    }
+
+    /// What the tracker would hear at frame `i`: a steady beat, sure of itself, a kick on every
+    /// beat.
+    fn rhythm_at(i: u32) -> Rhythm {
+        let beat = f64::from(i) / FPS * BPM / 60.0;
+        Rhythm {
+            bpm: BPM,
+            beat,
+            confidence: 0.9,
+            kick: (-beat.fract() * 8.0).exp(),
+            snare: 0.0,
+            hat: 0.0,
+            energy: 1.0,
+        }
+    }
+
+    /// The pixels of a frame, RGBA, row after row.
+    fn rgba(frame: &MappedFrame, (width, height): (u32, u32)) -> Vec<u8> {
+        let row = width as usize * 4;
+        let mut pixels = Vec::with_capacity(row * height as usize);
+        for y in 0..height as usize {
+            let at = y * frame.stride();
+            pixels.extend_from_slice(&frame.bytes()[at..at + row]);
+        }
+        if FORMAT == wgpu::TextureFormat::Bgra8Unorm {
+            for px in pixels.as_chunks_mut::<4>().0 {
+                px.swap(0, 2);
+            }
+        }
+        pixels
+    }
+
+    /// Draw frames 0 to `last` of the timeline, waiting for each, and hand `each` every frame
+    /// number with its GPU time and, for the numbers in `keep`, its pixels.
+    fn run(
+        pipeline: &mut Pipeline,
+        last: u32,
+        keep: &[u32],
+        mut each: impl FnMut(u32, &[f64], Option<Vec<u8>>),
+    ) {
+        let size = pipeline.size();
+        // A read-back frame comes out of the call after the one that drew it (the probe waits
+        // for each), so one call more than there are frames.
+        for i in 0..=last + 1 {
+            pipeline.set_rhythm(&rhythm_at(i));
+            let rendered = pipeline.render(START + f64::from(i) / FPS).unwrap();
+            pipeline
+                .device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            let times = pipeline.take_frame_times();
+            if i == 0 {
+                continue;
+            }
+            let drawn = i - 1;
+            let pixels = keep.contains(&drawn).then(|| {
+                let Rendered::Mapped(frame) = &rendered else {
+                    panic!("frame {drawn} did not come out on the next call");
+                };
+                rgba(frame, size)
+            });
+            // The times collected now are of the frame before (`adapt` runs before drawing).
+            each(drawn, &times, pixels);
+        }
+    }
+
+    fn save_png(path: &Path, pixels: Vec<u8>, (width, height): (u32, u32)) {
+        image::RgbaImage::from_raw(width, height, pixels)
+            .expect("the size matches")
+            .save(path)
+            .unwrap();
+    }
+
+    /// The GPU time of each scene at each level, in milliseconds: of each frame the least of
+    /// `PROBE_REPEATS` runs of the timeline (default 3; other work on the GPU only ever adds to a
+    /// frame's time), then the median and the 90th percentile of those over `PROBE_COST_FRAMES`
+    /// frames (default 600) after the first 60. The runs take turns between the scenes and
+    /// levels, so that a GPU clocking up or down, or busy with something else for a while, weighs
+    /// on all of them alike.
+    #[test]
+    #[ignore = "a probe, run by hand"]
+    fn probe_scene_cost() {
+        let mut pipeline = pipeline();
+        let frames: u32 = env_or("PROBE_COST_FRAMES", "600").parse().unwrap();
+        let repeats: usize = env_or("PROBE_REPEATS", "3").parse().unwrap();
+        let scenes = env_or("PROBE", "Growth");
+        let runs: Vec<(&str, Level)> = scenes
+            .split(',')
+            .flat_map(|scene| {
+                levels(COST_LEVELS)
+                    .into_iter()
+                    .map(move |level| (scene, level))
+            })
+            .collect();
+        let mut least = vec![vec![f64::INFINITY; frames as usize + 1]; runs.len()];
+        let mut sizes = vec![(0, 0); runs.len()];
+        for _ in 0..repeats {
+            for (k, &(scene, level)) in runs.iter().enumerate() {
+                load(&mut pipeline, scene, level);
+                sizes[k] = pipeline.scene.internal_size();
+                let least = &mut least[k];
+                run(&mut pipeline, frames, &[], |i, time, _| {
+                    if let Some(&time) = time.last() {
+                        least[i as usize] = least[i as usize].min(time);
+                    }
+                });
+            }
+        }
+        for (k, &(scene, level)) in runs.iter().enumerate() {
+            let mut times: Vec<f64> = least[k][60..]
+                .iter()
+                .copied()
+                .filter(|t| t.is_finite())
+                .collect();
+            times.sort_by(f64::total_cmp);
+            let at = |q: usize| times.get(times.len() * q / 100).copied().unwrap_or(0.0) * 1e3;
+            eprintln!(
+                "PROBE {scene} factor={} quality={} size={:?} median={:.3} ms p90={:.3} ms n={}",
+                level.factor,
+                level.quality,
+                sizes[k],
+                at(50),
+                at(90),
+                times.len()
+            );
+        }
+    }
+
+    /// The frames of `PROBE_FRAMES` of each scene at each level (default full), as PNGs in
+    /// `PROBE_OUT`.
+    #[test]
+    #[ignore = "a probe, run by hand"]
+    fn probe_scene_frames() {
+        let out = out_dir().expect("PROBE_OUT names a folder");
+        let frames = frame_numbers();
+        let mut pipeline = pipeline();
+        let size = pipeline.size();
+        for scene in env_or("PROBE", "Growth").split(',') {
+            for level in levels("1:1") {
+                load(&mut pipeline, scene, level);
+                run(
+                    &mut pipeline,
+                    *frames.last().unwrap(),
+                    &frames,
+                    |i, _, pixels| {
+                        if let Some(pixels) = pixels {
+                            let name =
+                                format!("{}-{}-{i:05}.png", label(scene), level_label(level));
+                            save_png(&out.join(&name), pixels, size);
+                            eprintln!("PROBE saved {name}");
+                        }
+                    },
+                );
+            }
+        }
+    }
+
+    /// How far scene `PROBE_B` at each level (default full) is from scene `PROBE` at level
+    /// `PROBE_LEVEL_A` (default full), frame by frame: the largest and mean difference of a
+    /// colour channel (of 255) and the PSNR.
+    /// With `PROBE_OUT`, the pair of frames that differ most at each level and their difference
+    /// (16 times as strong) are saved there.
+    #[test]
+    #[ignore = "a probe, run by hand"]
+    fn probe_scene_compare() {
+        let a = env_or("PROBE", "Growth");
+        let b = std::env::var("PROBE_B").expect("PROBE_B names the scene to compare with");
+        let frames = frame_numbers();
+        let last = *frames.last().unwrap();
+        let mut pipeline = pipeline();
+        let size = pipeline.size();
+        let mut reference = Vec::new();
+        let level_a = levels_from("PROBE_LEVEL_A", "1:1")[0];
+        load(&mut pipeline, &a, level_a);
+        run(&mut pipeline, last, &frames, |_, _, pixels| {
+            reference.extend(pixels);
+        });
+        for level in levels("1:1") {
+            load(&mut pipeline, &b, level);
+            let mut drawn = Vec::new();
+            run(&mut pipeline, last, &frames, |_, _, pixels| {
+                drawn.extend(pixels)
+            });
+            let mut report = String::new();
+            let mut worst: Option<(f64, usize)> = None;
+            for (k, (x, y)) in reference.iter().zip(&drawn).enumerate() {
+                let (mut max, mut sum, mut squares, mut n) = (0u8, 0u64, 0u64, 0u64);
+                for (p, q) in x.as_chunks::<4>().0.iter().zip(y.as_chunks::<4>().0) {
+                    for c in 0..3 {
+                        let d = p[c].abs_diff(q[c]);
+                        max = max.max(d);
+                        sum += u64::from(d);
+                        squares += u64::from(d) * u64::from(d);
+                        n += 1;
+                    }
+                }
+                let mse = squares as f64 / n as f64;
+                let psnr = if mse == 0.0 {
+                    f64::INFINITY
+                } else {
+                    10.0 * (255.0 * 255.0 / mse).log10()
+                };
+                writeln!(
+                    report,
+                    "PROBE frame {:5}: max {max:3} mean {:.4} psnr {psnr:.2} dB",
+                    frames[k],
+                    sum as f64 / n as f64
+                )
+                .unwrap();
+                if worst.is_none_or(|(p, _)| psnr < p) {
+                    worst = Some((psnr, k));
+                }
+            }
+            eprintln!(
+                "PROBE {b} at {} against {a} at {}:\n{report}",
+                level_label(level),
+                level_label(level_a)
+            );
+            if let (Some(out), Some((_, k))) = (out_dir(), worst) {
+                let stem = format!(
+                    "compare-{}-{}-{:05}",
+                    label(&b),
+                    level_label(level),
+                    frames[k]
+                );
+                let diff = reference[k]
+                    .iter()
+                    .zip(&drawn[k])
+                    .enumerate()
+                    .map(|(i, (p, q))| {
+                        if i % 4 == 3 {
+                            255
+                        } else {
+                            p.abs_diff(*q).saturating_mul(16)
+                        }
+                    })
+                    .collect();
+                save_png(
+                    &out.join(format!("{stem}-a.png")),
+                    reference[k].clone(),
+                    size,
+                );
+                save_png(&out.join(format!("{stem}-b.png")), drawn[k].clone(), size);
+                save_png(&out.join(format!("{stem}-diff.png")), diff, size);
+                eprintln!("PROBE saved {stem}-{{a,b,diff}}.png");
+            }
+        }
     }
 }

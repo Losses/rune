@@ -47,6 +47,24 @@ fn box_hit(ro: vec3f, rd: vec3f, c: vec3f, s: vec3f) -> vec4f {
   return vec4f(near, nrm);
 }
 
+// Whether a ray meets the box centred at c with half sizes s anywhere ahead (from inside it too):
+// what a part must pass before it is worked out exactly.
+fn meets_box(ro: vec3f, rd: vec3f, c: vec3f, s: vec3f) -> bool {
+  let m = 1.0 / select(rd, vec3f(1e-9), abs(rd) < vec3f(1e-9));
+  let n = m * (ro - c);
+  let k = abs(m) * s;
+  let far = min(min(-n.x + k.x, -n.y + k.y), -n.z + k.z);
+  return max(max(-n.x - k.x, -n.y - k.y), -n.z - k.z) <= far && far >= 0.0;
+}
+
+// Whether a ray meets the ball round c of radius r anywhere ahead.
+fn meets_ball(ro: vec3f, rd: vec3f, c: vec3f, r: f32) -> bool {
+  let oc = ro - c;
+  let b = dot(oc, rd);
+  let cc = dot(oc, oc) - r * r;
+  return cc <= 0.0 || (b <= 0.0 && b * b - cc * dot(rd, rd) >= 0.0);
+}
+
 // A pillar: an upright hexagonal prism at x = cx (z = 0), its faces r from the axis, from y0 to
 // y1: three pairs of sides and its top and foot, the faces of a convex shape met in one go.
 fn pillar_hit(ro: vec3f, rd: vec3f, cx: f32, r: f32, y0: f32, y1: f32) -> vec4f {
@@ -192,11 +210,15 @@ fn gate_hit(o: vec3f, d: vec3f, g: Gate, i: f32, slot: f32) -> Hit {
   // The line's torii that still have their kasagi carry a lantern under each end of it, clear
   // of the camera's way, tipped with it if it has slipped. They sway slowly on their cords along
   // the line, each its own way and pace.
-  if (slot >= 0.0 && params.lanterns > 0.0 && g.broken < 0.5 && g.lod < 0.5) {
+  if (slot >= 0.0 && params.lanterns > 0.0 && g.broken < 0.5 && g.lod < 0.9) {
     let sk = g.askew;
     let rk = vec3f(ro.x * cos(sk) + (ro.y - 5.86) * sin(sk), -ro.x * sin(sk) + (ro.y - 5.86) * cos(sk) + 5.86, ro.z);
     let dk = vec3f(rd.x * cos(sk) + rd.y * sin(sk), -rd.x * sin(sk) + rd.y * cos(sk), rd.z);
     for (var k = -1.0; k <= 1.0; k += 2.0) {
+      // However it swings, a lantern stays within a ball round where its cord hangs from.
+      if (!meets_ball(rk, dk, vec3f(3.1 * k, 5.66, 0.0), 1.15)) {
+        continue;
+      }
       let sw = params.lantern_swing * sin(frame.time * (0.5 + 0.25 * hash(vec2f(i, k + 3.0))) + i * 1.3 + k * 0.9);
       let cs = cos(sw);
       let sn = sin(sw);
@@ -233,6 +255,21 @@ fn part_hits(ro: vec3f, rd: vec3f, g: Gate, i: f32, best: ptr<function, vec4f>, 
   if (!inside && box_hit(ro, rd, vec3f(0.0, 3.0, 0.0), span).x > 1e8) {
     return;
   }
+  // Nor does a ray that goes through the opening meet anything of a torii not fallen (looking
+  // down the line, most rays pass a long way through gate after gate): where it goes into the
+  // box and where it leaves it, it is between the pillars and below the nuki, and it neither
+  // comes up into the box from below nor leaves it downwards (the pillars and feet reach on below
+  // the box).
+  if (b < 1.5) {
+    let m = 1.0 / select(rd, vec3f(1e-9), abs(rd) < vec3f(1e-9));
+    let n = m * (ro - vec3f(0.0, 3.0, 0.0));
+    let k = abs(m) * span;
+    let into = ro + rd * max(max(max(-n.x - k.x, -n.y - k.y), -n.z - k.z), 0.0);
+    let out = ro + rd * min(min(-n.x + k.x, -n.y + k.y), -n.z + k.z);
+    if (max(abs(into.x), abs(out.x)) < 1.38 && max(into.y, out.y) < 4.26 && min(into.y, out.y) > -0.39) {
+      return;
+    }
+  }
   // A clean low-poly torii: tapered hexagonal pillars on wider feet, straight beams, and a kasagi
   // in five pieces rising to its ends. Ruins come in three kinds: 1 the kasagi snapped, half of
   // it gone and the broken piece hanging; 2 the top fallen, one pillar broken lower down, the nuki
@@ -266,13 +303,31 @@ fn part_hits(ro: vec3f, rd: vec3f, g: Gate, i: f32, best: ptr<function, vec4f>, 
     if (b < 1.5) {
       keep(best, part, box_hit(ro, rd, vec3f(0.0, 4.45, 0.0), vec3f(2.75, 0.17, 0.11)), 1.0);
       keep(best, part, box_hit(ro, rd, vec3f(0.0, 5.75, 0.0), vec3f(3.3, 0.3, 0.3)), 1.0);
+      // (Drawn plainly only for the quality, its kasagi's top still black.)
+      if (g.lod < 0.9 && *part == 1.0 && (*best).z > 0.6 && ro.y + rd.y * (*best).x > 5.9) {
+        *part = 2.0;
+      }
     }
     return;
   }
-  keep(best, part, tapered_pillar(ro, rd, -2.0, 0.29, 0.23, -3.0, top_l, cut_l), 0.0);
-  keep(best, part, tapered_pillar(ro, rd, 2.0, 0.29, 0.23, -3.0, top_r, cut_r), 0.0);
-  keep(best, part, tapered_pillar(ro, rd, -2.0, 0.5, 0.36, -3.0, 0.45, vec2f(0.0)), 3.0);
-  keep(best, part, tapered_pillar(ro, rd, 2.0, 0.5, 0.36, -3.0, 0.45, vec2f(0.0)), 3.0);
+  // Each pillar stands with its foot in an upright box (reaching up past its top as far as a
+  // slanting break can): a ray that misses the box misses both.
+  let up_l = top_l + 0.35 * (abs(cut_l.x) + abs(cut_l.y)) + 0.05;
+  let up_r = top_r + 0.35 * (abs(cut_r.x) + abs(cut_r.y)) + 0.05;
+  let near_l = meets_box(ro, rd, vec3f(-2.0, 0.5 * (up_l - 3.05), 0.0), vec3f(0.62, 0.5 * (up_l + 3.05), 0.62));
+  let near_r = meets_box(ro, rd, vec3f(2.0, 0.5 * (up_r - 3.05), 0.0), vec3f(0.62, 0.5 * (up_r + 3.05), 0.62));
+  if (near_l) {
+    keep(best, part, tapered_pillar(ro, rd, -2.0, 0.29, 0.23, -3.0, top_l, cut_l), 0.0);
+  }
+  if (near_r) {
+    keep(best, part, tapered_pillar(ro, rd, 2.0, 0.29, 0.23, -3.0, top_r, cut_r), 0.0);
+  }
+  if (near_l) {
+    keep(best, part, tapered_pillar(ro, rd, -2.0, 0.5, 0.36, -3.0, 0.45, vec2f(0.0)), 3.0);
+  }
+  if (near_r) {
+    keep(best, part, tapered_pillar(ro, rd, 2.0, 0.5, 0.36, -3.0, 0.45, vec2f(0.0)), 3.0);
+  }
   // The nuki: across; or, the top fallen, hanging down from the pillar still standing.
   if (b < 1.5) {
     keep(best, part, box_hit(ro, rd, vec3f(0.0, 4.45, 0.0), vec3f(2.75, 0.17, 0.11)), 1.0);
@@ -298,10 +353,13 @@ fn part_hits(ro: vec3f, rd: vec3f, g: Gate, i: f32, best: ptr<function, vec4f>, 
       let dk = vec3f(rd.x * cos(sk) + rd.y * sin(sk), -rd.x * sin(sk) + rd.y * cos(sk), rd.z);
       var kb = vec4f(1e9, 0.0, 1.0, 0.0);
       var kp = -1.0;
-      keep(&kb, &kp, box_hit(rk, dk, vec3f(0.0, 5.86, 0.0), vec3f(1.1, 0.2, 0.3)), 1.0);
-      for (var k = -1.0; k <= 1.0; k += 2.0) {
-        keep(&kb, &kp, tipped_box(rk, dk, vec3f(1.83 * k, 5.9, 0.0), vec3f(0.76, 0.2, 0.3), 0.06 * k), 1.0);
-        keep(&kb, &kp, tipped_box(rk, dk, vec3f(2.95 * k, 6.04, 0.0), vec3f(0.42, 0.21, 0.31), 0.2 * k), 1.0);
+      // Its five pieces, all within one box.
+      if (meets_box(rk, dk, vec3f(0.0, 5.95, 0.0), vec3f(3.5, 0.5, 0.36))) {
+        keep(&kb, &kp, box_hit(rk, dk, vec3f(0.0, 5.86, 0.0), vec3f(1.1, 0.2, 0.3)), 1.0);
+        for (var k = -1.0; k <= 1.0; k += 2.0) {
+          keep(&kb, &kp, tipped_box(rk, dk, vec3f(1.83 * k, 5.9, 0.0), vec3f(0.76, 0.2, 0.3), 0.06 * k), 1.0);
+          keep(&kb, &kp, tipped_box(rk, dk, vec3f(2.95 * k, 6.04, 0.0), vec3f(0.42, 0.21, 0.31), 0.2 * k), 1.0);
+        }
       }
       if (kb.x < 1e8) {
         let kn = vec3f(kb.y * cos(sk) - kb.z * sin(sk), kb.y * sin(sk) + kb.z * cos(sk), kb.w);
@@ -334,15 +392,34 @@ fn torii_seen(o: vec3f, d: vec3f, tmax: f32, uv: vec2f) -> Hit {
   let ty = min(u32(uv.y * f32(TY)), TY - 1u);
   let k = ty * TX + tx;
   let count = state.tile_n[k];
+  // Below full quality, torii a little bigger on the screen than the update draws plainly are
+  // drawn plainly too (as a few boxes, keeping their lanterns: lod 0.75): from under about a
+  // tenth of the screen's height across at half quality to under a sixth at the least.
+  let plain = select(0.0, mix(0.17, 0.11, clamp(frame.quality * 2.0, 0.0, 1.0)), frame.quality < 0.75);
+  let focal = 1.0 / (state.lens * 0.8);
   for (var j = 0u; j < count; j++) {
     let id = state.tile[k * LIST + j];
     let b = state.torii_b[id];
-    // (Nothing of it is nearer than this: met something nearer already, pass it by.)
-    if (b.w > best.t) {
+    // (Nothing of it is nearer than this: met something nearer already, or the water, pass it
+    // by.)
+    if (b.w > min(best.t, tmax)) {
+      continue;
+    }
+    // Its bounding ball (as gate_hit tests it first) before the rest of it is read: most rays
+    // pass it by.
+    let a = state.torii_a[id];
+    let oc = o - vec3f(a.w, b.y + 3.0 * a.z, b.x);
+    let rr = 5.0 * a.z;
+    let bb = dot(oc, d);
+    let cc = dot(oc, oc) - rr * rr;
+    if (cc > 0.0 && (bb > 0.0 || bb * bb - cc * dot(d, d) < 0.0)) {
       continue;
     }
     let c = state.torii_c[id];
-    let g = unpack_gate(state.torii_a[id], b, c);
+    var g = unpack_gate(a, b, c);
+    if (g.lod < 0.5 && focal * 7.2 * g.size < plain * (b.w + 5.0 * g.size)) {
+      g.lod = 0.75;
+    }
     let h = gate_hit(o, d, g, select(-1.0 - c.w, c.w, c.w >= 0.0), c.w);
     if (h.t < best.t) {
       best = h;
@@ -518,6 +595,12 @@ fn sea_bottom() -> f32 {
 // shows): t is 1e9 if the ray is still above the water by then.
 const WALK: i32 = 16;
 
+// Quality (frame.quality, 1 is the full picture), all of the sea's knobs: the cells a ray walks
+// over the waves (walk_limit, below), 16 at 1 down to 7 at 0; torii a little bigger on the screen
+// than the update draws plainly are drawn plainly too below 0.75 (`plain`); and the clouds lose
+// octaves, 5 at 0.875 and above, then 4, 3 and 2 from 0.25 down (the sky). The torii's lanterns,
+// the spirits and the colours stay at every level.
+
 // How many cells a ray walks at the current quality. Quality 1 is WALK (16, today's picture);
 // 0.75 walks 14, 0.5 walks 11, 0.25 walks 9 and 0 walks 7. A ray that runs out of cells without
 // meeting a triangle takes the smooth swell instead, so lower levels only lose the far facets'
@@ -671,7 +754,8 @@ fn sky(d: vec3f, l: Light) -> vec3f {
   // Clouds on a layer far above.
   if (d.y > 0.01) {
     let uv = d.xz / (d.y + 0.08) * 0.7 + vec2f(frame.time * 0.004, 0.0);
-    let n = rv_fbm(uv * 1.3, 5);
+    // Below full quality the finest of the clouds' detail goes, an octave a step (to two).
+    let n = rv_fbm(uv * 1.3, 5 - i32(clamp(round((1.0 - frame.quality) * 4.0), 0.0, 3.0)));
     let cover = smoothstep(0.35 - 0.55 * l.clouds, 0.6, n + 0.25);
     let lit = mix(l.horizon * 0.9, l.sun_colour * 0.35 + l.horizon * 0.5, pow(s, 3.0));
     c = mix(c, lit * (0.75 + 0.35 * n), cover * smoothstep(0.01, 0.15, d.y) * min(l.clouds + 0.3, 1.0));

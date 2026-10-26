@@ -9,15 +9,17 @@ const LINES: f32 = 96.0;
 // How long a screen brightens before it cuts.
 const RISE: f32 = 0.06;
 
-// Quality (frame.quality, 1 is the full picture): the slots a ray walks through the piles. Level 1
-// is 24 slots for the picture and 10 for the key light's shadow, as always. Lower levels walk
-// fewer, so rays that would pass many deep piles end earlier at the wall (the far sides of the
-// deepest piles and the shadows they would throw drop out); composition and colour stay.
+// Quality (frame.quality, 1 is the full picture; every level keeps the composition and colour).
+// What each level drops:
+//   - The slots a ray walks through the piles for the picture, view_steps(): 24 at 1, down to 12
+//     at 0, so rays that would pass many deep piles end earlier at the wall (the far sides of the
+//     deepest piles drop out).
+//   - The key light's shadow walk (keylit): 10 slots above 0.375, 6 above 0.125, 4 below, so
+//     only the longest shadows, from sets far above, go.
+//   - Below 0.875 the walnut grain's finer waver and the grime's smallest blotches go; below 0.625
+//     the rubbed edge, the screens' film and spots are drawn evenly.
 fn view_steps() -> i32 {
   return i32(round(mix(12.0, 24.0, frame.quality)));
-}
-fn shadow_steps() -> i32 {
-  return i32(round(mix(5.0, 10.0, frame.quality)));
 }
 
 struct Ray {
@@ -37,6 +39,149 @@ fn camera_ray(px: Pixel) -> Ray {
   ray.o = state.cam;
   ray.d = normalize(f + (right * px.p.x + up * px.p.y) * 2.0 * state.lens);
   return ray;
+}
+
+// ---- The wall from the plan where it has it ----
+
+// Whether the plan is big enough to hold all of it (else nothing is read from it).
+fn plan_ready() -> bool {
+  return all(textureDimensions(plan) >= vec2u(PLAN_WIDTH, PLAN_HEIGHT));
+}
+
+// Where the plan's window of bays starts (as plan_corner), with z 1 when there is a plan to read.
+fn plan_window() -> vec3f {
+  if (!plan_ready()) {
+    return vec3f(0.0);
+  }
+  return textureLoad(plan, vec2i(i32(PLAN_POOLS) + 1, i32(PLAN_ROWS)), 0).xyz;
+}
+
+// Block k of bay b: from its row of the plan when the plan (`window`) has it (`row` set to that
+// row), else worked out (`row` -1).
+fn planned_bay(b: f32, k: f32, lift: f32, window: vec3f, row: ptr<function, i32>) -> Bay {
+  *row = -1;
+  let r = plan_row(b, k, lift, window.xy);
+  if (r >= 0 && window.z == 1.0) {
+    // (All four at once, the key checked after.)
+    let key = textureLoad(plan, vec2i(0, r), 0);
+    let t0 = textureLoad(plan, vec2i(1, r), 0);
+    let t1 = textureLoad(plan, vec2i(2, r), 0);
+    let t2 = textureLoad(plan, vec2i(3, r), 0);
+    if (key.z == 1.0 && key.x == b && key.y == k) {
+      *row = r;
+      return bay_from(t0, t1, t2);
+    }
+  }
+  return bay_of(b, k);
+}
+
+// The pile of column c, of the block in `row` of the plan (or -1).
+fn planned_pile(row: i32, c: Column) -> Pile {
+  if (row < 0) {
+    return pile_of(c);
+  }
+  let x = 4 + i32(c.j) * 5;
+  return pile_from(textureLoad(plan, vec2i(x, row), 0), textureLoad(plan, vec2i(x + 1, row), 0),
+    textureLoad(plan, vec2i(x + 2, row), 0), textureLoad(plan, vec2i(x + 3, row), 0), textureLoad(plan, vec2i(x + 4, row), 0));
+}
+
+// The set at x, y.
+fn set_from_plan(x: f32, y: f32) -> Set {
+  let b = floor(x / BAY);
+  let lift = bay_lift(b);
+  let k = floor((y - lift) / BLOCK);
+  var row = -1;
+  let bay = planned_bay(b, k, lift, plan_window(), &row);
+  let c = column_in(bay, b, k, x);
+  return set_at(c, planned_pile(row, c), y);
+}
+
+// What a ray met: 0 nothing, 1 a cabinet, 2 the wall behind.
+struct Hit {
+  t: f32,
+  n: vec3f,
+  kind: u32,
+  tv: Set,
+  // The cabinet's slot: its column's left and right edge, its bottom and top.
+  slot: vec4f,
+}
+
+// What a walk has worked out last, to use again while the walk (or the next) stays in it: the
+// block of a bay (and its row in the plan, or -1), and the pile of a column.
+struct Walk {
+  window: vec3f,
+  bay_key: vec2f,
+  bay: Bay,
+  row: i32,
+  pile_key: f32,
+  pile: Pile,
+}
+
+fn new_walk() -> Walk {
+  var w: Walk;
+  w.window = plan_window();
+  w.bay_key = vec2f(1e9);
+  w.pile_key = 1e9;
+  return w;
+}
+
+// The first thing along the ray, from `start` on, walking at most `steps` slots in the layer in
+// front of the wall.
+fn trace_with(w: ptr<function, Walk>, o: vec3f, d0: vec3f, steps: i32, start: f32) -> Hit {
+  var hit: Hit;
+  hit.t = 1e9;
+  hit.kind = 0u;
+  // No axis exactly zero, so every step stays finite.
+  let d = select(d0, vec3f(1e-6), abs(d0) < vec3f(1e-6));
+  // The layer between z = -DEEPEST and the wall.
+  let ta = (-DEEPEST - o.z) / d.z;
+  let tb = -o.z / d.z;
+  var t = max(max(min(ta, tb), 0.0), start);
+  let t_end = max(ta, tb);
+  if (t_end <= 0.0) {
+    return hit;
+  }
+  for (var k = 0; k < steps; k++) {
+    if (t >= t_end) {
+      break;
+    }
+    let p = o + d * (t + 1e-4);
+    let b = floor(p.x / BAY);
+    let lift = bay_lift(b);
+    let kb = floor((p.y - lift) / BLOCK);
+    if (any(vec2f(b, kb) != (*w).bay_key)) {
+      (*w).bay_key = vec2f(b, kb);
+      (*w).bay = planned_bay(b, kb, lift, (*w).window, &(*w).row);
+    }
+    let col = column_in((*w).bay, b, kb, p.x);
+    if (col.id != (*w).pile_key) {
+      (*w).pile_key = col.id;
+      (*w).pile = planned_pile((*w).row, col);
+    }
+    let s = set_at(col, (*w).pile, p.y);
+    if (s.on) {
+      let h = box_hit(o, d, s.centre, s.half);
+      if (h.x < 1e8) {
+        hit.t = h.x;
+        hit.n = h.yzw;
+        hit.kind = 1u;
+        hit.tv = s;
+        hit.slot = vec4f(col.x0, col.x1, s.y0, s.y1);
+        return hit;
+      }
+    }
+    // On to the next slot, across the column's side or the slot's top or bottom.
+    let tx = (select(col.x0, col.x1, d.x > 0.0) - o.x) / d.x;
+    let ty = (select(s.y0, s.y1, d.y > 0.0) - o.y) / d.y;
+    t = max(min(tx, ty), t + 1e-4);
+  }
+  // Past every cabinet: the wall, if the ray was going towards it and got there.
+  if (d.z > 0.0 && t >= t_end) {
+    hit.t = tb;
+    hit.n = vec3f(0.0, 0.0, -1.0);
+    hit.kind = 2u;
+  }
+  return hit;
 }
 
 // ---- Channels ----
@@ -336,7 +481,11 @@ fn plastic(p: vec3f, axes: mat2x3f, foot: f32, seed: vec2f) -> vec4f {
 // Walnut veneer: the grain runs along u, wavering; its tone and a faint ridge across it.
 fn wood(p: vec3f, axes: mat2x3f, foot: f32, seed: f32) -> vec2f {
   let u = dot(p, axes[0]);
-  let v = dot(p, axes[1]) + 0.012 * rv_noise(vec2f(u * 3.0, seed)) + 0.004 * rv_noise(vec2f(u * 20.0, seed + 5.0));
+  var v = dot(p, axes[1]) + 0.012 * rv_noise(vec2f(u * 3.0, seed));
+  // (Below full quality the grain's finer waver goes.)
+  if (frame.quality > 0.875) {
+    v += 0.004 * rv_noise(vec2f(u * 20.0, seed + 5.0));
+  }
   let ring = fract(v * 70.0 + seed);
   let fine = 1.0 - smoothstep(0.004, 0.012, foot);
   let streak = mix(0.5, smoothstep(0.0, 0.5, ring) * smoothstep(1.0, 0.6, ring), fine);
@@ -381,7 +530,11 @@ fn skin(p: vec3f, n0: vec3f, axes: mat2x3f, s: Set, fin: Finish, foot: f32) -> S
   }
   k.dull = 1.0;
   // Grime in blotches, a hand's breadth and smaller.
-  let g = rv_noise(at * 7.0) * 0.6 + rv_noise(at * 26.0) * 0.4;
+  // (Below full quality the smallest blotches go.)
+  var g = rv_noise(at * 7.0) * 0.6;
+  if (frame.quality > 0.875) {
+    g += rv_noise(at * 26.0) * 0.4;
+  }
   k.albedo *= 1.0 - 0.6 * fin.age * smoothstep(-0.15, 0.5, g);
   // Dust on what faces up.
   if (n0.y > 0.5) {
@@ -392,27 +545,51 @@ fn skin(p: vec3f, n0: vec3f, axes: mat2x3f, s: Set, fin: Finish, foot: f32) -> S
   // Edges rubbed: plastic scuffed paler, veneer through to the raw wood.
   let q = p - s.centre;
   let edge = min(dot(s.half, abs(axes[0])) - abs(dot(q, axes[0])), dot(s.half, abs(axes[1])) - abs(dot(q, axes[1])));
-  let rub = fin.age * (1.0 - smoothstep(0.0, 0.018 + 0.012 * rv_noise(at * 40.0), edge)) * smoothstep(-0.2, 0.3, rv_noise(at * 9.0 + 3.0));
-  k.albedo = mix(k.albedo, select(k.albedo * 1.6 + vec3f(0.03), vec3f(0.3, 0.21, 0.13), fin.wood), rub);
+  // (Never further in than 0.018 + 0.012 * 0.71, the most the noise gives.)
+  if (edge < 0.027 && fin.age > 0.0) {
+    // (At half quality and below, rubbed evenly along the edge.)
+    var wobble = 0.0;
+    var blot = 0.0;
+    if (frame.quality > 0.625) {
+      wobble = rv_noise(at * 40.0);
+      blot = rv_noise(at * 9.0 + 3.0);
+    }
+    let rub = fin.age * (1.0 - smoothstep(0.0, 0.018 + 0.012 * wobble, edge)) * smoothstep(-0.2, 0.3, blot);
+    k.albedo = mix(k.albedo, select(k.albedo * 1.6 + vec3f(0.03), vec3f(0.3, 0.21, 0.13), fin.wood), rub);
+  }
   return k;
 }
 
 // How much of the key light reaches p: the slots walked once more, towards the light.
-fn keylit(p: vec3f, n: vec3f) -> f32 {
+fn keylit(w: ptr<function, Walk>, p: vec3f, at: Hit) -> f32 {
+  let n = at.n;
   if (dot(n, KEY_DIR) <= 0.0) {
     return 0.0;
   }
   if (params.shadows <= 0.0) {
     return 1.0;
   }
-  let h = trace(p + n * 0.003, KEY_DIR, shadow_steps());
+  // A shorter walk at the lowest qualities: only the longest shadows, from sets far above, go.
+  let steps = select(10, select(4, 6, frame.quality > 0.125), frame.quality > 0.375);
+  let o = p + n * 0.003;
+  var start = 0.0;
+  var left = steps;
+  if (at.kind == 1u) {
+    // From a cabinet, its own slot holds nothing else to meet, and the ray leaves its box: the
+    // walk starts where it leaves the slot (as its first step would have taken it).
+    let tx = (select(at.slot.x, at.slot.y, KEY_DIR.x > 0.0) - o.x) / KEY_DIR.x;
+    let ty = (select(at.slot.z, at.slot.w, KEY_DIR.y > 0.0) - o.y) / KEY_DIR.y;
+    start = max(min(tx, ty), 1e-4);
+    left = steps - 1;
+  }
+  let h = trace_with(w, o, KEY_DIR, left, start);
   return 1.0 - params.shadows * f32(h.kind == 1u);
 }
 
 // The light of the screen of the set beside s (on the side of normal n) on a side face at p: the
 // screen as a glowing rectangle, seen at an angle.
 fn spill(p: vec3f, n: vec3f, s: Set) -> vec3f {
-  let o = set_at_point(s.centre.x + sign(n.x) * (s.half.x + 0.08), p.y);
+  let o = set_from_plan(s.centre.x + sign(n.x) * (s.half.x + 0.08), p.y);
   if (!o.on) {
     return vec3f(0.0);
   }
@@ -428,18 +605,27 @@ fn spill(p: vec3f, n: vec3f, s: Set) -> vec3f {
   return screen_glow(screen_of(o)) * area * cos_in * cos_out / (3.14159 * r2 + 0.02) * params.spill;
 }
 
-// The key light falls in pools along the wall, as from lamps overhead, dark between them: a pool
-// every few metres, each its own strength.
+// The key light falls in pools along the wall (see pool_of), summed over the nine nearest cells:
+// from the plan when it has them all.
 fn pool(p: vec3f) -> f32 {
-  let size = vec2f(3.2, 2.8);
-  let base = floor(p.xy / size);
+  let base = floor(p.xy / POOL_CELL);
+  var first = vec4f(0.0);
+  if (plan_ready()) {
+    first = textureLoad(plan, vec2i(i32(PLAN_POOLS), i32(PLAN_ROWS)), 0);
+  }
+  let rel = base - first.xy;
+  let planned = first.z == 1.0 && all(rel >= vec2f(1.0)) && all(rel <= vec2f(f32(PLAN_POOLS) - 2.0));
   var sum = 0.0;
   for (var i = -1.0; i <= 1.0; i += 1.0) {
     for (var j = -1.0; j <= 1.0; j += 1.0) {
-      let cell = base + vec2f(i, j);
-      let at = (cell + 0.5 + (vec2f(hash(cell + 0.17), hash(cell + 0.59)) - 0.5) * 0.6) * size;
-      let r = length(p.xy - at);
-      sum += (0.6 + 0.6 * hash(cell + 0.83)) * exp(-r * r / 1.8);
+      var c: vec3f;
+      if (planned) {
+        c = textureLoad(plan, vec2i(rel + vec2f(i, j)) + vec2i(0, i32(PLAN_ROWS)), 0).xyz;
+      } else {
+        c = pool_of(base + vec2f(i, j));
+      }
+      let r = length(p.xy - c.xy);
+      sum += c.z * exp(-r * r / 1.8);
     }
   }
   return mix(1.0, 0.45 + 0.7 * min(sum, 1.2), params.pools);
@@ -498,7 +684,12 @@ fn shade_front(p: vec3f, d: vec3f, s: Set, foot: f32, key: f32) -> vec3f {
     // The broad sheen of the light across the curved glass.
     c += state.key * pow(toward, 6.0) * 0.25 * (0.25 + fres) * key * params.glass;
     // Years of dust and fingers on the glass: a pale film, thicker in places, catching the light.
-    let film = fin.age * (0.4 + 0.6 * smoothstep(-0.2, 0.6, rv_noise(sp * 18.0 + s.id)));
+    // (Below three quarters quality, an even film.)
+    var smudge = 0.0;
+    if (frame.quality > 0.625) {
+      smudge = rv_noise(sp * 18.0 + s.id);
+    }
+    let film = fin.age * (0.4 + 0.6 * smoothstep(-0.2, 0.6, smudge));
     c = c * (1.0 - 0.12 * film) + film * 0.02 * (state.key * key + vec3f(params.fill * 4.0));
     // A price sticker on a corner of the glass, or a strip of tape across one.
     let tag = hash(s.id + 0.29);
@@ -584,7 +775,12 @@ fn shade_front(p: vec3f, d: vec3f, s: Set, foot: f32, key: f32) -> vec3f {
       n = normalize(n + vec3f(normalize(pp) * edge * 0.5, 0.0) * f32(pd > -0.003));
       albedo = vec3f(0.3, 0.31, 0.32) * (0.92 + 0.16 * streak * fine);
       // Old metal goes dull and spotted.
-      albedo *= 1.0 - 0.45 * fin.age * smoothstep(0.0, 0.5, rv_noise(u * 40.0 + s.id));
+      // (Below three quarters quality, evenly.)
+      var spots = 0.1;
+      if (frame.quality > 0.625) {
+        spots = rv_noise(u * 40.0 + s.id);
+      }
+      albedo *= 1.0 - 0.45 * fin.age * smoothstep(0.0, 0.5, spots);
       shine = 1.4 * (1.0 - 0.6 * fin.age);
       sharp = 60.0;
       open = 1.0;
@@ -685,7 +881,8 @@ fn shade_side(p: vec3f, d: vec3f, n0: vec3f, s: Set, foot: f32, key: f32) -> vec
 
 fn shade(px: Pixel) -> vec4f {
   let ray = camera_ray(px);
-  let h = trace(ray.o, ray.d, view_steps());
+  var w = new_walk();
+  let h = trace_with(&w, ray.o, ray.d, view_steps(), 0.0);
   if (h.kind == 0u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
@@ -693,7 +890,7 @@ fn shade(px: Pixel) -> vec4f {
   // A pixel's width where the ray met, in metres, across the face.
   let pixel = 2.0 * state.lens / px.size.y;
   let foot = h.t * pixel / max(abs(dot(h.n, ray.d)), 0.2);
-  let key = keylit(p, h.n) * pool(p);
+  let key = keylit(&w, p, h) * pool(p);
   var c: vec3f;
   if (h.kind == 2u) {
     // The wall behind: matt black paint, and the shadows the sets throw on it.

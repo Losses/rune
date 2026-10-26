@@ -205,14 +205,30 @@ fn shade(px: Pixel) -> vec4f {
   // How wide one pixel is, as an angle.
   let pixel = state.lens * 0.8 / px.size.y;
 
-  // The sea in marks: where the ray comes down to the swell, a few steps on from the level sea.
   var t_sea = 1e9;
   var fac: Facet;
   let marks = params.sea_look == 0u;
-  if (marks && d.y < -1e-4) {
-    t_sea = -o.y / d.y;
-    for (var k = 0; k < 3; k++) {
-      t_sea = (o.y - sea_h((o + d * t_sea).xz)) / -d.y;
+  var h: Hit;
+  if (marks) {
+    // The torii first, as far as the ray could still be above the swell (to where it passes the
+    // lowest the swell reaches): a torii met before the ray comes down to the highest the swell
+    // reaches stands in front of the water wherever the swell meets the ray, which is then not
+    // worked out.
+    var t_top = 1e9;
+    var t_low = 1e9;
+    if (d.y < -1e-4) {
+      // (sea_h stays within this either way.)
+      let hy = abs(state.sea_amp) * SWELL_MAX * 1.3 + 0.02;
+      t_top = (o.y - hy) / -d.y;
+      t_low = (o.y + hy) / -d.y;
+    }
+    h = torii_seen(o, d, min(t_low, FAR), px.uv);
+    // The sea in marks: where the ray comes down to the swell, a few steps on from the level sea.
+    if (d.y < -1e-4 && !(h.t < t_top)) {
+      t_sea = -o.y / d.y;
+      for (var k = 0; k < 3; k++) {
+        t_sea = (o.y - sea_h((o + d * t_sea).xz)) / -d.y;
+      }
     }
   }
   // The low-poly sea: walking the triangles under the ray to the first it goes into.
@@ -239,7 +255,9 @@ fn shade(px: Pixel) -> vec4f {
       t_sea = max(t_sea, max((o.y - sea_top()) / -d.y, 0.0));
     }
   }
-  let h = torii_seen(o, d, min(t_sea, FAR), px.uv);
+  if (!marks) {
+    h = torii_seen(o, d, min(t_sea, FAR), px.uv);
+  }
 
   var col: vec3f;
   var t = FAR;
