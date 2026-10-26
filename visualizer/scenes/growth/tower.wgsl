@@ -37,13 +37,15 @@ fn appears_at(mid: vec3f) -> f32 {
 
 // The square plates of layer y (its index): one to four cells across, strewn within the layer's
 // girth, so they overlap from layer to layer like scales. Each is its corner cell, its size in
-// cells, and whether it is there. Worked out once per layer as a ray crosses it.
+// cells, and whether it is there; and the layer's girth. Worked out once a frame for the layers a
+// ray can meet (see `table_first`).
 struct Squares {
   a: vec4f,
   b: vec4f,
   c: vec4f,
   d: vec4f,
   e: vec4f,
+  r_max: f32,
 }
 
 fn square(y: f32, k: f32, r_max: f32) -> vec4f {
@@ -54,9 +56,21 @@ fn square(y: f32, k: f32, r_max: f32) -> vec4f {
   return vec4f(corner, n, f32(hash3(id + 0.5) <= params.density));
 }
 
-fn layer_plates(y: f32) -> Squares {
-  let r_max = girth_at((y + 0.5) * CELL.y);
-  return Squares(square(y, 0.0, r_max), square(y, 1.0, r_max), square(y, 2.0, r_max), square(y, 3.0, r_max), square(y, 4.0, r_max));
+fn layer_plates(y: f32, r_max: f32) -> Squares {
+  return Squares(square(y, 0.0, r_max), square(y, 1.0, r_max), square(y, 2.0, r_max), square(y, 3.0, r_max), square(y, 4.0, r_max), r_max);
+}
+
+// The girth of layer y (its index), as `layer_plates` takes it.
+fn layer_girth(y: f32) -> f32 {
+  return girth_at((y + 0.5) * CELL.y);
+}
+
+// Whether the cell with centre `mid`, in a layer of girth r_max, can hold a plate now: within
+// reach of the layer's girth and not in the hollow core, and the tip grown past it. The cells
+// that cannot are most of those a ray crosses, and are passed over at the cost of this.
+fn may_hold(mid: vec3f, r_max: f32) -> bool {
+  let ring = max(abs(mid.x), abs(mid.z));
+  return state.top_to >= appears_at(mid) && !(ring > r_max * 1.4 + 2.0 || (ring < params.core && r_max > params.core * 3.0));
 }
 
 fn square_of(squares: Squares, slab: f32) -> vec4f {
@@ -74,6 +88,13 @@ fn tier(h: f32, sizes: vec3f) -> f32 {
   return select(select(sizes.x, sizes.y, h > 0.5), sizes.z, h > 0.82);
 }
 
+// The layers a ray can meet this frame are worked out once, for all pixels, by layers.wgsl into
+// the buffer `layers`, read as one long row of texels: six for each layer from this one up, its
+// girth and number, then its five square plates.
+fn table_first() -> f32 {
+  return floor(min(state.cam_pos.y - params.keep_below, state.top - 4.0) / CELL.y) - 2.0;
+}
+
 // The plate a cell holds, where it rests, if any: one of its layer's square plates, or a small
 // single plate scattered in between, all of many thicknesses.
 fn plate_at_rest(c: vec3f, squares: Squares) -> Plate {
@@ -81,7 +102,7 @@ fn plate_at_rest(c: vec3f, squares: Squares) -> Plate {
   p.on = 0.0;
   p.fresh = 0.0;
   let mid = (c + 0.5) * CELL;
-  let r_max = girth_at(mid.y);
+  let r_max = squares.r_max;
   let ring = max(abs(mid.x), abs(mid.z));
   if (ring > r_max * 1.4 + 2.0 || (ring < params.core && r_max > params.core * 3.0)) {
     return p;
@@ -207,84 +228,12 @@ fn box_hit(ro: vec3f, rd: vec3f, c: vec3f, s: vec3f) -> vec4f {
   return vec4f(max(near, 0.0), nrm);
 }
 
+// Where a ray met a plate: how far along, the face's normal and the cell whose plate it is (see
+// `hit_plate`).
 struct Hit {
   t: f32,
   n: vec3f,
-  plate: Plate,
   cell: vec3f,
-}
-
-// The first plate along the ray, walking the grid inside the tower's bounds, at most `steps`
-// cells.
-fn trace(o: vec3f, d0: vec3f, steps: i32) -> Hit {
-  var hit: Hit;
-  hit.t = 1e9;
-  // No axis exactly zero, so every step stays finite.
-  let d = select(d0, vec3f(1e-6), abs(d0) < vec3f(1e-6));
-  let reach = params.girth * 1.4 * 1.6 * 1.4 + 3.0 + CELL.x;
-  // Only from a little under the camera up: the camera always looks up, and what is below it is
-  // let go of.
-  let lo = vec3f(-reach, min(state.cam_pos.y - params.keep_below, state.top - 4.0), -reach);
-  let hi = vec3f(reach, state.top + 1.0, reach);
-  let mid = 0.5 * (lo + hi);
-  let size = 0.5 * (hi - lo);
-  var t0 = 0.0;
-  if (any(abs(o - mid) > size)) {
-    let b = box_hit(o, d, mid, size);
-    if (b.x > 1e8) {
-      return hit;
-    }
-    t0 = b.x + 1e-3;
-  }
-  let p = o + d * t0;
-  var cell = floor(p / CELL);
-  let stp = sign(d);
-  let delta = abs(CELL / d);
-  var next = ((cell + max(stp, vec3f(0.0))) * CELL - o) / d;
-  var layer = 1e9;
-  var squares = layer_plates(cell.y);
-  for (var k = 0; k < steps; k++) {
-    if (cell.y != layer) {
-      layer = cell.y;
-      squares = layer_plates(layer);
-    }
-    // Near the front the plate of the cell further in may still be flying out through this one.
-    let others = select(0.0, 1.0, arriving(cell));
-    for (var j = 0.0; j <= others; j += 1.0) {
-      let back = way_out(cell);
-      let owner = cell - vec3f(back.x, 0.0, back.y) * j;
-      let pl = plate(owner, squares);
-      if (pl.on > 0.5) {
-        let b = box_hit(o, d, pl.centre, pl.half);
-        if (b.x < hit.t) {
-          hit.t = b.x;
-          hit.n = b.yzw;
-          hit.plate = pl;
-          hit.cell = owner;
-        }
-      }
-    }
-    let t_next = min(next.x, min(next.y, next.z));
-    // A plate lies inside its cell, so the first one met before leaving the cell is the nearest.
-    if (hit.t <= t_next) {
-      return hit;
-    }
-    if (next.x < next.y && next.x < next.z) {
-      cell.x += stp.x;
-      next.x += delta.x;
-    } else if (next.y < next.z) {
-      cell.y += stp.y;
-      next.y += delta.y;
-    } else {
-      cell.z += stp.z;
-      next.z += delta.z;
-    }
-    let at = o + d * t_next;
-    if (any(abs(at - mid) > size + CELL)) {
-      break;
-    }
-  }
-  return hit;
 }
 
 // The theme now (worked out once a frame by update, see state.wgsl).
@@ -310,7 +259,7 @@ struct Surface {
   tone: f32,
 }
 
-fn surface(p: vec3f, d: vec3f, t: f32, h: Hit, pixel: f32) -> Surface {
+fn surface(p: vec3f, d: vec3f, t: f32, h: Hit, pl: Plate, pixel: f32) -> Surface {
   let n = h.n;
   let an = abs(n);
   // The face's own axes: u and v across it, in metres.
@@ -324,7 +273,7 @@ fn surface(p: vec3f, d: vec3f, t: f32, h: Hit, pixel: f32) -> Surface {
   }
   // Placed by the plate, so a plate several cells across is one cast, its texture running on
   // across the cells.
-  let uv = vec2f(dot(p, tu), dot(p, tv)) / CELL.x + vec2f(hash3(h.plate.key + 21.1), hash3(h.plate.key + 22.2));
+  let uv = vec2f(dot(p, tu), dot(p, tv)) / CELL.x + vec2f(hash3(pl.key + 21.1), hash3(pl.key + 22.2));
   let across = t * pixel / max(abs(dot(n, d)), 0.15);
   let lod = log2(max(across * 512.0 / CELL.x, 1.0));
   let tex = textureSampleLevel(asset_concrete, linear_repeat, uv, lod);
@@ -333,8 +282,8 @@ fn surface(p: vec3f, d: vec3f, t: f32, h: Hit, pixel: f32) -> Surface {
   // The rounded edges: within `bevel` of an edge the face turns towards it, as a quarter circle.
   // Where a pixel covers more than the rounding, it is widened to the pixel and bent less, so a
   // far edge still catches a thin line of light and does not flicker.
-  let q = p - h.plate.whole_c;
-  let half = h.plate.whole_h;
+  let q = p - pl.whole_c;
+  let half = pl.whole_h;
   let r = min(params.bevel, 0.45 * min(half.x, min(half.y, half.z)));
   let wide = max(r, across * 1.5);
   let lean = select(0.0, r / wide, r > 0.0);

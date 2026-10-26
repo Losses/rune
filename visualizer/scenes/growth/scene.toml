@@ -17,14 +17,26 @@ linear = true
 source = "Made by tools/make_surface.py"
 
 [[buffer]]
+id = "layers"
+# The layers of the tower a ray can meet this frame (see layers.wgsl): a few thousand texels,
+# worked out once instead of by every pixel.
+format = "rgba32float"
+scale = 0.1
+
+[[buffer]]
 id = "lit"
 # Drawn at two thirds of the screen's resolution: the haze and the depth of field hide it, and
 # it costs under half as much (for phones). 0.5 is faster still, with a little stair-stepping.
 scale = 0.67
 
 [[pass]]
+shader = "layers.wgsl"
+target = "layers"
+
+[[pass]]
 shader = "view.wgsl"
 target = "lit"
+inputs = ["layers"]
 
 [[pass]]
 shader = "dof.wgsl"
