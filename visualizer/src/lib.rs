@@ -875,7 +875,8 @@ fn run(
         }
 
         let time = (started.elapsed() - frozen).as_secs_f64();
-        let switch_paused = shared.auto_switch_paused.load(Ordering::Relaxed);
+        // The benchmark picks the scenes itself.
+        let switch_paused = bench.is_some() || shared.auto_switch_paused.load(Ordering::Relaxed);
         // A scan holds the library while it reads every file; try again on the next frame
         // instead of stalling this one.
         let free = || match library.try_lock() {
