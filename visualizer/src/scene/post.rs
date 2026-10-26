@@ -230,7 +230,7 @@ impl Post {
     }
 
     /// Bloom from `out`, then everything into `target`. With `timestamps`, the first pass writes
-    /// the frame's beginning if `begin` (when no pass of the scene did) and the last its end.
+    /// the frame's beginning if `begin` (when no pass of the scene did) and the last its end if `end`.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
@@ -241,6 +241,7 @@ impl Post {
         target: &wgpu::TextureView,
         timestamps: Option<&wgpu::QuerySet>,
         begin: bool,
+        end: bool,
     ) {
         let p = &self.pipelines;
         let first = &self.levels[0].1;
@@ -258,7 +259,7 @@ impl Post {
             self.draw(encoder, &p.up, &group, &pair[0].1, false, None);
         }
         let group = self.bind(device, out, (first, noise));
-        let stamps = super::timestamp_writes(timestamps, false, true);
+        let stamps = super::timestamp_writes(timestamps, false, end);
         self.draw(encoder, &p.composite, &group, target, true, stamps);
     }
 }

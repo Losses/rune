@@ -412,6 +412,8 @@ pub struct Scene {
     level: Level,
     analyzer: Analyzer,
     events: EventCounter,
+    /// The values `struct Music` got for the last frame.
+    music_values: inputs::MusicValues,
     /// The visualizer's time when the scene started, and of the last frame.
     started: Option<f64>,
     last: Option<f64>,
@@ -1217,6 +1219,7 @@ impl Scene {
             level: Level::FULL,
             analyzer: Analyzer::new(sample_rate),
             events: EventCounter::default(),
+            music_values: inputs::MusicValues::default(),
             started: None,
             last: None,
             last_song: 0.0,
@@ -1236,6 +1239,28 @@ impl Scene {
     /// The size of the frames it draws.
     pub fn output_size(&self) -> (u32, u32) {
         self.output_size
+    }
+
+    /// Take over what this scene has heard of the music from `previous`, the scene it replaces:
+    /// the analyzer's state and the counters and signals of the events, so that a switch of
+    /// scenes does not restart the music's clock, cue gaps and drive (as [`Scene::reload`] does
+    /// for a new version of a scene). Only if both were built for the same sample rate; else
+    /// this scene keeps its own.
+    pub fn take_music_from(&mut self, previous: &mut Scene) {
+        if self.analyzer.sample_rate() != previous.analyzer.sample_rate() {
+            return;
+        }
+        std::mem::swap(&mut self.analyzer, &mut previous.analyzer);
+        std::mem::swap(&mut self.events, &mut previous.events);
+        self.music_values = previous.music_values;
+        self.last_song = previous.last_song;
+    }
+
+    /// The values `struct Music` got for the last frame drawn (the defaults before the first),
+    /// for the scene switching that follows the music.
+    #[allow(dead_code)]
+    pub fn music(&self) -> &inputs::MusicValues {
+        &self.music_values
     }
 
     /// Read the scene's files again. When only parameter defaults changed, only those are
@@ -1275,8 +1300,7 @@ impl Scene {
             queue.submit(Some(encoder.finish()));
             next.first = false;
         }
-        std::mem::swap(&mut next.analyzer, &mut self.analyzer);
-        std::mem::swap(&mut next.events, &mut self.events);
+        next.take_music_from(self);
         next.set_covers(
             device,
             queue,
@@ -1446,6 +1470,7 @@ impl Scene {
 
     /// Draw a frame into `target` (the output format and size). With `timestamps`, the first pass
     /// writes query 0 at its beginning and the last query 1 at its end.
+    #[cfg(test)]
     pub fn render(
         &mut self,
         device: &wgpu::Device,
@@ -1454,6 +1479,23 @@ impl Scene {
         target: &wgpu::TextureView,
         input: &FrameInput,
         timestamps: Option<&wgpu::QuerySet>,
+    ) {
+        self.render_timed(device, queue, encoder, target, input, timestamps, true);
+    }
+
+    /// [`Scene::render`], where the frame's end timestamp (query 1) is written at the end of the
+    /// last pass only if `stamp_end`: a pass drawn after the scene (see `crate::transition`) writes
+    /// it instead, so that its cost is part of the frame's.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_timed(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        input: &FrameInput,
+        timestamps: Option<&wgpu::QuerySet>,
+        stamp_end: bool,
     ) {
         let started = *self.started.get_or_insert(input.time);
         let time = input.time - started;
@@ -1500,6 +1542,7 @@ impl Scene {
             &mut self.events,
         );
         queue.write_buffer(&self.music, 0, &music.bytes());
+        self.music_values = music;
         queue.write_buffer(&self.post_buffer, 0, &self.post_defaults);
         write_texture(
             queue,
@@ -1597,6 +1640,7 @@ impl Scene {
             target,
             timestamps,
             begin,
+            stamp_end,
         );
 
         for t in &mut self.sized.targets {

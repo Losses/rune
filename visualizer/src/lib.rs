@@ -31,6 +31,7 @@ mod shared_dx12;
 mod shared_vulkan;
 #[cfg(target_vendor = "apple")]
 mod surface;
+mod transition;
 #[cfg(target_os = "android")]
 mod window;
 
@@ -59,6 +60,7 @@ pub use rhythm::{BeatTracker, Rhythm};
 use scene::Scene;
 #[cfg(target_os = "linux")]
 pub use shared_vulkan::SharedFrame;
+use transition::{Durations, Transition};
 #[cfg(target_os = "android")]
 pub use window::Window;
 
@@ -940,12 +942,13 @@ fn run(
             let next = library.auto_next(&mut rng);
             drop(library);
             match next {
-                Some(Ok(preset)) => apply(
+                Some(Ok(preset)) => apply_switching(
                     shared,
                     &mut pipeline,
                     &mut auto_switch,
                     &mut loads,
                     Command::LoadScene(preset.location),
+                    AUTO_SWITCH,
                 ),
                 Some(Err(e)) => shared.set_error(format!("{e:#}")),
                 None => {}
@@ -1032,7 +1035,33 @@ fn run(
 }
 
 /// A scene built on another thread, with what the render loop does once it is on screen.
+/// How a scene switch looks: the transition and how long it takes.
+#[derive(Clone, Copy)]
+struct Switch(Transition, Durations);
+
+/// A scene the user chose (a command to load one): a short fade through black, 0.25 s out and
+/// 0.25 s in, quick enough to feel like an answer to the click.
+const MANUAL_SWITCH: Switch = Switch(
+    Transition::Fade,
+    Durations {
+        out: 0.25,
+        into: 0.25,
+    },
+);
+
+/// A scene chosen by the automatic switch (see [`AutoSwitch`]): a slower fade through black, 0.4 s
+/// out and 0.4 s in, since nobody asked for it and it should not startle.
+const AUTO_SWITCH: Switch = Switch(
+    Transition::Fade,
+    Durations {
+        out: 0.4,
+        into: 0.4,
+    },
+);
+
 struct Loaded {
+    /// How to show it.
+    switch: Switch,
     /// The folder to watch for changes, for a scene from a folder.
     watched: Option<PathBuf>,
     scene: Result<Scene>,
@@ -1044,11 +1073,13 @@ fn start_load(
     shared: &Shared,
     loads: &mut Loads<Loaded>,
     watched: Option<PathBuf>,
+    switch: Switch,
     build: Result<SceneBuild>,
 ) {
     let started = build.and_then(|build| {
         loads
             .start(move || Loaded {
+                switch,
                 watched,
                 scene: build.run(),
             })
@@ -1066,7 +1097,10 @@ fn install(
     watched: &mut Option<Watched>,
     loaded: Loaded,
 ) {
-    match loaded.scene.and_then(|scene| pipeline.install(scene)) {
+    match loaded.scene.and_then(|scene| {
+        let Switch(transition, durations) = loaded.switch;
+        pipeline.switch_to(scene, transition, durations)
+    }) {
         Ok(()) => {
             *watched = loaded.watched.map(Watched::new);
             shared.status().preset_name = pipeline.preset_name().to_string();
@@ -1090,6 +1124,18 @@ fn apply(
     loads: &mut Loads<Loaded>,
     command: Command,
 ) {
+    apply_switching(shared, pipeline, auto_switch, loads, command, MANUAL_SWITCH);
+}
+
+/// [`apply`], where a scene the command loads is shown through `switch`.
+fn apply_switching(
+    shared: &Shared,
+    pipeline: &mut Pipeline,
+    auto_switch: &mut AutoSwitch,
+    loads: &mut Loads<Loaded>,
+    command: Command,
+    switch: Switch,
+) {
     // Any load, manual or automatic, starts the wait for the next automatic switch again.
     if matches!(command, Command::LoadScene(_) | Command::LoadDefaultScene) {
         auto_switch.restart();
@@ -1104,16 +1150,22 @@ fn apply(
         // Scenes are built on another thread; the loop shows them when they are done.
         Command::LoadScene(Location::Folder(dir)) => {
             let build = Ok(pipeline.scene_build_dir(&dir));
-            start_load(shared, loads, Some(dir), build);
+            start_load(shared, loads, Some(dir), switch, build);
             return;
         }
         Command::LoadScene(Location::Builtin(name)) => {
-            start_load(shared, loads, None, pipeline.scene_build_builtin(&name));
+            start_load(
+                shared,
+                loads,
+                None,
+                switch,
+                pipeline.scene_build_builtin(&name),
+            );
             return;
         }
         Command::LoadDefaultScene => {
             let build = pipeline.scene_build_builtin(pipeline::DEFAULT_PRESET_NAME);
-            start_load(shared, loads, None, build);
+            start_load(shared, loads, None, switch, build);
             return;
         }
         #[cfg(target_os = "android")]

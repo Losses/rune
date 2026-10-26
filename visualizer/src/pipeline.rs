@@ -31,6 +31,9 @@ use crate::shared_dx12::{SharedTargets, SharedTexture};
 use crate::shared_vulkan::{SharedFrame, SharedTargets};
 #[cfg(target_vendor = "apple")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
+use crate::transition::{
+    Durations, FadePhase, Plan, Running, Transition, Transitions, dissolve_progress, fade_phase,
+};
 #[cfg(target_os = "android")]
 use crate::window::{Window, WindowSurface};
 use crate::{DEFAULT_FPS, DeviceUuids};
@@ -48,6 +51,8 @@ pub struct Pipeline {
     device: wgpu::Device,
     queue: wgpu::Queue,
     scene: Scene,
+    /// The scene switches that are not cuts, and the textures they need while they run.
+    transitions: Transitions,
     sample_rate: u32,
     rhythm: Rhythm,
     chart: Option<ChartState>,
@@ -404,6 +409,7 @@ impl Pipeline {
                 "waiting for each frame"
             }
         );
+        let transitions = Transitions::new(&device, format);
         let clock = Instant::now();
         let budget = 1.0 / f64::from(DEFAULT_FPS);
         Ok(Self {
@@ -418,6 +424,7 @@ impl Pipeline {
             skipped: (0, 0),
             adapter_name: adapter.get_info().name,
             device,
+            transitions,
             queue,
             scene,
             sample_rate,
@@ -558,8 +565,30 @@ impl Pipeline {
     }
 
     /// The name of the scene on screen.
+    ///
+    /// A scene waiting for a transition to reach it counts as the one on screen: this is what
+    /// the app shows as the name of the scene.
     pub fn preset_name(&self) -> &str {
-        &self.scene.name
+        &self.latest().name
+    }
+
+    /// The newest scene: the one waiting to be installed when a transition runs, else the one
+    /// being drawn.
+    fn latest(&self) -> &Scene {
+        self.transitions
+            .running
+            .as_ref()
+            .and_then(|running| running.pending.as_ref())
+            .unwrap_or(&self.scene)
+    }
+
+    /// The same, to change.
+    fn latest_mut(&mut self) -> &mut Scene {
+        self.transitions
+            .running
+            .as_mut()
+            .and_then(|running| running.pending.as_mut())
+            .unwrap_or(&mut self.scene)
     }
 
     pub fn transport(&self) -> Transport {
@@ -607,12 +636,12 @@ impl Pipeline {
         #[cfg(target_os = "android")]
         if let Output::Surface(surface) = &mut self.output {
             surface.resize(&self.device, width, height);
-            return Ok(());
+            return self.end_transition();
         }
         // They are of the old size, and the targets they are in go with the old output.
         self.finish_in_flight();
         self.output = Output::new(&self.device, width, height, self.readback);
-        Ok(())
+        self.end_transition()
     }
 
     /// Android: present frames of `width` by `height` into `window` from now on, in place of the
@@ -626,12 +655,15 @@ impl Pipeline {
         let now = self.now();
         self.controller.settle(now);
         match &mut self.output {
-            Output::Surface(surface) => surface.replace(&self.device, window, width, height),
+            Output::Surface(surface) => {
+                surface.replace(&self.device, window, width, height)?;
+                self.end_transition()
+            }
             Output::Readback(_) => {
                 warn!("Frames are read back, so the visualizer does not present into its window");
                 drop(window);
                 self.output = Output::Readback(Target::new(&self.device, width, height));
-                Ok(())
+                self.end_transition()
             }
         }
     }
@@ -676,7 +708,7 @@ impl Pipeline {
 
     /// Whether the scene on screen reads the atlas of covers.
     pub fn wants_covers(&self) -> bool {
-        self.scene.wants_covers()
+        self.latest().wants_covers()
     }
 
     pub fn push_pcm(&mut self, interleaved: &[f32], channels: usize) {
@@ -729,10 +761,17 @@ impl Pipeline {
         }
     }
 
-    /// Show a scene that was built with [`Pipeline::scene_build_dir`] or the like, possibly while
-    /// frames of the scene before went on. If the output changed its size meanwhile the scene is
-    /// resized first.
-    pub fn install(&mut self, mut scene: Scene) -> Result<()> {
+    /// Show a scene that was built with [`Pipeline::scene_build_dir`] or the like at once (a cut),
+    /// possibly while frames of the scene before went on. If the output changed its size meanwhile
+    /// the scene is resized first. Whatever the old scene heard of the music goes on in the new
+    /// one, and a transition under way ends (see [`Pipeline::switch_to`] for the ones that fade).
+    pub fn install(&mut self, scene: Scene) -> Result<()> {
+        // A scene waiting for the transition is dropped for this one, which cuts.
+        self.transitions.end();
+        self.place(scene)
+    }
+
+    fn place(&mut self, mut scene: Scene) -> Result<()> {
         let (width, height) = self.size();
         if scene.output_size() != (width, height) {
             scene.resize(&self.device, &self.queue, width, height)?;
@@ -743,17 +782,122 @@ impl Pipeline {
             self.covers.clone(),
             self.playing_cover.clone(),
         );
+        scene.take_music_from(&mut self.scene);
         self.scene = scene;
         self.restart_adaptive();
         Ok(())
     }
 
+    /// Show a scene that was built with [`Pipeline::scene_build_dir`] or the like, through
+    /// `transition` of `durations`. The pipeline holds the scene until the transition gets to it:
+    /// a fade draws the old scene live while it fades out and installs the new one at the end of
+    /// that; a dissolve keeps the old scene's last picture and installs the new one in the next
+    /// frame. A transition that shows nothing (a cut, or no time) is [`Pipeline::install`].
+    ///
+    /// A switch while another transition runs: if the scene of that one is still waiting (a fade
+    /// that is fading out, a dissolve that has not started), the newer scene takes its place and
+    /// the transition goes on (so the picture does not jump); if it is already in, the transition
+    /// ends and the newer scene is cut in.
+    pub fn switch_to(
+        &mut self,
+        mut scene: Scene,
+        transition: Transition,
+        durations: Durations,
+    ) -> Result<()> {
+        let (width, height) = self.size();
+        if scene.output_size() != (width, height) {
+            scene.resize(&self.device, &self.queue, width, height)?;
+        }
+        if let Some(running) = &mut self.transitions.running {
+            if running.pending.is_some() {
+                running.pending = Some(scene);
+                return Ok(());
+            }
+            return self.install(scene);
+        }
+        if durations.is_instant(transition) {
+            return self.install(scene);
+        }
+        self.transitions.running = Some(Running {
+            kind: transition,
+            durations,
+            start: None,
+            pending: Some(scene),
+        });
+        Ok(())
+    }
+
+    /// What the transition does in the frame at `time`, installing the scene it was waiting to
+    /// when its time has come.
+    fn plan_transition(&mut self, time: f64) -> Plan {
+        let captured = self.transitions.captured();
+        let Some(running) = &mut self.transitions.running else {
+            return Plan::None;
+        };
+        let start = *running.start.get_or_insert(time);
+        let seconds = time - start;
+        let Durations { out, into } = running.durations;
+        let mut install = None;
+        let plan = match running.kind {
+            // A cut never runs (see `switch_to`).
+            Transition::Cut => Plan::None,
+            Transition::Fade => match fade_phase(seconds, out, into) {
+                FadePhase::Out(progress) => Plan::Fade(progress),
+                FadePhase::In(progress) => {
+                    install = running.pending.take();
+                    Plan::Fade(1.0 - progress)
+                }
+                FadePhase::Done => {
+                    install = running.pending.take();
+                    Plan::None
+                }
+            },
+            Transition::Dissolve => {
+                if running.pending.is_some() {
+                    if captured {
+                        install = running.pending.take();
+                        running.start = Some(time);
+                        Plan::Dissolve(0.0)
+                    } else {
+                        Plan::Capture
+                    }
+                } else {
+                    match dissolve_progress(seconds, into) {
+                        progress if progress >= 1.0 => Plan::None,
+                        progress => Plan::Dissolve(progress),
+                    }
+                }
+            }
+        };
+        if let Some(scene) = install
+            && let Err(e) = self.place(scene)
+        {
+            warn!("The scene after a transition did not fit the output: {e:#}");
+            self.transitions.end();
+            return Plan::None;
+        }
+        if plan == Plan::None {
+            self.transitions.end();
+        }
+        plan
+    }
+
+    /// End a transition under way before the output changes its size: the scene it waits for is
+    /// installed at once.
+    fn end_transition(&mut self) -> Result<()> {
+        match self.transitions.end() {
+            Some(scene) => self.place(scene),
+            None => Ok(()),
+        }
+    }
+
     /// Read the scene on screen again if its files changed; whether it did.
     pub fn reload_scene(&mut self) -> Result<bool> {
-        let source = self.scene.source().to_string();
+        let source = self.latest().source().to_string();
+        let (device, queue) = (self.device.clone(), self.queue.clone());
         let changed = self
-            .scene
-            .reload(&self.device, &self.queue)
+            .latest_mut()
+            .reload(&device, &queue)
             .with_context(|| format!("Scene {source}"))?;
         if changed {
             self.restart_adaptive();
@@ -897,14 +1041,27 @@ impl Pipeline {
     }
 
     fn render_frame(&mut self, time: f64) -> Result<Rendered> {
+        let plan = self.plan_transition(time);
+        let size = self.size();
+        self.transitions.prepare(&self.device, size, plan);
         #[cfg(target_os = "android")]
         if let Output::Surface(surface) = &mut self.output {
             let scene = &mut self.scene;
             let (device, queue) = (&self.device, &self.queue);
             let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
             let timer = &mut self.timer;
+            let fx = (&self.transitions, plan);
             let presented = surface.present(device, queue, |encoder, view| {
-                draw(scene, timer, (device, queue), encoder, view, time, heard);
+                draw(
+                    scene,
+                    timer,
+                    fx,
+                    (device, queue),
+                    encoder,
+                    view,
+                    time,
+                    heard,
+                );
             });
             return Ok(if presented {
                 Rendered::Presented
@@ -919,10 +1076,12 @@ impl Pipeline {
                     let scene = &mut self.scene;
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
                     let timer = &mut self.timer;
+                    let fx = (&self.transitions, plan);
                     render_and_submit(&self.device, &self.queue, |encoder| {
                         draw(
                             scene,
                             timer,
+                            fx,
                             (&self.device, &self.queue),
                             encoder,
                             &view,
@@ -952,10 +1111,12 @@ impl Pipeline {
                     let scene = &mut self.scene;
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
                     let timer = &mut self.timer;
+                    let fx = (&self.transitions, plan);
                     render_and_submit(&self.device, &self.queue, |encoder| {
                         draw(
                             scene,
                             timer,
+                            fx,
                             (&self.device, &self.queue),
                             encoder,
                             &view,
@@ -986,8 +1147,18 @@ impl Pipeline {
                     let (device, queue) = (&self.device, &self.queue);
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
                     let timer = &mut self.timer;
+                    let fx = (&self.transitions, plan);
                     let frame = targets.render(device, queue, next, |encoder, view| {
-                        draw(scene, timer, (device, queue), encoder, view, time, heard);
+                        draw(
+                            scene,
+                            timer,
+                            fx,
+                            (device, queue),
+                            encoder,
+                            view,
+                            time,
+                            heard,
+                        );
                     })?;
                     if let Some(frame) = frame {
                         track(queue, &mut self.in_flight, Rendered::Shared(frame));
@@ -1012,8 +1183,18 @@ impl Pipeline {
         let (device, queue) = (&self.device, &self.queue);
         let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
         let timer = &mut self.timer;
+        let fx = (&self.transitions, plan);
         let frame = target.render(device, queue, |encoder, view| {
-            draw(scene, timer, (device, queue), encoder, view, time, heard);
+            draw(
+                scene,
+                timer,
+                fx,
+                (device, queue),
+                encoder,
+                view,
+                time,
+                heard,
+            );
         })?;
         Ok(frame.map_or(Rendered::Nothing, Rendered::Mapped))
     }
@@ -1034,10 +1215,14 @@ type Heard<'a> = (
     Option<[f32; 3]>,
 );
 
-/// A frame of the scene, timed by `timer`.
+/// A frame of the scene, timed by `timer`. With a transition (`plan`, see
+/// [`crate::transition`]) the scene draws into the transition's texture and its pass writes
+/// `view`; that pass then writes the frame's end timestamp, so its cost is part of the frame's.
+#[allow(clippy::too_many_arguments)]
 fn draw(
     scene: &mut Scene,
     timer: &mut GpuTimer,
+    (transitions, plan): (&Transitions, Plan),
     (device, queue): (&wgpu::Device, &wgpu::Queue),
     encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
@@ -1045,11 +1230,11 @@ fn draw(
     (rhythm, chart, song, accent): Heard,
 ) {
     let timestamps = timer.begin();
-    scene.render(
+    scene.render_timed(
         device,
         queue,
         encoder,
-        view,
+        transitions.scene_target(plan, view),
         &FrameInput {
             time,
             rhythm,
@@ -1058,7 +1243,9 @@ fn draw(
             accent,
         },
         timestamps,
+        plan == Plan::None,
     );
+    transitions.composite(queue, encoder, view, plan, timestamps);
     timer.end(encoder);
 }
 
@@ -1066,9 +1253,17 @@ fn draw(
 mod tests {
     use super::*;
 
+    /// Pipelines build the default scene, and the driver loses the device (an unexplained
+    /// error) when several do so at once, so the tests that make one take turns.
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        TURN.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// The built-in scene loads and draws a frame that is not black.
     #[test]
     fn default_scene_renders_a_frame() {
+        let _turn = serial();
         let Ok(mut pipeline) = Pipeline::new(
             64,
             36,
@@ -1102,6 +1297,7 @@ mod tests {
     /// meanwhile, and one that does not build is an error that leaves the scene on screen.
     #[test]
     fn a_scene_built_on_another_thread_is_installed_at_the_current_size() {
+        let _turn = serial();
         let Ok(mut pipeline) = Pipeline::new(
             64,
             32,
@@ -1134,6 +1330,195 @@ mod tests {
         assert!(format!("{error:#}").starts_with("Scene "), "{error:#}");
         assert_eq!(pipeline.preset_name(), "Growth");
         assert!(pipeline.scene_build_builtin("No such scene").is_err());
+    }
+
+    /// A scene folder drawing one plain colour (`value`, linear, all three channels), with no
+    /// post-processing, so that a pixel is the sRGB of it. (It has a parameter because a scene
+    /// without any makes an empty buffer, which the GPU reports as an error.)
+    fn plain_scene(name: &str, value: f32) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("rune-pipeline-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = format!(
+            "format = 1\nname = \"{name}\"\nlicense = \"MPL-2.0\"\n[[param]]\nid = \"unused\"\ndefault = 0.0\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n[post]\ntonemap = \"none\"\ngrain = 0.0\nchromatic = 0.0\nvignette = 0.0\nbloom = {{ intensity = 0.0 }}\n"
+        );
+        std::fs::write(dir.join("scene.toml"), manifest).unwrap();
+        let shader =
+            format!("fn shade(px: Pixel) -> vec4f {{\n  return vec4f(vec3f({value}), 1.0);\n}}\n");
+        std::fs::write(dir.join("a.wgsl"), shader).unwrap();
+        dir
+    }
+
+    /// The frames drawn at `times`, as the mean of their bytes (0 to 255) in the middle of the
+    /// picture, in order.
+    fn means(pipeline: &mut Pipeline, times: &[f64]) -> Vec<f32> {
+        let mut means = Vec::new();
+        let render = |pipeline: &mut Pipeline, time: f64| {
+            let mean = if let Rendered::Mapped(frame) = pipeline.render(time).unwrap() {
+                let (w, h) = pipeline.size();
+                let at = (h as usize / 2) * frame.stride() + (w as usize / 2) * 4;
+                let px = &frame.bytes()[at..at + 3];
+                Some(px.iter().map(|&b| f32::from(b)).sum::<f32>() / 3.0)
+            } else {
+                None
+            };
+            // Finish the frame, so that at most one comes out per call and none is passed over.
+            pipeline
+                .device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: None,
+                })
+                .unwrap();
+            mean
+        };
+        for &time in times {
+            means.extend(render(pipeline, time));
+        }
+        // The frames come out some calls after they were drawn.
+        for _ in 0..50 {
+            if means.len() >= times.len() {
+                break;
+            }
+            means.extend(render(pipeline, times[times.len() - 1]));
+        }
+        means.truncate(times.len());
+        assert_eq!(means.len(), times.len(), "frames did not come out");
+        means
+    }
+
+    fn test_pipeline() -> Option<Pipeline> {
+        let pipeline = Pipeline::new(
+            64,
+            32,
+            44_100,
+            true,
+            None,
+            None,
+            Arc::new(|e| panic!("GPU error: {e}")),
+            #[cfg(target_os = "android")]
+            None,
+        );
+        if pipeline.is_err() {
+            eprintln!("SKIPPED: no GPU adapter");
+        }
+        pipeline.ok()
+    }
+
+    fn load_plain(pipeline: &mut Pipeline, name: &str, value: f32) -> Scene {
+        let dir = plain_scene(name, value);
+        pipeline
+            .scene_build_dir(&dir)
+            .run()
+            .unwrap_or_else(|e| panic!("{e:#}"))
+    }
+
+    /// A fade takes the old scene to black while it draws live, installs the new one at the
+    /// black, and brings it in.
+    #[test]
+    fn a_fade_goes_through_black() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let white = load_plain(&mut pipeline, "fade-white", 1.0);
+        pipeline.install(white).unwrap();
+        let grey = load_plain(&mut pipeline, "fade-grey", 0.2);
+        let durations = Durations {
+            out: 1.0,
+            into: 1.0,
+        };
+        pipeline
+            .switch_to(grey, Transition::Fade, durations)
+            .unwrap();
+        // The name is the new scene's at once; the old one still draws.
+        assert_eq!(pipeline.preset_name(), "fade-grey");
+        assert_eq!(pipeline.scene.name, "fade-white");
+        let times: Vec<f64> = (0..=10).map(|i| f64::from(i) * 0.25).collect();
+        let m = means(&mut pipeline, &times);
+        assert!(m[0] > 250.0, "{m:?}");
+        assert!((m[2] - 127.0).abs() < 6.0, "half way out: {m:?}");
+        assert!(m[4] < 6.0, "black in the middle: {m:?}");
+        assert!((m[6] - 62.0).abs() < 6.0, "half way in: {m:?}");
+        assert!((m[8] - 124.0).abs() < 4.0, "the new scene: {m:?}");
+        assert_eq!(pipeline.scene.name, "fade-grey");
+        assert!(pipeline.transitions.running.is_none());
+        // Nothing is held once it is over.
+        assert!(!pipeline.transitions.holds_textures());
+    }
+
+    /// A dissolve holds the old scene's picture and mixes it with the new scene's frames.
+    #[test]
+    fn a_dissolve_mixes_the_old_picture_with_the_new_scene() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let white = load_plain(&mut pipeline, "dissolve-white", 1.0);
+        pipeline.install(white).unwrap();
+        let grey = load_plain(&mut pipeline, "dissolve-grey", 0.2);
+        let durations = Durations {
+            out: 0.0,
+            into: 2.0,
+        };
+        pipeline
+            .switch_to(grey, Transition::Dissolve, durations)
+            .unwrap();
+        let times: Vec<f64> = (0..=10).map(|i| f64::from(i) * 0.25).collect();
+        let m = means(&mut pipeline, &times);
+        // The held picture first, then half and half, then the new scene.
+        assert!(m[0] > 250.0 && m[1] > 250.0, "{m:?}");
+        assert!((m[5] - 189.0).abs() < 6.0, "half way: {m:?}");
+        assert!((m[10] - 124.0).abs() < 4.0, "the new scene: {m:?}");
+        assert!(pipeline.transitions.running.is_none());
+        assert!(!pipeline.transitions.holds_textures());
+    }
+
+    /// A newer switch replaces a scene that still waits, and cuts in over one that is in.
+    #[test]
+    fn a_switch_during_a_transition_replaces_the_waiting_scene_or_cuts() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let durations = Durations {
+            out: 1.0,
+            into: 1.0,
+        };
+        let a = load_plain(&mut pipeline, "during-a", 1.0);
+        pipeline.switch_to(a, Transition::Fade, durations).unwrap();
+        let b = load_plain(&mut pipeline, "during-b", 0.2);
+        pipeline.switch_to(b, Transition::Fade, durations).unwrap();
+        assert_eq!(pipeline.preset_name(), "during-b");
+        // Past the fade-out: "during-b" is in, and a third scene cuts.
+        pipeline.render(0.0).unwrap();
+        pipeline.render(1.25).unwrap();
+        assert_eq!(pipeline.scene.name, "during-b");
+        let c = load_plain(&mut pipeline, "during-c", 0.5);
+        pipeline.switch_to(c, Transition::Fade, durations).unwrap();
+        assert_eq!(pipeline.scene.name, "during-c");
+        assert!(pipeline.transitions.running.is_none());
+    }
+
+    /// A resize ends a transition with the new scene installed, at the new size.
+    #[test]
+    fn a_resize_ends_a_transition() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let a = load_plain(&mut pipeline, "resize-a", 1.0);
+        let durations = Durations {
+            out: 1.0,
+            into: 1.0,
+        };
+        pipeline.switch_to(a, Transition::Fade, durations).unwrap();
+        pipeline.render(0.0).unwrap();
+        pipeline.resize(96, 48).unwrap();
+        assert_eq!(pipeline.scene.name, "resize-a");
+        assert_eq!(pipeline.scene.output_size(), (96, 48));
+        assert!(pipeline.transitions.running.is_none());
+        pipeline.render(0.1).unwrap();
     }
 
     /// The lines logged at info level while the tests run.

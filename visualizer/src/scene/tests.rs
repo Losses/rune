@@ -512,3 +512,44 @@ fn a_scene_reads_the_covers_atlas() {
     scene.set_covers(&device, &queue, Some(atlas), None);
     assert!(close(draw(&mut scene), [0.0, 0.0, 0.0]));
 }
+
+#[test]
+fn a_scene_takes_over_the_music_of_the_scene_it_replaces() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let gpu = (&device, &queue);
+    let screen = Screen::new(&device);
+    let mut old =
+        Scene::load(&device, &queue, &counter("music-old"), FORMAT, SIZE, 48_000).unwrap();
+    for (i, beat) in [0.5, 1.2, 3.1].into_iter().enumerate() {
+        frame(&mut old, gpu, &screen, i as f64 / 60.0, beat);
+    }
+    assert!(old.music().song_time > 0.0);
+    let heard = *old.music();
+
+    // The new scene counts the beat across 4.0 from where the old one was (3.1); a scene with
+    // a counter of its own would start there and count nothing.
+    let mut next =
+        Scene::load(&device, &queue, &counter("music-new"), FORMAT, SIZE, 48_000).unwrap();
+    next.take_music_from(&mut old);
+    assert_eq!(*next.music(), heard);
+    frame(&mut next, gpu, &screen, 3.0 / 60.0, 4.2);
+    let c = screen.middle(&device, &queue);
+    assert!(c[2] > 0.0, "the beat across 4.0 was not counted: {c:?}");
+
+    // Another sample rate: the new scene keeps its own.
+    let mut other = Scene::load(
+        &device,
+        &queue,
+        &counter("music-rate"),
+        FORMAT,
+        SIZE,
+        44_100,
+    )
+    .unwrap();
+    other.take_music_from(&mut next);
+    assert_eq!(other.analyzer.sample_rate(), 44_100);
+    assert_eq!(*other.music(), inputs::MusicValues::default());
+}
