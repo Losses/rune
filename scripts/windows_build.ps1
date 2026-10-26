@@ -17,7 +17,10 @@ param(
     [string]$Arch = "x64",
     [switch]$SkipRustBuild = $false,
     [switch]$SkipFlutterBuild = $false,
-    [switch]$BuildInstaller = $false
+    [switch]$BuildInstaller = $false,
+    # Unpacked DirectX Shader Compiler release (bin\<arch>\dxcompiler.dll, LICENSE-*.txt).
+    # Required on arm64, where wgpu cannot link DXC statically and loads the DLL by name.
+    [string]$DxcDir = $env:RUNE_DXC_DIR
 )
 
 $ErrorActionPreference = "Stop"
@@ -132,6 +135,15 @@ if (-not $SkipFlutterBuild) {
     if (-not (Test-Path $OutputDir -PathType Container)) { throw "No $Arch Release directory" }
     Copy-Item -Path $HubDll -Destination $OutputDir -Force
 }
+if ($Arch -eq "arm64") {
+    if (-not $DxcDir) { throw "arm64 needs the DirectX Shader Compiler (-DxcDir / RUNE_DXC_DIR), or wgpu falls back to slow FXC" }
+    foreach ($dll in @('dxcompiler.dll', 'dxil.dll')) {
+        Copy-Item -Path (Join-Path $DxcDir "bin\arm64\$dll") -Destination $OutputDir -Force
+    }
+    foreach ($license in @('LICENSE-LLVM.txt', 'LICENCE-MIT.txt', 'LICENSE-MS.txt')) {
+        Copy-Item -Path (Join-Path $DxcDir $license) -Destination (Join-Path $OutputDir "dxc-$license") -Force
+    }
+}
 function Assert-PeArchitecture([string]$Path) {
     if (-not (Test-Path $Path -PathType Leaf)) { throw "Missing release binary: $Path" }
     $reader = [IO.BinaryReader]::new([IO.File]::OpenRead($Path))
@@ -147,7 +159,9 @@ function Assert-PeArchitecture([string]$Path) {
         if ($machine -ne $expected) { throw "Wrong PE architecture: $Path (expected $Arch, machine $machine)" }
     } finally { $reader.Dispose() }
 }
-foreach ($binary in @('rune.exe', 'hub.dll', 'flutter_windows.dll')) {
+$binaries = @('rune.exe', 'hub.dll', 'flutter_windows.dll')
+if ($Arch -eq 'arm64') { $binaries += @('dxcompiler.dll', 'dxil.dll') }
+foreach ($binary in $binaries) {
     Assert-PeArchitecture (Join-Path $OutputDir $binary)
 }
 foreach ($asset in @('data\app.so', 'data\icudtl.dat')) {

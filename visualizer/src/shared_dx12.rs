@@ -5,7 +5,9 @@
 //! imported into wgpu as the render target. Flutter opens the handle on its own Direct3D 11 device
 //! (through ANGLE), so the visualizer must render on the adapter Flutter uses: see
 //! [`adapter_with_luid`]. A texture is drawn into again only once no frame holds it any more, so a
-//! frame that Flutter (or the latest-frame slot) still has is never drawn over.
+//! frame that Flutter (or the latest-frame slot) still has, or that the GPU is still drawing
+//! (`crate::in_flight`), is never drawn over. A frame is handed to Flutter only once the GPU has
+//! finished it.
 //!
 //! The textures allow simultaneous access: their state decays to `COMMON` when a command list
 //! finishes, which is what Direct3D 11 expects, and promotes to a render target on the next draw
@@ -32,8 +34,8 @@ use windows::core::PCWSTR;
 /// is drawn into again only a few frames after Flutter let go of it: its compositor may still
 /// sample the last frame it was given while the next one is being drawn.
 const KEEP_RECENT: usize = 3;
-/// Upper bound on the textures of one size: the recent ones, the latest, Flutter's, the one in
-/// work.
+/// Upper bound on the textures of one size: the recent ones (the latest among them), the ones the
+/// GPU is drawing (`crate::in_flight`), finished ones not handed out yet, and Flutter's.
 const MAX_TEXTURES: usize = 8;
 
 /// The DirectX 12 adapter whose DXGI LUID is `luid` (as [`crate::adapter_luid`] combines it), if

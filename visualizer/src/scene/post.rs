@@ -10,13 +10,23 @@ const MAX_LEVELS: u32 = 6;
 
 pub struct Post {
     levels: Vec<(wgpu::Texture, wgpu::TextureView)>,
+    /// For as many levels as there are.
+    pipelines: Pipelines,
+    tonemap: u32,
+    output: wgpu::TextureFormat,
+    layout: wgpu::PipelineLayout,
+    globals: wgpu::BindGroup,
+    textures: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+}
+
+/// The pipelines, whose shader knows the number of levels.
+#[derive(Clone)]
+struct Pipelines {
     first_down: wgpu::RenderPipeline,
     down: wgpu::RenderPipeline,
     up: wgpu::RenderPipeline,
     composite: wgpu::RenderPipeline,
-    globals: wgpu::BindGroup,
-    textures: wgpu::BindGroupLayout,
-    sampler: wgpu::Sampler,
 }
 
 const BLOOM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -41,21 +51,11 @@ impl Post {
         (post, frame): (&wgpu::Buffer, &wgpu::Buffer),
         size: (u32, u32),
     ) -> Self {
-        let count = levels_for(size.0, size.1);
         let tonemap = match tonemap {
             Tonemap::Agx => 0,
             Tonemap::Aces => 1,
             Tonemap::None => 2,
         };
-        let source = format!(
-            "{}{}const LEVELS: u32 = {count}u;\nconst TONEMAP: u32 = {tonemap}u;\n{SHADER}",
-            wgsl::FRAME,
-            wgsl::POST
-        );
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("scene post"),
-            source: wgpu::ShaderSource::Wgsl(source.into()),
-        });
         let uniform = |binding, ty| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -110,41 +110,6 @@ impl Post {
             bind_group_layouts: &[Some(&globals_layout), Some(&textures)],
             immediate_size: 0,
         });
-        let pipeline = |entry: &str, format, blend| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(entry),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some("vertex"),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some(entry),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
-        let add = Some(wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent::REPLACE,
-        });
         let globals = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("scene post globals"),
             layout: &globals_layout,
@@ -165,38 +130,37 @@ impl Post {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-        let mut levels = Vec::new();
-        let (mut w, mut h) = (size.0 / 2, size.1 / 2);
-        for _ in 0..count {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("scene bloom"),
-                size: wgpu::Extent3d {
-                    width: w.max(1),
-                    height: h.max(1),
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: BLOOM_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
-            let view = texture.create_view(&Default::default());
-            levels.push((texture, view));
-            w /= 2;
-            h /= 2;
-        }
+        let count = levels_for(size.0, size.1);
         Self {
-            first_down: pipeline("first_down", BLOOM_FORMAT, None),
-            down: pipeline("down", BLOOM_FORMAT, None),
-            up: pipeline("up", BLOOM_FORMAT, add),
-            composite: pipeline("composite", output, None),
-            levels,
+            levels: levels(device, size, count),
+            pipelines: pipelines(device, &layout, tonemap, output, count),
+            tonemap,
+            output,
+            layout,
             globals,
             textures,
             sampler,
+        }
+    }
+
+    /// The same post-processing for the internal size `size`. The pipelines carry over unless
+    /// the number of bloom levels changes, so this is cheap.
+    pub fn resized(&self, device: &wgpu::Device, size: (u32, u32)) -> Self {
+        let count = levels_for(size.0, size.1);
+        let pipelines = if count as usize == self.levels.len() {
+            self.pipelines.clone()
+        } else {
+            pipelines(device, &self.layout, self.tonemap, self.output, count)
+        };
+        Self {
+            levels: levels(device, size, count),
+            pipelines,
+            tonemap: self.tonemap,
+            output: self.output,
+            layout: self.layout.clone(),
+            globals: self.globals.clone(),
+            textures: self.textures.clone(),
+            sampler: self.sampler.clone(),
         }
     }
 
@@ -237,6 +201,7 @@ impl Post {
         textures: &wgpu::BindGroup,
         target: &wgpu::TextureView,
         clear: bool,
+        timestamp_writes: Option<wgpu::RenderPassTimestampWrites>,
     ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("scene post"),
@@ -254,7 +219,7 @@ impl Post {
                 },
             })],
             depth_stencil_attachment: None,
-            timestamp_writes: None,
+            timestamp_writes,
             occlusion_query_set: None,
             multiview_mask: None,
         });
@@ -264,7 +229,9 @@ impl Post {
         pass.draw(0..3, 0..1);
     }
 
-    /// Bloom from `out`, then everything into `target`.
+    /// Bloom from `out`, then everything into `target`. With `timestamps`, the first pass writes
+    /// the frame's beginning if `begin` (when no pass of the scene did) and the last its end.
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
         device: &wgpu::Device,
@@ -272,21 +239,117 @@ impl Post {
         out: &wgpu::TextureView,
         noise: &wgpu::TextureView,
         target: &wgpu::TextureView,
+        timestamps: Option<&wgpu::QuerySet>,
+        begin: bool,
     ) {
+        let p = &self.pipelines;
         let first = &self.levels[0].1;
         // The bloom binding is only read by the composite; the noise stands in elsewhere, as a
         // level cannot be bound while it is drawn into.
         let group = self.bind(device, out, (noise, noise));
-        self.draw(encoder, &self.first_down, &group, first, true);
+        let stamps = super::timestamp_writes(timestamps, begin, false);
+        self.draw(encoder, &p.first_down, &group, first, true, stamps);
         for pair in self.levels.windows(2) {
             let group = self.bind(device, &pair[0].1, (noise, noise));
-            self.draw(encoder, &self.down, &group, &pair[1].1, true);
+            self.draw(encoder, &p.down, &group, &pair[1].1, true, None);
         }
         for pair in self.levels.windows(2).rev() {
             let group = self.bind(device, &pair[1].1, (noise, noise));
-            self.draw(encoder, &self.up, &group, &pair[0].1, false);
+            self.draw(encoder, &p.up, &group, &pair[0].1, false, None);
         }
         let group = self.bind(device, out, (first, noise));
-        self.draw(encoder, &self.composite, &group, target, true);
+        let stamps = super::timestamp_writes(timestamps, false, true);
+        self.draw(encoder, &p.composite, &group, target, true, stamps);
+    }
+}
+
+/// The bloom levels for the internal size `size`: half of it, a quarter, and so on.
+fn levels(
+    device: &wgpu::Device,
+    size: (u32, u32),
+    count: u32,
+) -> Vec<(wgpu::Texture, wgpu::TextureView)> {
+    let mut levels = Vec::new();
+    let (mut w, mut h) = (size.0 / 2, size.1 / 2);
+    for _ in 0..count {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("scene bloom"),
+            size: wgpu::Extent3d {
+                width: w.max(1),
+                height: h.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: BLOOM_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        levels.push((texture, view));
+        w /= 2;
+        h /= 2;
+    }
+    levels
+}
+
+/// The pipelines for `count` bloom levels.
+fn pipelines(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    tonemap: u32,
+    output: wgpu::TextureFormat,
+    count: u32,
+) -> Pipelines {
+    let source = format!(
+        "{}{}const LEVELS: u32 = {count}u;\nconst TONEMAP: u32 = {tonemap}u;\n{SHADER}",
+        wgsl::FRAME,
+        wgsl::POST
+    );
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("scene post"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let pipeline = |entry: &str, format, blend| {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(entry),
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vertex"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some(entry),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        })
+    };
+    let add = Some(wgpu::BlendState {
+        color: wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::One,
+            dst_factor: wgpu::BlendFactor::One,
+            operation: wgpu::BlendOperation::Add,
+        },
+        alpha: wgpu::BlendComponent::REPLACE,
+    });
+    Pipelines {
+        first_down: pipeline("first_down", BLOOM_FORMAT, None),
+        down: pipeline("down", BLOOM_FORMAT, None),
+        up: pipeline("up", BLOOM_FORMAT, add),
+        composite: pipeline("composite", output, None),
     }
 }

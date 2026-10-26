@@ -183,6 +183,16 @@ jobs:
           Write-Host "Inno Setup installed to: $innoOut"
           Add-Content $env:GITHUB_PATH "$innoOut"
 
+          # DirectX Shader Compiler: wgpu loads dxcompiler.dll from the app folder
+          # on arm64 (x64 links DXC statically), else it falls back to slow FXC.
+          # windows_build.ps1 copies it into the release folder, so the zip, the
+          # Inno installer and the MSIX all get it.
+          if ("${{ matrix.arch }}" -eq "arm64") {
+            Set-Content -Path ".\dxc-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).dxc.package"
+            $dxcOut = Get-NixStorePath -AttrFile ".\dxc-attr.nix" -Label "DirectX Shader Compiler"
+            Add-Content $env:GITHUB_ENV "RUNE_DXC_DIR=$dxcOut"
+          }
+
       # 6. Cache compiled Rust build artifacts (target/), keyed per
       #    architecture since x64 and arm64 both build under
       #    target/<rust_target>/release. This is on top of (not a

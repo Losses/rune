@@ -3,7 +3,8 @@
 //!
 //! A CoreVideo pool hands out BGRA buffers. Each buffer's IOSurface is wrapped in a Metal texture
 //! and imported into wgpu as the render target. The pool only reuses a buffer once nobody holds
-//! it any more, so a frame that Flutter (or the latest-frame slot) still has is never drawn over.
+//! it any more, so a frame that Flutter (or the latest-frame slot) still has, or that the GPU is
+//! still drawing (`crate::in_flight`), is never drawn over.
 
 use std::collections::{HashMap, VecDeque};
 use std::ptr::NonNull;
@@ -25,11 +26,14 @@ use objc2_metal::{
 };
 use wgpu::hal;
 
+use crate::in_flight::MAX_IN_FLIGHT;
+
 /// Published frames that stay referenced here after a newer one replaced them, so that a buffer
 /// goes back to the pool only a few frames after Flutter let go of it: its compositor may still
 /// sample the last frame it was given while the next one is being drawn.
 const KEEP_RECENT: usize = 3;
-/// Upper bound on the buffers of a pool: the recent ones, the latest, Flutter's, the one in work.
+/// Upper bound on the buffers of a pool: the recent ones (the latest among them), the ones the GPU
+/// is drawing ([`MAX_IN_FLIGHT`]), finished ones not handed out yet, and Flutter's.
 const MAX_BUFFERS: i32 = 8;
 /// Imported textures, one per IOSurface of the pool; more than this means the pool replaced its
 /// buffers (for example after aging them out), so the cache starts over.
@@ -130,7 +134,7 @@ impl SurfaceTargets {
         );
         let pool_attributes = CFDictionary::<CFString, CFType>::from_slices(
             &pool_keys,
-            &[&number(KEEP_RECENT as i32 + 2)],
+            &[&number((KEEP_RECENT + MAX_IN_FLIGHT + 1) as i32)],
         );
         let aux = CFDictionary::<CFString, CFType>::from_slices(&aux_keys, &[&number(MAX_BUFFERS)]);
         let mut pool: *mut CVPixelBufferPool = std::ptr::null_mut();
