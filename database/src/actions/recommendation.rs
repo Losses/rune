@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
+use log::warn;
 use sea_orm::entity::prelude::*;
+use sea_orm::sqlx::{self, Row, sqlite::SqliteRow};
 
-use crate::actions::analysis::AggregatedAnalysisResult;
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
-use crate::entities::{media_analysis, media_files};
+use crate::entities::media_files;
 
 use super::analysis::get_percentile_analysis_result;
 
@@ -89,22 +90,83 @@ pub fn get_recommendation_by_parameter(
     Ok(nearest(&recommend_db.vectors(), &feature_vector, n))
 }
 
+/// The feature columns of `media_analysis`, in the order of the vector.
+///
+/// This is the same order as `impl From<AggregatedAnalysisResult> for [f32; 61]`.
+fn feature_columns() -> Vec<String> {
+    let mut columns: Vec<String> = [
+        "rms",
+        "zcr",
+        "energy",
+        "spectral_centroid",
+        "spectral_flatness",
+        "spectral_slope",
+        "spectral_rolloff",
+        "spectral_spread",
+        "spectral_skewness",
+        "spectral_kurtosis",
+    ]
+    .iter()
+    .map(|c| c.to_string())
+    .collect();
+    columns.extend((0..12).map(|i| format!("chroma{i}")));
+    columns.push("perceptual_spread".to_string());
+    columns.push("perceptual_sharpness".to_string());
+    columns.extend((0..24).map(|i| format!("perceptual_loudness{i}")));
+    columns.extend((0..13).map(|i| format!("mfcc{i}")));
+    columns
+}
+
+/// Decode one feature value: the column's `f64` as `f32`, NULL as 0, and
+/// `None` for a value that is not finite (which `media_analysis::Model` could
+/// not read either).
+fn decode_feature(value: Option<f64>) -> Option<f32> {
+    match value {
+        None => Some(0.0),
+        Some(value) if value.is_finite() => Some(value as f32),
+        Some(_) => None,
+    }
+}
+
+fn decode_vector_row(row: &SqliteRow) -> Result<(u32, [f32; 61])> {
+    let file_id: i32 = row.try_get(0)?;
+    let file_id: u32 = file_id
+        .try_into()
+        .with_context(|| format!("Invalid file id {file_id}"))?;
+
+    let mut vector = [0f32; 61];
+    for (i, slot) in vector.iter_mut().enumerate() {
+        let value: Option<f64> = row.try_get(i + 1)?;
+        *slot = decode_feature(value).with_context(|| format!("Invalid value in column {i}"))?;
+    }
+    Ok((file_id, vector))
+}
+
 /// Read all analysis data of `main_db` into the recommendation store.
+///
+/// Only `file_id` and the feature columns are read, straight into floats.
+/// Rows that cannot be converted (e.g. a negative file id) are skipped with a
+/// warning. If the data cannot be read at all, the error is returned and the
+/// store keeps its previous vectors.
 pub(crate) async fn load_recommendation_vectors(
     main_db: &MainDbConnection,
     recommend_db: &RecommendationDbConnection,
 ) -> Result<()> {
-    let analyzes = media_analysis::Entity::find()
-        .all(main_db)
+    let sql = format!(
+        "SELECT file_id, {} FROM media_analysis",
+        feature_columns().join(", ")
+    );
+    let rows = sqlx::query(&sql)
+        .fetch_all(main_db.get_sqlite_connection_pool())
         .await
         .with_context(|| "Failed to read analysis data")?;
 
-    let mut vectors = Vec::with_capacity(analyzes.len());
-    for analysis in analyzes {
-        let file_id: u32 = analysis.file_id.try_into()?;
-        let parsed_result: AggregatedAnalysisResult = analysis.into();
-        let vector: [f32; 61] = parsed_result.into();
-        vectors.push((file_id, vector));
+    let mut vectors = Vec::with_capacity(rows.len());
+    for row in &rows {
+        match decode_vector_row(row) {
+            Ok(entry) => vectors.push(entry),
+            Err(e) => warn!("Skipping an analysis row for recommendations: {e:#}"),
+        }
     }
 
     recommend_db.replace(vectors);
@@ -114,7 +176,8 @@ pub(crate) async fn load_recommendation_vectors(
 /// Sync the recommendation store with the analysis data.
 ///
 /// Reads all of `media_analysis` and replaces the in-memory vectors, so added
-/// and removed analysis rows are both reflected.
+/// and removed analysis rows are both reflected. If the data cannot be read,
+/// the error is returned and the previous vectors are kept.
 ///
 /// # Arguments
 /// * `main_db` - A reference to the database connection.
@@ -311,5 +374,14 @@ mod tests {
             get_recommendation_by_parameter(&db, [0.0; 61], 1).unwrap(),
             vec![(1, 0.0)]
         );
+    }
+
+    #[test]
+    fn features_decode_to_f32_with_null_as_zero() {
+        assert_eq!(decode_feature(None), Some(0.0));
+        assert_eq!(decode_feature(Some(0.25)), Some(0.25));
+        assert_eq!(decode_feature(Some(-1e-3)), Some(-1e-3f64 as f32));
+        assert_eq!(decode_feature(Some(f64::NAN)), None);
+        assert_eq!(decode_feature(Some(f64::INFINITY)), None);
     }
 }

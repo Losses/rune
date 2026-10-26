@@ -39,8 +39,14 @@ impl StorageInfo {
         self.db_dir.join(".0.db")
     }
 
-    pub fn get_recommendation_db_path(&self) -> PathBuf {
-        self.db_dir.join(".analysis.db")
+    /// Where older versions kept the LMDB recommendation index: a directory
+    /// (`.analysis`, before August 2025) or a file (`.analysis.db`). Nothing
+    /// reads them any more, they are only deleted.
+    pub fn get_legacy_recommendation_db_paths(&self) -> [PathBuf; 2] {
+        [
+            self.db_dir.join(".analysis"),
+            self.db_dir.join(".analysis.db"),
+        ]
     }
 }
 
@@ -275,10 +281,12 @@ impl RecommendationDbConnection {
 
 /// Prepare the recommendation store of a library.
 ///
-/// Older versions kept the vectors in a LMDB file (`.analysis.db`). It was only
-/// a copy of `media_analysis`, so it is deleted here; a failure to delete it
-/// is logged and never prevents the library from opening. The store is then
-/// filled from `main_db`.
+/// Older versions kept the vectors in a LMDB index (the directory `.analysis`
+/// or the file `.analysis.db`). It was only a copy of `media_analysis`, so it
+/// is deleted here. The store is then filled from `main_db`. Neither a failure
+/// to delete the legacy data nor a failure to read the vectors prevents the
+/// library from opening: both are logged, and the store stays empty in the
+/// second case until the next `sync_recommendation`.
 pub async fn connect_recommendation_db(
     fsio: &FsIo,
     lib_path: &str,
@@ -286,37 +294,57 @@ pub async fn connect_recommendation_db(
     main_db: &MainDbConnection,
 ) -> Result<RecommendationDbConnection> {
     let storage_info = get_storage_info(fsio, lib_path, db_path)?;
-    let legacy_path = storage_info.get_recommendation_db_path();
 
-    if let Err(e) = remove_legacy_recommendation_db(fsio, &storage_info, &legacy_path).await {
-        warn!(
-            "Failed to delete the legacy recommendation database {}: {e:#}",
-            legacy_path.display()
-        );
+    for legacy_path in storage_info.get_legacy_recommendation_db_paths() {
+        if let Err(e) = remove_legacy_recommendation_db(fsio, &storage_info, &legacy_path).await {
+            warn!(
+                "Failed to delete the legacy recommendation database {}: {e:#}",
+                legacy_path.display()
+            );
+        }
     }
 
     info!("Loading recommendation vectors");
     let recommend_db = RecommendationDbConnection::new();
-    load_recommendation_vectors(main_db, &recommend_db).await?;
+    if let Err(e) = load_recommendation_vectors(main_db, &recommend_db).await {
+        warn!("Failed to load the recommendation vectors, recommendations are empty: {e:#}");
+    }
 
     Ok(recommend_db)
 }
 
+/// Delete a legacy recommendation file or directory (with its content).
+/// Does nothing if it does not exist.
 async fn remove_legacy_recommendation_db(
     fsio: &FsIo,
     storage_info: &StorageInfo,
     legacy_path: &Path,
 ) -> Result<()> {
     if db_uses_local_fs(&storage_info.db_dir) {
-        match tokio::fs::remove_file(legacy_path).await {
-            Ok(()) => info!("Deleted legacy recommendation database"),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        let metadata = match tokio::fs::symlink_metadata(legacy_path).await {
+            Ok(metadata) => metadata,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(e.into()),
+        };
+        if metadata.is_dir() {
+            tokio::fs::remove_dir_all(legacy_path).await?;
+        } else {
+            tokio::fs::remove_file(legacy_path).await?;
         }
-    } else if fsio.exists(legacy_path)? {
-        fsio.remove_file(legacy_path).await?;
-        info!("Deleted legacy recommendation database");
+    } else {
+        if !fsio.exists(legacy_path)? {
+            return Ok(());
+        }
+        if fsio.is_dir(legacy_path).await? {
+            fsio.remove_dir_all(legacy_path).await?;
+        } else {
+            fsio.remove_file(legacy_path).await?;
+        }
     }
+    info!(
+        "Deleted legacy recommendation database {}",
+        legacy_path.display()
+    );
     Ok(())
 }
 
