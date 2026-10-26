@@ -29,15 +29,28 @@ id = "scope_buf"
 scale = 0.3
 persistent = true
 
+# The plan of the wall around where the camera looks, worked out once a frame so that every pixel
+# reads its bays, piles and pools of light, and the scopes their points, rather than working them
+# out again. It needs 29 x 75 texels (enough at half the internal resolution on a phone);
+# smaller, the passes work them out themselves.
+[[buffer]]
+id = "plan"
+format = "rgba32float"
+scale = 0.17
+
+[[pass]]
+shader = "plan.wgsl"
+target = "plan"
+
 [[pass]]
 shader = "scope.wgsl"
 target = "scope_buf"
-inputs = ["prev:scope_buf"]
+inputs = ["prev:scope_buf", "plan"]
 
 [[pass]]
 shader = "view.wgsl"
 target = "out"
-inputs = ["scope_buf"]
+inputs = ["scope_buf", "plan"]
 
 [post]
 exposure = 0.0
