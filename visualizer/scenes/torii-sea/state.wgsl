@@ -12,6 +12,10 @@ struct State {
   vel: f32,
   vtarget: f32,
   tempo: f32,
+  // When the runtime last told of a beat, and a clock in beats at the music's pace to count by
+  // without one (scene time).
+  last_beat: f32,
+  clock: f32,
   // How fast the music sounds (smoothed), its energy (and that smoothed again) and the kick.
   feel: f32,
   energy: f32,

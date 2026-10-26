@@ -362,6 +362,16 @@ fn choose_view(label: f32, energy: f32, len: f32) {
   state.last_view = frame.time;
 }
 
+// A calm tempo to move at when there is no beat, in beats a minute, from how fast the music
+// sounds (`music.feel`, in Hz: about 3 for a ballad to 7 for drum and bass): 70 to 110, and 90
+// while that is not measured yet.
+fn feel_bpm() -> f32 {
+  if (music.feel <= 0.0) {
+    return 90.0;
+  }
+  return mix(70.0, 110.0, clamp((music.feel - 3.0) / 4.0, 0.0, 1.0));
+}
+
 fn update() {
   let dt = frame.dt;
   let t = frame.time;
@@ -375,10 +385,21 @@ fn update() {
   }
 
   // The beat clock: it runs at the tempo and is set to the beat when one comes (never back).
-  let sure = music.bpm > 0.0 && music.beat_confidence > params.conf;
-  let beat = music.beats > 0u && sure;
+  // Without a beat (the runtime tells of none) it runs at a calm tempo from how fast the music
+  // sounds, and the dancers keep their moves but not the bounce on the beat.
+  // A beat is followed while the runtime has told of one within the last few beats (it tells of
+  // beats only when it trusts them).
+  if (frame.first == 1u) {
+    state.last_beat = -100.0;
+  }
+  if (music.beats > 0u) {
+    state.last_beat = t;
+  }
+  let sure = music.bpm > 0.0 && t - state.last_beat < 2.5 * 60.0 / music.bpm;
+  let beat = music.beats > 0u;
   state.sure += (f32(sure) - state.sure) * (1.0 - exp(-dt / 0.5));
-  state.beat_len = select(0.5, 60.0 / max(music.bpm, 1.0), sure);
+  let beat_len = 60.0 / max(select(feel_bpm(), music.bpm, sure), 1.0);
+  state.beat_len += (beat_len - state.beat_len) * (1.0 - exp(-dt / 0.5));
   state.clock += dt / state.beat_len;
   if (beat) {
     state.clock = max(ceil(state.clock - 0.35), state.clock);
@@ -452,7 +473,7 @@ fn update() {
     && !(chart && music.section_left < 2.0 * glide_len)) {
     state.section += 101.0;
     choose_view(-1.0, state.energy, glide_len);
-  } else if (music.bpm <= 0.0 && t - state.last_view > 30.0) {
+  } else if (!sure && t - state.last_view > 30.0) {
     choose_view(-1.0, state.energy, glide_len);
   }
   // The circling view goes round once in so many bars, the way of its side.

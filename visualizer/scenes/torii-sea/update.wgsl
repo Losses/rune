@@ -63,6 +63,16 @@ fn track(z: f32) -> vec3f {
   return vec3f(way_x(z), params.through, z);
 }
 
+// A calm tempo to move at when there is no beat, in beats a minute, from how fast the music
+// sounds (`music.feel`, in Hz: about 3 for a ballad to 7 for drum and bass): 70 to 110, and 90
+// while that is not measured yet.
+fn feel_bpm() -> f32 {
+  if (music.feel <= 0.0) {
+    return 90.0;
+  }
+  return mix(70.0, 110.0, clamp((music.feel - 3.0) / 4.0, 0.0, 1.0));
+}
+
 fn update() {
   let dt = min(frame.dt, 0.05);
   let t = frame.time;
@@ -82,8 +92,21 @@ fn update() {
     state.light_mix = 1.0;
   }
 
-  let sure = music.bpm > 0.0 && music.beat_confidence > params.conf;
-  let beat = f32(music.beats > 0u && sure);
+  // A beat is followed while the runtime has told of one within the last few beats (it tells of
+  // beats only when it trusts them).
+  if (frame.first == 1u) {
+    state.last_beat = -100.0;
+  }
+  if (music.beats > 0u) {
+    state.last_beat = t;
+  }
+  let sure = music.bpm > 0.0 && t - state.last_beat < 2.5 * 60.0 / music.bpm;
+  // Without a beat (the runtime tells of none) the hits of the music stand in for it.
+  let beat = f32(music.hits > 0u);
+  let onsets = music.hits - music.beats;
+  // The spirits' steps count beats on this clock when there is no beat to follow, at a calm
+  // tempo from how fast the music sounds.
+  state.clock += dt * feel_bpm() / 60.0;
 
   // Energy: the section's, leaning towards the next one in the bars before it.
   let chart = music.has_chart == 1u;
@@ -104,7 +127,7 @@ fn update() {
     state.since_kick = 0.0;
   }
   state.since_kick += dt;
-  if (beat > 0.5 || (!sure && kin > 0.6)) {
+  if (beat > 0.5) {
     state.surge = 1.0;
   }
   state.surge *= exp(-dt / max(params.surge_decay, 0.02));
@@ -144,9 +167,9 @@ fn update() {
   }
   // The sea holds still, and every few beats (and on an accent) a new set of triangles takes its
   // place, as tall as the music is loud then, taller on the kick and in an accent's swell.
-  // Without a beat it changes every second or so.
+  // Without a beat it changes on a hit, at most every second or so.
   let beat_no = u32(max(floor(music.beat), 0.0));
-  let sea_turn = (beat > 0.5 && beat_no % max(u32(params.sea_beats), 1u) == 0u) || accent > 0.0 || (!sure && t - state.sea_last > 1.2);
+  let sea_turn = (music.beats > 0u && beat_no % max(u32(params.sea_beats), 1u) == 0u) || accent > 0.0 || (onsets > 0u && t - state.sea_last > 1.2);
   if (sea_turn || frame.first == 1u) {
     state.sea_gen = f32((u32(state.sea_gen) + 1u) % 4096u);
     state.sea_amp = state.wave * (1.0 + params.wave_kick * kin) + 1.2 * state.swell;
@@ -176,7 +199,7 @@ fn update() {
     if (t - state.last_mode > 4.0 && (bar + 2u) % max(u32(params.mode_bars), 1u) == 0u) {
       choose_mode(-1.0);
     }
-  } else if (music.bpm <= 0.0) {
+  } else if (!sure) {
     if (t - state.last_view > 12.0) {
       choose_view(-1.0);
       if (random(12u) < 0.5) {
@@ -239,8 +262,8 @@ fn update() {
   // A leap: up into the sky and back down, in an arc.
   let leap_h = select(0.0, sin(3.14159265 * state.leap) * params.leap * state.leap_power, state.leap > 0.0 && state.leap < 1.0);
   // Everything the spirits do is counted in beats: each beat a step, quick off the mark and
-  // settled before the next (without a beat, two a second).
-  let bp = select(t * 2.0 * state.tempo, music.beat, sure);
+  // settled before the next (without a beat, on a clock at a calm tempo).
+  let bp = select(state.clock, music.beat, sure);
   let fb = floor(bp);
   let snap = 1.0 - pow(1.0 - fract(bp), 4.0);
   let stepped = fb + snap;
@@ -296,7 +319,7 @@ fn update() {
         off = vec3f(side * (5.0 + 4.0 * random(70u + h)), 1.0 + 2.0 * random(80u + h), 0.0);
       }
       trip = vec4f(off, 0.001);
-      let beat_s = select(0.5, 60.0 / max(music.bpm, 1.0), sure);
+      let beat_s = 60.0 / max(select(feel_bpm(), music.bpm, sure), 1.0);
       state.trip_len[h] = vec4f(beat_s * mix(1.5, 3.0, random(90u + h)), 0.0, 0.0, 0.0);
     }
     var away = 0.0;

@@ -164,8 +164,18 @@ fn update() {
     state.top_prev = state.top;
   }
 
-  let sure = music.bpm > 0.0 && music.beat_confidence > params.conf;
-  let beat = music.beats > 0u && sure;
+  // A beat is followed while the runtime has told of one within the last few beats (it tells of
+  // beats only when it trusts them).
+  if (frame.first == 1u) {
+    state.last_beat = -100.0;
+  }
+  if (music.beats > 0u) {
+    state.last_beat = t;
+  }
+  let sure = music.bpm > 0.0 && t - state.last_beat < 2.5 * 60.0 / music.bpm;
+  // Without a beat the hits of the music stand in for it.
+  let beat = music.hits > 0u;
+  let onsets = music.hits - music.beats;
 
   // Energy: the section's, leaning towards the next one in the bars before it.
   let chart = music.has_chart == 1u;
@@ -193,10 +203,11 @@ fn update() {
   state.per_beat = params.grow * pace * (0.7 + 0.6 * state.energy);
 
   // On every beat the tip shoots up, on a bar's first beat further, and every plate it reaches
-  // appears on that beat. Without a beat it grows the same way twice a second.
-  let tick = beat || (!sure && state.since_beat > 0.5 / pace);
+  // appears on that beat. Without a beat it grows the same way on the hits, at most twice a
+  // second at the usual pace.
+  let tick = music.beats > 0u || (onsets > 0u && state.since_beat > 0.5 / pace);
   if (tick) {
-    let boost = select(1.0, params.bar_boost, beat && music.bars > 0u);
+    let boost = select(1.0, params.bar_boost, music.beats > 0u && music.bars > 0u);
     let step = max(round(state.per_beat * boost), 1.0) * CELL.y;
     state.top_prev = state.top_to;
     state.top_to += step;
@@ -226,7 +237,7 @@ fn update() {
   let every = max(u32(params.glitch_bars), 1u);
   // Concrete keeps the beat in the growth alone: no glitch, no flash of the whole picture.
   let concrete = params.style == 1u;
-  if (!concrete && (accent > 0.0 || (beat && music.bars > 0u && params.glitch_bars > 0.5 && u32(floor(music.bar)) % every == 0u))) {
+  if (!concrete && (accent > 0.0 || (music.beats > 0u && music.bars > 0u && params.glitch_bars > 0.5 && u32(floor(music.bar)) % every == 0u))) {
     state.glitch = params.glitch;
   }
   state.glitch *= exp(-dt / 0.06);
@@ -240,13 +251,13 @@ fn update() {
     if (bar % max(u32(params.view_bars), 1u) == 0u && random(9u) * 100.0 < params.view_chance) {
       choose_view(-1.0, false);
     }
-  } else if (music.bpm <= 0.0 && t - state.last_view > 20.0) {
+  } else if (!sure && t - state.last_view > 20.0) {
     choose_view(-1.0, false);
   }
   // Without a chart the theme changes every few bars.
   if (!chart && music.bars > 0u && t - state.last_theme > 8.0 && u32(floor(music.bar)) % max(u32(params.theme_bars), 1u) == 0u) {
     choose_theme(-1.0);
-  } else if (music.bpm <= 0.0 && t - state.last_theme > 30.0) {
+  } else if (!sure && t - state.last_theme > 30.0) {
     choose_theme(-1.0);
   }
   // A change of style changes the theme at once.

@@ -41,6 +41,8 @@ struct State {
   per_bar: f32,
   bar_shift: f32,
   sure: f32,
+  // When the runtime last told of a beat (scene time).
+  last_beat: f32,
   // How hard they dance (the section's energy, smoothed), the brows' lift on an accent and when
   // the last one was, the section (it picks the moves).
   level: f32,

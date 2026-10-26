@@ -10,6 +10,8 @@ struct State {
   top: f32,
   top_to: f32,
   since_beat: f32,
+  // When a beat last came (scene time).
+  last_beat: f32,
   // How fast the music sounds (smoothed), its energy (smoothed twice) and the kick.
   feel: f32,
   energy: f32,

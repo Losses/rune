@@ -33,15 +33,6 @@ saturation = 1.1
 # ---- Beat ----
 
 [[param]]
-id = "conf"
-group = "Beat"
-label = "Beat confidence needed"
-default = 0.4
-min = 0.0
-max = 1.0
-step = 0.05
-
-[[param]]
 id = "motion"
 type = "choice"
 group = "Beat"

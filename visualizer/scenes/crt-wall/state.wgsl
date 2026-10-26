@@ -19,11 +19,13 @@ struct State {
   energy: f32,
   ens: f32,
   kick: f32,
-  // The beat clock in beats (its whole part the beats so far), seconds per beat, and whether a
-  // beat is followed.
+  // The beat clock in beats (its whole part the beats so far), seconds per beat, and how far a
+  // beat is followed (eased).
   clock: f32,
   beat_len: f32,
   sure: f32,
+  // When a beat last came (scene time).
+  last_beat: f32,
   // The scopes: where in the waveform the time trace starts (a rising zero crossing, so it stands
   // still) and the gain that keeps the trace a steady size.
   trig: f32,

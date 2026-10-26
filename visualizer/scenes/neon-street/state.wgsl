@@ -27,6 +27,8 @@ struct State {
   last_accent: f32,
   shake: f32,
   beat_count: f32,
+  // When the runtime last told of a beat (scene time).
+  last_beat: f32,
   beat_time: f32,
   beat_gap: f32,
   // The lanterns' swing on their strings (an angle, and how fast it changes): pushed one way and

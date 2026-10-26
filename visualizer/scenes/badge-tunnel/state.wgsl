@@ -50,6 +50,8 @@ struct State {
   set_off: Pose,
   glide: f32,
   bars_on: f32,
+  // Hits that were not beats, counted: every fourth stands in for a bar when there is no beat.
+  onsets: f32,
   palette: f32,
   // The camera.
   cam_pos: vec3f,

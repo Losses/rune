@@ -43,15 +43,6 @@ saturation = 1.0
 # ---- Dance ----
 
 [[param]]
-id = "conf"
-group = "Dance"
-label = "Beat confidence needed"
-default = 0.4
-min = 0.0
-max = 1.0
-step = 0.05
-
-[[param]]
 id = "dance"
 group = "Dance"
 label = "How hard they dance"

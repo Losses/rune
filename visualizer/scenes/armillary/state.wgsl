@@ -28,6 +28,8 @@ struct State {
   bars: f32,
   phrases: f32,
   sections: f32,
+  // Hits that were not beats, counted: every eighth stands in for a bar when there is no beat.
+  onsets: f32,
   // Accents, which light the rings drawn as lines or the shapes: which beat of the bar this is,
   // how many times something has lit, which of the two is lighting now (0 the rings, 1 the
   // shapes) and how far the picture has gone over to it (eased).

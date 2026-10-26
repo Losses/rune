@@ -102,14 +102,23 @@ fn update() {
     state.flash = 0.0;
   }
 
-  let sure = music.bpm > 0.0 && music.beat_confidence > params.conf;
-  let beat = f32(music.beats > 0u && sure);
+  // A beat is followed while the runtime has told of one within the last few beats (it tells of
+  // beats only when it trusts them).
+  if (frame.first == 1u) {
+    state.last_beat = -100.0;
+  }
   if (music.beats > 0u) {
+    state.last_beat = t;
+  }
+  let sure = music.bpm > 0.0 && t - state.last_beat < 2.5 * 60.0 / music.bpm;
+  // Without a beat the hits of the music stand in for it, except for the lanterns' swing.
+  let beat = f32(music.hits > 0u);
+  if (music.hits > 0u) {
     state.beat_gap = min(t - state.beat_time, 2.0);
     state.beat_time = t;
-    state.beat_count += f32(music.beats);
-    state.changes += f32(music.beats);
-    if (sure) {
+    state.beat_count += f32(music.hits);
+    state.changes += f32(music.hits);
+    if (music.beats > 0u) {
       state.sway_v += params.swing * 6.0 * select(-1.0, 1.0, fract(state.beat_count * 0.5) < 0.25);
     }
   }
@@ -174,7 +183,7 @@ fn update() {
     if (bar % every == 0u && random(9u) * 100.0 < chance) {
       cut(-1.0);
     }
-  } else if (music.bpm <= 0.0 && t - state.last_cut > 12.0) {
+  } else if (!sure && t - state.last_cut > 12.0) {
     cut(-1.0);
   }
   state.flash *= exp(-dt / 0.12);

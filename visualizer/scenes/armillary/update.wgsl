@@ -732,6 +732,21 @@ fn project(i: u32) {
   }
 }
 
+// A calm tempo to move at when there is no beat, in beats a minute, from how fast the music
+// sounds (`music.feel`, in Hz: about 3 for a ballad to 7 for drum and bass): 70 to 110, and 90
+// while that is not measured yet.
+fn feel_bpm() -> f32 {
+  if (music.feel <= 0.0) {
+    return 90.0;
+  }
+  return mix(70.0, 110.0, clamp((music.feel - 3.0) / 4.0, 0.0, 1.0));
+}
+
+// The tempo to move at, in beats a minute: the music's when it has one, else `feel_bpm()`.
+fn pace_bpm() -> f32 {
+  return select(feel_bpm(), music.bpm, music.bpm > 0.0);
+}
+
 fn update() {
   let dt = min(frame.dt, 0.05);
   let t = frame.time;
@@ -754,16 +769,18 @@ fn update() {
   // Rings move by the bar, the phrase and the section, never step by step on the beat: a bar
   // nudges one ring, each in its turn; a phrase of four bars flings one round a whole turn, each
   // in its turn, its neighbours nudged after; a section flings three, from the inside out.
-  // Without a beat, a bar every four seconds; without sections, every four phrases. The kick
-  // swells the core.
-  let sure = music.bpm > 0.0 && music.beat_confidence >= params.conf;
-  let beat = (music.beats > 0u && sure) || (!sure && floor(t) != floor(t - dt));
+  // Without a beat (the runtime tells of none), the hits of the music stand in: a bar is every
+  // eighth hit that is not a beat, about the four seconds it was before; without sections,
+  // every four phrases. The kick swells the core.
+  let beat = music.hits > 0u;
+  let onsets = music.hits - music.beats;
+  state.onsets += f32(onsets);
   if (beat) {
     state.kick = 1.0;
     state.core_vel += params.core_kick;
   }
   var section = music.sections > 0u && frame.first == 0u;
-  let barred = (music.bars > 0u && sure) || (!sure && floor(t / 4.0) != floor((t - dt) / 4.0));
+  let barred = music.bars > 0u || (onsets > 0u && floor(state.onsets / 8.0) != floor((state.onsets - f32(onsets)) / 8.0));
   if (barred) {
     state.bars += 1.0;
     let bar = u32(state.bars);
@@ -875,9 +892,8 @@ fn update() {
   let pace = params.flow * mix(0.35, 1.6, state.moment);
   state.spin += dt * 0.06 * pace;
   // The tempo, smoothed so a change of it (or of song) never jolts what turns with it; without
-  // a tempo, as at 100 beats a minute.
-  let bpm = select(100.0, music.bpm, music.bpm > 0.0 && sure);
-  state.tempo += (bpm - state.tempo) * (1.0 - exp(-dt / 2.0));
+  // a tempo, a calm one from how fast the music sounds.
+  state.tempo += (pace_bpm() - state.tempo) * (1.0 - exp(-dt / 2.0));
   state.drift_cam += dt * params.drift * mix(0.6, 1.5, state.moment);
   state.core_flow += dt * (0.25 + 0.6 * clamp(state.levels.z, 0.0, 2.0)) * params.flow;
   state.core_rays += dt * (0.1 + 0.4 * clamp(state.levels.y, 0.0, 2.0)) * params.flow;

@@ -111,15 +111,24 @@ fn update() {
     state.vtgt = params.cruise;
   }
 
-  let sure = music.bpm > 0.0 && music.beat_confidence > params.conf;
-  let beat = music.beats > 0u && sure;
-  state.sure = f32(sure);
+  // The runtime tells of beats only when it trusts them, so one within the last few beats says
+  // that a beat is followed. Without one the screens keep their channels and the hits of the
+  // music stand in for the beat.
+  if (frame.first == 1u) {
+    state.last_beat = -100.0;
+  }
+  if (music.beats > 0u) {
+    state.last_beat = t;
+  }
+  let sure = music.bpm > 0.0 && t - state.last_beat < 2.5 * 60.0 / music.bpm;
+  state.sure += (f32(sure) - state.sure) * (1.0 - exp(-dt / 0.25));
+  let beat = music.hits > 0u;
 
   // The beat clock: it runs at the tempo and is set to the beat when one comes (never back).
   // Without a beat it runs at two a second.
   state.beat_len = select(0.5, 60.0 / max(music.bpm, 1.0), sure);
   state.clock += dt / state.beat_len;
-  if (beat) {
+  if (music.beats > 0u) {
     state.clock = max(ceil(state.clock - 0.35), state.clock);
   }
 
@@ -131,7 +140,7 @@ fn update() {
     state.energy += (music.loudness - state.energy) * (1.0 - exp(-dt / 1.5));
   }
   state.ens += (0.5 + 1.5 * state.energy - state.ens) * (1.0 - exp(-dt / 0.6));
-  let kin = max(f32(beat), params.hits * music.low * f32(sure));
+  let kin = max(f32(beat), params.hits * music.low * state.sure);
   state.kick = max(state.kick * exp(-dt / max(params.kick_decay, 0.01)), kin);
 
   // Sections: the views change, the channels group anew, quiet ones leave sets dark.
@@ -147,7 +156,7 @@ fn update() {
       choose_view(-1.0);
       fresh = true;
     }
-  } else if (music.bpm <= 0.0 && t - state.last_view > 30.0) {
+  } else if (state.sure < 0.5 && t - state.last_view > 30.0) {
     state.section += 101.0;
     choose_view(-1.0);
     fresh = true;
