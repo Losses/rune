@@ -8,7 +8,7 @@
 //! log line, and a pass over all the scenes with `Visualizer bench: cycle done`; then it starts
 //! again.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use log::{info, warn};
 
@@ -103,6 +103,12 @@ pub struct Bench {
     /// The GPU times (seconds) and the frames rendered since the warm-up ended.
     times: Vec<f64>,
     frames: u32,
+    /// How long the frames Flutter took had waited from being published (seconds).
+    ages: Vec<f64>,
+    /// The frames taken by Flutter and skipped without a free target so far, when the warm-up
+    /// ended and now.
+    taken: Option<(u64, u64)>,
+    skipped: Option<(u64, u64)>,
     /// Whether the log has said that the benchmark overrides the scene asked for.
     said_override: bool,
 }
@@ -124,6 +130,9 @@ impl Bench {
             began: None,
             times: Vec::new(),
             frames: 0,
+            ages: Vec::new(),
+            taken: None,
+            skipped: None,
             said_override: false,
         }
     }
@@ -177,13 +186,25 @@ impl Bench {
         false
     }
 
-    /// Called after each frame: keeps what the GPU timer reported, once the warm-up is over.
-    pub fn frame(&mut self, pipeline: &mut Pipeline, now: Instant) {
+    /// Called after each frame with how many frames Flutter took so far and how long the one it
+    /// took last had waited, if it took one since: keeps what the GPU timer reported, once the
+    /// warm-up is over.
+    pub fn frame(
+        &mut self,
+        pipeline: &mut Pipeline,
+        now: Instant,
+        taken: u64,
+        age: Option<Duration>,
+    ) {
         let times = pipeline.take_frame_times();
         let Some(began) = self.began else { return };
         if now.duration_since(began).as_secs_f64() >= WARM_UP {
             self.times.extend(times);
+            self.ages.extend(age.map(|age| age.as_secs_f64()));
             self.frames += 1;
+            let skipped = pipeline.skipped();
+            self.taken.get_or_insert((taken, taken)).1 = taken;
+            self.skipped.get_or_insert((skipped, skipped)).1 = skipped;
         }
     }
 
@@ -203,6 +224,9 @@ impl Bench {
         pipeline.set_adaptive(self.phase == Phase::Adaptive);
         self.times.clear();
         self.frames = 0;
+        self.ages.clear();
+        self.taken = None;
+        self.skipped = None;
         // The clock starts when loading is done.
         self.began = Some(if load { Instant::now() } else { now });
         load
@@ -218,13 +242,23 @@ impl Bench {
             0.0
         };
         let summary = summarize(&self.times);
+        let ages = summarize(&self.ages);
+        let count = |counts: Option<(u64, u64)>| counts.map_or(0, |(first, last)| last - first);
+        let shown = if measured > 0.0 {
+            count(self.taken) as f64 / measured
+        } else {
+            0.0
+        };
         let (level, (width, height)) = pipeline.level();
         info!(
-            "Visualizer bench: scene={} phase={} frames={} fps={:.1} gpu_avg={:.1} gpu_p50={:.1} gpu_p95={:.1} gpu_max={:.1} factor={:.2} quality={:.2} size={width}x{height}",
+            "Visualizer bench: scene={} phase={} frames={} fps={:.1} shown_fps={shown:.1} wait_p50={:.1} wait_p95={:.1} skipped={} gpu_avg={:.1} gpu_p50={:.1} gpu_p95={:.1} gpu_max={:.1} factor={:.2} quality={:.2} size={width}x{height}",
             self.scenes[self.scene],
             self.phase.name(),
             self.frames,
             fps,
+            ages.median * 1e3,
+            ages.p95 * 1e3,
+            count(self.skipped),
             summary.average * 1e3,
             summary.median * 1e3,
             summary.p95 * 1e3,
