@@ -32,6 +32,20 @@ fn parse_seconds(value: Option<&str>) -> Option<f64> {
         .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
 }
 
+/// The scenes of `names` that `wanted` (comma-separated names, any case) lists, or all of them
+/// without a list.
+fn only(names: impl Iterator<Item = String>, wanted: Option<&str>) -> Vec<String> {
+    let wanted: Vec<String> = wanted
+        .unwrap_or_default()
+        .split(',')
+        .map(|name| name.trim().to_lowercase())
+        .filter(|name| !name.is_empty())
+        .collect();
+    names
+        .filter(|name| wanted.is_empty() || wanted.contains(&name.to_lowercase()))
+        .collect()
+}
+
 /// The GPU times of the frames of a phase, in seconds.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Summary {
@@ -98,7 +112,12 @@ impl Bench {
     pub fn new(seconds: f64) -> Self {
         Self {
             phase_seconds: seconds / 2.0,
-            scenes: builtin::scenes().into_iter().map(|s| s.name).collect(),
+            scenes: only(
+                builtin::scenes().into_iter().map(|s| s.name),
+                std::env::var("RUNE_VISUALIZER_BENCH_SCENES")
+                    .ok()
+                    .as_deref(),
+            ),
             scene: 0,
             phase: Phase::Full,
             loaded: false,
@@ -235,6 +254,21 @@ mod tests {
         ] {
             assert_eq!(parse_seconds(bad), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn scenes_can_be_picked() {
+        let names = || {
+            ["Growth", "CRT Wall", "Paperclip"]
+                .map(String::from)
+                .into_iter()
+        };
+        assert_eq!(only(names(), None).len(), 3);
+        assert_eq!(only(names(), Some("")).len(), 3);
+        assert_eq!(
+            only(names(), Some("crt wall, growth")),
+            ["Growth", "CRT Wall"]
+        );
     }
 
     #[test]
