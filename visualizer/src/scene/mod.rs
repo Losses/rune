@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 
+use crate::adaptive::Level;
 use crate::chart::ChartState;
 use crate::covers::{self, Atlas, Cell};
 use crate::rhythm::Rhythm;
@@ -189,13 +190,18 @@ struct Sized {
     post: post::Post,
 }
 
-/// Mip chains: each level drawn from the one above with a linear sampler (a 2x2 box).
+/// Mip chains: each level drawn from the one above with a linear sampler (a 2x2 box). Also copies
+/// a texture into one of another size (a buffer that carries over a change of resolution).
 struct Mipper {
     module: wgpu::ShaderModule,
     layout: wgpu::BindGroupLayout,
     pipeline_layout: wgpu::PipelineLayout,
     sampler: wgpu::Sampler,
     pipelines: Vec<(wgpu::TextureFormat, wgpu::RenderPipeline)>,
+    /// For formats that cannot be filtered: the nearest texel, without a sampler.
+    load_layout: wgpu::BindGroupLayout,
+    load_pipeline_layout: wgpu::PipelineLayout,
+    load_pipelines: Vec<(wgpu::TextureFormat, wgpu::RenderPipeline)>,
 }
 
 const MIP_SHADER: &str = "
@@ -208,6 +214,10 @@ struct V { @builtin(position) position: vec4f, @location(0) uv: vec2f }
 }
 @fragment fn fragment(v: V) -> @location(0) vec4f {
   return textureSampleLevel(source, smp, v.uv, 0.0);
+}
+@fragment fn fragment_load(v: V) -> @location(0) vec4f {
+  let size = vec2f(textureDimensions(source));
+  return textureLoad(source, vec2i(min(v.uv * size, size - 1.0)), 0);
 }
 ";
 
@@ -230,12 +240,24 @@ impl Mipper {
             immediate_size: 0,
         });
         let sampler = linear_sampler(device, wgpu::AddressMode::ClampToEdge);
+        let load_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("scene copy"),
+            entries: &[texture_entry(0, wgpu::ShaderStages::FRAGMENT, false)],
+        });
+        let load_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("scene copy"),
+            bind_group_layouts: &[Some(&load_layout)],
+            immediate_size: 0,
+        });
         Self {
             module,
             layout,
             pipeline_layout,
             sampler,
             pipelines: Vec::new(),
+            load_layout,
+            load_pipeline_layout,
+            load_pipelines: Vec::new(),
         }
     }
 
@@ -253,6 +275,66 @@ impl Mipper {
         );
         self.pipelines.push((format, pipeline));
         self.pipelines.len() - 1
+    }
+
+    fn load_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) -> usize {
+        if let Some(i) = self.load_pipelines.iter().position(|(f, _)| *f == format) {
+            return i;
+        }
+        let pipeline = fullscreen_pipeline(
+            device,
+            "scene copy",
+            &self.load_pipeline_layout,
+            &self.module,
+            ("vertex", "fragment_load"),
+            format,
+        );
+        self.load_pipelines.push((format, pipeline));
+        self.load_pipelines.len() - 1
+    }
+
+    /// Draw `source` (its first mip) stretched over `target`, both in `format`: filtered, or the
+    /// nearest texel for a format that cannot be filtered.
+    fn copy(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        format: wgpu::TextureFormat,
+        source: &wgpu::TextureView,
+        target: &wgpu::TextureView,
+    ) {
+        let filterable = format != wgpu::TextureFormat::Rgba32Float;
+        let source = wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(source),
+        };
+        let (pipeline, group) = if filterable {
+            let i = self.pipeline(device, format);
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("scene copy"),
+                layout: &self.layout,
+                entries: &[
+                    source,
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            });
+            (&self.pipelines[i].1, group)
+        } else {
+            let i = self.load_pipeline(device, format);
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("scene copy"),
+                layout: &self.load_layout,
+                entries: &[source],
+            });
+            (&self.load_pipelines[i].1, group)
+        };
+        let mut pass = begin_pass(encoder, target, "scene copy", None);
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &group, &[]);
+        pass.draw(0..3, 0..1);
     }
 
     fn generate(
@@ -278,7 +360,7 @@ impl Mipper {
                     },
                 ],
             });
-            let mut pass = begin_pass(encoder, &pair[1], "scene mips");
+            let mut pass = begin_pass(encoder, &pair[1], "scene mips", None);
             pass.set_pipeline(&self.pipelines[i].1);
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);
@@ -316,6 +398,8 @@ pub struct Scene {
     mipper: Mipper,
     output_format: wgpu::TextureFormat,
     output_size: (u32, u32),
+    /// The resolution factor (against the scene's own scale) and quality it draws with.
+    level: Level,
     analyzer: Analyzer,
     events: EventCounter,
     /// The visualizer's time when the scene started, and of the last frame.
@@ -422,6 +506,7 @@ fn begin_pass<'a>(
     encoder: &'a mut wgpu::CommandEncoder,
     target: &wgpu::TextureView,
     label: &str,
+    timestamp_writes: Option<wgpu::RenderPassTimestampWrites>,
 ) -> wgpu::RenderPass<'a> {
     encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some(label),
@@ -435,10 +520,25 @@ fn begin_pass<'a>(
             },
         })],
         depth_stencil_attachment: None,
-        timestamp_writes: None,
+        timestamp_writes,
         occlusion_query_set: None,
         multiview_mask: None,
     })
+}
+
+/// The timestamps a render pass writes into `set`: the frame's beginning (query 0) at its
+/// beginning if `begin`, the frame's end (query 1) at its end if `end`.
+fn timestamp_writes(
+    set: Option<&wgpu::QuerySet>,
+    begin: bool,
+    end: bool,
+) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+    set.filter(|_| begin || end)
+        .map(|query_set| wgpu::RenderPassTimestampWrites {
+            query_set,
+            beginning_of_pass_write_index: begin.then_some(0),
+            end_of_pass_write_index: end.then_some(1),
+        })
 }
 
 /// `size` times `scale`, as the shaders compute it: `floor(resolution * scale)`, at least 1.
@@ -521,17 +621,43 @@ fn f16_bytes(values: impl Iterator<Item = f32>) -> Vec<u8> {
         .collect()
 }
 
+/// The memory the buffers of `manifest` take at the internal size `size`.
+fn buffer_bytes(manifest: &Manifest, size: (u32, u32)) -> u64 {
+    manifest
+        .buffers
+        .iter()
+        .map(|spec| {
+            let (w, h) = scaled(size, spec.scale);
+            u64::from(w)
+                * u64::from(h)
+                * spec.format.bytes_per_pixel()
+                * if spec.persistent { 2 } else { 1 }
+                * if spec.mips { 4 } else { 3 }
+                / 3
+        })
+        .sum()
+}
+
 impl Sized {
-    #[allow(clippy::too_many_arguments)]
+    /// At `factor` of the scene's own scale. The post-processing's pipelines carry over from
+    /// `post`, if given (they are built only when the number of bloom levels changes).
     fn new(
         device: &wgpu::Device,
         manifest: &Manifest,
-        output_format: wgpu::TextureFormat,
-        output_size: (u32, u32),
+        (output_format, output_size): (wgpu::TextureFormat, (u32, u32)),
+        factor: f32,
         buffers: (&wgpu::Buffer, &wgpu::Buffer),
+        post: Option<&post::Post>,
     ) -> Result<Self> {
-        let size = scaled(output_size, manifest.render.scale);
-        let mut total = 0u64;
+        // Checked at the scene's own scale, so that a lower factor can always go back up.
+        let total = buffer_bytes(manifest, scaled(output_size, manifest.render.scale));
+        ensure!(
+            total <= MAX_BUFFER_BYTES,
+            "the buffers need {} MB at this size, more than {} MB",
+            total >> 20,
+            MAX_BUFFER_BYTES >> 20
+        );
+        let size = scaled(output_size, manifest.render.scale * factor);
         let mut targets = Vec::new();
         for spec in &manifest.buffers {
             let (w, h) = scaled(size, spec.scale);
@@ -541,12 +667,6 @@ impl Sized {
                 1
             };
             let count = if spec.persistent { 2 } else { 1 };
-            total += u64::from(w)
-                * u64::from(h)
-                * spec.format.bytes_per_pixel()
-                * count
-                * if spec.mips { 4 } else { 3 }
-                / 3;
             let mut textures = Vec::new();
             let mut views = Vec::new();
             let mut mip_views = Vec::new();
@@ -582,12 +702,6 @@ impl Sized {
                 _textures: textures,
             });
         }
-        ensure!(
-            total <= MAX_BUFFER_BYTES,
-            "the buffers need {} MB at this size, more than {} MB",
-            total >> 20,
-            MAX_BUFFER_BYTES >> 20
-        );
         let out = plain_texture(
             device,
             "scene out",
@@ -597,7 +711,10 @@ impl Sized {
             1,
         );
         let out_view = out.create_view(&Default::default());
-        let post = post::Post::new(device, manifest.post.tonemap, output_format, buffers, size);
+        let post = match post {
+            Some(post) => post.resized(device, size),
+            None => post::Post::new(device, manifest.post.tonemap, output_format, buffers, size),
+        };
         Ok(Self {
             size,
             targets,
@@ -1048,9 +1165,10 @@ impl Scene {
         let sized = Sized::new(
             device,
             manifest,
-            output_format,
-            output_size,
+            (output_format, output_size),
+            1.0,
             (&post_buffer, &frame),
+            None,
         )?;
         if let Some(error) = pollster::block_on(scope.pop()) {
             bail!("{error}");
@@ -1081,6 +1199,7 @@ impl Scene {
             mipper,
             output_format,
             output_size,
+            level: Level::FULL,
             analyzer: Analyzer::new(sample_rate),
             events: EventCounter::default(),
             started: None,
@@ -1214,15 +1333,80 @@ impl Scene {
         queue.submit(Some(encoder.finish()));
     }
 
-    pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) -> Result<()> {
-        self.output_size = (width.max(1), height.max(1));
-        self.sized = Sized::new(
+    /// Draw frames of `width` by `height` from now on, at the same resolution factor. The
+    /// buffers that keep the last frame carry over, stretched.
+    pub fn resize(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+    ) -> Result<()> {
+        let output_size = (width.max(1), height.max(1));
+        self.resize_buffers(device, queue, output_size, self.level.factor)?;
+        self.output_size = output_size;
+        Ok(())
+    }
+
+    /// Draw at `level`: the internal resolution is `level.factor` of the scene's own scale (the
+    /// buffers, which keep their scales against it, with it; those that keep the last frame
+    /// carry over, stretched), and `frame.quality` is `level.quality`. The scene's state and clock
+    /// stay; this costs about as much as one frame.
+    pub fn set_level(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, level: Level) {
+        let level = Level {
+            factor: level.factor.clamp(0.01, 1.0),
+            quality: level.quality.clamp(0.0, 1.0),
+        };
+        if level.factor != self.level.factor {
+            // Only the size of the output can fail the check, and it did not change.
+            if let Err(e) = self.resize_buffers(device, queue, self.output_size, level.factor) {
+                log::warn!("Scene {}: {e:#}", self.name);
+                return;
+            }
+        }
+        self.level = level;
+    }
+
+    /// The internal resolution (that of `out`, `frame.resolution`).
+    pub fn internal_size(&self) -> (u32, u32) {
+        self.sized.size
+    }
+
+    fn resize_buffers(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        output_size: (u32, u32),
+        factor: f32,
+    ) -> Result<()> {
+        let mut sized = Sized::new(
             device,
             &self.files.manifest,
-            self.output_format,
-            self.output_size,
+            (self.output_format, output_size),
+            factor,
             (&self.post_buffer, &self.frame),
+            Some(&self.sized.post),
         )?;
+        let mut encoder = device.create_command_encoder(&Default::default());
+        for (old, new) in self.sized.targets.iter().zip(&mut sized.targets) {
+            if !old.spec.persistent {
+                continue;
+            }
+            new.current = old.current;
+            let format = new.spec.format.wgpu();
+            // Into mip 0 of each texture, from all of the old one's.
+            for (from, to) in old.views.iter().zip(&new.views) {
+                self.mipper
+                    .copy(device, &mut encoder, format, &from.1, &to.0);
+            }
+            if new.spec.mips {
+                for levels in &new.mip_views {
+                    self.mipper.generate(device, &mut encoder, format, levels);
+                }
+            }
+        }
+        queue.submit(Some(encoder.finish()));
+        self.sized = sized;
         Ok(())
     }
 
@@ -1230,7 +1414,8 @@ impl Scene {
         self.analyzer.push(interleaved, channels);
     }
 
-    /// Draw a frame into `target` (the output format and size).
+    /// Draw a frame into `target` (the output format and size). With `timestamps`, the first pass
+    /// writes query 0 at its beginning and the last query 1 at its end.
     pub fn render(
         &mut self,
         device: &wgpu::Device,
@@ -1238,6 +1423,7 @@ impl Scene {
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         input: &FrameInput,
+        timestamps: Option<&wgpu::QuerySet>,
     ) {
         let started = *self.started.get_or_insert(input.time);
         let time = input.time - started;
@@ -1268,6 +1454,7 @@ impl Scene {
             frame.extend(v.to_le_bytes());
         }
         frame.extend(self.covers_count.to_le_bytes());
+        frame.extend(self.level.quality.to_le_bytes());
         frame.resize(wgsl::FRAME_SIZE as usize, 0);
         queue.write_buffer(&self.frame, 0, &frame);
         let music = inputs::music(
@@ -1292,10 +1479,18 @@ impl Scene {
             4,
         );
 
+        // The first pass writes the frame's beginning.
+        let mut begin = timestamps.is_some();
         if let Some((pipeline, group)) = &self.update {
+            let timestamp_writes = timestamps.map(|query_set| wgpu::ComputePassTimestampWrites {
+                query_set,
+                beginning_of_pass_write_index: Some(0),
+                end_of_pass_write_index: None,
+            });
+            begin = false;
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("scene update"),
-                timestamp_writes: None,
+                timestamp_writes,
             });
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, group, &[]);
@@ -1339,7 +1534,9 @@ impl Scene {
                 }
             };
             {
-                let mut render = begin_pass(encoder, view, "scene pass");
+                let stamps = timestamp_writes(timestamps, begin, false);
+                begin = false;
+                let mut render = begin_pass(encoder, view, "scene pass", stamps);
                 render.set_pipeline(&pass.pipeline);
                 render.set_bind_group(0, &self.pass_globals, &[]);
                 render.set_bind_group(1, &inputs, &[]);
@@ -1357,9 +1554,15 @@ impl Scene {
                 }
             }
         }
-        sized
-            .post
-            .render(device, encoder, &sized.out.1, &self.noise, target);
+        sized.post.render(
+            device,
+            encoder,
+            &sized.out.1,
+            &self.noise,
+            target,
+            timestamps,
+            begin,
+        );
 
         for t in &mut self.sized.targets {
             if t.spec.persistent {

@@ -75,7 +75,8 @@ pub struct Manifest {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct Render {
-    /// The internal resolution against the output's.
+    /// The internal resolution against the output's: the most it is; the runtime lowers it to
+    /// half of this when frames take too long on the GPU (see `crate::adaptive`).
     pub scale: f32,
 }
 

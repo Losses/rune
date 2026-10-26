@@ -174,6 +174,7 @@ fn frame(
             song: (time, true),
             accent: None,
         },
+        None,
     );
     queue.submit(Some(encoder.finish()));
 }
@@ -199,6 +200,76 @@ fn the_state_and_a_persistent_buffer_carry_from_frame_to_frame() {
     }
     let c = screen.middle(&device, &queue);
     assert!(close(c, [0.3, 0.3, 0.3]), "{c:?}");
+}
+
+#[test]
+fn a_lower_level_keeps_the_state_and_the_trail() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let gpu = (&device, &queue);
+    let dir = counter("level");
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    let screen = Screen::new(&device);
+    for i in 0..3 {
+        frame(&mut scene, gpu, &screen, f64::from(i) * 0.1, 0.0);
+    }
+    let half = Level {
+        factor: 0.5,
+        quality: 0.25,
+    };
+    scene.set_level(&device, &queue, half);
+    assert_eq!(scene.internal_size(), (32, 16));
+    // The trail carried over to the smaller buffers and grows on; the frames count on.
+    frame(&mut scene, gpu, &screen, 0.3, 0.0);
+    let c = screen.middle(&device, &queue);
+    assert!(close(c, [0.4, 0.4, 0.0]), "{c:?}");
+    // And back up, also across a resize, which keeps the level.
+    scene
+        .resize(&device, &queue, SIZE.0 * 2, SIZE.1 * 2)
+        .unwrap();
+    assert_eq!(scene.internal_size(), SIZE);
+    scene.resize(&device, &queue, SIZE.0, SIZE.1).unwrap();
+    scene.set_level(&device, &queue, Level::FULL);
+    assert_eq!(scene.internal_size(), SIZE);
+    frame(&mut scene, gpu, &screen, 0.4, 0.0);
+    let c = screen.middle(&device, &queue);
+    assert!(close(c, [0.5, 0.5, 0.0]), "{c:?}");
+}
+
+#[test]
+fn a_scene_sees_its_resolution_and_quality() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let dir = folder(
+        "quality",
+        &[
+            (
+                MANIFEST,
+                "format = 1\nname = \"Quality\"\nlicense = \"MPL-2.0\"\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n[post]\ntonemap = \"none\"\ngrain = 0.0\nchromatic = 0.0\nvignette = 0.0\nbloom = { intensity = 0.0 }\n",
+            ),
+            (
+                "a.wgsl",
+                "fn shade(px: Pixel) -> vec4f {\n  return vec4f(frame.quality, frame.resolution / vec2f(64.0, 32.0), 1.0);\n}\n",
+            ),
+        ],
+    );
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    let screen = Screen::new(&device);
+    frame(&mut scene, (&device, &queue), &screen, 0.0, 0.0);
+    let c = screen.middle(&device, &queue);
+    assert!(close(c, [1.0, 1.0, 1.0]), "{c:?}");
+    let level = Level {
+        factor: 0.5,
+        quality: 0.25,
+    };
+    scene.set_level(&device, &queue, level);
+    frame(&mut scene, (&device, &queue), &screen, 0.1, 0.0);
+    let c = screen.middle(&device, &queue);
+    assert!(close(c, [0.25, 0.5, 0.5]), "{c:?}");
 }
 
 #[test]
@@ -364,6 +435,7 @@ fn a_scene_sees_the_accent_colour() {
             song: (0.0, true),
             accent: Some(argb_to_linear(0xff0080ff)),
         },
+        None,
     );
     queue.submit(Some(encoder.finish()));
     let c = screen.middle(&device, &queue);
@@ -400,6 +472,7 @@ fn a_scene_reads_the_covers_atlas() {
                 song: (0.0, true),
                 accent: None,
             },
+            None,
         );
         queue.submit(Some(encoder.finish()));
         screen.middle(&device, &queue)

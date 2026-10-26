@@ -11,9 +11,11 @@
 //! clone an `Arc` under a short lock and never wait for the GPU. A reader that keeps frames holds
 //! their buffers, and the renderer skips frames while none is free.
 
+mod adaptive;
 mod builtin;
 mod chart;
 mod covers;
+mod gpu_time;
 mod pipeline;
 mod presets;
 mod readback;
@@ -746,6 +748,7 @@ fn run(
         #[cfg(target_os = "android")]
         lock(&shared.window).take(),
     )?;
+    pipeline.set_target_fps(fps);
     let mut transport = pipeline.transport();
     info!(
         "Visualizer started on {} ({transport:?})",

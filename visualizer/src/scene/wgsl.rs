@@ -26,7 +26,8 @@ pub const BIND_COVERS: u32 = 11;
 pub const BIND_ASSETS: u32 = 12;
 
 /// `struct Frame` is 64 bytes: time, dt, index, first, resolution (vec2f), aspect, seed, the
-/// app's accent colour (vec4f) at 32, and how many covers the atlas holds (u32) at 48, padded.
+/// app's accent colour (vec4f) at 32, how many covers the atlas holds (u32) at 48 and the quality
+/// (f32) at 52, padded.
 pub const FRAME_SIZE: u64 = 64;
 /// `struct Post` is 64 bytes: eight f32, the tint (vec4f) at 32, contrast and saturation, padding.
 pub const POST_SIZE: u64 = 64;
@@ -41,6 +42,9 @@ pub const FRAME: &str = "struct Frame {
   seed: u32,
   accent: vec4f,
   covers: u32,
+  // 1 at full quality; lower (in steps, down to 0) when the frame rate cannot be held even at
+  // the lowest internal resolution. A scene may take fewer steps or samples then.
+  quality: f32,
 }
 ";
 
@@ -448,7 +452,8 @@ inputs = ["prev:trail"]
 
     #[test]
     fn frame_is_laid_out_as_wgsl_wants() {
-        // time, dt, index, first, resolution (2), aspect, seed, accent (4), covers, padding.
+        // time, dt, index, first, resolution (2), aspect, seed, accent (4), covers, quality,
+        // padding.
         assert_eq!(FRAME_SIZE, 64);
         let frame = format!(
             "{FRAME}@group(0) @binding(0) var<uniform> frame: Frame;\n@fragment fn f() -> @location(0) vec4f {{ return vec4f(f32(frame.covers)); }}\n"
@@ -472,7 +477,10 @@ inputs = ["prev:trail"]
                 .unwrap()
                 .offset
         };
-        assert_eq!((offset("accent"), offset("covers")), (32, 48));
+        assert_eq!(
+            (offset("accent"), offset("covers"), offset("quality")),
+            (32, 48, 52)
+        );
     }
 
     #[test]

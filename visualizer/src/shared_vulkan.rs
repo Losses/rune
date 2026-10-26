@@ -106,7 +106,11 @@ fn adapter_uuids(adapter: &hal::vulkan::Adapter) -> Option<DeviceUuids> {
 /// does not enable by itself. Otherwise like `request_device` with the default descriptor. Fails
 /// if the adapter cannot share images and semaphores.
 pub fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue)> {
-    let desc = wgpu::DeviceDescriptor::default();
+    let desc = wgpu::DeviceDescriptor {
+        // For the GPU time of a frame (see `crate::gpu_time`), where there are timestamps.
+        required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+        ..Default::default()
+    };
     let open = {
         // SAFETY: the guard is dropped before wgpu uses the adapter again.
         let hal_adapter = unsafe { adapter.as_hal::<hal::api::Vulkan>() }

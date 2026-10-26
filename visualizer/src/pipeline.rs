@@ -7,15 +7,17 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 #[cfg(target_os = "android")]
 use anyhow::bail;
 use anyhow::{Context, Result, anyhow};
-use log::warn;
+use log::{info, warn};
 
-use crate::DeviceUuids;
+use crate::adaptive::{Controller, Report};
 use crate::chart::ChartState;
 use crate::covers::{Atlas, Cell};
+use crate::gpu_time::GpuTimer;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
 use crate::scene::{FrameInput, Scene, Source};
@@ -27,6 +29,7 @@ use crate::shared_vulkan::{SharedFrame, SharedTargets};
 use crate::surface::{PixelBuffer, SurfaceTargets};
 #[cfg(target_os = "android")]
 use crate::window::{Window, WindowSurface};
+use crate::{DEFAULT_FPS, DeviceUuids};
 
 /// `kCVPixelFormatType_32BGRA` on Apple. Windows' `FlutterDesktopPixelBuffer` and Linux's
 /// `FlPixelBufferTexture` take RGBA, and so do ANGLE for a shared texture and Linux's `FlTextureGL`
@@ -56,7 +59,20 @@ pub struct Pipeline {
     format: wgpu::TextureFormat,
     readback: bool,
     pub adapter_name: String,
+    /// The GPU time of each frame, which the adaptive quality follows.
+    timer: GpuTimer,
+    controller: Controller,
+    report: Report,
+    /// The clock of the controller and the report.
+    clock: Instant,
+    /// Seconds per frame at the target frame rate.
+    budget: f64,
+    /// Frame times collected this frame (kept to save allocating).
+    times: Vec<f64>,
 }
+
+/// How often the GPU time of the frames is logged, in seconds.
+const REPORT_INTERVAL: f64 = 10.0;
 
 /// The name of the built-in scene shown before another is chosen.
 pub const DEFAULT_PRESET_NAME: &str = "Armillary";
@@ -216,9 +232,12 @@ fn request_device(
             Err(e) => warn!("Falling back to reading frames back: {e:#}"),
         }
     }
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
-            .context("Failed to create the GPU device")?;
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        // For the GPU time of a frame (see `crate::gpu_time`), where there are timestamps.
+        required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+        ..Default::default()
+    }))
+    .context("Failed to create the GPU device")?;
     Ok((device, queue, share && cfg!(not(target_os = "linux"))))
 }
 
@@ -312,7 +331,24 @@ impl Pipeline {
             sample_rate,
         )
         .context("The default scene")?;
+        let timer = GpuTimer::new(&device, &queue);
+        info!(
+            "Visualizer frame times come from {}",
+            if timer.has_timestamps() {
+                "GPU timestamps"
+            } else {
+                "waiting for each frame"
+            }
+        );
+        let clock = Instant::now();
+        let budget = 1.0 / f64::from(DEFAULT_FPS);
         Ok(Self {
+            timer,
+            controller: Controller::new(budget, 0.0),
+            report: Report::new(REPORT_INTERVAL),
+            clock,
+            budget,
+            times: Vec::new(),
             adapter_name: adapter.get_info().name,
             device,
             queue,
@@ -332,6 +368,56 @@ impl Pipeline {
 
     pub fn size(&self) -> (u32, u32) {
         self.output.size()
+    }
+
+    /// The frame rate the adaptive quality keeps frames within.
+    pub fn set_target_fps(&mut self, fps: u32) {
+        self.budget = 1.0 / f64::from(fps.max(1));
+        self.controller.set_budget(self.budget);
+    }
+
+    fn now(&self) -> f64 {
+        self.clock.elapsed().as_secs_f64()
+    }
+
+    /// A new scene (or a new version of it) starts at full quality, and frames still in flight
+    /// do not count for it.
+    fn restart_adaptive(&mut self) {
+        self.times.clear();
+        self.timer
+            .collect(&self.device, &self.queue, &mut self.times);
+        self.times.clear();
+        self.controller = Controller::new(self.budget, self.now());
+        self.report.clear();
+    }
+
+    /// Follow the GPU time of the frames that finished: log it now and then, and change the
+    /// scene's resolution and quality when the controller says so.
+    fn adapt(&mut self) {
+        self.timer
+            .collect(&self.device, &self.queue, &mut self.times);
+        let now = self.now();
+        let mut change = None;
+        for &seconds in &self.times {
+            if let Some(summary) = self.report.frame(now, seconds) {
+                let level = self.controller.level();
+                let (width, height) = self.scene.internal_size();
+                info!(
+                    "Visualizer {}: GPU {:.1} ms on average, {:.1} ms at worst ({} frames); now resolution {:.2} ({width}x{height}), quality {:.2}",
+                    self.scene.name,
+                    summary.average * 1e3,
+                    summary.worst * 1e3,
+                    summary.frames,
+                    level.factor,
+                    level.quality,
+                );
+            }
+            change = self.controller.frame(now, seconds).or(change);
+        }
+        self.times.clear();
+        if let Some(level) = change {
+            self.scene.set_level(&self.device, &self.queue, level);
+        }
     }
 
     /// The name of the scene on screen.
@@ -370,7 +456,10 @@ impl Pipeline {
 
     pub fn resize(&mut self, width: u32, height: u32) -> Result<()> {
         let (width, height) = (width.max(1), height.max(1));
-        self.scene.resize(&self.device, width, height)?;
+        self.scene
+            .resize(&self.device, &self.queue, width, height)?;
+        let now = self.now();
+        self.controller.settle(now);
         #[cfg(target_os = "android")]
         if let Output::Surface(surface) = &mut self.output {
             surface.resize(&self.device, width, height);
@@ -386,7 +475,10 @@ impl Pipeline {
     #[cfg(target_os = "android")]
     pub fn replace_window(&mut self, window: Window, width: u32, height: u32) -> Result<()> {
         let (width, height) = (width.max(1), height.max(1));
-        self.scene.resize(&self.device, width, height)?;
+        self.scene
+            .resize(&self.device, &self.queue, width, height)?;
+        let now = self.now();
+        self.controller.settle(now);
         match &mut self.output {
             Output::Surface(surface) => surface.replace(&self.device, window, width, height),
             Output::Readback(_) => {
@@ -479,27 +571,42 @@ impl Pipeline {
             self.playing_cover.clone(),
         );
         self.scene = scene;
+        self.restart_adaptive();
         Ok(())
     }
 
     /// Read the scene on screen again if its files changed; whether it did.
     pub fn reload_scene(&mut self) -> Result<bool> {
         let source = self.scene.source().to_string();
-        self.scene
+        let changed = self
+            .scene
             .reload(&self.device, &self.queue)
-            .with_context(|| format!("Scene {source}"))
+            .with_context(|| format!("Scene {source}"))?;
+        if changed {
+            self.restart_adaptive();
+        }
+        Ok(changed)
     }
 
     /// Render one frame: into the next pixel buffer, shared texture, shared image or image of the
-    /// window's swapchain, or into the target that is read back.
+    /// window's swapchain, or into the target that is read back. The resolution and quality of
+    /// the scene follow the GPU time of the frames before (see [`crate::adaptive`]).
     pub fn render(&mut self, time: f64) -> Result<Rendered> {
+        self.adapt();
+        let rendered = self.render_frame(time);
+        self.timer.submitted(&self.device);
+        rendered
+    }
+
+    fn render_frame(&mut self, time: f64) -> Result<Rendered> {
         #[cfg(target_os = "android")]
         if let Output::Surface(surface) = &mut self.output {
             let scene = &mut self.scene;
             let (device, queue) = (&self.device, &self.queue);
             let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+            let timer = &mut self.timer;
             let presented = surface.present(device, queue, |encoder, view| {
-                draw(scene, (device, queue), encoder, view, time, heard);
+                draw(scene, timer, (device, queue), encoder, view, time, heard);
             });
             return Ok(if presented {
                 Rendered::Presented
@@ -513,9 +620,11 @@ impl Pipeline {
                 Ok(Some((buffer, view))) => {
                     let scene = &mut self.scene;
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+                    let timer = &mut self.timer;
                     render_and_wait(&self.device, &self.queue, |encoder| {
                         draw(
                             scene,
+                            timer,
                             (&self.device, &self.queue),
                             encoder,
                             &view,
@@ -540,9 +649,11 @@ impl Pipeline {
                 Ok(Some((texture, view))) => {
                     let scene = &mut self.scene;
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+                    let timer = &mut self.timer;
                     render_and_wait(&self.device, &self.queue, |encoder| {
                         draw(
                             scene,
+                            timer,
                             (&self.device, &self.queue),
                             encoder,
                             &view,
@@ -568,8 +679,9 @@ impl Pipeline {
                     let scene = &mut self.scene;
                     let (device, queue) = (&self.device, &self.queue);
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+                    let timer = &mut self.timer;
                     let frame = targets.render(device, queue, next, |encoder, view| {
-                        draw(scene, (device, queue), encoder, view, time, heard);
+                        draw(scene, timer, (device, queue), encoder, view, time, heard);
                     })?;
                     let Some(frame) = frame else {
                         return Ok(Rendered::Nothing);
@@ -591,8 +703,9 @@ impl Pipeline {
         let scene = &mut self.scene;
         let (device, queue) = (&self.device, &self.queue);
         let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+        let timer = &mut self.timer;
         let frame = target.render(device, queue, |encoder, view| {
-            draw(scene, (device, queue), encoder, view, time, heard);
+            draw(scene, timer, (device, queue), encoder, view, time, heard);
         })?;
         Ok(frame.map_or(Rendered::Nothing, Rendered::Mapped))
     }
@@ -607,15 +720,17 @@ type Heard<'a> = (
     Option<[f32; 3]>,
 );
 
-/// A frame of the scene.
+/// A frame of the scene, timed by `timer`.
 fn draw(
     scene: &mut Scene,
+    timer: &mut GpuTimer,
     (device, queue): (&wgpu::Device, &wgpu::Queue),
     encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
     time: f64,
     (rhythm, chart, song, accent): Heard,
 ) {
+    let timestamps = timer.begin();
     scene.render(
         device,
         queue,
@@ -628,7 +743,9 @@ fn draw(
             song,
             accent,
         },
+        timestamps,
     );
+    timer.end(encoder);
 }
 
 #[cfg(test)]
@@ -665,5 +782,91 @@ mod tests {
         let frame = frame.expect("no frame came out");
         assert!(frame.bytes().iter().any(|&b| b != 0), "the frame is black");
         assert!(!pipeline.reload_scene().unwrap());
+    }
+
+    /// The lines logged at info level while the tests run.
+    struct Lines(std::sync::Mutex<Vec<String>>);
+
+    impl log::Log for Lines {
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            metadata.level() <= log::Level::Info
+        }
+
+        fn log(&self, record: &log::Record) {
+            if self.enabled(record.metadata()) {
+                let mut lines = self.0.lock().unwrap_or_else(|e| e.into_inner());
+                lines.push(record.args().to_string());
+            }
+        }
+
+        fn flush(&self) {}
+    }
+
+    static LINES: Lines = Lines(std::sync::Mutex::new(Vec::new()));
+
+    /// Growth with a budget of 1 ms a frame: the resolution goes down to its floor, then the
+    /// quality, and the frame times are logged once per interval (1 s here, 10 s in the app).
+    #[test]
+    fn a_heavy_scene_lowers_its_level_and_logs_its_frame_times() {
+        let Ok(mut pipeline) = Pipeline::new(
+            1920,
+            1080,
+            44_100,
+            true,
+            None,
+            None,
+            Arc::new(|_| {}),
+            #[cfg(target_os = "android")]
+            None,
+        ) else {
+            eprintln!("SKIPPED: no GPU adapter");
+            return;
+        };
+        if log::set_logger(&LINES).is_ok() {
+            log::set_max_level(log::LevelFilter::Info);
+        }
+        pipeline.load_builtin_scene("Growth").unwrap();
+        let full = pipeline.scene.internal_size();
+        pipeline.set_target_fps(1000);
+        pipeline.report = Report::new(1.0);
+        let floor = crate::adaptive::Level {
+            factor: crate::adaptive::MIN_FACTOR,
+            quality: 0.0,
+        };
+        let started = Instant::now();
+        let mut levels = Vec::new();
+        while started.elapsed().as_secs_f64() < 15.0 && pipeline.controller.level() != floor {
+            pipeline.render(started.elapsed().as_secs_f64()).unwrap();
+            let level = pipeline.controller.level();
+            if levels.last() != Some(&level) {
+                eprintln!("{:.2} s: {level:?}", started.elapsed().as_secs_f64());
+                levels.push(level);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(4));
+        }
+        // One more second for a line at the lowest level.
+        let last = Instant::now();
+        while last.elapsed().as_secs_f64() < 1.2 {
+            pipeline.render(started.elapsed().as_secs_f64()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(4));
+        }
+        let lines: Vec<String> = LINES
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.starts_with("Visualizer Growth:") || l.contains("frame times come"))
+            .cloned()
+            .collect();
+        for line in &lines {
+            eprintln!("{line}");
+        }
+        assert_eq!(pipeline.controller.level(), floor, "{levels:?}");
+        let size = pipeline.scene.internal_size();
+        assert!(
+            size.0 <= full.0 / 2 + 1 && size.1 <= full.1 / 2 + 1,
+            "{full:?} {size:?}"
+        );
+        assert!(lines.iter().any(|l| l.starts_with("Visualizer Growth:")));
     }
 }
