@@ -12,6 +12,7 @@
 //! their buffers, and the renderer skips frames while none is free.
 
 mod adaptive;
+mod bench;
 mod builtin;
 mod chart;
 mod covers;
@@ -784,6 +785,8 @@ fn run(
     let mut covers_seen: Option<u64> = None;
     // The same for the cell of the track playing.
     let mut playing_cover_seen: Option<u64> = None;
+    // Benchmark mode (see [`bench`]) shows every built-in scene in turn, whatever is asked for.
+    let mut bench = bench::seconds_from_env().map(bench::Bench::new);
 
     loop {
         loop {
@@ -840,8 +843,9 @@ fn run(
             }
         }
 
-        let paused =
-            !shared.playing.load(Ordering::Relaxed) || !shared.visible.load(Ordering::Relaxed);
+        // The benchmark draws with the music paused or the window out of sight too.
+        let paused = bench.is_none()
+            && (!shared.playing.load(Ordering::Relaxed) || !shared.visible.load(Ordering::Relaxed));
         if paused && still_drawn {
             // Keep the last frame on screen and wait, for commands, the music or the window.
             let since = Instant::now();
@@ -918,7 +922,15 @@ fn run(
         if shared.fall_back.swap(false, Ordering::Relaxed) {
             pipeline.fall_back_to_readback();
         }
+        if let Some(bench) = &mut bench
+            && bench.step(&mut pipeline, Instant::now())
+        {
+            shared.status().preset_name = pipeline.preset_name().to_string();
+        }
         let rendered = pipeline.render(time)?;
+        if let Some(bench) = &mut bench {
+            bench.frame(&mut pipeline, Instant::now());
+        }
         let (width, height) = pipeline.size();
         match rendered {
             Rendered::Mapped(frame) => publish(shared, width, height, FrameData::Mapped(frame)),

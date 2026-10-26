@@ -14,7 +14,7 @@ use anyhow::bail;
 use anyhow::{Context, Result, anyhow};
 use log::{info, warn};
 
-use crate::adaptive::{Controller, Report};
+use crate::adaptive::{Controller, Level, Report};
 use crate::chart::ChartState;
 use crate::covers::{Atlas, Cell};
 use crate::gpu_time::GpuTimer;
@@ -69,6 +69,11 @@ pub struct Pipeline {
     budget: f64,
     /// Frame times collected this frame (kept to save allocating).
     times: Vec<f64>,
+    /// Whether the controller may change the scene's level (see [`Pipeline::set_adaptive`]).
+    adaptive: bool,
+    /// The GPU time of every frame since the last [`Pipeline::take_frame_times`], when the
+    /// benchmark asked for them.
+    recorded: Option<Vec<f64>>,
 }
 
 /// How often the GPU time of the frames is logged, in seconds.
@@ -349,6 +354,8 @@ impl Pipeline {
             clock,
             budget,
             times: Vec::new(),
+            adaptive: true,
+            recorded: None,
             adapter_name: adapter.get_info().name,
             device,
             queue,
@@ -376,6 +383,37 @@ impl Pipeline {
         self.controller.set_budget(self.budget);
     }
 
+    /// Whether the scene's resolution and quality follow the GPU time. Off, the scene stays at
+    /// full level; on, the controller starts again from full (as on a new scene).
+    pub fn set_adaptive(&mut self, adaptive: bool) {
+        self.adaptive = adaptive;
+        self.restart_adaptive();
+        self.scene.set_level(&self.device, &self.queue, Level::FULL);
+    }
+
+    /// The scene's level and its internal size at the moment.
+    pub fn level(&self) -> (Level, (u32, u32)) {
+        (self.controller.level(), self.scene.internal_size())
+    }
+
+    /// Whether GPU times come from timestamp queries (else from waiting for each frame).
+    pub fn has_timestamps(&self) -> bool {
+        self.timer.has_timestamps()
+    }
+
+    /// Start (or stop) keeping the GPU time of every frame for [`Pipeline::take_frame_times`].
+    pub fn record_frame_times(&mut self, record: bool) {
+        self.recorded = record.then(Vec::new);
+    }
+
+    /// The GPU time of the frames (seconds) that finished since the last call.
+    pub fn take_frame_times(&mut self) -> Vec<f64> {
+        self.recorded
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    }
+
     fn now(&self) -> f64 {
         self.clock.elapsed().as_secs_f64()
     }
@@ -389,6 +427,9 @@ impl Pipeline {
         self.times.clear();
         self.controller = Controller::new(self.budget, self.now());
         self.report.clear();
+        if let Some(recorded) = &mut self.recorded {
+            recorded.clear();
+        }
     }
 
     /// Follow the GPU time of the frames that finished: log it now and then, and change the
@@ -398,6 +439,9 @@ impl Pipeline {
             .collect(&self.device, &self.queue, &mut self.times);
         let now = self.now();
         let mut change = None;
+        if let Some(recorded) = &mut self.recorded {
+            recorded.extend_from_slice(&self.times);
+        }
         for &seconds in &self.times {
             if let Some(summary) = self.report.frame(now, seconds) {
                 let level = self.controller.level();
@@ -412,7 +456,9 @@ impl Pipeline {
                     level.quality,
                 );
             }
-            change = self.controller.frame(now, seconds).or(change);
+            if self.adaptive {
+                change = self.controller.frame(now, seconds).or(change);
+            }
         }
         self.times.clear();
         if let Some(level) = change {
