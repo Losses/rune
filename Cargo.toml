@@ -9,9 +9,6 @@ resolver = "2"
 
 [patch.crates-io]
 core-graphics = { path = "./core-graphics" }
-# Vendored to fix compilation for 32-bit x86 (i686-linux-android):
-# `use core::arch::x86_64::*` inside a cfg(any(x86, x86_64)) block.
-arroy = { path = "./arroy" }
 # Patched fork to fix MSVC ARM64 (aarch64-pc-windows-msvc): FDK_archdef.h does not
 # recognize _M_ARM64 (VS 18), so the preprocessor falls into the #warning branch
 # and MSVC 14.51 promotes #warning to fatal error C1188. Patch adds an _M_ARM64

@@ -68,7 +68,9 @@ async fn main() {
     .expect("Audio analysis failed");
 
     info!("Syncing recommendation");
-    let recommend_db = connect_recommendation_db(&fsio, &path, None).await.unwrap();
+    let recommend_db = connect_recommendation_db(&fsio, &path, None, &main_db)
+        .await
+        .unwrap();
     match sync_recommendation(&main_db, &recommend_db).await {
         Ok(_) => info!("OK!"),
         Err(e) => error!("Unable to sync recommendation: {e}"),

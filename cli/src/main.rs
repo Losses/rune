@@ -214,7 +214,7 @@ async fn main() {
         }
     };
 
-    let analysis_db = match connect_recommendation_db(&fsio, lib_path, None).await {
+    let analysis_db = match connect_recommendation_db(&fsio, lib_path, None, &main_db).await {
         Ok(db) => db,
         Err(e) => {
             error!("Failed to connect to analysis database: {e}");
