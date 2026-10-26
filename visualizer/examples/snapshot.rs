@@ -50,6 +50,21 @@ fn main() -> anyhow::Result<()> {
     )?;
     if let Some(path) = scene {
         visualizer.load_preset_path(std::path::Path::new(path))?;
+        // The scene is built in the background and the first scene shows meanwhile: wait for the
+        // requested one (or its error) before the clock starts.
+        let name = std::fs::read_to_string(std::path::Path::new(path).join("scene.toml"))
+            .ok()
+            .and_then(|text| text.parse::<toml::Table>().ok())
+            .and_then(|table| table.get("name")?.as_str().map(str::to_string));
+        let until = Instant::now() + Duration::from_secs(120);
+        loop {
+            let status = visualizer.status();
+            if status.last_error.is_some() || name.as_deref() == Some(status.preset_name.as_str()) {
+                break;
+            }
+            anyhow::ensure!(Instant::now() < until, "the scene did not load in time");
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     // A kick at 120 bpm under a chord, so bass and treble both move.

@@ -18,6 +18,7 @@ mod chart;
 mod covers;
 mod gpu_time;
 mod in_flight;
+mod loading;
 mod pipeline;
 mod presets;
 mod published;
@@ -49,11 +50,13 @@ use rtrb::Consumer;
 
 pub use chart::{Chart, ChartState};
 use chart::{ChartFollower, Playback};
+use loading::Loads;
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport};
-use pipeline::{Pipeline, Rendered};
+use pipeline::{Pipeline, Rendered, SceneBuild};
 use presets::{AutoSwitch, Preset, PresetList};
 pub use presets::{Location, PresetInfo};
 pub use rhythm::{BeatTracker, Rhythm};
+use scene::Scene;
 #[cfg(target_os = "linux")]
 pub use shared_vulkan::SharedFrame;
 #[cfg(target_os = "android")]
@@ -203,9 +206,10 @@ pub struct Status {
 
 enum Command {
     Resize(u32, u32),
-    /// Show this scene; one from a folder is then watched for changes.
+    /// Build this scene on another thread and show it when it is done; one from a folder is then
+    /// watched for changes. The scene on screen stays meanwhile.
     LoadScene(Location),
-    /// Show the built-in scene that comes first (no scene folder is left).
+    /// Show the built-in scene that comes first (no scene folder is left), built the same way.
     LoadDefaultScene,
     /// Android: present frames of this size into this window from now on.
     #[cfg(target_os = "android")]
@@ -573,12 +577,16 @@ impl Visualizer {
         self.send(Command::Resize(width, height))
     }
 
-    /// Show the scene in the folder `path`, which is watched for changes.
+    /// Show the scene in the folder `path`, which is watched for changes. The scene is built in
+    /// the background: this returns at once, the old scene stays on screen until the new one is
+    /// built, and a scene that does not load shows up in [`Status::last_error`] then.
     pub fn load_preset_path(&self, path: &Path) -> Result<()> {
         self.load_entry(&Preset::from_path(path))
     }
 
-    /// Show the scene at `location`: a folder (watched for changes) or a built-in scene.
+    /// Show the scene at `location`: a folder (watched for changes) or a built-in scene. Built
+    /// in the background like [`Visualizer::load_preset_path`]; a newer request replaces one that
+    /// is still being built.
     pub fn load_preset(&self, location: Location) -> Result<()> {
         self.send(Command::LoadScene(location))
     }
@@ -812,6 +820,8 @@ fn run(
     let mut window_start = started;
     let mut window_frames = 0u32;
     let mut auto_switch = AutoSwitch::default();
+    // Scenes being built on other threads (see [`loading`]).
+    let mut loads = Loads::new();
     let mut rng = rand::thread_rng();
     // Time spent with the music paused or the window out of sight, which the visualizer's clock
     // leaves out.
@@ -834,13 +844,7 @@ fn run(
         loop {
             match commands.try_recv() {
                 Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(()),
-                Ok(command) => apply(
-                    shared,
-                    &mut pipeline,
-                    &mut auto_switch,
-                    &mut watched,
-                    command,
-                ),
+                Ok(command) => apply(shared, &mut pipeline, &mut auto_switch, &mut loads, command),
                 Err(TryRecvError::Empty) => break,
             }
         }
@@ -859,6 +863,12 @@ fn run(
         }
         tracker.push(&pcm, channels);
         keep_recent(&mut pcm, channels, sample_rate);
+
+        // A scene that finished building replaces the one on screen, also while paused.
+        if let Some(loaded) = loads.take() {
+            install(shared, &mut pipeline, &mut watched, loaded);
+            still_drawn = false;
+        }
 
         if let Some(file) = &mut watched
             && file.reload_if_saved(shared, &mut pipeline)
@@ -896,13 +906,7 @@ fn run(
             match commands.recv_timeout(PAUSED_POLL) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
                 Ok(command) => {
-                    apply(
-                        shared,
-                        &mut pipeline,
-                        &mut auto_switch,
-                        &mut watched,
-                        command,
-                    );
+                    apply(shared, &mut pipeline, &mut auto_switch, &mut loads, command);
                     still_drawn = false;
                 }
                 Err(RecvTimeoutError::Timeout) => {}
@@ -928,7 +932,9 @@ fn run(
             Err(TryLockError::Poisoned(e)) => Some(e.into_inner()),
             Err(TryLockError::WouldBlock) => None,
         };
-        if auto_switch.tick(time, switch_paused, &mut rng)
+        // No switch while a scene is still being built: the next one would only replace it.
+        if !loads.is_pending()
+            && auto_switch.tick(time, switch_paused, &mut rng)
             && let Some(mut library) = free()
         {
             let next = library.auto_next(&mut rng);
@@ -938,7 +944,7 @@ fn run(
                     shared,
                     &mut pipeline,
                     &mut auto_switch,
-                    &mut watched,
+                    &mut loads,
                     Command::LoadScene(preset.location),
                 ),
                 Some(Err(e)) => shared.set_error(format!("{e:#}")),
@@ -1015,13 +1021,7 @@ fn run(
         if deadline > now {
             match commands.recv_timeout(deadline - now) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
-                Ok(command) => apply(
-                    shared,
-                    &mut pipeline,
-                    &mut auto_switch,
-                    &mut watched,
-                    command,
-                ),
+                Ok(command) => apply(shared, &mut pipeline, &mut auto_switch, &mut loads, command),
                 Err(RecvTimeoutError::Timeout) => {}
             }
         } else if now - deadline >= interval {
@@ -1031,11 +1031,63 @@ fn run(
     }
 }
 
+/// A scene built on another thread, with what the render loop does once it is on screen.
+struct Loaded {
+    /// The folder to watch for changes, for a scene from a folder.
+    watched: Option<PathBuf>,
+    scene: Result<Scene>,
+}
+
+/// Start building the scene `build` makes, which replaces any load still running. The scene on
+/// screen stays until it is built (see [`install`]). `watched` is the folder to watch once it is.
+fn start_load(
+    shared: &Shared,
+    loads: &mut Loads<Loaded>,
+    watched: Option<PathBuf>,
+    build: Result<SceneBuild>,
+) {
+    let started = build.and_then(|build| {
+        loads
+            .start(move || Loaded {
+                watched,
+                scene: build.run(),
+            })
+            .context("Failed to start a thread to build the scene")
+    });
+    if let Err(e) = started {
+        shared.set_error(format!("{e:#}"));
+    }
+}
+
+/// Show a scene that finished building, or its error (the scene on screen stays then).
+fn install(
+    shared: &Shared,
+    pipeline: &mut Pipeline,
+    watched: &mut Option<Watched>,
+    loaded: Loaded,
+) {
+    match loaded.scene.and_then(|scene| pipeline.install(scene)) {
+        Ok(()) => {
+            *watched = loaded.watched.map(Watched::new);
+            shared.status().preset_name = pipeline.preset_name().to_string();
+            if pipeline.wants_covers() {
+                shared.wants_covers.store(true, Ordering::Relaxed);
+                let request = lock(&shared.covers_requester).clone();
+                if let Some(request) = request {
+                    request();
+                }
+            }
+            shared.status().last_error = None;
+        }
+        Err(e) => shared.set_error(format!("{e:#}")),
+    }
+}
+
 fn apply(
     shared: &Shared,
     pipeline: &mut Pipeline,
     auto_switch: &mut AutoSwitch,
-    watched: &mut Option<Watched>,
+    loads: &mut Loads<Loaded>,
     command: Command,
 ) {
     // Any load, manual or automatic, starts the wait for the next automatic switch again.
@@ -1049,28 +1101,21 @@ fn apply(
             status.width = width;
             status.height = height;
         }),
-        Command::LoadScene(location) => match &location {
-            Location::Folder(dir) => pipeline.load_scene(dir),
-            Location::Builtin(name) => pipeline.load_builtin_scene(name),
+        // Scenes are built on another thread; the loop shows them when they are done.
+        Command::LoadScene(Location::Folder(dir)) => {
+            let build = Ok(pipeline.scene_build_dir(&dir));
+            start_load(shared, loads, Some(dir), build);
+            return;
         }
-        .map(|()| {
-            *watched = match location {
-                Location::Folder(dir) => Some(Watched::new(dir)),
-                Location::Builtin(_) => None,
-            };
-            shared.status().preset_name = pipeline.preset_name().to_string();
-            if pipeline.wants_covers() {
-                shared.wants_covers.store(true, Ordering::Relaxed);
-                let request = lock(&shared.covers_requester).clone();
-                if let Some(request) = request {
-                    request();
-                }
-            }
-        }),
-        Command::LoadDefaultScene => pipeline.load_default_scene().map(|()| {
-            *watched = None;
-            shared.status().preset_name = pipeline.preset_name().to_string();
-        }),
+        Command::LoadScene(Location::Builtin(name)) => {
+            start_load(shared, loads, None, pipeline.scene_build_builtin(&name));
+            return;
+        }
+        Command::LoadDefaultScene => {
+            let build = pipeline.scene_build_builtin(pipeline::DEFAULT_PRESET_NAME);
+            start_load(shared, loads, None, build);
+            return;
+        }
         #[cfg(target_os = "android")]
         Command::ReplaceWindow(window, width, height) => {
             pipeline.replace_window(window, width, height).map(|()| {

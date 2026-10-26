@@ -106,6 +106,38 @@ fn builtin_source(name: &str) -> Result<Source> {
         .with_context(|| format!("There is no built-in scene {name}"))
 }
 
+/// A scene to build away from the render thread: everything [`Scene::load_from`] needs, taken
+/// from the pipeline when the load was asked for.
+pub struct SceneBuild {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    source: Source,
+    format: wgpu::TextureFormat,
+    size: (u32, u32),
+    sample_rate: u32,
+    /// What the error says the scene was, when it fails to build.
+    context: String,
+}
+
+impl SceneBuild {
+    /// Read and build the scene, which blocks for as long as the driver takes to compile it.
+    pub fn run(self) -> Result<Scene> {
+        let context = self.context.clone();
+        self.run_bare().context(context)
+    }
+
+    fn run_bare(self) -> Result<Scene> {
+        Scene::load_from(
+            &self.device,
+            &self.queue,
+            self.source,
+            self.format,
+            self.size,
+            self.sample_rate,
+        )
+    }
+}
+
 /// What a rendered frame became.
 pub enum Rendered {
     /// A read-back frame (on the readback path a frame comes out a call or two after it was
@@ -648,33 +680,60 @@ impl Pipeline {
         self.scene.push_pcm(interleaved, channels);
     }
 
-    /// Show the scene in the folder `dir`.
+    /// Show the scene in the folder `dir`, waiting until it is built. The render loop builds
+    /// scenes on another thread instead (see [`Pipeline::scene_build_dir`]); tests wait.
+    #[cfg(test)]
     pub fn load_scene(&mut self, dir: &Path) -> Result<()> {
         self.load_source(Source::Dir(dir.to_path_buf()))
             .with_context(|| format!("Scene {}", dir.display()))
     }
 
-    /// Show the built-in scene `name`.
+    /// Show the built-in scene `name`, waiting until it is built.
     pub fn load_builtin_scene(&mut self, name: &str) -> Result<()> {
         self.load_source(builtin_source(name)?)
             .with_context(|| format!("Built-in scene {name}"))
     }
 
-    /// Show the built-in scene that comes first.
-    pub fn load_default_scene(&mut self) -> Result<()> {
-        self.load_builtin_scene(DEFAULT_PRESET_NAME)
+    fn load_source(&mut self, source: Source) -> Result<()> {
+        let scene = self.scene_build(source, String::new()).run_bare()?;
+        self.install(scene)
     }
 
-    fn load_source(&mut self, source: Source) -> Result<()> {
-        let (width, height) = self.size();
-        let mut scene = Scene::load_from(
-            &self.device,
-            &self.queue,
+    /// What a thread needs to build the scene in the folder `dir` for the size the output has
+    /// now, to be shown with [`Pipeline::install`]. Errors carry the same context as
+    /// [`Pipeline::load_scene`].
+    pub fn scene_build_dir(&self, dir: &Path) -> SceneBuild {
+        self.scene_build(
+            Source::Dir(dir.to_path_buf()),
+            format!("Scene {}", dir.display()),
+        )
+    }
+
+    /// The same for the built-in scene `name`; it fails at once if there is none.
+    pub fn scene_build_builtin(&self, name: &str) -> Result<SceneBuild> {
+        Ok(self.scene_build(builtin_source(name)?, format!("Built-in scene {name}")))
+    }
+
+    fn scene_build(&self, source: Source, context: String) -> SceneBuild {
+        SceneBuild {
+            device: self.device.clone(),
+            queue: self.queue.clone(),
             source,
-            self.format,
-            (width, height),
-            self.sample_rate,
-        )?;
+            format: self.format,
+            size: self.size(),
+            sample_rate: self.sample_rate,
+            context,
+        }
+    }
+
+    /// Show a scene that was built with [`Pipeline::scene_build_dir`] or the like, possibly while
+    /// frames of the scene before went on. If the output changed its size meanwhile the scene is
+    /// resized first.
+    pub fn install(&mut self, mut scene: Scene) -> Result<()> {
+        let (width, height) = self.size();
+        if scene.output_size() != (width, height) {
+            scene.resize(&self.device, &self.queue, width, height)?;
+        }
         scene.set_covers(
             &self.device,
             &self.queue,
@@ -1022,6 +1081,44 @@ mod tests {
         let frame = frame.expect("no frame came out");
         assert!(frame.bytes().iter().any(|&b| b != 0), "the frame is black");
         assert!(!pipeline.reload_scene().unwrap());
+    }
+
+    /// A scene built on another thread is installed, resized to the output if that changed
+    /// meanwhile, and one that does not build is an error that leaves the scene on screen.
+    #[test]
+    fn a_scene_built_on_another_thread_is_installed_at_the_current_size() {
+        let Ok(mut pipeline) = Pipeline::new(
+            64,
+            32,
+            44_100,
+            true,
+            None,
+            None,
+            Arc::new(|e| panic!("GPU error: {e}")),
+            #[cfg(target_os = "android")]
+            None,
+        ) else {
+            eprintln!("SKIPPED: no GPU adapter");
+            return;
+        };
+        let build = pipeline.scene_build_builtin("Growth").unwrap();
+        let scene = std::thread::spawn(move || build.run())
+            .join()
+            .unwrap()
+            .unwrap();
+        assert_eq!(scene.output_size(), (64, 32));
+        // The output changes while the scene is being built.
+        pipeline.resize(96, 48).unwrap();
+        pipeline.install(scene).unwrap();
+        assert_eq!(pipeline.preset_name(), "Growth");
+        assert_eq!(pipeline.scene.output_size(), (96, 48));
+        pipeline.render(0.0).unwrap();
+
+        let missing = std::env::temp_dir().join("rune-no-such-scene-folder");
+        let error = pipeline.scene_build_dir(&missing).run().err().unwrap();
+        assert!(format!("{error:#}").starts_with("Scene "), "{error:#}");
+        assert_eq!(pipeline.preset_name(), "Growth");
+        assert!(pipeline.scene_build_builtin("No such scene").is_err());
     }
 
     /// The lines logged at info level while the tests run.

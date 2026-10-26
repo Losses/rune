@@ -47,6 +47,13 @@ struct Files {
     shaders: Vec<(String, String)>,
 }
 
+// A scene is built on a thread of its own and drawn on the render thread (see
+// `crate::loading`).
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<Scene>();
+};
+
 /// Where a scene's files are: a folder, or a fixed list of (path, contents) pairs compiled into
 /// the binary (files may be images), which never changes and so is never reloaded.
 #[derive(Debug, Clone)]
@@ -1224,6 +1231,11 @@ impl Scene {
 
     pub fn source(&self) -> &Source {
         &self.source
+    }
+
+    /// The size of the frames it draws.
+    pub fn output_size(&self) -> (u32, u32) {
+        self.output_size
     }
 
     /// Read the scene's files again. When only parameter defaults changed, only those are
