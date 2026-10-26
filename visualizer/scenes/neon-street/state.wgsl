@@ -14,21 +14,15 @@ struct State {
   pitch_base: f32,
   side: f32,
   view: f32,
-  // Gliding: speed, where it heads, how fast the music sounds (smoothed) and the pace it sets.
+  // Gliding: speed and where it heads.
   vel: f32,
   vtarget: f32,
-  tempo: f32,
-  step: f32,
-  feel: f32,
-  last_energy: f32,
   // The beat: the kick on every beat, and the rare accents that shake the camera.
   kick: f32,
   accent: f32,
-  last_accent: f32,
   shake: f32,
   beat_count: f32,
-  // When the runtime last told of a beat (scene time).
-  last_beat: f32,
+  // When the music last had a hit (scene time), and the gap before it.
   beat_time: f32,
   beat_gap: f32,
   // The lanterns' swing on their strings (an angle, and how fast it changes): pushed one way and
@@ -40,11 +34,8 @@ struct State {
   // Cuts.
   last_cut: f32,
   flash: f32,
-  // The music's energy, smoothed, and the build-up towards a louder section.
-  energy: f32,
-  ens: f32,
-  ramp: f32,
-  rising: f32,
+  // 1 when the last cut was a cue of 0.8 or more, so it may flash the screen.
+  flash_ok: f32,
   // The share of signs that are dark, how often the signs changed their pattern, the colours of
   // the district (a hue, 0..1) and the traffic lights (0 red, 1 green).
   dark: f32,

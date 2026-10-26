@@ -1,5 +1,5 @@
-// Once per frame: glide down the street with the beat, cut at sections and bars, shake only at
-// the big moments.
+// Once per frame: glide down the street at the music's tempo, cut on its cues, shake only at the
+// big moments.
 
 const DEG: f32 = 0.0174533;
 
@@ -54,7 +54,9 @@ fn cut(label: f32) {
   // Somewhere else along the street.
   state.pos.z = random(4u) * 2000.0;
   state.last_cut = frame.time;
+  // The trail is cleared at every cut (compose.wgsl); the screen flash only for a cue of 0.8 or more.
   state.flash = 1.0;
+  state.flash_ok = f32(music.cue >= 0.8);
 }
 
 // ---- The theme colour ----
@@ -88,13 +90,11 @@ fn set_theme() {
 }
 
 fn update() {
-  let dt = frame.dt;
+  let dt = rv_dt();
   let t = frame.time;
   if (frame.first == 1u) {
     state.vel = params.cruise;
     state.vtarget = params.cruise;
-    state.tempo = 1.0;
-    state.ens = 1.0;
     state.lens = 1.0;
     state.beat_gap = 0.5;
     state.district = random(7u);
@@ -102,16 +102,8 @@ fn update() {
     state.flash = 0.0;
   }
 
-  // A beat is followed while the runtime has told of one within the last few beats (it tells of
-  // beats only when it trusts them).
-  if (frame.first == 1u) {
-    state.last_beat = -100.0;
-  }
-  if (music.beats > 0u) {
-    state.last_beat = t;
-  }
-  let sure = music.bpm > 0.0 && t - state.last_beat < 2.5 * 60.0 / music.bpm;
-  // Without a beat the hits of the music stand in for it, except for the lanterns' swing.
+  // Without a beat the hits of the music stand in for it, except for the lanterns' swing, which
+  // only follows a beat the runtime trusts (it counts beats only then).
   let beat = f32(music.hits > 0u);
   if (music.hits > 0u) {
     state.beat_gap = min(t - state.beat_time, 2.0);
@@ -125,84 +117,65 @@ fn update() {
   // The lanterns swing back on their strings, slowly coming to rest.
   state.sway_v += (-36.0 * state.sway - 3.0 * state.sway_v) * dt;
   state.sway += state.sway_v * dt;
-  // The traffic lights change every four bars.
+  // The traffic lights change every four bars: `bars` is nonzero only in the frame a bar begins,
+  // and the bar's number is then a multiple of four once in four bars.
   if (music.bars > 0u && u32(floor(music.bar)) % 4u == 0u) {
     state.signal = 1.0 - state.signal;
   }
 
-  // Energy: the section's, leaning towards the next one in the bars before it.
-  let chart = music.has_chart == 1u;
-  if (chart && music.bpm > 0.0) {
-    let bar_seconds = music.beats_per_bar * 60.0 / music.bpm;
-    state.ramp = clamp(1.0 - music.section_left / (max(params.build_bars, 0.25) * bar_seconds), 0.0, 1.0);
-    state.energy = music.section_energy + (music.next_energy - music.section_energy) * state.ramp * state.ramp;
-    state.rising = f32(music.next_energy > music.section_energy + 0.1) * state.ramp;
-  } else {
-    state.ramp = 0.0;
-    state.rising = 0.0;
-    state.energy += (music.loudness - state.energy) * (1.0 - exp(-dt / 1.5));
+  // Energy: the runtime's slow one (the section's, leaning to the next in the bars before it).
+  // How many signs are dark follows it too: the quieter the section, the more are dark.
+  state.dark = params.dark_quiet * pow(max(1.0 - music.drive, 0.0), 1.5);
+
+  // Build-up: when the next cue is known (cue_in) and the next section is louder, the lens pushes
+  // in over the last build_bars bars before it, along a squared ramp.
+  var rising = 0.0;
+  if (music.cue_in >= 0.0 && music.next_energy > music.drive + 0.1) {
+    let bar_seconds = 60.0 * music.meter / music.tempo;
+    let ramp = clamp(1.0 - music.cue_in / (max(params.build_bars, 0.25) * bar_seconds), 0.0, 1.0);
+    rising = ramp * ramp;
   }
-  let en = 0.5 + 1.5 * state.energy;
-  state.ens += (en - state.ens) * (1.0 - exp(-dt / 0.4));
-  state.dark = f32(chart) * params.dark_quiet * pow(max(1.0 - state.energy, 0.0), 1.5);
 
   // The kick on every beat (glow, brightness, a small zoom), stronger when the music is loud.
-  let kin = max(beat, params.hits * music.low * f32(sure));
-  let level = select(min(music.energy / 1.5, 1.0), music.loudness * music.loudness, chart);
-  let gain = max(1.0 + params.shake_energy * (1.25 * level - 1.0), 0.0);
+  let kin = max(beat, params.hits * music.low * music.locked);
+  let gain = max(1.0 + params.shake_energy * (1.25 * music.intensity * music.intensity - 1.0), 0.0);
   state.kick = max(state.kick * exp(-dt / params.kick_decay), kin * gain);
 
-  // Accents shake the camera, and seldom: a section that lifts the energy, or in a loud part a
-  // hit far above the usual, at least shake_gap seconds apart.
+  // Accents shake the camera, and seldom: a cue that lifts the energy (strength 1), or a hard hit
+  // in the middle of a section (the runtime keeps those at least 6 s apart).
   var accent = 0.0;
-  if (chart && music.sections > 0u && music.section_energy > state.last_energy + 0.1) {
+  if (music.cues > 0u && music.cue >= 0.95) {
     accent = 1.0;
   }
-  if (music.sections > 0u) {
-    state.last_energy = music.section_energy;
-  }
-  let loud = select(music.energy > 1.2, state.energy > 0.55, chart);
-  if (loud && music.low > params.accent_level && t - state.last_accent > params.shake_gap) {
-    accent = max(accent, 0.7 * music.low);
+  if (music.impacts > 0u) {
+    accent = max(accent, 0.7 * music.impact);
   }
   if (accent > 0.0) {
-    state.last_accent = t;
     state.accent = max(state.accent, accent * gain);
   }
   state.accent *= exp(-dt / params.shake_decay);
   state.shake = 0.012 * state.accent * params.shake;
 
-  // Cuts: at a section's start in its own view; on bar lines now and then.
-  let gap_ok = t - state.last_cut > params.cut_gap;
-  if (chart && music.sections > 0u && t - state.last_cut > 0.5) {
-    cut(music.section_label);
-  } else if (music.bars > 0u && gap_ok && (!chart || music.meter_confidence > 0.3)) {
-    let bar = u32(floor(music.bar));
-    let every = max(u32(params.cut_bars), 1u);
-    let chance = params.cut_chance * max(1.0 + (state.energy - 0.5), 0.0);
-    if (bar % every == 0u && random(9u) * 100.0 < chance) {
+  // Cuts, on the music's cues: a section's start (cue 0.5 or more) in its own view, so every
+  // chorus is seen the same way; a weaker cue (eight bars, or a long time without a hit) only
+  // sometimes, by chance and more often when it is loud.
+  if (music.cues > 0u && music.cue >= params.cut_cue && t - state.last_cut > params.cut_gap) {
+    if (music.cue >= 0.5) {
+      cut(music.section_label);
+    } else if (random(9u) * 100.0 < params.cut_chance * (0.5 + music.drive)) {
       cut(-1.0);
     }
-  } else if (!sure && t - state.last_cut > 12.0) {
-    cut(-1.0);
   }
   state.flash *= exp(-dt / 0.12);
 
-  // Gliding as fast as the music sounds (music.feel, about 3 Hz for a ballad to 7 for drum and
-  // bass; 5 is cruise): the song's own pace, and stretched further, how much faster or slower
-  // this moment is than the song, so a song's quiet and loud parts look as different as they
-  // sound. A push on every beat; faster up high.
-  let song = select(5.0, music.song_feel, music.song_feel > 0.0);
-  let here = select(song, music.feel, music.feel > 0.0);
-  if (state.feel <= 0.0) {
-    state.feel = here;
-  }
-  state.feel += (here - state.feel) * (1.0 - exp(-dt / params.feel_smooth));
-  let pace = pow(song / 5.0, params.song_pace) * pow(state.feel / song, params.moment_pace);
-  state.tempo += (clamp(pace, 0.25, 3.0) - state.tempo) * (1.0 - exp(-dt / 1.0));
+  // Gliding as fast as the music: music.tempo over 90 bpm is the pace, so cruise is the speed at
+  // 90 bpm, faster for a faster song and slower for a slower one. A push on every beat; faster
+  // up high.
+  let pace = clamp(music.tempo / 90.0, 0.25, 3.0);
+  let energy_scale = 1.0 + params.energy_speed * (1.5 * music.drive - 0.5);
   let height = 1.0 + max(state.eye - params.eye, 0.0) / 12.0;
-  let cruise = params.cruise * height * state.tempo * (1.0 + params.energy_speed * (state.ens - 1.0));
-  state.vtarget = cruise + (state.vtarget - cruise) * exp(-dt / params.ease) + beat * params.push * state.tempo;
+  let cruise = params.cruise * height * pace * energy_scale;
+  state.vtarget = cruise + (state.vtarget - cruise) * exp(-dt / params.ease) + beat * params.push * pace;
   state.vel += (state.vtarget - state.vel) * (1.0 - exp(-dt / params.accel));
   state.pos.z += dt * state.vel;
   if (state.pos.z > 4000.0) {
@@ -215,13 +188,14 @@ fn update() {
   state.yaw = state.yaw_base + 0.01 * sin(t * 0.17) + state.shake * wobble.x;
   state.pitch = state.pitch_base + 0.008 * sin(t * 0.13) + state.shake * wobble.y;
   state.roll = 0.004 * sin(t * 0.23) + state.side * 0.015 * sin(t * 0.31) + state.shake * 0.5 * wobble.y;
-  state.lens = (1.0 - params.zoom * state.kick) * (1.0 - 0.25 * params.build * state.rising * state.ramp);
+  state.lens = (1.0 - params.zoom * state.kick) * (1.0 - 0.25 * params.build * rising);
 
   set_theme();
   fill_rows();
   // The look follows too: more glow when it is loud and on the kick, a flash at a cut.
-  post.bloom_intensity = params.glow * (0.7 + 0.6 * state.energy) + params.glow_beat * state.kick;
-  post.flash = state.flash * params.flash * 0.5;
+  post.bloom_intensity = params.glow * (0.7 + 0.6 * music.drive) + params.glow_beat * state.kick;
+  // The flash is off unless the param turns it on, and then only for the strongest cues.
+  post.flash = state.flash * state.flash_ok * params.flash * 0.5;
   post.chromatic = 0.0012 * params.chroma * (1.0 + 2.0 * state.kick + 4.0 * state.accent);
   post.exposure = params.exposure + 0.15 * params.pump * state.kick;
 }

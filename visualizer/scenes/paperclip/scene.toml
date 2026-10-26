@@ -98,15 +98,6 @@ max = 1.5
 step = 0.05
 
 [[param]]
-id = "mood_bars"
-group = "Dance"
-label = "Bars a face (the mood) is held at least without a chart (with one it changes with the section)"
-default = 8.0
-min = 1.0
-max = 32.0
-step = 1
-
-[[param]]
 id = "face_lock"
 group = "Dance"
 label = "Hold one face (0 by the music; 1 open, 2 >_<, 3 ^ ^, 4 @ @, 5 wide, 6 drowsy, 7 stars, 8 shut)"
@@ -156,7 +147,7 @@ step = 0.25
 [[param]]
 id = "view_bars"
 group = "Camera"
-label = "Bars between possible view changes"
+label = "Bars a view's own slow move lasts"
 default = 16.0
 min = 1.0
 max = 64.0
@@ -165,12 +156,21 @@ step = 1
 [[param]]
 id = "view_gap"
 group = "Camera"
-label = "Least time between view changes"
+label = "Least time between view changes on a weak cue"
 unit = "s"
 default = 20.0
 min = 2.0
 max = 120.0
 step = 1
+
+[[param]]
+id = "cue_min"
+group = "Camera"
+label = "Cue strength that changes the view or the mood (0.5 is a section start)"
+default = 0.3
+min = 0.1
+max = 1.0
+step = 0.05
 
 [[param]]
 id = "drift"

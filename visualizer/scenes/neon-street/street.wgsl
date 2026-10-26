@@ -15,7 +15,11 @@ fn shade(px: Pixel) -> vec4f {
   let dither = (bayer[cell.y * 4u + cell.x] + 0.5) / 16.0;
 
   let tg = select(FAR, -o.y / d.y, d.y < 0.0);
-  let hit = scene(o, d, pix, 72.0, 28.0, min(tg, FAR), dither);
+  // Quality (frame.quality, 1 to 0) shortens the rays: at 1 the grid walk takes up to 72 steps and
+  // the things over the street 28 rows (today's picture); at 0 half of that, so the far end of
+  // the street ends sooner in the fog. Nothing else changes.
+  let reach = 0.5 + 0.5 * frame.quality;
+  let hit = scene(o, d, pix, ceil(72.0 * reach), ceil(28.0 * reach), min(tg, FAR), dither);
   var col = hit.rgb;
   var tmax = hit.w;
   if (d.y < 0.0 && tg <= hit.w) {

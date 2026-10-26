@@ -129,7 +129,7 @@ Without a chart, `music()` fills in as follows: `has_chart` is 0, `beats_per_bar
 | `section_repeat` | How often this label has appeared before | Chart's | Chart's | 0 | yes | |
 | `section_energy` | 0 to 1, loudness of this section | Chart's | Chart's | Same as `loudness` | no | `drive` |
 | `next_label` | Label of the next section (this one's in the last section) | Chart's | Chart's | 0 | yes | |
-| `next_energy` | 0 to 1, energy of the next section | Chart's | Chart's | Same as `loudness` | no | `drive` |
+| `next_energy` | 0 to 1, energy of the next section | Chart's | Chart's | Same as `loudness` | yes, only to plan ahead with `cue_in` (pick the view or mood the next section arrives with) | for the energy now: `drive` |
 | `section_time` | Seconds since this section started | Chart's | Chart's | 0 | not restricted | |
 | `section_left` | Seconds until this section ends | Chart's | Chart's | 0 | no | `cue_in` |
 | `section_confidence` | 0 to 1, how sure the section boundaries are | Chart's | Chart's | 0 | not restricted | |

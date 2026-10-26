@@ -75,4 +75,81 @@ mod tests {
                 .all(|(path, _)| !path.split('/').any(|part| part.starts_with('.')))
         );
     }
+
+    /// The raw fields of `struct Music` that a built-in scene must not read, each with what it
+    /// reads instead (docs/music.md, "Raw fields"): the runtime works out their fallbacks once,
+    /// so that every scene hears the music the same way.
+    const REPLACED: &[(&str, &str)] = &[
+        ("bpm", "tempo, locked"),
+        ("feel", "tempo"),
+        ("song_feel", "tempo"),
+        ("beat_confidence", "locked"),
+        ("meter_confidence", "locked"),
+        ("pulse", "locked"),
+        ("section_confidence", "cues"),
+        ("beat", "clock"),
+        ("beats_per_bar", "meter"),
+        ("energy", "drive, intensity"),
+        ("loudness", "drive, intensity"),
+        ("section_energy", "drive, cue"),
+        ("section_left", "cue_in"),
+        ("sections", "cues"),
+        (
+            "has_chart",
+            "nothing: a scene does not ask whether there is a chart",
+        ),
+        ("harmonic", "notes"),
+        ("lead", "notes"),
+        ("lead_onset", "notes"),
+        ("bass", "band_low"),
+        ("mids", "band_mid"),
+        ("treble", "band_high"),
+    ];
+
+    /// The fields read as `music.<name>` in WGSL source.
+    fn music_fields(source: &str) -> Vec<(usize, &str)> {
+        let mut found = Vec::new();
+        for (line, text) in source.lines().enumerate() {
+            let code = text.split("//").next().unwrap_or_default();
+            for (at, _) in code.match_indices("music.") {
+                let before = code[..at].chars().next_back();
+                if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                    continue;
+                }
+                let rest = &code[at + "music.".len()..];
+                let end = rest
+                    .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .unwrap_or(rest.len());
+                found.push((line + 1, &rest[..end]));
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn music_fields_are_found_by_whole_name_outside_comments() {
+        let source = "let a = music.beats + music.beat;\n// music.bpm in a comment\nlet b = remusic.feel + music.tempo;";
+        assert_eq!(
+            music_fields(source),
+            [(1, "beats"), (1, "beat"), (3, "tempo")]
+        );
+    }
+
+    #[test]
+    fn built_in_scenes_read_the_signals_rather_than_the_raw_fields_they_replace() {
+        let mut misses = Vec::new();
+        for (dir, files) in SCENES {
+            for (path, bytes) in files.iter().filter(|(path, _)| path.ends_with(".wgsl")) {
+                let source = std::str::from_utf8(bytes).unwrap();
+                for (line, field) in music_fields(source) {
+                    if let Some((_, instead)) = REPLACED.iter().find(|(name, _)| *name == field) {
+                        misses.push(format!(
+                            "{dir}/{path}:{line}: music.{field} (read {instead})"
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(misses.is_empty(), "{}", misses.join("\n"));
+    }
 }

@@ -1,6 +1,7 @@
-// Once per frame: the beat clock the screens change channel by, the camera travelling along the
-// wall as fast as the music sounds (pushed on each beat), the views changing at sections, the
-// phosphor's colour from the player's, and the scopes' trigger and gain.
+// Once per frame: the beat length the screens change channel by (the clock itself is the
+// runtime's), the camera travelling along the wall as fast as the music sounds (pushed on each
+// beat), the views changing on cues, the phosphor's colour from the player's, and the scopes'
+// trigger and gain.
 
 fn random(n: u32) -> f32 {
   return rv_unit(frame.seed * 2654435761u + n);
@@ -95,15 +96,14 @@ fn set_scope() {
   state.trig = max(found, 0.0);
   let rms = sqrt(sum / 512.0);
   let want = 0.6 / max(rms * 2.5, 0.02);
-  state.gain += (min(want, 40.0) - state.gain) * (1.0 - exp(-frame.dt / 0.3));
+  state.gain += (min(want, 40.0) - state.gain) * (1.0 - exp(-rv_dt() / 0.3));
 }
 
 fn update() {
-  let dt = frame.dt;
+  let dt = rv_dt();
   let t = frame.time;
   if (frame.first == 1u) {
     state.cam = vec3f(0.0, 10.0, -params.distance);
-    state.beat_len = 0.5;
     state.ens = 1.0;
     state.gain = 4.0;
     choose_view(-1.0);
@@ -111,68 +111,39 @@ fn update() {
     state.vtgt = params.cruise;
   }
 
-  // The runtime tells of beats only when it trusts them, so one within the last few beats says
-  // that a beat is followed. Without one the screens keep their channels and the hits of the
-  // music stand in for the beat.
-  if (frame.first == 1u) {
-    state.last_beat = -100.0;
-  }
-  if (music.beats > 0u) {
-    state.last_beat = t;
-  }
-  let sure = music.bpm > 0.0 && t - state.last_beat < 2.5 * 60.0 / music.bpm;
-  state.sure += (f32(sure) - state.sure) * (1.0 - exp(-dt / 0.25));
+  // The runtime keeps the beat clock and says how far the beat is followed (`locked`). The screens
+  // change channel on the clock, so a beat length in seconds is all the view needs besides it.
+  // Without a followed beat the screens keep their channels (their flashes and jolts fade with
+  // `locked`) and the hits of the music stand in for the beat in the camera's push.
+  state.beat_len = 60.0 / music.tempo;
   let beat = music.hits > 0u;
 
-  // The beat clock: it runs at the tempo and is set to the beat when one comes (never back).
-  // Without a beat it runs at two a second.
-  state.beat_len = select(0.5, 60.0 / max(music.bpm, 1.0), sure);
-  state.clock += dt / state.beat_len;
-  if (music.beats > 0u) {
-    state.clock = max(ceil(state.clock - 0.35), state.clock);
-  }
+  // The energy the speed follows: the slow drive, eased once more.
+  state.ens = rv_approach(state.ens, 0.5 + 1.5 * music.drive, dt, 0.6);
 
-  // Energy: the section's with a chart, else the loudness; smoothed again for the speed.
-  let chart = music.has_chart == 1u;
-  if (chart) {
-    state.energy = music.section_energy;
-  } else {
-    state.energy += (music.loudness - state.energy) * (1.0 - exp(-dt / 1.5));
-  }
-  state.ens += (0.5 + 1.5 * state.energy - state.ens) * (1.0 - exp(-dt / 0.6));
-  let kin = max(f32(beat), params.hits * music.low * state.sure);
-  state.kick = max(state.kick * exp(-dt / max(params.kick_decay, 0.01)), kin);
-
-  // Sections: the views change, the channels group anew, quiet ones leave sets dark.
+  // Cues: the views change, the channels group anew. A section start (cue 0.5 or more) comes
+  // from the section's label, so every chorus is seen the same way, and may follow soon after
+  // the last change; the weaker cues (a long stretch with no section) wait for the view gap.
   var fresh = false;
-  if (chart && music.sections > 0u && t - state.last_view > 2.0) {
-    state.section = music.section;
-    choose_view(music.section_label);
-    fresh = true;
-  } else if (music.bars > 0u && t - state.last_view > params.view_gap) {
-    let bar = u32(floor(music.bar));
-    if (bar % max(u32(params.view_bars), 1u) == 0u && random(9u) * 100.0 < params.view_chance) {
-      state.section += 101.0;
-      choose_view(-1.0);
+  if (music.cues > 0u && music.cue >= params.cue_min) {
+    let section_start = music.cue >= 0.5;
+    if (t - state.last_view > select(params.view_gap, 2.0, section_start)) {
+      if (section_start) {
+        state.section = music.section;
+        choose_view(music.section_label);
+      } else {
+        state.section += 101.0;
+        choose_view(-1.0);
+      }
       fresh = true;
     }
-  } else if (state.sure < 0.5 && t - state.last_view > 30.0) {
-    state.section += 101.0;
-    choose_view(-1.0);
-    fresh = true;
   }
   // Some sets are always off, and more in a quiet section.
-  state.dark = params.off_always + select(0.0, params.off * pow(max(1.0 - state.energy, 0.0), 1.5), chart);
+  state.dark = params.off_always + params.off * pow(max(1.0 - music.drive, 0.0), 1.5);
 
-  // How fast the music sounds (as in Neon Street): the song's own pace and, stretched further,
-  // this moment's against it.
-  let song = select(5.0, music.song_feel, music.song_feel > 0.0);
-  let here = select(song, music.feel, music.feel > 0.0);
-  if (state.feel <= 0.0) {
-    state.feel = here;
-  }
-  state.feel += (here - state.feel) * (1.0 - exp(-dt / params.feel_smooth));
-  let pace = clamp(pow(song / 5.0, params.song_pace) * pow(state.feel / song, params.moment_pace), 0.25, 3.0);
+  // How fast the music sounds, as a pace against a song of middling tempo: the camera's cruise
+  // is for 90 bpm, a faster song goes faster and a slower one slower.
+  let pace = clamp(music.tempo / 90.0, 0.25, 3.0);
 
   // The camera glides along the wall at a cruise, pushed on each beat and easing back; from the
   // side faster, close up slower.

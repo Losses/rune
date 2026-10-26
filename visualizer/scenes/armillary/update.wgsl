@@ -589,7 +589,7 @@ fn light(strength: f32) {
 // How fast ring i turns of itself, in radians a second: degrees a beat, with the tempo.
 fn own_pace(i: u32) -> f32 {
   var rate = array<f32, 5>(3.0, 4.5, 6.0, 9.0, 13.0);
-  return radians(rate[i]) * params.ring_spin * state.tempo / 60.0;
+  return radians(rate[i]) * params.ring_spin * music.tempo / 60.0;
 }
 
 // How long a surge's push lasts, and how long it takes the ring to ease back to its pace, in
@@ -732,27 +732,10 @@ fn project(i: u32) {
   }
 }
 
-// A calm tempo to move at when there is no beat, in beats a minute, from how fast the music
-// sounds (`music.feel`, in Hz: about 3 for a ballad to 7 for drum and bass): 70 to 110, and 90
-// while that is not measured yet.
-fn feel_bpm() -> f32 {
-  if (music.feel <= 0.0) {
-    return 90.0;
-  }
-  return mix(70.0, 110.0, clamp((music.feel - 3.0) / 4.0, 0.0, 1.0));
-}
-
-// The tempo to move at, in beats a minute: the music's when it has one, else `feel_bpm()`.
-fn pace_bpm() -> f32 {
-  return select(feel_bpm(), music.bpm, music.bpm > 0.0);
-}
-
 fn update() {
-  let dt = min(frame.dt, 0.05);
+  let dt = rv_dt();
   let t = frame.time;
   if (frame.first == 1u) {
-    state.moment = 0.4;
-    state.tempo = 100.0;
     state.core_size = 1.0;
     rest_rings();
     state.spec_ring = 4.0;
@@ -760,35 +743,29 @@ fn update() {
     state.gem_rest_b = vec4f(1.0, 0.0, 0.0, 0.0);
     state.gem_about = state.gem_rest_a;
   }
-  let chart = music.has_chart == 1u;
-  let now = select(clamp((music.energy - 0.6) / 1.0, 0.0, 1.0), music.loudness, chart);
-  state.moment += (now - state.moment) * (1.0 - exp(-dt / 0.8));
-  let heard = vec3f(music.bass, music.mids, music.treble);
-  state.levels = select(state.levels + (heard - state.levels) * (1.0 - exp(-dt / 0.2)), state.levels + (heard - state.levels) * (1.0 - exp(-dt / 0.04)), heard > state.levels);
+  // How loud it is now (`music.intensity`) and the live levels of the bass, mids and treble
+  // (`music.band_*`) come from the runtime, already smoothed. The tempo to move at is
+  // `music.tempo`, which is always there (a calm one when the music has no beat).
+  let beat_time = 60.0 / max(music.tempo, 40.0);
 
   // Rings move by the bar, the phrase and the section, never step by step on the beat: a bar
   // nudges one ring, each in its turn; a phrase of four bars flings one round a whole turn, each
   // in its turn, its neighbours nudged after; a section flings three, from the inside out.
-  // Without a beat (the runtime tells of none), the hits of the music stand in: a bar is every
-  // eighth hit that is not a beat, about the four seconds it was before; without sections,
-  // every four phrases. The kick swells the core.
+  // Bars come only from `music.bars`, so without a beat the rings stay quiet and only the
+  // cues (and the hits) move them. The kick swells the core.
   let beat = music.hits > 0u;
-  let onsets = music.hits - music.beats;
-  state.onsets += f32(onsets);
   if (beat) {
     state.kick = 1.0;
     state.core_vel += params.core_kick;
   }
-  var section = music.sections > 0u && frame.first == 0u;
-  let barred = music.bars > 0u || (onsets > 0u && floor(state.onsets / 8.0) != floor((state.onsets - f32(onsets)) / 8.0));
+  // A cue strong enough (`cue_min`) is the moment to fling rings and cut to another shot.
+  let section = music.cues > 0u && music.cue >= params.cue_min && frame.first == 0u;
+  let barred = music.bars > 0u;
   if (barred) {
     state.bars += 1.0;
     let bar = u32(state.bars);
     if (bar % 4u == 0u) {
       state.phrases += 1.0;
-      if (!chart && u32(state.phrases) % 4u == 0u) {
-        section = true;
-      }
       // Another ring (never the ecliptic, which shows the spectrum in its ticks, nor the one
       // before) becomes the line of the spectrum.
       var others = array<u32, 4>(0u, 1u, 3u, 4u);
@@ -854,13 +831,12 @@ fn update() {
   if (beat) {
     let at = u32(state.beat_in_bar) % 4u;
     let weight = select(select(0.5, 0.75, at == 2u), 1.0, at == 0u);
-    let accent = weight * mix(0.55, 1.0, state.moment);
+    let accent = weight * mix(0.55, 1.0, music.intensity);
     if (accent > params.accent) {
       light(accent);
     }
   }
-  let fade = exp(-dt * 0.693 / (params.lit_beats * 60.0 / max(state.tempo, 40.0)));
-  let beat_time = 60.0 / max(state.tempo, 40.0);
+  let fade = exp(-dt * 0.693 / (params.lit_beats * beat_time));
   let on_fade = exp(-dt * 0.693 / (params.light_beats * beat_time));
   for (var i = 0u; i < RINGS; i++) {
     state.ring_lit[i].x *= fade;
@@ -879,7 +855,7 @@ fn update() {
   }
 
   // The core: as big as the music is loud (with the bass), springing out on each kick and back.
-  let big = 1.0 + 0.35 * state.moment + 0.12 * clamp(state.levels.x - 1.0, 0.0, 1.5);
+  let big = 1.0 + 0.35 * music.intensity + 0.12 * clamp(music.band_low - 1.0, 0.0, 1.5);
   var size = state.core_size;
   var size_vel = state.core_vel;
   spring(&size, &size_vel, big, dt, 12.0, 0.35);
@@ -889,25 +865,19 @@ fn update() {
   // Between the pushes everything keeps going, each at its own pace, all of it quicker as the
   // music is louder: the ecliptic's precession, the camera, the core's surface
   // (with the treble) and rays (with the mids).
-  let pace = params.flow * mix(0.35, 1.6, state.moment);
+  let pace = params.flow * mix(0.35, 1.6, music.intensity);
   state.spin += dt * 0.06 * pace;
-  // The tempo, smoothed so a change of it (or of song) never jolts what turns with it; without
-  // a tempo, a calm one from how fast the music sounds.
-  state.tempo += (pace_bpm() - state.tempo) * (1.0 - exp(-dt / 2.0));
-  state.drift_cam += dt * params.drift * mix(0.6, 1.5, state.moment);
-  state.core_flow += dt * (0.25 + 0.6 * clamp(state.levels.z, 0.0, 2.0)) * params.flow;
-  state.core_rays += dt * (0.1 + 0.4 * clamp(state.levels.y, 0.0, 2.0)) * params.flow;
+  state.drift_cam += dt * params.drift * mix(0.6, 1.5, music.intensity);
+  state.core_flow += dt * (0.25 + 0.6 * clamp(music.band_high, 0.0, 2.0)) * params.flow;
+  state.core_rays += dt * (0.1 + 0.4 * clamp(music.band_mid, 0.0, 2.0)) * params.flow;
   // The character-art planet turns with the tempo, quicker as it is louder: a turn in about 24
   // beats.
-  state.planet_turn += dt * 6.2831853 / (24.0 * 60.0 / max(state.tempo, 40.0)) * mix(0.6, 1.4, state.moment) * params.flow;
+  state.planet_turn += dt * 6.2831853 / (24.0 * beat_time) * mix(0.6, 1.4, music.intensity) * params.flow;
   // The sphere floats: rising and sinking a little, drifting.
   state.centre = vec3f(0.05 * sin(t * 0.31), 0.08 * sin(t * 0.45), 0.05 * cos(t * 0.27));
 
-  // A section cuts to another shot; without sections, every so often.
-  var cut = frame.first == 1u || section;
-  if (!chart && t - state.last_view > params.shot_time) {
-    cut = true;
-  }
+  // A cue cuts to another shot.
+  let cut = frame.first == 1u || section;
   if (cut) {
     var v = floor(random(1u) * 4.0);
     if (v == state.view && frame.first == 0u) {
@@ -915,7 +885,6 @@ fn update() {
     }
     state.view = v;
     state.side = select(-1.0, 1.0, random(3u) < 0.5);
-    state.last_view = t;
     state.drift_cam = 0.0;
   }
   var view = state.view;

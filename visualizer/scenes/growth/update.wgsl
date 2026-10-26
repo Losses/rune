@@ -141,13 +141,12 @@ fn choose_theme(label: f32) {
 }
 
 fn update() {
-  let dt = frame.dt;
+  let dt = rv_dt();
   let t = frame.time;
   if (frame.first == 1u) {
     state.top = 40.0;
     state.top_to = 40.0;
     state.lens = 1.0;
-    state.ens = 1.0;
     state.per_beat = params.grow;
     state.azimuth = random(4u) * 6.283;
     choose_view(-1.0, true);
@@ -164,43 +163,18 @@ fn update() {
     state.top_prev = state.top;
   }
 
-  // A beat is followed while the runtime has told of one within the last few beats (it tells of
-  // beats only when it trusts them).
-  if (frame.first == 1u) {
-    state.last_beat = -100.0;
-  }
-  if (music.beats > 0u) {
-    state.last_beat = t;
-  }
-  let sure = music.bpm > 0.0 && t - state.last_beat < 2.5 * 60.0 / music.bpm;
   // Without a beat the hits of the music stand in for it.
   let beat = music.hits > 0u;
   let onsets = music.hits - music.beats;
 
-  // Energy: the section's, leaning towards the next one in the bars before it.
-  let chart = music.has_chart == 1u;
-  if (chart && music.bpm > 0.0) {
-    let bar_seconds = music.beats_per_bar * 60.0 / music.bpm;
-    let ramp = clamp(1.0 - music.section_left / (max(params.build_bars, 0.25) * bar_seconds), 0.0, 1.0);
-    state.energy = music.section_energy + (music.next_energy - music.section_energy) * ramp * ramp;
-  } else {
-    state.energy += (music.loudness - state.energy) * (1.0 - exp(-dt / 1.5));
-  }
-  let en = 0.5 + 1.5 * state.energy;
-  state.ens += (en - state.ens) * (1.0 - exp(-dt / 0.4));
-  let kin = max(f32(beat), params.hits * music.low * f32(sure));
+  // The kick: every hit, and between them the kicks of the music, while the beat is followed.
+  let kin = max(f32(beat), params.hits * music.low * music.locked);
   state.kick = max(state.kick * exp(-dt / params.kick_decay), kin);
 
-  // How much it grows on a beat: by how fast the music sounds (as in Neon Street), the song's
-  // own pace and, stretched further, this moment's against it.
-  let song = select(5.0, music.song_feel, music.song_feel > 0.0);
-  let here = select(song, music.feel, music.feel > 0.0);
-  if (state.feel <= 0.0) {
-    state.feel = here;
-  }
-  state.feel += (here - state.feel) * (1.0 - exp(-dt / params.feel_smooth));
-  let pace = clamp(pow(song / 5.0, params.song_pace) * pow(state.feel / song, params.moment_pace), 0.25, 3.0);
-  state.per_beat = params.grow * pace * (0.7 + 0.6 * state.energy);
+  // How much it grows on a beat: by how fast the music is. music.tempo over 90 bpm is the pace,
+  // so `grow` is the growth at 90 bpm; the louder the section (music.drive), the more.
+  let pace = clamp(music.tempo / 90.0, 0.25, 3.0);
+  state.per_beat = params.grow * pace * (0.7 + 0.6 * music.drive);
 
   // On every beat the tip shoots up, on a bar's first beat further, and every plate it reaches
   // appears on that beat. Without a beat it grows the same way on the hits, at most twice a
@@ -216,20 +190,16 @@ fn update() {
   state.since_beat += dt;
   state.top += (state.top_to - state.top) * (1.0 - exp(-dt / max(params.snap, 0.01)));
 
-  // Accents: a section that lifts the energy, or in a loud part a hit far above the usual.
+  // Accents: a cue that lifts the energy (strength 1), or a hard hit in the middle of a section
+  // (the runtime keeps those at least 6 s apart).
   var accent = 0.0;
-  if (chart && music.sections > 0u && music.section_energy > state.last_energy + 0.1) {
+  if (music.cues > 0u && music.cue >= 0.95) {
     accent = 1.0;
   }
-  if (music.sections > 0u) {
-    state.last_energy = music.section_energy;
-  }
-  let loud = select(music.energy > 1.2, state.energy > 0.55, chart);
-  if (loud && music.low > params.accent_level && t - state.last_accent > params.accent_gap) {
-    accent = max(accent, 0.75 * music.low);
+  if (music.impacts > 0u) {
+    accent = max(accent, 0.75 * music.impact);
   }
   if (accent > 0.0) {
-    state.last_accent = t;
     state.flash = max(state.flash, accent);
   }
   state.flash *= exp(-dt / 0.35);
@@ -242,23 +212,23 @@ fn update() {
   }
   state.glitch *= exp(-dt / 0.06);
 
-  // Views: at a section's start by its label; otherwise now and then on a bar line.
-  if (chart && music.sections > 0u && t - state.last_view > 2.0) {
-    choose_view(music.section_label, false);
-    choose_theme(music.section_label);
-  } else if (music.bars > 0u && t - state.last_view > params.view_gap) {
-    let bar = u32(floor(music.bar));
-    if (bar % max(u32(params.view_bars), 1u) == 0u && random(9u) * 100.0 < params.view_chance) {
+  // Views and themes change on the music's cues. A section's start (cue 0.5 or more) takes its
+  // own view and colours from its label, so every chorus is seen the same way. A weaker cue
+  // (eight bars, or a long time without a hit) changes the view only by chance and not too soon
+  // after the last change, and the theme only if the last change was long ago.
+  if (music.cues > 0u && music.cue >= params.view_cue && t - state.last_view > 2.0) {
+    if (music.cue >= 0.5) {
+      choose_view(music.section_label, false);
+    } else if (t - state.last_view > params.view_gap && random(9u) * 100.0 < params.view_chance) {
       choose_view(-1.0, false);
     }
-  } else if (!sure && t - state.last_view > 20.0) {
-    choose_view(-1.0, false);
   }
-  // Without a chart the theme changes every few bars.
-  if (!chart && music.bars > 0u && t - state.last_theme > 8.0 && u32(floor(music.bar)) % max(u32(params.theme_bars), 1u) == 0u) {
-    choose_theme(-1.0);
-  } else if (!sure && t - state.last_theme > 30.0) {
-    choose_theme(-1.0);
+  if (music.cues > 0u && music.cue >= params.theme_cue) {
+    if (music.cue >= 0.5 && t - state.last_theme > 2.0) {
+      choose_theme(music.section_label);
+    } else if (music.cue < 0.5 && t - state.last_theme > 16.0) {
+      choose_theme(-1.0);
+    }
   }
   // A change of style changes the theme at once.
   if (concrete != (state.theme_next > 4.5)) {
@@ -290,7 +260,7 @@ fn update() {
   state.roll = state.tilt + 0.01 * sin(t * 0.3);
   state.lens = 1.0 - params.zoom * state.kick;
 
-  post.bloom_intensity = params.glow * (0.6 + 0.6 * state.energy) + params.glow_beat * state.kick + 1.2 * state.flash * params.flash;
+  post.bloom_intensity = params.glow * (0.6 + 0.6 * music.drive) + params.glow_beat * state.kick + 1.2 * state.flash * params.flash;
   let dim = mix(theme_exposure(state.theme_from), theme_exposure(state.theme_to), smoothstep(0.0, 1.0, state.theme_mix));
   post.exposure = params.exposure + dim + 0.2 * params.pump * state.kick + 0.9 * state.flash * params.flash;
   if (concrete) {

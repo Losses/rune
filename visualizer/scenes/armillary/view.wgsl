@@ -99,6 +99,10 @@ fn gem_core(p: vec3f, n: vec3f, d: vec3f, t: f32, pixel: f32) -> vec3f {
   var col = sky(reflect(d, n), pixel) * fres;
   let hot = mix(core_colour(), state.palette[0].rgb, 0.35) * core_power() * 0.12;
   var iors = array<f32, 3>(2.36, 2.42, 2.49);
+  // Quality: how many times the light inside the gem bounces off a facet (each one is a walk
+  // over every facet, for each of three colours). 1 and 0.75: three; 0.5 and 0.25: two; 0: one.
+  // Lower levels lose the deeper reflections in the gem, nothing else.
+  let bounces = 1 + i32(round(2.0 * frame.quality));
   for (var c = 0; c < 3; c++) {
     let ior = iors[c];
     var dir = refract(d, n, 1.0 / ior);
@@ -106,7 +110,7 @@ fn gem_core(p: vec3f, n: vec3f, d: vec3f, t: f32, pixel: f32) -> vec3f {
     var carry = 1.0 - fres;
     var lit = 0.0;
     var seen = 0.0;
-    for (var b = 0; b < 3; b++) {
+    for (var b = 0; b < bounces; b++) {
       let ex = gem_exit(pos, dir);
       let s = clamp(dot(-pos, dir), 0.0, ex.x);
       let near = length(pos + dir * s) / r;
@@ -551,7 +555,7 @@ fn shade(px: Pixel) -> vec4f {
     }
     let a = atan2(dot(off, state.cam_up), dot(off, state.cam_right));
     let rays = pow(0.5 + 0.5 * sin(a * 7.0 + state.core_rays), 12.0) + pow(0.5 + 0.5 * sin(a * 11.0 - state.core_rays * 1.6 + 1.0), 16.0);
-    let reach = r * (1.0 + 1.2 * clamp(state.levels.y - 0.8, 0.0, 1.5));
+    let reach = r * (1.0 + 1.2 * clamp(music.band_mid - 0.8, 0.0, 1.5));
     // (Only with the glass: with bronze or lines, the core is a plain light.)
     col += core_colour() * rays * smoothstep(r * 0.9, r * 1.2, gap) * exp(-(gap - r) / reach) * 0.08 * params.core * f32(params.look == 0u);
   }

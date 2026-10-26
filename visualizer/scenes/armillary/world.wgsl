@@ -189,7 +189,7 @@ const STARLIGHT: vec3f = vec3f(-0.55, 0.45, 0.7);
 // How bright the core is, and how big: both follow the music (smoothly), and it swells on the
 // kick.
 fn core_power() -> f32 {
-  return params.core * (0.7 + 0.6 * state.moment) * 14.0;
+  return params.core * (0.7 + 0.6 * music.intensity) * 14.0;
 }
 
 fn core_radius() -> f32 {

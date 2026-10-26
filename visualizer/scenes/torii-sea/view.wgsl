@@ -329,7 +329,7 @@ fn spirits(p: vec2f, d: vec3f, scene_z: f32, pix: f32, l: Light) -> vec4f {
     if (any(p < b.xy) || any(p > b.zw)) {
       continue;
     }
-    let live = mix(1.0, pow(clamp(0.2 + 0.8 * state.levels[h % 3u], 0.2, 2.1), 1.5), params.react);
+    let live = mix(1.0, pow(clamp(0.2 + 0.8 * band(h % 3u), 0.2, 2.1), 1.5), params.react);
     // The ribbon, a stretch at a time.
     for (var j = 0u; j < last; j++) {
       if (j % CHUNK == 0u) {

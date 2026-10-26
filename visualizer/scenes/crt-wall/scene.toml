@@ -52,15 +52,6 @@ saturation = 1.0
 # ---- Beat ----
 
 [[param]]
-id = "hits"
-group = "Beat"
-label = "Kicks between beats"
-default = 0.4
-min = 0.0
-max = 1.0
-step = 0.05
-
-[[param]]
 id = "kick_decay"
 group = "Beat"
 label = "Kick decay"
@@ -418,43 +409,6 @@ max = 2.0
 step = 0.05
 
 [[param]]
-id = "feel_smooth"
-group = "Camera"
-label = "Smoothing of how fast it sounds"
-unit = "s"
-default = 4.0
-min = 0.5
-max = 20.0
-step = 0.5
-
-[[param]]
-id = "song_pace"
-group = "Camera"
-label = "The song's pace on speed"
-default = 1.5
-min = 0.0
-max = 4.0
-step = 0.1
-
-[[param]]
-id = "moment_pace"
-group = "Camera"
-label = "This moment's pace against the song's"
-default = 2.0
-min = 0.0
-max = 4.0
-step = 0.1
-
-[[param]]
-id = "view_bars"
-group = "Camera"
-label = "Bars between possible view changes"
-default = 16.0
-min = 1.0
-max = 64.0
-step = 1
-
-[[param]]
 id = "view_gap"
 group = "Camera"
 label = "Least time between view changes"
@@ -465,14 +419,13 @@ max = 120.0
 step = 1
 
 [[param]]
-id = "view_chance"
+id = "cue_min"
 group = "Camera"
-label = "Chance of a view change when due"
-unit = "%"
-default = 60.0
-min = 0.0
-max = 100.0
-step = 5
+label = "Cue strength that changes the view (0.5 is a section start)"
+default = 0.3
+min = 0.1
+max = 1.0
+step = 0.05
 
 [[param]]
 id = "same_view"

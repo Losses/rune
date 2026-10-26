@@ -35,23 +35,18 @@ struct State {
   s: f32,
   speed: f32,
   surge: f32,
-  // The kick (1 on it, falling away), the loudness now (smoothed), and the badges' turn: a step on
-  // every beat, eased.
+  // The kick (1 on it, falling away), and the badges' turn: a step on every beat, eased.
   kick: f32,
-  moment: f32,
   turn: f32,
   turn_to: f32,
   // The place the camera is filming from or gliding to (see update), and its side; when it set
-  // off, from where, and how long the glide takes; the bars since. The badges' colours from then
+  // off, from where, and how long the glide takes. The badges' colours from then
   // on (0 black lacquer and gold, 1 vermilion and gold, 2 indigo and silver).
   view: f32,
   side: f32,
   last_view: f32,
   set_off: Pose,
   glide: f32,
-  bars_on: f32,
-  // Hits that were not beats, counted: every fourth stands in for a bar when there is no beat.
-  onsets: f32,
   palette: f32,
   // The camera.
   cam_pos: vec3f,
@@ -67,20 +62,14 @@ struct State {
   ry: array<vec4f, 192>,
   rz: array<vec4f, 192>,
   scr: array<vec4f, 192>,
-  // The melody: its last eight notes, in turn (when, how strong), how many have been heard, the
-  // chart's melody onset last frame, and (without a chart) the mids' slow average and whether a
-  // note may come (the mids having fallen back since the last).
+  // The melody: its last eight notes, in turn (when, how strong), and how many have been heard.
   notes: array<vec4f, 8>,
   note_count: f32,
-  heard_note: f32,
-  mids_slow: f32,
-  note_ready: f32,
-  // How many emoji the music calls for: the notes a second of late (smoothed), how loud the music
-  // has been of late (without a chart), the farthest slot given its share yet, and each slot's
+  // How many emoji the music calls for: the notes a second of late (smoothed), the farthest slot
+  // given its share yet, and each slot's
   // share and badge colours, set as it comes into sight far ahead (so what is near never comes and
   // goes, nor changes colour): kept for as far behind as ahead, for a camera looking back.
   note_rate: f32,
-  loud_slow: f32,
   last_slot: f32,
   slot_set: array<vec2f, 128>,
   // The colours, all from the player's theme colour if it follows it (see update).

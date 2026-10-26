@@ -9,6 +9,17 @@ const LINES: f32 = 96.0;
 // How long a screen brightens before it cuts.
 const RISE: f32 = 0.06;
 
+// Quality (frame.quality, 1 is the full picture): the slots a ray walks through the piles. Level 1
+// is 24 slots for the picture and 10 for the key light's shadow, as always. Lower levels walk
+// fewer, so rays that would pass many deep piles end earlier at the wall (the far sides of the
+// deepest piles and the shadows they would throw drop out); composition and colour stay.
+fn view_steps() -> i32 {
+  return i32(round(mix(12.0, 24.0, frame.quality)));
+}
+fn shadow_steps() -> i32 {
+  return i32(round(mix(5.0, 10.0, frame.quality)));
+}
+
 struct Ray {
   o: vec3f,
   d: vec3f,
@@ -64,7 +75,7 @@ fn screen_of(s: Set) -> Screen {
   var sc: Screen;
   // Each set hears the beat a little late, by its own share of a beat (in quarters).
   let lag = floor(hash(s.id + 1.3) * params.stagger * 4.0) * 0.25;
-  let c = state.clock - lag;
+  let c = music.clock - lag;
   let sb = floor(c);
   // A set changes channel every 1/share beats, each on its own beat.
   let share = clamp(params.share, 0.01, 1.0);
@@ -78,11 +89,11 @@ fn screen_of(s: Set) -> Screen {
   let until = (ceil((kk + 1.0 - h) / share) - c) * state.beat_len;
   let before = 1.0 - smoothstep(0.0, RISE, until);
   let after = exp(-since / max(params.flash_time, 0.01));
-  sc.flash = max(before, after) * params.flash * state.sure;
+  sc.flash = max(before, after) * params.flash * music.locked;
   // Some sets jump on each beat, each by its own amount.
   let jolt = hash(s.id * 1.9 + vec2f(sb * 4.3, 2.7));
   let react = select(0.0, 0.6 + 0.8 * hash(s.id * 2.3 + vec2f(sb * 7.1, 5.5)), jolt < params.react);
-  sc.amt = react * exp(-fract(c) * state.beat_len / max(params.kick_decay, 0.01)) * state.sure;
+  sc.amt = react * exp(-fract(c) * state.beat_len / max(params.kick_decay, 0.01)) * music.locked;
   return sc;
 }
 
@@ -394,7 +405,7 @@ fn keylit(p: vec3f, n: vec3f) -> f32 {
   if (params.shadows <= 0.0) {
     return 1.0;
   }
-  let h = trace(p + n * 0.003, KEY_DIR, 10);
+  let h = trace(p + n * 0.003, KEY_DIR, shadow_steps());
   return 1.0 - params.shadows * f32(h.kind == 1u);
 }
 
@@ -674,7 +685,7 @@ fn shade_side(p: vec3f, d: vec3f, n0: vec3f, s: Set, foot: f32, key: f32) -> vec
 
 fn shade(px: Pixel) -> vec4f {
   let ray = camera_ray(px);
-  let h = trace(ray.o, ray.d, 24);
+  let h = trace(ray.o, ray.d, view_steps());
   if (h.kind == 0u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }

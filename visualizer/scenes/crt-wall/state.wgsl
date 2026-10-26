@@ -14,18 +14,9 @@ struct State {
   dir: f32,
   vel: f32,
   vtgt: f32,
-  // How fast the music sounds (smoothed), the energy (smoothed twice) and the kick.
-  feel: f32,
-  energy: f32,
+  // The drive (smoothed once more) that the speed follows, and seconds per beat.
   ens: f32,
-  kick: f32,
-  // The beat clock in beats (its whole part the beats so far), seconds per beat, and how far a
-  // beat is followed (eased).
-  clock: f32,
   beat_len: f32,
-  sure: f32,
-  // When a beat last came (scene time).
-  last_beat: f32,
   // The scopes: where in the waveform the time trace starts (a rising zero crossing, so it stands
   // still) and the gain that keeps the trace a steady size.
   trig: f32,
@@ -34,7 +25,6 @@ struct State {
   // channels group).
   dark: f32,
   section: f32,
-  last_energy: f32,
   // The phosphor's colour and the key light's, worked out once a frame.
   phosphor: vec3f,
   key: vec3f,

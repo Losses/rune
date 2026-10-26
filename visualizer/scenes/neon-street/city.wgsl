@@ -90,7 +90,7 @@ fn light_kick(id: vec2f) -> f32 {
     bi -= 1.0;
     since = since_beat + state.beat_gap - lag_of(id, bi);
   }
-  let share = params.react * (0.5 + state.energy);
+  let share = params.react * (0.5 + music.drive);
   let react = step(h21(id * 1.9 + bi * vec2f(4.3, 2.7)), share) * (0.5 + h21(id * 2.3 + bi * vec2f(7.1, 5.5)));
   return params.pulse * react * exp(-max(since, 0.0) / params.kick_decay) * step(0.0, since);
 }
@@ -106,7 +106,7 @@ fn lit(id: vec2f) -> f32 {
 }
 
 fn glow_now(id: vec2f) -> f32 {
-  return (1.0 + light_kick(id)) * (0.85 + params.bass_glow * 0.3 * min(music.bass, 2.0));
+  return (1.0 + light_kick(id)) * (0.85 + params.bass_glow * 0.3 * min(music.band_low, 2.0));
 }
 
 // ---- Layout ----
@@ -265,7 +265,7 @@ fn sign_light(n: f32, s: f32) -> vec3f {
 // What the shop of building n on side s gives off (black for a shutter or a cross street),
 // steady (as it lights the street) and swelling with the bass (as it is seen).
 fn shop_light(n: f32, s: f32) -> vec3f {
-  return shop_colour(n, s) * (0.8 + params.bass_glow * 0.25 * min(music.bass, 2.0));
+  return shop_colour(n, s) * (0.8 + params.bass_glow * 0.25 * min(music.band_low, 2.0));
 }
 
 fn shop_colour(n: f32, s: f32) -> vec3f {

@@ -360,11 +360,10 @@ max = 3.0
 step = 0.05
 
 [[param]]
-id = "shot_time"
+id = "cue_min"
 group = "Camera"
-label = "Seconds between shots without a chart"
-unit = "s"
-default = 16.0
-min = 4.0
-max = 60.0
-step = 1.0
+label = "How strong a cue must be to cut the shot and fling the rings (1 a section that lifts the energy, 0.5 any other section, 0.3 every 8 bars while the beat is followed, 0.2 every 16 s without a beat)"
+default = 0.2
+min = 0.1
+max = 1.0
+step = 0.05

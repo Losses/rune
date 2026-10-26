@@ -34,35 +34,23 @@ struct State {
   planned: f32,
   ring: f32,
   lift: f32,
-  // The beat clock in beats, seconds per beat, beats per bar, where bars fall on it, and whether
-  // a beat is followed.
-  clock: f32,
-  beat_len: f32,
-  per_bar: f32,
-  bar_shift: f32,
-  sure: f32,
-  // When the runtime last told of a beat (scene time).
-  last_beat: f32,
-  // How hard they dance (the section's energy, smoothed), the brows' lift on an accent and when
-  // the last one was, the section (it picks the moves).
+  // The bar the last frame was in (a whole number), so that a new bar is seen once.
+  bar_idx: f32,
+  // How hard they dance (from the drive), the brows' lift on an impact or a lift of the energy,
+  // the section (it picks the moves).
   level: f32,
   brow: f32,
-  last_accent: f32,
   section: f32,
   // Which way the dancers face (radians, 0 towards -z): where a turn started, where it ends and the
   // bar it started on.
   face_from: f32,
   face_to: f32,
   face_bar: f32,
-  energy: f32,
-  last_energy: f32,
-  // The face of the section or phrase (see face_at), the one before it and the bar it changed on
-  // (it spreads through the chorus in the wave), and the phrase it was chosen for; the surprise
-  // of a section that lifts the energy.
+  // The face of the section or cue (see face_at), the one before it and the bar it changed on
+  // (it spreads through the chorus in the wave); the surprise of a section that lifts the energy.
   mood: f32,
   mood_prev: f32,
   mood_bar: f32,
-  mood_phrase: f32,
   surprise: f32,
   // The paper's colour.
   paper: vec3f,

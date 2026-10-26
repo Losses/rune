@@ -98,25 +98,6 @@ max = 1.5
 step = 0.05
 
 [[param]]
-id = "accent_level"
-group = "Beat"
-label = "How hard a hit must be to shake"
-default = 0.97
-min = 0.0
-max = 1.0
-step = 0.05
-
-[[param]]
-id = "shake_gap"
-group = "Beat"
-label = "Shortest gap between shakes"
-unit = "s"
-default = 10.0
-min = 0.5
-max = 20.0
-step = 0.5
-
-[[param]]
 id = "shake_decay"
 group = "Beat"
 label = "How long a shake lasts"
@@ -155,34 +136,6 @@ default = 4.5
 min = 0.0
 max = 15.0
 step = 0.1
-
-[[param]]
-id = "song_pace"
-group = "Camera"
-label = "Speed follows how fast the song sounds"
-default = 1.5
-min = 0.0
-max = 3.0
-step = 0.05
-
-[[param]]
-id = "moment_pace"
-group = "Camera"
-label = "How much faster and slower parts differ"
-default = 2.5
-min = 0.0
-max = 5.0
-step = 0.1
-
-[[param]]
-id = "feel_smooth"
-group = "Camera"
-label = "How long the speed takes to follow"
-unit = "s"
-default = 4.0
-min = 0.5
-max = 20.0
-step = 0.5
 
 [[param]]
 id = "energy_speed"
@@ -251,23 +204,23 @@ label = "Same view for the same kind of section"
 default = true
 
 [[param]]
-id = "cut_bars"
-group = "Cuts"
-label = "Bars between cut chances"
-default = 4.0
-min = 1.0
-max = 16.0
-step = 1.0
-
-[[param]]
 id = "cut_chance"
 group = "Cuts"
-label = "Cut chance"
+label = "Cut chance on a weak cue"
 unit = "%"
 default = 40.0
 min = 0.0
 max = 100.0
 step = 1.0
+
+[[param]]
+id = "cut_cue"
+group = "Cuts"
+label = "Weakest cue that cuts"
+default = 0.3
+min = 0.0
+max = 1.0
+step = 0.05
 
 [[param]]
 id = "cut_gap"

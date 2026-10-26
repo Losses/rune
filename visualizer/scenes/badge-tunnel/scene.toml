@@ -55,16 +55,6 @@ max = 20.0
 step = 0.5
 
 [[param]]
-id = "cruise"
-group = "Beat"
-label = "Speed without a beat"
-unit = "m/s"
-default = 10.0
-min = 0.0
-max = 40.0
-step = 0.5
-
-[[param]]
 id = "surge"
 group = "Beat"
 label = "Surge forward on the kick"
@@ -72,18 +62,6 @@ default = 0.6
 min = 0.0
 max = 2.0
 step = 0.05
-
-[[param]]
-id = "beat_turn"
-group = "Beat"
-label = "How far the badges turn each beat"
-unit = "rad"
-default = 0.35
-min = 0.0
-max = 1.6
-step = 0.05
-
-# ---- Badges ----
 
 [[param]]
 id = "content"
@@ -130,15 +108,6 @@ unit = "s"
 default = 0.6
 min = 0.2
 max = 2.0
-step = 0.05
-
-[[param]]
-id = "note_rise"
-group = "Badges"
-label = "Without a chart: how far over their late average the mids must rise to make a note"
-default = 0.35
-min = 0.05
-max = 1.5
 step = 0.05
 
 [[param]]
@@ -297,13 +266,23 @@ max = 1.5
 step = 0.05
 
 [[param]]
+id = "cue_min"
+group = "Camera"
+label = "How strong a cue must be to move the camera (1 a section that lifts the energy, 0.5 any other section, 0.3 every 8 bars while the beat is followed, 0.2 every 16 s without a beat)"
+default = 0.2
+min = 0.1
+max = 1.0
+step = 0.05
+
+[[param]]
 id = "shot_bars"
 type = "int"
 group = "Camera"
-label = "Bars before the camera moves on (at a section, after half as many)"
-default = 16
-min = 4
-max = 64
+label = "Fewest bars the camera stays in a place before a cue moves it"
+unit = "bars"
+default = 6
+min = 1
+max = 32
 step = 1
 
 [[param]]

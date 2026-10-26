@@ -150,7 +150,8 @@ fn on_paper(p: vec2f, at: vec2f, half: vec2f, turn: f32) -> bool {
 fn shadow(p: vec3f, g: u32, at: vec3f) -> f32 {
   let l = light();
   var near = 1e9;
-  for (var i = 0u; i < WIRE; i += 2u) {
+  let stride = select(4u, 2u, frame.quality > 0.5);
+  for (var i = 0u; i < WIRE; i += stride) {
     let q = point(g, i) + at;
     let s = q.xz - l.xz * (q.y / l.y);
     near = min(near, length(p.xz - s));
@@ -181,9 +182,18 @@ fn shade_floor(p: vec3f, d: vec3f, t: f32) -> vec3f {
   return mix(params.background.rgb, col, exp(-max(t - 4.0, 0.0) * params.fade));
 }
 
+// Quality (frame.quality, 1 is the full picture). Level 1 walks 28 floor cells per ray and casts
+// the shadow from every second point of the wire, as always. Lower levels walk fewer cells (the
+// far rows of the chorus, which fade into the dark, drop out first) and from 0.5 down cast the
+// shadow from every fourth point (the shadow's edge turns coarser); the lead, the faces and the
+// colours stay.
+fn view_steps() -> i32 {
+  return i32(round(mix(14.0, 28.0, frame.quality)));
+}
+
 fn shade(px: Pixel) -> vec4f {
   let ray = camera_ray(px);
-  let h = trace(ray.o, ray.d, 28);
+  let h = trace(ray.o, ray.d, view_steps());
   if (h.kind == 0u) {
     return vec4f(params.background.rgb, 1.0);
   }

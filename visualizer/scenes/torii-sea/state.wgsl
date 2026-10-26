@@ -7,23 +7,12 @@ struct State {
   roll: f32,
   cam_fwd: vec3f,
   lens: f32,
-  // Gliding: how far along, speed, where the speed heads, and the pace the music sets.
+  // Gliding: how far along, speed, and where the speed heads (the pace comes from the tempo).
   s: f32,
   vel: f32,
   vtarget: f32,
-  tempo: f32,
-  // When the runtime last told of a beat, and a clock in beats at the music's pace to count by
-  // without one (scene time).
-  last_beat: f32,
-  clock: f32,
-  // How fast the music sounds (smoothed), its energy (and that smoothed again) and the kick.
-  feel: f32,
-  energy: f32,
-  ens: f32,
+  // The kick.
   kick: f32,
-  // How loud it is this moment within the song (0 to 1, smoothed a little): what drives how hard
-  // the spirits move.
-  moment: f32,
   // The shot (1 from behind and above, 2 from behind and to one side, low), when it last
   // changed, and (in lat) the side of the line the second is on.
   view: f32,
@@ -38,8 +27,6 @@ struct State {
   sea_gen: f32,
   sea_amp: f32,
   sea_last: f32,
-  last_accent: f32,
-  last_energy: f32,
   // The theme colour's hue (OKLab, radians): the player's accent colour, or the one set. The
   // spirits take it, and the sea a little of it; the torii keep their own.
   theme_hue: f32,
@@ -49,16 +36,11 @@ struct State {
   light_mix: f32,
   light_next: f32,
   last_light: f32,
-  // The beat: torii passed per beat, how locked the glide is to the beat, the time since the
-  // last kick (for the rings on the water).
+  // The beat: torii passed per beat.
   per_beat: f32,
-  lock: f32,
-  since_kick: f32,
-  // The spirits: the beat's surge, the live levels of the bass, mids and treble, the snare's
-  // flick, a leap into the sky (its phase, 0 to 1, and strength), how they move (0 braid,
+  // The spirits: the beat's surge, the snare's flick, a leap into the sky (its phase, 0 to 1, and strength), how they move (0 braid,
   // 1 snake, 2 fan), when that last changed, and how many fly.
   surge: f32,
-  levels: vec3f,
   flick: f32,
   leap: f32,
   leap_power: f32,
@@ -142,6 +124,11 @@ fn oklch(lightness: f32, chroma: f32, hue: f32) -> vec3f {
 // Colour c at the theme's hue, keeping how light it is, as colourful as `chroma`.
 fn themed(c: vec3f, chroma: f32) -> vec3f {
   return oklch(oklab(c).x, chroma, state.theme_hue);
+}
+
+// The live level of band i (0 low, 1 mid, 2 high) from the runtime, about 1 on average.
+fn band(i: u32) -> f32 {
+  return select(select(music.band_low, music.band_mid, i == 1u), music.band_high, i == 2u);
 }
 
 fn hash(p: vec2f) -> f32 {

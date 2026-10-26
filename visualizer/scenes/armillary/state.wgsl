@@ -19,17 +19,12 @@ const TILES: u32 = 576u;
 const LIST: u32 = 24u;
 
 struct State {
-  // The kick (1 on it, falling away), the loudness now (smoothed), and the live levels of the
-  // bass, mids and treble (quick up, slower down).
+  // The kick (1 on it, falling away).
   kick: f32,
-  moment: f32,
-  levels: vec3f,
-  // Bars, phrases and sections counted.
+  // Bars, phrases and sections (strong cues) counted.
   bars: f32,
   phrases: f32,
   sections: f32,
-  // Hits that were not beats, counted: every eighth stands in for a bar when there is no beat.
-  onsets: f32,
   // Accents, which light the rings drawn as lines or the shapes: which beat of the bar this is,
   // how many times something has lit, which of the two is lighting now (0 the rings, 1 the
   // shapes) and how far the picture has gone over to it (eased).
@@ -37,14 +32,12 @@ struct State {
   lits: f32,
   layer: f32,
   layer_mix: f32,
-  // The shot and its side, and when it last changed.
+  // The shot and its side.
   view: f32,
   side: f32,
-  last_view: f32,
-  // What keeps turning on its own: the tempo (smoothed), the ecliptic's slow precession (faster
-  // as the music is louder), how far the camera has moved in this shot, and the core's flowing
-  // surface and its turning rays.
-  tempo: f32,
+  // What keeps turning on its own: the ecliptic's slow precession (faster as the music is
+  // louder), how far the camera has moved in this shot, and the core's flowing surface and its
+  // turning rays.
   spin: f32,
   drift_cam: f32,
   core_flow: f32,

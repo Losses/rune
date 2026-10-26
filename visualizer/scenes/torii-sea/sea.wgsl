@@ -518,6 +518,14 @@ fn sea_bottom() -> f32 {
 // shows): t is 1e9 if the ray is still above the water by then.
 const WALK: i32 = 16;
 
+// How many cells a ray walks at the current quality. Quality 1 is WALK (16, today's picture);
+// 0.75 walks 14, 0.5 walks 11, 0.25 walks 9 and 0 walks 7. A ray that runs out of cells without
+// meeting a triangle takes the smooth swell instead, so lower levels only lose the far facets'
+// edges; the torii, the spirits and the colours are not touched.
+fn walk_limit() -> i32 {
+  return i32(ceil(f32(WALK) * (0.4 + 0.6 * clamp(frame.quality, 0.0, 1.0))));
+}
+
 struct SeaHit {
   t: f32,
   fac: Facet,
@@ -541,7 +549,8 @@ fn sea_hit(o: vec3f, d: vec3f, t_stop: f32) -> SeaHit {
   // The t at which the ray next crosses a line of cells, each way, and how far apart they are.
   var next = select((cell + max(step, vec2f(0.0)) - uv0) * inv + t0, vec2f(1e9), still);
   let gap = select(abs(inv), vec2f(1e9), still);
-  for (var k = 0; k < WALK; k++) {
+  let walk = walk_limit();
+  for (var k = 0; k < walk; k++) {
     // The cell's four corners, the two triangles sharing the two on the cut.
     let c00 = corner_p(cell);
     let c10 = corner_p(cell + vec2f(1.0, 0.0));
@@ -692,8 +701,8 @@ fn sky(d: vec3f, l: Light) -> vec3f {
 // the music is louder, and each torii's with a band of its own (bass, mids or treble), so the
 // lanterns down the line answer different parts of the music.
 fn lantern_glow(i: f32, l: Light) -> f32 {
-  let band = clamp(state.levels[u32(abs(i)) % 3u] / 1.5, 0.0, 1.0);
-  return params.lanterns * mix(1.0, 1.6, l.night) * (0.6 + 1.0 * state.moment) * (0.6 + 0.8 * band);
+  let band = clamp(band(u32(abs(i)) % 3u) / 1.5, 0.0, 1.0);
+  return params.lanterns * mix(1.0, 1.6, l.night) * (0.6 + 1.0 * music.intensity) * (0.6 + 0.8 * band);
 }
 
 const LANTERN: vec3f = vec3f(1.0, 0.52, 0.2);

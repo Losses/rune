@@ -10,12 +10,7 @@ struct State {
   top: f32,
   top_to: f32,
   since_beat: f32,
-  // When a beat last came (scene time).
-  last_beat: f32,
-  // How fast the music sounds (smoothed), its energy (smoothed twice) and the kick.
-  feel: f32,
-  energy: f32,
-  ens: f32,
+  // The kick.
   kick: f32,
   // The view: its height below the tip, distance from the axis,
   // its roll, how fast it circles; now and where each is gliding to.
@@ -33,8 +28,6 @@ struct State {
   // an accent.
   top_prev: f32,
   flash: f32,
-  last_accent: f32,
-  last_energy: f32,
   // Growth per beat in layers, and the view chosen last.
   per_beat: f32,
   view: f32,

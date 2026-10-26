@@ -412,34 +412,6 @@ max = 30.0
 step = 0.5
 
 [[param]]
-id = "song_pace"
-group = "Speed"
-label = "How much the song's pace sets the speed"
-default = 1.5
-min = 0.0
-max = 3.0
-step = 0.1
-
-[[param]]
-id = "moment_pace"
-group = "Speed"
-label = "How much the moment's pace changes it"
-default = 2.0
-min = 0.0
-max = 4.0
-step = 0.1
-
-[[param]]
-id = "feel_smooth"
-group = "Speed"
-label = "Smoothing of the pace"
-unit = "s"
-default = 4.0
-min = 0.5
-max = 20.0
-step = 0.5
-
-[[param]]
 id = "energy_speed"
 group = "Speed"
 label = "Energy on the speed"
@@ -517,14 +489,25 @@ min = 3.0
 max = 40.0
 step = 0.5
 
+
 [[param]]
-id = "view_bars"
+id = "view_cue"
 group = "Camera"
-label = "Bars between possible view changes"
-default = 16.0
-min = 1.0
-max = 32.0
-step = 1.0
+label = "How strong a cue cuts the shot (1 a section that lifts, 0.5 any section, 0.3 every 8 bars while the beat is followed, 0.2 every 16 s without one)"
+default = 0.2
+min = 0.1
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "view_gap_time"
+group = "Camera"
+label = "Least time between shot changes"
+unit = "s"
+default = 10.0
+min = 4.0
+max = 40.0
+step = 0.5
 
 # ---- Torii ----
 
@@ -686,34 +669,6 @@ default = 1.0
 min = 0.0
 max = 3.0
 step = 0.05
-
-[[param]]
-id = "accent_level"
-group = "Sea"
-label = "How strong an accent must be"
-default = 0.95
-min = 0.5
-max = 1.0
-step = 0.01
-
-[[param]]
-id = "accent_gap"
-group = "Sea"
-label = "Least time between big swells"
-unit = "s"
-default = 6.0
-min = 1.0
-max = 30.0
-step = 0.5
-
-[[param]]
-id = "build_bars"
-group = "Sea"
-label = "Bars of build-up before a section"
-default = 4.0
-min = 0.25
-max = 16.0
-step = 0.25
 
 [[param]]
 id = "stacks"

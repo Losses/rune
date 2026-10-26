@@ -1,8 +1,9 @@
 // Once per frame: the spirits fly down the line of torii, a gate on every beat, drawing in to
 // the middle of each gate as they pass it and spreading out between; they surge on the beat, each
 // follows a band of the music, a snare flicks them aside, an accent sends them leaping into the
-// sky. The camera watches them from one of five places, cut to at a section and glided to
-// between. The light changes with the music and the waves follow its loudness.
+// sky. The camera watches them from one of two shots, cut to at a cue (a section's start, or
+// every few bars where the music has none). The light changes with the music and the waves follow
+// its energy.
 
 fn random(n: u32) -> f32 {
   return rv_unit(frame.seed * 2654435761u + n);
@@ -63,25 +64,13 @@ fn track(z: f32) -> vec3f {
   return vec3f(way_x(z), params.through, z);
 }
 
-// A calm tempo to move at when there is no beat, in beats a minute, from how fast the music
-// sounds (`music.feel`, in Hz: about 3 for a ballad to 7 for drum and bass): 70 to 110, and 90
-// while that is not measured yet.
-fn feel_bpm() -> f32 {
-  if (music.feel <= 0.0) {
-    return 90.0;
-  }
-  return mix(70.0, 110.0, clamp((music.feel - 3.0) / 4.0, 0.0, 1.0));
-}
-
 fn update() {
-  let dt = min(frame.dt, 0.05);
+  let dt = rv_dt();
   let t = frame.time;
   if (frame.first == 1u) {
     state.s = random(4u) * 3000.0;
     state.vel = params.cruise;
     state.vtarget = params.cruise;
-    state.tempo = 1.0;
-    state.ens = 1.0;
     state.lens = 1.0;
     state.wave = params.wave_height;
     choose_view(-1.0);
@@ -92,73 +81,40 @@ fn update() {
     state.light_mix = 1.0;
   }
 
-  // A beat is followed while the runtime has told of one within the last few beats (it tells of
-  // beats only when it trusts them).
-  if (frame.first == 1u) {
-    state.last_beat = -100.0;
-  }
-  if (music.beats > 0u) {
-    state.last_beat = t;
-  }
-  let sure = music.bpm > 0.0 && t - state.last_beat < 2.5 * 60.0 / music.bpm;
   // Without a beat (the runtime tells of none) the hits of the music stand in for it.
   let beat = f32(music.hits > 0u);
   let onsets = music.hits - music.beats;
-  // The spirits' steps count beats on this clock when there is no beat to follow, at a calm
-  // tempo from how fast the music sounds.
-  state.clock += dt * feel_bpm() / 60.0;
-
-  // Energy: the section's, leaning towards the next one in the bars before it.
-  let chart = music.has_chart == 1u;
-  if (chart && music.bpm > 0.0) {
-    let bar_seconds = music.beats_per_bar * 60.0 / music.bpm;
-    let ramp = clamp(1.0 - music.section_left / (max(params.build_bars, 0.25) * bar_seconds), 0.0, 1.0);
-    state.energy = music.section_energy + (music.next_energy - music.section_energy) * ramp * ramp;
-  } else {
-    state.energy += (music.loudness - state.energy) * (1.0 - exp(-dt / 1.5));
-  }
-  let en = 0.5 + 1.5 * state.energy;
-  state.ens += (en - state.ens) * (1.0 - exp(-dt / 0.4));
+  // How much the beat is followed right now (0 to 1), from the runtime: it fades what is locked to
+  // the beat in and out.
+  let locked = music.locked;
 
   // The kick (the sea heaves, the water rings round the pillars) and the beat's surge.
-  let kin = max(beat, params.hits * music.low * f32(sure));
+  let kin = max(beat, params.hits * music.low * locked);
   state.kick = max(state.kick * exp(-dt / params.kick_decay), kin);
-  if (kin > 0.6 && state.since_kick > 0.2) {
-    state.since_kick = 0.0;
-  }
-  state.since_kick += dt;
   if (beat > 0.5) {
     state.surge = 1.0;
   }
   state.surge *= exp(-dt / max(params.surge_decay, 0.02));
-  // The live levels, quick up and a little slower down; the snare (or a clap) flicks.
-  let now_levels = vec3f(music.bass, music.mids, music.treble);
-  let up_k = 1.0 - exp(-dt / 0.03);
-  let down_k = 1.0 - exp(-dt / 0.15);
-  state.levels = select(state.levels + (now_levels - state.levels) * down_k, state.levels + (now_levels - state.levels) * up_k, now_levels > state.levels);
-  let snare = select(music.mids > 1.6, music.mid > 0.7, chart);
-  if (snare && state.flick < 0.3) {
+  // The snare (or a clap) flicks.
+  if (music.mid > 0.7 && state.flick < 0.3) {
     state.flick = 1.0;
   }
   state.flick *= exp(-dt / 0.18);
 
   // The waves stand as tall as the music is loud.
-  let wave_to = params.wave_height * (0.35 + 1.3 * params.wave_energy * state.energy);
-  state.wave += (wave_to - state.wave) * (1.0 - exp(-dt / 0.5));
-  // Accents: a big swell breaks round the pillars, and the spirits leap into the sky.
+  let wave_to = params.wave_height * (0.35 + 1.3 * params.wave_energy * music.drive);
+  state.wave = rv_approach(state.wave, wave_to, dt, 0.5);
+  // Accents: a big swell breaks round the pillars, and the spirits leap into the sky. A cue of
+  // strength 1 (a section that lifts the energy) is the strongest, a hard hit inside a section
+  // (an impact) a little less.
   var accent = 0.0;
-  if (chart && music.sections > 0u && music.section_energy > state.last_energy + 0.1) {
+  if (music.cues > 0u && music.cue > 0.99) {
     accent = 1.0;
   }
-  if (music.sections > 0u) {
-    state.last_energy = music.section_energy;
-  }
-  let loud = select(music.energy > 1.2, state.energy > 0.55, chart);
-  if (loud && music.low > params.accent_level && t - state.last_accent > params.accent_gap) {
-    accent = max(accent, 0.75 * music.low);
+  if (music.impacts > 0u) {
+    accent = max(accent, 0.75 * music.impact);
   }
   if (accent > 0.0) {
-    state.last_accent = t;
     state.swell = max(state.swell, accent * params.swell);
     if (state.leap <= 0.0 || state.leap >= 1.0) {
       state.leap = 0.001;
@@ -168,7 +124,7 @@ fn update() {
   // The sea holds still, and every few beats (and on an accent) a new set of triangles takes its
   // place, as tall as the music is loud then, taller on the kick and in an accent's swell.
   // Without a beat it changes on a hit, at most every second or so.
-  let beat_no = u32(max(floor(music.beat), 0.0));
+  let beat_no = u32(max(floor(music.clock), 0.0));
   let sea_turn = (music.beats > 0u && beat_no % max(u32(params.sea_beats), 1u) == 0u) || accent > 0.0 || (onsets > 0u && t - state.sea_last > 1.2);
   if (sea_turn || frame.first == 1u) {
     state.sea_gen = f32((u32(state.sea_gen) + 1u) % 4096u);
@@ -181,79 +137,55 @@ fn update() {
     state.leap = min(state.leap + dt / max(params.leap_time, 0.2), 1.0);
   }
 
-  // Shots, patterns and light: at a section's start by its label, the camera cutting and the
-  // light changing with it; otherwise every few bars the shot cuts (and every other time the
-  // light with it) and the pattern changes.
-  if (chart && music.sections > 0u && t - state.last_view > 10.0) {
-    choose_view(music.section_label);
-    choose_mode(music.section_label);
-    choose_light(music.section_label);
+  // Shots, patterns and light: on a cue the camera cuts. A section's start (strength 0.5 or 1)
+  // comes with its label, so the same kind of section is seen the same way, and the light and the
+  // pattern change with it; a cue without a section (every 8 bars, or after 16 s without a beat)
+  // only cuts the shot, and now and then the light with it. The pattern also changes every few
+  // bars while the beat is followed.
+  if (music.cues > 0u && music.cue >= params.view_cue && t - state.last_view > params.view_gap_time) {
+    let sectional = music.cue >= 0.5;
+    let label = select(-1.0, music.section_label, sectional);
+    choose_view(label);
+    if (sectional) {
+      choose_mode(label);
+      choose_light(label);
+    } else if (random(12u) < 0.5) {
+      choose_light(-1.0);
+    }
   } else if (music.bars > 0u) {
     let bar = u32(floor(music.bar));
-    if (t - state.last_view > 12.0 && bar % max(u32(params.view_bars), 1u) == 0u) {
-      choose_view(-1.0);
-      if (!chart && random(12u) < 0.5) {
-        choose_light(-1.0);
-      }
-    }
     if (t - state.last_mode > 4.0 && (bar + 2u) % max(u32(params.mode_bars), 1u) == 0u) {
-      choose_mode(-1.0);
-    }
-  } else if (!sure) {
-    if (t - state.last_view > 12.0) {
-      choose_view(-1.0);
-      if (random(12u) < 0.5) {
-        choose_light(-1.0);
-      }
-    }
-    if (t - state.last_mode > 16.0) {
       choose_mode(-1.0);
     }
   }
 
-  // Gliding as fast as the music sounds (as in Neon Street), locked to the beat: a gate passes
-  // on every beat (or every two or four, or two a beat, whichever is nearest that pace).
-  let song = select(5.0, music.song_feel, music.song_feel > 0.0);
-  let here = select(song, music.feel, music.feel > 0.0);
-  if (state.feel <= 0.0) {
-    state.feel = here;
-  }
-  state.feel += (here - state.feel) * (1.0 - exp(-dt / params.feel_smooth));
-  let pace = pow(song / 5.0, params.song_pace) * pow(state.feel / song, params.moment_pace);
-  state.tempo += (clamp(pace, 0.25, 3.0) - state.tempo) * (1.0 - exp(-dt / 1.0));
-  let cruise = params.cruise * state.tempo * (1.0 + params.energy_speed * (state.ens - 1.0));
+  // Gliding as fast as the music's tempo, locked to the beat: a gate passes on every beat (or
+  // every two or four, or two a beat, whichever is nearest that pace). `pace` is the tempo over
+  // 90 bpm, so `cruise` is the speed at 90 bpm (the old pace multiplier was 1 at a middling song).
+  let pace = music.tempo / 90.0;
+  let cruise = params.cruise * pace * (1.0 + params.energy_speed * (1.5 * music.drive - 0.5));
   state.vtarget = cruise + (state.vtarget - cruise) * exp(-dt / 0.6);
-  var want_vel = state.vtarget;
-  if (sure && params.beat_lock > 0.0) {
-    let one = params.spacing * music.bpm / 60.0;
-    let want = clamp(round(log2(max(state.vtarget, 0.1) / one)), -2.0, 1.0);
-    if (state.per_beat <= 0.0 || (music.bars > 0u && abs(want - log2(state.per_beat)) > 0.5)) {
-      state.per_beat = exp2(want);
-    }
-    var err = fract(music.beat * state.per_beat) - fract(state.s / params.spacing);
-    err -= round(err);
-    want_vel = one * state.per_beat + err * params.spacing / 0.7;
-    state.lock = min(state.lock + dt / 1.5, 1.0);
-  } else {
-    state.lock = max(state.lock - dt / 1.5, 0.0);
+  let one = params.spacing * music.tempo / 60.0;
+  let want = clamp(round(log2(max(state.vtarget, 0.1) / one)), -2.0, 1.0);
+  if (state.per_beat <= 0.0 || (music.bars > 0u && abs(want - log2(state.per_beat)) > 0.5)) {
+    state.per_beat = exp2(want);
   }
-  let goal = mix(state.vtarget, want_vel, state.lock * params.beat_lock);
-  state.vel += (goal - state.vel) * (1.0 - exp(-dt / mix(0.5, 0.2, state.lock)));
+  var err = fract(music.clock * state.per_beat) - fract(state.s / params.spacing);
+  err -= round(err);
+  let want_vel = one * state.per_beat + err * params.spacing / 0.7;
+  let goal = mix(state.vtarget, want_vel, locked * params.beat_lock);
+  state.vel = rv_approach(state.vel, goal, dt, mix(0.5, 0.2, locked));
   state.s += dt * max(state.vel, 0.0);
 
   // The spirits. Their centre runs at s, through the middle of each gate as the beat comes.
   let s = state.s;
-  let n = clamp(round(state.count + (state.energy - 0.5) * 2.0), 1.0, f32(SPIRITS));
-  // How hard they move, by how loud it is this moment (not the section's average): the chart's
-  // loudness curve where there is a chart (worked out ahead, so it does not lag), else the live
-  // loudness of the last second against the last twenty; smoothed over 0.8 s, which follows the
-  // phrases but not every hit (the chart's curve swings with each drum). Quiet, small calm moves;
-  // loud, wide and sharp ones. It scales how far they go and how stiffly
-  // they spring, never where they are in their figures, so a change of loudness does not make
-  // them jump.
-  let moment_now = select(clamp((music.energy - 0.6) / 1.0, 0.0, 1.0), music.loudness, chart);
-  state.moment += (moment_now - state.moment) * (1.0 - exp(-dt / 0.8));
-  let drive = mix(1.0, mix(0.35, 1.6, clamp(state.moment, 0.0, 1.0)), params.energy_motion);
+  let n = clamp(round(state.count + (music.drive - 0.5) * 2.0), 1.0, f32(SPIRITS));
+  // How hard they move, by how loud it is this moment (not the section's average): the runtime's
+  // `intensity`, which follows the phrases but not every hit. Quiet, small calm moves; loud, wide
+  // and sharp ones. It scales how far they go and how stiffly they spring, never where they are
+  // in their figures, so a change of loudness does not make them jump. (Called `drive` here, as a
+  // motion scale; it is not `music.drive`.)
+  let drive = mix(1.0, mix(0.35, 1.6, clamp(music.intensity, 0.0, 1.0)), params.energy_motion);
   let k = params.stiff * mix(0.7, 1.3, clamp((drive - 0.35) / 1.25, 0.0, 1.0));
   let c = 2.0 * sqrt(k) * params.damp;
   // Through a gate they draw in to its middle; between gates they spread.
@@ -262,13 +194,12 @@ fn update() {
   // A leap: up into the sky and back down, in an arc.
   let leap_h = select(0.0, sin(3.14159265 * state.leap) * params.leap * state.leap_power, state.leap > 0.0 && state.leap < 1.0);
   // Everything the spirits do is counted in beats: each beat a step, quick off the mark and
-  // settled before the next (without a beat, on a clock at a calm tempo).
-  let bp = select(state.clock, music.beat, sure);
+  // settled before the next (the runtime's beat clock runs on, at the tempo, without a beat).
+  let bp = music.clock;
   let fb = floor(bp);
   let snap = 1.0 - pow(1.0 - fract(bp), 4.0);
   let stepped = fb + snap;
-  let per_bar = max(select(4.0, music.beats_per_bar, music.beats_per_bar > 0.5), 1.0);
-  let downbeat = fb - per_bar * floor(fb / per_bar) < 0.5;
+  let per_bar = max(floor(music.meter), 1.0);
   for (var h = 0u; h < SPIRITS; h++) {
     let fh = f32(h);
     let on = f32(fh < n);
@@ -319,7 +250,7 @@ fn update() {
         off = vec3f(side * (5.0 + 4.0 * random(70u + h)), 1.0 + 2.0 * random(80u + h), 0.0);
       }
       trip = vec4f(off, 0.001);
-      let beat_s = 60.0 / max(select(feel_bpm(), music.bpm, sure), 1.0);
+      let beat_s = 60.0 / max(music.tempo, 1.0);
       state.trip_len[h] = vec4f(beat_s * mix(1.5, 3.0, random(90u + h)), 0.0, 0.0, 0.0);
     }
     var away = 0.0;
@@ -333,7 +264,7 @@ fn update() {
     state.trip[h] = trip;
     // Off on its own it does not draw in at the gates; the formation opens as the music swells.
     rad = mix(rad, params.spread, away);
-    let swell_k = clamp(0.4 + 0.7 * (state.levels.x + state.levels.y) * 0.5, 0.4, 1.8);
+    let swell_k = clamp(0.4 + 0.7 * (music.band_low + music.band_mid) * 0.5, 0.4, 1.8);
     rad *= mix(1.0, swell_k, params.breathe);
     // Every few beats each spirit moves to a new spot of its own (further on a bar's first beat),
     // and a kick throws them all out from the middle for a moment.
@@ -422,7 +353,7 @@ fn update() {
   }
   list_torii();
 
-  post.bloom_intensity = params.glow * (0.6 + 0.5 * state.energy);
+  post.bloom_intensity = params.glow * (0.6 + 0.5 * music.drive);
   post.exposure = params.exposure;
   // The theme's hue.
   let follow = params.player_colour == 1u && frame.accent.a > 0.5;
@@ -563,7 +494,7 @@ fn build_ribbon(h: u32) {
   let interval = params.trail_time / f32(POINTS - 1u);
   // How far the head is towards the next point to be written.
   let frac = clamp(1.0 - state.until / max(interval, 1e-3), 0.0, 1.0);
-  let live = mix(1.0, pow(clamp(0.2 + 0.8 * state.levels[h % 3u], 0.2, 2.1), 1.5), params.react);
+  let live = mix(1.0, pow(clamp(0.2 + 0.8 * band(h % 3u), 0.2, 2.1), 1.5), params.react);
   var e1: array<vec3f, 40>;
   var e2: array<vec3f, 40>;
   var lo = vec2f(1e9);

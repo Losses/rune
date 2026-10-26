@@ -1,6 +1,6 @@
 // Once per frame: the camera flies down the tunnel as fast as the beat, surging on each kick; the
 // badges turn a step on every beat; the emoji move to the melody, each in its own way; now and
-// then (a section, or a long while) the camera glides to another place to film from, and the
+// then (on a cue) the camera glides to another place to film from, and the
 // badges coming change colour. Then everything in the slots in sight is placed, turned,
 // projected and sorted into the screen's tiles, nearest first.
 
@@ -333,83 +333,35 @@ fn pose_now(t: f32) -> Pose {
   return Pose(mix(state.set_off.turn, to.turn, e), mix(state.set_off.at, to.at, e));
 }
 
-// A calm tempo to move at when there is no beat, in beats a minute, from how fast the music
-// sounds (`music.feel`, in Hz: about 3 for a ballad to 7 for drum and bass): 70 to 110, and 90
-// while that is not measured yet.
-fn feel_bpm() -> f32 {
-  if (music.feel <= 0.0) {
-    return 90.0;
-  }
-  return mix(70.0, 110.0, clamp((music.feel - 3.0) / 4.0, 0.0, 1.0));
-}
-
-// The tempo to move at, in beats a minute: the music's when it has one, else `feel_bpm()`.
-fn pace_bpm() -> f32 {
-  return select(feel_bpm(), music.bpm, music.bpm > 0.0);
-}
-
 fn update() {
-  let dt = min(frame.dt, 0.05);
+  let dt = rv_dt();
   let t = frame.time;
   if (frame.first == 1u) {
     state.s = 0.0;
-    state.speed = params.cruise;
-    state.moment = 0.4;
-    state.loud_slow = 0.5;
+    state.speed = params.per_beat * music.tempo / 60.0;
     state.turn = 0.0;
     state.turn_to = 0.0;
   }
-  let chart = music.has_chart == 1u;
 
-  // The loudness now, smoothed a little: from the chart's curve, or what plays.
-  let now = select(clamp((music.energy - 0.6) / 1.0, 0.0, 1.0), music.loudness, chart);
-  state.moment += (now - state.moment) * (1.0 - exp(-dt / 0.8));
-
-  // The melody's notes: with a chart, the onset of its melodic stream (or the leading stream when
-  // that is melodic) leaping up; without, the mids rising well over their late average, a new
-  // note only once they have fallen back. Never two within a tenth of a second.
-  var note = 0.0;
-  if (chart) {
-    let onset = max(music.harmonic, select(0.0, music.lead_onset, music.lead > 2.5));
-    if (onset - state.heard_note > 0.08) {
-      note = clamp(onset, 0.3, 1.0);
-    }
-    state.heard_note = onset;
-  } else {
-    let rise = music.mids - state.mids_slow;
-    if (rise > params.note_rise && state.note_ready > 0.5) {
-      note = clamp(rise / (params.note_rise * 2.0), 0.4, 1.0);
-      state.note_ready = 0.0;
-    } else if (rise < params.note_rise * 0.5) {
-      state.note_ready = 1.0;
-    }
-    state.mids_slow += (music.mids - state.mids_slow) * (1.0 - exp(-dt / 0.6));
-  }
-  let last_note = state.notes[u32(state.note_count) % 8u].x;
+  // The melody's notes come from the runtime (`music.notes`, strength `music.note`, never two
+  // within a tenth of a second); they are kept in turn for the emoji to answer.
   state.note_rate *= exp(-dt / 2.0);
-  if (note > 0.0 && (t - last_note > 0.1 || state.note_count < 0.5)) {
+  if (music.notes > 0u) {
     state.note_count += 1.0;
-    state.notes[u32(state.note_count) % 8u] = vec4f(t, note, 0.0, 0.0);
-    state.note_rate += 0.5;
+    state.notes[u32(state.note_count) % 8u] = vec4f(t, max(music.note, 0.3), 0.0, 0.0);
+    state.note_rate += 0.5 * f32(music.notes);
   }
 
-  // How many emoji the music calls for now: by the section's energy (in its last four seconds
-  // turning to the next one's, so a chorus thickens as it comes), or without a chart how loud it
-  // has been of late; a quarter more while the melody is busy (four notes a second), a quarter
-  // fewer while it rests. `crowd` says how far the number follows the music at all.
-  state.loud_slow += (music.loudness - state.loud_slow) * (1.0 - exp(-dt / 12.0));
-  var energy = state.loud_slow;
-  if (chart) {
-    energy = mix(music.next_energy, music.section_energy, clamp(music.section_left / 4.0, 0.0, 1.0));
-  }
+  // How many emoji the music calls for now: by the slow energy (`music.drive`: the section's, in
+  // its last four bars turning to the next one's, so a chorus thickens as it comes); a quarter
+  // more while the melody is busy (four notes a second), a quarter fewer while it rests. `crowd`
+  // says how far the number follows the music at all.
   let busy = clamp(state.note_rate / 4.0, 0.0, 1.0);
-  let share = mix(1.0, mix(0.25, 1.0, clamp(energy, 0.0, 1.0)) * mix(0.75, 1.25, busy), params.crowd);
+  let share = mix(1.0, mix(0.25, 1.0, clamp(music.drive, 0.0, 1.0)) * mix(0.75, 1.25, busy), params.crowd);
 
-  // The beat: the kick, the surge forward, and a step of the badges' turn. Without a beat (the
-  // runtime tells of none) the hits of the music stand in.
+  // The beat: the kick, the surge forward, and a step of the badges' turn. Without a beat the
+  // hits of the music stand in.
   let beat = music.hits > 0u;
-  let onsets = music.hits - music.beats;
-  state.onsets += f32(onsets);
   state.kick = max(state.kick * exp(-dt / 0.25), f32(beat));
   if (beat) {
     state.turn_to += 1.0;
@@ -418,24 +370,17 @@ fn update() {
   state.surge *= exp(-dt / 0.3);
   state.turn += (state.turn_to - state.turn) * (1.0 - exp(-dt / 0.12));
 
-  // Down the tunnel `per_beat` metres a beat, faster when it is loud; without a tempo, cruising,
-  // quicker or slower as the music sounds.
-  var want = params.cruise * pace_bpm() / 100.0;
-  if (music.bpm > 0.0) {
-    want = params.per_beat * music.bpm / 60.0;
-  }
-  want *= mix(0.8, 1.2, state.moment);
+  // Down the tunnel `per_beat` metres a beat of `music.tempo` (which is a calm one from how the
+  // music sounds when it has no beat), faster when it is loud.
+  let want = params.per_beat * music.tempo / 60.0 * mix(0.8, 1.2, music.intensity);
   state.speed += (want - state.speed) * (1.0 - exp(-dt / 0.6));
   state.s += state.speed * (1.0 + params.surge * state.surge) * dt;
 
-  // Now and then the camera glides to another place to film from, setting off on a bar: at a
-  // section once it has stayed half of `shot_bars` bars, or after `shot_bars` bars in any case
-  // (without a beat, every fourth hit that is not a beat counts as a bar). The glide takes `glide_bars` bars. The badges
-  // coming from then on take another palette. A place chosen by hand it glides to at once.
-  let barred = music.bars > 0u || (onsets > 0u && floor(state.onsets / 4.0) != floor((state.onsets - f32(onsets)) / 4.0));
-  if (barred) {
-    state.bars_on += 1.0;
-  }
+  // Now and then the camera glides to another place to film from, on a cue (`music.cue` of at
+  // least `cue_min`) once it has stayed `shot_bars` bars in its place (bars of `music.meter`
+  // beats at `music.tempo`, so the wait is a time even when there is no beat). The glide takes
+  // `glide_bars` bars. The badges coming from then on take another palette. A place chosen by
+  // hand it glides to at once.
   let fixed = params.view > 0u;
   if (frame.first == 1u) {
     state.view = select(0.0, f32(params.view) - 1.0, fixed);
@@ -443,21 +388,16 @@ fn update() {
     state.set_off = pose_of(u32(state.view), state.side);
     state.last_view = t;
     state.glide = 1.0;
-    state.bars_on = 0.0;
     state.palette = floor(random(4u) * 3.0);
   }
-  let bars = f32(max(params.shot_bars, 1));
+  let bar_time = music.meter * 60.0 / music.tempo;
   var go = -1.0;
   if (fixed) {
     if (f32(params.view) - 1.0 != state.view) {
       go = f32(params.view) - 1.0;
     }
-  } else if ((chart && music.sections > 0u && state.bars_on >= bars * 0.5) || (barred && state.bars_on >= bars)) {
-    var energy = state.loud_slow;
-    if (chart) {
-      energy = music.section_energy;
-    }
-    go = f32(next_view(u32(state.view), clamp(energy, 0.0, 1.0)));
+  } else if (music.cues > 0u && music.cue >= params.cue_min && t - state.last_view >= f32(max(params.shot_bars, 1)) * bar_time) {
+    go = f32(next_view(u32(state.view), clamp(music.drive, 0.0, 1.0)));
     state.palette = floor(random(4u) * 3.0);
   }
   if (go >= 0.0) {
@@ -467,9 +407,7 @@ fn update() {
     }
     state.view = go;
     state.last_view = t;
-    state.bars_on = 0.0;
-    let per_bar = select(4.0, music.beats_per_bar, music.beats_per_bar > 0.5);
-    state.glide = clamp(params.glide_bars * per_bar * 60.0 / pace_bpm(), 2.0, 20.0);
+    state.glide = clamp(params.glide_bars * bar_time, 2.0, 20.0);
   }
 
   // Where it is, drifting a little round that, slowly: only a few degrees, over half a minute.

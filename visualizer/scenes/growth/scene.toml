@@ -98,34 +98,6 @@ min = 0.0
 max = 0.1
 step = 0.002
 
-[[param]]
-id = "accent_level"
-group = "Beat"
-label = "How strong an accent must be"
-default = 0.95
-min = 0.5
-max = 1.0
-step = 0.01
-
-[[param]]
-id = "accent_gap"
-group = "Beat"
-label = "Least time between accent flashes"
-unit = "s"
-default = 6.0
-min = 1.0
-max = 30.0
-step = 0.5
-
-[[param]]
-id = "build_bars"
-group = "Beat"
-label = "Bars of build-up before a section"
-default = 4.0
-min = 0.25
-max = 16.0
-step = 0.25
-
 # ---- Growth ----
 
 [[param]]
@@ -192,34 +164,6 @@ default = 1.0
 min = 0.0
 max = 3.0
 step = 0.05
-
-[[param]]
-id = "song_pace"
-group = "Growth"
-label = "How much the song's pace sets the growth"
-default = 1.2
-min = 0.0
-max = 3.0
-step = 0.1
-
-[[param]]
-id = "moment_pace"
-group = "Growth"
-label = "How much the moment's pace changes it"
-default = 1.5
-min = 0.0
-max = 4.0
-step = 0.1
-
-[[param]]
-id = "feel_smooth"
-group = "Growth"
-label = "Smoothing of the pace"
-unit = "s"
-default = 4.0
-min = 0.5
-max = 20.0
-step = 0.5
 
 # ---- Tower ----
 
@@ -320,23 +264,23 @@ max = 60.0
 step = 1.0
 
 [[param]]
-id = "view_bars"
-group = "Camera"
-label = "Bars between possible view changes"
-default = 8.0
-min = 1.0
-max = 32.0
-step = 1.0
-
-[[param]]
 id = "view_chance"
 group = "Camera"
-label = "Chance of changing then"
+label = "Chance of changing the view on a weak cue"
 unit = "%"
 default = 40.0
 min = 0.0
 max = 100.0
 step = 1.0
+
+[[param]]
+id = "view_cue"
+group = "Camera"
+label = "Weakest cue that changes the view"
+default = 0.3
+min = 0.0
+max = 1.0
+step = 0.05
 
 [[param]]
 id = "view_gap"
@@ -438,13 +382,13 @@ max = 10.0
 step = 0.05
 
 [[param]]
-id = "theme_bars"
+id = "theme_cue"
 group = "Look"
-label = "Bars between themes without a chart"
-default = 16.0
-min = 4.0
-max = 64.0
-step = 4.0
+label = "Weakest cue that changes the theme"
+default = 0.3
+min = 0.0
+max = 1.0
+step = 0.05
 
 [[param]]
 id = "fog"

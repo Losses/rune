@@ -7,7 +7,7 @@
 fn backdrop(o: vec3f, d: vec3f, pixel: f32) -> vec3f {
   let ahead = max(d.z, 0.0);
   var c = mix(state.colours[0].rgb, state.colours[1].rgb, smoothstep(0.0, 1.0, d.z));
-  let core = params.core * (0.75 + 0.5 * state.moment);
+  let core = params.core * (0.75 + 0.5 * music.intensity);
   // As big on the screen through a longer lens (which would spread its glow over the picture).
   let zoom = pow(state.focal / params.focal, 2.0);
   c += state.colours[2].rgb * core * (pow(ahead, 1500.0 * zoom) * 8.0 + pow(ahead, 150.0 * zoom) * 1.0 + pow(ahead, 14.0 * zoom) * 0.15);

@@ -273,8 +273,12 @@ fn emoji_hit(ro: vec3f, rd: vec3f, k: f32, lod: f32) -> vec4f {
     return vec4f(t0, 0.0, 0.0, -sign(rd.z));
   }
   var last = t0;
-  for (var s = 1; s <= 6; s++) {
-    let t = mix(t0, t1, f32(s) / 6.0);
+  // Quality: how many steps look through an emoji's thickness for its cut edge (1: six; 0.75:
+  // five; 0.5: four; 0.25: three; 0: two). Fewer steps miss thin parts of the outline, nothing
+  // else.
+  let steps = 2 + i32(round(4.0 * frame.quality));
+  for (var s = 1; s <= steps; s++) {
+    let t = mix(t0, t1, f32(s) / f32(steps));
     if (inside_emoji(ro.xy + rd.xy * t, k, lod)) {
       let mid = 0.5 * (last + t);
       let th = select(t, mid, inside_emoji(ro.xy + rd.xy * mid, k, lod));
