@@ -111,6 +111,9 @@ const RIVAL_PHASE: f64 = 1.3;
 const RIVAL_PHASE_SECONDS: f64 = 1.5;
 /// Time constant of the confidence, in seconds.
 const CONFIDENCE_SECONDS: f64 = 0.7;
+/// Below this confidence the tracker is unsure: an unlocked clock does not lock (it would jump
+/// to a new phase every hop in free time) and runs on at the tempo.
+const UNSURE: f64 = 0.15;
 /// Seconds of low confidence after which the next lock may move the phase at once.
 const UNLOCK_SECONDS: f64 = 2.0;
 
@@ -575,7 +578,7 @@ impl BeatTracker {
         let sure = self.tempo_confidence * clarity * f64::from(u8::from(audible));
         let smoothing = 1.0 / (CONFIDENCE_SECONDS * self.rate);
         self.confidence += (sure - self.confidence) * smoothing;
-        if self.confidence < 0.15 {
+        if self.confidence < UNSURE {
             self.unsure_hops += 1;
             if f64::from(self.unsure_hops) > UNLOCK_SECONDS * self.rate {
                 self.locked = false;
@@ -595,7 +598,7 @@ impl BeatTracker {
 
         let mut correction = 0.0;
         if !self.locked {
-            if clarity > 0.5 {
+            if clarity > 0.5 && self.confidence >= UNSURE {
                 // Move to the observed phase, forwards only.
                 self.beat += error_of(anywhere).rem_euclid(1.0);
                 self.locked = true;
@@ -756,6 +759,44 @@ mod tests {
             let beat = tracker.rhythm().beat;
             assert!(beat >= last, "{last} then {beat}");
             last = beat;
+        }
+    }
+
+    /// Free time (rubato) and noise have no beat to lock to: the clock may wander, but never runs
+    /// faster than the fastest tempo it could have, however long it stays unsure.
+    #[test]
+    fn an_unsure_clock_never_races() {
+        // Hits whose spacing keeps changing, between 0.3 and 1.4 s.
+        let free = drums(
+            40.0,
+            |t| 90.0 + 70.0 * (1.7 * t).sin() * (0.31 * t).cos(),
+            false,
+        )
+        .0;
+        let mut seed = 3u32;
+        let noise: Vec<f32> = (0..40 * RATE as usize)
+            .map(|_| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                ((seed >> 8) as f32 / (1 << 24) as f32 * 2.0 - 1.0) * 0.3
+            })
+            .collect();
+        // The fastest tempo, sped up by the most the clock may pull and drift.
+        let fastest =
+            super::MAX_BPM * (1.0 + super::MAX_RATE_CHANGE) * (1.0 + super::MAX_RATE_DRIFT) / 60.0;
+        for (name, samples) in [("free time", free), ("noise", noise)] {
+            let run = track(&samples);
+            let ticks = ticks(&run);
+            for second in 0..40 {
+                let window = (second as f64, second as f64 + 1.0);
+                let n = ticks
+                    .iter()
+                    .filter(|&&t| t >= window.0 && t < window.1)
+                    .count();
+                assert!(
+                    n as f64 <= fastest.ceil(),
+                    "{name}: {n} ticks in {window:?}"
+                );
+            }
         }
     }
 
