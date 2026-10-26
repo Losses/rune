@@ -4,10 +4,13 @@
 //! OpenGL context imports (`crate::shared_vulkan`), on Android presented into the native window
 //! of a Flutter texture (`crate::window`), elsewhere (or if that fails) an offscreen target that
 //! is read back into mapped buffers ([`crate::readback`]).
+//!
+//! Frames handed to Flutter without a copy are submitted without waiting for the GPU and handed
+//! out once it has finished them (see [`crate::in_flight`]).
 
 use std::path::Path;
-use std::sync::Arc;
-use std::time::Instant;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "android")]
 use anyhow::bail;
@@ -18,6 +21,7 @@ use crate::adaptive::{Controller, Level, Report};
 use crate::chart::ChartState;
 use crate::covers::{Atlas, Cell};
 use crate::gpu_time::GpuTimer;
+use crate::in_flight::InFlight;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
 use crate::scene::{FrameInput, Scene, Source};
@@ -55,6 +59,11 @@ pub struct Pipeline {
     /// The cell of the track playing, which stays over cell 0 of the atlas.
     playing_cover: Option<Arc<Cell>>,
     output: Output,
+    /// Frames drawn into the output's targets that the GPU may not have finished yet.
+    in_flight: InFlight<Rendered>,
+    /// Why the device was lost, once it was. Nothing waits for a particular frame any more, so
+    /// without this a lost device would go on taking frames that never draw anything.
+    lost: Arc<OnceLock<String>>,
     /// The format scenes draw in: [`FORMAT`], or what the window takes (Android).
     format: wgpu::TextureFormat,
     readback: bool,
@@ -78,6 +87,12 @@ pub struct Pipeline {
 
 /// How often the GPU time of the frames is logged, in seconds.
 const REPORT_INTERVAL: f64 = 10.0;
+/// How long the frames on their way are waited for when they are let go of (a resize, the end).
+/// Longer than this, the GPU is stuck or lost.
+const FINISH_WAIT: Duration = Duration::from_secs(1);
+/// How often a wait for a frame that is not the newest submission looks whether the GPU finished
+/// it (see [`Pipeline::wait_for_oldest`]).
+const WAIT_STEP: Duration = Duration::from_millis(1);
 
 /// The name of the built-in scene shown before another is chosen.
 pub const DEFAULT_PRESET_NAME: &str = "Armillary";
@@ -246,24 +261,24 @@ fn request_device(
     Ok((device, queue, share && cfg!(not(target_os = "linux"))))
 }
 
-/// Draw a frame into `view` and wait until the GPU has finished it, so that the target can be
-/// handed out.
+/// Draw a frame with `paint` and submit it, without waiting for the GPU.
 #[cfg(any(target_vendor = "apple", target_os = "windows"))]
-fn render_and_wait(
+fn render_and_submit(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     paint: impl FnOnce(&mut wgpu::CommandEncoder),
-) -> Result<()> {
+) {
     let mut encoder = device.create_command_encoder(&Default::default());
     paint(&mut encoder);
-    let submission = queue.submit(Some(encoder.finish()));
-    device
-        .poll(wgpu::PollType::Wait {
-            submission_index: Some(submission),
-            timeout: None,
-        })
-        .map_err(|e| anyhow!("GPU poll failed: {e:?}"))?;
-    Ok(())
+    queue.submit(Some(encoder.finish()));
+}
+
+/// Hand `frame` out once the GPU has finished the submission just made on `queue`.
+#[cfg(any(target_vendor = "apple", target_os = "windows", target_os = "linux"))]
+fn track(queue: &wgpu::Queue, in_flight: &mut InFlight<Rendered>, frame: Rendered) {
+    let done = in_flight.push(frame);
+    // Runs inside a later poll or submission on this thread.
+    queue.on_submitted_work_done(move || done.store(true, std::sync::atomic::Ordering::Release));
 }
 
 impl Pipeline {
@@ -301,6 +316,13 @@ impl Pipeline {
         #[cfg(target_os = "android")]
         let report = Arc::clone(&on_gpu_error);
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| on_gpu_error(e.to_string())));
+        let lost = Arc::new(OnceLock::new());
+        device.set_device_lost_callback({
+            let lost = Arc::clone(&lost);
+            move |reason, message| {
+                let _ = lost.set(format!("{reason:?}: {message}"));
+            }
+        });
 
         let (width, height) = (width.max(1), height.max(1));
         #[cfg(target_os = "android")]
@@ -368,6 +390,8 @@ impl Pipeline {
             covers: None,
             playing_cover: None,
             output,
+            in_flight: InFlight::new(),
+            lost,
             format,
             readback,
         })
@@ -496,8 +520,15 @@ impl Pipeline {
         self.readback = true;
         if !matches!(self.output, Output::Readback(_)) {
             let (width, height) = self.output.size();
-            self.output = Output::Readback(Target::new(&self.device, width, height));
+            self.read_back(width, height);
         }
+    }
+
+    /// Read frames of `width` by `height` back from now on. Frames on their way in the targets
+    /// before are let go of.
+    fn read_back(&mut self, width: u32, height: u32) {
+        self.finish_in_flight();
+        self.output = Output::Readback(Target::new(&self.device, width, height));
     }
 
     pub fn resize(&mut self, width: u32, height: u32) -> Result<()> {
@@ -511,6 +542,8 @@ impl Pipeline {
             surface.resize(&self.device, width, height);
             return Ok(());
         }
+        // They are of the old size, and the targets they are in go with the old output.
+        self.finish_in_flight();
         self.output = Output::new(&self.device, width, height, self.readback);
         Ok(())
     }
@@ -637,11 +670,124 @@ impl Pipeline {
     /// Render one frame: into the next pixel buffer, shared texture, shared image or image of the
     /// window's swapchain, or into the target that is read back. The resolution and quality of
     /// the scene follow the GPU time of the frames before (see [`crate::adaptive`]).
+    ///
+    /// Pixel buffers, shared textures and shared images are submitted without waiting for the GPU,
+    /// unless [`crate::in_flight::MAX_IN_FLIGHT`] frames are still being drawn: then for the
+    /// oldest of them. What comes back is the newest frame the GPU has finished since, if any; the
+    /// frame just submitted usually comes out of [`Pipeline::wait_for_frame`] or the next call.
     pub fn render(&mut self, time: f64) -> Result<Rendered> {
+        if let Some(reason) = self.lost.get() {
+            return Err(anyhow!("The GPU device was lost ({reason})"));
+        }
         self.adapt();
+        if self.in_flight.is_full() {
+            self.wait_for_oldest(None)?;
+        }
         let rendered = self.render_frame(time);
         self.timer.submitted(&self.device);
-        rendered
+        match rendered? {
+            Rendered::Nothing => self.finished(),
+            rendered => Ok(rendered),
+        }
+    }
+
+    /// Wait until the GPU has finished the oldest frame on its way, but not past `until`, and
+    /// return the newest finished frame (nothing if none finished, or none is on its way).
+    pub fn wait_for_frame(&mut self, until: Instant) -> Result<Rendered> {
+        self.wait_for_oldest(Some(until))?;
+        Ok(self.take_finished())
+    }
+
+    /// Wait until the GPU has finished the oldest frame on its way, if one is, or `until` came.
+    ///
+    /// wgpu waits for one submission only when it is the newest: on Metal, wgpu-hal 30 forgets a
+    /// finished command buffer on the next submission, possibly before its completion handler has
+    /// recorded it, and a wait for that submission then reports the device lost. So the newest
+    /// frame is waited for by waiting for everything submitted (at most a little work comes after
+    /// it), and an older one by looking every [`WAIT_STEP`].
+    fn wait_for_oldest(&self, until: Option<Instant>) -> Result<()> {
+        let unfinished = self.in_flight.unfinished();
+        if unfinished == 0 {
+            return Ok(());
+        }
+        if unfinished == 1 {
+            let timeout = until.map(|until| until.saturating_duration_since(Instant::now()));
+            return match self.device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout,
+            }) {
+                Ok(_) | Err(wgpu::PollError::Timeout) => Ok(()),
+                Err(e) => Err(anyhow!("GPU poll failed: {e:?}")),
+            };
+        }
+        loop {
+            self.poll()?;
+            let now = Instant::now();
+            if self.in_flight.unfinished() < unfinished || until.is_some_and(|until| now >= until) {
+                return Ok(());
+            }
+            let step = until.map_or(WAIT_STEP, |until| WAIT_STEP.min(until - now));
+            std::thread::sleep(step);
+        }
+    }
+
+    /// Run the callbacks of the work the GPU has finished, without waiting.
+    fn poll(&self) -> Result<()> {
+        self.device
+            .poll(wgpu::PollType::Poll)
+            .map(|_| ())
+            .map_err(|e| anyhow!("GPU poll failed: {e:?}"))
+    }
+
+    /// The newest frame the GPU has finished, looking without waiting.
+    fn finished(&mut self) -> Result<Rendered> {
+        if self.in_flight.is_empty() {
+            return Ok(Rendered::Nothing);
+        }
+        self.poll()?;
+        Ok(self.take_finished())
+    }
+
+    /// The newest finished frame out of the frames on their way, remembered by the output as
+    /// published.
+    fn take_finished(&mut self) -> Rendered {
+        let Some(frame) = self.in_flight.take_finished() else {
+            return Rendered::Nothing;
+        };
+        match (&mut self.output, &frame) {
+            #[cfg(target_vendor = "apple")]
+            (Output::Surfaces(surfaces), Rendered::PixelBuffer(buffer)) => {
+                surfaces.keep(buffer.clone());
+            }
+            #[cfg(target_os = "windows")]
+            (Output::Shared(targets), Rendered::Shared(texture)) => targets.keep(texture.clone()),
+            #[cfg(target_os = "linux")]
+            (Output::Shared(targets), Rendered::Shared(shared)) => targets.keep(shared),
+            _ => {}
+        }
+        frame
+    }
+
+    /// Wait until the GPU has finished the frames on their way, and drop them. If that fails
+    /// they are leaked rather than dropped: their targets (and on Linux their semaphores) must
+    /// not go while the GPU may still use them.
+    fn finish_in_flight(&mut self) {
+        if self.in_flight.is_empty() {
+            return;
+        }
+        // Everything: see `wait_for_oldest` for why not their own submissions.
+        let waited = self.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(FINISH_WAIT),
+        });
+        let frames = self.in_flight.take_all();
+        match waited {
+            Ok(_) => drop(frames),
+            Err(e) => {
+                warn!("Letting go of frames the GPU has not finished: {e:?}");
+                std::mem::forget(frames);
+            }
+        }
     }
 
     fn render_frame(&mut self, time: f64) -> Result<Rendered> {
@@ -667,7 +813,7 @@ impl Pipeline {
                     let scene = &mut self.scene;
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
                     let timer = &mut self.timer;
-                    render_and_wait(&self.device, &self.queue, |encoder| {
+                    render_and_submit(&self.device, &self.queue, |encoder| {
                         draw(
                             scene,
                             timer,
@@ -677,15 +823,16 @@ impl Pipeline {
                             time,
                             heard,
                         )
-                    })?;
-                    surfaces.keep(buffer.clone());
-                    return Ok(Rendered::PixelBuffer(buffer));
+                    });
+                    let frame = Rendered::PixelBuffer(buffer);
+                    track(&self.queue, &mut self.in_flight, frame);
+                    return Ok(Rendered::Nothing);
                 }
                 Ok(None) => return Ok(Rendered::Nothing),
                 Err(e) => {
                     warn!("Falling back to reading frames back: {e:#}");
                     let (width, height) = surfaces.size();
-                    self.output = Output::Readback(Target::new(&self.device, width, height));
+                    self.read_back(width, height);
                 }
             }
         }
@@ -696,7 +843,7 @@ impl Pipeline {
                     let scene = &mut self.scene;
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
                     let timer = &mut self.timer;
-                    render_and_wait(&self.device, &self.queue, |encoder| {
+                    render_and_submit(&self.device, &self.queue, |encoder| {
                         draw(
                             scene,
                             timer,
@@ -706,15 +853,16 @@ impl Pipeline {
                             time,
                             heard,
                         )
-                    })?;
-                    targets.keep(texture.clone());
-                    return Ok(Rendered::Shared(texture));
+                    });
+                    let frame = Rendered::Shared(texture);
+                    track(&self.queue, &mut self.in_flight, frame);
+                    return Ok(Rendered::Nothing);
                 }
                 Ok(None) => return Ok(Rendered::Nothing),
                 Err(e) => {
                     warn!("Falling back to reading frames back: {e:#}");
                     let (width, height) = targets.size();
-                    self.output = Output::Readback(Target::new(&self.device, width, height));
+                    self.read_back(width, height);
                 }
             }
         }
@@ -729,17 +877,16 @@ impl Pipeline {
                     let frame = targets.render(device, queue, next, |encoder, view| {
                         draw(scene, timer, (device, queue), encoder, view, time, heard);
                     })?;
-                    let Some(frame) = frame else {
-                        return Ok(Rendered::Nothing);
-                    };
-                    targets.keep(&frame);
-                    return Ok(Rendered::Shared(frame));
+                    if let Some(frame) = frame {
+                        track(queue, &mut self.in_flight, Rendered::Shared(frame));
+                    }
+                    return Ok(Rendered::Nothing);
                 }
                 Ok(None) => return Ok(Rendered::Nothing),
                 Err(e) => {
                     warn!("Falling back to reading frames back: {e:#}");
                     let (width, height) = targets.size();
-                    self.output = Output::Readback(Target::new(&self.device, width, height));
+                    self.read_back(width, height);
                 }
             }
         }
@@ -754,6 +901,12 @@ impl Pipeline {
             draw(scene, timer, (device, queue), encoder, view, time, heard);
         })?;
         Ok(frame.map_or(Rendered::Nothing, Rendered::Mapped))
+    }
+}
+
+impl Drop for Pipeline {
+    fn drop(&mut self) {
+        self.finish_in_flight();
     }
 }
 

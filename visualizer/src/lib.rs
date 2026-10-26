@@ -17,6 +17,7 @@ mod builtin;
 mod chart;
 mod covers;
 mod gpu_time;
+mod in_flight;
 mod pipeline;
 mod presets;
 mod readback;
@@ -849,6 +850,8 @@ fn run(
         if paused && still_drawn {
             // Keep the last frame on screen and wait, for commands, the music or the window.
             let since = Instant::now();
+            // The frame drawn last may still be on its way.
+            show_finished(shared, &mut pipeline, since + PAUSED_POLL)?;
             match commands.recv_timeout(PAUSED_POLL) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
                 Ok(command) => {
@@ -932,19 +935,7 @@ fn run(
         if let Some(bench) = &mut bench {
             bench.frame(&mut pipeline, Instant::now());
         }
-        let (width, height) = pipeline.size();
-        match rendered {
-            Rendered::Mapped(frame) => publish(shared, width, height, FrameData::Mapped(frame)),
-            #[cfg(target_vendor = "apple")]
-            Rendered::PixelBuffer(buffer) => {
-                publish(shared, width, height, FrameData::PixelBuffer(buffer));
-            }
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
-            Rendered::Shared(texture) => publish(shared, width, height, FrameData::Shared(texture)),
-            #[cfg(target_os = "android")]
-            Rendered::Presented => {}
-            Rendered::Nothing => {}
-        }
+        show(shared, &pipeline, rendered);
         // The output falls back to reading frames back if pixel buffers, shared textures or shared
         // images stop working, or the app could not show them.
         if pipeline.transport() != transport {
@@ -962,8 +953,10 @@ fn run(
             window_frames = 0;
         }
 
-        // Wait for the next frame, but wake up for commands.
+        // Wait for the next frame: first for the frames still being drawn, to show each as soon as
+        // the GPU has finished it, then for commands.
         deadline += interval;
+        show_finished(shared, &mut pipeline, deadline)?;
         let now = Instant::now();
         if deadline > now {
             match commands.recv_timeout(deadline - now) {
@@ -1108,6 +1101,34 @@ fn keep_recent(pcm: &mut Vec<f32>, channels: usize, sample_rate: u32) {
     if pcm.len() > keep {
         let skip = pcm.len() - keep;
         pcm.drain(..skip - skip % channels);
+    }
+}
+
+/// Make a frame that came out of the pipeline the latest one, if it is one that is handed out.
+fn show(shared: &Shared, pipeline: &Pipeline, rendered: Rendered) {
+    let (width, height) = pipeline.size();
+    match rendered {
+        Rendered::Mapped(frame) => publish(shared, width, height, FrameData::Mapped(frame)),
+        #[cfg(target_vendor = "apple")]
+        Rendered::PixelBuffer(buffer) => {
+            publish(shared, width, height, FrameData::PixelBuffer(buffer));
+        }
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        Rendered::Shared(texture) => publish(shared, width, height, FrameData::Shared(texture)),
+        #[cfg(target_os = "android")]
+        Rendered::Presented => {}
+        Rendered::Nothing => {}
+    }
+}
+
+/// Show the frames on their way as the GPU finishes them, until none is left or `until`. A
+/// pipeline drops the frames on their way when its size changes, so its size is theirs.
+fn show_finished(shared: &Shared, pipeline: &mut Pipeline, until: Instant) -> Result<()> {
+    loop {
+        match pipeline.wait_for_frame(until)? {
+            Rendered::Nothing => return Ok(()),
+            rendered => show(shared, pipeline, rendered),
+        }
     }
 }
 

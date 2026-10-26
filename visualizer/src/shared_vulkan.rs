@@ -42,7 +42,8 @@ use crate::DeviceUuids;
 /// is drawn into again only a few frames after Flutter let go of it: its compositor may still
 /// sample the last frame it was given while the next one is being drawn.
 const KEEP_RECENT: usize = 3;
-/// Upper bound on the images of one size: the recent ones, the latest, Flutter's, the one in work.
+/// Upper bound on the images of one size: the recent ones (the latest among them), the ones the GPU
+/// is drawing (`crate::in_flight`), finished ones not handed out yet, and Flutter's.
 const MAX_IMAGES: usize = 8;
 
 /// The Vulkan format of [`crate::pipeline::FORMAT`], which OpenGL imports as `GL_RGBA8`.
@@ -194,9 +195,10 @@ struct Semaphore {
 impl Drop for Semaphore {
     fn drop(&mut self) {
         // SAFETY: the semaphore belongs to this device, which is alive (see `Vulkan`). Any
-        // submission that signals it has finished: the render thread waits for it before the
-        // frame is published, and leaks the semaphore if that wait fails. Nothing in Vulkan waits
-        // for it, and OpenGL holds its own reference to the payload once it imported it.
+        // submission that signals it has finished: the render thread hands a frame out or drops
+        // it only once the GPU has finished it (see `crate::in_flight`), and leaks the frames on
+        // their way if waiting for them fails. Nothing in Vulkan waits for it, and OpenGL holds
+        // its own reference to the payload once it imported it.
         unsafe { self.vulkan.device.destroy_semaphore(self.raw, None) };
     }
 }
@@ -382,9 +384,11 @@ impl SharedTargets {
         }))
     }
 
-    /// Draw a frame with `draw` into the image from [`Self::next`], hand it over to OpenGL, and
-    /// wait until the GPU has finished. `None` if wgpu refused the submission, which then never
-    /// signals the frame's semaphore (the frame is skipped).
+    /// Draw a frame with `draw` into the image from [`Self::next`] and hand it over to OpenGL,
+    /// without waiting for the GPU. The frame must not be published or dropped before the GPU has
+    /// finished the submission that draws it (the last one on `queue`), which signals its
+    /// semaphore. `None` if wgpu refused the submission, which then never signals the semaphore
+    /// (the frame is skipped).
     pub fn render(
         &mut self,
         device: &wgpu::Device,
@@ -448,7 +452,7 @@ impl SharedTargets {
             // The next submission signals it, after all of its command buffers.
             hal_queue.add_signal_semaphore(next.semaphore.raw, None);
         }
-        let submission = queue.submit(acquire.into_iter().chain([encoder.finish(), release]));
+        queue.submit(acquire.into_iter().chain([encoder.finish(), release]));
         let submitted = {
             // SAFETY: as above.
             let hal_queue = unsafe { queue.as_hal::<hal::api::Vulkan>() }
@@ -459,14 +463,8 @@ impl SharedTargets {
         if !submitted {
             return Ok(None);
         }
-        if let Err(e) = device.poll(wgpu::PollType::Wait {
-            submission_index: Some(submission),
-            timeout: None,
-        }) {
-            // The submission may still signal it.
-            std::mem::forget(next.semaphore);
-            bail!("GPU poll failed: {e:?}");
-        }
+        // The release is on its way: the next frame in this image acquires it back, after it on
+        // the same queue.
         self.images[next.index].drawn = true;
         Ok(Some(SharedFrame {
             semaphore: next.semaphore,
@@ -748,7 +746,8 @@ fn barrier(
 mod tests {
     use super::*;
 
-    /// A frame drawn into the next image with a clear, or `None` if the pool is full.
+    /// A frame drawn into the next image with a clear and finished by the GPU, or `None` if the
+    /// pool is full.
     fn draw(
         targets: &mut SharedTargets,
         device: &wgpu::Device,
@@ -772,6 +771,7 @@ mod tests {
             })
             .unwrap()
             .expect("wgpu refused the submission");
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         targets.keep(&frame);
         Some(frame)
     }

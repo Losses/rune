@@ -9,10 +9,11 @@
 //! passes of other work can run in between, so the time is how long the frame took, not only what
 //! it cost.
 //!
-//! Without them the time is the wall time from submitting the frame until the GPU finished it.
-//! The pixel buffer, shared texture and shared image paths (Apple, Windows, Linux) wait for that
-//! anyway; on the others (reading back, presenting on Android) the render thread then waits for
-//! the frame too, which costs only the overlap of encoding one frame with drawing the last.
+//! Without them the time is the wall time from submitting the frame until the GPU finished it, so
+//! the render thread waits for every frame. That gives up the overlap of encoding one frame with
+//! drawing the ones before (see [`crate::in_flight`]), which only adapters without timestamps pay.
+//! A time taken without waiting would not be one: a frame queued behind others would count their
+//! time too, and the moment a frame finished is only seen when the render thread next looks.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
