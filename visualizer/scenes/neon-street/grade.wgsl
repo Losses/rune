@@ -29,8 +29,8 @@ fn shade(px: Pixel) -> vec4f {
   // theme colour or ink by section.
   var mode = f32(params.palette);
   let ink_turn = fract(state.district * 2.0) >= 0.5;
-  // The accent that stays coloured among the ink and colours the wipe at a cut: red, or the
-  // theme colour when the palette is the theme's.
+  // The accent that stays coloured among the ink: red, or the theme colour when the palette is
+  // the theme's.
   let themed = mode > 3.5;
   let accent = select(vec3f(1.0, 0.05, 0.04), state.theme_ramp[2].rgb / max(rv_luma(state.theme_ramp[2].rgb), 1e-3) * 0.35, themed);
   if (mode > 4.5) {
@@ -80,39 +80,5 @@ fn shade(px: Pixel) -> vec4f {
     let redness = clamp((c.r - max(c.g, c.b)) / max(c.r, 1e-4), 0.0, 1.0) * smoothstep(1.2, 2.5, c.r);
     out = mix(out, at_lightness(accent, max(l, lt)), redness * params.accent);
   }
-  return vec4f(cut_wipe(px, out, accent), 1.0);
-}
-
-// At a cut, a band of black and the accent sweeping across the picture on a slant, its edges jagged
-// and its tail breaking into dots (as Persona 5 turns from one scene to the next), over
-// `wipe_time` seconds; the new view is already there behind it.
-fn cut_wipe(px: Pixel, c: vec3f, accent: vec3f) -> vec3f {
-  let age = frame.time - state.last_cut;
-  if (params.wipe_time <= 0.0 || age < 0.0 || age > params.wipe_time || frame.time < 0.5) {
-    return c;
-  }
-  let p = age / params.wipe_time;
-  let dir = normalize(vec2f(1.0, -0.45));
-  let side = vec2f(-dir.y, dir.x);
-  let aspect = px.size.x / px.size.y;
-  let reach = 0.5 * (aspect + 1.0);
-  // Across the band, from its front edge back (in screen heights); jagged by a sawtooth along it.
-  let along = dot(px.p, side);
-  let jag = (h21(vec2f(floor(along * 9.0), 3.7)) - 0.5) * 0.08 + abs(fract(along * 9.0) - 0.5) * 0.06;
-  let front = mix(-reach - 0.2, reach + 1.4, p);
-  let behind = front - (dot(px.p, dir) + jag);
-  if (behind < 0.0 || behind > 1.2) {
-    return c;
-  }
-  // The accent at the front, then black, then dots thinning out into the new view.
-  let red = at_lightness(accent, 0.22);
-  if (behind < 0.18) {
-    return red;
-  }
-  if (behind < 0.7) {
-    return vec3f(0.0);
-  }
-  let g = mat2x2f(0.7071, -0.7071, 0.7071, 0.7071) * px.coord / 7.0;
-  let dot_on = length(fract(g) - 0.5) < 0.62 * (1.0 - (behind - 0.7) / 0.5);
-  return select(c, vec3f(0.0), dot_on);
+  return vec4f(out, 1.0);
 }

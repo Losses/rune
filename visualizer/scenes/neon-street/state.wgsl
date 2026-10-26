@@ -33,9 +33,8 @@ struct State {
   theme_ramp: array<vec4f, 4>,
   // Cuts.
   last_cut: f32,
-  flash: f32,
-  // 1 when the last cut was a cue of 0.8 or more, so it may flash the screen.
-  flash_ok: f32,
+  // 1 at a cut, fading out: the trail is cleared across a cut.
+  clear: f32,
   // The share of signs that are dark, how often the signs changed their pattern, the colours of
   // the district (a hue, 0..1) and the traffic lights (0 red, 1 green).
   dark: f32,

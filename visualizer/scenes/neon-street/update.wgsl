@@ -54,9 +54,8 @@ fn cut(label: f32) {
   // Somewhere else along the street.
   state.pos.z = random(4u) * 2000.0;
   state.last_cut = frame.time;
-  // The trail is cleared at every cut (compose.wgsl); the screen flash only for a cue of 0.8 or more.
-  state.flash = 1.0;
-  state.flash_ok = f32(music.cue >= 0.8);
+  // The trail is cleared at every cut (compose.wgsl).
+  state.clear = 1.0;
 }
 
 // ---- The theme colour ----
@@ -99,7 +98,7 @@ fn update() {
     state.beat_gap = 0.5;
     state.district = random(7u);
     cut(-1.0);
-    state.flash = 0.0;
+    state.clear = 0.0;
   }
 
   // Without a beat the hits of the music stand in for it, except for the lanterns' swing, which
@@ -166,7 +165,7 @@ fn update() {
       cut(-1.0);
     }
   }
-  state.flash *= exp(-dt / 0.12);
+  state.clear *= exp(-dt / 0.12);
 
   // Gliding as fast as the music: music.tempo over 90 bpm is the pace, so cruise is the speed at
   // 90 bpm, faster for a faster song and slower for a slower one. A push on every beat; faster
@@ -192,10 +191,8 @@ fn update() {
 
   set_theme();
   fill_rows();
-  // The look follows too: more glow when it is loud and on the kick, a flash at a cut.
+  // The look follows too: more glow when it is loud and on the kick.
   post.bloom_intensity = params.glow * (0.7 + 0.6 * music.drive) + params.glow_beat * state.kick;
-  // The flash is off unless the param turns it on, and then only for the strongest cues.
-  post.flash = state.flash * state.flash_ok * params.flash * 0.5;
   post.chromatic = 0.0012 * params.chroma * (1.0 + 2.0 * state.kick + 4.0 * state.accent);
   post.exposure = params.exposure + 0.15 * params.pump * state.kick;
 }
