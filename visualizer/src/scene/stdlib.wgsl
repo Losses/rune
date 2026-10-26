@@ -148,6 +148,24 @@ fn rv_hue_rotate(c: vec3f, a: f32) -> vec3f {
   return max(rv_oklab_to_linear(vec3f(lab.x, rv_rotate(lab.yz, a))), vec3f(0.0));
 }
 
+// ---- Time ----
+
+// The seconds of this frame, at most 0.05 so that a stall does not throw a scene.
+fn rv_dt() -> f32 {
+  return min(frame.dt, 0.05);
+}
+
+// `x` moving towards `goal` over `dt` seconds with time constant `tau`, the same at any frame
+// rate.
+fn rv_approach(x: f32, goal: f32, dt: f32, tau: f32) -> f32 {
+  return x + (goal - x) * (1.0 - exp(-dt / max(tau, 1e-4)));
+}
+
+// An envelope: `prev` fading with time constant `tau`, never below `input`.
+fn rv_env(prev: f32, input: f32, dt: f32, tau: f32) -> f32 {
+  return max(prev * exp(-dt / max(tau, 1e-4)), input);
+}
+
 // ---- Rhythm ----
 
 // A spike at phase 0 (and every whole number) falling off with `sharpness`.
@@ -158,4 +176,19 @@ fn rv_pulse(phase: f32, sharpness: f32) -> f32 {
 // What is left of 1 after t seconds, halving every half_life seconds.
 fn rv_decay(t: f32, half_life: f32) -> f32 {
   return exp2(-max(t, 0.0) / max(half_life, 1e-4));
+}
+
+// A spike at every whole beat of `music.clock` (or any beat count), falling off with `sharpness`.
+fn rv_beat_pulse(clock: f32, sharpness: f32) -> f32 {
+  return rv_pulse(clock, sharpness);
+}
+
+// ---- Sections ----
+
+// A 0..1 number that is the same for the same section label and different for each `k`, to pick
+// a hue, a shape or a seed per kind of section.
+fn rv_label_hash(label: f32, k: u32) -> f32 {
+  let m = k % 3u;
+  let multiplier = select(select(0.5698403, 0.7548777, m == 1u), 0.6180339, m == 0u);
+  return fract((label + 1.0) * multiplier + f32(k / 3u) * 0.3141593);
 }

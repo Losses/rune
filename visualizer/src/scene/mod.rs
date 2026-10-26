@@ -7,6 +7,7 @@ mod inputs;
 mod manifest;
 mod noise;
 mod post;
+mod signals;
 mod wgsl;
 
 use std::borrow::Cow;
