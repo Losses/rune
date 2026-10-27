@@ -13,8 +13,9 @@ struct State {
   vtarget: f32,
   // The kick.
   kick: f32,
-  // The shot (0 from behind and above, 1 from behind and to one side, low), how many of the
-  // director's cuts have been taken up, and (in lat) the side of the line the second is on.
+  // The shot (0 from behind and above, 1 from behind and to one side, low, 2 close, 3 detail), how
+  // many of the director's cuts have been taken up, and (in lat) the side of the line the others
+  // are on.
   view: f32,
   cuts_seen: f32,
   lat: f32,

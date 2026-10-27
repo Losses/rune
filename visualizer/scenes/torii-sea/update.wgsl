@@ -1,7 +1,7 @@
 // Once per frame: the spirits fly down the line of torii, a gate on every beat, drawing in to
 // the middle of each gate as they pass it and spreading out between; they surge on the beat, each
 // follows a band of the music, a snare flicks them aside, an accent sends them leaping into the
-// sky. The camera watches them from one of two shots, cut between by the runtime's director. The
+// sky. The camera watches them from one of four shots, cut between by the runtime's director. The
 // light changes with the music and the waves follow its energy.
 
 fn random(n: u32) -> f32 {
@@ -9,8 +9,9 @@ fn random(n: u32) -> f32 {
 }
 
 // Take up the director's shot: its index (0 high behind, looking down the line; 1 low behind to
-// one side, looking on to the light) is the view, and its seed picks the side of the line the
-// second is on. Neither shot glides, so both are simply cut to.
+// one side, looking on to the light; 2 close, among the spirits at a gate; 3 detail, a long lens
+// on the spirits' head) is the view, and its seed picks the side of the line the other three are
+// on. No shot glides, so all are simply cut to.
 fn take_shot() {
   state.view = f32(shot.index);
   state.lat = select(-1.0, 1.0, shot.seed < 0.5);
@@ -315,7 +316,24 @@ fn update() {
   var cam: vec3f;
   var look: vec3f;
   var lens = 1.0;
-  if (state.view > 0.5) {
+  if (state.view > 2.5) {
+    // A long lens on the head of the spirits from well back and low, close beside the line, so
+    // a gate's top and the spirits cut through it fill the frame and the sea and sky only
+    // frame them; the lens is long so the shot reads as a different one from the close.
+    let cz = s - 16.0;
+    cam = vec3f(path_x(cz) - state.lat * 2.5, params.through - 0.5, cz);
+    look = vec3f(path_x(s + 3.0), params.through + 0.6, s + 3.0);
+    lens = 0.38;
+  } else if (state.view > 1.5) {
+    // Close: just behind the spirits, level with the gates' opening and a little to one side
+    // (the seed picks which), looking on through the gate they are passing, so its pillars stand
+    // either side of them and fill the frame; the sea and the sky show beyond and below. The
+    // lens is about the wide shots' (1.05 and 0.75), so the gate's size says how near it is.
+    let cz = s - 6.5;
+    cam = vec3f(path_x(cz) + state.lat * 3.0, params.through - 0.6, cz);
+    look = vec3f(path_x(s + 5.0), params.through + 0.2, s + 5.0);
+    lens = 0.95;
+  } else if (state.view > 0.5) {
     // From behind and to one side, a little above the water and looking slightly down (lower,
     // the sea grazes the view and shows its triangles' faults), on past the spirits to the light
     // far ahead; a slightly long lens.

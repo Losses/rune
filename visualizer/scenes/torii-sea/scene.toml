@@ -20,15 +20,17 @@ scale = 0.75
 shader = "view.wgsl"
 target = "out"
 
-# Both shots are far from the line, so there is no close one to burst to: no fill.
+# The close and the detail shot are near the spirits, so the director may burst to them before a
+# section that lifts the energy.
 [camera]
 dutch = 0.3
-fill = false
+fill = true
 # A slow flight over the sea: cut half as often as an ordinary scene.
 pace = "calm"
 
-# Looking down the line from high behind, and from low behind to one side. Both see the whole
-# line and its sky, so both are wide.
+# Looking down the line from high behind, and from low behind to one side: both see the whole
+# line and its sky, so both are wide. Then close among the spirits at a gate, and a long lens on
+# their head.
 [[shot]]
 name = "high behind"
 size = "wide"
@@ -37,6 +39,16 @@ move = "cut"
 [[shot]]
 name = "low beside"
 size = "wide"
+move = "cut"
+
+[[shot]]
+name = "at the gate"
+size = "close"
+move = "cut"
+
+[[shot]]
+name = "spirit's head"
+size = "detail"
 move = "cut"
 
 [post]
