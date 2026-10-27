@@ -24,6 +24,8 @@ target = "out"
 [camera]
 dutch = 0.3
 fill = false
+# A slow flight over the sea: cut half as often as an ordinary scene.
+pace = "calm"
 
 # Looking down the line from high behind, and from low behind to one side. Both see the whole
 # line and its sky, so both are wide.
