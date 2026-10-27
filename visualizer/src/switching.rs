@@ -7,7 +7,7 @@
 use crate::moments::{self, Chances};
 use crate::scene::MusicValues;
 use crate::transition::{
-    CUTIN_BAND_SECONDS, CUTIN_MIN_HOLD_SECONDS, CutInStyle, Durations, Overlay, Transition,
+    CUTIN_BAND_SECONDS, CUTIN_MIN_HOLD_SECONDS, CutInStyle, Durations, Transition,
 };
 
 /// The least time on a scene before the next automatic switch, in seconds of the visualizer's
@@ -60,11 +60,10 @@ pub const UNFOLLOWED_MOSAIC_SECONDS: f64 = 0.5;
 /// enough for its stages to hold a few frames each.
 pub const GLITCH_BEATS: f64 = 1.0;
 pub const UNFOLLOWED_GLITCH_SECONDS: f64 = 0.5;
-/// A glitch played as a lens effect over the picture takes this many beats, and a mosaic so
-/// this many (see [`overlay_seconds`]).
-pub const LENS_GLITCH_BEATS: f64 = 0.75;
-pub const LENS_MOSAIC_BEATS: f64 = 0.5;
-/// The seconds of a beat for the lens glitch and mosaic without a followed beat (120 bpm).
+/// A glitch or a mosaic played as a lens effect over the picture takes this many beats, two bars of
+/// four: a long effect that rises and falls (see [`overlay_seconds`]).
+pub const OVERLAY_BEATS: f64 = 8.0;
+/// The seconds of a beat for the overlays without a followed beat (120 bpm): 4 s in all.
 pub const UNFOLLOWED_BEAT_SECONDS: f64 = 0.5;
 /// A transition that dresses a cut is short, so that it stays on the beat: this fraction of what
 /// the same transition takes for a switch.
@@ -513,12 +512,8 @@ pub fn dressed_durations(kind: Transition, music: &MusicValues) -> Durations {
 }
 
 /// How long a lens glitch or mosaic plays, in seconds: in beats while the beat is followed.
-pub fn overlay_seconds(kind: Overlay, music: &MusicValues) -> f64 {
-    let beats = match kind {
-        Overlay::Glitch => LENS_GLITCH_BEATS,
-        Overlay::Mosaic => LENS_MOSAIC_BEATS,
-    };
-    beat_seconds(music).unwrap_or(UNFOLLOWED_BEAT_SECONDS) * beats
+pub fn overlay_seconds(music: &MusicValues) -> f64 {
+    beat_seconds(music).unwrap_or(UNFOLLOWED_BEAT_SECONDS) * OVERLAY_BEATS
 }
 
 /// The transition and its durations for a switch somebody asks for now (a scene lab), as an
@@ -1114,6 +1109,19 @@ mod tests {
         assert_eq!(pick_by_label(&one, 5.0), Some(Transition::Mosaic));
         let two = [Transition::Flash, Transition::Glitch];
         assert_eq!(pick_by_label(&two, 3.0), pick_by_label(&two, 3.0));
+    }
+
+    /// A glitch or a mosaic over the picture lasts two bars: 4 s at 120 bpm or without a beat.
+    #[test]
+    fn an_overlay_lasts_two_bars() {
+        let music = |tempo, locked| MusicValues {
+            tempo,
+            locked,
+            ..MusicValues::default()
+        };
+        assert_eq!(overlay_seconds(&music(120.0, 1.0)), 4.0);
+        assert_eq!(overlay_seconds(&music(60.0, 1.0)), 8.0);
+        assert_eq!(overlay_seconds(&music(60.0, 0.0)), 4.0);
     }
 
     #[test]
