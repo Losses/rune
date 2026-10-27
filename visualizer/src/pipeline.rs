@@ -32,12 +32,12 @@ use crate::shared_vulkan::{SharedFrame, SharedTargets};
 #[cfg(target_vendor = "apple")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
 use crate::transition::{
-    Durations, FadePhase, Plan, Running, Transition, Transitions, cutin_frame, dissolve_progress,
-    fade_phase,
+    Dressed, Durations, FadePhase, Forced, Plan, Running, Transition, Transitions, cutin_frame,
+    dissolve_progress, flood_color, seed_of,
 };
 #[cfg(target_os = "android")]
 use crate::window::{Window, WindowSurface};
-use crate::{DEFAULT_FPS, DeviceUuids};
+use crate::{DEFAULT_FPS, DeviceUuids, switching};
 
 /// `kCVPixelFormatType_32BGRA` on Apple. Windows' `FlutterDesktopPixelBuffer` and Linux's
 /// `FlPixelBufferTexture` take RGBA, and so do ANGLE for a shared texture and Linux's `FlTextureGL`
@@ -598,15 +598,27 @@ impl Pipeline {
     /// The transition under way at `time` (the render loop's) and how far it is, 0 to 1 over
     /// the whole of it (a fade's out and in together).
     pub fn transition_progress(&self, time: f64) -> Option<(Transition, f32)> {
-        let running = self.transitions.running.as_ref()?;
+        let Some(running) = self.transitions.running.as_ref() else {
+            // A transition that dresses a camera cut.
+            let dressed = self.transitions.dressed?;
+            return Some((dressed.kind, dressed.progress(time - dressed.start)));
+        };
         let seconds = running.start.map_or(0.0, |start| time - start).max(0.0);
         let Durations { out, into } = running.durations;
         let progress = match running.kind {
             Transition::Cut => 1.0,
-            Transition::Fade => (seconds / (out + into).max(f64::EPSILON)).clamp(0.0, 1.0),
-            // The new scene goes in with the dissolve's second frame, which sets the start.
-            Transition::Dissolve if running.pending.is_some() => 0.0,
-            Transition::Dissolve => f64::from(dissolve_progress(seconds, into)),
+            Transition::Fade | Transition::Flash => {
+                (seconds / (out + into).max(f64::EPSILON)).clamp(0.0, 1.0)
+            }
+            // The new scene goes in with the second frame, which sets the start.
+            Transition::Dissolve | Transition::Glitch | Transition::Mosaic
+                if running.pending.is_some() =>
+            {
+                0.0
+            }
+            Transition::Dissolve | Transition::Glitch | Transition::Mosaic => {
+                f64::from(dissolve_progress(seconds, into))
+            }
             // The new scene goes in with the first frame of the band, which sets the start.
             Transition::CutIn(_) if running.pending.is_some() => 0.0,
             Transition::CutIn(_) => (seconds / (out + into).max(f64::EPSILON)).clamp(0.0, 1.0),
@@ -617,6 +629,17 @@ impl Pipeline {
     /// The camera director of the newest scene cuts now (see [`Scene::cut_now`]).
     pub fn cut_now(&mut self) {
         self.latest_mut().cut_now();
+    }
+
+    /// The camera director cuts now, dressed with `transition` even if the scene does not list
+    /// it and the cue is weak. The cut happens a frame later, once a frame is held for it to
+    /// leave from; a scene without shots has no cut to dress, and a switch under way takes the
+    /// place of it.
+    pub fn cut_dressed(&mut self, transition: Transition) {
+        if transition == Transition::Cut {
+            return self.cut_now();
+        }
+        self.transitions.forced = Forced::Wanted(transition);
     }
 
     /// The newest scene's director holds shot `index`, or with none lets go of a held shot (see
@@ -903,33 +926,31 @@ impl Pipeline {
         let seconds = time - start;
         let Durations { out, into } = running.durations;
         let mut install = None;
-        let plan = match running.kind {
+        let kind = running.kind;
+        let plan = match kind {
             // A cut never runs (see `switch_to`).
             Transition::Cut => Plan::None,
-            Transition::Fade => match fade_phase(seconds, out, into) {
-                FadePhase::Out(progress) => Plan::Fade(progress),
-                FadePhase::In(progress) => {
+            Transition::Fade | Transition::Flash => {
+                // The new scene goes in at the black, or at the peak of the light.
+                let (plan, phase) = Plan::out_and_in(kind, seconds, out, into, false);
+                if !matches!(phase, FadePhase::Out(_)) {
                     install = running.pending.take();
-                    Plan::Fade(1.0 - progress)
                 }
-                FadePhase::Done => {
-                    install = running.pending.take();
-                    Plan::None
-                }
-            },
-            Transition::Dissolve => {
+                plan
+            }
+            Transition::Dissolve | Transition::Glitch | Transition::Mosaic => {
                 if running.pending.is_some() {
                     if captured {
                         install = running.pending.take();
                         running.start = Some(time);
-                        Plan::Dissolve(0.0)
+                        Plan::over_held(kind, 0.0, seed_of(time))
                     } else {
                         Plan::Capture
                     }
                 } else {
                     match dissolve_progress(seconds, into) {
                         progress if progress >= 1.0 => Plan::None,
-                        progress => Plan::Dissolve(progress),
+                        progress => Plan::over_held(kind, progress, seed_of(start)),
                     }
                 }
             }
@@ -1120,8 +1141,47 @@ impl Pipeline {
         }
     }
 
+    /// What the pass does in the frame at `time` for a scene whose cuts may be dressed (see
+    /// [`Plan::Keep`]) and for the course of a cut that was: nothing for a scene that has no use
+    /// for it.
+    fn plan_dressed(&mut self, time: f64) -> Plan {
+        let transitions = &mut self.transitions;
+        if self.scene.cut_transitions().is_empty()
+            && transitions.forced == Forced::None
+            && transitions.dressed.is_none()
+        {
+            return Plan::None;
+        }
+        // A cut the lab asked for waits for a frame to be held, then the director is told to.
+        if let Forced::Wanted(kind) = transitions.forced
+            && transitions.dressed.is_none()
+            && transitions.has_kept()
+        {
+            self.scene.cut_now();
+            transitions.forced = Forced::Armed(kind);
+        }
+        let Some(dressed) = transitions.dressed else {
+            return Plan::Keep;
+        };
+        match dressed.plan(time - dressed.start) {
+            Plan::None => {
+                // What is held is the picture before the cut until a frame is kept again.
+                transitions.dressed = None;
+                transitions.forget_kept();
+                Plan::Keep
+            }
+            plan => plan,
+        }
+    }
+
     fn render_frame(&mut self, time: f64) -> Result<Rendered> {
-        let plan = self.plan_transition(time);
+        let mut plan = self.plan_transition(time);
+        if plan == Plan::None {
+            plan = self.plan_dressed(time);
+        } else {
+            // A switch takes the place of the dressing of a cut.
+            self.transitions.dressed = None;
+        }
         let size = self.size();
         self.transitions.prepare(&self.device, size, plan);
         #[cfg(target_os = "android")]
@@ -1130,7 +1190,7 @@ impl Pipeline {
             let (device, queue) = (&self.device, &self.queue);
             let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
             let timer = &mut self.timer;
-            let fx = (&self.transitions, plan);
+            let fx = (&mut self.transitions, plan);
             let presented = surface.present(device, queue, |encoder, view| {
                 draw(
                     scene,
@@ -1156,7 +1216,7 @@ impl Pipeline {
                     let scene = &mut self.scene;
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
                     let timer = &mut self.timer;
-                    let fx = (&self.transitions, plan);
+                    let fx = (&mut self.transitions, plan);
                     render_and_submit(&self.device, &self.queue, |encoder| {
                         draw(
                             scene,
@@ -1191,7 +1251,7 @@ impl Pipeline {
                     let scene = &mut self.scene;
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
                     let timer = &mut self.timer;
-                    let fx = (&self.transitions, plan);
+                    let fx = (&mut self.transitions, plan);
                     render_and_submit(&self.device, &self.queue, |encoder| {
                         draw(
                             scene,
@@ -1227,7 +1287,7 @@ impl Pipeline {
                     let (device, queue) = (&self.device, &self.queue);
                     let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
                     let timer = &mut self.timer;
-                    let fx = (&self.transitions, plan);
+                    let fx = (&mut self.transitions, plan);
                     let frame = targets.render(device, queue, next, |encoder, view| {
                         draw(
                             scene,
@@ -1263,7 +1323,7 @@ impl Pipeline {
         let (device, queue) = (&self.device, &self.queue);
         let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
         let timer = &mut self.timer;
-        let fx = (&self.transitions, plan);
+        let fx = (&mut self.transitions, plan);
         let frame = target.render(device, queue, |encoder, view| {
             draw(
                 scene,
@@ -1302,7 +1362,7 @@ type Heard<'a> = (
 fn draw(
     scene: &mut Scene,
     timer: &mut GpuTimer,
-    (transitions, plan): (&Transitions, Plan),
+    (transitions, plan): (&mut Transitions, Plan),
     (device, queue): (&wgpu::Device, &wgpu::Queue),
     encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
@@ -1325,8 +1385,55 @@ fn draw(
         timestamps,
         plan == Plan::None,
     );
-    transitions.composite(queue, encoder, view, plan, accent, timestamps);
+    let plan = dress_cut(transitions, plan, scene, time);
+    let tint = flood_color(accent);
+    transitions.composite(queue, encoder, view, (plan, tint), accent, timestamps);
+    transitions.keep(encoder, plan);
     timer.end(encoder);
+}
+
+/// The plan of a frame in which the scene's director may have cut: a frame of [`Plan::Keep`] with
+/// a cut that the scene lets be dressed (see [`switching::dress`]), or that the lab asked to be,
+/// starts the course of its transition with this frame; the held frame is the one before it.
+fn dress_cut(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64) -> Plan {
+    if plan != Plan::Keep {
+        return plan;
+    }
+    let forced = match transitions.forced {
+        Forced::Armed(kind) => {
+            transitions.forced = Forced::None;
+            Some(kind)
+        }
+        _ => None,
+    };
+    let Some(cut) = scene.cut_this_frame() else {
+        return plan;
+    };
+    if !transitions.has_kept() {
+        return plan;
+    }
+    let music = scene.music();
+    let (kind, durations) = match forced {
+        Some(kind) => (kind, switching::dressed_durations(kind, music)),
+        None => {
+            match switching::dress(scene.cut_transitions(), cut.cue, music.section_label, music) {
+                Some(dressing) => dressing,
+                None => return plan,
+            }
+        }
+    };
+    let dressed = Dressed {
+        kind,
+        durations,
+        start: time,
+    };
+    match dressed.plan(0.0) {
+        Plan::None => plan,
+        first => {
+            transitions.dressed = Some(dressed);
+            first
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1769,6 +1876,147 @@ mod tests {
             sheet.save(&path).unwrap();
             println!("{}", path.display());
         }
+    }
+
+    /// A scene of one colour with two shots, which lets `cut` dress its cuts.
+    fn dressed_scene(name: &str, value: f32, cut: &str) -> std::path::PathBuf {
+        let dir = plain_scene(name, value);
+        let mut manifest = std::fs::read_to_string(dir.join("scene.toml")).unwrap();
+        manifest.push_str(&format!(
+            "[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\n[effects]\ncut = [\"{cut}\"]\n"
+        ));
+        std::fs::write(dir.join("scene.toml"), manifest).unwrap();
+        dir
+    }
+
+    /// The glitch, the mosaic and the flash switch scenes like the ones before them: the new
+    /// scene goes in (at the peak of the light for the flash) and nothing is held at the end.
+    #[test]
+    fn the_strong_transitions_switch_the_scene_and_let_go() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        pipeline.set_accent(Some([0.1, 0.4, 1.0]));
+        for (kind, durations) in [
+            (
+                Transition::Flash,
+                Durations {
+                    out: 0.5,
+                    into: 1.0,
+                },
+            ),
+            (
+                Transition::Glitch,
+                Durations {
+                    out: 0.0,
+                    into: 0.15,
+                },
+            ),
+            (
+                Transition::Mosaic,
+                Durations {
+                    out: 0.0,
+                    into: 0.5,
+                },
+            ),
+        ] {
+            let old = load_plain(&mut pipeline, "strong-old", 0.8);
+            pipeline.install(old).unwrap();
+            let new = load_plain(&mut pipeline, "strong-new", 0.2);
+            pipeline.switch_to(new, kind, durations).unwrap();
+            assert_eq!(pipeline.preset_name(), "strong-new");
+            let times: Vec<f64> = (0..=40).map(|i| f64::from(i) * 0.05).collect();
+            // The first frame out can be one of the call before.
+            let m = &means(&mut pipeline, &times)[1..];
+            assert!(m[0] > 190.0, "{kind:?} starts on the old picture: {m:?}");
+            assert!(
+                (m[39] - 124.0).abs() < 4.0,
+                "{kind:?} ends on the new scene: {m:?}"
+            );
+            assert_eq!(pipeline.scene.name, "strong-new");
+            assert!(pipeline.transitions.running.is_none());
+            assert!(!pipeline.transitions.holds_textures());
+        }
+    }
+
+    /// A flash floods the screen with a light tint of the accent that is not white, and the new
+    /// scene comes out of it.
+    #[test]
+    fn a_flash_peaks_in_the_tint_and_the_new_scene_comes_out_of_it() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        pipeline.set_accent(Some([0.8, 0.1, 0.05]));
+        let old = load_plain(&mut pipeline, "flash-old", 0.2);
+        pipeline.install(old).unwrap();
+        let new = load_plain(&mut pipeline, "flash-new", 0.1);
+        let durations = Durations {
+            out: 1.0,
+            into: 2.0,
+        };
+        pipeline
+            .switch_to(new, Transition::Flash, durations)
+            .unwrap();
+        let times: Vec<f64> = (0..=12).map(|i| f64::from(i) * 0.25).collect();
+        let m = means(&mut pipeline, &times);
+        let flood = flood_color(Some([0.8, 0.1, 0.05]));
+        let flood_mean = flood.iter().sum::<f32>() / 3.0 * 255.0;
+        // The old scene (0.2 is byte 124), rising, the peak at one beat, falling, the new scene.
+        assert!((m[0] - 124.0).abs() < 4.0, "{m:?}");
+        assert!(m[2] > m[0] + 10.0 && m[3] > m[2], "rising: {m:?}");
+        assert!(
+            (m[4] - flood_mean).abs() < 3.0,
+            "the flood at the peak: {m:?}"
+        );
+        assert!(m[4] < 0.83 * 255.0, "not white: {m:?}");
+        assert!(m[6] < m[4] && m[8] < m[6], "falling: {m:?}");
+        assert!((m[12] - 89.0).abs() < 4.0, "the new scene: {m:?}");
+        assert!(
+            m.iter().all(|mean| *mean < 0.83 * 255.0),
+            "never white: {m:?}"
+        );
+    }
+
+    /// A scene that lets its cuts be dressed holds a frame; one that does not holds nothing. A
+    /// cut that is asked for is dressed whether the scene lists the transition or not, with a
+    /// course of its own that ends in the scene as it was drawn.
+    #[test]
+    fn a_dressed_cut_flashes_over_the_picture_before_it() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        // No list and nothing asked for: nothing is held.
+        let plain = load_plain(&mut pipeline, "dress-plain", 0.2);
+        pipeline.install(plain).unwrap();
+        let times: Vec<f64> = (0..4).map(|i| f64::from(i) * 0.1).collect();
+        means(&mut pipeline, &times);
+        assert!(!pipeline.transitions.holds_textures());
+
+        let dir = dressed_scene("dress-flash", 0.2, "glitch");
+        let scene = pipeline.scene_build_dir(&dir).run().unwrap();
+        pipeline.install(scene).unwrap();
+        pipeline.set_accent(Some([0.8, 0.1, 0.05]));
+        // The scene lists a glitch, the lab asks for a flash: a cut now, 0.2 s up, 0.4 s down.
+        pipeline.cut_dressed(Transition::Flash);
+        let times: Vec<f64> = (0..=14).map(|i| 1.0 + f64::from(i) * 0.1).collect();
+        // The first frame out is one of the call before.
+        let m = &means(&mut pipeline, &times)[1..];
+        assert!(pipeline.transitions.holds_textures(), "a frame is kept");
+        // The frame before the cut is kept, then the cut (at 1.1) starts the flash.
+        assert!(
+            (m[0] - 124.0).abs() < 4.0 && (m[1] - 124.0).abs() < 4.0,
+            "{m:?}"
+        );
+        assert!(m[2] > m[1] + 10.0, "rising on the held picture: {m:?}");
+        assert!(m[3] > m[2], "the peak at 0.2 s: {m:?}");
+        assert!(m[4] < m[3] && m[5] < m[4], "falling: {m:?}");
+        assert!((m[8] - 124.0).abs() < 4.0, "over after 0.6 s: {m:?}");
+        assert!((m[13] - 124.0).abs() < 4.0, "{m:?}");
+        assert!(pipeline.transitions.dressed.is_none());
+        assert_eq!(pipeline.transitions.forced, Forced::None);
     }
 
     /// A newer switch replaces a scene that still waits, and cuts in over one that is in.

@@ -1,7 +1,13 @@
 //! Scene switches that are not a cut: the old scene fades to black and the new one fades in, or the
-//! old picture dissolves into the new scene. While a transition runs, scenes draw into an
+//! old picture dissolves into the new scene, or one of the strong ones: a flash of the theme
+//! colour, a glitch, a mosaic of LED dots. While a transition runs, scenes draw into an
 //! intermediate texture and one fullscreen pass (`transition.wgsl`) writes the output from it;
 //! when none runs, nothing extra is drawn or held.
+//!
+//! The same passes also dress a camera cut inside one scene (see [`Dressed`]): the picture before
+//! the cut is the old one and the scene drawing on after it is the new one. A scene that lets
+//! cuts be dressed keeps the last frame in a texture (see [`Plan::Keep`]); one that does not pays
+//! nothing.
 //!
 //! This module owns the GPU side and the arithmetic of the phases. The [`crate::pipeline`] decides
 //! when scenes are installed, since that needs the scene.
@@ -14,7 +20,7 @@ use crate::scene::Scene;
 /// The pass and, appended, the cut-in it draws for one of its kinds.
 const SHADER: &str = concat!(include_str!("transition.wgsl"), include_str!("cutin.wgsl"));
 
-/// How a scene switch looks. Fades and dissolves are chosen by `crate::switching`; a cut is what
+/// How a scene switch looks. They are chosen by `crate::switching`; a cut is what
 /// [`crate::pipeline::Pipeline::install`] does and only the placeholder of a scene built ahead
 /// names it.
 #[allow(dead_code)]
@@ -29,6 +35,38 @@ pub enum Transition {
     /// A band cuts in across the frozen old picture, shows the cover of the song playing and
     /// tears away to the new scene (see [`CutInStyle`] for the accents).
     CutIn(CutInStyle),
+    /// The old scene's exposure and bloom rise until the screen is flooded with a light tint of
+    /// the theme colour; the new scene comes back out of it.
+    Flash,
+    /// The old picture breaks into horizontal bands that shift and drag, for a few frames, then
+    /// the new scene shows.
+    Glitch,
+    /// Rectangles of LED dots, coloured from the old picture, cover it; then the whole screen is
+    /// dots, a black frame or two, and the new scene.
+    Mosaic,
+}
+
+impl Transition {
+    /// The transition a name of `effects.switch` or `effects.cut` stands for, if the runtime
+    /// draws it (a cut-in in its default style; the unknown ones are not here).
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "cut" => Self::Cut,
+            "fade" => Self::Fade,
+            "dissolve" => Self::Dissolve,
+            "flash" => Self::Flash,
+            "glitch" => Self::Glitch,
+            "mosaic" => Self::Mosaic,
+            "cutin" => Self::CutIn(CutInStyle::default()),
+            _ => return None,
+        })
+    }
+
+    /// Whether it goes out and in with the old scene still drawing live (a fade, a flash), as
+    /// against holding the old picture and playing over the new scene (the others).
+    pub fn goes_out_and_in(self) -> bool {
+        matches!(self, Self::Fade | Self::Flash)
+    }
 }
 
 /// The accents of a cut-in, picked by the kind of section it lands on.
@@ -102,11 +140,12 @@ pub const CUTIN_MIN_HOLD_SECONDS: f64 = 0.1;
 /// How long a transition takes, in seconds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Durations {
-    /// A fade: the old scene fading out. A dissolve does not use it. A cut-in: the band opening
-    /// and holding, up to the moment it starts to tear (so the new scene shows from there).
+    /// A fade or a flash: the old scene on its way out. A cut-in: the band opening and holding,
+    /// up to the moment it starts to tear (so the new scene shows from there). The others do
+    /// not use it.
     pub out: f64,
-    /// A fade: the new scene fading in. A dissolve: the whole crossfade. A cut-in: the band
-    /// tearing away.
+    /// A fade: the new scene fading in. A dissolve, a glitch, a mosaic: the whole of it. A
+    /// cut-in: the band tearing away.
     pub into: f64,
 }
 
@@ -115,9 +154,10 @@ impl Durations {
     pub fn is_instant(&self, transition: Transition) -> bool {
         match transition {
             Transition::Cut => true,
-            Transition::Fade => self.out <= 0.0 && self.into <= 0.0,
-            Transition::Dissolve => self.into <= 0.0,
-            Transition::CutIn(_) => self.out <= 0.0 && self.into <= 0.0,
+            Transition::Fade | Transition::Flash | Transition::CutIn(_) => {
+                self.out <= 0.0 && self.into <= 0.0
+            }
+            Transition::Dissolve | Transition::Glitch | Transition::Mosaic => self.into <= 0.0,
         }
     }
 }
@@ -182,14 +222,131 @@ pub fn cutin_frame(seconds: f64, out: f64, into: f64, style: CutInStyle) -> Opti
 pub enum Plan {
     /// No transition: the scene draws into the output.
     None,
+    /// A scene that lets its cuts be dressed: it draws into the texture, the pass shows it as it
+    /// is, and the frame is kept for the cut that may come next.
+    Keep,
     /// A fade: the scene's frame `amount` (0 to 1) of the way to black.
     Fade(f32),
+    /// A flash: the scene's frame at `amount` (0 to 1) of the way to the flood of light.
+    Flash(f32),
+    /// A dressed cut's fade-out: the held picture `amount` of the way to black.
+    HeldFade(f32),
+    /// A dressed cut's rise of a flash: the held picture `amount` of the way to the flood.
+    HeldFlash(f32),
     /// A dissolve's first frame: the scene before draws the picture to hold, and it is shown.
     Capture,
     /// A dissolve: `progress` (0 to 1) of the way from the held picture to the scene's frame.
     Dissolve(f32),
     /// A cut-in over the held picture, with the new scene's frame to reveal.
     CutIn(CutInFrame),
+    /// A glitch of the held picture into the scene's frame, `progress` (0 to 1) of the way, from
+    /// the pattern `seed` makes.
+    Glitch(f32, u32),
+    /// A mosaic of the held picture into the scene's frame, the same way.
+    Mosaic(f32, u32),
+}
+
+impl Plan {
+    /// The plan of a transition that goes out and in (see [`Transition::goes_out_and_in`])
+    /// `seconds` after its start, or none when it is over, with the phase it is in (for the
+    /// caller that installs the new scene from the way in on). With `held` the way out shows the
+    /// picture held, as a dressed cut does.
+    pub fn out_and_in(
+        kind: Transition,
+        seconds: f64,
+        out: f64,
+        into: f64,
+        held: bool,
+    ) -> (Self, FadePhase) {
+        let flash = kind == Transition::Flash;
+        let phase = fade_phase(seconds, out, into);
+        let plan = match phase {
+            FadePhase::Out(p) => match (flash, held) {
+                (false, false) => Self::Fade(p),
+                (true, false) => Self::Flash(p),
+                (false, true) => Self::HeldFade(p),
+                (true, true) => Self::HeldFlash(p),
+            },
+            FadePhase::In(p) if flash => Self::Flash(1.0 - p),
+            FadePhase::In(p) => Self::Fade(1.0 - p),
+            FadePhase::Done => Self::None,
+        };
+        (plan, phase)
+    }
+
+    /// The plan of a transition that holds the old picture (a dissolve, a glitch, a mosaic) at
+    /// `progress`.
+    pub fn over_held(kind: Transition, progress: f32, seed: u32) -> Self {
+        match kind {
+            Transition::Glitch => Self::Glitch(progress, seed),
+            Transition::Mosaic => Self::Mosaic(progress, seed),
+            _ => Self::Dissolve(progress),
+        }
+    }
+
+    /// Whether the pass reads the held picture.
+    fn needs_held(self) -> bool {
+        !matches!(self, Self::None | Self::Fade(_) | Self::Flash(_))
+    }
+}
+
+/// The pattern a glitch or a mosaic that starts at `time` (the render loop's clock) makes.
+pub fn seed_of(time: f64) -> u32 {
+    let bits = time.to_bits();
+    (bits ^ (bits >> 32)) as u32
+}
+
+/// A transition that dresses a camera cut inside a scene, under way. The cut has already happened
+/// when it starts, so it plays its whole course after it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Dressed {
+    pub kind: Transition,
+    pub durations: Durations,
+    /// The time of the frame of the cut, on the render loop's clock.
+    pub start: f64,
+}
+
+impl Dressed {
+    /// What the pass does `seconds` after the cut (the frame of the cut is 0), none when the
+    /// course is over.
+    pub fn plan(&self, seconds: f64) -> Plan {
+        let Durations { out, into } = self.durations;
+        match self.kind {
+            Transition::Fade | Transition::Flash => {
+                Plan::out_and_in(self.kind, seconds, out, into, true).0
+            }
+            Transition::Dissolve | Transition::Glitch | Transition::Mosaic => {
+                match dissolve_progress(seconds, into) {
+                    progress if progress >= 1.0 => Plan::None,
+                    progress => Plan::over_held(self.kind, progress, seed_of(self.start)),
+                }
+            }
+            // A cut-in does not dress a cut (see `switching::dress`).
+            Transition::Cut | Transition::CutIn(_) => Plan::None,
+        }
+    }
+
+    /// How far the course is, 0 to 1 over the whole of it.
+    pub fn progress(&self, seconds: f64) -> f32 {
+        let Durations { out, into } = self.durations;
+        let whole = if self.kind.goes_out_and_in() {
+            out + into
+        } else {
+            into
+        };
+        (seconds / whole.max(f64::EPSILON)).clamp(0.0, 1.0) as f32
+    }
+}
+
+/// How a scene that lets its cuts be dressed has been asked to dress the next one, when the lab
+/// asks for it (see [`crate::pipeline::Pipeline::cut_dressed`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Forced {
+    None,
+    /// Waiting for a frame to be kept, so that the cut has a picture before it.
+    Wanted(Transition),
+    /// The director was told to cut: the cut of the next frame is dressed like this.
+    Armed(Transition),
 }
 
 /// A transition under way.
@@ -219,6 +376,10 @@ pub struct Transitions {
     targets: Option<Targets>,
     /// Whether the dissolve's picture was drawn into the held texture since it was asked for.
     captured: Cell<bool>,
+    /// The transition that dresses a camera cut, while it plays.
+    pub dressed: Option<Dressed>,
+    /// What the lab asked a dressed cut to be.
+    pub forced: Forced,
 }
 
 /// The textures of a running transition.
@@ -227,6 +388,8 @@ struct Targets {
     fresh: (wgpu::Texture, wgpu::TextureView),
     held: Option<(wgpu::Texture, wgpu::TextureView)>,
     group: wgpu::BindGroup,
+    /// Whether `held` has the frame before (see [`Transitions::keep`]).
+    kept: bool,
 }
 
 impl Transitions {
@@ -345,6 +508,8 @@ impl Transitions {
             running: None,
             targets: None,
             captured: Cell::new(false),
+            dressed: None,
+            forced: Forced::None,
         }
     }
 
@@ -384,6 +549,7 @@ impl Transitions {
     /// The transition is over, or never was: nothing is held any more.
     pub fn end(&mut self) -> Option<Scene> {
         self.targets = None;
+        self.dressed = None;
         self.captured.set(false);
         self.running.take().and_then(|running| running.pending)
     }
@@ -395,7 +561,7 @@ impl Transitions {
             self.targets = None;
             return;
         }
-        let needs_held = matches!(plan, Plan::Capture | Plan::Dissolve(_) | Plan::CutIn(_));
+        let needs_held = plan.needs_held();
         if let Some(targets) = &self.targets
             && targets.size == size
             && (targets.held.is_some() || !needs_held)
@@ -415,7 +581,9 @@ impl Transitions {
                 dimension: wgpu::TextureDimension::D2,
                 format: self.format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
             let view = texture.create_view(&Default::default());
@@ -456,7 +624,41 @@ impl Transitions {
             fresh,
             held,
             group,
+            kept: false,
         });
+    }
+
+    /// Whether the frame before is held, for a cut to be dressed with it.
+    pub fn has_kept(&self) -> bool {
+        self.targets.as_ref().is_some_and(|targets| targets.kept)
+    }
+
+    /// The course of the dressed cut is over: the picture held is the one before the cut, not
+    /// the frame before.
+    pub fn forget_kept(&mut self) {
+        if let Some(targets) = &mut self.targets {
+            targets.kept = false;
+        }
+    }
+
+    /// After a frame of [`Plan::Keep`]: hold what the scene drew, for a cut in the next frame.
+    pub fn keep(&mut self, encoder: &mut wgpu::CommandEncoder, plan: Plan) {
+        let Some(targets) = &mut self.targets else {
+            return;
+        };
+        let (Plan::Keep, Some(held)) = (plan, &targets.held) else {
+            return;
+        };
+        encoder.copy_texture_to_texture(
+            targets.fresh.0.as_image_copy(),
+            held.0.as_image_copy(),
+            wgpu::Extent3d {
+                width: targets.size.0,
+                height: targets.size.1,
+                depth_or_array_layers: 1,
+            },
+        );
+        targets.kept = true;
     }
 
     /// Where the scene draws in a frame of `plan`: the output itself without a transition,
@@ -480,33 +682,37 @@ impl Transitions {
     }
 
     /// The pass of `plan` into `output`, which writes the frame's end timestamp (query 1) in
-    /// `timestamps`, where there is one. Nothing for [`Plan::None`]. `accent` (linear) is the
-    /// theme colour that a cut-in draws in.
+    /// `timestamps`, where there is one. `tint` is the colour a flash floods the screen with, in
+    /// the output's bytes (see [`flood_color`]); `accent` (linear) is the theme colour that a
+    /// cut-in draws in. Nothing for [`Plan::None`].
     pub fn composite(
         &self,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         output: &wgpu::TextureView,
-        plan: Plan,
+        (plan, tint): (Plan, [f32; 3]),
         accent: Option<[f32; 3]>,
         timestamps: Option<&wgpu::QuerySet>,
     ) {
         let Some(targets) = &self.targets else {
             return;
         };
-        let mut params = Params {
-            color: [0.0, 0.0, 0.0, 1.0],
-            ..Params::default()
-        };
-        let (kind, progress) = match plan {
+        let black = [0.0, 0.0, 0.0];
+        let mut params = Params::default();
+        let (kind, progress, seed, color) = match plan {
             Plan::None => return,
-            Plan::Fade(amount) => (KIND_FADE, amount),
+            // Nothing of a fade, shown as it is.
+            Plan::Keep => (KIND_FADE, 0.0, 0, black),
+            Plan::Fade(amount) => (KIND_FADE, amount, 0, black),
+            Plan::Flash(amount) => (KIND_FLASH, amount, 0, tint),
+            Plan::HeldFade(amount) => (KIND_FADE_HELD, amount, 0, black),
+            Plan::HeldFlash(amount) => (KIND_FLASH_HELD, amount, 0, tint),
             // The held picture is also what `fresh` reads as in this frame; the pass shows it.
-            Plan::Capture => (KIND_DISSOLVE, 0.0),
-            Plan::Dissolve(progress) => (KIND_DISSOLVE, progress),
+            Plan::Capture => (KIND_DISSOLVE, 0.0, 0, black),
+            Plan::Dissolve(progress) => (KIND_DISSOLVE, progress, 0, black),
+            Plan::Glitch(progress, seed) => (KIND_GLITCH, progress, seed, black),
+            Plan::Mosaic(progress, seed) => (KIND_MOSAIC, progress, seed, black),
             Plan::CutIn(frame) => {
-                let [r, g, b] = accent.unwrap_or(FALLBACK_ACCENT).map(encode_srgb);
-                params.color = [r, g, b, 1.0];
                 params.cutin = [
                     frame.seconds,
                     CUTIN_BAND_SECONDS as f32,
@@ -519,10 +725,12 @@ impl Transitions {
                     0.0,
                     0.0,
                 ];
-                (KIND_CUTIN, 0.0)
+                let accent = accent.unwrap_or(FALLBACK_ACCENT).map(encode_srgb);
+                (KIND_CUTIN, 0.0, 0, accent)
             }
         };
-        queue.write_buffer(&self.uniform, 0, &params.bytes(kind, progress));
+        params.color = [color[0], color[1], color[2], 1.0];
+        queue.write_buffer(&self.uniform, 0, &params.bytes(kind, progress, seed));
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("transition"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -552,8 +760,13 @@ impl Transitions {
 /// `kind` in `transition.wgsl`.
 const KIND_FADE: u32 = 0;
 const KIND_DISSOLVE: u32 = 1;
-const KIND_CUTIN: u32 = 2;
-/// Bytes of `struct Transition`: the kind and progress, two words of padding, and three vec4f.
+const KIND_FLASH: u32 = 2;
+const KIND_GLITCH: u32 = 3;
+const KIND_MOSAIC: u32 = 4;
+const KIND_FADE_HELD: u32 = 5;
+const KIND_FLASH_HELD: u32 = 6;
+const KIND_CUTIN: u32 = 7;
+/// Bytes of `struct Transition`: the kind, progress and seed, a word of padding, and three vec4f.
 const UNIFORM_SIZE: u64 = 64;
 
 /// The theme colour (linear) of a cut-in when the app has not told one: a calm blue.
@@ -569,10 +782,29 @@ fn encode_srgb(linear: f32) -> f32 {
     }
 }
 
-/// What `struct Transition` holds besides the kind and progress.
+/// The brightest a flash gets, as the brightest channel of its flood over 255: night first, the
+/// screen never floods to full white.
+pub const FLASH_PEAK: f32 = 0.82;
+/// How much of white the flood has over the theme colour: a light tint, not the colour itself.
+const FLASH_LIGHTEN: f32 = 0.5;
+
+/// The colour a flash floods the screen with, in the output's bytes (0 to 1): the accent colour
+/// (linear, as the app tells it) lightened, and scaled so that its brightest channel is at most
+/// [`FLASH_PEAK`]. Without an accent a pale cool grey.
+pub fn flood_color(accent: Option<[f32; 3]>) -> [f32; 3] {
+    let encode = encode_srgb;
+    let lightened = match accent {
+        Some(accent) => accent.map(|c| encode(c + (1.0 - c) * FLASH_LIGHTEN)),
+        None => [0.74, 0.8, 0.9],
+    };
+    let brightest = lightened.iter().copied().fold(f32::MIN_POSITIVE, f32::max);
+    lightened.map(|c| c * (FLASH_PEAK / brightest).min(1.0))
+}
+
+/// What `struct Transition` holds besides the kind, progress and seed.
 #[derive(Default)]
 struct Params {
-    /// The colour a fade goes to, the theme colour of a cut-in (display values).
+    /// The colour a fade goes to, a flash's flood, the theme colour of a cut-in (display values).
     color: [f32; 4],
     /// A cut-in: seconds since it started, how long the band opens, holds and tears.
     cutin: [f32; 4],
@@ -582,10 +814,11 @@ struct Params {
 
 impl Params {
     /// The bytes of `struct Transition`.
-    fn bytes(&self, kind: u32, progress: f32) -> [u8; UNIFORM_SIZE as usize] {
+    fn bytes(&self, kind: u32, progress: f32, seed: u32) -> [u8; UNIFORM_SIZE as usize] {
         let mut bytes = [0; UNIFORM_SIZE as usize];
         bytes[0..4].copy_from_slice(&kind.to_le_bytes());
         bytes[4..8].copy_from_slice(&progress.to_le_bytes());
+        bytes[8..12].copy_from_slice(&seed.to_le_bytes());
         for (at, vec) in [(16, self.color), (32, self.cutin), (48, self.extra)] {
             for (i, v) in vec.iter().enumerate() {
                 bytes[at + 4 * i..at + 4 * i + 4].copy_from_slice(&v.to_le_bytes());
@@ -701,16 +934,129 @@ mod tests {
             cutin: [5.0, 6.0, 7.0, 8.0],
             extra: [9.0, 10.0, 11.0, 12.0],
         };
-        let bytes = params.bytes(KIND_CUTIN, 0.5);
+        let bytes = params.bytes(KIND_CUTIN, 0.5, 7);
         let word = |at: usize| f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
         assert_eq!(
             u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
             KIND_CUTIN
         );
         assert_eq!(word(4), 0.5);
+        assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 7);
         assert_eq!((word(16), word(28)), (1.0, 4.0));
         assert_eq!((word(32), word(44)), (5.0, 8.0));
         assert_eq!((word(48), word(60)), (9.0, 12.0));
         assert_eq!(bytes.len() as u64, UNIFORM_SIZE);
+    }
+
+    #[test]
+    fn the_strong_transitions_need_time_like_their_kin() {
+        let short = Durations {
+            out: 0.0,
+            into: 0.2,
+        };
+        assert!(
+            Durations {
+                out: 0.0,
+                into: 0.0
+            }
+            .is_instant(Transition::Flash)
+        );
+        assert!(!short.is_instant(Transition::Flash));
+        assert!(short.is_instant(Transition::Cut));
+        assert!(!short.is_instant(Transition::Glitch) && !short.is_instant(Transition::Mosaic));
+        assert!(
+            Durations {
+                out: 0.3,
+                into: 0.0
+            }
+            .is_instant(Transition::Mosaic)
+        );
+    }
+
+    #[test]
+    fn names_of_the_transitions_the_runtime_draws_are_known() {
+        for (name, kind) in [
+            ("fade", Transition::Fade),
+            ("flash", Transition::Flash),
+            ("glitch", Transition::Glitch),
+            ("mosaic", Transition::Mosaic),
+        ] {
+            assert_eq!(Transition::from_name(name), Some(kind));
+        }
+        assert_eq!(
+            Transition::from_name("cutin"),
+            Some(Transition::CutIn(CutInStyle::default()))
+        );
+        // Not a name.
+        assert_eq!(Transition::from_name("sparkle"), None);
+    }
+
+    #[test]
+    fn a_flash_rises_then_falls_and_installs_at_the_peak() {
+        // Rise 1 s, fall 2 s: at the peak the way in begins at full amount.
+        let at = |seconds| Plan::out_and_in(Transition::Flash, seconds, 1.0, 2.0, false);
+        assert_eq!(at(0.5), (Plan::Flash(0.5), FadePhase::Out(0.5)));
+        assert_eq!(at(1.0), (Plan::Flash(1.0), FadePhase::In(0.0)));
+        assert_eq!(at(2.0), (Plan::Flash(0.5), FadePhase::In(0.5)));
+        assert_eq!(at(3.0), (Plan::None, FadePhase::Done));
+    }
+
+    #[test]
+    fn a_flood_is_a_light_tint_and_never_white() {
+        for accent in [
+            None,
+            Some([0.0, 0.0, 0.0]),
+            Some([1.0, 1.0, 1.0]),
+            Some([0.8, 0.1, 0.05]),
+            Some([0.05, 0.3, 1.0]),
+        ] {
+            let flood = flood_color(accent);
+            let brightest = flood.iter().copied().fold(0.0, f32::max);
+            assert!(brightest <= FLASH_PEAK + 1e-6, "{accent:?} {flood:?}");
+            assert!(flood.iter().all(|c| *c > 0.0), "{accent:?} {flood:?}");
+        }
+        // The colour of the theme shows: a red accent floods redder than blue.
+        let red = flood_color(Some([0.8, 0.1, 0.05]));
+        assert!(red[0] > red[2], "{red:?}");
+    }
+
+    #[test]
+    fn a_dressed_cut_plays_its_course_after_the_cut() {
+        let dressed = |kind, out, into| Dressed {
+            kind,
+            durations: Durations { out, into },
+            start: 10.0,
+        };
+        // A flash: the held picture rises, then the live scene falls.
+        let flash = dressed(Transition::Flash, 0.2, 0.4);
+        assert_eq!(flash.plan(0.0), Plan::HeldFlash(0.0));
+        assert_eq!(flash.plan(0.1), Plan::HeldFlash(0.5));
+        assert_eq!(flash.plan(0.2), Plan::Flash(1.0));
+        assert_eq!(flash.plan(0.7), Plan::None);
+        assert_eq!(flash.progress(0.3), 0.5);
+        // A fade goes out on the held picture and comes in on the scene.
+        let fade = dressed(Transition::Fade, 0.1, 0.1);
+        assert_eq!(fade.plan(0.05), Plan::HeldFade(0.5));
+        assert_eq!(fade.plan(0.15), Plan::Fade(0.5));
+        // The others play over the held picture, and the pattern is the cut's.
+        let glitch = dressed(Transition::Glitch, 0.0, 0.15);
+        assert!(
+            matches!(glitch.plan(0.0), Plan::Glitch(p, seed) if p == 0.0 && seed == seed_of(10.0))
+        );
+        assert_eq!(glitch.plan(0.15), Plan::None);
+        let mosaic = dressed(Transition::Mosaic, 0.0, 0.5);
+        assert!(matches!(mosaic.plan(0.25), Plan::Mosaic(p, _) if p == 0.5));
+        let dissolve = dressed(Transition::Dissolve, 0.0, 0.5);
+        assert_eq!(dissolve.plan(0.25), Plan::Dissolve(0.5));
+        assert_eq!(dressed(Transition::Cut, 0.0, 0.0).plan(0.0), Plan::None);
+    }
+
+    #[test]
+    fn only_a_plan_that_shows_the_live_scene_alone_needs_no_held_picture() {
+        assert!(!Plan::None.needs_held());
+        assert!(!Plan::Fade(0.5).needs_held() && !Plan::Flash(0.5).needs_held());
+        // Keeping a frame is what the held picture is for.
+        assert!(Plan::Keep.needs_held() && Plan::Mosaic(0.1, 0).needs_held());
+        assert!(Plan::HeldFlash(0.1).needs_held());
     }
 }

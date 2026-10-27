@@ -147,6 +147,9 @@ pub enum LabTransition {
     Dissolve,
     /// The band with the cover, in this style.
     CutIn(CutInStyle),
+    Flash,
+    Glitch,
+    Mosaic,
 }
 
 impl From<Transition> for LabTransition {
@@ -156,6 +159,9 @@ impl From<Transition> for LabTransition {
             Transition::Fade => Self::Fade,
             Transition::Dissolve => Self::Dissolve,
             Transition::CutIn(style) => Self::CutIn(style),
+            Transition::Flash => Self::Flash,
+            Transition::Glitch => Self::Glitch,
+            Transition::Mosaic => Self::Mosaic,
         }
     }
 }
@@ -167,6 +173,9 @@ impl From<LabTransition> for Transition {
             LabTransition::Fade => Self::Fade,
             LabTransition::Dissolve => Self::Dissolve,
             LabTransition::CutIn(style) => Self::CutIn(style),
+            LabTransition::Flash => Self::Flash,
+            LabTransition::Glitch => Self::Glitch,
+            LabTransition::Mosaic => Self::Mosaic,
         }
     }
 }
@@ -186,6 +195,9 @@ pub enum LabCommand {
     /// Step the pace of the scene on screen: its own, then sections, calm, normal and busy, then
     /// its own again. It changes how often the director cuts, and lasts as long as the scene.
     CyclePace,
+    /// The camera director cuts now, dressed with the transition (see
+    /// [`crate::pipeline::Pipeline::cut_dressed`]), whether the scene lists it or not.
+    CutDressed(LabTransition),
 }
 
 /// The name of a shot size, from the number `struct Shot` has.

@@ -6,7 +6,7 @@
 
 use crate::scene::MusicValues;
 use crate::transition::{
-    CUTIN_BAND_SECONDS, CUTIN_MIN_HOLD_SECONDS, CutInStyle, Durations, Transition, label_hash,
+    CUTIN_BAND_SECONDS, CUTIN_MIN_HOLD_SECONDS, CutInStyle, Durations, Transition,
 };
 
 /// The least time on a scene before the next automatic switch, in seconds of the visualizer's
@@ -46,6 +46,21 @@ pub const CUTIN_HOLD_BEATS: f64 = 1.0;
 pub const UNFOLLOWED_CUTIN_HOLD_SECONDS: f64 = 0.6;
 /// How long the band of a cut-in tears away, in seconds: three frames at 60 fps.
 pub const CUTIN_TEAR_SECONDS: f64 = 3.0 / 60.0;
+/// A flash rises for this many beats and falls for [`FLASH_FALL_BEATS`].
+pub const FLASH_RISE_BEATS: f64 = 1.0;
+pub const FLASH_FALL_BEATS: f64 = 2.0;
+/// Without a followed beat: how long a flash rises and falls, in seconds.
+pub const UNFOLLOWED_FLASH_SECONDS: (f64, f64) = (0.4, 0.8);
+/// A mosaic takes this many beats, or [`UNFOLLOWED_MOSAIC_SECONDS`] without a followed beat.
+pub const MOSAIC_BEATS: f64 = 1.0;
+pub const UNFOLLOWED_MOSAIC_SECONDS: f64 = 0.5;
+/// A glitch takes a few frames, whatever the beat.
+pub const GLITCH_SECONDS: f64 = 0.15;
+/// A transition that dresses a cut is short, so that it stays on the beat: this fraction of what
+/// the same transition takes for a switch.
+pub const DRESSED_SHARE: f64 = 0.5;
+/// A flash that dresses a cut rises for this many beats, and falls for twice as long.
+pub const DRESSED_FLASH_RISE_BEATS: f64 = 0.25;
 
 /// What the render loop does after a frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -137,6 +152,9 @@ pub struct Allowed {
     pub cut: bool,
     pub fade: bool,
     pub dissolve: bool,
+    pub flash: bool,
+    pub glitch: bool,
+    pub mosaic: bool,
     pub cutin: bool,
 }
 
@@ -147,19 +165,32 @@ impl Default for Allowed {
             cut: false,
             fade: true,
             dissolve: true,
+            flash: false,
+            glitch: false,
+            mosaic: false,
             cutin: false,
         }
     }
 }
 
 impl Allowed {
-    /// Every transition, for a switch somebody asks for.
-    const ALL: Self = Self {
-        cut: true,
-        fade: true,
-        dissolve: true,
-        cutin: true,
-    };
+    /// The strong transitions of these, in the order a lift picks among them. A new strong one
+    /// is one more line here and in [`Allowed::of`]. `label` is the label of the section the
+    /// switch lands on, for a cut-in, which dresses itself by the kind of section.
+    fn strong(self, label: f32, has_chart: bool) -> Vec<Transition> {
+        [
+            (self.flash, Transition::Flash),
+            (self.glitch, Transition::Glitch),
+            (self.mosaic, Transition::Mosaic),
+            (
+                self.cutin,
+                Transition::CutIn(CutInStyle::of_section(label, has_chart)),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(allowed, kind)| allowed.then_some(kind))
+        .collect()
+    }
 
     /// Of the transitions in `names` (a scene's `effects.switch`), those the runtime draws.
     pub fn of(names: &[String]) -> Self {
@@ -168,6 +199,9 @@ impl Allowed {
             cut: has("cut"),
             fade: has("fade"),
             dissolve: has("dissolve"),
+            flash: has("flash"),
+            glitch: has("glitch"),
+            mosaic: has("mosaic"),
             cutin: has("cutin"),
         }
     }
@@ -218,7 +252,7 @@ impl SceneSwitch {
         if !ready {
             return Decision::Wait;
         }
-        // The switch lands on the section of the cue, or on the one that is coming.
+        // The section the change lands on, by its label, picks among the strong transitions.
         let change = self
             .at_cue(music, elapsed)
             .map(|change| (change, music.section_label))
@@ -288,8 +322,7 @@ impl SceneSwitch {
     }
 
     /// Whether the next section start is known, is a place to switch, and is so near that a
-    /// fade (or the band of a cut-in) must start now to land on it. A dissolve starts at the cue, so
-    /// it is not early.
+    /// fade must start now to land on it. A dissolve starts at the cue, so it is not early.
     fn coming(&self, music: &MusicValues, elapsed: f64) -> Option<Change> {
         if music.has_chart == 0 || music.cue_in < 0.0 {
             return None;
@@ -319,25 +352,34 @@ fn beat_seconds(music: &MusicValues) -> Option<f64> {
     (music.locked > FOLLOWED && music.tempo > 0.0).then(|| 60.0 / f64::from(music.tempo))
 }
 
-/// The strong transitions a lift may take: those of `allowed` that are, in a fixed order. A new
-/// strong transition is one more line here. `label` is the label of the section the switch lands
-/// on, for the ones that dress themselves by the kind of section.
-fn strong(label: f32, music: &MusicValues, allowed: Allowed) -> Vec<Transition> {
-    [(
-        allowed.cutin,
-        Transition::CutIn(CutInStyle::of_section(label, music.has_chart != 0)),
-    )]
-    .into_iter()
-    .filter_map(|(on, transition)| on.then_some(transition))
-    .collect()
+/// The option a section's label picks among `options`: the same label gets the same one, so a
+/// kind of section keeps its transition (and a name added to `options` is all it takes to use
+/// it). None if there are no options.
+pub fn pick_by_label<T: Copy>(options: &[T], label: f32) -> Option<T> {
+    let mut hashed = (label.max(0.0) as u32)
+        .wrapping_add(1)
+        .wrapping_mul(0x9e37_79b1);
+    hashed = (hashed ^ (hashed >> 15)).wrapping_mul(0x85eb_ca6b);
+    hashed ^= hashed >> 13;
+    options.get(hashed as usize % options.len().max(1)).copied()
 }
 
-/// The transition for a change, among those `allowed`, for a switch that lands on a section with
-/// this `label`. This is the one place that picks it: a lift takes one of the strong transitions
-/// the scene allows, picked by the section's label (the same kind of section, the same one), and
-/// fades when it allows none. A plain change fades and a drop dissolves. A scene that takes none
-/// of those gets the other of fade and dissolve, then a cut, and a fade when it names none the
-/// runtime draws.
+/// The whole of the automatic selection of a strong transition, which name at which moment: at
+/// a moment of `cue` [`LIFT_CUE`] or more (a section start that lifts the energy), one of
+/// `options` by the label of the section; at any other, none. A scene switch (see [`choose`])
+/// and a dressed camera cut (see [`dress`]) both ask here, so this is the one place to replace
+/// when the moments come from a shared scheduler.
+fn auto_pick(cue: f32, options: &[Transition], label: f32) -> Option<Transition> {
+    if cue < LIFT_CUE {
+        return None;
+    }
+    pick_by_label(options, label)
+}
+
+/// The transition for a change, among those `allowed`. This is the one place that picks it: a
+/// lift takes a strong transition if the scene allows any, chosen by the label of the section it
+/// lands on; a plain change fades, a drop dissolves. A scene that takes neither of those gets the
+/// other one, then a cut, and a fade when it names none the runtime draws.
 fn choose(
     change: Change,
     label: f32,
@@ -345,11 +387,14 @@ fn choose(
     allowed: Allowed,
 ) -> (Transition, Durations) {
     let beat = beat_seconds(music);
-    let strong = strong(label, music, allowed);
+    let cue = if change == Change::Lift { 1.0 } else { 0.0 };
+    let strong = allowed.strong(label, music.has_chart != 0);
+    if let Some(kind) = auto_pick(cue, &strong, label) {
+        return (kind, durations_of(kind, beat));
+    }
     let want = match change {
         Change::Drop => Transition::Dissolve,
-        Change::Lift if !strong.is_empty() => strong[label_hash(label) as usize % strong.len()],
-        Change::Lift | Change::Plain => Transition::Fade,
+        _ => Transition::Fade,
     };
     let other = match want {
         Transition::Dissolve => Transition::Fade,
@@ -359,73 +404,120 @@ fn choose(
         Transition::Cut => allowed.cut,
         Transition::Fade => allowed.fade,
         Transition::Dissolve => allowed.dissolve,
+        Transition::Flash => allowed.flash,
+        Transition::Glitch => allowed.glitch,
+        Transition::Mosaic => allowed.mosaic,
         Transition::CutIn(_) => allowed.cutin,
     };
     let kind = [want, other, Transition::Cut]
         .into_iter()
         .find(|&kind| takes(kind))
         .unwrap_or(Transition::Fade);
+    (kind, durations_of(kind, beat))
+}
+
+/// How long a switch of `kind` takes, with `beat` seconds to a beat if the beat is followed.
+fn durations_of(kind: Transition, beat: Option<f64>) -> Durations {
     match kind {
-        Transition::Cut => (
-            Transition::Cut,
-            Durations {
-                out: 0.0,
-                into: 0.0,
-            },
-        ),
-        Transition::Dissolve => (
-            Transition::Dissolve,
-            Durations {
-                out: 0.0,
-                into: beat.map_or(UNFOLLOWED_DISSOLVE_SECONDS, |beat| beat * DISSOLVE_BEATS),
-            },
-        ),
+        Transition::Cut => Durations {
+            out: 0.0,
+            into: 0.0,
+        },
+        Transition::Dissolve => Durations {
+            out: 0.0,
+            into: beat.map_or(UNFOLLOWED_DISSOLVE_SECONDS, |beat| beat * DISSOLVE_BEATS),
+        },
         Transition::Fade => {
             let seconds = beat.map_or(UNFOLLOWED_FADE_SECONDS, |beat| beat * FADE_BEATS);
-            (
-                Transition::Fade,
-                Durations {
-                    out: seconds,
-                    into: seconds,
-                },
-            )
+            Durations {
+                out: seconds,
+                into: seconds,
+            }
         }
-        Transition::CutIn(_) => (kind, cutin_durations(beat)),
+        Transition::Flash => match beat {
+            Some(beat) => Durations {
+                out: beat * FLASH_RISE_BEATS,
+                into: beat * FLASH_FALL_BEATS,
+            },
+            None => Durations {
+                out: UNFOLLOWED_FLASH_SECONDS.0,
+                into: UNFOLLOWED_FLASH_SECONDS.1,
+            },
+        },
+        Transition::Glitch => Durations {
+            out: 0.0,
+            into: GLITCH_SECONDS,
+        },
+        Transition::Mosaic => Durations {
+            out: 0.0,
+            into: beat.map_or(UNFOLLOWED_MOSAIC_SECONDS, |beat| beat * MOSAIC_BEATS),
+        },
+        // The band opens and holds for `out` (a beat of hold if the beat is followed), and tears
+        // for `into`. The new scene shows from the tear, so a switch that knows the section start
+        // starts `out` before it.
+        Transition::CutIn(_) => {
+            let hold = beat
+                .map_or(UNFOLLOWED_CUTIN_HOLD_SECONDS, |beat| {
+                    beat * CUTIN_HOLD_BEATS
+                })
+                .max(CUTIN_MIN_HOLD_SECONDS);
+            Durations {
+                out: CUTIN_BAND_SECONDS + hold,
+                into: CUTIN_TEAR_SECONDS,
+            }
+        }
     }
 }
 
-/// The durations of a cut-in: the band opens and holds for `out` (a beat of hold if the beat is
-/// followed), and tears for `into`. The new scene shows from the tear, so a switch that knows the
-/// section start starts `out` before it.
-fn cutin_durations(beat: Option<f64>) -> Durations {
-    let hold = beat
-        .map_or(UNFOLLOWED_CUTIN_HOLD_SECONDS, |beat| {
-            beat * CUTIN_HOLD_BEATS
-        })
-        .max(CUTIN_MIN_HOLD_SECONDS);
-    Durations {
-        out: CUTIN_BAND_SECONDS + hold,
-        into: CUTIN_TEAR_SECONDS,
+/// How long `kind` takes when it dresses a camera cut: short, so that it stays on the beat.
+pub fn dressed_durations(kind: Transition, music: &MusicValues) -> Durations {
+    let beat = beat_seconds(music);
+    let full = durations_of(kind, beat);
+    match kind {
+        Transition::Flash => {
+            let rise = beat.map_or(UNFOLLOWED_FLASH_SECONDS.0 * DRESSED_SHARE, |beat| {
+                beat * DRESSED_FLASH_RISE_BEATS
+            });
+            Durations {
+                out: rise,
+                into: rise * 2.0,
+            }
+        }
+        // A few frames already.
+        Transition::Glitch => full,
+        _ => Durations {
+            out: full.out * DRESSED_SHARE,
+            into: full.into * DRESSED_SHARE,
+        },
     }
+}
+
+/// The transition that dresses a camera cut of the director with `cue` in a scene whose
+/// `effects.cut` is `names`, if there is one: only a cue of [`LIFT_CUE`] or more (a section start
+/// that lifts the energy, or the last cut of a burst before it) is dressed, with the one of the
+/// scene's names that the label of the section picks. A scene that names none, or only ones the
+/// runtime does not draw, keeps plain cuts.
+pub fn dress(
+    names: &[String],
+    cue: f32,
+    label: f32,
+    music: &MusicValues,
+) -> Option<(Transition, Durations)> {
+    let options: Vec<Transition> = names
+        .iter()
+        .filter_map(|name| Transition::from_name(name))
+        // A cut-in over a camera cut is not drawn yet: it needs the new view under its band.
+        .filter(|&kind| !matches!(kind, Transition::Cut | Transition::CutIn(_)))
+        .collect();
+    let kind = auto_pick(cue, &options, label)?;
+    Some((kind, dressed_durations(kind, music)))
 }
 
 /// The transition and its durations for a switch somebody asks for now (a scene lab), as an
 /// automatic one of that kind would take with this music: a fade as for a plain change, a dissolve
-/// as for a drop, a cut at once, a cut-in in the style asked for.
+/// as for a drop, a cut at once, a strong one as it is.
 pub fn requested(transition: Transition, music: &MusicValues) -> (Transition, Durations) {
-    let label = music.section_label;
-    match transition {
-        Transition::Cut => (
-            Transition::Cut,
-            Durations {
-                out: 0.0,
-                into: 0.0,
-            },
-        ),
-        Transition::Fade => choose(Change::Plain, label, music, Allowed::ALL),
-        Transition::Dissolve => choose(Change::Drop, label, music, Allowed::ALL),
-        Transition::CutIn(_) => (transition, cutin_durations(beat_seconds(music))),
-    }
+    (transition, durations_of(transition, beat_seconds(music)))
 }
 
 #[cfg(test)]
@@ -704,7 +796,7 @@ mod tests {
             cut,
             fade,
             dissolve,
-            cutin: false,
+            ..Allowed::default()
         };
         let drop = start(song(1.0, 0.5), 2.0, 2.0, 0.2, 0.5);
         // A drop dissolves; a scene that takes only fades fades at it.
@@ -756,7 +848,8 @@ mod tests {
                 cut: true,
                 fade: true,
                 dissolve: false,
-                cutin: true
+                cutin: true,
+                ..Allowed::default()
             }
         );
         assert_eq!(names(&["fade", "dissolve"]), Allowed::default());
@@ -875,6 +968,224 @@ mod tests {
         assert_eq!(durations.out, UNFOLLOWED_FADE_SECONDS);
     }
 
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|n| n.to_string()).collect()
+    }
+
+    /// A lift to the section with this label, 100 bpm.
+    fn lift(label: f32) -> MusicValues {
+        MusicValues {
+            tempo: 100.0,
+            ..start(song(1.0, 0.5), 2.0, label, 0.9, 1.0)
+        }
+    }
+
+    #[test]
+    fn a_lift_takes_a_strong_transition_the_scene_allows_by_its_section_label() {
+        let strong = Allowed::of(&names(&["fade", "flash", "glitch", "mosaic"]));
+        let kind_at = |allowed, label| {
+            let mut switch = seasoned();
+            switch.allow(allowed);
+            match switch.tick(40.0, &lift(label), false, true) {
+                Decision::Switch { transition, .. } => transition,
+                other => panic!("{other:?}"),
+            }
+        };
+        // The same kind of section, the same transition; and the labels are not all alike.
+        let kinds: Vec<Transition> = (0..8).map(|label| kind_at(strong, label as f32)).collect();
+        assert_eq!(
+            kinds,
+            (0..8)
+                .map(|label| kind_at(strong, label as f32))
+                .collect::<Vec<_>>()
+        );
+        for kind in [Transition::Flash, Transition::Glitch, Transition::Mosaic] {
+            assert!(kinds.contains(&kind), "{kinds:?}");
+        }
+        // A scene that allows one strong transition gets that one.
+        let flash_only = Allowed::of(&names(&["fade", "flash"]));
+        assert!((0..8).all(|label| kind_at(flash_only, label as f32) == Transition::Flash));
+        // A scene without any fades at a lift, as before.
+        assert!((0..8).all(|label| kind_at(Allowed::default(), label as f32) == Transition::Fade));
+    }
+
+    #[test]
+    fn a_plain_change_fades_and_a_drop_dissolves_whatever_the_scene_allows() {
+        let strong = Allowed::of(&names(&["fade", "dissolve", "flash", "glitch", "mosaic"]));
+        let mut switch = seasoned();
+        switch.allow(strong);
+        let drop = start(song(1.0, 0.5), 2.0, 2.0, 0.2, 0.5);
+        assert!(matches!(
+            switch.tick(40.0, &drop, false, true),
+            Decision::Switch {
+                transition: Transition::Dissolve,
+                ..
+            }
+        ));
+        let mut switch = seasoned();
+        switch.allow(strong);
+        let plain = start(song(1.0, 0.5), 2.0, 3.0, 0.5, 0.5);
+        assert!(matches!(
+            switch.tick(40.0, &plain, false, true),
+            Decision::Switch {
+                transition: Transition::Fade,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_picked_option_is_the_labels_and_an_empty_list_has_none() {
+        assert_eq!(pick_by_label::<Transition>(&[], 1.0), None);
+        let one = [Transition::Mosaic];
+        assert_eq!(pick_by_label(&one, 5.0), Some(Transition::Mosaic));
+        let two = [Transition::Flash, Transition::Glitch];
+        assert_eq!(pick_by_label(&two, 3.0), pick_by_label(&two, 3.0));
+    }
+
+    #[test]
+    fn the_strong_transitions_take_a_beat_or_a_few_frames() {
+        let beat = |kind| durations_of(kind, Some(0.6));
+        assert_eq!(
+            beat(Transition::Flash),
+            Durations {
+                out: 0.6,
+                into: 1.2
+            }
+        );
+        assert_eq!(
+            beat(Transition::Mosaic),
+            Durations {
+                out: 0.0,
+                into: 0.6
+            }
+        );
+        assert_eq!(
+            beat(Transition::Glitch),
+            Durations {
+                out: 0.0,
+                into: GLITCH_SECONDS
+            }
+        );
+        // Without a followed beat: seconds.
+        assert_eq!(
+            durations_of(Transition::Flash, None),
+            Durations {
+                out: 0.4,
+                into: 0.8
+            }
+        );
+        assert_eq!(durations_of(Transition::Mosaic, None).into, 0.5);
+        // A flash for a lift starts early, to peak on the section's start.
+        let mut switch = seasoned();
+        switch.allow(Allowed::of(&names(&["flash"])));
+        let coming = MusicValues {
+            next_label: 3.0,
+            next_energy: 0.9,
+            cue_in: 0.5,
+            tempo: 120.0,
+            ..song(1.0, 0.5)
+        };
+        assert!(matches!(
+            switch.tick(39.5, &coming, false, true),
+            Decision::Switch {
+                transition: Transition::Flash,
+                durations: Durations { out, into },
+            } if out == 0.5 && into == 1.0
+        ));
+    }
+
+    #[test]
+    fn a_requested_strong_switch_is_that_transition_with_its_durations() {
+        let music = MusicValues {
+            tempo: 100.0,
+            ..song(1.0, 0.5)
+        };
+        assert_eq!(
+            requested(Transition::Flash, &music),
+            (
+                Transition::Flash,
+                Durations {
+                    out: 0.6,
+                    into: 1.2
+                }
+            )
+        );
+        assert_eq!(requested(Transition::Glitch, &music).0, Transition::Glitch);
+    }
+
+    #[test]
+    fn a_cut_is_dressed_only_with_a_lifting_cue_and_a_name_in_the_scenes_list() {
+        let music = MusicValues {
+            tempo: 100.0,
+            ..song(1.0, 0.5)
+        };
+        let list = names(&["flash", "glitch", "mosaic"]);
+        // A weak cue (the beat or a cadence, a section start without a lift): plain.
+        assert_eq!(dress(&list, 0.5, 1.0, &music), None);
+        assert_eq!(dress(&list, 0.79, 1.0, &music), None);
+        // A scene with the default empty list, or names nothing draws: plain.
+        assert_eq!(dress(&[], 1.0, 1.0, &music), None);
+        assert_eq!(
+            dress(&names(&["cutin", "sparkle", "cut"]), 1.0, 1.0, &music),
+            None
+        );
+        // Else one of the names, by the label: the same for the same label.
+        let picked: Vec<_> = (0..8)
+            .map(|label| dress(&list, 0.8, label as f32, &music).unwrap().0)
+            .collect();
+        for kind in [Transition::Flash, Transition::Glitch, Transition::Mosaic] {
+            assert!(picked.contains(&kind), "{picked:?}");
+        }
+        assert_eq!(
+            dress(&list, 1.0, 3.0, &music),
+            dress(&list, 0.9, 3.0, &music)
+        );
+        // Fade and dissolve can dress a cut too.
+        assert_eq!(
+            dress(&names(&["dissolve"]), 1.0, 0.0, &music).map(|dressing| dressing.0),
+            Some(Transition::Dissolve)
+        );
+    }
+
+    #[test]
+    fn a_dressed_cut_is_short() {
+        let music = MusicValues {
+            tempo: 120.0,
+            ..song(1.0, 0.5)
+        };
+        // A beat is 0.5 s: the flash rises for a quarter of it and falls for twice as long.
+        assert_eq!(
+            dressed_durations(Transition::Flash, &music),
+            Durations {
+                out: 0.125,
+                into: 0.25
+            }
+        );
+        assert_eq!(dressed_durations(Transition::Mosaic, &music).into, 0.25);
+        assert_eq!(
+            dressed_durations(Transition::Glitch, &music).into,
+            GLITCH_SECONDS
+        );
+        assert_eq!(
+            dressed_durations(Transition::Fade, &music),
+            Durations {
+                out: 0.25,
+                into: 0.25
+            }
+        );
+        for kind in [
+            Transition::Fade,
+            Transition::Dissolve,
+            Transition::Flash,
+            Transition::Glitch,
+            Transition::Mosaic,
+        ] {
+            let d = dressed_durations(kind, &music);
+            assert!(d.out + d.into <= 0.5, "{kind:?} {d:?}");
+        }
+    }
+
     /// Allowed with only the cut-in as a strong transition, and the plain ones as ever.
     fn with_cutin() -> Allowed {
         Allowed {
@@ -884,7 +1195,7 @@ mod tests {
     }
 
     /// A lift at 120 bpm (a beat is 0.5 s), landing on a section with this label.
-    fn lift(label: f32) -> MusicValues {
+    fn lift_120(label: f32) -> MusicValues {
         start(song(1.0, 0.5), 2.0, label, 0.9, 1.0)
     }
 
@@ -905,7 +1216,7 @@ mod tests {
         // A beat of hold at 120 bpm, in the style of the section's label.
         let style = CutInStyle::of_section(2.0, true);
         assert_eq!(
-            switch.tick(40.0, &lift(2.0), false, true),
+            switch.tick(40.0, &lift_120(2.0), false, true),
             cutin(style, 0.5)
         );
         // The beat not followed: the fixed hold.
@@ -913,7 +1224,7 @@ mod tests {
         switch.allow(with_cutin());
         let music = MusicValues {
             locked: 0.0,
-            ..lift(2.0)
+            ..lift_120(2.0)
         };
         assert_eq!(
             switch.tick(40.0, &music, false, true),
@@ -941,12 +1252,12 @@ mod tests {
         ));
         // A scene with the default list fades at a lift.
         let mut switch = seasoned();
-        assert_eq!(switch.tick(40.0, &lift(2.0), false, true), fade(0.5));
+        assert_eq!(switch.tick(40.0, &lift_120(2.0), false, true), fade(0.5));
     }
 
     #[test]
     fn the_strong_pick_is_by_the_section_label_not_by_chance() {
-        let music = lift(3.0);
+        let music = lift_120(3.0);
         let first = choose(Change::Lift, 3.0, &music, with_cutin());
         for _ in 0..20 {
             assert_eq!(choose(Change::Lift, 3.0, &music, with_cutin()), first);
