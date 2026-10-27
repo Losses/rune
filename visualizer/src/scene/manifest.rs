@@ -110,6 +110,18 @@ pub enum Pace {
     Busy,
 }
 
+impl Pace {
+    /// The word `scene.toml` uses for it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Sections => "sections",
+            Self::Calm => "calm",
+            Self::Normal => "normal",
+            Self::Busy => "busy",
+        }
+    }
+}
+
 /// The transitions that are known by name: `cut` and those the runtime draws (see
 /// `crate::transition`), and those still to come, which a scene may already list.
 pub const TRANSITIONS: &[&str] = &[
@@ -782,7 +794,10 @@ move = "glide"
         let none = format!("{:#}", Manifest::parse(&none).unwrap_err());
         assert!(none.contains("at least one [[shot]]"), "{none}");
         let pace = with("pace = \"calm\"", "pace = \"frantic\"");
-        assert!(pace.contains("frantic") && pace.contains("sections"), "{pace}");
+        assert!(
+            pace.contains("frantic") && pace.contains("sections"),
+            "{pace}"
+        );
     }
 
     #[test]

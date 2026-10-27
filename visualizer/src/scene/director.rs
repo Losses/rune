@@ -45,6 +45,10 @@ pub const ROLL_LEAST: f32 = 0.5;
 /// the nearest size to another one.
 const TOP_DISTANCE: u32 = 10;
 
+/// The paces a scene lab steps through, from the least often cutting to the most (after the
+/// scene's own).
+pub const PACE_CYCLE: [Pace; 4] = [Pace::Sections, Pace::Calm, Pace::Normal, Pace::Busy];
+
 /// The sizes of the burst's cuts, one per beat. A scene without `top` gets `wide` for the last.
 const FILL_SIZES: [ShotSize; FILL_BEATS as usize] = [
     ShotSize::Medium,
@@ -203,6 +207,12 @@ pub struct DirectorView {
     pub tier: &'static str,
     /// Whether the shot is held (see `Director::hold_shot`), so that the director does not cut.
     pub held: bool,
+    /// The scene's shots in order: the name (empty if it has none) and the size.
+    pub shots: Vec<(String, ShotSize)>,
+    /// The pace in effect and the scene's own, and whether a lab overrides it.
+    pub pace: Pace,
+    pub own_pace: Pace,
+    pub pace_overridden: bool,
 }
 
 /// Why a burst cut is wanted now.
@@ -258,8 +268,10 @@ pub struct Director {
     /// After a burst before a phrase's end: the bar count (from the section's start) at which
     /// the next phrase starts.
     phrase_start: Option<u32>,
-    /// Whether the end of a phrase gets a burst (from [`PHRASE_BURSTS`]).
+    /// Whether the end of a phrase gets a burst (from [`PHRASE_BURSTS`], or a busy pace).
     phrase_bursts: bool,
+    /// A pace a scene lab asked for in place of the scene's own (see [`Self::cycle_pace`]).
+    pace_override: Option<Pace>,
     /// The shot is held: no cut happens until [`Director::release`] (for a scene lab).
     held: bool,
 }
@@ -304,6 +316,7 @@ impl Director {
             last_fill: 0,
             phrase_start: None,
             phrase_bursts: PHRASE_BURSTS || camera.pace == Pace::Busy,
+            pace_override: None,
             held: false,
         };
         let index = director.pick(ShotSize::Wide, 0.0, 0, None);
@@ -311,6 +324,46 @@ impl Director {
         director.state.size = director.shots[index].0 as u32;
         director.state.seed = label_hash(0.0, 0);
         director
+    }
+
+    /// The pace in effect: the lab's override, else the scene's own.
+    pub fn pace(&self) -> Pace {
+        self.pace_override.unwrap_or(self.camera.pace)
+    }
+
+    /// The pace override, to give a rebuilt director (see [`Self::set_pace_override`]).
+    pub fn pace_override(&self) -> Option<Pace> {
+        self.pace_override
+    }
+
+    /// Use `pace` in place of the scene's own, or with none the scene's own again. The cadence
+    /// counts on from the last cut, so a shorter pace may cut at once.
+    pub fn set_pace_override(&mut self, pace: Option<Pace>) {
+        self.pace_override = pace;
+        self.phrase_bursts = PHRASE_BURSTS || self.pace() == Pace::Busy;
+    }
+
+    /// Step to the next pace for a scene lab: the scene's own, then [`PACE_CYCLE`], then the
+    /// scene's own again.
+    pub fn cycle_pace(&mut self) {
+        let next = match self.pace_override {
+            None => PACE_CYCLE.first().copied(),
+            Some(pace) => PACE_CYCLE
+                .iter()
+                .position(|p| *p == pace)
+                .and_then(|i| PACE_CYCLE.get(i + 1))
+                .copied(),
+        };
+        self.set_pace_override(next);
+    }
+
+    /// The scene's shots as a readout lists them: the name (empty if it has none) and the size.
+    pub fn shot_list(&self) -> Vec<(String, ShotSize)> {
+        self.names
+            .iter()
+            .zip(&self.shots)
+            .map(|(name, (size, _))| (name.clone(), *size))
+            .collect()
     }
 
     /// What the scene is told now.
@@ -326,6 +379,10 @@ impl Director {
             shot_name: self.names[self.state.index as usize].clone(),
             tier: Tier::of(music).name(),
             held: self.held,
+            shots: self.shot_list(),
+            pace: self.pace(),
+            own_pace: self.camera.pace,
+            pace_overridden: self.pace_override.is_some(),
         }
     }
 
@@ -420,7 +477,7 @@ impl Director {
     /// Bars between two cuts with a followed beat: the section's at the scene's pace, but at
     /// least the scene's `hold`. None for a scene that cuts only at a section's start.
     fn bars(&self, tier: Tier) -> Option<u32> {
-        let bars = match self.camera.pace {
+        let bars = match self.pace() {
             Pace::Sections => return None,
             Pace::Calm => tier.bars() * 2,
             Pace::Normal => tier.bars(),
@@ -433,7 +490,7 @@ impl Director {
     /// at least the scene's `hold` in bars at the music's tempo (4 beats to a bar when the meter
     /// is unknown). None for a scene that cuts only at a section's start.
     fn seconds(&self, tier: Tier, music: &MusicValues) -> Option<f32> {
-        let seconds = match self.camera.pace {
+        let seconds = match self.pace() {
             Pace::Sections => return None,
             Pace::Calm => tier.seconds() * 2.0,
             Pace::Normal => tier.seconds(),
@@ -1357,5 +1414,57 @@ mod tests {
         assert!(!director.view(&base).held);
         let cuts = beats(&mut director, 42, 20, &base, plain);
         assert_eq!(cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(), [48, 56]);
+    }
+
+    #[test]
+    fn a_lab_pace_overrides_the_cadence_and_its_own_restores_it() {
+        let camera = Camera {
+            pace: Pace::Calm,
+            ..camera(0.0, false)
+        };
+        let cuts = |pace: Option<Pace>| {
+            let mut director = Director::new(camera, &each_size());
+            director.set_pace_override(pace);
+            let base = song(0.5);
+            beats(&mut director, 1, 1, &base, |_, m| start(0.0, m));
+            beats(&mut director, 2, 64, &base, plain).len()
+        };
+        // The scene's own, calm: half of the 4 cuts a normal one makes in 16 bars.
+        assert_eq!(cuts(None), 2);
+        assert_eq!(cuts(Some(Pace::Busy)), 8);
+        assert_eq!(cuts(Some(Pace::Sections)), 0);
+        assert_eq!(cuts(None), 2);
+
+        let mut director = Director::new(camera, &each_size());
+        assert_eq!(
+            (director.pace(), director.pace_override().is_some()),
+            (Pace::Calm, false)
+        );
+        let mut seen = Vec::new();
+        for _ in 0..PACE_CYCLE.len() {
+            director.cycle_pace();
+            seen.push(director.pace());
+            assert!(director.pace_override().is_some());
+        }
+        assert_eq!(seen, PACE_CYCLE);
+        // Past the last it is the scene's own again, which the view tells.
+        director.cycle_pace();
+        let view = director.view(&song(0.5));
+        assert_eq!(
+            (view.pace, view.own_pace, view.pace_overridden),
+            (Pace::Calm, Pace::Calm, false)
+        );
+        assert_eq!(director.pace_override(), None);
+    }
+
+    #[test]
+    fn the_view_lists_the_shots_in_order() {
+        let director = Director::new(camera(0.0, false), &each_size());
+        let list = director.view(&song(0.5)).shots;
+        assert_eq!(list.len(), 6);
+        assert_eq!(
+            (list[0].1, list[4].1, list[5].1),
+            (ShotSize::Wide, ShotSize::Top, ShotSize::Wide)
+        );
     }
 }

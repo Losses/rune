@@ -621,6 +621,16 @@ impl Pipeline {
         self.latest_mut().hold_shot(index)
     }
 
+    /// The newest scene's director steps to the next pace (see [`Scene::cycle_pace`]).
+    pub fn cycle_pace(&mut self) {
+        self.latest_mut().cycle_pace();
+    }
+
+    /// The transitions and lens effects the scene on screen declares.
+    pub fn effects(&self) -> &crate::scene::Effects {
+        self.scene.effects()
+    }
+
     /// The newest scene: the one waiting to be installed when a transition runs, else the one
     /// being drawn.
     fn latest(&self) -> &Scene {
