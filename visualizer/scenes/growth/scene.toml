@@ -6,8 +6,10 @@ description = "A tower of plates growing up into white light, a step on every be
 common = ["tower.wgsl"]
 
 # The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
-# A tower that grows towards the light: a flash, a flare and a light leak.
-effects = ["fade", "dissolve", "flash", "flare", "leak"]
+# A tower that grows towards the light: a flash, a flare and a light leak, and the glitch of the
+# video. The flashes and glitches are the runtime's, at the music's moments; the scene keeps none
+# of its own.
+effects = ["fade", "dissolve", "flash", "flare", "leak", "glitch"]
 
 [state]
 file = "state.wgsl"
@@ -48,33 +50,33 @@ target = "out"
 inputs = ["lit"]
 
 # The camera's views, in the order update.wgsl takes them (0 close, 1 closer, 2 and 3 further
-# off); the camera glides between them. The tilt is the director's dutch angle, none in a wide
-# shot.
+# off); a cut jumps to the next. The tilt is the director's dutch angle, none in a wide shot: a
+# few degrees, so it reads as a lean and not a fall.
 [camera]
-dutch = 0.4
+dutch = 0.15
 fill = true
-# The shortest shot is about the default glide (4 s), two bars at 90 to 120 bpm.
+# The shortest shot, in bars.
 hold = 2
 
 [[shot]]
 name = "steep"
 size = "medium"
-move = "glide"
+move = "cut"
 
 [[shot]]
 name = "near"
 size = "close"
-move = "glide"
+move = "cut"
 
 [[shot]]
 name = "far"
 size = "wide"
-move = "glide"
+move = "cut"
 
 [[shot]]
 name = "far again"
 size = "wide"
-move = "glide"
+move = "cut"
 
 [post]
 exposure = 0.0
@@ -107,27 +109,6 @@ id = "cue"
 label = "A cue strong enough to change the theme (its strength)"
 
 [[input]]
-id = "lift"
-label = "A section that lifts the energy"
-
-[[input]]
-id = "impact"
-label = "The strength of an impact"
-
-[[input]]
-id = "flash_lift"
-label = "The flash of a lift, fading over 0.35 s"
-
-[[input]]
-id = "flash_hit"
-label = "The flash of an impact, fading over 0.35 s"
-
-[[input]]
-id = "bar"
-label = "The bar"
-range = [0.0, 1000000.0]
-
-[[input]]
 id = "tempo"
 label = "The tempo"
 range = [0.0, 1000.0]
@@ -151,9 +132,12 @@ rest = 1.0
 
 [[input]]
 id = "fill"
-label = "How full a new layer is, by the energy"
-range = [0.0, 2.0]
-rest = 1.0
+label = "How wide and full a new layer is, by the energy"
+rest = 0.65
+
+[[input]]
+id = "rod"
+label = "How bright the rod is, by the energy"
 
 [[input]]
 id = "theme_pick"
@@ -192,36 +176,6 @@ how = "trigger"
 when = { strength = { param = "theme_cue" }, release = 0.0 }
 
 [[bind]]
-target = "lift"
-source = "cues"
-how = "trigger"
-when = { strength = 0.95, scale = false, release = 0.0 }
-
-[[bind]]
-target = "impact"
-source = "impacts"
-how = "trigger"
-when = { release = 0.0 }
-
-[[bind]]
-target = "flash_lift"
-source = "cues"
-how = "trigger"
-when = { strength = 0.95, scale = false, decay = "exp", release = 0.35, per = "second", decay_from = "event" }
-
-[[bind]]
-target = "flash_hit"
-source = "impacts"
-how = "trigger"
-when = { decay = "exp", release = 0.35, per = "second", decay_from = "event" }
-
-[[bind]]
-target = "bar"
-source = "bar"
-how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
-
-[[bind]]
 target = "tempo"
 source = "tempo"
 how = "follow"
@@ -253,12 +207,20 @@ source = "audible"
 how = "follow"
 when = { smooth = 0.5 }
 
-# How full the layers that grow now are: a loud passage lays more plates, a quiet one fewer.
+# How wide and full the layers that grow now are: a loud passage lays a wide, covered layer, a
+# quiet one a thin column of a few plates. The energy's usual span is spread over the whole range.
 [[bind]]
 target = "fill"
 source = "intensity"
 how = "follow"
-when = { to = [0.5, 1.25] }
+when = { from = [0.2, 0.85] }
+
+# The rod up the core breathes with the energy, smoothed over a beat: no flashes.
+[[bind]]
+target = "rod"
+source = "intensity"
+how = "follow"
+when = { smooth = 1.0 }
 
 [[bind]]
 target = "theme_pick"
@@ -300,24 +262,6 @@ id = "glow"
 group = "Beat"
 label = "Glow"
 default = 0.7
-min = 0.0
-max = 3.0
-step = 0.05
-
-[[param]]
-id = "glow_beat"
-group = "Beat"
-label = "Glow on the beat"
-default = 0.5
-min = 0.0
-max = 3.0
-step = 0.05
-
-[[param]]
-id = "pump"
-group = "Beat"
-label = "Brighten on the beat"
-default = 1.0
 min = 0.0
 max = 3.0
 step = 0.05
@@ -414,7 +358,7 @@ step = 0.25
 id = "vary"
 group = "Tower"
 label = "How much each layer's width varies"
-default = 1.0
+default = 0.5
 min = 0.0
 max = 1.0
 step = 0.05
@@ -460,21 +404,11 @@ step = 0.1
 # ---- Camera ----
 
 [[param]]
-id = "glide"
-group = "Camera"
-label = "Time to glide between views"
-unit = "s"
-default = 4.0
-min = 0.5
-max = 20.0
-step = 0.5
-
-[[param]]
 id = "follow"
 group = "Camera"
 label = "Time for the camera to catch the tip"
 unit = "s"
-default = 0.8
+default = 1.5
 min = 0.05
 max = 5.0
 step = 0.05
@@ -504,7 +438,7 @@ id = "light"
 type = "choice"
 group = "Look"
 label = "Light on the concrete"
-default = 1
+default = 0
 options = ["By section", "Low warm sun", "High white sun", "Blue hour"]
 
 [[param]]
@@ -632,42 +566,6 @@ default = 1.0
 min = 0.0
 max = 4.0
 step = 0.05
-
-[[param]]
-id = "flash"
-group = "Look"
-label = "Flash on accents"
-default = 1.0
-min = 0.0
-max = 3.0
-step = 0.05
-
-[[param]]
-id = "warm_kick"
-group = "Look"
-label = "Warm overexposure on the kick"
-default = 0.6
-min = 0.0
-max = 2.0
-step = 0.05
-
-[[param]]
-id = "glitch"
-group = "Look"
-label = "Strength of the inverted glitch"
-default = 1.0
-min = 0.0
-max = 1.0
-step = 0.05
-
-[[param]]
-id = "glitch_bars"
-group = "Look"
-label = "Bars between glitches (0: only on accents)"
-default = 4.0
-min = 0.0
-max = 32.0
-step = 1.0
 
 [[param]]
 id = "exposure"

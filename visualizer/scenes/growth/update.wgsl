@@ -1,6 +1,6 @@
-// Once per frame: the tower shoots up on every beat (more on a bar's first), the camera rising
-// after it and circling; an accent lights the rod and washes the picture white; each section is
-// seen its own way. A plate once grown never changes.
+// Once per frame: the tower shoots up on every beat (more on a bar's first), wide and full where
+// the music is loud; the camera rising after it and circling; the rod breathing with the energy;
+// each section seen its own way. A plate once grown never changes.
 
 // ---- Colour ----
 // The themes are hand made, each with its own hues. Following the player's colour (its accent,
@@ -62,32 +62,33 @@ fn random(n: u32) -> f32 {
   return rv_unit(frame.seed * 2654435761u + n);
 }
 
-// Take the view the director cut to. Every view looks up the tower from below (so what is under
-// the camera never needs drawing): 0 close, 1 closer, 2 further off; the director's two wide shots both take the further one, which has the room.
-// The side it circles to comes from the shot's seed, and the tilt is the shot's own dutch angle
-// (none in a wide shot).
+// Take the view the director cut to, at once: a cut is a cut, never a slide. Every view looks up
+// the tower from below (so what is under the camera never needs drawing): 0 close, 1 closer, 2
+// further off; the director's two wide shots both take the further one, which has the room. It
+// circles the same way the whole song (turning back would brake and speed up again), and the
+// tilt is the shot's own dutch angle (none in a wide shot).
 fn choose_view() {
   let v = min(shot.index, 2u);
-  let side = select(-1.0, 1.0, shot.seed < 0.5);
+  let side = select(-1.0, 1.0, random(5u) < 0.5);
   // How far below the tip the camera is, how far from the axis, how far below the tip it aims,
   // and how fast it drifts round.
   if (v == 2u) {
-    state.below_to = 34.0;
-    state.dist_to = 12.0 + 2.4 * params.girth;
-    state.aim_to = 22.0;
-    state.spin_to = 0.03 * side;
+    state.below = 34.0;
+    state.dist = 12.0 + 2.4 * params.girth;
+    state.aim = 22.0;
+    state.spin = 0.03 * side;
   } else if (v == 1u) {
-    state.below_to = 18.0;
-    state.dist_to = 8.0 + 1.6 * params.girth;
-    state.aim_to = 10.0;
-    state.spin_to = 0.04 * side;
+    state.below = 18.0;
+    state.dist = 8.0 + 1.6 * params.girth;
+    state.aim = 10.0;
+    state.spin = 0.04 * side;
   } else {
-    state.below_to = 26.0;
-    state.dist_to = 10.0 + 2.0 * params.girth;
-    state.aim_to = 16.0;
-    state.spin_to = 0.05 * side;
+    state.below = 26.0;
+    state.dist = 10.0 + 2.0 * params.girth;
+    state.aim = 16.0;
+    state.spin = 0.05 * side;
   }
-  state.tilt_to = shot.roll;
+  state.tilt = shot.roll;
   state.cuts = shot.cuts;
 }
 
@@ -151,7 +152,7 @@ fn update() {
     state.per_beat = params.grow;
     // The tower that stands at the start is as full as the plates' density says.
     for (var i = 0; i < FILL_LAYERS / 4; i += 1) {
-      state.fills[i] = vec4f(1.0);
+      state.fills[i] = vec4f(0.65);
     }
     state.azimuth = random(4u) * 6.283;
     choose_view();
@@ -159,12 +160,8 @@ fn update() {
     state.theme_from = state.theme_next;
     state.theme_to = state.theme_next;
     state.theme_mix = 1.0;
-    state.below = state.below_to;
-    state.dist = state.dist_to;
-    state.aim = state.aim_to;
     state.cam_top = state.top;
-    state.tilt = state.tilt_to;
-    state.spin = state.spin_to;
+    state.cam_rise = 0.0;
     state.top_prev = state.top;
   }
 
@@ -196,19 +193,10 @@ fn update() {
   state.since_beat += dt;
   state.top += (state.top_to - state.top) * (1.0 - exp(-dt / max(params.snap, 0.01)));
 
-  // Accents: a cue that lifts the energy (strength 1), or a hard hit in the middle of a section
-  // (the runtime keeps those at least 6 s apart). The flash is declared: `flash_lift` and
-  // `flash_hit` are the envelopes of the two, falling over 0.35 s.
-  let accent = input.lift > 0.5 || input.impact > 0.0;
-  state.flash = max(input.flash_lift, 0.75 * input.flash_hit);
-  // A glitch on an accent, and on the first beat of every few bars.
-  let every = max(u32(params.glitch_bars), 1u);
-  // Concrete keeps the beat in the growth alone: no glitch, no flash of the whole picture.
+  // The rod breathes with the energy (declared `rod`, smoothed over a beat). Flashes and glitches
+  // are the runtime's shared effects.
+  state.rod = input.rod;
   let concrete = params.style == 1u;
-  if (!concrete && (accent || (input.tick > 0.5 && input.bar_line > 0.5 && params.glitch_bars > 0.5 && u32(floor(input.bar)) % every == 0u))) {
-    state.glitch = params.glitch;
-  }
-  state.glitch *= exp(-dt / 0.06);
 
   // The view changes when the director cuts (`shot.cuts`); the themes change on the music's
   // cues. A section's start (cue 0.5 or more) takes its own colours from its label, so every
@@ -236,31 +224,25 @@ fn update() {
   state.theme_mix = min(state.theme_mix + dt / max(params.theme_fade, 0.05), 1.0);
   set_theme();
 
-  // The glide to a new view never outlasts its shot: at most half of the shot's planned length.
-  let glide = select(params.glide, min(params.glide, 0.5 * shot.length), shot.length >= 0.0);
-  // In a burst of cuts (`shot.fill`) the view jumps there, as a cut does.
-  let ease = select(1.0 - exp(-dt / max(glide, 0.1)), 1.0, shot.fill > 0u);
-  state.below += (state.below_to - state.below) * ease;
-  state.dist += (state.dist_to - state.dist) * ease;
-  state.aim += (state.aim_to - state.aim) * ease;
-  state.tilt += (state.tilt_to - state.tilt) * ease;
-  state.spin += (state.spin_to - state.spin) * ease;
   // It circles at the tempo while the music is heard, and comes to rest in silence.
   state.azimuth += dt * state.spin * (0.6 + 0.4 * pace) * input.audible;
 
   // The camera rises after the tip, a little behind, so every beat's growth runs ahead of it,
-  // looking up the tower's body towards the tip.
+  // looking up the tower's body towards the tip. It follows as a damped spring, so its speed
+  // changes smoothly: it never lurches up on a beat.
   let a = state.azimuth;
-  state.cam_top += (state.top - state.cam_top) * (1.0 - exp(-dt / max(params.follow, 0.05)));
+  let w = 2.0 / max(params.follow, 0.1);
+  state.cam_rise += (w * w * (state.top - state.cam_top) - 2.0 * w * state.cam_rise) * dt;
+  state.cam_top += state.cam_rise * dt;
   let out = vec2f(cos(a), sin(a));
   state.cam_pos = vec3f(out.x * state.dist, state.cam_top - state.below, out.y * state.dist);
   state.look = vec3f(out.x * state.dist * 0.1, state.cam_top - state.aim, out.y * state.dist * 0.1);
-  state.roll = state.tilt + 0.01 * sin(t * 0.3);
+  state.roll = state.tilt;
   state.lens = 1.0 - params.zoom * state.kick;
 
-  post.bloom_intensity = params.glow * (0.6 + 0.6 * input.drive) + params.glow_beat * state.kick + 1.2 * state.flash * params.flash;
+  post.bloom_intensity = params.glow * (0.6 + 0.6 * input.drive);
   let dim = mix(theme_exposure(state.theme_from), theme_exposure(state.theme_to), smoothstep(0.0, 1.0, state.theme_mix));
-  post.exposure = params.exposure + dim + 0.2 * params.pump * state.kick + 0.9 * state.flash * params.flash;
+  post.exposure = params.exposure + dim;
   if (concrete) {
     // Only the sun glares; the lens is a clean one.
     post.bloom_intensity = 0.25 * params.glow;

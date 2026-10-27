@@ -25,7 +25,9 @@ fn girth_at(y: f32) -> f32 {
   let slow = rv_noise(vec2f(y * 0.02, 1.3));
   let layer = hash3(vec3f(0.0, floor(y / CELL.y), 41.0));
   let own = mix(0.25, 1.6, pow(layer, 1.3));
-  return params.girth * (1.0 + 0.4 * slow) * mix(1.0, own, params.vary) + 1.0;
+  // And as wide as the music was full when the layer grew.
+  let full = mix(FILL_GIRTH.x, FILL_GIRTH.y, layer_fill(floor(y / CELL.y)));
+  return params.girth * (1.0 + 0.4 * slow) * mix(1.0, own, params.vary) * full + 1.0;
 }
 
 // When the plate of a cell appears: once the tip has grown past this height. Further from the
@@ -53,7 +55,7 @@ fn square(y: f32, k: f32, r_max: f32) -> vec4f {
   let n = 1.0 + floor(pow(hash3(id + 1.5), 1.4) * 4.0);
   let room = max(r_max / CELL.x - n * 0.5, 0.0);
   let corner = floor((vec2f(hash3(id + 3.5), hash3(id + 4.5)) * 2.0 - 1.0) * room - n * 0.5 + 0.5);
-  return vec4f(corner, n, f32(hash3(id + 0.5) <= min(params.density * layer_fill(y), 1.0)));
+  return vec4f(corner, n, f32(hash3(id + 0.5) <= min(params.density * fill_count(layer_fill(y)), 1.0)));
 }
 
 fn layer_plates(y: f32, r_max: f32) -> Squares {
@@ -133,7 +135,7 @@ fn plate_at_rest(c: vec3f, squares: Squares) -> Plate {
   } else {
     // A small plate on its own: thick in the tower, loose and scarce outside it.
     let h = hash3(c);
-    let inside = ring < r_max && h < params.scatter * layer_fill(c.y);
+    let inside = ring < r_max && h < params.scatter * fill_count(layer_fill(c.y));
     let loose = ring >= r_max && h > 1.0 - params.loose * 0.04;
     if (!(inside || loose)) {
       return p;

@@ -17,26 +17,21 @@ struct State {
   below: f32,
   dist: f32,
   tilt: f32,
-  below_to: f32,
-  dist_to: f32,
-  tilt_to: f32,
   azimuth: f32,
   spin: f32,
-  spin_to: f32,
   // How many cuts of the director the view has followed.
   cuts: u32,
-  // The tip before the last beat's growth (what grew since is still flying in), and the flash of
-  // an accent.
+  // The tip before the last beat's growth (what grew since is still flying in), and how bright
+  // the rod is.
   top_prev: f32,
-  flash: f32,
+  rod: f32,
   // Growth per beat in layers.
   per_beat: f32,
-  // The tip as the camera follows it (smoothly), and how far below it the camera aims.
+  // The tip as the camera follows it (smoothly) and how fast it rises, and how far below it the
+  // camera aims.
   cam_top: f32,
+  cam_rise: f32,
   aim: f32,
-  aim_to: f32,
-  // A beat's glitch: the picture inverted to blue and torn into bands, for a moment.
-  glitch: f32,
   // The colours: fading from one theme to the next, the one waiting, and when it last changed.
   theme_from: f32,
   theme_to: f32,
@@ -62,11 +57,21 @@ fn fill_slot(y: f32) -> u32 {
   return u32(((i32(y) % FILL_LAYERS) + FILL_LAYERS) % FILL_LAYERS);
 }
 
-// How full layer y is, as the music was when it grew: it scales how many plates it lays.
+// How full layer y is, 0 to 1, as the music was when it grew.
 fn layer_fill(y: f32) -> f32 {
   let i = fill_slot(y);
   return state.fills[i / 4u][i % 4u];
 }
+
+// How many of its plates a layer lays, against the plain density, by how full it is: a quiet
+// passage a few, a loud one all.
+fn fill_count(fill: f32) -> f32 {
+  return mix(0.15, 1.3, fill);
+}
+
+// How wide a layer is, against the tower's girth, from an empty layer to a full one: a quiet
+// passage a thin column, a loud one wide.
+const FILL_GIRTH: vec2f = vec2f(0.55, 1.35);
 
 fn hash(p: vec2f) -> f32 {
   var p3 = fract(vec3f(p.x, p.y, p.x) * 0.1031);

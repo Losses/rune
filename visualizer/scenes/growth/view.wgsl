@@ -58,7 +58,7 @@ fn trace(o: vec3f, d0: vec3f, steps: i32) -> Hit {
   hit.t = 1e9;
   // No axis exactly zero, so every step stays finite.
   let d = select(d0, vec3f(1e-6), abs(d0) < vec3f(1e-6));
-  let reach = params.girth * 1.4 * 1.6 * 1.4 + 3.0 + CELL.x;
+  let reach = params.girth * 1.4 * 1.6 * FILL_GIRTH.y * 1.4 + 3.0 + CELL.x;
   // Only from a little under the camera up: the camera always looks up, and what is below it is
   // let go of.
   let lo = vec3f(-reach, min(state.cam_pos.y - params.keep_below, state.top - 4.0), -reach);
@@ -215,7 +215,7 @@ fn shade_plate(p: vec3f, d: vec3f, h: Hit, th: Theme, pixel: f32) -> vec3f {
   // The rod lights the faces turned to the core, the nearer the more.
   let rr = max(length(p.xz), 0.05);
   let to_rod = max(dot(n, vec3f(-p.x, 0.0, -p.z) / rr), 0.0);
-  let rod = th.rod * params.rod_light * (1.0 + 3.0 * state.flash) * to_rod / (1.0 + 0.2 * rr * rr) * f32(p.y < state.top + 3.0);
+  let rod = th.rod * params.rod_light * (0.4 + 1.6 * state.rod) * to_rod / (1.0 + 0.2 * rr * rr) * f32(p.y < state.top + 3.0);
   // A broad sheen: what catches the light along the rounded edges.
   let sheen = pow(max(dot(n, normalize(th.sun - d)), 0.0), 24.0) * 0.08 * lit * s.open;
   var c = albedo * (th.key * key + sky + rod) + th.key * sheen;
@@ -249,7 +249,7 @@ fn shade(px: Pixel) -> vec4f {
   let b = dot(o.xz, d.xz);
   let rod = params.rod_width;
   let disc = b * b - a * (dot(o.xz, o.xz) - rod * rod);
-  let bright = 1.0 + 4.0 * state.flash;
+  let bright = 0.7 + 1.0 * state.rod;
   if (disc > 0.0 && a > 1e-6) {
     let t = (-b - sqrt(disc)) / a;
     if (t > 0.0 && t < depth && o.y + d.y * t < state.top + 3.0) {
@@ -264,7 +264,7 @@ fn shade(px: Pixel) -> vec4f {
     // hides it.
     let through = select(0.35, 0.0, params.style == 1u);
     let seen = select(through, 1.0, tc < depth) * f32(o.y + d.y * tc < state.top + 3.0);
-    col += th.rod * 0.8 * params.rod_glow * (0.06 + 0.5 * state.flash) * exp(-gap * 2.5) * seen;
+    col += th.rod * 0.8 * params.rod_glow * (0.03 + 0.15 * state.rod) * exp(-gap * 2.5) * seen;
   }
 
   // Dust: dark specks at a few depths in front of the lens.
