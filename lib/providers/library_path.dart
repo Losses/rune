@@ -159,7 +159,7 @@ class LibraryPathProvider with ChangeNotifier {
     }
 
     if (notReady && context != null) {
-      // Databases cannot live inside a SAF tree (SQLite WAL / LMDB need real
+      // Databases cannot live inside a SAF tree (SQLite WAL needs real
       // file paths), so Android is always redirected to app-local storage.
       if (Platform.isAndroid) {
         selectedMode = LibraryInitializeMode.redirected;

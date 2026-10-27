@@ -329,7 +329,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libayatana-appindicator3-dev libnotify-dev
+          sudo apt-get install -y jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libayatana-appindicator3-dev libnotify-dev
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -405,7 +405,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y liblmdb0 jq librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libayatana-appindicator3-dev libnotify-dev
+          sudo apt-get install -y jq librust-alsa-sys-dev libasound2-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libayatana-appindicator3-dev libnotify-dev
 
       - name: Patch Environment
         run: |
@@ -556,12 +556,6 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           REF_NAME: ${{ github.ref_name }}
           SHA: ${{ steps.short-sha.outputs.sha }}
-
-      - name: Replace System Dylib
-        run: |
-          otool -L Rune.app/Contents/MacOS/Rune | grep lmdb
-          install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib Rune.app/Contents/MacOS/Rune
-        working-directory: build/macos/Build/Products/Release
 
       - name: Rename DMG
         run: |
