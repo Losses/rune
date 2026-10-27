@@ -1249,23 +1249,31 @@ impl Pipeline {
                 plan => return plan,
             }
         }
-        // So does a glitch or a mosaic over the picture.
-        if transitions.dressed.is_none()
-            && let Some(overlay) = transitions.overlay
-        {
-            match overlay.plan(time - overlay.start) {
-                Plan::None => transitions.overlay = None,
-                plan => return plan,
+        // So does a glitch or a mosaic over the picture, in place of the plain frame (it is long:
+        // the dressing of a cut and the lab's cut go on under it).
+        let overlay = match transitions.overlay {
+            Some(overlay) if transitions.dressed.is_none() => {
+                let plan = overlay.plan(time - overlay.start);
+                if plan == Plan::None {
+                    transitions.overlay = None;
+                }
+                plan
             }
-        }
+            _ => Plan::None,
+        };
         // A lab's override decides which cuts are dressed in place of the scene's list.
         let dresses = match transitions.lab_cuts {
             Some(kind) => kind != Transition::Cut,
             None => !self.scene.cut_transitions().is_empty(),
         };
         if !dresses && transitions.forced == Forced::None && transitions.dressed.is_none() {
-            return Plan::None;
+            return overlay;
         }
+        // The frame is kept for a cut, under an overlay too.
+        let keep = match overlay {
+            Plan::None => Plan::Keep,
+            overlay => overlay.keeping(),
+        };
         // A cut the lab asked for waits for a frame to be held, then the director is told to.
         if let Forced::Wanted(kind) = transitions.forced
             && transitions.dressed.is_none()
@@ -1275,7 +1283,7 @@ impl Pipeline {
             transitions.forced = Forced::Armed(kind);
         }
         let Some(dressed) = transitions.dressed else {
-            return Plan::Keep;
+            return keep;
         };
         match dressed.plan(time - dressed.start) {
             Plan::None => {
@@ -1572,22 +1580,28 @@ fn dress_cut(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64
 /// The plan of a frame in which the scene started a glitch or a mosaic over its picture (see
 /// [`Scene::overlay_this_frame`]): it plays over the live frame for its time (see
 /// [`switching::overlay_seconds`]), from this frame where the scene draws into the texture, else
-/// from the next. A switch or a dressed cut under way takes its place; a punch plays on over it.
+/// from the next; one under way of the same kind goes on (see [`Transitions::start_overlay`]). A
+/// switch under way takes its place; a dressed cut's course or a punch plays first, and it goes on
+/// after them.
 fn start_overlay(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64) -> Plan {
     let Some(kind) = scene.overlay_this_frame() else {
         return plan;
     };
-    if !plan.is_live() && plan != Plan::None {
+    if transitions.running.is_some() {
         return plan;
     }
-    let run = OverlayRun {
+    transitions.start_overlay(OverlayRun {
         kind,
         start: time,
-        seconds: switching::overlay_seconds(kind, scene.music()),
+        seconds: switching::overlay_seconds(scene.music()),
+    });
+    let Some(run) = transitions.overlay else {
+        return plan;
     };
-    transitions.overlay = Some(run);
     match plan {
-        Plan::Keep | Plan::LensGlitch(..) | Plan::LensMosaic(..) => run.plan(0.0),
+        Plan::Keep => run.plan(time - run.start).keeping(),
+        Plan::Overlay(frame) if frame.keep => run.plan(time - run.start).keeping(),
+        Plan::Overlay(_) => run.plan(time - run.start),
         plan => plan,
     }
 }
@@ -2077,8 +2091,9 @@ mod tests {
     }
 
     /// Every frame at 60 fps of a mosaic and a glitch switching two built-in scenes in a beat
-    /// (120 bpm), and of each played over the picture, as a contact sheet each (and the frames
-    /// at full size in a folder) in `$FX_FRAMES` (default: the temp dir), to look at once.
+    /// (120 bpm); each played over the picture, sampled across its two bars and frame by frame at
+    /// its peak. A contact sheet each (and the frames at full size in a folder) in `$FX_FRAMES`
+    /// (default: the temp dir), to look at once.
     #[test]
     #[ignore = "writes images, run by hand"]
     fn dump_glitch_and_mosaic_frames() {
@@ -2088,13 +2103,41 @@ mod tests {
             .unwrap_or_else(std::env::temp_dir);
         let (w, h) = (1280u32, 720u32);
         let beat: f64 = 0.5;
+        let frame = 1.0 / 60.0;
+        // The times of the frames from the start: a frame before, then the start.
+        let by_frame = |seconds: f64| -> Vec<f64> {
+            (0..(seconds / frame).ceil() as usize + 3)
+                .map(|i| (i as f64 - 1.0) * frame)
+                .collect()
+        };
+        let overlay = switching::OVERLAY_BEATS * beat;
+        let across: Vec<f64> = [-frame]
+            .into_iter()
+            .chain((0..36).map(|k| f64::from(k) * overlay / 35.0))
+            .collect();
+        let peak: Vec<f64> = [-frame, 0.0]
+            .into_iter()
+            .chain((0..22).map(|k| overlay / 3.0 + f64::from(k) * frame))
+            .collect();
         let runs = [
-            ("mosaic", Some(Transition::Mosaic), None, beat),
-            ("glitch", Some(Transition::Glitch), None, beat),
-            ("lens-mosaic", None, Some(Overlay::Mosaic), beat * 0.5),
-            ("lens-glitch", None, Some(Overlay::Glitch), beat * 0.75),
+            ("mosaic", Some(Transition::Mosaic), None, by_frame(beat)),
+            ("glitch", Some(Transition::Glitch), None, by_frame(beat)),
+            (
+                "overlay-mosaic",
+                None,
+                Some(Overlay::Mosaic),
+                across.clone(),
+            ),
+            ("overlay-glitch", None, Some(Overlay::Glitch), across),
+            (
+                "overlay-mosaic-peak",
+                None,
+                Some(Overlay::Mosaic),
+                peak.clone(),
+            ),
+            ("overlay-glitch-peak", None, Some(Overlay::Glitch), peak),
         ];
-        for (label, switch, overlay, seconds) in runs {
+        for (label, switch, overlay, offsets) in runs {
             let Ok(mut pipeline) = Pipeline::new(
                 w,
                 h,
@@ -2118,13 +2161,8 @@ mod tests {
                     .run()
                     .unwrap()
             });
-            // A frame before, the course frame by frame, two frames after.
             let start = 1.0;
-            let frame = 1.0 / 60.0;
-            let count = (seconds / frame).ceil() as usize + 3;
-            let times: Vec<f64> = (0..count)
-                .map(|i| start + (i as f64 - 1.0) * frame)
-                .collect();
+            let times: Vec<f64> = offsets.iter().map(|o| start + o).collect();
             let render = |pipeline: &mut Pipeline, time: f64| -> Option<Vec<u8>> {
                 let rgba = if let Rendered::Mapped(frame) = pipeline.render(time).unwrap() {
                     let mut rgba = Vec::new();
@@ -2157,7 +2195,7 @@ mod tests {
                     if let (Some(kind), Some(scene)) = (switch, next.take()) {
                         let durations = Durations {
                             out: 0.0,
-                            into: seconds,
+                            into: beat,
                         };
                         pipeline.switch_to(scene, kind, durations).unwrap();
                     }
@@ -2232,18 +2270,36 @@ mod tests {
                 })
                 .unwrap();
         };
+        // An overlay of 4 s at its peak, a third of the way.
+        let overlay_at_peak = |kind| {
+            let run = OverlayRun {
+                kind,
+                start: 0.0,
+                seconds: 4.0,
+            };
+            (0..12)
+                .map(|i| run.plan(4.0 / 3.0 + f64::from(i) / 60.0))
+                .find(|plan| matches!(plan, Plan::Overlay(frame) if frame.amount > 0.0))
+                .unwrap()
+        };
         // The middle of each pose or stage (see `mosaic_step` and `glitch_step`).
         let mosaic = |pose: f32| (pose + 0.5) / 8.0;
         let glitch = |stage: f32| (stage + 0.5) / 6.0;
         for (label, plan) in [
             ("nothing (a fade of 0)", Plan::Fade(0.0)),
             ("mosaic, scattered blocks", Plan::Mosaic(mosaic(1.0), 7)),
-            ("mosaic, wave", Plan::Mosaic(mosaic(3.0), 7)),
-            ("mosaic, bright dots", Plan::Mosaic(mosaic(4.0), 7)),
+            ("mosaic, densest blocks", Plan::Mosaic(mosaic(3.0), 7)),
+            ("mosaic, veil of dots", Plan::Mosaic(mosaic(4.0), 7)),
             ("mosaic, picture in dots", Plan::Mosaic(mosaic(5.0), 7)),
             ("glitch, heaviest stage", Plan::Glitch(glitch(3.0), 7)),
-            ("lens mosaic, batch", Plan::LensMosaic(0.3, 7)),
-            ("lens glitch, stage 2", Plan::LensGlitch(0.3, 7)),
+            (
+                "mosaic overlay, at its most",
+                overlay_at_peak(Overlay::Mosaic),
+            ),
+            (
+                "glitch overlay, at its most",
+                overlay_at_peak(Overlay::Glitch),
+            ),
             // Again, now that the GPU is busy: the first is often slow.
             ("nothing, again", Plan::Fade(0.0)),
         ] {
@@ -2556,9 +2612,10 @@ mod tests {
         );
     }
 
-    /// A glitch or a mosaic over the picture plays over the live frame for its time and lets go:
-    /// in a scene that holds no frame the pass runs only while it plays; in one that dresses its
-    /// cuts the frame is still kept under it; a switch takes its place.
+    /// A glitch or a mosaic over the picture plays over the live frame for its two bars and lets
+    /// go, one at a time: in a scene that holds no frame the pass runs only while it plays; in one
+    /// that dresses its cuts the frame is still kept under it and a cut is dressed; a switch takes
+    /// its place.
     #[test]
     fn a_lens_glitch_or_mosaic_plays_over_the_live_frame_and_lets_go() {
         let _turn = serial();
@@ -2569,15 +2626,20 @@ mod tests {
         pipeline.install(scene).unwrap();
         means(&mut pipeline, &[0.9, 0.95]);
         assert!(!pipeline.transitions.holds_textures());
-        // Without a followed beat, half a beat of 0.5 s: from 1.0 to 1.25.
+        // Without a followed beat, two bars of 0.5 s beats: from 1.0 to 5.0.
         pipeline.start_overlay(Overlay::Mosaic);
-        for time in [1.0, 1.1, 1.2] {
+        for time in [1.0, 1.1, 2.5, 4.9] {
             means(&mut pipeline, &[time]);
             assert_eq!(pipeline.overlay_running(), Some(Overlay::Mosaic), "{time}");
             assert!(!pipeline.transitions.has_held());
+            // Started again while it plays, it goes on.
+            if time < 4.0 {
+                pipeline.start_overlay(Overlay::Mosaic);
+            }
         }
+        assert_eq!(pipeline.transitions.overlay.unwrap().start, 1.0);
         assert!(pipeline.transitions.holds_textures());
-        means(&mut pipeline, &[1.3, 1.32]);
+        means(&mut pipeline, &[5.02, 5.04]);
         assert_eq!(pipeline.overlay_running(), None);
         assert!(
             !pipeline.transitions.holds_textures(),
@@ -2588,11 +2650,24 @@ mod tests {
         let dir = dressed_scene("overlay-dressed", 0.2, "glitch");
         let scene = pipeline.scene_build_dir(&dir).run().unwrap();
         pipeline.install(scene).unwrap();
-        means(&mut pipeline, &[2.0, 2.02]);
+        means(&mut pipeline, &[6.0, 6.02]);
         pipeline.start_overlay(Overlay::Glitch);
-        means(&mut pipeline, &[2.04, 2.1]);
+        means(&mut pipeline, &[6.04, 6.1]);
         assert_eq!(pipeline.overlay_running(), Some(Overlay::Glitch));
         assert!(pipeline.transitions.has_kept());
+        // A cut the lab asks for is dressed under it, without waiting for it to end.
+        pipeline.cut_dressed(Transition::Fade);
+        let mut dressed = false;
+        for i in 0..6 {
+            means(&mut pipeline, &[6.12 + f64::from(i) / 60.0]);
+            dressed |= pipeline.transitions.dressed.is_some();
+        }
+        assert!(dressed);
+        assert_eq!(pipeline.overlay_running(), Some(Overlay::Glitch));
+        // The other kind takes its place.
+        pipeline.start_overlay(Overlay::Mosaic);
+        means(&mut pipeline, &[6.3, 6.32]);
+        assert_eq!(pipeline.overlay_running(), Some(Overlay::Mosaic));
         // A switch takes its place.
         let next = load_plain(&mut pipeline, "overlay-next", 0.5);
         let durations = Durations {
@@ -2602,7 +2677,7 @@ mod tests {
         pipeline
             .switch_to(next, Transition::Dissolve, durations)
             .unwrap();
-        means(&mut pipeline, &[2.12, 2.14]);
+        means(&mut pipeline, &[6.4, 6.42]);
         assert_eq!(pipeline.overlay_running(), None);
     }
 
