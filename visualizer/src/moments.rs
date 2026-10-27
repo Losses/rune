@@ -24,8 +24,9 @@ pub const GAP_BARS: f32 = 8.0;
 pub const STRONG: &[&str] = &["flash", "glitch", "mosaic", "cutin", "blocks"];
 /// The transitions that may dress a cut, strong first, then light.
 const CUT_DRESSINGS: &[&str] = &["flash", "glitch", "mosaic", "dissolve", "fade"];
-/// The lens effects, strong first, then light.
-const LENS: &[&str] = &["blocks", "flare", "leak"];
+/// The lens effects, strong first, then light. A glitch and a mosaic that the scene lists also
+/// play over the picture at a strong moment with no cut, as a lens effect.
+const LENS: &[&str] = &["blocks", "glitch", "mosaic", "flare", "leak"];
 
 /// How often effects play, the user's setting.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -199,13 +200,20 @@ pub enum Lens {
     Flare,
     Leak,
     Blocks,
+    /// A glitch over the live picture (see `crate::transition::Overlay`).
+    Glitch,
+    /// A mosaic over the live picture.
+    Mosaic,
 }
 
-/// The lens effect that plays at a moment with no cut, from the scene's lens list.
+/// The lens effect that plays at a moment with no cut, from the scene's lens list (its
+/// `effects.lens`, with the glitch and the mosaic of its list).
 pub fn lens_effect(names: &[String], played: Played) -> Option<Lens> {
     let options = eligible(names, LENS, played.strength);
     pick_by_label(&options, played.label).map(|name| match name {
         "blocks" => Lens::Blocks,
+        "glitch" => Lens::Glitch,
+        "mosaic" => Lens::Mosaic,
         "leak" => Lens::Leak,
         _ => Lens::Flare,
     })
@@ -290,7 +298,8 @@ mod tests {
             assert!(matches!(cut, Transition::Flash | Transition::Glitch), "{cut:?}");
             let cut = cut_dressing(&list, at(Strength::Medium, label)).unwrap();
             assert!(matches!(cut, Transition::Fade | Transition::Dissolve), "{cut:?}");
-            assert_eq!(lens_effect(&list, at(Strength::Strong, label)), Some(Lens::Blocks));
+            let lens = lens_effect(&list, at(Strength::Strong, label)).unwrap();
+            assert!(matches!(lens, Lens::Blocks | Lens::Glitch), "{lens:?}");
             let lens = lens_effect(&list, at(Strength::Medium, label)).unwrap();
             assert!(matches!(lens, Lens::Flare | Lens::Leak));
         }
@@ -311,5 +320,27 @@ mod tests {
         assert_eq!(cut_dressing(&strong, at(Strength::Medium, 1.0)), None);
         assert_eq!(lens_effect(&strong, at(Strength::Medium, 1.0)), None);
         assert_eq!(lens_effect(&[], at(Strength::Strong, 1.0)), None);
+    }
+
+    /// A glitch or a mosaic that the scene lists plays over the picture at a strong moment with
+    /// no cut, and never at a medium one: they are strong.
+    #[test]
+    fn a_listed_glitch_or_mosaic_is_a_strong_lens_effect_too() {
+        let at = |strength, label| Played { strength, label };
+        let list = names(&["fade", "glitch", "mosaic", "flare"]);
+        let picked: Vec<Lens> = (0..16)
+            .filter_map(|label| lens_effect(&list, at(Strength::Strong, label as f32)))
+            .collect();
+        assert!(picked.contains(&Lens::Glitch) && picked.contains(&Lens::Mosaic));
+        assert!(
+            picked
+                .iter()
+                .all(|l| matches!(l, Lens::Glitch | Lens::Mosaic))
+        );
+        for label in 0..16 {
+            let medium = lens_effect(&list, at(Strength::Medium, label as f32));
+            assert_eq!(medium, Some(Lens::Flare));
+        }
+        assert!(STRONG.contains(&"glitch") && STRONG.contains(&"mosaic"));
     }
 }

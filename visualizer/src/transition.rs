@@ -38,11 +38,13 @@ pub enum Transition {
     /// The old scene's exposure and bloom rise until the screen is flooded with a light tint of
     /// the theme colour; the new scene comes back out of it.
     Flash,
-    /// The old picture breaks into horizontal bands that shift and drag, for a few frames, then
-    /// the new scene shows.
+    /// The old picture breaks into rows of pieces that shift, smear, streak and flare up in
+    /// flat light, in stages that hold a few frames each and stutter back to an earlier one;
+    /// the new scene shows through more pieces stage by stage (see [`glitch_step`]).
     Glitch,
-    /// Rectangles of LED dots, coloured from the old picture, cover it; then the whole screen is
-    /// dots, a black frame or two, and the new scene.
+    /// Batches of bright LED blocks in patterns light up over the old picture, then the whole
+    /// screen is a dot matrix with the new picture behind it, then the new scene (see
+    /// [`mosaic_step`]).
     Mosaic,
 }
 
@@ -337,6 +339,11 @@ pub enum Plan {
     Mosaic(f32, u32),
     /// The punch on a cut of a burst, over the scene's live frame.
     Punch(PunchFrame),
+    /// A glitch as a lens effect over the scene's live frame, `progress` of the way, from the
+    /// pattern `seed` makes (see [`OverlayRun`]).
+    LensGlitch(f32, u32),
+    /// A mosaic as a lens effect over the scene's live frame, the same way.
+    LensMosaic(f32, u32),
 }
 
 impl Plan {
@@ -381,7 +388,23 @@ impl Plan {
     fn needs_held(self) -> bool {
         !matches!(
             self,
-            Self::None | Self::Fade(_) | Self::Flash(_) | Self::Punch(_) | Self::CutIn(_)
+            Self::None
+                | Self::Fade(_)
+                | Self::Flash(_)
+                | Self::Punch(_)
+                | Self::CutIn(_)
+                | Self::LensGlitch(..)
+                | Self::LensMosaic(..)
+        )
+    }
+
+    /// Whether the pass draws over the scene's live frame alone, as it plays on (a frame of a
+    /// scene that keeps its frames, a punch, a lens glitch or mosaic): a cut in it can be
+    /// dressed, and the frame kept.
+    pub fn is_live(self) -> bool {
+        matches!(
+            self,
+            Self::Keep | Self::Punch(_) | Self::LensGlitch(..) | Self::LensMosaic(..)
         )
     }
 }
@@ -390,6 +413,192 @@ impl Plan {
 pub fn seed_of(time: f64) -> u32 {
     let bits = time.to_bits();
     (bits ^ (bits >> 32)) as u32
+}
+
+/// How the blocks of a batch of a mosaic are laid out, on a coarse grid of 12 by 8 LED dots.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockPattern {
+    /// Blocks of different sizes in cells picked at random.
+    Scatter,
+    /// Blocks of one size on every other cell.
+    Checker,
+    /// Blocks of one size in rows, every other row offset by half a cell.
+    Stagger,
+    /// A stepped wave: strips across the frame in rows, each in steps of 6 dots up and down,
+    /// rising from the bottom, with scattered blocks above it.
+    Wave,
+}
+
+/// How the whole screen looks once it is a dot matrix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LedLook {
+    /// Vertical bands of bright dots, white to the theme colour, the picture faint in them.
+    Bright,
+    /// The picture through the dots, high in contrast and cool.
+    Picture,
+    /// The same, with some bands gone to show the picture plain.
+    Partial,
+}
+
+/// What a mosaic draws in one of its poses.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MosaicPose {
+    /// The picture as it is.
+    Clear,
+    /// A batch of bright LED blocks over the picture: the pattern, and the share of the grid's
+    /// cells that light up (for a wave, the share of the rows it has risen to).
+    Blocks(BlockPattern, f32),
+    /// The whole screen as LED dots.
+    Led(LedLook),
+}
+
+/// One pose of a mosaic: which in its course, what it draws, and whether over the new picture
+/// (the scene's frame) or the old one (the picture held).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MosaicStep {
+    pub index: u32,
+    pub pose: MosaicPose,
+    pub new: bool,
+}
+
+/// The poses of a mosaic that switches the scene, in equal shares of its time. After the
+/// reference (an LED-panel transition at 24 fps): three or four batches of blocks, each a new
+/// pattern denser than the last, over the old picture; the whole screen as dots, bright first,
+/// with the new picture behind (the cut is hidden there); a last small batch over the new one.
+/// `Checker` stands for the checker or the stagger, as the seed picks.
+const MOSAIC_SWITCH: [(MosaicPose, bool); 8] = [
+    (MosaicPose::Blocks(BlockPattern::Scatter, 0.18), false),
+    (MosaicPose::Blocks(BlockPattern::Scatter, 0.4), false),
+    (MosaicPose::Blocks(BlockPattern::Checker, 0.75), false),
+    (MosaicPose::Blocks(BlockPattern::Wave, 0.7), false),
+    (MosaicPose::Led(LedLook::Bright), true),
+    (MosaicPose::Led(LedLook::Picture), true),
+    (MosaicPose::Led(LedLook::Partial), true),
+    (MosaicPose::Blocks(BlockPattern::Scatter, 0.12), true),
+];
+
+/// The poses of a mosaic played as a lens effect over the live picture: a few batches that
+/// flicker (one pose dark between them), never the whole screen.
+const MOSAIC_LENS: [MosaicPose; 5] = [
+    MosaicPose::Blocks(BlockPattern::Scatter, 0.2),
+    MosaicPose::Blocks(BlockPattern::Scatter, 0.38),
+    MosaicPose::Clear,
+    MosaicPose::Blocks(BlockPattern::Checker, 0.5),
+    MosaicPose::Blocks(BlockPattern::Scatter, 0.12),
+];
+
+/// The pose of a mosaic `progress` (0 to 1) of the way through, with the pattern `seed` makes;
+/// `lens` for the one over the live picture. Each pose holds for its share of the time, so the
+/// picture steps from one to the next rather than moving.
+pub fn mosaic_step(progress: f32, seed: u32, lens: bool) -> MosaicStep {
+    let count = if lens {
+        MOSAIC_LENS.len()
+    } else {
+        MOSAIC_SWITCH.len()
+    };
+    let index = ((progress.clamp(0.0, 1.0) * count as f32) as usize).min(count - 1);
+    let (pose, new) = if lens {
+        (MOSAIC_LENS[index], true)
+    } else {
+        MOSAIC_SWITCH[index]
+    };
+    let pose = match pose {
+        MosaicPose::Blocks(BlockPattern::Checker, density) if seed & 1 == 1 => {
+            MosaicPose::Blocks(BlockPattern::Stagger, density)
+        }
+        pose => pose,
+    };
+    MosaicStep {
+        index: index as u32,
+        pose,
+        new,
+    }
+}
+
+/// One stage of a glitch: the pattern of its pieces (a stage that stutters back repeats an
+/// earlier one's), the share of the pieces that break, and the share that show the new picture
+/// (the scene's frame) rather than the old one (the picture held).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlitchStep {
+    pub index: u32,
+    pub pattern: u32,
+    pub amount: f32,
+    pub reveal: f32,
+}
+
+/// The stages of a glitch that switches the scene, in equal shares of its time, as (pattern,
+/// amount, reveal). After the reference video (30 fps): it breaks, breaks harder, stutters back to
+/// the first stage, then the new picture comes through the heaviest stage and the breaks die down
+/// over it.
+const GLITCH_SWITCH: [(u32, f32, f32); 6] = [
+    (0, 0.45, 0.0),
+    (1, 0.75, 0.0),
+    (0, 0.6, 0.0),
+    (2, 0.85, 0.5),
+    (3, 0.55, 1.0),
+    (4, 0.2, 1.0),
+];
+
+/// The stages of a glitch played as a lens effect over the live picture: a few pieces, a
+/// stutter back, a clean stage, a last few.
+const GLITCH_LENS: [(u32, f32, f32); 5] = [
+    (0, 0.3, 1.0),
+    (1, 0.5, 1.0),
+    (0, 0.3, 1.0),
+    (2, 0.0, 1.0),
+    (3, 0.2, 1.0),
+];
+
+/// The stage of a glitch `progress` (0 to 1) of the way through, from the patterns `seed` makes;
+/// `lens` for the one over the live picture.
+pub fn glitch_step(progress: f32, seed: u32, lens: bool) -> GlitchStep {
+    let stages: &[(u32, f32, f32)] = if lens { &GLITCH_LENS } else { &GLITCH_SWITCH };
+    let index = ((progress.clamp(0.0, 1.0) * stages.len() as f32) as usize).min(stages.len() - 1);
+    let (pattern, amount, reveal) = stages[index];
+    GlitchStep {
+        index: index as u32,
+        pattern: seed ^ pattern.wrapping_add(1).wrapping_mul(0x9e37_79b9),
+        amount,
+        reveal,
+    }
+}
+
+/// A strong transition played as a lens effect over the live picture, at a moment with no cut
+/// (see `crate::moments::lens_effect`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Overlay {
+    /// A burst of a few stuttering broken pieces.
+    Glitch,
+    /// A flicker of a few batches of LED blocks.
+    Mosaic,
+}
+
+/// A lens glitch or mosaic under way: like the punch, it draws over the live frame only, so it
+/// holds no picture and a scene that has no other use for the pass pays for it only while it
+/// plays.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OverlayRun {
+    pub kind: Overlay,
+    /// The time of its first frame, on the render loop's clock, which also makes its pattern.
+    pub start: f64,
+    /// How long it plays, in seconds.
+    pub seconds: f64,
+}
+
+impl OverlayRun {
+    /// What the pass does `seconds` after the start, none when it is over.
+    pub fn plan(&self, seconds: f64) -> Plan {
+        let progress = seconds.max(0.0) / self.seconds.max(f64::EPSILON);
+        if progress >= 1.0 {
+            return Plan::None;
+        }
+        let progress = progress as f32;
+        let seed = seed_of(self.start);
+        match self.kind {
+            Overlay::Glitch => Plan::LensGlitch(progress, seed),
+            Overlay::Mosaic => Plan::LensMosaic(progress, seed),
+        }
+    }
 }
 
 /// A transition that dresses a camera cut inside a scene, under way. The cut has already happened
@@ -482,6 +691,8 @@ pub struct Transitions {
     pub lab_cuts: Option<Transition>,
     /// The punch on a cut of a burst, while it plays.
     pub punch: Option<Punch>,
+    /// A lens glitch or mosaic, while it plays.
+    pub overlay: Option<OverlayRun>,
 }
 
 /// The textures of a running transition.
@@ -601,6 +812,7 @@ impl Transitions {
             forced: Forced::None,
             lab_cuts: None,
             punch: None,
+            overlay: None,
         }
     }
 
@@ -706,6 +918,7 @@ impl Transitions {
         self.targets = None;
         self.dressed = None;
         self.punch = None;
+        self.overlay = None;
         self.captured.set(false);
         self.running.take().and_then(|running| running.pending)
     }
@@ -770,13 +983,14 @@ impl Transitions {
         }
     }
 
-    /// After a frame of [`Plan::Keep`] (or of a punch, which draws over the live frame as well):
-    /// hold what the scene drew, for a cut in the next frame.
+    /// After a frame of [`Plan::Keep`] (or of a punch or a lens glitch or mosaic, which draw over
+    /// the live frame as well, see [`Plan::is_live`]): hold what the scene drew, for a cut in the
+    /// next frame.
     pub fn keep(&mut self, encoder: &mut wgpu::CommandEncoder, plan: Plan) {
         let Some(targets) = &mut self.targets else {
             return;
         };
-        let (Plan::Keep | Plan::Punch(_), Some(held)) = (plan, &targets.held) else {
+        let (true, Some(held)) = (plan.is_live(), &targets.held) else {
             return;
         };
         encoder.copy_texture_to_texture(
@@ -840,8 +1054,20 @@ impl Transitions {
             // The held picture is also what `fresh` reads as in this frame; the pass shows it.
             Plan::Capture => (KIND_DISSOLVE, 0.0, 0, black),
             Plan::Dissolve(progress) => (KIND_DISSOLVE, progress, 0, black),
-            Plan::Glitch(progress, seed) => (KIND_GLITCH, progress, seed, black),
-            Plan::Mosaic(progress, seed) => (KIND_MOSAIC, progress, seed, black),
+            Plan::Glitch(progress, seed) | Plan::LensGlitch(progress, seed) => {
+                let step = glitch_step(progress, seed, matches!(plan, Plan::LensGlitch(..)));
+                params.extra = [step.amount, step.reveal, step.index as f32, 0.0];
+                let theme = accent.unwrap_or(FALLBACK_ACCENT).map(encode_srgb);
+                (KIND_GLITCH, progress, step.pattern, theme)
+            }
+            Plan::Mosaic(progress, seed) | Plan::LensMosaic(progress, seed) => {
+                let step = mosaic_step(progress, seed, matches!(plan, Plan::LensMosaic(..)));
+                params.extra = mosaic_extra(step);
+                let theme = accent.unwrap_or(FALLBACK_ACCENT).map(encode_srgb);
+                // Each pose has a pattern of its own.
+                let pose_seed = seed ^ (step.index + 1).wrapping_mul(0x85eb_ca6b);
+                (KIND_MOSAIC, progress, pose_seed, theme)
+            }
             Plan::CutIn(frame) => {
                 params.cutin = [
                     frame.seconds,
@@ -910,6 +1136,33 @@ fn cover_texture(device: &wgpu::Device, side: u32) -> wgpu::Texture {
     })
 }
 
+/// What `extra` tells the pass of a mosaic's pose: the mode (0 the picture, 1 blocks, 2 the
+/// whole screen as dots), the pattern of the blocks or the look of the dots (in the order of
+/// [`BlockPattern`] and [`LedLook`]), the density of the blocks, and 1 over the new picture.
+fn mosaic_extra(step: MosaicStep) -> [f32; 4] {
+    let new = f32::from(u8::from(step.new));
+    match step.pose {
+        MosaicPose::Clear => [0.0, 0.0, 0.0, new],
+        MosaicPose::Blocks(pattern, density) => {
+            let pattern = match pattern {
+                BlockPattern::Scatter => 0.0,
+                BlockPattern::Checker => 1.0,
+                BlockPattern::Stagger => 2.0,
+                BlockPattern::Wave => 3.0,
+            };
+            [1.0, pattern, density, new]
+        }
+        MosaicPose::Led(look) => {
+            let look = match look {
+                LedLook::Bright => 0.0,
+                LedLook::Picture => 1.0,
+                LedLook::Partial => 2.0,
+            };
+            [2.0, look, 0.0, new]
+        }
+    }
+}
+
 /// `kind` in `transition.wgsl`.
 const KIND_FADE: u32 = 0;
 const KIND_DISSOLVE: u32 = 1;
@@ -958,13 +1211,16 @@ pub fn flood_color(accent: Option<[f32; 3]>) -> [f32; 3] {
 /// What `struct Transition` holds besides the kind, progress and seed.
 #[derive(Default)]
 struct Params {
-    /// The colour a fade goes to, a flash's flood, the theme colour of a cut-in (display values).
+    /// The colour a fade goes to, a flash's flood, the theme colour of a cut-in, a glitch or a
+    /// mosaic (display values).
     color: [f32; 4],
     /// A cut-in: seconds since it started, how long the band opens, holds and tears. A punch: the
     /// side of its smear in the first.
     cutin: [f32; 4],
     /// A cut-in: the style, whether the band shows a cover, whether it tears (the frame is the
-    /// new scene's). A punch: the scale, the smear, the colour split and the flash.
+    /// new scene's). A punch: the scale, the smear, the colour split and the flash. A glitch: its
+    /// stage's amount and reveal, and the stage's number (see [`GlitchStep`]). A mosaic: its pose
+    /// (see [`mosaic_extra`]).
     extra: [f32; 4],
 }
 
@@ -1267,6 +1523,178 @@ mod tests {
             assert!(pair[1].flash > pair[0].flash);
             assert_eq!(pair[1].side, -pair[0].side);
         }
+    }
+
+    /// The steps of a course of `frames` frames, frame by frame.
+    fn course<T>(frames: u32, step: impl Fn(f32) -> T) -> Vec<T> {
+        (0..frames)
+            .map(|i| step(i as f32 / frames as f32))
+            .collect()
+    }
+
+    /// How many frames in a row each step holds, in order.
+    fn holds(indices: &[u32]) -> Vec<u32> {
+        let mut holds: Vec<u32> = Vec::new();
+        for (i, index) in indices.iter().enumerate() {
+            if i > 0 && indices[i - 1] == *index {
+                *holds.last_mut().unwrap() += 1;
+            } else {
+                holds.push(1);
+            }
+        }
+        holds
+    }
+
+    #[test]
+    fn a_mosaic_lights_blocks_then_dots_then_shows_the_new_picture() {
+        // A beat at 120 bpm is 30 frames at 60 fps.
+        let steps = course(30, |p| mosaic_step(p, 7, false));
+        let indices: Vec<u32> = steps.iter().map(|s| s.index).collect();
+        // Every pose shows, in order, and holds for a few frames: the picture steps.
+        assert_eq!(holds(&indices).len(), MOSAIC_SWITCH.len());
+        assert!(holds(&indices).iter().all(|&h| h >= 3), "{indices:?}");
+        assert!(indices.windows(2).all(|w| w[0] <= w[1]));
+        // Blocks over the old picture first; once the new picture shows, it stays.
+        assert!(matches!(steps[0].pose, MosaicPose::Blocks(..)) && !steps[0].new);
+        let first_new = steps.iter().position(|s| s.new).unwrap();
+        assert!(steps[first_new..].iter().all(|s| s.new));
+        // The cut is hidden under the whole screen of dots, which only the new picture is behind.
+        assert!(matches!(
+            steps[first_new].pose,
+            MosaicPose::Led(LedLook::Bright)
+        ));
+        let leds: Vec<&MosaicStep> = steps
+            .iter()
+            .filter(|s| matches!(s.pose, MosaicPose::Led(_)))
+            .collect();
+        assert!(!leds.is_empty() && leds.iter().all(|s| s.new));
+        // A last small batch over the new picture.
+        let last = steps.last().unwrap();
+        assert!(matches!(last.pose, MosaicPose::Blocks(_, d) if d < 0.2) && last.new);
+        // The seed picks the checker or the stagger.
+        let patterns: Vec<MosaicPose> = (0..2)
+            .map(|seed| mosaic_step(0.3, seed, false).pose)
+            .collect();
+        assert!(patterns.contains(&MosaicPose::Blocks(BlockPattern::Checker, 0.75)));
+        assert!(patterns.contains(&MosaicPose::Blocks(BlockPattern::Stagger, 0.75)));
+        // Out of range counts as the ends.
+        assert_eq!(mosaic_step(-1.0, 7, false).index, 0);
+        assert_eq!(mosaic_step(2.0, 7, false), *steps.last().unwrap());
+    }
+
+    #[test]
+    fn a_lens_mosaic_flickers_batches_and_never_fills_the_screen() {
+        // Half a beat at 120 bpm is 15 frames.
+        let steps = course(15, |p| mosaic_step(p, 3, true));
+        let indices: Vec<u32> = steps.iter().map(|s| s.index).collect();
+        assert_eq!(holds(&indices).len(), MOSAIC_LENS.len());
+        assert!(holds(&indices).iter().all(|&h| h >= 2), "{indices:?}");
+        assert!(
+            steps
+                .iter()
+                .all(|s| s.new && !matches!(s.pose, MosaicPose::Led(_)))
+        );
+        // A dark pose between batches: it flickers.
+        let clear = steps
+            .iter()
+            .position(|s| s.pose == MosaicPose::Clear)
+            .unwrap();
+        assert!(matches!(steps[0].pose, MosaicPose::Blocks(..)));
+        assert!(
+            steps[clear..]
+                .iter()
+                .any(|s| matches!(s.pose, MosaicPose::Blocks(..)))
+        );
+    }
+
+    #[test]
+    fn a_glitch_holds_its_stages_stutters_and_hides_the_cut_in_its_heaviest() {
+        let steps = course(30, |p| glitch_step(p, 11, false));
+        let indices: Vec<u32> = steps.iter().map(|s| s.index).collect();
+        assert_eq!(holds(&indices).len(), GLITCH_SWITCH.len());
+        assert!(holds(&indices).iter().all(|&h| h >= 4), "{indices:?}");
+        // The old picture first, the new one at the end, never back.
+        assert_eq!(steps[0].reveal, 0.0);
+        assert_eq!(steps.last().unwrap().reveal, 1.0);
+        assert!(steps.windows(2).all(|w| w[0].reveal <= w[1].reveal));
+        // The new picture comes through the heaviest stage, and the breaks die down after it.
+        let heaviest = steps
+            .iter()
+            .max_by(|a, b| a.amount.total_cmp(&b.amount))
+            .unwrap();
+        assert!(
+            heaviest.reveal > 0.0 && heaviest.reveal < 1.0,
+            "{heaviest:?}"
+        );
+        assert!(steps.last().unwrap().amount < 0.3);
+        // A stage stutters back to an earlier one's pattern; the others are new patterns.
+        let patterns: Vec<u32> = GLITCH_SWITCH
+            .iter()
+            .enumerate()
+            .map(|(i, _)| glitch_step((i as f32 + 0.5) / 6.0, 11, false).pattern)
+            .collect();
+        assert_eq!(patterns[0], patterns[2]);
+        assert_ne!(patterns[0], patterns[1]);
+        // Another seed, other patterns.
+        assert_ne!(glitch_step(0.0, 12, false).pattern, patterns[0]);
+    }
+
+    #[test]
+    fn a_lens_glitch_is_lighter_and_shows_only_the_live_picture() {
+        let steps = course(22, |p| glitch_step(p, 5, true));
+        let indices: Vec<u32> = steps.iter().map(|s| s.index).collect();
+        assert_eq!(holds(&indices).len(), GLITCH_LENS.len());
+        assert!(holds(&indices).iter().all(|&h| h >= 4), "{indices:?}");
+        assert!(steps.iter().all(|s| s.reveal == 1.0));
+        let most = |stages: &[(u32, f32, f32)]| stages.iter().map(|s| s.1).fold(0.0, f32::max);
+        assert!(most(&GLITCH_LENS) < most(&GLITCH_SWITCH));
+        // A clean stage among the broken ones: it stutters.
+        assert!(steps.iter().any(|s| s.amount == 0.0));
+        assert!(steps.first().unwrap().amount > 0.0 && steps.last().unwrap().amount > 0.0);
+    }
+
+    #[test]
+    fn a_lens_overlay_draws_over_the_live_frame_for_its_time() {
+        let run = |kind| OverlayRun {
+            kind,
+            start: 4.0,
+            seconds: 0.25,
+        };
+        let glitch = run(Overlay::Glitch);
+        assert!(
+            matches!(glitch.plan(0.0), Plan::LensGlitch(p, seed) if p == 0.0 && seed == seed_of(4.0))
+        );
+        assert!(matches!(glitch.plan(0.125), Plan::LensGlitch(p, _) if p == 0.5));
+        assert_eq!(glitch.plan(0.25), Plan::None);
+        let mosaic = run(Overlay::Mosaic).plan(0.1);
+        assert!(matches!(mosaic, Plan::LensMosaic(..)));
+        // It holds no picture, and the frame under it is live: a cut in it can be dressed.
+        for plan in [glitch.plan(0.0), mosaic] {
+            assert!(!plan.needs_held() && plan.is_live());
+        }
+        assert!(Plan::Keep.is_live() && !Plan::Mosaic(0.5, 1).is_live());
+        assert!(!Plan::None.is_live());
+    }
+
+    #[test]
+    fn a_mosaic_pose_tells_the_pass_its_mode_and_picture() {
+        let step = |pose, new| MosaicStep {
+            index: 0,
+            pose,
+            new,
+        };
+        assert_eq!(
+            mosaic_extra(step(MosaicPose::Blocks(BlockPattern::Wave, 0.7), false)),
+            [1.0, 3.0, 0.7, 0.0]
+        );
+        assert_eq!(
+            mosaic_extra(step(MosaicPose::Led(LedLook::Partial), true)),
+            [2.0, 2.0, 0.0, 1.0]
+        );
+        assert_eq!(
+            mosaic_extra(step(MosaicPose::Clear, true)),
+            [0.0, 0.0, 0.0, 1.0]
+        );
     }
 
     #[test]

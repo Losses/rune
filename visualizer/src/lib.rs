@@ -1389,6 +1389,8 @@ fn lab(
         LabCommand::Flare => pipeline.start_flare(),
         LabCommand::Leak => pipeline.start_leak(),
         LabCommand::Blocks => pipeline.start_blocks(),
+        LabCommand::LensGlitch => pipeline.start_overlay(transition::Overlay::Glitch),
+        LabCommand::LensMosaic => pipeline.start_overlay(transition::Overlay::Mosaic),
         LabCommand::Burst => pipeline.start_burst(),
         LabCommand::Shot(index) => {
             if !pipeline.hold_shot(index) {
@@ -1435,7 +1437,13 @@ fn inspection(
         sections: charts.sections(),
         director: pipeline.director_view().map(InspectDirector::of),
         effects: InspectEffects::of(pipeline.effects()),
-        lens: pipeline.lens_view().into(),
+        lens: {
+            let mut lens = InspectLens::from(pipeline.lens_view());
+            let running = pipeline.overlay_running();
+            lens.glitch_running = running == Some(transition::Overlay::Glitch);
+            lens.mosaic_running = running == Some(transition::Overlay::Mosaic);
+            lens
+        },
         overrides: pipeline.lab(),
         chance: match shared.lab_chance.load(Ordering::Relaxed) {
             NO_LAB_CHANCE => None,
