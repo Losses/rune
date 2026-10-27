@@ -1750,12 +1750,15 @@ impl Scene {
         // A moment that plays an effect: a cut in it is dressed with a transition of the scene's
         // list; with no cut, or none that suits, a lens effect plays over the picture.
         if let Some(played) = self.moments.tick(&music, self.chances) {
+            // What a lab forced on plays at every moment, on top of what the moment does.
+            let forced = self.lens.start_forced(played);
             let dress = self
                 .cut
                 .as_ref()
                 .and_then(|_| crate::moments::cut_dressing(&self.cut_transitions, played));
             match (&mut self.cut, dress) {
                 (Some(cut), Some(kind)) => cut.dress = Some(kind),
+                _ if forced => {}
                 _ => self.lens.start_at(played),
             }
         }

@@ -212,6 +212,27 @@ impl Lens {
         }
     }
 
+    /// Start every effect a lab forced on, at a moment that `played` (what "on at every moment"
+    /// means in a lab: the forced ones play, whatever the scene lists or the cut does). Whether
+    /// any is forced.
+    pub fn start_forced(&mut self, played: Played) -> bool {
+        let strength = match played.strength {
+            Strength::Strong => 1.0,
+            Strength::Medium => MEDIUM_STRENGTH,
+        };
+        let forced = self.forced;
+        if forced.flare {
+            self.start_flare(strength);
+        }
+        if forced.leak {
+            self.start_leak(strength);
+        }
+        if forced.blocks {
+            self.start_blocks(strength);
+        }
+        forced.flare || forced.leak || forced.blocks
+    }
+
     /// What a lab forced on, to give a rebuilt scene.
     pub fn forced(&self) -> LabLens {
         self.forced
@@ -385,6 +406,17 @@ mod tests {
         // A cue alone starts nothing any more: the scheduler does.
         let mut cued = lens(&["flare"]);
         assert!(cued.tick(1.0 / 60.0, &music(1.0, 1), 1.0).is_idle());
+        // What a lab forced plays at every moment, all of it.
+        let mut forced = lens(&["leak"]);
+        forced.set_forced(LabLens {
+            flare: true,
+            blocks: true,
+            ..LabLens::default()
+        });
+        assert!(forced.start_forced(medium));
+        let view = forced.view();
+        assert!(view.flare_running && view.blocks_running && !view.leak_running);
+        assert!(!lens(&["leak"]).start_forced(strong));
         let mut only_blocks = lens(&["blocks"]);
         only_blocks.start_at(medium);
         assert!(only_blocks.tick(1.0 / 60.0, &music(0.0, 0), 1.0).is_idle());
