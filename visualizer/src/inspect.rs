@@ -3,7 +3,7 @@
 //! things it can be told to do now (see [`crate::Visualizer::lab`]). The app uses neither: the
 //! render thread only fills an [`Inspect`] while inspection is on.
 
-use crate::scene::{DirectorView, MusicValues};
+use crate::scene::{DirectorView, Effects, MusicValues};
 use crate::switching::FOLLOWED;
 use crate::transition::Transition;
 
@@ -21,6 +21,8 @@ pub struct Inspect {
     pub sections: Vec<InspectSection>,
     /// The camera director of the scene on screen, if the scene declares shots.
     pub director: Option<InspectDirector>,
+    /// The transitions and lens effects the scene on screen declares.
+    pub effects: InspectEffects,
     pub switching: InspectSwitching,
 }
 
@@ -82,6 +84,40 @@ pub struct InspectDirector {
     pub tier: String,
     /// Whether the shot is held (see [`LabCommand::Shot`]).
     pub held: bool,
+    /// The scene's shots in order (the numbers of [`LabCommand::Shot`]).
+    pub shots: Vec<InspectShot>,
+    /// How often the director cuts: "sections", "calm", "normal" or "busy". The pace in effect,
+    /// the scene's own, and whether a lab overrides it (see [`LabCommand::CyclePace`]).
+    pub pace: String,
+    pub own_pace: String,
+    pub pace_overridden: bool,
+}
+
+/// One of the scene's shots.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InspectShot {
+    /// The shot's `name`, empty if it has none.
+    pub name: String,
+    /// "wide", "medium", "close", "detail" or "top".
+    pub size: String,
+}
+
+/// The scene's `[effects]` lists, as it declares them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InspectEffects {
+    pub switch: Vec<String>,
+    pub cut: Vec<String>,
+    pub lens: Vec<String>,
+}
+
+impl InspectEffects {
+    pub(crate) fn of(effects: &Effects) -> Self {
+        Self {
+            switch: effects.switch.clone(),
+            cut: effects.cut.clone(),
+            lens: effects.lens.clone(),
+        }
+    }
 }
 
 /// The automatic switching of scenes.
@@ -143,6 +179,9 @@ pub enum LabCommand {
     Shot(Option<u32>),
     /// Switch to the next scene now, as the automatic switch would, built in the background.
     NextScene(LabTransition),
+    /// Step the pace of the scene on screen: its own, then sections, calm, normal and busy, then
+    /// its own again. It changes how often the director cuts, and lasts as long as the scene.
+    CyclePace,
 }
 
 /// The name of a shot size, from the number `struct Shot` has.
@@ -195,6 +234,17 @@ impl InspectDirector {
             length: state.length,
             tier: view.tier.to_string(),
             held: view.held,
+            shots: view
+                .shots
+                .into_iter()
+                .map(|(name, size)| InspectShot {
+                    name,
+                    size: size_name(size as u32).to_string(),
+                })
+                .collect(),
+            pace: view.pace.name().to_string(),
+            own_pace: view.own_pace.name().to_string(),
+            pace_overridden: view.pace_overridden,
         }
     }
 }

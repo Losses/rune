@@ -26,6 +26,7 @@ use audio::{Analyzer, SPECTRUM_ROWS, SPECTRUM_WIDTH, WAVEFORM_WIDTH};
 use director::Director;
 pub use director::DirectorView;
 use inputs::EventCounter;
+pub use manifest::Effects;
 use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
 use wgsl::ParamsLayout;
 
@@ -433,6 +434,9 @@ pub struct Scene {
     music_values: inputs::MusicValues,
     /// Decides the camera cuts, if the scene declares shots.
     director: Option<Director>,
+    /// The shot a scene lab holds (see [`Scene::hold_shot`]), kept to hold it again when the
+    /// scene is rebuilt from its saved files.
+    held_shot: Option<u32>,
     /// The transitions a switch to the scene may take, by name (its `effects.switch`).
     switch_transitions: Vec<String>,
     /// The cut the director made in the last frame.
@@ -1248,6 +1252,7 @@ impl Scene {
             events: EventCounter::default(),
             music_values: inputs::MusicValues::default(),
             director: Director::for_manifest(manifest),
+            held_shot: None,
             switch_transitions: manifest.effects.switch.clone(),
             cut: None,
             started: None,
@@ -1327,12 +1332,32 @@ impl Scene {
             return false;
         };
         match index {
-            Some(index) => director.hold_shot(index, &self.music_values).is_some(),
+            Some(index) => {
+                let held = director.hold_shot(index, &self.music_values).is_some();
+                if held {
+                    self.held_shot = Some(index);
+                }
+                held
+            }
             None => {
                 director.release_shot();
+                self.held_shot = None;
                 true
             }
         }
+    }
+
+    /// Step the director's pace for a scene lab (see `Director::cycle_pace`). Nothing without
+    /// shots.
+    pub fn cycle_pace(&mut self) {
+        if let Some(director) = &mut self.director {
+            director.cycle_pace();
+        }
+    }
+
+    /// The transitions and lens effects the scene declares.
+    pub fn effects(&self) -> &manifest::Effects {
+        &self.files.manifest.effects
     }
 
     /// Read the scene's files again. When only parameter defaults changed, only those are
@@ -1373,6 +1398,14 @@ impl Scene {
             next.first = false;
         }
         next.take_music_from(self);
+        // What a scene lab set on the scene survives its being saved: the director is new, the
+        // hold and the pace are the lab's.
+        if let (Some(old), Some(new)) = (&self.director, &mut next.director) {
+            new.set_pace_override(old.pace_override());
+        }
+        if let Some(index) = self.held_shot {
+            next.hold_shot(Some(index));
+        }
         next.set_covers(
             device,
             queue,

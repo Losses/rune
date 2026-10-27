@@ -632,3 +632,37 @@ fn a_scene_cut_is_reported_for_the_frame_it_happens_in() {
     assert_eq!((cut.index, cut.size), (1, ShotSize::Close));
     assert_eq!(cut.motion, ShotMove::Glide);
 }
+
+#[test]
+fn a_held_shot_and_a_lab_pace_survive_a_reload_of_the_scene() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let shots = "[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\nmove = \"glide\"\n";
+    let dir = shots_scene("held-reload", shots);
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    assert!(scene.hold_shot(Some(1)));
+    scene.cycle_pace();
+    // A change that rebuilds the scene (a third shot) gets a new director, which holds again.
+    std::fs::write(
+        dir.join(MANIFEST),
+        std::fs::read_to_string(dir.join(MANIFEST)).unwrap() + "[[shot]]\nsize = \"top\"\n",
+    )
+    .unwrap();
+    assert!(scene.reload(&device, &queue).unwrap());
+    let view = scene.director_view().unwrap();
+    assert_eq!(view.shots.len(), 3);
+    assert!(view.held);
+    assert_eq!(view.state.index, 1);
+    assert!(view.pace_overridden);
+    // Released, it stays released through the next reload.
+    scene.hold_shot(None);
+    std::fs::write(
+        dir.join(MANIFEST),
+        std::fs::read_to_string(dir.join(MANIFEST)).unwrap() + "[[shot]]\nsize = \"medium\"\n",
+    )
+    .unwrap();
+    assert!(scene.reload(&device, &queue).unwrap());
+    assert!(!scene.director_view().unwrap().held);
+}
