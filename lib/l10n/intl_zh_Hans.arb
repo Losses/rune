@@ -1389,6 +1389,22 @@
   "@visualizerRemovePresetFolder": {
     "description": "从可视化场景文件夹中移除一个文件夹的按钮；文件夹本身不会被删除。"
   },
+  "visualizerEffects": "特效频率",
+  "@visualizerEffects": {
+    "description": "选择可视化在音乐的重点时刻播放特效的频率的设置项标题。"
+  },
+  "visualizerEffectsSubtitle": "可视化在音乐的重点时刻播放特效的频率",
+  "@visualizerEffectsSubtitle": {
+    "description": "可视化特效频率设置项的副标题。"
+  },
+  "visualizerEffectsDefault": "默认",
+  "@visualizerEffectsDefault": {
+    "description": "可视化特效频率设置项的选项：偶尔播放特效，一首歌大约两次。"
+  },
+  "visualizerEffectsMore": "多",
+  "@visualizerEffectsMore": {
+    "description": "可视化特效频率设置项的选项：更频繁地播放特效。"
+  },
   "coverWallDisplay": "封面墙显示内容",
   "@coverWallDisplay": {
     "description": "选择封面墙页面显示内容的设置项标题。"

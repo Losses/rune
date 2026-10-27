@@ -1379,6 +1379,22 @@
   "@visualizerRemovePresetFolder": {
     "description": "從視覺化場景資料夾中移除一個資料夾的按鈕；資料夾本身不會被刪除。"
   },
+  "visualizerEffects": "特效頻率",
+  "@visualizerEffects": {
+    "description": "選擇視覺化在音樂的重點時刻播放特效的頻率的設置項標題。"
+  },
+  "visualizerEffectsSubtitle": "視覺化在音樂的重點時刻播放特效的頻率",
+  "@visualizerEffectsSubtitle": {
+    "description": "視覺化特效頻率設置項的副標題。"
+  },
+  "visualizerEffectsDefault": "預設",
+  "@visualizerEffectsDefault": {
+    "description": "視覺化特效頻率設置項的選項：偶爾播放特效，一首歌大約兩次。"
+  },
+  "visualizerEffectsMore": "多",
+  "@visualizerEffectsMore": {
+    "description": "視覺化特效頻率設置項的選項：更頻繁地播放特效。"
+  },
   "coverWallDisplay": "封面牆顯示內容",
   "@coverWallDisplay": {
     "description": "選擇封面牆頁面顯示內容的設置項標題。"

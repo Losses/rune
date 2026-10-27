@@ -58,6 +58,13 @@ pub struct SetVisualizerAutoSwitchPausedRequest {
     pub paused: bool,
 }
 
+/// How often effects play at the music's moments: "default" or "more" (anything else counts as
+/// "default"). The setting is saved by the app and sent when a visualizer starts.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SetVisualizerEffectLevelRequest {
+    pub level: String,
+}
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct VisualizerStatusRequest {}
 
