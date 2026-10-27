@@ -1,7 +1,7 @@
 //! The lens effects of the built-in post-processing (`flare`, `leak`, `blocks`; see "Shared
 //! effects" in `docs/music.md`). Each is an effect that is started at a moment with a strength
-//! and runs its course (a burst of streaks, a glow that seeps in and goes, a frame or two of flat
-//! colour); none is a constant layer. [`Lens::tick`] makes the small uniform `post.wgsl` reads,
+//! and runs its course (streaks that swell and fade, a glow that seeps in and goes, a few frames
+//! washed in the theme colour); none is a constant layer. [`Lens::tick`] makes the small uniform `post.wgsl` reads,
 //! and a scene that lists none gets a uniform of zeros, which costs the post pass nothing.
 //!
 //! What starts them is the shared scheduler of the moments (`crate::moments`): at a moment that
@@ -15,17 +15,19 @@ use crate::switching::FOLLOWED;
 
 /// How strong an effect a medium moment starts (a strong moment's is at full strength).
 pub const MEDIUM_STRENGTH: f32 = 0.6;
-/// How long a block frame shows the picture's shapes in the theme colour, and then how long its
-/// negative stutters after it. About two frames and one at 60 fps, one and one at 30 fps; each is
-/// always drawn at least once.
-pub const BLOCKS_SECONDS: f32 = 0.03;
-pub const BLOCKS_INVERTED_SECONDS: f32 = 0.015;
-/// A flare's glare comes in over this many beats and goes away over the next ones.
-pub const FLARE_IN_BEATS: f32 = 0.25;
+/// How long a colour-block frame holds the picture washed in the theme colour, and how long it
+/// takes to go: three frames and two at 60 fps, two and one at 30 fps. Its first frame is always
+/// drawn.
+pub const BLOCKS_HOLD_SECONDS: f32 = 0.04;
+pub const BLOCKS_OUT_SECONDS: f32 = 0.04;
+/// A flare swells over this many beats (its intensity and the length of its streaks, easing
+/// out) and fades over the next ones.
+pub const FLARE_IN_BEATS: f32 = 0.75;
 pub const FLARE_OUT_BEATS: f32 = 6.0;
-/// A flare's bright streak sweeps out from the brightest highlight to the frame's sides in this
-/// many beats, as it starts.
-pub const FLARE_SWEEP_BEATS: f32 = 1.0;
+/// How far the flare's streaks reach as it starts and once it has swollen: the weight of each
+/// wider level of the streaks' pyramid against the one before (see `post.wgsl`).
+pub const FLARE_STRETCH_FROM: f32 = 0.5;
+pub const FLARE_STRETCH: f32 = 0.85;
 /// A light leak comes in over this many beats, and goes away over the next ones.
 pub const LEAK_IN_BEATS: f32 = 1.0;
 pub const LEAK_OUT_BEATS: f32 = 16.0;
@@ -49,15 +51,13 @@ pub const LENS_SIZE: u64 = 48;
 /// What the post pass is told for one frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LensFrame {
-    /// The strength of the flare's glare, 0 (off) and up.
+    /// The intensity of the flare, 0 (off) and up.
     pub flare: f32,
-    /// How far the flare's bright streak has swept out, 0 to 1 (1 once it reached the sides).
-    pub flare_sweep: f32,
-    /// 1 when the post pass takes the frame's key (its brightest, its mean and where the
-    /// brightest is, which the flare and the block frame start from) as it is instead of
-    /// following the last one smoothly: when the frame before drew none (a flare's first frame
-    /// is at strength 0 and draws none, so a flare started again looks afresh too).
-    pub fresh: f32,
+    /// How far its streaks reach (see [`FLARE_STRETCH`]).
+    pub flare_stretch: f32,
+    /// 1 when the frame before drew the flare, so that its highlights are followed from it
+    /// (set by the post pass, which knows).
+    pub flare_history: f32,
     /// How much of the light leak is in, 0 to 1.
     pub leak: f32,
     /// Where the leak's source is (in uv, on or just beyond an edge), and its radius as a share
@@ -68,10 +68,10 @@ pub struct LensFrame {
     pub leak_phase: f32,
     /// How hot the leak burns at its edge, 0 to 1: only as it comes in.
     pub leak_burn: f32,
-    /// How much of a colour-block frame is on, 0 or its strength.
+    /// How much of the colour-block frame's wash is over the picture, 0 to 1.
     pub blocks: f32,
-    /// 1 while the block frame stutters to its negative.
-    pub blocks_inverted: f32,
+    /// How far the wash has run up into a flood of light tint, 0 to 1.
+    pub blocks_flood: f32,
 }
 
 impl LensFrame {
@@ -86,16 +86,16 @@ impl LensFrame {
         let mut bytes = [0; LENS_SIZE as usize];
         let values = [
             self.flare,
-            self.flare_sweep,
-            self.fresh,
+            self.flare_stretch,
             self.blocks,
+            self.blocks_flood,
             self.leak,
             self.leak_at[0],
             self.leak_at[1],
             self.leak_size,
             self.leak_phase,
             self.leak_burn,
-            self.blocks_inverted,
+            self.flare_history,
             0.0,
         ];
         for (chunk, v) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(values) {
@@ -125,14 +125,13 @@ struct Run {
     age: f32,
 }
 
-/// A colour-block frame under way: its strength, its age in seconds, and whether its plain and
-/// its negative frame were drawn yet.
+/// A colour-block frame under way: its age in seconds, whether it was drawn yet, and whether it
+/// runs up into a flood.
 #[derive(Clone, Copy, Debug)]
 struct Blocks {
-    strength: f32,
     age: f32,
-    plain_drawn: bool,
-    inverted_drawn: bool,
+    drawn: bool,
+    floods: bool,
 }
 
 /// A light leak under way, which comes from a corner.
@@ -155,8 +154,8 @@ pub struct Lens {
     blocks: Option<Blocks>,
     /// How many leaks started, which picks the corner of the next.
     leaks: u32,
-    /// Whether the frame before drew the key (it had a flare or a block frame on).
-    keyed: bool,
+    /// How many full-strength block frames started: every second one floods.
+    floods: u32,
     /// What the scene itself listed, which a lab's forcing adds to and takes away from again.
     own: LabLens,
     /// What a lab forced on (see [`Lens::set_forced`]).
@@ -175,7 +174,7 @@ impl Lens {
             leak: None,
             blocks: None,
             leaks: 0,
-            keyed: false,
+            floods: 0,
             own: LabLens {
                 flare: has("flare"),
                 leak: has("leak"),
@@ -216,14 +215,27 @@ impl Lens {
         });
     }
 
-    /// Fire a colour-block frame of `strength` (0 to 1: how much of the graphic frame is over
-    /// the picture) now: its plain frame, then its negative.
+    /// Fire a colour-block frame now: the picture washed in the theme colour for a few frames.
+    /// At full `strength` every second one runs up into a flood of light tint as it holds.
     pub fn start_blocks(&mut self, strength: f32) {
+        let full = strength >= 1.0;
+        if full {
+            self.floods = self.floods.wrapping_add(1);
+        }
         self.blocks = Some(Blocks {
-            strength: strength.clamp(0.0, 1.0),
             age: 0.0,
-            plain_drawn: false,
-            inverted_drawn: false,
+            drawn: false,
+            floods: full && self.floods.is_multiple_of(2),
+        });
+    }
+
+    /// Keep a flare at its full swell from now on, as long as this is called before each frame
+    /// (a probe's look at a steady flare).
+    #[cfg(test)]
+    pub fn hold_flare(&mut self) {
+        self.flare = Some(Run {
+            strength: 1.0,
+            age: FLARE_IN_BEATS,
         });
     }
 
@@ -306,16 +318,19 @@ impl Lens {
 
         let mut frame = LensFrame::default();
 
-        // The flare: its streak sweeps out over a beat, its glare comes in fast and goes over a
-        // bar or two. It gives way to a low quality.
+        // The flare: it swells over most of a beat, easing out, and fades over a bar or two.
+        // It gives way to a low quality.
         if let Some(run) = &mut self.flare {
             let total = FLARE_IN_BEATS + FLARE_OUT_BEATS;
             if run.age >= total {
                 self.flare = None;
             } else {
                 if quality >= FLARE_MIN_QUALITY {
-                    frame.flare = run.strength * envelope(run.age, FLARE_IN_BEATS, FLARE_OUT_BEATS);
-                    frame.flare_sweep = (run.age / FLARE_SWEEP_BEATS).min(1.0);
+                    let swell = ease_out(run.age / FLARE_IN_BEATS);
+                    frame.flare =
+                        run.strength * swell * smooth((total - run.age) / FLARE_OUT_BEATS);
+                    frame.flare_stretch =
+                        FLARE_STRETCH_FROM + (FLARE_STRETCH - FLARE_STRETCH_FROM) * swell;
                 }
                 run.age += beats;
             }
@@ -347,30 +362,33 @@ impl Lens {
             }
         }
 
-        // The block frame: its plain frame, then its negative; each is drawn at least once.
+        // The block frame: on at once, held, then out over a few frames; the first is always
+        // drawn. A flooding one runs up into the light tint as it holds and goes with it.
         if let Some(blocks) = &mut self.blocks {
-            let inverted = blocks.plain_drawn && blocks.age >= BLOCKS_SECONDS;
-            let over = BLOCKS_SECONDS + BLOCKS_INVERTED_SECONDS;
-            if inverted && blocks.inverted_drawn && blocks.age >= over {
+            let out = (blocks.age - BLOCKS_HOLD_SECONDS) / BLOCKS_OUT_SECONDS;
+            if blocks.drawn && out >= 1.0 {
                 self.blocks = None;
             } else {
-                frame.blocks = blocks.strength;
-                if inverted {
-                    frame.blocks_inverted = 1.0;
-                    blocks.inverted_drawn = true;
+                frame.blocks = if blocks.drawn {
+                    1.0 - out.clamp(0.0, 1.0)
                 } else {
-                    blocks.plain_drawn = true;
+                    1.0
+                };
+                if blocks.floods {
+                    frame.blocks_flood = smooth(blocks.age / BLOCKS_HOLD_SECONDS);
                 }
+                blocks.drawn = true;
                 blocks.age += dt;
             }
         }
-        let keyed = frame.flare > 0.0 || frame.blocks > 0.0;
-        if keyed && !self.keyed {
-            frame.fresh = 1.0;
-        }
-        self.keyed = keyed;
         frame
     }
+}
+
+/// Easing out from 0 to 1: fast first, settling at the end.
+fn ease_out(x: f32) -> f32 {
+    let x = 1.0 - x.clamp(0.0, 1.0);
+    1.0 - x * x * x
 }
 
 /// 0 to 1 and back: a smoothstep up over `rise` beats at `age`, then down over `fall`.
@@ -496,7 +514,7 @@ mod tests {
         lens.start_flare(1.0);
         let peak = run(&mut lens, 0.5);
         assert!(peak.flare > 0.9, "{}", peak.flare);
-        // 6.25 beats at 120 bpm are 3.125 s.
+        // 6.75 beats at 120 bpm are 3.375 s.
         run(&mut lens, 2.5);
         assert!(lens.view().flare_running);
         run(&mut lens, 1.0);
@@ -539,69 +557,63 @@ mod tests {
         assert!(!lens.view().flare_running);
     }
 
-    /// A block frame is a plain frame or two and then one of its negative, each drawn at least
-    /// once even at a low frame rate.
+    /// A block frame is on at once, holds for three frames at 60 fps and goes over two; at a low
+    /// frame rate its first frame is still drawn. At full strength every second one floods,
+    /// rising as it holds.
     #[test]
     fn a_block_frame_is_short_but_drawn() {
         let mut lens = lens(&[]);
+        let tick = |lens: &mut Lens, dt: f32| {
+            let f = lens.tick(dt, &music(0.0, 0), 1.0);
+            (f.blocks, f.blocks_flood)
+        };
         lens.start_blocks(1.0);
-        let mut plain = 0;
-        let mut inverted = 0;
+        let mut course = Vec::new();
         loop {
-            let frame = lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
-            if frame.blocks <= 0.0 {
+            let (wash, flood) = tick(&mut lens, 1.0 / 60.0);
+            if wash <= 0.0 {
                 break;
             }
-            if frame.blocks_inverted > 0.0 {
-                inverted += 1;
-            } else {
-                assert_eq!(inverted, 0, "the negative comes last");
-                plain += 1;
-            }
+            assert_eq!(flood, 0.0, "the first does not flood");
+            course.push(wash);
         }
-        assert_eq!((plain, inverted), (2, 1));
+        assert_eq!(course.len(), 5, "{course:?}");
+        assert!(course[..3].iter().all(|&w| w == 1.0), "{course:?}");
+        assert!(course[3] < 1.0 && course[4] < course[3] && course[4] > 0.0);
+        assert!(!lens.view().blocks_running);
+
         lens.start_blocks(1.0);
-        let slow = |lens: &mut Lens| {
-            let f = lens.tick(0.1, &music(0.0, 0), 1.0);
-            (f.blocks, f.blocks_inverted)
-        };
-        assert_eq!(slow(&mut lens), (1.0, 0.0));
-        assert_eq!(slow(&mut lens), (1.0, 1.0));
-        assert_eq!(slow(&mut lens).0, 0.0);
+        let floods: Vec<f32> = (0..3).map(|_| tick(&mut lens, 1.0 / 60.0).1).collect();
+        assert!(floods[0] < floods[1] && floods[1] < floods[2], "{floods:?}");
+        assert!(floods.iter().all(|f| (0.0..=1.0).contains(f)));
+        // A weaker one never floods.
+        lens.start_blocks(MEDIUM_STRENGTH);
+        lens.start_blocks(MEDIUM_STRENGTH);
+        assert!((0..5).all(|_| tick(&mut lens, 1.0 / 60.0).1 == 0.0));
+
+        lens.start_blocks(1.0);
+        assert_eq!(tick(&mut lens, 0.1).0, 1.0);
+        assert_eq!(tick(&mut lens, 0.1).0, 0.0);
     }
 
-    /// A flare's streak sweeps out over a beat and says so. The key is taken afresh in the
-    /// first frame that draws one after a frame that drew none (a flare started again too), and
-    /// followed after that. A leak burns at its edge only as it comes in.
+    /// A flare swells, its intensity and the reach of its streaks easing out over most of a
+    /// beat, and then fades. A leak burns at its edge only as it comes in.
     #[test]
-    fn the_flare_sweeps_and_the_leak_burns_as_they_start() {
+    fn the_flare_swells_and_the_leak_burns_as_they_start() {
         let mut lens = lens(&[]);
         let tick = |lens: &mut Lens| lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
         lens.start_flare(1.0);
-        let first = tick(&mut lens);
-        assert_eq!(
-            (first.flare, first.fresh, first.flare_sweep),
-            (0.0, 0.0, 0.0)
-        );
-        let second = tick(&mut lens);
-        assert!(second.flare > 0.0 && second.fresh == 1.0);
-        assert!(second.flare_sweep > 0.0 && second.flare_sweep < 0.1);
-        assert_eq!(tick(&mut lens).fresh, 0.0);
-        // A beat at 120 bpm is 30 frames.
-        run(&mut lens, 0.5);
-        let swept = tick(&mut lens);
-        assert_eq!(swept.flare_sweep, 1.0);
-        assert!(swept.flare > 0.8);
-        lens.start_flare(1.0);
-        tick(&mut lens);
-        assert_eq!(tick(&mut lens).fresh, 1.0);
-        // A block frame over a flare follows the key; alone, it takes it afresh.
-        lens.start_blocks(1.0);
-        assert_eq!(tick(&mut lens).fresh, 0.0);
-        let mut blocks = self::lens(&[]);
-        blocks.start_blocks(1.0);
-        let firsts: Vec<f32> = (0..3).map(|_| tick(&mut blocks).fresh).collect();
-        assert_eq!(firsts, [1.0, 0.0, 0.0]);
+        let course: Vec<LensFrame> = (0..60).map(|_| tick(&mut lens)).collect();
+        assert_eq!(course[0].flare, 0.0);
+        // A beat at 120 bpm is 30 frames: up for 22 frames, faster first.
+        for pair in course[..23].windows(2) {
+            assert!(pair[1].flare > pair[0].flare);
+            assert!(pair[1].flare_stretch > pair[0].flare_stretch);
+        }
+        assert!(course[8].flare > 0.6, "{}", course[8].flare);
+        assert!((course[0].flare_stretch - FLARE_STRETCH_FROM).abs() < 1e-6);
+        assert!((course[30].flare_stretch - FLARE_STRETCH).abs() < 1e-6);
+        assert!(course[59].flare < course[30].flare);
 
         lens.start_leak(1.0);
         let mut burn = Vec::new();

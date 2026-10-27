@@ -5,13 +5,10 @@
 //
 // The lens effects of a scene that lists them (struct Lens, see scene/lens.rs; all zeros
 // otherwise, and then nothing below costs a tap; each effect is started at a moment and runs
-// its course, so these are strengths that rise and fall). The flare and the block frame start
-// from the picture at a quarter of the size (`lens_source`) and the frame's key: its brightest
-// luma, its mean and where the brightest is (`lens_cells`, `lens_key`), so that they find a
-// night scene's highlights as well as a bright one's. The flare's streaks and ghosts are drawn
-// at that size (`flare_wide`, `flare`); the composite lays the flare, the light leak and the
-// block frame over the tone-mapped picture, in display values, so they lift the dark instead of
-// greying it, and none reaches full white.
+// its course, so these are strengths that rise and fall). The flare is drawn at a quarter of the
+// size in passes of its own (`flare_bright`, `streak_down`, `streak_up`, `flare`); the composite
+// lays it, the light leak and the colour-block frame's wash over the tone-mapped picture, in
+// display values, so they lift the dark instead of greying it, and none reaches full white.
 
 @group(0) @binding(0) var<storage, read> post: Post;
 @group(0) @binding(1) var<uniform> frame: Frame;
@@ -20,33 +17,28 @@
 @group(1) @binding(1) var smp: sampler;
 @group(1) @binding(2) var bloom: texture_2d<f32>;
 @group(1) @binding(3) var blue_noise: texture_2d<f32>;
-// The flare, in the composite; in `flare` its wide streaks from `flare_wide`.
+// The flare, in the composite; in `flare` the streaks' pyramid; in `flare_bright` the highlights
+// of the frame before.
 @group(1) @binding(4) var flare_tex: texture_2d<f32>;
-// The frame's key (1 by 1): the brightest luma, the mean luma, and where the brightest is (uv).
-// In `lens_key` the one of the frame before.
-@group(1) @binding(5) var key_tex: texture_2d<f32>;
-// The picture at a quarter of the size, exposed, with its luma in alpha: for the block frame.
-// In `lens_source` the frame before's key is at binding 5.
-@group(1) @binding(6) var lens_tex: texture_2d<f32>;
 
-// Which lens effects are on. `flare` is the strength of the glare (0 off), `sweep` how far its
-// streak has swept out (0 to 1); `fresh` is 1 when the key is taken as it is (the first frame
-// with a key after one without); `leak` how much of the light
-// leak is in (0 to 1) with its source at (leak_x, leak_y) in uv, of radius leak_size (a share of
-// the long side), a phase that grows over the leak and how hot it burns at its edge (`burn`);
-// `blocks` the strength of a colour-block frame (0 off), `inverted` 1 on its negative.
+// Which lens effects are on. `flare` is the flare's intensity (0 off) and `stretch` how far its
+// streaks reach (the weight of each wider level of their pyramid); `blocks` how much of the
+// colour-block frame's wash is on (0 off) and `flood` how far it has run up into the light tint;
+// `leak` how much of the light leak is in (0 to 1) with its source at (leak_x, leak_y) in uv, of
+// radius leak_size (a share of the long side), a phase that grows over the leak and how hot it
+// burns at its edge (`burn`). `history` is 1 when the frame before drew the flare.
 struct Lens {
   flare: f32,
-  sweep: f32,
-  fresh: f32,
+  stretch: f32,
   blocks: f32,
+  flood: f32,
   leak: f32,
   leak_x: f32,
   leak_y: f32,
   leak_size: f32,
   phase: f32,
   burn: f32,
-  inverted: f32,
+  history: f32,
   unused: f32,
 }
 
@@ -153,191 +145,111 @@ fn up(v: Varyings) -> @location(0) vec4f {
   return vec4f(sum / 16.0 * clamp(post.bloom_radius, 0.0, 1.0), 1.0);
 }
 
-// ---- The lens effects' own passes, drawn only while the flare or a block frame is on ----
+// ---- The lens flare, drawn only while it is on ----
+//
+// After Keijiro Takahashi's Kino Streak and John Chapman's pseudo lens flare. It tracks no light
+// source and adapts to nothing in the frame, so it is as steady as the picture: the highlights
+// above a fixed threshold, smeared into anamorphic streaks by a pyramid that shrinks only across,
+// and ghosts and a halo sampled from the highlights mirrored through the centre. All at a
+// quarter of the internal width and half its height, or less.
 
-// A 4 by 4 box of the picture's luma at uv, exposed: two taps each way between texels.
-fn box_luma(uv: vec2f, texel: vec2f) -> f32 {
-  let a = tap(uv, texel, -1.0, -1.0) + tap(uv, texel, 1.0, -1.0);
-  let b = tap(uv, texel, -1.0, 1.0) + tap(uv, texel, 1.0, 1.0);
-  return luma(a + b) * 0.25 * exp2(post.exposure);
-}
+// The threshold of the flare's highlights in the exposed HDR picture, and the width of its soft
+// knee on each side, as a share of it.
+const FLARE_THRESHOLD: f32 = 1.0;
+const FLARE_KNEE: f32 = 0.3;
 
-// The picture at a quarter of the internal size, exposed, before bloom and tone mapping: its
-// luma in alpha, where the frame's key and the block frame start from (the 13 taps with the
-// Karis average leave no halftone dot or lone bright pixel to speak of); and in red, while the
-// flare is on, what throws the flare's streaks: the highlights that are small up and down. A
-// lamp or a thin line throws a full streak; a large bright area only a faint one at its top and
-// bottom edges, so a frame of big signs is not barred with thick bands. The highlights are
-// found against the key of the frame before, which the next pass is about to replace.
+// The highlights at a quarter of the width and half the height: the 13 taps with the Karis
+// average (no halftone dot or lone bright pixel flickers), above the threshold with a soft knee,
+// and half of them those of the frame before (when it drew the flare), so a highlight that
+// shimmers about the threshold glows steadily.
 @fragment
-fn lens_source(v: Varyings) -> @location(0) vec4f {
-  let l = luma(downsample(v.uv, true)) * exp2(post.exposure);
-  var spot = 0.0;
-  if (lens.flare > 0.0) {
-    let key = textureLoad(key_tex, vec2i(0), 0);
-    let texel = 1.0 / vec2f(textureDimensions(source));
-    var around = 0.0;
-    for (var i = 1; i <= 2; i++) {
-      // Two and four texels of the quarter size up and down.
-      let y = vec2f(0.0, f32(i) * 8.0 * texel.y);
-      around += highlight(box_luma(v.uv + y, texel), key) + highlight(box_luma(v.uv - y, texel), key);
-    }
-    let alone = 1.0 - around * 0.25;
-    spot = highlight(l, key) * alone * alone;
-  }
-  return vec4f(spot, 0.0, 0.0, l);
+fn flare_bright(v: Varyings) -> @location(0) vec4f {
+  let c = downsample(v.uv, true) * exp2(post.exposure);
+  let b = max(c.r, max(c.g, c.b));
+  let knee = FLARE_THRESHOLD * FLARE_KNEE;
+  var soft = clamp(b - FLARE_THRESHOLD + knee, 0.0, 2.0 * knee);
+  soft = soft * soft / (4.0 * knee);
+  let now = c * max(soft, b - FLARE_THRESHOLD) / max(b, 1e-4);
+  let before = textureSampleLevel(flare_tex, smp, v.uv, 0.0).rgb;
+  return vec4f(mix(now, before, 0.5 * lens.history), 1.0);
 }
 
-// How many cells the key divides the frame into each way, and the taps a cell takes each way.
-const CELLS: i32 = 8;
-const CELL_TAPS: i32 = 8;
-
-// Of one of 8 by 8 cells of the quarter-size picture: its brightest luma, its mean luma and
-// where its brightest is (uv).
+// A level of the streaks' pyramid: the one before at half its width, the same height (two taps
+// between texels, four texels).
 @fragment
-fn lens_cells(v: Varyings) -> @location(0) vec4f {
-  let cell = floor(v.position.xy);
-  var most = 0.0;
-  var sum = 0.0;
-  var at = (cell + 0.5) / f32(CELLS);
-  for (var j = 0; j < CELL_TAPS; j++) {
-    for (var i = 0; i < CELL_TAPS; i++) {
-      let uv = (cell + (vec2f(f32(i), f32(j)) + 0.5) / f32(CELL_TAPS)) / f32(CELLS);
-      let l = textureSampleLevel(source, smp, uv, 0.0).a;
-      sum += l;
-      if (l > most) {
-        most = l;
-        at = uv;
-      }
-    }
-  }
-  return vec4f(most, sum / f32(CELL_TAPS * CELL_TAPS), at);
+fn streak_down(v: Varyings) -> @location(0) vec4f {
+  let dx = 1.0 / f32(textureDimensions(source).x);
+  let a = textureSampleLevel(source, smp, v.uv - vec2f(dx, 0.0), 0.0).rgb;
+  let b = textureSampleLevel(source, smp, v.uv + vec2f(dx, 0.0), 0.0).rgb;
+  return vec4f((a + b) * 0.5, 1.0);
 }
 
-// The frame's key from its cells: the brightest luma, the mean, and where the brightest is
-// (the cells' brightest spots weighted steeply by how bright they are). It follows the frame
-// before smoothly, so the flare does not jump between highlights, except when it is fresh
-// (the first frame with a key after one without), which takes the picture as it is.
+// The level below, widened back and added onto a level (blending one + one), weighted by the
+// stretch: each wider level weighs that much less than the one before, so a larger stretch
+// reaches further.
 @fragment
-fn lens_key(v: Varyings) -> @location(0) vec4f {
-  var most = 0.0;
-  var mean = 0.0;
-  for (var j = 0; j < CELLS; j++) {
-    for (var i = 0; i < CELLS; i++) {
-      let c = textureLoad(source, vec2i(i, j), 0);
-      most = max(most, c.r);
-      mean += c.g;
-    }
-  }
-  mean /= f32(CELLS * CELLS);
-  var at = vec2f(0.0);
-  var total = 0.0;
-  for (var j = 0; j < CELLS; j++) {
-    for (var i = 0; i < CELLS; i++) {
-      let c = textureLoad(source, vec2i(i, j), 0);
-      let w = pow(c.r / max(most, 1e-4), 16.0);
-      at += c.ba * w;
-      total += w;
-    }
-  }
-  let measured = vec4f(most, mean, at / max(total, 1e-6));
-  let last = textureLoad(key_tex, vec2i(0), 0);
-  if (lens.fresh > 0.5 || last.r <= 0.0) {
-    return measured;
-  }
-  return mix(last, measured, 1.0 - exp(-frame.dt * 6.0));
+fn streak_up(v: Varyings) -> @location(0) vec4f {
+  let dx = 1.5 / f32(textureDimensions(source).x);
+  let a = textureSampleLevel(source, smp, v.uv - vec2f(dx, 0.0), 0.0).rgb;
+  let b = textureSampleLevel(source, smp, v.uv + vec2f(dx, 0.0), 0.0).rgb;
+  return vec4f((a + b) * 0.5 * lens.stretch, 1.0);
 }
 
-// How much a luma of the picture throws the flare, 0 to 1: the highlights against
-// the frame (from three quarters of the way from its mean to its brightest), its brightest 1,
-// whatever the scene's brightness, so a night scene throws streaks as well as a bright one.
-fn highlight(l: f32, key: vec4f) -> f32 {
-  let top = max(key.r, 0.05);
-  let low = min(mix(key.g, top, 0.75), top * 0.9);
-  return smoothstep(low, top, l);
+// The highlights softened over about four texels, for the ghosts.
+fn bright_soft(uv: vec2f) -> vec3f {
+  let t = 1.0 / vec2f(textureDimensions(source));
+  let a = textureSampleLevel(source, smp, uv + vec2f(-t.x, -t.y), 0.0).rgb;
+  let b = textureSampleLevel(source, smp, uv + vec2f(t.x, -t.y), 0.0).rgb;
+  let c = textureSampleLevel(source, smp, uv + vec2f(-t.x, t.y), 0.0).rgb;
+  let d = textureSampleLevel(source, smp, uv + vec2f(t.x, t.y), 0.0).rgb;
+  return (a + b + c + d) * 0.25;
 }
 
-fn spot_at(uv: vec2f) -> f32 {
-  return textureSampleLevel(source, smp, uv, 0.0).r;
+// The softened highlights at `at`, split a little in colour along the line from the centre, the
+// more the further out (`out` is 0 at the centre, 1 in a corner), as a lens fringes.
+fn bright_fringed(at: vec2f, out: f32) -> vec3f {
+  let shift = normalize(at - 0.5 + vec2f(1e-5)) * 0.012 * out * out;
+  return vec3f(bright_soft(at + shift).r, bright_soft(at).g, bright_soft(at - shift).b);
 }
 
-// The flare's wide streaks, first step: the spots averaged along the row over a tenth of the
-// width each way, with an exponential falloff. Taps two texels apart between texels, so that
-// each takes two.
-@fragment
-fn flare_wide(v: Varyings) -> @location(0) vec4f {
-  let texel = 1.0 / f32(textureDimensions(source).x);
-  let n = min(i32(ceil(0.1 / (2.0 * texel))), 48);
-  var sum = spot_at(v.uv);
-  var total = 1.0;
-  for (var i = 1; i <= n; i++) {
-    let x = (f32(i) * 2.0 - 0.5) * texel;
-    let w = exp(-x / 0.04);
-    sum += (spot_at(v.uv + vec2f(x, 0.0)) + spot_at(v.uv - vec2f(x, 0.0))) * w;
-    total += 2.0 * w;
-  }
-  return vec4f(sum / total, 0.0, 0.0, 1.0);
-}
+// How many ghosts, how far apart along the line to the centre, and the halo's radius.
+const GHOSTS: i32 = 4;
+const GHOST_SPACING: f32 = 0.37;
+const HALO_RADIUS: f32 = 0.42;
 
-// A ghost of the lens at uv: a soft disc with a brighter rim, its edge a little wider in red
-// than in blue, as a lens fringes. It sits at `along` on the line from the centre to the
-// brightest highlight `to` (1 at the highlight, -1 mirrored), of `radius` (a share of the short
-// side).
-fn ghost(uv: vec2f, to: vec2f, along: f32, radius: f32) -> vec3f {
-  let at = 0.5 + to * along;
-  let d = length((uv - at) * vec2f(frame.aspect, 1.0)) / (min(frame.aspect, 1.0) * radius);
-  let r = d / vec3f(1.0, 0.95, 0.9);
-  let disc = 1.0 - smoothstep(vec3f(0.8), vec3f(1.0), r);
-  let rim = smoothstep(vec3f(0.55), vec3f(0.95), r);
-  return disc * (0.35 + 0.65 * rim);
-}
-
-// The flare at a quarter of the size, before its strength: a sharp core of streaks along the
-// rows of the spots, nearly white, with long soft tails in the theme colour; and a few
-// ghosts along the line from the brightest highlight through the centre. In linear light; the
-// composite eases it into display values.
+// The flare before its intensity, in linear light (the composite eases it into display values):
+// the streaks (the highlights and the pyramid's reach, in the theme colour going nearly white
+// where they are bright), and Chapman's ghosts and halo, faint, faded towards the edges and
+// fringed there, under a faint lens dirt that keeps them from looking sampled.
 @fragment
 fn flare(v: Varyings) -> @location(0) vec4f {
   let uv = v.uv;
-  let key = textureLoad(key_tex, vec2i(0), 0);
-  let theme_colour = theme();
-  let texel = 1.0 / f32(textureDimensions(source).x);
+  let colour = theme();
+  let core = luma(textureSampleLevel(source, smp, uv, 0.0).rgb);
+  let dx = 1.5 / f32(textureDimensions(flare_tex).x);
+  let reach = luma(textureSampleLevel(flare_tex, smp, uv - vec2f(dx, 0.0), 0.0).rgb
+    + textureSampleLevel(flare_tex, smp, uv + vec2f(dx, 0.0), 0.0).rgb) * 0.5 * lens.stretch;
+  let dirt_at = uv * vec2f(frame.aspect, 1.0);
+  let dirt = 0.7 + 0.6 * value_noise(dirt_at * 7.0) * value_noise(dirt_at * 17.0 + 3.1);
 
-  // The core: a narrow gather, about 1 % of the width.
-  let n = min(i32(ceil(0.03 / texel)), 24);
-  var core = spot_at(uv);
-  var total = 1.0;
-  for (var i = 1; i <= n; i++) {
-    let x = f32(i) * texel;
-    let w = exp(-x / 0.008);
-    core += (spot_at(uv + vec2f(x, 0.0)) + spot_at(uv - vec2f(x, 0.0))) * w;
-    total += 2.0 * w;
+  let streak = (core * 0.6 + reach * 3.0) * mix(1.0, dirt, 0.3);
+  var c = streak * mix(colour, vec3f(1.0), 0.3 + 0.55 * smoothstep(0.2, 1.5, streak));
+
+  let flipped = 1.0 - uv;
+  let towards = (0.5 - flipped) * GHOST_SPACING;
+  var ghosts = vec3f(0.0);
+  for (var i = 0; i < GHOSTS; i++) {
+    let at = flipped + towards * f32(i);
+    let out = min(length(at - 0.5) / 0.7071, 1.0);
+    let fade = pow(1.0 - out, 4.0);
+    ghosts += bright_fringed(at, out) * fade;
   }
-  core /= total;
-
-  // The tails: the wide step gathered again over the whole width, 5 % apart.
-  var tail = textureSampleLevel(flare_tex, smp, uv, 0.0).r;
-  var tails = 1.0;
-  for (var i = 1; i <= 20; i++) {
-    let x = f32(i) * 0.05;
-    let w = exp(-x / 0.3);
-    tail += (textureSampleLevel(flare_tex, smp, uv + vec2f(x, 0.0), 0.0).r
-      + textureSampleLevel(flare_tex, smp, uv - vec2f(x, 0.0), 0.0).r) * w;
-    tails += 2.0 * w;
-  }
-  tail /= tails;
-  let near = textureSampleLevel(flare_tex, smp, uv, 0.0).r;
-
-  var c = core * 1.6 * mix(theme_colour, vec3f(1.0), 0.5);
-  c += (pow(near, 0.7) * 0.3 + pow(tail, 0.7) * 0.3) * theme_colour;
-
-  // The ghosts, in the theme colour a little lighter.
-  let to = key.ba - 0.5;
-  var ghosts = ghost(uv, to, -0.45, 0.07) * 0.22;
-  ghosts += ghost(uv, to, -1.0, 0.16) * 0.12;
-  ghosts += ghost(uv, to, 0.35, 0.035) * 0.3;
-  ghosts += ghost(uv, to, -1.55, 0.1) * 0.1;
-  c += ghosts * mix(theme_colour, vec3f(1.0), 0.25);
+  let halo_at = flipped + normalize(towards + vec2f(1e-5)) * HALO_RADIUS;
+  let halo_out = min(length(halo_at - 0.5) / 0.7071, 1.0);
+  let inside = smoothstep(0.0, 0.05, min(min(halo_at.x, 1.0 - halo_at.x), min(halo_at.y, 1.0 - halo_at.y)));
+  let halo = bright_fringed(halo_at, halo_out) * pow(1.0 - halo_out, 5.0) * inside;
+  let lens_colour = mix(colour, vec3f(1.0), 0.3);
+  c += (luma(ghosts) * 0.12 + luma(halo) * 0.12) * lens_colour * dirt;
   return vec4f(c, 1.0);
 }
 
@@ -429,69 +341,18 @@ fn leak_tint(uv: vec2f) -> f32 {
   return exp(-r * r * 1.5) * lens.leak;
 }
 
-// The flare's bright streak at uv, a linear amount: a thin line at the height of the brightest
-// highlight, a pixel or two sharp in a soft halo, that sweeps out from the highlight to the
-// sides with a hot front and then stays, fading with the glare; and the glare round the
-// highlight itself.
-fn flare_streak(uv: vec2f, key: vec4f) -> f32 {
-  let around = length((uv - key.ba) * vec2f(frame.aspect, 1.0)) / min(frame.aspect, 1.0);
-  let glare = 0.45 * exp(-around * around / 0.004) + 0.12 * exp(-around / 0.12);
-  let dy = abs(uv.y - key.a) * frame.resolution.y;
-  let line = exp(-dy * dy / 2.0) + 0.3 * exp(-dy / 20.0);
-  let dx = abs(uv.x - key.b);
-  let s = 1.0 - (1.0 - lens.sweep) * (1.0 - lens.sweep);
-  let reach = s * 1.1;
-  let inside = 1.0 - smoothstep(reach - 0.12, reach, dx);
-  let front = exp(-pow((dx - reach + 0.06) / 0.05, 2.0)) * (1.0 - lens.sweep);
-  return glare + line * inside * (0.7 * exp(-dx * 1.5) + 1.5 * front);
-}
-
-// The colour-block frame: the picture posterised to three flat tones of the theme colour (the
-// shadows a deep shade, most of it the colour, the highlights a light tint), with white line
-// art along the boundaries of the tones. Both come from the quarter-size picture's luma against
-// the frame's mean, softened, so there are no halftone specks, and the lines are as wide
-// everywhere (the distance to a boundary is the difference over the gradient). Its negative
-// swaps the tones and draws the lines dark. Never full white.
-fn block_frame(uv: vec2f, key: vec4f) -> vec3f {
-  let size = vec2f(textureDimensions(lens_tex));
-  let t = 0.75 / size;
-  let mean = max(key.g, 0.005);
-  var l: array<f32, 4>;
-  for (var n = 0; n < 4; n++) {
-    let o = vec2f(f32(n % 2) * 2.0 - 1.0, f32(n / 2) * 2.0 - 1.0) * t;
-    let y = textureSampleLevel(lens_tex, smp, uv + o, 0.0).a;
-    l[n] = y / (y + mean);
-  }
-  let value = (l[0] + l[1] + l[2] + l[3]) * 0.25;
-  // The gradient per height of the frame.
-  let gx = ((l[1] + l[3]) - (l[0] + l[2])) * 0.5 / (2.0 * t.x) / frame.aspect;
-  let gy = ((l[2] + l[3]) - (l[0] + l[1])) * 0.5 / (2.0 * t.y);
-  let slope = max(length(vec2f(gx, gy)), 1e-3);
-  let pixel = 1.0 / frame.resolution.y;
-  let width = 0.75 * pixel * max(1.0, frame.resolution.y / 900.0);
-
-  let low = 0.22;
-  let high = 0.6;
+// The colour-block frame, after the reference video's: the picture washed in the theme colour,
+// still readable. Its luma (lifted a little by the bloom, so the highlights glow) runs from a deep
+// shade of the colour through the colour to a near-white tint of it; a flood runs it all up into a
+// light tint. Never full white.
+fn block_wash(display: vec3f, glow: f32) -> vec3f {
   let th = encode_srgb(theme());
-  var deep = th * 0.55;
-  var mid = th * 0.9;
-  var light = mix(th, vec3f(1.0), 0.25);
-  var ink = vec3f(0.92);
-  if (lens.inverted > 0.5) {
-    deep = mix(th, vec3f(1.0), 0.45);
-    mid = mix(th, vec3f(1.0), 0.15);
-    light = th * 0.4;
-    ink = th * 0.2;
-  }
-  let to_low = (value - low) / slope;
-  let to_high = (value - high) / slope;
-  var c = mix(deep, mid, smoothstep(-pixel, pixel, to_low));
-  c = mix(c, light, smoothstep(-pixel, pixel, to_high));
-  // The line art outlines the bright shapes only; the shadows are a change of tone.
-  let lines = 1.0 - smoothstep(width, width + pixel, abs(to_high));
-  // A faint gradient is no edge: noise there makes no line.
-  let edge = smoothstep(0.4, 1.2, slope);
-  return mix(c, ink, lines * edge);
+  let t = pow(clamp(luma(display) + glow, 0.0, 1.0), 0.75);
+  let deep = th * 0.5;
+  let light = mix(th, vec3f(1.0), 0.9);
+  var c = mix(mix(deep, th, smoothstep(0.0, 0.45, t)), light, smoothstep(0.45, 0.9, t));
+  c = mix(c, mix(th, vec3f(1.0), 0.75), lens.flood * 0.85);
+  return min(c, vec3f(0.96));
 }
 
 fn noise(coord: vec2f, salt: u32) -> vec4f {
@@ -517,7 +378,8 @@ fn composite(v: Varyings) -> @location(0) vec4f {
     total += w;
     w *= r;
   }
-  c += textureSampleLevel(bloom, smp, uv, 0.0).rgb / max(total, 1e-4) * post.bloom_intensity;
+  let bloomed = textureSampleLevel(bloom, smp, uv, 0.0).rgb / max(total, 1e-4) * post.bloom_intensity;
+  c += bloomed;
 
   c *= exp2(post.exposure);
   c = c * (1.0 + 2.0 * post.flash) + vec3f(post.flash);
@@ -545,17 +407,14 @@ fn composite(v: Varyings) -> @location(0) vec4f {
     display *= mix(vec3f(1.0), tint, leak_tint(uv) * 0.7);
     display = screen(display, leak_light(uv));
   }
-  if (lens.flare > 0.0 || lens.blocks > 0.0) {
-    let key = textureLoad(key_tex, vec2i(0), 0);
-    if (lens.flare > 0.0) {
-      let glare = textureSampleLevel(flare_tex, smp, uv, 0.0).rgb;
-      let streak = flare_streak(uv, key) * mix(theme(), vec3f(1.0), 0.55);
-      let light = 1.0 - exp(-(glare + streak) * lens.flare);
-      display = screen(display, encode_srgb(min(light, vec3f(0.8))));
-    }
-    if (lens.blocks > 0.0) {
-      display = mix(display, block_frame(uv, key), clamp(lens.blocks, 0.0, 1.0));
-    }
+  if (lens.flare > 0.0) {
+    let flare_light = textureSampleLevel(flare_tex, smp, uv, 0.0).rgb;
+    let light = 1.0 - exp(-flare_light * lens.flare);
+    display = screen(display, encode_srgb(min(light, vec3f(0.8))));
+  }
+  if (lens.blocks > 0.0) {
+    let glow = luma(bloomed) * exp2(post.exposure) * 0.5;
+    display = mix(display, block_wash(display, glow), clamp(lens.blocks, 0.0, 1.0));
   }
 
   let n = noise(v.position.xy, 1u);
