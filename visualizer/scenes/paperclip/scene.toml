@@ -83,6 +83,128 @@ vignette = 0.0
 contrast = 1.0
 saturation = 1.0
 
+# ---- What the music drives ----
+# The scene says what it wants from the music and the runtime works it out (see "Bindings" in the
+# runtime's docs/music.md); the shaders read the values as `input.<id>`. The clocks and the energy
+# come through as they are (an unclamped `follow`), so that a lab can see them and change their
+# source; the cues are one-frame pulses the scene reacts to, and the eyebrows' lift is an envelope
+# the runtime makes.
+
+[[input]]
+id = "clock"
+label = "The beat clock"
+range = [0.0, 1000000.0]
+
+[[input]]
+id = "tempo"
+label = "The tempo"
+range = [0.0, 1000.0]
+
+[[input]]
+id = "meter"
+label = "Beats to the bar"
+range = [0.0, 64.0]
+
+[[input]]
+id = "locked"
+label = "How much the beat is followed"
+
+[[input]]
+id = "drive"
+label = "Slow energy"
+
+[[input]]
+id = "label"
+label = "The label of the section"
+range = [0.0, 1000.0]
+
+[[input]]
+id = "new_section"
+label = "A section starts"
+
+[[input]]
+id = "cue_weak"
+label = "A cue strong enough to change the mood"
+
+[[input]]
+id = "section"
+label = "Which section, counted (it picks the moves)"
+range = [0.0, 63.0]
+
+[[input]]
+id = "impact_env"
+label = "The brows' lift on an impact, fading"
+
+[[input]]
+id = "lift_env"
+label = "A section that lifts the energy: brows and wide eyes, fading"
+
+[[bind]]
+target = "clock"
+source = "clock"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "tempo"
+source = "tempo"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "meter"
+source = "meter"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "locked"
+source = "locked"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "drive"
+source = "drive"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "label"
+source = "section_label"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "new_section"
+source = "cues"
+how = "trigger"
+when = { strength = 0.5, scale = false, release = 0.0 }
+
+[[bind]]
+target = "cue_weak"
+source = "cues"
+how = "trigger"
+when = { strength = { param = "cue_min" }, scale = false, release = 0.0 }
+
+[[bind]]
+target = "section"
+source = "cues"
+how = "pick"
+when = { options = 64, strength = 0.5 }
+
+[[bind]]
+target = "impact_env"
+source = "impacts"
+how = "trigger"
+when = { scale = false, decay = "exp", release = 0.6, per = "second" }
+
+[[bind]]
+target = "lift_env"
+source = "cues"
+how = "trigger"
+when = { strength = 0.9, scale = false, decay = "exp", release = 0.6, per = "second" }
+
 # ---- Dance ----
 
 [[param]]

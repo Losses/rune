@@ -1,11 +1,11 @@
 // Once per frame: how hard they dance, the brows on an impact or a lift, the camera gliding
 // between a few places as the director cuts (`shot`), and every group's clip posed for this
 // moment. The beat clock, the bar length and how far the beat is followed are the runtime's
-// (`music.clock`, `music.meter`, `music.locked`).
+// (`input.clock`, `input.meter`, `input.locked`).
 
 // Seconds per beat, from the tempo the runtime gives (calm and feel-based when no beat is known).
 fn beat_len() -> f32 {
-  return 60.0 / music.tempo;
+  return 60.0 / input.tempo;
 }
 
 // ---- Dancing ----
@@ -68,16 +68,16 @@ fn dizzy(n: f32) -> bool {
 // The pose `late` beats behind the beat, danced `amp` hard.
 fn pose_at(late: f32, amp: f32) -> Pose {
   var p: Pose;
-  let b = music.clock - late;
+  let b = input.clock - late;
   // The groove: down on every beat and back, swaying to one side on one beat and the other on
   // the next, a little nod.
-  let hit = exp(-fract(b) * 6.0) * music.locked;
-  p.squash = -0.16 * amp * hit + 0.04 * amp * sin(fract(b) * 3.14159) * music.locked;
+  let hit = exp(-fract(b) * 6.0) * input.locked;
+  p.squash = -0.16 * amp * hit + 0.04 * amp * sin(fract(b) * 3.14159) * input.locked;
   p.sway = 0.28 * amp * cos(3.14159 * b);
   p.bow = 0.1 * amp * hit;
   // The bar's big move.
   // (The runtime aligns the clock so that a whole bar starts on the music's downbeat.)
-  let bar = b / music.meter;
+  let bar = b / input.meter;
   let n = floor(bar);
   let u = fract(bar);
   // Dizzy, the music forgotten: the head wanders round in slow circles, the clip unsteady on its
@@ -93,7 +93,7 @@ fn pose_at(late: f32, amp: f32) -> Pose {
   let side = select(-1.0, 1.0, hash(vec2f(n, 3.3)) < 0.5);
   // Turning to face the camera: a quick turn that swings a little past and back, with a small
   // hop, the chorus following in its wave.
-  let turn = clamp((bar - state.face_bar) * music.meter / max(params.turn_beats, 0.25), 0.0, 1.0);
+  let turn = clamp((bar - state.face_bar) * input.meter / max(params.turn_beats, 0.25), 0.0, 1.0);
   let s1 = turn - 1.0;
   let swing = 1.0 + 2.70158 * s1 * s1 * s1 + 1.70158 * s1 * s1;
   p.spin = mix(state.face_from, state.face_to, swing);
@@ -103,7 +103,7 @@ fn pose_at(late: f32, amp: f32) -> Pose {
       p.bow += 0.9 * amp * half;
     }
     case 2u: {
-      let x = clamp(u * music.meter, 0.0, 1.0);
+      let x = clamp(u * input.meter, 0.0, 1.0);
       p.hop += 0.45 * amp * 4.0 * x * (1.0 - x);
       p.squash += 0.12 * amp * 4.0 * x * (1.0 - x);
     }
@@ -138,15 +138,15 @@ fn face_at(late: f32, seed: f32) -> vec2f {
   if (params.face_lock > 0.5) {
     return vec2f(params.face_lock - 1.0, 1.0);
   }
-  let b = music.clock - late;
-  let bar = b / music.meter;
+  let b = input.clock - late;
+  let bar = b / input.meter;
   let n = floor(bar);
   // The mood reaches the chorus in the wave, as the dance does.
   let mood = select(state.mood, state.mood_prev, bar < state.mood_bar);
   // Eyes shut while turning round (open eyes that stay on the camera as the body turns look
   // eerie): turning to the camera, or the whole turn of a bar's big move. A mood with the eyes
   // shut or half shut stays.
-  let turn = (bar - state.face_bar) * music.meter / max(params.turn_beats, 0.25);
+  let turn = (bar - state.face_bar) * input.meter / max(params.turn_beats, 0.25);
   if ((turn > -0.15 && turn < 1.1) || (move_of(n) == 3u && fract(bar) < 0.8)) {
     return vec2f(select(2.0, mood, mood == 1.0 || mood == 2.0 || mood == 5.0), 1.0);
   }
@@ -216,7 +216,7 @@ fn choose_mood(level: f32, pick: f32, keep: bool) {
   if (mood != state.mood) {
     state.mood_prev = state.mood;
     state.mood = mood;
-    state.mood_bar = music.clock / music.meter;
+    state.mood_bar = input.clock / input.meter;
   }
 }
 
@@ -247,7 +247,7 @@ fn write_group(g: u32, pose: Pose, late: f32) -> f32 {
   state.pts[base + 3u].w = up.x;
   state.pts[base + 4u].w = up.y;
   state.pts[base + 5u].w = up.z;
-  let lift =0.05 * state.brow + 0.015 * exp(-fract(music.clock - late) * 6.0) * music.locked;
+  let lift =0.05 * state.brow + 0.015 * exp(-fract(input.clock - late) * 6.0) * input.locked;
   for (var e = 0u; e < 2u; e++) {
     let s = select(-1.0, 1.0, e == 1u);
     let eye = posed(vec3f(0.08 * s, 0.7, -0.06), pose);
@@ -366,35 +366,33 @@ fn update() {
     state.glide = 1.0;
   }
 
-  let bar_len = music.meter * beat_len();
-  let now_bar = music.clock / music.meter;
+  let bar_len = input.meter * beat_len();
+  let now_bar = input.clock / input.meter;
   if (frame.first == 1u) {
     state.bar_idx = floor(now_bar);
   }
 
   // How hard they dance: the drive (the section's energy, or the loudness without a chart; the
   // runtime has smoothed it already).
-  state.level = clamp(0.25 + 0.85 * music.drive, 0.2, 1.0) * params.dance;
+  state.level = clamp(0.25 + 0.85 * input.drive, 0.2, 1.0) * params.dance;
 
   // Cues: a section start (0.5 or more) changes the mood, a lift of the energy (1) widens the
   // eyes; a weaker cue (a long stretch with no section) may change the mood.
-  let cued = music.cues > 0u;
-  let new_section = cued && music.cue >= 0.5;
-  let lift = cued && music.cue >= 0.9;
+  // The section counts up on each section start; a weaker cue that changes the mood moves it on
+  // by 101 more, for new figures to dance.
+  let new_section = input.new_section > 0.5;
+  let cued = input.cue_weak > 0.5;
   if (new_section) {
-    state.section = music.section;
+    state.weak = 0.0;
+  } else if (cued) {
+    state.weak += 1.0;
   }
+  state.section = input.section + 101.0 * state.weak;
   // An impact (a hit far above the usual in the middle of a section) lifts the brows; a lift of
-  // the energy lifts them too.
-  if (music.impacts > 0u || lift) {
-    state.brow = 1.0;
-  }
-  state.brow *= exp(-dt / 0.6);
+  // the energy lifts them too (the runtime fades both).
+  state.brow = max(input.impact_env, input.lift_env);
   // Only a section that lifts the energy widens the eyes; an impact just lifts the brows.
-  if (lift) {
-    state.surprise = 1.0;
-  }
-  state.surprise *= exp(-dt / 0.6);
+  state.surprise = input.lift_env;
 
   // The mood: a section's (the same for sections that sound alike); on a weaker cue, a new one
   // that is kept while it still fits how hard they dance, and new figures to dance.
@@ -403,9 +401,8 @@ fn update() {
     choose_mood(state.level, 1.0, false);
     state.mood_prev = state.mood;
   } else if (new_section) {
-    choose_mood(state.level, fract((music.section_label + 1.0) * 0.5698403 + 0.41), false);
-  } else if (cued && music.cue >= params.cue_min) {
-    state.section += 101.0;
+    choose_mood(state.level, fract((input.label + 1.0) * 0.5698403 + 0.41), false);
+  } else if (cued) {
     choose_mood(state.level, hash(vec2f(t, 2.1)), hash(vec2f(t, 5.3)) < 0.65);
   }
 
@@ -450,7 +447,7 @@ fn update() {
   // The dancers turn to face the camera when it has gone well round them, on a bar line, once the last turn has spread through the chorus. On the circling view
   // they turn a little past the camera, the way it goes, so as not to turn again too soon.
   let off = atan2(sin(state.pol.x - state.face_to), cos(state.pol.x - state.face_to));
-  let settled = (now_bar - state.face_bar) * music.meter > params.turn_beats + 1.5;
+  let settled = (now_bar - state.face_bar) * input.meter > params.turn_beats + 1.5;
   let due = floor(now_bar) != state.bar_idx;
   state.bar_idx = floor(now_bar);
   if (abs(off) > TURN && settled && due) {
