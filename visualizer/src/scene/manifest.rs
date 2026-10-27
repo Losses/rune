@@ -13,6 +13,7 @@ pub const MANIFEST: &str = "scene.toml";
 pub const MAX_PASSES: usize = 16;
 pub const MAX_BUFFERS: usize = 8;
 pub const MAX_ASSETS: usize = 4;
+pub const MAX_INPUTS: usize = 32;
 /// The built-in HDR target the post-processing reads.
 pub const OUT: &str = "out";
 /// Inputs that read a persistent buffer's previous frame start with this.
@@ -59,6 +60,13 @@ pub struct Manifest {
     pub common: Vec<String>,
     #[serde(default, rename = "param")]
     pub params: Vec<Param>,
+    /// The values the runtime drives from the music, read in the shaders as `input.<id>`.
+    #[serde(default, rename = "input")]
+    pub inputs: Vec<InputDecl>,
+    /// What drives each input: a source of the music, how, and what to do where it means
+    /// nothing (see `crate::bind`).
+    #[serde(default, rename = "bind")]
+    pub binds: Vec<Bind>,
     #[serde(default, rename = "buffer")]
     pub buffers: Vec<Buffer>,
     #[serde(default, rename = "pass")]
@@ -301,6 +309,64 @@ pub struct Param {
     pub options: Vec<Text>,
 }
 
+/// One `[[input]]`: a value of the scene's that the runtime drives from the music through a
+/// `[[bind]]`; the shaders read it as `input.<id>`, always one `f32`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InputDecl {
+    pub id: String,
+    /// For people.
+    #[serde(default)]
+    pub label: Option<Text>,
+    /// The range of values the input takes: what a `follow` maps to, and where a `trigger` peaks
+    /// (at the top).
+    #[serde(default = "unit_range")]
+    pub range: [f32; 2],
+    /// The value with nothing driving it; the bottom of the range if left out.
+    #[serde(default)]
+    pub rest: Option<f32>,
+}
+
+fn unit_range() -> [f32; 2] {
+    [0.0, 1.0]
+}
+
+impl InputDecl {
+    /// The value with nothing driving it.
+    pub fn rest(&self) -> f32 {
+        self.rest.unwrap_or(self.range[0])
+    }
+}
+
+/// What a `[[bind]]` does where its source means nothing: the name of another source, or the
+/// word `hold` or `rest`, or a table `{ value = x }`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum FallbackDecl {
+    Word(String),
+    Value { value: f32 },
+}
+
+/// One `[[bind]]`: a source of the music drives an input in some way (see `crate::bind`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Bind {
+    /// The `id` of the input it drives.
+    pub target: String,
+    /// A name of the registry of sources (`crate::bind::SOURCES`).
+    pub source: String,
+    /// `follow`, `trigger`, `step`, `pick` or `accumulate`.
+    pub how: String,
+    /// The parameters of the `how`.
+    #[serde(default)]
+    pub when: toml::Table,
+    /// `out` eases a beat time: a push at the start of every beat (`follow` and `step`).
+    #[serde(default)]
+    pub ease: Option<String>,
+    #[serde(default)]
+    pub fallback: Option<FallbackDecl>,
+}
+
 /// A parameter's value, as the shaders see it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
@@ -530,6 +596,7 @@ impl Manifest {
             .map(|p| &p.id)
             .chain(self.buffers.iter().map(|b| &b.id))
             .chain(self.assets.iter().map(|a| &a.id))
+            .chain(self.inputs.iter().map(|i| &i.id))
         {
             check_identifier(id)?;
             ensure!(ids.insert(id.as_str()), "{id} is declared twice");
@@ -543,6 +610,42 @@ impl Manifest {
                     param.id
                 );
             }
+        }
+        ensure!(
+            self.inputs.len() <= MAX_INPUTS,
+            "at most {MAX_INPUTS} inputs"
+        );
+        for input in &self.inputs {
+            let [lo, hi] = input.range;
+            ensure!(
+                lo.is_finite() && hi.is_finite() && lo < hi,
+                "{}: range must be [lo, hi] with lo below hi",
+                input.id
+            );
+            ensure!(
+                input.rest.is_none_or(f32::is_finite),
+                "{}: rest must be a finite number",
+                input.id
+            );
+        }
+        let mut driven = HashSet::new();
+        for bind in &self.binds {
+            let input = self
+                .inputs
+                .iter()
+                .find(|i| i.id == bind.target)
+                .with_context(|| {
+                    format!(
+                        "[[bind]] for `{}`: no input of that name (declare it with [[input]])",
+                        bind.target
+                    )
+                })?;
+            ensure!(
+                driven.insert(bind.target.as_str()),
+                "[[bind]] for `{}`: the input has more than one bind",
+                bind.target
+            );
+            crate::bind::Evaluator::new(bind, input)?;
         }
         for buffer in &self.buffers {
             ensure!(
@@ -614,10 +717,12 @@ impl Manifest {
         Ok(())
     }
 
-    /// The manifest with parameter defaults left out: when only those change, a reload keeps
-    /// the pipelines and the state.
+    /// The manifest with parameter defaults and the binds left out: when only those change, a
+    /// reload keeps the pipelines and the state (the binds are only evaluated on the CPU; the
+    /// inputs they drive are the struct's layout and stay).
     pub fn without_defaults(&self) -> Self {
         let mut copy = self.clone();
+        copy.binds.clear();
         for param in &mut copy.params {
             param.default = toml::Value::Boolean(false);
         }
@@ -832,6 +937,136 @@ move = "glide"
             pace.contains("frantic") && pace.contains("sections"),
             "{pace}"
         );
+    }
+
+    const INPUTS: &str = r##"
+[[input]]
+id = "surge"
+label = { de = "Schub", en = "Surge" }
+range = [0.0, 2.0]
+rest = 0.5
+
+[[input]]
+id = "wave"
+
+[[bind]]
+target = "surge"
+source = "hits"
+how = "trigger"
+when = { strength = 0.3, release = 0.5 }
+fallback = "rest"
+
+[[bind]]
+target = "wave"
+source = "drive"
+how = "follow"
+ease = "none"
+fallback = { value = 0.25 }
+"##;
+
+    #[test]
+    fn inputs_and_binds_are_read_with_defaults_filled_in() {
+        let plain = Manifest::parse(SMALL).unwrap();
+        assert!(plain.inputs.is_empty() && plain.binds.is_empty());
+        let m = Manifest::parse(&format!("{SMALL}{INPUTS}")).unwrap();
+        assert_eq!(m.inputs.len(), 2);
+        assert_eq!(m.inputs[0].range, [0.0, 2.0]);
+        assert_eq!(m.inputs[0].rest(), 0.5);
+        assert_eq!(m.inputs[0].label.as_ref().unwrap().get("de"), "Schub");
+        // The range is 0 to 1 and the rest its bottom when they are left out.
+        assert_eq!((m.inputs[1].range, m.inputs[1].rest()), ([0.0, 1.0], 0.0));
+        assert_eq!(m.binds[0].how, "trigger");
+        assert_eq!(m.binds[0].fallback, Some(FallbackDecl::Word("rest".into())));
+        assert_eq!(
+            m.binds[1].fallback,
+            Some(FallbackDecl::Value { value: 0.25 })
+        );
+        assert_eq!(m.binds[1].ease.as_deref(), Some("none"));
+        assert!(m.binds[0].when.contains_key("strength"));
+    }
+
+    #[test]
+    fn the_example_of_the_docs_is_a_scene_that_reads() {
+        let docs = include_str!("../../docs/music.md");
+        let start =
+            docs.find("### Example\n\n```toml\n").unwrap() + "### Example\n\n```toml\n".len();
+        let example = &docs[start..start + docs[start..].find("```").unwrap()];
+        let m = Manifest::parse(&format!("{SMALL}{example}")).unwrap();
+        assert_eq!(m.inputs.len(), 3);
+        assert_eq!(m.binds.len(), 3);
+        // The input list of the docs' first example reads too.
+        let first = docs.find("```toml\n[[input]]").unwrap() + "```toml\n".len();
+        let first = &docs[first..first + docs[first..].find("```").unwrap()];
+        Manifest::parse(&format!("{SMALL}{first}")).unwrap();
+    }
+
+    #[test]
+    fn a_bad_input_or_bind_is_named() {
+        let with = |from: &str, to: &str| {
+            let all = format!("{SMALL}{INPUTS}");
+            let text = all.replacen(from, to, 1);
+            assert_ne!(text, all, "{from:?} is not in the inputs");
+            format!("{:#}", Manifest::parse(&text).unwrap_err())
+        };
+        let twice = with("id = \"surge\"", "id = \"speed\"");
+        assert!(
+            twice.contains("speed") && twice.contains("twice"),
+            "{twice}"
+        );
+        assert!(with("id = \"wave\"", "id = \"rv_wave\"").contains("rv_"));
+        assert!(with("id = \"wave\"", "id = \"2wave\"").contains("not a valid name"));
+        let target = with("target = \"wave\"", "target = \"gate\"");
+        assert!(
+            target.contains("`gate`") && target.contains("no input"),
+            "{target}"
+        );
+        let double = with("target = \"wave\"", "target = \"surge\"");
+        assert!(
+            double.contains("`surge`") && double.contains("more than one"),
+            "{double}"
+        );
+        let source = with("source = \"drive\"", "source = \"loudness\"");
+        assert!(
+            source.contains("`wave`") && source.contains("no source `loudness`"),
+            "{source}"
+        );
+        let how = with("how = \"trigger\"", "how = \"fling\"");
+        assert!(
+            how.contains("`surge`") && how.contains("no how `fling`"),
+            "{how}"
+        );
+        let key = with("strength = 0.3", "force = 0.3");
+        assert!(
+            key.contains("unknown key `force`") && key.contains("`surge`"),
+            "{key}"
+        );
+        let fallback = with("fallback = \"rest\"", "fallback = \"drive\"");
+        assert!(
+            fallback.contains("fallback source that counts events"),
+            "{fallback}"
+        );
+        assert!(
+            with("fallback = \"rest\"", "fallback = \"mystery\"").contains("no fallback `mystery`")
+        );
+        assert!(with("range = [0.0, 2.0]", "range = [2.0, 0.0]").contains("range"));
+        // A field the format does not have is a mistake, not ignored.
+        let field = with("rest = 0.5", "rest = 0.5\nrestt = 1");
+        assert!(field.contains("restt"), "{field}");
+        let field = with("how = \"follow\"", "how = \"follow\"\nthen = 1");
+        assert!(field.contains("then"), "{field}");
+    }
+
+    #[test]
+    fn changing_only_the_binds_leaves_the_rest_equal_and_an_input_does_not() {
+        let text = format!("{SMALL}{INPUTS}");
+        let a = Manifest::parse(&text).unwrap();
+        let b = Manifest::parse(&text.replace("strength = 0.3", "strength = 0.6")).unwrap();
+        assert_ne!(a, b);
+        assert_eq!(a.without_defaults(), b.without_defaults());
+        let c = Manifest::parse(&text.replace("rest = 0.5", "rest = 1.5")).unwrap();
+        assert_ne!(a.without_defaults(), c.without_defaults());
+        let d = Manifest::parse(&format!("{text}\n[[input]]\nid = \"more\"\n")).unwrap();
+        assert_ne!(a.without_defaults(), d.without_defaults());
     }
 
     #[test]

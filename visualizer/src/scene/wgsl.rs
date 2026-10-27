@@ -26,6 +26,8 @@ pub const BIND_COVERS: u32 = 11;
 pub const BIND_ASSETS: u32 = 12;
 /// After the bindings the assets can take (`BIND_ASSETS` up to `MAX_ASSETS` of them).
 pub const BIND_SHOT: u32 = 16;
+/// `struct Inputs`, the values the scene's bindings drive.
+pub const BIND_INPUT: u32 = 17;
 
 /// `struct Frame` is 64 bytes: time, dt, index, first, resolution (vec2f), aspect, seed, the
 /// app's accent colour (vec4f) at 32, how many covers the atlas holds (u32) at 48 and the quality
@@ -163,6 +165,40 @@ impl ParamsLayout {
     }
 }
 
+/// The layout of `struct Inputs`: the WGSL and its size. Every input is one `f32` in the
+/// manifest's order; the size is a multiple of 16 as uniforms want.
+pub struct InputLayout {
+    pub wgsl: String,
+    pub size: u64,
+}
+
+impl InputLayout {
+    pub fn new(manifest: &Manifest) -> Self {
+        let mut wgsl = String::from("struct Inputs {\n");
+        for input in &manifest.inputs {
+            let _ = writeln!(wgsl, "  {}: f32,", input.id);
+        }
+        let words = manifest.inputs.len().max(1) as u64;
+        if manifest.inputs.is_empty() {
+            wgsl.push_str("  rv_unused: u32,\n");
+        }
+        wgsl.push_str("}\n");
+        Self {
+            wgsl,
+            size: (words * 4).next_multiple_of(16),
+        }
+    }
+
+    /// The bytes of `values`, one per input in the manifest's order.
+    pub fn pack(&self, values: &[f32]) -> Vec<u8> {
+        let mut bytes = vec![0u8; self.size as usize];
+        for (i, value) in values.iter().enumerate().take(self.size as usize / 4) {
+            bytes[i * 4..i * 4 + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes
+    }
+}
+
 fn music_struct() -> String {
     let mut wgsl = String::from("struct Music {\n");
     for (name, word) in MusicValues::default().fields() {
@@ -192,6 +228,7 @@ pub fn prelude(manifest: &Manifest, stage: Stage) -> String {
     s.push_str(POST);
     s.push_str(PIXEL);
     s.push_str(&ParamsLayout::new(manifest).wgsl);
+    s.push_str(&InputLayout::new(manifest).wgsl);
     let state_access = if stage == Stage::Update {
         "read_write"
     } else {
@@ -203,6 +240,7 @@ pub fn prelude(manifest: &Manifest, stage: Stage) -> String {
 @group(0) @binding({BIND_MUSIC}) var<uniform> music: Music;
 @group(0) @binding({BIND_PARAMS}) var<uniform> params: Params;
 @group(0) @binding({BIND_SHOT}) var<uniform> shot: Shot;
+@group(0) @binding({BIND_INPUT}) var<uniform> input: Inputs;
 @group(0) @binding({BIND_STATE}) var<storage, {state_access}> state: State;
 @group(0) @binding({BIND_SPECTRUM}) var spectrum: texture_2d<f32>;
 @group(0) @binding({BIND_WAVEFORM}) var waveform: texture_2d<f32>;
@@ -532,6 +570,67 @@ inputs = ["prev:trail"]
             );
         }
         assert!(BIND_ASSETS + super::super::manifest::MAX_ASSETS as u32 <= BIND_SHOT);
+        const { assert!(BIND_SHOT < BIND_INPUT) };
+    }
+
+    #[test]
+    fn every_module_sees_the_inputs_and_a_scene_without_any_gets_a_stand_in() {
+        let m = manifest();
+        for stage in [Stage::Update, Stage::Pass] {
+            let text = prelude(&m, stage);
+            assert!(text.contains(&format!(
+                "@binding({BIND_INPUT}) var<uniform> input: Inputs;"
+            )));
+            assert!(text.contains("struct Inputs {\n  rv_unused: u32,\n}"));
+        }
+        let layout = InputLayout::new(&m);
+        assert_eq!(layout.size, 16);
+        assert_eq!(layout.pack(&[]), vec![0; 16]);
+    }
+
+    #[test]
+    fn inputs_are_f32s_in_the_manifests_order() {
+        let m = Manifest::parse(&format!(
+            "{}\n[[input]]\nid = \"surge\"\n[[input]]\nid = \"light\"\nrange = [0, 4]\n",
+            r#"format = 1
+name = "T"
+license = "MPL-2.0"
+[[pass]]
+shader = "a.wgsl"
+target = "out"
+"#
+        ))
+        .unwrap();
+        let layout = InputLayout::new(&m);
+        assert!(layout.wgsl.contains("  surge: f32,\n  light: f32,\n}"));
+        assert!(!layout.wgsl.contains("rv_unused"));
+        assert_eq!(layout.size, 16);
+        let bytes = layout.pack(&[0.5, 3.0]);
+        assert_eq!(&bytes[0..4], &0.5f32.to_le_bytes());
+        assert_eq!(&bytes[4..8], &3.0f32.to_le_bytes());
+        assert_eq!(&bytes[8..16], &[0; 8]);
+        // Both modules take the struct as the shaders would read it.
+        let pass = pass_source(
+            &m,
+            ("<runtime>", state_text(None)),
+            &[],
+            &[],
+            (
+                "a.wgsl",
+                "fn shade(px: Pixel) -> vec4f {\n  return vec4f(input.surge, input.light, 0.0, 1.0);\n}\n",
+            ),
+            1.0,
+        );
+        pass.check().unwrap();
+        let update = update_source(
+            &m,
+            ("<runtime>", state_text(None)),
+            (
+                "update.wgsl",
+                "fn update() {\n  post.flash = input.surge;\n}\n",
+            ),
+        );
+        update.check().unwrap();
     }
 
     #[test]

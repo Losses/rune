@@ -272,6 +272,108 @@ fn update() {
 
 (`armed` is 1 when the scene has not yet moved for the cue it is waiting for. It should start at 1 on `frame.first`. A view picked from `section_label` instead of `rv_hash` makes every chorus use the same view: `u32(rv_label_hash(music.section_label, 7u) * 4.0)`.)
 
+## Bindings
+
+A scene can say what the music drives instead of reading the raw signals and deciding for itself. It declares the values it wants, the **inputs**, and binds each to a **source** with a **how**; the runtime works the value out every frame, falls back where the source cannot be measured, and the shaders read it as `input.<id>`. A scene that declares no `[[input]]` and no `[[bind]]` is not touched by any of this, and the raw fields stay readable as before.
+
+```toml
+[[input]]
+id = "surge"                 # WGSL: input.surge, always one f32
+label = { de = "Schub", en = "Surge" }
+range = [0.0, 1.0]           # the values it takes (default [0, 1])
+rest = 0.0                   # the value with nothing driving it (default: the bottom of the range)
+
+[[bind]]
+target = "surge"             # the input it drives; at most one bind per input
+source = "impacts"           # a name from the table below
+how = "trigger"              # follow | trigger | step | pick | accumulate
+when = { strength = 0.5, release = 0.5 }   # the parameters of the how
+fallback = "hits"            # what to do where the source means nothing here
+```
+
+`id`s follow the rules of parameter names and are unique among the scene's parameters, buffers, assets and inputs. A mistake (an unknown source, a `when` key the how does not take, a target that is not an input) refuses the scene with a message that names the bind and the item.
+
+### The level
+
+Every frame is at one of three levels, said in one place (`bind::Level::of`): **A** is a chart and a followed beat (`locked` above 0.5), **B** a chart with no beat followed, **C** no chart. They are the A, B and C of "Fallbacks at a glance". A lab can hold the music at a level (key `L` in scene-lab): C passes no chart, B keeps the chart and loses its beat, A is the song as it is. It only takes the music down from what the song has.
+
+### Sources
+
+Each source has a value and, if it is an event, a count of events this frame (the value is then the event's strength). A source **means something** at a level when the music at that level really measures it: its value is always there (the signals fall back as the tables above say), but `bars` never fires without a followed beat and `cue_in` is -1 without a chart.
+
+| Source | Kind | Means something at | |
+|---|---|---|---|
+| `tempo` `clock` `flow` `meter` `locked` | value | A B C | The tempo and clock signals |
+| `drive` `intensity` | value | A B C | The energy signals |
+| `hits` `cues` `impacts` `notes` | event | A B C | Count, with the envelope (`hit`, `cue`, ...) as strength |
+| `hit` `cue` `impact` `note` | value | A B C | The envelopes alone |
+| `bars` `beats` | event | A | Strength 1; they only count while the beat is followed |
+| `cue_in` `section_label` `section_energy` `next_energy` | value | A B | Chart signals |
+| `band_low` `band_mid` `band_high` | value | A B C | The smoothed bands |
+| `moment.strong` `moment.medium` | event | A B, and A B C | The moments that play effects (`src/moments.rs`): a lift, and another section start or an impact |
+
+### How
+
+| how | Does | `when` (defaults) |
+|---|---|---|
+| `follow` | The output is the source mapped from a range to a range. | `from = [lo, hi]` (`[0, 1]`), `to = [lo, hi]` (the input's range), `curve` = `linear` \| `smooth` \| `in` \| `out` (`linear`), `smooth` = a time constant in beats (0), `clamp` (true: hold the ends; false: go straight on past them, for an unbounded `clock`). `ease = "out"` eases a beat time first. |
+| `trigger` | An event starts an envelope; the output goes from the input's rest to the top of its range. Needs an event source. | `strength` = the least strength that counts (0), `attack` and `release` in beats (0 and 0.25: an attack of 0 jumps, the release is a straight fall), `scale` (true: the peak is the event's strength, false: always the top). Several events in a frame are one. |
+| `step` | A counter that goes up by one every `every` beats of the source, on the **eased clock** `floor(t) + ease(fract(t))`: continuous, with a push at each step (the push of `course::eased`). The count is absolute, so a `clock` source steps in phase with the bar. | `every` (1), `wrap` = the count goes round at this (none). `ease = "none"` gives plain `floor` steps. |
+| `pick` | An index from 0 to `options - 1`, as a float. A value source (normally `section_label`) picks through the same hash as the transitions (`switching::pick_by_label`), so the same label keeps the same option, and the index changes only when the label does. An event source moves to the next option on each event. | `options` (required, 1 to 64) |
+| `accumulate` | The output grows by `source * rate` per beat while the beat is followed, per second otherwise; a position from a speed. Starts at the input's rest, is not clamped. | `rate` (1), `per` = `beat` \| `second` (`beat`; `second` for a source that already is a speed in beats, such as `tempo`), `wrap` = goes round at this (none) |
+
+`ease` is only for `follow` and `step`. Effects that move should use an eased clock, not a step per beat: a `follow` of `clock` with `ease = "out"`, or a `step`. Per-beat steps that jump are for what needs them (a pose a beat), and they were jerky on the mosaic and the glitch.
+
+### Fallback
+
+Where the source does not mean something at the frame's level, the bind's `fallback` takes over:
+
+| `fallback` | The output is |
+|---|---|
+| another source's name | that source, read the same way with the same parameters (a trigger needs an event source here too) |
+| `{ value = x }` | `x` |
+| `"hold"` | the last output |
+| `"rest"` | the input's rest |
+| left out | the source, at every level (what a scene that reads the raw signal gets) |
+
+The fallback is chosen every frame from the level, so a binding is back on its own source as soon as the level is. A lab reads, for each bind, the level and which means produced the output (`InspectBinding::used`: the source, a fallback source, a value, a hold or the rest).
+
+### Example
+
+```toml
+[[input]]
+id = "gate"
+range = [0, 8]
+
+[[input]]
+id = "surge"
+
+[[input]]
+id = "light"
+
+[[bind]]                      # a gate that moves with the bar, on the eased clock
+target = "gate"
+source = "clock"
+how = "step"
+when = { wrap = 8 }
+
+[[bind]]                      # a lunge on every impact; with nothing as hard, the strong hits
+target = "surge"
+source = "impacts"
+how = "trigger"
+when = { release = 0.5 }
+fallback = "hits"
+
+[[bind]]                      # one of 3 looks per kind of section; with no chart, round on the cues
+target = "light"
+source = "section_label"
+how = "pick"
+when = { options = 3 }
+fallback = "cues"
+```
+
+In the scene, `input.gate`, `input.surge` and `input.light` are plain `f32`s. Editing only the `[[bind]]`s of a scene reloads them without rebuilding the pipelines; editing an `[[input]]` rebuilds the scene, as it changes the layout of `struct Inputs`.
+
 ## Shots and the director
 
 A scene that has more than one way to look at its subject declares them as shots, and the runtime's camera director decides when the view cuts and to which shot, following the music. The scene frames itself from what the director says and never decides a cut of its own. A scene without `[[shot]]` has no director: it works as it always did, and `shot` reads zeros. The director is per scene, so its counts start again at a scene switch (`src/scene/director.rs`). The numbers below are initial defaults, like the other constants of this document.

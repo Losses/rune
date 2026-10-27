@@ -92,7 +92,8 @@ pub fn accent_shape(x: f32) -> f32 {
     (1.0 - (-x / ACCENT_RISE).exp()) * (-ACCENT_SETTLE * x).exp() * (1.0 - x) / ACCENT_PEAK
 }
 
-fn followed(music: &MusicValues) -> bool {
+/// Whether the beat is followed, so that the tempo can be used for durations.
+pub fn followed(music: &MusicValues) -> bool {
     music.locked > FOLLOWED && music.tempo > 0.0
 }
 

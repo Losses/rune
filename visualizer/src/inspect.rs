@@ -3,6 +3,7 @@
 //! things it can be told to do now (see [`crate::Visualizer::lab`]). The app uses neither: the
 //! render thread only fills an [`Inspect`] while inspection is on.
 
+use crate::bind::{Level, Report, Used};
 use crate::scene::Pace;
 use crate::scene::{DirectorView, Effects, LensView, MusicValues};
 use crate::switching::FOLLOWED;
@@ -29,9 +30,41 @@ pub struct Inspect {
     pub lens: InspectLens,
     /// What a lab overrides of the choices the visualizer makes by itself.
     pub overrides: LabOverrides,
+    /// The bindings of the scene on screen: what drives each of its inputs now.
+    pub bindings: Vec<InspectBinding>,
     /// The chance in percent a lab set for every moment to get an effect, or none for the user's
     /// setting (see [`LabCommand::EffectChance`]).
     pub chance: Option<u8>,
+}
+
+/// One `[[bind]]` of the scene on screen as it was in the last frame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InspectBinding {
+    /// The input it drives.
+    pub target: String,
+    pub source: String,
+    pub how: String,
+    /// The fallback level the music was at.
+    pub level: Level,
+    /// Which of its means gave the output: its source, a fallback, or none.
+    pub used: Used,
+    /// The value of the source, and the output.
+    pub source_value: f32,
+    pub output: f32,
+}
+
+impl From<Report> for InspectBinding {
+    fn from(report: Report) -> Self {
+        Self {
+            target: report.target,
+            source: report.source.to_string(),
+            how: report.how.to_string(),
+            level: report.tick.level,
+            used: report.tick.used,
+            source_value: report.tick.source,
+            output: report.tick.output,
+        }
+    }
 }
 
 /// Which lens effects the scene on screen has (see [`LabCommand::Flare`]).
@@ -263,6 +296,9 @@ impl From<LabPace> for Pace {
 /// chosen, at the last point before the switch or the cut is drawn; none leaves the choice be.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LabOverrides {
+    /// The fallback level the music is held at, whatever the song has (see
+    /// [`LabCommand::ForceLevel`]).
+    pub level: Option<Level>,
     /// What every scene switch uses, the automatic ones and those asked for (see
     /// [`LabCommand::SwitchWith`]).
     pub switch: Option<LabTransition>,
@@ -316,6 +352,10 @@ pub enum LabCommand {
     /// The scene on screen uses this pace in place of its own (see [`LabCommand::CyclePace`]),
     /// or with none its own again.
     PaceWith(Option<LabPace>),
+    /// Hold the music at this fallback level, as if the song had no more than that: C passes no
+    /// chart, B keeps the chart and loses its beat. It can only take the music down from what the
+    /// song has (A is the song as it is). None leaves the music be.
+    ForceLevel(Option<Level>),
     /// Start a burst of cuts now: the director cuts on each of the next 4 beats (or every
     /// quarter second without a followed beat) to medium, close, detail and top, each with its
     /// punch, as the burst before a lift does.

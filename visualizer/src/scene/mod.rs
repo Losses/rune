@@ -28,9 +28,9 @@ use director::Director;
 pub use director::DirectorView;
 use inputs::EventCounter;
 pub use lens::LensView;
-pub use manifest::{Effects, Pace};
+pub use manifest::{Bind, Effects, FallbackDecl, InputDecl, Pace};
 use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
-use wgsl::ParamsLayout;
+use wgsl::{InputLayout, ParamsLayout};
 
 pub use manifest::{MANIFEST, argb_to_linear};
 
@@ -411,6 +411,10 @@ pub struct Scene {
     /// `struct Shot`, the camera director's word to the scene.
     shot: wgpu::Buffer,
     params_buffer: wgpu::Buffer,
+    /// `struct Inputs`, the values the scene's `[[bind]]`s drive, and what drives them.
+    input_layout: InputLayout,
+    input_buffer: wgpu::Buffer,
+    bindings: crate::bind::Bindings,
     state: wgpu::Buffer,
     state_size: u64,
     post_buffer: wgpu::Buffer,
@@ -922,6 +926,10 @@ impl Scene {
         let shot = uniform("scene shot", wgsl::SHOT_SIZE);
         let params_buffer = uniform("scene params", params.size);
         queue.write_buffer(&params_buffer, 0, &params.pack(&files.param_values()));
+        let input_layout = InputLayout::new(manifest);
+        let input_buffer = uniform("scene inputs", input_layout.size);
+        let bindings = crate::bind::Bindings::new(&manifest.inputs, &manifest.binds)?;
+        queue.write_buffer(&input_buffer, 0, &input_layout.pack(bindings.values()));
         let storage = |label, size| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
@@ -1053,6 +1061,7 @@ impl Scene {
                 buffer_entry(wgsl::BIND_MUSIC, visibility, uniform),
                 buffer_entry(wgsl::BIND_PARAMS, visibility, uniform),
                 buffer_entry(wgsl::BIND_SHOT, visibility, uniform),
+                buffer_entry(wgsl::BIND_INPUT, visibility, uniform),
                 buffer_entry(
                     wgsl::BIND_STATE,
                     visibility,
@@ -1091,6 +1100,7 @@ impl Scene {
                 (wgsl::BIND_MUSIC, music.as_entire_binding()),
                 (wgsl::BIND_PARAMS, params_buffer.as_entire_binding()),
                 (wgsl::BIND_SHOT, shot.as_entire_binding()),
+                (wgsl::BIND_INPUT, input_buffer.as_entire_binding()),
                 (wgsl::BIND_STATE, state_buffer.as_entire_binding()),
                 (
                     wgsl::BIND_SPECTRUM,
@@ -1247,6 +1257,9 @@ impl Scene {
             music,
             shot,
             params_buffer,
+            input_layout,
+            input_buffer,
+            bindings,
             state: state_buffer,
             state_size,
             post_buffer,
@@ -1313,6 +1326,12 @@ impl Scene {
         std::mem::swap(&mut self.events, &mut previous.events);
         self.music_values = previous.music_values;
         self.last_song = previous.last_song;
+    }
+
+    /// What each of the scene's bindings said in the last frame drawn: which source and level
+    /// produced its input's value.
+    pub fn bindings(&self) -> Vec<crate::bind::Report> {
+        self.bindings.report()
     }
 
     /// The values `struct Music` got for the last frame drawn (the defaults before the first),
@@ -1479,9 +1498,22 @@ impl Scene {
                 0,
                 &self.params.pack(&files.param_values()),
             );
+            // The binds are only evaluated on the CPU: new ones start over, and the pipelines
+            // stay.
+            if files.manifest.binds != self.files.manifest.binds {
+                self.bindings =
+                    crate::bind::Bindings::new(&files.manifest.inputs, &files.manifest.binds)?;
+                queue.write_buffer(
+                    &self.input_buffer,
+                    0,
+                    &self.input_layout.pack(self.bindings.values()),
+                );
+            }
             self.files = files;
             return Ok(true);
         }
+        let same_binds = files.manifest.inputs == self.files.manifest.inputs
+            && files.manifest.binds == self.files.manifest.binds;
         let same_state = files.state == self.files.state;
         let mut next = Self::build(
             device,
@@ -1499,6 +1531,10 @@ impl Scene {
             next.first = false;
         }
         next.take_music_from(self);
+        // Bindings that did not change keep their state (an accumulated distance, an envelope).
+        if same_binds {
+            std::mem::swap(&mut next.bindings, &mut self.bindings);
+        }
         // What a scene lab set on the scene survives its being saved: the director is new, the
         // hold and the pace are the lab's.
         if let (Some(old), Some(new)) = (&self.director, &mut next.director) {
@@ -1750,6 +1786,8 @@ impl Scene {
         );
         queue.write_buffer(&self.music, 0, &music.bytes());
         self.music_values = music;
+        let inputs = self.bindings.tick(dt as f32, &music);
+        queue.write_buffer(&self.input_buffer, 0, &self.input_layout.pack(inputs));
         self.cut = None;
         let shot = match &mut self.director {
             Some(director) => {

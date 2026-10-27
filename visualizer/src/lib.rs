@@ -13,6 +13,7 @@
 
 mod adaptive;
 mod bench;
+pub mod bind;
 mod builtin;
 mod chart;
 mod course;
@@ -53,12 +54,13 @@ use log::{error, info};
 use rand::rngs::ThreadRng;
 use rtrb::Consumer;
 
+pub use bind::{Level, Used};
 pub use chart::{Chart, ChartState};
 use chart::{ChartFollower, Playback};
 pub use inspect::{
-    Inspect, InspectDirector, InspectEffects, InspectLens, InspectMusic, InspectSection,
-    InspectShot, InspectSwitching, InspectTransition, LabCommand, LabLens, LabOverrides, LabPace,
-    LabTransition,
+    Inspect, InspectBinding, InspectDirector, InspectEffects, InspectLens, InspectMusic,
+    InspectSection, InspectShot, InspectSwitching, InspectTransition, LabCommand, LabLens,
+    LabOverrides, LabPace, LabTransition,
 };
 use loading::Loads;
 pub use moments::{Chances, EffectLevel};
@@ -1086,6 +1088,8 @@ fn run(
         // A chart knows the beats of the whole song, or that it has none: it replaces the
         // tracker's guess either way.
         let chart = charts.tick(&lock(&shared.playback), Instant::now());
+        // A lab may hold the music at a lower fallback level than the song has.
+        let chart = bind::forced_chart(pipeline.lab().level, chart);
         let rhythm = chart::trusted_rhythm(tracker.rhythm(), chart.as_ref());
         pipeline.set_rhythm(&rhythm);
         pipeline.set_chart(chart.as_ref());
@@ -1402,6 +1406,7 @@ fn lab(
         LabCommand::SwitchWith(transition) => pipeline.set_lab_switch(transition),
         LabCommand::CutsWith(transition) => pipeline.set_lab_cuts(transition),
         LabCommand::LensWith(lens) => pipeline.set_lab_lens(lens),
+        LabCommand::ForceLevel(level) => pipeline.set_lab_level(level),
         LabCommand::NextScene(transition) => {
             let next = lock(library).auto_next(&mut rand::thread_rng());
             match next {
@@ -1445,6 +1450,11 @@ fn inspection(
             lens
         },
         overrides: pipeline.lab(),
+        bindings: pipeline
+            .bindings()
+            .into_iter()
+            .map(InspectBinding::from)
+            .collect(),
         chance: match shared.lab_chance.load(Ordering::Relaxed) {
             NO_LAB_CHANCE => None,
             percent => Some(percent),

@@ -666,3 +666,150 @@ fn a_held_shot_and_a_lab_pace_survive_a_reload_of_the_scene() {
     assert!(scene.reload(&device, &queue).unwrap());
     assert!(!scene.director_view().unwrap().held);
 }
+
+/// The counter with two inputs and two binds: `level` follows the meter (4 beats in a bar, from
+/// 0 to 8: one half), `dist` adds the meter per second (so 4 each second), and `idle` has no
+/// bind and stays at its rest.
+const INPUT_TEXT: &str = r#"
+[[input]]
+id = "level"
+range = [0.0, 1.0]
+
+[[input]]
+id = "dist"
+range = [0.0, 100.0]
+
+[[input]]
+id = "idle"
+range = [0.0, 1.0]
+rest = 0.75
+
+[[bind]]
+target = "level"
+source = "meter"
+how = "follow"
+when = { from = [0, 8] }
+
+[[bind]]
+target = "dist"
+source = "meter"
+how = "accumulate"
+when = { per = "second" }
+"#;
+/// Red from the trail, green is `level`, blue is `idle`.
+const INPUT_FINAL: &str = "fn shade(px: Pixel) -> vec4f {\n  let t = textureLoad(trail, vec2i(px.coord), 0);\n  return vec4f(t.r, input.level, input.idle, 1.0);\n}\n";
+
+fn with_inputs(name: &str) -> PathBuf {
+    folder(
+        name,
+        &[
+            (MANIFEST, &format!("{MANIFEST_TEXT}{INPUT_TEXT}")),
+            ("state.wgsl", STATE),
+            ("update.wgsl", UPDATE),
+            ("trail.wgsl", TRAIL),
+            ("final.wgsl", INPUT_FINAL),
+        ],
+    )
+}
+
+fn distance(scene: &Scene) -> f32 {
+    scene
+        .bindings()
+        .iter()
+        .find(|r| r.target == "dist")
+        .unwrap()
+        .tick
+        .output
+}
+
+#[test]
+fn the_inputs_the_binds_drive_reach_the_shaders() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let gpu = (&device, &queue);
+    let dir = with_inputs("inputs");
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    let screen = Screen::new(&device);
+    for i in 0..3 {
+        frame(&mut scene, gpu, &screen, f64::from(i) / 60.0, 0.0);
+    }
+    // The trail has grown three steps; `level` is half the meter's range; `idle` is at rest.
+    let c = screen.middle(&device, &queue);
+    assert!(close(c, [0.3, 0.5, 0.75]), "{c:?}");
+    // What a lab reads: no chart, so level C, each bind with its source and its output.
+    let report = scene.bindings();
+    assert_eq!(report.len(), 2);
+    assert_eq!(
+        (report[0].target.as_str(), report[0].source, report[0].how),
+        ("level", "meter", "follow")
+    );
+    assert_eq!(report[0].tick.level, crate::bind::Level::C);
+    assert_eq!(report[0].tick.used, crate::bind::Used::Source);
+    assert!((report[0].tick.output - 0.5).abs() < 1e-6);
+    // Four per second, over three frames of a sixtieth.
+    assert!(
+        (distance(&scene) - 0.2).abs() < 1e-3,
+        "{}",
+        distance(&scene)
+    );
+}
+
+#[test]
+fn changing_only_the_binds_keeps_the_pipelines_and_changing_an_input_rebuilds() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let gpu = (&device, &queue);
+    let dir = with_inputs("bind-reload");
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    let screen = Screen::new(&device);
+    let mut time = 0.0;
+    let mut next = |scene: &mut Scene| {
+        frame(scene, gpu, &screen, time, 0.0);
+        time += 1.0 / 60.0;
+        screen.middle(&device, &queue)
+    };
+    next(&mut scene);
+    let c = next(&mut scene);
+    assert!(close(c, [0.2, 0.5, 0.75]), "{c:?}");
+
+    // A new bind (the range of the meter is now 16) is taken at once. The pipelines stay: the
+    // trail, which a rebuilt scene starts again, grows on.
+    let text = format!("{MANIFEST_TEXT}{INPUT_TEXT}").replace("from = [0, 8]", "from = [0, 16]");
+    std::fs::write(dir.join(MANIFEST), &text).unwrap();
+    assert!(scene.reload(&device, &queue).unwrap());
+    let c = next(&mut scene);
+    assert!(close(c, [0.3, 0.25, 0.75]), "{c:?}");
+    // The binds were remade, so the distance started over.
+    assert!((distance(&scene) - 4.0 / 60.0).abs() < 1e-3);
+
+    // A change to an input is a change of the struct: the scene is rebuilt (its trail starts
+    // again), and the binds, which were made for the old input, start over.
+    let rest = text.replace("rest = 0.75", "rest = 0.5");
+    std::fs::write(dir.join(MANIFEST), rest).unwrap();
+    assert!(scene.reload(&device, &queue).unwrap());
+    let c = next(&mut scene);
+    assert!(close(c, [0.1, 0.25, 0.5]), "{c:?}");
+    assert!((distance(&scene) - 4.0 / 60.0).abs() < 1e-3);
+
+    // A change to a shader rebuilds too, and binds that did not change keep their state.
+    std::fs::write(dir.join("final.wgsl"), format!("{INPUT_FINAL}\n")).unwrap();
+    assert!(scene.reload(&device, &queue).unwrap());
+    next(&mut scene);
+    let kept = distance(&scene);
+    assert!((kept - 8.0 / 60.0).abs() < 1e-3, "{kept}");
+}
+
+#[test]
+fn a_scene_without_inputs_or_binds_is_as_it_was() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let dir = counter("no-inputs");
+    let scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    assert!(scene.bindings().is_empty());
+}

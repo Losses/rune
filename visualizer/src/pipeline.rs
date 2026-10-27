@@ -20,10 +20,10 @@ use log::{info, warn};
 use crate::adaptive::{Controller, Level, Report};
 use crate::chart::ChartState;
 use crate::covers::{Atlas, Cell};
-use crate::moments::Chances;
 use crate::gpu_time::GpuTimer;
 use crate::in_flight::InFlight;
 use crate::inspect::{LabLens, LabOverrides, LabPace, LabTransition};
+use crate::moments::Chances;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
 use crate::scene::{DirectorView, FrameInput, MusicValues, Scene, Source};
@@ -683,6 +683,17 @@ impl Pipeline {
     /// What a scene lab replaces of the choices made by themselves.
     pub fn lab(&self) -> LabOverrides {
         self.lab
+    }
+
+    /// What each binding of the scene being drawn said in its last frame.
+    pub fn bindings(&self) -> Vec<crate::bind::Report> {
+        self.scene.bindings()
+    }
+
+    /// The music is held at this fallback level from the next frame on, or with none left as it
+    /// is (see [`crate::bind::forced_chart`]; the render loop applies it).
+    pub fn set_lab_level(&mut self, level: Option<crate::bind::Level>) {
+        self.lab.level = level;
     }
 
     /// Every scene switch takes `transition` from now on, or with none what was chosen (see
@@ -1554,7 +1565,8 @@ fn dress_cut(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64
                 .map(|kind| (kind, switching::dressed_durations(kind, music))),
         };
         // A lab's override replaces whatever was chosen, last of all.
-        if let Some((kind, durations)) = switching::cut_dressing(transitions.lab_cuts, chosen, music)
+        if let Some((kind, durations)) =
+            switching::cut_dressing(transitions.lab_cuts, chosen, music)
         {
             let dressed = Dressed {
                 kind,
@@ -1831,6 +1843,54 @@ mod tests {
         assert!((m[10] - 124.0).abs() < 4.0, "the new scene: {m:?}");
         assert!(pipeline.transitions.running.is_none());
         assert!(!pipeline.transitions.holds_textures());
+    }
+
+    /// A scene of one grey that is the input `shade`, which follows the music's `meter` (4 with
+    /// no chart: half the range of 0 to 8).
+    fn bound_scene(name: &str) -> std::path::PathBuf {
+        let dir = plain_scene(name, 0.0);
+        let manifest = std::fs::read_to_string(dir.join("scene.toml")).unwrap();
+        let manifest = format!(
+            "{manifest}[[input]]\nid = \"shade\"\n[[bind]]\ntarget = \"shade\"\nsource = \"meter\"\nhow = \"follow\"\nwhen = {{ from = [0, 8] }}\n"
+        );
+        std::fs::write(dir.join("scene.toml"), manifest).unwrap();
+        std::fs::write(
+            dir.join("a.wgsl"),
+            "fn shade(px: Pixel) -> vec4f {\n  return vec4f(vec3f(input.shade), 1.0);\n}\n",
+        )
+        .unwrap();
+        dir
+    }
+
+    /// The inputs a scene's binds drive reach its shaders through the pipeline, and what a lab
+    /// reads says which level the music was at.
+    #[test]
+    fn a_scene_draws_with_its_bound_inputs_and_tells_the_level() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let scene = pipeline
+            .scene_build_dir(&bound_scene("bound"))
+            .run()
+            .unwrap_or_else(|e| panic!("{e:#}"));
+        pipeline.install(scene).unwrap();
+        // Half of the range, as sRGB.
+        let m = means(&mut pipeline, &[0.0, 0.1, 0.2]);
+        assert!((m[2] - 188.0).abs() < 4.0, "{m:?}");
+        let report = pipeline.bindings();
+        assert_eq!(report.len(), 1);
+        assert_eq!(report[0].target, "shade");
+        assert_eq!(report[0].tick.level, crate::bind::Level::C);
+        assert_eq!(report[0].tick.used, crate::bind::Used::Source);
+        // A chart without a beat makes it level B.
+        pipeline.set_chart(Some(&ChartState::default()));
+        means(&mut pipeline, &[0.3, 0.4]);
+        assert_eq!(pipeline.bindings()[0].tick.level, crate::bind::Level::B);
+        // What a lab forces is kept for the render loop, which applies it to the chart.
+        assert_eq!(pipeline.lab().level, None);
+        pipeline.set_lab_level(Some(crate::bind::Level::C));
+        assert_eq!(pipeline.lab().level, Some(crate::bind::Level::C));
     }
 
     /// A cover of one colour, for the band of a cut-in.
