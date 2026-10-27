@@ -15,40 +15,63 @@ use crate::switching::FOLLOWED;
 
 /// How strong an effect a medium moment starts (a strong moment's is at full strength).
 pub const MEDIUM_STRENGTH: f32 = 0.6;
-/// How long a block frame lasts. About one frame at 30 fps and two at 60 fps; it is always
-/// drawn at least once.
+/// How long a block frame shows the picture's shapes in the theme colour, and then how long its
+/// negative stutters after it. About two frames and one at 60 fps, one and one at 30 fps; each is
+/// always drawn at least once.
 pub const BLOCKS_SECONDS: f32 = 0.03;
-/// A flare comes in over this many beats and goes away over the next ones.
-pub const FLARE_IN_BEATS: f32 = 0.5;
+pub const BLOCKS_INVERTED_SECONDS: f32 = 0.015;
+/// A flare's glare comes in over this many beats and goes away over the next ones.
+pub const FLARE_IN_BEATS: f32 = 0.25;
 pub const FLARE_OUT_BEATS: f32 = 6.0;
+/// A flare's bright streak sweeps out from the brightest highlight to the frame's sides in this
+/// many beats, as it starts.
+pub const FLARE_SWEEP_BEATS: f32 = 1.0;
 /// A light leak comes in over this many beats, and goes away over the next ones.
-pub const LEAK_IN_BEATS: f32 = 4.0;
+pub const LEAK_IN_BEATS: f32 = 1.0;
 pub const LEAK_OUT_BEATS: f32 = 16.0;
+/// A light leak burns hot at the edge it comes from: up over this many beats as it comes in, and
+/// down over the next ones.
+pub const LEAK_BURN_IN_BEATS: f32 = 0.5;
+pub const LEAK_BURN_OUT_BEATS: f32 = 2.0;
 /// How far a leak's source wanders along its edge over the whole leak, as a share of the edge.
 const LEAK_DRIFT: f32 = 0.18;
+/// The radius of a light leak's glow, as a share of the frame's long side.
+const LEAK_SIZE: f32 = 0.5;
 /// The seconds of a beat while the beat is not followed (120 bpm), so that durations in beats
 /// are fixed seconds then.
 pub const FALLBACK_BEAT_SECONDS: f32 = 0.5;
 /// The flare is drawn from this quality (`frame.quality`) up: it is lowered first.
 pub const FLARE_MIN_QUALITY: f32 = 0.5;
 
-/// The size of [`LensFrame`] in the uniform: eight f32.
-pub const LENS_SIZE: u64 = 32;
+/// The size of [`LensFrame`] in the uniform: twelve f32.
+pub const LENS_SIZE: u64 = 48;
 
 /// What the post pass is told for one frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LensFrame {
-    /// The strength of the flare, 0 (off) and up.
+    /// The strength of the flare's glare, 0 (off) and up.
     pub flare: f32,
+    /// How far the flare's bright streak has swept out, 0 to 1 (1 once it reached the sides).
+    pub flare_sweep: f32,
+    /// 1 when the post pass takes the frame's key (its brightest, its mean and where the
+    /// brightest is, which the flare and the block frame start from) as it is instead of
+    /// following the last one smoothly: when the frame before drew none (a flare's first frame
+    /// is at strength 0 and draws none, so a flare started again looks afresh too).
+    pub fresh: f32,
     /// How much of the light leak is in, 0 to 1.
     pub leak: f32,
-    /// How much of a colour-block frame is on, 0 or 1.
-    pub blocks: f32,
-    /// Where the leak's source is (in uv, on or just beyond an edge), and its radius in uv.
+    /// Where the leak's source is (in uv, on or just beyond an edge), and its radius as a share
+    /// of the frame's long side.
     pub leak_at: [f32; 2],
     pub leak_size: f32,
     /// A number that grows over the leak, which the shader turns into slow changes of shape.
     pub leak_phase: f32,
+    /// How hot the leak burns at its edge, 0 to 1: only as it comes in.
+    pub leak_burn: f32,
+    /// How much of a colour-block frame is on, 0 or its strength.
+    pub blocks: f32,
+    /// 1 while the block frame stutters to its negative.
+    pub blocks_inverted: f32,
 }
 
 impl LensFrame {
@@ -63,12 +86,16 @@ impl LensFrame {
         let mut bytes = [0; LENS_SIZE as usize];
         let values = [
             self.flare,
-            self.leak,
+            self.flare_sweep,
+            self.fresh,
             self.blocks,
-            self.leak_phase,
+            self.leak,
             self.leak_at[0],
             self.leak_at[1],
             self.leak_size,
+            self.leak_phase,
+            self.leak_burn,
+            self.blocks_inverted,
             0.0,
         ];
         for (chunk, v) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(values) {
@@ -98,6 +125,16 @@ struct Run {
     age: f32,
 }
 
+/// A colour-block frame under way: its strength, its age in seconds, and whether its plain and
+/// its negative frame were drawn yet.
+#[derive(Clone, Copy, Debug)]
+struct Blocks {
+    strength: f32,
+    age: f32,
+    plain_drawn: bool,
+    inverted_drawn: bool,
+}
+
 /// A light leak under way, which comes from a corner.
 #[derive(Clone, Copy, Debug)]
 struct Leak {
@@ -115,10 +152,11 @@ pub struct Lens {
     blocks_listed: bool,
     flare: Option<Run>,
     leak: Option<Leak>,
-    /// The strength of the block frame on, and the seconds of it left.
-    blocks: Option<(f32, f32)>,
+    blocks: Option<Blocks>,
     /// How many leaks started, which picks the corner of the next.
     leaks: u32,
+    /// Whether the frame before drew the key (it had a flare or a block frame on).
+    keyed: bool,
     /// What the scene itself listed, which a lab's forcing adds to and takes away from again.
     own: LabLens,
     /// What a lab forced on (see [`Lens::set_forced`]).
@@ -137,6 +175,7 @@ impl Lens {
             leak: None,
             blocks: None,
             leaks: 0,
+            keyed: false,
             own: LabLens {
                 flare: has("flare"),
                 leak: has("leak"),
@@ -177,9 +216,15 @@ impl Lens {
         });
     }
 
-    /// Fire a colour-block frame of `strength` (0 to 1: how much of the flat colour) now.
+    /// Fire a colour-block frame of `strength` (0 to 1: how much of the graphic frame is over
+    /// the picture) now: its plain frame, then its negative.
     pub fn start_blocks(&mut self, strength: f32) {
-        self.blocks = Some((strength.clamp(0.0, 1.0), BLOCKS_SECONDS));
+        self.blocks = Some(Blocks {
+            strength: strength.clamp(0.0, 1.0),
+            age: 0.0,
+            plain_drawn: false,
+            inverted_drawn: false,
+        });
     }
 
     /// The names of the effects that start at a moment: those the scene listed and those a lab
@@ -261,7 +306,8 @@ impl Lens {
 
         let mut frame = LensFrame::default();
 
-        // The flare: in fast, away over a bar or two. It gives way to a low quality.
+        // The flare: its streak sweeps out over a beat, its glare comes in fast and goes over a
+        // bar or two. It gives way to a low quality.
         if let Some(run) = &mut self.flare {
             let total = FLARE_IN_BEATS + FLARE_OUT_BEATS;
             if run.age >= total {
@@ -269,20 +315,24 @@ impl Lens {
             } else {
                 if quality >= FLARE_MIN_QUALITY {
                     frame.flare = run.strength * envelope(run.age, FLARE_IN_BEATS, FLARE_OUT_BEATS);
+                    frame.flare_sweep = (run.age / FLARE_SWEEP_BEATS).min(1.0);
                 }
                 run.age += beats;
             }
         }
 
-        // The leak: in over a few beats, away over some bars, its source drifting.
+        // The leak: in over a beat with a burn at its edge, away over some bars, its source
+        // drifting.
         if let Some(leak) = &mut self.leak {
             let total = LEAK_IN_BEATS + LEAK_OUT_BEATS;
             if leak.run.age >= total {
                 self.leak = None;
             } else {
-                frame.leak =
-                    leak.run.strength * envelope(leak.run.age, LEAK_IN_BEATS, LEAK_OUT_BEATS);
-                let share = leak.run.age / total;
+                let age = leak.run.age;
+                frame.leak = leak.run.strength * envelope(age, LEAK_IN_BEATS, LEAK_OUT_BEATS);
+                frame.leak_burn =
+                    leak.run.strength * envelope(age, LEAK_BURN_IN_BEATS, LEAK_BURN_OUT_BEATS);
+                let share = age / total;
                 // The source sits a little beyond the corner and wanders along its edge.
                 let (x, y) = match leak.corner {
                     0 => (-0.05, 0.1 + LEAK_DRIFT * share * leak.along),
@@ -291,18 +341,34 @@ impl Lens {
                     _ => (0.9 - LEAK_DRIFT * share, 1.05),
                 };
                 frame.leak_at = [x, y];
-                frame.leak_size = 0.55;
+                frame.leak_size = LEAK_SIZE;
                 frame.leak_phase = share * std::f32::consts::TAU;
                 leak.run.age += beats;
             }
         }
 
-        // The block frame is drawn at least once, then for the rest of its time.
-        if let Some((strength, left)) = self.blocks {
-            frame.blocks = strength;
-            let left = left - dt;
-            self.blocks = (left > 0.0).then_some((strength, left));
+        // The block frame: its plain frame, then its negative; each is drawn at least once.
+        if let Some(blocks) = &mut self.blocks {
+            let inverted = blocks.plain_drawn && blocks.age >= BLOCKS_SECONDS;
+            let over = BLOCKS_SECONDS + BLOCKS_INVERTED_SECONDS;
+            if inverted && blocks.inverted_drawn && blocks.age >= over {
+                self.blocks = None;
+            } else {
+                frame.blocks = blocks.strength;
+                if inverted {
+                    frame.blocks_inverted = 1.0;
+                    blocks.inverted_drawn = true;
+                } else {
+                    blocks.plain_drawn = true;
+                }
+                blocks.age += dt;
+            }
         }
+        let keyed = frame.flare > 0.0 || frame.blocks > 0.0;
+        if keyed && !self.keyed {
+            frame.fresh = 1.0;
+        }
+        self.keyed = keyed;
         frame
     }
 }
@@ -430,7 +496,7 @@ mod tests {
         lens.start_flare(1.0);
         let peak = run(&mut lens, 0.5);
         assert!(peak.flare > 0.9, "{}", peak.flare);
-        // 6.5 beats at 120 bpm are 3.25 s.
+        // 6.25 beats at 120 bpm are 3.125 s.
         run(&mut lens, 2.5);
         assert!(lens.view().flare_running);
         run(&mut lens, 1.0);
@@ -442,8 +508,8 @@ mod tests {
         lens.start_leak(1.0);
         let peak = run(&mut lens, 2.0);
         assert!(peak.leak > 0.95, "{}", peak.leak);
-        // 20 beats are 10 s.
-        run(&mut lens, 8.2);
+        // 17 beats are 8.5 s.
+        run(&mut lens, 6.7);
         assert!(!lens.view().leak_running);
     }
 
@@ -456,10 +522,10 @@ mod tests {
             tempo: 240.0,
             ..music(0.0, 0)
         };
-        for _ in 0..(5.2 * 60.0) as u32 {
+        for _ in 0..(4.4 * 60.0) as u32 {
             lens.tick(1.0 / 60.0, &fast, 1.0);
         }
-        assert!(!lens.view().leak_running, "20 beats at 240 bpm are 5 s");
+        assert!(!lens.view().leak_running, "17 beats at 240 bpm are 4.25 s");
         // Without a followed beat a beat is half a second.
         lens.start_flare(1.0);
         let free = MusicValues {
@@ -473,19 +539,82 @@ mod tests {
         assert!(!lens.view().flare_running);
     }
 
-    /// A block frame is one or two frames long, and at least one even at a low frame rate.
+    /// A block frame is a plain frame or two and then one of its negative, each drawn at least
+    /// once even at a low frame rate.
     #[test]
     fn a_block_frame_is_short_but_drawn() {
         let mut lens = lens(&[]);
         lens.start_blocks(1.0);
-        let mut frames = 0;
-        while lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0).blocks > 0.0 {
-            frames += 1;
+        let mut plain = 0;
+        let mut inverted = 0;
+        loop {
+            let frame = lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
+            if frame.blocks <= 0.0 {
+                break;
+            }
+            if frame.blocks_inverted > 0.0 {
+                inverted += 1;
+            } else {
+                assert_eq!(inverted, 0, "the negative comes last");
+                plain += 1;
+            }
         }
-        assert!((1..=2).contains(&frames), "{frames} frames");
+        assert_eq!((plain, inverted), (2, 1));
         lens.start_blocks(1.0);
-        assert_eq!(lens.tick(0.1, &music(0.0, 0), 1.0).blocks, 1.0);
-        assert_eq!(lens.tick(0.1, &music(0.0, 0), 1.0).blocks, 0.0);
+        let slow = |lens: &mut Lens| {
+            let f = lens.tick(0.1, &music(0.0, 0), 1.0);
+            (f.blocks, f.blocks_inverted)
+        };
+        assert_eq!(slow(&mut lens), (1.0, 0.0));
+        assert_eq!(slow(&mut lens), (1.0, 1.0));
+        assert_eq!(slow(&mut lens).0, 0.0);
+    }
+
+    /// A flare's streak sweeps out over a beat and says so. The key is taken afresh in the
+    /// first frame that draws one after a frame that drew none (a flare started again too), and
+    /// followed after that. A leak burns at its edge only as it comes in.
+    #[test]
+    fn the_flare_sweeps_and_the_leak_burns_as_they_start() {
+        let mut lens = lens(&[]);
+        let tick = |lens: &mut Lens| lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
+        lens.start_flare(1.0);
+        let first = tick(&mut lens);
+        assert_eq!(
+            (first.flare, first.fresh, first.flare_sweep),
+            (0.0, 0.0, 0.0)
+        );
+        let second = tick(&mut lens);
+        assert!(second.flare > 0.0 && second.fresh == 1.0);
+        assert!(second.flare_sweep > 0.0 && second.flare_sweep < 0.1);
+        assert_eq!(tick(&mut lens).fresh, 0.0);
+        // A beat at 120 bpm is 30 frames.
+        run(&mut lens, 0.5);
+        let swept = tick(&mut lens);
+        assert_eq!(swept.flare_sweep, 1.0);
+        assert!(swept.flare > 0.8);
+        lens.start_flare(1.0);
+        tick(&mut lens);
+        assert_eq!(tick(&mut lens).fresh, 1.0);
+        // A block frame over a flare follows the key; alone, it takes it afresh.
+        lens.start_blocks(1.0);
+        assert_eq!(tick(&mut lens).fresh, 0.0);
+        let mut blocks = self::lens(&[]);
+        blocks.start_blocks(1.0);
+        let firsts: Vec<f32> = (0..3).map(|_| tick(&mut blocks).fresh).collect();
+        assert_eq!(firsts, [1.0, 0.0, 0.0]);
+
+        lens.start_leak(1.0);
+        let mut burn = Vec::new();
+        for _ in 0..(8.5 * 60.0) as u32 {
+            let f = lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
+            burn.push((f.leak, f.leak_burn));
+        }
+        let hottest = burn.iter().map(|b| b.1).fold(0.0, f32::max);
+        assert!(hottest > 0.9, "{hottest}");
+        // Three beats in (90 frames) the burn is gone and the glow is still in.
+        assert_eq!(burn[90].1, 0.0);
+        assert!(burn[90].0 > 0.9, "{:?}", burn[90]);
+        assert!(burn.iter().all(|b| b.1 <= 1.0 && b.0 <= 1.0));
     }
 
     /// The flare gives way to a low quality, and the rest of the course goes by unseen.

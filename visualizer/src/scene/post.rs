@@ -1,6 +1,8 @@
 //! The built-in post-processing (`post.wgsl`): bloom, tone mapping and the rest, from the
 //! scene's HDR `out` into the frame that leaves the GPU.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use super::lens::{LENS_SIZE, LensFrame};
 use super::manifest::Tonemap;
 use super::wgsl;
@@ -11,9 +13,12 @@ const MAX_LEVELS: u32 = 6;
 
 pub struct Post {
     levels: Vec<(wgpu::Texture, wgpu::TextureView)>,
-    /// What the lens flare makes from a bloom level, in the size of that level; the composite
-    /// adds it. Only drawn while the flare is on.
-    flare: (wgpu::Texture, wgpu::TextureView),
+    /// The lens effects' textures, drawn only while the flare or a block frame is on: see
+    /// [`LensTargets`].
+    lens_targets: LensTargets,
+    /// Which of `lens_targets.keys` the next frame's key is drawn into (the other holds the
+    /// last, which it follows).
+    key_next: AtomicUsize,
     /// `struct Lens` of `post.wgsl`: which lens effects are on in this frame.
     lens: wgpu::Buffer,
     /// For as many levels as there are.
@@ -32,14 +37,35 @@ struct Pipelines {
     first_down: wgpu::RenderPipeline,
     down: wgpu::RenderPipeline,
     up: wgpu::RenderPipeline,
+    lens_source: wgpu::RenderPipeline,
+    lens_cells: wgpu::RenderPipeline,
+    lens_key: wgpu::RenderPipeline,
+    flare_wide: wgpu::RenderPipeline,
     flare: wgpu::RenderPipeline,
     composite: wgpu::RenderPipeline,
 }
 
+/// The textures of the lens effects. All but the cells and the keys are a quarter of the
+/// internal size: small textures keep the effects cheap, and the picture at that size has no
+/// halftone dots or lone bright pixels left to make specks of.
+struct LensTargets {
+    /// The exposed picture's luma in alpha, what the key and the block frame start from, and in
+    /// red, while the flare is on, what throws its streaks.
+    source: (wgpu::Texture, wgpu::TextureView),
+    /// Of 8 by 8 cells of it: the brightest luma, the mean and where the brightest is.
+    cells: (wgpu::Texture, wgpu::TextureView),
+    /// The frame's key (1 by 1): that of the whole frame, following the last smoothly, so two
+    /// to take turns.
+    keys: [(wgpu::Texture, wgpu::TextureView); 2],
+    /// The flare's wide streaks, first step.
+    wide: (wgpu::Texture, wgpu::TextureView),
+    /// The flare, which the composite lays over the picture.
+    flare: (wgpu::Texture, wgpu::TextureView),
+}
+
 const BLOOM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
-/// The bloom level the flare is made from: the second (a quarter of the internal size, or the
-/// only one at a tiny size). A small texture keeps the flare cheap.
-const FLARE_LEVEL: usize = 1;
+/// How many cells the frame's key divides it into each way (`CELLS` of `post.wgsl`).
+const KEY_CELLS: u32 = 8;
 
 fn levels_for(width: u32, height: u32) -> u32 {
     let mut n = 0;
@@ -122,6 +148,8 @@ impl Post {
                 texture(2),
                 texture(3),
                 texture(4),
+                texture(5),
+                texture(6),
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -165,7 +193,8 @@ impl Post {
         let count = levels_for(size.0, size.1);
         Self {
             levels: levels(device, size, count),
-            flare: flare_target(device, size, count),
+            lens_targets: LensTargets::new(device, size),
+            key_next: AtomicUsize::new(0),
             lens,
             pipelines: pipelines(device, &layout, tonemap, output, count),
             tonemap,
@@ -188,7 +217,8 @@ impl Post {
         };
         Self {
             levels: levels(device, size, count),
-            flare: flare_target(device, size, count),
+            lens_targets: LensTargets::new(device, size),
+            key_next: AtomicUsize::new(0),
             lens: self.lens.clone(),
             pipelines,
             tonemap: self.tonemap,
@@ -200,37 +230,37 @@ impl Post {
         }
     }
 
+    /// The textures of a pass: `source` and the sampler, and `extra` at bindings 2 to 6 (the
+    /// bloom, the blue noise, the flare, the key and the quarter-size picture, as `post.wgsl`
+    /// names them).
     fn bind(
         &self,
         device: &wgpu::Device,
         source: &wgpu::TextureView,
-        extra: (&wgpu::TextureView, &wgpu::TextureView, &wgpu::TextureView),
+        extra: [&wgpu::TextureView; 5],
     ) -> wgpu::BindGroup {
+        let mut entries = vec![
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(source),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&self.sampler),
+            },
+        ];
+        entries.extend(
+            (2..)
+                .zip(extra)
+                .map(|(binding, view)| wgpu::BindGroupEntry {
+                    binding,
+                    resource: wgpu::BindingResource::TextureView(view),
+                }),
+        );
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("scene post textures"),
             layout: &self.textures,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(source),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(extra.0),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(extra.1),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(extra.2),
-                },
-            ],
+            entries: &entries,
         })
     }
 
@@ -274,10 +304,10 @@ impl Post {
         queue.write_buffer(&self.lens, 0, &lens.bytes());
     }
 
-    /// Bloom from `out`, then everything into `target`. With `flare` (the frame's lens has a
-    /// flare, see [`Self::write_lens`]) the flare is drawn from the bloom first; nothing of it
-    /// costs anything otherwise. With `timestamps`, the first pass writes the frame's beginning
-    /// if `begin` (when no pass of the scene did) and the last its end if `end`.
+    /// Bloom from `out`, then everything into `target`. With the flare or a block frame on in
+    /// `lens` (the frame's lens, see [`Self::write_lens`]), their passes are drawn first; nothing
+    /// of them costs anything otherwise. With `timestamps`, the first pass writes the frame's
+    /// beginning if `begin` (when no pass of the scene did) and the last its end if `end`.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
@@ -289,30 +319,49 @@ impl Post {
         timestamps: Option<&wgpu::QuerySet>,
         begin: bool,
         end: bool,
-        flare: bool,
+        lens: &LensFrame,
     ) {
         let p = &self.pipelines;
         let first = &self.levels[0].1;
-        // The bloom and flare bindings are only read by the composite; the noise stands in
-        // elsewhere, as a level cannot be bound while it is drawn into.
-        let group = self.bind(device, out, (noise, noise, noise));
+        // A pass reads only some bindings; the noise stands in for the rest, as a texture cannot
+        // be bound while it is drawn into.
+        let none = [noise; 5];
+        let group = self.bind(device, out, none);
         let stamps = super::timestamp_writes(timestamps, begin, false);
         self.draw(encoder, &p.first_down, &group, first, true, stamps);
         for pair in self.levels.windows(2) {
-            let group = self.bind(device, &pair[0].1, (noise, noise, noise));
+            let group = self.bind(device, &pair[0].1, none);
             self.draw(encoder, &p.down, &group, &pair[1].1, true, None);
         }
         for pair in self.levels.windows(2).rev() {
-            let group = self.bind(device, &pair[1].1, (noise, noise, noise));
+            let group = self.bind(device, &pair[1].1, none);
             self.draw(encoder, &p.up, &group, &pair[0].1, false, None);
         }
-        if flare {
-            let from = &self.levels[FLARE_LEVEL.min(self.levels.len() - 1)].1;
-            let group = self.bind(device, from, (noise, noise, noise));
-            self.draw(encoder, &p.flare, &group, &self.flare.1, true, None);
+
+        let t = &self.lens_targets;
+        let flare = lens.flare > 0.0;
+        let mut composite = [first, noise, noise, noise, noise];
+        if flare || lens.blocks > 0.0 {
+            let next = self.key_next.fetch_xor(1, Ordering::Relaxed);
+            let (key, last) = (&t.keys[next].1, &t.keys[1 - next].1);
+            // The source finds the flare's highlights against the last key.
+            let group = self.bind(device, out, [noise, noise, noise, last, noise]);
+            self.draw(encoder, &p.lens_source, &group, &t.source.1, true, None);
+            let group = self.bind(device, &t.source.1, none);
+            self.draw(encoder, &p.lens_cells, &group, &t.cells.1, true, None);
+            let group = self.bind(device, &t.cells.1, [noise, noise, noise, last, noise]);
+            self.draw(encoder, &p.lens_key, &group, key, true, None);
+            if flare {
+                let group = self.bind(device, &t.source.1, none);
+                self.draw(encoder, &p.flare_wide, &group, &t.wide.1, true, None);
+                let group = self.bind(device, &t.source.1, [noise, noise, &t.wide.1, key, noise]);
+                self.draw(encoder, &p.flare, &group, &t.flare.1, true, None);
+                composite[2] = &t.flare.1;
+            }
+            composite[3] = key;
+            composite[4] = &t.source.1;
         }
-        let flare_view = if flare { &self.flare.1 } else { noise };
-        let group = self.bind(device, out, (first, noise, flare_view));
+        let group = self.bind(device, out, composite);
         let stamps = super::timestamp_writes(timestamps, false, end);
         self.draw(encoder, &p.composite, &group, target, true, stamps);
     }
@@ -349,18 +398,33 @@ fn levels(
     levels
 }
 
-/// The texture the flare is drawn into: the size of the level it is made from.
-fn flare_target(
+impl LensTargets {
+    /// For the internal size `size`.
+    fn new(device: &wgpu::Device, size: (u32, u32)) -> Self {
+        let quarter = ((size.0 / 4).max(1), (size.1 / 4).max(1));
+        Self {
+            source: lens_target(device, "scene lens source", quarter),
+            cells: lens_target(device, "scene lens cells", (KEY_CELLS, KEY_CELLS)),
+            keys: [
+                lens_target(device, "scene lens key", (1, 1)),
+                lens_target(device, "scene lens key", (1, 1)),
+            ],
+            wide: lens_target(device, "scene flare wide", quarter),
+            flare: lens_target(device, "scene flare", quarter),
+        }
+    }
+}
+
+fn lens_target(
     device: &wgpu::Device,
-    size: (u32, u32),
-    count: u32,
+    label: &str,
+    (width, height): (u32, u32),
 ) -> (wgpu::Texture, wgpu::TextureView) {
-    let shift = FLARE_LEVEL.min(count as usize - 1) as u32 + 1;
     let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("scene flare"),
+        label: Some(label),
         size: wgpu::Extent3d {
-            width: (size.0 >> shift).max(1),
-            height: (size.1 >> shift).max(1),
+            width,
+            height,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -430,6 +494,10 @@ fn pipelines(
         first_down: pipeline("first_down", BLOOM_FORMAT, None),
         down: pipeline("down", BLOOM_FORMAT, None),
         up: pipeline("up", BLOOM_FORMAT, add),
+        lens_source: pipeline("lens_source", BLOOM_FORMAT, None),
+        lens_cells: pipeline("lens_cells", BLOOM_FORMAT, None),
+        lens_key: pipeline("lens_key", BLOOM_FORMAT, None),
+        flare_wide: pipeline("flare_wide", BLOOM_FORMAT, None),
         flare: pipeline("flare", BLOOM_FORMAT, None),
         composite: pipeline("composite", output, None),
     }
