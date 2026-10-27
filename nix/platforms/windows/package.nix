@@ -16,7 +16,7 @@
 }:
 
 let
-  version = "2.0.1014";
+  version = "2.0.1015";
 
   # Step 1: Rust core (hub.dll and hub.dll.lib)
   libhub = (derivation {

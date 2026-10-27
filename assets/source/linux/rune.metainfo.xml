@@ -57,6 +57,14 @@
   </screenshots>
 
   <releases>
+    <release version="2.0.0-alpha.15" date="2026-10-27">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Keep androidx.documentfile for ndk-saf JNI lookups on Android.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.14" date="2026-10-26">
       <description>
         <p>Bugs</p>
