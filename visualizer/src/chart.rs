@@ -30,6 +30,12 @@ const SEEK_THRESHOLD: f64 = 0.3;
 /// Share of the gap to the reported song time closed each frame, which smooths the 100 ms
 /// steps of the player's reports.
 const CLOCK_PULL: f64 = 0.1;
+/// The loudness (0 to 1, against the song's own range) under which the chart's music counts as
+/// silent, as the analyzer's streams take it.
+const SILENT_LOUDNESS: f64 = 0.05;
+/// How long (seconds) the loudness must have stayed under [`SILENT_LOUDNESS`] for the song to
+/// count as silent: a short gap or a staccato rest keeps the beat.
+const SILENT_SPAN: f64 = 1.0;
 
 struct Section {
     start: f64,
@@ -116,6 +122,10 @@ pub struct ChartState {
     /// predates it.
     pub feel: f64,
     pub song_feel: f64,
+    /// Nothing has been heard for [`SILENT_SPAN`]: a song's silent end or a gap of a second or more. The chart's
+    /// beats go on through it at the last tempo, but there is no beat there to follow, so
+    /// scenes are told of none (see [`crate::scene::inputs::music`]).
+    pub silent: bool,
 }
 
 impl Chart {
@@ -209,6 +219,7 @@ impl Chart {
         }
         let c = &self.curves;
         state.loudness = curve(&c.loudness, c.hop, t);
+        state.silent = silent(&c.loudness, c.hop, t);
         state.brightness = curve(&c.brightness, c.hop, t);
         state.percussive = curve(&c.percussive, c.hop, t);
         state.pulse = curve(&c.beat_conf, c.hop, t);
@@ -334,6 +345,18 @@ fn curve(values: &[f64], hop: f64, t: f64) -> f64 {
     let j = (i + 1).min(values.len() - 1);
     let f = (x - i as f64).clamp(0.0, 1.0);
     values[i] * (1.0 - f) + values[j] * f
+}
+
+/// Whether the loudness curve stayed under [`SILENT_LOUDNESS`] over the last [`SILENT_SPAN`]
+/// before `t`; never without a curve, as in an older chart.
+fn silent(values: &[f64], hop: f64, t: f64) -> bool {
+    if values.is_empty() || hop <= 0.0 {
+        return false;
+    }
+    let last = values.len() - 1;
+    let from = (((t - SILENT_SPAN) / hop).max(0.0) as usize).min(last);
+    let to = ((t / hop).max(0.0).ceil() as usize).min(last);
+    values[from..=to].iter().all(|&v| v < SILENT_LOUDNESS)
 }
 
 /// Where the player is, as it last said.
@@ -646,6 +669,23 @@ mod tests {
         assert_eq!(chart().at(0.25).song_feel, 5.0);
         assert!((chart().at(0.75).loudness - 0.75).abs() < 1e-9);
         assert_eq!(chart().at(99.0).loudness, 0.5);
+    }
+
+    #[test]
+    fn a_second_without_sound_is_silent() {
+        let curve = [0.8, 0.3, 0.04, 0.0, 0.0, 0.01, 0.0, 0.9];
+        let at = |t| silent(&curve, 0.25, t);
+        // The sound fades out at 0.5 s: silent once the last second holds nothing but silence.
+        assert!(!at(0.5));
+        assert!(!at(1.4));
+        assert!(at(1.5));
+        // The sound comes back at 1.75 s, and counts from the sample before it.
+        assert!(!at(1.6));
+        assert!(!at(9.0));
+        assert!(!silent(&[], 0.25, 1.0));
+        // Before the song's first sound there is no beat to follow either.
+        assert!(chart().at(0.0).silent);
+        assert!(!chart().at(0.5).silent);
     }
 
     #[test]

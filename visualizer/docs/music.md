@@ -39,7 +39,7 @@ They are added at the end of `struct Music`, after `hit`; the existing fields ke
 
 **`meter`.** The chart's `beats_per_bar` when there is one, 4 when there is none, limited to 2 to 7. A downbeat is `floor(clock) % u32(meter) == 0`.
 
-**`locked`.** 1 when the beat is trusted and a beat arrived within the last 2.5 beats, else 0, smoothed to the output with a time constant of 0.3 s. It replaces the `sure` that scenes used to compute. Use it to fade grid motion (steps on the beat) in and out, so that a scene is quiet when the beat is lost.
+**`locked`.** 1 when the beat is trusted (with a chart: not in a silent stretch, see case A below) and a beat arrived within the last 2.5 beats, else 0, smoothed to the output with a time constant of 0.3 s. It replaces the `sure` that scenes used to compute. Use it to fade grid motion (steps on the beat) in and out, so that a scene is quiet when the beat is lost.
 
 ### Energy
 
@@ -109,7 +109,7 @@ The raw fields keep the order of `MusicValues::fields()` in `src/scene/inputs.rs
 
 The three cases:
 
-- **A**: the song has a chart and the chart has a beat. `bpm`, `beat` and `beat_confidence` come from the chart's beats.
+- **A**: the song has a chart and the chart has a beat. `bpm`, `beat` and `beat_confidence` come from the chart's beats. Where the song is silent (its loudness under 0.05 of its range for the last second: before the first sound, a gap of a second or more, a silent end or the end of a fade-out) the chart's beats go on at the last tempo, but there is nothing to follow: the frame is told of no beat there, as in B (`bpm` 0, no `beats` or `bars`, `locked` falls), and the beats that went by are not fired when the sound comes back.
 - **B**: the song has a chart but the whole song has no steady pulse (a chart without beats). That is the verdict for the song, whatever the live tracker thinks. `bpm`, `beat` and `beat_confidence` read 0, and `beats` and `bars` never fire. Sections and levels still come from the chart.
 - **C**: no chart (still being analysed, the analysis failed, or an online track). There is no beat: the live tracker's tempo is often off by half or double, and a beat that does not match what is heard looks worse than none. `bpm`, `beat`, `beat_confidence`, `beats` and `bars` read 0. What the live analysis hears still counts: its onsets (as `hits`), the levels of the spectrum and how fast the music feels (`feel`, so `tempo`). `bpm > 0` therefore always means there is a beat to trust, and only a chart has one.
 

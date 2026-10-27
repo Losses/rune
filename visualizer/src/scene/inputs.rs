@@ -355,7 +355,8 @@ pub fn music(
     // Beats and bars only count where there is a beat to trust; the counters ran on regardless,
     // so that a beat found later does not fire what went by. Nor is an untrusted tempo shown:
     // a scene reads `bpm > 0` as "there is a beat" and takes its speeds from `feel` otherwise.
-    let trusted = beat_trusted(rhythm, chart.is_some());
+    // A chart's beats run on through a silent end or gap, but nothing is heard there to follow.
+    let trusted = beat_trusted(rhythm, chart.is_some()) && !chart.is_some_and(|c| c.silent);
     if !trusted {
         (m.beats, m.bars, m.bpm) = (0, 0, 0.0);
     }
@@ -520,6 +521,40 @@ mod tests {
         assert_eq!(m.beats, 1);
         assert_eq!(m.bpm, 120.0);
         assert_eq!((m.hits, m.hit), (1, 1.0));
+    }
+
+    #[test]
+    fn a_silent_stretch_of_a_chart_tells_no_beat_and_none_piled_up_after() {
+        let live = Rhythm::default();
+        let at = |beat: f64, silent| ChartState {
+            bpm: 120.0,
+            beat,
+            beat_confidence: 0.0,
+            bar: beat / 4.0,
+            silent,
+            ..Default::default()
+        };
+        let mut events = EventCounter::default();
+        let mut step = |chart: ChartState| {
+            let rhythm = trusted_rhythm(live, Some(&chart));
+            let m = music(
+                &rhythm,
+                Some(&chart),
+                Levels::default(),
+                (chart.beat / 2.0, true),
+                &mut events,
+            );
+            (m.beats, m.bars, m.bpm, m.hits)
+        };
+        step(at(3.9, false));
+        assert_eq!(step(at(4.0, false)), (1, 1, 120.0, 1));
+        // The chart's grid goes on through the silence: nothing is told.
+        for beat in [5.0, 6.0, 7.0, 8.0] {
+            assert_eq!(step(at(beat, true)), (0, 0, 0.0, 0));
+        }
+        // The sound comes back: the next beat counts, the ones that went by do not.
+        assert_eq!(step(at(8.5, false)), (0, 0, 120.0, 0));
+        assert_eq!(step(at(9.0, false)), (1, 0, 120.0, 1));
     }
 
     #[test]
