@@ -63,8 +63,8 @@ fallback = { value = 2.0 }
 # times 1.5, busy divided by 1.5). `gap` is the shortest time between any two cuts that are not
 # inside one burst (a scene's `hold` only ever raises it): a cadence cut that comes sooner waits,
 # and a section start that comes sooner does not cut. `lead`: with the next section start known,
-# a cadence cut due less than this many seconds before it waits and the section start cuts
-# instead; a cadence cut also waits when the burst before a lifting section would start within
+# a cadence cut due less than this many seconds before it (or than `gap`, if longer, so that the
+# section start is not held back) waits and the section start cuts instead; a cadence cut also waits when the burst before a lifting section would start within
 # `gap` of it.
 [[bind]]
 target = "director.cadence"

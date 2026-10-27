@@ -257,7 +257,7 @@ pub struct Shot {
 }
 
 /// The most `[[burst]]` shots a scene declares: the burst cuts on one beat each, and four is the
-/// shape of the burst (`director::FILL_BEATS`).
+/// shape of the burst.
 pub const MAX_BURSTS: usize = 4;
 
 /// One `[[burst]]`: a shot the burst of cuts before a section that lifts the energy goes to. It

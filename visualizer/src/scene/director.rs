@@ -584,13 +584,14 @@ impl Director {
     }
 
     /// Whether a cadence cut now would crowd the cuts that come next, so that it waits: the next
-    /// section start is known and less than `lead` seconds away, or a burst is declared and the
-    /// section after it lifts the energy, and the burst's first cut is less than the gap away.
+    /// section start is known and less than `lead` seconds away, or less than the gap (a cut then
+    /// would hold the section start back), or a burst is declared and the section after it lifts
+    /// the energy, and the burst's first cut is less than the gap away.
     fn waits_for_section(&self, music: &MusicValues, followed: bool) -> bool {
         let Some(ahead) = self.binds.ahead(music) else {
             return false;
         };
-        if ahead.cue_in < self.binds.lead() {
+        if ahead.cue_in < self.binds.lead().max(self.min_gap()) {
             return true;
         }
         if self.bursts() == 0 || !ahead.lifts || !followed || music.tempo <= 0.0 {
@@ -1900,6 +1901,23 @@ mod tests {
         assert_eq!(run(true), [36]);
         // Unknown: the cadence cuts at 32 and the section start 2 s later is within the gap.
         assert_eq!(run(false), [32]);
+    }
+
+    #[test]
+    fn a_cadence_cut_waits_for_a_section_start_it_is_more_than_the_lead_but_less_than_the_gap_before()
+     {
+        let base = song(0.5);
+        // The cadence's 16 s are due at beat 32; the section starts 5 s later, at beat 42: past
+        // the lead's 4 s but within the gap's 6, so a cut at 32 would hold the section start back.
+        let mut director = Director::new(camera(0.0), &each_size());
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        let mut all = beats(&mut director, 1, 41, &base, |beat, m| MusicValues {
+            cue_in: (42 - beat) as f32 * 0.5,
+            ..m
+        });
+        all.extend(beats(&mut director, 42, 1, &base, |_, m| start(1.0, m)));
+        let cut_at: Vec<_> = all.iter().map(|(beat, _)| *beat).collect();
+        assert_eq!(cut_at, [42]);
     }
 
     #[test]
