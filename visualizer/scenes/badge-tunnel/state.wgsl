@@ -31,18 +31,14 @@ struct Pose {
 }
 
 struct State {
-  // How far the camera has come, how fast it flies, and the surge a kick gives it.
+  // How far the camera has come and how fast it flies (the kick, the surge and the badges' turn
+  // are inputs: see scene.toml).
   s: f32,
   speed: f32,
-  surge: f32,
-  // The kick (1 on it, falling away), and the badges' turn: a step on every beat, eased.
-  kick: f32,
-  turn: f32,
-  turn_to: f32,
   // The place the camera is filming from or gliding to (see update), its side and its dutch
   // angle; how many of the director's cuts it has followed; when it set off, from where, and how
-  // long the glide takes. The badges' colours from then on (0 black lacquer and gold, 1
-  // vermilion and gold, 2 indigo and silver).
+  // long the glide takes. (The badges' colours from then on are `input.coming`: 0 black
+  // lacquer and gold, 1 vermilion and gold, 2 indigo and silver.)
   view: f32,
   side: f32,
   roll_to: f32,
@@ -50,7 +46,6 @@ struct State {
   last_view: f32,
   set_off: Pose,
   glide: f32,
-  palette: f32,
   // The camera.
   cam_pos: vec3f,
   cam_fwd: vec3f,
