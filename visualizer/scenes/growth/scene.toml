@@ -196,13 +196,13 @@ when = { release = 0.0 }
 target = "flash_lift"
 source = "cues"
 how = "trigger"
-when = { strength = 0.95, scale = false, decay = "exp", release = 0.35, per = "second" }
+when = { strength = 0.95, scale = false, decay = "exp", release = 0.35, per = "second", decay_from = "event" }
 
 [[bind]]
 target = "flash_hit"
 source = "impacts"
 how = "trigger"
-when = { decay = "exp", release = 0.35, per = "second" }
+when = { decay = "exp", release = 0.35, per = "second", decay_from = "event" }
 
 [[bind]]
 target = "bar"

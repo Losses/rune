@@ -136,7 +136,7 @@ when = { scale = false, decay = "exp", release = 0.25, per = "second" }
 target = "surge_env"
 source = "hits"
 how = "trigger"
-when = { scale = false, decay = "exp", release = 0.3, per = "second" }
+when = { scale = false, decay = "exp", release = 0.3, per = "second", decay_from = "event" }
 
 [[bind]]
 target = "beat_pos"

@@ -378,16 +378,11 @@ fn update() {
 
   // Cues: a section start (0.5 or more) changes the mood, a lift of the energy (1) widens the
   // eyes; a weaker cue (a long stretch with no section) may change the mood.
-  // The section counts up on each section start; a weaker cue that changes the mood moves it on
-  // by 101 more, for new figures to dance.
   let new_section = input.new_section > 0.5;
   let cued = input.cue_weak > 0.5;
   if (new_section) {
-    state.weak = 0.0;
-  } else if (cued) {
-    state.weak += 1.0;
+    state.section = input.section;
   }
-  state.section = input.section + 101.0 * state.weak;
   // An impact (a hit far above the usual in the middle of a section) lifts the brows; a lift of
   // the energy lifts them too (the runtime fades both).
   state.brow = max(input.impact_env, input.lift_env);
@@ -403,6 +398,8 @@ fn update() {
   } else if (new_section) {
     choose_mood(state.level, fract((input.label + 1.0) * 0.5698403 + 0.41), false);
   } else if (cued) {
+    // New figures to dance: the section's number moves on by 101.
+    state.section += 101.0;
     choose_mood(state.level, hash(vec2f(t, 2.1)), hash(vec2f(t, 5.3)) < 0.65);
   }
 

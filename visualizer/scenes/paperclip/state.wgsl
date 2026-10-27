@@ -43,8 +43,6 @@ struct State {
   level: f32,
   brow: f32,
   section: f32,
-  // How many weaker cues have come in this section.
-  weak: f32,
   // Which way the dancers face (radians, 0 towards -z): where a turn started, where it ends and the
   // bar it started on.
   face_from: f32,

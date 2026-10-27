@@ -112,7 +112,7 @@ label = "A section start (a cue of at least half strength)"
 
 [[input]]
 id = "section"
-label = "The kind of section (the same number for every chorus)"
+label = "Which section, counted (every section its own number)"
 range = [0.0, 1000.0]
 
 [[input]]
@@ -147,7 +147,7 @@ when = { strength = 0.5, scale = false, release = 0.0 }
 
 [[bind]]
 target = "section"
-source = "section_label"
+source = "section"
 how = "follow"
 when = { clamp = false, to = [0.0, 1.0] }
 

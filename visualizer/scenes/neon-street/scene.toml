@@ -124,8 +124,8 @@ label = "A cue of at least half strength"
 
 [[input]]
 id = "beat_no"
-label = "The number of the beat or hit, going round at 64"
-range = [0.0, 63.0]
+label = "The number of the beat or hit, counted on and on"
+range = [0.0, 1000000.0]
 
 [[input]]
 id = "signal"
@@ -154,8 +154,8 @@ range = [-1.0, 1000.0]
 
 [[input]]
 id = "section"
-label = "The section, the same number for every one of a kind"
-range = [-1.0, 1000.0]
+label = "Which section, counted (every section its own number)"
+range = [0.0, 1000000.0]
 
 [[input]]
 id = "tempo"
@@ -211,8 +211,8 @@ when = { strength = 0.5, scale = false, release = 0.0 }
 [[bind]]
 target = "beat_no"
 source = "hits"
-how = "pick"
-when = { options = 64 }
+how = "accumulate"
+when = { per = "event" }
 
 [[bind]]
 target = "signal"
@@ -237,13 +237,13 @@ when = { mul = "locked" }
 target = "lift_env"
 source = "cues"
 how = "trigger"
-when = { strength = 0.95, scale = false, decay = "exp", release = { param = "shake_decay" }, per = "second" }
+when = { strength = 0.95, scale = false, decay = "exp", release = { param = "shake_decay" }, per = "second", decay_from = "event" }
 
 [[bind]]
 target = "impact_env"
 source = "impacts"
 how = "trigger"
-when = { decay = "exp", release = { param = "shake_decay" }, per = "second" }
+when = { decay = "exp", release = { param = "shake_decay" }, per = "second", decay_from = "event" }
 
 [[bind]]
 target = "label"
@@ -253,7 +253,7 @@ when = { clamp = false, to = [0.0, 1.0] }
 
 [[bind]]
 target = "section"
-source = "section_label"
+source = "section"
 how = "follow"
 when = { clamp = false, to = [0.0, 1.0] }
 

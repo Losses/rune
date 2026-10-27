@@ -109,8 +109,8 @@ fn update() {
   // The energy the speed follows: the slow drive, eased once more.
   state.ens = rv_approach(state.ens, 0.5 + 1.5 * input.drive, dt, 0.6);
 
-  // The channels group anew at a section start, from the section's number, so every chorus is
-  // grouped the same way; at any other cut of the view they group anew from the number moved on.
+  // The channels group anew at a section start, from the section's number, so each section is
+  // grouped its own way; at any other cut of the view they group anew from the number moved on.
   let section_start = input.section_start > 0.5;
   if (section_start) {
     state.section = input.section;

@@ -345,9 +345,7 @@ fn update() {
   // music sounds when it has no beat), faster when it is loud.
   let want = params.per_beat * input.tempo / 60.0 * mix(0.8, 1.2, input.intensity);
   state.speed += (want - state.speed) * (1.0 - exp(-dt / 0.6));
-  // (The envelope is 1 on the frame of the beat; the surge was always one frame's decay down by the
-  // time it was used here, which `exp(-dt / 0.3)` keeps.)
-  state.s += state.speed * (1.0 + params.surge * input.surge_env * exp(-dt / 0.3)) * dt;
+  state.s += state.speed * (1.0 + params.surge * input.surge_env) * dt;
 
   // The camera glides to the place the director cuts to (`shot.cuts` changes; shot `index` is the
   // place). The side changes only on the way to the middle place, by the shot's seed, so that no

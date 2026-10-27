@@ -170,7 +170,7 @@ fn ascii_planet(o: vec3f, at: vec2f, px1: f32) -> vec3f {
   let n = hit.yzw;
   // Lit from above to one side, a little from in front; the markings turned with the planet.
   let light = normalize(-state.cam_right * 0.55 + state.cam_up * 0.6 - state.cam_fwd * 0.6);
-  let nr = turn(n, normalize(vec3f(0.35, 1.0, 0.2)), -input.planet_turn * (6.2831853 / 1440.0));
+  let nr = turn(n, normalize(vec3f(0.35, 1.0, 0.2)), -input.planet_turn);
   let w = abs(nr) / (abs(nr.x) + abs(nr.y) + abs(nr.z));
   let marks = rv_noise(nr.yz * 2.2 + 1.3) * w.x + rv_noise(nr.zx * 2.2 + 4.1) * w.y + rv_noise(nr.xy * 2.2 + 7.7) * w.z;
   let lit = 0.24 + 0.76 * max(dot(n, light), 0.0);

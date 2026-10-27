@@ -234,19 +234,19 @@ when = { release = 0.0 }
 target = "surge_env"
 source = "hits"
 how = "trigger"
-when = { scale = false, decay = "exp", release = { param = "surge_decay" }, per = "second" }
+when = { scale = false, decay = "exp", release = { param = "surge_decay" }, per = "second", decay_from = "event" }
 
 [[bind]]
 target = "swell_lift"
 source = "cues"
 how = "trigger"
-when = { strength = 0.99, scale = false, decay = "exp", release = 3.0, per = "second" }
+when = { strength = 0.99, scale = false, decay = "exp", release = 3.0, per = "second", decay_from = "event" }
 
 [[bind]]
 target = "swell_hit"
 source = "impacts"
 how = "trigger"
-when = { decay = "exp", release = 3.0, per = "second" }
+when = { decay = "exp", release = 3.0, per = "second", decay_from = "event" }
 
 [[bind]]
 target = "beat_no"

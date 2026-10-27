@@ -129,7 +129,7 @@ label = "A cue strong enough to change the mood"
 [[input]]
 id = "section"
 label = "Which section, counted (it picks the moves)"
-range = [0.0, 63.0]
+range = [0.0, 1000000.0]
 
 [[input]]
 id = "impact_env"
@@ -189,21 +189,21 @@ when = { strength = { param = "cue_min" }, scale = false, release = 0.0 }
 
 [[bind]]
 target = "section"
-source = "cues"
-how = "pick"
-when = { options = 64, strength = 0.5 }
+source = "section"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
 
 [[bind]]
 target = "impact_env"
 source = "impacts"
 how = "trigger"
-when = { scale = false, decay = "exp", release = 0.6, per = "second" }
+when = { scale = false, decay = "exp", release = 0.6, per = "second", decay_from = "event" }
 
 [[bind]]
 target = "lift_env"
 source = "cues"
 how = "trigger"
-when = { strength = 0.9, scale = false, decay = "exp", release = 0.6, per = "second" }
+when = { strength = 0.9, scale = false, decay = "exp", release = 0.6, per = "second", decay_from = "event" }
 
 # ---- Dance ----
 

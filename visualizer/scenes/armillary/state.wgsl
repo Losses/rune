@@ -29,10 +29,6 @@ struct State {
   view: f32,
   cuts_seen: f32,
   side: f32,
-  // What keeps turning on its own (the ecliptic's precession, the camera, the core's surface and
-  // rays, the planet) is summed by the runtime (`input.spin` and the like); the camera's sum as
-  // this shot began.
-  drift_base: f32,
   // The core's size now (it swells with the music and on the kick, sprung), and its speed.
   core_size: f32,
   core_vel: f32,

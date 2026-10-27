@@ -269,8 +269,8 @@ fn set_rings(t: f32) {
     let drift = 0.03 * sin(t * (0.23 + 0.07 * f32(i)) + f32(i) * 1.7);
     a = turn(a, normalize(b), drift);
     if (i == 2u) {
-      a = turn(a, pole(), input.spin * 0.06);
-      b = turn(b, pole(), input.spin * 0.06);
+      a = turn(a, pole(), input.spin);
+      b = turn(b, pole(), input.spin);
     }
     ring_frame(i, a, b);
   }
@@ -855,8 +855,8 @@ fn update() {
   // (with the treble) and rays (with the mids), and the character-art planet, which turns with
   // the tempo (a turn in about 24 beats). The runtime sums these (`input.spin`, `input.cam_drift`,
   // `input.core_flow`, `input.core_rays`, `input.planet_turn`: the pace of each, by the second, times
-  // its slider); the scene only scales them to the angle it wants. The camera's sum starts anew
-  // with each shot: the scene notes where it stood at the cut.
+  // its slider, in radians); the shaders read them as they are. The camera's sum starts anew with
+  // each shot (`reset = "cut"`).
 
   // The sphere floats: rising and sinking a little, drifting.
   state.centre = vec3f(0.05 * sin(t * 0.31), 0.08 * sin(t * 0.45), 0.05 * cos(t * 0.27));
@@ -867,7 +867,6 @@ fn update() {
     state.cuts_seen = f32(shot.cuts);
     state.view = f32(shot.index);
     state.side = select(-1.0, 1.0, shot.seed < 0.5);
-    state.drift_base = input.cam_drift;
   }
   var view = state.view;
   if (params.view > 0u) {
@@ -879,7 +878,7 @@ fn update() {
   // circling. Each mirrored by its side; the camera moves slowly and evenly, never with the beat.
   let c = state.centre;
   let s = state.side;
-  let held = input.cam_drift - state.drift_base;
+  let held = input.cam_drift;
   let round = s * held;
   let up = vec3f(0.0, 1.0, 0.0);
   var cam: vec3f;

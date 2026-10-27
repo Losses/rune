@@ -67,8 +67,8 @@ saturation = 1.1
 # runtime's docs/music.md); the shaders read the values as `input.<id>`. The moments (a beat, a bar
 # line, a section) arrive as one-frame pulses; the kick's envelope and the paces that sum into the
 # ecliptic's precession, the camera's drift, the core's surface and rays and the planet's turn are
-# made by the runtime (the sliders `flow` and `drift` are their rates). The signals the scene only
-# measures come through as they are.
+# made by the runtime (the sliders `flow` and `drift` are their rates, the angles' constants are
+# folded in). The signals the scene only measures come through as they are.
 
 [[input]]
 id = "beat"
@@ -147,7 +147,7 @@ range = [0, 1000000]
 
 [[input]]
 id = "cam_drift"
-label = "The camera's drift, summed"
+label = "The camera's drift, summed (starting anew with each shot)"
 range = [0, 1000000]
 
 [[input]]
@@ -162,7 +162,7 @@ range = [0, 1000000]
 
 [[input]]
 id = "planet_turn"
-label = "The planet's turn in beats, summed (a turn is 24 of them)"
+label = "The planet's turn, summed (radians: a turn in 24 beats)"
 range = [0, 1000000]
 
 [[bind]]
@@ -187,7 +187,7 @@ when = { strength = { param = "cue_min" }, scale = false, release = 0.0 }
 target = "kick_env"
 source = "hits"
 how = "trigger"
-when = { scale = false, decay = "exp", release = 0.25, per = "second" }
+when = { scale = false, decay = "exp", release = 0.25, per = "second", decay_from = "event" }
 
 [[bind]]
 target = "intensity"
@@ -259,13 +259,13 @@ when = { clamp = false, from = [0.0, 1.0], to = [0.6, 1.4] }
 target = "spin"
 source = "input:spin_pace"
 how = "accumulate"
-when = { per = "second", rate = { param = "flow" } }
+when = { per = "second", rate = { param = "flow", mul = 0.06 } }
 
 [[bind]]
 target = "cam_drift"
 source = "input:drift_pace"
 how = "accumulate"
-when = { per = "second", rate = { param = "drift" } }
+when = { per = "second", rate = { param = "drift" }, reset = "cut" }
 
 [[bind]]
 target = "core_flow"
@@ -279,11 +279,12 @@ source = "input:flow_mid"
 how = "accumulate"
 when = { per = "second", rate = { param = "flow" } }
 
+# A turn is 24 beats of 60 / tempo seconds: 2 pi / 1440 radians a second for each bpm.
 [[bind]]
 target = "planet_turn"
 source = "input:planet_pace"
 how = "accumulate"
-when = { per = "second", mul = "input:pace_tempo", rate = { param = "flow" } }
+when = { per = "second", mul = "input:pace_tempo", rate = { param = "flow", mul = 0.0043633231 } }
 
 # ---- Beat ----
 
