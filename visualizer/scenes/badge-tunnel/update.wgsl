@@ -190,7 +190,7 @@ fn place(i: u32, slot: f32, q: u32) {
     // 5 rocking side to side, dying away. The swell, the hop and the rock as big as the note is
     // strong; a spin or a flip always a whole turn, easing in and out.
     let way = select(-1.0, 1.0, hash(id + 9.9) < 0.5);
-    var c = hash(id + 10.1) * 6.2831853 + way * (t * params.spin * mix(0.4, 1.2, hash(id + 7.7)) + params.rock * state.kick);
+    var c = hash(id + 10.1) * 6.2831853 + way * (t * params.spin * mix(0.4, 1.2, hash(id + 7.7)) + params.rock * input.kick);
     let act = floor(hash(id + 14.2) * 6.0);
     let heard = note_for(id);
     let p = heard.x / params.move_time;
@@ -318,51 +318,44 @@ fn update() {
   let t = frame.time;
   if (frame.first == 1u) {
     state.s = 0.0;
-    state.speed = params.per_beat * music.tempo / 60.0;
-    state.turn = 0.0;
-    state.turn_to = 0.0;
+    state.speed = params.per_beat * input.tempo / 60.0;
   }
 
-  // The melody's notes come from the runtime (`music.notes`, strength `music.note`, never two
-  // within a tenth of a second); they are kept in turn for the emoji to answer.
+  // The melody's notes come from the runtime (`input.note`, the strength of a note this frame,
+  // 0 on none; never two within a tenth of a second); they are kept in turn for the emoji to
+  // answer.
   state.note_rate *= exp(-dt / 2.0);
-  if (music.notes > 0u) {
+  if (input.note > 0.0) {
     state.note_count += 1.0;
-    state.notes[u32(state.note_count) % 8u] = vec4f(t, max(music.note, 0.3), 0.0, 0.0);
-    state.note_rate += 0.5 * f32(music.notes);
+    state.notes[u32(state.note_count) % 8u] = vec4f(t, max(input.note, 0.3), 0.0, 0.0);
+    state.note_rate += 0.5;
   }
 
-  // How many emoji the music calls for now: by the slow energy (`music.drive`: the section's, in
+  // How many emoji the music calls for now: by the slow energy (`input.drive`: the section's, in
   // its last four bars turning to the next one's, so a chorus thickens as it comes); a quarter
   // more while the melody is busy (four notes a second), a quarter fewer while it rests. `crowd`
   // says how far the number follows the music at all.
   let busy = clamp(state.note_rate / 4.0, 0.0, 1.0);
-  let share = mix(1.0, mix(0.25, 1.0, clamp(music.drive, 0.0, 1.0)) * mix(0.75, 1.25, busy), params.crowd);
+  let share = mix(1.0, mix(0.25, 1.0, clamp(input.drive, 0.0, 1.0)) * mix(0.75, 1.25, busy), params.crowd);
 
-  // The beat: the kick, the surge forward, and a step of the badges' turn. Without a beat the
-  // hits of the music stand in.
-  let beat = music.hits > 0u;
-  state.kick = max(state.kick * exp(-dt / 0.25), f32(beat));
-  if (beat) {
-    state.turn_to += 1.0;
-    state.surge = 1.0;
-  }
-  state.surge *= exp(-dt / 0.3);
-  state.turn += (state.turn_to - state.turn) * (1.0 - exp(-dt / 0.12));
+  // The beat: the kick (`input.kick`), the surge forward (`input.surge_env`) and the badges' turn
+  // (`input.beat_pos`, a step on every beat, eased) are all declared in scene.toml.
 
-  // Down the tunnel `per_beat` metres a beat of `music.tempo` (which is a calm one from how the
+  // Down the tunnel `per_beat` metres a beat of `input.tempo` (which is a calm one from how the
   // music sounds when it has no beat), faster when it is loud.
-  let want = params.per_beat * music.tempo / 60.0 * mix(0.8, 1.2, music.intensity);
+  let want = params.per_beat * input.tempo / 60.0 * mix(0.8, 1.2, input.intensity);
   state.speed += (want - state.speed) * (1.0 - exp(-dt / 0.6));
-  state.s += state.speed * (1.0 + params.surge * state.surge) * dt;
+  // (The envelope is 1 on the frame of the beat; the surge was always one frame's decay down by the
+  // time it was used here, which `exp(-dt / 0.3)` keeps.)
+  state.s += state.speed * (1.0 + params.surge * input.surge_env * exp(-dt / 0.3)) * dt;
 
   // The camera glides to the place the director cuts to (`shot.cuts` changes; shot `index` is the
   // place). The side changes only on the way to the middle place, by the shot's seed, so that no
-  // glide swings across the tunnel. The glide takes `glide_bars` bars (bars of `music.meter` beats at
-  // `music.tempo`, so it is a time even when there is no beat), but at most half of the shot, so
+  // glide swings across the tunnel. The glide takes `glide_bars` bars (bars of `input.meter` beats at
+  // `input.tempo`, so it is a time even when there is no beat), but at most half of the shot, so
   // it never outlasts it. On a section's start (a cue of 0.5 or more) the badges coming take
-  // another palette. A place chosen by hand it glides to at once, and the director's shots are
-  // ignored.
+  // another palette (`input.coming`, a pick on the cues). A place chosen by hand it glides to at
+  // once, and the director's shots are ignored.
   let fixed = params.view > 0u;
   if (frame.first == 1u) {
     state.view = select(f32(shot.index), f32(params.view) - 1.0, fixed);
@@ -371,13 +364,9 @@ fn update() {
     state.set_off = pose_of(u32(state.view), state.side, state.roll_to, fixed);
     state.last_view = t;
     state.glide = 1.0;
-    state.palette = floor(random(4u) * 3.0);
     state.cuts = shot.cuts;
   }
-  let bar_time = music.meter * 60.0 / music.tempo;
-  if (music.cues > 0u && music.cue >= 0.5) {
-    state.palette = floor(random(4u) * 3.0);
-  }
+  let bar_time = input.meter * 60.0 / input.tempo;
   var go = -1.0;
   var glide = clamp(params.glide_bars * bar_time, 2.0, 20.0);
   if (fixed) {
@@ -440,7 +429,7 @@ fn update() {
     state.last_slot = here - f32(SLOTS) - 1.0;
   }
   for (var n = max(state.last_slot + 1.0, here - f32(SLOTS)); n <= farthest; n += 1.0) {
-    state.slot_set[slot_cell(n)] = vec2f(share, state.palette);
+    state.slot_set[slot_cell(n)] = vec2f(share, input.coming);
   }
   state.last_slot = max(state.last_slot, farthest);
   for (var j = 0u; j < SLOTS; j++) {

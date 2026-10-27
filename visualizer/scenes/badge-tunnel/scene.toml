@@ -83,6 +83,124 @@ contrast = 1.1
 saturation = 1.3
 
 
+# ---- What the music drives ----
+# Everything the scene hears comes in through these (see "Bindings" in the runtime's docs/music.md).
+
+[[input]]
+id = "beat"
+label = "A beat, or a hit where no beat is followed"
+
+[[input]]
+id = "kick"
+label = "The kick of a beat, dying away over a quarter of a second"
+
+[[input]]
+id = "surge_env"
+label = "The surge a beat gives, dying away over 0.3 s"
+
+[[input]]
+id = "beat_pos"
+label = "The beat on the eased clock: the badges' turn, a push on each beat"
+range = [0.0, 1000000.0]
+
+[[input]]
+id = "note"
+label = "A melody note, as strong as it is"
+
+[[input]]
+id = "cue_on"
+label = "A cue of strength 0.5 or more: a section's start"
+
+[[input]]
+id = "coming"
+label = "The palette of the badges coming, a new one at each cue"
+range = [0.0, 2.0]
+
+[[input]]
+id = "tempo"
+label = "The tempo"
+range = [0.0, 1000.0]
+
+[[input]]
+id = "meter"
+label = "Beats to the bar"
+range = [0.0, 64.0]
+
+[[input]]
+id = "drive"
+label = "Slow energy"
+
+[[input]]
+id = "intensity"
+label = "Fast energy"
+
+[[bind]]
+target = "beat"
+source = "hits"
+how = "trigger"
+when = { scale = false, release = 0.0 }
+
+[[bind]]
+target = "kick"
+source = "hits"
+how = "trigger"
+when = { scale = false, decay = "exp", release = 0.25, per = "second" }
+
+[[bind]]
+target = "surge_env"
+source = "hits"
+how = "trigger"
+when = { scale = false, decay = "exp", release = 0.3, per = "second" }
+
+[[bind]]
+target = "beat_pos"
+source = "clock"
+how = "step"
+ease = "out"
+
+[[bind]]
+target = "note"
+source = "notes"
+how = "trigger"
+when = { release = 0.0 }
+
+[[bind]]
+target = "cue_on"
+source = "cues"
+how = "trigger"
+when = { strength = 0.5, scale = false, release = 0.0 }
+
+[[bind]]
+target = "coming"
+source = "cues"
+how = "pick"
+when = { options = 3, strength = 0.5, start = "seed", jump = "random" }
+
+[[bind]]
+target = "tempo"
+source = "tempo"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "meter"
+source = "meter"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "drive"
+source = "drive"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "intensity"
+source = "intensity"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+
 # ---- Beat ----
 
 [[param]]
