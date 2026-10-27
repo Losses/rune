@@ -1132,9 +1132,33 @@ impl Pipeline {
             .reload(&device, &queue)
             .with_context(|| format!("Scene {source}"))?;
         if changed {
+            // A scene built anew reads the runtime's decisions as they were set.
+            let runtime = self.runtime.clone();
+            self.latest_mut().set_runtime(&runtime);
             self.restart_adaptive();
         }
         Ok(changed)
+    }
+
+    /// Replace the inputs and binds of the scene on screen with those of `text` (see
+    /// [`crate::LabCommand::SceneBindings`]); on an error nothing changes.
+    pub fn set_scene_bindings(&mut self, text: &str) -> Result<()> {
+        let (device, queue) = (self.device.clone(), self.queue.clone());
+        let rebuilt = self
+            .scene
+            .set_bindings(&device, &queue, text)
+            .with_context(|| format!("Scene {}", self.scene.source()))?;
+        if rebuilt {
+            let runtime = self.runtime.clone();
+            self.scene.set_runtime(&runtime);
+            self.restart_adaptive();
+        }
+        Ok(())
+    }
+
+    /// The inputs the scene on screen declares.
+    pub fn inputs(&self) -> Vec<crate::inspect::InspectInput> {
+        self.scene.inputs()
     }
 
     /// Render one frame: into the next pixel buffer, shared texture, shared image or image of the

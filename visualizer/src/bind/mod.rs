@@ -6,6 +6,7 @@
 //! scene reads them as `input.<id>`. Which fallback the music is at ([`level`]) decides, per
 //! frame, whether a source is the thing it says or the binding's fallback takes over.
 
+pub mod declared;
 mod eval;
 mod level;
 mod runtime;

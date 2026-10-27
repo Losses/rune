@@ -62,9 +62,9 @@ pub const RUNTIME_TOML: &str = bind::RUNTIME_TOML;
 pub use chart::{Chart, ChartState};
 use chart::{ChartFollower, Playback};
 pub use inspect::{
-    Inspect, InspectBinding, InspectDirector, InspectEffects, InspectLens, InspectMusic,
-    InspectSection, InspectShot, InspectSwitching, InspectTransition, LabCommand, LabLens,
-    LabOverrides, LabPace, LabTransition,
+    Inspect, InspectBinding, InspectDirector, InspectEffects, InspectInput, InspectLens,
+    InspectMusic, InspectSection, InspectShot, InspectSwitching, InspectTransition, LabCommand,
+    LabLens, LabOverrides, LabPace, LabTransition,
 };
 use loading::Loads;
 pub use moments::{Chances, EffectLevel};
@@ -1420,6 +1420,10 @@ fn lab(
             }
             Err(e) => shared.set_error(format!("{e:#}")),
         },
+        LabCommand::SceneBindings(text) => match pipeline.set_scene_bindings(&text) {
+            Ok(()) => shared.status().last_error = None,
+            Err(e) => shared.set_error(format!("{e:#}")),
+        },
         LabCommand::NextScene(transition) => {
             let next = lock(library).auto_next(&mut rand::thread_rng());
             match next {
@@ -1468,6 +1472,7 @@ fn inspection(
             .into_iter()
             .map(InspectBinding::from)
             .collect(),
+        inputs: pipeline.inputs(),
         runtime_bindings: pipeline.runtime().report(pipeline.music()),
         chance: match shared.lab_chance.load(Ordering::Relaxed) {
             NO_LAB_CHANCE => None,

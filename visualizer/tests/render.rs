@@ -515,3 +515,142 @@ fn the_runtime_bindings_are_replaced_whole_and_a_wrong_text_keeps_the_old() {
     assert_eq!(cadence_source(&visualizer, &mut feeder), "drive");
     visualizer.stop();
 }
+
+/// Wait, feeding audio, until what the visualizer inspected is what `ready` wants.
+fn inspected(
+    visualizer: &Visualizer,
+    feeder: &mut Feeder,
+    what: &str,
+    ready: impl Fn(&visualizer::Inspect) -> bool,
+) -> visualizer::Inspect {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        feeder.pump();
+        if let Some(inspect) = visualizer.inspect()
+            && ready(&inspect)
+        {
+            return inspect;
+        }
+        assert!(Instant::now() < deadline, "{what}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+const LAB_INPUTS: &str = r#"
+[[input]]
+id = "surge"
+label = { de = "Schub", en = "Surge" }
+range = [0.0, 2.0]
+rest = 0.5
+
+[[input]]
+id = "wave"
+
+[[bind]]
+target = "surge"
+source = "impacts"
+how = "trigger"
+when = { release = 0.5 }
+fallback = "hits"
+"#;
+
+#[test]
+fn a_lab_replaces_the_bindings_of_the_scene_on_screen_and_inspects_what_it_has() {
+    let Some((visualizer, mut feeder)) = start(320, 180) else {
+        return;
+    };
+    visualizer.set_inspecting(true);
+    let dir = copied_scene("lab-binds");
+    let manifest = dir.join("scene.toml");
+    let text = std::fs::read_to_string(&manifest).unwrap() + LAB_INPUTS;
+    std::fs::write(&manifest, text).unwrap();
+    visualizer.load_preset_path(&dir).unwrap();
+    let seen = inspected(&visualizer, &mut feeder, "the scene did not show", |i| {
+        i.scene == "lab-binds" && i.bindings.len() == 1
+    });
+    // What the lab reads: the inputs as declared, and each bind as written.
+    assert_eq!(seen.inputs.len(), 2);
+    assert_eq!(
+        (seen.inputs[0].id.as_str(), seen.inputs[0].label.as_str()),
+        ("surge", "Surge")
+    );
+    assert_eq!(seen.inputs[0].range, [0.0, 2.0]);
+    assert_eq!(seen.inputs[0].rest, 0.5);
+    assert!(
+        seen.inputs[0]
+            .declared
+            .contains("label = { de = \"Schub\", en = \"Surge\" }")
+    );
+    assert_eq!(seen.inputs[1].label, "wave");
+    assert_eq!(seen.bindings[0].when, "{ release = 0.5 }");
+    assert_eq!(seen.bindings[0].fallback, "\"hits\"");
+
+    // A new text for the binds (and the same inputs) is on screen within a frame or two.
+    let edited = LAB_INPUTS.replace("release = 0.5", "release = 1.5, strength = 0.25");
+    visualizer
+        .lab(LabCommand::SceneBindings(edited.clone()))
+        .unwrap();
+    let seen = inspected(
+        &visualizer,
+        &mut feeder,
+        "the binds were not replaced",
+        |i| i.bindings.first().is_some_and(|b| b.when.contains("1.5")),
+    );
+    assert_eq!(seen.bindings[0].when, "{ release = 1.5, strength = 0.25 }");
+    assert_eq!(visualizer.status().last_error, None);
+    // A bind added for the other input shows too.
+    let more =
+        format!("{edited}\n[[bind]]\ntarget = \"wave\"\nsource = \"drive\"\nhow = \"follow\"\n");
+    visualizer.lab(LabCommand::SceneBindings(more)).unwrap();
+    inspected(
+        &visualizer,
+        &mut feeder,
+        "the second bind did not show",
+        |i| i.bindings.len() == 2,
+    );
+    // The watcher looks at the folder twice a second: it is as it was read, so what the lab
+    // changed stays on screen.
+    let until = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < until {
+        feeder.pump();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(visualizer.inspect().unwrap().bindings.len(), 2);
+
+    // A wrong text is refused, naming the bind, and what was on screen stays.
+    visualizer
+        .lab(LabCommand::SceneBindings(
+            edited.replace("source = \"impacts\"", "source = \"loudness\""),
+        ))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let error = loop {
+        feeder.pump();
+        if let Some(error) = visualizer.status().last_error {
+            break error;
+        }
+        assert!(Instant::now() < deadline, "no error reported");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert!(
+        error.contains("surge") && error.contains("loudness"),
+        "{error}"
+    );
+    let seen = visualizer.inspect().unwrap();
+    assert_eq!(seen.scene, "lab-binds");
+    assert_eq!(seen.bindings.len(), 2);
+
+    // Taking an input out rebuilds the scene, which stays the scene on screen.
+    visualizer
+        .lab(LabCommand::SceneBindings(String::new()))
+        .unwrap();
+    let seen = inspected(
+        &visualizer,
+        &mut feeder,
+        "the inputs were not taken out",
+        |i| i.inputs.is_empty() && i.bindings.is_empty(),
+    );
+    assert_eq!(seen.scene, "lab-binds");
+    visualizer.stop();
+    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+}

@@ -12,6 +12,7 @@
 
 use anyhow::{Context, Result, bail, ensure};
 
+use super::declared;
 use super::level::Level;
 use super::sources::{self, Reading, Source};
 use crate::course;
@@ -356,6 +357,19 @@ pub struct Evaluator {
     state: State,
     last: f32,
     tick: Tick,
+    /// The bind as it was written, for a lab.
+    declared: Declared,
+    /// What it was made from, to tell whether a new bind is the same one.
+    bind: Bind,
+    input: InputDecl,
+}
+
+/// The parts of a bind a lab shows as written (see [`super::declared`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Declared {
+    when: String,
+    fallback: String,
+    ease: String,
 }
 
 fn number(value: &toml::Value, what: &str) -> Result<f32> {
@@ -739,6 +753,13 @@ impl Evaluator {
                 output: rest,
                 ..Tick::default()
             },
+            declared: Declared {
+                when: declared::when_text(&bind.when),
+                fallback: declared::fallback_text(bind.fallback.as_ref()),
+                ease: bind.ease.clone().unwrap_or_default(),
+            },
+            bind: bind.clone(),
+            input: input.clone(),
         })
     }
 
@@ -1075,6 +1096,11 @@ pub struct Report {
     pub source: &'static str,
     pub how: &'static str,
     pub tick: Tick,
+    /// The bind as it was written: the `when` as an inline table, the `fallback` as a TOML value
+    /// (empty for none) and the `ease` (empty for none).
+    pub when: String,
+    pub fallback: String,
+    pub ease: String,
 }
 
 impl Bindings {
@@ -1109,6 +1135,36 @@ impl Bindings {
             order,
             values: inputs.iter().map(InputDecl::rest).collect(),
         })
+    }
+
+    /// The bindings of `binds` for `inputs`, where a binding that is the same as one of these
+    /// (the same bind of the same input) takes over its evaluator and so its state (an envelope,
+    /// an accumulated distance) instead of starting over. Fails as [`Bindings::new`] does, and
+    /// then these are left as they were.
+    pub fn renewed(&mut self, inputs: &[InputDecl], binds: &[Bind]) -> Result<Self> {
+        self.renewed_in(inputs, &[], binds)
+    }
+
+    /// As [`Bindings::renewed`], where a bind may read the scene's numeric `params` (see
+    /// [`Bindings::with_scope`]).
+    pub fn renewed_in(
+        &mut self,
+        inputs: &[InputDecl],
+        params: &[Param],
+        binds: &[Bind],
+    ) -> Result<Self> {
+        let mut next = Self::with_scope(inputs, params, binds)?;
+        for (slot, fresh) in &mut next.evaluators {
+            let same = self
+                .evaluators
+                .iter_mut()
+                .find(|(_, old)| old.bind == fresh.bind && old.input == fresh.input);
+            if let Some((_, old)) = same {
+                std::mem::swap(fresh, old);
+                next.values[*slot] = fresh.tick.output;
+            }
+        }
+        Ok(next)
     }
 
     /// Advance every binding by a frame and give the values of the inputs.
@@ -1147,6 +1203,9 @@ impl Bindings {
                 source: evaluator.source_name,
                 how: evaluator.how,
                 tick: evaluator.tick,
+                when: evaluator.declared.when.clone(),
+                fallback: evaluator.declared.fallback.clone(),
+                ease: evaluator.declared.ease.clone(),
             })
             .collect()
     }
@@ -2018,5 +2077,51 @@ mod tests {
             error("source = \"clock\"\nhow = \"step\"\nwhen = { unit = \"year\" }")
                 .contains("no `when.unit`")
         );
+    }
+
+    #[test]
+    fn the_report_carries_the_bind_as_written_and_a_renewal_keeps_what_is_the_same() {
+        let inputs = [
+            InputDecl {
+                id: "wave".into(),
+                ..input([0.0, 100.0], None)
+            },
+            InputDecl {
+                id: "gate".into(),
+                ..input([0.0, 1.0], None)
+            },
+        ];
+        let make = |gate_release: &str| -> Vec<Bind> {
+            [
+                format!(
+                    "target = \"gate\"\nsource = \"impacts\"\nhow = \"trigger\"\nwhen = {{ release = {gate_release} }}\nfallback = \"hits\""
+                ),
+                "target = \"wave\"\nsource = \"drive\"\nhow = \"accumulate\"\nwhen = { per = \"second\", rate = 4 }\nfallback = { value = 0.5 }".to_string(),
+            ]
+            .iter()
+            .map(|text| toml::from_str(text).unwrap())
+            .collect()
+        };
+        let mut bindings = Bindings::new(&inputs, &make("0.5")).unwrap();
+        let report = bindings.report();
+        assert_eq!(report[0].when, "{ release = 0.5 }");
+        assert_eq!(report[0].fallback, "\"hits\"");
+        assert_eq!(report[1].when, "{ per = \"second\", rate = 4 }");
+        assert_eq!(report[1].fallback, "{ value = 0.5 }");
+        assert_eq!(report[1].ease, "");
+        let music = MusicValues { drive: 1.0, ..a() };
+        bindings.tick(0.5, &music);
+        let walked = bindings.values()[0];
+        assert!(walked > 0.0);
+        // The gate changed, the wave did not: it keeps its distance, the gate starts over.
+        let mut renewed = bindings.renewed(&inputs, &make("1.0")).unwrap();
+        assert_eq!(renewed.values()[0], walked);
+        assert_eq!(renewed.report()[0].when, "{ release = 1.0 }");
+        assert!(renewed.tick(0.5, &music)[0] > walked);
+        // A text that does not compile leaves the old as they were.
+        let mut wrong = make("0.5");
+        wrong[0].source = "loudness".into();
+        assert!(bindings.renewed(&inputs, &wrong).is_err());
+        assert_eq!(bindings.values()[0], walked);
     }
 }

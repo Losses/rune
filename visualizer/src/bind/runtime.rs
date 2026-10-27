@@ -14,6 +14,7 @@ use std::sync::{Arc, LazyLock};
 use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
 
+use super::declared;
 use super::eval::Used;
 use super::level::Level;
 use super::sources::{self, Reading, Source};
@@ -294,6 +295,8 @@ struct Bound {
     how: String,
     when: toml::Table,
     pick: Option<Pick>,
+    /// As written, for the lab.
+    fallback: Option<FallbackDecl>,
     /// For messages: "[[bind]] for `target` (source `x`)".
     name: String,
 }
@@ -433,6 +436,7 @@ impl Bound {
             how,
             when: raw.when,
             pick,
+            fallback: raw.fallback,
             name: name.to_string(),
         })
     }
@@ -967,6 +971,9 @@ struct Row {
     target: &'static str,
     how: String,
     pick: Option<Pick>,
+    /// The bind as written: the `when` as an inline table and the `fallback` as a TOML value.
+    when: String,
+    fallback: String,
 }
 
 /// The runtime's decisions, read from a file of `[[bind]]`s.
@@ -1036,6 +1043,8 @@ impl RuntimeBindings {
                     target: b.spec.target,
                     how: b.how.clone(),
                     pick: b.pick,
+                    when: declared::when_text(&b.when),
+                    fallback: declared::fallback_text(b.fallback.as_ref()),
                 })
                 .collect(),
             text: text.to_string(),
@@ -1063,6 +1072,9 @@ impl RuntimeBindings {
                         used: Used::Value,
                         source_value: 0.0,
                         output: 0.0,
+                        when: row.when.clone(),
+                        fallback: row.fallback.clone(),
+                        ease: String::new(),
                     };
                 };
                 let said = pick.said(music);
@@ -1079,6 +1091,9 @@ impl RuntimeBindings {
                     },
                     source_value: pick.source.read(music).value,
                     output: said.reading().map_or(0.0, |reading| reading.value),
+                    when: row.when.clone(),
+                    fallback: row.fallback.clone(),
+                    ease: String::new(),
                 }
             })
             .collect()
@@ -1263,5 +1278,24 @@ pub(crate) mod tests {
         let gap = report.iter().find(|r| r.target == "moments.gap").unwrap();
         assert_eq!(gap.used, Used::Value);
         assert_eq!(gap.output, 2.0);
+    }
+
+    #[test]
+    fn the_report_carries_each_bind_as_written() {
+        let report = RuntimeBindings::embedded().report(&MusicValues::default());
+        let row = |target: &str| report.iter().find(|r| r.target == target).unwrap();
+        assert_eq!(row("moments.gap").when, "{ every = 8 }");
+        assert_eq!(row("moments.gap").fallback, "{ value = 2.0 }");
+        assert_eq!(row("director.cut").fallback, "\"hits\"");
+        assert_eq!(row("director.cadence").fallback, "\"drive\"");
+        assert_eq!(
+            row("director.cadence").when,
+            "{ above = 0.65, below = 0.35, every = [8, 4, 2], seconds = [24.0, 12.0, 6.0] }"
+        );
+        // A bind with no source still shows its numbers, and one with nothing has none.
+        assert!(row("switch.timing").when.contains("max = 90.0"));
+        assert_eq!(row("switch.timing").source, "");
+        assert_eq!(row("switch.early").when, "{}");
+        assert_eq!(row("switch.early").fallback, "");
     }
 }
