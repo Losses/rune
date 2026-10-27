@@ -405,6 +405,10 @@ pub struct Scene {
     pub name: String,
     source: Source,
     files: Files,
+    /// The files as they were last read from the source. A lab that replaces the bindings changes
+    /// `files` and not this, so that the scene is reloaded when the folder changes, not because
+    /// the scene on screen differs from it.
+    on_disk: Files,
     params: ParamsLayout,
     frame: wgpu::Buffer,
     music: wgpu::Buffer,
@@ -1297,6 +1301,7 @@ impl Scene {
             last_song: 0.0,
             index: 0,
             first: true,
+            on_disk: files.clone(),
             files,
             #[cfg(test)]
             fixed_seed: None,
@@ -1326,6 +1331,58 @@ impl Scene {
         std::mem::swap(&mut self.events, &mut previous.events);
         self.music_values = previous.music_values;
         self.last_song = previous.last_song;
+    }
+
+    /// The inputs the scene declares.
+    pub fn inputs(&self) -> Vec<crate::inspect::InspectInput> {
+        self.files
+            .manifest
+            .inputs
+            .iter()
+            .map(|input| crate::inspect::InspectInput {
+                id: input.id.clone(),
+                label: input
+                    .label
+                    .as_ref()
+                    .map(|label| label.get("en").to_string())
+                    .filter(|label| !label.is_empty())
+                    .unwrap_or_else(|| input.id.clone()),
+                range: input.range,
+                rest: input.rest(),
+                declared: input.declared(),
+            })
+            .collect()
+    }
+
+    /// Replace the scene's inputs and binds with those of `text` (see
+    /// [`crate::LabCommand::SceneBindings`]). The scene is checked as a manifest is and nothing
+    /// changes if that fails. Binds that stay the same keep their state; if the inputs changed
+    /// the scene is rebuilt, as a reload would (then this says so).
+    pub fn set_bindings(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        text: &str,
+    ) -> Result<bool> {
+        let manifest = self.files.manifest.with_bindings(text)?;
+        if manifest.inputs != self.files.manifest.inputs {
+            let mut files = self.files.clone();
+            files.manifest = manifest;
+            let on_disk = self.on_disk.clone();
+            self.rebuild(device, queue, files, on_disk)?;
+            return Ok(true);
+        }
+        if manifest.binds != self.files.manifest.binds {
+            self.bindings = self.bindings.renewed(&manifest.inputs, &manifest.binds)?;
+            queue.write_buffer(
+                &self.input_buffer,
+                0,
+                &self.input_layout.pack(self.bindings.values()),
+            );
+            // What a reload of the saved text reads is what is on screen: it finds nothing new.
+            self.files.manifest = manifest;
+        }
+        Ok(false)
     }
 
     /// What each of the scene's bindings said in the last frame drawn: which source and level
@@ -1498,13 +1555,18 @@ impl Scene {
     /// Read the scene's files again. When only parameter defaults changed, only those are
     /// updated; otherwise the scene is rebuilt, keeping its clock and, if `struct State` reads
     /// the same, its state. Returns whether anything changed; on an error the scene stays as it
-    /// was.
+    /// was. Files that are as they were last read change nothing, even if a lab changed the
+    /// bindings on screen since; files that now say what is on screen change nothing either.
     pub fn reload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<bool> {
         if matches!(self.source, Source::Embedded(_)) {
             return Ok(false);
         }
         let files = Files::read(&self.source)?;
+        if files == self.on_disk {
+            return Ok(false);
+        }
         if files == self.files {
+            self.on_disk = files;
             return Ok(false);
         }
         if files.same_but_defaults(&self.files) {
@@ -1524,9 +1586,26 @@ impl Scene {
                     &self.input_layout.pack(self.bindings.values()),
                 );
             }
+            self.on_disk = files.clone();
             self.files = files;
             return Ok(true);
         }
+        self.rebuild(device, queue, files.clone(), files)?;
+        Ok(true)
+    }
+
+    /// Build the scene again from `files`, keeping its clock and, if `struct State` reads the
+    /// same, its state, and the bindings that did not change with theirs.
+    ///
+    /// `on_disk` is what the source said when `files` were made (they are not the same when a
+    /// lab replaced the bindings).
+    fn rebuild(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        files: Files,
+        on_disk: Files,
+    ) -> Result<()> {
         let same_binds = files.manifest.inputs == self.files.manifest.inputs
             && files.manifest.binds == self.files.manifest.binds;
         let same_state = files.state == self.files.state;
@@ -1559,6 +1638,8 @@ impl Scene {
             next.hold_shot(Some(index));
         }
         next.lens.set_forced(self.lens.forced());
+        next.chances = self.chances;
+        next.on_disk = on_disk;
         next.set_covers(
             device,
             queue,
@@ -1569,7 +1650,7 @@ impl Scene {
         next.last = self.last;
         next.index = self.index;
         *self = next;
-        Ok(true)
+        Ok(())
     }
 
     /// Whether the scene reads the covers atlas (`covers = true`).

@@ -332,6 +332,32 @@ fn unit_range() -> [f32; 2] {
 }
 
 impl InputDecl {
+    /// The input as TOML, the keys of its `[[input]]` table (for a lab that writes it back).
+    pub fn declared(&self) -> String {
+        use crate::bind::declared::{inline, short};
+        use toml::Value;
+        let mut text = format!("id = {}\n", inline(&Value::String(self.id.clone())));
+        match &self.label {
+            None => {}
+            Some(Text::Plain(label)) => {
+                text += &format!("label = {}\n", inline(&Value::String(label.clone())));
+            }
+            Some(Text::Localized(map)) => {
+                let map = map
+                    .iter()
+                    .map(|(lang, label)| (lang.clone(), Value::String(label.clone())))
+                    .collect();
+                text += &format!("label = {}\n", inline(&Value::Table(map)));
+            }
+        }
+        let range = Value::Array(self.range.map(|end| Value::Float(short(end))).to_vec());
+        text += &format!("range = {}\n", inline(&range));
+        if let Some(rest) = self.rest {
+            text += &format!("rest = {}\n", inline(&Value::Float(short(rest))));
+        }
+        text
+    }
+
     /// The value with nothing driving it.
     pub fn rest(&self) -> f32 {
         self.rest.unwrap_or(self.range[0])
@@ -556,7 +582,30 @@ pub struct Asset {
     pub linear: bool,
 }
 
+/// The `[[input]]` and `[[bind]]` arrays of a scene on their own (see
+/// [`Manifest::with_bindings`]).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BindingsText {
+    #[serde(default, rename = "input")]
+    inputs: Vec<InputDecl>,
+    #[serde(default, rename = "bind")]
+    binds: Vec<Bind>,
+}
+
 impl Manifest {
+    /// This manifest with the inputs and binds of `text`, TOML that holds those two arrays and
+    /// nothing else. Checked as a whole manifest is, so that a mistake is refused with the same
+    /// message the file would give.
+    pub fn with_bindings(&self, text: &str) -> Result<Self> {
+        let parsed: BindingsText = toml::from_str(text).context("the scene's bindings")?;
+        let mut next = self.clone();
+        next.inputs = parsed.inputs;
+        next.binds = parsed.binds;
+        next.validate()?;
+        Ok(next)
+    }
+
     pub fn parse(text: &str) -> Result<Self> {
         let manifest: Self = toml::from_str(text)?;
         manifest.validate()?;
@@ -983,6 +1032,37 @@ fallback = { value = 0.25 }
         );
         assert_eq!(m.binds[1].ease.as_deref(), Some("none"));
         assert!(m.binds[0].when.contains_key("strength"));
+    }
+
+    #[test]
+    fn a_lab_replaces_the_inputs_and_binds_with_the_checks_of_the_manifest() {
+        let m = Manifest::parse(&format!("{SMALL}{INPUTS}")).unwrap();
+        // The text of the inputs as a lab reads them reads back as the same inputs.
+        let text: String = m
+            .inputs
+            .iter()
+            .map(|input| format!("[[input]]\n{}\n", input.declared()))
+            .collect();
+        assert!(
+            text.contains("rest = 0.5") && text.contains("range = [0.0, 2.0]"),
+            "{text}"
+        );
+        let only_inputs = m.with_bindings(&text).unwrap();
+        assert_eq!(only_inputs.inputs, m.inputs);
+        assert!(only_inputs.binds.is_empty());
+        // No arrays means none; anything else is refused, as are the manifest's own mistakes.
+        assert!(m.with_bindings("").unwrap().inputs.is_empty());
+        let wrong = m.with_bindings("name = \"x\"").unwrap_err();
+        assert!(format!("{wrong:#}").contains("name"), "{wrong:#}");
+        let bind = "[[input]]\nid = \"a\"\n[[bind]]\ntarget = \"a\"\nsource = \"hits\"\nhow = \"follow\"\n";
+        assert_eq!(m.with_bindings(bind).unwrap().binds.len(), 1);
+        let refused = m
+            .with_bindings(&bind.replace("hits", "loudness"))
+            .unwrap_err();
+        assert!(format!("{refused:#}").contains("loudness"), "{refused:#}");
+        let orphan =
+            m.with_bindings("[[bind]]\ntarget = \"a\"\nsource = \"hits\"\nhow = \"follow\"\n");
+        assert!(format!("{:#}", orphan.unwrap_err()).contains("no input"));
     }
 
     #[test]

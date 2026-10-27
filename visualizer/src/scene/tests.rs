@@ -804,6 +804,108 @@ fn changing_only_the_binds_keeps_the_pipelines_and_changing_an_input_rebuilds() 
 }
 
 #[test]
+fn a_lab_replaces_the_binds_live_and_a_save_of_the_same_text_reloads_nothing() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let gpu = (&device, &queue);
+    let dir = with_inputs("lab-binds");
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    let screen = Screen::new(&device);
+    let mut time = 0.0;
+    let mut next = |scene: &mut Scene| {
+        frame(scene, gpu, &screen, time, 0.0);
+        time += 1.0 / 60.0;
+        screen.middle(&device, &queue)
+    };
+    next(&mut scene);
+    next(&mut scene);
+    let before = distance(&scene);
+    assert!(before > 0.0);
+    // What a lab reads of the inputs and of the binds as written.
+    let inputs = scene.inputs();
+    assert_eq!(inputs.len(), 3);
+    assert_eq!((inputs[2].id.as_str(), inputs[2].rest), ("idle", 0.75));
+    assert!(
+        inputs[2].declared.contains("rest = 0.75"),
+        "{}",
+        inputs[2].declared
+    );
+    let report = scene.bindings();
+    assert_eq!(report[0].when, "{ from = [0, 8] }");
+    assert_eq!(report[1].when, "{ per = \"second\" }");
+    assert_eq!(report[0].fallback, "");
+
+    // A new `level` (the meter over 0 to 16) is taken at once; `dist` is the same bind and keeps
+    // its distance; the pipelines stay (the trail grows on).
+    let text = INPUT_TEXT.replace("from = [0, 8]", "from = [0, 16]");
+    let inputs_and_binds = text.clone();
+    assert!(
+        !scene
+            .set_bindings(&device, &queue, &inputs_and_binds)
+            .unwrap()
+    );
+    let c = next(&mut scene);
+    assert!(close(c, [0.3, 0.25, 0.75]), "{c:?}");
+    assert!(distance(&scene) > before, "the distance was kept");
+    // The folder is watched: files that are as they were read do not undo what the lab changed.
+    assert!(!scene.reload(&device, &queue).unwrap());
+    assert_eq!(scene.bindings()[0].when, "{ from = [0, 16] }");
+    // The file the lab saves says the same: the scene finds nothing to reload, and a later
+    // change on disk still does.
+    std::fs::write(dir.join(MANIFEST), format!("{MANIFEST_TEXT}{text}")).unwrap();
+    assert!(!scene.reload(&device, &queue).unwrap());
+    assert!(!scene.reload(&device, &queue).unwrap());
+
+    // A wrong text is refused, naming the bind, and the old stay.
+    let wrong = text.replace(
+        "source = \"meter\"\nhow = \"follow\"",
+        "source = \"loudness\"\nhow = \"follow\"",
+    );
+    assert_ne!(wrong, text);
+    let message = format!(
+        "{:#}",
+        scene.set_bindings(&device, &queue, &wrong).unwrap_err()
+    );
+    assert!(
+        message.contains("level") && message.contains("loudness"),
+        "{message}"
+    );
+    let message = format!(
+        "{:#}",
+        scene
+            .set_bindings(&device, &queue, "title = \"x\"")
+            .unwrap_err()
+    );
+    assert!(message.contains("title"), "{message}");
+    assert_eq!(scene.bindings().len(), 2);
+    let c = next(&mut scene);
+    assert!(close(c, [0.4, 0.25, 0.75]), "{c:?}");
+
+    // A bind taken out leaves its input at rest; an input changed rebuilds the scene.
+    let without = text.replace("[[bind]]\ntarget = \"dist\"\nsource = \"meter\"\nhow = \"accumulate\"\nwhen = { per = \"second\" }\n", "");
+    assert_ne!(without, text);
+    assert!(!scene.set_bindings(&device, &queue, &without).unwrap());
+    assert_eq!(scene.bindings().len(), 1);
+    let rest = without.replace("rest = 0.75", "rest = 0.5");
+    assert!(scene.set_bindings(&device, &queue, &rest).unwrap());
+    let c = next(&mut scene);
+    assert!(close(c, [0.1, 0.25, 0.5]), "{c:?}");
+    // The disk is what it was: the rebuilt scene does not go back to it. A change of the disk
+    // does take the scene back to what it says.
+    assert!(!scene.reload(&device, &queue).unwrap());
+    assert_eq!(scene.inputs()[2].rest, 0.5);
+    std::fs::write(
+        dir.join(MANIFEST),
+        format!("{MANIFEST_TEXT}{text}").replace("from = [0, 16]", "from = [0, 32]"),
+    )
+    .unwrap();
+    assert!(scene.reload(&device, &queue).unwrap());
+    assert_eq!(scene.inputs()[2].rest, 0.75);
+}
+
+#[test]
 fn a_scene_without_inputs_or_binds_is_as_it_was() {
     let Some((device, queue)) = gpu() else {
         eprintln!("SKIPPED: no GPU adapter");
