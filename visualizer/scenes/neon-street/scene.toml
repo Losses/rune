@@ -13,7 +13,6 @@ effects = ["fade", "cutin", "flash", "glitch", "flare"]
 # director's dutch angle comes on top of it.
 [camera]
 dutch = 0.3
-fill = true
 
 # Street level, looking down the street.
 [[shot]]

@@ -54,9 +54,6 @@ inputs = ["lit"]
 # few degrees, so it reads as a lean and not a fall.
 [camera]
 dutch = 0.15
-fill = true
-# The shortest shot, in bars.
-hold = 2
 
 [[shot]]
 name = "steep"

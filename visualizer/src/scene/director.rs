@@ -1,13 +1,13 @@
 //! The camera director: decides when a scene's view cuts to another shot and to which, following
 //! the music, and tells the scene through `struct Shot` (see `docs/music.md`, "Shots and the
-//! director"). A scene declares its shots in `scene.toml`; the director is per scene (it needs the
-//! scene's manifest and counts from the scene's start). It is a pure state machine of the music's
+//! director"). A scene declares its shots (and the shots of its burst) in `scene.toml`; the
+//! director is per scene (it needs the scene's manifest and counts from the scene's start). It is a pure state machine of the music's
 //! values ([`MusicValues`]) and the time step, so it can be tested without a scene or a GPU.
 
 use std::sync::Arc;
 
 use super::inputs::MusicValues;
-use super::manifest::{Camera, Manifest, Pace, Shot, ShotMove, ShotSize};
+use super::manifest::{BurstShot, Camera, MAX_BURSTS, Manifest, Pace, Shot, ShotMove, ShotSize};
 use crate::bind::{DirectorBinds, MomentBinds, Said};
 use crate::switching::FOLLOWED;
 
@@ -19,31 +19,29 @@ pub const QUIET_BELOW: f32 = 0.35;
 /// A section whose energy is above this is high.
 #[cfg(test)]
 pub const HIGH_ABOVE: f32 = 0.65;
-// The cadence below is half of the first one, so that cuts are not too frequent.
-/// With a followed beat: bars between two cuts in a quiet section.
-#[cfg(test)]
-pub const QUIET_BARS: u32 = 8;
-/// With a followed beat: bars between two cuts in a section that is neither quiet nor high.
-#[cfg(test)]
-pub const NORMAL_BARS: u32 = 4;
-/// With a followed beat: bars between two cuts in a high section.
-#[cfg(test)]
-pub const HIGH_BARS: u32 = 2;
-/// Without a followed beat: seconds between two cuts in a quiet section.
+// The cadence is in seconds, whatever the tempo: counted in bars, a fast song cut every few
+// seconds, far too often.
+/// Seconds between two cuts in a quiet section.
 #[cfg(test)]
 pub const QUIET_SECONDS: f32 = 24.0;
-/// Without a followed beat: seconds between two cuts in a section that is neither quiet nor high.
+/// Seconds between two cuts in a section that is neither quiet nor high.
 #[cfg(test)]
-pub const NORMAL_SECONDS: f32 = 12.0;
-/// Without a followed beat: seconds between two cuts in a high section.
+pub const NORMAL_SECONDS: f32 = 16.0;
+/// Seconds between two cuts in a high section.
 #[cfg(test)]
-pub const HIGH_SECONDS: f32 = 6.0;
+pub const HIGH_SECONDS: f32 = 10.0;
+/// The shortest time between any two cuts that are not inside one burst.
+#[cfg(test)]
+pub const GAP_SECONDS: f32 = 6.0;
+/// With a known next section start, how close to it a cadence cut waits for it.
+#[cfg(test)]
+pub const LEAD_SECONDS: f32 = 4.0;
+/// How much a calm pace stretches the seconds between cuts, and a busy one shortens them.
+pub const PACE_FACTOR: f32 = 1.5;
 /// Without a followed beat: how long past the time a cut is due it waits for a hit, then cuts at
 /// once.
 #[cfg(test)]
 pub const HIT_GRACE_SECONDS: f32 = 2.0;
-/// How many beats the burst of cuts before a section or a phrase takes: one cut on each.
-pub const FILL_BEATS: u32 = 4;
 /// How much more energy the next section needs for the burst before it (the cue's own rule for a
 /// lift is the same, `scene::signals::CUE_LIFT`).
 #[cfg(test)]
@@ -66,13 +64,6 @@ const TOP_DISTANCE: u32 = 10;
 /// scene's own).
 pub const PACE_CYCLE: [Pace; 4] = [Pace::Sections, Pace::Calm, Pace::Normal, Pace::Busy];
 
-/// The sizes of the burst's cuts, one per beat. A scene without `top` gets `wide` for the last.
-const FILL_SIZES: [ShotSize; FILL_BEATS as usize] = [
-    ShotSize::Medium,
-    ShotSize::Close,
-    ShotSize::Detail,
-    ShotSize::Top,
-];
 /// The sizes of a high section after it reached `close`, one per cut in turn.
 const HIGH_SIZES: [ShotSize; 4] = [
     ShotSize::Detail,
@@ -119,10 +110,6 @@ impl Tier {
         }
     }
 
-    fn bars(self, binds: &DirectorBinds) -> u32 {
-        binds.every(self.index())
-    }
-
     fn seconds(self, binds: &DirectorBinds) -> f32 {
         binds.seconds(self.index())
     }
@@ -160,7 +147,7 @@ pub struct Cut {
     pub size: ShotSize,
     /// The shot's move, but always `Cut` inside a burst: a burst's cuts are hard.
     pub motion: ShotMove,
-    /// 0 for a normal cut, else the position in a burst (1 to [`FILL_BEATS`]).
+    /// 0 for a normal cut, else the position in a burst (1 to [`MAX_BURSTS`]).
     pub fill: u32,
 }
 
@@ -238,7 +225,7 @@ enum Burst {
 /// A burst a scene lab started by hand (see [`Director::start_burst`]), under way.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ForcedBurst {
-    /// The position (1 to [`FILL_BEATS`]) of the next cut.
+    /// The position (1 to the number of declared burst shots) of the next cut.
     next: u32,
     /// Without a followed beat: seconds until the next cut.
     wait: f32,
@@ -264,12 +251,14 @@ fn distance(a: ShotSize, b: ShotSize) -> u32 {
 /// Decides the camera cuts of one scene from the music.
 pub struct Director {
     camera: Camera,
-    /// The scene's shots, in the order of its `[[shot]]`s.
+    /// The scene's shots in the order of its `[[shot]]`s, then the shots of its `[[burst]]`s in
+    /// the order of the burst (always hard cuts).
     shots: Vec<(ShotSize, ShotMove)>,
     /// The `name` of each shot, in the same order.
     names: Vec<String>,
-    /// Whether the scene has a `close` or a `detail` shot, which the bursts need.
-    has_near: bool,
+    /// How many of `shots` are `[[shot]]`s: the ones ordinary cuts and section starts pick from.
+    /// The rest are the burst's, which only the burst cuts to.
+    ordinary: usize,
     state: ShotState,
     /// The next tilted shot leans to the right (positive roll).
     tilt_right: bool,
@@ -277,8 +266,7 @@ pub struct Director {
     in_section: u32,
     /// Bars since the section started, counted from its start.
     bars_in_section: u32,
-    /// Bars and seconds since the last cut.
-    bars_since_cut: u32,
+    /// Seconds since the last cut.
     seconds_since_cut: f32,
     /// Which beat of the bar the last beat was (0 on the downbeat); none before the first
     /// downbeat.
@@ -306,7 +294,8 @@ impl Director {
     /// The director of a scene with shots; none for a scene without (it works as it did before
     /// there were shots).
     pub fn for_manifest(manifest: &Manifest) -> Option<Self> {
-        (!manifest.shots.is_empty()).then(|| Self::new(manifest.camera, &manifest.shots))
+        (!manifest.shots.is_empty())
+            .then(|| Self::new(manifest.camera, &manifest.shots).with_bursts(&manifest.bursts))
     }
 
     /// A director over `shots`, which must not be empty. It starts on a wide shot (or the
@@ -314,15 +303,13 @@ impl Director {
     pub fn new(camera: Camera, shots: &[Shot]) -> Self {
         assert!(!shots.is_empty(), "a director needs a shot");
         let names = shots.iter().map(|s| s.name.clone()).collect();
+        let ordinary = shots.len();
         let shots: Vec<(ShotSize, ShotMove)> = shots.iter().map(|s| (s.size, s.motion)).collect();
-        let has_near = shots
-            .iter()
-            .any(|(size, _)| matches!(size, ShotSize::Close | ShotSize::Detail));
         let mut director = Self {
             camera,
             shots,
             names,
-            has_near,
+            ordinary,
             state: ShotState {
                 index: 0,
                 cuts: 0,
@@ -336,7 +323,6 @@ impl Director {
             tilt_right: false,
             in_section: 0,
             bars_in_section: 0,
-            bars_since_cut: 0,
             seconds_since_cut: 0.0,
             beat_in_bar: None,
             last_fill: 0,
@@ -353,6 +339,28 @@ impl Director {
         director.state.size = director.shots[index].0 as u32;
         director.state.seed = label_hash(0.0, 0);
         director
+    }
+
+    /// This director with the burst through `bursts`, one cut to each in order, as the scene
+    /// declares them (at most [`MAX_BURSTS`]; the manifest refuses more). A scene without any has
+    /// no burst. The shots go after the scene's `[[shot]]`s in `struct Shot`'s `index`.
+    pub fn with_bursts(mut self, bursts: &[BurstShot]) -> Self {
+        assert!(
+            bursts.len() <= MAX_BURSTS,
+            "at most {MAX_BURSTS} burst shots"
+        );
+        self.shots.truncate(self.ordinary);
+        self.names.truncate(self.ordinary);
+        for burst in bursts {
+            self.shots.push((burst.size, ShotMove::Cut));
+            self.names.push(burst.name.clone());
+        }
+        self
+    }
+
+    /// How many shots the burst cuts to: the scene's `[[burst]]`s.
+    fn bursts(&self) -> u32 {
+        (self.shots.len() - self.ordinary) as u32
     }
 
     /// Decide by these bindings from now on (a scene lab replaced `runtime.toml`).
@@ -392,11 +400,13 @@ impl Director {
         self.set_pace_override(next);
     }
 
-    /// The scene's shots as a readout lists them: the name (empty if it has none) and the size.
+    /// The scene's `[[shot]]`s as a readout lists them: the name (empty if it has none) and the
+    /// size. The burst's shots are not among them: nothing holds or picks them.
     pub fn shot_list(&self) -> Vec<(String, ShotSize)> {
         self.names
             .iter()
             .zip(&self.shots)
+            .take(self.ordinary)
             .map(|(name, (size, _))| (name.clone(), *size))
             .collect()
     }
@@ -429,13 +439,16 @@ impl Director {
         self.cut(tier.size(self.in_section), music, tier, 0)
     }
 
-    /// Start a burst of cuts now, as the one before a lift is (see [`FILL_SIZES`]): a cut on
-    /// each of the next [`FILL_BEATS`] beats, or without a followed beat one every
-    /// [`FORCED_BURST_SECONDS`], the first at once. It is what a scene lab asks for, to see a
-    /// burst without waiting for a lift; the cadence is quiet until it is over, and a section
-    /// start still cuts as it does. A held shot defers it until the shot is let go of.
+    /// Start a burst of cuts now, through the shots the scene declares as `[[burst]]`, as the one
+    /// before a lift is: a cut on each of the next beats, one per shot, or without a followed
+    /// beat one every [`FORCED_BURST_SECONDS`], the first at once. It is what a scene lab asks
+    /// for, to see a burst without waiting for a lift; the cadence is quiet until it is over, and
+    /// a section start still cuts as it does. A scene that declares none does nothing. A held
+    /// shot defers it until the shot is let go of.
     pub fn start_burst(&mut self) {
-        self.forced_burst = Some(ForcedBurst { next: 1, wait: 0.0 });
+        if self.bursts() > 0 {
+            self.forced_burst = Some(ForcedBurst { next: 1, wait: 0.0 });
+        }
     }
 
     /// Cut to shot `index` (of the scene's `[[shot]]`s) and hold it: the director cuts no more
@@ -443,7 +456,7 @@ impl Director {
     /// the cut, or none for a shot the scene does not have (nothing changes then).
     pub fn hold_shot(&mut self, index: u32, music: &MusicValues) -> Option<Cut> {
         let index = index as usize;
-        if index >= self.shots.len() {
+        if index >= self.ordinary {
             return None;
         }
         let cut = self.enter(index, music, Tier::of(&self.binds, music), 0);
@@ -456,7 +469,6 @@ impl Director {
     pub fn release_shot(&mut self) {
         if self.held {
             self.held = false;
-            self.bars_since_cut = 0;
             self.seconds_since_cut = 0.0;
         }
     }
@@ -466,10 +478,6 @@ impl Director {
     pub fn tick(&mut self, dt: f32, music: &MusicValues) -> Option<Cut> {
         self.state.age += dt;
         self.seconds_since_cut += dt;
-        // What the cadence counts between cuts is what `director.cut` lands on.
-        if let Said::Source(cut) = self.binds.cut(music) {
-            self.bars_since_cut += cut.count;
-        }
         self.bars_in_section += music.bars;
         if music.bars > 0 {
             self.beat_in_bar = Some(0);
@@ -482,14 +490,17 @@ impl Director {
             return None;
         }
 
-        // A section starts: establish it, and count the progression again.
+        // A section starts: establish it, and count the progression again. A start within the gap
+        // of the last cut does not cut (the shot goes on), unless it follows a burst: the burst
+        // and the start after it are one group, which the gap does not hold apart.
         if self.moments.section_start(music) {
             self.in_section = 0;
             self.bars_in_section = 0;
             self.phrase_start = None;
-            return Some(self.cut(ShotSize::Wide, music, tier, 0));
+            return (self.gap_is_open() || self.last_fill > 0)
+                .then(|| self.cut(ShotSize::Wide, music, tier, 0));
         }
-        // A phrase that was announced by a burst starts: the same.
+        // A phrase that was announced by a burst starts: the same, and in the same group.
         if let Some(start) = self.phrase_start
             && music.bars > 0
             && self.bars_in_section >= start
@@ -512,75 +523,89 @@ impl Director {
             let fill = burst.next;
             burst.next += 1;
             burst.wait = FORCED_BURST_SECONDS;
-            if fill >= FILL_BEATS {
+            if fill >= self.bursts() {
                 self.forced_burst = None;
             }
-            return Some(self.cut(FILL_SIZES[fill as usize - 1], music, tier, fill));
+            return Some(self.burst_cut(fill, music, tier));
         }
-        // The burst before a section or a phrase ends.
+        // The burst before a section or a phrase ends. It goes through its shots one on each
+        // beat, from the first: a burst that cannot start (the last cut is within the gap) is
+        // skipped whole, not begun in the middle.
         if let Some((kind, fill)) = self.burst(music, tier)
-            && fill > self.last_fill
+            && fill == self.last_fill + 1
+            && (fill > 1 || self.gap_is_open())
         {
             if kind == Burst::Phrase {
                 self.phrase_start = Some(self.bars_in_section + 1);
             }
-            let size = FILL_SIZES[fill as usize - 1];
-            return Some(self.cut(size, music, tier, fill));
+            return Some(self.burst_cut(fill, music, tier));
         }
-        // The cadence of the section.
-        let grace = self.binds.grace;
-        let due = match self.binds.cut(music) {
-            Said::Source(cut) => self
-                .bars(tier)
-                .is_some_and(|bars| cut.count > 0 && self.bars_since_cut >= bars),
+        // The cadence of the section: its seconds since the last cut, landing on the event of
+        // `director.cut`, and not close to a section start or the burst before it, which cut
+        // instead.
+        let wait = self.cadence_seconds(tier)?;
+        if self.seconds_since_cut < wait || self.waits_for_section(music, followed) {
+            return None;
+        }
+        let landed = match self.binds.cut(music) {
+            Said::Source(cut) => cut.count > 0,
             Said::Fallback(..) | Said::Value(_) => {
-                let landed = self.binds.cut(music).count() > 0;
-                self.seconds(tier, music).is_some_and(|wait| {
-                    self.seconds_since_cut >= wait
-                        && (landed || self.seconds_since_cut >= wait + grace)
-                })
+                self.binds.cut(music).count() > 0
+                    || self.seconds_since_cut >= wait + self.binds.grace
             }
             Said::Off => false,
         };
-        due.then(|| self.cut(tier.size(self.in_section), music, tier, 0))
+        landed.then(|| self.cut(tier.size(self.in_section), music, tier, 0))
     }
 
-    /// Bars between two cuts with a followed beat: the section's at the scene's pace, but at
-    /// least the scene's `hold`. None for a scene that cuts only at a section's start.
-    fn bars(&self, tier: Tier) -> Option<u32> {
-        let bars = match self.pace() {
-            Pace::Sections => return None,
-            Pace::Calm => tier.bars(&self.binds) * 2,
-            Pace::Normal => tier.bars(&self.binds),
-            Pace::Busy => (tier.bars(&self.binds) / 2).max(1),
-        };
-        Some(bars.max(self.camera.hold))
+    /// The shortest time between two cuts that are not inside one burst: `director.cadence`'s
+    /// `gap`, or the scene's `hold` if that is longer.
+    fn min_gap(&self) -> f32 {
+        self.binds.gap().max(self.camera.hold)
     }
 
-    /// Seconds between two cuts without a followed beat: the section's at the scene's pace, but
-    /// at least the scene's `hold` in bars at the music's tempo (4 beats to a bar when the meter
-    /// is unknown). None for a scene that cuts only at a section's start.
-    fn seconds(&self, tier: Tier, music: &MusicValues) -> Option<f32> {
+    /// Whether a cut may come now: the scene has not cut yet, or the last cut is the gap ago.
+    fn gap_is_open(&self) -> bool {
+        self.state.cuts == 0 || self.seconds_since_cut >= self.min_gap()
+    }
+
+    /// Seconds between two cadence cuts: the section's at the scene's pace (`calm` by
+    /// [`PACE_FACTOR`] more, `busy` by it less), but at least the gap. None for a scene that cuts
+    /// only at a section's start.
+    fn cadence_seconds(&self, tier: Tier) -> Option<f32> {
+        let seconds = tier.seconds(&self.binds);
         let seconds = match self.pace() {
             Pace::Sections => return None,
-            Pace::Calm => tier.seconds(&self.binds) * 2.0,
-            Pace::Normal => tier.seconds(&self.binds),
-            Pace::Busy => tier.seconds(&self.binds) / 2.0,
+            Pace::Calm => seconds * PACE_FACTOR,
+            Pace::Normal => seconds,
+            Pace::Busy => seconds / PACE_FACTOR,
         };
-        let meter = if music.meter > 0.0 { music.meter } else { 4.0 };
-        let held = if music.tempo > 0.0 {
-            self.camera.hold as f32 * meter * 60.0 / music.tempo
-        } else {
-            0.0
-        };
-        Some(seconds.max(held))
+        Some(seconds.max(self.min_gap()))
     }
 
-    /// Whether this frame is a beat in the last [`FILL_BEATS`] before a place worth a burst, and
-    /// which one of the burst it is (1 for the farthest). Only with the song's analysis, a
-    /// followed beat, `fill` declared and a near shot to cut to.
+    /// Whether a cadence cut now would crowd the cuts that come next, so that it waits: the next
+    /// section start is known and less than `lead` seconds away, or a burst is declared and the
+    /// section after it lifts the energy, and the burst's first cut is less than the gap away.
+    fn waits_for_section(&self, music: &MusicValues, followed: bool) -> bool {
+        let Some(ahead) = self.binds.ahead(music) else {
+            return false;
+        };
+        if ahead.cue_in < self.binds.lead() {
+            return true;
+        }
+        if self.bursts() == 0 || !ahead.lifts || !followed || music.tempo <= 0.0 {
+            return false;
+        }
+        let burst = self.bursts() as f32 * 60.0 / music.tempo;
+        ahead.cue_in - burst < self.min_gap()
+    }
+
+    /// Whether this frame is a beat in the last beats before a place worth a burst, one for each
+    /// shot the scene declares as `[[burst]]`, and which one of the burst it is (1 for the
+    /// farthest). Only with the song's analysis, a followed beat and a burst declared.
     fn burst(&self, music: &MusicValues, tier: Tier) -> Option<(Burst, u32)> {
-        if !self.camera.fill || !self.has_near {
+        let count = self.bursts();
+        if count == 0 {
             return None;
         }
         // The burst is on where `director.burst` has a time to the next section and its `on`
@@ -588,9 +613,9 @@ impl Director {
         let ahead = self.binds.burst(music)?;
         let position = |left: f32| {
             let left = left.round();
-            (1.0..=FILL_BEATS as f32)
+            (1.0..=count as f32)
                 .contains(&left)
-                .then(|| FILL_BEATS - left as u32 + 1)
+                .then(|| count - left as u32 + 1)
         };
         if ahead.cue_in >= 0.0
             && ahead.lifts
@@ -609,7 +634,12 @@ impl Director {
         None
     }
 
-    /// Cut to a shot of about this size, other than the one on, and tell the scene.
+    /// Cut to the burst's `fill`th shot (from 1), a hard cut, and tell the scene.
+    fn burst_cut(&mut self, fill: u32, music: &MusicValues, tier: Tier) -> Cut {
+        self.enter(self.ordinary + fill as usize - 1, music, tier, fill)
+    }
+
+    /// Cut to a `[[shot]]` of about this size, other than the one on, and tell the scene.
     fn cut(&mut self, want: ShotSize, music: &MusicValues, tier: Tier, fill: u32) -> Cut {
         let label = music.section_label;
         let current = self.state.index as usize;
@@ -640,16 +670,13 @@ impl Director {
             roll,
             seed,
             age: 0.0,
-            length: match (music.locked > FOLLOWED, fill) {
-                (true, 0) => self
-                    .bars(tier)
-                    .map_or(-1.0, |bars| (bars as f32 * music.meter * beat).max(0.0)),
-                (true, _) => beat,
-                (false, _) => self.seconds(tier, music).unwrap_or(-1.0),
+            length: if fill > 0 && music.locked > FOLLOWED {
+                beat
+            } else {
+                self.cadence_seconds(tier).unwrap_or(-1.0)
             },
             fill,
         };
-        self.bars_since_cut = 0;
         self.seconds_since_cut = 0.0;
         self.last_fill = fill;
         Cut {
@@ -660,25 +687,26 @@ impl Director {
         }
     }
 
-    /// The shot to cut to for a size: the nearest size the scene has among the shots other than
-    /// `not` (all of them if the scene has just one), and among those the one the section's label
-    /// and `k` hash to, so that a section of the same kind picks the same. A scene without `top`
-    /// gets a wide shot in its place.
+    /// The shot to cut to for a size: the nearest size the scene has among its `[[shot]]`s other
+    /// than `not` (all of them if the scene has just one; the burst's shots are never among
+    /// them), and among those the one the section's label and `k` hash to, so that a section of
+    /// the same kind picks the same. A scene without `top` gets a wide shot in its place.
     fn pick(&self, want: ShotSize, label: f32, k: u32, not: Option<usize>) -> usize {
-        let want = if want == ShotSize::Top && self.shots.iter().all(|(s, _)| *s != ShotSize::Top) {
+        let shots = &self.shots[..self.ordinary];
+        let want = if want == ShotSize::Top && shots.iter().all(|(s, _)| *s != ShotSize::Top) {
             ShotSize::Wide
         } else {
             want
         };
-        let allowed = |i: &usize| not != Some(*i) || self.shots.len() == 1;
-        let nearest = (0..self.shots.len())
+        let allowed = |i: &usize| not != Some(*i) || shots.len() == 1;
+        let nearest = (0..shots.len())
             .filter(allowed)
-            .map(|i| distance(self.shots[i].0, want))
+            .map(|i| distance(shots[i].0, want))
             .min()
             .unwrap_or(0);
-        let tied: Vec<usize> = (0..self.shots.len())
+        let tied: Vec<usize> = (0..shots.len())
             .filter(allowed)
-            .filter(|&i| distance(self.shots[i].0, want) == nearest)
+            .filter(|&i| distance(shots[i].0, want) == nearest)
             .collect();
         let at = (label_hash(label, k) * tied.len() as f32) as usize;
         tied[at.min(tied.len() - 1)]
@@ -706,20 +734,42 @@ mod tests {
             .to_vec()
     }
 
-    fn held(hold: u32) -> Camera {
+    fn held(hold: f32) -> Camera {
         Camera {
             hold,
-            ..camera(0.0, false)
+            ..camera(0.0)
         }
     }
 
-    fn camera(dutch: f32, fill: bool) -> Camera {
+    fn camera(dutch: f32) -> Camera {
         Camera {
             dutch,
-            fill,
-            hold: 0,
+            hold: 0.0,
             pace: Pace::Normal,
         }
+    }
+
+    /// The burst's shots of these sizes, in order.
+    fn burst_of(sizes: &[ShotSize]) -> Vec<BurstShot> {
+        sizes
+            .iter()
+            .map(|&size| BurstShot {
+                name: String::new(),
+                size,
+            })
+            .collect()
+    }
+
+    /// The burst most tests declare: four shots, each nearer than the one before but the last.
+    fn four() -> Vec<BurstShot> {
+        use ShotSize::*;
+        burst_of(&[Medium, Close, Detail, Top])
+    }
+
+    /// A director over [`each_size`] (six shots, so the burst's are indices 6 and on) that
+    /// declares [`four`].
+    fn bursting(camera: Camera) -> Director {
+        Director::new(camera, &each_size()).with_bursts(&four())
     }
 
     /// A song at 120 bpm (a beat is 0.5 s, a bar 2 s) in 4/4 with a chart, the beat followed, in
@@ -813,45 +863,93 @@ mod tests {
 
     #[test]
     fn it_starts_on_a_wide_shot_before_any_cut() {
-        let director = Director::new(camera(0.3, false), &each_size());
+        let director = Director::new(camera(0.3), &each_size());
         let state = director.state();
         assert_eq!((state.size, state.cuts), (0, 0));
         assert_eq!((state.roll, state.length, state.fill), (0.0, -1.0, 0));
     }
 
-    /// The number of cuts in 16 bars after the first cut of a section of this energy.
-    fn cuts_in_16_bars(energy: f32) -> usize {
-        paced_cuts_in_16_bars(Pace::Normal, energy)
-    }
-
-    fn paced_cuts_in_16_bars(pace: Pace, energy: f32) -> usize {
+    /// The beats the cadence cut on in the `count` beats after a section started at beat 1 (a
+    /// beat is 0.5 s at 120 bpm), at this pace and energy.
+    fn paced_cut_beats(pace: Pace, energy: f32, count: u32) -> Vec<u32> {
         let camera = Camera {
             pace,
-            ..camera(0.0, false)
+            ..camera(0.0)
         };
         let mut director = Director::new(camera, &each_size());
         let base = song(energy);
-        // Beat 1 starts the section (not on a downbeat); the bars count from beat 4.
         beats(&mut director, 1, 1, &base, |_, m| start(0.0, m));
-        beats(&mut director, 2, 64, &base, plain).len()
+        beats(&mut director, 2, count, &base, plain)
+            .iter()
+            .map(|(beat, _)| *beat)
+            .collect()
     }
 
     #[test]
-    fn the_scene_pace_scales_the_bars_between_cuts() {
+    fn the_scene_pace_scales_the_seconds_between_cuts() {
         use Pace::*;
-        let counts = |energy| [Calm, Normal, Busy].map(|pace| paced_cuts_in_16_bars(pace, energy));
-        assert_eq!(counts(0.2), [1, 2, 4]);
-        assert_eq!(counts(0.5), [2, 4, 8]);
-        assert_eq!(counts(0.8), [4, 8, 16]);
+        // A normal section: 16 s, calm is 1.5 times that (24 s) and busy a third less (10.7 s).
+        let first = |pace| paced_cut_beats(pace, 0.5, 128)[0];
+        assert_eq!([first(Calm), first(Normal), first(Busy)], [52, 36, 24]);
+        let all = |pace| paced_cut_beats(pace, 0.5, 128);
+        assert_eq!(all(Calm), [52, 100]);
+        assert_eq!(all(Normal), [36, 68, 100]);
+        assert_eq!(all(Busy), [24, 48, 72, 96, 120]);
         // Only at a section's start: none within it, whatever the energy.
-        assert_eq!(paced_cuts_in_16_bars(Sections, 0.9), 0);
+        assert!(paced_cut_beats(Sections, 0.9, 128).is_empty());
+    }
+
+    #[test]
+    fn calm_is_one_and_a_half_times_normal() {
+        let director = |pace| {
+            let camera = Camera {
+                pace,
+                ..camera(0.0)
+            };
+            Director::new(camera, &each_size())
+        };
+        for tier in [Tier::Quiet, Tier::Normal, Tier::High] {
+            let normal = director(Pace::Normal).cadence_seconds(tier).unwrap();
+            let calm = director(Pace::Calm).cadence_seconds(tier).unwrap();
+            assert_eq!(calm, normal * 1.5, "{}", tier.name());
+        }
+        assert_eq!(director(Pace::Sections).cadence_seconds(Tier::Normal), None);
+    }
+
+    #[test]
+    fn the_cadence_counts_seconds_not_bars() {
+        // A slow and a fast song cut after the same 16 s of a normal section: it did after 4
+        // bars, which are 16 s at 60 bpm and 4 s at 240.
+        let first_cut = |tempo: f32| {
+            let beat = 60.0 / tempo;
+            let mut director = Director::new(camera(0.0), &each_size());
+            let base = MusicValues { tempo, ..song(0.5) };
+            let first = MusicValues {
+                beats: 1,
+                bars: 1,
+                ..base
+            };
+            director.tick(beat, &start(0.0, first));
+            (1..400u32)
+                .find(|beat_number| {
+                    let frame = MusicValues {
+                        beats: 1,
+                        bars: u32::from(beat_number % 4 == 0),
+                        ..base
+                    };
+                    director.tick(beat, &frame).is_some()
+                })
+                .map(|beat_number| beat_number as f32 * beat)
+        };
+        assert_eq!(first_cut(60.0), Some(16.0));
+        assert_eq!(first_cut(240.0), Some(16.0));
     }
 
     #[test]
     fn a_scene_of_sections_cuts_at_the_next_section_and_without_a_beat_never_on_time() {
         let camera = Camera {
             pace: Pace::Sections,
-            ..camera(0.0, false)
+            ..camera(0.0)
         };
         let mut director = Director::new(camera, &each_size());
         let base = song(0.5);
@@ -874,25 +972,25 @@ mod tests {
     fn a_busy_scene_bursts_at_the_end_of_a_phrase() {
         let busy = Camera {
             pace: Pace::Busy,
-            ..camera(0.3, true)
+            ..camera(0.3)
         };
         assert!(Director::new(busy, &each_size()).phrase_bursts);
-        assert!(!Director::new(camera(0.3, true), &each_size()).phrase_bursts);
+        assert!(!Director::new(camera(0.3), &each_size()).phrase_bursts);
     }
 
     #[test]
-    fn cuts_follow_the_bars_of_the_section_energy() {
-        assert_eq!(cuts_in_16_bars(0.2), 2);
-        assert_eq!(cuts_in_16_bars(0.5), 4);
-        assert_eq!(cuts_in_16_bars(0.8), 8);
+    fn cuts_follow_the_seconds_of_the_section_energy() {
+        // The first downbeat once 24, 16 and 10 s have passed since the section started.
+        let first = |energy| paced_cut_beats(Pace::Normal, energy, 80)[0];
+        assert_eq!([first(0.2), first(0.5), first(0.8)], [52, 36, 24]);
     }
 
     #[test]
     fn cuts_land_on_downbeats() {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.8);
         beats(&mut director, 1, 1, &base, |_, m| start(0.0, m));
-        let cuts = beats(&mut director, 2, 40, &base, plain);
+        let cuts = beats(&mut director, 2, 120, &base, plain);
         assert!(cuts.len() >= 5);
         assert!(cuts.iter().all(|(beat, _)| beat % 4 == 0));
     }
@@ -900,10 +998,10 @@ mod tests {
     /// Frames of 0.1 s with a hit every `hit_every` frames (0 for none), without a beat, for
     /// `seconds`; the seconds each cut happened at.
     fn unfollowed(energy: f32, hit_every: u32, seconds: f32) -> Vec<f32> {
-        unfollowed_held(0, energy, hit_every, seconds)
+        unfollowed_held(0.0, energy, hit_every, seconds)
     }
 
-    fn unfollowed_held(hold: u32, energy: f32, hit_every: u32, seconds: f32) -> Vec<f32> {
+    fn unfollowed_held(hold: f32, energy: f32, hit_every: u32, seconds: f32) -> Vec<f32> {
         let mut director = Director::new(held(hold), &each_size());
         let base = MusicValues {
             locked: 0.0,
@@ -927,43 +1025,44 @@ mod tests {
         let quiet = unfollowed(0.2, 7, 26.0);
         assert_eq!(quiet.len(), 1, "{quiet:?}");
         assert!((quiet[0] - 24.5).abs() < 0.11, "{quiet:?}");
-        let normal = unfollowed(0.5, 7, 13.0);
-        assert!((normal[0] - 12.6).abs() < 0.11, "{normal:?}");
-        let high = unfollowed(0.8, 7, 13.0);
-        assert!((high[0] - 6.3).abs() < 0.11, "{high:?}");
+        let normal = unfollowed(0.5, 7, 17.0);
+        assert!((normal[0] - 16.1).abs() < 0.11, "{normal:?}");
+        let high = unfollowed(0.8, 7, 22.0);
+        assert!((high[0] - 10.5).abs() < 0.11, "{high:?}");
         assert_eq!(high.len(), 2, "{high:?}");
     }
 
     #[test]
     fn without_a_beat_or_a_hit_a_cut_waits_two_seconds_more() {
-        let cuts = unfollowed(0.8, 0, 20.0);
-        assert!((cuts[0] - 8.0).abs() < 0.11, "{cuts:?}");
-        assert!((cuts[1] - cuts[0] - 8.0).abs() < 0.11, "{cuts:?}");
+        let cuts = unfollowed(0.8, 0, 30.0);
+        assert!((cuts[0] - 12.0).abs() < 0.11, "{cuts:?}");
+        assert!((cuts[1] - cuts[0] - 12.0).abs() < 0.11, "{cuts:?}");
         let cuts = unfollowed(0.2, 0, 30.0);
         assert!((cuts[0] - 26.0).abs() < 0.11, "{cuts:?}");
     }
 
     #[test]
     fn without_a_chart_the_drive_gives_the_energy() {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        let mut director = Director::new(camera(0.0), &each_size());
         let base = MusicValues {
             has_chart: 0,
             section_energy: 0.0,
             drive: 0.9,
             ..song(0.9)
         };
-        // High by `drive` although the section energy is 0: a cut every 2 bars.
-        let cuts = beats(&mut director, 1, 16, &base, plain);
-        assert_eq!(cuts.len(), 2);
+        // High by `drive` although the section energy is 0 (quiet, 24 s): the first cut is on
+        // the first downbeat after 10 s.
+        let cuts = beats(&mut director, 1, 60, &base, plain);
+        assert_eq!(cuts.first().map(|(beat, _)| *beat), Some(20), "{cuts:?}");
     }
 
     #[test]
     fn a_section_starts_wide_and_steps_closer() {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.5);
         let first = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         assert_eq!(first[0].1.size, ShotSize::Wide);
-        let sizes: Vec<ShotSize> = beats(&mut director, 1, 96, &base, plain)
+        let sizes: Vec<ShotSize> = beats(&mut director, 1, 192, &base, plain)
             .into_iter()
             .map(|(_, cut)| cut.size)
             .collect();
@@ -973,21 +1072,22 @@ mod tests {
 
     #[test]
     fn a_new_section_starts_the_progression_again() {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.5);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        let before = beats(&mut director, 1, 32, &base, plain);
+        // Cadence cuts at beats 32 and 64, then a section starts 13 s after the last.
+        let before = beats(&mut director, 1, 89, &base, plain);
         assert_eq!(before.len(), 2);
         assert_eq!(before[1].1.size, ShotSize::Close);
-        let again = beats(&mut director, 33, 1, &base, |_, m| start(1.0, m));
+        let again = beats(&mut director, 90, 1, &base, |_, m| start(1.0, m));
         assert_eq!(again[0].1.size, ShotSize::Wide);
-        let next = beats(&mut director, 34, 15, &base, plain);
+        let next = beats(&mut director, 91, 40, &base, plain);
         assert_eq!(next[0].1.size, ShotSize::Medium);
     }
 
     #[test]
     fn a_weak_cue_is_not_a_section_start() {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.2);
         let cuts = beats(&mut director, 1, 12, &base, |_, m| MusicValues {
             cues: 1,
@@ -999,10 +1099,10 @@ mod tests {
 
     #[test]
     fn a_quiet_section_alternates_wide_and_medium() {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.2);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        let sizes: Vec<ShotSize> = beats(&mut director, 1, 100, &base, plain)
+        let sizes: Vec<ShotSize> = beats(&mut director, 1, 160, &base, plain)
             .into_iter()
             .map(|(_, cut)| cut.size)
             .collect();
@@ -1013,10 +1113,10 @@ mod tests {
 
     #[test]
     fn a_high_section_steps_closer_and_then_alternates() {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.9);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        let sizes: Vec<ShotSize> = beats(&mut director, 1, 60, &base, plain)
+        let sizes: Vec<ShotSize> = beats(&mut director, 1, 150, &base, plain)
             .into_iter()
             .map(|(_, cut)| cut.size)
             .collect();
@@ -1035,15 +1135,15 @@ mod tests {
         let shots = [Wide, Detail]
             .map(|size| shot(size, ShotMove::Cut))
             .to_vec();
-        let director = Director::new(camera(0.0, false), &shots);
+        let director = Director::new(camera(0.0), &shots);
         assert_eq!(director.pick(Medium, 0.0, 0, None), 0);
         assert_eq!(director.pick(Close, 0.0, 0, None), 1);
         // Top is never the nearest to another size, and is wide where missing.
         let with_top = [Top, Wide].map(|size| shot(size, ShotMove::Cut)).to_vec();
-        let director = Director::new(camera(0.0, false), &with_top);
+        let director = Director::new(camera(0.0), &with_top);
         assert_eq!(director.pick(Detail, 0.0, 0, None), 1);
         assert_eq!(director.pick(Top, 0.0, 0, None), 0);
-        let director = Director::new(camera(0.0, false), &shots);
+        let director = Director::new(camera(0.0), &shots);
         assert_eq!(director.pick(Top, 0.0, 0, None), 0);
     }
 
@@ -1055,15 +1155,16 @@ mod tests {
             .map(|size| shot(size, ShotMove::Cut))
             .to_vec();
         for energy in [0.2, 0.5, 0.9] {
-            let mut director = Director::new(camera(0.3, true), &shots);
+            let mut director = Director::new(camera(0.3), &shots);
             let base = song(energy);
             let mut last = director.state().index;
             let mut cuts = 0;
+            // Sections 60 s apart, so that each starts well past the gap after the cadence's cuts.
             for section in 0..6 {
-                let mut all = beats(&mut director, section * 40, 1, &base, |_, m| {
+                let mut all = beats(&mut director, section * 120, 1, &base, |_, m| {
                     start(section as f32 % 3.0, m)
                 });
-                all.extend(beats(&mut director, section * 40 + 1, 39, &base, plain));
+                all.extend(beats(&mut director, section * 120 + 1, 119, &base, plain));
                 for (_, cut) in all {
                     assert_ne!(cut.index, last, "energy {energy}");
                     last = cut.index;
@@ -1077,13 +1178,13 @@ mod tests {
     #[test]
     fn a_scene_with_one_shot_changes_the_seed() {
         let shots = [shot(ShotSize::Medium, ShotMove::Glide)];
-        let mut director = Director::new(camera(0.4, false), &shots);
+        let mut director = Director::new(camera(0.4), &shots);
         let base = song(0.9);
         let cuts = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         assert_eq!(cuts[0].1.index, 0);
         assert_eq!(cuts[0].1.motion, ShotMove::Glide);
         let mut seeds = vec![director.state().seed];
-        for beat in 1..33u32 {
+        for beat in 1..130u32 {
             let frame = MusicValues {
                 beats: 1,
                 bars: u32::from(beat % 4 == 0),
@@ -1107,19 +1208,20 @@ mod tests {
         ]
         .map(|size| shot(size, ShotMove::Cut))
         .to_vec();
-        let mut director = Director::new(camera(0.0, false), &shots);
+        let mut director = Director::new(camera(0.0), &shots);
+        // Sections 60 s apart, so that each starts well past the gap after the cadence's cuts.
         let mut section = |label: f32, from: u32| -> Vec<u32> {
             let base = MusicValues {
                 section_label: label,
                 ..song(0.9)
             };
             let mut all = beats(&mut director, from, 1, &base, |_, m| start(label, m));
-            all.extend(beats(&mut director, from + 1, 47, &base, plain));
+            all.extend(beats(&mut director, from + 1, 119, &base, plain));
             all.iter().map(|(_, cut)| cut.index).collect()
         };
         let first = section(2.0, 0);
-        let other = section(3.0, 48);
-        let again = section(2.0, 96);
+        let other = section(3.0, 120);
+        let again = section(2.0, 240);
         // The first starts with a shot that was on before it, so compare from the second cut.
         assert_eq!(first[1..], again[1..]);
         assert_ne!(first[1..], other[1..]);
@@ -1127,11 +1229,11 @@ mod tests {
 
     #[test]
     fn wide_and_top_never_tilt_and_the_others_alternate() {
-        let mut director = Director::new(camera(0.4, true), &each_size());
+        let mut director = Director::new(camera(0.4), &each_size());
         let base = song(0.9);
         let mut rolls = Vec::new();
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        for beat in 1..200u32 {
+        for beat in 1..400u32 {
             let frame = MusicValues {
                 beats: 1,
                 bars: u32::from(beat % 4 == 0),
@@ -1155,7 +1257,7 @@ mod tests {
 
     #[test]
     fn a_scene_that_never_tilts_has_no_roll() {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.9);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         for beat in 1..60u32 {
@@ -1171,11 +1273,11 @@ mod tests {
 
     #[test]
     fn a_shot_knows_its_age_and_planned_length() {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.5);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        // Four bars of 2 s at 120 bpm.
-        assert_eq!(director.state().length, 8.0);
+        // A normal section's 16 s.
+        assert_eq!(director.state().length, 16.0);
         assert_eq!(director.state().age, 0.0);
         beats(&mut director, 1, 2, &base, plain);
         assert_eq!(director.state().age, 1.0);
@@ -1184,7 +1286,7 @@ mod tests {
             locked: 0.0,
             ..base
         };
-        director.tick(0.1, &start(1.0, unfollowed));
+        director.force_cut(&unfollowed);
         assert_eq!(director.state().length, NORMAL_SECONDS);
     }
 
@@ -1210,7 +1312,7 @@ mod tests {
 
     #[test]
     fn a_burst_of_cuts_comes_before_a_lift() {
-        let mut director = Director::new(camera(0.3, true), &each_size());
+        let mut director = bursting(camera(0.3));
         let all = lift_run(&mut director);
         // The burst: one cut on each of beats 20 to 23.
         let burst: Vec<&(u32, Cut)> = all.iter().filter(|(_, cut)| cut.fill > 0).collect();
@@ -1228,16 +1330,114 @@ mod tests {
             burst.iter().map(|(_, c)| c.size).collect::<Vec<_>>(),
             [Medium, Close, Detail, Top]
         );
+        // The burst's shots come after the scene's six.
+        assert_eq!(
+            burst.iter().map(|(_, c)| c.index).collect::<Vec<_>>(),
+            [6, 7, 8, 9]
+        );
         // And the section start is a wide shot, with the progression started again.
         let (beat, last) = all.last().unwrap();
         assert_eq!((*beat, last.size, last.fill), (24, Wide, 0));
-        // Two bars of 2 s: the section is a high one.
-        assert_eq!(director.state().length, 4.0);
+        // Ten seconds: the section is a high one.
+        assert_eq!(director.state().length, 10.0);
+    }
+
+    #[test]
+    fn a_burst_is_only_its_declared_shots_in_order() {
+        use ShotSize::*;
+        // The scene has no shot of the burst's sizes in the order it goes through them, and a
+        // wide, medium and close shot of its own.
+        let shots = [Wide, Medium, Close]
+            .map(|size| shot(size, ShotMove::Cut))
+            .to_vec();
+        let declared = burst_of(&[Detail, Top, Medium]);
+        let mut director = Director::new(camera(0.3), &shots).with_bursts(&declared);
+        let all = lift_run(&mut director);
+        let burst: Vec<&(u32, Cut)> = all.iter().filter(|(_, c)| c.fill > 0).collect();
+        // One cut on each of the last three beats, to the shots after the scene's own.
+        assert_eq!(
+            burst.iter().map(|(b, _)| *b).collect::<Vec<_>>(),
+            [21, 22, 23]
+        );
+        assert_eq!(
+            burst
+                .iter()
+                .map(|(_, c)| (c.index, c.size, c.fill))
+                .collect::<Vec<_>>(),
+            [(3, Detail, 1), (4, Top, 2), (5, Medium, 3)]
+        );
+        assert!(burst.iter().all(|(_, c)| c.motion == ShotMove::Cut));
+    }
+
+    #[test]
+    fn a_burst_cuts_once_on_each_declared_shot_from_one_to_four() {
+        use ShotSize::*;
+        for count in 1..=4usize {
+            let declared = burst_of(&[Medium, Close, Detail, Top][..count]);
+            let mut director = Director::new(camera(0.3), &each_size()).with_bursts(&declared);
+            let all = lift_run(&mut director);
+            let burst: Vec<&(u32, Cut)> = all.iter().filter(|(_, c)| c.fill > 0).collect();
+            let beats: Vec<u32> = (24 - count as u32..24).collect();
+            assert_eq!(burst.iter().map(|(b, _)| *b).collect::<Vec<_>>(), beats);
+            assert_eq!(
+                burst.iter().map(|(_, c)| c.fill).collect::<Vec<_>>(),
+                (1..=count as u32).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_cuts_never_pick_a_burst_shot_nor_a_lab_hold_one() {
+        use ShotSize::*;
+        // The burst's shots are the only close and detail ones: nothing ordinary may reach them.
+        let shots = [Wide, Medium, Top]
+            .map(|size| shot(size, ShotMove::Cut))
+            .to_vec();
+        let mut director =
+            Director::new(camera(0.3), &shots).with_bursts(&burst_of(&[Close, Detail]));
+        let base = song(0.9);
+        let mut all = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        all.extend(beats(&mut director, 1, 400, &base, plain));
+        all.extend(beats(&mut director, 401, 1, &base, |_, m| start(1.0, m)));
+        all.extend(beats(&mut director, 402, 100, &base, plain));
+        assert!(all.len() > 15);
+        for (beat, cut) in &all {
+            assert!(cut.index < 3, "beat {beat}: {cut:?}");
+            assert!(!matches!(cut.size, Close | Detail), "beat {beat}: {cut:?}");
+        }
+        for _ in 0..20 {
+            assert!(director.force_cut(&base).index < 3);
+        }
+        // The lab's keys and readout list the scene's three shots only.
+        assert!(director.hold_shot(3, &base).is_none());
+        assert_eq!(director.shot_list().len(), 3);
+        assert!(director.hold_shot(2, &base).is_some());
+    }
+
+    #[test]
+    fn no_burst_is_declared_no_burst_ever() {
+        // A scene with no `[[burst]]`: not before a lift, not at a phrase's end, not by hand.
+        let mut director = Director::new(camera(0.3), &each_size());
+        let all = lift_run(&mut director);
+        assert!(all.iter().all(|(_, c)| c.fill == 0), "{all:?}");
+        let busy = Camera {
+            pace: Pace::Busy,
+            ..camera(0.3)
+        };
+        let mut director = Director::new(busy, &each_size());
+        let base = song(0.9);
+        let mut all = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        all.extend(beats(&mut director, 1, 100, &base, plain));
+        director.start_burst();
+        all.extend(beats(&mut director, 101, 12, &base, plain));
+        assert!(all.len() > 5);
+        assert!(all.iter().all(|(_, c)| c.fill == 0), "{all:?}");
+        assert_eq!(director.forced_burst, None);
     }
 
     #[test]
     fn a_burst_started_by_hand_cuts_on_the_next_four_beats() {
-        let mut director = Director::new(camera(0.3, false), &each_size());
+        let mut director = bursting(camera(0.3));
         let base = song(0.2);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         director.start_burst();
@@ -1268,7 +1468,7 @@ mod tests {
 
     #[test]
     fn a_burst_started_by_hand_without_a_followed_beat_cuts_every_quarter_second() {
-        let mut director = Director::new(camera(0.3, false), &each_size());
+        let mut director = bursting(camera(0.3));
         let base = MusicValues {
             locked: 0.0,
             ..song(0.2)
@@ -1286,7 +1486,7 @@ mod tests {
 
     #[test]
     fn a_burst_tilts_alternately() {
-        let mut director = Director::new(camera(0.3, true), &each_size());
+        let mut director = bursting(camera(0.3));
         let base = song(0.5);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         let coming = MusicValues {
@@ -1319,7 +1519,7 @@ mod tests {
             .into_iter()
             .map(|s| shot(s.size, ShotMove::Glide))
             .collect();
-        let mut director = Director::new(camera(0.3, true), &shots);
+        let mut director = Director::new(camera(0.3), &shots).with_bursts(&four());
         let all = lift_run(&mut director);
         assert!(all.iter().any(|(_, c)| c.fill > 0));
         for (_, cut) in &all {
@@ -1333,43 +1533,18 @@ mod tests {
     }
 
     #[test]
-    fn a_burst_ends_on_wide_without_a_top_shot() {
-        use ShotSize::*;
-        // Two wide shots, as scenes declare, so that the section start at beat 0 stays wide.
-        let shots = [Wide, Medium, Close, Detail, Wide]
-            .map(|size| shot(size, ShotMove::Cut))
-            .to_vec();
-        let mut director = Director::new(camera(0.3, true), &shots);
-        let all = lift_run(&mut director);
-        let burst: Vec<ShotSize> = all
-            .iter()
-            .filter(|(_, c)| c.fill > 0)
-            .map(|(_, c)| c.size)
-            .collect();
-        assert_eq!(burst, [Medium, Close, Detail, Wide]);
-    }
-
-    #[test]
     fn no_burst_without_the_conditions() {
-        use ShotSize::*;
         let count = |director: &mut Director| {
             lift_run(director)
                 .iter()
                 .filter(|(_, c)| c.fill > 0)
                 .count()
         };
-        // The scene does not allow it.
-        assert_eq!(
-            count(&mut Director::new(camera(0.3, false), &each_size())),
-            0
-        );
-        // The scene has nothing near.
-        let far = [Wide, Medium, Top]
-            .map(|size| shot(size, ShotMove::Cut))
-            .to_vec();
-        assert_eq!(count(&mut Director::new(camera(0.3, true), &far)), 0);
+        // The scene declares none.
+        assert_eq!(count(&mut Director::new(camera(0.3), &each_size())), 0);
+        assert_eq!(count(&mut bursting(camera(0.3))), 4);
         // The energy does not rise enough.
-        let mut director = Director::new(camera(0.3, true), &each_size());
+        let mut director = bursting(camera(0.3));
         let base = song(0.5);
         let weak = MusicValues {
             next_energy: 0.55,
@@ -1382,7 +1557,7 @@ mod tests {
         assert!(all.iter().all(|(_, c)| c.fill == 0));
         // The beat is not followed, or the song has no analysis.
         for (locked, has_chart) in [(0.2, 1), (1.0, 0)] {
-            let mut director = Director::new(camera(0.3, true), &each_size());
+            let mut director = bursting(camera(0.3));
             let coming = MusicValues {
                 locked,
                 has_chart,
@@ -1396,7 +1571,7 @@ mod tests {
             assert!(all.iter().all(|(_, c)| c.fill == 0), "{locked} {has_chart}");
         }
         // The time to the next section is unknown.
-        let mut director = Director::new(camera(0.3, true), &each_size());
+        let mut director = bursting(camera(0.3));
         let unknown = MusicValues {
             next_energy: 0.9,
             ..song(0.5)
@@ -1407,7 +1582,12 @@ mod tests {
 
     #[test]
     fn a_burst_ends_a_phrase_of_a_high_section_and_the_next_phrase_starts_wide() {
-        let mut director = Director::new(camera(0.3, true), &each_size());
+        // Only at a section's start, so that no cadence cut falls among the phrase's.
+        let sections = Camera {
+            pace: Pace::Sections,
+            ..camera(0.3)
+        };
+        let mut director = bursting(sections);
         director.phrase_bursts = true;
         let base = song(0.9);
         let mut all = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
@@ -1424,54 +1604,59 @@ mod tests {
             burst.iter().map(|(_, c)| c.fill).collect::<Vec<_>>(),
             [1, 2, 3, 4]
         );
+        // The same declared shots as the burst before a lift.
+        assert_eq!(
+            burst.iter().map(|(_, c)| c.index).collect::<Vec<_>>(),
+            [6, 7, 8, 9]
+        );
         // The phrase starts on the downbeat of beat 32 with a wide shot.
         let at_32 = all.iter().find(|(b, _)| *b == 32).unwrap();
         assert_eq!((at_32.1.size, at_32.1.fill), (ShotSize::Wide, 0));
-        // And the progression goes on from there: medium next, two bars after.
-        let at_40 = all.iter().find(|(b, _)| *b == 40).unwrap();
-        assert_eq!(at_40.1.size, ShotSize::Medium);
     }
 
     #[test]
     fn no_phrase_burst_by_default() {
-        let mut director = Director::new(camera(0.3, true), &each_size());
+        let mut director = bursting(camera(0.3));
         let base = song(0.9);
         let mut all = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        all.extend(beats(&mut director, 1, 80, &base, plain));
+        all.extend(beats(&mut director, 1, 200, &base, plain));
         assert!(all.len() > 10);
         assert!(all.iter().all(|(_, c)| c.fill == 0), "{all:?}");
     }
 
     #[test]
     fn hold_is_the_shortest_shot() {
-        // A high section cuts every 2 bars; a hold of 4 makes it every 4 (beats 16 and 32).
-        let mut director = Director::new(held(4), &each_size());
+        // A high section cuts every 10 s; a hold of 16 s makes it every 16 (beats 32 and 64).
+        let mut director = Director::new(held(16.0), &each_size());
         let base = song(0.9);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        let cuts = beats(&mut director, 1, 40, &base, plain);
-        assert_eq!(cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(), [16, 32]);
-        assert_eq!(director.state().length, 8.0);
+        let cuts = beats(&mut director, 1, 70, &base, plain);
+        assert_eq!(cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(), [32, 64]);
+        assert_eq!(director.state().length, 16.0);
         // A hold shorter than the section's cadence changes nothing.
-        let mut director = Director::new(held(1), &each_size());
+        let mut director = Director::new(held(4.0), &each_size());
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        let cuts = beats(&mut director, 1, 40, &base, plain);
-        assert_eq!(cuts.len(), 5);
+        let cuts = beats(&mut director, 1, 70, &base, plain);
+        assert_eq!(
+            cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(),
+            [20, 40, 60]
+        );
     }
 
     #[test]
     fn without_a_beat_the_wait_grows_with_hold() {
-        // 4 bars of 2 s are 8 s, over the high section's 6 s; with no hit, 2 s more.
-        let cuts = unfollowed_held(4, 0.8, 0, 25.0);
-        assert!((cuts[0] - 10.0).abs() < 0.11, "{cuts:?}");
-        assert!((cuts[1] - cuts[0] - 10.0).abs() < 0.11, "{cuts:?}");
+        // A hold of 12 s is over the high section's 10 s; with no hit, 2 s more.
+        let cuts = unfollowed_held(12.0, 0.8, 0, 30.0);
+        assert!((cuts[0] - 14.0).abs() < 0.11, "{cuts:?}");
+        assert!((cuts[1] - cuts[0] - 14.0).abs() < 0.11, "{cuts:?}");
         // A hold under the section's wait changes nothing.
-        let cuts = unfollowed_held(2, 0.8, 0, 12.0);
-        assert!((cuts[0] - 8.0).abs() < 0.11, "{cuts:?}");
+        let cuts = unfollowed_held(4.0, 0.8, 0, 14.0);
+        assert!((cuts[0] - 12.0).abs() < 0.11, "{cuts:?}");
     }
 
     #[test]
     fn no_phrase_burst_outside_a_high_section() {
-        let mut director = Director::new(camera(0.3, true), &each_size());
+        let mut director = Director::new(camera(0.3), &each_size());
         let base = song(0.5);
         let mut all = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         all.extend(beats(&mut director, 1, 80, &base, plain));
@@ -1481,7 +1666,7 @@ mod tests {
     #[test]
     fn a_forced_cut_follows_the_size_rules_and_is_reported() {
         use ShotSize::*;
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.5);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         assert_eq!(director.state().cuts, 1);
@@ -1494,9 +1679,9 @@ mod tests {
         assert_eq!(state.index, 3);
         assert_eq!(state.age, 0.0);
         assert_eq!(state.fill, 0);
-        // The cadence counts from the forced cut: four bars of 2 s later, not before.
-        let cuts = beats(&mut director, 1, 20, &base, plain);
-        assert_eq!(cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(), [16]);
+        // The cadence counts from the forced cut: 16 s later, not before.
+        let cuts = beats(&mut director, 1, 40, &base, plain);
+        assert_eq!(cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(), [32]);
         // The tier shows in the readout.
         assert_eq!(director.view(&base).tier, "normal");
         assert_eq!(director.view(&song(0.9)).tier, "high");
@@ -1505,7 +1690,7 @@ mod tests {
 
     #[test]
     fn a_held_shot_is_not_cut_away_from_until_released() {
-        let mut director = Director::new(camera(0.3, true), &each_size());
+        let mut director = Director::new(camera(0.3), &each_size());
         let base = song(0.9);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         // A shot the scene does not have changes nothing.
@@ -1518,7 +1703,7 @@ mod tests {
         assert_eq!(director.state().size, ShotSize::Close as u32);
         assert_eq!(director.state().cuts, 2);
         assert!(director.view(&base).held);
-        // A high section cuts every 2 bars and a section start cuts at once; none happens.
+        // A high section cuts every 10 s and a section start cuts at once; none happens.
         let mut all = beats(&mut director, 1, 40, &base, plain);
         all.extend(beats(&mut director, 41, 1, &base, |_, m| start(1.0, m)));
         assert!(all.is_empty(), "{all:?}");
@@ -1526,29 +1711,30 @@ mod tests {
         assert_eq!(director.state().cuts, 2);
         // The shot ages meanwhile.
         assert!(director.state().age > 20.0);
-        // Released, it waits a whole cadence (2 bars, 4 s) before it cuts.
+        // Released, it waits a whole cadence (10 s) before it cuts.
         director.release_shot();
         assert!(!director.view(&base).held);
-        let cuts = beats(&mut director, 42, 20, &base, plain);
-        assert_eq!(cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(), [48, 56]);
+        let cuts = beats(&mut director, 42, 40, &base, plain);
+        assert_eq!(cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(), [64]);
     }
 
     #[test]
     fn a_lab_pace_overrides_the_cadence_and_its_own_restores_it() {
         let camera = Camera {
             pace: Pace::Calm,
-            ..camera(0.0, false)
+            ..camera(0.0)
         };
         let cuts = |pace: Option<Pace>| {
             let mut director = Director::new(camera, &each_size());
             director.set_pace_override(pace);
             let base = song(0.5);
             beats(&mut director, 1, 1, &base, |_, m| start(0.0, m));
-            beats(&mut director, 2, 64, &base, plain).len()
+            beats(&mut director, 2, 128, &base, plain).len()
         };
-        // The scene's own, calm: half of the 4 cuts a normal one makes in 16 bars.
+        // The scene's own, calm: 2 cuts in 64 s, where a normal one makes 3 and a busy one 5.
         assert_eq!(cuts(None), 2);
-        assert_eq!(cuts(Some(Pace::Busy)), 8);
+        assert_eq!(cuts(Some(Pace::Normal)), 3);
+        assert_eq!(cuts(Some(Pace::Busy)), 5);
         assert_eq!(cuts(Some(Pace::Sections)), 0);
         assert_eq!(cuts(None), 2);
 
@@ -1576,8 +1762,9 @@ mod tests {
 
     #[test]
     fn the_view_lists_the_shots_in_order() {
-        let director = Director::new(camera(0.0, false), &each_size());
+        let director = bursting(camera(0.0));
         let list = director.view(&song(0.5)).shots;
+        // The burst's four are not shots to hold or to list.
         assert_eq!(list.len(), 6);
         assert_eq!(
             (list[0].1, list[4].1, list[5].1),
@@ -1590,8 +1777,8 @@ mod tests {
         let runtime = crate::bind::RuntimeBindings::embedded();
         let d = &runtime.director;
         assert_eq!((d.below, d.above), (QUIET_BELOW, HIGH_ABOVE));
-        assert_eq!(d.every, [QUIET_BARS, NORMAL_BARS, HIGH_BARS]);
         assert_eq!(d.seconds, [QUIET_SECONDS, NORMAL_SECONDS, HIGH_SECONDS]);
+        assert_eq!((d.gap, d.lead), (GAP_SECONDS, LEAD_SECONDS));
         assert_eq!(d.grace, HIT_GRACE_SECONDS);
         assert_eq!(d.lift, FILL_LIFT);
         assert_eq!(d.cadence.source().name, "section_energy");
@@ -1602,46 +1789,176 @@ mod tests {
         assert_eq!(d.on.source().name, "beats");
     }
 
-    /// The cuts in 16 bars of a song whose chart says quiet (0.2) and whose `drive` says high
-    /// (0.8), by `runtime`.
-    fn cuts_by(runtime: &crate::bind::RuntimeBindings) -> usize {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+    /// The beat of the first cut in the 100 beats after a section started at beat 1, of a song
+    /// whose chart says quiet (0.2) and whose `drive` says high (0.8), by `runtime`.
+    fn first_cut_by(runtime: &crate::bind::RuntimeBindings) -> Option<u32> {
+        let mut director = Director::new(camera(0.0), &each_size());
         director.set_binds(runtime.director.clone(), runtime.moments.clone());
         let base = MusicValues {
             drive: 0.8,
             ..song(0.2)
         };
         beats(&mut director, 1, 1, &base, |_, m| start(0.0, m));
-        beats(&mut director, 2, 64, &base, plain).len()
+        beats(&mut director, 2, 100, &base, plain)
+            .first()
+            .map(|(beat, _)| *beat)
     }
 
     #[test]
     fn the_cadence_follows_the_source_the_file_names() {
         let embedded = crate::bind::RuntimeBindings::embedded();
-        // The section's energy, 0.2: a quiet section, a cut every 8 bars.
-        assert_eq!(cuts_by(&embedded), 2);
-        // The drive, 0.8: a high one, every 2.
+        // The section's energy, 0.2: a quiet section, a cut after 24 s.
+        assert_eq!(first_cut_by(&embedded), Some(52));
+        // The drive, 0.8: a high one, after 10 s.
+        let when = "when = { below = 0.35, above = 0.65, seconds = [24.0, 16.0, 10.0], gap = 6.0, lead = 4.0 }";
         let custom = crate::bind::tests::embedded_with(
-            "source = \"section_energy\"\nhow = \"follow\"\nwhen = { below = 0.35, above = 0.65, every = [8, 4, 2], seconds = [24.0, 12.0, 6.0] }\nfallback = \"drive\"",
-            "source = \"drive\"\nhow = \"follow\"\nwhen = { below = 0.35, above = 0.65, every = [8, 4, 2], seconds = [24.0, 12.0, 6.0] }",
+            &format!("source = \"section_energy\"\nhow = \"follow\"\n{when}\nfallback = \"drive\""),
+            &format!("source = \"drive\"\nhow = \"follow\"\n{when}"),
         );
-        assert_eq!(cuts_by(&custom), 8);
+        assert_eq!(first_cut_by(&custom), Some(24));
     }
 
     #[test]
     fn a_cut_lands_on_the_event_the_file_names() {
-        // On the beats instead of the bars: every 8 beats in a quiet section, not 8 bars.
+        // The quiet section's 24 s are due at beat 49: on the beats a cut lands there, on the
+        // bars at the next downbeat.
+        let embedded = crate::bind::RuntimeBindings::embedded();
+        assert_eq!(first_cut_by(&embedded), Some(52));
         let custom = crate::bind::tests::embedded_with(
             "target = \"director.cut\"\nsource = \"bars\"",
             "target = \"director.cut\"\nsource = \"beats\"",
         );
-        assert_eq!(cuts_by(&custom), 8);
+        assert_eq!(first_cut_by(&custom), Some(49));
+    }
+
+    #[test]
+    fn the_gap_holds_a_cadence_cut_back() {
+        // A quiet section whose cadence is 3 s: held back to the gap's 6 s (the downbeat of beat
+        // 16), or with no gap cutting at 3 s (beat 8).
+        let with_gap = |gap: &str| {
+            crate::bind::tests::embedded_with(
+                "seconds = [24.0, 16.0, 10.0], gap = 6.0",
+                &format!("seconds = [3.0, 3.0, 3.0], gap = {gap}"),
+            )
+        };
+        assert_eq!(first_cut_by(&with_gap("6.0")), Some(16));
+        assert_eq!(first_cut_by(&with_gap("0.0")), Some(8));
+    }
+
+    #[test]
+    fn a_section_start_within_the_gap_does_not_cut() {
+        let base = song(0.5);
+        let mut director = Director::new(camera(0.0), &each_size());
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        // A section starts 3 s after the cut: the shot goes on.
+        assert!(beats(&mut director, 1, 5, &base, plain).is_empty());
+        assert!(beats(&mut director, 6, 1, &base, |_, m| start(1.0, m)).is_empty());
+        assert_eq!(director.state().cuts, 1);
+        // Its progression still starts again: the next cadence cut establishes the section.
+        let cuts = beats(&mut director, 7, 40, &base, plain);
+        assert_eq!(cuts[0].1.size, ShotSize::Wide, "{cuts:?}");
+
+        // 7 s after a cut it is past the gap: it cuts.
+        let mut director = Director::new(camera(0.0), &each_size());
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        assert!(beats(&mut director, 1, 13, &base, plain).is_empty());
+        let cut = beats(&mut director, 14, 1, &base, |_, m| start(1.0, m));
+        assert_eq!(cut.len(), 1);
+
+        // A scene's `hold` of 8 s raises the gap for it: 7 s is not enough, 8.5 s is.
+        let mut director = Director::new(held(8.0), &each_size());
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        assert!(beats(&mut director, 1, 13, &base, plain).is_empty());
+        assert!(beats(&mut director, 14, 1, &base, |_, m| start(1.0, m)).is_empty());
+        assert!(beats(&mut director, 15, 1, &base, plain).is_empty());
+        assert!(beats(&mut director, 16, 1, &base, plain).is_empty());
+        assert_eq!(
+            beats(&mut director, 17, 1, &base, |_, m| start(2.0, m)).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_cadence_cut_waits_for_a_section_start_it_is_less_than_the_lead_before() {
+        let base = song(0.5);
+        // A normal section's 16 s are due at beat 32, a downbeat. A section starts at beat 36.
+        let run = |known: bool| {
+            let mut director = Director::new(camera(0.0), &each_size());
+            beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+            let mut all = beats(&mut director, 1, 35, &base, |beat, m| MusicValues {
+                cue_in: if known {
+                    (36 - beat) as f32 * 0.5
+                } else {
+                    -1.0
+                },
+                ..m
+            });
+            all.extend(beats(&mut director, 36, 1, &base, |_, m| start(1.0, m)));
+            all.iter().map(|(beat, _)| *beat).collect::<Vec<_>>()
+        };
+        // Known ahead, 2 s away, less than the lead's 4: the section start cuts instead.
+        assert_eq!(run(true), [36]);
+        // Unknown: the cadence cuts at 32 and the section start 2 s later is within the gap.
+        assert_eq!(run(false), [32]);
+    }
+
+    #[test]
+    fn a_cadence_cut_makes_way_for_the_burst_before_a_lift() {
+        let coming = MusicValues {
+            next_energy: 0.9,
+            ..song(0.5)
+        };
+        // A lifting section starts at beat 46; the cadence's 16 s are due at beat 32, when the
+        // burst's first cut (beat 42) is 5 s away, less than the gap.
+        let run = |mut director: Director| {
+            let mut all = beats(&mut director, 0, 1, &coming, |_, m| start(0.0, m));
+            all.extend(beats(&mut director, 1, 45, &coming, |beat, m| {
+                MusicValues {
+                    cue_in: (46 - beat) as f32 * 0.5,
+                    ..m
+                }
+            }));
+            all.extend(beats(&mut director, 46, 1, &song(0.9), |_, m| {
+                start(1.0, m)
+            }));
+            all.iter()
+                .map(|(beat, cut)| (*beat, cut.fill))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            run(bursting(camera(0.0))),
+            [(0, 0), (42, 1), (43, 2), (44, 3), (45, 4), (46, 0)]
+        );
+        // With no burst declared only the lead applies, and the cadence cuts at 32.
+        assert_eq!(
+            run(Director::new(camera(0.0), &each_size())),
+            [(0, 0), (32, 0), (46, 0)]
+        );
+    }
+
+    #[test]
+    fn a_burst_that_would_come_within_the_gap_of_a_cut_is_left_out() {
+        // The section starts at beat 0 and a lift comes at beat 8: the burst's first cut would
+        // be 2 s after the cut, so none of it is, nor is the section start 4 s after the cut.
+        let mut director = bursting(camera(0.0));
+        let base = song(0.2);
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        let coming = MusicValues {
+            next_energy: 0.9,
+            ..base
+        };
+        let mut all = beats(&mut director, 1, 7, &coming, |beat, m| MusicValues {
+            cue_in: (8 - beat) as f32 * 0.5,
+            ..m
+        });
+        all.extend(beats(&mut director, 8, 1, &song(0.9), |_, m| start(1.0, m)));
+        assert!(all.is_empty(), "{all:?}");
     }
 
     #[test]
     fn the_burst_reads_the_lift_the_file_asks_for() {
         let run = |runtime: &crate::bind::RuntimeBindings| {
-            let mut director = Director::new(camera(0.3, true), &each_size());
+            let mut director = bursting(camera(0.3));
             director.set_binds(runtime.director.clone(), runtime.moments.clone());
             lift_run(&mut director).len()
         };

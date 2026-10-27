@@ -15,7 +15,6 @@ effects = ["fade", "glitch", "mosaic", "flash"]
 # dutch angle is the only tilt.
 [camera]
 dutch = 0.3
-fill = true
 
 # Straight on at the wall's distance, a few screens' worth of piles in the frame.
 [[shot]]

@@ -58,19 +58,23 @@ fallback = { value = 2.0 }
 # --- The camera director (src/scene/director.rs) -----------------------------------------------
 
 # How lively the section is, and so how often the shot cuts. The section's energy (the chart's),
-# else the music's slow energy. Below `below` is quiet, above `above` is high. `every` is the events
-# of `director.cut` between two cuts with a followed beat, `seconds` the time between them without
-# one; each is [quiet, normal, high] (half of the first cadence, so that cuts are not too frequent).
+# else the music's slow energy. Below `below` is quiet, above `above` is high. `seconds` is the
+# time between two cuts, [quiet, normal, high], beat or not (a scene's `pace` scales it: calm
+# times 1.5, busy divided by 1.5). `gap` is the shortest time between any two cuts that are not
+# inside one burst (a scene's `hold` only ever raises it): a cadence cut that comes sooner waits,
+# and a section start that comes sooner does not cut. `lead`: with the next section start known,
+# a cadence cut due less than this many seconds before it waits and the section start cuts
+# instead; a cadence cut also waits when the burst before a lifting section would start within
+# `gap` of it.
 [[bind]]
 target = "director.cadence"
 source = "section_energy"
 how = "follow"
-when = { below = 0.35, above = 0.65, every = [8, 4, 2], seconds = [24.0, 12.0, 6.0] }
+when = { below = 0.35, above = 0.65, seconds = [24.0, 16.0, 10.0], gap = 6.0, lead = 4.0 }
 fallback = "drive"
 
-# What a cut lands on. With a followed beat, a downbeat (the `bars` of `director.cadence`'s
-# `every`). Without, the first hit once the time is due, or `grace` seconds later, whichever
-# comes first.
+# What a cut lands on once the cadence's seconds are due. With a followed beat, a downbeat. Without,
+# the first hit, or `grace` seconds later, whichever comes first.
 [[bind]]
 target = "director.cut"
 source = "bars"
@@ -78,10 +82,11 @@ how = "trigger"
 when = { grace = 2.0 }
 fallback = "hits"
 
-# The burst of cuts before a section whose energy lifts. `source` is the time to the next section,
-# read on each beat of `on` (so only with a followed beat: `beats` means nothing without one, and
-# the burst is off), and the lift is `to` minus `from` at `lift` or more. It cuts on each of the
-# last four beats (the number is the shape of the burst).
+# The burst of cuts before a section whose energy lifts, through the shots the scene declares as
+# `[[burst]]` (none declared: no burst). `source` is the time to the next section, read on each
+# beat of `on` (so only with a followed beat: `beats` means nothing without one, and the burst is
+# off), and the lift is `to` minus `from` at `lift` or more. It cuts on each of the last beats, one
+# for each declared shot (at most four).
 [[bind]]
 target = "director.burst"
 source = "cue_in"

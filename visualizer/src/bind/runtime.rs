@@ -190,7 +190,7 @@ const SPECS: &[Spec] = &[
         target: "director.cadence",
         hows: FOLLOW,
         kind: Kind::Value,
-        keys: &["below", "above", "every", "seconds"],
+        keys: &["below", "above", "seconds", "gap", "lead"],
         several: false,
     },
     Spec {
@@ -639,8 +639,9 @@ pub struct DirectorBinds {
     pub(crate) cadence: Pick,
     pub(crate) below: f32,
     pub(crate) above: f32,
-    pub(crate) every: [u32; 3],
     pub(crate) seconds: [f32; 3],
+    pub(crate) gap: f32,
+    pub(crate) lead: f32,
     pub(crate) cut: Pick,
     pub grace: f32,
     pub(crate) burst: Pick,
@@ -650,7 +651,7 @@ pub struct DirectorBinds {
     pub(crate) lift: f32,
 }
 
-/// What the burst sees in a frame that is a beat before a section (see
+/// What the director sees of the next section (see [`DirectorBinds::ahead`] and
 /// [`DirectorBinds::burst`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ahead {
@@ -669,16 +670,15 @@ impl DirectorBinds {
                 .expect("checked")
         };
         let cadence = one("director.cadence");
-        let every = cadence.triple("every", [8.0, 4.0, 2.0])?;
-        cadence.require(
-            every.iter().all(|e| *e >= 1.0 && e.fract() == 0.0),
-            "`when.every` must be whole numbers from 1",
-        )?;
-        let seconds = cadence.triple("seconds", [24.0, 12.0, 6.0])?;
+        let seconds = cadence.triple("seconds", [24.0, 16.0, 10.0])?;
         cadence.require(
             seconds.iter().all(|s| *s > 0.0),
             "`when.seconds` must be above 0",
         )?;
+        let gap = cadence.num("gap", 6.0)?;
+        cadence.require(gap >= 0.0, "`when.gap` must not be negative")?;
+        let lead = cadence.num("lead", 4.0)?;
+        cadence.require(lead >= 0.0, "`when.lead` must not be negative")?;
         let (below, above) = (cadence.num("below", 0.35)?, cadence.num("above", 0.65)?);
         cadence.require(
             below <= above,
@@ -692,8 +692,9 @@ impl DirectorBinds {
             cadence: cadence.pick(),
             below,
             above,
-            every: every.map(|e| e as u32),
             seconds,
+            gap,
+            lead,
             cut: cut.pick(),
             grace,
             burst: burst.pick(),
@@ -719,19 +720,41 @@ impl DirectorBinds {
         }
     }
 
-    /// Events of `director.cut` between two cuts with a followed beat, in a tier.
-    pub fn every(&self, tier: usize) -> u32 {
-        self.every[tier]
-    }
-
-    /// Seconds between two cuts without, in a tier.
+    /// Seconds between two cadence cuts in a tier, beat or not.
     pub fn seconds(&self, tier: usize) -> f32 {
         self.seconds[tier]
+    }
+
+    /// The shortest time in seconds between two cuts that are not inside one burst.
+    pub fn gap(&self) -> f32 {
+        self.gap
+    }
+
+    /// Seconds before a known section start within which a cadence cut waits for it.
+    pub fn lead(&self) -> f32 {
+        self.lead
     }
 
     /// What a cut lands on in this frame: its source, or the fallback's, or nothing.
     pub fn cut(&self, music: &MusicValues) -> Said {
         self.cut.said(music)
+    }
+
+    /// What the source of `director.burst` says of the next section, if it says anything: seconds
+    /// to it (-1 when unknown) and whether it is louder by the lift.
+    fn looking_ahead(&self, music: &MusicValues) -> Option<Ahead> {
+        let cue_in = self.burst.said(music).reading()?.value;
+        Some(Ahead {
+            cue_in,
+            lifts: self.to.read(music).value - self.from.read(music).value >= self.lift,
+        })
+    }
+
+    /// The next section start, if it is known (at 0 seconds or more). On any frame, beat or not:
+    /// the cadence reads it to make way for the section start and for the burst before it.
+    pub fn ahead(&self, music: &MusicValues) -> Option<Ahead> {
+        self.looking_ahead(music)
+            .filter(|ahead| ahead.cue_in >= 0.0)
     }
 
     /// The burst before a lift, if this frame is a beat it can cut on: the source of
@@ -740,11 +763,7 @@ impl DirectorBinds {
         if music.tempo <= 0.0 || self.on.said(music).count() == 0 {
             return None;
         }
-        let cue_in = self.burst.said(music).reading()?.value;
-        Some(Ahead {
-            cue_in,
-            lifts: self.to.read(music).value - self.from.read(music).value >= self.lift,
-        })
+        self.looking_ahead(music)
     }
 }
 
@@ -1290,7 +1309,7 @@ pub(crate) mod tests {
         assert_eq!(row("director.cadence").fallback, "\"drive\"");
         assert_eq!(
             row("director.cadence").when,
-            "{ above = 0.65, below = 0.35, every = [8, 4, 2], seconds = [24.0, 12.0, 6.0] }"
+            "{ above = 0.65, below = 0.35, gap = 6.0, lead = 4.0, seconds = [24.0, 16.0, 10.0] }"
         );
         // A bind with no source still shows its numbers, and one with nothing has none.
         assert!(row("switch.timing").when.contains("max = 90.0"));

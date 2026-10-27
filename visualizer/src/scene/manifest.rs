@@ -84,6 +84,10 @@ pub struct Manifest {
     /// The camera setups the scene can be shown from. Without any, the scene has no director.
     #[serde(default, rename = "shot")]
     pub shots: Vec<Shot>,
+    /// The shots the director's burst of cuts goes through, in the order it cuts to them (see
+    /// [`BurstShot`]). Without any, the scene has no burst.
+    #[serde(default, rename = "burst")]
+    pub bursts: Vec<BurstShot>,
     /// The transitions and lens effects the scene takes (see [`Effects`]).
     #[serde(default)]
     pub effects: Effects,
@@ -95,11 +99,11 @@ pub struct Manifest {
 pub struct Camera {
     /// The largest dutch angle (roll) in radians; 0 means the scene never tilts.
     pub dutch: f32,
-    /// Whether the director may cut on every beat before a section or a phrase ends.
-    pub fill: bool,
-    /// The shortest shot in bars (0 for no minimum): a scene that glides to a new shot sets it
-    /// to how long its glide takes, so the shot is reached before the next cut. Bursts ignore it.
-    pub hold: u32,
+    /// The shortest shot in seconds (0 for no minimum): a scene that glides to a new shot sets
+    /// it to how long its glide takes, so the shot is reached before the next cut. It only ever
+    /// raises the director's gap between two cuts for this scene (`director.cadence`'s `gap`).
+    /// Bursts ignore it.
+    pub hold: f32,
     /// How often the director cuts the scene: what suits its subject.
     pub pace: Pace,
 }
@@ -110,11 +114,11 @@ pub struct Camera {
 pub enum Pace {
     /// Only at a section's start (and in the burst before a lift).
     Sections,
-    /// Half as often as `normal`.
+    /// One and a half times the seconds of `normal` between two cuts.
     Calm,
     #[default]
     Normal,
-    /// Twice as often as `normal`, with a burst at the end of every phrase of a high section.
+    /// One and a half times as often as `normal`, with a burst at the end of every phrase of a high section.
     Busy,
 }
 
@@ -250,6 +254,24 @@ pub struct Shot {
     pub size: ShotSize,
     #[serde(default, rename = "move")]
     pub motion: ShotMove,
+}
+
+/// The most `[[burst]]` shots a scene declares: the burst cuts on one beat each, and four is the
+/// shape of the burst (`director::FILL_BEATS`).
+pub const MAX_BURSTS: usize = 4;
+
+/// One `[[burst]]`: a shot the burst of cuts before a section that lifts the energy goes to. It
+/// has the fields of a `[[shot]]` but its move, which is always a hard cut, and it is never
+/// picked by an ordinary cut: a burst is four hard cuts in two seconds, the hardest thing the
+/// director does to get right, so a scene declares its shots on their own (`docs/music.md`,
+/// "Shots and the director").
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BurstShot {
+    /// For people.
+    #[serde(default)]
+    pub name: String,
+    pub size: ShotSize,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -608,6 +630,17 @@ impl Manifest {
 
     pub fn parse(text: &str) -> Result<Self> {
         let manifest: Self = toml::from_str(text)?;
+        // The key was removed, and a table without it would read the file the same way, so it is
+        // looked for by name.
+        let removed = text
+            .parse::<toml::Table>()?
+            .get("camera")
+            .and_then(|camera| camera.get("fill"))
+            .is_some();
+        ensure!(
+            !removed,
+            "[camera] fill was removed: declare the burst's shots as [[burst]] entries instead"
+        );
         manifest.validate()?;
         Ok(manifest)
     }
@@ -764,8 +797,21 @@ impl Manifest {
             check_path(&asset.file)?;
         }
         ensure!(
+            self.camera.hold.is_finite() && self.camera.hold >= 0.0,
+            "camera.hold must be a number of seconds, 0 or more"
+        );
+        ensure!(
             self.camera == Camera::default() || !self.shots.is_empty(),
             "[camera] needs at least one [[shot]]"
+        );
+        ensure!(
+            self.bursts.len() <= MAX_BURSTS,
+            "at most {MAX_BURSTS} [[burst]] shots (one cut on each of the last {MAX_BURSTS} beats), not {}",
+            self.bursts.len()
+        );
+        ensure!(
+            self.bursts.is_empty() || !self.shots.is_empty(),
+            "[[burst]] needs at least one [[shot]]"
         );
         for unknown in self.effects.unknown() {
             log::warn!("{unknown} is not an effect this runtime knows; it is left out");
@@ -932,8 +978,7 @@ tonemap = "aces"
     const SHOTS: &str = r##"
 [camera]
 dutch = 0.35
-fill = true
-hold = 4
+hold = 8.0
 pace = "calm"
 
 [[shot]]
@@ -944,6 +989,13 @@ move = "cut"
 [[shot]]
 size = "top"
 move = "glide"
+
+[[burst]]
+name = "in"
+size = "close"
+
+[[burst]]
+size = "detail"
 "##;
 
     #[test]
@@ -951,12 +1003,12 @@ move = "glide"
         let plain = Manifest::parse(SMALL).unwrap();
         assert!(plain.shots.is_empty());
         assert_eq!(plain.camera, Camera::default());
-        assert!(!plain.camera.fill && plain.camera.dutch == 0.0 && plain.camera.hold == 0);
+        assert!(plain.camera.dutch == 0.0 && plain.camera.hold == 0.0);
+        assert!(plain.bursts.is_empty());
 
         let m = Manifest::parse(&format!("{SMALL}{SHOTS}")).unwrap();
         assert_eq!(m.camera.dutch, 0.35);
-        assert!(m.camera.fill);
-        assert_eq!(m.camera.hold, 4);
+        assert_eq!(m.camera.hold, 8.0);
         assert_eq!(m.camera.pace, Pace::Calm);
         assert_eq!(plain.camera.pace, Pace::Normal);
         assert_eq!(m.shots.len(), 2);
@@ -966,6 +1018,11 @@ move = "glide"
         assert_eq!(m.shots[1].name, "");
         assert_eq!(m.shots[1].size, ShotSize::Top);
         assert_eq!(m.shots[1].motion, ShotMove::Glide);
+        assert_eq!(m.bursts.len(), 2);
+        assert_eq!(m.bursts[0].name, "in");
+        assert_eq!(m.bursts[0].size, ShotSize::Close);
+        assert_eq!(m.bursts[1].name, "");
+        assert_eq!(m.bursts[1].size, ShotSize::Detail);
     }
 
     #[test]
@@ -985,13 +1042,50 @@ move = "glide"
         assert!(motion.contains("fly") && motion.contains("cut"), "{motion}");
         assert!(with("size = \"top\"", "").contains("size"));
         assert!(with("dutch = 0.35", "dutch = 4.0").contains("camera.dutch"));
-        let none = format!("{SMALL}\n[camera]\nfill = true\n");
+        assert!(with("hold = 8.0", "hold = -1.0").contains("camera.hold"));
+        let none = format!("{SMALL}\n[camera]\ndutch = 0.2\n");
         let none = format!("{:#}", Manifest::parse(&none).unwrap_err());
         assert!(none.contains("at least one [[shot]]"), "{none}");
+        let alone = format!("{SMALL}\n[[burst]]\nsize = \"close\"\n");
+        let alone = format!("{:#}", Manifest::parse(&alone).unwrap_err());
+        assert!(alone.contains("[[burst]] needs"), "{alone}");
         let pace = with("pace = \"calm\"", "pace = \"frantic\"");
         assert!(
             pace.contains("frantic") && pace.contains("sections"),
             "{pace}"
+        );
+    }
+
+    #[test]
+    fn a_bad_burst_is_named() {
+        let with = |from: &str, to: &str| {
+            let text = format!("{SMALL}{SHOTS}").replacen(from, to, 1);
+            assert_ne!(
+                text,
+                format!("{SMALL}{SHOTS}"),
+                "{from:?} is not in the shots"
+            );
+            format!("{:#}", Manifest::parse(&text).unwrap_err())
+        };
+        // A burst's cuts are hard: it has no move of its own.
+        let moved = with("size = \"detail\"", "size = \"detail\"\nmove = \"glide\"");
+        assert!(moved.contains("move") && moved.contains("size"), "{moved}");
+        assert!(with("size = \"detail\"", "size = \"huge\"").contains("huge"));
+        let many = format!(
+            "{SMALL}{SHOTS}{}",
+            "[[burst]]\nsize = \"close\"\n".repeat(3)
+        );
+        let many = format!("{:#}", Manifest::parse(&many).unwrap_err());
+        assert!(many.contains("at most 4 [[burst]]"), "{many}");
+    }
+
+    #[test]
+    fn camera_fill_is_refused_with_a_word_about_bursts() {
+        let text = format!("{SMALL}{SHOTS}").replacen("hold = 8.0", "hold = 8.0\nfill = true", 1);
+        let message = format!("{:#}", Manifest::parse(&text).unwrap_err());
+        assert!(
+            message.contains("fill") && message.contains("[[burst]]"),
+            "{message}"
         );
     }
 

@@ -33,9 +33,8 @@ source = "Drawn by tools/make_crests.py"
 # The camera glides between six places to film from, in the order update.wgsl takes them.
 [camera]
 dutch = 0.35
-fill = true
-# The shortest shot is four bars, so that a glide (at most half a shot) has two bars at least.
-hold = 4
+# The shortest shot is eight seconds, so that a glide (at most half a shot) has four seconds at least.
+hold = 8.0
 
 [[shot]]
 name = "middle"

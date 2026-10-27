@@ -28,8 +28,7 @@ target = "out"
 # section that lifts the energy.
 [camera]
 dutch = 0.3
-fill = true
-# A slow flight over the sea: cut half as often as an ordinary scene.
+# A slow flight over the sea: cut less often than an ordinary scene.
 pace = "calm"
 
 # Looking down the line from high behind, and from low behind to one side: both see the whole

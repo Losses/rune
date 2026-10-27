@@ -23,9 +23,8 @@ scale = 1.0
 # show the lead with the field behind, so both are wide.
 [camera]
 dutch = 0.3
-fill = true
-# The shortest shot, in bars: twice the default glide, as a glide takes at most half a shot.
-hold = 4
+# The shortest shot, in seconds: twice the default glide, as a glide takes at most half a shot.
+hold = 8.0
 
 [[shot]]
 name = "front"

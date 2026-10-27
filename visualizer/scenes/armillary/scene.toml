@@ -25,7 +25,6 @@ target = "out"
 # The camera never rolls of its own accord, so the director's dutch angle is what tilts it.
 [camera]
 dutch = 0.3
-fill = true
 
 # The four setups, in the order of the "view" parameter. Below and far off frame the whole sphere
 # at about the same size (the focal length over the distance), so both are wide; through the rings

@@ -2694,7 +2694,7 @@ mod tests {
         assert_eq!(pipeline.transitions.forced, Forced::None);
     }
 
-    /// A burst of cuts gives each cut a punch over the live frame, in a scene that lists nothing
+    /// A burst of cuts (the scene declares four shots for it) gives each cut a punch over the live frame, in a scene that lists nothing
     /// to dress its cuts with and so holds no frame: the pass runs only while the punch plays.
     #[test]
     fn a_burst_punches_each_cut_and_lets_go() {
@@ -2705,6 +2705,9 @@ mod tests {
         let dir = plain_scene("punch", 0.2);
         let mut manifest = std::fs::read_to_string(dir.join("scene.toml")).unwrap();
         manifest.push_str("[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\n");
+        for size in ["medium", "close", "detail", "top"] {
+            manifest.push_str(&format!("[[burst]]\nsize = \"{size}\"\n"));
+        }
         std::fs::write(dir.join("scene.toml"), manifest).unwrap();
         let scene = pipeline.scene_build_dir(&dir).run().unwrap();
         pipeline.install(scene).unwrap();
