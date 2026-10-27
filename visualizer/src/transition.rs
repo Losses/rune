@@ -488,8 +488,8 @@ pub const OVERLAY_GLITCH_MOST: f32 = 0.1;
 /// `transition.wgsl`), at the peak of its course with the music at full intensity.
 pub const OVERLAY_MOSAIC_MOST: f32 = 1.0;
 
-/// What the pass draws in one frame of an overlay: all of it moves continuously in its time in
-/// beats (see `transition.wgsl`), nothing in steps.
+/// What the pass draws in one frame of an overlay: all of it moves on its eased beat time (see
+/// `crate::course::Course::motion`), with a push on every beat, and takes the beat's accent.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OverlayFrame {
     pub kind: Overlay,
@@ -497,9 +497,10 @@ pub struct OverlayFrame {
     pub seed: u32,
     /// How much: its course's amount (with the music) times the most of the kind.
     pub amount: f32,
-    /// Its time in beats (see `crate::course::Course::time`): what its pieces and blocks live
-    /// by.
+    /// Its eased beat time: what its pieces and blocks live by.
     pub beats: f32,
+    /// The accent of the last beat, 0 to 1 (see `crate::course::Course::accent`).
+    pub accent: f32,
     /// Whether the scene keeps its frames under it, for a cut to be dressed (see
     /// [`Plan::needs_held`]).
     pub keep: bool,
@@ -561,7 +562,8 @@ impl OverlayRun {
             kind: self.kind,
             seed: seed_of(self.start),
             amount: self.course.amount() * most,
-            beats: self.course.time(),
+            beats: self.course.motion(),
+            accent: self.course.accent(),
             keep: false,
         })
     }
@@ -1054,15 +1056,16 @@ impl Transitions {
             Plan::Overlay(frame) => {
                 let theme = accent.unwrap_or(FALLBACK_ACCENT).map(encode_srgb);
                 match frame.kind {
-                    // Thin rows of the live picture, half see-through, that come and go.
+                    // Thin rows of the live picture, half see-through, that come and go; the
+                    // accent of the beat in the progress.
                     Overlay::Glitch => {
                         params.extra = [frame.amount, frame.beats, 1.0, 1.0];
-                        (KIND_GLITCH, 0.0, frame.seed, theme)
+                        (KIND_GLITCH, frame.accent, frame.seed, theme)
                     }
-                    // Blocks of classic mosaic that come and go.
+                    // Blocks of classic mosaic that come and go, the same way.
                     Overlay::Mosaic => {
                         params.extra = [1.0, frame.amount, frame.beats, 0.0];
-                        (KIND_MOSAIC, 0.0, frame.seed, theme)
+                        (KIND_MOSAIC, frame.accent, frame.seed, theme)
                     }
                 }
             }
@@ -1661,17 +1664,24 @@ mod tests {
         }
     }
 
-    /// An overlay moves continuously: its time runs a beat to 30 frames at 120 bpm, never
-    /// jumping, its amount changes a little from one frame to the next, and its pattern is the
-    /// run's from start to end.
+    /// An overlay moves continuously: its eased beat time never falls nor moves faster than the
+    /// ease's peak allows, a beat in 30 frames at 120 bpm; its amount changes a little from one
+    /// frame to the next, and its pattern is the run's from start to end.
     #[test]
     fn an_overlay_moves_continuously() {
         for kind in [Overlay::Glitch, Overlay::Mosaic] {
             let frames = overlay_frames(kind, 1.0);
             assert!(frames.iter().all(|f| f.seed == frames[0].seed));
+            let k = crate::course::PUSH_SHARPNESS;
+            let peak_speed = k / (1.0 - (-k).exp());
+            assert!(
+                (frames[240].beats - 8.0).abs() < 0.01,
+                "{}",
+                frames[240].beats
+            );
             for w in frames.windows(2) {
                 let step = w[1].beats - w[0].beats;
-                assert!((step - 1.0 / 30.0).abs() < 1e-4, "{step}");
+                assert!((0.0..=peak_speed / 30.0 + 1e-4).contains(&step), "{step}");
                 let most = match kind {
                     Overlay::Glitch => OVERLAY_GLITCH_MOST,
                     Overlay::Mosaic => OVERLAY_MOSAIC_MOST,

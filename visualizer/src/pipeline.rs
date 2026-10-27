@@ -3133,7 +3133,10 @@ mod probe {
         const PHRASE: &[u32] = &[0, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400];
         // Around the peak, a half-beat (15 frames) apart: a mosaic's blocks live on.
         const STEPS: &[u32] = &[120, 135, 150, 165, 180, 195, 210];
-        let looks: [(&str, Start, &[u32]); 9] = [
+        // Around a beat near the peak (frame 330, 11 beats in): the frame before it, then 0, 2, 5,
+        // 10 and 25 frames after, the push and the settle.
+        const PUSH: &[u32] = &[229, 230, 232, 235, 240, 255];
+        let looks: [(&str, Start, &[u32]); 11] = [
             ("none", |_| {}, &[0]),
             ("flare", Pipeline::start_flare, PHRASE),
             ("leak", Pipeline::start_leak, PHRASE),
@@ -3151,6 +3154,16 @@ mod probe {
                 "glitch-overlay",
                 |pipeline| pipeline.start_overlay(Overlay::Glitch),
                 PHRASE,
+            ),
+            (
+                "mosaic-push",
+                |pipeline| pipeline.start_overlay(Overlay::Mosaic),
+                PUSH,
+            ),
+            (
+                "glitch-push",
+                |pipeline| pipeline.start_overlay(Overlay::Glitch),
+                PUSH,
             ),
             // A beat up (30 frames) and two down.
             (
@@ -3300,22 +3313,31 @@ mod probe {
         }
     }
 
-    /// How much a mosaic over the picture shows: scene `PROBE` (default Neon Street) drawn with
-    /// and without one started at frame 100, over its phrase; for frames a half-beat apart, the
-    /// share of the pixels it changes by more than 3 of 255, the largest change, and the share of
-    /// the changed pixels that were changed a half-beat before too (its blocks live on). With
+    /// How much a glitch or a mosaic over the picture (`PROBE_OVERLAY`, default mosaic) shows:
+    /// scene `PROBE` (default Neon Street) drawn with and without one started at frame 100; for
+    /// the frames `PROBE_LAYER_FRAMES` after its start (default a half-beat apart over its
+    /// phrase), the share of the pixels it changes by more than 3 of 255, the largest change, and
+    /// the share of the changed pixels that were changed in the frame looked at before too. With
     /// `PROBE_OUT`, the layer (the difference, four times as strong) of each as
-    /// `mosaic-layer-<frames since its start>.png`.
+    /// `<overlay>-layer-<frames since its start>.png`.
     #[test]
     #[ignore = "a probe, run by hand"]
-    fn probe_mosaic_layer() {
+    fn probe_overlay_layer() {
         let mut pipeline = pipeline();
         pipeline.set_accent(Some(argb_to_linear(0xffe8602c)));
         let size = pipeline.size();
         let out = out_dir();
         let scene = env_or("PROBE", "Neon Street");
+        let (name, kind) = match env_or("PROBE_OVERLAY", "mosaic").as_str() {
+            "glitch" => ("glitch", Overlay::Glitch),
+            _ => ("mosaic", Overlay::Mosaic),
+        };
         const AT: u32 = 100;
-        let keep: Vec<u32> = (0..26).map(|k| AT + 15 * k).collect();
+        let half_beats: Vec<String> = (0..26).map(|k| (15 * k).to_string()).collect();
+        let keep: Vec<u32> = env_or("PROBE_LAYER_FRAMES", &half_beats.join(","))
+            .split(',')
+            .map(|n| AT + n.trim().parse::<u32>().expect("a frame number"))
+            .collect();
         let last = *keep.last().unwrap();
         let mut runs = [Vec::new(), Vec::new()];
         for (k, frames) in runs.iter_mut().enumerate() {
@@ -3326,7 +3348,7 @@ mod probe {
                 &keep,
                 |pipeline, i| {
                     if k == 1 && i == AT {
-                        pipeline.start_overlay(Overlay::Mosaic);
+                        pipeline.start_overlay(kind);
                     }
                 },
                 |_, _, pixels| frames.extend(pixels),
@@ -3350,7 +3372,7 @@ mod probe {
                         [v, v, v, 255]
                     })
                     .collect();
-                let file = format!("mosaic-layer-{:03}.png", keep[n] - AT);
+                let file = format!("{name}-layer-{:03}.png", keep[n] - AT);
                 save_png(&out.join(file), layer, size);
             }
             let count = changed.iter().filter(|&&c| c).count();
@@ -3364,7 +3386,7 @@ mod probe {
                 both as f64 / count.max(1) as f64
             });
             eprintln!(
-                "PROBE frame +{:3}: changed {:.2} %, most {most}, kept from a half-beat before {:.0} %",
+                "PROBE frame +{:3}: changed {:.2} %, most {most}, kept from the frame before {:.0} %",
                 keep[n] - AT,
                 count as f64 / changed.len() as f64 * 100.0,
                 kept * 100.0

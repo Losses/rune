@@ -41,8 +41,9 @@ struct Transition {
   // split (of the distance from the centre) and the flash towards `color`.
   // A glitch: the share of pieces that break, the share that show the new picture, 1 for the
   // subtle one over the picture; over the picture as a lens effect: its amount, its time in
-  // beats, 1, and 1 (see `glitch_flow`). A mosaic: 0 for a switch (its course is the progress);
-  // over the picture 1, its amount and its time in beats (see `mosaic_blocks`). A flash's rise:
+  // beats, 1, and 1 (see `glitch_flow`; the beat's accent is in the progress). A mosaic: 0 for a
+  // switch (its course is the progress); over the picture 1, its amount and its eased beat time
+  // (see `mosaic_blocks`; the beat's accent is in the progress). A flash's rise:
   // the theme colour at its brightest (display values) and the share of the rise that is the
   // wash.
   extra: vec4f,
@@ -294,14 +295,22 @@ fn noise1(x: f32, salt: u32) -> f32 {
   return mix(a, b, f * f * (3.0 - 2.0 * f));
 }
 
-// The glitch as a lens effect over the live picture `tex`, moving continuously in `t` beats
-// (nothing in steps): thin rows, a 60th of the height, cut into pieces; a piece is broken for a
-// while of its own (it fades in over half a beat, stays half a beat to a beat and a half, fades
-// out over one, then rests 2 to 6); three times `amount` of the lives count, so that about
-// `amount` of the pieces are broken at once; a broken piece is the
-// picture shifted along its row by an offset that drifts smoothly, smeared back, with fine lines
-// across it, half see-through over the picture.
-fn glitch_flow(tex: texture_2d<f32>, at: vec2i, seed: u32, amount: f32, t: f32) -> vec3f {
+// The glitch as a lens effect over the live picture `tex`, moving on the eased beat time `t`
+// (continuous, with a push on every beat): thin rows, a 60th of the height, cut into pieces; a
+// piece is broken for a while of its own (it fades in over half a beat, stays half a beat to a
+// beat and a half, fades out over one, then rests 2 to 6); three times `amount` of the lives
+// count, so that about `amount` of the pieces are broken at once. A broken piece is the picture
+// shifted along its row by an offset that drifts smoothly and jumps out with the beat's `accent`
+// (0 to 1), drifting back as it settles; smeared back, with fine lines across it, half
+// see-through over the picture.
+fn glitch_flow(
+  tex: texture_2d<f32>,
+  at: vec2i,
+  seed: u32,
+  amount: f32,
+  t: f32,
+  accent: f32,
+) -> vec3f {
   let size = vec2f(textureDimensions(tex));
   let uv = (vec2f(at) + 0.5) / size;
   let here = load(tex, at).rgb;
@@ -323,7 +332,8 @@ fn glitch_flow(tex: texture_2d<f32>, at: vec2i, seed: u32, amount: f32, t: f32) 
   if broken <= 0.0 {
     return here;
   }
-  let shift = (noise1(t * 0.7, id) - 0.5) * 0.16;
+  let out = select(-1.0, 1.0, (id & 0x100u) == 0u);
+  let shift = (noise1(t * 0.7, id) - 0.5) * 0.16 + out * accent * 0.06;
   var rgb = vec3f(0.0);
   for (var j = 0u; j < 4u; j += 1u) {
     rgb += load_uv(tex, vec2f(uv.x - shift * (1.0 + f32(j) * 0.08), uv.y)).rgb;
@@ -381,8 +391,17 @@ fn block_life(id: u32, t: f32, density: f32) -> f32 {
 }
 
 // Blocks of classic mosaic over the picture `tex` at `at`, `density` of their lives counting at
-// `t` beats: in a block, the picture in cells, mixed in by its life.
-fn mosaic_blocks(tex: texture_2d<f32>, at: vec2i, seed: u32, density: f32, t: f32) -> vec3f {
+// the eased beat time `t`: in a block, the picture in cells, mixed in by its life. With the
+// beat's `accent` (0 to 1) the blocks are pushed: their cells coarsen by up to half and they take
+// a little more of the picture, then ease back over the beat; never brighter.
+fn mosaic_blocks(
+  tex: texture_2d<f32>,
+  at: vec2i,
+  seed: u32,
+  density: f32,
+  t: f32,
+  accent: f32,
+) -> vec3f {
   let here = load(tex, at).rgb;
   let size = vec2f(textureDimensions(tex));
   let cell = max(round(size.y * MOSAIC_CELL), 4.0);
@@ -404,7 +423,9 @@ fn mosaic_blocks(tex: texture_2d<f32>, at: vec2i, seed: u32, density: f32, t: f3
   if life <= 0.0 {
     return here;
   }
-  return mix(here, pixelated(tex, at, cell, origin - shift), life * MOSAIC_MIX);
+  let coarse = round(cell * (1.0 + 0.5 * accent));
+  let taken = min(life * MOSAIC_MIX * (1.0 + 0.15 * accent), 0.95);
+  return mix(here, pixelated(tex, at, coarse, origin - shift), taken);
 }
 
 // A mosaic switch at `progress`: blocks of the old picture go to cells, more and more; from a
@@ -432,7 +453,8 @@ fn mosaic_switch(
   }
   // The blocks live by the progress as if it were four beats, so they come in, one after
   // another.
-  let blocks = mosaic_blocks(before, at, seed, smoothstep(0.0, 0.4, progress), progress * 4.0);
+  let density = smoothstep(0.0, 0.4, progress);
+  let blocks = mosaic_blocks(before, at, seed, density, progress * 4.0, 0.0);
   return mix(blocks, pixelated(before, at, cell, size * 0.5), whole);
 }
 
@@ -496,7 +518,8 @@ fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
       let e = transition.extra;
       if e.w > 0.5 {
         // Over the live picture, as a lens effect, moving continuously.
-        return vec4f(glitch_flow(fresh, at, transition.seed, e.x, e.y), frame_now.a);
+        let rgb = glitch_flow(fresh, at, transition.seed, e.x, e.y, transition.progress);
+        return vec4f(rgb, frame_now.a);
       }
       let subtle = e.z > 0.5;
       let rgb = glitch(held, fresh, at, transition.seed, e.x, e.y, subtle, transition.color.rgb);
@@ -506,7 +529,8 @@ fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
       let e = transition.extra;
       if e.x > 0.5 {
         // Over the live picture, as a lens effect.
-        return vec4f(mosaic_blocks(fresh, at, transition.seed, e.y, e.z), frame_now.a);
+        let rgb = mosaic_blocks(fresh, at, transition.seed, e.y, e.z, transition.progress);
+        return vec4f(rgb, frame_now.a);
       }
       let rgb = mosaic_switch(held, fresh, at, transition.seed, transition.progress);
       return vec4f(rgb, frame_now.a);
