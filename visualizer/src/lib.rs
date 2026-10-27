@@ -917,7 +917,10 @@ fn run(
         // A scene built ahead is held until the switch; one that failed to build shows its error
         // now and the wait starts again.
         if let Some(loaded) = auto.loads.take() {
-            if loaded.scene.is_ok() {
+            if let Ok(scene) = &loaded.scene {
+                // The scene coming decides how the switch to it looks.
+                auto.decider
+                    .allow(switching::Allowed::of(scene.switch_transitions()));
                 auto.held = Some(loaded);
             } else {
                 install(shared, &mut pipeline, &mut watched, loaded);

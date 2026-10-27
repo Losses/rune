@@ -5,7 +5,7 @@
 //! values ([`MusicValues`]) and the time step, so it can be tested without a scene or a GPU.
 
 use super::inputs::MusicValues;
-use super::manifest::{Camera, Manifest, Shot, ShotMove, ShotSize};
+use super::manifest::{Camera, Manifest, Pace, Shot, ShotMove, ShotSize};
 use crate::switching::{FOLLOWED, SECTION_CUE};
 
 /// A section whose energy is below this is quiet.
@@ -36,7 +36,8 @@ pub const FILL_LIFT: f32 = 0.1;
 /// The length of a phrase in a high section, in bars from the section's start.
 pub const PHRASE_BARS: u32 = 8;
 /// Whether the end of every phrase of a high section gets a burst of cuts. Off: fewer cuts are
-/// wanted, and the burst before an energy lift (as in the reference) stays.
+/// wanted, and the burst before an energy lift (as in the reference) stays. A scene of `pace =
+/// "busy"` has them all the same.
 pub const PHRASE_BURSTS: bool = false;
 /// The share of the dutch angle a shot with seed 0 gets; the seed scales the rest.
 pub const ROLL_LEAST: f32 = 0.5;
@@ -302,7 +303,7 @@ impl Director {
             beat_in_bar: None,
             last_fill: 0,
             phrase_start: None,
-            phrase_bursts: PHRASE_BURSTS,
+            phrase_bursts: PHRASE_BURSTS || camera.pace == Pace::Busy,
             held: false,
         };
         let index = director.pick(ShotSize::Wide, 0.0, 0, None);
@@ -405,30 +406,46 @@ impl Director {
         }
         // The cadence of the section.
         let due = if followed {
-            music.bars > 0 && self.bars_since_cut >= self.bars(tier)
+            self.bars(tier)
+                .is_some_and(|bars| music.bars > 0 && self.bars_since_cut >= bars)
         } else {
-            let wait = self.seconds(tier, music);
-            self.seconds_since_cut >= wait
-                && (music.hits > 0 || self.seconds_since_cut >= wait + HIT_GRACE_SECONDS)
+            self.seconds(tier, music).is_some_and(|wait| {
+                self.seconds_since_cut >= wait
+                    && (music.hits > 0 || self.seconds_since_cut >= wait + HIT_GRACE_SECONDS)
+            })
         };
         due.then(|| self.cut(tier.size(self.in_section), music, tier, 0))
     }
 
-    /// Bars between two cuts with a followed beat: the section's, but at least the scene's `hold`.
-    fn bars(&self, tier: Tier) -> u32 {
-        tier.bars().max(self.camera.hold)
+    /// Bars between two cuts with a followed beat: the section's at the scene's pace, but at
+    /// least the scene's `hold`. None for a scene that cuts only at a section's start.
+    fn bars(&self, tier: Tier) -> Option<u32> {
+        let bars = match self.camera.pace {
+            Pace::Sections => return None,
+            Pace::Calm => tier.bars() * 2,
+            Pace::Normal => tier.bars(),
+            Pace::Busy => (tier.bars() / 2).max(1),
+        };
+        Some(bars.max(self.camera.hold))
     }
 
-    /// Seconds between two cuts without a followed beat: the section's, but at least the scene's
-    /// `hold` in bars at the music's tempo (4 beats to a bar when the meter is unknown).
-    fn seconds(&self, tier: Tier, music: &MusicValues) -> f32 {
+    /// Seconds between two cuts without a followed beat: the section's at the scene's pace, but
+    /// at least the scene's `hold` in bars at the music's tempo (4 beats to a bar when the meter
+    /// is unknown). None for a scene that cuts only at a section's start.
+    fn seconds(&self, tier: Tier, music: &MusicValues) -> Option<f32> {
+        let seconds = match self.camera.pace {
+            Pace::Sections => return None,
+            Pace::Calm => tier.seconds() * 2.0,
+            Pace::Normal => tier.seconds(),
+            Pace::Busy => tier.seconds() / 2.0,
+        };
         let meter = if music.meter > 0.0 { music.meter } else { 4.0 };
         let held = if music.tempo > 0.0 {
             self.camera.hold as f32 * meter * 60.0 / music.tempo
         } else {
             0.0
         };
-        tier.seconds().max(held)
+        Some(seconds.max(held))
     }
 
     /// Whether this frame is a beat in the last [`FILL_BEATS`] before a place worth a burst, and
@@ -499,9 +516,11 @@ impl Director {
             seed,
             age: 0.0,
             length: match (music.locked > FOLLOWED, fill) {
-                (true, 0) => (self.bars(tier) as f32 * music.meter * beat).max(0.0),
+                (true, 0) => self
+                    .bars(tier)
+                    .map_or(-1.0, |bars| (bars as f32 * music.meter * beat).max(0.0)),
                 (true, _) => beat,
-                (false, _) => self.seconds(tier, music),
+                (false, _) => self.seconds(tier, music).unwrap_or(-1.0),
             },
             fill,
         };
@@ -574,6 +593,7 @@ mod tests {
             dutch,
             fill,
             hold: 0,
+            pace: Pace::Normal,
         }
     }
 
@@ -676,11 +696,63 @@ mod tests {
 
     /// The number of cuts in 16 bars after the first cut of a section of this energy.
     fn cuts_in_16_bars(energy: f32) -> usize {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        paced_cuts_in_16_bars(Pace::Normal, energy)
+    }
+
+    fn paced_cuts_in_16_bars(pace: Pace, energy: f32) -> usize {
+        let camera = Camera {
+            pace,
+            ..camera(0.0, false)
+        };
+        let mut director = Director::new(camera, &each_size());
         let base = song(energy);
         // Beat 1 starts the section (not on a downbeat); the bars count from beat 4.
         beats(&mut director, 1, 1, &base, |_, m| start(0.0, m));
         beats(&mut director, 2, 64, &base, plain).len()
+    }
+
+    #[test]
+    fn the_scene_pace_scales_the_bars_between_cuts() {
+        use Pace::*;
+        let counts = |energy| [Calm, Normal, Busy].map(|pace| paced_cuts_in_16_bars(pace, energy));
+        assert_eq!(counts(0.2), [1, 2, 4]);
+        assert_eq!(counts(0.5), [2, 4, 8]);
+        assert_eq!(counts(0.8), [4, 8, 16]);
+        // Only at a section's start: none within it, whatever the energy.
+        assert_eq!(paced_cuts_in_16_bars(Sections, 0.9), 0);
+    }
+
+    #[test]
+    fn a_scene_of_sections_cuts_at_the_next_section_and_without_a_beat_never_on_time() {
+        let camera = Camera {
+            pace: Pace::Sections,
+            ..camera(0.0, false)
+        };
+        let mut director = Director::new(camera, &each_size());
+        let base = song(0.5);
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        assert_eq!(director.state().length, -1.0);
+        assert!(beats(&mut director, 1, 40, &base, plain).is_empty());
+        let next = beats(&mut director, 41, 1, &base, |_, m| start(1.0, m));
+        assert_eq!(next.len(), 1);
+        let unfollowed = MusicValues {
+            locked: 0.0,
+            hits: 1,
+            ..base
+        };
+        for _ in 0..600 {
+            assert!(director.tick(0.1, &unfollowed).is_none());
+        }
+    }
+
+    #[test]
+    fn a_busy_scene_bursts_at_the_end_of_a_phrase() {
+        let busy = Camera {
+            pace: Pace::Busy,
+            ..camera(0.3, true)
+        };
+        assert!(Director::new(busy, &each_size()).phrase_bursts);
+        assert!(!Director::new(camera(0.3, true), &each_size()).phrase_bursts);
     }
 
     #[test]
@@ -1188,7 +1260,6 @@ mod tests {
 
     #[test]
     fn no_phrase_burst_by_default() {
-        assert!(!PHRASE_BURSTS);
         let mut director = Director::new(camera(0.3, true), &each_size());
         let base = song(0.9);
         let mut all = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));

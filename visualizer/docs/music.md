@@ -283,6 +283,7 @@ A scene that has more than one way to look at its subject declares them as shots
 dutch = 0.35   # the largest dutch angle (roll) in radians; 0 means this scene never tilts
 fill = true    # allows the burst of cuts before a section ends (before a lift)
 hold = 4       # the shortest shot in bars (default 0): a scene that glides sets it to its glide's length
+pace = "normal" # how often the director cuts: sections | calm | normal (default) | busy
 
 [[shot]]
 name = "below"     # for people
@@ -293,6 +294,7 @@ move = "cut"       # cut | glide
 - `size` says how near the shot is. `top` is a view from above, a special shot that is never the nearest to another size.
 - `move = "cut"` means the view jumps to the new shot (the transition layer may dress the jump later). `move = "glide"` means the scene slides there itself, over its own duration in beats. The director's timing is the same for both; it only reports the move.
 - `hold` is the shortest a shot may last, in bars. A scene that glides to a new shot sets it to how long its glide takes, so the shot is reached before the next cut. The cadence below becomes the larger of the section's bars and `hold` (without a followed beat, of the section's seconds and `hold` bars at the tempo, 4 beats to a bar when the meter is unknown). Bursts ignore `hold`: they are hard cuts, so during a burst (`shot.fill > 0`) a scene jumps even to a glide shot.
+- `pace` is how often the director cuts this scene, by what suits its subject (each scene declares its own). `normal` is the cadence below; `calm` cuts half as often; `busy` twice as often, with a burst at the end of every phrase of a high section too; `sections` only at a section's start (and in the burst before a lift), and its shots have no planned `length` (-1). `hold` still applies to all of them.
 - At least one `[[shot]]` is needed if `[camera]` is given. `fill = true` is only used when the scene has a `close` or a `detail` shot.
 - A scene lacking a size gets the nearest one it has.
 
@@ -315,7 +317,7 @@ The director starts on a wide shot before any cut, with `cuts` 0.
 
 ### The rules
 
-**Pace follows the section.** The energy is `section_energy` with a chart and `drive` without. A quiet section (below 0.35) cuts every 8 bars, an ordinary one every 4 bars and a high one (above 0.65) every 2 bars (half of the first cadence, so that cuts are not too frequent). A cut lands on a downbeat (`bars > 0`) while the beat is followed (`locked` above 0.5). Without a followed beat the times are 24 s, 12 s and 6 s, and a cut that is due waits for a hit (`hits > 0`), or happens at once 2 s after it was due.
+**Pace follows the section.** The energy is `section_energy` with a chart and `drive` without. At `pace = "normal"`, a quiet section (below 0.35) cuts every 8 bars, an ordinary one every 4 bars and a high one (above 0.65) every 2 bars (half of the first cadence, so that cuts are not too frequent). A cut lands on a downbeat (`bars > 0`) while the beat is followed (`locked` above 0.5). Without a followed beat the times are 24 s, 12 s and 6 s, and a cut that is due waits for a hit (`hits > 0`), or happens at once 2 s after it was due.
 
 **Size follows the place in the section.** A section start (`cues > 0` with `cue` of 0.5 or more) cuts to a wide shot, which establishes the section. Each later cut steps one size closer: medium, close, detail, and then again from medium. In a high section the steps stop at close, and the cuts alternate between detail, medium and close from there. A quiet section alternates wide and medium. A section start always begins the progression again.
 
@@ -387,10 +389,21 @@ The runtime puts them in the built-in post-processing and adds the matching fiel
 
 One transition layer serves both the switch from one scene to the next and a camera cut inside a scene.
 
-- **Two entrances.** A scene switch is started by the runtime. A camera cut is started by the scene: it writes `post.cut = 1` in `update()` to say "my view jumped in this frame". Both use the same library of effects (a fade, a hard cut on the downbeat, a whip, a glitch cut, a light-leak cut). Which ones exist and which is the default is decided by the work on transitions.
+- **Two entrances.** A scene switch is started by the runtime. A camera cut comes from the director (see "Shots and the director"), which the runtime knows of (`Scene::cut_this_frame`). Both use the same library of effects. Today the runtime draws a cut, a fade and a dissolve for a switch; a cut of the director is a plain cut.
 - **The runtime** keeps the old picture when a transition starts (a history frame; the old scene is no longer drawn during the switch), combines the old and new pictures according to the effect, and converts the duration to beats with `tempo`.
 - **Timing** reads the semantic signals (`src/switching.rs`). A scene switch waits for a section start where the music changes (using `cue_in` to start the fade early and land on it) instead of a random timer, and goes at the next beat or hit after a longest wait of 90 s. A scene decides its own camera cuts from `cues`.
-- **A scene may state a preference** in a `[transition]` table of `scene.toml`: which transitions suit it and the strongest it accepts.
+- **A scene says which effects suit it** in an `[effects]` table of `scene.toml` (implemented). It says what may be used; the runtime decides when, from the music:
+
+  ```toml
+  [effects]
+  switch = ["fade", "dissolve", "cutin"]   # transitions a switch to this scene may take
+  cut = ["flash", "glitch"]                # transitions that may dress a cut of the director
+  lens = ["flare", "leak"]                 # lens effects
+  ```
+
+  - The scene coming decides how a switch to it looks; the one going has no say. Of a lift, a plain change and a drop, a drop dissolves and the others fade; a scene that takes only one of the two gets that one, then `cut`, and a fade when it names none the runtime draws yet.
+  - Without the table, or a list of it: `switch` is a fade or a dissolve, `cut` and `lens` are empty (a cut is a plain cut, no lens effects). MilkDrop presets have no table and get the same.
+  - The names are the runtime's: transitions `cut`, `fade`, `dissolve`, and to come `cutin`, `flash`, `glitch`, `mosaic`; lens effects to come `flare`, `leak`, `blocks`, `blur`. A name the runtime does not know is left out with a warning, so a scene written for a newer runtime still loads.
 - **Taste.** Transitions are calm by default. Violent ones (a glitch cut, a flash cut) hang only on the strongest cues. There is no "transition on every beat".
 - Glitch and light leaks can be a filter triggered on a cue and a transition. They share one shader.
 

@@ -76,6 +76,9 @@ pub struct Manifest {
     /// The camera setups the scene can be shown from. Without any, the scene has no director.
     #[serde(default, rename = "shot")]
     pub shots: Vec<Shot>,
+    /// The transitions and lens effects the scene takes (see [`Effects`]).
+    #[serde(default)]
+    pub effects: Effects,
 }
 
 /// The `[camera]` table: what the director may do with the scene's shots.
@@ -89,6 +92,76 @@ pub struct Camera {
     /// The shortest shot in bars (0 for no minimum): a scene that glides to a new shot sets it
     /// to how long its glide takes, so the shot is reached before the next cut. Bursts ignore it.
     pub hold: u32,
+    /// How often the director cuts the scene: what suits its subject.
+    pub pace: Pace,
+}
+
+/// How often the director cuts a scene, against the section's energy (see `director`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Pace {
+    /// Only at a section's start (and in the burst before a lift).
+    Sections,
+    /// Half as often as `normal`.
+    Calm,
+    #[default]
+    Normal,
+    /// Twice as often as `normal`, with a burst at the end of every phrase of a high section.
+    Busy,
+}
+
+/// The transitions that are known by name: `cut` and those the runtime draws (see
+/// `crate::transition`), and those still to come, which a scene may already list.
+pub const TRANSITIONS: &[&str] = &[
+    "cut", "fade", "dissolve", "cutin", "flash", "glitch", "mosaic",
+];
+/// The lens effects that are known by name, all still to come.
+pub const LENS_EFFECTS: &[&str] = &["flare", "leak", "blocks", "blur"];
+
+/// The `[effects]` table: what the runtime may dress the scene with. The scene says what suits
+/// it; the runtime chooses when, from the music. A scene without the table gets the plain ones.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Effects {
+    /// The transitions a switch to this scene may take (the scene coming decides, not the one
+    /// going). Default: a fade or a dissolve.
+    pub switch: Vec<String>,
+    /// The transitions that may dress a cut of the director within the scene. Default: none,
+    /// a cut is a plain cut.
+    pub cut: Vec<String>,
+    /// The lens effects the scene takes. Default: none.
+    pub lens: Vec<String>,
+}
+
+impl Default for Effects {
+    fn default() -> Self {
+        Self {
+            switch: vec!["fade".into(), "dissolve".into()],
+            cut: Vec::new(),
+            lens: Vec::new(),
+        }
+    }
+}
+
+impl Effects {
+    /// The names the runtime does not know, as `list = name` (an older runtime than the scene's
+    /// author used, or a typo): they are left out with a warning, not refused.
+    pub fn unknown(&self) -> Vec<String> {
+        let lists = [
+            ("switch", &self.switch, TRANSITIONS),
+            ("cut", &self.cut, TRANSITIONS),
+            ("lens", &self.lens, LENS_EFFECTS),
+        ];
+        lists
+            .into_iter()
+            .flat_map(|(list, names, known)| {
+                names
+                    .iter()
+                    .filter(|name| !known.contains(&name.as_str()))
+                    .map(move |name| format!("effects.{list} = {name:?}"))
+            })
+            .collect()
+    }
 }
 
 /// How near a shot looks at its subject. The order is the order of the numbers `struct Shot`
@@ -489,6 +562,9 @@ impl Manifest {
             self.camera == Camera::default() || !self.shots.is_empty(),
             "[camera] needs at least one [[shot]]"
         );
+        for unknown in self.effects.unknown() {
+            log::warn!("{unknown} is not an effect this runtime knows; it is left out");
+        }
         Ok(())
     }
 
@@ -651,6 +727,7 @@ tonemap = "aces"
 dutch = 0.35
 fill = true
 hold = 4
+pace = "calm"
 
 [[shot]]
 name = "below"
@@ -673,6 +750,8 @@ move = "glide"
         assert_eq!(m.camera.dutch, 0.35);
         assert!(m.camera.fill);
         assert_eq!(m.camera.hold, 4);
+        assert_eq!(m.camera.pace, Pace::Calm);
+        assert_eq!(plain.camera.pace, Pace::Normal);
         assert_eq!(m.shots.len(), 2);
         assert_eq!(m.shots[0].name, "below");
         assert_eq!(m.shots[0].size, ShotSize::Medium);
@@ -702,5 +781,29 @@ move = "glide"
         let none = format!("{SMALL}\n[camera]\nfill = true\n");
         let none = format!("{:#}", Manifest::parse(&none).unwrap_err());
         assert!(none.contains("at least one [[shot]]"), "{none}");
+        let pace = with("pace = \"calm\"", "pace = \"frantic\"");
+        assert!(pace.contains("frantic") && pace.contains("sections"), "{pace}");
+    }
+
+    #[test]
+    fn effects_default_to_the_plain_ones_and_unknown_names_are_only_named() {
+        let plain = Manifest::parse(SMALL).unwrap();
+        assert_eq!(plain.effects.switch, ["fade", "dissolve"]);
+        assert!(plain.effects.cut.is_empty() && plain.effects.lens.is_empty());
+        assert!(plain.effects.unknown().is_empty());
+
+        // A list left out keeps its default.
+        let some = format!("{SMALL}\n[effects]\ncut = [\"flash\", \"sparkle\"]\n");
+        let m = Manifest::parse(&some).unwrap();
+        assert_eq!(m.effects.switch, ["fade", "dissolve"]);
+        assert_eq!(m.effects.cut, ["flash", "sparkle"]);
+        assert_eq!(m.effects.unknown(), ["effects.cut = \"sparkle\""]);
+
+        let all = format!(
+            "{SMALL}\n[effects]\nswitch = [\"cutin\", \"cut\"]\nlens = [\"flare\", \"fog\"]\n"
+        );
+        let m = Manifest::parse(&all).unwrap();
+        assert_eq!(m.effects.switch, ["cutin", "cut"]);
+        assert_eq!(m.effects.unknown(), ["effects.lens = \"fog\""]);
     }
 }

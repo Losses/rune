@@ -119,6 +119,46 @@ pub struct SceneSwitch {
     before: Option<Section>,
     /// The number of the current section, to see a section that repeats the last.
     index: f32,
+    /// The transitions the scene held for the switch takes (see [`Self::allow`]).
+    allowed: Allowed,
+}
+
+/// The transitions a switch may take: those of the scene coming that the runtime draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Allowed {
+    pub cut: bool,
+    pub fade: bool,
+    pub dissolve: bool,
+}
+
+impl Default for Allowed {
+    /// A scene that says nothing: a fade or a dissolve.
+    fn default() -> Self {
+        Self {
+            cut: false,
+            fade: true,
+            dissolve: true,
+        }
+    }
+}
+
+impl Allowed {
+    /// Every transition, for a switch somebody asks for.
+    const ALL: Self = Self {
+        cut: true,
+        fade: true,
+        dissolve: true,
+    };
+
+    /// Of the transitions in `names` (a scene's `effects.switch`), those the runtime draws.
+    pub fn of(names: &[String]) -> Self {
+        let has = |name: &str| names.iter().any(|n| n == name);
+        Self {
+            cut: has("cut"),
+            fade: has("fade"),
+            dissolve: has("dissolve"),
+        }
+    }
 }
 
 impl SceneSwitch {
@@ -132,6 +172,12 @@ impl SceneSwitch {
     /// the first frame of it was seen.
     pub fn seconds(&self, now: f64) -> Option<f64> {
         self.since.map(|since| now - since)
+    }
+
+    /// The scene built for the switch takes these transitions; until another is built, the
+    /// switch picks among them.
+    pub fn allow(&mut self, allowed: Allowed) {
+        self.allowed = allowed;
     }
 
     /// The build [`Decision::Prepare`] asked for is running.
@@ -167,7 +213,7 @@ impl SceneSwitch {
         match change {
             Some(change) => {
                 self.restart();
-                let (transition, durations) = choose(change, music);
+                let (transition, durations) = choose(change, music, self.allowed);
                 Decision::Switch {
                     transition,
                     durations,
@@ -238,7 +284,7 @@ impl SceneSwitch {
         }
         let at = elapsed + f64::from(music.cue_in);
         let place = at >= MIN_SECONDS && (next.differs_from(Some(current)) || at >= RELAX_SECONDS);
-        let (_, durations) = choose(change, music);
+        let (_, durations) = choose(change, music, self.allowed);
         (place && f64::from(music.cue_in) <= durations.out).then_some(change)
     }
 }
@@ -255,19 +301,45 @@ fn beat_seconds(music: &MusicValues) -> Option<f64> {
     (music.locked > FOLLOWED && music.tempo > 0.0).then(|| 60.0 / f64::from(music.tempo))
 }
 
-/// The transition for a change. This is the one place that picks it: a lift will get a strong
-/// transition here once there are some, for now it fades like any other change.
-fn choose(change: Change, music: &MusicValues) -> (Transition, Durations) {
+/// The transition for a change, among those `allowed`. This is the one place that picks it: a
+/// lift will get a strong transition here once there are some, for now it fades like any other
+/// change. A drop dissolves. A scene that takes neither of those gets the other one, then a cut,
+/// and a fade when it names none the runtime draws yet.
+fn choose(change: Change, music: &MusicValues, allowed: Allowed) -> (Transition, Durations) {
     let beat = beat_seconds(music);
-    match change {
-        Change::Drop => (
+    let want = match change {
+        Change::Drop => Transition::Dissolve,
+        Change::Lift | Change::Plain => Transition::Fade,
+    };
+    let other = match want {
+        Transition::Dissolve => Transition::Fade,
+        _ => Transition::Dissolve,
+    };
+    let takes = |kind| match kind {
+        Transition::Cut => allowed.cut,
+        Transition::Fade => allowed.fade,
+        Transition::Dissolve => allowed.dissolve,
+    };
+    let kind = [want, other, Transition::Cut]
+        .into_iter()
+        .find(|&kind| takes(kind))
+        .unwrap_or(Transition::Fade);
+    match kind {
+        Transition::Cut => (
+            Transition::Cut,
+            Durations {
+                out: 0.0,
+                into: 0.0,
+            },
+        ),
+        Transition::Dissolve => (
             Transition::Dissolve,
             Durations {
                 out: 0.0,
                 into: beat.map_or(UNFOLLOWED_DISSOLVE_SECONDS, |beat| beat * DISSOLVE_BEATS),
             },
         ),
-        Change::Lift | Change::Plain => {
+        Transition::Fade => {
             let seconds = beat.map_or(UNFOLLOWED_FADE_SECONDS, |beat| beat * FADE_BEATS);
             (
                 Transition::Fade,
@@ -292,8 +364,8 @@ pub fn requested(transition: Transition, music: &MusicValues) -> (Transition, Du
                 into: 0.0,
             },
         ),
-        Transition::Fade => choose(Change::Plain, music),
-        Transition::Dissolve => choose(Change::Drop, music),
+        Transition::Fade => choose(Change::Plain, music, Allowed::ALL),
+        Transition::Dissolve => choose(Change::Drop, music, Allowed::ALL),
     }
 }
 
@@ -565,6 +637,67 @@ mod tests {
                 },
             }
         );
+    }
+
+    #[test]
+    fn the_scene_coming_picks_among_the_transitions_it_takes() {
+        let only = |cut, fade, dissolve| Allowed {
+            cut,
+            fade,
+            dissolve,
+        };
+        let drop = start(song(1.0, 0.5), 2.0, 2.0, 0.2, 0.5);
+        // A drop dissolves; a scene that takes only fades fades at it.
+        let mut switch = seasoned();
+        switch.allow(only(false, true, false));
+        assert_eq!(switch.tick(40.0, &drop, false, true), fade(0.5));
+        // A plain change fades; a scene that takes only dissolves dissolves at it.
+        let mut switch = seasoned();
+        switch.allow(only(false, false, true));
+        let plain = start(song(1.0, 0.5), 2.0, 3.0, 0.5, 0.5);
+        assert!(matches!(
+            switch.tick(40.0, &plain, false, true),
+            Decision::Switch {
+                transition: Transition::Dissolve,
+                ..
+            }
+        ));
+        // Only a cut: a cut, and nothing starts early for it.
+        let mut switch = seasoned();
+        switch.allow(only(true, false, false));
+        let coming = MusicValues {
+            next_label: 3.0,
+            next_energy: 0.5,
+            cue_in: 0.3,
+            ..song(1.0, 0.5)
+        };
+        assert_eq!(switch.tick(39.7, &coming, false, true), Decision::Wait);
+        let Decision::Switch {
+            transition,
+            durations,
+        } = switch.tick(40.0, &plain, false, true)
+        else {
+            panic!("no switch");
+        };
+        assert!(transition == Transition::Cut && durations.is_instant(transition));
+        // None the runtime draws (a scene of later effects only): a fade.
+        let mut switch = seasoned();
+        switch.allow(Allowed::of(&["cutin".to_string()]));
+        assert_eq!(switch.tick(40.0, &drop, false, true), fade(0.5));
+    }
+
+    #[test]
+    fn allowed_transitions_are_read_from_the_names() {
+        let names = |list: &[&str]| Allowed::of(&list.iter().map(|n| n.to_string()).collect::<Vec<_>>());
+        assert_eq!(
+            names(&["fade", "cutin", "cut"]),
+            Allowed {
+                cut: true,
+                fade: true,
+                dissolve: false
+            }
+        );
+        assert_eq!(names(&["fade", "dissolve"]), Allowed::default());
     }
 
     #[test]

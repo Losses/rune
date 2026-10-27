@@ -433,6 +433,8 @@ pub struct Scene {
     music_values: inputs::MusicValues,
     /// Decides the camera cuts, if the scene declares shots.
     director: Option<Director>,
+    /// The transitions a switch to the scene may take, by name (its `effects.switch`).
+    switch_transitions: Vec<String>,
     /// The cut the director made in the last frame.
     cut: Option<CutInfo>,
     /// The visualizer's time when the scene started, and of the last frame.
@@ -1246,6 +1248,7 @@ impl Scene {
             events: EventCounter::default(),
             music_values: inputs::MusicValues::default(),
             director: Director::for_manifest(manifest),
+            switch_transitions: manifest.effects.switch.clone(),
             cut: None,
             started: None,
             last: None,
@@ -1294,6 +1297,11 @@ impl Scene {
     #[cfg_attr(not(test), allow(dead_code, reason = "for the transition layer"))]
     pub fn cut_this_frame(&self) -> Option<CutInfo> {
         self.cut
+    }
+
+    /// The transitions a switch to this scene may take, by name (its `effects.switch`).
+    pub fn switch_transitions(&self) -> &[String] {
+        &self.switch_transitions
     }
 
     /// What a readout shows of the camera director (none for a scene without shots), with the
