@@ -33,7 +33,14 @@ pub struct Source {
     pub levels: [bool; 3],
     /// One line for the lab.
     pub about: &'static str,
-    read: fn(&MusicValues) -> Reading,
+    read: fn(&MusicValues, &Frame) -> Reading,
+}
+
+/// What a frame has besides the music, for the sources that are not in it.
+#[derive(Clone, Copy, Debug, Default)]
+struct Frame {
+    /// Whether the scene's director cut to another shot in this frame.
+    cut: bool,
 }
 
 impl std::fmt::Debug for Source {
@@ -50,9 +57,15 @@ impl PartialEq for Source {
 }
 
 impl Source {
-    /// What the source says in this frame's music.
+    /// What the source says in this frame's music, in a frame where the scene did not cut (the
+    /// runtime's own bindings have no scene, so `cut` never counts there).
     pub fn read(&self, music: &MusicValues) -> Reading {
-        (self.read)(music)
+        self.read_in(music, false)
+    }
+
+    /// As [`Source::read`], in a frame where the scene's director did (`cut`) or did not cut.
+    pub fn read_in(&self, music: &MusicValues, cut: bool) -> Reading {
+        (self.read)(music, &Frame { cut })
     }
 
     /// Whether the source means something at `level`.
@@ -69,7 +82,7 @@ const fn level_source(
     name: &'static str,
     levels: [bool; 3],
     about: &'static str,
-    read: fn(&MusicValues) -> Reading,
+    read: fn(&MusicValues, &Frame) -> Reading,
 ) -> Source {
     Source {
         name,
@@ -84,7 +97,7 @@ const fn event_source(
     name: &'static str,
     levels: [bool; 3],
     about: &'static str,
-    read: fn(&MusicValues) -> Reading,
+    read: fn(&MusicValues, &Frame) -> Reading,
 ) -> Source {
     Source {
         name,
@@ -109,155 +122,170 @@ pub static SOURCES: &[Source] = &[
         "tempo",
         ALL,
         "The speed of the music in beats per minute, never 0.",
-        |m| value(m.tempo),
+        |m, _| value(m.tempo),
     ),
     level_source(
         "clock",
         ALL,
         "A beat clock that always runs; the fraction is the phase in the beat.",
-        |m| value(m.clock),
+        |m, _| value(m.clock),
     ),
     level_source(
         "flow",
         ALL,
         "A phase in beats that moves on as much as the music does.",
-        |m| value(m.flow),
+        |m, _| value(m.flow),
     ),
-    level_source("meter", ALL, "Beats per bar.", |m| value(m.meter)),
+    level_source("meter", ALL, "Beats per bar.", |m, _| value(m.meter)),
     level_source(
         "locked",
         ALL,
         "1 while the beat is followed, else 0.",
-        |m| value(m.locked),
+        |m, _| value(m.locked),
     ),
     level_source(
         "drive",
         ALL,
         "Slow energy, at the scale of a section.",
-        |m| value(m.drive),
+        |m, _| value(m.drive),
     ),
     level_source(
         "intensity",
         ALL,
         "Fast energy, at the scale of a phrase.",
-        |m| value(m.intensity),
+        |m, _| value(m.intensity),
     ),
     event_source(
         "hits",
         ALL,
         "Moments to move on: every beat when it is followed, else the onsets heard.",
-        |m| event(m.hit, m.hits),
+        |m, _| event(m.hit, m.hits),
     ),
-    level_source("hit", ALL, "The envelope of the last hit.", |m| {
+    level_source("hit", ALL, "The envelope of the last hit.", |m, _| {
         value(m.hit)
     }),
     level_source(
         "bar",
         A_ONLY,
         "The bar number since the chart's start, the fraction the phase in the bar.",
-        |m| value(m.bar),
+        |m, _| value(m.bar),
     ),
     level_source(
         "beat",
         A_ONLY,
         "The beat number since the song's first beat, the fraction the phase in the beat.",
-        |m| value(m.beat),
+        |m, _| value(m.beat),
     ),
     event_source(
         "bars",
         A_ONLY,
         "A bar line passed; only while the beat is followed.",
-        |m| event(1.0, m.bars),
+        |m, _| event(1.0, m.bars),
     ),
     event_source(
         "beats",
         A_ONLY,
         "A beat passed; only while the beat is followed.",
-        |m| event(1.0, m.beats),
+        |m, _| event(1.0, m.beats),
     ),
     event_source(
         "cues",
         ALL,
         "Big moments: section starts, or every 8 bars, or the first hit after 16 s.",
-        |m| event(m.cue, m.cues),
+        |m, _| event(m.cue, m.cues),
     ),
-    level_source("cue", ALL, "The envelope of the last cue.", |m| {
+    level_source("cue", ALL, "The envelope of the last cue.", |m, _| {
         value(m.cue)
     }),
     level_source(
         "cue_in",
         A_AND_B,
         "Seconds until the next section starts, -1 when unknown.",
-        |m| value(m.cue_in),
+        |m, _| value(m.cue_in),
     ),
     event_source(
         "impacts",
         ALL,
         "A hard hit inside a section, at most one in 6 s.",
-        |m| event(m.impact, m.impacts),
+        |m, _| event(m.impact, m.impacts),
     ),
-    level_source("impact", ALL, "The envelope of the last impact.", |m| {
+    level_source("impact", ALL, "The envelope of the last impact.", |m, _| {
         value(m.impact)
     }),
-    event_source("notes", ALL, "A melody note was played.", |m| {
+    event_source("notes", ALL, "A melody note was played.", |m, _| {
         event(m.note, m.notes)
     }),
-    level_source("note", ALL, "The envelope of the last note.", |m| {
+    level_source("note", ALL, "The envelope of the last note.", |m, _| {
         value(m.note)
     }),
     level_source(
         "section_label",
         A_AND_B,
         "Which kind of section this is: the same number for every chorus.",
-        |m| value(m.section_label),
+        |m, _| value(m.section_label),
+    ),
+    level_source(
+        "section",
+        A_AND_B,
+        "The index of the section in the chart, counting from 0: every section has its own number, unlike its label.",
+        |m, _| value(m.section),
     ),
     level_source(
         "section_energy",
         A_AND_B,
         "The loudness of the section, 0 to 1.",
-        |m| value(m.section_energy),
+        |m, _| value(m.section_energy),
     ),
     level_source(
         "next_energy",
         A_AND_B,
         "The loudness of the section that comes next, 0 to 1.",
-        |m| value(m.next_energy),
+        |m, _| value(m.next_energy),
     ),
     level_source(
         "low",
         ALL,
         "The percussive low band: jumps to an onset's strength, then decays (the kick without a chart).",
-        |m| value(m.low),
+        |m, _| value(m.low),
     ),
     level_source(
         "mid",
         ALL,
         "The percussive mid band the same way (the snare without a chart).",
-        |m| value(m.mid),
+        |m, _| value(m.mid),
     ),
     level_source(
         "high",
         ALL,
         "The percussive high band the same way (the hat without a chart).",
-        |m| value(m.high),
+        |m, _| value(m.high),
     ),
     level_source(
         "band_low",
         ALL,
         "The bass level, about 1 on average, quick to rise and slow to fall.",
-        |m| value(m.band_low),
+        |m, _| value(m.band_low),
     ),
-    level_source("band_mid", ALL, "The mids level, the same way.", |m| {
+    level_source("band_mid", ALL, "The mids level, the same way.", |m, _| {
         value(m.band_mid)
     }),
-    level_source("band_high", ALL, "The treble level, the same way.", |m| {
-        value(m.band_high)
-    }),
+    level_source(
+        "band_high",
+        ALL,
+        "The treble level, the same way.",
+        |m, _| value(m.band_high),
+    ),
+    event_source(
+        "cut",
+        ALL,
+        "The scene's own camera cut to another shot in this frame (strength 1); never in a scene without shots.",
+        |_, frame| event(1.0, u32::from(frame.cut)),
+    ),
     event_source(
         "moment.strong",
         A_AND_B,
         "A section start that lifts the energy: the moment that plays the strong effects.",
-        |m| match moments::moment_of(m, 0) {
+        |m, _| match moments::moment_of(m, 0) {
             Some((Strength::Strong, _)) => event(m.cue, 1),
             _ => value(m.cue),
         },
@@ -266,7 +294,7 @@ pub static SOURCES: &[Source] = &[
         "moment.medium",
         ALL,
         "Another section start or an impact: the moment that plays the light effects.",
-        |m| match moments::moment_of(m, 0) {
+        |m, _| match moments::moment_of(m, 0) {
             // Whether it is a section start (the cue's strength) or an impact (its own).
             Some((Strength::Medium, _)) if m.cues > 0 => event(m.cue, 1),
             Some((Strength::Medium, _)) => event(m.impact, 1),
@@ -274,6 +302,16 @@ pub static SOURCES: &[Source] = &[
         },
     ),
 ];
+
+/// The names of the sources that count events, for messages.
+pub fn event_names() -> String {
+    SOURCES
+        .iter()
+        .filter(|source| source.event)
+        .map(|source| source.name)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 /// The source called `name`.
 pub fn find(name: &str) -> Option<&'static Source> {
@@ -366,6 +404,22 @@ mod tests {
         );
         assert!(!find("bar").unwrap().meaningful_at(Level::B));
         assert!(find("high").unwrap().meaningful_at(Level::C));
+    }
+
+    #[test]
+    fn the_section_is_the_index_the_chart_gives_and_means_something_where_it_does() {
+        let music = MusicValues {
+            section: 3.0,
+            section_label: 1.0,
+            ..Default::default()
+        };
+        assert_eq!(read("section", &music), value(3.0));
+        assert_eq!(read("section_label", &music), value(1.0));
+        let section = find("section").unwrap();
+        assert!(!section.event);
+        assert_eq!(section.levels, find("section_label").unwrap().levels);
+        assert!(section.meaningful_at(Level::A) && section.meaningful_at(Level::B));
+        assert!(!section.meaningful_at(Level::C));
     }
 
     #[test]
