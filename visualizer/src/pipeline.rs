@@ -2721,10 +2721,11 @@ mod probe {
     }
 
     /// The lens effects of scene `PROBE` (default Armillary) started from the lab's commands, at
-    /// the app's accent: a frame of each as a PNG in `PROBE_OUT` (the flare near its peak, the
-    /// leak at 4 s, a colour-block frame, and one with no effect), and the GPU time of the scene
-    /// with a flare always running against none, as the median over `PROBE_COST_FRAMES` frames
-    /// (default 600) after the first 60.
+    /// the app's accent: frames over each effect's course as PNGs in `PROBE_OUT`
+    /// (`lens-<scene>-<effect>-<frames since it started>.png`, at 60 fps and 120 bpm, so 30
+    /// frames are a beat) and one with no effect; then the GPU time of the scene with each effect
+    /// kept running against none, as the median over `PROBE_COST_FRAMES` frames (default 600)
+    /// after the first 60, in three rounds.
     #[test]
     #[ignore = "a probe, run by hand"]
     fn probe_lens() {
@@ -2733,35 +2734,55 @@ mod probe {
         let size = pipeline.size();
         let scene = env_or("PROBE", "Armillary");
         let out = out_dir();
-        // The effect, the frame it starts at and the frame looked at.
-        let looks: [(&str, fn(&mut Pipeline), u32, u32); 4] = [
-            ("none", |_| {}, 0, 240),
-            ("flare", Pipeline::start_flare, 100, 112),
-            ("leak", Pipeline::start_leak, 100, 340),
-            ("blocks", Pipeline::start_blocks, 239, 240),
+        /// The frame an effect starts at.
+        const AT: u32 = 100;
+        /// What starts an effect.
+        type Start = fn(&mut Pipeline);
+        // The effect and the frames after its start that are looked at.
+        let looks: [(&str, Start, &[u32]); 4] = [
+            ("none", |_| {}, &[0]),
+            (
+                "flare",
+                Pipeline::start_flare,
+                &[0, 8, 15, 30, 60, 120, 180],
+            ),
+            (
+                "leak",
+                Pipeline::start_leak,
+                &[0, 15, 30, 60, 150, 300, 450],
+            ),
+            ("blocks", Pipeline::start_blocks, &[0, 1, 2, 3]),
         ];
-        for (name, start, at, look) in looks {
+        for (name, start, after) in looks {
             load(&mut pipeline, &scene, Level::FULL);
+            let keep: Vec<u32> = after.iter().map(|a| AT + a).collect();
             run_with(
                 &mut pipeline,
-                look,
-                &[look],
+                *keep.last().unwrap(),
+                &keep,
                 |pipeline, i| {
-                    if i == at {
+                    if i == AT {
                         start(pipeline);
                     }
                 },
                 |i, _, pixels| {
                     if let (Some(pixels), Some(out)) = (pixels, &out) {
-                        let file = format!("lens-{}-{name}.png", label(&scene));
-                        save_png(&out.join(file), pixels, size);
-                        eprintln!("PROBE saved lens-{name} at frame {i}");
+                        let file = format!("lens-{}-{name}-{:03}.png", label(&scene), i - AT);
+                        save_png(&out.join(&file), pixels, size);
+                        eprintln!("PROBE saved {file}");
                     }
                 },
             );
         }
         let frames: u32 = env_or("PROBE_COST_FRAMES", "600").parse().unwrap();
-        let mut cost = |flare: bool| {
+        // Each effect started again before it has gone, so that one is always under way.
+        let kept: [(&str, Start, u32); 4] = [
+            ("none", |_| {}, 1),
+            ("flare", Pipeline::start_flare, 30),
+            ("leak", Pipeline::start_leak, 240),
+            ("blocks", Pipeline::start_blocks, 3),
+        ];
+        let mut cost = |start: Start, every: u32| {
             load(&mut pipeline, &scene, Level::FULL);
             let mut times = Vec::new();
             run_with(
@@ -2769,9 +2790,8 @@ mod probe {
                 frames,
                 &[],
                 |pipeline, i| {
-                    // Started again before it has gone, so that one is always under way.
-                    if flare && i % 30 == 0 {
-                        pipeline.start_flare();
+                    if i % every == 0 {
+                        start(pipeline);
                     }
                 },
                 |i, time, _| {
@@ -2784,11 +2804,15 @@ mod probe {
             times[times.len() / 2] * 1e3
         };
         for round in 0..3 {
-            let (off, on) = (cost(false), cost(true));
-            eprintln!(
-                "PROBE round {round}: flare off {off:.3} ms, on {on:.3} ms, +{:.3} ms",
-                on - off
-            );
+            let costs: Vec<f64> = kept
+                .iter()
+                .map(|&(_, start, every)| cost(start, every))
+                .collect();
+            let mut line = format!("PROBE round {round}: none {:.3} ms", costs[0]);
+            for ((name, _, _), ms) in kept.iter().zip(&costs).skip(1) {
+                line += &format!(", {name} {ms:.3} ms (+{:.3})", ms - costs[0]);
+            }
+            eprintln!("{line}");
         }
     }
 

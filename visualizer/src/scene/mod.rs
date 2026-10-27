@@ -1862,7 +1862,7 @@ impl Scene {
             timestamps,
             begin,
             stamp_end,
-            lens.flare > 0.0,
+            &lens,
         );
 
         for t in &mut self.sized.targets {
