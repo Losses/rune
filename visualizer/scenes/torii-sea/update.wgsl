@@ -65,10 +65,11 @@ fn update() {
     state.wave = params.wave_height;
     take_shot();
     // The first pattern is drawn from the scene's seed, the first light from the music's
-    // (`light_turn` starts from the seed). The first kind of section the music says (`light` and
-    // `pattern`, -1 while it says none) is seen as a change.
+    // (`light_turn` starts from the seed), and never day: a low sun, blue hour or night. The
+    // first kind of section the music says (`light` and `pattern`, -1 while it says none) is
+    // seen as a change.
     choose_mode(floor(random(31u) * 5.0), random(32u));
-    choose_light(input.light_turn);
+    choose_light(f32(1u + u32(input.light_turn) % 3u));
     state.light_seen = -2.0;
     state.pattern_seen = -2.0;
     state.turn_seen = input.light_turn;
