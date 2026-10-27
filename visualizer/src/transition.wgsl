@@ -36,7 +36,8 @@ struct Transition {
   // 1 if it tears (the frame is the new scene's from then on, the old one's before).
   // A punch: the scale of the picture, the length of the smear (of the height), the colour
   // split (of the distance from the centre) and the flash towards `color`.
-  // A glitch: the share of pieces that break, the share that show the new picture. A mosaic:
+  // A glitch: the share of pieces that break, the share that show the new picture, 1 for the
+  // subtle one over the picture. A mosaic:
   // the mode, the pattern or look, the density, 1 over the new picture (see `mosaic`).
   extra: vec4f,
 }
@@ -124,46 +125,21 @@ fn hue_of(theme: vec3f) -> vec3f {
   return theme / max(max(theme.r, theme.g), max(theme.b, 0.001));
 }
 
-// The glitch, one stage of it (its step is worked out in `transition.rs`): the frame is cut into
-// rows of three heights, and each row into pieces from a tenth of the width to most of it. A share
-// `amount` of the pieces breaks: it shifts along its row with a smear, streaks (one line of the
-// picture drawn down the row), goes blocky, flares up in flat light of white and the theme colour,
-// or turns duotone in the theme colour. A share `reveal` of the pieces shows the new picture
-// (`after`). With `before` and `after` the same texture it is a glitch of a single picture (the
-// lens effect).
-fn glitch(
+// One broken piece of a glitch at `uv` (see `glitch`): it shifts along its row with a smear,
+// streaks (one line of the picture drawn down the row), goes blocky, flares up in light of white
+// and the theme colour, or turns duotone in the theme colour. `id` makes which and how much; `top`
+// and `rows` are the row's top and the rows the frame has.
+fn glitch_piece(
   before: texture_2d<f32>,
   after: texture_2d<f32>,
   at: vec2i,
-  pattern: u32,
-  amount: f32,
-  reveal: f32,
+  uv: vec2f,
+  id: u32,
+  use_new: bool,
+  top: f32,
+  rows: f32,
   theme: vec3f,
 ) -> vec3f {
-  let size = vec2f(textureDimensions(after));
-  let uv = (vec2f(at) + 0.5) / size;
-  // Coarse rows, each of one height of row: a tenth of the frame, a 28th or an 80th.
-  let coarse = u32(uv.y * 10.0);
-  let pick = unit(hash3(pattern, coarse, 1u));
-  var rows = 10.0;
-  if pick > 0.4 {
-    rows = 28.0;
-  }
-  if pick > 0.75 {
-    rows = 80.0;
-  }
-  let row = u32(uv.y * rows);
-  let band = hash3(pattern, row, u32(rows));
-  let top = f32(row) / rows;
-  // The pieces of the row: narrow ones more often than wide ones.
-  let w = unit(hash(band ^ 0x51u));
-  let width = 0.06 + 0.64 * w * w;
-  let piece = u32(floor(uv.x / width + unit(hash(band ^ 0x77u)) + 8.0));
-  let id = hash3(band, piece, 3u);
-  let use_new = unit(hash(id ^ 0x1234u)) < reveal;
-  if unit(hash(id)) >= amount {
-    return either(before, after, use_new, uv);
-  }
   let what = unit(hash(id ^ 0x9u));
   let shift = (unit(hash(id ^ 0x21u)) - 0.5) * 0.5;
   let hue = hue_of(theme);
@@ -208,6 +184,54 @@ fn glitch(
   return mix(low, vec3f(0.85), clamp(steps * 2.0 - 1.0, 0.0, 1.0));
 }
 
+// The glitch, one stage of it (its step is worked out in `transition.rs`): the frame is cut into
+// rows of three heights, and each row into pieces from a twentieth of the width to most of it. A
+// share `amount` of the pieces breaks (see `glitch_piece`). A share `reveal` of the pieces shows
+// the new picture (`after`). `subtle` is the one over the live picture (`before` and `after` the
+// same texture): thin rows only, narrower pieces, and each broken piece half see-through.
+fn glitch(
+  before: texture_2d<f32>,
+  after: texture_2d<f32>,
+  at: vec2i,
+  pattern: u32,
+  amount: f32,
+  reveal: f32,
+  subtle: bool,
+  theme: vec3f,
+) -> vec3f {
+  let size = vec2f(textureDimensions(after));
+  let uv = (vec2f(at) + 0.5) / size;
+  // Coarse rows, each of one height of row: a tenth of the frame, a 28th or an 80th; subtle, a
+  // 45th or a 90th.
+  let coarse = u32(uv.y * 10.0);
+  let pick = unit(hash3(pattern, coarse, 1u));
+  var rows = 10.0;
+  if pick > 0.4 {
+    rows = 28.0;
+  }
+  if pick > 0.75 {
+    rows = 80.0;
+  }
+  if subtle {
+    rows = select(45.0, 90.0, pick > 0.5);
+  }
+  let row = u32(uv.y * rows);
+  let band = hash3(pattern, row, u32(rows));
+  let top = f32(row) / rows;
+  // The pieces of the row: narrow ones more often than wide ones.
+  let w = unit(hash(band ^ 0x51u));
+  let width = select(0.06 + 0.64 * w * w, 0.05 + 0.3 * w * w, subtle);
+  let piece = u32(floor(uv.x / width + unit(hash(band ^ 0x77u)) + 8.0));
+  let id = hash3(band, piece, 3u);
+  let use_new = unit(hash(id ^ 0x1234u)) < reveal;
+  let plain = either(before, after, use_new, uv);
+  if unit(hash(id)) >= amount {
+    return plain;
+  }
+  let broken = glitch_piece(before, after, at, uv, id, use_new, top, rows, theme);
+  return select(broken, mix(plain, broken, 0.6), subtle);
+}
+
 // The pitch of a mosaic's LED dots in pixels: 54 dots down the frame (13 pixels at 720p, 20 at
 // 1080p, as in the reference), whole pixels so that every dot is the same.
 fn led_pitch(size: vec2f) -> f32 {
@@ -230,18 +254,23 @@ fn led_tint(theme: vec3f, lean: f32) -> vec3f {
   return mix(vec3f(1.0), hue_of(theme), lean) * 0.92;
 }
 
-// The size of the dots of a lit block.
+// The size of the dots of a block.
 const BLOCK_DOT: vec2f = vec2f(0.32, 0.46);
+// How strongly a block's dots light up over the picture, and how much its gaps darken it, at its
+// fullest: a faint veil, not a panel.
+const VEIL_LIGHT: f32 = 0.24;
+const VEIL_PICTURE: f32 = 0.35;
+const VEIL_GAP: f32 = 0.16;
 
-// How bright each dot of a lit block is: most near full, a few dimmer, one in fifty out, as on
-// a real panel.
+// How bright each dot of a block is: most near full, a few dimmer, one in fifty out, as on a real
+// panel.
 fn dot_level(seed: u32, n: vec2f) -> f32 {
   let h = unit(hash3(seed ^ 0x5eedu, u32(n.x + 4096.0), u32(n.y + 4096.0)));
   return select(0.85 + 0.15 * h / 0.98, 0.0, h > 0.98);
 }
 
-// The block of a batch at dot `n`: its rectangle in dots (x, y, x + w, y + h; empty when the cell
-// is not lit), its brightness, its lean to the theme colour, and whether only every other
+// The block of a batch at dot `n`: its rectangle in dots (x, y, x + w, y + h; empty when there
+// is none), how strong its veil is, its lean to the theme colour, and whether only every other
 // column of its dots is on.
 struct Block {
   rect: vec4f,
@@ -250,69 +279,66 @@ struct Block {
   sparse: bool,
 }
 
-// The batch of blocks of `pattern` (0 scatter, 1 checker, 2 stagger, 3 wave) and `density` that
-// covers dot `n`: on a grid of cells of 12 by 8 dots, one block in each lit cell, aligned to the
-// dots. A wave is strips in rows of 8 dots that step up and down every 6, risen from the bottom
-// over `density` of the rows, with scattered blocks above.
-fn block_at(n: vec2f, rows: f32, seed: u32, pattern: u32, density: f32) -> Block {
+// The batch of blocks of `pattern` (0 scatter, 1 checker, 2 stagger) and `density` that covers
+// dot `n`. They come in small groups apart from each other: cells of 8 by 6 dots, regions of 3 by
+// 2 cells (placed by the seed, not on the frame's edges) of which only every other one, as on a
+// chessboard, may hold a group, so that no two groups touch; a share `density` of those lit, and
+// in a lit region a few cells with a small block each, aligned to the dots.
+fn block_at(n: vec2f, seed: u32, pattern: u32, density: f32) -> Block {
   var block = Block(vec4f(0.0), 0.0, 0.0, false);
-  let cy = floor(n.y / 8.0);
+  let shift = vec2f(f32(hash(seed ^ 0x0ffu) % 24u), f32(hash(seed ^ 0x0feu) % 18u));
+  let m = n + shift;
+  let cy = floor(m.y / 6.0);
   var offset = 0.0;
   if pattern == 2u && (u32(cy) & 1u) == 1u {
-    offset = 6.0;
+    offset = 4.0;
   }
-  let cx = floor((n.x + offset) / 12.0);
-  let cell = hash3(seed, u32(cx + 512.0), u32(cy + 512.0));
-  let roll = unit(cell);
-  let origin = vec2f(cx * 12.0 - offset, cy * 8.0);
-  var lit = false;
-  var size = vec2f(8.0, 4.0);
-  var at = vec2f(2.0, 2.0);
-  if pattern == 3u && cy >= floor(rows / 8.0 * (1.0 - density)) {
-    // The wave: a strip 4 dots high, up or down by 2 every 6 dots; a few steps left out.
-    let step = floor(n.x / 6.0);
-    let up = (u32(step + 1024.0) & 1u) == 1u;
-    let y0 = cy * 8.0 + 1.0 + select(0.0, 2.0, up);
-    let gone = unit(hash3(seed ^ 0x3a7u, u32(step + 1024.0), u32(cy))) < 0.08;
-    if !gone {
-      block.rect = vec4f(step * 6.0, y0, step * 6.0 + 6.0, y0 + 4.0);
-      block.level = 0.92 + 0.08 * unit(hash(cell ^ 0x11u));
-      block.lean = 0.15 + 0.3 * unit(hash(cell ^ 0x22u));
-    }
+  let cx = floor((m.x + offset) / 8.0);
+  let rx = u32(floor(cx / 3.0) + 512.0);
+  let ry = u32(floor(cy / 2.0) + 512.0);
+  if ((rx + ry) & 1u) == 1u || unit(hash3(seed ^ 0x7e9u, rx, ry)) >= density {
     return block;
   }
+  let cell = hash3(seed, u32(cx + 512.0), u32(cy + 512.0));
+  let roll = unit(cell);
+  let origin = vec2f(cx * 8.0 - offset, cy * 6.0) - shift;
+  var lit = false;
+  var size = vec2f(5.0, 3.0);
+  var at = vec2f(2.0, 2.0);
   switch pattern {
     case 1u: {
-      // Every other cell, a few left out.
-      lit = ((u32(cx + cy + 1024.0) + (seed >> 7u)) & 1u) == 0u && roll < density + 0.2;
-      size = vec2f(9.0, 5.0);
+      // Every other cell of the region.
+      lit = (u32(cx + cy + 1024.0) & 1u) == 0u && roll < 0.85;
+      size = vec2f(6.0, 4.0);
       at = vec2f(1.0, 1.0);
     }
     case 2u: {
-      lit = roll < density;
+      lit = roll < 0.65;
+      at = vec2f(1.0, 2.0);
     }
     default: {
-      // Scattered, and above a wave; blocks of 5 to 8 dots by 3 to 5, anywhere in their cell.
-      lit = roll < select(density, 0.22, pattern == 3u);
-      size = vec2f(f32(5u + hash(cell ^ 0x1u) % 4u), f32(3u + hash(cell ^ 0x2u) % 3u));
+      // Blocks of 3 to 6 dots by 2 to 4, anywhere in their cell.
+      lit = roll < 0.5;
+      size = vec2f(f32(3u + hash(cell ^ 0x1u) % 4u), f32(2u + hash(cell ^ 0x2u) % 3u));
       at = vec2f(
-        f32(hash(cell ^ 0x3u) % u32(13.0 - size.x)),
-        f32(hash(cell ^ 0x4u) % u32(9.0 - size.y)),
+        f32(hash(cell ^ 0x3u) % u32(9.0 - size.x)),
+        f32(hash(cell ^ 0x4u) % u32(7.0 - size.y)),
       );
     }
   }
   if lit {
     block.rect = vec4f(origin + at, origin + at + size);
-    // Most blocks full on; some with every other column of dots only, as panels switching on.
-    block.sparse = unit(hash(cell ^ 0x5u)) < 0.18;
-    block.level = 0.92 + 0.08 * unit(hash(cell ^ 0x6u));
-    block.lean = 0.12 + 0.45 * unit(hash(cell ^ 0x7u));
+    // Some with every other column of dots only, as panels switching on; some fainter.
+    block.sparse = unit(hash(cell ^ 0x5u)) < 0.2;
+    block.level = 0.6 + 0.4 * unit(hash(cell ^ 0x6u));
+    block.lean = 0.25 + 0.5 * unit(hash(cell ^ 0x7u));
   }
   return block;
 }
 
-// A batch of bright LED blocks over `under` (the picture at the pixel): in a block, lit dots with
-// the picture dark in the gaps; around one, a little glow.
+// A batch of faint LED blocks over `under` (the picture at the pixel): in a block, dots that
+// carry the picture a little brighter with a touch of light, the gaps a little darker. A texture
+// over the picture, which shows through.
 fn blocks_over(
   under: vec3f,
   at: vec2i,
@@ -325,29 +351,22 @@ fn blocks_over(
   let pitch = led_pitch(size);
   let d = (vec2f(at) + 0.5) / pitch;
   let n = floor(d);
-  let block = block_at(n, size.y / pitch, seed, pattern, density);
-  if block.level <= 0.0 {
+  let block = block_at(n, seed, pattern, density);
+  if block.level <= 0.0 || !(all(d >= block.rect.xy) && all(d < block.rect.zw)) {
     return under;
   }
-  let tint = led_tint(theme, block.lean) * block.level;
-  let inside = all(d >= block.rect.xy) && all(d < block.rect.zw);
-  if inside {
-    var dot = led_dot(d, pitch, BLOCK_DOT) * dot_level(seed, n);
-    if block.sparse && (u32(n.x) & 1u) == 1u {
-      dot = 0.0;
-    }
-    // The gaps glow faintly with the dots' light (less in a block of every other column).
-    let gap = under * 0.1 + tint * select(0.16, 0.06, block.sparse);
-    return mix(gap, tint, dot);
+  var dot = led_dot(d, pitch, BLOCK_DOT) * dot_level(seed, n);
+  if block.sparse && (u32(n.x) & 1u) == 1u {
+    dot = 0.0;
   }
-  // A little glow, in dots from the block's edge.
-  let away = length(max(max(block.rect.xy - d, d - block.rect.zw), vec2f(0.0)));
-  return under + tint * 0.16 * exp(-away * 3.5);
+  let light = led_tint(theme, block.lean) * VEIL_LIGHT + under * VEIL_PICTURE;
+  return min(under * (1.0 - VEIL_GAP * block.level) + light * dot * block.level, vec3f(0.92));
 }
 
-// The whole screen as LED dots of `look` (0 bright bands, 1 the picture through the dots, 2 the
-// same with some bands gone): vertical bands of 3 to 11 dots, each its own tone. Every dot shows
-// the picture under its centre, so the picture is in dots too.
+// The whole screen as LED dots of `look` (0 the picture dimmed under a veil of dots, 1 a lighter
+// veil, 2 the same with some bands gone), in vertical bands of 3 to 11 dots, each a little
+// different. The dots carry the picture under their centres, so it is in dots too; the gaps show
+// it dimmed. Soft: never brighter than the picture much.
 fn led_screen(tex: texture_2d<f32>, at: vec2i, seed: u32, look: u32, theme: vec3f) -> vec3f {
   let size = vec2f(textureDimensions(tex));
   let pitch = led_pitch(size);
@@ -358,40 +377,24 @@ fn led_screen(tex: texture_2d<f32>, at: vec2i, seed: u32, look: u32, theme: vec3
   let split = f32(3u + hash3(seed, u32(big + 512.0), 9u) % 8u);
   let band = hash3(seed, u32(big + 512.0), select(1u, 2u, n.x - big * 14.0 >= split));
   let tone = unit(band);
-  let under = load(tex, vec2i((n + 0.5) * pitch)).rgb;
-  let l = luma(under);
+  let here = load(tex, at).rgb;
   if look == 2u && tone < 0.35 {
-    return load(tex, at).rgb;
+    return here;
   }
+  let dotted = load(tex, vec2i((n + 0.5) * pitch)).rgb;
+  let dot = led_dot(d, pitch, BLOCK_DOT);
+  let tint = led_tint(theme, 0.4 + 0.5 * tone);
   if look == 0u {
-    // Bright bands, white to the theme colour, and a few dark ones; the picture faint in them.
-    var lean = 0.1;
-    var level = 0.95;
-    if tone > 0.4 {
-      lean = 0.6;
-      level = 0.9;
-    }
-    if tone > 0.7 {
-      lean = 1.0;
-      level = 0.75;
-    }
-    if tone > 0.9 {
-      level = 0.15;
-    }
-    let lit = led_tint(theme, lean) * level * (0.82 + 0.18 * l);
-    return lit * mix(0.12, 1.0, led_dot(d, pitch, BLOCK_DOT));
+    // The moment that hides the cut: the picture at half, the dots over it.
+    let lit = dotted * (0.75 + 0.15 * tone) + tint * 0.12;
+    return mix(here * 0.5, lit, dot * 0.8);
   }
-  // The picture through the dots: contrast up, towards the theme colour and white, the bright
-  // dots larger, as lit LEDs bloom.
-  let v = smoothstep(0.1, 0.75, l);
-  let colour = mix(under / max(l, 0.05) * 0.6, led_tint(theme, 0.4 + 0.5 * tone), 0.7);
-  let lit = min(colour * (0.12 + 0.95 * v), vec3f(0.92));
-  let half = vec2f(0.22, 0.34) + 0.12 * v;
-  return lit * mix(0.06, 1.0, led_dot(d, pitch, half));
+  let lit = dotted * (0.85 + 0.15 * tone) + tint * 0.06;
+  return mix(here * 0.78, lit, dot * 0.6);
 }
 
-// The mosaic, one pose of it (its step is worked out in `transition.rs`): `mode` 0 shows the
-// picture, 1 a batch of blocks over it, 2 the whole screen as dots; `kind` is the pattern of the
+// The mosaic, one pose of it (its step is worked out in `transition.rs`): `mode` 1 is a batch of
+// blocks over the picture, 2 the whole screen as dots; `kind` is the pattern of the
 // blocks or the look of the dots; `use_new` picks the new picture (the scene's frame) or the old
 // one (the picture held). With `before` and `after` the same texture it is the lens effect.
 fn mosaic(
@@ -417,9 +420,6 @@ fn mosaic(
     under = load(after, at).rgb;
   } else {
     under = load(before, at).rgb;
-  }
-  if mode == 0u {
-    return under;
   }
   return blocks_over(under, at, size, seed, kind, density, theme);
 }
@@ -478,7 +478,8 @@ fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
     }
     case KIND_GLITCH: {
       let e = transition.extra;
-      let rgb = glitch(held, fresh, at, transition.seed, e.x, e.y, transition.color.rgb);
+      let subtle = e.z > 0.5;
+      let rgb = glitch(held, fresh, at, transition.seed, e.x, e.y, subtle, transition.color.rgb);
       return vec4f(rgb, frame_now.a);
     }
     case KIND_MOSAIC: {
