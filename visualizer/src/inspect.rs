@@ -3,6 +3,7 @@
 //! things it can be told to do now (see [`crate::Visualizer::lab`]). The app uses neither: the
 //! render thread only fills an [`Inspect`] while inspection is on.
 
+use crate::scene::Pace;
 use crate::scene::{DirectorView, Effects, LensView, MusicValues};
 use crate::switching::FOLLOWED;
 use crate::transition::{CutInStyle, Transition};
@@ -26,6 +27,11 @@ pub struct Inspect {
     pub switching: InspectSwitching,
     /// The lens effects of the scene on screen.
     pub lens: InspectLens,
+    /// What a lab overrides of the choices the visualizer makes by itself.
+    pub overrides: LabOverrides,
+    /// The chance in percent a lab set for every moment to get an effect, or none for the user's
+    /// setting (see [`LabCommand::EffectChance`]).
+    pub chance: Option<u8>,
 }
 
 /// Which lens effects the scene on screen has (see [`LabCommand::Flare`]).
@@ -207,8 +213,60 @@ impl From<LabTransition> for Transition {
     }
 }
 
+/// Lens effects a lab turns on at every moment, as if the scene listed them (see
+/// [`LabCommand::LensWith`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LabLens {
+    pub flare: bool,
+    pub leak: bool,
+    pub blocks: bool,
+}
+
+/// How often the camera director cuts, as a lab picks it (see [`LabCommand::PaceWith`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LabPace {
+    Sections,
+    Calm,
+    Normal,
+    Busy,
+}
+
+impl LabPace {
+    pub const ALL: [LabPace; 4] = [Self::Sections, Self::Calm, Self::Normal, Self::Busy];
+
+    /// The word `scene.toml` uses for it.
+    pub fn name(self) -> &'static str {
+        Pace::from(self).name()
+    }
+}
+
+impl From<LabPace> for Pace {
+    fn from(pace: LabPace) -> Self {
+        match pace {
+            LabPace::Sections => Self::Sections,
+            LabPace::Calm => Self::Calm,
+            LabPace::Normal => Self::Normal,
+            LabPace::Busy => Self::Busy,
+        }
+    }
+}
+
+/// What a lab replaces of the choices the visualizer makes by itself. Each replaces whatever was
+/// chosen, at the last point before the switch or the cut is drawn; none leaves the choice be.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LabOverrides {
+    /// What every scene switch uses, the automatic ones and those asked for (see
+    /// [`LabCommand::SwitchWith`]).
+    pub switch: Option<LabTransition>,
+    /// What dresses every camera cut of the director, a cut being plain (see
+    /// [`LabCommand::CutsWith`]).
+    pub cuts: Option<LabTransition>,
+    /// The lens effects on at every moment.
+    pub lens: LabLens,
+}
+
 /// What the render thread is told to do now, for a scene lab (see
-/// [`crate::Visualizer::lab`]). More will come (lens effects, a scene's pace).
+/// [`crate::Visualizer::lab`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LabCommand {
@@ -234,6 +292,19 @@ pub enum LabCommand {
     Leak,
     /// Fire a colour-block frame now, as a strong cue would (even if the scene lists none).
     Blocks,
+    /// Every scene switch, the automatic ones and those of [`LabCommand::NextScene`], takes this
+    /// transition (with the durations its kind takes), whatever was chosen; none leaves the choice.
+    SwitchWith(Option<LabTransition>),
+    /// Every camera cut of the director is dressed with this transition, whatever the scene and
+    /// the moment say (a cut is plain), through the path of [`LabCommand::CutDressed`]; none
+    /// leaves the choice. A cut-in is not drawn over a camera cut: it counts as none.
+    CutsWith(Option<LabTransition>),
+    /// These lens effects start at every moment, as if every scene listed them, for this scene
+    /// and every one that comes, until set again with none on.
+    LensWith(LabLens),
+    /// The scene on screen uses this pace in place of its own (see [`LabCommand::CyclePace`]),
+    /// or with none its own again.
+    PaceWith(Option<LabPace>),
 }
 
 /// The name of a shot size, from the number `struct Shot` has.

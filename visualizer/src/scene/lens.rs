@@ -8,6 +8,7 @@
 //! come from one scheduler shared by the effects. A scene lab starts them by hand.
 
 use super::inputs::MusicValues;
+use crate::inspect::LabLens;
 use crate::switching::{FOLLOWED, SECTION_CUE};
 
 /// The cue strength from which a colour-block frame is started: the strongest moments only.
@@ -106,6 +107,7 @@ struct Leak {
 
 /// The lens effects of one scene.
 pub struct Lens {
+    /// The effects that start at a moment: those the scene listed and those a lab forced.
     flare_listed: bool,
     leak_listed: bool,
     blocks_listed: bool,
@@ -115,6 +117,10 @@ pub struct Lens {
     blocks: Option<(f32, f32)>,
     /// How many leaks started, which picks the corner of the next.
     leaks: u32,
+    /// What the scene itself listed, which a lab's forcing adds to and takes away from again.
+    own: LabLens,
+    /// What a lab forced on (see [`Lens::set_forced`]).
+    forced: LabLens,
 }
 
 impl Lens {
@@ -129,7 +135,22 @@ impl Lens {
             leak: None,
             blocks: None,
             leaks: 0,
+            own: LabLens {
+                flare: has("flare"),
+                leak: has("leak"),
+                blocks: has("blocks"),
+            },
+            forced: LabLens::default(),
         }
+    }
+
+    /// Start the effects of `forced` at every moment too, as if the scene listed them; with none
+    /// on, only the scene's own list again.
+    pub fn set_forced(&mut self, forced: LabLens) {
+        self.forced = forced;
+        self.flare_listed = self.own.flare || forced.flare;
+        self.leak_listed = self.own.leak || forced.leak;
+        self.blocks_listed = self.own.blocks || forced.blocks;
     }
 
     /// Start a flare of `strength` (0 to 1) now. One at a time: one under way starts again.
@@ -177,6 +198,11 @@ impl Lens {
         if music.cue >= BLOCKS_CUE && self.blocks_listed {
             self.start_blocks(music.cue);
         }
+    }
+
+    /// What a lab forced on, to give a rebuilt scene.
+    pub fn forced(&self) -> LabLens {
+        self.forced
     }
 
     pub fn view(&self) -> LensView {
@@ -300,6 +326,29 @@ mod tests {
         assert_eq!(lens.view(), LensView::default());
         assert!(run(&mut lens, 5.0).is_idle());
         assert_eq!(frame.bytes(), [0; LENS_SIZE as usize]);
+    }
+
+    /// A lab's forcing makes a scene act as if it listed the effect, and taking it away leaves what
+    /// the scene itself lists.
+    #[test]
+    fn forcing_an_effect_adds_to_the_scene_list_and_none_restores_it() {
+        let mut lens = lens(&["leak"]);
+        let flare = LabLens {
+            flare: true,
+            ..LabLens::default()
+        };
+        lens.set_forced(flare);
+        lens.tick(1.0 / 60.0, &music(0.5, 1), 1.0);
+        let view = lens.view();
+        assert!(view.flare_listed && view.flare_running && view.leak_running);
+        assert!(!view.blocks_listed);
+        // Without the forcing the flare is not listed, the scene's leak still is.
+        lens.set_forced(LabLens::default());
+        let view = lens.view();
+        assert!(!view.flare_listed && view.leak_listed);
+        let mut quiet = self::lens(&[]);
+        quiet.set_forced(LabLens::default());
+        assert_eq!(quiet.view(), LensView::default());
     }
 
     /// A weak cue starts nothing; a section start starts a flare and a leak, a strong cue also a

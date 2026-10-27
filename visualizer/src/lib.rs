@@ -56,7 +56,8 @@ pub use chart::{Chart, ChartState};
 use chart::{ChartFollower, Playback};
 pub use inspect::{
     Inspect, InspectDirector, InspectEffects, InspectLens, InspectMusic, InspectSection,
-    InspectShot, InspectSwitching, InspectTransition, LabCommand, LabTransition,
+    InspectShot, InspectSwitching, InspectTransition, LabCommand, LabLens, LabOverrides, LabPace,
+    LabTransition,
 };
 use loading::Loads;
 pub use moments::{Chances, EffectLevel};
@@ -1069,6 +1070,12 @@ fn run(
                 durations,
             } => {
                 if let Some(mut loaded) = auto.held.take() {
+                    // A lab's override replaces what the music chose, last of all.
+                    let (transition, durations) = switching::replaced(
+                        pipeline.lab().switch.map(Into::into),
+                        (transition, durations),
+                        pipeline.music(),
+                    );
                     loaded.switch = Switch(transition, durations);
                     install(shared, &mut pipeline, &mut watched, loaded);
                     still_drawn = false;
@@ -1386,12 +1393,19 @@ fn lab(
             }
         }
         LabCommand::CyclePace => pipeline.cycle_pace(),
+        LabCommand::PaceWith(pace) => pipeline.set_pace(pace),
+        LabCommand::SwitchWith(transition) => pipeline.set_lab_switch(transition),
+        LabCommand::CutsWith(transition) => pipeline.set_lab_cuts(transition),
+        LabCommand::LensWith(lens) => pipeline.set_lab_lens(lens),
         LabCommand::NextScene(transition) => {
             let next = lock(library).auto_next(&mut rand::thread_rng());
             match next {
                 Some(Ok(preset)) => {
-                    let (transition, durations) =
-                        switching::requested(transition.into(), pipeline.music());
+                    let (transition, durations) = switching::replaced(
+                        pipeline.lab().switch.map(Into::into),
+                        switching::requested(transition.into(), pipeline.music()),
+                        pipeline.music(),
+                    );
                     let switch = Switch(transition, durations);
                     start_scene_load(shared, pipeline, loads, preset.location, switch);
                 }
@@ -1419,6 +1433,11 @@ fn inspection(
         director: pipeline.director_view().map(InspectDirector::of),
         effects: InspectEffects::of(pipeline.effects()),
         lens: pipeline.lens_view().into(),
+        overrides: pipeline.lab(),
+        chance: match shared.lab_chance.load(Ordering::Relaxed) {
+            NO_LAB_CHANCE => None,
+            percent => Some(percent),
+        },
         switching: InspectSwitching {
             scene_seconds: auto.decider.seconds(time),
             preparing: auto.loads.is_pending(),

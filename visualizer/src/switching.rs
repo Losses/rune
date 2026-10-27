@@ -520,9 +520,72 @@ pub fn requested(transition: Transition, music: &MusicValues) -> (Transition, Du
     (transition, durations_of(transition, beat_seconds(music)))
 }
 
+/// What a lab's override of the scene switches makes of the choice: its transition, with the
+/// durations its kind takes, in place of whatever was chosen; with none the choice stays.
+pub fn replaced(
+    by: Option<Transition>,
+    chosen: (Transition, Durations),
+    music: &MusicValues,
+) -> (Transition, Durations) {
+    by.map_or(chosen, |kind| requested(kind, music))
+}
+
+/// What a lab's override of the camera cuts makes of the dressing `chosen` for a cut (none for a
+/// plain one): its transition, as short as a dressed cut is, in place of whatever was chosen, and
+/// a cut for a plain one; with none the choice stays.
+pub fn cut_dressing(
+    by: Option<Transition>,
+    chosen: Option<(Transition, Durations)>,
+    music: &MusicValues,
+) -> Option<(Transition, Durations)> {
+    match by {
+        None => chosen,
+        Some(Transition::Cut) => None,
+        Some(kind) => Some((kind, dressed_durations(kind, music))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An override replaces the choice of a switch or a cut, and none brings the choice back.
+    #[test]
+    fn a_lab_override_replaces_the_choice_and_none_restores_it() {
+        let music = MusicValues {
+            tempo: 120.0,
+            locked: 1.0,
+            has_chart: 1,
+            ..MusicValues::default()
+        };
+        let fade = requested(Transition::Fade, &music);
+        let switched = |by| replaced(by, fade, &music);
+        assert_eq!(switched(None), fade);
+        assert_eq!(
+            switched(Some(Transition::Mosaic)),
+            requested(Transition::Mosaic, &music)
+        );
+        assert_eq!(
+            switched(Some(Transition::Cut)),
+            requested(Transition::Cut, &music)
+        );
+
+        let chosen = Some((
+            Transition::Flash,
+            dressed_durations(Transition::Flash, &music),
+        ));
+        let cut = |by, chosen| cut_dressing(by, chosen, &music);
+        assert_eq!(cut(None, chosen), chosen);
+        assert_eq!(cut(None, None), None);
+        // Plain removes a dressing the scene would give, and any other dresses a plain cut.
+        assert_eq!(cut(Some(Transition::Cut), chosen), None);
+        let glitch = Some((
+            Transition::Glitch,
+            dressed_durations(Transition::Glitch, &music),
+        ));
+        assert_eq!(cut(Some(Transition::Glitch), chosen), glitch);
+        assert_eq!(cut(Some(Transition::Glitch), None), glitch);
+    }
 
     /// A song with a chart: tempo 120 (a beat is 0.5 s), the beat followed, in the section with
     /// this label and energy, no cue.

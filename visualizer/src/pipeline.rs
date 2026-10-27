@@ -22,6 +22,7 @@ use crate::chart::ChartState;
 use crate::covers::{Atlas, Cell};
 use crate::gpu_time::GpuTimer;
 use crate::in_flight::InFlight;
+use crate::inspect::{LabLens, LabOverrides, LabPace, LabTransition};
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
 use crate::scene::{DirectorView, FrameInput, MusicValues, Scene, Source};
@@ -54,6 +55,8 @@ pub struct Pipeline {
     scene: Scene,
     /// The scene switches that are not cuts, and the textures they need while they run.
     transitions: Transitions,
+    /// What a scene lab replaces of the choices made by themselves.
+    lab: LabOverrides,
     sample_rate: u32,
     rhythm: Rhythm,
     chart: Option<ChartState>,
@@ -429,6 +432,7 @@ impl Pipeline {
             adapter_name: adapter.get_info().name,
             device,
             transitions,
+            lab: LabOverrides::default(),
             queue,
             scene,
             sample_rate,
@@ -662,6 +666,48 @@ impl Pipeline {
         self.scene.lens_view()
     }
 
+    /// What a scene lab replaces of the choices made by themselves.
+    pub fn lab(&self) -> LabOverrides {
+        self.lab
+    }
+
+    /// Every scene switch takes `transition` from now on, or with none what was chosen (see
+    /// [`switching::replaced`]; the render loop asks [`Pipeline::lab`]).
+    pub fn set_lab_switch(&mut self, transition: Option<LabTransition>) {
+        self.lab.switch = transition;
+    }
+
+    /// Every camera cut is dressed with `transition` from now on (a cut for a plain one), or with
+    /// none as the scene and the moment say (see [`switching::cut_dressing`]). A cut-in is not
+    /// drawn over a camera cut and counts as none.
+    pub fn set_lab_cuts(&mut self, transition: Option<LabTransition>) {
+        self.lab.cuts = transition;
+        self.transitions.lab_cuts = transition
+            .filter(|t| !matches!(t, LabTransition::CutIn(_)))
+            .map(Transition::from);
+    }
+
+    /// These lens effects start at every moment, in the scene on screen, the one waiting for a
+    /// transition and every scene that comes (see [`Scene::set_lens_forced`]).
+    pub fn set_lab_lens(&mut self, lens: LabLens) {
+        self.lab.lens = lens;
+        self.scene.set_lens_forced(lens);
+        if let Some(pending) = self
+            .transitions
+            .running
+            .as_mut()
+            .and_then(|running| running.pending.as_mut())
+        {
+            pending.set_lens_forced(lens);
+        }
+    }
+
+    /// The newest scene's director uses `pace` in place of the scene's own, or with none its own
+    /// again (see [`Scene::set_pace`]).
+    pub fn set_pace(&mut self, pace: Option<LabPace>) {
+        self.latest_mut().set_pace(pace.map(Into::into));
+    }
+
     /// The newest scene's director holds shot `index`, or with none lets go of a held shot (see
     /// [`Scene::hold_shot`]); whether it could.
     pub fn hold_shot(&mut self, index: Option<u32>) -> bool {
@@ -890,6 +936,7 @@ impl Pipeline {
             self.playing_cover.clone(),
         );
         scene.take_music_from(&mut self.scene);
+        scene.set_lens_forced(self.lab.lens);
         self.scene = scene;
         self.restart_adaptive();
         Ok(())
@@ -1166,10 +1213,12 @@ impl Pipeline {
     /// for it.
     fn plan_dressed(&mut self, time: f64) -> Plan {
         let transitions = &mut self.transitions;
-        if self.scene.cut_transitions().is_empty()
-            && transitions.forced == Forced::None
-            && transitions.dressed.is_none()
-        {
+        // A lab's override decides which cuts are dressed in place of the scene's list.
+        let dresses = match transitions.lab_cuts {
+            Some(kind) => kind != Transition::Cut,
+            None => !self.scene.cut_transitions().is_empty(),
+        };
+        if !dresses && transitions.forced == Forced::None && transitions.dressed.is_none() {
             return Plan::None;
         }
         // A cut the lab asked for waits for a frame to be held, then the director is told to.
@@ -1433,14 +1482,14 @@ fn dress_cut(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64
         return plan;
     }
     let music = scene.music();
-    let (kind, durations) = match forced {
-        Some(kind) => (kind, switching::dressed_durations(kind, music)),
-        None => {
-            match switching::dress(scene.cut_transitions(), cut.cue, music.section_label, music) {
-                Some(dressing) => dressing,
-                None => return plan,
-            }
-        }
+    let chosen = match forced {
+        Some(kind) => Some((kind, switching::dressed_durations(kind, music))),
+        None => switching::dress(scene.cut_transitions(), cut.cue, music.section_label, music),
+    };
+    // A lab's override replaces whatever was chosen, last of all.
+    let Some((kind, durations)) = switching::cut_dressing(transitions.lab_cuts, chosen, music)
+    else {
+        return plan;
     };
     let dressed = Dressed {
         kind,
