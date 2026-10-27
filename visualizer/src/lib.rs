@@ -15,6 +15,7 @@ mod adaptive;
 mod bench;
 mod builtin;
 mod chart;
+mod course;
 mod covers;
 mod gpu_time;
 mod in_flight;

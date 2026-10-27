@@ -322,7 +322,7 @@ fn leak_light(uv: vec2f) -> vec3f {
   let colour = theme();
   let warm = mix(colour, vec3f(1.0, 0.45, 0.12), 0.4);
   let light = mix(colour * 0.8, warm, hot) * glow * lens.leak;
-  return encode_srgb(min(light * 0.9, vec3f(0.85)));
+  return encode_srgb(min(light * 0.45, vec3f(0.85)));
 }
 
 // How much the light leak tints the picture under it towards its colour, 0 to 1, so that a grey
@@ -382,7 +382,7 @@ fn composite(v: Varyings) -> @location(0) vec4f {
   display *= 1.0 - post.vignette * smoothstep(0.35, 1.0, corner);
   if (lens.leak > 0.0) {
     let tint = encode_srgb(theme());
-    display *= mix(vec3f(1.0), tint, leak_tint(uv) * 0.7);
+    display *= mix(vec3f(1.0), tint, leak_tint(uv) * 0.35);
     display = screen(display, leak_light(uv));
   }
   if (lens.flare > 0.0) {

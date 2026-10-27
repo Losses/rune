@@ -14,8 +14,9 @@
 
 use std::cell::Cell;
 
+use crate::course::{Course, Phrase};
 use crate::covers::{Cell as CoverCell, SHARP};
-use crate::scene::Scene;
+use crate::scene::{MusicValues, Scene};
 
 /// The pass and, appended, the cut-in it draws for one of its kinds.
 const SHADER: &str = concat!(include_str!("transition.wgsl"), include_str!("cutin.wgsl"));
@@ -432,7 +433,7 @@ pub fn seed_of(time: f64) -> u32 {
 /// How the blocks of a batch of a mosaic are laid out. They come in small groups: the frame is cut
 /// into regions of 3 by 3 cells of 8 by 6 LED dots, a share of the regions is lit, and in a lit
 /// region a few cells hold a small block each.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BlockPattern {
     /// Blocks of different sizes in cells of the region picked at random.
     Scatter,
@@ -477,11 +478,13 @@ pub struct MosaicStep {
 /// reference (an LED-panel transition at 24 fps), kept faint: a
 /// few small groups of blocks over the old picture, more in each batch; the whole screen under a
 /// soft veil of dots, the new picture behind it (the cut is hidden there); a last few groups over
-/// the new one. `Checker` stands for the checker or the stagger, as the seed picks.
+/// the new one. The blocks are one pattern for the whole mosaic, which the seed picks (see
+/// [`run_pattern`]; `Scatter` stands for it here): a batch adds blocks to those already alight
+/// and redraws none.
 const MOSAIC_SWITCH: [(MosaicPose, bool); 8] = [
     (MosaicPose::Blocks(BlockPattern::Scatter, 0.25), false),
     (MosaicPose::Blocks(BlockPattern::Scatter, 0.4), false),
-    (MosaicPose::Blocks(BlockPattern::Checker, 0.55), false),
+    (MosaicPose::Blocks(BlockPattern::Scatter, 0.55), false),
     (MosaicPose::Blocks(BlockPattern::Scatter, 0.7), false),
     (MosaicPose::Led(LedLook::Veil), true),
     (MosaicPose::Led(LedLook::Picture), true),
@@ -497,15 +500,23 @@ pub fn mosaic_step(progress: f32, seed: u32) -> MosaicStep {
     let index = ((progress.clamp(0.0, 1.0) * count as f32) as usize).min(count - 1);
     let (pose, new) = MOSAIC_SWITCH[index];
     let pose = match pose {
-        MosaicPose::Blocks(BlockPattern::Checker, density) if seed & 1 == 1 => {
-            MosaicPose::Blocks(BlockPattern::Stagger, density)
-        }
+        MosaicPose::Blocks(_, density) => MosaicPose::Blocks(run_pattern(seed), density),
         pose => pose,
     };
     MosaicStep {
         index: index as u32,
         pose,
         new,
+    }
+}
+
+/// The pattern of the blocks of a whole mosaic (a switch's, or one over the picture) of `seed`:
+/// mostly scattered, now and then a checker or staggered rows.
+pub fn run_pattern(seed: u32) -> BlockPattern {
+    match step_hash(seed, 0x6a7) % 6 {
+        0 => BlockPattern::Checker,
+        1 => BlockPattern::Stagger,
+        _ => BlockPattern::Scatter,
     }
 }
 
@@ -548,43 +559,27 @@ pub fn glitch_step(progress: f32, seed: u32) -> GlitchStep {
 }
 
 /// A strong transition played as a lens effect over the live picture, at a moment with no cut
-/// (see `crate::moments::lens_effect`): a long effect of about two bars whose amount rises and
-/// falls (see [`envelope`]).
+/// (see `crate::moments::lens_effect`): a long effect to the end of the phrase, whose amount rises
+/// and falls with the music, as the flare's and the leak's do (see `crate::course`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Overlay {
-    /// Thin broken bands, a few, then more, then a few again.
+    /// Thin broken bands, a few, then more, then a few again; a new pattern on each step of the
+    /// beat grid.
     Glitch,
-    /// Small groups of faint LED blocks, the same way.
+    /// Small groups of faint LED blocks, each with a life of its own (see `transition.wgsl`).
     Mosaic,
 }
 
-/// Where an overlay is at its most, as a share of its time.
-pub const OVERLAY_PEAK: f32 = 1.0 / 3.0;
-/// How much of its most an overlay has as it starts: a few small pieces.
-pub const OVERLAY_START: f32 = 0.15;
 /// The most of a glitch overlay: the share of the pieces of its thin rows that break.
 pub const OVERLAY_GLITCH_MOST: f32 = 0.1;
-/// The most of a mosaic overlay: the share of the regions that may hold a group of blocks (every
-/// other one) that do.
-pub const OVERLAY_MOSAIC_MOST: f32 = 0.4;
-/// An overlay changes its pose every 2 to 4 frames at 60 fps (in seconds), never smoothly.
-pub const OVERLAY_STEP_FRAMES: (u32, u32) = (2, 4);
-/// One step in this many is blank (the picture plain), and one in this many repeats the pattern
-/// of the step two before: the stutter.
+/// The most of a mosaic overlay: the share of its blocks' lives that count (see `block_life` in
+/// `transition.wgsl`), at the peak of its course with the music at full intensity. Each block is
+/// faint, small and apart from the others, so all of them may live then.
+pub const OVERLAY_MOSAIC_MOST: f32 = 1.0;
+/// One step of a glitch overlay in this many is blank (the picture plain), and one in this many
+/// repeats the pattern of the step two before: the stutter.
 const OVERLAY_BLANK_EVERY: u32 = 7;
 const OVERLAY_STUTTER_EVERY: u32 = 5;
-
-/// How much of its most an overlay has `progress` (0 to 1) of the way through: from
-/// [`OVERLAY_START`] up to 1 at [`OVERLAY_PEAK`], eased, then down to 0 at the end.
-pub fn envelope(progress: f32) -> f32 {
-    let p = progress.clamp(0.0, 1.0);
-    let smooth = |x: f32| x * x * (3.0 - 2.0 * x);
-    if p < OVERLAY_PEAK {
-        OVERLAY_START + (1.0 - OVERLAY_START) * smooth(p / OVERLAY_PEAK)
-    } else {
-        smooth((1.0 - p) / (1.0 - OVERLAY_PEAK))
-    }
-}
 
 /// A number for step `k` of the overlay of `seed`.
 fn step_hash(seed: u32, k: u32) -> u32 {
@@ -598,11 +593,15 @@ fn step_hash(seed: u32, k: u32) -> u32 {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OverlayFrame {
     pub kind: Overlay,
-    /// The step it is in (it changes every 2 to 4 frames), and the pattern of the step.
+    /// The step of the beat grid it is in, and the pattern: a glitch's changes with the step, a
+    /// mosaic's is the run's (its blocks live on, see `transition.wgsl`).
     pub step: u32,
     pub pattern: u32,
-    /// How much: the envelope times the most of the kind, 0 for a blank step.
+    /// How much: its course's amount (with the music) times the most of the kind, 0 for a blank
+    /// step of a glitch.
     pub amount: f32,
+    /// Its age in beats: what a mosaic's blocks live by.
+    pub beats: f32,
     /// Whether the scene keeps its frames under it, for a cut to be dressed (see
     /// [`Plan::needs_held`]).
     pub keep: bool,
@@ -610,14 +609,17 @@ pub struct OverlayFrame {
 
 /// A lens glitch or mosaic under way: like the punch, it draws over the live frame only, so it
 /// holds no picture and a scene that has no other use for the pass pays for it only while it
-/// plays. One at a time: see [`Transitions::start_overlay`].
+/// plays. One at a time: see [`Transitions::start_overlay`]. It is told the music of every frame
+/// ([`OverlayRun::tick`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OverlayRun {
     pub kind: Overlay,
-    /// The time of its first frame, on the render loop's clock, which also makes its pattern.
+    /// The time of its first frame, on the render loop's clock, which also makes its pattern, and
+    /// of the last frame it was told of.
     pub start: f64,
-    /// How long it plays, in seconds.
-    pub seconds: f64,
+    pub last: f64,
+    /// Its length, its amount with the music and its steps.
+    pub course: Course,
 }
 
 /// The overlay that plays when `run` starts while `running` is under way: one at a time, the
@@ -630,51 +632,61 @@ fn next_overlay(running: Option<OverlayRun>, run: OverlayRun) -> OverlayRun {
 }
 
 impl OverlayRun {
-    /// The frame `seconds` after the start, none when it is over. The steps last 2 to 4 frames
-    /// at 60 fps, each a length of its own, so the pattern changes in a staccato; the amount
-    /// follows the envelope.
-    pub fn frame(&self, seconds: f64) -> Option<OverlayFrame> {
-        let seconds = seconds.max(0.0);
-        let progress = seconds / self.seconds.max(f64::EPSILON);
-        if progress >= 1.0 {
+    /// An overlay of `kind` that starts at `start`, in the music `music` at `phrase`: to the end
+    /// of the phrase (see `crate::course::Phrase::beats_left`).
+    pub fn new(kind: Overlay, start: f64, phrase: &Phrase, music: &MusicValues) -> Self {
+        Self {
+            kind,
+            start,
+            last: start,
+            course: Course::new(phrase, music),
+        }
+    }
+
+    /// Tell it the frame at `time` and its music.
+    pub fn tick(&mut self, time: f64, music: &MusicValues) {
+        let dt = (time - self.last).max(0.0) as f32;
+        self.last = time;
+        self.course.tick(dt, music);
+    }
+
+    /// The frame it draws now, none when it is over. A glitch takes a new pattern on each step of
+    /// the beat grid; one step in a few is blank, and one in a few stutters back to the pattern
+    /// of the step two before.
+    pub fn frame(&self) -> Option<OverlayFrame> {
+        if self.course.is_over() {
             return None;
         }
         let seed = seed_of(self.start);
-        // In whole frames at 60 fps, so that a step is a whole number of them.
-        let at = (seconds * 60.0 + 1e-6) as u32;
-        let (shortest, longest) = OVERLAY_STEP_FRAMES;
-        let mut step = 0;
-        let mut until = 0;
-        loop {
-            until += shortest + step_hash(seed, step) % (longest - shortest + 1);
-            if at < until {
-                break;
+        let step = self.course.step();
+        let (pattern, most, blank) = match self.kind {
+            Overlay::Glitch => {
+                let h = step_hash(seed ^ 0x51ed, step);
+                let blank = h.is_multiple_of(OVERLAY_BLANK_EVERY);
+                let back =
+                    step >= 2 && (h / OVERLAY_BLANK_EVERY).is_multiple_of(OVERLAY_STUTTER_EVERY);
+                let k = if back { step - 2 } else { step };
+                (step_hash(seed, k + 0x1000), OVERLAY_GLITCH_MOST, blank)
             }
-            step += 1;
-        }
-        let h = step_hash(seed ^ 0x51ed, step);
-        let blank = h.is_multiple_of(OVERLAY_BLANK_EVERY);
-        let back = step >= 2 && (h / OVERLAY_BLANK_EVERY).is_multiple_of(OVERLAY_STUTTER_EVERY);
-        let most = match self.kind {
-            Overlay::Glitch => OVERLAY_GLITCH_MOST,
-            Overlay::Mosaic => OVERLAY_MOSAIC_MOST,
+            Overlay::Mosaic => (seed, OVERLAY_MOSAIC_MOST, false),
         };
         Some(OverlayFrame {
             kind: self.kind,
             step,
-            pattern: step_hash(seed, if back { step - 2 } else { step } + 0x1000),
+            pattern,
             amount: if blank {
                 0.0
             } else {
-                envelope(progress as f32) * most
+                self.course.amount() * most
             },
+            beats: self.course.beats(),
             keep: false,
         })
     }
 
-    /// What the pass does `seconds` after the start, none when it is over.
-    pub fn plan(&self, seconds: f64) -> Plan {
-        self.frame(seconds).map_or(Plan::None, Plan::Overlay)
+    /// What the pass does now, none when it is over.
+    pub fn plan(&self) -> Plan {
+        self.frame().map_or(Plan::None, Plan::Overlay)
     }
 }
 
@@ -1154,9 +1166,15 @@ impl Transitions {
             Plan::Mosaic(progress, seed) => {
                 let step = mosaic_step(progress, seed);
                 params.extra = mosaic_extra(step);
+                // The blocks' time: they live on from one pose to the next, the batches only
+                // adding to them (see `transition.wgsl`).
+                params.cutin = [progress, 0.0, 0.0, 0.0];
                 let theme = accent.unwrap_or(FALLBACK_ACCENT).map(encode_srgb);
-                // Each pose has a pattern of its own.
-                let pose_seed = seed ^ (step.index + 1).wrapping_mul(0x85eb_ca6b);
+                // The blocks keep the run's pattern; the dots of each pose have bands of their own.
+                let pose_seed = match step.pose {
+                    MosaicPose::Blocks(..) => seed,
+                    MosaicPose::Led(_) => seed ^ (step.index + 1).wrapping_mul(0x85eb_ca6b),
+                };
                 (KIND_MOSAIC, progress, pose_seed, theme)
             }
             Plan::Overlay(frame) => {
@@ -1167,13 +1185,11 @@ impl Transitions {
                         params.extra = [frame.amount, 1.0, 1.0, 0.0];
                         (KIND_GLITCH, 0.0, frame.pattern, theme)
                     }
-                    // Scattered groups, now and then a checker or staggered rows in them.
+                    // Scattered groups, or a checker or staggered rows in them, for the whole run;
+                    // its blocks live by its age in beats.
                     Overlay::Mosaic => {
-                        let pattern = match frame.pattern % 6 {
-                            0 => BlockPattern::Checker,
-                            1 => BlockPattern::Stagger,
-                            _ => BlockPattern::Scatter,
-                        };
+                        params.cutin = [frame.beats, 0.0, 0.0, 0.0];
+                        let pattern = run_pattern(frame.pattern);
                         let step = MosaicStep {
                             index: frame.step,
                             pose: MosaicPose::Blocks(pattern, frame.amount),
@@ -1344,7 +1360,8 @@ struct Params {
     /// mosaic (display values).
     color: [f32; 4],
     /// A cut-in: seconds since it started, how long the band opens, holds and tears. A punch: the
-    /// side of its smear in the first.
+    /// side of its smear in the first. A mosaic: the time its blocks live by, in beats, in the
+    /// first.
     cutin: [f32; 4],
     /// A cut-in: the style, whether the band shows a cover, whether it tears (the frame is the
     /// new scene's). A punch: the scale, the smear, the colour split and the flash. A glitch: its
@@ -1698,7 +1715,8 @@ mod tests {
     #[test]
     fn a_mosaic_lights_a_few_groups_then_a_veil_then_shows_the_new_picture() {
         // A beat at 120 bpm is 30 frames at 60 fps.
-        let steps = course(30, |p| mosaic_step(p, 7));
+        let steps_of = |seed| course(30, |p| mosaic_step(p, seed));
+        let steps = steps_of(7);
         let indices: Vec<u32> = steps.iter().map(|s| s.index).collect();
         // Every pose shows, in order, and holds for a few frames: the picture steps.
         assert_eq!(holds(&indices).len(), MOSAIC_SWITCH.len());
@@ -1730,10 +1748,20 @@ mod tests {
         // A last few groups over the new picture.
         let last = steps.last().unwrap();
         assert!(matches!(last.pose, MosaicPose::Blocks(_, d) if d <= 0.25) && last.new);
-        // The seed picks the checker or the stagger.
-        let patterns: Vec<MosaicPose> = (0..2).map(|seed| mosaic_step(0.3, seed).pose).collect();
-        assert!(patterns.contains(&MosaicPose::Blocks(BlockPattern::Checker, 0.55)));
-        assert!(patterns.contains(&MosaicPose::Blocks(BlockPattern::Stagger, 0.55)));
+        // One pattern of blocks for the whole mosaic, which the seed picks: mostly scattered,
+        // now and then a checker or staggered rows.
+        let blocks = |seed| {
+            steps_of(seed)
+                .into_iter()
+                .filter_map(|s| match s.pose {
+                    MosaicPose::Blocks(pattern, _) => Some(pattern),
+                    MosaicPose::Led(_) => None,
+                })
+                .collect::<std::collections::HashSet<_>>()
+        };
+        assert!((0..40).all(|seed| blocks(seed).len() == 1));
+        let patterns: std::collections::HashSet<BlockPattern> = (0..40).map(run_pattern).collect();
+        assert_eq!(patterns.len(), 3);
         // Out of range counts as the ends.
         assert_eq!(mosaic_step(-1.0, 7).index, 0);
         assert_eq!(mosaic_step(2.0, 7), *steps.last().unwrap());
@@ -1769,99 +1797,114 @@ mod tests {
         assert_ne!(glitch_step(0.0, 12).pattern, patterns[0]);
     }
 
-    /// The frames of an overlay of `seconds` at 60 fps.
-    fn overlay_frames(kind: Overlay, seconds: f64) -> Vec<OverlayFrame> {
-        let run = OverlayRun {
-            kind,
-            start: 9.0,
-            seconds,
-        };
-        (0..)
-            .map_while(|i| run.frame(f64::from(i) / 60.0))
-            .collect()
+    /// Music at 120 bpm in 4/4, followed, at `intensity`, with the clock at `clock` beats.
+    fn music(intensity: f32, clock: f32) -> MusicValues {
+        MusicValues {
+            tempo: 120.0,
+            locked: 1.0,
+            meter: 4.0,
+            intensity,
+            clock,
+            ..MusicValues::default()
+        }
     }
 
-    #[test]
-    fn an_overlay_rises_to_its_most_a_third_of_the_way_and_falls_away() {
-        assert!((envelope(0.0) - OVERLAY_START).abs() < 1e-6);
-        assert!((envelope(OVERLAY_PEAK) - 1.0).abs() < 1e-6);
-        assert_eq!(envelope(1.0), 0.0);
-        // Up to the peak it only rises, after it only falls.
-        let curve: Vec<f32> = (0..=300).map(|i| envelope(i as f32 / 300.0)).collect();
-        let peak = curve.iter().position(|&e| (e - 1.0).abs() < 1e-6).unwrap();
-        assert!(curve[..=peak].windows(2).all(|w| w[0] <= w[1]));
-        assert!(curve[peak..].windows(2).all(|w| w[0] >= w[1]));
-        assert!((peak as f32 / 300.0 - OVERLAY_PEAK).abs() < 0.01);
+    /// The frames of an overlay at 60 fps that starts at a section's start, with the music at
+    /// `intensity`: a phrase of 4 bars, 16 beats, 8 s.
+    fn overlay_frames(kind: Overlay, intensity: f32) -> Vec<OverlayFrame> {
+        let mut run = OverlayRun::new(kind, 9.0, &Phrase::default(), &music(intensity, 0.0));
+        let mut frames = Vec::new();
+        for i in 0.. {
+            let Some(frame) = run.frame() else {
+                break;
+            };
+            frames.push(frame);
+            let time = 9.0 + f64::from(i + 1) / 60.0;
+            run.tick(time, &music(intensity, (i + 1) as f32 / 30.0));
+        }
+        frames
     }
 
+    /// An overlay lasts to the end of the phrase; its amount is the course's (rising to its
+    /// most a third of the way and falling away) times the most of its kind, with the music.
     #[test]
-    fn an_overlay_steps_every_few_frames_and_its_amount_follows_the_envelope() {
-        // Two bars at 120 bpm: 4 s, 240 frames.
+    fn an_overlay_runs_its_phrase_and_follows_the_music() {
         for (kind, most) in [
             (Overlay::Mosaic, OVERLAY_MOSAIC_MOST),
             (Overlay::Glitch, OVERLAY_GLITCH_MOST),
         ] {
-            let frames = overlay_frames(kind, 4.0);
-            assert_eq!(frames.len(), 240);
-            // A staccato: each step holds 2 to 4 frames, then the pattern changes.
-            let steps: Vec<u32> = frames.iter().map(|f| f.step).collect();
-            let held = holds(&steps);
-            assert!(held.iter().all(|&h| (2..=4).contains(&h)), "{held:?}");
-            assert!(held.len() > 60);
-            // The amount is the envelope's (or none, in a blank step), never more than the most.
-            for (i, frame) in frames.iter().enumerate() {
-                let expected = envelope(i as f32 / 240.0) * most;
-                assert!(
-                    frame.amount == 0.0 || (frame.amount - expected).abs() < 1e-5,
-                    "{i}: {frame:?}"
-                );
-                assert!(!frame.keep && frame.kind == kind);
-            }
-            // Few at first, the most a third of the way, few again near the end.
+            let frames = overlay_frames(kind, 1.0);
+            assert!((480..=481).contains(&frames.len()), "{}", frames.len());
+            let amounts: Vec<f32> = frames.iter().map(|f| f.amount).collect();
+            let peak = amounts.iter().copied().fold(0.0, f32::max);
+            assert!((peak - most).abs() < 1e-3, "{peak}");
+            // Few at first, the most a third of the way, few again near the end (blank steps
+            // aside).
             let mean = |range: std::ops::Range<usize>| {
-                let n = range.len() as f32;
-                frames[range].iter().map(|f| f.amount).sum::<f32>() / n
+                let lit: Vec<f32> = amounts[range]
+                    .iter()
+                    .copied()
+                    .filter(|&a| a > 0.0)
+                    .collect();
+                lit.iter().sum::<f32>() / lit.len().max(1) as f32
             };
-            assert!(mean(0..20) < mean(70..90) * 0.5);
-            assert!(mean(215..240) < mean(70..90) * 0.25);
-            // Some blank steps, some that stutter back to a pattern two steps before.
-            let blank = held.len()
-                - frames
-                    .iter()
-                    .filter(|f| f.amount > 0.0)
-                    .map(|f| f.step)
-                    .collect::<std::collections::HashSet<_>>()
-                    .len();
-            assert!(blank > 3, "{blank}");
-            let patterns: Vec<(u32, u32)> = frames.iter().map(|f| (f.step, f.pattern)).collect();
-            assert!(
-                patterns
-                    .iter()
-                    .any(|(s, p)| *s >= 2 && patterns.iter().any(|(t, q)| *t + 2 == *s && q == p))
-            );
+            assert!(mean(0..30) < mean(150..170) * 0.25);
+            assert!(mean(440..480) < mean(150..170) * 0.25);
+            assert!(frames.iter().all(|f| !f.keep && f.kind == kind));
+            // Still music: fewer pieces, never none at the peak.
+            let still = overlay_frames(kind, 0.0);
+            let still_peak = still.iter().map(|f| f.amount).fold(0.0, f32::max);
+            let least = crate::course::LEAST;
+            assert!((still_peak - least * most).abs() < 1e-3, "{still_peak}");
         }
-        // Over at its end, and the pattern is the start's.
-        let run = OverlayRun {
-            kind: Overlay::Glitch,
-            start: 9.0,
-            seconds: 4.0,
-        };
-        assert_eq!(run.plan(4.0), Plan::None);
-        let other = OverlayRun { start: 10.0, ..run };
-        assert_ne!(
-            run.frame(0.0).unwrap().pattern,
-            other.frame(0.0).unwrap().pattern
+    }
+
+    /// A glitch overlay takes a new pattern on each half-beat (15 frames at 120 bpm), never in
+    /// between; some steps are blank and some stutter back to the pattern two steps before. A
+    /// mosaic keeps its pattern: its blocks live on.
+    #[test]
+    fn an_overlay_steps_on_the_beat_grid() {
+        let frames = overlay_frames(Overlay::Glitch, 1.0);
+        let steps: Vec<u32> = frames.iter().map(|f| f.step).collect();
+        let held = holds(&steps);
+        assert!((32..=33).contains(&held.len()), "{held:?}");
+        assert!(held[..31].iter().all(|&h| h == 15), "{held:?}");
+        let patterns: Vec<(u32, u32)> = frames.iter().map(|f| (f.step, f.pattern)).collect();
+        assert!(
+            patterns
+                .windows(2)
+                .all(|w| w[0].0 != w[1].0 || w[0].1 == w[1].1)
         );
+        assert!(
+            patterns
+                .iter()
+                .any(|(s, p)| *s >= 2 && patterns.iter().any(|(t, q)| *t + 2 == *s && q == p))
+        );
+        let blank: std::collections::HashSet<u32> = frames
+            .iter()
+            .filter(|f| f.amount == 0.0 && f.step > 0)
+            .map(|f| f.step)
+            .collect();
+        assert!(!blank.is_empty() && blank.len() < 12, "{blank:?}");
+        let mosaic = overlay_frames(Overlay::Mosaic, 1.0);
+        assert!(mosaic.iter().all(|f| f.pattern == mosaic[0].pattern));
+        assert!(mosaic.windows(2).all(|w| w[1].beats > w[0].beats));
+        assert!((mosaic.last().unwrap().beats - 16.0).abs() < 0.1);
+        // Another start, another pattern.
+        let run = |start| {
+            OverlayRun::new(Overlay::Glitch, start, &Phrase::default(), &music(1.0, 0.0))
+                .frame()
+                .unwrap()
+                .pattern
+        };
+        assert_ne!(run(9.0), run(10.0));
     }
 
     #[test]
     fn an_overlay_draws_over_the_live_frame_and_keeps_it_only_when_asked() {
-        let run = OverlayRun {
-            kind: Overlay::Mosaic,
-            start: 4.0,
-            seconds: 4.0,
-        };
-        let plan = run.plan(1.0);
+        let mut run = OverlayRun::new(Overlay::Mosaic, 4.0, &Phrase::default(), &music(1.0, 0.0));
+        run.tick(5.0, &music(1.0, 2.0));
+        let plan = run.plan();
         // It holds no picture, and the frame under it is live: a cut in it can be dressed.
         assert!(matches!(plan, Plan::Overlay(_)));
         assert!(!plan.needs_held() && plan.is_live());
@@ -1876,11 +1919,7 @@ mod tests {
     fn overlays_play_one_at_a_time() {
         let mut overlay = None;
         let mut start = |kind, start: f64| {
-            let run = OverlayRun {
-                kind,
-                start,
-                seconds: 4.0,
-            };
+            let run = OverlayRun::new(kind, start, &Phrase::default(), &music(1.0, 0.0));
             let next = next_overlay(overlay, run);
             overlay = Some(next);
             next

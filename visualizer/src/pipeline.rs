@@ -1239,7 +1239,12 @@ impl Pipeline {
     /// [`Plan::Keep`]) and for the course of a cut that was: nothing for a scene that has no use
     /// for it.
     fn plan_dressed(&mut self, time: f64) -> Plan {
+        // A glitch or a mosaic over the picture follows the music of every frame.
+        let music = *self.scene.music();
         let transitions = &mut self.transitions;
+        if let Some(overlay) = &mut transitions.overlay {
+            overlay.tick(time, &music);
+        }
         // The punch on a cut of a burst plays over the live frame, whatever the scene lists.
         if transitions.dressed.is_none()
             && let Some(punch) = transitions.punch
@@ -1253,7 +1258,7 @@ impl Pipeline {
         // the dressing of a cut and the lab's cut go on under it).
         let overlay = match transitions.overlay {
             Some(overlay) if transitions.dressed.is_none() => {
-                let plan = overlay.plan(time - overlay.start);
+                let plan = overlay.plan();
                 if plan == Plan::None {
                     transitions.overlay = None;
                 }
@@ -1579,7 +1584,7 @@ fn dress_cut(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64
 
 /// The plan of a frame in which the scene started a glitch or a mosaic over its picture (see
 /// [`Scene::overlay_this_frame`]): it plays over the live frame for its time (see
-/// [`switching::overlay_seconds`]), from this frame where the scene draws into the texture, else
+/// `crate::course`), from this frame where the scene draws into the texture, else
 /// from the next; one under way of the same kind goes on (see [`Transitions::start_overlay`]). A
 /// switch under way takes its place; a dressed cut's course or a punch plays first, and it goes on
 /// after them.
@@ -1590,18 +1595,14 @@ fn start_overlay(transitions: &mut Transitions, plan: Plan, scene: &Scene, time:
     if transitions.running.is_some() {
         return plan;
     }
-    transitions.start_overlay(OverlayRun {
-        kind,
-        start: time,
-        seconds: switching::overlay_seconds(scene.music()),
-    });
+    transitions.start_overlay(OverlayRun::new(kind, time, &scene.phrase(), scene.music()));
     let Some(run) = transitions.overlay else {
         return plan;
     };
     match plan {
-        Plan::Keep => run.plan(time - run.start).keeping(),
-        Plan::Overlay(frame) if frame.keep => run.plan(time - run.start).keeping(),
-        Plan::Overlay(_) => run.plan(time - run.start),
+        Plan::Keep => run.plan().keeping(),
+        Plan::Overlay(frame) if frame.keep => run.plan().keeping(),
+        Plan::Overlay(_) => run.plan(),
         plan => plan,
     }
 }
@@ -2110,7 +2111,8 @@ mod tests {
                 .map(|i| (i as f64 - 1.0) * frame)
                 .collect()
         };
-        let overlay = switching::OVERLAY_BEATS * beat;
+        // A phrase of four bars at 120 bpm (see `crate::course`).
+        let overlay = 16.0 * beat;
         let across: Vec<f64> = [-frame]
             .into_iter()
             .chain((0..36).map(|k| f64::from(k) * overlay / 35.0))
@@ -2272,15 +2274,25 @@ mod tests {
         };
         // An overlay of 4 s at its peak, a third of the way.
         let overlay_at_peak = |kind| {
-            let run = OverlayRun {
-                kind,
-                start: 0.0,
-                seconds: 4.0,
+            let music = MusicValues {
+                tempo: 120.0,
+                locked: 1.0,
+                meter: 4.0,
+                intensity: 1.0,
+                ..MusicValues::default()
             };
-            (0..12)
-                .map(|i| run.plan(4.0 / 3.0 + f64::from(i) / 60.0))
-                .find(|plan| matches!(plan, Plan::Overlay(frame) if frame.amount > 0.0))
-                .unwrap()
+            let mut run = OverlayRun::new(kind, 0.0, &crate::course::Phrase::default(), &music);
+            run.course = run.course.at_peak();
+            // A step of the beat grid at a time, to the first that is not blank.
+            for i in 1..12 {
+                let plan = run.plan();
+                if matches!(plan, Plan::Overlay(frame) if frame.amount > 0.0) {
+                    return plan;
+                }
+                let clock = i as f32 * 0.5;
+                run.tick(f64::from(i) / 60.0, &MusicValues { clock, ..music });
+            }
+            panic!("every step blank");
         };
         // The middle of each pose or stage (see `mosaic_step` and `glitch_step`).
         let mosaic = |pose: f32| (pose + 0.5) / 8.0;
@@ -2612,8 +2624,8 @@ mod tests {
         );
     }
 
-    /// A glitch or a mosaic over the picture plays over the live frame for its two bars and lets
-    /// go, one at a time: in a scene that holds no frame the pass runs only while it plays; in one
+    /// A glitch or a mosaic over the picture plays over the live frame to the end of its phrase
+    /// (4 s here, without a followed beat) and lets go, one at a time: in a scene that holds no frame the pass runs only while it plays; in one
     /// that dresses its cuts the frame is still kept under it and a cut is dressed; a switch takes
     /// its place.
     #[test]
@@ -2626,7 +2638,7 @@ mod tests {
         pipeline.install(scene).unwrap();
         means(&mut pipeline, &[0.9, 0.95]);
         assert!(!pipeline.transitions.holds_textures());
-        // Without a followed beat, two bars of 0.5 s beats: from 1.0 to 5.0.
+        // Without a followed beat, 4 s: from 1.0 to 5.0.
         pipeline.start_overlay(Overlay::Mosaic);
         for time in [1.0, 1.1, 2.5, 4.9] {
             means(&mut pipeline, &[time]);
@@ -3116,12 +3128,30 @@ mod probe {
         /// What starts an effect.
         type Start = fn(&mut Pipeline);
         // The effect and the frames after its start that are looked at.
-        // Across the two bars of the flare and the leak (240 frames).
-        const RAMP: &[u32] = &[0, 30, 60, 80, 110, 140, 170, 200, 230];
-        let looks: [(&str, Start, &[u32]); 5] = [
+        // Across the phrase of the long effects (the rest of four bars from the start: 14 beats
+        // here, about 420 frames).
+        const PHRASE: &[u32] = &[0, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400];
+        // Around the peak, a half-beat (15 frames) apart: a mosaic's blocks live on.
+        const STEPS: &[u32] = &[120, 135, 150, 165, 180, 195, 210];
+        let looks: [(&str, Start, &[u32]); 8] = [
             ("none", |_| {}, &[0]),
-            ("flare", Pipeline::start_flare, RAMP),
-            ("leak", Pipeline::start_leak, RAMP),
+            ("flare", Pipeline::start_flare, PHRASE),
+            ("leak", Pipeline::start_leak, PHRASE),
+            (
+                "mosaic-overlay",
+                |pipeline| pipeline.start_overlay(Overlay::Mosaic),
+                PHRASE,
+            ),
+            (
+                "mosaic-steps",
+                |pipeline| pipeline.start_overlay(Overlay::Mosaic),
+                STEPS,
+            ),
+            (
+                "glitch-overlay",
+                |pipeline| pipeline.start_overlay(Overlay::Glitch),
+                PHRASE,
+            ),
             // A beat up (30 frames) and two down.
             (
                 "flash",
@@ -3203,6 +3233,128 @@ mod probe {
                 line += &format!(", {name} {ms:.3} ms (+{:.3})", ms - costs[0]);
             }
             eprintln!("{line}");
+        }
+    }
+
+    /// Where light leaks come from: scene `PROBE` (default Neon Street) with a leak started a
+    /// bar apart (at frames 100, 220, 340, ... at 120 bpm, so at other places of the song), each
+    /// at its peak (160 frames on), drawn with and without it; the frame and the leak's own layer
+    /// (the difference, three times as strong) as PNGs in `PROBE_OUT` (`leak-place-<start>.png`,
+    /// `leak-layer-<start>.png`).
+    #[test]
+    #[ignore = "a probe, run by hand"]
+    fn probe_leak_places() {
+        let mut pipeline = pipeline();
+        pipeline.set_accent(Some(argb_to_linear(0xffe8602c)));
+        let size = pipeline.size();
+        let scene = env_or("PROBE", "Neon Street");
+        let out = out_dir().expect("PROBE_OUT names a folder");
+        for start in [100u32, 220, 340, 460, 580, 700] {
+            let look = start + 160;
+            let mut frames = Vec::new();
+            for leak in [false, true] {
+                load(&mut pipeline, &scene, Level::FULL);
+                run_with(
+                    &mut pipeline,
+                    look,
+                    &[look],
+                    |pipeline, i| {
+                        if leak && i == start {
+                            pipeline.start_leak();
+                        }
+                    },
+                    |_, _, pixels| frames.extend(pixels),
+                );
+            }
+            let layer: Vec<u8> = frames[0]
+                .iter()
+                .zip(&frames[1])
+                .enumerate()
+                .map(|(k, (a, b))| {
+                    if k % 4 == 3 {
+                        255
+                    } else {
+                        (b.abs_diff(*a) as u32 * 3).min(255) as u8
+                    }
+                })
+                .collect();
+            save_png(&out.join(format!("leak-layer-{start:03}.png")), layer, size);
+            let frame = frames.pop().unwrap();
+            save_png(&out.join(format!("leak-place-{start:03}.png")), frame, size);
+            eprintln!("PROBE saved leak-place-{start:03}");
+        }
+    }
+
+    /// How much a mosaic over the picture shows: scene `PROBE` (default Neon Street) drawn with
+    /// and without one started at frame 100, over its phrase; for frames a half-beat apart, the
+    /// share of the pixels it changes by more than 3 of 255, the largest change, and the share of
+    /// the changed pixels that were changed a half-beat before too (its blocks live on). With
+    /// `PROBE_OUT`, the layer (the difference, four times as strong) of each as
+    /// `mosaic-layer-<frames since its start>.png`.
+    #[test]
+    #[ignore = "a probe, run by hand"]
+    fn probe_mosaic_layer() {
+        let mut pipeline = pipeline();
+        pipeline.set_accent(Some(argb_to_linear(0xffe8602c)));
+        let size = pipeline.size();
+        let out = out_dir();
+        let scene = env_or("PROBE", "Neon Street");
+        const AT: u32 = 100;
+        let keep: Vec<u32> = (0..26).map(|k| AT + 15 * k).collect();
+        let last = *keep.last().unwrap();
+        let mut runs = [Vec::new(), Vec::new()];
+        for (k, frames) in runs.iter_mut().enumerate() {
+            load(&mut pipeline, &scene, Level::FULL);
+            run_with(
+                &mut pipeline,
+                last,
+                &keep,
+                |pipeline, i| {
+                    if k == 1 && i == AT {
+                        pipeline.start_overlay(Overlay::Mosaic);
+                    }
+                },
+                |_, _, pixels| frames.extend(pixels),
+            );
+        }
+        let mut before: Option<Vec<bool>> = None;
+        for (n, (a, b)) in runs[0].iter().zip(&runs[1]).enumerate() {
+            let changes: Vec<u8> = a
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(b.as_chunks::<4>().0)
+                .map(|(p, q)| (0..3).map(|c| p[c].abs_diff(q[c])).max().unwrap())
+                .collect();
+            let changed: Vec<bool> = changes.iter().map(|&d| d > 3).collect();
+            if let Some(out) = &out {
+                let layer: Vec<u8> = changes
+                    .iter()
+                    .flat_map(|&d| {
+                        let v = (u32::from(d) * 4).min(255) as u8;
+                        [v, v, v, 255]
+                    })
+                    .collect();
+                let file = format!("mosaic-layer-{:03}.png", keep[n] - AT);
+                save_png(&out.join(file), layer, size);
+            }
+            let count = changed.iter().filter(|&&c| c).count();
+            let most = changes.iter().copied().max().unwrap_or(0);
+            let kept = before.as_ref().map_or(0.0, |before| {
+                let both = changed
+                    .iter()
+                    .zip(before)
+                    .filter(|(a, b)| **a && **b)
+                    .count();
+                both as f64 / count.max(1) as f64
+            });
+            eprintln!(
+                "PROBE frame +{:3}: changed {:.2} %, most {most}, kept from a half-beat before {:.0} %",
+                keep[n] - AT,
+                count as f64 / changed.len() as f64 * 100.0,
+                kept * 100.0
+            );
+            before = Some(changed);
         }
     }
 

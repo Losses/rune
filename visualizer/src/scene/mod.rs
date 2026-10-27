@@ -1333,6 +1333,12 @@ impl Scene {
         self.overlay
     }
 
+    /// Where the music is in its phrase (see [`crate::course::Phrase`]): what a glitch or a
+    /// mosaic over the picture takes its length from.
+    pub fn phrase(&self) -> crate::course::Phrase {
+        self.lens.phrase()
+    }
+
     /// The transitions a switch to this scene may take, by name (its `effects.switch`).
     pub fn switch_transitions(&self) -> &[String] {
         &self.switch_transitions
@@ -1762,6 +1768,8 @@ impl Scene {
             None => [0; wgsl::SHOT_SIZE as usize],
         };
         queue.write_buffer(&self.shot, 0, &shot);
+        // The lens effects hear where the music is in its phrase before a moment starts one.
+        self.lens.listen(&music);
         // A moment that plays an effect: a cut in it is dressed with a transition of the scene's
         // list; with no cut, or none that suits, a lens effect plays over the picture.
         if let Some(played) = self.moments.tick(&music, self.chances) {

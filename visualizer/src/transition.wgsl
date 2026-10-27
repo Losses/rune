@@ -33,7 +33,7 @@ struct Transition {
   // Display values, like the textures.
   color: vec4f,
   // A cut-in: seconds since it started, the band's opening time, its hold, its tear. A punch:
-  // the side of its smear (1 or -1) in x.
+  // the side of its smear (1 or -1) in x. A mosaic: the time its blocks live by, in beats.
   cutin: vec4f,
   // A cut-in: the style (0 speed lines and glint, 1 halftone, 2 echo), 1 if there is a cover,
   // 1 if it tears (the frame is the new scene's from then on, the old one's before).
@@ -308,10 +308,29 @@ fn led_tint(theme: vec3f, lean: f32) -> vec3f {
 // The size of the dots of a block.
 const BLOCK_DOT: vec2f = vec2f(0.32, 0.46);
 // How strongly a block's dots light up over the picture, and how much its gaps darken it, at its
-// fullest: a faint veil, not a panel.
-const VEIL_LIGHT: f32 = 0.24;
-const VEIL_PICTURE: f32 = 0.35;
-const VEIL_GAP: f32 = 0.16;
+// fullest: a faint veil, not a panel (halved again on the next look).
+const VEIL_LIGHT: f32 = 0.12;
+const VEIL_PICTURE: f32 = 0.18;
+const VEIL_GAP: f32 = 0.08;
+
+// The life of the block of `cell` at `t` beats: born on a beat, it fades in over a quarter of a
+// beat, stays 2 to 4 beats and fades out over one; then it is off for 1 to 3 before it is born
+// again, each cell at a time of its own, so the set changes gradually. A life counts if its own
+// roll is under `density`, softly, so that a change of the density adds and retires blocks
+// gently instead of redrawing them; and now and then a block flickers for half a beat.
+fn block_life(cell: u32, t: f32, density: f32) -> f32 {
+  let life = 2.0 + f32(hash(cell ^ 0xa1u) % 3u);
+  let off = 1.0 + f32(hash(cell ^ 0xa2u) % 3u);
+  let period = life + 1.0 + off;
+  let local = t + f32(hash(cell ^ 0xa3u) % 16u);
+  let k = floor(local / period);
+  let u = local - k * period;
+  let on = smoothstep(0.0, 0.25, u) * (1.0 - smoothstep(life, life + 1.0, u));
+  let roll = unit(hash3(cell, u32(k), 0xa4u));
+  let admit = smoothstep(roll, roll + 0.12, density);
+  let flick = unit(hash3(cell, u32(floor(t * 2.0) + 64.0), 0xa5u)) < 0.02;
+  return on * admit * select(1.0, 0.3, flick);
+}
 
 // How bright each dot of a block is: most near full, a few dimmer, one in fifty out, as on a real
 // panel.
@@ -330,12 +349,13 @@ struct Block {
   sparse: bool,
 }
 
-// The batch of blocks of `pattern` (0 scatter, 1 checker, 2 stagger) and `density` that covers
-// dot `n`. They come in small groups apart from each other: cells of 8 by 6 dots, regions of 3 by
-// 2 cells (placed by the seed, not on the frame's edges) of which only every other one, as on a
-// chessboard, may hold a group, so that no two groups touch; a share `density` of those lit, and
-// in a lit region a few cells with a small block each, aligned to the dots.
-fn block_at(n: vec2f, seed: u32, pattern: u32, density: f32) -> Block {
+// The block of `pattern` (0 scatter, 1 checker, 2 stagger) that covers dot `n` at `t` beats, with
+// `density` of them alive. They come in small groups apart from each other: cells of 8 by 6 dots,
+// regions of 3 by 2 cells (placed by the seed, not on the frame's edges) of which only every
+// other one, as on a chessboard, may hold a group, so that no two groups touch; in a region a few
+// cells with a small block each, aligned to the dots, each with a life of its own
+// (`block_life`).
+fn block_at(n: vec2f, seed: u32, pattern: u32, density: f32, t: f32) -> Block {
   var block = Block(vec4f(0.0), 0.0, 0.0, false);
   let shift = vec2f(f32(hash(seed ^ 0x0ffu) % 24u), f32(hash(seed ^ 0x0feu) % 18u));
   let m = n + shift;
@@ -347,7 +367,7 @@ fn block_at(n: vec2f, seed: u32, pattern: u32, density: f32) -> Block {
   let cx = floor((m.x + offset) / 8.0);
   let rx = u32(floor(cx / 3.0) + 512.0);
   let ry = u32(floor(cy / 2.0) + 512.0);
-  if ((rx + ry) & 1u) == 1u || unit(hash3(seed ^ 0x7e9u, rx, ry)) >= density {
+  if ((rx + ry) & 1u) == 1u {
     return block;
   }
   let cell = hash3(seed, u32(cx + 512.0), u32(cy + 512.0));
@@ -364,12 +384,12 @@ fn block_at(n: vec2f, seed: u32, pattern: u32, density: f32) -> Block {
       at = vec2f(1.0, 1.0);
     }
     case 2u: {
-      lit = roll < 0.65;
+      lit = roll < 0.85;
       at = vec2f(1.0, 2.0);
     }
     default: {
       // Blocks of 3 to 6 dots by 2 to 4, anywhere in their cell.
-      lit = roll < 0.5;
+      lit = roll < 0.8;
       size = vec2f(f32(3u + hash(cell ^ 0x1u) % 4u), f32(2u + hash(cell ^ 0x2u) % 3u));
       at = vec2f(
         f32(hash(cell ^ 0x3u) % u32(9.0 - size.x)),
@@ -378,18 +398,22 @@ fn block_at(n: vec2f, seed: u32, pattern: u32, density: f32) -> Block {
     }
   }
   if lit {
+    let alive = block_life(cell, t, density);
+    if alive <= 0.0 {
+      return block;
+    }
     block.rect = vec4f(origin + at, origin + at + size);
     // Some with every other column of dots only, as panels switching on; some fainter.
     block.sparse = unit(hash(cell ^ 0x5u)) < 0.2;
-    block.level = 0.6 + 0.4 * unit(hash(cell ^ 0x6u));
+    block.level = (0.6 + 0.4 * unit(hash(cell ^ 0x6u))) * alive;
     block.lean = 0.25 + 0.5 * unit(hash(cell ^ 0x7u));
   }
   return block;
 }
 
-// A batch of faint LED blocks over `under` (the picture at the pixel): in a block, dots that
-// carry the picture a little brighter with a touch of light, the gaps a little darker. A texture
-// over the picture, which shows through.
+// Faint LED blocks over `under` (the picture at the pixel): in a block, dots that carry the
+// picture a little brighter with a touch of light, the gaps a little darker, fading out over its
+// outer dot. A texture over the picture, which shows through.
 fn blocks_over(
   under: vec3f,
   at: vec2i,
@@ -397,15 +421,18 @@ fn blocks_over(
   seed: u32,
   pattern: u32,
   density: f32,
+  t: f32,
   theme: vec3f,
 ) -> vec3f {
   let pitch = led_pitch(size);
   let d = (vec2f(at) + 0.5) / pitch;
   let n = floor(d);
-  let block = block_at(n, seed, pattern, density);
+  var block = block_at(n, seed, pattern, density, t);
   if block.level <= 0.0 || !(all(d >= block.rect.xy) && all(d < block.rect.zw)) {
     return under;
   }
+  let inside = min(min(d.x - block.rect.x, block.rect.z - d.x), min(d.y - block.rect.y, block.rect.w - d.y));
+  block.level *= smoothstep(0.0, 1.0, inside);
   var dot = led_dot(d, pitch, BLOCK_DOT) * dot_level(seed, n);
   if block.sparse && (u32(n.x) & 1u) == 1u {
     dot = 0.0;
@@ -436,18 +463,19 @@ fn led_screen(tex: texture_2d<f32>, at: vec2i, seed: u32, look: u32, theme: vec3
   let dot = led_dot(d, pitch, BLOCK_DOT);
   let tint = led_tint(theme, 0.4 + 0.5 * tone);
   if look == 0u {
-    // The moment that hides the cut: the picture at half, the dots over it.
-    let lit = dotted * (0.75 + 0.15 * tone) + tint * 0.12;
-    return mix(here * 0.5, lit, dot * 0.8);
+    // The moment that hides the cut: the picture dimmed, the dots faint over it.
+    let lit = dotted * (0.75 + 0.15 * tone) + tint * 0.06;
+    return mix(here * 0.72, lit, dot * 0.45);
   }
-  let lit = dotted * (0.85 + 0.15 * tone) + tint * 0.06;
-  return mix(here * 0.78, lit, dot * 0.6);
+  let lit = dotted * (0.85 + 0.15 * tone) + tint * 0.03;
+  return mix(here * 0.88, lit, dot * 0.32);
 }
 
-// The mosaic, one pose of it (its step is worked out in `transition.rs`): `mode` 1 is a batch of
-// blocks over the picture, 2 the whole screen as dots; `kind` is the pattern of the
-// blocks or the look of the dots; `use_new` picks the new picture (the scene's frame) or the old
-// one (the picture held). With `before` and `after` the same texture it is the lens effect.
+// The mosaic, one pose of it (its step is worked out in `transition.rs`): `mode` 1 is blocks
+// over the picture, `density` of them alive at `t` beats (they live on from pose to pose), 2 the
+// whole screen as dots; `kind` is the pattern of the blocks or the look of the dots; `use_new`
+// picks the new picture (the scene's frame) or the old one (the picture held). With `before` and
+// `after` the same texture it is the lens effect.
 fn mosaic(
   before: texture_2d<f32>,
   after: texture_2d<f32>,
@@ -456,6 +484,7 @@ fn mosaic(
   mode: u32,
   kind: u32,
   density: f32,
+  t: f32,
   use_new: bool,
   theme: vec3f,
 ) -> vec3f {
@@ -472,7 +501,7 @@ fn mosaic(
   } else {
     under = load(before, at).rgb;
   }
-  return blocks_over(under, at, size, seed, kind, density, theme);
+  return blocks_over(under, at, size, seed, kind, density, t, theme);
 }
 
 // The punch on a cut of a burst: the frame scaled about its centre, smeared along a diagonal
@@ -547,6 +576,7 @@ fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
         u32(e.x),
         u32(e.y),
         e.z,
+        transition.cutin.x,
         e.w > 0.5,
         transition.color.rgb,
       );
