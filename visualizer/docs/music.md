@@ -281,7 +281,8 @@ A scene that has more than one way to look at its subject declares them as shots
 ```toml
 [camera]
 dutch = 0.35   # the largest dutch angle (roll) in radians; 0 means this scene never tilts
-fill = true    # allows the burst of cuts before a section or a phrase ends
+fill = true    # allows the burst of cuts before a section ends (before a lift)
+hold = 4       # the shortest shot in bars (default 0): a scene that glides sets it to its glide's length
 
 [[shot]]
 name = "below"     # for people
@@ -291,6 +292,7 @@ move = "cut"       # cut | glide
 
 - `size` says how near the shot is. `top` is a view from above, a special shot that is never the nearest to another size.
 - `move = "cut"` means the view jumps to the new shot (the transition layer may dress the jump later). `move = "glide"` means the scene slides there itself, over its own duration in beats. The director's timing is the same for both; it only reports the move.
+- `hold` is the shortest a shot may last, in bars. A scene that glides to a new shot sets it to how long its glide takes, so the shot is reached before the next cut. The cadence below becomes the larger of the section's bars and `hold` (without a followed beat, of the section's seconds and `hold` bars at the tempo, 4 beats to a bar when the meter is unknown). Bursts ignore `hold`: they are hard cuts, so during a burst (`shot.fill > 0`) a scene jumps even to a glide shot.
 - At least one `[[shot]]` is needed if `[camera]` is given. `fill = true` is only used when the scene has a `close` or a `detail` shot.
 - A scene lacking a size gets the nearest one it has.
 
@@ -313,7 +315,7 @@ The director starts on a wide shot before any cut, with `cuts` 0.
 
 ### The rules
 
-**Pace follows the section.** The energy is `section_energy` with a chart and `drive` without. A quiet section (below 0.35) cuts every 4 bars, an ordinary one every 2 bars and a high one (above 0.65) every bar. A cut lands on a downbeat (`bars > 0`) while the beat is followed (`locked` above 0.5). Without a followed beat the times are 12 s, 6 s and 3 s, and a cut that is due waits for a hit (`hits > 0`), or happens at once 2 s after it was due.
+**Pace follows the section.** The energy is `section_energy` with a chart and `drive` without. A quiet section (below 0.35) cuts every 8 bars, an ordinary one every 4 bars and a high one (above 0.65) every 2 bars (half of the first cadence, so that cuts are not too frequent). A cut lands on a downbeat (`bars > 0`) while the beat is followed (`locked` above 0.5). Without a followed beat the times are 24 s, 12 s and 6 s, and a cut that is due waits for a hit (`hits > 0`), or happens at once 2 s after it was due.
 
 **Size follows the place in the section.** A section start (`cues > 0` with `cue` of 0.5 or more) cuts to a wide shot, which establishes the section. Each later cut steps one size closer: medium, close, detail, and then again from medium. In a high section the steps stop at close, and the cuts alternate between detail, medium and close from there. A quiet section alternates wide and medium. A section start always begins the progression again.
 
@@ -323,7 +325,7 @@ The director starts on a wide shot before any cut, with `cuts` 0.
 
 **Glide.** A shot with `move = "glide"` is reported as it is; the scene does the sliding. The director waits no longer and no shorter for it.
 
-**The burst before a change (`fill`).** With the song's analysis, a followed beat, `fill = true` and a near shot, the director cuts on each of the last 4 beats before two places: a section start that lifts the energy (`cue_in` is known and `next_energy` is 0.1 or more above `section_energy`), and the end of every 8-bar phrase in a high section (phrases count in bars from the section's start). The cuts go to medium, close, detail and top (wide if the scene has no top), with `fill` 1 to 4, tilting alternately. Then the normal rules take over at the section start, or at the phrase start, with a wide shot. A scene with a burst should not also plan a move of its own at those beats.
+**The burst before a change (`fill`).** With the song's analysis, a followed beat, `fill = true` and a near shot, the director cuts on each of the last 4 beats before two places: a section start that lifts the energy (`cue_in` is known and `next_energy` is 0.1 or more above `section_energy`), and, only if `PHRASE_BURSTS` is set (it is off: fewer cuts are wanted), the end of every 8-bar phrase in a high section (phrases count in bars from the section's start). The cuts go to medium, close, detail and top (wide if the scene has no top), with `fill` 1 to 4, tilting alternately. Then the normal rules take over at the section start, or at the phrase start, with a wide shot. A scene with a burst should not also plan a move of its own at those beats.
 
 A scene that wants to dress its cuts reads `cuts`; the runtime itself knows each cut too (`Scene::cut_this_frame`), which the transition layer will use.
 

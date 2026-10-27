@@ -86,6 +86,9 @@ pub struct Camera {
     pub dutch: f32,
     /// Whether the director may cut on every beat before a section or a phrase ends.
     pub fill: bool,
+    /// The shortest shot in bars (0 for no minimum): a scene that glides to a new shot sets it
+    /// to how long its glide takes, so the shot is reached before the next cut. Bursts ignore it.
+    pub hold: u32,
 }
 
 /// How near a shot looks at its subject. The order is the order of the numbers `struct Shot`
@@ -647,6 +650,7 @@ tonemap = "aces"
 [camera]
 dutch = 0.35
 fill = true
+hold = 4
 
 [[shot]]
 name = "below"
@@ -663,11 +667,12 @@ move = "glide"
         let plain = Manifest::parse(SMALL).unwrap();
         assert!(plain.shots.is_empty());
         assert_eq!(plain.camera, Camera::default());
-        assert!(!plain.camera.fill && plain.camera.dutch == 0.0);
+        assert!(!plain.camera.fill && plain.camera.dutch == 0.0 && plain.camera.hold == 0);
 
         let m = Manifest::parse(&format!("{SMALL}{SHOTS}")).unwrap();
         assert_eq!(m.camera.dutch, 0.35);
         assert!(m.camera.fill);
+        assert_eq!(m.camera.hold, 4);
         assert_eq!(m.shots.len(), 2);
         assert_eq!(m.shots[0].name, "below");
         assert_eq!(m.shots[0].size, ShotSize::Medium);

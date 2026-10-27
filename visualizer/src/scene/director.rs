@@ -12,18 +12,19 @@ use crate::switching::{FOLLOWED, SECTION_CUE};
 pub const QUIET_BELOW: f32 = 0.35;
 /// A section whose energy is above this is high.
 pub const HIGH_ABOVE: f32 = 0.65;
+// The cadence below is half of the first one, so that cuts are not too frequent.
 /// With a followed beat: bars between two cuts in a quiet section.
-pub const QUIET_BARS: u32 = 4;
+pub const QUIET_BARS: u32 = 8;
 /// With a followed beat: bars between two cuts in a section that is neither quiet nor high.
-pub const NORMAL_BARS: u32 = 2;
+pub const NORMAL_BARS: u32 = 4;
 /// With a followed beat: bars between two cuts in a high section.
-pub const HIGH_BARS: u32 = 1;
+pub const HIGH_BARS: u32 = 2;
 /// Without a followed beat: seconds between two cuts in a quiet section.
-pub const QUIET_SECONDS: f32 = 12.0;
+pub const QUIET_SECONDS: f32 = 24.0;
 /// Without a followed beat: seconds between two cuts in a section that is neither quiet nor high.
-pub const NORMAL_SECONDS: f32 = 6.0;
+pub const NORMAL_SECONDS: f32 = 12.0;
 /// Without a followed beat: seconds between two cuts in a high section.
-pub const HIGH_SECONDS: f32 = 3.0;
+pub const HIGH_SECONDS: f32 = 6.0;
 /// Without a followed beat: how long past the time a cut is due it waits for a hit, then cuts at
 /// once.
 pub const HIT_GRACE_SECONDS: f32 = 2.0;
@@ -34,6 +35,9 @@ pub const FILL_BEATS: u32 = 4;
 pub const FILL_LIFT: f32 = 0.1;
 /// The length of a phrase in a high section, in bars from the section's start.
 pub const PHRASE_BARS: u32 = 8;
+/// Whether the end of every phrase of a high section gets a burst of cuts. Off: fewer cuts are
+/// wanted, and the burst before an energy lift (as in the reference) stays.
+pub const PHRASE_BURSTS: bool = false;
 /// The share of the dutch angle a shot with seed 0 gets; the seed scales the rest.
 pub const ROLL_LEAST: f32 = 0.5;
 /// The farthest apart two sizes are when one of them is `top` and they differ: `top` is never
@@ -129,6 +133,7 @@ pub struct Cut {
     /// The `[[shot]]` it cut to.
     pub index: u32,
     pub size: ShotSize,
+    /// The shot's move, but always `Cut` inside a burst: a burst's cuts are hard.
     pub motion: ShotMove,
     /// 0 for a normal cut, else the position in a burst (1 to [`FILL_BEATS`]).
     pub fill: u32,
@@ -227,6 +232,8 @@ pub struct Director {
     /// After a burst before a phrase's end: the bar count (from the section's start) at which
     /// the next phrase starts.
     phrase_start: Option<u32>,
+    /// Whether the end of a phrase gets a burst (from [`PHRASE_BURSTS`]).
+    phrase_bursts: bool,
 }
 
 impl Director {
@@ -266,6 +273,7 @@ impl Director {
             beat_in_bar: None,
             last_fill: 0,
             phrase_start: None,
+            phrase_bursts: PHRASE_BURSTS,
         };
         let index = director.pick(ShotSize::Wide, 0.0, 0, None);
         director.state.index = index as u32;
@@ -322,13 +330,30 @@ impl Director {
         }
         // The cadence of the section.
         let due = if followed {
-            music.bars > 0 && self.bars_since_cut >= tier.bars()
+            music.bars > 0 && self.bars_since_cut >= self.bars(tier)
         } else {
-            let wait = tier.seconds();
+            let wait = self.seconds(tier, music);
             self.seconds_since_cut >= wait
                 && (music.hits > 0 || self.seconds_since_cut >= wait + HIT_GRACE_SECONDS)
         };
         due.then(|| self.cut(tier.size(self.in_section), music, tier, 0))
+    }
+
+    /// Bars between two cuts with a followed beat: the section's, but at least the scene's `hold`.
+    fn bars(&self, tier: Tier) -> u32 {
+        tier.bars().max(self.camera.hold)
+    }
+
+    /// Seconds between two cuts without a followed beat: the section's, but at least the scene's
+    /// `hold` in bars at the music's tempo (4 beats to a bar when the meter is unknown).
+    fn seconds(&self, tier: Tier, music: &MusicValues) -> f32 {
+        let meter = if music.meter > 0.0 { music.meter } else { 4.0 };
+        let held = if music.tempo > 0.0 {
+            self.camera.hold as f32 * meter * 60.0 / music.tempo
+        } else {
+            0.0
+        };
+        tier.seconds().max(held)
     }
 
     /// Whether this frame is a beat in the last [`FILL_BEATS`] before a place worth a burst, and
@@ -356,7 +381,8 @@ impl Director {
         {
             return Some((Burst::Lift, fill));
         }
-        if tier == Tier::High
+        if self.phrase_bursts
+            && tier == Tier::High
             && self.bars_in_section % PHRASE_BARS == PHRASE_BARS - 1
             && let Some(beat) = self.beat_in_bar
             && let Some(fill) = position(music.meter.round() - beat as f32)
@@ -391,9 +417,9 @@ impl Director {
             seed,
             age: 0.0,
             length: match (music.locked > FOLLOWED, fill) {
-                (true, 0) => (tier.bars() as f32 * music.meter * beat).max(0.0),
+                (true, 0) => (self.bars(tier) as f32 * music.meter * beat).max(0.0),
                 (true, _) => beat,
-                (false, _) => tier.seconds(),
+                (false, _) => self.seconds(tier, music),
             },
             fill,
         };
@@ -403,7 +429,7 @@ impl Director {
         Cut {
             index: index as u32,
             size,
-            motion,
+            motion: if fill > 0 { ShotMove::Cut } else { motion },
             fill,
         }
     }
@@ -454,8 +480,19 @@ mod tests {
             .to_vec()
     }
 
+    fn held(hold: u32) -> Camera {
+        Camera {
+            hold,
+            ..camera(0.0, false)
+        }
+    }
+
     fn camera(dutch: f32, fill: bool) -> Camera {
-        Camera { dutch, fill }
+        Camera {
+            dutch,
+            fill,
+            hold: 0,
+        }
     }
 
     /// A song at 120 bpm (a beat is 0.5 s, a bar 2 s) in 4/4 with a chart, the beat followed, in
@@ -566,9 +603,9 @@ mod tests {
 
     #[test]
     fn cuts_follow_the_bars_of_the_section_energy() {
-        assert_eq!(cuts_in_16_bars(0.2), 4);
-        assert_eq!(cuts_in_16_bars(0.5), 8);
-        assert_eq!(cuts_in_16_bars(0.8), 16);
+        assert_eq!(cuts_in_16_bars(0.2), 2);
+        assert_eq!(cuts_in_16_bars(0.5), 4);
+        assert_eq!(cuts_in_16_bars(0.8), 8);
     }
 
     #[test]
@@ -577,14 +614,18 @@ mod tests {
         let base = song(0.8);
         beats(&mut director, 1, 1, &base, |_, m| start(0.0, m));
         let cuts = beats(&mut director, 2, 40, &base, plain);
-        assert!(cuts.len() >= 9);
+        assert!(cuts.len() >= 5);
         assert!(cuts.iter().all(|(beat, _)| beat % 4 == 0));
     }
 
     /// Frames of 0.1 s with a hit every `hit_every` frames (0 for none), without a beat, for
     /// `seconds`; the seconds each cut happened at.
     fn unfollowed(energy: f32, hit_every: u32, seconds: f32) -> Vec<f32> {
-        let mut director = Director::new(camera(0.0, false), &each_size());
+        unfollowed_held(0, energy, hit_every, seconds)
+    }
+
+    fn unfollowed_held(hold: u32, energy: f32, hit_every: u32, seconds: f32) -> Vec<f32> {
+        let mut director = Director::new(held(hold), &each_size());
         let base = MusicValues {
             locked: 0.0,
             has_chart: 0,
@@ -603,24 +644,24 @@ mod tests {
 
     #[test]
     fn without_a_beat_cuts_wait_for_a_hit() {
-        // A hit every 0.7 s: quiet 12 s lands on the first hit after (12.6 s), and so on.
+        // A hit every 0.7 s: quiet 24 s lands on the first hit after (24.5 s), and so on.
         let quiet = unfollowed(0.2, 7, 26.0);
-        assert_eq!(quiet.len(), 2, "{quiet:?}");
-        assert!((quiet[0] - 12.6).abs() < 0.11, "{quiet:?}");
+        assert_eq!(quiet.len(), 1, "{quiet:?}");
+        assert!((quiet[0] - 24.5).abs() < 0.11, "{quiet:?}");
         let normal = unfollowed(0.5, 7, 13.0);
-        assert!((normal[0] - 6.3).abs() < 0.11, "{normal:?}");
-        let high = unfollowed(0.8, 7, 7.0);
-        assert!((high[0] - 3.5).abs() < 0.11, "{high:?}");
+        assert!((normal[0] - 12.6).abs() < 0.11, "{normal:?}");
+        let high = unfollowed(0.8, 7, 13.0);
+        assert!((high[0] - 6.3).abs() < 0.11, "{high:?}");
         assert_eq!(high.len(), 2, "{high:?}");
     }
 
     #[test]
     fn without_a_beat_or_a_hit_a_cut_waits_two_seconds_more() {
-        let cuts = unfollowed(0.8, 0, 12.0);
-        assert!((cuts[0] - 5.0).abs() < 0.11, "{cuts:?}");
-        assert!((cuts[1] - cuts[0] - 5.0).abs() < 0.11, "{cuts:?}");
-        let cuts = unfollowed(0.2, 0, 15.0);
-        assert!((cuts[0] - 14.0).abs() < 0.11, "{cuts:?}");
+        let cuts = unfollowed(0.8, 0, 20.0);
+        assert!((cuts[0] - 8.0).abs() < 0.11, "{cuts:?}");
+        assert!((cuts[1] - cuts[0] - 8.0).abs() < 0.11, "{cuts:?}");
+        let cuts = unfollowed(0.2, 0, 30.0);
+        assert!((cuts[0] - 26.0).abs() < 0.11, "{cuts:?}");
     }
 
     #[test]
@@ -632,9 +673,9 @@ mod tests {
             drive: 0.9,
             ..song(0.9)
         };
-        // High by `drive` although the section energy is 0: a cut every bar.
+        // High by `drive` although the section energy is 0: a cut every 2 bars.
         let cuts = beats(&mut director, 1, 16, &base, plain);
-        assert_eq!(cuts.len(), 4);
+        assert_eq!(cuts.len(), 2);
     }
 
     #[test]
@@ -643,7 +684,7 @@ mod tests {
         let base = song(0.5);
         let first = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         assert_eq!(first[0].1.size, ShotSize::Wide);
-        let sizes: Vec<ShotSize> = beats(&mut director, 1, 48, &base, plain)
+        let sizes: Vec<ShotSize> = beats(&mut director, 1, 96, &base, plain)
             .into_iter()
             .map(|(_, cut)| cut.size)
             .collect();
@@ -656,12 +697,12 @@ mod tests {
         let mut director = Director::new(camera(0.0, false), &each_size());
         let base = song(0.5);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        let before = beats(&mut director, 1, 16, &base, plain);
+        let before = beats(&mut director, 1, 32, &base, plain);
         assert_eq!(before.len(), 2);
         assert_eq!(before[1].1.size, ShotSize::Close);
-        let again = beats(&mut director, 17, 1, &base, |_, m| start(1.0, m));
+        let again = beats(&mut director, 33, 1, &base, |_, m| start(1.0, m));
         assert_eq!(again[0].1.size, ShotSize::Wide);
-        let next = beats(&mut director, 18, 7, &base, plain);
+        let next = beats(&mut director, 34, 15, &base, plain);
         assert_eq!(next[0].1.size, ShotSize::Medium);
     }
 
@@ -682,7 +723,7 @@ mod tests {
         let mut director = Director::new(camera(0.0, false), &each_size());
         let base = song(0.2);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        let sizes: Vec<ShotSize> = beats(&mut director, 1, 48, &base, plain)
+        let sizes: Vec<ShotSize> = beats(&mut director, 1, 100, &base, plain)
             .into_iter()
             .map(|(_, cut)| cut.size)
             .collect();
@@ -696,7 +737,7 @@ mod tests {
         let mut director = Director::new(camera(0.0, false), &each_size());
         let base = song(0.9);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        let sizes: Vec<ShotSize> = beats(&mut director, 1, 36, &base, plain)
+        let sizes: Vec<ShotSize> = beats(&mut director, 1, 60, &base, plain)
             .into_iter()
             .map(|(_, cut)| cut.size)
             .collect();
@@ -750,7 +791,7 @@ mod tests {
                     cuts += 1;
                 }
             }
-            assert!(cuts > 12);
+            assert!(cuts >= 12);
         }
     }
 
@@ -763,7 +804,7 @@ mod tests {
         assert_eq!(cuts[0].1.index, 0);
         assert_eq!(cuts[0].1.motion, ShotMove::Glide);
         let mut seeds = vec![director.state().seed];
-        for beat in 1..13u32 {
+        for beat in 1..33u32 {
             let frame = MusicValues {
                 beats: 1,
                 bars: u32::from(beat % 4 == 0),
@@ -794,12 +835,12 @@ mod tests {
                 ..song(0.9)
             };
             let mut all = beats(&mut director, from, 1, &base, |_, m| start(label, m));
-            all.extend(beats(&mut director, from + 1, 23, &base, plain));
+            all.extend(beats(&mut director, from + 1, 47, &base, plain));
             all.iter().map(|(_, cut)| cut.index).collect()
         };
         let first = section(2.0, 0);
-        let other = section(3.0, 24);
-        let again = section(2.0, 48);
+        let other = section(3.0, 48);
+        let again = section(2.0, 96);
         // The first starts with a shot that was on before it, so compare from the second cut.
         assert_eq!(first[1..], again[1..]);
         assert_ne!(first[1..], other[1..]);
@@ -854,8 +895,8 @@ mod tests {
         let mut director = Director::new(camera(0.0, false), &each_size());
         let base = song(0.5);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        // Two bars of 2 s at 120 bpm.
-        assert_eq!(director.state().length, 4.0);
+        // Four bars of 2 s at 120 bpm.
+        assert_eq!(director.state().length, 8.0);
         assert_eq!(director.state().age, 0.0);
         beats(&mut director, 1, 2, &base, plain);
         assert_eq!(director.state().age, 1.0);
@@ -871,7 +912,8 @@ mod tests {
     /// The beats before a section at beat 24 that lifts the energy from 0.5 to 0.9, with the
     /// time to it known, from beat 16 on.
     fn lift_run(director: &mut Director) -> Vec<(u32, Cut)> {
-        let base = song(0.5);
+        // A quiet section, so that no cut of its own cadence falls before the burst.
+        let base = song(0.2);
         let mut all = beats(director, 0, 1, &base, |_, m| start(0.0, m));
         let coming = MusicValues {
             next_energy: 0.9,
@@ -910,8 +952,8 @@ mod tests {
         // And the section start is a wide shot, with the progression started again.
         let (beat, last) = all.last().unwrap();
         assert_eq!((*beat, last.size, last.fill), (24, Wide, 0));
-        // One bar of 2 s: the section is a high one.
-        assert_eq!(director.state().length, 2.0);
+        // Two bars of 2 s: the section is a high one.
+        assert_eq!(director.state().length, 4.0);
     }
 
     #[test]
@@ -944,9 +986,25 @@ mod tests {
     }
 
     #[test]
+    fn a_burst_cuts_hard_to_a_glide_shot() {
+        let shots: Vec<Shot> = each_size()
+            .into_iter()
+            .map(|s| shot(s.size, ShotMove::Glide))
+            .collect();
+        let mut director = Director::new(camera(0.3, true), &shots);
+        let all = lift_run(&mut director);
+        assert!(all.iter().any(|(_, c)| c.fill > 0));
+        for (_, cut) in &all {
+            let want = if cut.fill > 0 { ShotMove::Cut } else { ShotMove::Glide };
+            assert_eq!(cut.motion, want, "{all:?}");
+        }
+    }
+
+    #[test]
     fn a_burst_ends_on_wide_without_a_top_shot() {
         use ShotSize::*;
-        let shots = [Wide, Medium, Close, Detail]
+        // Two wide shots, as scenes declare, so that the section start at beat 0 stays wide.
+        let shots = [Wide, Medium, Close, Detail, Wide]
             .map(|size| shot(size, ShotMove::Cut))
             .to_vec();
         let mut director = Director::new(camera(0.3, true), &shots);
@@ -1018,6 +1076,7 @@ mod tests {
     #[test]
     fn a_burst_ends_a_phrase_of_a_high_section_and_the_next_phrase_starts_wide() {
         let mut director = Director::new(camera(0.3, true), &each_size());
+        director.phrase_bursts = true;
         let base = song(0.9);
         let mut all = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         // The section's 8 bars are beats 1 to 32 (a downbeat each 4), a second phrase follows.
@@ -1036,9 +1095,47 @@ mod tests {
         // The phrase starts on the downbeat of beat 32 with a wide shot.
         let at_32 = all.iter().find(|(b, _)| *b == 32).unwrap();
         assert_eq!((at_32.1.size, at_32.1.fill), (ShotSize::Wide, 0));
-        // And the progression goes on from there: medium next, a bar after.
-        let at_36 = all.iter().find(|(b, _)| *b == 36).unwrap();
-        assert_eq!(at_36.1.size, ShotSize::Medium);
+        // And the progression goes on from there: medium next, two bars after.
+        let at_40 = all.iter().find(|(b, _)| *b == 40).unwrap();
+        assert_eq!(at_40.1.size, ShotSize::Medium);
+    }
+
+    #[test]
+    fn no_phrase_burst_by_default() {
+        assert!(!PHRASE_BURSTS);
+        let mut director = Director::new(camera(0.3, true), &each_size());
+        let base = song(0.9);
+        let mut all = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        all.extend(beats(&mut director, 1, 80, &base, plain));
+        assert!(all.len() > 10);
+        assert!(all.iter().all(|(_, c)| c.fill == 0), "{all:?}");
+    }
+
+    #[test]
+    fn hold_is_the_shortest_shot() {
+        // A high section cuts every 2 bars; a hold of 4 makes it every 4 (beats 16 and 32).
+        let mut director = Director::new(held(4), &each_size());
+        let base = song(0.9);
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        let cuts = beats(&mut director, 1, 40, &base, plain);
+        assert_eq!(cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(), [16, 32]);
+        assert_eq!(director.state().length, 8.0);
+        // A hold shorter than the section's cadence changes nothing.
+        let mut director = Director::new(held(1), &each_size());
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        let cuts = beats(&mut director, 1, 40, &base, plain);
+        assert_eq!(cuts.len(), 5);
+    }
+
+    #[test]
+    fn without_a_beat_the_wait_grows_with_hold() {
+        // 4 bars of 2 s are 8 s, over the high section's 6 s; with no hit, 2 s more.
+        let cuts = unfollowed_held(4, 0.8, 0, 25.0);
+        assert!((cuts[0] - 10.0).abs() < 0.11, "{cuts:?}");
+        assert!((cuts[1] - cuts[0] - 10.0).abs() < 0.11, "{cuts:?}");
+        // A hold under the section's wait changes nothing.
+        let cuts = unfollowed_held(2, 0.8, 0, 12.0);
+        assert!((cuts[0] - 8.0).abs() < 0.11, "{cuts:?}");
     }
 
     #[test]
