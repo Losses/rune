@@ -14,6 +14,11 @@ use super::level::Level;
 use crate::moments::{self, Strength};
 use crate::scene::MusicValues;
 
+/// The loudness (0 to 1, against the song's own range with a chart, the live level without one)
+/// from which the music counts as fully heard for `audible`: quieter than that it is fading or
+/// silent.
+const AUDIBLE_FULL: f32 = 0.25;
+
 /// What a source says in one frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Reading {
@@ -154,6 +159,12 @@ pub static SOURCES: &[Source] = &[
         ALL,
         "Fast energy, at the scale of a phrase.",
         |m, _| value(m.intensity),
+    ),
+    level_source(
+        "audible",
+        ALL,
+        "How much is heard: 1 at a usual loudness, falling with a fade-out to 0 in silence.",
+        |m, _| value((m.loudness / AUDIBLE_FULL).clamp(0.0, 1.0)),
     ),
     event_source(
         "hits",
@@ -362,6 +373,24 @@ mod tests {
         assert_eq!(read("bars", &music), event(1.0, 1));
         assert_eq!(read("cues", &music), event(0.5, 1));
         assert!(find("hits").unwrap().event && !find("hit").unwrap().event);
+    }
+
+    #[test]
+    fn audible_is_full_at_a_usual_loudness_and_falls_with_a_fade() {
+        let at = |loudness| {
+            read(
+                "audible",
+                &MusicValues {
+                    loudness,
+                    ..Default::default()
+                },
+            )
+            .value
+        };
+        assert_eq!(at(0.7), 1.0);
+        assert_eq!(at(0.25), 1.0);
+        assert_eq!(at(0.125), 0.5);
+        assert_eq!(at(0.0), 0.0);
     }
 
     #[test]

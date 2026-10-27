@@ -305,6 +305,7 @@ Each source has a value and, if it is an event, a count of events this frame (th
 |---|---|---|---|
 | `tempo` `clock` `flow` `meter` `locked` | value | A B C | The tempo and clock signals |
 | `drive` `intensity` | value | A B C | The energy signals |
+| `audible` | value | A B C | How much is heard: the loudness against a usual one (`loudness / 0.25`, at most 1), so 1 while the music plays, falling with a fade-out and 0 in silence. Multiply a steady motion by it (`mul = "audible"`) so that it slows with the song's own fade and stops where nothing is heard; smooth it in the bind (`smooth`) as the motion needs |
 | `hits` `cues` `impacts` `notes` | event | A B C | Count, with the envelope (`hit`, `cue`, ...) as strength |
 | `hit` `cue` `impact` `note` | value | A B C | The envelopes alone |
 | `bars` `beats` | event | A | Strength 1; they only count while the beat is followed. `bars`, `beats`, `bar` and `beat` mean something only at A (the bindings are gated by the level: a bind with a `fallback` takes it at B and C). A scene that counted `bar % 4` from the raw signals read a bar that stays 0 at C and so got every bar there |
