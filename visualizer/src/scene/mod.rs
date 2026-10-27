@@ -5,6 +5,7 @@
 mod audio;
 mod director;
 mod inputs;
+mod lens;
 pub use inputs::MusicValues;
 mod manifest;
 mod noise;
@@ -27,6 +28,7 @@ use director::Director;
 pub use director::DirectorView;
 use inputs::EventCounter;
 pub use manifest::Effects;
+pub use lens::LensView;
 use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
 use wgsl::ParamsLayout;
 
@@ -445,6 +447,8 @@ pub struct Scene {
     cut: Option<CutInfo>,
     /// A cut that [`Scene::cut_now`] made, to be reported with the next frame.
     forced_cut: Option<CutInfo>,
+    /// The lens effects the scene listed (`effects.lens`) and when each is on.
+    lens: lens::Lens,
     /// The visualizer's time when the scene started, and of the last frame.
     started: Option<f64>,
     last: Option<f64>,
@@ -1261,6 +1265,7 @@ impl Scene {
             cut_transitions: manifest.effects.cut.clone(),
             cut: None,
             forced_cut: None,
+            lens: lens::Lens::new(&manifest.effects.lens),
             started: None,
             last: None,
             last_song: 0.0,
@@ -1326,6 +1331,26 @@ impl Scene {
         self.director
             .as_ref()
             .map(|director| director.view(&self.music_values))
+    }
+
+    /// Which lens effects the scene has on, for a readout.
+    pub fn lens_view(&self) -> LensView {
+        self.lens.view()
+    }
+
+    /// Start a lens flare now, at full strength (a scene lab).
+    pub fn start_flare(&mut self) {
+        self.lens.start_flare(1.0);
+    }
+
+    /// Start a light leak now, at full strength (a scene lab).
+    pub fn start_leak(&mut self) {
+        self.lens.start_leak(1.0);
+    }
+
+    /// Fire a colour-block frame now (a scene lab).
+    pub fn start_blocks(&mut self) {
+        self.lens.start_blocks(1.0);
     }
 
     /// Cut to the next shot now, by the director's rules for the size (see
@@ -1681,6 +1706,8 @@ impl Scene {
             None => [0; wgsl::SHOT_SIZE as usize],
         };
         queue.write_buffer(&self.shot, 0, &shot);
+        let lens = self.lens.tick(dt as f32, &music, self.level.quality);
+        self.sized.post.write_lens(queue, &lens);
         queue.write_buffer(&self.post_buffer, 0, &self.post_defaults);
         write_texture(
             queue,
@@ -1779,6 +1806,7 @@ impl Scene {
             timestamps,
             begin,
             stamp_end,
+            lens.flare > 0.0,
         );
 
         for t in &mut self.sized.targets {

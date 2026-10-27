@@ -642,6 +642,26 @@ impl Pipeline {
         self.transitions.forced = Forced::Wanted(transition);
     }
 
+    /// The newest scene starts a lens flare now (see [`Scene::start_flare`]).
+    pub fn start_flare(&mut self) {
+        self.latest_mut().start_flare();
+    }
+
+    /// The newest scene starts a light leak now (see [`Scene::start_leak`]).
+    pub fn start_leak(&mut self) {
+        self.latest_mut().start_leak();
+    }
+
+    /// The newest scene fires a colour-block frame now (see [`Scene::start_blocks`]).
+    pub fn start_blocks(&mut self) {
+        self.latest_mut().start_blocks();
+    }
+
+    /// Which lens effects the scene on screen has on.
+    pub fn lens_view(&self) -> crate::scene::LensView {
+        self.scene.lens_view()
+    }
+
     /// The newest scene's director holds shot `index`, or with none lets go of a held shot (see
     /// [`Scene::hold_shot`]); whether it could.
     pub fn hold_shot(&mut self, index: Option<u32>) -> bool {
@@ -2191,6 +2211,7 @@ mod probe {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::scene::argb_to_linear;
 
     /// The visualizer's size on the phone (an iPhone 13 mini's cover wall).
     const SIZE: (u32, u32) = (448, 970);
@@ -2331,12 +2352,24 @@ mod probe {
         pipeline: &mut Pipeline,
         last: u32,
         keep: &[u32],
+        each: impl FnMut(u32, &[f64], Option<Vec<u8>>),
+    ) {
+        run_with(pipeline, last, keep, |_, _| {}, each);
+    }
+
+    /// The same, with `before` called on the pipeline ahead of drawing each frame number.
+    fn run_with(
+        pipeline: &mut Pipeline,
+        last: u32,
+        keep: &[u32],
+        mut before: impl FnMut(&mut Pipeline, u32),
         mut each: impl FnMut(u32, &[f64], Option<Vec<u8>>),
     ) {
         let size = pipeline.size();
         // A read-back frame comes out of the call after the one that drew it (the probe waits
         // for each), so one call more than there are frames.
         for i in 0..=last + 1 {
+            before(pipeline, i);
             pipeline.set_rhythm(&rhythm_at(i));
             let rendered = pipeline.render(START + f64::from(i) / FPS).unwrap();
             pipeline
@@ -2417,6 +2450,78 @@ mod probe {
                 at(50),
                 at(90),
                 times.len()
+            );
+        }
+    }
+
+    /// The lens effects of scene `PROBE` (default Armillary) started from the lab's commands, at
+    /// the app's accent: a frame of each as a PNG in `PROBE_OUT` (the flare near its peak, the
+    /// leak at 4 s, a colour-block frame, and one with no effect), and the GPU time of the scene
+    /// with a flare always running against none, as the median over `PROBE_COST_FRAMES` frames
+    /// (default 600) after the first 60.
+    #[test]
+    #[ignore = "a probe, run by hand"]
+    fn probe_lens() {
+        let mut pipeline = pipeline();
+        pipeline.set_accent(Some(argb_to_linear(0xffe8602c)));
+        let size = pipeline.size();
+        let scene = env_or("PROBE", "Armillary");
+        let out = out_dir();
+        // The effect, the frame it starts at and the frame looked at.
+        let looks: [(&str, fn(&mut Pipeline), u32, u32); 4] = [
+            ("none", |_| {}, 0, 240),
+            ("flare", Pipeline::start_flare, 100, 112),
+            ("leak", Pipeline::start_leak, 100, 340),
+            ("blocks", Pipeline::start_blocks, 239, 240),
+        ];
+        for (name, start, at, look) in looks {
+            load(&mut pipeline, &scene, Level::FULL);
+            run_with(
+                &mut pipeline,
+                look,
+                &[look],
+                |pipeline, i| {
+                    if i == at {
+                        start(pipeline);
+                    }
+                },
+                |i, _, pixels| {
+                    if let (Some(pixels), Some(out)) = (pixels, &out) {
+                        let file = format!("lens-{}-{name}.png", label(&scene));
+                        save_png(&out.join(file), pixels, size);
+                        eprintln!("PROBE saved lens-{name} at frame {i}");
+                    }
+                },
+            );
+        }
+        let frames: u32 = env_or("PROBE_COST_FRAMES", "600").parse().unwrap();
+        let mut cost = |flare: bool| {
+            load(&mut pipeline, &scene, Level::FULL);
+            let mut times = Vec::new();
+            run_with(
+                &mut pipeline,
+                frames,
+                &[],
+                |pipeline, i| {
+                    // Started again before it has gone, so that one is always under way.
+                    if flare && i % 30 == 0 {
+                        pipeline.start_flare();
+                    }
+                },
+                |i, time, _| {
+                    if let (true, Some(&time)) = (i >= 60, time.last()) {
+                        times.push(time);
+                    }
+                },
+            );
+            times.sort_by(f64::total_cmp);
+            times[times.len() / 2] * 1e3
+        };
+        for round in 0..3 {
+            let (off, on) = (cost(false), cost(true));
+            eprintln!(
+                "PROBE round {round}: flare off {off:.3} ms, on {on:.3} ms, +{:.3} ms",
+                on - off
             );
         }
     }

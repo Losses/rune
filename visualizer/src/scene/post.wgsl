@@ -2,13 +2,34 @@
 // average on the first level, tent upsampling), then exposure, chromatic aberration, tone
 // mapping, vignette, grain and dithering into the 8-bit frame. The Rust side puts the structs
 // Frame and Post and the constants LEVELS and TONEMAP (0 AgX, 1 ACES, 2 none) in front.
+//
+// The lens effects of a scene that lists them (struct Lens, see scene/lens.rs; all zeros
+// otherwise, and then nothing below costs a tap; each effect is started at a moment and runs
+// its course, so these are strengths that rise and fall): a flare made from the bloom in a pass of its
+// own (`flare`), a light leak and a colour-block frame in the composite.
 
 @group(0) @binding(0) var<storage, read> post: Post;
 @group(0) @binding(1) var<uniform> frame: Frame;
+@group(0) @binding(2) var<uniform> lens: Lens;
 @group(1) @binding(0) var source: texture_2d<f32>;
 @group(1) @binding(1) var smp: sampler;
 @group(1) @binding(2) var bloom: texture_2d<f32>;
 @group(1) @binding(3) var blue_noise: texture_2d<f32>;
+@group(1) @binding(4) var flare_tex: texture_2d<f32>;
+
+// Which lens effects are on. `flare` is the strength of the burst (0 off), `leak` how much of the light leak
+// is in (0 to 1) with its source at (leak_x, leak_y) in uv, of radius leak_size (in heights) and a
+// phase that grows over the leak; `blocks` is 1 on a colour-block frame.
+struct Lens {
+  flare: f32,
+  leak: f32,
+  blocks: f32,
+  phase: f32,
+  leak_x: f32,
+  leak_y: f32,
+  leak_size: f32,
+  unused: f32,
+}
 
 struct Varyings {
   @builtin(position) position: vec4f,
@@ -81,6 +102,17 @@ fn above_threshold(c: vec3f) -> vec3f {
   return c * max(soft, b - t) / max(b, 1e-4);
 }
 
+// The app's accent in linear light with its brightest channel at 1: the one colour family the
+// lens effects are drawn in. A warm orange before the app has told one.
+fn theme() -> vec3f {
+  var c = frame.accent.rgb;
+  let m = max(c.r, max(c.g, c.b));
+  if (frame.accent.a < 0.5 || m < 1e-3) {
+    c = vec3f(1.0, 0.35, 0.08);
+  }
+  return c / max(c.r, max(c.g, c.b));
+}
+
 @fragment
 fn first_down(v: Varyings) -> @location(0) vec4f {
   return vec4f(above_threshold(downsample(v.uv, true)), 1.0);
@@ -100,6 +132,51 @@ fn up(v: Varyings) -> @location(0) vec4f {
   sum += (tap(v.uv, texel, -1.0, 0.0) + tap(v.uv, texel, 1.0, 0.0) + tap(v.uv, texel, 0.0, -1.0) + tap(v.uv, texel, 0.0, 1.0)) * 2.0;
   sum += tap(v.uv, texel, -1.0, -1.0) + tap(v.uv, texel, 1.0, -1.0) + tap(v.uv, texel, -1.0, 1.0) + tap(v.uv, texel, 1.0, 1.0);
   return vec4f(sum / 16.0 * clamp(post.bloom_radius, 0.0, 1.0), 1.0);
+}
+
+// What of a bloom value throws the flare: only the bright part, softly.
+fn flare_bright(c: vec3f) -> vec3f {
+  let l = luma(c);
+  return c * max(l - 0.3, 0.0) / max(l, 1e-4);
+}
+
+fn flare_tap(uv: vec2f) -> vec3f {
+  return flare_bright(textureSampleLevel(source, smp, uv, 0.0).rgb);
+}
+
+// A pseudo lens flare from a bloom level, as John Chapman's: no light sources are looked for.
+// The bright parts throw a thin horizontal streak (a gather along the row, as an anamorphic lens
+// stretches them), a few soft ghosts (the picture sampled again along the line through the
+// centre, fading towards the edge) and a halo ring. All of it is in the theme's colour. Drawn
+// into a texture the size of the level, so a pixel of it is worth sixteen of the picture.
+@fragment
+fn flare(v: Varyings) -> @location(0) vec4f {
+  let uv = v.uv;
+  let tint = mix(vec3f(1.0), theme(), 0.7);
+
+  var streak = vec3f(0.0);
+  var total = 0.0;
+  for (var i = -10; i <= 10; i++) {
+    let x = f32(i) / 10.0;
+    let w = exp(-3.0 * abs(x));
+    streak += flare_tap(uv + vec2f(x * 0.4, 0.0)) * w;
+    total += w;
+  }
+  streak = streak / total * 8.0;
+
+  let to_centre = vec2f(0.5) - uv;
+  var ghosts = vec3f(0.0);
+  for (var i = 1; i <= 3; i++) {
+    let at = uv + to_centre * 0.55 * f32(i);
+    let fade = clamp(1.0 - length(vec2f(0.5) - at) / 0.7071, 0.0, 1.0);
+    ghosts += flare_tap(at) * (fade * fade * fade) * (1.0 / f32(i));
+  }
+
+  let dir = normalize(to_centre + vec2f(1e-5)) * 0.42;
+  let ring = clamp(1.0 - length(vec2f(0.5) - (uv + dir)) / 0.7071, 0.0, 1.0);
+  let halo = flare_tap(uv + dir) * pow(ring, 5.0);
+
+  return vec4f((streak + ghosts * 1.0 + halo * 1.0) * tint, 1.0);
 }
 
 // Troy Sobotka's AgX with Benjamin Wrensch's polynomial fit of its contrast curve. Takes linear
@@ -139,6 +216,37 @@ fn aces(c: vec3f) -> vec3f {
   return encode_srgb((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));
 }
 
+// The light of the leak at uv, in the theme's colour a little warmer: a soft blob round its
+// source, whose edge breathes with the phase. Added in linear light, peaking well under white.
+fn leak_light(uv: vec2f) -> vec3f {
+  let d = (uv - vec2f(lens.leak_x, lens.leak_y)) * vec2f(frame.aspect, 1.0);
+  let r = length(d) / lens.leak_size;
+  let lobes = 1.0 + 0.18 * sin(atan2(d.y, d.x) * 3.0 + lens.phase) + 0.1 * sin(r * 4.0 - lens.phase * 2.0);
+  let fall = pow(clamp(1.0 - r * lobes, 0.0, 1.0), 2.0);
+  let colour = mix(theme(), vec3f(1.0, 0.7, 0.4), 0.2);
+  return colour * fall * 0.45 * lens.leak;
+}
+
+// The colour-block frame: the whole screen flat in the theme's colour, and the picture's bright
+// edges over it as white line art. Peaks are capped, so it is never a flash to full white.
+fn block_frame(uv: vec2f) -> vec3f {
+  let texel = 1.5 / vec2f(textureDimensions(source));
+  let ex = exp2(post.exposure);
+  var l: array<f32, 9>;
+  for (var n = 0; n < 9; n++) {
+    let o = vec2f(f32(n % 3) - 1.0, f32(n / 3) - 1.0) * texel;
+    let c = textureSampleLevel(source, smp, uv + o, 0.0).rgb * ex;
+    let y = luma(c);
+    l[n] = y / (1.0 + y);
+  }
+  let gx = (l[2] + 2.0 * l[5] + l[8]) - (l[0] + 2.0 * l[3] + l[6]);
+  let gy = (l[6] + 2.0 * l[7] + l[8]) - (l[0] + 2.0 * l[1] + l[2]);
+  let edge = smoothstep(0.03, 0.12, length(vec2f(gx, gy)));
+  let bright = smoothstep(0.02, 0.15, max(l[4], max(l[1], max(l[3], max(l[5], l[7])))));
+  let fill = encode_srgb(theme()) * 0.8;
+  return mix(fill, vec3f(0.92), edge * bright);
+}
+
 fn noise(coord: vec2f, salt: u32) -> vec4f {
   let s = frame.seed * 1664525u + salt * 1013904223u;
   let shift = vec2i(i32((s >> 8u) & 63u), i32((s >> 16u) & 63u));
@@ -167,6 +275,12 @@ fn composite(v: Varyings) -> @location(0) vec4f {
   c *= exp2(post.exposure);
   c = c * (1.0 + 2.0 * post.flash) + vec3f(post.flash);
   c *= post.tint.rgb;
+  if (lens.flare > 0.0) {
+    c += textureSampleLevel(flare_tex, smp, uv, 0.0).rgb * lens.flare;
+  }
+  if (lens.leak > 0.0) {
+    c += leak_light(uv);
+  }
 
   var display: vec3f;
   if (TONEMAP == 0u) {
@@ -185,6 +299,9 @@ fn composite(v: Varyings) -> @location(0) vec4f {
 
   let corner = length((uv - 0.5) * vec2f(1.0, 0.8)) * 1.6;
   display *= 1.0 - post.vignette * smoothstep(0.35, 1.0, corner);
+  if (lens.blocks > 0.0) {
+    display = mix(display, block_frame(uv), clamp(lens.blocks, 0.0, 1.0));
+  }
 
   let n = noise(v.position.xy, 1u);
   display += (n.r - 0.5) * post.grain * (1.2 - luma(display));

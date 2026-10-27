@@ -385,6 +385,16 @@ All shared effects read the same semantic signals, are declared in `scene.toml` 
 
 The runtime puts them in the built-in post-processing and adds the matching fields to `struct Post`. They can be triggered in two ways: the scene writes `post.*` in `update()`, as it does now, or it declares them in an `[effects]` table of `scene.toml` and the runtime triggers them on cues, for example `glitch = { on = "cue", min = 0.8, amount = 0.3 }`. An automatic trigger can only hang on `cue` and `impact`. There is no "on every beat" option, by the taste rules above.
 
+#### Lens effects in the post-processing (implemented: `flare`, `leak`, `blocks`)
+
+A scene turns one on by listing it in `effects.lens`; with none listed the post pass does the same work as before (the effects' passes are not encoded and their branches read a uniform of zeros). Each is started at a moment with a strength (0 to 1) and runs its course; none is a constant layer. They are drawn in the app's accent (`frame.accent`; a warm orange before the app tells one) and black and white, and none reaches full white. `blur` is still to come.
+
+- **`flare`**: a burst of thin horizontal streaks, three ghosts and a halo ring, in over half a beat and away over six (a bar and a half). A pass of its own at the size of the second bloom level (a quarter of the internal size) makes it from the bloom's bright part (John Chapman's pseudo lens flare, no light sources are looked for); the composite adds it before tone mapping. It is drawn only from `frame.quality` 0.5 up (it is lowered first).
+- **`leak`**: a soft glow in the accent's colour, a little warmer, that comes in from a corner over 4 beats and goes over the next 16 while its source drifts along its edge.
+- **`blocks`** (the colour-block frame): the whole picture is a flat fill of the accent (at 0.8 of its brightness) with the picture's bright edges drawn over it in white line art (0.92), for about 30 ms: one or two frames, never none.
+
+Durations are in beats from `tempo` while the beat is followed (`locked` above 0.5) and at 120 bpm otherwise. For now `Lens::auto_start` (`scene/lens.rs`) starts the listed ones on a cue, as strong as the cue: a flare and a leak from 0.5, blocks from 0.8; the moments are meant to come from one scheduler shared by the effects. A scene lab starts each by hand (`Q` flare, `W` leak, `E` colour block), also in a scene that did not list it.
+
 ### Transitions
 
 One transition layer serves both the switch from one scene to the next and a camera cut inside a scene.

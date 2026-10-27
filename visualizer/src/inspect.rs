@@ -3,7 +3,7 @@
 //! things it can be told to do now (see [`crate::Visualizer::lab`]). The app uses neither: the
 //! render thread only fills an [`Inspect`] while inspection is on.
 
-use crate::scene::{DirectorView, Effects, MusicValues};
+use crate::scene::{DirectorView, Effects, LensView, MusicValues};
 use crate::switching::FOLLOWED;
 use crate::transition::{CutInStyle, Transition};
 
@@ -24,6 +24,33 @@ pub struct Inspect {
     /// The transitions and lens effects the scene on screen declares.
     pub effects: InspectEffects,
     pub switching: InspectSwitching,
+    /// The lens effects of the scene on screen.
+    pub lens: InspectLens,
+}
+
+/// Which lens effects the scene on screen has (see [`LabCommand::Flare`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InspectLens {
+    /// The scene lists the effect (the lab can start one all the same), and it is under way.
+    pub flare_listed: bool,
+    pub flare_running: bool,
+    pub leak_listed: bool,
+    pub leak_running: bool,
+    pub blocks_listed: bool,
+    pub blocks_running: bool,
+}
+
+impl From<LensView> for InspectLens {
+    fn from(view: LensView) -> Self {
+        Self {
+            flare_listed: view.flare_listed,
+            flare_running: view.flare_running,
+            leak_listed: view.leak_listed,
+            leak_running: view.leak_running,
+            blocks_listed: view.blocks_listed,
+            blocks_running: view.blocks_running,
+        }
+    }
 }
 
 /// The music's values of the last frame, as the scenes and the switching hear them.
@@ -198,6 +225,12 @@ pub enum LabCommand {
     /// The camera director cuts now, dressed with the transition (see
     /// [`crate::pipeline::Pipeline::cut_dressed`]), whether the scene lists it or not.
     CutDressed(LabTransition),
+    /// Start a lens flare now, as a section start would (even if the scene lists none).
+    Flare,
+    /// Start a light leak now, as a section start would (even if the scene lists none).
+    Leak,
+    /// Fire a colour-block frame now, as a strong cue would (even if the scene lists none).
+    Blocks,
 }
 
 /// The name of a shot size, from the number `struct Shot` has.
