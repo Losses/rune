@@ -435,8 +435,12 @@ pub struct Scene {
     director: Option<Director>,
     /// The transitions a switch to the scene may take, by name (its `effects.switch`).
     switch_transitions: Vec<String>,
+    /// The transitions that may dress a cut of the director, by name (its `effects.cut`).
+    cut_transitions: Vec<String>,
     /// The cut the director made in the last frame.
     cut: Option<CutInfo>,
+    /// A cut that [`Scene::cut_now`] made, to be reported with the next frame.
+    forced_cut: Option<CutInfo>,
     /// The visualizer's time when the scene started, and of the last frame.
     started: Option<f64>,
     last: Option<f64>,
@@ -1249,7 +1253,9 @@ impl Scene {
             music_values: inputs::MusicValues::default(),
             director: Director::for_manifest(manifest),
             switch_transitions: manifest.effects.switch.clone(),
+            cut_transitions: manifest.effects.cut.clone(),
             cut: None,
+            forced_cut: None,
             started: None,
             last: None,
             last_song: 0.0,
@@ -1293,8 +1299,7 @@ impl Scene {
     }
 
     /// The camera cut the director made in the last frame drawn, if any: for the transition layer
-    /// to dress (a hard cut for now).
-    #[cfg_attr(not(test), allow(dead_code, reason = "for the transition layer"))]
+    /// to dress (see [`Scene::cut_transitions`]).
     pub fn cut_this_frame(&self) -> Option<CutInfo> {
         self.cut
     }
@@ -1302,6 +1307,12 @@ impl Scene {
     /// The transitions a switch to this scene may take, by name (its `effects.switch`).
     pub fn switch_transitions(&self) -> &[String] {
         &self.switch_transitions
+    }
+
+    /// The transitions that may dress a cut of the director in this scene, by name (its
+    /// `effects.cut`); empty for plain cuts.
+    pub fn cut_transitions(&self) -> &[String] {
+        &self.cut_transitions
     }
 
     /// What a readout shows of the camera director (none for a scene without shots), with the
@@ -1313,10 +1324,16 @@ impl Scene {
     }
 
     /// Cut to the next shot now, by the director's rules for the size (see
-    /// `Director::force_cut`); the scene hears of it with the next frame. Nothing without shots.
+    /// `Director::force_cut`); the scene hears of it with the next frame, which reports it as its
+    /// cut ([`Scene::cut_this_frame`]). Nothing without shots.
     pub fn cut_now(&mut self) {
         if let Some(director) = &mut self.director {
-            director.force_cut(&self.music_values);
+            let cut = director.force_cut(&self.music_values);
+            self.forced_cut = Some(CutInfo {
+                size: cut.size,
+                motion: cut.motion,
+                cue: self.music_values.cue,
+            });
         }
     }
 
@@ -1618,11 +1635,14 @@ impl Scene {
         self.cut = None;
         let shot = match &mut self.director {
             Some(director) => {
-                self.cut = director.tick(dt as f32, &music).map(|cut| CutInfo {
-                    size: cut.size,
-                    motion: cut.motion,
-                    cue: music.cue,
-                });
+                self.cut = director
+                    .tick(dt as f32, &music)
+                    .map(|cut| CutInfo {
+                        size: cut.size,
+                        motion: cut.motion,
+                        cue: music.cue,
+                    })
+                    .or(self.forced_cut.take());
                 director.state().bytes()
             }
             None => [0; wgsl::SHOT_SIZE as usize],

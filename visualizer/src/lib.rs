@@ -1337,6 +1337,7 @@ fn lab(
 ) {
     match command {
         LabCommand::Cut => pipeline.cut_now(),
+        LabCommand::CutDressed(transition) => pipeline.cut_dressed(transition.into()),
         LabCommand::Shot(index) => {
             if !pipeline.hold_shot(index) {
                 info!("The scene has no shot {index:?} to hold");

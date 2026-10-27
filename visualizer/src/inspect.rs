@@ -109,6 +109,9 @@ pub enum LabTransition {
     Cut,
     Fade,
     Dissolve,
+    Flash,
+    Glitch,
+    Mosaic,
 }
 
 impl From<Transition> for LabTransition {
@@ -117,6 +120,9 @@ impl From<Transition> for LabTransition {
             Transition::Cut => Self::Cut,
             Transition::Fade => Self::Fade,
             Transition::Dissolve => Self::Dissolve,
+            Transition::Flash => Self::Flash,
+            Transition::Glitch => Self::Glitch,
+            Transition::Mosaic => Self::Mosaic,
         }
     }
 }
@@ -127,6 +133,9 @@ impl From<LabTransition> for Transition {
             LabTransition::Cut => Self::Cut,
             LabTransition::Fade => Self::Fade,
             LabTransition::Dissolve => Self::Dissolve,
+            LabTransition::Flash => Self::Flash,
+            LabTransition::Glitch => Self::Glitch,
+            LabTransition::Mosaic => Self::Mosaic,
         }
     }
 }
@@ -143,6 +152,9 @@ pub enum LabCommand {
     Shot(Option<u32>),
     /// Switch to the next scene now, as the automatic switch would, built in the background.
     NextScene(LabTransition),
+    /// The camera director cuts now, dressed with the transition (see
+    /// [`crate::pipeline::Pipeline::cut_dressed`]), whether the scene lists it or not.
+    CutDressed(LabTransition),
 }
 
 /// The name of a shot size, from the number `struct Shot` has.
