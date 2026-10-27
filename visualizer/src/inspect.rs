@@ -214,6 +214,9 @@ impl From<LabTransition> for Transition {
 pub enum LabCommand {
     /// The camera director cuts now, by its rules for the size, as if a cut were due.
     Cut,
+    /// The chance in percent (0 to 100) that every moment of the music gets an effect, in place
+    /// of the user's setting; none for the setting's again.
+    EffectChance(Option<u8>),
     /// `Some(i)`: cut to shot `i` (from 0) and hold it, so that the director cuts no more, until
     /// `None`. The hold ends with the scene: another scene has its own director.
     Shot(Option<u32>),

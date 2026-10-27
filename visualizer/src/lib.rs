@@ -20,6 +20,7 @@ mod gpu_time;
 mod in_flight;
 mod inspect;
 mod loading;
+mod moments;
 mod pipeline;
 mod presets;
 mod published;
@@ -39,7 +40,7 @@ mod window;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, TryLockError};
 use std::thread::{self, JoinHandle};
@@ -58,6 +59,7 @@ pub use inspect::{
     InspectShot, InspectSwitching, InspectTransition, LabCommand, LabTransition,
 };
 use loading::Loads;
+pub use moments::{Chances, EffectLevel};
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport};
 use pipeline::{Pipeline, Rendered, SceneBuild};
 pub use presets::{Location, PresetInfo};
@@ -270,6 +272,10 @@ struct Shared {
     visible: AtomicBool,
     /// The app's accent colour (0xAARRGGBB) for scenes, or 0 before the app tells it.
     accent: AtomicU32,
+    /// How often effects play: the user's setting (0 default, 1 more).
+    effect_level: AtomicU8,
+    /// A scene lab's chance for every moment, in percent, or [`NO_LAB_CHANCE`] for the setting's.
+    lab_chance: AtomicU8,
     /// Whether the render thread fills [`Shared::inspect`] (see [`Visualizer::set_inspecting`]).
     inspecting: AtomicBool,
     /// What the render thread saw in its last frame, while inspecting.
@@ -322,6 +328,20 @@ struct PlayingCover {
 }
 
 impl Shared {
+    /// The chances the moments get an effect with: a scene lab's, else the user's setting.
+    // The shared scheduler of the moments reads it; it comes in the next change.
+    #[allow(dead_code)]
+    fn effect_chances(&self) -> Chances {
+        match self.lab_chance.load(Ordering::Relaxed) {
+            NO_LAB_CHANCE => match self.effect_level.load(Ordering::Relaxed) {
+                1 => EffectLevel::More,
+                _ => EffectLevel::Default,
+            }
+            .chances(),
+            percent => Chances::every(f32::from(percent) / 100.0),
+        }
+    }
+
     fn status(&self) -> MutexGuard<'_, Status> {
         self.status.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -374,6 +394,8 @@ impl Visualizer {
                 inspect: Mutex::new(None),
                 visible: AtomicBool::new(true),
                 accent: AtomicU32::new(0),
+                effect_level: AtomicU8::new(0),
+                lab_chance: AtomicU8::new(NO_LAB_CHANCE),
                 playback: Mutex::new(Playback::default()),
                 fsio: OnceLock::new(),
                 wants_covers: AtomicBool::new(false),
@@ -413,6 +435,15 @@ impl Visualizer {
     /// Tell the render thread to do something now (see [`LabCommand`]), for a scene lab.
     pub fn lab(&self, command: LabCommand) -> Result<()> {
         self.send(Command::Lab(command))
+    }
+
+    /// Follow the user's setting of how often effects play at the music's moments.
+    pub fn set_effect_level(&self, level: EffectLevel) {
+        let level = match level {
+            EffectLevel::Default => 0,
+            EffectLevel::More => 1,
+        };
+        self.shared.effect_level.store(level, Ordering::Relaxed);
     }
 
     /// Follow the app's accent colour (0xAARRGGBB), which scenes may draw in.
@@ -1326,6 +1357,9 @@ fn apply(
     }
 }
 
+/// [`Shared::lab_chance`] when no scene lab set a chance.
+const NO_LAB_CHANCE: u8 = u8::MAX;
+
 /// Carry out a scene lab's request. The scene a switch asks for is built in the background and
 /// shown like one the user chose, but through the transition asked for, with the durations an
 /// automatic switch of that kind takes (see [`switching::requested`]).
@@ -1338,6 +1372,10 @@ fn lab(
 ) {
     match command {
         LabCommand::Cut => pipeline.cut_now(),
+        LabCommand::EffectChance(percent) => {
+            let percent = percent.map_or(NO_LAB_CHANCE, |p| p.min(100));
+            shared.lab_chance.store(percent, Ordering::Relaxed);
+        }
         LabCommand::CutDressed(transition) => pipeline.cut_dressed(transition.into()),
         LabCommand::Flare => pipeline.start_flare(),
         LabCommand::Leak => pipeline.start_leak(),
