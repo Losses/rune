@@ -74,9 +74,9 @@ struct State {
   ring_wait: array<vec4f, 5>,
   // How lit each ring is (x, 1 at an accent's full strength, fading).
   ring_lit: array<vec4f, 5>,
-  // Drawn in marks (look 3), the dots an accent switches on round each ring: where they start (x,
-  // in turns), how far either way they have come on (y, turns), how bright they are (z, fading
-  // together) and how far either way they will come on (w).
+  // Drawn in marks (look 3), the dots an accent lights round each ring, all at once: where they
+  // start (x, in turns), how bright they are now (y, rising to z), how bright the accent left
+  // them (z, fading) and how far either way from the start they are lit (w, turns).
   ring_on: array<vec4f, 5>,
   // Which ring is drawn as a line of the spectrum now, and how far each one is (x, eased).
   spec_ring: f32,

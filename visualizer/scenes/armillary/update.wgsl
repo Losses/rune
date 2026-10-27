@@ -526,12 +526,14 @@ fn set_gem(t: f32) {
 // and bright, fading back over a moment (a strong one lights two); most times it also takes a
 // new tilt as it lights, so the accent brings a new shape, not only light.
 
-// Ring i lit as strongly as `strength`. Drawn in marks, its dots switch on, one after another
-// both ways from somewhere new, until `light_reach` of the ring is lit; then they dim together.
+// Ring i lit as strongly as `strength`. Drawn in marks, the dots round `light_reach` of the ring
+// (from somewhere new) brighten together, then dim together; one still lit brightens from where
+// it is.
 fn light_ring(i: u32, strength: f32, n: u32) {
   state.ring_lit[i].x = max(state.ring_lit[i].x, strength);
   if (params.look == 3u) {
-    state.ring_on[i] = vec4f(random(60u + n), 0.0, strength, 0.5 * params.light_reach);
+    let on = state.ring_on[i];
+    state.ring_on[i] = vec4f(random(60u + n), on.y, max(on.z, strength), 0.5 * params.light_reach);
   }
   if (params.look >= 2u && params.motion == 0u && random(20u + n) < params.renew) {
     let up = random(30u + n) * 2.0 - 1.0;
@@ -828,11 +830,12 @@ fn update() {
   let on_fade = exp(-dt * 0.693 / (params.light_beats * beat_time));
   for (var i = 0u; i < RINGS; i++) {
     state.ring_lit[i].x *= fade;
-    // The dots come on quickly at first and slower as they reach the last ones, and all dim
-    // together.
+    // The dots brighten all together, quickly at first and slower as they near the accent's
+    // strength (most of the way in `light_spread` beats), and dim together as it fades.
     var on = state.ring_on[i];
-    on.y += (on.w - on.y) * (1.0 - exp(-dt * 3.0 / max(params.light_spread * beat_time, 0.01)));
     on.z *= on_fade;
+    let rise = 1.0 - exp(-dt * 3.0 / max(params.light_spread * beat_time, 0.01));
+    on.y = select(on.z, on.y + (on.z - on.y) * rise, on.z > on.y);
     state.ring_on[i] = on;
     // The ring of the spectrum eases out of its circle, the one before back into it.
     let to = f32(f32(i) == state.spec_ring);
