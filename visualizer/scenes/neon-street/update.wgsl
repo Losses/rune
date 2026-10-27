@@ -15,7 +15,7 @@ fn random(n: u32) -> f32 {
 // so every chorus is seen in the same colours; at any other cut they change now and then, by
 // chance.
 fn cut() {
-  let label = select(-1.0, music.section_label, music.cues > 0u && music.cue >= 0.5);
+  let label = select(-1.0, input.label, input.cue_mid > 0.5);
   let styled = label >= 0.0 && params.same_view == 1u;
   let k = label + 1.0;
   let r1 = random(1u);
@@ -101,56 +101,42 @@ fn update() {
 
   // Without a beat the hits of the music stand in for it, except for the lanterns' swing, which
   // only follows a beat the runtime trusts (it counts beats only then).
-  let beat = f32(music.hits > 0u);
-  if (music.hits > 0u) {
+  let beat = input.beat;
+  state.beat_count = input.beat_no;
+  state.changes = input.beat_no;
+  if (input.beat > 0.5) {
     state.beat_gap = min(t - state.beat_time, 2.0);
     state.beat_time = t;
-    state.beat_count += f32(music.hits);
-    state.changes += f32(music.hits);
-    if (music.beats > 0u) {
+    if (input.tick > 0.5) {
       state.sway_v += params.swing * 6.0 * select(-1.0, 1.0, fract(state.beat_count * 0.5) < 0.25);
     }
   }
   // The lanterns swing back on their strings, slowly coming to rest.
   state.sway_v += (-36.0 * state.sway - 3.0 * state.sway_v) * dt;
   state.sway += state.sway_v * dt;
-  // The traffic lights change every four bars: `bars` is nonzero only in the frame a bar begins,
-  // and the bar's number is then a multiple of four once in four bars.
-  if (music.bars > 0u && u32(floor(music.bar)) % 4u == 0u) {
-    state.signal = 1.0 - state.signal;
-  }
+  // The traffic lights change every four bars (input.signal is 0 and 1 by turns, green first).
+  state.signal = 1.0 - input.signal;
 
   // Energy: the runtime's slow one (the section's, leaning to the next in the bars before it).
   // How many signs are dark follows it too: the quieter the section, the more are dark.
-  state.dark = params.dark_quiet * pow(max(1.0 - music.drive, 0.0), 1.5);
+  state.dark = params.dark_quiet * pow(max(1.0 - input.drive, 0.0), 1.5);
 
   // Build-up: when the next cue is known (cue_in) and the next section is louder, the lens pushes
   // in over the last build_bars bars before it, along a squared ramp.
   var rising = 0.0;
-  if (music.cue_in >= 0.0 && music.next_energy > music.drive + 0.1) {
-    let bar_seconds = 60.0 * music.meter / music.tempo;
-    let ramp = clamp(1.0 - music.cue_in / (max(params.build_bars, 0.25) * bar_seconds), 0.0, 1.0);
+  if (input.cue_in >= 0.0 && input.next_energy > input.drive + 0.1) {
+    let bar_seconds = 60.0 * input.meter / input.tempo;
+    let ramp = clamp(1.0 - input.cue_in / (max(params.build_bars, 0.25) * bar_seconds), 0.0, 1.0);
     rising = ramp * ramp;
   }
 
   // The kick on every beat (glow, brightness, a small zoom), stronger when the music is loud.
-  let kin = max(beat, params.hits * music.low * music.locked);
-  let gain = max(1.0 + params.shake_energy * (1.25 * music.intensity * music.intensity - 1.0), 0.0);
-  state.kick = max(state.kick * exp(-dt / params.kick_decay), kin * gain);
+  let gain = max(1.0 + params.shake_energy * (1.25 * input.intensity * input.intensity - 1.0), 0.0);
+  state.kick = max(input.kick_env, params.hits * input.kick_soft) * gain;
 
   // Accents shake the camera, and seldom: a cue that lifts the energy (strength 1), or a hard hit
   // in the middle of a section (the runtime keeps those at least 6 s apart).
-  var accent = 0.0;
-  if (music.cues > 0u && music.cue >= 0.95) {
-    accent = 1.0;
-  }
-  if (music.impacts > 0u) {
-    accent = max(accent, 0.7 * music.impact);
-  }
-  if (accent > 0.0) {
-    state.accent = max(state.accent, accent * gain);
-  }
-  state.accent *= exp(-dt / params.shake_decay);
+  state.accent = max(input.lift_env, 0.7 * input.impact_env) * gain;
   state.shake = 0.012 * state.accent * params.shake;
 
   // The director cuts: take its shot as the view. The trail is cleared across the cut.
@@ -160,11 +146,11 @@ fn update() {
   }
   state.clear *= exp(-dt / 0.12);
 
-  // Gliding as fast as the music: music.tempo over 90 bpm is the pace, so cruise is the speed at
+  // Gliding as fast as the music: the tempo over 90 bpm is the pace, so cruise is the speed at
   // 90 bpm, faster for a faster song and slower for a slower one. A push on every beat; faster
   // up high.
-  let pace = clamp(music.tempo / 90.0, 0.25, 3.0);
-  let energy_scale = 1.0 + params.energy_speed * (1.5 * music.drive - 0.5);
+  let pace = clamp(input.tempo / 90.0, 0.25, 3.0);
+  let energy_scale = 1.0 + params.energy_speed * (1.5 * input.drive - 0.5);
   let height = 1.0 + max(state.eye - params.eye, 0.0) / 12.0;
   let cruise = params.cruise * height * pace * energy_scale;
   state.vtarget = cruise + (state.vtarget - cruise) * exp(-dt / params.ease) + beat * params.push * pace;
@@ -185,7 +171,7 @@ fn update() {
   set_theme();
   fill_rows();
   // The look follows too: more glow when it is loud and on the kick.
-  post.bloom_intensity = params.glow * (0.7 + 0.6 * music.drive) + params.glow_beat * state.kick;
+  post.bloom_intensity = params.glow * (0.7 + 0.6 * input.drive) + params.glow_beat * state.kick;
   post.chromatic = 0.0012 * params.chroma * (1.0 + 2.0 * state.kick + 4.0 * state.accent);
   post.exposure = params.exposure + 0.15 * params.pump * state.kick;
 }
