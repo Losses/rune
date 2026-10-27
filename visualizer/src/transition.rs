@@ -217,6 +217,83 @@ pub fn cutin_frame(seconds: f64, out: f64, into: f64, style: CutInStyle) -> Opti
     })
 }
 
+/// How long the punch on a cut of a burst lasts, in seconds.
+pub const PUNCH_SECONDS: f64 = 0.12;
+/// How much the picture is scaled up at the start of a punch of full intensity.
+pub const PUNCH_ZOOM: f32 = 0.07;
+/// The length of the smear at the start of a punch of full intensity, as a share of the frame's
+/// height.
+pub const PUNCH_SMEAR: f32 = 0.05;
+/// How far apart the colour channels are at the start of a punch of full intensity, as a share
+/// of their distance from the centre.
+pub const PUNCH_SPLIT: f32 = 0.012;
+/// How far towards the flood the picture is at the start of a punch of full intensity: faint,
+/// far under a flash's 1.
+pub const PUNCH_FLASH: f32 = 0.15;
+
+/// How strong the punch on cut `fill` of a burst (1 to 4) is: 0.4, 0.6, 0.8, 1.0, so that the
+/// last cut hits hardest; none (0) for a cut that is not in a burst.
+pub fn punch_intensity(fill: u32) -> f32 {
+    match fill {
+        0 => 0.0,
+        fill => (0.2 + 0.2 * fill as f32).min(1.0),
+    }
+}
+
+/// What the pass applies in a frame of a punch (see [`punch_frame`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PunchFrame {
+    /// How much the picture is scaled about its centre (1 for none).
+    pub scale: f32,
+    /// Which way the smear runs along the diagonal: 1 up to the right, -1 up to the left.
+    pub side: f32,
+    /// The length of the smear, as a share of the frame's height.
+    pub smear: f32,
+    /// How far apart the colour channels are, as a share of their distance from the centre.
+    pub split: f32,
+    /// How far towards the theme colour's flood the picture is (0 to 1).
+    pub flash: f32,
+}
+
+/// The punch on cut `fill` of a burst, `seconds` after the cut: the picture starts scaled up and
+/// settles to 1, eased out; the smear, the colour split and the flash fade with it. The smear
+/// changes side with each cut. None for a cut that is not in a burst, and once it is over.
+pub fn punch_frame(seconds: f64, fill: u32) -> Option<PunchFrame> {
+    let intensity = punch_intensity(fill);
+    let progress = (seconds.max(0.0) / PUNCH_SECONDS) as f32;
+    if intensity <= 0.0 || progress >= 1.0 {
+        return None;
+    }
+    let left = 1.0 - progress;
+    // The pop settles by an ease-out cubic; the rest fall away faster.
+    let pop = left * left * left;
+    let fade = left * left;
+    Some(PunchFrame {
+        scale: 1.0 + PUNCH_ZOOM * intensity * pop,
+        side: if fill % 2 == 1 { 1.0 } else { -1.0 },
+        smear: PUNCH_SMEAR * intensity * fade,
+        split: PUNCH_SPLIT * intensity * fade,
+        flash: PUNCH_FLASH * intensity * fade,
+    })
+}
+
+/// The punch on a cut of a burst, under way: it draws over the live frame only, so it holds no
+/// picture and a scene that has no other use for the pass pays for it only while it plays.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Punch {
+    /// The time of the frame of the cut, on the render loop's clock.
+    pub start: f64,
+    /// The cut's position in the burst (1 to 4).
+    pub fill: u32,
+}
+
+impl Punch {
+    /// What the pass does `seconds` after the cut, none when the course is over.
+    pub fn plan(&self, seconds: f64) -> Plan {
+        punch_frame(seconds, self.fill).map_or(Plan::None, Plan::Punch)
+    }
+}
+
 /// What the pass does in a frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Plan {
@@ -244,6 +321,8 @@ pub enum Plan {
     Glitch(f32, u32),
     /// A mosaic of the held picture into the scene's frame, the same way.
     Mosaic(f32, u32),
+    /// The punch on a cut of a burst, over the scene's live frame.
+    Punch(PunchFrame),
 }
 
 impl Plan {
@@ -286,7 +365,10 @@ impl Plan {
 
     /// Whether the pass reads the held picture.
     fn needs_held(self) -> bool {
-        !matches!(self, Self::None | Self::Fade(_) | Self::Flash(_))
+        !matches!(
+            self,
+            Self::None | Self::Fade(_) | Self::Flash(_) | Self::Punch(_)
+        )
     }
 }
 
@@ -383,6 +465,8 @@ pub struct Transitions {
     /// What dresses every camera cut in place of the scene's choice, `Cut` for none (see
     /// [`crate::LabCommand::CutsWith`]).
     pub lab_cuts: Option<Transition>,
+    /// The punch on a cut of a burst, while it plays.
+    pub punch: Option<Punch>,
 }
 
 /// The textures of a running transition.
@@ -514,6 +598,7 @@ impl Transitions {
             dressed: None,
             forced: Forced::None,
             lab_cuts: None,
+            punch: None,
         }
     }
 
@@ -554,6 +639,7 @@ impl Transitions {
     pub fn end(&mut self) -> Option<Scene> {
         self.targets = None;
         self.dressed = None;
+        self.punch = None;
         self.captured.set(false);
         self.running.take().and_then(|running| running.pending)
     }
@@ -645,12 +731,13 @@ impl Transitions {
         }
     }
 
-    /// After a frame of [`Plan::Keep`]: hold what the scene drew, for a cut in the next frame.
+    /// After a frame of [`Plan::Keep`] (or of a punch, which draws over the live frame as well):
+    /// hold what the scene drew, for a cut in the next frame.
     pub fn keep(&mut self, encoder: &mut wgpu::CommandEncoder, plan: Plan) {
         let Some(targets) = &mut self.targets else {
             return;
         };
-        let (Plan::Keep, Some(held)) = (plan, &targets.held) else {
+        let (Plan::Keep | Plan::Punch(_), Some(held)) = (plan, &targets.held) else {
             return;
         };
         encoder.copy_texture_to_texture(
@@ -732,6 +819,11 @@ impl Transitions {
                 let accent = accent.unwrap_or(FALLBACK_ACCENT).map(encode_srgb);
                 (KIND_CUTIN, 0.0, 0, accent)
             }
+            Plan::Punch(frame) => {
+                params.cutin = [frame.side, 0.0, 0.0, 0.0];
+                params.extra = [frame.scale, frame.smear, frame.split, frame.flash];
+                (KIND_PUNCH, 0.0, 0, tint)
+            }
         };
         params.color = [color[0], color[1], color[2], 1.0];
         queue.write_buffer(&self.uniform, 0, &params.bytes(kind, progress, seed));
@@ -770,6 +862,7 @@ const KIND_MOSAIC: u32 = 4;
 const KIND_FADE_HELD: u32 = 5;
 const KIND_FLASH_HELD: u32 = 6;
 const KIND_CUTIN: u32 = 7;
+const KIND_PUNCH: u32 = 8;
 /// Bytes of `struct Transition`: the kind, progress and seed, a word of padding, and three vec4f.
 const UNIFORM_SIZE: u64 = 64;
 
@@ -810,9 +903,11 @@ pub fn flood_color(accent: Option<[f32; 3]>) -> [f32; 3] {
 struct Params {
     /// The colour a fade goes to, a flash's flood, the theme colour of a cut-in (display values).
     color: [f32; 4],
-    /// A cut-in: seconds since it started, how long the band opens, holds and tears.
+    /// A cut-in: seconds since it started, how long the band opens, holds and tears. A punch: the
+    /// side of its smear in the first.
     cutin: [f32; 4],
-    /// A cut-in: the style, whether the band shows a cover.
+    /// A cut-in: the style, whether the band shows a cover. A punch: the scale, the smear, the
+    /// colour split and the flash.
     extra: [f32; 4],
 }
 
@@ -1062,5 +1157,58 @@ mod tests {
         // Keeping a frame is what the held picture is for.
         assert!(Plan::Keep.needs_held() && Plan::Mosaic(0.1, 0).needs_held());
         assert!(Plan::HeldFlash(0.1).needs_held());
+    }
+
+    #[test]
+    fn a_punch_pops_and_settles_within_its_time() {
+        let first = punch_frame(0.0, 4).unwrap();
+        assert!((first.scale - (1.0 + PUNCH_ZOOM)).abs() < 1e-6);
+        assert!((first.smear - PUNCH_SMEAR).abs() < 1e-6);
+        assert!((first.flash - PUNCH_FLASH).abs() < 1e-6);
+        // The pop settles by an ease-out: most of it is gone by halfway.
+        let half = punch_frame(PUNCH_SECONDS / 2.0, 4).unwrap();
+        assert!(half.scale - 1.0 < (first.scale - 1.0) * 0.2, "{half:?}");
+        // It only falls, and is over at its end and for a cut that is not in a burst.
+        let mut last = first;
+        for i in 1..12 {
+            let frame = punch_frame(PUNCH_SECONDS * f64::from(i) / 12.0, 4).unwrap();
+            assert!(frame.scale < last.scale && frame.scale > 1.0);
+            assert!(frame.smear < last.smear && frame.split < last.split);
+            assert!(frame.flash < last.flash);
+            last = frame;
+        }
+        assert_eq!(punch_frame(PUNCH_SECONDS, 4), None);
+        assert_eq!(punch_frame(0.0, 0), None);
+        // Before the start counts as the start.
+        assert_eq!(punch_frame(-1.0, 2), punch_frame(0.0, 2));
+        // A faint flash: well under a flash transition's.
+        assert!(PUNCH_FLASH <= 0.2);
+    }
+
+    #[test]
+    fn a_punch_gets_stronger_through_the_burst_and_changes_side() {
+        let levels: Vec<f32> = (0..=4).map(punch_intensity).collect();
+        assert_eq!(levels, [0.0, 0.4, 0.6, 0.8, 1.0]);
+        let frames: Vec<PunchFrame> = (1..=4)
+            .map(|fill| punch_frame(0.0, fill).unwrap())
+            .collect();
+        for pair in frames.windows(2) {
+            assert!(pair[1].scale > pair[0].scale);
+            assert!(pair[1].smear > pair[0].smear);
+            assert!(pair[1].split > pair[0].split);
+            assert!(pair[1].flash > pair[0].flash);
+            assert_eq!(pair[1].side, -pair[0].side);
+        }
+    }
+
+    #[test]
+    fn a_punch_draws_over_the_live_frame_alone() {
+        let punch = Punch {
+            start: 3.0,
+            fill: 2,
+        };
+        assert!(matches!(punch.plan(0.0), Plan::Punch(_)));
+        assert_eq!(punch.plan(PUNCH_SECONDS), Plan::None);
+        assert!(!punch.plan(0.0).needs_held());
     }
 }

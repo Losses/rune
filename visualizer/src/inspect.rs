@@ -305,6 +305,10 @@ pub enum LabCommand {
     /// The scene on screen uses this pace in place of its own (see [`LabCommand::CyclePace`]),
     /// or with none its own again.
     PaceWith(Option<LabPace>),
+    /// Start a burst of cuts now: the director cuts on each of the next 4 beats (or every
+    /// quarter second without a followed beat) to medium, close, detail and top, each with its
+    /// punch, as the burst before a lift does.
+    Burst,
 }
 
 /// The name of a shot size, from the number `struct Shot` has.

@@ -17,6 +17,8 @@ const KIND_MOSAIC: u32 = 4u;
 const KIND_FADE_HELD: u32 = 5u;
 const KIND_FLASH_HELD: u32 = 6u;
 const KIND_CUTIN: u32 = 7u;
+// The punch on a cut of a burst, over the scene's frame alone.
+const KIND_PUNCH: u32 = 8u;
 
 struct Transition {
   kind: u32,
@@ -26,9 +28,12 @@ struct Transition {
   // A fade's colour, a flash's flood, the theme colour of a cut-in. Display values, like the
   // textures.
   color: vec4f,
-  // A cut-in: seconds since it started, the band's opening time, its hold, its tear.
+  // A cut-in: seconds since it started, the band's opening time, its hold, its tear. A punch:
+  // the side of its smear (1 or -1) in x.
   cutin: vec4f,
   // A cut-in: the style (0 speed lines and glint, 1 halftone, 2 echo), 1 if there is a cover.
+  // A punch: the scale of the picture, the length of the smear (of the height), the colour
+  // split (of the distance from the centre) and the flash towards `color`.
   extra: vec4f,
 }
 
@@ -191,6 +196,32 @@ fn mosaic(at: vec2i, progress: f32, seed: u32) -> vec3f {
   return load(held, at).rgb;
 }
 
+// The punch on a cut of a burst: the frame scaled about its centre, smeared along a diagonal
+// (a few taps trailing back from each pixel), its colour channels split outwards from the
+// centre, and lightly flooded with `color`. All of it fades to nothing as the values go to
+// 0 and the scale to 1, which is the frame as it is.
+fn punch(at: vec2i) -> vec3f {
+  let size = vec2f(textureDimensions(fresh));
+  let uv = (vec2f(at) + 0.5) / size;
+  let zoom = transition.extra.x;
+  let split = transition.extra.z;
+  // The smear's reach in uv: along a diagonal in pixels (y is down), `extra.y` of the height.
+  let diagonal = normalize(vec2f(transition.cutin.x, -1.0));
+  let step = diagonal * vec2f(size.y / size.x, 1.0) * transition.extra.y;
+  let taps = 6u;
+  var rgb = vec3f(0.0);
+  for (var k = 0u; k < taps; k += 1u) {
+    let back = step * (f32(k) / f32(taps - 1u));
+    let base = (uv - 0.5) / zoom + 0.5 - back;
+    let centred = base - 0.5;
+    rgb.r += load_uv(fresh, 0.5 + centred * (1.0 + split)).r;
+    rgb.g += load_uv(fresh, base).g;
+    rgb.b += load_uv(fresh, 0.5 + centred * (1.0 - split)).b;
+  }
+  rgb /= f32(taps);
+  return mix(rgb, transition.color.rgb, transition.extra.w);
+}
+
 // The frame as it is in the output's bytes: the textures are the output's format and size, so
 // each pixel is read as it is, and blended as the bytes are (a fade through black is a fade of
 // the displayed values).
@@ -210,6 +241,9 @@ fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
     }
     case KIND_CUTIN: {
       return cutin(position.xy);
+    }
+    case KIND_PUNCH: {
+      return vec4f(punch(at), frame_now.a);
     }
     case KIND_FLASH: {
       return vec4f(flash(fresh, at, transition.progress, transition.color.rgb), frame_now.a);

@@ -33,8 +33,8 @@ use crate::shared_vulkan::{SharedFrame, SharedTargets};
 #[cfg(target_vendor = "apple")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
 use crate::transition::{
-    Dressed, Durations, FadePhase, Forced, Plan, Running, Transition, Transitions, cutin_frame,
-    dissolve_progress, flood_color, seed_of,
+    Dressed, Durations, FadePhase, Forced, Plan, Punch, Running, Transition, Transitions,
+    cutin_frame, dissolve_progress, flood_color, seed_of,
 };
 #[cfg(target_os = "android")]
 use crate::window::{Window, WindowSurface};
@@ -646,6 +646,12 @@ impl Pipeline {
         self.transitions.forced = Forced::Wanted(transition);
     }
 
+    /// The camera director of the newest scene starts a burst of cuts now (see
+    /// [`Scene::start_burst`]); each cut gets its punch.
+    pub fn start_burst(&mut self) {
+        self.latest_mut().start_burst();
+    }
+
     /// The newest scene starts a lens flare now (see [`Scene::start_flare`]).
     pub fn start_flare(&mut self) {
         self.latest_mut().start_flare();
@@ -1213,6 +1219,15 @@ impl Pipeline {
     /// for it.
     fn plan_dressed(&mut self, time: f64) -> Plan {
         let transitions = &mut self.transitions;
+        // The punch on a cut of a burst plays over the live frame, whatever the scene lists.
+        if transitions.dressed.is_none()
+            && let Some(punch) = transitions.punch
+        {
+            match punch.plan(time - punch.start) {
+                Plan::None => transitions.punch = None,
+                plan => return plan,
+            }
+        }
         // A lab's override decides which cuts are dressed in place of the scene's list.
         let dresses = match transitions.lab_cuts {
             Some(kind) => kind != Transition::Cut,
@@ -1248,8 +1263,9 @@ impl Pipeline {
         if plan == Plan::None {
             plan = self.plan_dressed(time);
         } else {
-            // A switch takes the place of the dressing of a cut.
+            // A switch takes the place of the dressing of a cut, and of a punch.
             self.transitions.dressed = None;
+            self.transitions.punch = None;
         }
         let size = self.size();
         self.transitions.prepare(&self.device, size, plan);
@@ -1461,15 +1477,19 @@ fn draw(
     timer.end(encoder);
 }
 
-/// The plan of a frame in which the scene's director may have cut: a frame of [`Plan::Keep`] with
-/// a cut that the scene lets be dressed (see [`switching::dress`]), or that the lab asked to be,
-/// starts the course of its transition with this frame; the held frame is the one before it.
+/// The plan of a frame in which the scene's director may have cut: a frame of [`Plan::Keep`] (or
+/// of a punch) with a cut that the scene lets be dressed (see [`switching::dress`]), or that the
+/// lab asked to be, starts the course of its transition with this frame; the held frame is the
+/// one before it. A cut of a burst that is not dressed gets its punch instead (see [`Punch`]):
+/// at once where the scene draws into the texture, else from the next frame, since the scene has
+/// drawn into the output already.
 fn dress_cut(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64) -> Plan {
-    if plan != Plan::Keep {
+    let live = matches!(plan, Plan::Keep | Plan::Punch(_));
+    if !live && plan != Plan::None {
         return plan;
     }
     let forced = match transitions.forced {
-        Forced::Armed(kind) => {
+        Forced::Armed(kind) if live => {
             transitions.forced = Forced::None;
             Some(kind)
         }
@@ -1478,31 +1498,39 @@ fn dress_cut(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64
     let Some(cut) = scene.cut_this_frame() else {
         return plan;
     };
-    if !transitions.has_kept() {
-        return plan;
-    }
-    let music = scene.music();
-    let chosen = match forced {
-        Some(kind) => Some((kind, switching::dressed_durations(kind, music))),
-        None => switching::dress(scene.cut_transitions(), cut.cue, music.section_label, music),
-    };
-    // A lab's override replaces whatever was chosen, last of all.
-    let Some((kind, durations)) = switching::cut_dressing(transitions.lab_cuts, chosen, music)
-    else {
-        return plan;
-    };
-    let dressed = Dressed {
-        kind,
-        durations,
-        start: time,
-    };
-    match dressed.plan(0.0) {
-        Plan::None => plan,
-        first => {
-            transitions.dressed = Some(dressed);
-            first
+    if live && transitions.has_kept() {
+        let music = scene.music();
+        let chosen = match forced {
+            Some(kind) => Some((kind, switching::dressed_durations(kind, music))),
+            None => switching::dress(scene.cut_transitions(), cut.cue, music.section_label, music),
+        };
+        // A lab's override replaces whatever was chosen, last of all.
+        if let Some((kind, durations)) = switching::cut_dressing(transitions.lab_cuts, chosen, music)
+        {
+            let dressed = Dressed {
+                kind,
+                durations,
+                start: time,
+            };
+            match dressed.plan(0.0) {
+                Plan::None => {}
+                first => {
+                    transitions.dressed = Some(dressed);
+                    transitions.punch = None;
+                    return first;
+                }
+            }
         }
     }
+    if cut.fill == 0 {
+        return plan;
+    }
+    let punch = Punch {
+        start: time,
+        fill: cut.fill,
+    };
+    transitions.punch = Some(punch);
+    if live { punch.plan(0.0) } else { plan }
 }
 
 #[cfg(test)]
@@ -2086,6 +2114,52 @@ mod tests {
         assert!((m[13] - 124.0).abs() < 4.0, "{m:?}");
         assert!(pipeline.transitions.dressed.is_none());
         assert_eq!(pipeline.transitions.forced, Forced::None);
+    }
+
+    /// A burst of cuts gives each cut a punch over the live frame, in a scene that lists nothing
+    /// to dress its cuts with and so holds no frame: the pass runs only while the punch plays.
+    #[test]
+    fn a_burst_punches_each_cut_and_lets_go() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let dir = plain_scene("punch", 0.2);
+        let mut manifest = std::fs::read_to_string(dir.join("scene.toml")).unwrap();
+        manifest.push_str("[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\n");
+        std::fs::write(dir.join("scene.toml"), manifest).unwrap();
+        let scene = pipeline.scene_build_dir(&dir).run().unwrap();
+        pipeline.install(scene).unwrap();
+        // The dithering moves a byte up or down.
+        let rest = means(&mut pipeline, &[0.9, 0.95, 1.0])
+            .into_iter()
+            .fold(0.0, f32::max);
+        assert!(!pipeline.transitions.holds_textures());
+        pipeline.start_burst();
+        let mut fills = Vec::new();
+        let mut raised = 0;
+        for i in 0..120 {
+            let time = 1.0 + f64::from(i) / 60.0;
+            let mean = means(&mut pipeline, &[time])[0];
+            let fill = pipeline.transitions.punch.map(|punch| punch.fill);
+            if let Some(fill) = fill
+                && fills.last() != Some(&fill)
+            {
+                fills.push(fill);
+            }
+            if mean > rest + 1.5 {
+                raised += 1;
+            }
+            assert!(fill.is_some() || !pipeline.transitions.holds_textures() || i < 2);
+        }
+        assert_eq!(fills, [1, 2, 3, 4]);
+        // The flash is faint but there, for a few frames after each cut, not all the time.
+        assert!((4..60).contains(&raised), "{raised}");
+        assert!(pipeline.transitions.punch.is_none());
+        assert!(
+            !pipeline.transitions.holds_textures(),
+            "nothing is held after it"
+        );
     }
 
     /// A newer switch replaces a scene that still waits, and cuts in over one that is in.
