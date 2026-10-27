@@ -8,8 +8,8 @@ common = ["wall.wgsl"]
 covers = true
 
 # The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
-# A wall of old televisions: glitches, dot mosaics and a colour-block frame suit it.
-effects = ["fade", "glitch", "mosaic", "blocks"]
+# A wall of old televisions: glitches, dot mosaics and a flash washed in the theme colour suit it.
+effects = ["fade", "glitch", "mosaic", "flash"]
 
 # The director cuts between the wall's views. The camera has no roll of its own, so the director's
 # dutch angle is the only tilt.
