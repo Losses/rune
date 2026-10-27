@@ -45,8 +45,9 @@ pub const DISSOLVE_BEATS: f64 = 2.0;
 pub const CUTIN_HOLD_BEATS: f64 = 1.0;
 /// Without a followed beat: how long a cut-in holds its band, in seconds.
 pub const UNFOLLOWED_CUTIN_HOLD_SECONDS: f64 = 0.6;
-/// How long the band of a cut-in tears away, in seconds: three frames at 60 fps.
-pub const CUTIN_TEAR_SECONDS: f64 = 3.0 / 60.0;
+/// How long the band of a cut-in tears away, in seconds: six frames at 60 fps, the last two of
+/// them splinters lingering.
+pub const CUTIN_TEAR_SECONDS: f64 = 6.0 / 60.0;
 /// A flash rises for this many beats and falls for [`FLASH_FALL_BEATS`].
 pub const FLASH_RISE_BEATS: f64 = 1.0;
 pub const FLASH_FALL_BEATS: f64 = 2.0;
@@ -465,9 +466,9 @@ fn durations_of(kind: Transition, beat: Option<f64>) -> Durations {
             out: 0.0,
             into: beat.map_or(UNFOLLOWED_MOSAIC_SECONDS, |beat| beat * MOSAIC_BEATS),
         },
-        // The band opens and holds for `out` (a beat of hold if the beat is followed), and tears
-        // for `into`. The new scene shows from the tear, so a switch that knows the section start
-        // starts `out` before it.
+        // The band opens and holds for `out` (a beat of hold if the beat is followed) over the old
+        // scene, and tears for `into`. The new scene goes in with the tear, so a switch that
+        // knows the section start starts `out` before it.
         Transition::CutIn(_) => {
             let hold = beat
                 .map_or(UNFOLLOWED_CUTIN_HOLD_SECONDS, |beat| {
