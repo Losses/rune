@@ -1363,6 +1363,12 @@ impl Scene {
         self.lens.start_blocks(1.0);
     }
 
+    /// Keep a flare at its full swell, called before each frame (a probe).
+    #[cfg(test)]
+    pub fn hold_flare(&mut self) {
+        self.lens.hold_flare();
+    }
+
     /// The chances the music's moments play an effect with (the user's setting, or a lab's).
     pub fn set_effect_chances(&mut self, chances: crate::moments::Chances) {
         self.chances = chances;

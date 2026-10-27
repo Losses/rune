@@ -2739,7 +2739,7 @@ mod probe {
         /// What starts an effect.
         type Start = fn(&mut Pipeline);
         // The effect and the frames after its start that are looked at.
-        let looks: [(&str, Start, &[u32]); 4] = [
+        let looks: [(&str, Start, &[u32]); 5] = [
             ("none", |_| {}, &[0]),
             (
                 "flare",
@@ -2751,7 +2751,16 @@ mod probe {
                 Pipeline::start_leak,
                 &[0, 15, 30, 60, 150, 300, 450],
             ),
-            ("blocks", Pipeline::start_blocks, &[0, 1, 2, 3]),
+            ("blocks", Pipeline::start_blocks, &[0, 1, 2, 3, 4, 5]),
+            // Every second block frame at full strength floods.
+            (
+                "flood",
+                |pipeline| {
+                    pipeline.start_blocks();
+                    pipeline.start_blocks();
+                },
+                &[0, 1, 2, 3, 4, 5],
+            ),
         ];
         for (name, start, after) in looks {
             load(&mut pipeline, &scene, Level::FULL);
@@ -2814,6 +2823,139 @@ mod probe {
             }
             eprintln!("{line}");
         }
+    }
+
+    /// How steady the lens flare is: scene `PROBE` (default Neon Street) is drawn twice over the
+    /// same `PROBE_STEADY_FRAMES` frames in a row (default 20, from frame 100), without a flare
+    /// and with one held at its full swell; the flare's layer is the difference. For each pair of
+    /// frames in a row it prints how much the layer changed (the mean, the 99th percentile and
+    /// the largest change of a colour channel, of 255) beside how much the layer is there and how
+    /// much the picture itself changed. The scene is drawn without a flare twice, and how far the
+    /// two differ is printed first: a scene that does not draw the same frames every time cannot
+    /// be measured so. With `PROBE_OUT`, the first frames with the flare and its layer (four
+    /// times as strong) are saved there.
+    #[test]
+    #[ignore = "a probe, run by hand"]
+    fn probe_flare_steady() {
+        let mut pipeline = pipeline();
+        pipeline.set_accent(Some(argb_to_linear(0xffe8602c)));
+        let size = pipeline.size();
+        let scene = env_or("PROBE", "Neon Street");
+        let count: u32 = env_or("PROBE_STEADY_FRAMES", "20").parse().unwrap();
+        const AT: u32 = 100;
+        let keep: Vec<u32> = (AT..AT + count).collect();
+        let last = *keep.last().unwrap();
+        // The first scene loaded after the pipeline is made can draw a different shot.
+        load(&mut pipeline, &scene, Level::FULL);
+        run(&mut pipeline, 2, &[], |_, _, _| {});
+        let mut plain = Vec::new();
+        load(&mut pipeline, &scene, Level::FULL);
+        run(&mut pipeline, last, &keep, |_, _, pixels| {
+            plain.extend(pixels)
+        });
+        let mut again = Vec::new();
+        load(&mut pipeline, &scene, Level::FULL);
+        run(&mut pipeline, last, &keep, |_, _, pixels| {
+            again.extend(pixels)
+        });
+        let differ: u64 = plain
+            .iter()
+            .zip(&again)
+            .flat_map(|(a, b)| a.iter().zip(b).map(|(a, b)| u64::from(a.abs_diff(*b))))
+            .sum();
+        eprintln!(
+            "PROBE the plain runs differ by {:.4} on average",
+            differ as f64 / (plain.len() * plain[0].len()) as f64
+        );
+        let mut flared = Vec::new();
+        load(&mut pipeline, &scene, Level::FULL);
+        run_with(
+            &mut pipeline,
+            last,
+            &keep,
+            |pipeline, i| {
+                if i + 30 >= AT {
+                    pipeline.scene.hold_flare();
+                }
+            },
+            |_, _, pixels| flared.extend(pixels),
+        );
+        let layers: Vec<Vec<i16>> = plain
+            .iter()
+            .zip(&flared)
+            .map(|(a, b)| {
+                a.iter()
+                    .zip(b)
+                    .enumerate()
+                    .filter(|(k, _)| k % 4 != 3)
+                    .map(|(_, (&a, &b))| i16::from(b) - i16::from(a))
+                    .collect()
+            })
+            .collect();
+        let out = out_dir();
+        for (k, layer) in layers.iter().enumerate().take(3) {
+            if let Some(out) = &out {
+                let pixels: Vec<u8> = layer
+                    .chunks(3)
+                    .flat_map(|p| {
+                        let c = |v: i16| (v.unsigned_abs() * 4).min(255) as u8;
+                        [c(p[0]), c(p[1]), c(p[2]), 255]
+                    })
+                    .collect();
+                let name = label(&scene);
+                save_png(
+                    &out.join(format!("steady-{name}-layer-{k:02}.png")),
+                    pixels,
+                    size,
+                );
+                let frame = flared[k].clone();
+                save_png(
+                    &out.join(format!("steady-{name}-flare-{k:02}.png")),
+                    frame,
+                    size,
+                );
+            }
+        }
+        let mean_abs = |v: &mut dyn Iterator<Item = u16>| {
+            let (sum, n) = v.fold((0u64, 0u64), |(s, n), x| (s + u64::from(x), n + 1));
+            sum as f64 / n as f64
+        };
+        let mut worst_mean = 0.0f64;
+        let mut worst_energy = 0.0f64;
+        for k in 1..layers.len() {
+            let mut changes: Vec<u16> = layers[k]
+                .iter()
+                .zip(&layers[k - 1])
+                .map(|(a, b)| (a - b).unsigned_abs())
+                .collect();
+            let mean = mean_abs(&mut changes.iter().copied());
+            changes.sort_unstable();
+            let p99 = changes[changes.len() * 99 / 100];
+            let max = changes[changes.len() - 1];
+            let there = mean_abs(&mut layers[k].iter().map(|v| v.unsigned_abs()));
+            let picture = mean_abs(
+                &mut plain[k]
+                    .iter()
+                    .zip(&plain[k - 1])
+                    .map(|(a, b)| u16::from(a.abs_diff(*b))),
+            );
+            // How much the layer's light as a whole changed: what a flicker or a pumping shows
+            // as, which the picture's motion alone does not.
+            let before = mean_abs(&mut layers[k - 1].iter().map(|v| v.unsigned_abs()));
+            let energy = (there - before).abs() / there.max(1e-6);
+            worst_mean = worst_mean.max(mean);
+            worst_energy = worst_energy.max(energy);
+            eprintln!(
+                "PROBE frame {}: layer change mean {mean:.3} p99 {p99} max {max}; layer {there:.2} \
+                 ({:+.1} %); picture change {picture:.2}",
+                keep[k],
+                (there - before) / before.max(1e-6) * 100.0
+            );
+        }
+        eprintln!(
+            "PROBE worst: mean change of the layer {worst_mean:.3}, change of its light {:.1} %",
+            worst_energy * 100.0
+        );
     }
 
     /// The frames of `PROBE_FRAMES` of each scene at each level (default full), as PNGs in
