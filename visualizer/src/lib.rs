@@ -54,8 +54,8 @@ use rtrb::Consumer;
 pub use chart::{Chart, ChartState};
 use chart::{ChartFollower, Playback};
 pub use inspect::{
-    Inspect, InspectDirector, InspectMusic, InspectSection, InspectSwitching, InspectTransition,
-    LabCommand, LabTransition,
+    Inspect, InspectDirector, InspectLens, InspectMusic, InspectSection, InspectSwitching,
+    InspectTransition, LabCommand, LabTransition,
 };
 use loading::Loads;
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport};
@@ -1337,6 +1337,9 @@ fn lab(
 ) {
     match command {
         LabCommand::Cut => pipeline.cut_now(),
+        LabCommand::Flare => pipeline.start_flare(),
+        LabCommand::Leak => pipeline.start_leak(),
+        LabCommand::Blocks => pipeline.start_blocks(),
         LabCommand::Shot(index) => {
             if !pipeline.hold_shot(index) {
                 info!("The scene has no shot {index:?} to hold");
@@ -1373,6 +1376,7 @@ fn inspection(
         music: InspectMusic::of(pipeline.music()),
         sections: charts.sections(),
         director: pipeline.director_view().map(InspectDirector::of),
+        lens: pipeline.lens_view().into(),
         switching: InspectSwitching {
             scene_seconds: auto.decider.seconds(time),
             preparing: auto.loads.is_pending(),
