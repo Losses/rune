@@ -1937,9 +1937,12 @@ impl Scene {
             None => [0; wgsl::SHOT_SIZE as usize],
         };
         let params = self.files.param_numbers();
+        // The scene's first frame begins its first shot, so it counts as a cut too (a drift that
+        // starts over with each shot starts there); a reload that keeps the state does not.
+        let cut = self.cut.is_some() || (self.first && self.director.is_some());
         let inputs = self
             .bindings
-            .tick_cut(dt as f32, &music, &params, seed, self.cut.is_some());
+            .tick_cut(dt as f32, &music, &params, seed, cut);
         queue.write_buffer(&self.input_buffer, 0, &self.input_layout.pack(inputs));
         queue.write_buffer(&self.shot, 0, &shot);
         // The lens effects hear where the music is in its phrase before a moment starts one.

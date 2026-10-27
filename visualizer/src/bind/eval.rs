@@ -1158,9 +1158,6 @@ impl Evaluator {
                 reset,
                 wrap,
             } => {
-                if reset.is_some_and(|source| source.read_in(music, env.cut).count > 0) {
-                    self.state.total = 0.0;
-                }
                 let rate = env.num(*rate);
                 let step = match per {
                     Rate::Beat => reading.value * rate * (dt * beats_per_second(music)),
@@ -1174,6 +1171,12 @@ impl Evaluator {
                 let total = self.state.total + step;
                 self.state.total =
                     wrap.map_or(total, |wrap| total.rem_euclid(env.num(wrap).max(1e-6)));
+                // A reset comes after this frame is added: on its event the sum is 0, so what
+                // starts over (a camera's drift at a cut) starts where it should, as a scene that
+                // summed and then zeroed on the event saw it.
+                if reset.is_some_and(|source| source.read_in(music, env.cut).count > 0) {
+                    self.state.total = 0.0;
+                }
                 self.state.total
             }
         }
@@ -2425,9 +2428,9 @@ mod tests {
         };
         let mut tick = |env: &Env| e.tick_in(0.1, &music, Level::A, env).output;
         assert!(near(tick(&env(&[], 0)), 0.1) && near(tick(&env(&[], 0)), 0.2));
-        // The sum is set back before this frame is added.
-        assert!(near(tick(&cut), 0.1));
-        assert!(near(tick(&env(&[], 0)), 0.2));
+        // The sum is set back after this frame is added: it is 0 on the cut.
+        assert!(near(tick(&cut), 0.0));
+        assert!(near(tick(&env(&[], 0)), 0.1));
         // Any event source resets, from the music: here a bar line, on an event counter.
         let mut bars = evaluator(
             "source = \"hits\"\nhow = \"accumulate\"\nwhen = { per = \"event\", reset = \"bars\" }",
@@ -2444,7 +2447,7 @@ mod tests {
                 hit(1.0),
             ],
         );
-        assert_eq!(out, [1.0, 2.0, 1.0, 2.0]);
+        assert_eq!(out, [1.0, 2.0, 0.0, 1.0]);
         // `cut` is a source of the scene: nothing in the music is a cut, so the runtime's own
         // bindings, which read the music alone, never see one.
         let source = sources::find("cut").unwrap();

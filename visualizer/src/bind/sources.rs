@@ -278,7 +278,7 @@ pub static SOURCES: &[Source] = &[
     event_source(
         "cut",
         ALL,
-        "The scene's own camera cut to another shot in this frame (strength 1); never in a scene without shots.",
+        "The scene's own camera cut to another shot in this frame, or took its first (strength 1); never in a scene without shots.",
         |_, frame| event(1.0, u32::from(frame.cut)),
     ),
     event_source(
