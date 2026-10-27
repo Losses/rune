@@ -1930,10 +1930,10 @@ mod tests {
         let hold = 0.5;
         let frame = 1.0 / 60.0;
         let tear = CUTIN_BAND_SECONDS + hold;
-        let offsets: Vec<f64> = (0..7)
+        let offsets: Vec<f64> = (0..11)
             .map(|i| f64::from(i) * frame)
-            .chain([0.25, CUTIN_BAND_SECONDS + 0.7 * hold])
-            .chain((0..7).map(|i| tear + f64::from(i) * frame))
+            .chain([0.35, CUTIN_BAND_SECONDS + 0.7 * hold])
+            .chain((0..11).map(|i| tear + f64::from(i) * frame))
             .collect();
         for (label, style, with_cover) in runs {
             let Ok(mut pipeline) = Pipeline::new(
@@ -2012,7 +2012,7 @@ mod tests {
             }
             assert!(frames.len() >= times.len(), "frames did not come out");
             let (tw, th) = (w / 2, h / 2);
-            let columns = 4;
+            let columns = 6;
             let rows = times.len().div_ceil(columns) as u32;
             let mut sheet = image::RgbaImage::new(tw * columns as u32, th * rows);
             for (i, rgba) in frames.into_iter().take(times.len()).enumerate() {
@@ -2077,9 +2077,9 @@ mod tests {
             ("hold, speed lines", Some(CutInStyle::Streaks), 0.2),
             ("hold, echo", Some(CutInStyle::Echo), 0.2),
             (
-                "tear, frame 1",
+                "tear, strips flying",
                 Some(CutInStyle::Streaks),
-                tear + 1.0 / 60.0,
+                tear + 3.0 / 60.0,
             ),
         ] {
             let plan = match style {

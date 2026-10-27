@@ -45,9 +45,9 @@ pub const DISSOLVE_BEATS: f64 = 2.0;
 pub const CUTIN_HOLD_BEATS: f64 = 1.0;
 /// Without a followed beat: how long a cut-in holds its band, in seconds.
 pub const UNFOLLOWED_CUTIN_HOLD_SECONDS: f64 = 0.6;
-/// How long the band of a cut-in tears away, in seconds: six frames at 60 fps, the last two of
-/// them splinters lingering.
-pub const CUTIN_TEAR_SECONDS: f64 = 6.0 / 60.0;
+/// How long the band of a cut-in tears away, in seconds: ten frames at 60 fps (the cracks held
+/// for three, then the strips flying apart on twos).
+pub const CUTIN_TEAR_SECONDS: f64 = 10.0 / 60.0;
 /// A flash rises for this many beats and falls for [`FLASH_FALL_BEATS`].
 pub const FLASH_RISE_BEATS: f64 = 1.0;
 pub const FLASH_FALL_BEATS: f64 = 2.0;
@@ -1324,7 +1324,7 @@ mod tests {
     fn a_known_lift_starts_the_cutin_early_to_tear_at_the_section() {
         let mut switch = seasoned();
         switch.allow(with_cutin());
-        // The band and its hold take 0.534 s, so it starts when the next section is that near,
+        // The band and its hold take 0.667 s, so it starts when the next section is that near,
         // in the style of the section coming.
         let coming = |cue_in| MusicValues {
             next_label: 2.0,
@@ -1332,10 +1332,10 @@ mod tests {
             cue_in,
             ..song(1.0, 0.5)
         };
-        assert_eq!(switch.tick(39.0, &coming(0.6), false, true), Decision::Wait);
+        assert_eq!(switch.tick(39.0, &coming(0.7), false, true), Decision::Wait);
         let style = CutInStyle::of_section(2.0, true);
         assert_eq!(
-            switch.tick(39.1, &coming(0.5), false, true),
+            switch.tick(39.1, &coming(0.6), false, true),
             cutin(style, 0.5)
         );
     }
