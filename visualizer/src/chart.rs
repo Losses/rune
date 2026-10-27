@@ -175,6 +175,19 @@ impl Chart {
         }
     }
 
+    /// The sections of the song, for a readout.
+    pub fn sections(&self) -> Vec<crate::InspectSection> {
+        self.sections
+            .iter()
+            .map(|s| crate::InspectSection {
+                start: s.start,
+                end: s.end,
+                label: crate::inspect::label_name(s.label),
+                energy: s.energy as f32,
+            })
+            .collect()
+    }
+
     /// The chart at song time `t` (seconds).
     pub fn at(&self, t: f64) -> ChartState {
         let mut state = ChartState {
@@ -437,6 +450,11 @@ impl ChartFollower {
             info!("The chart of {} took over at {t:.1} s", path.display());
         }
         self.chart.as_ref().map(|chart| chart.at(t))
+    }
+
+    /// The sections of the chart, once there is one (else none).
+    pub fn sections(&self) -> Vec<crate::InspectSection> {
+        self.chart.as_ref().map(Chart::sections).unwrap_or_default()
     }
 
     /// The song time of the last [`Self::tick`], with or without a chart.

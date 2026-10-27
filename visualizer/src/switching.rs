@@ -128,6 +128,12 @@ impl SceneSwitch {
         self.prepare_started = false;
     }
 
+    /// Seconds the scene on screen has been counted, on the render loop's clock at `now`, once
+    /// the first frame of it was seen.
+    pub fn seconds(&self, now: f64) -> Option<f64> {
+        self.since.map(|since| now - since)
+    }
+
     /// The build [`Decision::Prepare`] asked for is running.
     pub fn prepare_started(&mut self) {
         self.prepare_started = true;
@@ -271,6 +277,23 @@ fn choose(change: Change, music: &MusicValues) -> (Transition, Durations) {
                 },
             )
         }
+    }
+}
+
+/// The transition and its durations for a switch somebody asks for now (a scene lab), as an
+/// automatic one of that kind would take with this music: a fade as for a plain change, a dissolve
+/// as for a drop, a cut at once.
+pub fn requested(transition: Transition, music: &MusicValues) -> (Transition, Durations) {
+    match transition {
+        Transition::Cut => (
+            Transition::Cut,
+            Durations {
+                out: 0.0,
+                into: 0.0,
+            },
+        ),
+        Transition::Fade => choose(Change::Plain, music),
+        Transition::Dissolve => choose(Change::Drop, music),
     }
 }
 
@@ -637,5 +660,23 @@ mod tests {
         let (at, decision) = run(&mut switch, 0.0, 200.0, &song(0.0, 0.5)).unwrap();
         assert!((92.0..=93.0).contains(&at), "{at}");
         assert_eq!(decision, fade(0.5));
+    }
+
+    #[test]
+    fn a_requested_switch_takes_the_durations_of_an_automatic_one() {
+        // At 120 bpm, followed: a fade takes a beat out and in, a dissolve two beats.
+        let music = song(0.0, 0.5);
+        let (kind, durations) = requested(Transition::Fade, &music);
+        assert_eq!(kind, Transition::Fade);
+        assert_eq!((durations.out, durations.into), (0.5, 0.5));
+        let (kind, durations) = requested(Transition::Dissolve, &music);
+        assert_eq!(kind, Transition::Dissolve);
+        assert_eq!(durations.into, 1.0);
+        // A cut shows nothing.
+        let (kind, durations) = requested(Transition::Cut, &music);
+        assert!(durations.is_instant(kind));
+        // Without a followed beat the fixed times.
+        let (_, durations) = requested(Transition::Fade, &no_chart());
+        assert_eq!(durations.out, UNFOLLOWED_FADE_SECONDS);
     }
 }

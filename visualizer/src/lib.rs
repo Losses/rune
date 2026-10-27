@@ -18,6 +18,7 @@ mod chart;
 mod covers;
 mod gpu_time;
 mod in_flight;
+mod inspect;
 mod loading;
 mod pipeline;
 mod presets;
@@ -52,6 +53,10 @@ use rtrb::Consumer;
 
 pub use chart::{Chart, ChartState};
 use chart::{ChartFollower, Playback};
+pub use inspect::{
+    Inspect, InspectDirector, InspectMusic, InspectSection, InspectSwitching, InspectTransition,
+    LabCommand, LabTransition,
+};
 use loading::Loads;
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport};
 use pipeline::{Pipeline, Rendered, SceneBuild};
@@ -218,6 +223,8 @@ enum Command {
     /// Android: present frames of this size into this window from now on.
     #[cfg(target_os = "android")]
     ReplaceWindow(Window, u32, u32),
+    /// A scene lab's request (see [`Visualizer::lab`]).
+    Lab(LabCommand),
     Stop,
 }
 
@@ -262,6 +269,10 @@ struct Shared {
     visible: AtomicBool,
     /// The app's accent colour (0xAARRGGBB) for scenes, or 0 before the app tells it.
     accent: AtomicU32,
+    /// Whether the render thread fills [`Shared::inspect`] (see [`Visualizer::set_inspecting`]).
+    inspecting: AtomicBool,
+    /// What the render thread saw in its last frame, while inspecting.
+    inspect: Mutex<Option<Inspect>>,
     /// The file that plays and where, for analysing it into a chart and the time in it.
     playback: Mutex<Playback>,
     /// Where the player's files are opened from, set once; without it files are not analysed.
@@ -358,6 +369,8 @@ impl Visualizer {
                 ),
                 // Until the player says otherwise, draw.
                 playing: AtomicBool::new(true),
+                inspecting: AtomicBool::new(false),
+                inspect: Mutex::new(None),
                 visible: AtomicBool::new(true),
                 accent: AtomicU32::new(0),
                 playback: Mutex::new(Playback::default()),
@@ -379,6 +392,26 @@ impl Visualizer {
             worker: Mutex::new(None),
             library: Arc::new(Mutex::new(library)),
         }
+    }
+
+    /// Whether the render thread copies what it saw in each frame for [`Self::inspect`]. Off by
+    /// default: the app pays nothing for it.
+    pub fn set_inspecting(&self, inspecting: bool) {
+        self.shared.inspecting.store(inspecting, Ordering::Relaxed);
+        if !inspecting {
+            *lock(&self.shared.inspect) = None;
+        }
+    }
+
+    /// A copy of what the render thread saw in its last frame, while inspecting (see
+    /// [`Self::set_inspecting`]) and once a frame was drawn; else none.
+    pub fn inspect(&self) -> Option<Inspect> {
+        lock(&self.shared.inspect).clone()
+    }
+
+    /// Tell the render thread to do something now (see [`LabCommand`]), for a scene lab.
+    pub fn lab(&self, command: LabCommand) -> Result<()> {
+        self.send(Command::Lab(command))
     }
 
     /// Follow the app's accent colour (0xAARRGGBB), which scenes may draw in.
@@ -848,7 +881,14 @@ fn run(
         loop {
             match commands.try_recv() {
                 Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(()),
-                Ok(command) => apply(shared, &mut pipeline, &mut auto, &mut loads, command),
+                Ok(command) => apply(
+                    shared,
+                    library,
+                    &mut pipeline,
+                    &mut auto,
+                    &mut loads,
+                    command,
+                ),
                 Err(TryRecvError::Empty) => break,
             }
         }
@@ -921,7 +961,14 @@ fn run(
             match commands.recv_timeout(PAUSED_POLL) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
                 Ok(command) => {
-                    apply(shared, &mut pipeline, &mut auto, &mut loads, command);
+                    apply(
+                        shared,
+                        library,
+                        &mut pipeline,
+                        &mut auto,
+                        &mut loads,
+                        command,
+                    );
                     still_drawn = false;
                 }
                 Err(RecvTimeoutError::Timeout) => {}
@@ -1024,6 +1071,10 @@ fn run(
             bench.frame(&mut pipeline, Instant::now(), taken, age);
         }
         show(shared, &pipeline, rendered);
+        if shared.inspecting.load(Ordering::Relaxed) {
+            let seen = inspection(shared, &pipeline, &auto, &charts, time);
+            *lock(&shared.inspect) = Some(seen);
+        }
         // The output falls back to reading frames back if pixel buffers, shared textures or shared
         // images stop working, or the app could not show them.
         if pipeline.transport() != transport {
@@ -1063,7 +1114,14 @@ fn run(
         if deadline > now {
             match commands.recv_timeout(deadline - now) {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
-                Ok(command) => apply(shared, &mut pipeline, &mut auto, &mut loads, command),
+                Ok(command) => apply(
+                    shared,
+                    library,
+                    &mut pipeline,
+                    &mut auto,
+                    &mut loads,
+                    command,
+                ),
                 Err(RecvTimeoutError::Timeout) => {}
             }
         } else if now - deadline >= interval {
@@ -1211,6 +1269,7 @@ fn start_scene_load(
 /// Carry out a command. A scene it loads is shown through [`MANUAL_SWITCH`].
 fn apply(
     shared: &Shared,
+    library: &Mutex<Library>,
     pipeline: &mut Pipeline,
     auto: &mut AutoScene,
     loads: &mut Loads<Loaded>,
@@ -1218,7 +1277,10 @@ fn apply(
 ) {
     // A load the user asked for replaces the scene built ahead and starts the wait for the next
     // automatic switch again.
-    if matches!(command, Command::LoadScene(_) | Command::LoadDefaultScene) {
+    if matches!(
+        command,
+        Command::LoadScene(_) | Command::LoadDefaultScene | Command::Lab(LabCommand::NextScene(_))
+    ) {
         auto.restart();
     }
     let switch = MANUAL_SWITCH;
@@ -1248,11 +1310,77 @@ fn apply(
                 status.height = height;
             })
         }
+        Command::Lab(command) => {
+            lab(shared, library, pipeline, loads, command);
+            return;
+        }
         Command::Stop => Ok(()),
     };
     match result {
         Ok(()) => shared.status().last_error = None,
         Err(e) => shared.set_error(format!("{e:#}")),
+    }
+}
+
+/// Carry out a scene lab's request. The scene a switch asks for is built in the background and
+/// shown like one the user chose, but through the transition asked for, with the durations an
+/// automatic switch of that kind takes (see [`switching::requested`]).
+fn lab(
+    shared: &Shared,
+    library: &Mutex<Library>,
+    pipeline: &mut Pipeline,
+    loads: &mut Loads<Loaded>,
+    command: LabCommand,
+) {
+    match command {
+        LabCommand::Cut => pipeline.cut_now(),
+        LabCommand::Shot(index) => {
+            if !pipeline.hold_shot(index) {
+                info!("The scene has no shot {index:?} to hold");
+            }
+        }
+        LabCommand::NextScene(transition) => {
+            let next = lock(library).auto_next(&mut rand::thread_rng());
+            match next {
+                Some(Ok(preset)) => {
+                    let (transition, durations) =
+                        switching::requested(transition.into(), pipeline.music());
+                    let switch = Switch(transition, durations);
+                    start_scene_load(shared, pipeline, loads, preset.location, switch);
+                }
+                Some(Err(e)) => shared.set_error(format!("{e:#}")),
+                None => info!("There is no scene to switch to"),
+            }
+        }
+    }
+}
+
+/// What the render thread saw in the frame it drew at `time`, for [`Visualizer::inspect`].
+fn inspection(
+    shared: &Shared,
+    pipeline: &Pipeline,
+    auto: &AutoScene,
+    charts: &ChartFollower,
+    time: f64,
+) -> Inspect {
+    Inspect {
+        scene: pipeline.preset_name().to_string(),
+        fps: shared.status().measured_fps,
+        gpu_ms: pipeline.last_gpu_seconds().map(|s| (s * 1e3) as f32),
+        music: InspectMusic::of(pipeline.music()),
+        sections: charts.sections(),
+        director: pipeline.director_view().map(InspectDirector::of),
+        switching: InspectSwitching {
+            scene_seconds: auto.decider.seconds(time),
+            preparing: auto.loads.is_pending(),
+            held: auto.held.is_some(),
+            transition: pipeline.transition_progress(time).map(|(kind, progress)| {
+                InspectTransition {
+                    kind: kind.into(),
+                    progress,
+                }
+            }),
+        },
     }
 }
 

@@ -24,6 +24,7 @@ use crate::covers::{self, Atlas, Cell};
 use crate::rhythm::Rhythm;
 use audio::{Analyzer, SPECTRUM_ROWS, SPECTRUM_WIDTH, WAVEFORM_WIDTH};
 use director::Director;
+pub use director::DirectorView;
 use inputs::EventCounter;
 use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
 use wgsl::ParamsLayout;
@@ -1293,6 +1294,37 @@ impl Scene {
     #[cfg_attr(not(test), allow(dead_code, reason = "for the transition layer"))]
     pub fn cut_this_frame(&self) -> Option<CutInfo> {
         self.cut
+    }
+
+    /// What a readout shows of the camera director (none for a scene without shots), with the
+    /// music of the last frame.
+    pub fn director_view(&self) -> Option<DirectorView> {
+        self.director
+            .as_ref()
+            .map(|director| director.view(&self.music_values))
+    }
+
+    /// Cut to the next shot now, by the director's rules for the size (see
+    /// `Director::force_cut`); the scene hears of it with the next frame. Nothing without shots.
+    pub fn cut_now(&mut self) {
+        if let Some(director) = &mut self.director {
+            director.force_cut(&self.music_values);
+        }
+    }
+
+    /// Cut to shot `index` and hold it, or with none let go of a held shot (see
+    /// `Director::hold_shot`). Whether the scene has the shot.
+    pub fn hold_shot(&mut self, index: Option<u32>) -> bool {
+        let Some(director) = &mut self.director else {
+            return false;
+        };
+        match index {
+            Some(index) => director.hold_shot(index, &self.music_values).is_some(),
+            None => {
+                director.release_shot();
+                true
+            }
+        }
     }
 
     /// Read the scene's files again. When only parameter defaults changed, only those are

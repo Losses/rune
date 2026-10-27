@@ -24,7 +24,7 @@ use crate::gpu_time::GpuTimer;
 use crate::in_flight::InFlight;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
-use crate::scene::{FrameInput, MusicValues, Scene, Source};
+use crate::scene::{DirectorView, FrameInput, MusicValues, Scene, Source};
 #[cfg(target_os = "windows")]
 use crate::shared_dx12::{SharedTargets, SharedTexture};
 #[cfg(target_os = "linux")]
@@ -90,6 +90,8 @@ pub struct Pipeline {
     recorded: Option<Vec<f64>>,
     /// Frames not drawn because every target was still in use, so far and at the last report.
     skipped: (u64, u64),
+    /// The GPU time of the frame whose time arrived last, in seconds.
+    last_gpu: Option<f64>,
 }
 
 /// How often the GPU time of the frames is logged, in seconds.
@@ -422,6 +424,7 @@ impl Pipeline {
             adaptive: true,
             recorded: None,
             skipped: (0, 0),
+            last_gpu: None,
             adapter_name: adapter.get_info().name,
             device,
             transitions,
@@ -539,6 +542,9 @@ impl Pipeline {
                 self.controller.sample(now, seconds);
             }
         }
+        if let Some(&seconds) = self.times.last() {
+            self.last_gpu = Some(seconds);
+        }
         self.times.clear();
         if self.adaptive {
             change = self.controller.tick(now);
@@ -576,6 +582,43 @@ impl Pipeline {
     /// are the drawn scene's, which a switch that is still fading out has not replaced yet.
     pub fn music(&self) -> &MusicValues {
         self.scene.music()
+    }
+
+    /// The GPU time in seconds of the newest frame whose time has arrived, if frames are timed.
+    pub fn last_gpu_seconds(&self) -> Option<f64> {
+        self.last_gpu
+    }
+
+    /// What a readout shows of the camera director of the scene being drawn.
+    pub fn director_view(&self) -> Option<DirectorView> {
+        self.scene.director_view()
+    }
+
+    /// The transition under way at `time` (the render loop's) and how far it is, 0 to 1 over
+    /// the whole of it (a fade's out and in together).
+    pub fn transition_progress(&self, time: f64) -> Option<(Transition, f32)> {
+        let running = self.transitions.running.as_ref()?;
+        let seconds = running.start.map_or(0.0, |start| time - start).max(0.0);
+        let Durations { out, into } = running.durations;
+        let progress = match running.kind {
+            Transition::Cut => 1.0,
+            Transition::Fade => (seconds / (out + into).max(f64::EPSILON)).clamp(0.0, 1.0),
+            // The new scene goes in with the dissolve's second frame, which sets the start.
+            Transition::Dissolve if running.pending.is_some() => 0.0,
+            Transition::Dissolve => f64::from(dissolve_progress(seconds, into)),
+        };
+        Some((running.kind, progress as f32))
+    }
+
+    /// The camera director of the newest scene cuts now (see [`Scene::cut_now`]).
+    pub fn cut_now(&mut self) {
+        self.latest_mut().cut_now();
+    }
+
+    /// The newest scene's director holds shot `index`, or with none lets go of a held shot (see
+    /// [`Scene::hold_shot`]); whether it could.
+    pub fn hold_shot(&mut self, index: Option<u32>) -> bool {
+        self.latest_mut().hold_shot(index)
     }
 
     /// The newest scene: the one waiting to be installed when a transition runs, else the one

@@ -86,6 +86,15 @@ impl Tier {
         }
     }
 
+    /// The tier's name, for a readout.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Quiet => "quiet",
+            Self::Normal => "normal",
+            Self::High => "high",
+        }
+    }
+
     fn bars(self) -> u32 {
         match self {
             Self::Quiet => QUIET_BARS,
@@ -181,6 +190,20 @@ impl ShotState {
     }
 }
 
+/// What a readout can show of a director: its state and the names of the shot and the section's
+/// tier (see `Director::view`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DirectorView {
+    pub state: ShotState,
+    /// The `name` of the shot on, as the scene declares it (empty if it has none).
+    pub shot_name: String,
+    /// "quiet", "normal" or "high": how lively the music's section is, which sets how often the
+    /// director cuts.
+    pub tier: &'static str,
+    /// Whether the shot is held (see `Director::hold_shot`), so that the director does not cut.
+    pub held: bool,
+}
+
 /// Why a burst cut is wanted now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Burst {
@@ -212,6 +235,8 @@ pub struct Director {
     camera: Camera,
     /// The scene's shots, in the order of its `[[shot]]`s.
     shots: Vec<(ShotSize, ShotMove)>,
+    /// The `name` of each shot, in the same order.
+    names: Vec<String>,
     /// Whether the scene has a `close` or a `detail` shot, which the bursts need.
     has_near: bool,
     state: ShotState,
@@ -234,6 +259,8 @@ pub struct Director {
     phrase_start: Option<u32>,
     /// Whether the end of a phrase gets a burst (from [`PHRASE_BURSTS`]).
     phrase_bursts: bool,
+    /// The shot is held: no cut happens until [`Director::release`] (for a scene lab).
+    held: bool,
 }
 
 impl Director {
@@ -247,6 +274,7 @@ impl Director {
     /// nearest to one), before any cut.
     pub fn new(camera: Camera, shots: &[Shot]) -> Self {
         assert!(!shots.is_empty(), "a director needs a shot");
+        let names = shots.iter().map(|s| s.name.clone()).collect();
         let shots: Vec<(ShotSize, ShotMove)> = shots.iter().map(|s| (s.size, s.motion)).collect();
         let has_near = shots
             .iter()
@@ -254,6 +282,7 @@ impl Director {
         let mut director = Self {
             camera,
             shots,
+            names,
             has_near,
             state: ShotState {
                 index: 0,
@@ -274,6 +303,7 @@ impl Director {
             last_fill: 0,
             phrase_start: None,
             phrase_bursts: PHRASE_BURSTS,
+            held: false,
         };
         let index = director.pick(ShotSize::Wide, 0.0, 0, None);
         director.state.index = index as u32;
@@ -285,6 +315,48 @@ impl Director {
     /// What the scene is told now.
     pub fn state(&self) -> &ShotState {
         &self.state
+    }
+
+    /// What a readout shows: the state, the shot's name, the section's tier (from `music`) and
+    /// whether the shot is held.
+    pub fn view(&self, music: &MusicValues) -> DirectorView {
+        DirectorView {
+            state: self.state,
+            shot_name: self.names[self.state.index as usize].clone(),
+            tier: Tier::of(music).name(),
+            held: self.held,
+        }
+    }
+
+    /// Cut now, as if a cut were due: to the size the section's tier gives for the next cut, by
+    /// the same rules as the cadence, and tell the scene. It is what a scene lab asks for; the
+    /// cadence counts from this cut on. A held shot is cut away from (and stays held).
+    pub fn force_cut(&mut self, music: &MusicValues) -> Cut {
+        let tier = Tier::of(music);
+        self.cut(tier.size(self.in_section), music, tier, 0)
+    }
+
+    /// Cut to shot `index` (of the scene's `[[shot]]`s) and hold it: the director cuts no more
+    /// until [`Self::release_shot`]. The shot's size and roll follow the rules of any cut. Returns
+    /// the cut, or none for a shot the scene does not have (nothing changes then).
+    pub fn hold_shot(&mut self, index: u32, music: &MusicValues) -> Option<Cut> {
+        let index = index as usize;
+        if index >= self.shots.len() {
+            return None;
+        }
+        let cut = self.enter(index, music, Tier::of(music), 0);
+        self.held = true;
+        Some(cut)
+    }
+
+    /// Let go of a held shot: the director cuts by its cadence again, counted from now so that it
+    /// does not cut at once.
+    pub fn release_shot(&mut self) {
+        if self.held {
+            self.held = false;
+            self.bars_since_cut = 0;
+            self.seconds_since_cut = 0.0;
+        }
     }
 
     /// Advance by one frame of `dt` seconds with the music of the frame, and return the cut that
@@ -301,6 +373,9 @@ impl Director {
         }
         let tier = Tier::of(music);
         let followed = music.locked > FOLLOWED;
+        if self.held {
+            return None;
+        }
 
         // A section starts: establish it, and count the progression again.
         if music.cues > 0 && music.cue >= SECTION_CUE {
@@ -397,6 +472,13 @@ impl Director {
         let label = music.section_label;
         let current = self.state.index as usize;
         let index = self.pick(want, label, self.in_section, Some(current));
+        self.enter(index, music, tier, fill)
+    }
+
+    /// Cut to shot `index`: count the cut, give the shot its roll and seed, and say how long it
+    /// is planned to last.
+    fn enter(&mut self, index: usize, music: &MusicValues, tier: Tier, fill: u32) -> Cut {
+        let label = music.section_label;
         let (size, motion) = self.shots[index];
         self.state.cuts = self.state.cuts.wrapping_add(1);
         self.in_section += 1;
@@ -995,7 +1077,11 @@ mod tests {
         let all = lift_run(&mut director);
         assert!(all.iter().any(|(_, c)| c.fill > 0));
         for (_, cut) in &all {
-            let want = if cut.fill > 0 { ShotMove::Cut } else { ShotMove::Glide };
+            let want = if cut.fill > 0 {
+                ShotMove::Cut
+            } else {
+                ShotMove::Glide
+            };
             assert_eq!(cut.motion, want, "{all:?}");
         }
     }
@@ -1145,5 +1231,60 @@ mod tests {
         let mut all = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         all.extend(beats(&mut director, 1, 80, &base, plain));
         assert!(all.iter().all(|(_, c)| c.fill == 0));
+    }
+
+    #[test]
+    fn a_forced_cut_follows_the_size_rules_and_is_reported() {
+        use ShotSize::*;
+        let mut director = Director::new(camera(0.0, false), &each_size());
+        let base = song(0.5);
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        assert_eq!(director.state().cuts, 1);
+        // An ordinary section steps closer: medium, close, detail.
+        let sizes: Vec<ShotSize> = (0..3).map(|_| director.force_cut(&base).size).collect();
+        assert_eq!(sizes, [Medium, Close, Detail]);
+        let state = *director.state();
+        assert_eq!(state.cuts, 4);
+        assert_eq!(state.size, Detail as u32);
+        assert_eq!(state.index, 3);
+        assert_eq!(state.age, 0.0);
+        assert_eq!(state.fill, 0);
+        // The cadence counts from the forced cut: four bars of 2 s later, not before.
+        let cuts = beats(&mut director, 1, 20, &base, plain);
+        assert_eq!(cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(), [16]);
+        // The tier shows in the readout.
+        assert_eq!(director.view(&base).tier, "normal");
+        assert_eq!(director.view(&song(0.9)).tier, "high");
+        assert_eq!(director.view(&song(0.1)).tier, "quiet");
+    }
+
+    #[test]
+    fn a_held_shot_is_not_cut_away_from_until_released() {
+        let mut director = Director::new(camera(0.3, true), &each_size());
+        let base = song(0.9);
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        // A shot the scene does not have changes nothing.
+        let before = *director.state();
+        assert!(director.hold_shot(6, &base).is_none());
+        assert_eq!(*director.state(), before);
+        let cut = director.hold_shot(2, &base).expect("shot 2 exists");
+        assert_eq!(cut.index, 2);
+        assert_eq!(director.state().index, 2);
+        assert_eq!(director.state().size, ShotSize::Close as u32);
+        assert_eq!(director.state().cuts, 2);
+        assert!(director.view(&base).held);
+        // A high section cuts every 2 bars and a section start cuts at once; none happens.
+        let mut all = beats(&mut director, 1, 40, &base, plain);
+        all.extend(beats(&mut director, 41, 1, &base, |_, m| start(1.0, m)));
+        assert!(all.is_empty(), "{all:?}");
+        assert_eq!(director.state().index, 2);
+        assert_eq!(director.state().cuts, 2);
+        // The shot ages meanwhile.
+        assert!(director.state().age > 20.0);
+        // Released, it waits a whole cadence (2 bars, 4 s) before it cuts.
+        director.release_shot();
+        assert!(!director.view(&base).held);
+        let cuts = beats(&mut director, 42, 20, &base, plain);
+        assert_eq!(cuts.iter().map(|(b, _)| *b).collect::<Vec<_>>(), [48, 56]);
     }
 }
