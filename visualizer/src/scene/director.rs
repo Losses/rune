@@ -33,6 +33,8 @@ pub const FILL_BEATS: u32 = 4;
 /// How much more energy the next section needs for the burst before it (the cue's own rule for a
 /// lift is the same, `scene::signals::CUE_LIFT`).
 pub const FILL_LIFT: f32 = 0.1;
+/// Without a followed beat, how long a burst a scene lab started waits between its cuts.
+pub const FORCED_BURST_SECONDS: f32 = 0.25;
 /// The length of a phrase in a high section, in bars from the section's start.
 pub const PHRASE_BARS: u32 = 8;
 /// Whether the end of every phrase of a high section gets a burst of cuts. Off: fewer cuts are
@@ -224,6 +226,15 @@ enum Burst {
     Phrase,
 }
 
+/// A burst a scene lab started by hand (see [`Director::start_burst`]), under way.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ForcedBurst {
+    /// The position (1 to [`FILL_BEATS`]) of the next cut.
+    next: u32,
+    /// Without a followed beat: seconds until the next cut.
+    wait: f32,
+}
+
 /// The number `rv_label_hash` in `stdlib.wgsl` gives: 0 to 1, the same for the same label and `k`.
 fn label_hash(label: f32, k: u32) -> f32 {
     let multiplier = [0.618_033_9, 0.754_877_7, 0.569_840_3][(k % 3) as usize];
@@ -274,6 +285,8 @@ pub struct Director {
     pace_override: Option<Pace>,
     /// The shot is held: no cut happens until [`Director::release`] (for a scene lab).
     held: bool,
+    /// A burst a scene lab asked for, while its cuts are still to come.
+    forced_burst: Option<ForcedBurst>,
 }
 
 impl Director {
@@ -318,6 +331,7 @@ impl Director {
             phrase_bursts: PHRASE_BURSTS || camera.pace == Pace::Busy,
             pace_override: None,
             held: false,
+            forced_burst: None,
         };
         let index = director.pick(ShotSize::Wide, 0.0, 0, None);
         director.state.index = index as u32;
@@ -394,6 +408,15 @@ impl Director {
         self.cut(tier.size(self.in_section), music, tier, 0)
     }
 
+    /// Start a burst of cuts now, as the one before a lift is (see [`FILL_SIZES`]): a cut on
+    /// each of the next [`FILL_BEATS`] beats, or without a followed beat one every
+    /// [`FORCED_BURST_SECONDS`], the first at once. It is what a scene lab asks for, to see a
+    /// burst without waiting for a lift; the cadence is quiet until it is over, and a section
+    /// start still cuts as it does. A held shot defers it until the shot is let go of.
+    pub fn start_burst(&mut self) {
+        self.forced_burst = Some(ForcedBurst { next: 1, wait: 0.0 });
+    }
+
     /// Cut to shot `index` (of the scene's `[[shot]]`s) and hold it: the director cuts no more
     /// until [`Self::release_shot`]. The shot's size and roll follow the rules of any cut. Returns
     /// the cut, or none for a shot the scene does not have (nothing changes then).
@@ -450,6 +473,25 @@ impl Director {
             self.in_section = 0;
             self.phrase_start = None;
             return Some(self.cut(ShotSize::Wide, music, tier, 0));
+        }
+        // A burst a scene lab started.
+        if let Some(burst) = &mut self.forced_burst {
+            let due = if followed && music.tempo > 0.0 {
+                music.beats > 0
+            } else {
+                burst.wait -= dt;
+                burst.wait <= 0.0
+            };
+            if !due {
+                return None;
+            }
+            let fill = burst.next;
+            burst.next += 1;
+            burst.wait = FORCED_BURST_SECONDS;
+            if fill >= FILL_BEATS {
+                self.forced_burst = None;
+            }
+            return Some(self.cut(FILL_SIZES[fill as usize - 1], music, tier, fill));
         }
         // The burst before a section or a phrase ends.
         if let Some((kind, fill)) = self.burst(music, tier, followed)
@@ -1165,6 +1207,55 @@ mod tests {
         assert_eq!((*beat, last.size, last.fill), (24, Wide, 0));
         // Two bars of 2 s: the section is a high one.
         assert_eq!(director.state().length, 4.0);
+    }
+
+    #[test]
+    fn a_burst_started_by_hand_cuts_on_the_next_four_beats() {
+        let mut director = Director::new(camera(0.3, false), &each_size());
+        let base = song(0.2);
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        director.start_burst();
+        let all = beats(&mut director, 1, 8, &base, plain);
+        use ShotSize::*;
+        assert_eq!(
+            all.iter().map(|(b, _)| *b).collect::<Vec<_>>(),
+            [1, 2, 3, 4],
+            "{all:?}"
+        );
+        assert_eq!(
+            all.iter().map(|(_, c)| c.fill).collect::<Vec<_>>(),
+            [1, 2, 3, 4]
+        );
+        assert_eq!(
+            all.iter().map(|(_, c)| c.size).collect::<Vec<_>>(),
+            [Medium, Close, Detail, Top]
+        );
+        assert!(all.iter().all(|(_, c)| c.motion == ShotMove::Cut));
+        // Then it is over: no more burst cuts.
+        assert_eq!(director.forced_burst, None);
+        assert!(
+            beats(&mut director, 9, 4, &base, plain)
+                .iter()
+                .all(|(_, c)| c.fill == 0)
+        );
+    }
+
+    #[test]
+    fn a_burst_started_by_hand_without_a_followed_beat_cuts_every_quarter_second() {
+        let mut director = Director::new(camera(0.3, false), &each_size());
+        let base = MusicValues {
+            locked: 0.0,
+            ..song(0.2)
+        };
+        director.start_burst();
+        let mut cuts = Vec::new();
+        for frame in 0..100 {
+            if let Some(cut) = director.tick(0.0625, &base) {
+                cuts.push((frame, cut.fill));
+            }
+        }
+        // At once, then every 0.25 s (4 frames of 0.0625 s).
+        assert_eq!(cuts, [(0, 1), (4, 2), (8, 3), (12, 4)]);
     }
 
     #[test]

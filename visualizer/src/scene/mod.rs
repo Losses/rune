@@ -27,8 +27,8 @@ use audio::{Analyzer, SPECTRUM_ROWS, SPECTRUM_WIDTH, WAVEFORM_WIDTH};
 use director::Director;
 pub use director::DirectorView;
 use inputs::EventCounter;
-pub use manifest::Effects;
 pub use lens::LensView;
+pub use manifest::Effects;
 use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
 use wgsl::ParamsLayout;
 
@@ -43,6 +43,8 @@ pub struct CutInfo {
     /// The strength of the music's cue in that frame (0 to 1): a cut on a section start is 0.5
     /// or 1, one on the beat or the cadence is whatever the cue's envelope has left.
     pub cue: f32,
+    /// 0 for a normal cut, else the position in a burst (1 to 4, see `ShotState::fill`).
+    pub fill: u32,
 }
 
 /// Buffers of a scene may take this much memory together.
@@ -1363,7 +1365,16 @@ impl Scene {
                 size: cut.size,
                 motion: cut.motion,
                 cue: self.music_values.cue,
+                fill: 0,
             });
+        }
+    }
+
+    /// Start a burst of cuts now, as the one before a lift (see `Director::start_burst`); each
+    /// cut is reported with its `fill` ([`Scene::cut_this_frame`]). Nothing without shots.
+    pub fn start_burst(&mut self) {
+        if let Some(director) = &mut self.director {
+            director.start_burst();
         }
     }
 
@@ -1699,6 +1710,7 @@ impl Scene {
                         size: cut.size,
                         motion: cut.motion,
                         cue: music.cue,
+                        fill: cut.fill,
                     })
                     .or(self.forced_cut.take());
                 director.state().bytes()

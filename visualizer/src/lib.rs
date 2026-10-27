@@ -1380,6 +1380,7 @@ fn lab(
         LabCommand::Flare => pipeline.start_flare(),
         LabCommand::Leak => pipeline.start_leak(),
         LabCommand::Blocks => pipeline.start_blocks(),
+        LabCommand::Burst => pipeline.start_burst(),
         LabCommand::Shot(index) => {
             if !pipeline.hold_shot(index) {
                 info!("The scene has no shot {index:?} to hold");

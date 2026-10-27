@@ -234,6 +234,10 @@ pub enum LabCommand {
     Leak,
     /// Fire a colour-block frame now, as a strong cue would (even if the scene lists none).
     Blocks,
+    /// Start a burst of cuts now: the director cuts on each of the next 4 beats (or every
+    /// quarter second without a followed beat) to medium, close, detail and top, each with its
+    /// punch, as the burst before a lift does.
+    Burst,
 }
 
 /// The name of a shot size, from the number `struct Shot` has.
