@@ -5,6 +5,10 @@ description = "A shopping street at night, walked on the beat"
 
 common = ["glyphs.wgsl", "city.wgsl"]
 
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
+# A neon street at night, in the spirit of Persona 5: the cut-in belongs here.
+effects = ["fade", "cutin", "flash", "glitch", "flare", "blocks"]
+
 # The director cuts between the street's views. The small roll wobble of the camera stays; the
 # director's dutch angle comes on top of it.
 [camera]

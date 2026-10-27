@@ -5,6 +5,10 @@ description = "A paperclip dancing on its sheet of paper, a field of them dancin
 
 common = ["clip.wgsl"]
 
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
+# A nineties render in big pixels: a dot mosaic and a colour-block frame.
+effects = ["fade", "mosaic", "cutin", "blocks"]
+
 [state]
 file = "state.wgsl"
 update = "update.wgsl"

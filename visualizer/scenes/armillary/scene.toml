@@ -5,6 +5,10 @@ description = "An armillary sphere floating in space, its glassy rings each keep
 
 common = ["world.wgsl"]
 
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
+# An instrument of the night sky: a flash like daybreak, and a flare off its bright rings.
+effects = ["fade", "dissolve", "flash", "flare"]
+
 [state]
 file = "state.wgsl"
 update = "update.wgsl"

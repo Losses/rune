@@ -5,6 +5,10 @@ description = "Endless torii winding over the sea, waves breaking with the music
 
 common = ["sea.wgsl"]
 
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
+# A calm sea: a flash that turns the hour, a flare and a light leak, nothing harsh.
+effects = ["fade", "dissolve", "flash", "flare", "leak"]
+
 [state]
 file = "state.wgsl"
 update = "update.wgsl"

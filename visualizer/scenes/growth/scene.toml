@@ -5,6 +5,10 @@ description = "A tower of plates growing up into white light, a step on every be
 
 common = ["tower.wgsl"]
 
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
+# A tower that grows towards the light: a flash, a flare and a light leak.
+effects = ["fade", "dissolve", "flash", "flare", "leak"]
+
 [state]
 file = "state.wgsl"
 update = "update.wgsl"

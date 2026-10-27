@@ -5,6 +5,10 @@ description = "Flying down a tunnel of light past lacquered tortoiseshell badges
 
 common = ["badge.wgsl"]
 
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
+# A loud flight through badges: a cut-in or a glitch at the big moments.
+effects = ["fade", "dissolve", "cutin", "glitch", "flare"]
+
 [state]
 file = "state.wgsl"
 update = "update.wgsl"
