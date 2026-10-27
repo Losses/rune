@@ -8,8 +8,9 @@
 //!   ([`shape`]), and thins out to nothing by the end; never a sudden onset.
 //! - Its amount at each moment is that shape times the music's `intensity`, smoothed over about a
 //!   beat and floored so that it never vanishes mid-way ([`Course::amount`]).
-//! - What steps (the glitch's and the mosaic's patterns) steps on the beat grid: on half-beats of
-//!   `clock`, or without a followed beat on the hits, at least every 0.25 s ([`Course::step`]).
+//! - What moves (the glitch's broken rows, the mosaic's blocks) moves continuously in its time in
+//!   beats ([`Course::time`]), which runs at the tempo, so it is faster in faster music and nothing
+//!   snaps on a beat (not stepped on the beat, but driven by the bpm clock, as the camera is).
 
 use crate::scene::MusicValues;
 use crate::switching::{FOLLOWED, SECTION_CUE};
@@ -29,10 +30,6 @@ pub const UNFOLLOWED_BEAT_SECONDS: f32 = 0.5;
 /// The least of the music's part of the amount: at no intensity the effect is at this share of
 /// what it is at full intensity, so it never vanishes mid-way.
 pub const LEAST: f32 = 0.35;
-/// Steps on the beat grid: this many to a beat while the beat is followed.
-pub const STEPS_PER_BEAT: f32 = 2.0;
-/// Without a followed beat a step comes with each hit, and after this many seconds without one.
-pub const UNFOLLOWED_STEP_SECONDS: f32 = 0.25;
 
 /// The shape of a course at `progress` (0 to 1) of its length: 0 at the start, a smoothstep up to
 /// 1 at [`PEAK`], and a smoothstep down to 0 at the end; 0 outside.
@@ -124,11 +121,9 @@ pub struct Course {
     age: f32,
     /// The music's intensity, smoothed over about a beat.
     level: f32,
-    /// How many steps went by, the half-beat of `clock` it last stepped on, and the seconds since
-    /// the last step.
-    step: u32,
-    half: f32,
-    since_step: f32,
+    /// Beats since it started, which a restart does not set back: what moves in it moves by
+    /// this.
+    time: f32,
 }
 
 impl Course {
@@ -138,36 +133,23 @@ impl Course {
             length: phrase.beats_left(music),
             age: 0.0,
             level: music.intensity.clamp(0.0, 1.0),
-            step: 0,
-            half: (music.clock * STEPS_PER_BEAT).floor(),
-            since_step: 0.0,
+            time: 0.0,
         }
     }
 
-    /// Advance by a frame of `dt` seconds with the music of the frame; whether it stepped.
-    pub fn tick(&mut self, dt: f32, music: &MusicValues) -> bool {
-        let followed = followed(music);
-        let beat = if followed {
+    /// Advance by a frame of `dt` seconds with the music of the frame. Its time runs in beats of
+    /// the tempo (of [`UNFOLLOWED_BEAT_SECONDS`] without a followed beat): smoothly, unlike
+    /// `clock` without a followed beat, which steps on the hits.
+    pub fn tick(&mut self, dt: f32, music: &MusicValues) {
+        let beat = if followed(music) {
             60.0 / music.tempo
         } else {
             UNFOLLOWED_BEAT_SECONDS
         };
         self.age += dt / beat;
+        self.time += dt / beat;
         let follow = 1.0 - (-dt / beat).exp();
         self.level += (music.intensity.clamp(0.0, 1.0) - self.level) * follow;
-        self.since_step += dt;
-        let half = (music.clock * STEPS_PER_BEAT).floor();
-        let stepped = if followed {
-            half != self.half
-        } else {
-            music.hits > 0 || self.since_step >= UNFOLLOWED_STEP_SECONDS
-        };
-        self.half = half;
-        if stepped {
-            self.step += 1;
-            self.since_step = 0.0;
-        }
-        stepped
     }
 
     /// How far it is, 0 to 1 (and on past 1 when it is over).
@@ -190,14 +172,10 @@ impl Course {
         self.age >= self.length
     }
 
-    /// How many steps of the beat grid went by since it started.
-    pub fn step(&self) -> u32 {
-        self.step
-    }
-
-    /// Its age in beats.
-    pub fn beats(&self) -> f32 {
-        self.age
+    /// Beats since it started, which runs on through a restart: the time what moves in it moves
+    /// by.
+    pub fn time(&self) -> f32 {
+        self.time
     }
 
     /// Its length in beats.
@@ -336,29 +314,38 @@ mod tests {
         assert!(after_beat > 0.7 && after_beat < 0.95, "{after_beat}");
     }
 
-    /// Steps come on half-beats of the clock while the beat is followed, else with the hits and
-    /// at least every 0.25 s.
+    /// Its time runs smoothly in beats of the tempo: twice the tempo, twice as fast; without a
+    /// followed beat in half-seconds, whatever the hits do; a restart does not set it back.
     #[test]
-    fn steps_come_on_the_beat_grid() {
+    fn its_time_runs_with_the_tempo_smoothly() {
         let m = music(1.0);
         let mut course = Course::new(&Phrase::default(), &m);
-        let mut steps = 0;
-        // Two beats at 60 fps and 120 bpm: 60 frames, four half-beats.
-        for i in 1..=60 {
-            let clock = i as f32 / 30.0;
-            if course.tick(1.0 / 60.0, &MusicValues { clock, ..m }) {
-                steps += 1;
-            }
+        let mut last = 0.0;
+        for _ in 0..60 {
+            course.tick(1.0 / 60.0, &m);
+            let step = course.time() - last;
+            assert!((step - 1.0 / 30.0).abs() < 1e-5, "{step}");
+            last = course.time();
         }
-        assert_eq!(steps, 4);
-        assert_eq!(course.step(), 4);
-        // Without a followed beat: a hit steps at once, else a quarter of a second does.
-        let free = MusicValues { locked: 0.0, ..m };
-        let mut course = Course::new(&Phrase::default(), &free);
-        assert!(course.tick(1.0 / 60.0, &MusicValues { hits: 1, ..free }));
-        let quiet: Vec<bool> = (0..40).map(|_| course.tick(1.0 / 60.0, &free)).collect();
-        assert_eq!(quiet.iter().filter(|&&s| s).count(), 2, "{quiet:?}");
-        assert!(quiet[13..=15].iter().any(|&s| s), "{quiet:?}");
+        assert!((course.time() - 2.0).abs() < 1e-3);
+        let fast = MusicValues { tempo: 240.0, ..m };
+        let mut quick = Course::new(&Phrase::default(), &fast);
+        for _ in 0..60 {
+            quick.tick(1.0 / 60.0, &fast);
+        }
+        assert!((quick.time() - 4.0).abs() < 1e-3);
+        let free = MusicValues {
+            locked: 0.0,
+            hits: 3,
+            ..m
+        };
+        let mut free_course = Course::new(&Phrase::default(), &free);
+        for _ in 0..60 {
+            free_course.tick(1.0 / 60.0, &free);
+        }
+        assert!((free_course.time() - 2.0).abs() < 1e-3);
+        let again = course.restarted(Course::new(&Phrase::default(), &m), 0.2);
+        assert_eq!(again.time(), course.time());
     }
 
     /// Started again, a course goes on from where its shape is, back on the rising side, with
@@ -376,6 +363,6 @@ mod tests {
         assert!((again.amount() - before).abs() < 1e-3);
         assert!(again.progress() < PEAK);
         assert_eq!(again.length(), 12.0);
-        assert_eq!(again.step(), course.step());
+        assert_eq!(again.time(), course.time());
     }
 }

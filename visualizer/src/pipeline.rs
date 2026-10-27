@@ -3133,7 +3133,7 @@ mod probe {
         const PHRASE: &[u32] = &[0, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400];
         // Around the peak, a half-beat (15 frames) apart: a mosaic's blocks live on.
         const STEPS: &[u32] = &[120, 135, 150, 165, 180, 195, 210];
-        let looks: [(&str, Start, &[u32]); 8] = [
+        let looks: [(&str, Start, &[u32]); 9] = [
             ("none", |_| {}, &[0]),
             ("flare", Pipeline::start_flare, PHRASE),
             ("leak", Pipeline::start_leak, PHRASE),
@@ -3166,6 +3166,21 @@ mod probe {
                     pipeline.switch_to(next, kind, durations).unwrap();
                 },
                 &[0, 3, 6, 9, 12, 16, 20, 24, 28, 31, 40, 60, 80],
+            ),
+            // A beat (30 frames), the new scene in at half way.
+            (
+                "mosaic-switch",
+                |pipeline| {
+                    let next = pipeline
+                        .scene_build_builtin("Torii Sea")
+                        .unwrap()
+                        .run()
+                        .unwrap();
+                    let (kind, durations) =
+                        switching::requested(Transition::Mosaic, pipeline.music());
+                    pipeline.switch_to(next, kind, durations).unwrap();
+                },
+                &[0, 3, 6, 9, 12, 14, 16, 18, 21, 24, 27, 30],
             ),
             // A quarter of a beat up and half a beat down, from the frame after the start.
             (
