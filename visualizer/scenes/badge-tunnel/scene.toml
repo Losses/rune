@@ -87,10 +87,6 @@ saturation = 1.3
 # Everything the scene hears comes in through these (see "Bindings" in the runtime's docs/music.md).
 
 [[input]]
-id = "beat"
-label = "A beat, or a hit where no beat is followed"
-
-[[input]]
 id = "kick"
 label = "The kick of a beat, dying away over a quarter of a second"
 
@@ -106,10 +102,6 @@ range = [0.0, 1000000.0]
 [[input]]
 id = "note"
 label = "A melody note, as strong as it is"
-
-[[input]]
-id = "cue_on"
-label = "A cue of strength 0.5 or more: a section's start"
 
 [[input]]
 id = "coming"
@@ -135,12 +127,6 @@ id = "intensity"
 label = "Fast energy"
 
 [[bind]]
-target = "beat"
-source = "hits"
-how = "trigger"
-when = { scale = false, release = 0.0 }
-
-[[bind]]
 target = "kick"
 source = "hits"
 how = "trigger"
@@ -163,12 +149,6 @@ target = "note"
 source = "notes"
 how = "trigger"
 when = { release = 0.0 }
-
-[[bind]]
-target = "cue_on"
-source = "cues"
-how = "trigger"
-when = { strength = 0.5, scale = false, release = 0.0 }
 
 [[bind]]
 target = "coming"
