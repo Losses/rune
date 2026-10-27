@@ -96,6 +96,85 @@ vignette = 0.4
 contrast = 1.1
 saturation = 1.0
 
+# ---- What the music drives ----
+# The scene says what it wants from the music and the runtime works it out (see "Bindings" in the
+# runtime's docs/music.md); the shaders read the values as `input.<id>`. The events the scene only
+# needs to know of arrive as one-frame pulses (release 0). The signals it only measures come
+# through as they are (an unclamped `follow`), so that a lab can see them and change their source.
+
+[[input]]
+id = "beat"
+label = "A beat, or a hit where no beat is followed"
+
+[[input]]
+id = "section_start"
+label = "A section start (a cue of at least half strength)"
+
+[[input]]
+id = "section"
+label = "The kind of section (the same number for every chorus)"
+range = [0.0, 1000.0]
+
+[[input]]
+id = "clock"
+label = "The beat clock"
+range = [0.0, 1000000.0]
+
+[[input]]
+id = "tempo"
+label = "The tempo"
+range = [0.0, 1000.0]
+
+[[input]]
+id = "locked"
+label = "How much the beat is followed"
+
+[[input]]
+id = "drive"
+label = "Slow energy"
+
+[[bind]]
+target = "beat"
+source = "hits"
+how = "trigger"
+when = { scale = false, release = 0.0 }
+
+[[bind]]
+target = "section_start"
+source = "cues"
+how = "trigger"
+when = { strength = 0.5, scale = false, release = 0.0 }
+
+[[bind]]
+target = "section"
+source = "section_label"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "clock"
+source = "clock"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "tempo"
+source = "tempo"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "locked"
+source = "locked"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "drive"
+source = "drive"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
 # ---- Beat ----
 
 [[param]]
