@@ -14,6 +14,7 @@
 
 use std::cell::Cell;
 
+use crate::bind::CourseBinds;
 use crate::course::{Course, Phrase};
 use crate::covers::{Cell as CoverCell, SHARP};
 use crate::scene::{MusicValues, Scene};
@@ -533,12 +534,24 @@ fn next_overlay(running: Option<OverlayRun>, run: OverlayRun) -> OverlayRun {
 impl OverlayRun {
     /// An overlay of `kind` that starts at `start`, in the music `music` at `phrase`: to the end
     /// of the phrase (see `crate::course::Phrase::beats_left`).
+    #[cfg(test)]
     pub fn new(kind: Overlay, start: f64, phrase: &Phrase, music: &MusicValues) -> Self {
+        Self::with(CourseBinds::default(), kind, start, phrase, music)
+    }
+
+    /// The same, with a course that reads the music by `binds` (`course.*` of `runtime.toml`).
+    pub fn with(
+        binds: CourseBinds,
+        kind: Overlay,
+        start: f64,
+        phrase: &Phrase,
+        music: &MusicValues,
+    ) -> Self {
         Self {
             kind,
             start,
             last: start,
-            course: Course::new(phrase, music),
+            course: Course::with(binds, phrase, music),
         }
     }
 

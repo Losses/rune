@@ -32,6 +32,12 @@ pub struct Inspect {
     pub overrides: LabOverrides,
     /// The bindings of the scene on screen: what drives each of its inputs now.
     pub bindings: Vec<InspectBinding>,
+    /// The inputs the scene on screen declares (the targets of its bindings).
+    pub inputs: Vec<InspectInput>,
+    /// The runtime's own bindings (`runtime.toml`) as of the last frame: for each, the target
+    /// (a decision), the source, the level and which means gave the value (a decision that is off
+    /// at the level shows as `Used::Rest`), the source's value and the value the decision read.
+    pub runtime_bindings: Vec<InspectBinding>,
     /// The chance in percent a lab set for every moment to get an effect, or none for the user's
     /// setting (see [`LabCommand::EffectChance`]).
     pub chance: Option<u8>,
@@ -51,6 +57,26 @@ pub struct InspectBinding {
     /// The value of the source, and the output.
     pub source_value: f32,
     pub output: f32,
+    /// The bind as it was written, whether or not it is in use: the `when` as an inline TOML
+    /// table (`{ strength = 0.5 }`, `{}` for none), the `fallback` as a TOML value (`"hits"`,
+    /// `"rest"`, `{ value = 2.0 }`; empty for none) and the `ease` (empty for none).
+    pub when: String,
+    pub fallback: String,
+    pub ease: String,
+}
+
+/// One `[[input]]` of the scene on screen.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InspectInput {
+    pub id: String,
+    /// The label for people (English if it has one), else the id.
+    pub label: String,
+    pub range: [f32; 2],
+    /// The value with nothing driving it.
+    pub rest: f32,
+    /// The input as TOML (the keys of its `[[input]]` table), so that it can be written back as
+    /// it was declared.
+    pub declared: String,
 }
 
 impl From<Report> for InspectBinding {
@@ -63,6 +89,9 @@ impl From<Report> for InspectBinding {
             used: report.tick.used,
             source_value: report.tick.source,
             output: report.tick.output,
+            when: report.when,
+            fallback: report.fallback,
+            ease: report.ease,
         }
     }
 }
@@ -123,6 +152,8 @@ pub struct InspectMusic {
     /// (-1 without a chart).
     pub cue: f32,
     pub cue_in: f32,
+    /// The envelope of the last impact, 0 to 1.
+    pub impact: f32,
     pub has_chart: bool,
 }
 
@@ -311,7 +342,7 @@ pub struct LabOverrides {
 
 /// What the render thread is told to do now, for a scene lab (see
 /// [`crate::Visualizer::lab`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LabCommand {
     /// The camera director cuts now, by its rules for the size, as if a cut were due.
@@ -360,6 +391,21 @@ pub enum LabCommand {
     /// quarter second without a followed beat) to medium, close, detail and top, each with its
     /// punch, as the burst before a lift does.
     Burst,
+    /// Replace the runtime's decisions (`runtime.toml`: when effects play, when the camera cuts,
+    /// when scenes switch, what the effects' course follows) with the bindings of this text, the
+    /// whole file, for every scene from the next frame on. The text is read in full first: if it
+    /// is wrong the old bindings stay and the error, which names the bind, is in
+    /// [`crate::Status::last_error`].
+    RuntimeBindings(String),
+    /// Replace the bindings of the scene on screen with those of this text: TOML holding the
+    /// scene's `[[input]]` and `[[bind]]` arrays and nothing else (no array means none). The text
+    /// is read and checked as the manifest is, in full first: if it is wrong the old bindings
+    /// stay and the error, which names the bind, is in [`crate::Status::last_error`]. The new
+    /// bindings start over from the next frame; only if the inputs changed is the scene rebuilt
+    /// (as a reload of the file would, keeping its state where it can). Nothing is written to
+    /// the scene's folder, and what is on screen is what a reload of the saved text finds, so
+    /// saving the same text does not reload the scene.
+    SceneBindings(String),
 }
 
 /// The name of a shot size, from the number `struct Shot` has.
@@ -393,6 +439,7 @@ impl InspectMusic {
             next_energy: music.next_energy,
             cue: music.cue,
             cue_in: music.cue_in,
+            impact: music.impact,
             has_chart: music.has_chart != 0,
         }
     }

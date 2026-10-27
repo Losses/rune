@@ -36,6 +36,19 @@ pub struct Source {
     read: fn(&MusicValues) -> Reading,
 }
 
+impl std::fmt::Debug for Source {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Source({})", self.name)
+    }
+}
+
+/// Names are unique in the registry, so two sources are the same when they are called the same.
+impl PartialEq for Source {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
 impl Source {
     /// What the source says in this frame's music.
     pub fn read(&self, music: &MusicValues) -> Reading {
@@ -138,6 +151,18 @@ pub static SOURCES: &[Source] = &[
     level_source("hit", ALL, "The envelope of the last hit.", |m| {
         value(m.hit)
     }),
+    level_source(
+        "bar",
+        A_ONLY,
+        "The bar number since the chart's start, the fraction the phase in the bar.",
+        |m| value(m.bar),
+    ),
+    level_source(
+        "beat",
+        A_ONLY,
+        "The beat number since the song's first beat, the fraction the phase in the beat.",
+        |m| value(m.beat),
+    ),
     event_source(
         "bars",
         A_ONLY,
@@ -197,6 +222,24 @@ pub static SOURCES: &[Source] = &[
         A_AND_B,
         "The loudness of the section that comes next, 0 to 1.",
         |m| value(m.next_energy),
+    ),
+    level_source(
+        "low",
+        ALL,
+        "The percussive low band: jumps to an onset's strength, then decays (the kick without a chart).",
+        |m| value(m.low),
+    ),
+    level_source(
+        "mid",
+        ALL,
+        "The percussive mid band the same way (the snare without a chart).",
+        |m| value(m.mid),
+    ),
+    level_source(
+        "high",
+        ALL,
+        "The percussive high band the same way (the hat without a chart).",
+        |m| value(m.high),
     ),
     level_source(
         "band_low",
@@ -288,6 +331,9 @@ mod tests {
         let at = |name: &str| find(name).unwrap().levels;
         assert_eq!(at("bars"), [true, false, false]);
         assert_eq!(at("beats"), [true, false, false]);
+        assert_eq!(at("bar"), [true, false, false]);
+        assert_eq!(at("beat"), [true, false, false]);
+        assert_eq!(at("low"), [true, true, true]);
         assert_eq!(at("cue_in"), [true, true, false]);
         assert_eq!(at("section_label"), [true, true, false]);
         assert_eq!(at("section_energy"), [true, true, false]);
@@ -295,6 +341,31 @@ mod tests {
         assert_eq!(at("drive"), [true, true, true]);
         assert!(find("clock").unwrap().meaningful_at(Level::C));
         assert!(!find("bars").unwrap().meaningful_at(Level::B));
+    }
+
+    #[test]
+    fn the_bar_the_beat_and_the_percussive_bands_read_their_fields() {
+        let music = MusicValues {
+            bar: 12.25,
+            beat: 49.5,
+            low: 0.9,
+            mid: 0.5,
+            high: 0.1,
+            ..Default::default()
+        };
+        assert_eq!(read("bar", &music), value(12.25));
+        assert_eq!(read("beat", &music), value(49.5));
+        assert_eq!(read("low", &music), value(0.9));
+        assert_eq!(read("mid", &music), value(0.5));
+        assert_eq!(read("high", &music), value(0.1));
+        // Values, not events; the bar and the beat only mean something with a followed beat.
+        assert!(
+            ["bar", "beat", "low", "mid", "high"]
+                .iter()
+                .all(|n| !find(n).unwrap().event)
+        );
+        assert!(!find("bar").unwrap().meaningful_at(Level::B));
+        assert!(find("high").unwrap().meaningful_at(Level::C));
     }
 
     #[test]

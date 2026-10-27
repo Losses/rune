@@ -4,34 +4,49 @@
 //! scene's manifest and counts from the scene's start). It is a pure state machine of the music's
 //! values ([`MusicValues`]) and the time step, so it can be tested without a scene or a GPU.
 
+use std::sync::Arc;
+
 use super::inputs::MusicValues;
 use super::manifest::{Camera, Manifest, Pace, Shot, ShotMove, ShotSize};
-use crate::switching::{FOLLOWED, SECTION_CUE};
+use crate::bind::{DirectorBinds, MomentBinds, Said};
+use crate::switching::FOLLOWED;
 
+// The numbers below are the defaults of `director.*` in `runtime.toml`, which the director reads
+// (a test pins that they agree); a scene lab can replace them live.
 /// A section whose energy is below this is quiet.
+#[cfg(test)]
 pub const QUIET_BELOW: f32 = 0.35;
 /// A section whose energy is above this is high.
+#[cfg(test)]
 pub const HIGH_ABOVE: f32 = 0.65;
 // The cadence below is half of the first one, so that cuts are not too frequent.
 /// With a followed beat: bars between two cuts in a quiet section.
+#[cfg(test)]
 pub const QUIET_BARS: u32 = 8;
 /// With a followed beat: bars between two cuts in a section that is neither quiet nor high.
+#[cfg(test)]
 pub const NORMAL_BARS: u32 = 4;
 /// With a followed beat: bars between two cuts in a high section.
+#[cfg(test)]
 pub const HIGH_BARS: u32 = 2;
 /// Without a followed beat: seconds between two cuts in a quiet section.
+#[cfg(test)]
 pub const QUIET_SECONDS: f32 = 24.0;
 /// Without a followed beat: seconds between two cuts in a section that is neither quiet nor high.
+#[cfg(test)]
 pub const NORMAL_SECONDS: f32 = 12.0;
 /// Without a followed beat: seconds between two cuts in a high section.
+#[cfg(test)]
 pub const HIGH_SECONDS: f32 = 6.0;
 /// Without a followed beat: how long past the time a cut is due it waits for a hit, then cuts at
 /// once.
+#[cfg(test)]
 pub const HIT_GRACE_SECONDS: f32 = 2.0;
 /// How many beats the burst of cuts before a section or a phrase takes: one cut on each.
 pub const FILL_BEATS: u32 = 4;
 /// How much more energy the next section needs for the burst before it (the cue's own rule for a
 /// lift is the same, `scene::signals::CUE_LIFT`).
+#[cfg(test)]
 pub const FILL_LIFT: f32 = 0.1;
 /// Without a followed beat, how long a burst a scene lab started waits between its cuts.
 pub const FORCED_BURST_SECONDS: f32 = 0.25;
@@ -77,19 +92,21 @@ enum Tier {
 }
 
 impl Tier {
-    /// The energy of the section: the chart's, else the music's slow energy.
-    fn of(music: &MusicValues) -> Self {
-        let energy = if music.has_chart != 0 {
-            music.section_energy
-        } else {
-            music.drive
-        };
-        if energy < QUIET_BELOW {
-            Self::Quiet
-        } else if energy > HIGH_ABOVE {
-            Self::High
-        } else {
-            Self::Normal
+    /// The tier of the section by `director.cadence`: its energy (the chart's, else the music's
+    /// slow energy) against the thresholds.
+    fn of(binds: &DirectorBinds, music: &MusicValues) -> Self {
+        match binds.tier(music) {
+            0 => Self::Quiet,
+            2 => Self::High,
+            _ => Self::Normal,
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Quiet => 0,
+            Self::Normal => 1,
+            Self::High => 2,
         }
     }
 
@@ -102,20 +119,12 @@ impl Tier {
         }
     }
 
-    fn bars(self) -> u32 {
-        match self {
-            Self::Quiet => QUIET_BARS,
-            Self::Normal => NORMAL_BARS,
-            Self::High => HIGH_BARS,
-        }
+    fn bars(self, binds: &DirectorBinds) -> u32 {
+        binds.every(self.index())
     }
 
-    fn seconds(self) -> f32 {
-        match self {
-            Self::Quiet => QUIET_SECONDS,
-            Self::Normal => NORMAL_SECONDS,
-            Self::High => HIGH_SECONDS,
-        }
+    fn seconds(self, binds: &DirectorBinds) -> f32 {
+        binds.seconds(self.index())
     }
 
     /// The size of the cut that is the `step`th since the section's start (step 0 is the
@@ -287,6 +296,10 @@ pub struct Director {
     held: bool,
     /// A burst a scene lab asked for, while its cuts are still to come.
     forced_burst: Option<ForcedBurst>,
+    /// The runtime's decisions the director reads (`director.*` and what a section start is),
+    /// from `runtime.toml`.
+    binds: Arc<DirectorBinds>,
+    moments: Arc<MomentBinds>,
 }
 
 impl Director {
@@ -332,12 +345,20 @@ impl Director {
             pace_override: None,
             held: false,
             forced_burst: None,
+            binds: Arc::default(),
+            moments: Arc::default(),
         };
         let index = director.pick(ShotSize::Wide, 0.0, 0, None);
         director.state.index = index as u32;
         director.state.size = director.shots[index].0 as u32;
         director.state.seed = label_hash(0.0, 0);
         director
+    }
+
+    /// Decide by these bindings from now on (a scene lab replaced `runtime.toml`).
+    pub fn set_binds(&mut self, binds: Arc<DirectorBinds>, moments: Arc<MomentBinds>) {
+        self.binds = binds;
+        self.moments = moments;
     }
 
     /// The pace in effect: the lab's override, else the scene's own.
@@ -391,7 +412,7 @@ impl Director {
         DirectorView {
             state: self.state,
             shot_name: self.names[self.state.index as usize].clone(),
-            tier: Tier::of(music).name(),
+            tier: Tier::of(&self.binds, music).name(),
             held: self.held,
             shots: self.shot_list(),
             pace: self.pace(),
@@ -404,7 +425,7 @@ impl Director {
     /// the same rules as the cadence, and tell the scene. It is what a scene lab asks for; the
     /// cadence counts from this cut on. A held shot is cut away from (and stays held).
     pub fn force_cut(&mut self, music: &MusicValues) -> Cut {
-        let tier = Tier::of(music);
+        let tier = Tier::of(&self.binds, music);
         self.cut(tier.size(self.in_section), music, tier, 0)
     }
 
@@ -425,7 +446,7 @@ impl Director {
         if index >= self.shots.len() {
             return None;
         }
-        let cut = self.enter(index, music, Tier::of(music), 0);
+        let cut = self.enter(index, music, Tier::of(&self.binds, music), 0);
         self.held = true;
         Some(cut)
     }
@@ -445,21 +466,24 @@ impl Director {
     pub fn tick(&mut self, dt: f32, music: &MusicValues) -> Option<Cut> {
         self.state.age += dt;
         self.seconds_since_cut += dt;
-        self.bars_since_cut += music.bars;
+        // What the cadence counts between cuts is what `director.cut` lands on.
+        if let Said::Source(cut) = self.binds.cut(music) {
+            self.bars_since_cut += cut.count;
+        }
         self.bars_in_section += music.bars;
         if music.bars > 0 {
             self.beat_in_bar = Some(0);
         } else if music.beats > 0 {
             self.beat_in_bar = self.beat_in_bar.map(|beat| beat + music.beats);
         }
-        let tier = Tier::of(music);
+        let tier = Tier::of(&self.binds, music);
         let followed = music.locked > FOLLOWED;
         if self.held {
             return None;
         }
 
         // A section starts: establish it, and count the progression again.
-        if music.cues > 0 && music.cue >= SECTION_CUE {
+        if self.moments.section_start(music) {
             self.in_section = 0;
             self.bars_in_section = 0;
             self.phrase_start = None;
@@ -494,7 +518,7 @@ impl Director {
             return Some(self.cut(FILL_SIZES[fill as usize - 1], music, tier, fill));
         }
         // The burst before a section or a phrase ends.
-        if let Some((kind, fill)) = self.burst(music, tier, followed)
+        if let Some((kind, fill)) = self.burst(music, tier)
             && fill > self.last_fill
         {
             if kind == Burst::Phrase {
@@ -504,14 +528,19 @@ impl Director {
             return Some(self.cut(size, music, tier, fill));
         }
         // The cadence of the section.
-        let due = if followed {
-            self.bars(tier)
-                .is_some_and(|bars| music.bars > 0 && self.bars_since_cut >= bars)
-        } else {
-            self.seconds(tier, music).is_some_and(|wait| {
-                self.seconds_since_cut >= wait
-                    && (music.hits > 0 || self.seconds_since_cut >= wait + HIT_GRACE_SECONDS)
-            })
+        let grace = self.binds.grace;
+        let due = match self.binds.cut(music) {
+            Said::Source(cut) => self
+                .bars(tier)
+                .is_some_and(|bars| cut.count > 0 && self.bars_since_cut >= bars),
+            Said::Fallback(..) | Said::Value(_) => {
+                let landed = self.binds.cut(music).count() > 0;
+                self.seconds(tier, music).is_some_and(|wait| {
+                    self.seconds_since_cut >= wait
+                        && (landed || self.seconds_since_cut >= wait + grace)
+                })
+            }
+            Said::Off => false,
         };
         due.then(|| self.cut(tier.size(self.in_section), music, tier, 0))
     }
@@ -521,9 +550,9 @@ impl Director {
     fn bars(&self, tier: Tier) -> Option<u32> {
         let bars = match self.pace() {
             Pace::Sections => return None,
-            Pace::Calm => tier.bars() * 2,
-            Pace::Normal => tier.bars(),
-            Pace::Busy => (tier.bars() / 2).max(1),
+            Pace::Calm => tier.bars(&self.binds) * 2,
+            Pace::Normal => tier.bars(&self.binds),
+            Pace::Busy => (tier.bars(&self.binds) / 2).max(1),
         };
         Some(bars.max(self.camera.hold))
     }
@@ -534,9 +563,9 @@ impl Director {
     fn seconds(&self, tier: Tier, music: &MusicValues) -> Option<f32> {
         let seconds = match self.pace() {
             Pace::Sections => return None,
-            Pace::Calm => tier.seconds() * 2.0,
-            Pace::Normal => tier.seconds(),
-            Pace::Busy => tier.seconds() / 2.0,
+            Pace::Calm => tier.seconds(&self.binds) * 2.0,
+            Pace::Normal => tier.seconds(&self.binds),
+            Pace::Busy => tier.seconds(&self.binds) / 2.0,
         };
         let meter = if music.meter > 0.0 { music.meter } else { 4.0 };
         let held = if music.tempo > 0.0 {
@@ -550,25 +579,22 @@ impl Director {
     /// Whether this frame is a beat in the last [`FILL_BEATS`] before a place worth a burst, and
     /// which one of the burst it is (1 for the farthest). Only with the song's analysis, a
     /// followed beat, `fill` declared and a near shot to cut to.
-    fn burst(&self, music: &MusicValues, tier: Tier, followed: bool) -> Option<(Burst, u32)> {
-        if !self.camera.fill
-            || !self.has_near
-            || music.has_chart == 0
-            || !followed
-            || music.beats == 0
-            || music.tempo <= 0.0
-        {
+    fn burst(&self, music: &MusicValues, tier: Tier) -> Option<(Burst, u32)> {
+        if !self.camera.fill || !self.has_near {
             return None;
         }
+        // The burst is on where `director.burst` has a time to the next section and its `on`
+        // source has a beat to cut on: with the chart and a followed beat.
+        let ahead = self.binds.burst(music)?;
         let position = |left: f32| {
             let left = left.round();
             (1.0..=FILL_BEATS as f32)
                 .contains(&left)
                 .then(|| FILL_BEATS - left as u32 + 1)
         };
-        if music.cue_in >= 0.0
-            && music.next_energy - music.section_energy >= FILL_LIFT
-            && let Some(fill) = position(music.cue_in * music.tempo / 60.0)
+        if ahead.cue_in >= 0.0
+            && ahead.lifts
+            && let Some(fill) = position(ahead.cue_in * music.tempo / 60.0)
         {
             return Some((Burst::Lift, fill));
         }
@@ -1557,5 +1583,72 @@ mod tests {
             (list[0].1, list[4].1, list[5].1),
             (ShotSize::Wide, ShotSize::Top, ShotSize::Wide)
         );
+    }
+
+    #[test]
+    fn the_runtime_file_has_todays_numbers() {
+        let runtime = crate::bind::RuntimeBindings::embedded();
+        let d = &runtime.director;
+        assert_eq!((d.below, d.above), (QUIET_BELOW, HIGH_ABOVE));
+        assert_eq!(d.every, [QUIET_BARS, NORMAL_BARS, HIGH_BARS]);
+        assert_eq!(d.seconds, [QUIET_SECONDS, NORMAL_SECONDS, HIGH_SECONDS]);
+        assert_eq!(d.grace, HIT_GRACE_SECONDS);
+        assert_eq!(d.lift, FILL_LIFT);
+        assert_eq!(d.cadence.source().name, "section_energy");
+        assert_eq!(d.cadence.fallback_source().map(|s| s.name), Some("drive"));
+        assert_eq!(d.cut.source().name, "bars");
+        assert_eq!(d.cut.fallback_source().map(|s| s.name), Some("hits"));
+        assert_eq!(d.burst.source().name, "cue_in");
+        assert_eq!(d.on.source().name, "beats");
+    }
+
+    /// The cuts in 16 bars of a song whose chart says quiet (0.2) and whose `drive` says high
+    /// (0.8), by `runtime`.
+    fn cuts_by(runtime: &crate::bind::RuntimeBindings) -> usize {
+        let mut director = Director::new(camera(0.0, false), &each_size());
+        director.set_binds(runtime.director.clone(), runtime.moments.clone());
+        let base = MusicValues {
+            drive: 0.8,
+            ..song(0.2)
+        };
+        beats(&mut director, 1, 1, &base, |_, m| start(0.0, m));
+        beats(&mut director, 2, 64, &base, plain).len()
+    }
+
+    #[test]
+    fn the_cadence_follows_the_source_the_file_names() {
+        let embedded = crate::bind::RuntimeBindings::embedded();
+        // The section's energy, 0.2: a quiet section, a cut every 8 bars.
+        assert_eq!(cuts_by(&embedded), 2);
+        // The drive, 0.8: a high one, every 2.
+        let custom = crate::bind::tests::embedded_with(
+            "source = \"section_energy\"\nhow = \"follow\"\nwhen = { below = 0.35, above = 0.65, every = [8, 4, 2], seconds = [24.0, 12.0, 6.0] }\nfallback = \"drive\"",
+            "source = \"drive\"\nhow = \"follow\"\nwhen = { below = 0.35, above = 0.65, every = [8, 4, 2], seconds = [24.0, 12.0, 6.0] }",
+        );
+        assert_eq!(cuts_by(&custom), 8);
+    }
+
+    #[test]
+    fn a_cut_lands_on_the_event_the_file_names() {
+        // On the beats instead of the bars: every 8 beats in a quiet section, not 8 bars.
+        let custom = crate::bind::tests::embedded_with(
+            "target = \"director.cut\"\nsource = \"bars\"",
+            "target = \"director.cut\"\nsource = \"beats\"",
+        );
+        assert_eq!(cuts_by(&custom), 8);
+    }
+
+    #[test]
+    fn the_burst_reads_the_lift_the_file_asks_for() {
+        let run = |runtime: &crate::bind::RuntimeBindings| {
+            let mut director = Director::new(camera(0.3, true), &each_size());
+            director.set_binds(runtime.director.clone(), runtime.moments.clone());
+            lift_run(&mut director).len()
+        };
+        let embedded = crate::bind::RuntimeBindings::embedded();
+        // The lift of the song is 0.7, and a burst of 4 cuts comes before it.
+        assert!(run(&embedded) >= 5);
+        let custom = crate::bind::tests::embedded_with("lift = 0.1 }", "lift = 0.9 }");
+        assert_eq!(run(&custom), 2);
     }
 }

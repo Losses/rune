@@ -14,11 +14,16 @@
 //!   strong effect if the scene lists one, a medium moment only a light one. Among those, the
 //!   section's label picks (the same kind of section, the same effect).
 
+use std::sync::Arc;
+
+use crate::bind::{MomentBinds, RuntimeBindings};
 use crate::scene::MusicValues;
-use crate::switching::{FOLLOWED, LIFT_CUE, SECTION_CUE, pick_by_label};
+use crate::switching::pick_by_label;
 use crate::transition::Transition;
 
-/// The fewest bars between two effects, unless the second is at a strong moment.
+/// The fewest bars between two effects, unless the second is at a strong moment. The default of
+/// `moments.gap` in `runtime.toml`, which the scheduler reads.
+#[cfg(test)]
 pub const GAP_BARS: f32 = 8.0;
 /// The effects that are strong: they play only at a strong moment. The rest are light.
 pub const STRONG: &[&str] = &["flash", "glitch", "mosaic", "cutin"];
@@ -95,18 +100,10 @@ pub struct Played {
     pub label: f32,
 }
 
-/// The moment of a frame, if it is one, and the key its roll is made from.
+/// The moment of a frame by the default `moments.*` binds of `runtime.toml`, if it is one, and
+/// the key its roll is made from (see [`MomentBinds::moment_of`], which a scheduler asks).
 pub fn moment_of(music: &MusicValues, impact: u32) -> Option<(Strength, u32)> {
-    let section = music.section.max(0.0) as u32;
-    if music.cues > 0 && music.cue >= LIFT_CUE {
-        Some((Strength::Strong, key(section, 0)))
-    } else if music.cues > 0 && music.cue >= SECTION_CUE {
-        Some((Strength::Medium, key(section, 0)))
-    } else if music.impacts > 0 {
-        Some((Strength::Medium, key(section, impact)))
-    } else {
-        None
-    }
+    RuntimeBindings::embedded().moments.moment_of(music, impact)
 }
 
 /// The key of a moment: its section, and 0 for the section's start or the number of an impact.
@@ -127,6 +124,8 @@ pub fn rolls(key: u32, chance: f32) -> bool {
 /// Follows the moments of one scene's music and says which play.
 #[derive(Debug, Default)]
 pub struct Scheduler {
+    /// What a moment is and how far apart they are (`moments.*` of `runtime.toml`).
+    binds: Arc<MomentBinds>,
     /// The song time (seconds) of the last effect that played, if any.
     last: Option<f32>,
     /// The section the impacts are counted in, and how many it had.
@@ -135,16 +134,21 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
+    /// Decide by these binds from now on (a scene lab replaced them).
+    pub fn set_binds(&mut self, binds: Arc<MomentBinds>) {
+        self.binds = binds;
+    }
+
     /// The moment of this frame, if it plays an effect at `chances`.
     pub fn tick(&mut self, music: &MusicValues, chances: Chances) -> Option<Played> {
         if music.section != self.section {
             self.section = music.section;
             self.impacts = 0;
         }
-        if music.impacts > 0 {
+        if self.binds.counts_other(music) {
             self.impacts += 1;
         }
-        let (strength, key) = moment_of(music, self.impacts)?;
+        let (strength, key) = self.binds.moment_of(music, self.impacts)?;
         let chance = match strength {
             Strength::Strong => chances.strong,
             Strength::Medium => chances.medium,
@@ -152,14 +156,11 @@ impl Scheduler {
         if !rolls(key, chance) {
             return None;
         }
-        let bar = if music.locked > FOLLOWED && music.tempo > 0.0 {
-            music.meter.max(1.0) * 60.0 / music.tempo
-        } else {
-            2.0
-        };
-        let soon = self
-            .last
-            .is_some_and(|last| (music.song_time - last).abs() < GAP_BARS * bar);
+        let soon = self.last.is_some_and(|last| {
+            self.binds
+                .gap_seconds(music)
+                .is_some_and(|gap| (music.song_time - last).abs() < gap)
+        });
         if strength == Strength::Medium && soon {
             return None;
         }
@@ -363,5 +364,64 @@ mod tests {
             assert_eq!(medium, Some(Lens::Flare));
         }
         assert!(STRONG.contains(&"glitch") && STRONG.contains(&"mosaic"));
+    }
+
+    #[test]
+    fn the_runtime_file_has_todays_numbers() {
+        let runtime = RuntimeBindings::embedded();
+        let m = &runtime.moments;
+        assert_eq!(m.strong.len(), 1);
+        assert_eq!(m.strong[0].strength, crate::switching::LIFT_CUE);
+        assert_eq!(m.medium[0].strength, crate::switching::SECTION_CUE);
+        assert_eq!(m.medium[0].pick.source().name, "cues");
+        assert_eq!(m.medium[1].pick.source().name, "impacts");
+        assert_eq!(m.medium[1].strength, 0.0);
+        assert_eq!(m.gap_every, GAP_BARS);
+        // Without a followed beat a bar counts as 2 s.
+        assert_eq!(m.gap.fallback_value(), Some(2.0));
+    }
+
+    #[test]
+    fn an_impact_that_the_file_calls_strong_plays_a_strong_moment() {
+        let impact = music(1.0, 0.0, 1, 0.0);
+        let play = |runtime: &RuntimeBindings| {
+            let mut scheduler = Scheduler::default();
+            scheduler.set_binds(runtime.moments.clone());
+            scheduler
+                .tick(&impact, Chances::every(1.0))
+                .map(|p| p.strength)
+        };
+        assert_eq!(play(&RuntimeBindings::embedded()), Some(Strength::Medium));
+        let custom = crate::bind::tests::embedded_with(
+            "target = \"moments.strong\"\nsource = \"cues\"\nhow = \"trigger\"\nwhen = { strength = 0.8 }",
+            "target = \"moments.strong\"\nsource = \"impacts\"\nhow = \"trigger\"\nwhen = { strength = 0.0 }",
+        );
+        assert_eq!(play(&custom), Some(Strength::Strong));
+        // And a section start of 0.8 is then a medium one at most (it is a cue, not an impact).
+        let lift = music(1.0, 1.0, 0, 0.0);
+        let mut scheduler = Scheduler::default();
+        scheduler.set_binds(custom.moments.clone());
+        assert_eq!(
+            scheduler
+                .tick(&lift, Chances::every(1.0))
+                .map(|p| p.strength),
+            Some(Strength::Medium)
+        );
+    }
+
+    #[test]
+    fn the_gap_between_effects_follows_the_file() {
+        let at = |time| music(1.0, 0.0, 1, time);
+        let second = |runtime: &RuntimeBindings| {
+            let mut scheduler = Scheduler::default();
+            scheduler.set_binds(runtime.moments.clone());
+            assert!(scheduler.tick(&at(0.0), Chances::every(1.0)).is_some());
+            // A bar is 2 s at 120 bpm: 10 s is within 8 bars, and past 1.
+            scheduler.tick(&at(10.0), Chances::every(1.0)).is_some()
+        };
+        assert!(!second(&RuntimeBindings::embedded()));
+        let custom =
+            crate::bind::tests::embedded_with("when = { every = 8 }", "when = { every = 1 }");
+        assert!(second(&custom));
     }
 }

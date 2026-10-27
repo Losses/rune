@@ -28,7 +28,7 @@ use director::Director;
 pub use director::DirectorView;
 use inputs::EventCounter;
 pub use lens::LensView;
-pub use manifest::{Bind, Effects, FallbackDecl, InputDecl, Pace};
+pub use manifest::{Bind, Effects, FallbackDecl, InputDecl, Pace, Param, ParamKind};
 use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
 use wgsl::{InputLayout, ParamsLayout};
 
@@ -173,6 +173,19 @@ impl Files {
             .params
             .iter()
             .map(|p| p.value().unwrap_or(Value::Float(0.0)))
+            .collect()
+    }
+
+    /// The values of the parameters a bind can read (`{ param = "id" }`): the numeric ones as
+    /// they are now, 0 for the rest, in the manifest's order.
+    fn param_numbers(&self) -> Vec<f32> {
+        self.param_values()
+            .iter()
+            .map(|value| match *value {
+                Value::Float(v) => v,
+                Value::Int(v) => v as f32,
+                _ => 0.0,
+            })
             .collect()
     }
 }
@@ -405,6 +418,10 @@ pub struct Scene {
     pub name: String,
     source: Source,
     files: Files,
+    /// The files as they were last read from the source. A lab that replaces the bindings changes
+    /// `files` and not this, so that the scene is reloaded when the folder changes, not because
+    /// the scene on screen differs from it.
+    on_disk: Files,
     params: ParamsLayout,
     frame: wgpu::Buffer,
     music: wgpu::Buffer,
@@ -928,7 +945,8 @@ impl Scene {
         queue.write_buffer(&params_buffer, 0, &params.pack(&files.param_values()));
         let input_layout = InputLayout::new(manifest);
         let input_buffer = uniform("scene inputs", input_layout.size);
-        let bindings = crate::bind::Bindings::new(&manifest.inputs, &manifest.binds)?;
+        let bindings =
+            crate::bind::Bindings::with_scope(&manifest.inputs, &manifest.params, &manifest.binds)?;
         queue.write_buffer(&input_buffer, 0, &input_layout.pack(bindings.values()));
         let storage = |label, size| {
             device.create_buffer(&wgpu::BufferDescriptor {
@@ -1297,6 +1315,7 @@ impl Scene {
             last_song: 0.0,
             index: 0,
             first: true,
+            on_disk: files.clone(),
             files,
             #[cfg(test)]
             fixed_seed: None,
@@ -1326,6 +1345,60 @@ impl Scene {
         std::mem::swap(&mut self.events, &mut previous.events);
         self.music_values = previous.music_values;
         self.last_song = previous.last_song;
+    }
+
+    /// The inputs the scene declares.
+    pub fn inputs(&self) -> Vec<crate::inspect::InspectInput> {
+        self.files
+            .manifest
+            .inputs
+            .iter()
+            .map(|input| crate::inspect::InspectInput {
+                id: input.id.clone(),
+                label: input
+                    .label
+                    .as_ref()
+                    .map(|label| label.get("en").to_string())
+                    .filter(|label| !label.is_empty())
+                    .unwrap_or_else(|| input.id.clone()),
+                range: input.range,
+                rest: input.rest(),
+                declared: input.declared(),
+            })
+            .collect()
+    }
+
+    /// Replace the scene's inputs and binds with those of `text` (see
+    /// [`crate::LabCommand::SceneBindings`]). The scene is checked as a manifest is and nothing
+    /// changes if that fails. Binds that stay the same keep their state; if the inputs changed
+    /// the scene is rebuilt, as a reload would (then this says so).
+    pub fn set_bindings(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        text: &str,
+    ) -> Result<bool> {
+        let manifest = self.files.manifest.with_bindings(text)?;
+        if manifest.inputs != self.files.manifest.inputs {
+            let mut files = self.files.clone();
+            files.manifest = manifest;
+            let on_disk = self.on_disk.clone();
+            self.rebuild(device, queue, files, on_disk)?;
+            return Ok(true);
+        }
+        if manifest.binds != self.files.manifest.binds {
+            self.bindings =
+                self.bindings
+                    .renewed_in(&manifest.inputs, &manifest.params, &manifest.binds)?;
+            queue.write_buffer(
+                &self.input_buffer,
+                0,
+                &self.input_layout.pack(self.bindings.values()),
+            );
+            // What a reload of the saved text reads is what is on screen: it finds nothing new.
+            self.files.manifest = manifest;
+        }
+        Ok(false)
     }
 
     /// What each of the scene's bindings said in the last frame drawn: which source and level
@@ -1401,6 +1474,21 @@ impl Scene {
     /// Play a glitch or a mosaic over the picture from the next frame (a scene lab).
     pub fn start_overlay(&mut self, kind: crate::transition::Overlay) {
         self.lens.start_overlay(kind);
+    }
+
+    /// The runtime's decisions this scene reads from now on: what a moment is, when the director
+    /// cuts, how the effects' course reads the music (`runtime.toml`).
+    pub fn set_runtime(&mut self, runtime: &crate::bind::RuntimeBindings) {
+        self.moments.set_binds(runtime.moments.clone());
+        if let Some(director) = &mut self.director {
+            director.set_binds(runtime.director.clone(), runtime.moments.clone());
+        }
+        self.lens.set_binds(runtime);
+    }
+
+    /// How the effects' course reads the music in this scene (see [`lens::Lens::course_binds`]).
+    pub fn course_binds(&self) -> crate::bind::CourseBinds {
+        self.lens.course_binds()
     }
 
     /// The chances the music's moments play an effect with (the user's setting, or a lab's).
@@ -1483,13 +1571,18 @@ impl Scene {
     /// Read the scene's files again. When only parameter defaults changed, only those are
     /// updated; otherwise the scene is rebuilt, keeping its clock and, if `struct State` reads
     /// the same, its state. Returns whether anything changed; on an error the scene stays as it
-    /// was.
+    /// was. Files that are as they were last read change nothing, even if a lab changed the
+    /// bindings on screen since; files that now say what is on screen change nothing either.
     pub fn reload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<bool> {
         if matches!(self.source, Source::Embedded(_)) {
             return Ok(false);
         }
         let files = Files::read(&self.source)?;
+        if files == self.on_disk {
+            return Ok(false);
+        }
         if files == self.files {
+            self.on_disk = files;
             return Ok(false);
         }
         if files.same_but_defaults(&self.files) {
@@ -1501,18 +1594,47 @@ impl Scene {
             // The binds are only evaluated on the CPU: new ones start over, and the pipelines
             // stay.
             if files.manifest.binds != self.files.manifest.binds {
-                self.bindings =
-                    crate::bind::Bindings::new(&files.manifest.inputs, &files.manifest.binds)?;
+                self.bindings = crate::bind::Bindings::with_scope(
+                    &files.manifest.inputs,
+                    &files.manifest.params,
+                    &files.manifest.binds,
+                )?;
                 queue.write_buffer(
                     &self.input_buffer,
                     0,
                     &self.input_layout.pack(self.bindings.values()),
                 );
             }
+            self.on_disk = files.clone();
             self.files = files;
             return Ok(true);
         }
-        let same_binds = files.manifest.inputs == self.files.manifest.inputs
+        self.rebuild(device, queue, files.clone(), files)?;
+        Ok(true)
+    }
+
+    /// Build the scene again from `files`, keeping its clock and, if `struct State` reads the
+    /// same, its state, and the bindings that did not change with theirs.
+    ///
+    /// `on_disk` is what the source said when `files` were made (they are not the same when a
+    /// lab replaced the bindings).
+    fn rebuild(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        files: Files,
+        on_disk: Files,
+    ) -> Result<()> {
+        // A bind reads its parameters by place, so the same binds over other parameters are not
+        // the same.
+        let same_params = files
+            .manifest
+            .params
+            .iter()
+            .map(|p| (&p.id, p.kind))
+            .eq(self.files.manifest.params.iter().map(|p| (&p.id, p.kind)));
+        let same_binds = same_params
+            && files.manifest.inputs == self.files.manifest.inputs
             && files.manifest.binds == self.files.manifest.binds;
         let same_state = files.state == self.files.state;
         let mut next = Self::build(
@@ -1544,6 +1666,8 @@ impl Scene {
             next.hold_shot(Some(index));
         }
         next.lens.set_forced(self.lens.forced());
+        next.chances = self.chances;
+        next.on_disk = on_disk;
         next.set_covers(
             device,
             queue,
@@ -1554,7 +1678,7 @@ impl Scene {
         next.last = self.last;
         next.index = self.index;
         *self = next;
-        Ok(true)
+        Ok(())
     }
 
     /// Whether the scene reads the covers atlas (`covers = true`).
@@ -1786,7 +1910,8 @@ impl Scene {
         );
         queue.write_buffer(&self.music, 0, &music.bytes());
         self.music_values = music;
-        let inputs = self.bindings.tick(dt as f32, &music);
+        let params = self.files.param_numbers();
+        let inputs = self.bindings.tick_in(dt as f32, &music, &params, seed);
         queue.write_buffer(&self.input_buffer, 0, &self.input_layout.pack(inputs));
         self.cut = None;
         let shot = match &mut self.director {

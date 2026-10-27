@@ -308,6 +308,8 @@ Each source has a value and, if it is an event, a count of events this frame (th
 | `hits` `cues` `impacts` `notes` | event | A B C | Count, with the envelope (`hit`, `cue`, ...) as strength |
 | `hit` `cue` `impact` `note` | value | A B C | The envelopes alone |
 | `bars` `beats` | event | A | Strength 1; they only count while the beat is followed |
+| `bar` `beat` | value | A | The absolute bar and beat number, the fraction the phase (the chart's `bar`, and `beat`) |
+| `low` `mid` `high` | value | A B C | The percussive onset envelopes (kick, snare, hat): they jump to an onset's strength and decay |
 | `cue_in` `section_label` `section_energy` `next_energy` | value | A B | Chart signals |
 | `band_low` `band_mid` `band_high` | value | A B C | The smoothed bands |
 | `moment.strong` `moment.medium` | event | A B, and A B C | The moments that play effects (`src/moments.rs`): a lift, and another section start or an impact |
@@ -316,13 +318,34 @@ Each source has a value and, if it is an event, a count of events this frame (th
 
 | how | Does | `when` (defaults) |
 |---|---|---|
-| `follow` | The output is the source mapped from a range to a range. | `from = [lo, hi]` (`[0, 1]`), `to = [lo, hi]` (the input's range), `curve` = `linear` \| `smooth` \| `in` \| `out` (`linear`), `smooth` = a time constant in beats (0), `clamp` (true: hold the ends; false: go straight on past them, for an unbounded `clock`). `ease = "out"` eases a beat time first. |
-| `trigger` | An event starts an envelope; the output goes from the input's rest to the top of its range. Needs an event source. | `strength` = the least strength that counts (0), `attack` and `release` in beats (0 and 0.25: an attack of 0 jumps, the release is a straight fall), `scale` (true: the peak is the event's strength, false: always the top). Several events in a frame are one. |
-| `step` | A counter that goes up by one every `every` beats of the source, on the **eased clock** `floor(t) + ease(fract(t))`: continuous, with a push at each step (the push of `course::eased`). The count is absolute, so a `clock` source steps in phase with the bar. | `every` (1), `wrap` = the count goes round at this (none). `ease = "none"` gives plain `floor` steps. |
-| `pick` | An index from 0 to `options - 1`, as a float. A value source (normally `section_label`) picks through the same hash as the transitions (`switching::pick_by_label`), so the same label keeps the same option, and the index changes only when the label does. An event source moves to the next option on each event. | `options` (required, 1 to 64) |
+| `follow` | The output is the source mapped from a range to a range. | `from = [lo, hi]` (`[0, 1]`), `to = [lo, hi]` (the input's range), `curve` = `linear` \| `smooth` \| `in` \| `out` (`linear`), `smooth` = a time constant in beats (0), `clamp` (true: hold the ends; false: go straight on past them, for an unbounded `clock`). `ease = "out"` eases a beat time first, `"smooth"` with a smoothstep, `ease_power = p` (with `ease = "out"`) with `1 - (1 - x)^p` in place of the engine's own exponential ease. |
+| `trigger` | An event starts an envelope; the output goes from the input's rest to the top of its range. Needs an event source. | `strength` = the least strength that counts (0), `attack` and `release` in beats (0 and 0.25: an attack of 0 jumps, the release is a straight fall), `scale` (true: the peak is the event's strength, false: always the top), `decay` = `linear` \| `exp` (`linear`; `exp` takes `release` as a time constant and is cut to 0 under a thousandth), `per` = `beat` \| `second` (`beat`) for `attack` and `release`. Several events in a frame are one. |
+| `step` | A counter that goes up by one every `every` beats of the source, on the **eased clock** `floor(t) + ease(fract(t))`: continuous, with a push at each step (the push of `course::eased`). The count is absolute, so a `clock` source steps in phase with the bar. | `every` (1), `wrap` = the count goes round at this (none), `offset` = added to the source before counting, in its units (0), `unit` = `beat` \| `bar` (`beat`: whether `every` counts beats or bars of `meter` beats). `ease = "none"` gives plain `floor` steps; `ease_power` and `ease = "smooth"` as for `follow`. |
+| `pick` | An index from 0 to `options - 1`, as a float. A value source (normally `section_label`) picks through the same hash as the transitions (`switching::pick_by_label`), so the same label keeps the same option, and the index changes only when the label does. An event source moves on at each event it counts. | `options` (required, 1 to 64); for an event source also `strength` = the least strength that counts (0), `every` = N: only every N-th counted event moves it (1), `chance` = 0 to 1, a hash of the section and the event's number in it decides, so a song repeats itself (1), `start` = the first index, or `"seed"` to take it from the frame's seed (0), `jump` = `next` \| `random` (`next`; `random` is a hash-picked other index). The events are numbered from 1 in each section. |
 | `accumulate` | The output grows by `source * rate` per beat while the beat is followed, per second otherwise; a position from a speed. Starts at the input's rest, is not clamped. | `rate` (1), `per` = `beat` \| `second` (`beat`; `second` for a source that already is a speed in beats, such as `tempo`), `wrap` = goes round at this (none) |
 
 `ease` is only for `follow` and `step`. Effects that move should use an eased clock, not a step per beat: a `follow` of `clock` with `ease = "out"`, or a `step`. Per-beat steps that jump are for what needs them (a pose a beat), and they were jerky on the mosaic and the glitch.
+
+### Composition and parameters
+
+These work with every `how` and close the gaps the Torii Sea pilot found. All are additive: a bind that does not use them means what it did.
+
+```toml
+[[bind]]
+target = "sway"
+source = "tempo"
+how = "accumulate"
+when = { mul = "drive", per = "second", rate = 0.01, add = { param = "base" } }
+```
+
+- **Param references** (pilot gap 1: a scene's parameters could not steer a binding's numbers). Any number of a `when` may be written `{ param = "<id>" }`: a scene `[[param]]` of type `float` or `int`, read every frame from the values the scene has now, so it follows the app's sliders live. A missing or non-numeric parameter refuses the scene at load, naming it. `options`, `ease`, `curve` and the words are not numbers and stay as written.
+- **Input sources** (gap 3: a binding could not read another). `source = "input:<id>"` reads the value of an input, which must be declared **earlier** in the manifest than the one the bind drives, so a cycle cannot be written (a later input, itself or an unknown one is refused). The binds run in the order of their inputs, so a reader sees the value of the same frame, whatever the order of the `[[bind]]`s. An input is a value, not an event: a trigger cannot take one. `fallback` stays a registry source.
+- **`mul` and `add`** (gap 3). `when.mul = "<source or input:id>"` and `when.add = number` (or a param) change a reading to `reading * mul + add` before the `how` sees it (for an event, its strength; the mul source's own level is not looked at). Tempo scaled by drive for an `accumulate`, or the range of an input driven by another input (a `follow` on the input with `mul = "input:range"`).
+- **Trigger envelopes** (gap 2). `decay = "exp"` and `per = "second"`, as in the table above: `when = { release = 0.3, decay = "exp", per = "second" }`.
+- **Ease shape** (gap 4). `ease = "smooth"`, or `ease = "out"` with `when = { ease_power = 4 }` (a quartic). Without them, `out` is the engine's exponential ease (sharpness 10).
+- **Picks on events** (gap 5). `when = { options = 4, strength = 0.6, every = 2, chance = 0.5, start = "seed", jump = "random" }`. They apply to a pick of an event source (also through an event `fallback`), and a pick by label refuses them.
+- **Step phase** (gap 7). `when = { every = 2, unit = "bar", offset = 1 }` steps every two bars, with the clock shifted a beat.
+- **Sources** (gap 6). `bar`, `beat`, `low`, `mid` and `high`, in the table above.
 
 ### Fallback
 
@@ -372,7 +395,31 @@ when = { options = 3 }
 fallback = "cues"
 ```
 
-In the scene, `input.gate`, `input.surge` and `input.light` are plain `f32`s. Editing only the `[[bind]]`s of a scene reloads them without rebuilding the pipelines; editing an `[[input]]` rebuilds the scene, as it changes the layout of `struct Inputs`.
+In the scene, `input.gate`, `input.surge` and `input.light` are plain `f32`s. A scene lab edits the binds of the scene on screen with `LabCommand::SceneBindings(text)`, TOML holding the `[[input]]` and `[[bind]]` arrays only and checked as the manifest is (a wrong text keeps the old and names the bind in `last_error`): the binds start over, those that did not change keep their state, and only a change of the inputs rebuilds the scene. `Inspect` has, for each bind, its `when` and `fallback` as written (always, not only while it is in use) and the scene's inputs. Editing only the `[[bind]]`s of a scene reloads them without rebuilding the pipelines; editing an `[[input]]` rebuilds the scene, as it changes the layout of `struct Inputs`.
+
+### The runtime's bindings
+
+The runtime's own decisions are bindings too: `runtime.toml` (embedded in the visualizer, read at start) declares them in the shape of a scene's `[[bind]]`, with today's behaviour as its values. The code reads its numbers and its choice of source from the file (`bind::RuntimeBindings`), through the same sources, so a name means one thing in a scene and here. A source that means nothing at the frame's level gives way to the bind's `fallback`; with none the decision is off there. `bars` and `beats` mean something only while the beat is followed. Several binds on one target are an OR. A scene lab replaces the file whole with `LabCommand::RuntimeBindings(text)` (and edits it in place with `toml_edit`: see the scene lab's README); a wrong text is refused with the bind named in `last_error`, and the old bindings stay. `Inspect.runtime_bindings` has a row per bind (the source, the level, which means gave the value).
+
+| Target | Reads | `when` |
+|---|---|---|
+| `moments.strong` | `cues`; a lift | `strength` 0.8 |
+| `moments.medium` | `cues` (a section start, the runtime's one definition of it) and `impacts` | `strength` 0.5, 0 |
+| `moments.gap` | `bars`, fallback a bar of 2 s | `every` 8 |
+| `director.cadence` | `section_energy`, fallback `drive` | `below` 0.35, `above` 0.65, `every` bars and `seconds` per tier |
+| `director.cut` | `bars`, fallback `hits` | `grace` 2 s |
+| `director.burst` | `cue_in`, on each `on = beats`, a lift of `to` minus `from` | `lift` 0.1 |
+| `switch.place` | `cues` at A and B (a section start that differs), `cues` at C (any) | `strength`, `lift`, `change`, `levels`, `any` |
+| `switch.early` | `cue_in`, to start the fade before the place | |
+| `switch.timing` | no source | `min` 30, `lead` 8, `relax` 60, `max` 90, `grace` 2 s |
+| `switch.forced` | `beats` and `hits`: what ends the wait at `max` | |
+| `course.length` | `bars`, fallback 4 s | `phrase` 4, `least` 2, `most` 8 |
+| `course.amount` | `intensity` | `least` 0.35 |
+| `course.motion` | `beats`, fallback `hits`; starts in phase with `clock` | `push_least` 0.3, `beat_seconds` 0.5 |
+
+The scene sources `moment.strong` and `moment.medium` read the embedded file's moments, not a lab's replacement.
+
+What is not a binding: the shape of the shot sequence and of the burst (four cuts, their sizes), the lab's own forced burst, the effects' curves, the transitions' durations, and the choice of which effect a moment plays (the section's label picks).
 
 ## Shots and the director
 
