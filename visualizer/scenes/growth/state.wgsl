@@ -23,14 +23,14 @@ struct State {
   azimuth: f32,
   spin: f32,
   spin_to: f32,
-  last_view: f32,
+  // How many cuts of the director the view has followed.
+  cuts: u32,
   // The tip before the last beat's growth (what grew since is still flying in), and the flash of
   // an accent.
   top_prev: f32,
   flash: f32,
-  // Growth per beat in layers, and the view chosen last.
+  // Growth per beat in layers.
   per_beat: f32,
-  view: f32,
   // The tip as the camera follows it (smoothly), and how far below it the camera aims.
   cam_top: f32,
   aim: f32,

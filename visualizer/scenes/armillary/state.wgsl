@@ -32,8 +32,9 @@ struct State {
   lits: f32,
   layer: f32,
   layer_mix: f32,
-  // The shot and its side.
+  // The shot, its side, and how many of the director's cuts have been taken up.
   view: f32,
+  cuts_seen: f32,
   side: f32,
   // What keeps turning on its own: the ecliptic's slow precession (faster as the music is
   // louder), how far the camera has moved in this shot, and the core's flowing surface and its

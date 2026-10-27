@@ -62,44 +62,33 @@ fn random(n: u32) -> f32 {
   return rv_unit(frame.seed * 2654435761u + n);
 }
 
-// Pick the view to glide to. Every view looks up the tower from below (so what is under the
-// camera never needs drawing): 0 close and steeply tilted, 1 closer, tilted the other way,
-// 2 further off and nearly level. With `label` >= 0 (a section start) it comes from the label,
-// so every chorus is seen the same way.
-fn choose_view(label: f32, fresh: bool) {
-  let styled = label >= 0.0 && params.same_view == 1u;
-  let k = label + 1.0;
-  let r1 = select(random(1u), fract(k * 0.6180339 + 0.137), styled);
-  let r2 = select(random(2u), fract(k * 0.7548777 + 0.291), styled);
-  var v = floor(r1 * 3.0);
-  // A random choice never stays where it is.
-  if (!styled && !fresh && v == state.view) {
-    v = f32((u32(v) + 1u + u32(r2 * 2.0)) % 3u);
-  }
-  state.view = v;
-  let side = select(-1.0, 1.0, r2 < 0.5);
+// Take the view the director cut to. Every view looks up the tower from below (so what is under
+// the camera never needs drawing): 0 close, 1 closer, 2 further off; the director's two wide shots both take the further one, which has the room.
+// The side it circles to comes from the shot's seed, and the tilt is the shot's own dutch angle
+// (none in a wide shot).
+fn choose_view() {
+  let v = min(shot.index, 2u);
+  let side = select(-1.0, 1.0, shot.seed < 0.5);
   // How far below the tip the camera is, how far from the axis, how far below the tip it aims,
-  // its tilt and how fast it drifts round.
-  if (v > 1.5) {
+  // and how fast it drifts round.
+  if (v == 2u) {
     state.below_to = 34.0;
     state.dist_to = 12.0 + 2.4 * params.girth;
     state.aim_to = 22.0;
-    state.tilt_to = -0.25 * side;
     state.spin_to = 0.03 * side;
-  } else if (v > 0.5) {
+  } else if (v == 1u) {
     state.below_to = 18.0;
     state.dist_to = 8.0 + 1.6 * params.girth;
     state.aim_to = 10.0;
-    state.tilt_to = 0.45 * side;
     state.spin_to = 0.04 * side;
   } else {
     state.below_to = 26.0;
     state.dist_to = 10.0 + 2.0 * params.girth;
     state.aim_to = 16.0;
-    state.tilt_to = -0.55 * side;
     state.spin_to = 0.05 * side;
   }
-  state.last_view = frame.time;
+  state.tilt_to = shot.roll;
+  state.cuts = shot.cuts;
 }
 
 // How much darker or brighter a theme is exposed: midnight is a dark theme, which the tone mapping
@@ -149,7 +138,7 @@ fn update() {
     state.lens = 1.0;
     state.per_beat = params.grow;
     state.azimuth = random(4u) * 6.283;
-    choose_view(-1.0, true);
+    choose_view();
     choose_theme(-1.0);
     state.theme_from = state.theme_next;
     state.theme_to = state.theme_next;
@@ -212,16 +201,12 @@ fn update() {
   }
   state.glitch *= exp(-dt / 0.06);
 
-  // Views and themes change on the music's cues. A section's start (cue 0.5 or more) takes its
-  // own view and colours from its label, so every chorus is seen the same way. A weaker cue
-  // (eight bars, or a long time without a hit) changes the view only by chance and not too soon
-  // after the last change, and the theme only if the last change was long ago.
-  if (music.cues > 0u && music.cue >= params.view_cue && t - state.last_view > 2.0) {
-    if (music.cue >= 0.5) {
-      choose_view(music.section_label, false);
-    } else if (t - state.last_view > params.view_gap && random(9u) * 100.0 < params.view_chance) {
-      choose_view(-1.0, false);
-    }
+  // The view changes when the director cuts (`shot.cuts`); the themes change on the music's
+  // cues. A section's start (cue 0.5 or more) takes its own colours from its label, so every
+  // chorus has the same ones. A weaker cue (eight bars, or a long time without a hit) changes the
+  // theme only if the last change was long ago.
+  if (shot.cuts != state.cuts) {
+    choose_view();
   }
   if (music.cues > 0u && music.cue >= params.theme_cue) {
     if (music.cue >= 0.5 && t - state.last_theme > 2.0) {
@@ -242,7 +227,10 @@ fn update() {
   state.theme_mix = min(state.theme_mix + dt / max(params.theme_fade, 0.05), 1.0);
   set_theme();
 
-  let ease = 1.0 - exp(-dt / max(params.glide, 0.1));
+  // The glide to a new view never outlasts its shot: at most half of the shot's planned length.
+  let glide = select(params.glide, min(params.glide, 0.5 * shot.length), shot.length >= 0.0);
+  // In a burst of cuts (`shot.fill`) the view jumps there, as a cut does.
+  let ease = select(1.0 - exp(-dt / max(glide, 0.1)), 1.0, shot.fill > 0u);
   state.below += (state.below_to - state.below) * ease;
   state.dist += (state.dist_to - state.dist) * ease;
   state.aim += (state.aim_to - state.aim) * ease;

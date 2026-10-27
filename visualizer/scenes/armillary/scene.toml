@@ -18,6 +18,34 @@ scale = 0.75
 shader = "view.wgsl"
 target = "out"
 
+# The camera never rolls of its own accord, so the director's dutch angle is what tilts it.
+[camera]
+dutch = 0.3
+fill = true
+
+# The four setups, in the order of the "view" parameter. Below and far off frame the whole sphere
+# at about the same size (the focal length over the distance), so both are wide; through the rings
+# is twice as near; from above is the top view.
+[[shot]]
+name = "below"
+size = "wide"
+move = "cut"
+
+[[shot]]
+name = "far"
+size = "wide"
+move = "cut"
+
+[[shot]]
+name = "through the rings"
+size = "close"
+move = "cut"
+
+[[shot]]
+name = "above"
+size = "top"
+move = "cut"
+
 # Kept dark: it is watched mostly at night.
 [post]
 exposure = -0.2
@@ -339,7 +367,7 @@ type = "choice"
 group = "Camera"
 label = "Shot"
 default = 0
-options = ["By section", "From a little below, pushing in", "Far off", "Close, through the rings", "From above"]
+options = ["Following the music", "From a little below, pushing in", "Far off", "Close, through the rings", "From above"]
 
 [[param]]
 id = "lens"
@@ -362,7 +390,7 @@ step = 0.05
 [[param]]
 id = "cue_min"
 group = "Camera"
-label = "How strong a cue must be to cut the shot and fling the rings (1 a section that lifts the energy, 0.5 any other section, 0.3 every 8 bars while the beat is followed, 0.2 every 16 s without a beat)"
+label = "How strong a cue must be to fling the rings (1 a section that lifts the energy, 0.5 any other section, 0.3 every 8 bars while the beat is followed, 0.2 every 16 s without a beat)"
 default = 0.2
 min = 0.1
 max = 1.0

@@ -1,35 +1,23 @@
 // Once per frame: the beat length the screens change channel by (the clock itself is the
 // runtime's), the camera travelling along the wall as fast as the music sounds (pushed on each
-// beat), the views changing on cues, the phosphor's colour from the player's, and the scopes'
-// trigger and gain.
+// beat), the views following the director's cuts, the phosphor's colour from the player's, and
+// the scopes' trigger and gain.
 
+// A number from 0 to 1 for this cut, `n` telling the uses apart: made from the shot's seed from
+// the runtime's director, which is fixed within a shot and new at each cut.
 fn random(n: u32) -> f32 {
-  return rv_unit(frame.seed * 2654435761u + n);
+  return rv_unit(u32(shot.seed * 16777215.0) * 2654435761u + n);
 }
 
-// Pick a view, and where on the wall to see it from. With `label` >= 0 (a section start) the view
-// comes from the label, so every chorus is seen the same way. Views: 0 straight on, 1 from one
-// side looking along the wall, 2 far off, 3 close up through a long lens.
-fn choose_view(label: f32) {
-  let styled = label >= 0.0 && params.same_view == 1u;
-  let k = label + 1.0;
-  let r1 = select(random(1u), fract(k * 0.6180339 + 0.137), styled);
-  let r2 = select(random(2u), fract(k * 0.7548777 + 0.291), styled);
-  let r3 = select(random(3u), fract(k * 0.5698403 + 0.733), styled);
-  // By the weights of the views.
-  let w = max(vec4f(params.front, params.side, params.far, params.close), vec4f(0.0));
-  let x = r1 * max(w.x + w.y + w.z + w.w, 1e-3);
-  var v = 0.0;
-  if (x >= w.x) {
-    v = 1.0;
-  }
-  if (x >= w.x + w.y) {
-    v = 2.0;
-  }
-  if (x >= w.x + w.y + w.z) {
-    v = 3.0;
-  }
+// Frame the shot the director cut to, and where on the wall to see it from. The director chooses
+// which and when (see `[[shot]]` in scene.toml); the scene only knows how each looks. Views: 0
+// straight on, 1 from one side looking along the wall, 2 far off, 3 close up through a long lens.
+fn choose_view() {
+  let r2 = random(2u);
+  let r3 = random(3u);
+  let v = f32(min(shot.index, 3u));
   state.view = v;
+  state.roll = shot.roll;
   let way = select(-1.0, 1.0, r2 < 0.5);
   if (v < 0.5) {
     state.cam.z = -params.distance;
@@ -59,7 +47,6 @@ fn choose_view(label: f32) {
   // Somewhere new on the wall (it has no end either way).
   state.cam.x += (40.0 + 200.0 * random(5u)) * select(-1.0, 1.0, random(6u) < 0.5);
   state.cam.y = 1.0 + 60.0 * random(7u);
-  state.last_view = frame.time;
 }
 
 fn set_colours() {
@@ -106,7 +93,8 @@ fn update() {
     state.cam = vec3f(0.0, 10.0, -params.distance);
     state.ens = 1.0;
     state.gain = 4.0;
-    choose_view(-1.0);
+    state.cuts = shot.cuts;
+    choose_view();
     state.vel = params.cruise;
     state.vtgt = params.cruise;
   }
@@ -121,22 +109,22 @@ fn update() {
   // The energy the speed follows: the slow drive, eased once more.
   state.ens = rv_approach(state.ens, 0.5 + 1.5 * music.drive, dt, 0.6);
 
-  // Cues: the views change, the channels group anew. A section start (cue 0.5 or more) comes
-  // from the section's label, so every chorus is seen the same way, and may follow soon after
-  // the last change; the weaker cues (a long stretch with no section) wait for the view gap.
+  // The channels group anew at a section start, from the section's number, so every chorus is
+  // grouped the same way; at any other cut of the view they group anew from the number moved on.
+  let section_start = music.cues > 0u && music.cue >= 0.5;
+  if (section_start) {
+    state.section = music.section;
+  }
+  // The director cuts: take its shot as the view. The camera jumps along the wall, so the new
+  // view starts at the speed the music sounds now.
   var fresh = false;
-  if (music.cues > 0u && music.cue >= params.cue_min) {
-    let section_start = music.cue >= 0.5;
-    if (t - state.last_view > select(params.view_gap, 2.0, section_start)) {
-      if (section_start) {
-        state.section = music.section;
-        choose_view(music.section_label);
-      } else {
-        state.section += 101.0;
-        choose_view(-1.0);
-      }
-      fresh = true;
+  if (shot.cuts != state.cuts) {
+    state.cuts = shot.cuts;
+    choose_view();
+    if (!section_start) {
+      state.section += 101.0;
     }
+    fresh = true;
   }
   // Some sets are always off, and more in a quiet section.
   state.dark = params.off_always + params.off * pow(max(1.0 - music.drive, 0.0), 1.5);

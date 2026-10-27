@@ -286,48 +286,28 @@ fn project(i: u32) {
 }
 
 // ---- The camera ----
-// Six places to film from, each mirrored by the side: 0 down the middle, the core on a third, a
-// little above; 1 lower, looking up, the emoji going by overhead; 2 off to one side, looking
-// across at the far side's stream, so that none goes by close; 3 near the middle, rolled hard;
-// 4 a long lens, the emoji stacked one behind another, flattened; 5 turned round, the emoji
-// going away into the dark behind. Never straight along the tunnel (the core dead centre reads
-// flat), and never further off the middle than the emoji leave clear.
-fn pose_of(view: u32, side: f32) -> Pose {
+// Six places to film from, each mirrored by the side, in the order of the shots in scene.toml:
+// 0 down the middle, the core on a third, a little above; 1 lower, looking up, the emoji going by
+// overhead; 2 off to one side, looking across at the far side's stream, so that none goes by
+// close; 3 near the middle, a little aside; 4 a long lens, the emoji stacked one behind another,
+// flattened; 5 turned round, the emoji going away into the dark behind. Never straight along the
+// tunnel (the core dead centre reads flat), and never further off the middle than the emoji leave
+// clear. `roll` is the shot's dutch angle; a place chosen by hand (`locked`) has none, and its
+// fourth keeps the hard roll that is its own look.
+fn pose_of(view: u32, side: f32, roll: f32, locked: bool) -> Pose {
   var turn = array<vec4f, 6>(
     vec4f(0.42, -0.14, 0.1, 1.0), vec4f(0.18, 0.3, -0.14, 1.0), vec4f(0.7, 0.1, 0.3, 1.0),
-    vec4f(0.07, 0.06, 0.62, 1.0), vec4f(0.15, -0.08, 0.05, 1.7), vec4f(2.76, -0.06, 0.12, 1.0));
+    vec4f(0.07, 0.06, select(0.0, 0.62, locked), 1.0), vec4f(0.15, -0.08, 0.05, 1.7), vec4f(2.76, -0.06, 0.12, 1.0));
   var at = array<vec2f, 6>(vec2f(0.0), vec2f(0.0, -0.6), vec2f(-0.7, -0.15), vec2f(0.0), vec2f(0.0, 0.35), vec2f(0.0, 0.2));
   let q = turn[view];
-  return Pose(vec4f(q.x * side, q.y, q.z * side, q.w), vec4f(at[view].x * side, at[view].y, 0.0, 0.0));
-}
-
-// Where to go next from `now`: only to a place near it, so that no glide swings far round
-// (the side changes only on the way back to the middle place); of those, rather one that suits
-// how lively the music is: the long lens and the low place for quiet, the middle and the one
-// looking back for between, across and rolled for loud.
-fn next_view(now: u32, energy: f32) -> u32 {
-  var near = array<u32, 6>(62u, 21u, 43u, 5u, 3u, 5u);
-  var suits = array<f32, 6>(0.5, 0.35, 0.65, 0.85, 0.15, 0.45);
-  var best = 0u;
-  var top = -1.0;
-  for (var k = 0u; k < 6u; k++) {
-    if ((near[now] & (1u << k)) == 0u) {
-      continue;
-    }
-    let d = (suits[k] - energy) / 0.3;
-    let score = exp(-d * d) * (0.25 + random(20u + k));
-    if (score > top) {
-      top = score;
-      best = k;
-    }
-  }
-  return best;
+  // The dutch angle rides in the unused z of `at`, so it glides with the rest of the pose.
+  return Pose(vec4f(q.x * side, q.y, q.z * side, q.w), vec4f(at[view].x * side, at[view].y, roll, 0.0));
 }
 
 // Where the camera is now, on its way from where it set off to where it is going: easing out
 // and in, slowest at either end.
 fn pose_now(t: f32) -> Pose {
-  let to = pose_of(u32(state.view), state.side);
+  let to = pose_of(u32(state.view), state.side, state.roll_to, params.view > 0u);
   let k = clamp((t - state.last_view) / max(state.glide, 1e-3), 0.0, 1.0);
   let e = k * k * k * (k * (k * 6.0 - 15.0) + 10.0);
   return Pose(mix(state.set_off.turn, to.turn, e), mix(state.set_off.at, to.at, e));
@@ -376,38 +356,56 @@ fn update() {
   state.speed += (want - state.speed) * (1.0 - exp(-dt / 0.6));
   state.s += state.speed * (1.0 + params.surge * state.surge) * dt;
 
-  // Now and then the camera glides to another place to film from, on a cue (`music.cue` of at
-  // least `cue_min`) once it has stayed `shot_bars` bars in its place (bars of `music.meter`
-  // beats at `music.tempo`, so the wait is a time even when there is no beat). The glide takes
-  // `glide_bars` bars. The badges coming from then on take another palette. A place chosen by
-  // hand it glides to at once.
+  // The camera glides to the place the director cuts to (`shot.cuts` changes; shot `index` is the
+  // place). The side changes only on the way to the middle place, by the shot's seed, so that no
+  // glide swings across the tunnel. The glide takes `glide_bars` bars (bars of `music.meter` beats at
+  // `music.tempo`, so it is a time even when there is no beat), but at most half of the shot, so
+  // it never outlasts it. On a section's start (a cue of 0.5 or more) the badges coming take
+  // another palette. A place chosen by hand it glides to at once, and the director's shots are
+  // ignored.
   let fixed = params.view > 0u;
   if (frame.first == 1u) {
-    state.view = select(0.0, f32(params.view) - 1.0, fixed);
-    state.side = select(-1.0, 1.0, random(3u) < 0.5);
-    state.set_off = pose_of(u32(state.view), state.side);
+    state.view = select(f32(shot.index), f32(params.view) - 1.0, fixed);
+    state.side = select(-1.0, 1.0, select(shot.seed, random(3u), fixed) < 0.5);
+    state.roll_to = select(shot.roll, 0.0, fixed);
+    state.set_off = pose_of(u32(state.view), state.side, state.roll_to, fixed);
     state.last_view = t;
     state.glide = 1.0;
     state.palette = floor(random(4u) * 3.0);
+    state.cuts = shot.cuts;
   }
   let bar_time = music.meter * 60.0 / music.tempo;
+  if (music.cues > 0u && music.cue >= 0.5) {
+    state.palette = floor(random(4u) * 3.0);
+  }
   var go = -1.0;
+  var glide = clamp(params.glide_bars * bar_time, 2.0, 20.0);
   if (fixed) {
     if (f32(params.view) - 1.0 != state.view) {
       go = f32(params.view) - 1.0;
     }
-  } else if (music.cues > 0u && music.cue >= params.cue_min && t - state.last_view >= f32(max(params.shot_bars, 1)) * bar_time) {
-    go = f32(next_view(u32(state.view), clamp(music.drive, 0.0, 1.0)));
-    state.palette = floor(random(4u) * 3.0);
-  }
-  if (go >= 0.0) {
-    state.set_off = pose_now(t);
-    if (go == 0.0 && !fixed && random(3u) < 0.5) {
+  } else if (shot.cuts != state.cuts) {
+    go = f32(shot.index);
+    if (go == 0.0 && shot.seed < 0.5) {
       state.side = -state.side;
     }
+    state.roll_to = shot.roll;
+    glide = params.glide_bars * bar_time;
+    if (shot.length >= 0.0) {
+      glide = min(glide, 0.5 * shot.length);
+    }
+    glide = max(glide, 0.25);
+    // In a burst of cuts (`shot.fill`) it jumps there, as a cut does.
+    if (shot.fill > 0u) {
+      glide = 0.001;
+    }
+  }
+  state.cuts = shot.cuts;
+  if (go >= 0.0) {
+    state.set_off = pose_now(t);
     state.view = go;
     state.last_view = t;
-    state.glide = clamp(params.glide_bars * bar_time, 2.0, 20.0);
+    state.glide = glide;
   }
 
   // Where it is, drifting a little round that, slowly: only a few degrees, over half a minute.
@@ -415,7 +413,7 @@ fn update() {
   let drift = params.drift * vec3f(0.03 * sin(t * 0.21), 0.015 * sin(t * 0.17 + 1.0), 0.04 * sin(t * 0.13 + 2.0));
   let yaw = pose.turn.x + drift.x;
   let pitch = pose.turn.y + drift.y;
-  let roll = pose.turn.z + drift.z;
+  let roll = pose.turn.z + pose.at.z + drift.z;
   state.cam_pos = vec3f(pose.at.x, pose.at.y, state.s);
   let fwd = vec3f(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch));
   let right0 = normalize(cross(vec3f(0.0, 1.0, 0.0), fwd));

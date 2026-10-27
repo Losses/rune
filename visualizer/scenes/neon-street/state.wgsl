@@ -31,8 +31,8 @@ struct State {
   sway_v: f32,
   // The theme colour's palette (see update): black, deep, full and near white, all in its hue.
   theme_ramp: array<vec4f, 4>,
-  // Cuts.
-  last_cut: f32,
+  // How many cuts the director had made when the view last changed.
+  cuts: u32,
   // 1 at a cut, fading out: the trail is cleared across a cut.
   clear: f32,
   // The share of signs that are dark, how often the signs changed their pattern, the colours of

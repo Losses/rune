@@ -1,30 +1,28 @@
-// Once per frame: glide down the street at the music's tempo, cut on its cues, shake only at the
-// big moments.
+// Once per frame: glide down the street at the music's tempo, follow the director's cuts, shake
+// only at the big moments.
 
 const DEG: f32 = 0.0174533;
 
+// A number from 0 to 1 for this cut, `n` telling the uses apart: made from the shot's seed from
+// the runtime's director, which is fixed within a shot and new at each cut.
 fn random(n: u32) -> f32 {
-  return rv_unit(frame.seed * 2654435761u + n);
+  return rv_unit(u32(shot.seed * 16777215.0) * 2654435761u + n);
 }
 
-// Pick a view: street level, aside looking across, above the signs, or high over the city.
-// With `label` >= 0 (a section start) the view and the district's colours come from the label,
-// so every chorus is seen the same way; otherwise they are random.
-fn cut(label: f32) {
+// Frame the shot the director cut to: street level, aside looking across, above the signs, or
+// high over the city (the director chooses which and when, see `[[shot]]` in scene.toml). The
+// district's colours may change at the cut: at a section start they come from the section's label,
+// so every chorus is seen in the same colours; at any other cut they change now and then, by
+// chance.
+fn cut() {
+  let label = select(-1.0, music.section_label, music.cues > 0u && music.cue >= 0.5);
   let styled = label >= 0.0 && params.same_view == 1u;
   let k = label + 1.0;
-  let r1 = select(random(1u), fract(k * 0.6180339 + 0.137), styled);
-  let r2 = select(random(2u), fract(k * 0.7548777 + 0.291), styled);
-  let r3 = select(random(3u), fract(k * 0.5698403 + 0.733), styled);
+  let r1 = random(1u);
+  let r2 = random(2u);
+  let r3 = random(3u);
   let sg = select(-1.0, 1.0, r3 < 0.5);
-  var view = 0.0;
-  if (r2 * 100.0 < params.overview) {
-    view = 3.0;
-  } else if (r2 * 100.0 < params.overview + params.high) {
-    view = 2.0;
-  } else if (r1 * 100.0 < params.side) {
-    view = 1.0;
-  }
+  let view = f32(min(shot.index, 3u));
   state.view = view;
   state.side = f32(view == 1.0);
   if (view == 3.0) {
@@ -53,7 +51,6 @@ fn cut(label: f32) {
   }
   // Somewhere else along the street.
   state.pos.z = random(4u) * 2000.0;
-  state.last_cut = frame.time;
   // The trail is cleared at every cut (compose.wgsl).
   state.clear = 1.0;
 }
@@ -97,7 +94,8 @@ fn update() {
     state.lens = 1.0;
     state.beat_gap = 0.5;
     state.district = random(7u);
-    cut(-1.0);
+    state.cuts = shot.cuts;
+    cut();
     state.clear = 0.0;
   }
 
@@ -155,15 +153,10 @@ fn update() {
   state.accent *= exp(-dt / params.shake_decay);
   state.shake = 0.012 * state.accent * params.shake;
 
-  // Cuts, on the music's cues: a section's start (cue 0.5 or more) in its own view, so every
-  // chorus is seen the same way; a weaker cue (eight bars, or a long time without a hit) only
-  // sometimes, by chance and more often when it is loud.
-  if (music.cues > 0u && music.cue >= params.cut_cue && t - state.last_cut > params.cut_gap) {
-    if (music.cue >= 0.5) {
-      cut(music.section_label);
-    } else if (random(9u) * 100.0 < params.cut_chance * (0.5 + music.drive)) {
-      cut(-1.0);
-    }
+  // The director cuts: take its shot as the view. The trail is cleared across the cut.
+  if (shot.cuts != state.cuts) {
+    state.cuts = shot.cuts;
+    cut();
   }
   state.clear *= exp(-dt / 0.12);
 
@@ -186,7 +179,7 @@ fn update() {
   state.pos.y = state.eye;
   state.yaw = state.yaw_base + 0.01 * sin(t * 0.17) + state.shake * wobble.x;
   state.pitch = state.pitch_base + 0.008 * sin(t * 0.13) + state.shake * wobble.y;
-  state.roll = 0.004 * sin(t * 0.23) + state.side * 0.015 * sin(t * 0.31) + state.shake * 0.5 * wobble.y;
+  state.roll = 0.004 * sin(t * 0.23) + state.side * 0.015 * sin(t * 0.31) + shot.roll + state.shake * 0.5 * wobble.y;
   state.lens = (1.0 - params.zoom * state.kick) * (1.0 - 0.25 * params.build * rising);
 
   set_theme();

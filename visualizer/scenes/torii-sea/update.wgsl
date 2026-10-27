@@ -1,28 +1,20 @@
 // Once per frame: the spirits fly down the line of torii, a gate on every beat, drawing in to
 // the middle of each gate as they pass it and spreading out between; they surge on the beat, each
 // follows a band of the music, a snare flicks them aside, an accent sends them leaping into the
-// sky. The camera watches them from one of two shots, cut to at a cue (a section's start, or
-// every few bars where the music has none). The light changes with the music and the waves follow
-// its energy.
+// sky. The camera watches them from one of two shots, cut between by the runtime's director. The
+// light changes with the music and the waves follow its energy.
 
 fn random(n: u32) -> f32 {
   return rv_unit(frame.seed * 2654435761u + n);
 }
 
-// Pick the view: 0 chasing through the gates, 1 low beside, 2 above, 3 ahead looking back,
-// 4 high and wide. A section cuts there (by its label, so every chorus is seen the same way);
-// otherwise the camera glides.
-fn choose_view(label: f32) {
-  let styled = label >= 0.0 && params.same_view == 1u;
-  // Two shots, cutting between them: 1 high on the left and a little behind, looking down on the
-  // spirits; 2 from behind and to one side, lower, looking on past them to the light far ahead.
-  var v = 1.0 + floor(select(random(1u), fract((label + 1.0) * 0.6180339 + 0.137), styled) * 2.0);
-  if (!styled && v == state.view) {
-    v = 3.0 - v;
-  }
-  state.view = v;
-  state.lat = select(-1.0, 1.0, select(random(3u), fract((label + 1.0) * 0.7548777), styled) < 0.5);
-  state.last_view = frame.time;
+// Take up the director's shot: its index (0 high behind, looking down the line; 1 low behind to
+// one side, looking on to the light) is the view, and its seed picks the side of the line the
+// second is on. Neither shot glides, so both are simply cut to.
+fn take_shot() {
+  state.view = f32(shot.index);
+  state.lat = select(-1.0, 1.0, shot.seed < 0.5);
+  state.cuts_seen = f32(shot.cuts);
 }
 
 // Pick how the spirits move: 0 braid, 1 snake, 2 fan, 3 weaving in and out of the gates (twice
@@ -73,7 +65,7 @@ fn update() {
     state.vtarget = params.cruise;
     state.lens = 1.0;
     state.wave = params.wave_height;
-    choose_view(-1.0);
+    take_shot();
     choose_mode(-1.0);
     choose_light(-1.0);
     state.light_from = state.light_next;
@@ -137,15 +129,17 @@ fn update() {
     state.leap = min(state.leap + dt / max(params.leap_time, 0.2), 1.0);
   }
 
-  // Shots, patterns and light: on a cue the camera cuts. A section's start (strength 0.5 or 1)
-  // comes with its label, so the same kind of section is seen the same way, and the light and the
-  // pattern change with it; a cue without a section (every 8 bars, or after 16 s without a beat)
-  // only cuts the shot, and now and then the light with it. The pattern also changes every few
-  // bars while the beat is followed.
-  if (music.cues > 0u && music.cue >= params.view_cue && t - state.last_view > params.view_gap_time) {
+  // The director cuts the shot; here only the cue's other work is left. A section's start
+  // (strength 0.5 or 1) comes with its label, so the same kind of section is lit and patterned
+  // the same way; a cue without a section (every 8 bars, or after 16 s without a beat) now and
+  // then changes the light only. The pattern also changes every few bars while the beat is
+  // followed.
+  if (shot.cuts != u32(state.cuts_seen)) {
+    take_shot();
+  }
+  if (music.cues > 0u && music.cue >= 0.2) {
     let sectional = music.cue >= 0.5;
     let label = select(-1.0, music.section_label, sectional);
-    choose_view(label);
     if (sectional) {
       choose_mode(label);
       choose_light(label);
@@ -316,12 +310,12 @@ fn update() {
     }
   }
 
-  // The camera, by its shot, moving on with the spirits; it never sways or rolls, nor rises with
-  // their leaps.
+  // The camera, by its shot, moving on with the spirits; it never sways, nor rises with their
+  // leaps. Its roll is the director's dutch angle, fixed within a shot.
   var cam: vec3f;
   var look: vec3f;
   var lens = 1.0;
-  if (state.view > 1.5) {
+  if (state.view > 0.5) {
     // From behind and to one side, a little above the water and looking slightly down (lower,
     // the sea grazes the view and shows its triangles' faults), on past the spirits to the light
     // far ahead; a slightly long lens.
@@ -341,7 +335,7 @@ fn update() {
   }
   state.cam_pos = cam;
   state.cam_fwd = normalize(look - cam);
-  state.roll = 0.0;
+  state.roll = shot.roll;
   state.lens = lens;
   let right = normalize(cross(vec3f(0.0, 1.0, 0.0), state.cam_fwd));
   state.cam_right = right;

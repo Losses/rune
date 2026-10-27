@@ -9,7 +9,10 @@ struct State {
   pitch: f32,
   lens: f32,
   view: f32,
-  last_view: f32,
+  // How many cuts the director had made when the view last changed, and the dutch angle (roll) of
+  // the shot, which turns the picture about the way the camera looks.
+  cuts: u32,
+  roll: f32,
   // Which way it travels along the wall (+1 or -1), how fast now and the speed it eases to.
   dir: f32,
   vel: f32,

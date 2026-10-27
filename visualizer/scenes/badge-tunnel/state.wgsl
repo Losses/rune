@@ -39,11 +39,14 @@ struct State {
   kick: f32,
   turn: f32,
   turn_to: f32,
-  // The place the camera is filming from or gliding to (see update), and its side; when it set
-  // off, from where, and how long the glide takes. The badges' colours from then
-  // on (0 black lacquer and gold, 1 vermilion and gold, 2 indigo and silver).
+  // The place the camera is filming from or gliding to (see update), its side and its dutch
+  // angle; how many of the director's cuts it has followed; when it set off, from where, and how
+  // long the glide takes. The badges' colours from then on (0 black lacquer and gold, 1
+  // vermilion and gold, 2 indigo and silver).
   view: f32,
   side: f32,
+  roll_to: f32,
+  cuts: u32,
   last_view: f32,
   set_off: Pose,
   glide: f32,

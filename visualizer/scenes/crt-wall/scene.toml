@@ -7,6 +7,36 @@ common = ["wall.wgsl"]
 # Covers from the library, for the screens that show one.
 covers = true
 
+# The director cuts between the wall's views. The camera has no roll of its own, so the director's
+# dutch angle is the only tilt.
+[camera]
+dutch = 0.3
+fill = true
+
+# Straight on at the wall's distance, a few screens' worth of piles in the frame.
+[[shot]]
+name = "front"
+size = "wide"
+move = "cut"
+
+# From one side, looking along the wall.
+[[shot]]
+name = "side"
+size = "medium"
+move = "cut"
+
+# Far off, the most of the wall in view.
+[[shot]]
+name = "far"
+size = "wide"
+move = "cut"
+
+# Close up through a long lens.
+[[shot]]
+name = "close"
+size = "close"
+move = "cut"
+
 [state]
 file = "state.wgsl"
 update = "update.wgsl"
@@ -338,42 +368,6 @@ max = 60.0
 step = 1
 
 [[param]]
-id = "front"
-group = "Camera"
-label = "Weight of the front view"
-default = 3.0
-min = 0.0
-max = 10.0
-step = 0.5
-
-[[param]]
-id = "side"
-group = "Camera"
-label = "Weight of the side view"
-default = 2.0
-min = 0.0
-max = 10.0
-step = 0.5
-
-[[param]]
-id = "far"
-group = "Camera"
-label = "Weight of the far view"
-default = 1.0
-min = 0.0
-max = 10.0
-step = 0.5
-
-[[param]]
-id = "close"
-group = "Camera"
-label = "Weight of the close view"
-default = 0.5
-min = 0.0
-max = 10.0
-step = 0.5
-
-[[param]]
 id = "cruise"
 group = "Camera"
 label = "Cruise speed (a song of middling pace)"
@@ -420,32 +414,6 @@ default = 0.4
 min = 0.0
 max = 2.0
 step = 0.05
-
-[[param]]
-id = "view_gap"
-group = "Camera"
-label = "Least time between view changes"
-unit = "s"
-default = 20.0
-min = 2.0
-max = 120.0
-step = 1
-
-[[param]]
-id = "cue_min"
-group = "Camera"
-label = "Cue strength that changes the view (0.5 is a section start)"
-default = 0.3
-min = 0.1
-max = 1.0
-step = 0.05
-
-[[param]]
-id = "same_view"
-type = "bool"
-group = "Camera"
-label = "Same view for the same kind of section"
-default = true
 
 # ---- Colour and look ----
 

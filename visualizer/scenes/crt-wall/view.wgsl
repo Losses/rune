@@ -33,8 +33,11 @@ fn forward() -> vec3f {
 
 fn camera_ray(px: Pixel) -> Ray {
   let f = forward();
-  let right = vec3f(cos(state.yaw), 0.0, -sin(state.yaw));
-  let up = cross(f, right);
+  let right0 = vec3f(cos(state.yaw), 0.0, -sin(state.yaw));
+  let up0 = cross(f, right0);
+  // The shot's dutch angle: the picture's right and up turn about the way the camera looks.
+  let right = cos(state.roll) * right0 + sin(state.roll) * up0;
+  let up = cos(state.roll) * up0 - sin(state.roll) * right0;
   var ray: Ray;
   ray.o = state.cam;
   ray.d = normalize(f + (right * px.p.x + up * px.p.y) * 2.0 * state.lens);

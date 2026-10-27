@@ -20,6 +20,23 @@ scale = 0.75
 shader = "view.wgsl"
 target = "out"
 
+# Both shots are far from the line, so there is no close one to burst to: no fill.
+[camera]
+dutch = 0.3
+fill = false
+
+# Looking down the line from high behind, and from low behind to one side. Both see the whole
+# line and its sky, so both are wide.
+[[shot]]
+name = "high behind"
+size = "wide"
+move = "cut"
+
+[[shot]]
+name = "low beside"
+size = "wide"
+move = "cut"
+
 [post]
 exposure = 0.0
 bloom = { intensity = 0.4, threshold = 1.0, radius = 0.7 }
@@ -423,13 +440,6 @@ step = 0.05
 # ---- Camera ----
 
 [[param]]
-id = "same_view"
-type = "bool"
-group = "Camera"
-label = "Same view for the same kind of section"
-default = true
-
-[[param]]
 id = "through"
 group = "Camera"
 label = "Height through the gates"
@@ -489,25 +499,6 @@ min = 3.0
 max = 40.0
 step = 0.5
 
-
-[[param]]
-id = "view_cue"
-group = "Camera"
-label = "How strong a cue cuts the shot (1 a section that lifts, 0.5 any section, 0.3 every 8 bars while the beat is followed, 0.2 every 16 s without one)"
-default = 0.2
-min = 0.1
-max = 1.0
-step = 0.05
-
-[[param]]
-id = "view_gap_time"
-group = "Camera"
-label = "Least time between shot changes"
-unit = "s"
-default = 10.0
-min = 4.0
-max = 40.0
-step = 0.5
 
 # ---- Torii ----
 

@@ -13,10 +13,10 @@ struct State {
   vtarget: f32,
   // The kick.
   kick: f32,
-  // The shot (1 from behind and above, 2 from behind and to one side, low), when it last
-  // changed, and (in lat) the side of the line the second is on.
+  // The shot (0 from behind and above, 1 from behind and to one side, low), how many of the
+  // director's cuts have been taken up, and (in lat) the side of the line the second is on.
   view: f32,
-  last_view: f32,
+  cuts_seen: f32,
   lat: f32,
   // The sea: how tall the waves are, and the swell an accent sends (and where it is).
   wave: f32,

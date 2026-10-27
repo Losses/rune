@@ -14,6 +14,45 @@ update = "update.wgsl"
 [render]
 scale = 1.0
 
+# The camera's views, in the order the view numbers go (the lock below counts the same). The
+# director picks when to cut and to which; the scene glides there. The front view and the high one
+# show the lead with the field behind, so both are wide.
+[camera]
+dutch = 0.3
+fill = true
+# The shortest shot, in bars: twice the default glide, as a glide takes at most half a shot.
+hold = 4
+
+[[shot]]
+name = "front"
+size = "wide"
+move = "glide"
+
+[[shot]]
+name = "low"
+size = "medium"
+move = "glide"
+
+[[shot]]
+name = "high"
+size = "wide"
+move = "glide"
+
+[[shot]]
+name = "beside"
+size = "close"
+move = "glide"
+
+[[shot]]
+name = "above"
+size = "top"
+move = "glide"
+
+[[shot]]
+name = "circling"
+size = "medium"
+move = "glide"
+
 # The picture in a few big pixels, as a nineties render was: 0.25 of the screen per side (a
 # quarter is about 480 by 270 on a 1080p screen). Smaller is chunkier, and cheaper.
 [[buffer]]
@@ -138,7 +177,7 @@ step = 1
 [[param]]
 id = "glide"
 group = "Camera"
-label = "Bars to glide to another view"
+label = "Bars to glide to another view (at most half the shot)"
 default = 2.0
 min = 0.25
 max = 8.0
@@ -154,19 +193,9 @@ max = 64.0
 step = 1
 
 [[param]]
-id = "view_gap"
-group = "Camera"
-label = "Least time between view changes on a weak cue"
-unit = "s"
-default = 20.0
-min = 2.0
-max = 120.0
-step = 1
-
-[[param]]
 id = "cue_min"
 group = "Camera"
-label = "Cue strength that changes the view or the mood (0.5 is a section start)"
+label = "Cue strength that changes the mood (0.5 is a section start)"
 default = 0.3
 min = 0.1
 max = 1.0

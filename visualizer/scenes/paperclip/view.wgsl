@@ -10,8 +10,13 @@ struct Ray {
 
 fn camera_ray(px: Pixel) -> Ray {
   let f = normalize(state.aim - state.cam);
-  let right = normalize(cross(vec3f(0.0, 1.0, 0.0), f));
-  let up = cross(f, right);
+  let right0 = normalize(cross(vec3f(0.0, 1.0, 0.0), f));
+  let up0 = cross(f, right0);
+  // The shot's dutch angle: the picture's axes turned about the way the camera looks.
+  let c = cos(state.roll);
+  let s = sin(state.roll);
+  let right = right0 * c + up0 * s;
+  let up = up0 * c - right0 * s;
   var ray: Ray;
   ray.o = state.cam;
   ray.d = normalize(f + (right * px.p.x + up * px.p.y) * 2.0 * state.lens);

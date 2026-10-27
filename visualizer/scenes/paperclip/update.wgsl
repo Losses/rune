@@ -1,11 +1,7 @@
 // Once per frame: how hard they dance, the brows on an impact or a lift, the camera gliding
-// between a few places on the music's cues, and every group's clip posed for this moment. The beat
-// clock, the bar length and how far the beat is followed are the runtime's (`music.clock`,
-// `music.meter`, `music.locked`).
-
-fn random(n: u32) -> f32 {
-  return rv_unit(frame.seed * 2654435761u + n);
-}
+// between a few places as the director cuts (`shot`), and every group's clip posed for this
+// moment. The beat clock, the bar length and how far the beat is followed are the runtime's
+// (`music.clock`, `music.meter`, `music.locked`).
 
 // Seconds per beat, from the tempo the runtime gives (calm and feel-based when no beat is known).
 fn beat_len() -> f32 {
@@ -338,36 +334,26 @@ fn view_shot(v: f32, side: f32, s: f32) -> ViewShot {
   return sh;
 }
 
-// Go to another view, gliding there from where the camera is over `len` seconds. With a section
-// label the view is the label's (sections that sound alike are filmed alike); calm music is filmed
-// from further off, loud music from close and circling.
-fn choose_view(label: f32, energy: f32, len: f32) {
-  let styled = label >= 0.0;
-  let r1 = select(random(1u), fract((label + 1.0) * 0.6180339 + 0.137), styled);
-  let r2 = select(random(2u), fract((label + 1.0) * 0.7548777 + 0.291), styled);
-  var views = array<f32, 4>(0.0, 2.0, 4.0, 1.0);
-  if (energy > 0.6) {
-    views = array<f32, 4>(3.0, 5.0, 1.0, 0.0);
-  }
-  var i = u32(r1 * 4.0) % 4u;
-  if (!styled && views[i] == state.view) {
-    i = (i + 1u) % 4u;
-  }
-  var v = views[i];
+// Go to the director's shot: the view is the shot's (the `[[shot]]`s are the views in order), filmed
+// from the side and at the distance the shot's seed gives, and the camera glides there from where
+// it is over `len` seconds. A locked view ignores the director.
+fn choose_view(index: u32, seed: f32, len: f32) {
+  var v = f32(index);
   if (params.view_lock > 0.5) {
     v = params.view_lock - 1.0;
   }
   state.view = v;
-  state.side = select(-1.0, 1.0, r2 < 0.5);
+  // The seed also sets the dutch angle, so the side comes from another digit of it.
+  state.side = select(-1.0, 1.0, fract(seed * 7.31 + 0.37) < 0.5);
   // The circling view starts where the camera is.
   state.ring = state.pol.x;
   state.pol_from = state.pol;
   state.aim_from = state.aim_base;
   state.lens_from = state.lens;
+  state.roll_from = state.roll;
   state.glide = 0.0;
   state.glide_len = len;
-  state.shot = 0.0;
-  state.last_view = frame.time;
+  state.travel = 0.0;
 }
 
 fn update() {
@@ -375,8 +361,8 @@ fn update() {
   let t = frame.time;
   if (frame.first == 1u) {
     state.level = 0.5;
-    state.planned = -1.0;
-    choose_view(-1.0, 0.5, 1.0);
+    choose_view(shot.index, shot.seed, 1.0);
+    state.cuts = shot.cuts;
     state.glide = 1.0;
   }
 
@@ -390,8 +376,8 @@ fn update() {
   // runtime has smoothed it already).
   state.level = clamp(0.25 + 0.85 * music.drive, 0.2, 1.0) * params.dance;
 
-  // Cues: a section start (0.5 or more) changes mood and view, a lift of the energy (1) widens the
-  // eyes; a weaker cue (a long stretch with no section) may change the view after a while.
+  // Cues: a section start (0.5 or more) changes the mood, a lift of the energy (1) widens the
+  // eyes; a weaker cue (a long stretch with no section) may change the mood.
   let cued = music.cues > 0u;
   let new_section = cued && music.cue >= 0.5;
   let lift = cued && music.cue >= 0.9;
@@ -411,7 +397,7 @@ fn update() {
   state.surprise *= exp(-dt / 0.6);
 
   // The mood: a section's (the same for sections that sound alike); on a weaker cue, a new one
-  // that is kept while it still fits how hard they dance.
+  // that is kept while it still fits how hard they dance, and new figures to dance.
   if (frame.first == 1u) {
     state.mood = -1.0;
     choose_mood(state.level, 1.0, false);
@@ -419,27 +405,24 @@ fn update() {
   } else if (new_section) {
     choose_mood(state.level, fract((music.section_label + 1.0) * 0.5698403 + 0.41), false);
   } else if (cued && music.cue >= params.cue_min) {
+    state.section += 101.0;
     choose_mood(state.level, hash(vec2f(t, 2.1)), hash(vec2f(t, 5.3)) < 0.65);
   }
 
-  // The camera: to another view for a section (gliding there over the bars before it, so as to
-  // arrive as it starts), or on a weaker cue. `cue_in` tells how long to the next section and
-  // `next_energy` how hard it will be (read only here, while `cue_in` is known), so the view
-  // is chosen for the section it arrives with.
-  let glide_len = params.glide * bar_len;
-  let ahead = music.next_label != music.section_label && music.cue_in > 0.0
-    && music.cue_in < glide_len && music.cue_in > 0.5 * glide_len
-    && state.planned != music.section + 1.0;
-  if (ahead && t - state.last_view > 4.0) {
-    choose_view(music.next_label, music.next_energy, music.cue_in);
-    state.planned = music.section + 1.0;
-  } else if (new_section && music.section != state.planned && t - state.last_view > 4.0) {
-    choose_view(music.section_label, music.drive, glide_len);
-    state.planned = music.section;
-  } else if (cued && music.cue >= params.cue_min && t - state.last_view > params.view_gap
-    && !(music.cue_in >= 0.0 && music.cue_in < 2.0 * glide_len)) {
-    state.section += 101.0;
-    choose_view(-1.0, music.drive, glide_len);
+  // The camera: the director cuts (`shot.cuts` changes), and the camera glides to its shot over the
+  // glide time, but never for longer than half the shot lasts. It cuts at the start of a section
+  // itself, so no look-ahead is needed.
+  if (shot.cuts != state.cuts) {
+    state.cuts = shot.cuts;
+    var glide_len = params.glide * bar_len;
+    if (shot.length >= 0.0) {
+      glide_len = min(glide_len, 0.5 * shot.length);
+    }
+    choose_view(shot.index, shot.seed, glide_len);
+    // Inside a burst of cuts the shots last a beat each: jump there instead of gliding.
+    if (shot.fill > 0u) {
+      state.glide = 1.0;
+    }
   }
   // The circling view goes round once in so many bars, the way of its side.
   if (state.view > 4.5) {
@@ -448,8 +431,8 @@ fn update() {
   // Each view moves slowly through the view's time, slowing to a stop; a glide goes round the
   // lead (bearing, distance and height each in turn), never through the dancers.
   state.glide = min(state.glide + dt / max(state.glide_len, 0.1), 1.0);
-  state.shot = min(state.shot + dt / max(params.view_bars * bar_len, 1.0), 1.0);
-  let s = 1.0 - (1.0 - state.shot) * (1.0 - state.shot);
+  state.travel = min(state.travel + dt / max(params.view_bars * bar_len, 1.0), 1.0);
+  let s = 1.0 - (1.0 - state.travel) * (1.0 - state.travel);
   let to = view_shot(state.view, state.side, s);
   let k = smoothstep(0.0, 1.0, state.glide);
   let round_by = atan2(sin(to.pol.x - state.pol_from.x), cos(to.pol.x - state.pol_from.x));
@@ -457,6 +440,9 @@ fn update() {
   state.cam = vec3f(sin(state.pol.x) * state.pol.y, state.pol.z, -cos(state.pol.x) * state.pol.y);
   state.aim_base = mix(state.aim_from, to.aim, k);
   state.lens = mix(state.lens_from, to.lens, k);
+  // The dutch angle of the shot, turned to along with the glide (it is fixed within a shot).
+  // A locked view stays level.
+  state.roll = mix(state.roll_from, select(shot.roll, 0.0, params.view_lock > 0.5), k);
   // The camera looks up after the lead when it hops or flips, a little late.
   state.lift += (pose_at(0.0, state.level).hop - state.lift) * (1.0 - exp(-dt / 0.15));
   state.aim = state.aim_base + vec3f(0.0, 0.6 * state.lift, 0.0);

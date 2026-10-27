@@ -14,9 +14,10 @@ struct State {
   // The camera: where it is, where it looks and the lens; where it is round the lead (bearing, 0
   // in front and positive to the right, then distance out over the floor and height) and where it
   // looks before it follows the lead's hops; where a glide to another view started, how far it
-  // has got and how long it takes; the view, which side of the lead it films from, how far through
-  // the view's own slow move it is, when it was chosen and for which section; the circling view's
-  // bearing; the lead's hop, smoothed.
+  // has got and how long it takes; the view (the director's shot), which side of the lead it films
+  // from, how far through the view's own slow move it is (`travel`), the cuts seen so far; the
+  // dutch angle now and where the glide to this view's began; the circling view's bearing; the
+  // lead's hop, smoothed.
   cam: vec3f,
   lens: f32,
   aim: vec3f,
@@ -28,12 +29,13 @@ struct State {
   pol_from: vec3f,
   lens_from: f32,
   aim_from: vec3f,
-  last_view: f32,
+  roll_from: f32,
   side: f32,
-  shot: f32,
-  planned: f32,
+  travel: f32,
+  roll: f32,
   ring: f32,
   lift: f32,
+  cuts: u32,
   // The bar the last frame was in (a whole number), so that a new bar is seen once.
   bar_idx: f32,
   // How hard they dance (from the drive), the brows' lift on an impact or a lift of the energy,

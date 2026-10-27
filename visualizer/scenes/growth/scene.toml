@@ -43,6 +43,35 @@ shader = "dof.wgsl"
 target = "out"
 inputs = ["lit"]
 
+# The camera's views, in the order update.wgsl takes them (0 close, 1 closer, 2 and 3 further
+# off); the camera glides between them. The tilt is the director's dutch angle, none in a wide
+# shot.
+[camera]
+dutch = 0.4
+fill = true
+# The shortest shot is about the default glide (4 s), two bars at 90 to 120 bpm.
+hold = 2
+
+[[shot]]
+name = "steep"
+size = "medium"
+move = "glide"
+
+[[shot]]
+name = "near"
+size = "close"
+move = "glide"
+
+[[shot]]
+name = "far"
+size = "wide"
+move = "glide"
+
+[[shot]]
+name = "far again"
+size = "wide"
+move = "glide"
+
 [post]
 exposure = 0.0
 bloom = { intensity = 0.7, threshold = 0.95, radius = 0.8 }
@@ -239,13 +268,6 @@ step = 0.1
 # ---- Camera ----
 
 [[param]]
-id = "same_view"
-type = "bool"
-group = "Camera"
-label = "Same view for the same kind of section"
-default = true
-
-[[param]]
 id = "glide"
 group = "Camera"
 label = "Time to glide between views"
@@ -272,35 +294,6 @@ label = "How much of the tower below the camera is kept (less is cheaper)"
 unit = "m"
 default = 10.0
 min = 0.0
-max = 60.0
-step = 1.0
-
-[[param]]
-id = "view_chance"
-group = "Camera"
-label = "Chance of changing the view on a weak cue"
-unit = "%"
-default = 40.0
-min = 0.0
-max = 100.0
-step = 1.0
-
-[[param]]
-id = "view_cue"
-group = "Camera"
-label = "Weakest cue that changes the view"
-default = 0.3
-min = 0.0
-max = 1.0
-step = 0.05
-
-[[param]]
-id = "view_gap"
-group = "Camera"
-label = "Least time between view changes"
-unit = "s"
-default = 8.0
-min = 1.0
 max = 60.0
 step = 1.0
 

@@ -7,8 +7,9 @@
 // each time the other way; a section flings three of them, one after another from the inside out,
 // each the other way from the one before. Nothing steps with the beat. The gem at the heart rolls a
 // whole turn each phrase. On the beats, the rings or (taking turns) a batch of shapes light and
-// fade. The ecliptic precesses steadily. The core breathes with the music. A section cuts to
-// another shot. Then the shapes are placed, projected and sorted into the screen's tiles.
+// fade. The ecliptic precesses steadily. The core breathes with the music. The camera cuts
+// where the runtime's director says, to the shot it picks. Then the shapes are placed, projected
+// and sorted into the screen's tiles.
 
 // ---- Colour ----
 // Every colour in the picture comes from one: the theme colour, the player's own (which follows
@@ -758,7 +759,7 @@ fn update() {
     state.kick = 1.0;
     state.core_vel += params.core_kick;
   }
-  // A cue strong enough (`cue_min`) is the moment to fling rings and cut to another shot.
+  // A cue strong enough (`cue_min`) is the moment to fling rings.
   let section = music.cues > 0u && music.cue >= params.cue_min && frame.first == 0u;
   let barred = music.bars > 0u;
   if (barred) {
@@ -876,15 +877,12 @@ fn update() {
   // The sphere floats: rising and sinking a little, drifting.
   state.centre = vec3f(0.05 * sin(t * 0.31), 0.08 * sin(t * 0.45), 0.05 * cos(t * 0.27));
 
-  // A cue cuts to another shot.
-  let cut = frame.first == 1u || section;
-  if (cut) {
-    var v = floor(random(1u) * 4.0);
-    if (v == state.view && frame.first == 0u) {
-      v = (v + 1.0 + floor(random(2u) * 3.0)) % 4.0;
-    }
-    state.view = v;
-    state.side = select(-1.0, 1.0, random(3u) < 0.5);
+  // The director cuts to another shot: its index is the view and its seed picks the side.
+  // (The cut count is compared with the one seen, so the first frame frames the first shot too.)
+  if (frame.first == 1u || shot.cuts != u32(state.cuts_seen)) {
+    state.cuts_seen = f32(shot.cuts);
+    state.view = f32(shot.index);
+    state.side = select(-1.0, 1.0, shot.seed < 0.5);
     state.drift_cam = 0.0;
   }
   var view = state.view;
@@ -925,11 +923,15 @@ fn update() {
   cam = look + (cam - look) * params.lens;
   focal *= params.lens;
   let fwd = normalize(look - cam);
-  let right = normalize(cross(up, fwd));
+  let level_right = normalize(cross(up, fwd));
+  let level_up = cross(fwd, level_right);
+  // The director's dutch angle, fixed within a shot: the camera turns about its own axis. A shot
+  // the user locked stays level.
+  let roll = select(shot.roll, 0.0, params.view > 0u);
   state.cam_pos = cam;
   state.cam_fwd = fwd;
-  state.cam_right = right;
-  state.cam_up = cross(fwd, right);
+  state.cam_right = level_right * cos(roll) + level_up * sin(roll);
+  state.cam_up = level_up * cos(roll) - level_right * sin(roll);
   state.focal = focal;
   // Drawn in marks, what is bright fringes a little red and blue, as on a screen.
   if (params.look == 3u) {
