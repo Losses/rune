@@ -223,7 +223,7 @@ fn screen_of(s: Set) -> Screen {
   var sc: Screen;
   // Each set hears the beat a little late, by its own share of a beat (in quarters).
   let lag = floor(hash(s.id + 1.3) * params.stagger * 4.0) * 0.25;
-  let c = music.clock - lag;
+  let c = input.clock - lag;
   let sb = floor(c);
   // A set changes channel every 1/share beats, each on its own beat.
   let share = clamp(params.share, 0.01, 1.0);
@@ -237,11 +237,11 @@ fn screen_of(s: Set) -> Screen {
   let until = (ceil((kk + 1.0 - h) / share) - c) * state.beat_len;
   let before = 1.0 - smoothstep(0.0, RISE, until);
   let after = exp(-since / max(params.flash_time, 0.01));
-  sc.flash = max(before, after) * params.flash * music.locked;
+  sc.flash = max(before, after) * params.flash * input.locked;
   // Some sets jump on each beat, each by its own amount.
   let jolt = hash(s.id * 1.9 + vec2f(sb * 4.3, 2.7));
   let react = select(0.0, 0.6 + 0.8 * hash(s.id * 2.3 + vec2f(sb * 7.1, 5.5)), jolt < params.react);
-  sc.amt = react * exp(-fract(c) * state.beat_len / max(params.kick_decay, 0.01)) * music.locked;
+  sc.amt = react * exp(-fract(c) * state.beat_len / max(params.kick_decay, 0.01)) * input.locked;
   return sc;
 }
 

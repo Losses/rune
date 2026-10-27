@@ -103,17 +103,17 @@ fn update() {
   // change channel on the clock, so a beat length in seconds is all the view needs besides it.
   // Without a followed beat the screens keep their channels (their flashes and jolts fade with
   // `locked`) and the hits of the music stand in for the beat in the camera's push.
-  state.beat_len = 60.0 / music.tempo;
-  let beat = music.hits > 0u;
+  state.beat_len = 60.0 / input.tempo;
+  let beat = input.beat > 0.5;
 
   // The energy the speed follows: the slow drive, eased once more.
-  state.ens = rv_approach(state.ens, 0.5 + 1.5 * music.drive, dt, 0.6);
+  state.ens = rv_approach(state.ens, 0.5 + 1.5 * input.drive, dt, 0.6);
 
   // The channels group anew at a section start, from the section's number, so every chorus is
   // grouped the same way; at any other cut of the view they group anew from the number moved on.
-  let section_start = music.cues > 0u && music.cue >= 0.5;
+  let section_start = input.section_start > 0.5;
   if (section_start) {
-    state.section = music.section;
+    state.section = input.section;
   }
   // The director cuts: take its shot as the view. The camera jumps along the wall, so the new
   // view starts at the speed the music sounds now.
@@ -127,11 +127,11 @@ fn update() {
     fresh = true;
   }
   // Some sets are always off, and more in a quiet section.
-  state.dark = params.off_always + params.off * pow(max(1.0 - music.drive, 0.0), 1.5);
+  state.dark = params.off_always + params.off * pow(max(1.0 - input.drive, 0.0), 1.5);
 
   // How fast the music sounds, as a pace against a song of middling tempo: the camera's cruise
   // is for 90 bpm, a faster song goes faster and a slower one slower.
-  let pace = clamp(music.tempo / 90.0, 0.25, 3.0);
+  let pace = clamp(input.tempo / 90.0, 0.25, 3.0);
 
   // The camera glides along the wall at a cruise, pushed on each beat and easing back; from the
   // side faster, close up slower.
