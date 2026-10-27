@@ -13,6 +13,9 @@
 //! `crate::transition::Overlay`): this only says that one starts ([`Lens::take_overlay`]).
 
 use super::inputs::MusicValues;
+use std::sync::Arc;
+
+use crate::bind::{CourseBinds, MomentBinds, RuntimeBindings};
 use crate::course::{Course, Phrase};
 use crate::inspect::LabLens;
 use crate::moments::{self, Played, Strength};
@@ -194,6 +197,9 @@ pub struct Lens {
     /// A glitch or a mosaic over the picture that starts with the next frame, for the transition
     /// layer to take (see [`Lens::take_overlay`]).
     overlay: Option<Overlay>,
+    /// What a section start is, and how a course reads the music (`runtime.toml`).
+    moments: Arc<MomentBinds>,
+    binds: CourseBinds,
 }
 
 impl Lens {
@@ -217,13 +223,26 @@ impl Lens {
             },
             forced: LabLens::default(),
             overlay: None,
+            moments: Arc::default(),
+            binds: CourseBinds::default(),
         }
+    }
+
+    /// Read the music by these bindings from now on (a scene lab replaced `runtime.toml`).
+    pub fn set_binds(&mut self, runtime: &RuntimeBindings) {
+        self.moments = runtime.moments.clone();
+        self.binds = runtime.course;
+    }
+
+    /// How a course of this lens reads the music, for the effects the transition layer runs.
+    pub fn course_binds(&self) -> CourseBinds {
+        self.binds
     }
 
     /// Hear a frame's music, before the moments of the frame start anything: where it is in its
     /// phrase, for the course of an effect that starts.
     pub fn listen(&mut self, music: &MusicValues) {
-        self.phrase.tick(music);
+        self.phrase.tick_with(&self.moments, music);
         self.music = *music;
     }
 
@@ -234,7 +253,7 @@ impl Lens {
 
     /// A course that starts now.
     fn course(&self) -> Course {
-        Course::new(&self.phrase, &self.music)
+        Course::with(self.binds, &self.phrase, &self.music)
     }
 
     /// Start the effects of `forced` at every moment too, as if the scene listed them; with none

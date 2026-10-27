@@ -1403,6 +1403,21 @@ impl Scene {
         self.lens.start_overlay(kind);
     }
 
+    /// The runtime's decisions this scene reads from now on: what a moment is, when the director
+    /// cuts, how the effects' course reads the music (`runtime.toml`).
+    pub fn set_runtime(&mut self, runtime: &crate::bind::RuntimeBindings) {
+        self.moments.set_binds(runtime.moments.clone());
+        if let Some(director) = &mut self.director {
+            director.set_binds(runtime.director.clone(), runtime.moments.clone());
+        }
+        self.lens.set_binds(runtime);
+    }
+
+    /// How the effects' course reads the music in this scene (see [`lens::Lens::course_binds`]).
+    pub fn course_binds(&self) -> crate::bind::CourseBinds {
+        self.lens.course_binds()
+    }
+
     /// The chances the music's moments play an effect with (the user's setting, or a lab's).
     pub fn set_effect_chances(&mut self, chances: crate::moments::Chances) {
         self.chances = chances;

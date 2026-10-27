@@ -18,6 +18,7 @@ use anyhow::{Context, Result, anyhow};
 use log::{info, warn};
 
 use crate::adaptive::{Controller, Level, Report};
+use crate::bind::RuntimeBindings;
 use crate::chart::ChartState;
 use crate::covers::{Atlas, Cell};
 use crate::gpu_time::GpuTimer;
@@ -66,6 +67,8 @@ pub struct Pipeline {
     accent: Option<[f32; 3]>,
     /// The chances the music's moments play an effect with (see [`crate::moments`]).
     chances: Chances,
+    /// The runtime's decisions (`runtime.toml`), which every scene reads.
+    runtime: Arc<RuntimeBindings>,
     /// The atlas of covers for scenes that read one.
     covers: Option<Arc<Atlas>>,
     /// The cell of the track playing, which stays over cell 0 of the atlas.
@@ -444,6 +447,7 @@ impl Pipeline {
             song: (0.0, false),
             accent: None,
             chances: Chances::default(),
+            runtime: RuntimeBindings::embedded(),
             covers: None,
             playing_cover: None,
             output,
@@ -875,6 +879,26 @@ impl Pipeline {
         }
     }
 
+    /// The runtime's decisions, read from now on by the scene on screen, the one waiting for a
+    /// transition and every scene that comes (a scene lab replaced `runtime.toml`).
+    pub fn set_runtime(&mut self, runtime: Arc<RuntimeBindings>) {
+        self.runtime = runtime;
+        self.scene.set_runtime(&self.runtime);
+        if let Some(pending) = self
+            .transitions
+            .running
+            .as_mut()
+            .and_then(|running| running.pending.as_mut())
+        {
+            pending.set_runtime(&self.runtime);
+        }
+    }
+
+    /// The runtime's decisions in use.
+    pub fn runtime(&self) -> &Arc<RuntimeBindings> {
+        &self.runtime
+    }
+
     /// The app's accent colour (linear), which scenes and transitions draw in.
     pub fn set_accent(&mut self, accent: Option<[f32; 3]>) {
         self.accent = accent;
@@ -979,6 +1003,7 @@ impl Pipeline {
         scene.take_music_from(&mut self.scene);
         scene.set_lens_forced(self.lab.lens);
         scene.set_effect_chances(self.chances);
+        scene.set_runtime(&self.runtime);
         self.scene = scene;
         self.restart_adaptive();
         Ok(())
@@ -1005,6 +1030,7 @@ impl Pipeline {
         if scene.output_size() != (width, height) {
             scene.resize(&self.device, &self.queue, width, height)?;
         }
+        scene.set_runtime(&self.runtime);
         if let Some(running) = &mut self.transitions.running {
             if running.pending.is_some() {
                 running.pending = Some(scene);
@@ -1607,7 +1633,13 @@ fn start_overlay(transitions: &mut Transitions, plan: Plan, scene: &Scene, time:
     if transitions.running.is_some() {
         return plan;
     }
-    transitions.start_overlay(OverlayRun::new(kind, time, &scene.phrase(), scene.music()));
+    transitions.start_overlay(OverlayRun::with(
+        scene.course_binds(),
+        kind,
+        time,
+        &scene.phrase(),
+        scene.music(),
+    ));
     let Some(run) = transitions.overlay else {
         return plan;
     };

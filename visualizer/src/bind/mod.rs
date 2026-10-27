@@ -8,8 +8,16 @@
 
 mod eval;
 mod level;
+mod runtime;
+#[cfg(test)]
+pub(crate) use runtime::tests;
 mod sources;
 
 pub use eval::{Bindings, Curve, Ease, Evaluator, HOWS, MAX_OPTIONS, Report, Tick, Used};
 pub use level::{Level, forced_chart};
+pub use runtime::EMBEDDED as RUNTIME_TOML;
+pub use runtime::{
+    Ahead, CourseBinds, DirectorBinds, Heard, MomentBinds, Pick, Place, RuntimeBindings, Said,
+    SwitchBinds, Trigger, counts_here,
+};
 pub use sources::{Reading, SOURCES, Source, find, names};

@@ -54,7 +54,11 @@ use log::{error, info};
 use rand::rngs::ThreadRng;
 use rtrb::Consumer;
 
-pub use bind::{Level, Used};
+pub use bind::{Level, RuntimeBindings, Used};
+
+/// The runtime's decisions as the visualizer is built with them (`runtime.toml`), the text a lab
+/// edits and sends with [`LabCommand::RuntimeBindings`].
+pub const RUNTIME_TOML: &str = bind::RUNTIME_TOML;
 pub use chart::{Chart, ChartState};
 use chart::{ChartFollower, Playback};
 pub use inspect::{
@@ -1102,6 +1106,7 @@ fn run(
         let chances = shared.effect_chances();
         pipeline.set_effect_chances(chances);
         auto.decider.set_chances(chances);
+        auto.decider.use_binds(&pipeline.runtime().switching);
         if shared.fall_back.swap(false, Ordering::Relaxed) {
             pipeline.fall_back_to_readback();
         }
@@ -1407,6 +1412,14 @@ fn lab(
         LabCommand::CutsWith(transition) => pipeline.set_lab_cuts(transition),
         LabCommand::LensWith(lens) => pipeline.set_lab_lens(lens),
         LabCommand::ForceLevel(level) => pipeline.set_lab_level(level),
+        LabCommand::RuntimeBindings(text) => match bind::RuntimeBindings::parse(&text) {
+            // Read in full before anything changes: a mistake leaves the old ones.
+            Ok(runtime) => {
+                pipeline.set_runtime(Arc::new(runtime));
+                shared.status().last_error = None;
+            }
+            Err(e) => shared.set_error(format!("{e:#}")),
+        },
         LabCommand::NextScene(transition) => {
             let next = lock(library).auto_next(&mut rand::thread_rng());
             match next {
@@ -1455,6 +1468,7 @@ fn inspection(
             .into_iter()
             .map(InspectBinding::from)
             .collect(),
+        runtime_bindings: pipeline.runtime().report(pipeline.music()),
         chance: match shared.lab_chance.load(Ordering::Relaxed) {
             NO_LAB_CHANCE => None,
             percent => Some(percent),

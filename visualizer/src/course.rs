@@ -15,16 +15,23 @@
 //!   jerky and a smooth clock was limp; this is both continuous and on the
 //!   beat. Without a followed beat it pushes on the hits.
 
+use crate::bind::{CourseBinds, MomentBinds, Said};
 use crate::scene::MusicValues;
-use crate::switching::{FOLLOWED, SECTION_CUE};
+use crate::switching::FOLLOWED;
+
+// The numbers below are the defaults of `course.*` in `runtime.toml`, which the course reads (a
+// test pins that they agree); a scene lab can replace them live.
 
 /// Where the course is at its most, as a share of its length.
 pub const PEAK: f32 = 1.0 / 3.0;
 /// The phrase the length is counted to: a course ends on the next boundary of this many bars,
 /// counted from the section's start, and lasts at least [`MIN_BARS`] (so one that starts in a
 /// phrase's last bar runs on to the end of the next), at most [`MAX_BARS`].
+#[cfg(test)]
 pub const PHRASE_BARS: u32 = 4;
+#[cfg(test)]
 pub const MIN_BARS: u32 = 2;
+#[cfg(test)]
 pub const MAX_BARS: u32 = 8;
 /// Without a followed beat a course lasts this many seconds, and a beat counts as
 /// [`UNFOLLOWED_BEAT_SECONDS`] (for the smoothing).
@@ -32,12 +39,14 @@ pub const UNFOLLOWED_SECONDS: f32 = 4.0;
 pub const UNFOLLOWED_BEAT_SECONDS: f32 = 0.5;
 /// The least of the music's part of the amount: at no intensity the effect is at this share of
 /// what it is at full intensity, so it never vanishes mid-way.
+#[cfg(test)]
 pub const LEAST: f32 = 0.35;
 /// How sharp the push on each beat is: the ease of the beat time is `1 - e^(-k x)`, scaled to end
 /// at 1; at 10, 86% of a beat's motion is in its first fifth, and it moves at most 10 times as
 /// fast as the plain beat time.
 pub const PUSH_SHARPNESS: f32 = 10.0;
 /// The push of a beat with no hit, of the push of a full hit: every beat moves a little.
+#[cfg(test)]
 pub const PUSH_LEAST: f32 = 0.3;
 /// The accent of a push rises over about this much of a beat and settles over the rest of it.
 const ACCENT_RISE: f32 = 0.05;
@@ -107,8 +116,14 @@ pub struct Phrase {
 
 impl Phrase {
     /// Take in a frame's music: a section start counts again from 0.
+    #[cfg(test)]
     pub fn tick(&mut self, music: &MusicValues) {
-        if music.cues > 0 && music.cue >= SECTION_CUE {
+        self.tick_with(&crate::bind::RuntimeBindings::embedded().moments, music);
+    }
+
+    /// The same, where `moments` say what a section start is.
+    pub fn tick_with(&mut self, moments: &MomentBinds, music: &MusicValues) {
+        if moments.section_start(music) {
             *self = Self::default();
             return;
         }
@@ -135,17 +150,29 @@ impl Phrase {
     /// section's start that is at least [`MIN_BARS`] away (counting what of the bar has gone
     /// by), and at most [`MAX_BARS`]. Without a followed beat, [`UNFOLLOWED_SECONDS`] in beats of
     /// [`UNFOLLOWED_BEAT_SECONDS`].
+    #[cfg(test)]
     pub fn beats_left(&self, music: &MusicValues) -> f32 {
-        if !followed(music) {
-            return UNFOLLOWED_SECONDS / UNFOLLOWED_BEAT_SECONDS;
-        }
-        let meter = music.meter.max(1.0);
-        let into = (self.beats as f32 + music.clock.fract()).min(meter - 0.5);
-        let mut bars = PHRASE_BARS - self.bars % PHRASE_BARS;
-        while (bars as f32) * meter - into < (MIN_BARS as f32) * meter {
-            bars += PHRASE_BARS;
-        }
-        (bars as f32 * meter - into).min(MAX_BARS as f32 * meter)
+        self.beats_left_with(&CourseBinds::default(), music)
+    }
+
+    /// The same by the `course.length` of `binds`: counted in bars where its source is, else a
+    /// time of seconds.
+    pub fn beats_left_with(&self, binds: &CourseBinds, music: &MusicValues) -> f32 {
+        let seconds = match binds.length(music) {
+            Said::Source(_) => {
+                let meter = music.meter.max(1.0);
+                let into = (self.beats as f32 + music.clock.fract()).min(meter - 0.5);
+                let phrase = binds.phrase;
+                let mut bars = phrase - self.bars % phrase;
+                while (bars as f32) * meter - into < (binds.least_bars as f32) * meter {
+                    bars += phrase;
+                }
+                return (bars as f32 * meter - into).min(binds.most_bars as f32 * meter);
+            }
+            Said::Value(seconds) => seconds,
+            Said::Fallback(..) | Said::Off => UNFOLLOWED_SECONDS,
+        };
+        seconds / binds.beat_seconds
     }
 }
 
@@ -153,6 +180,8 @@ impl Phrase {
 /// [`Course::tick`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Course {
+    /// What it reads of the music (`course.*` of `runtime.toml`).
+    binds: CourseBinds,
     /// Its length and its age, in beats (of [`UNFOLLOWED_BEAT_SECONDS`] without a followed
     /// beat).
     length: f32,
@@ -170,13 +199,21 @@ pub struct Course {
 
 impl Course {
     /// A course that starts now, in the music `music` at `phrase`.
+    #[cfg(test)]
     pub fn new(phrase: &Phrase, music: &MusicValues) -> Self {
+        Self::with(CourseBinds::default(), phrase, music)
+    }
+
+    /// The same, reading the music by `binds`.
+    pub fn with(binds: CourseBinds, phrase: &Phrase, music: &MusicValues) -> Self {
+        let phase = binds.phase(music);
         Self {
-            length: phrase.beats_left(music),
+            binds,
+            length: phrase.beats_left_with(&binds, music),
             age: 0.0,
-            level: music.intensity.clamp(0.0, 1.0),
-            beat: music.clock.max(0.0).fract(),
-            target: music.clock.max(0.0).fract(),
+            level: binds.amount(music),
+            beat: phase,
+            target: phase,
             push: 0.0,
             since_push: 1.0,
         }
@@ -188,17 +225,19 @@ impl Course {
     /// [`UNFOLLOWED_BEAT_SECONDS`] (faster if hits come faster), so that it eases as a beat does.
     /// A push is as strong as the music's `hit` then, at least [`PUSH_LEAST`].
     pub fn tick(&mut self, dt: f32, music: &MusicValues) {
-        let followed = followed(music);
+        let motion = self.binds.motion(music);
+        let followed = matches!(motion, Said::Source(_));
         let beat = if followed {
             60.0 / music.tempo
         } else {
-            UNFOLLOWED_BEAT_SECONDS
+            self.binds.beat_seconds
         };
         self.age += dt / beat;
         let follow = 1.0 - (-dt / beat).exp();
-        self.level += (music.intensity.clamp(0.0, 1.0) - self.level) * follow;
+        self.level += (self.binds.amount(music) - self.level) * follow;
         self.since_push += dt / beat;
-        let strength = PUSH_LEAST + (1.0 - PUSH_LEAST) * music.hit.clamp(0.0, 1.0);
+        let push_least = self.binds.push_least;
+        let strength = push_least + (1.0 - push_least) * music.hit.clamp(0.0, 1.0);
         if followed {
             let before = self.beat;
             self.beat += dt / beat;
@@ -208,7 +247,7 @@ impl Course {
                 self.since_push = self.beat.fract();
             }
         } else {
-            if music.hits > 0 {
+            if motion.count() > 0 {
                 self.target = self.target.floor() + 1.0;
                 self.push = strength;
                 self.since_push = 0.0;
@@ -231,7 +270,7 @@ impl Course {
     /// How much of it is on now, 0 to 1: its shape times the music's part, from [`LEAST`] at no
     /// intensity to 1 at full.
     pub fn amount(&self) -> f32 {
-        self.shape() * (LEAST + (1.0 - LEAST) * self.level)
+        self.shape() * (self.binds.least + (1.0 - self.binds.least) * self.level)
     }
 
     pub fn is_over(&self) -> bool {
@@ -519,5 +558,76 @@ mod tests {
         assert!(again.progress() < PEAK);
         assert_eq!(again.length(), 12.0);
         assert_eq!(again.motion(), course.motion());
+    }
+
+    #[test]
+    fn the_runtime_file_has_todays_numbers() {
+        let c = crate::bind::RuntimeBindings::embedded().course;
+        assert_eq!(
+            (c.phrase, c.least_bars, c.most_bars),
+            (PHRASE_BARS, MIN_BARS, MAX_BARS)
+        );
+        assert_eq!(c.length.fallback_value(), Some(UNFOLLOWED_SECONDS));
+        assert_eq!(c.beat_seconds, UNFOLLOWED_BEAT_SECONDS);
+        assert_eq!((c.least, c.push_least), (LEAST, PUSH_LEAST));
+        assert_eq!(c.amount.source().name, "intensity");
+        assert_eq!(c.motion.source().name, "beats");
+        assert_eq!(c.motion.fallback_source().map(|s| s.name), Some("hits"));
+        assert_eq!(c.phase.name, "clock");
+    }
+
+    #[test]
+    fn the_phrase_and_the_floor_follow_the_file() {
+        let m = music(1.0);
+        let embedded = crate::bind::RuntimeBindings::embedded().course;
+        assert_eq!(Phrase::default().beats_left_with(&embedded, &m), 16.0);
+        let phrase = crate::bind::tests::embedded_with("phrase = 4", "phrase = 2").course;
+        assert_eq!(Phrase::default().beats_left_with(&phrase, &m), 8.0);
+        // Without a followed beat, the fallback's seconds.
+        let unfollowed = MusicValues { locked: 0.0, ..m };
+        let seconds = crate::bind::tests::embedded_with(
+            "fallback = { value = 4.0 }",
+            "fallback = { value = 6.0 }",
+        )
+        .course;
+        assert_eq!(
+            Phrase::default().beats_left_with(&seconds, &unfollowed),
+            12.0
+        );
+        // The least of the amount.
+        let peak = |binds| {
+            Course::with(binds, &Phrase::default(), &music(0.0))
+                .at_peak()
+                .amount()
+        };
+        assert!((peak(embedded) - LEAST).abs() < 1e-4);
+        let none =
+            crate::bind::tests::embedded_with("when = { least = 0.35 }", "when = { least = 0.0 }")
+                .course;
+        assert!(peak(none).abs() < 1e-4);
+    }
+
+    #[test]
+    fn what_pushes_the_motion_without_a_beat_is_the_fallback_of_the_file() {
+        let hit = MusicValues {
+            locked: 0.0,
+            hits: 1,
+            hit: 1.0,
+            ..music(1.0)
+        };
+        let moved = |binds| {
+            let mut course = Course::with(binds, &Phrase::default(), &music(1.0));
+            course.tick(0.1, &hit);
+            course.motion()
+        };
+        let embedded = crate::bind::RuntimeBindings::embedded().course;
+        assert!(moved(embedded) > 0.0);
+        // Cues push it instead: a hit does not.
+        let custom = crate::bind::tests::embedded_with(
+            "beat_seconds = 0.5 }\nfallback = \"hits\"",
+            "beat_seconds = 0.5 }\nfallback = \"cues\"",
+        )
+        .course;
+        assert_eq!(moved(custom), 0.0);
     }
 }

@@ -36,6 +36,19 @@ pub struct Source {
     read: fn(&MusicValues) -> Reading,
 }
 
+impl std::fmt::Debug for Source {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Source({})", self.name)
+    }
+}
+
+/// Names are unique in the registry, so two sources are the same when they are called the same.
+impl PartialEq for Source {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
 impl Source {
     /// What the source says in this frame's music.
     pub fn read(&self, music: &MusicValues) -> Reading {

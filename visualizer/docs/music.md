@@ -374,6 +374,30 @@ fallback = "cues"
 
 In the scene, `input.gate`, `input.surge` and `input.light` are plain `f32`s. Editing only the `[[bind]]`s of a scene reloads them without rebuilding the pipelines; editing an `[[input]]` rebuilds the scene, as it changes the layout of `struct Inputs`.
 
+### The runtime's bindings
+
+The runtime's own decisions are bindings too: `runtime.toml` (embedded in the visualizer, read at start) declares them in the shape of a scene's `[[bind]]`, with today's behaviour as its values. The code reads its numbers and its choice of source from the file (`bind::RuntimeBindings`), through the same sources, so a name means one thing in a scene and here. A source that means nothing at the frame's level gives way to the bind's `fallback`; with none the decision is off there. `bars` and `beats` mean something only while the beat is followed. Several binds on one target are an OR. A scene lab replaces the file whole with `LabCommand::RuntimeBindings(text)`; a wrong text is refused with the bind named in `last_error`, and the old bindings stay. `Inspect.runtime_bindings` has a row per bind (the source, the level, which means gave the value).
+
+| Target | Reads | `when` |
+|---|---|---|
+| `moments.strong` | `cues`; a lift | `strength` 0.8 |
+| `moments.medium` | `cues` (a section start, the runtime's one definition of it) and `impacts` | `strength` 0.5, 0 |
+| `moments.gap` | `bars`, fallback a bar of 2 s | `every` 8 |
+| `director.cadence` | `section_energy`, fallback `drive` | `below` 0.35, `above` 0.65, `every` bars and `seconds` per tier |
+| `director.cut` | `bars`, fallback `hits` | `grace` 2 s |
+| `director.burst` | `cue_in`, on each `on = beats`, a lift of `to` minus `from` | `lift` 0.1 |
+| `switch.place` | `cues` at A and B (a section start that differs), `cues` at C (any) | `strength`, `lift`, `change`, `levels`, `any` |
+| `switch.early` | `cue_in`, to start the fade before the place | |
+| `switch.timing` | no source | `min` 30, `lead` 8, `relax` 60, `max` 90, `grace` 2 s |
+| `switch.forced` | `beats` and `hits`: what ends the wait at `max` | |
+| `course.length` | `bars`, fallback 4 s | `phrase` 4, `least` 2, `most` 8 |
+| `course.amount` | `intensity` | `least` 0.35 |
+| `course.motion` | `beats`, fallback `hits`; starts in phase with `clock` | `push_least` 0.3, `beat_seconds` 0.5 |
+
+The scene sources `moment.strong` and `moment.medium` read the embedded file's moments, not a lab's replacement.
+
+What is not a binding: the shape of the shot sequence and of the burst (four cuts, their sizes), the lab's own forced burst, the effects' curves, the transitions' durations, and the choice of which effect a moment plays (the section's label picks).
+
 ## Shots and the director
 
 A scene that has more than one way to look at its subject declares them as shots, and the runtime's camera director decides when the view cuts and to which shot, following the music. The scene frames itself from what the director says and never decides a cut of its own. A scene without `[[shot]]` has no director: it works as it always did, and `shot` reads zeros. The director is per scene, so its counts start again at a scene switch (`src/scene/director.rs`). The numbers below are initial defaults, like the other constants of this document.

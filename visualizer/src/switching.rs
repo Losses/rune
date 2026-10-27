@@ -4,32 +4,45 @@
 //! beats that lands on that place. The decision is a pure function of the clock and the music's
 //! values ([`MusicValues`], see `docs/music.md`), so it can be tested without a scene.
 
+use std::sync::Arc;
+
+use crate::bind::SwitchBinds;
 use crate::moments::{self, Chances};
 use crate::scene::MusicValues;
 use crate::transition::{
     CUTIN_BAND_SECONDS, CUTIN_MIN_HOLD_SECONDS, CutInStyle, Durations, Transition,
 };
 
+// The times and strengths below are the defaults of `switch.*` in `runtime.toml`, which the switch
+// reads (a test pins that they agree); a scene lab can replace them live.
 /// The least time on a scene before the next automatic switch, in seconds of the visualizer's
 /// clock (which stands still while paused).
+#[cfg(test)]
 pub const MIN_SECONDS: f64 = 30.0;
 /// How long before [`MIN_SECONDS`] the next scene starts building, so that it is ready when the
 /// first place to switch comes (a build can take seconds on some drivers).
+#[cfg(test)]
 pub const PREPARE_LEAD_SECONDS: f64 = 8.0;
 /// After this long on a scene any section start is a place to switch, also one that repeats the
 /// section before, and so is a cue that is not a section start.
+#[cfg(test)]
 pub const RELAX_SECONDS: f64 = 60.0;
 /// After this long on a scene the switch happens at the next beat or hit, whatever the music does.
+#[cfg(test)]
 pub const MAX_SECONDS: f64 = 90.0;
 /// How long past [`MAX_SECONDS`] the switch waits for a beat or a hit before it happens at once.
+#[cfg(test)]
 pub const MAX_GRACE_SECONDS: f64 = 2.0;
 /// The change of a section's energy that makes it a different section for the switch, and that
 /// makes a lift or a drop (the cue's own rule for a lift is the same, `scene::signals::CUE_LIFT`).
+#[cfg(test)]
 pub const ENERGY_CHANGE: f32 = 0.1;
 /// The strength of a cue from which it is a section start (a cue of 0.3 or 0.2 comes from the
 /// fallbacks of `cues`).
+#[cfg(test)]
 pub const SECTION_CUE: f32 = 0.5;
 /// The strength of a cue that is a section start with an energy lift.
+#[cfg(test)]
 pub const LIFT_CUE: f32 = 0.8;
 /// `locked` above this means the beat is followed, so that the tempo can be used for durations.
 pub const FOLLOWED: f32 = 0.5;
@@ -116,17 +129,17 @@ impl Section {
 
     /// Whether the music changes going from `from` to this section. Without a section before
     /// (nothing seen yet) it does.
-    fn differs_from(self, from: Option<Section>) -> bool {
+    fn differs_from(self, from: Option<Section>, change: f32) -> bool {
         from.is_none_or(|from| {
-            from.label != self.label || (from.energy - self.energy).abs() >= ENERGY_CHANGE
+            from.label != self.label || (from.energy - self.energy).abs() >= change
         })
     }
 
     /// The change going from `from` to this section.
-    fn change_from(self, from: Option<Section>) -> Change {
+    fn change_from(self, from: Option<Section>, change: f32) -> Change {
         match from {
-            Some(from) if self.energy - from.energy >= ENERGY_CHANGE => Change::Lift,
-            Some(from) if from.energy - self.energy >= ENERGY_CHANGE => Change::Drop,
+            Some(from) if self.energy - from.energy >= change => Change::Lift,
+            Some(from) if from.energy - self.energy >= change => Change::Drop,
             _ => Change::Plain,
         }
     }
@@ -136,6 +149,8 @@ impl Section {
 /// render loop; it remembers the sections it saw across switches, since the music goes on.
 #[derive(Default)]
 pub struct SceneSwitch {
+    /// Where a switch lands and how long it waits (`switch.*` of `runtime.toml`).
+    binds: Arc<SwitchBinds>,
     /// When the scene on screen was shown, on the render loop's clock; set by the first frame
     /// after a [`Self::restart`].
     since: Option<f64>,
@@ -214,6 +229,14 @@ impl Allowed {
 }
 
 impl SceneSwitch {
+    /// Decide by these binds from now on, if they are not the ones already used (a scene lab
+    /// replaced `runtime.toml`).
+    pub fn use_binds(&mut self, binds: &Arc<SwitchBinds>) {
+        if !Arc::ptr_eq(&self.binds, binds) {
+            self.binds = binds.clone();
+        }
+    }
+
     /// The scene changed (any load, manual or automatic): count again from the next frame.
     pub fn restart(&mut self) {
         self.since = None;
@@ -264,7 +287,7 @@ impl SceneSwitch {
         }
         let since = *self.since.get_or_insert(now);
         let elapsed = now - since;
-        if elapsed < MIN_SECONDS - PREPARE_LEAD_SECONDS {
+        if elapsed < self.binds.min - self.binds.lead {
             return Decision::Wait;
         }
         if !self.prepare_started {
@@ -283,7 +306,8 @@ impl SceneSwitch {
                     .map(|change| (change, music.next_label, music.section + 1.0))
             })
             .or_else(|| {
-                forced(music, elapsed).map(|change| (change, music.section_label, music.section))
+                self.forced(music, elapsed)
+                    .map(|change| (change, music.section_label, music.section))
             });
         match change {
             Some((change, label, section)) => {
@@ -297,6 +321,14 @@ impl SceneSwitch {
             }
             None => Decision::Wait,
         }
+    }
+
+    /// The switch that happens at the next event of `switch.forced` (a beat or a hit) once the
+    /// scene had its `max` seconds, or at once when none comes within `grace` seconds more.
+    fn forced(&self, music: &MusicValues, elapsed: f64) -> Option<Change> {
+        let binds = &self.binds;
+        let moment = binds.forced(music) || elapsed >= binds.max + binds.grace;
+        (elapsed >= binds.max && moment).then_some(Change::Plain)
     }
 
     /// Remember the sections: when the music's section is another one than the last frame's, it
@@ -324,53 +356,48 @@ impl SceneSwitch {
 
     /// Whether this frame is a cue that is a place to switch, and what kind of change it is.
     fn at_cue(&self, music: &MusicValues, elapsed: f64) -> Option<Change> {
-        if music.cues == 0 || elapsed < MIN_SECONDS {
+        if elapsed < self.binds.min {
             return None;
         }
-        if music.has_chart == 0 {
+        let heard = self.binds.heard(music)?;
+        if heard.any {
             // No analysis: the fallback cues are all there is.
             return Some(Change::Plain);
         }
-        if music.cue < SECTION_CUE {
+        if heard.strength < heard.section_at {
             // The 8 bars of a followed beat and the 16 s without a beat.
-            return (elapsed >= RELAX_SECONDS).then_some(Change::Plain);
+            return (elapsed >= self.binds.relax).then_some(Change::Plain);
         }
         let section = Section::of(music);
-        if !section.differs_from(self.before) && elapsed < RELAX_SECONDS {
+        let change = self.binds.change();
+        if !section.differs_from(self.before, change) && elapsed < self.binds.relax {
             return None;
         }
-        Some(if music.cue >= LIFT_CUE {
+        Some(if heard.strength >= heard.lift_at {
             Change::Lift
         } else {
-            section.change_from(self.before)
+            section.change_from(self.before, change)
         })
     }
 
     /// Whether the next section start is known, is a place to switch, and is so near that a
     /// fade must start now to land on it. A dissolve starts at the cue, so it is not early.
     fn coming(&self, music: &MusicValues, elapsed: f64) -> Option<Change> {
-        if music.has_chart == 0 || music.cue_in < 0.0 {
-            return None;
-        }
+        let cue_in = self.binds.early(music)?;
         let current = Section::of(music);
         let next = Section::next_of(music);
-        let change = next.change_from(Some(current));
+        let changes = self.binds.change();
+        let change = next.change_from(Some(current), changes);
         if change == Change::Drop {
             return None;
         }
-        let at = elapsed + f64::from(music.cue_in);
-        let place = at >= MIN_SECONDS && (next.differs_from(Some(current)) || at >= RELAX_SECONDS);
+        let at = elapsed + f64::from(cue_in);
+        let place = at >= self.binds.min
+            && (next.differs_from(Some(current), changes) || at >= self.binds.relax);
         let plays = self.plays(change, music.section + 1.0);
         let (_, durations) = choose(change, music.next_label, music, self.allowed, plays);
-        (place && f64::from(music.cue_in) <= durations.out).then_some(change)
+        (place && f64::from(cue_in) <= durations.out).then_some(change)
     }
-}
-
-/// The switch that happens at the next beat or hit once the scene had its [`MAX_SECONDS`], or at
-/// once when none comes within [`MAX_GRACE_SECONDS`].
-fn forced(music: &MusicValues, elapsed: f64) -> Option<Change> {
-    let moment = music.beats > 0 || music.hits > 0 || elapsed >= MAX_SECONDS + MAX_GRACE_SECONDS;
-    (elapsed >= MAX_SECONDS && moment).then_some(Change::Plain)
 }
 
 /// How long a beat is, if the beat is followed.
@@ -1346,5 +1373,74 @@ mod tests {
         assert_eq!(durations.out, CUTIN_BAND_SECONDS + 0.5);
         assert_eq!(durations.into, CUTIN_TEAR_SECONDS);
         assert!(!durations.is_instant(kind));
+    }
+
+    #[test]
+    fn the_runtime_file_has_todays_numbers() {
+        let runtime = crate::bind::RuntimeBindings::embedded();
+        let s = &runtime.switching;
+        assert_eq!(
+            (s.min, s.lead, s.relax, s.max, s.grace),
+            (
+                MIN_SECONDS,
+                PREPARE_LEAD_SECONDS,
+                RELAX_SECONDS,
+                MAX_SECONDS,
+                MAX_GRACE_SECONDS
+            )
+        );
+        assert_eq!(s.change(), ENERGY_CHANGE);
+        assert_eq!(s.places[0].strength, SECTION_CUE);
+        assert_eq!(s.places[0].lift, LIFT_CUE);
+        assert!(!s.places[0].any && s.places[1].any);
+        assert_eq!(s.early.source().name, "cue_in");
+        let forced: Vec<&str> = s.forced.iter().map(|p| p.source().name).collect();
+        assert_eq!(forced, ["beats", "hits"]);
+    }
+
+    #[test]
+    fn the_wait_follows_the_times_of_the_file() {
+        let change = start(song(0.0, 0.5), 2.0, 2.0, 0.5, 0.5);
+        // A new section at 12 s: too early by the minimum of 30 s.
+        let mut switch = seasoned();
+        assert_eq!(switch.tick(12.0, &change, false, true), Decision::Wait);
+        let custom = crate::bind::tests::embedded_with("min = 30.0", "min = 10.0");
+        let mut switch = seasoned();
+        switch.use_binds(&custom.switching);
+        assert_eq!(switch.tick(12.0, &change, false, true), fade(0.5));
+    }
+
+    #[test]
+    fn what_is_a_section_start_follows_the_file() {
+        // A cue of 0.5 with a new label switches by the file; as a weaker cue it waits.
+        let cue = start(song(0.0, 0.5), 2.0, 2.0, 0.5, 0.5);
+        let mut switch = seasoned();
+        assert_eq!(switch.tick(40.0, &cue, false, true), fade(0.5));
+        let custom = crate::bind::tests::embedded_with(
+            "when = { levels = \"AB\", strength = 0.5, lift = 0.8, change = 0.1 }",
+            "when = { levels = \"AB\", strength = 0.9, lift = 0.95, change = 0.1 }",
+        );
+        let mut switch = seasoned();
+        switch.use_binds(&custom.switching);
+        assert_eq!(switch.tick(40.0, &cue, false, true), Decision::Wait);
+        assert_eq!(switch.tick(RELAX_SECONDS, &cue, false, true), fade(0.5));
+    }
+
+    #[test]
+    fn what_ends_the_longest_wait_follows_the_file() {
+        // Only the hits end it: a beat that is not a hit does not.
+        let custom = crate::bind::tests::embedded_with(
+            "[[bind]]\ntarget = \"switch.forced\"\nsource = \"beats\"\nhow = \"trigger\"\n",
+            "",
+        );
+        let beat = MusicValues {
+            beats: 1,
+            ..song(1.0, 0.5)
+        };
+        let mut switch = seasoned();
+        switch.use_binds(&custom.switching);
+        assert_eq!(switch.tick(MAX_SECONDS, &beat, false, true), Decision::Wait);
+        let hit = MusicValues { hits: 1, ..beat };
+        assert_eq!(switch.tick(MAX_SECONDS, &hit, false, true), fade(0.5));
     }
 }

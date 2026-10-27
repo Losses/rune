@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
 use rtrb::{Producer, RingBuffer};
-use visualizer::{Frame, Location, PcmInput, Visualizer};
+use visualizer::{Frame, LabCommand, Location, PcmInput, RUNTIME_TOML, Visualizer};
 
 const SAMPLE_RATE: u32 = 48_000;
 
@@ -450,5 +450,68 @@ fn every_builtin_scene_renders() {
         check_frames(&frames[20..], 320, 180);
         println!("{}: {fps:.1} fps", scene.name);
     }
+    visualizer.stop();
+}
+
+/// The source the runtime's `director.cadence` reads, as the last frame saw it.
+fn cadence_source(visualizer: &Visualizer, feeder: &mut Feeder) -> String {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        feeder.pump();
+        if let Some(inspect) = visualizer.inspect()
+            && let Some(row) = inspect
+                .runtime_bindings
+                .iter()
+                .find(|row| row.target == "director.cadence")
+        {
+            return row.source.clone();
+        }
+        assert!(Instant::now() < deadline, "no runtime bindings inspected");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn the_runtime_bindings_are_replaced_whole_and_a_wrong_text_keeps_the_old() {
+    let Some((visualizer, mut feeder)) = start(320, 180) else {
+        return;
+    };
+    visualizer.set_inspecting(true);
+    assert_eq!(cadence_source(&visualizer, &mut feeder), "section_energy");
+
+    // A good text replaces them from the next frame.
+    let drive = RUNTIME_TOML.replacen(
+        "source = \"section_energy\"\nhow = \"follow\"",
+        "source = \"drive\"\nhow = \"follow\"",
+        1,
+    );
+    assert_ne!(drive, RUNTIME_TOML);
+    visualizer
+        .lab(LabCommand::RuntimeBindings(drive.clone()))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while cadence_source(&visualizer, &mut feeder) != "drive" {
+        assert!(Instant::now() < deadline, "the bindings were not replaced");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(visualizer.status().last_error, None);
+
+    // A wrong one is refused, naming the bind, and the old stay.
+    let wrong = drive.replacen("source = \"drive\"", "source = \"loudness\"", 1);
+    visualizer.lab(LabCommand::RuntimeBindings(wrong)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let error = loop {
+        feeder.pump();
+        if let Some(error) = visualizer.status().last_error {
+            break error;
+        }
+        assert!(Instant::now() < deadline, "no error reported");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert!(
+        error.contains("director.cadence") && error.contains("loudness"),
+        "{error}"
+    );
+    assert_eq!(cadence_source(&visualizer, &mut feeder), "drive");
     visualizer.stop();
 }

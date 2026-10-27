@@ -32,6 +32,10 @@ pub struct Inspect {
     pub overrides: LabOverrides,
     /// The bindings of the scene on screen: what drives each of its inputs now.
     pub bindings: Vec<InspectBinding>,
+    /// The runtime's own bindings (`runtime.toml`) as of the last frame: for each, the target
+    /// (a decision), the source, the level and which means gave the value (a decision that is off
+    /// at the level shows as `Used::Rest`), the source's value and the value the decision read.
+    pub runtime_bindings: Vec<InspectBinding>,
     /// The chance in percent a lab set for every moment to get an effect, or none for the user's
     /// setting (see [`LabCommand::EffectChance`]).
     pub chance: Option<u8>,
@@ -311,7 +315,7 @@ pub struct LabOverrides {
 
 /// What the render thread is told to do now, for a scene lab (see
 /// [`crate::Visualizer::lab`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LabCommand {
     /// The camera director cuts now, by its rules for the size, as if a cut were due.
@@ -360,6 +364,12 @@ pub enum LabCommand {
     /// quarter second without a followed beat) to medium, close, detail and top, each with its
     /// punch, as the burst before a lift does.
     Burst,
+    /// Replace the runtime's decisions (`runtime.toml`: when effects play, when the camera cuts,
+    /// when scenes switch, what the effects' course follows) with the bindings of this text, the
+    /// whole file, for every scene from the next frame on. The text is read in full first: if it
+    /// is wrong the old bindings stay and the error, which names the bind, is in
+    /// [`crate::Status::last_error`].
+    RuntimeBindings(String),
 }
 
 /// The name of a shot size, from the number `struct Shot` has.
