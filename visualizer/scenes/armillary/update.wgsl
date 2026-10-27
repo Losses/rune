@@ -8,8 +8,8 @@
 // each the other way from the one before. Nothing steps with the beat. The gem at the heart rolls a
 // whole turn each phrase. On the beats, the rings or (taking turns) a batch of shapes light and
 // fade. The ecliptic precesses steadily. The core breathes with the music. The camera cuts
-// where the runtime's director says, to the shot it picks. Then the shapes are placed, projected
-// and sorted into the screen's tiles.
+// where the runtime's director says, to the shot it picks. Then the shapes are placed and
+// projected, and the ones on the screen listed.
 
 // ---- Colour ----
 // Every colour in the picture comes from one: the theme colour, the player's own (which follows
@@ -54,8 +54,7 @@ fn theme() -> vec2f {
 // two shades (its hue turned a little either way); 5 deep space; 6, 7 the stars' two tints;
 // 8 bronze; 9 the faint light of the stars; 10, 11 what space mirrors (deep, and towards the
 // nebula); 12 glass; 13 the little star core's edge, fuller.
-fn set_palette() {
-  let th = theme();
+fn set_palette(th: vec2f) {
   let h = th.x;
   let c = th.y;
   state.palette[0] = tint(0.92, c * 0.45, h);
@@ -661,7 +660,7 @@ fn set_free(t: f32) {
 // unevenly round a band about the batch's axis (facing the camera as the batch lit, tipped a
 // little), so together they ring the sphere round as it is seen, none in front of it; each
 // facing the middle more or less, turning slowly where it is.
-fn place(i: u32) {
+fn place(i: u32, th: vec2f) {
   let batch = i % BATCHES;
   let place_in = i / BATCHES;
   let look = state.batch_look[batch];
@@ -688,49 +687,37 @@ fn place(i: u32) {
   state.shape_n[i] = vec4f(n, sides);
   state.shape_u[i] = vec4f(turn(u0, n, angle), 0.0);
   // The lines' colour, a little lighter or darker, its hue turned up to ten degrees either way.
-  let th = theme();
   state.shape_tint[i] = tint(0.92 + 0.05 * (hash(id + 3.1) - 0.5), th.y * 0.5, th.x + (hash(id + 3.2) - 0.5) * 0.35);
 }
 
-// Where shape i is on the screen, how far it reaches, and which tiles list it.
-fn project(i: u32) {
+// Where shape i is on the screen and how far it reaches (kept for the pixels), and, if it is to
+// be drawn, the entry for the list of drawn shapes: its centre and reach on the screen and its
+// number; else a reach below zero.
+fn project(i: u32) -> vec4f {
+  let none = vec4f(0.0, 0.0, -1.0, 0.0);
   let p = state.shape_pos[i];
   if (p.w <= 0.0) {
     state.shape_scr[i] = vec4f(0.0, 0.0, -1.0, -1.0);
-    return;
+    return none;
   }
   let v = p.xyz - state.cam_pos;
   let zc = dot(v, state.cam_fwd);
   // (Not one right by the lens: it would be a blur across the picture.)
   if (zc < 3.0) {
     state.shape_scr[i] = vec4f(0.0, 0.0, -1.0, -1.0);
-    return;
+    return none;
   }
   let aspect = frame.aspect;
   let c = state.focal * vec2f(dot(v, state.cam_right), dot(v, state.cam_up)) / zc;
-  // As far as its corners, and a few pixels for its line and glow.
-  let rad = state.focal * p.w * 1.05 / zc + 5.0 / frame.resolution.y;
+  // As far as its corners, and enough pixels for its line and the tail of its glow to die away
+  // (the square a pixel is tested against has no soft edge, as the tiles' edges did not need).
+  let rad = state.focal * p.w * 1.05 / zc + 10.0 / frame.resolution.y;
   state.shape_scr[i] = vec4f(c, rad, zc);
-  // (Unlit, it is not there: no tile lists it.)
-  if (abs(c.x) - rad > aspect * 0.5 || abs(c.y) - rad > 0.5 || state.shape_look[i].y < 0.02) {
-    return;
+  // (Off the screen it is not drawn.)
+  if (abs(c.x) - rad > aspect * 0.5 || abs(c.y) - rad > 0.5) {
+    return none;
   }
-  let lo = screen_uv(c + vec2f(-rad, rad), aspect);
-  let hi = screen_uv(c + vec2f(rad, -rad), aspect);
-  let x0 = u32(clamp(floor(lo.x * f32(TX)), 0.0, f32(TX - 1u)));
-  let x1 = u32(clamp(floor(hi.x * f32(TX)), 0.0, f32(TX - 1u)));
-  let y0 = u32(clamp(floor(lo.y * f32(TY)), 0.0, f32(TY - 1u)));
-  let y1 = u32(clamp(floor(hi.y * f32(TY)), 0.0, f32(TY - 1u)));
-  for (var ty = y0; ty <= y1; ty++) {
-    for (var tx = x0; tx <= x1; tx++) {
-      let k = ty * TX + tx;
-      let n = state.tile_n[k];
-      if (n < LIST) {
-        state.tile[k * LIST + n] = i;
-        state.tile_n[k] = n + 1u;
-      }
-    }
-  }
+  return vec4f(c, rad, f32(i));
 }
 
 fn update() {
@@ -851,9 +838,6 @@ fn update() {
     let to = f32(f32(i) == state.spec_ring);
     state.ring_spec[i].x += (to - state.ring_spec[i].x) * (1.0 - exp(-dt / 0.6));
   }
-  for (var i = 0u; i < SHAPES; i++) {
-    state.shape_look[i].y *= fade;
-  }
 
   // The core: as big as the music is loud (with the bass), springing out on each kick and back.
   let big = 1.0 + 0.35 * music.intensity + 0.12 * clamp(music.band_low - 1.0, 0.0, 1.5);
@@ -943,20 +927,29 @@ fn update() {
   } else {
     set_rings(t);
   }
-  set_palette();
+  // (The theme is worked out once, for the palette and for every shape's colour.)
+  let th = theme();
+  set_palette(th);
   // (Only the gem has facets: a single thread setting them every frame costs the phone dearly.)
   if (params.core_look == 3u || params.core_look == 4u) {
     set_gem(t);
   }
-  for (var k = 0u; k < TILES; k++) {
-    state.tile_n[k] = 0u;
-  }
-  // (An unlit shape is in no tile, so nothing draws it: it is placed again when it lights.)
+  // The shapes fade with the beat; one that is not lit is not there (it is placed again when it
+  // lights), so it is passed by. The rest are placed and projected, and listed if they are to be
+  // drawn, in the order of their numbers: one write each, however big they are on the screen.
+  var hits = 0u;
   for (var i = 0u; i < SHAPES; i++) {
-    if (state.shape_look[i].y < 0.02) {
+    let lit = state.shape_look[i].y * fade;
+    state.shape_look[i].y = lit;
+    if (lit < 0.02) {
       continue;
     }
-    place(i);
-    project(i);
+    place(i, th);
+    let at = project(i);
+    if (at.z >= 0.0) {
+      state.hit[hits] = at;
+      hits++;
+    }
   }
+  state.hit_n = hits;
 }

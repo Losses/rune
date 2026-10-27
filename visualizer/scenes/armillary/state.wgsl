@@ -2,8 +2,8 @@
 // rings, each moved as a body hung in its place is (pushed, swinging out and back or going round
 // a whole turn, slowed by friction, nudged a moment later by another's push); the core of light, breathing with the music; the
 // shot; and the shapes, big polygons drawn in fine lines that appear round it a batch at a time
-// as accents light them, projected and sorted into screen tiles so a pixel looks only at
-// the few that could touch it.
+// as accents light them, projected and listed (those on the screen) so a pixel can skip at a
+// glance the ones that cannot touch it.
 
 const RINGS: u32 = 5u;
 const SHAPES: u32 = 96u;
@@ -12,11 +12,6 @@ const BATCHES: u32 = 4u;
 const IN_BATCH: u32 = 24u;
 // The cut gem's facets (core look 3).
 const FACETS: u32 = 92u;
-// The screen's tiles, and how many shapes a tile lists at most.
-const TX: u32 = 32u;
-const TY: u32 = 18u;
-const TILES: u32 = 576u;
-const LIST: u32 = 24u;
 
 struct State {
   // The kick (1 on it, falling away).
@@ -107,8 +102,13 @@ struct State {
   palette: array<vec4f, 16>,
   ring_tint: array<vec4f, 5>,
   shape_tint: array<vec4f, 96>,
-  tile_n: array<u32, 576>,
-  tile: array<u32, 13824>,
+  // The shapes that are drawn this frame, in a short list: how many, and for each its centre on
+  // the screen, how far it reaches and which shape it is (as a number, in w). The list is made
+  // with one write a shape, whatever size a shape is on the screen; sorting them into screen tiles
+  // took a write for every tile a big shape covers, and that single thread was the frame's
+  // slowest part, uneven as it was with how many shapes were lit.
+  hit_n: u32,
+  hit: array<vec4f, 96>,
 }
 
 fn hash(p: vec2f) -> f32 {

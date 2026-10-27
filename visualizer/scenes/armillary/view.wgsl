@@ -1,6 +1,6 @@
 // The sphere in space as the camera sees it: the rings front to back, each over what is behind
 // it, then the core or space behind them all; the core's glow and rays,
-// the rings' haze, and the shapes of this pixel's tile laid over.
+// the rings' haze, and the shapes that reach this pixel laid over.
 
 struct Hit {
   t: f32,
@@ -656,10 +656,6 @@ fn shade(px: Pixel) -> vec4f {
   let o = state.cam_pos;
   let d = view_ray(px.p);
   let pixel = 1.0 / (state.focal * px.size.y);
-  let tx = min(u32(px.uv.x * f32(TX)), TX - 1u);
-  let ty = min(u32(px.uv.y * f32(TY)), TY - 1u);
-  let tile = ty * TX + tx;
-  let count = state.tile_n[tile];
 
   // As lines or marks, the rings are not met as solids at all.
   let lines = params.look >= 2u;
@@ -729,12 +725,16 @@ fn shade(px: Pixel) -> vec4f {
   // accent has it lit, fading away; found where the ray meets its plane. Dimmer behind a solid
   // ring, hidden behind a solid core.
   let depth = best.t * dot(d, state.cam_fwd);
-  for (var j = 0u; j < count; j++) {
-    let i = state.tile[tile * LIST + j];
-    let sc = state.shape_scr[i];
-    if (sc.w < 0.0) {
+  // (Of the list of the shapes that are drawn, each passed at a glance unless this pixel is in the
+  // square it reaches.)
+  for (var j = 0u; j < state.hit_n; j++) {
+    let h = state.hit[j];
+    let apart = abs(px.p - h.xy);
+    if (max(apart.x, apart.y) > h.z) {
       continue;
     }
+    let i = u32(h.w);
+    let sc = state.shape_scr[i];
     var through = 1.0;
     if (sc.w > depth) {
       if (best.kind < 3.5) {
