@@ -106,22 +106,23 @@ fn theme_exposure(m: f32) -> f32 {
   return 0.0;
 }
 
-// Pick the theme to change to, by the section's label, so the same kind of section has the same
-// colours (for concrete, the same light).
-fn choose_theme(label: f32) {
+// Pick the theme to change to, by the section's label (the declared `theme_pick` and `tone_pick`
+// inputs, -1 without a chart), so the same kind of section has the same colours (for concrete,
+// the same light).
+fn choose_theme(by_section: bool) {
   var m: f32;
   if (params.style == 1u) {
     if (params.light > 0u) {
       m = 4.0 + f32(params.light);
-    } else if (label >= 0.0) {
-      m = 5.0 + floor(fract(label * 0.381966 + 0.13) * 3.0);
+    } else if (by_section && input.tone_pick >= 0.0) {
+      m = 5.0 + input.tone_pick;
     } else {
       m = 5.0 + f32((u32(max(state.theme_to - 5.0, 0.0)) + 1u + u32(random(14u) * 2.0)) % 3u);
     }
   } else if (params.theme > 0u) {
     m = f32(params.theme - 1u);
-  } else if (label >= 0.0) {
-    m = floor(fract(label * 0.381966 + 0.13) * 5.0);
+  } else if (by_section && input.theme_pick >= 0.0) {
+    m = input.theme_pick;
   } else {
     m = f32((u32(state.theme_to) + 1u + u32(random(14u) * 4.0)) % 5u);
   }
@@ -139,7 +140,7 @@ fn update() {
     state.per_beat = params.grow;
     state.azimuth = random(4u) * 6.283;
     choose_view();
-    choose_theme(-1.0);
+    choose_theme(false);
     state.theme_from = state.theme_next;
     state.theme_to = state.theme_next;
     state.theme_mix = 1.0;
@@ -153,24 +154,24 @@ fn update() {
   }
 
   // Without a beat the hits of the music stand in for it.
-  let beat = music.hits > 0u;
-  let onsets = music.hits - music.beats;
+  let beat = input.beat > 0.5;
+  let onset = input.beat > 0.5 && input.tick < 0.5;
 
   // The kick: every hit, and between them the kicks of the music, while the beat is followed.
-  let kin = max(f32(beat), params.hits * music.low * music.locked);
+  let kin = max(f32(beat), params.hits * input.kick * input.locked);
   state.kick = max(state.kick * exp(-dt / params.kick_decay), kin);
 
-  // How much it grows on a beat: by how fast the music is. music.tempo over 90 bpm is the pace,
-  // so `grow` is the growth at 90 bpm; the louder the section (music.drive), the more.
-  let pace = clamp(music.tempo / 90.0, 0.25, 3.0);
-  state.per_beat = params.grow * pace * (0.7 + 0.6 * music.drive);
+  // How much it grows on a beat: by how fast the music is. input.tempo over 90 bpm is the pace,
+  // so `grow` is the growth at 90 bpm; the louder the section (input.drive), the more.
+  let pace = clamp(input.tempo / 90.0, 0.25, 3.0);
+  state.per_beat = params.grow * pace * (0.7 + 0.6 * input.drive);
 
   // On every beat the tip shoots up, on a bar's first beat further, and every plate it reaches
   // appears on that beat. Without a beat it grows the same way on the hits, at most twice a
   // second at the usual pace.
-  let tick = music.beats > 0u || (onsets > 0u && state.since_beat > 0.5 / pace);
+  let tick = input.tick > 0.5 || (onset && state.since_beat > 0.5 / pace);
   if (tick) {
-    let boost = select(1.0, params.bar_boost, music.beats > 0u && music.bars > 0u);
+    let boost = select(1.0, params.bar_boost, input.tick > 0.5 && input.bar_line > 0.5);
     let step = max(round(state.per_beat * boost), 1.0) * CELL.y;
     state.top_prev = state.top_to;
     state.top_to += step;
@@ -180,23 +181,15 @@ fn update() {
   state.top += (state.top_to - state.top) * (1.0 - exp(-dt / max(params.snap, 0.01)));
 
   // Accents: a cue that lifts the energy (strength 1), or a hard hit in the middle of a section
-  // (the runtime keeps those at least 6 s apart).
-  var accent = 0.0;
-  if (music.cues > 0u && music.cue >= 0.95) {
-    accent = 1.0;
-  }
-  if (music.impacts > 0u) {
-    accent = max(accent, 0.75 * music.impact);
-  }
-  if (accent > 0.0) {
-    state.flash = max(state.flash, accent);
-  }
-  state.flash *= exp(-dt / 0.35);
+  // (the runtime keeps those at least 6 s apart). The flash is declared: `flash_lift` and
+  // `flash_hit` are the envelopes of the two, falling over 0.35 s.
+  let accent = input.lift > 0.5 || input.impact > 0.0;
+  state.flash = max(input.flash_lift, 0.75 * input.flash_hit);
   // A glitch on an accent, and on the first beat of every few bars.
   let every = max(u32(params.glitch_bars), 1u);
   // Concrete keeps the beat in the growth alone: no glitch, no flash of the whole picture.
   let concrete = params.style == 1u;
-  if (!concrete && (accent > 0.0 || (music.beats > 0u && music.bars > 0u && params.glitch_bars > 0.5 && u32(floor(music.bar)) % every == 0u))) {
+  if (!concrete && (accent || (input.tick > 0.5 && input.bar_line > 0.5 && params.glitch_bars > 0.5 && u32(floor(input.bar)) % every == 0u))) {
     state.glitch = params.glitch;
   }
   state.glitch *= exp(-dt / 0.06);
@@ -208,16 +201,16 @@ fn update() {
   if (shot.cuts != state.cuts) {
     choose_view();
   }
-  if (music.cues > 0u && music.cue >= params.theme_cue) {
-    if (music.cue >= 0.5 && t - state.last_theme > 2.0) {
-      choose_theme(music.section_label);
-    } else if (music.cue < 0.5 && t - state.last_theme > 16.0) {
-      choose_theme(-1.0);
+  if (input.cue > 0.0) {
+    if (input.cue >= 0.5 && t - state.last_theme > 2.0) {
+      choose_theme(true);
+    } else if (input.cue < 0.5 && t - state.last_theme > 16.0) {
+      choose_theme(false);
     }
   }
   // A change of style changes the theme at once.
   if (concrete != (state.theme_next > 4.5)) {
-    choose_theme(-1.0);
+    choose_theme(false);
   }
   if (state.theme_mix >= 1.0 && state.theme_next != state.theme_to) {
     state.theme_from = state.theme_to;
@@ -248,7 +241,7 @@ fn update() {
   state.roll = state.tilt + 0.01 * sin(t * 0.3);
   state.lens = 1.0 - params.zoom * state.kick;
 
-  post.bloom_intensity = params.glow * (0.6 + 0.6 * music.drive) + params.glow_beat * state.kick + 1.2 * state.flash * params.flash;
+  post.bloom_intensity = params.glow * (0.6 + 0.6 * input.drive) + params.glow_beat * state.kick + 1.2 * state.flash * params.flash;
   let dim = mix(theme_exposure(state.theme_from), theme_exposure(state.theme_to), smoothstep(0.0, 1.0, state.theme_mix));
   post.exposure = params.exposure + dim + 0.2 * params.pump * state.kick + 0.9 * state.flash * params.flash;
   if (concrete) {
