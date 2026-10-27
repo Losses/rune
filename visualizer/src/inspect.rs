@@ -5,7 +5,7 @@
 
 use crate::scene::{DirectorView, Effects, MusicValues};
 use crate::switching::FOLLOWED;
-use crate::transition::Transition;
+use crate::transition::{CutInStyle, Transition};
 
 /// What the render thread saw in its last frame.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -145,6 +145,8 @@ pub enum LabTransition {
     Cut,
     Fade,
     Dissolve,
+    /// The band with the cover, in this style.
+    CutIn(CutInStyle),
 }
 
 impl From<Transition> for LabTransition {
@@ -153,6 +155,7 @@ impl From<Transition> for LabTransition {
             Transition::Cut => Self::Cut,
             Transition::Fade => Self::Fade,
             Transition::Dissolve => Self::Dissolve,
+            Transition::CutIn(style) => Self::CutIn(style),
         }
     }
 }
@@ -163,6 +166,7 @@ impl From<LabTransition> for Transition {
             LabTransition::Cut => Self::Cut,
             LabTransition::Fade => Self::Fade,
             LabTransition::Dissolve => Self::Dissolve,
+            LabTransition::CutIn(style) => Self::CutIn(style),
         }
     }
 }

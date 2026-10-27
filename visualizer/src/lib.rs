@@ -67,6 +67,7 @@ use scene::Scene;
 #[cfg(target_os = "linux")]
 pub use shared_vulkan::SharedFrame;
 use switching::{Decision, SceneSwitch};
+pub use transition::CutInStyle;
 use transition::{Durations, Transition};
 #[cfg(target_os = "android")]
 pub use window::Window;
