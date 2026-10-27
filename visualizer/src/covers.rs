@@ -13,6 +13,9 @@ pub const CELL: u32 = 128;
 pub const SIZE: u32 = GRID * CELL;
 /// Cells of the atlas: the track playing, then the random covers.
 pub const MAX_COVERS: usize = (GRID * GRID) as usize;
+/// The side of the sharp copy of the cover playing, for the band of a cut-in, which shows a
+/// close crop of it across the whole screen: 4 MiB, once.
+pub const SHARP: u32 = 1024;
 
 /// A finished atlas: RGBA8 (sRGB) pixels of `SIZE` by `SIZE`, row-major from the top left.
 #[derive(Debug, PartialEq)]
@@ -29,6 +32,9 @@ pub struct Atlas {
 pub struct Cell {
     /// RGBA8 (sRGB) pixels of `CELL` by `CELL`; all clear if there is no cover.
     pub rgba: Vec<u8>,
+    /// The same square, `SHARP` by `SHARP`, for the band of a cut-in, which a cell would blur;
+    /// empty if there is no cover. It is made where the cell is, off the render thread.
+    pub sharp: Vec<u8>,
     pub has_cover: bool,
 }
 
@@ -38,10 +44,12 @@ impl Cell {
         match image {
             Some(image) => Self {
                 rgba: fit_cell(image).into_raw(),
+                sharp: fit_square(image, SHARP, FilterType::CatmullRom).into_raw(),
                 has_cover: true,
             },
             None => Self {
                 rgba: vec![0; (CELL * CELL * 4) as usize],
+                sharp: Vec::new(),
                 has_cover: false,
             },
         }
@@ -59,12 +67,17 @@ pub fn valid_cells(atlas: Option<&Atlas>, playing: Option<&Cell>) -> u32 {
 
 /// The largest centred square of `image`, scaled to a cell.
 pub fn fit_cell(image: &RgbaImage) -> RgbaImage {
+    fit_square(image, CELL, FilterType::Lanczos3)
+}
+
+/// The largest centred square of `image`, scaled to `side` by `side` with `filter`.
+fn fit_square(image: &RgbaImage, side: u32, filter: FilterType) -> RgbaImage {
     let (w, h) = image.dimensions();
-    let side = w.min(h);
+    let square = w.min(h);
     let square = image
-        .view((w - side) / 2, (h - side) / 2, side, side)
+        .view((w - square) / 2, (h - square) / 2, square, square)
         .to_image();
-    imageops::resize(&square, CELL, CELL, FilterType::Lanczos3)
+    imageops::resize(&square, side, side, filter)
 }
 
 /// The atlas of `current` (cell 0, if it has a cover) and then `random` in cells 1.., at most
@@ -168,9 +181,13 @@ mod tests {
         assert!(cell.has_cover);
         assert_eq!(cell.rgba.len(), (CELL * CELL * 4) as usize);
         assert_eq!(cell.rgba[..4], [0, 255, 0, 255]);
+        // The sharp copy is the same square at its own size.
+        assert_eq!(cell.sharp.len(), (SHARP * SHARP * 4) as usize);
+        assert_eq!(cell.sharp[..4], [0, 255, 0, 255]);
         let clear = Cell::new(None);
         assert!(!clear.has_cover);
         assert!(clear.rgba.iter().all(|&b| b == 0));
+        assert!(clear.sharp.is_empty());
         assert_eq!(build_cell(None), clear);
     }
 

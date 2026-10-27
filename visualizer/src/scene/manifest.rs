@@ -130,6 +130,9 @@ pub const TRANSITIONS: &[&str] = &[
 /// The lens effects that are known by name: those the runtime draws (see `scene::lens`), and
 /// `blur`, still to come. (`blocks`, a colour-block frame, is now the start of a `flash`.)
 pub const LENS_EFFECTS: &[&str] = &["flare", "leak", "blur"];
+/// The transitions that also play as a lens effect over the picture, at a strong moment with no
+/// cut, when the scene lists them (see `crate::moments::lens_effect`).
+pub const LENS_TRANSITIONS: &[&str] = &["glitch", "mosaic"];
 
 /// The `effects` list: the transitions and lens effects that suit the scene, one list for a switch
 /// to the scene and for the director's cuts within it. The scene says what may be used; the runtime
@@ -146,7 +149,8 @@ pub struct Effects {
     /// The transitions that may dress a cut of the director within the scene: those of the list
     /// that play over a cut (not `cut` itself, and not `cutin`, which needs a new scene).
     pub cut: Vec<String>,
-    /// The lens effects the scene takes.
+    /// The lens effects the scene takes: those of the list, and its glitch and mosaic, which also
+    /// play over the picture.
     pub lens: Vec<String>,
 }
 
@@ -181,7 +185,13 @@ impl From<Vec<String>> for Effects {
         Self {
             switch,
             cut: of(&["fade", "dissolve", "flash", "glitch", "mosaic"]),
-            lens: of(LENS_EFFECTS),
+            lens: names
+                .iter()
+                .filter(|n| {
+                    LENS_EFFECTS.contains(&n.as_str()) || LENS_TRANSITIONS.contains(&n.as_str())
+                })
+                .cloned()
+                .collect(),
             names,
         }
     }
@@ -844,9 +854,9 @@ move = "glide"
         assert_eq!(m.effects.unknown(), ["effects = \"sparkle\""]);
         // A list without a plain transition keeps the fade and the dissolve for plain switches.
         let strong = SMALL.replacen("format = 1\n", "format = 1\neffects = [\"glitch\"]\n", 1);
-        assert_eq!(
-            Manifest::parse(&strong).unwrap().effects.switch,
-            ["fade", "dissolve", "glitch"]
-        );
+        let strong = Manifest::parse(&strong).unwrap().effects;
+        assert_eq!(strong.switch, ["fade", "dissolve", "glitch"]);
+        // A glitch or a mosaic is a lens effect too.
+        assert_eq!(strong.lens, ["glitch"]);
     }
 }

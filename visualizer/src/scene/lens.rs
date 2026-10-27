@@ -7,11 +7,16 @@
 //! What starts them is the shared scheduler of the moments (`crate::moments`): at a moment that
 //! plays an effect and has no cut, [`Lens::start_at`] starts one of those the scene listed. A
 //! scene lab starts them by hand.
+//!
+//! A glitch or a mosaic the scene lists plays here too, over the live picture, but the
+//! transition layer draws it (with the functions of the transitions themselves, see
+//! `crate::transition::Overlay`): this only says that one starts ([`Lens::take_overlay`]).
 
 use super::inputs::MusicValues;
 use crate::inspect::LabLens;
 use crate::moments::{self, Played, Strength};
 use crate::switching::FOLLOWED;
+use crate::transition::Overlay;
 
 /// How strong an effect a medium moment starts (a strong moment's is at full strength).
 pub const MEDIUM_STRENGTH: f32 = 0.6;
@@ -99,6 +104,10 @@ pub struct LensView {
     /// The effect is under way.
     pub flare_running: bool,
     pub leak_running: bool,
+    /// The glitch and the mosaic over the picture: listed (they are under way while the
+    /// transition layer draws them, which it tells).
+    pub glitch_listed: bool,
+    pub mosaic_listed: bool,
 }
 
 /// An effect under way on the ramp: how strong it was started, and its age in beats.
@@ -150,6 +159,8 @@ pub struct Lens {
     /// The effects that start at a moment: those the scene listed and those a lab forced.
     flare_listed: bool,
     leak_listed: bool,
+    glitch_listed: bool,
+    mosaic_listed: bool,
     flare: Option<Run>,
     leak: Option<Leak>,
     /// How many leaks started, which picks the corner of the next.
@@ -158,6 +169,9 @@ pub struct Lens {
     own: LabLens,
     /// What a lab forced on (see [`Lens::set_forced`]).
     forced: LabLens,
+    /// A glitch or a mosaic over the picture that starts with the next frame, for the transition
+    /// layer to take (see [`Lens::take_overlay`]).
+    overlay: Option<Overlay>,
 }
 
 impl Lens {
@@ -167,14 +181,19 @@ impl Lens {
         Self {
             flare_listed: has("flare"),
             leak_listed: has("leak"),
+            glitch_listed: has("glitch"),
+            mosaic_listed: has("mosaic"),
             flare: None,
             leak: None,
             leaks: 0,
             own: LabLens {
                 flare: has("flare"),
                 leak: has("leak"),
+                glitch: has("glitch"),
+                mosaic: has("mosaic"),
             },
             forced: LabLens::default(),
+            overlay: None,
         }
     }
 
@@ -184,6 +203,19 @@ impl Lens {
         self.forced = forced;
         self.flare_listed = self.own.flare || forced.flare;
         self.leak_listed = self.own.leak || forced.leak;
+        self.glitch_listed = self.own.glitch || forced.glitch;
+        self.mosaic_listed = self.own.mosaic || forced.mosaic;
+    }
+
+    /// Start a glitch (or a mosaic) over the picture now: the transition layer takes it with the
+    /// next frame (see [`Lens::take_overlay`]). One at a time: one started later wins.
+    pub fn start_overlay(&mut self, kind: Overlay) {
+        self.overlay = Some(kind);
+    }
+
+    /// The glitch or mosaic over the picture that starts with this frame, if one does, once.
+    pub fn take_overlay(&mut self) -> Option<Overlay> {
+        self.overlay.take()
     }
 
     /// Start a flare of `strength` (0 to 1) now. One at a time: one under way swells again from
@@ -225,11 +257,16 @@ impl Lens {
     /// The names of the effects that start at a moment: those the scene listed and those a lab
     /// forced.
     fn listed(&self) -> Vec<String> {
-        [(self.flare_listed, "flare"), (self.leak_listed, "leak")]
-            .into_iter()
-            .filter(|(on, _)| *on)
-            .map(|(_, name)| name.to_string())
-            .collect()
+        [
+            (self.flare_listed, "flare"),
+            (self.leak_listed, "leak"),
+            (self.glitch_listed, "glitch"),
+            (self.mosaic_listed, "mosaic"),
+        ]
+        .into_iter()
+        .filter(|(on, _)| *on)
+        .map(|(_, name)| name.to_string())
+        .collect()
     }
 
     /// Start the effect a moment that `played` picks among those listed (see
@@ -243,13 +280,15 @@ impl Lens {
         match moments::lens_effect(&self.listed(), played) {
             Some(moments::Lens::Flare) => self.start_flare(strength),
             Some(moments::Lens::Leak) => self.start_leak(strength),
+            Some(moments::Lens::Glitch) => self.start_overlay(Overlay::Glitch),
+            Some(moments::Lens::Mosaic) => self.start_overlay(Overlay::Mosaic),
             None => {}
         }
     }
 
     /// Start every effect a lab forced on, at a moment that `played` (what "on at every moment"
     /// means in a lab: the forced ones play, whatever the scene lists or the cut does). Whether
-    /// any is forced.
+    /// any started.
     pub fn start_forced(&mut self, played: Played) -> bool {
         let strength = match played.strength {
             Strength::Strong => 1.0,
@@ -262,7 +301,16 @@ impl Lens {
         if forced.leak {
             self.start_leak(strength);
         }
-        forced.flare || forced.leak
+        // The glitch and the mosaic are strong: only at a strong moment; one at a time, the
+        // mosaic if both are forced.
+        let strong = played.strength == Strength::Strong;
+        if strong && forced.glitch {
+            self.start_overlay(Overlay::Glitch);
+        }
+        if strong && forced.mosaic {
+            self.start_overlay(Overlay::Mosaic);
+        }
+        forced.flare || forced.leak || (strong && (forced.glitch || forced.mosaic))
     }
 
     /// What a lab forced on, to give a rebuilt scene.
@@ -276,6 +324,8 @@ impl Lens {
             leak_listed: self.leak_listed,
             flare_running: self.flare.is_some(),
             leak_running: self.leak.is_some(),
+            glitch_listed: self.glitch_listed,
+            mosaic_listed: self.mosaic_listed,
         }
     }
 
@@ -625,6 +675,46 @@ mod tests {
         lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
         let view = lens.view();
         assert!(view.flare_running && view.leak_running && !view.leak_listed);
+    }
+
+    /// A glitch or a mosaic the scene lists starts over the picture at a strong moment, for the
+    /// transition layer to take once; a lab can force them, and start them by hand.
+    #[test]
+    fn a_listed_glitch_or_mosaic_starts_over_the_picture_once() {
+        let strong = Played {
+            strength: Strength::Strong,
+            label: 1.0,
+        };
+        let medium = Played {
+            strength: Strength::Medium,
+            label: 1.0,
+        };
+        let mut glitch = lens(&["glitch"]);
+        assert!(glitch.view().glitch_listed && !glitch.view().mosaic_listed);
+        glitch.start_at(medium);
+        assert_eq!(glitch.take_overlay(), None);
+        glitch.start_at(strong);
+        assert_eq!(glitch.take_overlay(), Some(Overlay::Glitch));
+        assert_eq!(glitch.take_overlay(), None);
+        // It draws nothing in the post pass.
+        glitch.start_at(strong);
+        assert!(glitch.tick(1.0 / 60.0, &music(0.0, 0), 1.0).is_idle());
+        // Forced by a lab: at a strong moment only.
+        let mut forced = lens(&[]);
+        forced.set_forced(LabLens {
+            mosaic: true,
+            ..LabLens::default()
+        });
+        assert!(forced.view().mosaic_listed);
+        assert!(!forced.start_forced(medium));
+        assert_eq!(forced.take_overlay(), None);
+        assert!(forced.start_forced(strong));
+        assert_eq!(forced.take_overlay(), Some(Overlay::Mosaic));
+        forced.set_forced(LabLens::default());
+        assert!(!forced.view().mosaic_listed);
+        // By hand.
+        forced.start_overlay(Overlay::Glitch);
+        assert_eq!(forced.take_overlay(), Some(Overlay::Glitch));
     }
 
     /// Leaks one after another come from different corners in turn, inside the picture's reach.

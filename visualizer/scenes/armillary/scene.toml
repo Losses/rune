@@ -188,7 +188,7 @@ type = "choice"
 group = "Sphere"
 label = "How the rings look"
 default = 3
-options = ["Glass: clear gold, glowing edges and ticks", "Instrument: dark bronze, lit only by the core", "Lines: fine lines of light, as a star chart", "Marks: strings of dots and crosses, bigger as they are nearer, an accent lighting a ring's dots"]
+options = ["Glass: clear gold, glowing edges and ticks", "Instrument: dark bronze, lit only by the core", "Lines: fine lines of light, as a star chart", "Marks: strings of dots and crosses, bigger as they are nearer, an accent lighting a ring's dots all together"]
 
 [[param]]
 id = "accent"
@@ -289,7 +289,7 @@ step = 0.05
 [[param]]
 id = "light_spread"
 group = "Sphere"
-label = "Marks: beats for the lighting to spread (0: all at once)"
+label = "Marks: beats for a lit ring's dots to brighten, all together (0: at once)"
 unit = "beats"
 default = 0.5
 min = 0.0

@@ -42,6 +42,11 @@ pub struct InspectLens {
     pub flare_running: bool,
     pub leak_listed: bool,
     pub leak_running: bool,
+    /// The glitch and the mosaic over the picture (see [`LabCommand::LensGlitch`]).
+    pub glitch_listed: bool,
+    pub glitch_running: bool,
+    pub mosaic_listed: bool,
+    pub mosaic_running: bool,
 }
 
 impl From<LensView> for InspectLens {
@@ -51,6 +56,11 @@ impl From<LensView> for InspectLens {
             flare_running: view.flare_running,
             leak_listed: view.leak_listed,
             leak_running: view.leak_running,
+            glitch_listed: view.glitch_listed,
+            // The transition layer draws them and tells (see `Pipeline::lens_view`).
+            glitch_running: false,
+            mosaic_listed: view.mosaic_listed,
+            mosaic_running: false,
         }
     }
 }
@@ -215,6 +225,9 @@ impl From<LabTransition> for Transition {
 pub struct LabLens {
     pub flare: bool,
     pub leak: bool,
+    /// The glitch and the mosaic over the picture: at every strong moment (they are strong).
+    pub glitch: bool,
+    pub mosaic: bool,
 }
 
 /// How often the camera director cuts, as a lab picks it (see [`LabCommand::PaceWith`]).
@@ -285,6 +298,11 @@ pub enum LabCommand {
     Flare,
     /// Start a light leak now, as a section start would (even if the scene lists none).
     Leak,
+    /// Play a glitch over the picture now, as a strong moment with no cut does in a scene that
+    /// lists `glitch` (even if the scene lists none).
+    LensGlitch,
+    /// Play a mosaic over the picture now, the same way.
+    LensMosaic,
     /// Every scene switch, the automatic ones and those of [`LabCommand::NextScene`], takes this
     /// transition (with the durations its kind takes), whatever was chosen; none leaves the choice.
     SwitchWith(Option<LabTransition>),

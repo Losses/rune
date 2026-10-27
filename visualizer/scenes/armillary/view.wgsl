@@ -441,14 +441,14 @@ fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
     // whole line a moment.
     if (spec > 0.01) {
       let line = line_at(o, d, dx, dy, i, r, amp, 1.8, 0.4, limit);
-      col += state.palette[1].rgb * line.x * spec * (0.55 + on.z * 0.8) * params.ring_glow * mix(0.45, 1.0, line.y);
+      col += state.palette[1].rgb * line.x * spec * (0.55 + on.y * 0.8) * params.ring_glow * mix(0.45, 1.0, line.y);
     }
     // (Most pixels are far from every mark of a ring: there it is not looked at. Its dots are
     // between r and r + amp from the core, the ecliptic's ticks between r - 3.6 gap and r - 0.9
     // gap; each is looked for only where it could be.)
     let lo = r + min(amp, 0.0);
     let hi = r + max(amp, 0.0);
-    let biggest = params.bead_size * 1.15 * (1.0 + 0.6 * max(on.z, 0.0));
+    let biggest = params.bead_size * 1.15 * (1.0 + 0.6 * max(on.y, 0.0));
     let reach = mark_reach(o, hi, biggest, px1 / state.focal, i % 2u == 1u);
     let dots = could_mark(o, d, z, lo, hi, reach);
     var ticks = false;
@@ -534,9 +534,9 @@ fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
           lift = amp * loud;
         }
         let b = c0 + out * (r + lift);
-        // Whether this dot has come on: within how far the lighting has spread from where it began.
+        // Whether this dot is in the lit part of the ring (all of it, unless `light_reach` is less).
         let from_start = min(fract(u - on.x), fract(on.x - u));
-        let glow = on.z * f32(from_start <= on.y + 0.5 / n);
+        let glow = on.y * f32(from_start <= on.w + 0.5 / n);
         let side = clamp(dot(b - c0, -state.cam_fwd) / r, -1.0, 1.0) * 0.5 + 0.5;
         let size = params.bead_size * mix(0.7, 1.15, side) * (1.0 + 0.6 * glow);
         // (Every other ring is all crosses, the rest all dots.)

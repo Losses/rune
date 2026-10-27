@@ -34,8 +34,8 @@ use crate::shared_vulkan::{SharedFrame, SharedTargets};
 #[cfg(target_vendor = "apple")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
 use crate::transition::{
-    Dressed, Durations, FadePhase, Forced, Plan, Punch, Running, Transition, Transitions,
-    cutin_frame, dissolve_progress, flood_color, seed_of,
+    Dressed, Durations, FadePhase, Forced, Overlay, OverlayRun, Plan, Punch, Running, Transition,
+    Transitions, cutin_frame, dissolve_progress, flood_color, seed_of,
 };
 #[cfg(target_os = "android")]
 use crate::window::{Window, WindowSurface};
@@ -627,8 +627,6 @@ impl Pipeline {
             Transition::Dissolve | Transition::Glitch | Transition::Mosaic => {
                 f64::from(dissolve_progress(seconds, into))
             }
-            // The new scene goes in with the first frame of the band, which sets the start.
-            Transition::CutIn(_) if running.pending.is_some() => 0.0,
             Transition::CutIn(_) => (seconds / (out + into).max(f64::EPSILON)).clamp(0.0, 1.0),
         };
         Some((running.kind, progress as f32))
@@ -666,9 +664,20 @@ impl Pipeline {
         self.latest_mut().start_leak();
     }
 
+    /// The newest scene plays a glitch or a mosaic over its picture from the next frame (see
+    /// [`Scene::start_overlay`]).
+    pub fn start_overlay(&mut self, kind: Overlay) {
+        self.latest_mut().start_overlay(kind);
+    }
+
     /// Which lens effects the scene on screen has on.
     pub fn lens_view(&self) -> crate::scene::LensView {
         self.scene.lens_view()
+    }
+
+    /// The glitch or mosaic playing over the picture, if one is.
+    pub fn overlay_running(&self) -> Option<Overlay> {
+        self.transitions.overlay.map(|run| run.kind)
     }
 
     /// What a scene lab replaces of the choices made by themselves.
@@ -875,7 +884,8 @@ impl Pipeline {
     pub fn set_playing_cover(&mut self, cell: Option<Arc<Cell>>) {
         self.scene
             .set_playing_cover(&self.device, &self.queue, cell.clone());
-        self.transitions.set_cover(&self.queue, cell.as_deref());
+        self.transitions
+            .set_cover(&self.device, &self.queue, cell.as_deref());
         self.playing_cover = cell;
     }
 
@@ -1042,20 +1052,16 @@ impl Pipeline {
                     }
                 }
             }
-            // Like a dissolve, the old picture is held first; the new scene then draws live
-            // under the band and shows when it tears away.
+            // The old scene plays on behind the band, as the picture behind a cut-in does, and
+            // nothing is held; the new scene goes in with the first frame of the tear, like a
+            // fade's at the black. It is the cheaper way too: one scene draws at a time.
             Transition::CutIn(style) => {
-                if running.pending.is_some() {
-                    if captured {
-                        install = running.pending.take();
-                        running.start = Some(time);
-                        cutin_frame(0.0, out, into, style).map_or(Plan::None, Plan::CutIn)
-                    } else {
-                        Plan::Capture
-                    }
-                } else {
-                    cutin_frame(seconds, out, into, style).map_or(Plan::None, Plan::CutIn)
+                let frame = cutin_frame(seconds, out, into, style);
+                // Also when a long frame skipped the whole of it.
+                if frame.is_none_or(|frame| frame.tearing()) {
+                    install = running.pending.take();
                 }
+                frame.map_or(Plan::None, Plan::CutIn)
             }
         };
         if let Some(scene) = install
@@ -1243,6 +1249,15 @@ impl Pipeline {
                 plan => return plan,
             }
         }
+        // So does a glitch or a mosaic over the picture.
+        if transitions.dressed.is_none()
+            && let Some(overlay) = transitions.overlay
+        {
+            match overlay.plan(time - overlay.start) {
+                Plan::None => transitions.overlay = None,
+                plan => return plan,
+            }
+        }
         // A lab's override decides which cuts are dressed in place of the scene's list.
         let dresses = match transitions.lab_cuts {
             Some(kind) => kind != Transition::Cut,
@@ -1278,9 +1293,11 @@ impl Pipeline {
         if plan == Plan::None {
             plan = self.plan_dressed(time);
         } else {
-            // A switch takes the place of the dressing of a cut, and of a punch.
+            // A switch takes the place of the dressing of a cut, of a punch and of a glitch or
+            // mosaic over the picture.
             self.transitions.dressed = None;
             self.transitions.punch = None;
+            self.transitions.overlay = None;
         }
         let size = self.size();
         self.transitions.prepare(&self.device, size, plan);
@@ -1486,6 +1503,7 @@ fn draw(
         plan == Plan::None,
     );
     let plan = dress_cut(transitions, plan, scene, time);
+    let plan = start_overlay(transitions, plan, scene, time);
     let tint = flood_color(accent);
     transitions.composite(queue, encoder, view, (plan, tint), accent, timestamps);
     transitions.keep(encoder, plan);
@@ -1499,7 +1517,7 @@ fn draw(
 /// at once where the scene draws into the texture, else from the next frame, since the scene has
 /// drawn into the output already.
 fn dress_cut(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64) -> Plan {
-    let live = matches!(plan, Plan::Keep | Plan::Punch(_));
+    let live = plan.is_live();
     if !live && plan != Plan::None {
         return plan;
     }
@@ -1551,10 +1569,33 @@ fn dress_cut(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64
     if live { punch.plan(0.0) } else { plan }
 }
 
+/// The plan of a frame in which the scene started a glitch or a mosaic over its picture (see
+/// [`Scene::overlay_this_frame`]): it plays over the live frame for its time (see
+/// [`switching::overlay_seconds`]), from this frame where the scene draws into the texture, else
+/// from the next. A switch or a dressed cut under way takes its place; a punch plays on over it.
+fn start_overlay(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64) -> Plan {
+    let Some(kind) = scene.overlay_this_frame() else {
+        return plan;
+    };
+    if !plan.is_live() && plan != Plan::None {
+        return plan;
+    }
+    let run = OverlayRun {
+        kind,
+        start: time,
+        seconds: switching::overlay_seconds(kind, scene.music()),
+    };
+    transitions.overlay = Some(run);
+    match plan {
+        Plan::Keep | Plan::LensGlitch(..) | Plan::LensMosaic(..) => run.plan(0.0),
+        plan => plan,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transition::CutInStyle;
+    use crate::transition::{CUTIN_BAND_SECONDS, CutInStyle};
 
     /// Pipelines build the default scene, and the driver loses the device (an unexplained
     /// error) when several do so at once, so the tests that make one take turns.
@@ -1817,10 +1858,10 @@ mod tests {
         last.expect("no frame came out")
     }
 
-    /// A cut-in holds the old picture darkened, shows the cover in the band over its middle and
-    /// then the new scene, and holds nothing when it is over.
+    /// A cut-in draws its band over the old scene, which plays on darkened, shows the cover in
+    /// the band over its middle, puts the new scene in with the tear, and holds nothing.
     #[test]
-    fn a_cutin_shows_the_cover_in_a_band_then_the_new_scene() {
+    fn a_cutin_shows_the_cover_in_a_band_over_the_old_scene_then_the_new_scene() {
         let _turn = serial();
         let Some(mut pipeline) = test_pipeline() else {
             return;
@@ -1831,28 +1872,34 @@ mod tests {
         let grey = load_plain(&mut pipeline, "cutin-grey", 0.2);
         let durations = Durations {
             out: 0.5,
-            into: 0.05,
+            into: 0.1,
         };
         let style = CutInStyle::Halftone;
         pipeline
             .switch_to(grey, Transition::CutIn(style), durations)
             .unwrap();
-        // The name is the new scene's at once; the old one draws until the picture is held.
+        // The name is the new scene's at once; the old one draws until the band tears.
         assert_eq!(pipeline.preset_name(), "cutin-grey");
         assert_eq!(pipeline.scene.name, "cutin-white");
-        // The first frame holds the old picture, whole.
-        let (middle, corner) = probes(&mut pipeline, 0.0);
-        assert!(middle.iter().all(|&c| c > 250), "{middle:?}");
+        // The first frame is the old scene, whole away from the slash.
+        let (_, corner) = probes(&mut pipeline, 0.0);
         assert!(corner.iter().all(|&c| c > 250), "{corner:?}");
-        // In the hold the new scene is in, the band shows the cover over the middle and the
-        // old picture is dark around it.
+        // In the hold the old scene still draws, dark around the band, which shows the cover
+        // over the middle; nothing is held.
         let (middle, corner) = probes(&mut pipeline, 0.3);
-        assert_eq!(pipeline.scene.name, "cutin-grey");
+        assert_eq!(pipeline.scene.name, "cutin-white");
         assert!(
             middle[0] > 200 && middle[1] < 60 && middle[2] < 60,
             "{middle:?}"
         );
-        assert!(corner.iter().all(|&c| (50..110).contains(&c)), "{corner:?}");
+        assert!(
+            corner.iter().all(|&c| (120..160).contains(&c)),
+            "{corner:?}"
+        );
+        assert!(!pipeline.transitions.has_held());
+        // The tear: the new scene is in.
+        probes(&mut pipeline, 0.52);
+        assert_eq!(pipeline.scene.name, "cutin-grey");
         // Torn away: the new scene, and nothing held.
         let (middle, corner) = probes(&mut pipeline, 0.7);
         assert!(
@@ -1867,6 +1914,30 @@ mod tests {
         assert!(!pipeline.transitions.holds_textures());
     }
 
+    /// A frame that skips past the whole of a cut-in still puts the new scene in.
+    #[test]
+    fn a_cutin_skipped_by_a_long_frame_still_installs_the_new_scene() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let white = load_plain(&mut pipeline, "skip-white", 1.0);
+        pipeline.install(white).unwrap();
+        let grey = load_plain(&mut pipeline, "skip-grey", 0.2);
+        let durations = Durations {
+            out: 0.5,
+            into: 0.1,
+        };
+        pipeline
+            .switch_to(grey, Transition::CutIn(CutInStyle::default()), durations)
+            .unwrap();
+        probes(&mut pipeline, 0.0);
+        assert_eq!(pipeline.scene.name, "skip-white");
+        probes(&mut pipeline, 5.0);
+        assert_eq!(pipeline.scene.name, "skip-grey");
+        assert!(pipeline.transitions.running.is_none());
+    }
+
     /// The frames of a cut-in over two built-in scenes, as a contact sheet per style (with a
     /// cover and without one) in `$CUTIN_FRAMES` (default: the temp dir), to look at once.
     #[test]
@@ -1876,7 +1947,7 @@ mod tests {
         let dir = std::env::var_os("CUTIN_FRAMES")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(std::env::temp_dir);
-        let (w, h) = (960u32, 540u32);
+        let (w, h) = (1280u32, 720u32);
         let cover = image::RgbaImage::from_fn(256, 256, |x, y| {
             let (fx, fy) = (x as f32 / 255.0, y as f32 / 255.0);
             let ring = ((fx - 0.5).hypot(fy - 0.5) * 18.0).sin() * 0.5 + 0.5;
@@ -1893,11 +1964,18 @@ mod tests {
             ("echo", CutInStyle::Echo, true),
             ("streaks-nocover", CutInStyle::Streaks, false),
         ];
-        // The first frame holds the picture; the cut-in starts in the second, at 1 s.
+        // The cut-in starts with the first frame, at 1 s, and is drawn frame by frame at 60 fps
+        // through the slash and the opening, twice in the hold (the second with the glint),
+        // and frame by frame through the tear.
         let start = 1.0;
-        let offsets = [
-            0.0, 0.017, 0.034, 0.05, 0.1, 0.25, 0.45, 0.534, 0.55, 0.567, 0.584, 0.62,
-        ];
+        let hold = 0.5;
+        let frame = 1.0 / 60.0;
+        let tear = CUTIN_BAND_SECONDS + hold;
+        let offsets: Vec<f64> = (0..11)
+            .map(|i| f64::from(i) * frame)
+            .chain([0.35, CUTIN_BAND_SECONDS + 0.7 * hold])
+            .chain((0..11).map(|i| tear + f64::from(i) * frame))
+            .collect();
         for (label, style, with_cover) in runs {
             let Ok(mut pipeline) = Pipeline::new(
                 w,
@@ -1918,18 +1996,18 @@ mod tests {
                 pipeline.set_playing_cover(Some(Arc::new(Cell::new(Some(&cover)))));
             }
             pipeline.load_builtin_scene("Armillary").unwrap();
-            let next = pipeline
-                .scene_build_builtin("Growth")
-                .unwrap()
-                .run()
-                .unwrap();
+            let mut next = Some(
+                pipeline
+                    .scene_build_builtin("Growth")
+                    .unwrap()
+                    .run()
+                    .unwrap(),
+            );
             let durations = Durations {
-                out: 0.034 + 0.5,
-                into: 0.05,
+                out: CUTIN_BAND_SECONDS + hold,
+                into: crate::switching::CUTIN_TEAR_SECONDS,
             };
-            pipeline
-                .switch_to(next, Transition::CutIn(style), durations)
-                .unwrap();
+            // A frame of the old scene before, then the cut-in.
             let mut times = vec![start - 0.1];
             times.extend(offsets.iter().map(|o| start + o));
             let mut frames: Vec<Vec<u8>> = Vec::new();
@@ -1959,7 +2037,12 @@ mod tests {
                     .unwrap();
                 rgba
             };
-            for &time in &times {
+            for (i, &time) in times.iter().enumerate() {
+                if i == 1 {
+                    pipeline
+                        .switch_to(next.take().unwrap(), Transition::CutIn(style), durations)
+                        .unwrap();
+                }
                 frames.extend(render(&mut pipeline, time));
             }
             for _ in 0..50 {
@@ -1970,7 +2053,7 @@ mod tests {
             }
             assert!(frames.len() >= times.len(), "frames did not come out");
             let (tw, th) = (w / 2, h / 2);
-            let columns = 4;
+            let columns = 6;
             let rows = times.len().div_ceil(columns) as u32;
             let mut sheet = image::RgbaImage::new(tw * columns as u32, th * rows);
             for (i, rgba) in frames.into_iter().take(times.len()).enumerate() {
@@ -1990,6 +2073,288 @@ mod tests {
             let path = dir.join(format!("cutin-{label}.png"));
             sheet.save(&path).unwrap();
             println!("{}", path.display());
+        }
+    }
+
+    /// Every frame at 60 fps of a mosaic and a glitch switching two built-in scenes in a beat
+    /// (120 bpm), and of each played over the picture, as a contact sheet each (and the frames
+    /// at full size in a folder) in `$FX_FRAMES` (default: the temp dir), to look at once.
+    #[test]
+    #[ignore = "writes images, run by hand"]
+    fn dump_glitch_and_mosaic_frames() {
+        let _turn = serial();
+        let dir = std::env::var_os("FX_FRAMES")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        let (w, h) = (1280u32, 720u32);
+        let beat: f64 = 0.5;
+        let runs = [
+            ("mosaic", Some(Transition::Mosaic), None, beat),
+            ("glitch", Some(Transition::Glitch), None, beat),
+            ("lens-mosaic", None, Some(Overlay::Mosaic), beat * 0.5),
+            ("lens-glitch", None, Some(Overlay::Glitch), beat * 0.75),
+        ];
+        for (label, switch, overlay, seconds) in runs {
+            let Ok(mut pipeline) = Pipeline::new(
+                w,
+                h,
+                44_100,
+                true,
+                None,
+                None,
+                Arc::new(|e| panic!("GPU error: {e}")),
+                #[cfg(target_os = "android")]
+                None,
+            ) else {
+                eprintln!("SKIPPED: no GPU adapter");
+                return;
+            };
+            pipeline.set_accent(Some([0.05, 0.35, 0.9]));
+            pipeline.load_builtin_scene("Armillary").unwrap();
+            let mut next = switch.map(|_| {
+                pipeline
+                    .scene_build_builtin("Growth")
+                    .unwrap()
+                    .run()
+                    .unwrap()
+            });
+            // A frame before, the course frame by frame, two frames after.
+            let start = 1.0;
+            let frame = 1.0 / 60.0;
+            let count = (seconds / frame).ceil() as usize + 3;
+            let times: Vec<f64> = (0..count)
+                .map(|i| start + (i as f64 - 1.0) * frame)
+                .collect();
+            let render = |pipeline: &mut Pipeline, time: f64| -> Option<Vec<u8>> {
+                let rgba = if let Rendered::Mapped(frame) = pipeline.render(time).unwrap() {
+                    let mut rgba = Vec::new();
+                    for y in 0..h as usize {
+                        for px in frame.bytes()[y * frame.stride()..][..w as usize * 4].chunks(4) {
+                            let (r, b) = if cfg!(target_vendor = "apple") {
+                                (px[2], px[0])
+                            } else {
+                                (px[0], px[2])
+                            };
+                            rgba.extend_from_slice(&[r, px[1], b, 255]);
+                        }
+                    }
+                    Some(rgba)
+                } else {
+                    None
+                };
+                pipeline
+                    .device
+                    .poll(wgpu::PollType::Wait {
+                        submission_index: None,
+                        timeout: None,
+                    })
+                    .unwrap();
+                rgba
+            };
+            let mut frames: Vec<Vec<u8>> = Vec::new();
+            for (i, &time) in times.iter().enumerate() {
+                if i == 1 {
+                    if let (Some(kind), Some(scene)) = (switch, next.take()) {
+                        let durations = Durations {
+                            out: 0.0,
+                            into: seconds,
+                        };
+                        pipeline.switch_to(scene, kind, durations).unwrap();
+                    }
+                    if let Some(kind) = overlay {
+                        pipeline.start_overlay(kind);
+                    }
+                }
+                frames.extend(render(&mut pipeline, time));
+            }
+            for _ in 0..50 {
+                frames.extend(render(&mut pipeline, *times.last().unwrap()));
+                if frames.len() >= times.len() {
+                    break;
+                }
+            }
+            assert!(frames.len() >= times.len(), "frames did not come out");
+            let folder = dir.join(label);
+            std::fs::create_dir_all(&folder).unwrap();
+            let (tw, th) = (w / 4, h / 4);
+            let columns = 6;
+            let rows = times.len().div_ceil(columns) as u32;
+            let mut sheet = image::RgbaImage::new(tw * columns as u32, th * rows);
+            for (i, rgba) in frames.into_iter().take(times.len()).enumerate() {
+                let full = image::RgbaImage::from_raw(w, h, rgba).unwrap();
+                full.save(folder.join(format!("{i:02}.png"))).unwrap();
+                let tile =
+                    image::imageops::resize(&full, tw, th, image::imageops::FilterType::Triangle);
+                image::imageops::replace(
+                    &mut sheet,
+                    &tile,
+                    i64::from(tw) * (i % columns) as i64,
+                    i64::from(th) * (i / columns) as i64,
+                );
+            }
+            let path = dir.join(format!("{label}.png"));
+            sheet.save(&path).unwrap();
+            println!("{}", path.display());
+        }
+    }
+
+    /// What the pass of a glitch and a mosaic costs at 1080p, at their heaviest steps and as lens
+    /// effects, against a pass that only copies the frame, by the wall time of many passes in
+    /// one submission, printed.
+    #[test]
+    #[ignore = "measures, run by hand"]
+    fn time_glitch_and_mosaic_pass() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let size = (1920, 1080);
+        let output = pipeline.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("glitch and mosaic timing"),
+            size: wgpu::Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: pipeline.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = output.create_view(&Default::default());
+        let wait = |device: &wgpu::Device| {
+            device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: None,
+                })
+                .unwrap();
+        };
+        // The middle of each pose or stage (see `mosaic_step` and `glitch_step`).
+        let mosaic = |pose: f32| (pose + 0.5) / 8.0;
+        let glitch = |stage: f32| (stage + 0.5) / 6.0;
+        for (label, plan) in [
+            ("nothing (a fade of 0)", Plan::Fade(0.0)),
+            ("mosaic, scattered blocks", Plan::Mosaic(mosaic(1.0), 7)),
+            ("mosaic, wave", Plan::Mosaic(mosaic(3.0), 7)),
+            ("mosaic, bright dots", Plan::Mosaic(mosaic(4.0), 7)),
+            ("mosaic, picture in dots", Plan::Mosaic(mosaic(5.0), 7)),
+            ("glitch, heaviest stage", Plan::Glitch(glitch(3.0), 7)),
+            ("lens mosaic, batch", Plan::LensMosaic(0.3, 7)),
+            ("lens glitch, stage 2", Plan::LensGlitch(0.3, 7)),
+            // Again, now that the GPU is busy: the first is often slow.
+            ("nothing, again", Plan::Fade(0.0)),
+        ] {
+            pipeline.transitions.prepare(&pipeline.device, size, plan);
+            let passes = 200;
+            let run = |passes: u32| {
+                let mut encoder = pipeline.device.create_command_encoder(&Default::default());
+                for _ in 0..passes {
+                    pipeline.transitions.composite(
+                        &pipeline.queue,
+                        &mut encoder,
+                        &view,
+                        (plan, [0.8; 3]),
+                        Some([0.05, 0.35, 0.9]),
+                        None,
+                    );
+                }
+                let started = std::time::Instant::now();
+                pipeline.queue.submit([encoder.finish()]);
+                wait(&pipeline.device);
+                started.elapsed()
+            };
+            // Once to warm up.
+            run(10);
+            let took = run(passes);
+            println!(
+                "{label}: {:.3} ms a pass",
+                took.as_secs_f64() * 1000.0 / f64::from(passes)
+            );
+        }
+    }
+
+    /// What the pass of a cut-in costs at 1080p, in the hold and in the tear (the frame of the
+    /// tear with the most splinters), by the wall time of many passes in one submission, printed.
+    #[test]
+    #[ignore = "measures, run by hand"]
+    fn time_cutin_pass() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let cover = image::RgbaImage::from_pixel(64, 64, image::Rgba([200, 60, 90, 255]));
+        pipeline.set_playing_cover(Some(Arc::new(Cell::new(Some(&cover)))));
+        let size = (1920, 1080);
+        let output = pipeline.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("cut-in timing"),
+            size: wgpu::Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: pipeline.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = output.create_view(&Default::default());
+        let wait = |device: &wgpu::Device| {
+            device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: None,
+                })
+                .unwrap();
+        };
+        let hold = 0.5;
+        let tear = CUTIN_BAND_SECONDS + hold;
+        for (label, style, seconds) in [
+            ("nothing (a fade of 0)", None, 0.0),
+            ("hold, speed lines", Some(CutInStyle::Streaks), 0.2),
+            ("hold, echo", Some(CutInStyle::Echo), 0.2),
+            (
+                "tear, strips flying",
+                Some(CutInStyle::Streaks),
+                tear + 3.0 / 60.0,
+            ),
+        ] {
+            let plan = match style {
+                Some(style) => Plan::CutIn(
+                    cutin_frame(seconds, tear, switching::CUTIN_TEAR_SECONDS, style).unwrap(),
+                ),
+                None => Plan::Fade(0.0),
+            };
+            pipeline.transitions.prepare(&pipeline.device, size, plan);
+            let passes = 200;
+            let run = |passes: u32| {
+                let mut encoder = pipeline.device.create_command_encoder(&Default::default());
+                for _ in 0..passes {
+                    pipeline.transitions.composite(
+                        &pipeline.queue,
+                        &mut encoder,
+                        &view,
+                        (plan, [0.8; 3]),
+                        Some([0.05, 0.35, 0.9]),
+                        None,
+                    );
+                }
+                let started = std::time::Instant::now();
+                pipeline.queue.submit([encoder.finish()]);
+                wait(&pipeline.device);
+                started.elapsed()
+            };
+            // Once to warm up.
+            run(10);
+            let took = run(passes);
+            println!(
+                "{label}: {:.3} ms a pass",
+                took.as_secs_f64() * 1000.0 / f64::from(passes)
+            );
         }
     }
 
@@ -2189,6 +2554,56 @@ mod tests {
             !pipeline.transitions.holds_textures(),
             "nothing is held after it"
         );
+    }
+
+    /// A glitch or a mosaic over the picture plays over the live frame for its time and lets go:
+    /// in a scene that holds no frame the pass runs only while it plays; in one that dresses its
+    /// cuts the frame is still kept under it; a switch takes its place.
+    #[test]
+    fn a_lens_glitch_or_mosaic_plays_over_the_live_frame_and_lets_go() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let scene = load_plain(&mut pipeline, "overlay", 0.2);
+        pipeline.install(scene).unwrap();
+        means(&mut pipeline, &[0.9, 0.95]);
+        assert!(!pipeline.transitions.holds_textures());
+        // Without a followed beat, half a beat of 0.5 s: from 1.0 to 1.25.
+        pipeline.start_overlay(Overlay::Mosaic);
+        for time in [1.0, 1.1, 1.2] {
+            means(&mut pipeline, &[time]);
+            assert_eq!(pipeline.overlay_running(), Some(Overlay::Mosaic), "{time}");
+            assert!(!pipeline.transitions.has_held());
+        }
+        assert!(pipeline.transitions.holds_textures());
+        means(&mut pipeline, &[1.3, 1.32]);
+        assert_eq!(pipeline.overlay_running(), None);
+        assert!(
+            !pipeline.transitions.holds_textures(),
+            "nothing is held after it"
+        );
+
+        // A scene that dresses its cuts keeps its frame under it.
+        let dir = dressed_scene("overlay-dressed", 0.2, "glitch");
+        let scene = pipeline.scene_build_dir(&dir).run().unwrap();
+        pipeline.install(scene).unwrap();
+        means(&mut pipeline, &[2.0, 2.02]);
+        pipeline.start_overlay(Overlay::Glitch);
+        means(&mut pipeline, &[2.04, 2.1]);
+        assert_eq!(pipeline.overlay_running(), Some(Overlay::Glitch));
+        assert!(pipeline.transitions.has_kept());
+        // A switch takes its place.
+        let next = load_plain(&mut pipeline, "overlay-next", 0.5);
+        let durations = Durations {
+            out: 0.0,
+            into: 0.2,
+        };
+        pipeline
+            .switch_to(next, Transition::Dissolve, durations)
+            .unwrap();
+        means(&mut pipeline, &[2.12, 2.14]);
+        assert_eq!(pipeline.overlay_running(), None);
     }
 
     /// A newer switch replaces a scene that still waits, and cuts in over one that is in.
