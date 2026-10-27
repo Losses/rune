@@ -32,7 +32,8 @@ use crate::shared_vulkan::{SharedFrame, SharedTargets};
 #[cfg(target_vendor = "apple")]
 use crate::surface::{PixelBuffer, SurfaceTargets};
 use crate::transition::{
-    Durations, FadePhase, Plan, Running, Transition, Transitions, dissolve_progress, fade_phase,
+    Durations, FadePhase, Plan, Running, Transition, Transitions, cutin_frame, dissolve_progress,
+    fade_phase,
 };
 #[cfg(target_os = "android")]
 use crate::window::{Window, WindowSurface};
@@ -606,6 +607,9 @@ impl Pipeline {
             // The new scene goes in with the dissolve's second frame, which sets the start.
             Transition::Dissolve if running.pending.is_some() => 0.0,
             Transition::Dissolve => f64::from(dissolve_progress(seconds, into)),
+            // The new scene goes in with the first frame of the band, which sets the start.
+            Transition::CutIn(_) if running.pending.is_some() => 0.0,
+            Transition::CutIn(_) => (seconds / (out + into).max(f64::EPSILON)).clamp(0.0, 1.0),
         };
         Some((running.kind, progress as f32))
     }
@@ -752,6 +756,7 @@ impl Pipeline {
     pub fn set_playing_cover(&mut self, cell: Option<Arc<Cell>>) {
         self.scene
             .set_playing_cover(&self.device, &self.queue, cell.clone());
+        self.transitions.set_cover(&self.queue, cell.as_deref());
         self.playing_cover = cell;
     }
 
@@ -841,7 +846,8 @@ impl Pipeline {
     /// `transition` of `durations`. The pipeline holds the scene until the transition gets to it:
     /// a fade draws the old scene live while it fades out and installs the new one at the end of
     /// that; a dissolve keeps the old scene's last picture and installs the new one in the next
-    /// frame. A transition that shows nothing (a cut, or no time) is [`Pipeline::install`].
+    /// frame; a cut-in keeps it too and installs the new scene in the next frame, which then draws
+    /// under the band. A transition that shows nothing (a cut, or no time) is [`Pipeline::install`].
     ///
     /// A switch while another transition runs: if the scene of that one is still waiting (a fade
     /// that is fading out, a dissolve that has not started), the newer scene takes its place and
@@ -915,6 +921,21 @@ impl Pipeline {
                         progress if progress >= 1.0 => Plan::None,
                         progress => Plan::Dissolve(progress),
                     }
+                }
+            }
+            // Like a dissolve, the old picture is held first; the new scene then draws live
+            // under the band and shows when it tears away.
+            Transition::CutIn(style) => {
+                if running.pending.is_some() {
+                    if captured {
+                        install = running.pending.take();
+                        running.start = Some(time);
+                        cutin_frame(0.0, out, into, style).map_or(Plan::None, Plan::CutIn)
+                    } else {
+                        Plan::Capture
+                    }
+                } else {
+                    cutin_frame(seconds, out, into, style).map_or(Plan::None, Plan::CutIn)
                 }
             }
         };
@@ -1294,13 +1315,14 @@ fn draw(
         timestamps,
         plan == Plan::None,
     );
-    transitions.composite(queue, encoder, view, plan, timestamps);
+    transitions.composite(queue, encoder, view, plan, accent, timestamps);
     timer.end(encoder);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transition::CutInStyle;
 
     /// Pipelines build the default scene, and the driver loses the device (an unexplained
     /// error) when several do so at once, so the tests that make one take turns.
@@ -1521,6 +1543,222 @@ mod tests {
         assert!((m[10] - 124.0).abs() < 4.0, "the new scene: {m:?}");
         assert!(pipeline.transitions.running.is_none());
         assert!(!pipeline.transitions.holds_textures());
+    }
+
+    /// A cover of one colour, for the band of a cut-in.
+    fn solid_cover(rgb: [u8; 3]) -> Arc<Cell> {
+        Arc::new(Cell::new(Some(&image::RgbaImage::from_pixel(
+            8,
+            8,
+            image::Rgba([rgb[0], rgb[1], rgb[2], 255]),
+        ))))
+    }
+
+    /// The middle pixel of the frame drawn at `time` and one near the corner, as RGB. Frames come
+    /// out some calls after they were drawn, so the frame is drawn again until the ones before
+    /// it are out, and the last one counts.
+    fn probes(pipeline: &mut Pipeline, time: f64) -> ([u8; 3], [u8; 3]) {
+        let (w, h) = pipeline.size();
+        let mut last = None;
+        for _ in 0..8 {
+            let rendered = pipeline.render(time).unwrap();
+            pipeline
+                .device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: None,
+                })
+                .unwrap();
+            if let Rendered::Mapped(frame) = rendered {
+                let at = |x: usize, y: usize| {
+                    let i = y * frame.stride() + x * 4;
+                    let px = &frame.bytes()[i..i + 3];
+                    if cfg!(target_vendor = "apple") {
+                        [px[2], px[1], px[0]]
+                    } else {
+                        [px[0], px[1], px[2]]
+                    }
+                };
+                last = Some((at(w as usize / 2, h as usize / 2), at(2, 2)));
+            }
+        }
+        last.expect("no frame came out")
+    }
+
+    /// A cut-in holds the old picture darkened, shows the cover in the band over its middle and
+    /// then the new scene, and holds nothing when it is over.
+    #[test]
+    fn a_cutin_shows_the_cover_in_a_band_then_the_new_scene() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let white = load_plain(&mut pipeline, "cutin-white", 1.0);
+        pipeline.install(white).unwrap();
+        pipeline.set_playing_cover(Some(solid_cover([255, 0, 0])));
+        let grey = load_plain(&mut pipeline, "cutin-grey", 0.2);
+        let durations = Durations {
+            out: 0.5,
+            into: 0.05,
+        };
+        let style = CutInStyle::Halftone;
+        pipeline
+            .switch_to(grey, Transition::CutIn(style), durations)
+            .unwrap();
+        // The name is the new scene's at once; the old one draws until the picture is held.
+        assert_eq!(pipeline.preset_name(), "cutin-grey");
+        assert_eq!(pipeline.scene.name, "cutin-white");
+        // The first frame holds the old picture, whole.
+        let (middle, corner) = probes(&mut pipeline, 0.0);
+        assert!(middle.iter().all(|&c| c > 250), "{middle:?}");
+        assert!(corner.iter().all(|&c| c > 250), "{corner:?}");
+        // In the hold the new scene is in, the band shows the cover over the middle and the
+        // old picture is dark around it.
+        let (middle, corner) = probes(&mut pipeline, 0.3);
+        assert_eq!(pipeline.scene.name, "cutin-grey");
+        assert!(
+            middle[0] > 200 && middle[1] < 60 && middle[2] < 60,
+            "{middle:?}"
+        );
+        assert!(corner.iter().all(|&c| (50..110).contains(&c)), "{corner:?}");
+        // Torn away: the new scene, and nothing held.
+        let (middle, corner) = probes(&mut pipeline, 0.7);
+        assert!(
+            middle.iter().all(|&c| (115..135).contains(&c)),
+            "{middle:?}"
+        );
+        assert!(
+            corner.iter().all(|&c| (115..135).contains(&c)),
+            "{corner:?}"
+        );
+        assert!(pipeline.transitions.running.is_none());
+        assert!(!pipeline.transitions.holds_textures());
+    }
+
+    /// The frames of a cut-in over two built-in scenes, as a contact sheet per style (with a
+    /// cover and without one) in `$CUTIN_FRAMES` (default: the temp dir), to look at once.
+    #[test]
+    #[ignore = "writes images, run by hand"]
+    fn dump_cutin_frames() {
+        let _turn = serial();
+        let dir = std::env::var_os("CUTIN_FRAMES")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        let (w, h) = (960u32, 540u32);
+        let cover = image::RgbaImage::from_fn(256, 256, |x, y| {
+            let (fx, fy) = (x as f32 / 255.0, y as f32 / 255.0);
+            let ring = ((fx - 0.5).hypot(fy - 0.5) * 18.0).sin() * 0.5 + 0.5;
+            image::Rgba([
+                (255.0 * (0.25 + 0.7 * fx)) as u8,
+                (255.0 * (0.15 + 0.5 * ring * (1.0 - fy))) as u8,
+                (255.0 * (0.3 + 0.6 * fy)) as u8,
+                255,
+            ])
+        });
+        let runs = [
+            ("streaks", CutInStyle::Streaks, true),
+            ("halftone", CutInStyle::Halftone, true),
+            ("echo", CutInStyle::Echo, true),
+            ("streaks-nocover", CutInStyle::Streaks, false),
+        ];
+        // The first frame holds the picture; the cut-in starts in the second, at 1 s.
+        let start = 1.0;
+        let offsets = [
+            0.0, 0.017, 0.034, 0.05, 0.1, 0.25, 0.45, 0.534, 0.55, 0.567, 0.584, 0.62,
+        ];
+        for (label, style, with_cover) in runs {
+            let Ok(mut pipeline) = Pipeline::new(
+                w,
+                h,
+                44_100,
+                true,
+                None,
+                None,
+                Arc::new(|e| panic!("GPU error: {e}")),
+                #[cfg(target_os = "android")]
+                None,
+            ) else {
+                eprintln!("SKIPPED: no GPU adapter");
+                return;
+            };
+            pipeline.set_accent(Some([0.05, 0.35, 0.9]));
+            if with_cover {
+                pipeline.set_playing_cover(Some(Arc::new(Cell::new(Some(&cover)))));
+            }
+            pipeline.load_builtin_scene("Armillary").unwrap();
+            let next = pipeline
+                .scene_build_builtin("Growth")
+                .unwrap()
+                .run()
+                .unwrap();
+            let durations = Durations {
+                out: 0.034 + 0.5,
+                into: 0.05,
+            };
+            pipeline
+                .switch_to(next, Transition::CutIn(style), durations)
+                .unwrap();
+            let mut times = vec![start - 0.1];
+            times.extend(offsets.iter().map(|o| start + o));
+            let mut frames: Vec<Vec<u8>> = Vec::new();
+            let render = |pipeline: &mut Pipeline, time: f64| -> Option<Vec<u8>> {
+                let rgba = if let Rendered::Mapped(frame) = pipeline.render(time).unwrap() {
+                    let mut rgba = Vec::new();
+                    for y in 0..h as usize {
+                        for px in frame.bytes()[y * frame.stride()..][..w as usize * 4].chunks(4) {
+                            let (r, b) = if cfg!(target_vendor = "apple") {
+                                (px[2], px[0])
+                            } else {
+                                (px[0], px[2])
+                            };
+                            rgba.extend_from_slice(&[r, px[1], b, 255]);
+                        }
+                    }
+                    Some(rgba)
+                } else {
+                    None
+                };
+                pipeline
+                    .device
+                    .poll(wgpu::PollType::Wait {
+                        submission_index: None,
+                        timeout: None,
+                    })
+                    .unwrap();
+                rgba
+            };
+            for &time in &times {
+                frames.extend(render(&mut pipeline, time));
+            }
+            for _ in 0..50 {
+                frames.extend(render(&mut pipeline, *times.last().unwrap()));
+                if frames.len() >= times.len() {
+                    break;
+                }
+            }
+            assert!(frames.len() >= times.len(), "frames did not come out");
+            let (tw, th) = (w / 2, h / 2);
+            let columns = 4;
+            let rows = times.len().div_ceil(columns) as u32;
+            let mut sheet = image::RgbaImage::new(tw * columns as u32, th * rows);
+            for (i, rgba) in frames.into_iter().take(times.len()).enumerate() {
+                let tile = image::imageops::resize(
+                    &image::RgbaImage::from_raw(w, h, rgba).unwrap(),
+                    tw,
+                    th,
+                    image::imageops::FilterType::Triangle,
+                );
+                image::imageops::replace(
+                    &mut sheet,
+                    &tile,
+                    i64::from(tw) * (i % columns) as i64,
+                    i64::from(th) * (i / columns) as i64,
+                );
+            }
+            let path = dir.join(format!("cutin-{label}.png"));
+            sheet.save(&path).unwrap();
+            println!("{}", path.display());
+        }
     }
 
     /// A newer switch replaces a scene that still waits, and cuts in over one that is in.
