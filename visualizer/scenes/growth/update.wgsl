@@ -130,6 +130,17 @@ fn choose_theme(by_section: bool) {
   state.last_theme = frame.time;
 }
 
+// The layers whose middle the tip grew past, from `below` to `above`, take how full the music is
+// now: a layer keeps it once grown, as its plates never change.
+fn remember_fill(below: f32, above: f32, fill: f32) {
+  let first = floor(below / CELL.y - 0.5) + 1.0;
+  let last = min(floor(above / CELL.y - 0.5), first + f32(FILL_LAYERS) - 1.0);
+  for (var y = first; y <= last; y += 1.0) {
+    let i = fill_slot(y);
+    state.fills[i / 4u][i % 4u] = fill;
+  }
+}
+
 fn update() {
   let dt = rv_dt();
   let t = frame.time;
@@ -138,6 +149,10 @@ fn update() {
     state.top_to = 40.0;
     state.lens = 1.0;
     state.per_beat = params.grow;
+    // The tower that stands at the start is as full as the plates' density says.
+    for (var i = 0; i < FILL_LAYERS / 4; i += 1) {
+      state.fills[i] = vec4f(1.0);
+    }
     state.azimuth = random(4u) * 6.283;
     choose_view();
     choose_theme(false);
@@ -175,6 +190,7 @@ fn update() {
     let step = max(round(state.per_beat * boost), 1.0) * CELL.y;
     state.top_prev = state.top_to;
     state.top_to += step;
+    remember_fill(state.top_prev, state.top_to, input.fill);
     state.since_beat = 0.0;
   }
   state.since_beat += dt;
@@ -229,7 +245,8 @@ fn update() {
   state.aim += (state.aim_to - state.aim) * ease;
   state.tilt += (state.tilt_to - state.tilt) * ease;
   state.spin += (state.spin_to - state.spin) * ease;
-  state.azimuth += dt * state.spin * (0.6 + 0.4 * pace);
+  // It circles at the tempo while the music is heard, and comes to rest in silence.
+  state.azimuth += dt * state.spin * (0.6 + 0.4 * pace) * input.audible;
 
   // The camera rises after the tip, a little behind, so every beat's growth runs ahead of it,
   // looking up the tower's body towards the tip.

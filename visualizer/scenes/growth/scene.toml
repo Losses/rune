@@ -145,6 +145,17 @@ id = "kick"
 label = "The kick"
 
 [[input]]
+id = "audible"
+label = "How much is heard (falling with a fade, 0 in silence)"
+rest = 1.0
+
+[[input]]
+id = "fill"
+label = "How full a new layer is, by the energy"
+range = [0.0, 2.0]
+rest = 1.0
+
+[[input]]
 id = "theme_pick"
 label = "The white-light theme, by section (-1: none)"
 range = [-1.0, 4.0]
@@ -233,6 +244,21 @@ target = "kick"
 source = "low"
 how = "follow"
 when = { clamp = false, to = [0.0, 1.0] }
+
+# The camera circles at the tempo while the music is heard: it slows with the song's own fade
+# and stops in silence, smoothed over half a beat so that it does not twitch.
+[[bind]]
+target = "audible"
+source = "audible"
+how = "follow"
+when = { smooth = 0.5 }
+
+# How full the layers that grow now are: a loud passage lays more plates, a quiet one fewer.
+[[bind]]
+target = "fill"
+source = "intensity"
+how = "follow"
+when = { to = [0.5, 1.25] }
 
 [[bind]]
 target = "theme_pick"

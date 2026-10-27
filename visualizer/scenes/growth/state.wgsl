@@ -43,6 +43,9 @@ struct State {
   theme_mix: f32,
   theme_next: f32,
   last_theme: f32,
+  // How full each layer is (the `fill` when the tip grew past its middle), four layers to an
+  // element, the layer's index going round `FILL_LAYERS`.
+  fills: array<vec4f, 64>,
   // The colours now: the last theme fading into the next, in the player's colour if it follows
   // it (see update).
   theme: Theme,
@@ -50,6 +53,20 @@ struct State {
 
 // The grid the plates sit on: one plate at most in each cell.
 const CELL: vec3f = vec3f(1.6, 0.9, 1.6);
+
+// How many layers keep their own fullness (`fills`): far more than are ever in view.
+const FILL_LAYERS: i32 = 256;
+
+// Where layer y (its index) keeps its fullness in `fills`.
+fn fill_slot(y: f32) -> u32 {
+  return u32(((i32(y) % FILL_LAYERS) + FILL_LAYERS) % FILL_LAYERS);
+}
+
+// How full layer y is, as the music was when it grew: it scales how many plates it lays.
+fn layer_fill(y: f32) -> f32 {
+  let i = fill_slot(y);
+  return state.fills[i / 4u][i % 4u];
+}
 
 fn hash(p: vec2f) -> f32 {
   var p3 = fract(vec3f(p.x, p.y, p.x) * 0.1031);
