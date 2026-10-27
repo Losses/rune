@@ -786,7 +786,7 @@ fn sky(d: vec3f, l: Light) -> vec3f {
 // lanterns down the line answer different parts of the music.
 fn lantern_glow(i: f32, l: Light) -> f32 {
   let band = clamp(band(u32(abs(i)) % 3u) / 1.5, 0.0, 1.0);
-  return params.lanterns * mix(1.0, 1.6, l.night) * (0.6 + 1.0 * music.intensity) * (0.6 + 0.8 * band);
+  return params.lanterns * mix(1.0, 1.6, l.night) * (0.6 + 1.0 * input.intensity) * (0.6 + 0.8 * band);
 }
 
 const LANTERN: vec3f = vec3f(1.0, 0.52, 0.2);

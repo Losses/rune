@@ -37,14 +37,12 @@ struct State {
   light_mix: f32,
   light_next: f32,
   last_light: f32,
+  // What the music last said of the light and pattern (the kind of section) and of the light's turns.
+  light_seen: f32,
+  pattern_seen: f32,
+  turn_seen: f32,
   // The beat: torii passed per beat.
   per_beat: f32,
-  // The light and the pattern the music last said, and the turn that makes the first of each the
-  // one the scene began with (the music's numbers say which kind of section, not which look).
-  light_seen: f32,
-  light_off: f32,
-  pattern_seen: f32,
-  pattern_off: f32,
   // The spirits: the beat's surge, the snare's flick, a leap into the sky (its phase, 0 to 1, and strength), how they move (0 braid,
   // 1 snake, 2 fan), when that last changed, and how many fly.
   surge: f32,
@@ -135,7 +133,7 @@ fn themed(c: vec3f, chroma: f32) -> vec3f {
 
 // The live level of band i (0 low, 1 mid, 2 high) from the runtime, about 1 on average.
 fn band(i: u32) -> f32 {
-  return select(select(music.band_low, music.band_mid, i == 1u), music.band_high, i == 2u);
+  return select(select(input.band_low, input.band_mid, i == 1u), input.band_high, i == 2u);
 }
 
 fn hash(p: vec2f) -> f32 {
