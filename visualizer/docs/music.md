@@ -402,7 +402,7 @@ effects = ["fade", "dissolve", "flash", "glitch", "flare", "leak"]
 
 ### Transitions (`src/transition.rs`, `transition.wgsl`)
 
-One transition layer serves the switch from one scene to the next and a cut inside a scene. A switch keeps the old picture (or draws the old scene live for a fade or a flash) and combines it with the new scene; a dressed cut keeps the frame before the cut and plays its course over the scene drawing on after it, with half the durations of a switch so that it stays on the beat. Durations are in beats while the beat is followed: a fade 1 beat out and 1 in, a dissolve 2 beats, a flash 1 beat up and 2 down (the new scene goes in at the peak), a mosaic 1 beat, a glitch 0.15 s, a cut-in a band of two frames, a beat of hold and a tear of three frames. A switch that knows its section start (`cue_in`) starts early, so that the new scene shows on it.
+One transition layer serves the switch from one scene to the next and a cut inside a scene. A switch keeps the old picture (or draws the old scene live for a fade or a flash) and combines it with the new scene; a dressed cut keeps the frame before the cut and plays its course over the scene drawing on after it, with half the durations of a switch so that it stays on the beat. Durations are in beats while the beat is followed: a fade 1 beat out and 1 in, a dissolve 2 beats, a flash 1 beat up and 2 down (the new scene goes in at the peak), a mosaic 1 beat, a glitch 0.15 s, a cut-in a band of four frames and a beat of hold over the old scene, which plays on, then a tear of six frames as the new scene goes in. A switch that knows its section start (`cue_in`) starts early, so that the new scene shows on it.
 
 ### Lens effects in the post-processing (`scene/lens.rs`, `post.wgsl`)
 

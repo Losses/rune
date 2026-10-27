@@ -14,7 +14,7 @@
 
 use std::cell::Cell;
 
-use crate::covers::{CELL, Cell as CoverCell};
+use crate::covers::{Cell as CoverCell, SHARP};
 use crate::scene::Scene;
 
 /// The pass and, appended, the cut-in it draws for one of its kinds.
@@ -32,8 +32,8 @@ pub enum Transition {
     Fade,
     /// The old scene's last picture dissolves into the new scene as it draws.
     Dissolve,
-    /// A band cuts in across the frozen old picture, shows the cover of the song playing and
-    /// tears away to the new scene (see [`CutInStyle`] for the accents).
+    /// A torn band slashes across the old scene, which plays on behind it, shows the cover of
+    /// the song playing, and rips apart to the new scene (see [`CutInStyle`] for the accents).
     CutIn(CutInStyle),
     /// The old scene's exposure and bloom rise until the screen is flooded with a light tint of
     /// the theme colour; the new scene comes back out of it.
@@ -63,7 +63,8 @@ impl Transition {
     }
 
     /// Whether it goes out and in with the old scene still drawing live (a fade, a flash), as
-    /// against holding the old picture and playing over the new scene (the others).
+    /// against holding the old picture and playing over the new scene (a dissolve, a glitch, a
+    /// mosaic) or drawing over the old scene live until it tears to the new one (a cut-in).
     pub fn goes_out_and_in(self) -> bool {
         matches!(self, Self::Fade | Self::Flash)
     }
@@ -132,17 +133,18 @@ pub fn label_hash(label: f32) -> u32 {
     x ^ (x >> 16)
 }
 
-/// How long the band takes to open at the start of a cut-in: two frames at 60 fps.
-pub const CUTIN_BAND_SECONDS: f64 = 2.0 / 60.0;
+/// How long the band takes to open at the start of a cut-in: four frames at 60 fps (the slash
+/// in two, the band bursting open in two).
+pub const CUTIN_BAND_SECONDS: f64 = 4.0 / 60.0;
 /// The shortest the band holds before it tears, in seconds.
 pub const CUTIN_MIN_HOLD_SECONDS: f64 = 0.1;
 
 /// How long a transition takes, in seconds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Durations {
-    /// A fade or a flash: the old scene on its way out. A cut-in: the band opening and holding,
-    /// up to the moment it starts to tear (so the new scene shows from there). The others do
-    /// not use it.
+    /// A fade or a flash: the old scene on its way out. A cut-in: the band opening and holding
+    /// over the old scene, up to the moment it starts to tear (the new scene goes in there).
+    /// The others do not use it.
     pub out: f64,
     /// A fade: the new scene fading in. A dissolve, a glitch, a mosaic: the whole of it. A
     /// cut-in: the band tearing away.
@@ -195,7 +197,7 @@ pub fn dissolve_progress(seconds: f64, duration: f64) -> f32 {
     }
 }
 
-/// Where a cut-in is, `seconds` after the new scene went in.
+/// Where a cut-in is, `seconds` after it started.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CutInFrame {
     pub style: CutInStyle,
@@ -205,14 +207,25 @@ pub struct CutInFrame {
     pub tear: f32,
 }
 
-/// The cut-in of `out` seconds up to the tear and `into` seconds of tearing, `seconds` after the
-/// new scene went in; none once it is over.
+impl CutInFrame {
+    /// Whether the band is tearing: the new scene is in from this frame on, the old one drew
+    /// until the frame before. The pass is told so rather than working it out, so that the two
+    /// cannot disagree.
+    pub fn tearing(&self) -> bool {
+        self.seconds >= CUTIN_BAND_SECONDS as f32 + self.hold
+    }
+}
+
+/// The cut-in of `out` seconds up to the tear and `into` seconds of tearing, `seconds` after it
+/// started; none once it is over. An `out` too short for the band to hold a moment is made
+/// longer.
 pub fn cutin_frame(seconds: f64, out: f64, into: f64, style: CutInStyle) -> Option<CutInFrame> {
     let seconds = seconds.max(0.0);
-    (seconds < out + into).then(|| CutInFrame {
+    let hold = (out - CUTIN_BAND_SECONDS).max(CUTIN_MIN_HOLD_SECONDS);
+    (seconds < CUTIN_BAND_SECONDS + hold + into).then_some(CutInFrame {
         style,
         seconds: seconds as f32,
-        hold: (out - CUTIN_BAND_SECONDS).max(CUTIN_MIN_HOLD_SECONDS) as f32,
+        hold: hold as f32,
         tear: into as f32,
     })
 }
@@ -314,7 +327,8 @@ pub enum Plan {
     Capture,
     /// A dissolve: `progress` (0 to 1) of the way from the held picture to the scene's frame.
     Dissolve(f32),
-    /// A cut-in over the held picture, with the new scene's frame to reveal.
+    /// A cut-in over the scene's frame: the old scene's until the band tears, then the new
+    /// one's.
     CutIn(CutInFrame),
     /// A glitch of the held picture into the scene's frame, `progress` (0 to 1) of the way, from
     /// the pattern `seed` makes.
@@ -367,7 +381,7 @@ impl Plan {
     fn needs_held(self) -> bool {
         !matches!(
             self,
-            Self::None | Self::Fade(_) | Self::Flash(_) | Self::Punch(_)
+            Self::None | Self::Fade(_) | Self::Flash(_) | Self::Punch(_) | Self::CutIn(_)
         )
     }
 }
@@ -448,8 +462,9 @@ pub struct Transitions {
     layout: wgpu::BindGroupLayout,
     uniform: wgpu::Buffer,
     format: wgpu::TextureFormat,
-    /// The cover of the song playing, as the bytes of its cell (not decoded from sRGB, since the
-    /// frames are blended as bytes), for the band of a cut-in.
+    /// The cover of the song playing, as the bytes of its sharp copy (not decoded from sRGB,
+    /// since the frames are blended as bytes), for the band of a cut-in. A pixel until there is
+    /// a cover, so that no cover costs nothing.
     cover: wgpu::Texture,
     cover_view: wgpu::TextureView,
     has_cover: bool,
@@ -559,22 +574,9 @@ impl Transitions {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let cover = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("transition cover"),
-            size: wgpu::Extent3d {
-                width: CELL,
-                height: CELL,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        let cover = cover_texture(device, 1);
         let cover_view = cover.create_view(&Default::default());
-        // The cover pans past the edge of its cell while the band holds: mirrored there.
+        // The cover pans past its edge while the band holds: mirrored there.
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("transition cover"),
             address_mode_u: wgpu::AddressMode::MirrorRepeat,
@@ -602,32 +604,96 @@ impl Transitions {
         }
     }
 
-    /// The cover of the song playing for the band of a cut-in (none: the band shows a crop of the
-    /// new scene).
-    pub fn set_cover(&mut self, queue: &wgpu::Queue, cell: Option<&CoverCell>) {
+    /// The cover of the song playing for the band of a cut-in, from its sharp copy (none: the
+    /// band shows a close crop of the old scene in the theme colour).
+    pub fn set_cover(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        cell: Option<&CoverCell>,
+    ) {
         self.has_cover = cell.is_some_and(|cell| cell.has_cover);
-        if let Some(cell) = cell.filter(|cell| cell.has_cover) {
-            queue.write_texture(
-                self.cover.as_image_copy(),
-                &cell.rgba,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(CELL * 4),
-                    rows_per_image: Some(CELL),
-                },
-                wgpu::Extent3d {
-                    width: CELL,
-                    height: CELL,
-                    depth_or_array_layers: 1,
-                },
-            );
+        let Some(cell) = cell.filter(|cell| cell.has_cover) else {
+            return;
+        };
+        if self.cover.width() != SHARP {
+            self.cover = cover_texture(device, SHARP);
+            self.cover_view = self.cover.create_view(&Default::default());
+            // The textures of a transition under way (or of one kept for a dressed cut) are
+            // bound with the pixel; they are bound again with the cover.
+            let group = self
+                .targets
+                .as_ref()
+                .map(|targets| self.bind(device, &targets.fresh.1, targets.held.as_ref()));
+            if let (Some(targets), Some(group)) = (&mut self.targets, group) {
+                targets.group = group;
+            }
         }
+        queue.write_texture(
+            self.cover.as_image_copy(),
+            &cell.sharp,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(SHARP * 4),
+                rows_per_image: Some(SHARP),
+            },
+            wgpu::Extent3d {
+                width: SHARP,
+                height: SHARP,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    /// The bind group of the pass over `fresh` and `held` (none: `fresh` is bound for both).
+    fn bind(
+        &self,
+        device: &wgpu::Device,
+        fresh: &wgpu::TextureView,
+        held: Option<&(wgpu::Texture, wgpu::TextureView)>,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("transition"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(fresh),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(
+                        held.map_or(fresh, |held| &held.1),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&self.cover_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        })
     }
 
     /// Whether any texture is held (none should be once a transition is over).
     #[cfg(test)]
     pub fn holds_textures(&self) -> bool {
         self.targets.is_some()
+    }
+
+    /// Whether a picture is held besides the scene's frame.
+    #[cfg(test)]
+    pub fn has_held(&self) -> bool {
+        self.targets
+            .as_ref()
+            .is_some_and(|targets| targets.held.is_some())
     }
 
     /// Whether the picture of a dissolve was held (see [`Plan::Capture`]).
@@ -681,34 +747,7 @@ impl Transitions {
         };
         let fresh = make("transition fresh");
         let held = needs_held.then(|| make("transition held"));
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("transition"),
-            layout: &self.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.uniform.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&fresh.1),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(
-                        &held.as_ref().unwrap_or(&fresh).1,
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&self.cover_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
+        let group = self.bind(device, &fresh.1, held.as_ref());
         self.targets = Some(Targets {
             size,
             fresh,
@@ -813,7 +852,7 @@ impl Transitions {
                 params.extra = [
                     frame.style.index(),
                     f32::from(u8::from(self.has_cover)),
-                    0.0,
+                    f32::from(u8::from(frame.tearing())),
                     0.0,
                 ];
                 let accent = accent.unwrap_or(FALLBACK_ACCENT).map(encode_srgb);
@@ -851,6 +890,24 @@ impl Transitions {
         pass.set_bind_group(0, &targets.group, &[]);
         pass.draw(0..3, 0..1);
     }
+}
+
+/// The texture of the cover for a cut-in's band, `side` by `side`.
+fn cover_texture(device: &wgpu::Device, side: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("transition cover"),
+        size: wgpu::Extent3d {
+            width: side,
+            height: side,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    })
 }
 
 /// `kind` in `transition.wgsl`.
@@ -906,8 +963,8 @@ struct Params {
     /// A cut-in: seconds since it started, how long the band opens, holds and tears. A punch: the
     /// side of its smear in the first.
     cutin: [f32; 4],
-    /// A cut-in: the style, whether the band shows a cover. A punch: the scale, the smear, the
-    /// colour split and the flash.
+    /// A cut-in: the style, whether the band shows a cover, whether it tears (the frame is the
+    /// new scene's). A punch: the scale, the smear, the colour split and the flash.
     extra: [f32; 4],
 }
 
@@ -974,14 +1031,17 @@ mod tests {
     #[test]
     fn a_cutin_runs_until_its_tear_is_over() {
         let style = CutInStyle::Echo;
-        // 0.5 s up to the tear, 0.05 s of tearing: the band opens in the first two frames and
-        // holds for the rest of the 0.5 s.
+        // 0.5 s up to the tear, 0.05 s of tearing: the band opens in the first four frames and
+        // holds for the rest of the 0.5 s, then tears.
         let frame = cutin_frame(0.25, 0.5, 0.05, style).unwrap();
         assert_eq!(
             (frame.style, frame.seconds, frame.tear),
             (style, 0.25, 0.05)
         );
         assert!((f64::from(frame.hold) - (0.5 - CUTIN_BAND_SECONDS)).abs() < 1e-6);
+        assert!(!frame.tearing());
+        assert!(!cutin_frame(0.499, 0.5, 0.05, style).unwrap().tearing());
+        assert!(cutin_frame(0.501, 0.5, 0.05, style).unwrap().tearing());
         assert!(cutin_frame(0.549, 0.5, 0.05, style).is_some());
         assert_eq!(cutin_frame(0.55, 0.5, 0.05, style), None);
         // Before the start counts as the start.
@@ -989,6 +1049,14 @@ mod tests {
         // A cut-in that gives no time for the band to hold still holds a moment.
         let short = cutin_frame(0.0, 0.01, 0.05, style).unwrap();
         assert!(f64::from(short.hold) >= CUTIN_MIN_HOLD_SECONDS);
+        // And it still tears for the whole of its time.
+        let tear_starts = CUTIN_BAND_SECONDS + CUTIN_MIN_HOLD_SECONDS;
+        assert!(
+            cutin_frame(tear_starts + 0.04, 0.01, 0.05, style)
+                .unwrap()
+                .tearing()
+        );
+        assert_eq!(cutin_frame(tear_starts + 0.051, 0.01, 0.05, style), None);
         let none = Durations {
             out: 0.0,
             into: 0.0,

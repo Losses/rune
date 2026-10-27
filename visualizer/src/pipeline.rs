@@ -627,8 +627,6 @@ impl Pipeline {
             Transition::Dissolve | Transition::Glitch | Transition::Mosaic => {
                 f64::from(dissolve_progress(seconds, into))
             }
-            // The new scene goes in with the first frame of the band, which sets the start.
-            Transition::CutIn(_) if running.pending.is_some() => 0.0,
             Transition::CutIn(_) => (seconds / (out + into).max(f64::EPSILON)).clamp(0.0, 1.0),
         };
         Some((running.kind, progress as f32))
@@ -880,7 +878,8 @@ impl Pipeline {
     pub fn set_playing_cover(&mut self, cell: Option<Arc<Cell>>) {
         self.scene
             .set_playing_cover(&self.device, &self.queue, cell.clone());
-        self.transitions.set_cover(&self.queue, cell.as_deref());
+        self.transitions
+            .set_cover(&self.device, &self.queue, cell.as_deref());
         self.playing_cover = cell;
     }
 
@@ -1047,20 +1046,16 @@ impl Pipeline {
                     }
                 }
             }
-            // Like a dissolve, the old picture is held first; the new scene then draws live
-            // under the band and shows when it tears away.
+            // The old scene plays on behind the band, as the picture behind a cut-in does, and
+            // nothing is held; the new scene goes in with the first frame of the tear, like a
+            // fade's at the black. It is the cheaper way too: one scene draws at a time.
             Transition::CutIn(style) => {
-                if running.pending.is_some() {
-                    if captured {
-                        install = running.pending.take();
-                        running.start = Some(time);
-                        cutin_frame(0.0, out, into, style).map_or(Plan::None, Plan::CutIn)
-                    } else {
-                        Plan::Capture
-                    }
-                } else {
-                    cutin_frame(seconds, out, into, style).map_or(Plan::None, Plan::CutIn)
+                let frame = cutin_frame(seconds, out, into, style);
+                // Also when a long frame skipped the whole of it.
+                if frame.is_none_or(|frame| frame.tearing()) {
+                    install = running.pending.take();
                 }
+                frame.map_or(Plan::None, Plan::CutIn)
             }
         };
         if let Some(scene) = install
@@ -1559,7 +1554,7 @@ fn dress_cut(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transition::CutInStyle;
+    use crate::transition::{CUTIN_BAND_SECONDS, CutInStyle};
 
     /// Pipelines build the default scene, and the driver loses the device (an unexplained
     /// error) when several do so at once, so the tests that make one take turns.
@@ -1822,10 +1817,10 @@ mod tests {
         last.expect("no frame came out")
     }
 
-    /// A cut-in holds the old picture darkened, shows the cover in the band over its middle and
-    /// then the new scene, and holds nothing when it is over.
+    /// A cut-in draws its band over the old scene, which plays on darkened, shows the cover in
+    /// the band over its middle, puts the new scene in with the tear, and holds nothing.
     #[test]
-    fn a_cutin_shows_the_cover_in_a_band_then_the_new_scene() {
+    fn a_cutin_shows_the_cover_in_a_band_over_the_old_scene_then_the_new_scene() {
         let _turn = serial();
         let Some(mut pipeline) = test_pipeline() else {
             return;
@@ -1836,28 +1831,34 @@ mod tests {
         let grey = load_plain(&mut pipeline, "cutin-grey", 0.2);
         let durations = Durations {
             out: 0.5,
-            into: 0.05,
+            into: 0.1,
         };
         let style = CutInStyle::Halftone;
         pipeline
             .switch_to(grey, Transition::CutIn(style), durations)
             .unwrap();
-        // The name is the new scene's at once; the old one draws until the picture is held.
+        // The name is the new scene's at once; the old one draws until the band tears.
         assert_eq!(pipeline.preset_name(), "cutin-grey");
         assert_eq!(pipeline.scene.name, "cutin-white");
-        // The first frame holds the old picture, whole.
-        let (middle, corner) = probes(&mut pipeline, 0.0);
-        assert!(middle.iter().all(|&c| c > 250), "{middle:?}");
+        // The first frame is the old scene, whole away from the slash.
+        let (_, corner) = probes(&mut pipeline, 0.0);
         assert!(corner.iter().all(|&c| c > 250), "{corner:?}");
-        // In the hold the new scene is in, the band shows the cover over the middle and the
-        // old picture is dark around it.
+        // In the hold the old scene still draws, dark around the band, which shows the cover
+        // over the middle; nothing is held.
         let (middle, corner) = probes(&mut pipeline, 0.3);
-        assert_eq!(pipeline.scene.name, "cutin-grey");
+        assert_eq!(pipeline.scene.name, "cutin-white");
         assert!(
             middle[0] > 200 && middle[1] < 60 && middle[2] < 60,
             "{middle:?}"
         );
-        assert!(corner.iter().all(|&c| (50..110).contains(&c)), "{corner:?}");
+        assert!(
+            corner.iter().all(|&c| (120..160).contains(&c)),
+            "{corner:?}"
+        );
+        assert!(!pipeline.transitions.has_held());
+        // The tear: the new scene is in.
+        probes(&mut pipeline, 0.52);
+        assert_eq!(pipeline.scene.name, "cutin-grey");
         // Torn away: the new scene, and nothing held.
         let (middle, corner) = probes(&mut pipeline, 0.7);
         assert!(
@@ -1872,6 +1873,30 @@ mod tests {
         assert!(!pipeline.transitions.holds_textures());
     }
 
+    /// A frame that skips past the whole of a cut-in still puts the new scene in.
+    #[test]
+    fn a_cutin_skipped_by_a_long_frame_still_installs_the_new_scene() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let white = load_plain(&mut pipeline, "skip-white", 1.0);
+        pipeline.install(white).unwrap();
+        let grey = load_plain(&mut pipeline, "skip-grey", 0.2);
+        let durations = Durations {
+            out: 0.5,
+            into: 0.1,
+        };
+        pipeline
+            .switch_to(grey, Transition::CutIn(CutInStyle::default()), durations)
+            .unwrap();
+        probes(&mut pipeline, 0.0);
+        assert_eq!(pipeline.scene.name, "skip-white");
+        probes(&mut pipeline, 5.0);
+        assert_eq!(pipeline.scene.name, "skip-grey");
+        assert!(pipeline.transitions.running.is_none());
+    }
+
     /// The frames of a cut-in over two built-in scenes, as a contact sheet per style (with a
     /// cover and without one) in `$CUTIN_FRAMES` (default: the temp dir), to look at once.
     #[test]
@@ -1881,7 +1906,7 @@ mod tests {
         let dir = std::env::var_os("CUTIN_FRAMES")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(std::env::temp_dir);
-        let (w, h) = (960u32, 540u32);
+        let (w, h) = (1280u32, 720u32);
         let cover = image::RgbaImage::from_fn(256, 256, |x, y| {
             let (fx, fy) = (x as f32 / 255.0, y as f32 / 255.0);
             let ring = ((fx - 0.5).hypot(fy - 0.5) * 18.0).sin() * 0.5 + 0.5;
@@ -1898,11 +1923,18 @@ mod tests {
             ("echo", CutInStyle::Echo, true),
             ("streaks-nocover", CutInStyle::Streaks, false),
         ];
-        // The first frame holds the picture; the cut-in starts in the second, at 1 s.
+        // The cut-in starts with the first frame, at 1 s, and is drawn frame by frame at 60 fps
+        // through the slash and the opening, twice in the hold (the second with the glint),
+        // and frame by frame through the tear.
         let start = 1.0;
-        let offsets = [
-            0.0, 0.017, 0.034, 0.05, 0.1, 0.25, 0.45, 0.534, 0.55, 0.567, 0.584, 0.62,
-        ];
+        let hold = 0.5;
+        let frame = 1.0 / 60.0;
+        let tear = CUTIN_BAND_SECONDS + hold;
+        let offsets: Vec<f64> = (0..7)
+            .map(|i| f64::from(i) * frame)
+            .chain([0.25, CUTIN_BAND_SECONDS + 0.7 * hold])
+            .chain((0..7).map(|i| tear + f64::from(i) * frame))
+            .collect();
         for (label, style, with_cover) in runs {
             let Ok(mut pipeline) = Pipeline::new(
                 w,
@@ -1923,18 +1955,18 @@ mod tests {
                 pipeline.set_playing_cover(Some(Arc::new(Cell::new(Some(&cover)))));
             }
             pipeline.load_builtin_scene("Armillary").unwrap();
-            let next = pipeline
-                .scene_build_builtin("Growth")
-                .unwrap()
-                .run()
-                .unwrap();
+            let mut next = Some(
+                pipeline
+                    .scene_build_builtin("Growth")
+                    .unwrap()
+                    .run()
+                    .unwrap(),
+            );
             let durations = Durations {
-                out: 0.034 + 0.5,
-                into: 0.05,
+                out: CUTIN_BAND_SECONDS + hold,
+                into: crate::switching::CUTIN_TEAR_SECONDS,
             };
-            pipeline
-                .switch_to(next, Transition::CutIn(style), durations)
-                .unwrap();
+            // A frame of the old scene before, then the cut-in.
             let mut times = vec![start - 0.1];
             times.extend(offsets.iter().map(|o| start + o));
             let mut frames: Vec<Vec<u8>> = Vec::new();
@@ -1964,7 +1996,12 @@ mod tests {
                     .unwrap();
                 rgba
             };
-            for &time in &times {
+            for (i, &time) in times.iter().enumerate() {
+                if i == 1 {
+                    pipeline
+                        .switch_to(next.take().unwrap(), Transition::CutIn(style), durations)
+                        .unwrap();
+                }
                 frames.extend(render(&mut pipeline, time));
             }
             for _ in 0..50 {
@@ -1995,6 +2032,88 @@ mod tests {
             let path = dir.join(format!("cutin-{label}.png"));
             sheet.save(&path).unwrap();
             println!("{}", path.display());
+        }
+    }
+
+    /// What the pass of a cut-in costs at 1080p, in the hold and in the tear (the frame of the
+    /// tear with the most splinters), by the wall time of many passes in one submission, printed.
+    #[test]
+    #[ignore = "measures, run by hand"]
+    fn time_cutin_pass() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let cover = image::RgbaImage::from_pixel(64, 64, image::Rgba([200, 60, 90, 255]));
+        pipeline.set_playing_cover(Some(Arc::new(Cell::new(Some(&cover)))));
+        let size = (1920, 1080);
+        let output = pipeline.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("cut-in timing"),
+            size: wgpu::Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: pipeline.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = output.create_view(&Default::default());
+        let wait = |device: &wgpu::Device| {
+            device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: None,
+                })
+                .unwrap();
+        };
+        let hold = 0.5;
+        let tear = CUTIN_BAND_SECONDS + hold;
+        for (label, style, seconds) in [
+            ("nothing (a fade of 0)", None, 0.0),
+            ("hold, speed lines", Some(CutInStyle::Streaks), 0.2),
+            ("hold, echo", Some(CutInStyle::Echo), 0.2),
+            (
+                "tear, frame 1",
+                Some(CutInStyle::Streaks),
+                tear + 1.0 / 60.0,
+            ),
+        ] {
+            let plan = match style {
+                Some(style) => Plan::CutIn(
+                    cutin_frame(seconds, tear, switching::CUTIN_TEAR_SECONDS, style).unwrap(),
+                ),
+                None => Plan::Fade(0.0),
+            };
+            pipeline.transitions.prepare(&pipeline.device, size, plan);
+            let passes = 200;
+            let run = |passes: u32| {
+                let mut encoder = pipeline.device.create_command_encoder(&Default::default());
+                for _ in 0..passes {
+                    pipeline.transitions.composite(
+                        &pipeline.queue,
+                        &mut encoder,
+                        &view,
+                        (plan, [0.8; 3]),
+                        Some([0.05, 0.35, 0.9]),
+                        None,
+                    );
+                }
+                let started = std::time::Instant::now();
+                pipeline.queue.submit([encoder.finish()]);
+                wait(&pipeline.device);
+                started.elapsed()
+            };
+            // Once to warm up.
+            run(10);
+            let took = run(passes);
+            println!(
+                "{label}: {:.3} ms a pass",
+                took.as_secs_f64() * 1000.0 / f64::from(passes)
+            );
         }
     }
 

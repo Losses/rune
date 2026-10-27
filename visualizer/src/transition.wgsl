@@ -31,7 +31,8 @@ struct Transition {
   // A cut-in: seconds since it started, the band's opening time, its hold, its tear. A punch:
   // the side of its smear (1 or -1) in x.
   cutin: vec4f,
-  // A cut-in: the style (0 speed lines and glint, 1 halftone, 2 echo), 1 if there is a cover.
+  // A cut-in: the style (0 speed lines and glint, 1 halftone, 2 echo), 1 if there is a cover,
+  // 1 if it tears (the frame is the new scene's from then on, the old one's before).
   // A punch: the scale of the picture, the length of the smear (of the height), the colour
   // split (of the distance from the centre) and the flash towards `color`.
   extra: vec4f,
@@ -40,7 +41,7 @@ struct Transition {
 @group(0) @binding(0) var<uniform> transition: Transition;
 @group(0) @binding(1) var fresh: texture_2d<f32>;
 @group(0) @binding(2) var held: texture_2d<f32>;
-// The cover of the song playing, as bytes.
+// The cover of the song playing, as bytes, for a cut-in.
 @group(0) @binding(3) var cover: texture_2d<f32>;
 @group(0) @binding(4) var cover_sampler: sampler;
 
