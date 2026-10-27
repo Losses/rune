@@ -19,6 +19,9 @@ const KIND_FLASH_HELD: u32 = 6u;
 const KIND_CUTIN: u32 = 7u;
 // The punch on a cut of a burst, over the scene's frame alone.
 const KIND_PUNCH: u32 = 8u;
+// A flash's rise over the scene's frame (KIND_FLASH is its fall; KIND_FLASH_HELD the rise of a
+// dressed cut).
+const KIND_FLASH_RISE: u32 = 9u;
 
 struct Transition {
   kind: u32,
@@ -33,7 +36,8 @@ struct Transition {
   cutin: vec4f,
   // A cut-in: the style (0 speed lines and glint, 1 halftone, 2 echo), 1 if there is a cover.
   // A punch: the scale of the picture, the length of the smear (of the height), the colour
-  // split (of the distance from the centre) and the flash towards `color`.
+  // split (of the distance from the centre) and the flash towards `color`. A flash's rise: the
+  // theme colour at its brightest (display values) and the share of the rise that is the wash.
   extra: vec4f,
 }
 
@@ -81,18 +85,54 @@ fn load_uv(tex: texture_2d<f32>, uv: vec2f) -> vec4f {
   return load(tex, vec2i(floor(uv * size)));
 }
 
+// The colour wash of a flash's rise, after the reference's colour-block frames: the picture stays
+// readable, its luma running from a deep shade of the theme colour `theme` through the colour (most
+// of it) to a near-white tint for the highlights; every channel is held under the flood, so the
+// highlights are the flood's light tint and the rise only gets brighter from here.
+fn wash(c: vec3f, theme: vec3f, flood: vec3f) -> vec3f {
+  let t = clamp(luma(c), 0.0, 1.0);
+  let deep = theme * 0.45;
+  let light = mix(theme, vec3f(1.0), 0.85);
+  let w = mix(mix(deep, theme, smoothstep(0.0, 0.5, t)), light, smoothstep(0.55, 0.95, t));
+  return min(w, flood);
+}
+
+// A pixel of `tex`, `washed` (0 to 1) of the way to its colour wash in `theme` under `flood`.
+fn load_washed(
+  tex: texture_2d<f32>,
+  at: vec2i,
+  washed: f32,
+  theme: vec3f,
+  flood: vec3f,
+) -> vec3f {
+  let c = load(tex, at).rgb;
+  if (washed <= 0.0) {
+    return c;
+  }
+  return mix(c, wash(c, theme, flood), washed);
+}
+
 // A flash at `amount` (0 to 1) over `base`: the exposure rises, the picture blooms, and it goes
 // over into the flood of `flood` so that at 1 nothing of the picture is left. Every channel is
-// held under the flood, which is not full white: the screen never gets brighter than it.
-fn flash(tex: texture_2d<f32>, at: vec2i, amount: f32, flood: vec3f) -> vec3f {
-  let base = load(tex, at).rgb;
+// held under the flood, which is not full white: the screen never gets brighter than it. The
+// picture is first `washed` of the way to its colour wash in `theme`.
+fn flash(
+  tex: texture_2d<f32>,
+  at: vec2i,
+  amount: f32,
+  flood: vec3f,
+  washed: f32,
+  theme: vec3f,
+) -> vec3f {
+  let base = load_washed(tex, at, washed, theme, flood);
   // A ring of taps that grows with the amount.
   let radius = amount * 0.05 * f32(textureDimensions(tex).y);
   var bloom = vec3f(0.0);
   for (var i = 0u; i < 12u; i += 1u) {
     let angle = f32(i) * 2.399963;
     let r = radius * sqrt((f32(i) + 0.5) / 12.0);
-    bloom += load(tex, at + vec2i(vec2f(cos(angle), sin(angle)) * r)).rgb;
+    let tap = at + vec2i(vec2f(cos(angle), sin(angle)) * r);
+    bloom += load_washed(tex, tap, washed, theme, flood);
   }
   bloom /= 12.0;
   let exposure = 1.0 + 5.0 * amount * amount;
@@ -104,6 +144,17 @@ fn flash(tex: texture_2d<f32>, at: vec2i, amount: f32, flood: vec3f) -> vec3f {
   let soft = flood * (vec3f(1.0) - exp(-lit / flood));
   lit = mix(lit, soft, smoothstep(0.0, 0.5, amount));
   return mix(lit, flood, smoothstep(0.35, 1.0, amount));
+}
+
+// A flash's rise at `amount` (0 to 1): the picture washes into the theme colour at once (within
+// the first few hundredths of the rise) and holds so for its first share (`extra.w`); then the
+// washed picture is overexposed into the flood, which it reaches at the peak, where the switch
+// or the cut happens.
+fn flash_rise(tex: texture_2d<f32>, at: vec2i, amount: f32) -> vec3f {
+  let share = clamp(transition.extra.w, 0.0, 0.9);
+  let washed = smoothstep(0.0, 0.06, amount);
+  let up = clamp((amount - share) / (1.0 - share), 0.0, 1.0);
+  return flash(tex, at, up, transition.color.rgb, washed, transition.extra.rgb);
 }
 
 // The glitch: the old picture breaks into horizontal bands that shift, stretch and drag, for 3 to
@@ -245,8 +296,12 @@ fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
     case KIND_PUNCH: {
       return vec4f(punch(at), frame_now.a);
     }
+    case KIND_FLASH_RISE: {
+      return vec4f(flash_rise(fresh, at, transition.progress), frame_now.a);
+    }
     case KIND_FLASH: {
-      return vec4f(flash(fresh, at, transition.progress, transition.color.rgb), frame_now.a);
+      let none = vec3f(0.0);
+      return vec4f(flash(fresh, at, transition.progress, transition.color.rgb, 0.0, none), frame_now.a);
     }
     case KIND_GLITCH: {
       return vec4f(glitch(at, transition.progress, transition.seed), frame_now.a);
@@ -260,7 +315,7 @@ fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
     }
     case KIND_FLASH_HELD: {
       let old = textureLoad(held, at, 0);
-      return vec4f(flash(held, at, transition.progress, transition.color.rgb), old.a);
+      return vec4f(flash_rise(held, at, transition.progress), old.a);
     }
     default: {
       return frame_now;

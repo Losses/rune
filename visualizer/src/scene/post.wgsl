@@ -7,8 +7,8 @@
 // otherwise, and then nothing below costs a tap; each effect is started at a moment and runs
 // its course, so these are strengths that rise and fall). The flare is drawn at a quarter of the
 // size in passes of its own (`flare_bright`, `streak_down`, `streak_up`, `flare`); the composite
-// lays it, the light leak and the colour-block frame's wash over the tone-mapped picture, in
-// display values, so they lift the dark instead of greying it, and none reaches full white.
+// lays it and the light leak over the tone-mapped picture, in display values, so they lift the
+// dark instead of greying it, and neither reaches full white.
 
 @group(0) @binding(0) var<storage, read> post: Post;
 @group(0) @binding(1) var<uniform> frame: Frame;
@@ -21,25 +21,20 @@
 // of the frame before.
 @group(1) @binding(4) var flare_tex: texture_2d<f32>;
 
-// Which lens effects are on. `flare` is the flare's intensity (0 off) and `stretch` how far its
-// streaks reach (the weight of each wider level of their pyramid); `blocks` how much of the
-// colour-block frame's wash is on (0 off) and `flood` how far it has run up into the light tint;
-// `leak` how much of the light leak is in (0 to 1) with its source at (leak_x, leak_y) in uv, of
-// radius leak_size (a share of the long side), a phase that grows over the leak and how hot it
-// burns at its edge (`burn`). `history` is 1 when the frame before drew the flare.
+// Which lens effects are on. `flare` is the flare's intensity (0 off), `stretch` how far its
+// streaks reach (the weight of each wider level of their pyramid) and `history` 1 when the frame
+// before drew the flare; `leak` how much of the light leak is in (0 to 1) with its source at
+// (leak_x, leak_y) in uv, of radius leak_size (a share of the long side), and a phase that grows
+// over the leak.
 struct Lens {
   flare: f32,
   stretch: f32,
-  blocks: f32,
-  flood: f32,
+  history: f32,
   leak: f32,
   leak_x: f32,
   leak_y: f32,
   leak_size: f32,
   phase: f32,
-  burn: f32,
-  history: f32,
-  unused: f32,
 }
 
 struct Varyings {
@@ -312,14 +307,13 @@ fn screen(base: vec3f, over: vec3f) -> vec3f {
 
 // The light leak at uv, in display values: a large soft glow from its source beyond an edge,
 // its outline torn by low-frequency noise that drifts with the phase, saturated in the theme
-// colour going warmer towards the source, and burning hotter at the edge as it comes in. It
-// blooms out as it comes in.
+// colour going warmer towards the source. It grows as it comes in and shrinks as it goes.
 fn leak_light(uv: vec2f) -> vec3f {
   let long = max(frame.aspect, 1.0);
   let scale = vec2f(frame.aspect, 1.0) / long;
   let p = uv * scale;
   let d = (uv - vec2f(lens.leak_x, lens.leak_y)) * scale;
-  let size = lens.leak_size * (0.6 + 0.4 * lens.leak);
+  let size = lens.leak_size * (0.45 + 0.55 * lens.leak);
   let drift = vec2f(cos(lens.phase), sin(lens.phase)) * 0.6;
   let n = value_noise(p * 2.2 + drift) * 0.65 + value_noise(p * 5.0 - drift * 1.7) * 0.35;
   let r = length(d) / size * (0.7 + 0.6 * n);
@@ -328,8 +322,7 @@ fn leak_light(uv: vec2f) -> vec3f {
   let colour = theme();
   let warm = mix(colour, vec3f(1.0, 0.45, 0.12), 0.4);
   let light = mix(colour * 0.8, warm, hot) * glow * lens.leak;
-  let burn = mix(warm, vec3f(1.0, 0.85, 0.6), 0.4) * exp(-r * r * 6.0) * lens.burn;
-  return encode_srgb(min(light * 0.9 + burn * 0.8, vec3f(0.85)));
+  return encode_srgb(min(light * 0.9, vec3f(0.85)));
 }
 
 // How much the light leak tints the picture under it towards its colour, 0 to 1, so that a grey
@@ -337,22 +330,8 @@ fn leak_light(uv: vec2f) -> vec3f {
 fn leak_tint(uv: vec2f) -> f32 {
   let long = max(frame.aspect, 1.0);
   let d = (uv - vec2f(lens.leak_x, lens.leak_y)) * vec2f(frame.aspect, 1.0) / long;
-  let r = length(d) / (lens.leak_size * (0.6 + 0.4 * lens.leak));
+  let r = length(d) / (lens.leak_size * (0.45 + 0.55 * lens.leak));
   return exp(-r * r * 1.5) * lens.leak;
-}
-
-// The colour-block frame, after the reference video's: the picture washed in the theme colour,
-// still readable. Its luma (lifted a little by the bloom, so the highlights glow) runs from a deep
-// shade of the colour through the colour to a near-white tint of it; a flood runs it all up into a
-// light tint. Never full white.
-fn block_wash(display: vec3f, glow: f32) -> vec3f {
-  let th = encode_srgb(theme());
-  let t = pow(clamp(luma(display) + glow, 0.0, 1.0), 0.75);
-  let deep = th * 0.5;
-  let light = mix(th, vec3f(1.0), 0.9);
-  var c = mix(mix(deep, th, smoothstep(0.0, 0.45, t)), light, smoothstep(0.45, 0.9, t));
-  c = mix(c, mix(th, vec3f(1.0), 0.75), lens.flood * 0.85);
-  return min(c, vec3f(0.96));
 }
 
 fn noise(coord: vec2f, salt: u32) -> vec4f {
@@ -378,8 +357,7 @@ fn composite(v: Varyings) -> @location(0) vec4f {
     total += w;
     w *= r;
   }
-  let bloomed = textureSampleLevel(bloom, smp, uv, 0.0).rgb / max(total, 1e-4) * post.bloom_intensity;
-  c += bloomed;
+  c += textureSampleLevel(bloom, smp, uv, 0.0).rgb / max(total, 1e-4) * post.bloom_intensity;
 
   c *= exp2(post.exposure);
   c = c * (1.0 + 2.0 * post.flash) + vec3f(post.flash);
@@ -412,11 +390,6 @@ fn composite(v: Varyings) -> @location(0) vec4f {
     let light = 1.0 - exp(-flare_light * lens.flare);
     display = screen(display, encode_srgb(min(light, vec3f(0.8))));
   }
-  if (lens.blocks > 0.0) {
-    let glow = luma(bloomed) * exp2(post.exposure) * 0.5;
-    display = mix(display, block_wash(display, glow), clamp(lens.blocks, 0.0, 1.0));
-  }
-
   let n = noise(v.position.xy, 1u);
   display += (n.r - 0.5) * post.grain * (1.2 - luma(display));
   // Dither to the 8-bit frame: no banding in dark gradients.

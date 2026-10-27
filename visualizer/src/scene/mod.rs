@@ -1358,11 +1358,6 @@ impl Scene {
         self.lens.start_leak(1.0);
     }
 
-    /// Fire a colour-block frame now (a scene lab).
-    pub fn start_blocks(&mut self) {
-        self.lens.start_blocks(1.0);
-    }
-
     /// Keep a flare at its full swell, called before each frame (a probe).
     #[cfg(test)]
     pub fn hold_flare(&mut self) {

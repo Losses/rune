@@ -1,8 +1,8 @@
-//! The lens effects of the built-in post-processing (`flare`, `leak`, `blocks`; see "Shared
-//! effects" in `docs/music.md`). Each is an effect that is started at a moment with a strength
-//! and runs its course (streaks that swell and fade, a glow that seeps in and goes, a few frames
-//! washed in the theme colour); none is a constant layer. [`Lens::tick`] makes the small uniform `post.wgsl` reads,
-//! and a scene that lists none gets a uniform of zeros, which costs the post pass nothing.
+//! The lens effects of the built-in post-processing (`flare`, `leak`; see "Shared effects" in
+//! `docs/music.md`). Each is an effect that is started at a moment with a strength and runs its
+//! course (streaks or a glow that rise slowly from nothing and thin out again over two bars);
+//! none is a constant layer. [`Lens::tick`] makes the small uniform `post.wgsl` reads, and a
+//! scene that lists none gets a uniform of zeros, which costs the post pass nothing.
 //!
 //! What starts them is the shared scheduler of the moments (`crate::moments`): at a moment that
 //! plays an effect and has no cut, [`Lens::start_at`] starts one of those the scene listed. A
@@ -15,38 +15,33 @@ use crate::switching::FOLLOWED;
 
 /// How strong an effect a medium moment starts (a strong moment's is at full strength).
 pub const MEDIUM_STRENGTH: f32 = 0.6;
-/// How long a colour-block frame holds the picture washed in the theme colour, and how long it
-/// takes to go: three frames and two at 60 fps, two and one at 30 fps. Its first frame is always
-/// drawn.
-pub const BLOCKS_HOLD_SECONDS: f32 = 0.04;
-pub const BLOCKS_OUT_SECONDS: f32 = 0.04;
-/// A flare swells over this many beats (its intensity and the length of its streaks, easing
-/// out) and fades over the next ones.
-pub const FLARE_IN_BEATS: f32 = 0.75;
-pub const FLARE_OUT_BEATS: f32 = 6.0;
-/// How far the flare's streaks reach as it starts and once it has swollen: the weight of each
+/// A flare and a light leak each run a long, gentle ramp of this many beats (two bars; 4 s while
+/// the beat is not followed): from nothing they rise with an eased curve to their peak a third of
+/// the way in ([`RAMP_PEAK`]), then thin out slowly and are gone at the end.
+pub const RAMP_BEATS: f32 = 8.0;
+pub const RAMP_PEAK: f32 = 1.0 / 3.0;
+/// The flare's intensity at the peak of its ramp: subtle, as it lasts.
+pub const FLARE_PEAK: f32 = 0.8;
+/// How far the flare's streaks reach at the start and the peak of its ramp: the weight of each
 /// wider level of the streaks' pyramid against the one before (see `post.wgsl`).
 pub const FLARE_STRETCH_FROM: f32 = 0.5;
 pub const FLARE_STRETCH: f32 = 0.85;
-/// A light leak comes in over this many beats, and goes away over the next ones.
-pub const LEAK_IN_BEATS: f32 = 1.0;
-pub const LEAK_OUT_BEATS: f32 = 16.0;
-/// A light leak burns hot at the edge it comes from: up over this many beats as it comes in, and
-/// down over the next ones.
-pub const LEAK_BURN_IN_BEATS: f32 = 0.5;
-pub const LEAK_BURN_OUT_BEATS: f32 = 2.0;
 /// How far a leak's source wanders along its edge over the whole leak, as a share of the edge.
 const LEAK_DRIFT: f32 = 0.18;
 /// The radius of a light leak's glow, as a share of the frame's long side.
 const LEAK_SIZE: f32 = 0.5;
+/// How far beyond its corner a light leak's source sits at the peak of its ramp, and how much
+/// further out at its start and end (in uv), so that it reaches in and draws back.
+const LEAK_OUTSIDE: f32 = 0.05;
+const LEAK_REACH: f32 = 0.25;
 /// The seconds of a beat while the beat is not followed (120 bpm), so that durations in beats
 /// are fixed seconds then.
 pub const FALLBACK_BEAT_SECONDS: f32 = 0.5;
 /// The flare is drawn from this quality (`frame.quality`) up: it is lowered first.
 pub const FLARE_MIN_QUALITY: f32 = 0.5;
 
-/// The size of [`LensFrame`] in the uniform: twelve f32.
-pub const LENS_SIZE: u64 = 48;
+/// The size of [`LensFrame`] in the uniform: eight f32.
+pub const LENS_SIZE: u64 = 32;
 
 /// What the post pass is told for one frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -66,19 +61,13 @@ pub struct LensFrame {
     pub leak_size: f32,
     /// A number that grows over the leak, which the shader turns into slow changes of shape.
     pub leak_phase: f32,
-    /// How hot the leak burns at its edge, 0 to 1: only as it comes in.
-    pub leak_burn: f32,
-    /// How much of the colour-block frame's wash is over the picture, 0 to 1.
-    pub blocks: f32,
-    /// How far the wash has run up into a flood of light tint, 0 to 1.
-    pub blocks_flood: f32,
 }
 
 impl LensFrame {
     /// Whether the post pass has anything to do beyond its normal work.
     #[cfg(test)]
     pub fn is_idle(&self) -> bool {
-        self.flare <= 0.0 && self.leak <= 0.0 && self.blocks <= 0.0
+        self.flare <= 0.0 && self.leak <= 0.0
     }
 
     /// The uniform `struct Lens` of `post.wgsl`.
@@ -87,16 +76,12 @@ impl LensFrame {
         let values = [
             self.flare,
             self.flare_stretch,
-            self.blocks,
-            self.blocks_flood,
+            self.flare_history,
             self.leak,
             self.leak_at[0],
             self.leak_at[1],
             self.leak_size,
             self.leak_phase,
-            self.leak_burn,
-            self.flare_history,
-            0.0,
         ];
         for (chunk, v) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(values) {
             *chunk = v.to_le_bytes();
@@ -111,33 +96,50 @@ pub struct LensView {
     /// The scene lists the effect (a lab can start one by hand all the same).
     pub flare_listed: bool,
     pub leak_listed: bool,
-    pub blocks_listed: bool,
     /// The effect is under way.
     pub flare_running: bool,
     pub leak_running: bool,
-    pub blocks_running: bool,
 }
 
-/// An effect under way: how strong it was started, and its age in beats.
+/// An effect under way on the ramp: how strong it was started, and its age in beats.
 #[derive(Clone, Copy, Debug)]
 struct Run {
     strength: f32,
     age: f32,
 }
 
-/// A colour-block frame under way: its age in seconds, whether it was drawn yet, and whether it
-/// runs up into a flood.
-#[derive(Clone, Copy, Debug)]
-struct Blocks {
-    age: f32,
-    drawn: bool,
-    floods: bool,
+impl Run {
+    fn new(strength: f32) -> Self {
+        Self {
+            strength: strength.clamp(0.0, 1.0),
+            age: 0.0,
+        }
+    }
+
+    /// How much of the effect is on, 0 to its strength.
+    fn level(&self) -> f32 {
+        self.strength * ramp(self.age / RAMP_BEATS)
+    }
+
+    /// The run started again at `strength` while this one is under way: it carries on rising
+    /// (at the stronger of the two strengths) from the level it has now, back on the rising side
+    /// of the ramp, so it swells again without a jump and two never add up.
+    fn restarted(self, strength: f32) -> Self {
+        let strength = strength.clamp(0.0, 1.0).max(self.strength);
+        let share = (self.level() / strength.max(1e-6)).min(1.0);
+        Self {
+            strength,
+            age: unsmooth(share) * RAMP_PEAK * RAMP_BEATS,
+        }
+    }
 }
 
 /// A light leak under way, which comes from a corner.
 #[derive(Clone, Copy, Debug)]
 struct Leak {
     run: Run,
+    /// Beats since it started, which a gentle restart does not set back: what its drift follows.
+    drift: f32,
     /// The corner it comes from, 0 to 3, and the way it drifts along its edge (1 or -1).
     corner: u32,
     along: f32,
@@ -148,14 +150,10 @@ pub struct Lens {
     /// The effects that start at a moment: those the scene listed and those a lab forced.
     flare_listed: bool,
     leak_listed: bool,
-    blocks_listed: bool,
     flare: Option<Run>,
     leak: Option<Leak>,
-    blocks: Option<Blocks>,
     /// How many leaks started, which picks the corner of the next.
     leaks: u32,
-    /// How many full-strength block frames started: every second one floods.
-    floods: u32,
     /// What the scene itself listed, which a lab's forcing adds to and takes away from again.
     own: LabLens,
     /// What a lab forced on (see [`Lens::set_forced`]).
@@ -169,16 +167,12 @@ impl Lens {
         Self {
             flare_listed: has("flare"),
             leak_listed: has("leak"),
-            blocks_listed: has("blocks"),
             flare: None,
             leak: None,
-            blocks: None,
             leaks: 0,
-            floods: 0,
             own: LabLens {
                 flare: has("flare"),
                 leak: has("leak"),
-                blocks: has("blocks"),
             },
             forced: LabLens::default(),
         }
@@ -190,42 +184,31 @@ impl Lens {
         self.forced = forced;
         self.flare_listed = self.own.flare || forced.flare;
         self.leak_listed = self.own.leak || forced.leak;
-        self.blocks_listed = self.own.blocks || forced.blocks;
     }
 
-    /// Start a flare of `strength` (0 to 1) now. One at a time: one under way starts again.
+    /// Start a flare of `strength` (0 to 1) now. One at a time: one under way swells again from
+    /// where it is (see [`Run::restarted`]).
     pub fn start_flare(&mut self, strength: f32) {
-        self.flare = Some(Run {
-            strength: strength.clamp(0.0, 1.0),
-            age: 0.0,
+        self.flare = Some(match self.flare {
+            Some(run) => run.restarted(strength),
+            None => Run::new(strength),
         });
     }
 
-    /// Start a light leak of `strength` (0 to 1) now, from the next corner in turn.
+    /// Start a light leak of `strength` (0 to 1) now, from the next corner in turn. One under
+    /// way swells again from where it is, from its corner (see [`Run::restarted`]).
     pub fn start_leak(&mut self, strength: f32) {
+        if let Some(leak) = &mut self.leak {
+            leak.run = leak.run.restarted(strength);
+            return;
+        }
         let corner = self.leaks.wrapping_mul(0x9e37_79b9).rotate_left(7) >> 30;
         self.leaks = self.leaks.wrapping_add(1);
         self.leak = Some(Leak {
-            run: Run {
-                strength: strength.clamp(0.0, 1.0),
-                age: 0.0,
-            },
+            run: Run::new(strength),
+            drift: 0.0,
             corner,
             along: if corner.is_multiple_of(2) { 1.0 } else { -1.0 },
-        });
-    }
-
-    /// Fire a colour-block frame now: the picture washed in the theme colour for a few frames.
-    /// At full `strength` every second one runs up into a flood of light tint as it holds.
-    pub fn start_blocks(&mut self, strength: f32) {
-        let full = strength >= 1.0;
-        if full {
-            self.floods = self.floods.wrapping_add(1);
-        }
-        self.blocks = Some(Blocks {
-            age: 0.0,
-            drawn: false,
-            floods: full && self.floods.is_multiple_of(2),
         });
     }
 
@@ -235,22 +218,18 @@ impl Lens {
     pub fn hold_flare(&mut self) {
         self.flare = Some(Run {
             strength: 1.0,
-            age: FLARE_IN_BEATS,
+            age: RAMP_PEAK * RAMP_BEATS,
         });
     }
 
     /// The names of the effects that start at a moment: those the scene listed and those a lab
     /// forced.
     fn listed(&self) -> Vec<String> {
-        [
-            (self.flare_listed, "flare"),
-            (self.leak_listed, "leak"),
-            (self.blocks_listed, "blocks"),
-        ]
-        .into_iter()
-        .filter(|(on, _)| *on)
-        .map(|(_, name)| name.to_string())
-        .collect()
+        [(self.flare_listed, "flare"), (self.leak_listed, "leak")]
+            .into_iter()
+            .filter(|(on, _)| *on)
+            .map(|(_, name)| name.to_string())
+            .collect()
     }
 
     /// Start the effect a moment that `played` picks among those listed (see
@@ -264,7 +243,6 @@ impl Lens {
         match moments::lens_effect(&self.listed(), played) {
             Some(moments::Lens::Flare) => self.start_flare(strength),
             Some(moments::Lens::Leak) => self.start_leak(strength),
-            Some(moments::Lens::Blocks) => self.start_blocks(strength),
             None => {}
         }
     }
@@ -284,10 +262,7 @@ impl Lens {
         if forced.leak {
             self.start_leak(strength);
         }
-        if forced.blocks {
-            self.start_blocks(strength);
-        }
-        forced.flare || forced.leak || forced.blocks
+        forced.flare || forced.leak
     }
 
     /// What a lab forced on, to give a rebuilt scene.
@@ -299,10 +274,8 @@ impl Lens {
         LensView {
             flare_listed: self.flare_listed,
             leak_listed: self.leak_listed,
-            blocks_listed: self.blocks_listed,
             flare_running: self.flare.is_some(),
             leak_running: self.leak.is_some(),
-            blocks_running: self.blocks.is_some(),
         }
     }
 
@@ -318,82 +291,69 @@ impl Lens {
 
         let mut frame = LensFrame::default();
 
-        // The flare: it swells over most of a beat, easing out, and fades over a bar or two.
-        // It gives way to a low quality.
+        // The flare: its intensity and the reach of its streaks follow the ramp. It gives way to
+        // a low quality.
         if let Some(run) = &mut self.flare {
-            let total = FLARE_IN_BEATS + FLARE_OUT_BEATS;
-            if run.age >= total {
+            if run.age >= RAMP_BEATS {
                 self.flare = None;
             } else {
                 if quality >= FLARE_MIN_QUALITY {
-                    let swell = ease_out(run.age / FLARE_IN_BEATS);
-                    frame.flare =
-                        run.strength * swell * smooth((total - run.age) / FLARE_OUT_BEATS);
+                    let shape = ramp(run.age / RAMP_BEATS);
+                    frame.flare = FLARE_PEAK * run.level();
                     frame.flare_stretch =
-                        FLARE_STRETCH_FROM + (FLARE_STRETCH - FLARE_STRETCH_FROM) * swell;
+                        FLARE_STRETCH_FROM + (FLARE_STRETCH - FLARE_STRETCH_FROM) * shape;
                 }
                 run.age += beats;
             }
         }
 
-        // The leak: in over a beat with a burn at its edge, away over some bars, its source
-        // drifting.
+        // The leak: its strength, its size (in the shader) and how far its source reaches in
+        // from beyond its corner follow the ramp, while the source drifts along its edge.
         if let Some(leak) = &mut self.leak {
-            let total = LEAK_IN_BEATS + LEAK_OUT_BEATS;
-            if leak.run.age >= total {
+            if leak.run.age >= RAMP_BEATS {
                 self.leak = None;
             } else {
-                let age = leak.run.age;
-                frame.leak = leak.run.strength * envelope(age, LEAK_IN_BEATS, LEAK_OUT_BEATS);
-                frame.leak_burn =
-                    leak.run.strength * envelope(age, LEAK_BURN_IN_BEATS, LEAK_BURN_OUT_BEATS);
-                let share = age / total;
-                // The source sits a little beyond the corner and wanders along its edge.
+                frame.leak = leak.run.level();
+                let shape = ramp(leak.run.age / RAMP_BEATS);
+                let outside = LEAK_OUTSIDE + LEAK_REACH * (1.0 - shape);
+                let share = (leak.drift / RAMP_BEATS).min(1.5);
+                let wander = LEAK_DRIFT * share;
+                // The source sits beyond the corner and wanders along its edge.
                 let (x, y) = match leak.corner {
-                    0 => (-0.05, 0.1 + LEAK_DRIFT * share * leak.along),
-                    1 => (0.1 + LEAK_DRIFT * share, -0.05),
-                    2 => (1.05, 0.9 - LEAK_DRIFT * share),
-                    _ => (0.9 - LEAK_DRIFT * share, 1.05),
+                    0 => (-outside, 0.1 + wander * leak.along),
+                    1 => (0.1 + wander, -outside),
+                    2 => (1.0 + outside, 0.9 - wander),
+                    _ => (0.9 - wander, 1.0 + outside),
                 };
                 frame.leak_at = [x, y];
                 frame.leak_size = LEAK_SIZE;
                 frame.leak_phase = share * std::f32::consts::TAU;
                 leak.run.age += beats;
+                leak.drift += beats;
             }
         }
 
-        // The block frame: on at once, held, then out over a few frames; the first is always
-        // drawn. A flooding one runs up into the light tint as it holds and goes with it.
-        if let Some(blocks) = &mut self.blocks {
-            let out = (blocks.age - BLOCKS_HOLD_SECONDS) / BLOCKS_OUT_SECONDS;
-            if blocks.drawn && out >= 1.0 {
-                self.blocks = None;
-            } else {
-                frame.blocks = if blocks.drawn {
-                    1.0 - out.clamp(0.0, 1.0)
-                } else {
-                    1.0
-                };
-                if blocks.floods {
-                    frame.blocks_flood = smooth(blocks.age / BLOCKS_HOLD_SECONDS);
-                }
-                blocks.drawn = true;
-                blocks.age += dt;
-            }
-        }
         frame
     }
 }
 
-/// Easing out from 0 to 1: fast first, settling at the end.
-fn ease_out(x: f32) -> f32 {
-    let x = 1.0 - x.clamp(0.0, 1.0);
-    1.0 - x * x * x
+/// The ramp at `x` of its length: 0 at the start, a smoothstep up to 1 at [`RAMP_PEAK`], and a
+/// smoothstep down to 0 at the end; 0 outside.
+fn ramp(x: f32) -> f32 {
+    if !(0.0..1.0).contains(&x) {
+        return 0.0;
+    }
+    if x < RAMP_PEAK {
+        smooth(x / RAMP_PEAK)
+    } else {
+        smooth((1.0 - x) / (1.0 - RAMP_PEAK))
+    }
 }
 
-/// 0 to 1 and back: a smoothstep up over `rise` beats at `age`, then down over `fall`.
-fn envelope(age: f32, rise: f32, fall: f32) -> f32 {
-    smooth(age / rise) * smooth((rise + fall - age) / fall)
+/// Where a smoothstep from 0 to 1 reaches `y`.
+fn unsmooth(y: f32) -> f32 {
+    let y = y.clamp(0.0, 1.0);
+    0.5 - ((1.0 - 2.0 * y).asin() / 3.0).sin()
 }
 
 /// Smoothstep from 0 to 1.
@@ -428,7 +388,6 @@ mod tests {
             let f = lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
             most.flare = most.flare.max(f.flare);
             most.leak = most.leak.max(f.leak);
-            most.blocks = most.blocks.max(f.blocks);
         }
         most
     }
@@ -457,7 +416,6 @@ mod tests {
         assert_eq!(lens.listed(), ["flare", "leak"]);
         let view = lens.view();
         assert!(view.flare_listed && view.leak_listed);
-        assert!(!view.blocks_listed);
         // Without the forcing the flare is not listed, the scene's leak still is.
         lens.set_forced(LabLens::default());
         let view = lens.view();
@@ -479,14 +437,14 @@ mod tests {
             strength: Strength::Medium,
             label: 1.0,
         };
-        let mut all = lens(&["flare", "leak", "blocks"]);
+        let mut all = lens(&["flare", "leak"]);
         all.start_at(strong);
-        assert_eq!(all.tick(1.0 / 60.0, &music(0.0, 0), 1.0).blocks, 1.0);
-        let mut light = lens(&["flare", "blocks"]);
+        let view = all.view();
+        assert!(view.flare_running != view.leak_running);
+        let mut light = lens(&["flare"]);
         light.start_at(medium);
-        let view = light.view();
-        assert!(view.flare_running && !view.blocks_running);
-        assert!(run(&mut light, 1.0).flare <= MEDIUM_STRENGTH);
+        assert!(light.view().flare_running);
+        assert!(run(&mut light, 4.0).flare <= MEDIUM_STRENGTH * FLARE_PEAK + 1e-6);
         // A cue alone starts nothing any more: the scheduler does.
         let mut cued = lens(&["flare"]);
         assert!(cued.tick(1.0 / 60.0, &music(1.0, 1), 1.0).is_idle());
@@ -494,40 +452,42 @@ mod tests {
         let mut forced = lens(&["leak"]);
         forced.set_forced(LabLens {
             flare: true,
-            blocks: true,
             ..LabLens::default()
         });
         assert!(forced.start_forced(medium));
         let view = forced.view();
-        assert!(view.flare_running && view.blocks_running && !view.leak_running);
+        assert!(view.flare_running && !view.leak_running);
         assert!(!lens(&["leak"]).start_forced(strong));
+        // A name the runtime no longer knows starts nothing.
         let mut only_blocks = lens(&["blocks"]);
-        only_blocks.start_at(medium);
+        only_blocks.start_at(strong);
         assert!(only_blocks.tick(1.0 / 60.0, &music(0.0, 0), 1.0).is_idle());
     }
 
-    /// An effect runs its course in beats and is over: the flare in a bar or two, the leak over
-    /// some bars; a stronger start is a stronger effect.
+    /// The flare and the leak run their two bars and are over: the flare at 0.8 at its peak, the
+    /// leak at 1; a weaker start is a weaker effect.
     #[test]
     fn an_effect_runs_its_course_and_ends() {
         let mut lens = lens(&[]);
         lens.start_flare(1.0);
-        let peak = run(&mut lens, 0.5);
-        assert!(peak.flare > 0.9, "{}", peak.flare);
-        // 6.75 beats at 120 bpm are 3.375 s.
-        run(&mut lens, 2.5);
+        let peak = run(&mut lens, 2.0);
+        assert!((peak.flare - FLARE_PEAK).abs() < 0.01, "{}", peak.flare);
+        // 8 beats at 120 bpm are 4 s.
+        run(&mut lens, 1.9);
         assert!(lens.view().flare_running);
-        run(&mut lens, 1.0);
+        run(&mut lens, 0.2);
         assert!(!lens.view().flare_running);
         lens.start_flare(0.4);
-        let weak = run(&mut lens, 4.0);
-        assert!(weak.flare > 0.35 && weak.flare <= 0.4, "{}", weak.flare);
+        let weak = run(&mut lens, 4.2);
+        assert!(
+            (weak.flare - 0.4 * FLARE_PEAK).abs() < 0.01,
+            "{}",
+            weak.flare
+        );
 
         lens.start_leak(1.0);
-        let peak = run(&mut lens, 2.0);
-        assert!(peak.leak > 0.95, "{}", peak.leak);
-        // 17 beats are 8.5 s.
-        run(&mut lens, 6.7);
+        let peak = run(&mut lens, 4.2);
+        assert!(peak.leak > 0.99, "{}", peak.leak);
         assert!(!lens.view().leak_running);
     }
 
@@ -540,93 +500,107 @@ mod tests {
             tempo: 240.0,
             ..music(0.0, 0)
         };
-        for _ in 0..(4.4 * 60.0) as u32 {
+        for _ in 0..(2.1 * 60.0) as u32 {
             lens.tick(1.0 / 60.0, &fast, 1.0);
         }
-        assert!(!lens.view().leak_running, "17 beats at 240 bpm are 4.25 s");
-        // Without a followed beat a beat is half a second.
+        assert!(!lens.view().leak_running, "8 beats at 240 bpm are 2 s");
+        // Without a followed beat a beat is half a second: 4 s.
         lens.start_flare(1.0);
         let free = MusicValues {
             locked: 0.0,
             tempo: 240.0,
             ..music(0.0, 0)
         };
-        for _ in 0..(3.4 * 60.0) as u32 {
+        for _ in 0..(3.9 * 60.0) as u32 {
+            lens.tick(1.0 / 60.0, &free, 1.0);
+        }
+        assert!(lens.view().flare_running);
+        for _ in 0..(0.2 * 60.0) as u32 {
             lens.tick(1.0 / 60.0, &free, 1.0);
         }
         assert!(!lens.view().flare_running);
     }
 
-    /// A block frame is on at once, holds for three frames at 60 fps and goes over two; at a low
-    /// frame rate its first frame is still drawn. At full strength every second one floods,
-    /// rising as it holds.
+    /// The flare and the leak rise from nothing, slowly at first, to their peak a third of the
+    /// way through the two bars, and thin out slowly to nothing: in small steps, the flare's
+    /// streaks reaching furthest and the leak's source furthest in at the peak.
     #[test]
-    fn a_block_frame_is_short_but_drawn() {
+    fn the_flare_and_the_leak_ramp_gently() {
         let mut lens = lens(&[]);
-        let tick = |lens: &mut Lens, dt: f32| {
-            let f = lens.tick(dt, &music(0.0, 0), 1.0);
-            (f.blocks, f.blocks_flood)
-        };
-        lens.start_blocks(1.0);
-        let mut course = Vec::new();
-        loop {
-            let (wash, flood) = tick(&mut lens, 1.0 / 60.0);
-            if wash <= 0.0 {
-                break;
-            }
-            assert_eq!(flood, 0.0, "the first does not flood");
-            course.push(wash);
+        lens.start_flare(1.0);
+        lens.start_leak(1.0);
+        // 8 beats at 120 bpm are 240 frames; the peak is at frame 80.
+        let course: Vec<LensFrame> = (0..240)
+            .map(|_| lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0))
+            .collect();
+        let after = lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
+        assert!(after.flare < 0.01 && after.leak < 0.01);
+        lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
+        assert!(!lens.view().flare_running && !lens.view().leak_running);
+        let flare: Vec<f32> = course.iter().map(|f| f.flare).collect();
+        let leak: Vec<f32> = course.iter().map(|f| f.leak).collect();
+        for values in [&flare, &leak] {
+            assert_eq!(values[0], 0.0);
+            assert!(values[1..80].windows(2).all(|w| w[1] > w[0]));
+            assert!(values[81..].windows(2).all(|w| w[1] < w[0]));
+            assert!(values.windows(2).all(|w| (w[1] - w[0]).abs() < 0.03));
+            // Slowly at first: a tenth of the way to the peak, under a tenth of it.
+            assert!(values[8] < 0.1 * values[80], "{}", values[8]);
+            assert!(*values.last().unwrap() < 0.01);
         }
-        assert_eq!(course.len(), 5, "{course:?}");
-        assert!(course[..3].iter().all(|&w| w == 1.0), "{course:?}");
-        assert!(course[3] < 1.0 && course[4] < course[3] && course[4] > 0.0);
-        assert!(!lens.view().blocks_running);
-
-        lens.start_blocks(1.0);
-        let floods: Vec<f32> = (0..3).map(|_| tick(&mut lens, 1.0 / 60.0).1).collect();
-        assert!(floods[0] < floods[1] && floods[1] < floods[2], "{floods:?}");
-        assert!(floods.iter().all(|f| (0.0..=1.0).contains(f)));
-        // A weaker one never floods.
-        lens.start_blocks(MEDIUM_STRENGTH);
-        lens.start_blocks(MEDIUM_STRENGTH);
-        assert!((0..5).all(|_| tick(&mut lens, 1.0 / 60.0).1 == 0.0));
-
-        lens.start_blocks(1.0);
-        assert_eq!(tick(&mut lens, 0.1).0, 1.0);
-        assert_eq!(tick(&mut lens, 0.1).0, 0.0);
+        assert!((flare[80] - FLARE_PEAK).abs() < 0.01 && (leak[80] - 1.0).abs() < 0.01);
+        assert!((course[0].flare_stretch - FLARE_STRETCH_FROM).abs() < 1e-6);
+        assert!((course[80].flare_stretch - FLARE_STRETCH).abs() < 1e-3);
+        // The leak's source is furthest in at the peak.
+        let outside = |f: &LensFrame| {
+            let [x, y] = f.leak_at;
+            (-x).max(-y).max(x - 1.0).max(y - 1.0)
+        };
+        assert!(outside(&course[80]) < outside(&course[10]));
+        assert!(outside(&course[80]) < outside(&course[200]));
+        assert!(
+            course
+                .iter()
+                .all(|f| f.leak <= 1.0 && f.flare <= FLARE_PEAK)
+        );
     }
 
-    /// A flare swells, its intensity and the reach of its streaks easing out over most of a
-    /// beat, and then fades. A leak burns at its edge only as it comes in.
+    /// A start while one runs never stacks the two and never jumps: it swells again from where
+    /// it is, back to the peak, and then runs its course; a stronger start rises to its strength.
     #[test]
-    fn the_flare_swells_and_the_leak_burns_as_they_start() {
+    fn a_new_start_swells_again_without_a_jump() {
         let mut lens = lens(&[]);
-        let tick = |lens: &mut Lens| lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
-        lens.start_flare(1.0);
-        let course: Vec<LensFrame> = (0..60).map(|_| tick(&mut lens)).collect();
-        assert_eq!(course[0].flare, 0.0);
-        // A beat at 120 bpm is 30 frames: up for 22 frames, faster first.
-        for pair in course[..23].windows(2) {
-            assert!(pair[1].flare > pair[0].flare);
-            assert!(pair[1].flare_stretch > pair[0].flare_stretch);
-        }
-        assert!(course[8].flare > 0.6, "{}", course[8].flare);
-        assert!((course[0].flare_stretch - FLARE_STRETCH_FROM).abs() < 1e-6);
-        assert!((course[30].flare_stretch - FLARE_STRETCH).abs() < 1e-6);
-        assert!(course[59].flare < course[30].flare);
-
+        let mut values = Vec::new();
+        lens.start_flare(0.5);
         lens.start_leak(1.0);
-        let mut burn = Vec::new();
-        for _ in 0..(8.5 * 60.0) as u32 {
+        for i in 0..600 {
+            // Started again past the peak, before it, and once more stronger.
+            if i == 150 || i == 170 {
+                lens.start_flare(0.5);
+                lens.start_leak(1.0);
+            }
+            if i == 300 {
+                lens.start_flare(1.0);
+            }
             let f = lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
-            burn.push((f.leak, f.leak_burn));
+            values.push((f.flare, f.leak, f.leak_at));
         }
-        let hottest = burn.iter().map(|b| b.1).fold(0.0, f32::max);
-        assert!(hottest > 0.9, "{hottest}");
-        // Three beats in (90 frames) the burn is gone and the glow is still in.
-        assert_eq!(burn[90].1, 0.0);
-        assert!(burn[90].0 > 0.9, "{:?}", burn[90]);
-        assert!(burn.iter().all(|b| b.1 <= 1.0 && b.0 <= 1.0));
+        for w in values.windows(2) {
+            assert!((w[1].0 - w[0].0).abs() < 0.03, "{w:?}");
+            assert!((w[1].1 - w[0].1).abs() < 0.03, "{w:?}");
+            let [x0, y0] = w[0].2;
+            let [x1, y1] = w[1].2;
+            if w[0].1 > 0.0 && w[1].1 > 0.0 {
+                assert!((x1 - x0).abs() < 0.02 && (y1 - y0).abs() < 0.02, "{w:?}");
+            }
+        }
+        assert!(values.iter().all(|v| v.0 <= FLARE_PEAK && v.1 <= 1.0));
+        // Past the peak at frame 150 the leak was falling; started again, it rises once more.
+        assert!(values[149].1 < 1.0 && values[160].1 > values[150].1);
+        // The stronger start rises above the weaker's peak.
+        let weak_peak = values[..300].iter().map(|v| v.0).fold(0.0, f32::max);
+        let strong_peak = values[300..].iter().map(|v| v.0).fold(0.0, f32::max);
+        assert!(weak_peak <= 0.5 * FLARE_PEAK + 1e-4 && strong_peak > 0.95 * FLARE_PEAK);
     }
 
     /// The flare gives way to a low quality, and the rest of the course goes by unseen.
@@ -648,14 +622,12 @@ mod tests {
         let mut lens = lens(&[]);
         lens.start_flare(1.0);
         lens.start_leak(1.0);
-        lens.start_blocks(1.0);
-        let frame = lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
-        assert_eq!(frame.blocks, 1.0);
+        lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
         let view = lens.view();
         assert!(view.flare_running && view.leak_running && !view.leak_listed);
     }
 
-    /// Leaks come from different corners in turn, inside the picture's reach.
+    /// Leaks one after another come from different corners in turn, inside the picture's reach.
     #[test]
     fn leaks_vary_their_corner() {
         let mut lens = lens(&[]);
@@ -664,8 +636,11 @@ mod tests {
             lens.start_leak(1.0);
             let frame = lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0);
             let [x, y] = frame.leak_at;
-            assert!((-0.1..=1.1).contains(&x) && (-0.1..=1.1).contains(&y));
+            assert!((-0.35..=1.35).contains(&x) && (-0.35..=1.35).contains(&y));
             corners.insert(((x > 0.5) as u8, (y > 0.5) as u8));
+            // A new leak while one runs continues it, from its corner: let it end.
+            run(&mut lens, 4.1);
+            assert!(!lens.view().leak_running);
         }
         assert!(corners.len() >= 2, "{corners:?}");
     }

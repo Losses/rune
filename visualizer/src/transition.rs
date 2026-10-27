@@ -304,11 +304,16 @@ pub enum Plan {
     Keep,
     /// A fade: the scene's frame `amount` (0 to 1) of the way to black.
     Fade(f32),
-    /// A flash: the scene's frame at `amount` (0 to 1) of the way to the flood of light.
+    /// A flash's rise: the scene's frame `amount` (0 to 1) of the way up, first washed in the
+    /// theme colour (the first [`FLASH_WASH`] of the rise), then overexposed into the flood of
+    /// light.
+    FlashRise(f32),
+    /// A flash's fall: the scene's frame at `amount` (1 to 0) of the way to the flood of light.
     Flash(f32),
     /// A dressed cut's fade-out: the held picture `amount` of the way to black.
     HeldFade(f32),
-    /// A dressed cut's rise of a flash: the held picture `amount` of the way to the flood.
+    /// A dressed cut's rise of a flash: the held picture `amount` of the way up, washed and then
+    /// flooded as [`Plan::FlashRise`].
     HeldFlash(f32),
     /// A dissolve's first frame: the scene before draws the picture to hold, and it is shown.
     Capture,
@@ -342,7 +347,7 @@ impl Plan {
         let plan = match phase {
             FadePhase::Out(p) => match (flash, held) {
                 (false, false) => Self::Fade(p),
-                (true, false) => Self::Flash(p),
+                (true, false) => Self::FlashRise(p),
                 (false, true) => Self::HeldFade(p),
                 (true, true) => Self::HeldFlash(p),
             },
@@ -367,7 +372,7 @@ impl Plan {
     fn needs_held(self) -> bool {
         !matches!(
             self,
-            Self::None | Self::Fade(_) | Self::Flash(_) | Self::Punch(_)
+            Self::None | Self::Fade(_) | Self::FlashRise(_) | Self::Flash(_) | Self::Punch(_)
         )
     }
 }
@@ -795,9 +800,16 @@ impl Transitions {
             // Nothing of a fade, shown as it is.
             Plan::Keep => (KIND_FADE, 0.0, 0, black),
             Plan::Fade(amount) => (KIND_FADE, amount, 0, black),
+            Plan::FlashRise(amount) => {
+                params.extra = flash_wash(accent);
+                (KIND_FLASH_RISE, amount, 0, tint)
+            }
             Plan::Flash(amount) => (KIND_FLASH, amount, 0, tint),
             Plan::HeldFade(amount) => (KIND_FADE_HELD, amount, 0, black),
-            Plan::HeldFlash(amount) => (KIND_FLASH_HELD, amount, 0, tint),
+            Plan::HeldFlash(amount) => {
+                params.extra = flash_wash(accent);
+                (KIND_FLASH_HELD, amount, 0, tint)
+            }
             // The held picture is also what `fresh` reads as in this frame; the pass shows it.
             Plan::Capture => (KIND_DISSOLVE, 0.0, 0, black),
             Plan::Dissolve(progress) => (KIND_DISSOLVE, progress, 0, black),
@@ -863,6 +875,7 @@ const KIND_FADE_HELD: u32 = 5;
 const KIND_FLASH_HELD: u32 = 6;
 const KIND_CUTIN: u32 = 7;
 const KIND_PUNCH: u32 = 8;
+const KIND_FLASH_RISE: u32 = 9;
 /// Bytes of `struct Transition`: the kind, progress and seed, a word of padding, and three vec4f.
 const UNIFORM_SIZE: u64 = 64;
 
@@ -884,6 +897,20 @@ fn encode_srgb(linear: f32) -> f32 {
 pub const FLASH_PEAK: f32 = 0.82;
 /// How much of white the flood has over the theme colour: a light tint, not the colour itself.
 const FLASH_LIGHTEN: f32 = 0.5;
+
+/// The share of a flash's rise that washes the picture in the theme colour, after the reference's
+/// colour-block frames, before it is overexposed into the flood; the switch is at the peak.
+pub const FLASH_WASH: f32 = 1.0 / 3.0;
+
+/// What a flash's rise washes the picture in, as `extra` of `struct Transition`: the theme colour
+/// at its brightest (its brightest channel at 1) in the output's bytes, and [`FLASH_WASH`].
+/// Without an accent the calm blue of a cut-in.
+fn flash_wash(accent: Option<[f32; 3]>) -> [f32; 4] {
+    let accent = accent.unwrap_or(FALLBACK_ACCENT);
+    let brightest = accent.iter().copied().fold(1e-3, f32::max);
+    let [r, g, b] = accent.map(|c| encode_srgb(c / brightest));
+    [r, g, b, FLASH_WASH]
+}
 
 /// The colour a flash floods the screen with, in the output's bytes (0 to 1): the accent colour
 /// (linear, as the app tells it) lightened, and scaled so that its brightest channel is at most
@@ -907,7 +934,8 @@ struct Params {
     /// side of its smear in the first.
     cutin: [f32; 4],
     /// A cut-in: the style, whether the band shows a cover. A punch: the scale, the smear, the
-    /// colour split and the flash.
+    /// colour split and the flash. A flash's rise: the colour it washes the picture in and the
+    /// share of the rise that is the wash (see [`flash_wash`]).
     extra: [f32; 4],
 }
 
@@ -1094,10 +1122,29 @@ mod tests {
     fn a_flash_rises_then_falls_and_installs_at_the_peak() {
         // Rise 1 s, fall 2 s: at the peak the way in begins at full amount.
         let at = |seconds| Plan::out_and_in(Transition::Flash, seconds, 1.0, 2.0, false);
-        assert_eq!(at(0.5), (Plan::Flash(0.5), FadePhase::Out(0.5)));
+        assert_eq!(at(0.5), (Plan::FlashRise(0.5), FadePhase::Out(0.5)));
         assert_eq!(at(1.0), (Plan::Flash(1.0), FadePhase::In(0.0)));
         assert_eq!(at(2.0), (Plan::Flash(0.5), FadePhase::In(0.5)));
         assert_eq!(at(3.0), (Plan::None, FadePhase::Done));
+    }
+
+    /// A flash's rise first washes the picture in the theme colour at its brightest (the first
+    /// third of the rise), held or live, and its fall does not.
+    #[test]
+    fn a_flash_rise_washes_in_the_theme_colour_first() {
+        let wash = flash_wash(Some([0.4, 0.05, 0.01]));
+        assert!((wash[0] - 1.0).abs() < 1e-6 && wash[1] < wash[0] && wash[2] < wash[1]);
+        assert_eq!(wash[3], FLASH_WASH);
+        const { assert!(FLASH_WASH > 0.0 && FLASH_WASH < 0.5) };
+        assert!(
+            flash_wash(None)[..3]
+                .iter()
+                .all(|c| (0.0..=1.0).contains(c))
+        );
+        let rise = Plan::out_and_in(Transition::Flash, 0.2, 1.0, 2.0, true).0;
+        assert_eq!(rise, Plan::HeldFlash(0.2));
+        let fall = Plan::out_and_in(Transition::Flash, 1.5, 1.0, 2.0, true).0;
+        assert_eq!(fall, Plan::Flash(0.75));
     }
 
     #[test]
@@ -1154,6 +1201,7 @@ mod tests {
     fn only_a_plan_that_shows_the_live_scene_alone_needs_no_held_picture() {
         assert!(!Plan::None.needs_held());
         assert!(!Plan::Fade(0.5).needs_held() && !Plan::Flash(0.5).needs_held());
+        assert!(!Plan::FlashRise(0.5).needs_held());
         // Keeping a frame is what the held picture is for.
         assert!(Plan::Keep.needs_held() && Plan::Mosaic(0.1, 0).needs_held());
         assert!(Plan::HeldFlash(0.1).needs_held());

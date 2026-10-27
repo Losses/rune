@@ -666,11 +666,6 @@ impl Pipeline {
         self.latest_mut().start_leak();
     }
 
-    /// The newest scene fires a colour-block frame now (see [`Scene::start_blocks`]).
-    pub fn start_blocks(&mut self) {
-        self.latest_mut().start_blocks();
-    }
-
     /// Which lens effects the scene on screen has on.
     pub fn lens_view(&self) -> crate::scene::LensView {
         self.scene.lens_view()
@@ -2050,7 +2045,17 @@ mod tests {
             let times: Vec<f64> = (0..=40).map(|i| f64::from(i) * 0.05).collect();
             // The first frame out can be one of the call before.
             let m = &means(&mut pipeline, &times)[1..];
-            assert!(m[0] > 190.0, "{kind:?} starts on the old picture: {m:?}");
+            if kind == Transition::Flash {
+                // A flash starts by washing the old picture in the theme colour, under the flood.
+                let flood = flood_color(Some([0.1, 0.4, 1.0]));
+                let flood_mean = flood.iter().sum::<f32>() / 3.0 * 255.0;
+                assert!(
+                    m[0] < 190.0 && m[0] <= flood_mean + 3.0,
+                    "a flash starts washed: {m:?}"
+                );
+            } else {
+                assert!(m[0] > 190.0, "{kind:?} starts on the old picture: {m:?}");
+            }
             assert!(
                 (m[39] - 124.0).abs() < 4.0,
                 "{kind:?} ends on the new scene: {m:?}"
@@ -2602,11 +2607,12 @@ mod probe {
     }
 
     /// The lens effects of scene `PROBE` (default Armillary) started from the lab's commands, at
-    /// the app's accent: frames over each effect's course as PNGs in `PROBE_OUT`
+    /// the app's accent, and a flash (a switch to Torii Sea, and one dressing a cut of the
+    /// director): frames over each one's course as PNGs in `PROBE_OUT`
     /// (`lens-<scene>-<effect>-<frames since it started>.png`, at 60 fps and 120 bpm, so 30
-    /// frames are a beat) and one with no effect; then the GPU time of the scene with each effect
-    /// kept running against none, as the median over `PROBE_COST_FRAMES` frames (default 600)
-    /// after the first 60, in three rounds.
+    /// frames are a beat) and one with no effect; then the GPU time of the scene with each lens
+    /// effect kept running against none, as the median over `PROBE_COST_FRAMES` frames (default
+    /// 600) after the first 60, in three rounds.
     #[test]
     #[ignore = "a probe, run by hand"]
     fn probe_lens() {
@@ -2620,27 +2626,32 @@ mod probe {
         /// What starts an effect.
         type Start = fn(&mut Pipeline);
         // The effect and the frames after its start that are looked at.
+        // Across the two bars of the flare and the leak (240 frames).
+        const RAMP: &[u32] = &[0, 30, 60, 80, 110, 140, 170, 200, 230];
         let looks: [(&str, Start, &[u32]); 5] = [
             ("none", |_| {}, &[0]),
+            ("flare", Pipeline::start_flare, RAMP),
+            ("leak", Pipeline::start_leak, RAMP),
+            // A beat up (30 frames) and two down.
             (
-                "flare",
-                Pipeline::start_flare,
-                &[0, 8, 15, 30, 60, 120, 180],
-            ),
-            (
-                "leak",
-                Pipeline::start_leak,
-                &[0, 15, 30, 60, 150, 300, 450],
-            ),
-            ("blocks", Pipeline::start_blocks, &[0, 1, 2, 3, 4, 5]),
-            // Every second block frame at full strength floods.
-            (
-                "flood",
+                "flash",
                 |pipeline| {
-                    pipeline.start_blocks();
-                    pipeline.start_blocks();
+                    let next = pipeline
+                        .scene_build_builtin("Torii Sea")
+                        .unwrap()
+                        .run()
+                        .unwrap();
+                    let (kind, durations) =
+                        switching::requested(Transition::Flash, pipeline.music());
+                    pipeline.switch_to(next, kind, durations).unwrap();
                 },
-                &[0, 1, 2, 3, 4, 5],
+                &[0, 3, 6, 9, 12, 16, 20, 24, 28, 31, 40, 60, 80],
+            ),
+            // A quarter of a beat up and half a beat down, from the frame after the start.
+            (
+                "flash-cut",
+                |pipeline| pipeline.cut_dressed(Transition::Flash),
+                &[0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 18, 24],
             ),
         ];
         for (name, start, after) in looks {
@@ -2666,11 +2677,10 @@ mod probe {
         }
         let frames: u32 = env_or("PROBE_COST_FRAMES", "600").parse().unwrap();
         // Each effect started again before it has gone, so that one is always under way.
-        let kept: [(&str, Start, u32); 4] = [
+        let kept: [(&str, Start, u32); 3] = [
             ("none", |_| {}, 1),
-            ("flare", Pipeline::start_flare, 30),
-            ("leak", Pipeline::start_leak, 240),
-            ("blocks", Pipeline::start_blocks, 3),
+            ("flare", Pipeline::start_flare, 120),
+            ("leak", Pipeline::start_leak, 120),
         ];
         let mut cost = |start: Start, every: u32| {
             load(&mut pipeline, &scene, Level::FULL);

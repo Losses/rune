@@ -42,8 +42,6 @@ pub struct InspectLens {
     pub flare_running: bool,
     pub leak_listed: bool,
     pub leak_running: bool,
-    pub blocks_listed: bool,
-    pub blocks_running: bool,
 }
 
 impl From<LensView> for InspectLens {
@@ -53,8 +51,6 @@ impl From<LensView> for InspectLens {
             flare_running: view.flare_running,
             leak_listed: view.leak_listed,
             leak_running: view.leak_running,
-            blocks_listed: view.blocks_listed,
-            blocks_running: view.blocks_running,
         }
     }
 }
@@ -219,7 +215,6 @@ impl From<LabTransition> for Transition {
 pub struct LabLens {
     pub flare: bool,
     pub leak: bool,
-    pub blocks: bool,
 }
 
 /// How often the camera director cuts, as a lab picks it (see [`LabCommand::PaceWith`]).
@@ -290,8 +285,6 @@ pub enum LabCommand {
     Flare,
     /// Start a light leak now, as a section start would (even if the scene lists none).
     Leak,
-    /// Fire a colour-block frame now, as a strong cue would (even if the scene lists none).
-    Blocks,
     /// Every scene switch, the automatic ones and those of [`LabCommand::NextScene`], takes this
     /// transition (with the durations its kind takes), whatever was chosen; none leaves the choice.
     SwitchWith(Option<LabTransition>),

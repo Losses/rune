@@ -1388,7 +1388,6 @@ fn lab(
         LabCommand::CutDressed(transition) => pipeline.cut_dressed(transition.into()),
         LabCommand::Flare => pipeline.start_flare(),
         LabCommand::Leak => pipeline.start_leak(),
-        LabCommand::Blocks => pipeline.start_blocks(),
         LabCommand::Burst => pipeline.start_burst(),
         LabCommand::Shot(index) => {
             if !pipeline.hold_shot(index) {

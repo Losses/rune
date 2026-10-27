@@ -21,11 +21,11 @@ use crate::transition::Transition;
 /// The fewest bars between two effects, unless the second is at a strong moment.
 pub const GAP_BARS: f32 = 8.0;
 /// The effects that are strong: they play only at a strong moment. The rest are light.
-pub const STRONG: &[&str] = &["flash", "glitch", "mosaic", "cutin", "blocks"];
+pub const STRONG: &[&str] = &["flash", "glitch", "mosaic", "cutin"];
 /// The transitions that may dress a cut, strong first, then light.
 const CUT_DRESSINGS: &[&str] = &["flash", "glitch", "mosaic", "dissolve", "fade"];
-/// The lens effects, strong first, then light.
-const LENS: &[&str] = &["blocks", "flare", "leak"];
+/// The lens effects, strong first, then light (all of them light now).
+const LENS: &[&str] = &["flare", "leak"];
 
 /// How often effects play, the user's setting.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -198,14 +198,12 @@ pub fn cut_dressing(names: &[String], played: Played) -> Option<Transition> {
 pub enum Lens {
     Flare,
     Leak,
-    Blocks,
 }
 
 /// The lens effect that plays at a moment with no cut, from the scene's lens list.
 pub fn lens_effect(names: &[String], played: Played) -> Option<Lens> {
     let options = eligible(names, LENS, played.strength);
     pick_by_label(&options, played.label).map(|name| match name {
-        "blocks" => Lens::Blocks,
         "leak" => Lens::Leak,
         _ => Lens::Flare,
     })
@@ -242,9 +240,18 @@ mod tests {
 
     #[test]
     fn moments_are_section_starts_and_impacts_and_nothing_else() {
-        assert_eq!(moment_of(&music(1.0, 1.0, 0, 0.0), 0).unwrap().0, Strength::Strong);
-        assert_eq!(moment_of(&music(1.0, 0.5, 0, 0.0), 0).unwrap().0, Strength::Medium);
-        assert_eq!(moment_of(&music(1.0, 0.0, 1, 0.0), 1).unwrap().0, Strength::Medium);
+        assert_eq!(
+            moment_of(&music(1.0, 1.0, 0, 0.0), 0).unwrap().0,
+            Strength::Strong
+        );
+        assert_eq!(
+            moment_of(&music(1.0, 0.5, 0, 0.0), 0).unwrap().0,
+            Strength::Medium
+        );
+        assert_eq!(
+            moment_of(&music(1.0, 0.0, 1, 0.0), 1).unwrap().0,
+            Strength::Medium
+        );
         // The 8-bar cue and plain frames are no moments.
         assert_eq!(moment_of(&music(1.0, 0.3, 0, 0.0), 0), None);
         assert_eq!(moment_of(&music(1.0, 0.0, 0, 0.0), 0), None);
@@ -273,7 +280,11 @@ mod tests {
         assert!(scheduler.tick(&music(3.0, 0.5, 0, 34.0), every).is_some());
         // Nothing plays at a chance of 0.
         let mut scheduler = Scheduler::default();
-        assert!(scheduler.tick(&music(1.0, 1.0, 0, 0.0), Chances::every(0.0)).is_none());
+        assert!(
+            scheduler
+                .tick(&music(1.0, 1.0, 0, 0.0), Chances::every(0.0))
+                .is_none()
+        );
     }
 
     fn names(list: &[&str]) -> Vec<String> {
@@ -282,15 +293,23 @@ mod tests {
 
     #[test]
     fn a_strong_moment_takes_a_strong_effect_and_a_medium_one_a_light_one() {
-        let list = names(&["fade", "dissolve", "flash", "glitch", "flare", "leak", "blocks"]);
+        let list = names(&["fade", "dissolve", "flash", "glitch", "flare", "leak"]);
         let at = |strength, label| Played { strength, label };
         for label in 0..8 {
             let label = label as f32;
             let cut = cut_dressing(&list, at(Strength::Strong, label)).unwrap();
-            assert!(matches!(cut, Transition::Flash | Transition::Glitch), "{cut:?}");
+            assert!(
+                matches!(cut, Transition::Flash | Transition::Glitch),
+                "{cut:?}"
+            );
             let cut = cut_dressing(&list, at(Strength::Medium, label)).unwrap();
-            assert!(matches!(cut, Transition::Fade | Transition::Dissolve), "{cut:?}");
-            assert_eq!(lens_effect(&list, at(Strength::Strong, label)), Some(Lens::Blocks));
+            assert!(
+                matches!(cut, Transition::Fade | Transition::Dissolve),
+                "{cut:?}"
+            );
+            // No lens effect is strong: a strong moment takes a light one.
+            let lens = lens_effect(&list, at(Strength::Strong, label)).unwrap();
+            assert!(matches!(lens, Lens::Flare | Lens::Leak));
             let lens = lens_effect(&list, at(Strength::Medium, label)).unwrap();
             assert!(matches!(lens, Lens::Flare | Lens::Leak));
         }
@@ -306,8 +325,11 @@ mod tests {
             cut_dressing(&light, at(Strength::Strong, 1.0)),
             Some(Transition::Dissolve)
         );
-        assert_eq!(lens_effect(&light, at(Strength::Strong, 1.0)), Some(Lens::Leak));
-        let strong = names(&["glitch", "blocks"]);
+        assert_eq!(
+            lens_effect(&light, at(Strength::Strong, 1.0)),
+            Some(Lens::Leak)
+        );
+        let strong = names(&["glitch", "mosaic"]);
         assert_eq!(cut_dressing(&strong, at(Strength::Medium, 1.0)), None);
         assert_eq!(lens_effect(&strong, at(Strength::Medium, 1.0)), None);
         assert_eq!(lens_effect(&[], at(Strength::Strong, 1.0)), None);

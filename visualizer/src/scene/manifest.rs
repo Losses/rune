@@ -127,8 +127,9 @@ impl Pace {
 pub const TRANSITIONS: &[&str] = &[
     "cut", "fade", "dissolve", "cutin", "flash", "glitch", "mosaic",
 ];
-/// The lens effects that are known by name, all still to come.
-pub const LENS_EFFECTS: &[&str] = &["flare", "leak", "blocks", "blur"];
+/// The lens effects that are known by name: those the runtime draws (see `scene::lens`), and
+/// `blur`, still to come. (`blocks`, a colour-block frame, is now the start of a `flash`.)
+pub const LENS_EFFECTS: &[&str] = &["flare", "leak", "blur"];
 
 /// The `effects` list: the transitions and lens effects that suit the scene, one list for a switch
 /// to the scene and for the director's cuts within it. The scene says what may be used; the runtime
@@ -171,7 +172,10 @@ impl From<Vec<String>> for Effects {
         };
         // A list that names none of the plain transitions keeps them for the plain switches.
         let mut switch = of(TRANSITIONS);
-        if !switch.iter().any(|n| ["cut", "fade", "dissolve"].contains(&n.as_str())) {
+        if !switch
+            .iter()
+            .any(|n| ["cut", "fade", "dissolve"].contains(&n.as_str()))
+        {
             switch.splice(0..0, ["fade".to_string(), "dissolve".to_string()]);
         }
         Self {
