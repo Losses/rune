@@ -536,6 +536,24 @@ fn inspected(
     }
 }
 
+/// A scene folder of one plain pass that declares the inputs of [`LAB_INPUTS`] and no others
+/// (every built-in scene declares inputs of its own now, so the lab's cannot be added to one of
+/// them). Its shader reads none of them, so they may all be taken out again.
+fn input_scene(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir()
+        .join(format!("rune-visualizer-{name}-{}", std::process::id()))
+        .join(name);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest = format!(
+        "format = 1\nname = \"{name}\"\nlicense = \"MPL-2.0\"\n[[param]]\nid = \"unused\"\ndefault = 0.0\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n{LAB_INPUTS}"
+    );
+    std::fs::write(dir.join("scene.toml"), manifest).unwrap();
+    let shader = "fn shade(px: Pixel) -> vec4f {\n  return vec4f(vec3f(0.1), 1.0);\n}\n";
+    std::fs::write(dir.join("a.wgsl"), shader).unwrap();
+    dir
+}
+
 const LAB_INPUTS: &str = r#"
 [[input]]
 id = "surge"
@@ -560,10 +578,7 @@ fn a_lab_replaces_the_bindings_of_the_scene_on_screen_and_inspects_what_it_has()
         return;
     };
     visualizer.set_inspecting(true);
-    let dir = copied_scene("lab-binds");
-    let manifest = dir.join("scene.toml");
-    let text = std::fs::read_to_string(&manifest).unwrap() + LAB_INPUTS;
-    std::fs::write(&manifest, text).unwrap();
+    let dir = input_scene("lab-binds");
     visualizer.load_preset_path(&dir).unwrap();
     let seen = inspected(&visualizer, &mut feeder, "the scene did not show", |i| {
         i.scene == "lab-binds" && i.bindings.len() == 1
