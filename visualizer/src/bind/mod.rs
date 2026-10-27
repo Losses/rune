@@ -13,7 +13,9 @@ mod runtime;
 pub(crate) use runtime::tests;
 mod sources;
 
-pub use eval::{Bindings, Curve, Ease, Evaluator, HOWS, MAX_OPTIONS, Report, Tick, Used};
+pub use eval::{
+    Bindings, Curve, Ease, Env, Evaluator, HOWS, MAX_OPTIONS, Report, Scope, Tick, Used,
+};
 pub use level::{Level, forced_chart};
 pub use runtime::EMBEDDED as RUNTIME_TOML;
 pub use runtime::{

@@ -6,13 +6,16 @@
 //! [`Source::meaningful_at`]) the binding's `fallback` takes over: another source read the same
 //! way, a fixed value, the last output, or the input's rest. A binding with no fallback uses its
 //! source at every level, as a scene that reads the raw signal does.
+//!
+//! A source is a name of the registry or `input:<id>`, the value of an input declared before the
+//! binding's own. A number of a `when` is a literal or `{ param = "<id>" }`, read every frame.
 
 use anyhow::{Context, Result, bail, ensure};
 
 use super::level::Level;
 use super::sources::{self, Reading, Source};
 use crate::course;
-use crate::scene::{Bind, FallbackDecl, InputDecl, MusicValues};
+use crate::scene::{Bind, FallbackDecl, InputDecl, MusicValues, Param, ParamKind};
 use crate::switching::pick_by_label;
 
 /// The `how`s a binding knows.
@@ -62,7 +65,10 @@ impl Curve {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ease {
     None,
+    /// The engine's exponential ease, or `1 - (1 - x)^p` with an `ease_power`.
     Out,
+    /// A smoothstep within each beat.
+    Smooth,
 }
 
 impl Ease {
@@ -70,58 +76,189 @@ impl Ease {
         match name {
             "none" => Some(Self::None),
             "out" => Some(Self::Out),
+            "smooth" => Some(Self::Smooth),
             _ => None,
         }
     }
 
-    /// The beat time `t` as this ease makes it.
-    fn apply(self, t: f32) -> f32 {
-        match self {
-            Self::None => t,
-            Self::Out => course::eased(t),
+    /// The beat time `t` as this ease makes it; `power` is the `ease_power` of `Out`.
+    fn apply(self, t: f32, power: Option<f32>) -> f32 {
+        match (self, power) {
+            (Self::None, _) => t,
+            (Self::Out, None) => course::eased(t),
+            (Self::Out, Some(p)) => {
+                let t = t.max(0.0);
+                t.floor() + 1.0 - (1.0 - t.fract()).powf(p.max(1e-3))
+            }
+            (Self::Smooth, _) => {
+                let t = t.max(0.0);
+                t.floor() + Curve::Smooth.at(t.fract())
+            }
         }
     }
 }
 
-/// What an `accumulate` counts its rate per.
+/// What a time in a `when` is counted in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Per {
     Beat,
     Second,
 }
 
+/// How a trigger's envelope falls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Decay {
+    /// A straight fall over `release`.
+    Linear,
+    /// An exponential fall with `release` as the time constant.
+    Exp,
+}
+
+/// A number of a `when`: written in the manifest, or the current value of a parameter.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Num {
+    Const(f32),
+    Param(usize),
+}
+
+/// What a frame offers a binding besides the music: the numeric parameters in the manifest's
+/// order, the frame's seed, and the inputs already worked out in this frame.
+#[derive(Clone, Copy, Default)]
+pub struct Env<'a> {
+    pub params: &'a [f32],
+    pub seed: u32,
+    inputs: &'a [f32],
+}
+
+impl Env<'_> {
+    fn num(&self, num: Num) -> f32 {
+        match num {
+            Num::Const(v) => v,
+            Num::Param(i) => self.params.get(i).copied().unwrap_or(0.0),
+        }
+    }
+}
+
+/// What a binding's names are looked up in: the scene's parameters and inputs.
+#[derive(Clone, Copy, Default)]
+pub struct Scope<'a> {
+    pub params: &'a [Param],
+    pub inputs: &'a [InputDecl],
+}
+
+/// Where a binding reads from: a source of the registry, or an input declared before it.
+#[derive(Clone, Copy)]
+enum Src {
+    Source(&'static Source),
+    Input(usize),
+}
+
+impl Src {
+    fn read(self, music: &MusicValues, env: &Env) -> Reading {
+        match self {
+            Self::Source(source) => source.read(music),
+            Self::Input(slot) => Reading {
+                value: env.inputs.get(slot).copied().unwrap_or(0.0),
+                count: 0,
+            },
+        }
+    }
+
+    fn event(self) -> bool {
+        matches!(self, Self::Source(source) if source.event)
+    }
+
+    fn meaningful_at(self, level: Level) -> bool {
+        match self {
+            Self::Source(source) => source.meaningful_at(level),
+            Self::Input(_) => true,
+        }
+    }
+
+    /// The source called `name` (or `input:<id>`, an input before slot `before`).
+    fn parse(name: &str, scope: Scope, before: usize) -> Result<Self> {
+        if let Some(id) = name.strip_prefix("input:") {
+            let slot = scope
+                .inputs
+                .iter()
+                .position(|input| input.id == id)
+                .with_context(|| format!("no input `{id}` to read from"))?;
+            ensure!(
+                slot < before,
+                "`input:{id}` must be declared before the input this binds (an input only reads earlier ones)"
+            );
+            return Ok(Self::Input(slot));
+        }
+        sources::find(name).map(Self::Source).with_context(|| {
+            format!(
+                "no source `{name}` (the sources are: {}, or input:<id>)",
+                sources::names()
+            )
+        })
+    }
+}
+
+/// How an event `pick` chooses its first index.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Start {
+    Index(Num),
+    /// From the frame's seed.
+    Seed,
+}
+
+/// How an event `pick` moves to another index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Jump {
+    Next,
+    Random,
+}
+
 /// A binding's `how` with its parameters.
 #[derive(Clone, Debug, PartialEq)]
 enum Mode {
     Follow {
-        from: [f32; 2],
-        to: [f32; 2],
+        from: [Num; 2],
+        to: [Num; 2],
         curve: Curve,
         /// A time constant in beats; 0 for none.
-        smooth: f32,
+        smooth: Num,
         ease: Ease,
+        power: Option<Num>,
         clamp: bool,
     },
     Trigger {
-        threshold: f32,
-        /// In beats.
-        attack: f32,
-        release: f32,
+        threshold: Num,
+        /// In `per`.
+        attack: Num,
+        release: Num,
+        per: Per,
+        decay: Decay,
         scale: bool,
     },
     Step {
-        every: f32,
+        every: Num,
+        /// Whether `every` counts bars, not beats.
+        bars: bool,
+        /// In the source's units, added before counting.
+        offset: Num,
         ease: Ease,
-        wrap: Option<f32>,
+        power: Option<Num>,
+        wrap: Option<Num>,
     },
     Pick {
         /// The indices 0..options, for [`pick_by_label`].
         options: Vec<u32>,
+        /// What an event pick does (a value source goes by its label).
+        strength: Num,
+        every: Num,
+        chance: Num,
+        start: Start,
+        jump: Jump,
     },
     Accumulate {
-        rate: f32,
+        rate: Num,
         per: Per,
-        wrap: Option<f32>,
+        wrap: Option<Num>,
     },
 }
 
@@ -156,7 +293,8 @@ pub enum Used {
 pub struct Tick {
     pub level: Level,
     pub used: Used,
-    /// The value of the binding's own source (whichever means produced the output).
+    /// The value of the binding's own source (whichever means produced the output), after its
+    /// `mul` and `add`.
     pub source: f32,
     pub output: f32,
 }
@@ -172,9 +310,9 @@ impl Default for Tick {
     }
 }
 
-/// What a frame's output comes from.
+/// What a frame's output comes from; the flag says whether the source counts events.
 enum Means {
-    Source(&'static Source, Reading),
+    Source(bool, Reading),
     Fallback(&'static Source, Reading),
     Value(f32),
     Hold,
@@ -192,6 +330,11 @@ struct State {
     /// The source's last value (`pick`, to change only when it changes) and the index chosen.
     seen: Option<f32>,
     index: u32,
+    /// An event `pick`: whether the first index is chosen, the section it counts in, and how many
+    /// events (past `strength`) it has counted there.
+    started: bool,
+    section: Option<f32>,
+    counted: u32,
     /// The running total (`accumulate`).
     total: f32,
 }
@@ -200,7 +343,11 @@ struct State {
 pub struct Evaluator {
     target: String,
     how: &'static str,
-    source: &'static Source,
+    source: Src,
+    source_name: &'static str,
+    /// A reading is `value * mul + add` before the `how` sees it.
+    mul: Option<Src>,
+    add: Num,
     fallback: Fallback,
     rest: f32,
     /// The top of the input's range, where a `trigger` peaks.
@@ -225,9 +372,45 @@ fn number(value: &toml::Value, what: &str) -> Result<f32> {
 struct When<'a> {
     table: &'a toml::Table,
     read: Vec<&'static str>,
+    scope: Scope<'a>,
 }
 
 impl<'a> When<'a> {
+    /// A number of the key: a literal, or `{ param = "<id>" }`; `valid` says whether a literal
+    /// is acceptable (a parameter is only known to be numeric here), `rule` what it must be.
+    fn num_of(
+        &self,
+        value: &toml::Value,
+        key: &str,
+        valid: fn(f32) -> bool,
+        rule: &str,
+    ) -> Result<Num> {
+        let what = format!("`when.{key}`");
+        if let toml::Value::Table(table) = value {
+            let id = match (table.len(), table.get("param")) {
+                (1, Some(toml::Value::String(id))) => id,
+                _ => bail!("{what} must be a number or {{ param = \"<id>\" }}"),
+            };
+            let index = self
+                .scope
+                .params
+                .iter()
+                .position(|param| &param.id == id)
+                .with_context(|| format!("{what}: no parameter `{id}`"))?;
+            ensure!(
+                matches!(
+                    self.scope.params[index].kind,
+                    ParamKind::Float | ParamKind::Int
+                ),
+                "{what}: parameter `{id}` is not a number (float or int)"
+            );
+            return Ok(Num::Param(index));
+        }
+        let v = number(value, &what)?;
+        ensure!(valid(v), "{what} {rule}");
+        Ok(Num::Const(v))
+    }
+
     fn number(&mut self, key: &'static str, default: f32) -> Result<f32> {
         self.read.push(key);
         match self.table.get(key) {
@@ -236,15 +419,30 @@ impl<'a> When<'a> {
         }
     }
 
-    fn optional(&mut self, key: &'static str) -> Result<Option<f32>> {
+    fn dynamic(
+        &mut self,
+        key: &'static str,
+        default: f32,
+        valid: fn(f32) -> bool,
+        rule: &str,
+    ) -> Result<Num> {
+        Ok(self.maybe(key, valid, rule)?.unwrap_or(Num::Const(default)))
+    }
+
+    fn maybe(
+        &mut self,
+        key: &'static str,
+        valid: fn(f32) -> bool,
+        rule: &str,
+    ) -> Result<Option<Num>> {
         self.read.push(key);
         self.table
             .get(key)
-            .map(|value| number(value, &format!("`when.{key}`")))
+            .map(|value| self.num_of(value, key, valid, rule))
             .transpose()
     }
 
-    fn pair(&mut self, key: &'static str) -> Result<Option<[f32; 2]>> {
+    fn pair(&mut self, key: &'static str) -> Result<Option<[Num; 2]>> {
         self.read.push(key);
         let Some(value) = self.table.get(key) else {
             return Ok(None);
@@ -254,7 +452,11 @@ impl<'a> When<'a> {
             bail!("{what} must be [lo, hi]");
         };
         ensure!(items.len() == 2, "{what} must be [lo, hi]");
-        Ok(Some([number(&items[0], &what)?, number(&items[1], &what)?]))
+        let any = |_: f32| true;
+        Ok(Some([
+            self.num_of(&items[0], key, any, "")?,
+            self.num_of(&items[1], key, any, "")?,
+        ]))
     }
 
     fn flag(&mut self, key: &'static str, default: bool) -> Result<bool> {
@@ -288,22 +490,49 @@ impl<'a> When<'a> {
     }
 }
 
+fn non_negative(v: f32) -> bool {
+    v >= 0.0
+}
+
+fn positive(v: f32) -> bool {
+    v > 0.0
+}
+
+fn any(_: f32) -> bool {
+    true
+}
+
+fn unit_range(v: f32) -> bool {
+    (0.0..=1.0).contains(&v)
+}
+
 impl Evaluator {
-    /// The evaluator of `bind`, which drives `input`. Fails, naming what is wrong, if the bind
-    /// names a source or a `how` that does not exist, a `when` key its `how` does not take, or a
-    /// value that makes no sense.
+    /// The evaluator of `bind`, which drives `input`, with no parameters to read and no other
+    /// inputs to read from. Fails, naming what is wrong, if the bind names a source or a `how`
+    /// that does not exist, a `when` key its `how` does not take, or a value that makes no sense.
     pub fn new(bind: &Bind, input: &InputDecl) -> Result<Self> {
-        Self::compile(bind, input).with_context(|| format!("[[bind]] for `{}`", bind.target))
+        Self::new_in(
+            bind,
+            input,
+            Scope {
+                params: &[],
+                inputs: std::slice::from_ref(input),
+            },
+        )
     }
 
-    fn compile(bind: &Bind, input: &InputDecl) -> Result<Self> {
-        let source = sources::find(&bind.source).with_context(|| {
-            format!(
-                "no source `{}` (the sources are: {})",
-                bind.source,
-                sources::names()
-            )
-        })?;
+    /// As [`Evaluator::new`], with the scene's parameters and inputs to look names up in.
+    pub fn new_in(bind: &Bind, input: &InputDecl, scope: Scope) -> Result<Self> {
+        Self::compile(bind, input, scope).with_context(|| format!("[[bind]] for `{}`", bind.target))
+    }
+
+    fn compile(bind: &Bind, input: &InputDecl, scope: Scope) -> Result<Self> {
+        let slot = scope
+            .inputs
+            .iter()
+            .position(|other| other.id == input.id)
+            .unwrap_or(scope.inputs.len());
+        let source = Src::parse(&bind.source, scope, slot)?;
         let how = HOWS
             .iter()
             .copied()
@@ -313,9 +542,9 @@ impl Evaluator {
             })?;
         if how == "trigger" {
             ensure!(
-                source.event,
+                source.event(),
                 "a trigger needs a source that counts events (hits, bars, beats, cues, impacts, notes, moment.strong, moment.medium), not `{}`",
-                source.name
+                bind.source
             );
         }
         let ease = bind
@@ -323,7 +552,7 @@ impl Evaluator {
             .as_deref()
             .map(|name| {
                 Ease::parse(name)
-                    .with_context(|| format!("no ease `{name}` (it is one of: none, out)"))
+                    .with_context(|| format!("no ease `{name}` (it is one of: none, out, smooth)"))
             })
             .transpose()?;
         ensure!(
@@ -334,54 +563,75 @@ impl Evaluator {
         let mut when = When {
             table: &bind.when,
             read: Vec::new(),
+            scope,
         };
+        let mul = match when.word("mul")? {
+            None => None,
+            Some(name) => Some(Src::parse(name, scope, slot).context("`when.mul`")?),
+        };
+        let add = when.dynamic("add", 0.0, any, "")?;
         let mode = match how {
             "follow" => {
-                let from = when.pair("from")?.unwrap_or([0.0, 1.0]);
-                ensure!(
-                    from[0] != from[1],
-                    "`when.from` must have two different ends"
-                );
-                let to = when.pair("to")?.unwrap_or([lo, hi]);
+                let from = when
+                    .pair("from")?
+                    .unwrap_or([Num::Const(0.0), Num::Const(1.0)]);
+                if let [Num::Const(a), Num::Const(b)] = from {
+                    ensure!(a != b, "`when.from` must have two different ends");
+                }
+                let to = when.pair("to")?.unwrap_or([Num::Const(lo), Num::Const(hi)]);
                 let curve = match when.word("curve")? {
                     None => Curve::Linear,
                     Some(name) => Curve::parse(name).with_context(|| {
                         format!("no curve `{name}` (it is one of: {})", Curve::NAMES)
                     })?,
                 };
-                let smooth = when.number("smooth", 0.0)?;
-                ensure!(smooth >= 0.0, "`when.smooth` must not be negative");
+                let smooth = when.dynamic("smooth", 0.0, non_negative, "must not be negative")?;
                 let clamp = when.flag("clamp", true)?;
+                let power = power_of(&mut when, ease.unwrap_or(Ease::None))?;
                 Mode::Follow {
                     from,
                     to,
                     curve,
                     smooth,
                     ease: ease.unwrap_or(Ease::None),
+                    power,
                     clamp,
                 }
             }
             "trigger" => {
-                let threshold = when.number("strength", 0.0)?;
-                let attack = when.number("attack", 0.0)?;
-                let release = when.number("release", 0.25)?;
-                ensure!(
-                    attack >= 0.0 && release >= 0.0,
-                    "`when.attack` and `when.release` must not be negative"
-                );
+                let threshold = when.dynamic("strength", 0.0, any, "")?;
+                let attack = when.dynamic("attack", 0.0, non_negative, "must not be negative")?;
+                let release =
+                    when.dynamic("release", 0.25, non_negative, "must not be negative")?;
+                let decay = match when.word("decay")? {
+                    None | Some("linear") => Decay::Linear,
+                    Some("exp") => Decay::Exp,
+                    Some(other) => bail!("no `when.decay` `{other}` (it is linear or exp)"),
+                };
                 Mode::Trigger {
                     threshold,
                     attack,
                     release,
+                    per: per_of(&mut when)?,
+                    decay,
                     scale: when.flag("scale", true)?,
                 }
             }
             "step" => {
-                let every = when.number("every", 1.0)?;
-                ensure!(every > 0.0, "`when.every` must be above 0");
+                let every = when.dynamic("every", 1.0, positive, "must be above 0")?;
+                let bars = match when.word("unit")? {
+                    None | Some("beat") => false,
+                    Some("bar") => true,
+                    Some(other) => bail!("no `when.unit` `{other}` (it is beat or bar)"),
+                };
+                let offset = when.dynamic("offset", 0.0, any, "")?;
+                let ease = ease.unwrap_or(Ease::Out);
                 Mode::Step {
                     every,
-                    ease: ease.unwrap_or(Ease::Out),
+                    bars,
+                    offset,
+                    ease,
+                    power: power_of(&mut when, ease)?,
                     wrap: wrap_of(&mut when)?,
                 }
             }
@@ -391,23 +641,43 @@ impl Evaluator {
                     options >= 1.0 && options <= MAX_OPTIONS as f32 && options.fract() == 0.0,
                     "`when.options` must be a whole number from 1 to {MAX_OPTIONS}"
                 );
+                let strength = when.dynamic("strength", 0.0, any, "")?;
+                let every = when.dynamic("every", 1.0, positive, "must be above 0")?;
+                let chance = when.dynamic("chance", 1.0, unit_range, "must be from 0 to 1")?;
+                let start = match when.table.get("start") {
+                    Some(toml::Value::String(word)) if word == "seed" => {
+                        when.read.push("start");
+                        Start::Seed
+                    }
+                    Some(toml::Value::String(other)) => {
+                        bail!("no `when.start` `{other}` (it is an index, a parameter or seed)")
+                    }
+                    _ => Start::Index(when.dynamic(
+                        "start",
+                        0.0,
+                        non_negative,
+                        "must not be negative",
+                    )?),
+                };
+                let jump = match when.word("jump")? {
+                    None | Some("next") => Jump::Next,
+                    Some("random") => Jump::Random,
+                    Some(other) => bail!("no `when.jump` `{other}` (it is next or random)"),
+                };
                 Mode::Pick {
                     options: (0..options as u32).collect(),
+                    strength,
+                    every,
+                    chance,
+                    start,
+                    jump,
                 }
             }
-            _ => {
-                let rate = when.number("rate", 1.0)?;
-                let per = match when.word("per")? {
-                    None | Some("beat") => Per::Beat,
-                    Some("second") => Per::Second,
-                    Some(other) => bail!("no `when.per` `{other}` (it is beat or second)"),
-                };
-                Mode::Accumulate {
-                    rate,
-                    per,
-                    wrap: wrap_of(&mut when)?,
-                }
-            }
+            _ => Mode::Accumulate {
+                rate: when.dynamic("rate", 1.0, any, "")?,
+                per: per_of(&mut when)?,
+                wrap: wrap_of(&mut when)?,
+            },
         };
         when.finish(how)?;
         let fallback = match &bind.fallback {
@@ -437,11 +707,25 @@ impl Evaluator {
                 }
             },
         };
+        if how == "pick" {
+            let event = source.event() || matches!(fallback, Fallback::Source(s) if s.event);
+            let set = |key: &str| bind.when.contains_key(key);
+            ensure!(
+                event
+                    || !["strength", "every", "chance", "start", "jump"]
+                        .iter()
+                        .any(|k| set(k)),
+                "`strength`, `every`, `chance`, `start` and `jump` are for a pick of an event source"
+            );
+        }
         let rest = input.rest();
         Ok(Self {
             target: bind.target.clone(),
             how,
             source,
+            source_name: intern(&bind.source),
+            mul,
+            add,
             fallback,
             rest,
             top: hi,
@@ -463,7 +747,7 @@ impl Evaluator {
     }
 
     pub fn source(&self) -> &'static str {
-        self.source.name
+        self.source_name
     }
 
     pub fn how(&self) -> &'static str {
@@ -475,24 +759,32 @@ impl Evaluator {
         self.tick
     }
 
-    /// Advance by a frame of `dt` seconds in `music`, which is at `level`, and say the output.
+    /// Advance by a frame of `dt` seconds in `music`, which is at `level`, and say the output;
+    /// with no parameters, no seed and no other inputs to read (see [`Evaluator::tick_in`]).
     pub fn tick(&mut self, dt: f32, music: &MusicValues, level: Level) -> Tick {
-        let own = self.source.read(music);
+        self.tick_in(dt, music, level, &Env::default())
+    }
+
+    /// As [`Evaluator::tick`], in a frame whose parameters, seed and inputs are `env`.
+    pub fn tick_in(&mut self, dt: f32, music: &MusicValues, level: Level, env: &Env) -> Tick {
+        let own = self.modulated(self.source.read(music, env), music, env);
         let means = match self.fallback {
-            Fallback::None => Means::Source(self.source, own),
-            _ if self.source.meaningful_at(level) => Means::Source(self.source, own),
-            Fallback::Source(other) => Means::Fallback(other, other.read(music)),
+            Fallback::None => Means::Source(self.source.event(), own),
+            _ if self.source.meaningful_at(level) => Means::Source(self.source.event(), own),
+            Fallback::Source(other) => {
+                Means::Fallback(other, self.modulated(other.read(music), music, env))
+            }
             Fallback::Value(value) => Means::Value(value),
             Fallback::Hold => Means::Hold,
             Fallback::Rest => Means::Rest,
         };
         let (used, output) = match means {
-            Means::Source(source, reading) => {
-                (Used::Source, self.advance(dt, music, source, reading))
+            Means::Source(event, reading) => {
+                (Used::Source, self.advance(dt, music, env, event, reading))
             }
             Means::Fallback(source, reading) => (
                 Used::Fallback(source.name),
-                self.advance(dt, music, source, reading),
+                self.advance(dt, music, env, source.event, reading),
             ),
             Means::Value(value) => (Used::Value, value),
             Means::Hold => (Used::Hold, self.last),
@@ -512,8 +804,25 @@ impl Evaluator {
         self.tick
     }
 
-    /// Move the state on a frame with what `source` said, and give the output.
-    fn advance(&mut self, dt: f32, music: &MusicValues, source: &Source, reading: Reading) -> f32 {
+    /// A reading as `mul` and `add` make it.
+    fn modulated(&self, mut reading: Reading, music: &MusicValues, env: &Env) -> Reading {
+        if let Some(mul) = self.mul {
+            reading.value *= mul.read(music, env).value;
+        }
+        reading.value += env.num(self.add);
+        reading
+    }
+
+    /// Move the state on a frame with what a source said (`event`: it counts events), and give
+    /// the output.
+    fn advance(
+        &mut self,
+        dt: f32,
+        music: &MusicValues,
+        env: &Env,
+        event: bool,
+        reading: Reading,
+    ) -> f32 {
         let beats = beats_in(dt, music);
         match &self.mode {
             Mode::Follow {
@@ -522,10 +831,17 @@ impl Evaluator {
                 curve,
                 smooth,
                 ease,
+                power,
                 clamp,
             } => {
-                let x = ease.apply(reading.value);
-                let t = (x - from[0]) / (from[1] - from[0]);
+                let x = ease.apply(reading.value, power.map(|p| env.num(p)));
+                let (from, to) = (from.map(|n| env.num(n)), to.map(|n| env.num(n)));
+                let span = from[1] - from[0];
+                let t = if span == 0.0 {
+                    0.0
+                } else {
+                    (x - from[0]) / span
+                };
                 // Beyond the ends the map goes straight on unless it is clamped.
                 let shaped = if *clamp {
                     curve.at(t)
@@ -533,7 +849,8 @@ impl Evaluator {
                     curve.at(t) + (t - t.clamp(0.0, 1.0))
                 };
                 let target = to[0] + shaped * (to[1] - to[0]);
-                let level = match (self.state.level, *smooth > 0.0) {
+                let smooth = env.num(*smooth).max(0.0);
+                let level = match (self.state.level, smooth > 0.0) {
                     (Some(level), true) => {
                         level + (target - level) * (1.0 - (-beats / smooth).exp())
                     }
@@ -546,45 +863,106 @@ impl Evaluator {
                 threshold,
                 attack,
                 release,
+                per,
+                decay,
                 scale,
             } => {
+                let by = match per {
+                    Per::Beat => beats,
+                    Per::Second => dt,
+                };
+                let (attack, release) = (env.num(*attack).max(0.0), env.num(*release).max(0.0));
                 let level = self.state.level.unwrap_or(0.0);
-                let level = if reading.count > 0 && reading.value >= *threshold {
+                let level = if reading.count > 0 && reading.value >= env.num(*threshold) {
                     self.state.peak = if *scale {
                         reading.value.clamp(0.0, 1.0)
                     } else {
                         1.0
                     };
-                    self.state.rising = *attack > 0.0;
+                    self.state.rising = attack > 0.0;
                     if self.state.rising {
                         level
                     } else {
                         self.state.peak
                     }
                 } else if self.state.rising {
-                    let level = (level + self.state.peak * beats / attack).min(self.state.peak);
+                    let level = (level + self.state.peak * by / attack).min(self.state.peak);
                     self.state.rising = level < self.state.peak;
                     level
-                } else if *release > 0.0 {
-                    (level - self.state.peak * beats / release).max(0.0)
+                } else if release > 0.0 {
+                    match decay {
+                        Decay::Linear => (level - self.state.peak * by / release).max(0.0),
+                        Decay::Exp => {
+                            let level = level * (-by / release).exp();
+                            if level < 1e-3 { 0.0 } else { level }
+                        }
+                    }
                 } else {
                     0.0
                 };
                 self.state.level = Some(level);
                 self.rest + level * (self.top - self.rest)
             }
-            Mode::Step { every, ease, wrap } => {
-                let t = reading.value.max(0.0) / every;
+            Mode::Step {
+                every,
+                bars,
+                offset,
+                ease,
+                power,
+                wrap,
+            } => {
+                let unit = if *bars { music.meter.max(1.0) } else { 1.0 };
+                let every = env.num(*every).max(1e-6) * unit;
+                let t = (reading.value + env.num(*offset)).max(0.0) / every;
                 let counted = match ease {
                     Ease::None => t.floor(),
-                    Ease::Out => course::eased(t),
+                    _ => ease.apply(t, power.map(|p| env.num(p))),
                 };
-                wrap.map_or(counted, |wrap| counted.rem_euclid(wrap))
+                wrap.map_or(counted, |wrap| counted.rem_euclid(env.num(wrap).max(1e-6)))
             }
-            Mode::Pick { options } => {
-                if source.event {
-                    self.state.index =
-                        (self.state.index + reading.count) % options.len().max(1) as u32;
+            Mode::Pick {
+                options,
+                strength,
+                every,
+                chance,
+                start,
+                jump,
+            } => {
+                let len = options.len().max(1) as u32;
+                if event {
+                    if !self.state.started {
+                        self.state.started = true;
+                        self.state.index = match start {
+                            Start::Index(n) => env.num(*n).round().max(0.0) as u32 % len,
+                            Start::Seed => hash(env.seed, 0, 2) % len,
+                        };
+                    }
+                    if self.state.section != Some(music.section) {
+                        self.state.section = Some(music.section);
+                        self.state.counted = 0;
+                    }
+                    let every = env.num(*every).round().max(1.0) as u32;
+                    let chance = env.num(*chance);
+                    if reading.value >= env.num(*strength) {
+                        for _ in 0..reading.count {
+                            self.state.counted += 1;
+                            let n = self.state.counted;
+                            let section = music.section as u32;
+                            if !n.is_multiple_of(every)
+                                || (chance < 1.0 && unit_hash(section, n, 3) >= chance)
+                            {
+                                continue;
+                            }
+                            self.state.index = match jump {
+                                Jump::Next => (self.state.index + 1) % len,
+                                // Any other index, by the section and the event's number in it.
+                                Jump::Random if len > 1 => {
+                                    (self.state.index + 1 + hash(section, n, 1) % (len - 1)) % len
+                                }
+                                Jump::Random => 0,
+                            };
+                        }
+                    }
                 } else if self.state.seen != Some(reading.value) {
                     self.state.seen = Some(reading.value);
                     self.state.index = pick_by_label(options, reading.value).unwrap_or_default();
@@ -596,18 +974,66 @@ impl Evaluator {
                     Per::Beat => dt * beats_per_second(music),
                     Per::Second => dt,
                 };
-                let total = self.state.total + reading.value * rate * by;
-                self.state.total = wrap.map_or(total, |wrap| total.rem_euclid(wrap));
+                let total = self.state.total + reading.value * env.num(*rate) * by;
+                self.state.total =
+                    wrap.map_or(total, |wrap| total.rem_euclid(env.num(wrap).max(1e-6)));
                 self.state.total
             }
         }
     }
 }
 
-fn wrap_of(when: &mut When) -> Result<Option<f32>> {
-    let wrap = when.optional("wrap")?;
-    ensure!(wrap.is_none_or(|w| w > 0.0), "`when.wrap` must be above 0");
-    Ok(wrap)
+/// A name as a `&'static str`: a source's own, or an `input:<id>` kept once however often the
+/// scene is loaded, so that a report can name it as it names the registry's sources.
+fn intern(name: &str) -> &'static str {
+    use std::collections::HashSet;
+    use std::sync::{LazyLock, Mutex};
+    static NAMES: LazyLock<Mutex<HashSet<&'static str>>> = LazyLock::new(Mutex::default);
+    let mut names = NAMES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(known) = names.get(name) {
+        return known;
+    }
+    let name: &'static str = Box::leak(name.to_owned().into_boxed_str());
+    names.insert(name);
+    name
+}
+
+/// A deterministic mix of three numbers (a section, an event's number in it, a purpose).
+fn hash(a: u32, b: u32, salt: u32) -> u32 {
+    let mut x =
+        a.wrapping_mul(0x9e37_79b1) ^ b.wrapping_mul(0x85eb_ca6b) ^ salt.wrapping_mul(0xc2b2_ae35);
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7feb_352d);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846c_a68b);
+    x ^ (x >> 16)
+}
+
+/// [`hash`] as a number from 0 to just under 1.
+fn unit_hash(a: u32, b: u32, salt: u32) -> f32 {
+    (hash(a, b, salt) >> 8) as f32 / (1u32 << 24) as f32
+}
+
+fn wrap_of(when: &mut When) -> Result<Option<Num>> {
+    when.maybe("wrap", positive, "must be above 0")
+}
+
+fn per_of(when: &mut When) -> Result<Per> {
+    Ok(match when.word("per")? {
+        None | Some("beat") => Per::Beat,
+        Some("second") => Per::Second,
+        Some(other) => bail!("no `when.per` `{other}` (it is beat or second)"),
+    })
+}
+
+/// The `ease_power`, which only an `out` ease takes.
+fn power_of(when: &mut When, ease: Ease) -> Result<Option<Num>> {
+    let power = when.maybe("ease_power", positive, "must be above 0")?;
+    ensure!(
+        power.is_none() || ease == Ease::Out,
+        "`when.ease_power` is for `ease = \"out\"`"
+    );
+    Ok(power)
 }
 
 /// How many beats go by in a second: the tempo while the beat is followed, else 1 (seconds are
@@ -635,6 +1061,9 @@ fn beats_in(dt: f32, music: &MusicValues) -> f32 {
 pub struct Bindings {
     /// The bindings, each with the place of its input.
     evaluators: Vec<(usize, Evaluator)>,
+    /// The order they run in: by the place of their input, so that an input is worked out before
+    /// the ones that read it.
+    order: Vec<usize>,
     /// The value of each input, in the manifest's order; an input nothing drives stays at rest.
     values: Vec<f32>,
 }
@@ -649,10 +1078,16 @@ pub struct Report {
 }
 
 impl Bindings {
-    /// The evaluators of `binds`, which drive `inputs`. Fails on a bind of no input or one that
-    /// does not compile (see [`Evaluator::new`]).
+    /// The evaluators of `binds`, which drive `inputs`, with no parameters to read. Fails on a
+    /// bind of no input or one that does not compile (see [`Evaluator::new`]).
     pub fn new(inputs: &[InputDecl], binds: &[Bind]) -> Result<Self> {
-        let evaluators = binds
+        Self::with_scope(inputs, &[], binds)
+    }
+
+    /// As [`Bindings::new`], where a bind may read the scene's numeric `params`.
+    pub fn with_scope(inputs: &[InputDecl], params: &[Param], binds: &[Bind]) -> Result<Self> {
+        let scope = Scope { params, inputs };
+        let evaluators: Vec<(usize, Evaluator)> = binds
             .iter()
             .map(|bind| {
                 let slot = inputs
@@ -664,20 +1099,36 @@ impl Bindings {
                             bind.target
                         )
                     })?;
-                Ok((slot, Evaluator::new(bind, &inputs[slot])?))
+                Ok((slot, Evaluator::new_in(bind, &inputs[slot], scope)?))
             })
             .collect::<Result<_>>()?;
+        let mut order: Vec<usize> = (0..evaluators.len()).collect();
+        order.sort_by_key(|i| evaluators[*i].0);
         Ok(Self {
             evaluators,
+            order,
             values: inputs.iter().map(InputDecl::rest).collect(),
         })
     }
 
     /// Advance every binding by a frame and give the values of the inputs.
     pub fn tick(&mut self, dt: f32, music: &MusicValues) -> &[f32] {
+        self.tick_in(dt, music, &[], 0)
+    }
+
+    /// As [`Bindings::tick`], in a frame with the current values of the scene's parameters and
+    /// the frame's `seed`.
+    pub fn tick_in(&mut self, dt: f32, music: &MusicValues, params: &[f32], seed: u32) -> &[f32] {
         let level = Level::of(music);
-        for (slot, evaluator) in &mut self.evaluators {
-            self.values[*slot] = evaluator.tick(dt, music, level).output;
+        for &i in &self.order {
+            let (slot, evaluator) = &mut self.evaluators[i];
+            let env = Env {
+                params,
+                seed,
+                inputs: &self.values,
+            };
+            let output = evaluator.tick_in(dt, music, level, &env).output;
+            self.values[*slot] = output;
         }
         &self.values
     }
@@ -693,7 +1144,7 @@ impl Bindings {
             .iter()
             .map(|(_, evaluator)| Report {
                 target: evaluator.target.clone(),
-                source: evaluator.source.name,
+                source: evaluator.source_name,
                 how: evaluator.how,
                 tick: evaluator.tick,
             })
@@ -1196,5 +1647,376 @@ mod tests {
         let lone: Bind =
             toml::from_str("target = \"nope\"\nsource = \"drive\"\nhow = \"follow\"").unwrap();
         assert!(Bindings::new(&inputs, &[lone]).is_err());
+    }
+
+    fn param(text: &str) -> Param {
+        toml::from_str(text).unwrap()
+    }
+
+    fn params() -> Vec<Param> {
+        vec![
+            param("id = \"gain\"\ndefault = 1.0"),
+            param("id = \"count\"\ntype = \"int\"\ndefault = 3"),
+            param("id = \"on\"\ntype = \"bool\"\ndefault = true"),
+        ]
+    }
+
+    fn with_params(text: &str) -> Result<Evaluator> {
+        let params = params();
+        Evaluator::new_in(
+            &bind(text),
+            &input([0.0, 1.0], None),
+            Scope {
+                params: &params,
+                inputs: &[],
+            },
+        )
+    }
+
+    fn env<'a>(params: &'a [f32], seed: u32) -> Env<'a> {
+        Env {
+            params,
+            seed,
+            inputs: &[],
+        }
+    }
+
+    #[test]
+    fn a_param_reference_is_read_every_frame_and_checked_at_load() {
+        let mut e = with_params(
+            "source = \"drive\"\nhow = \"follow\"\nwhen = { to = [0, { param = \"gain\" }] }",
+        )
+        .unwrap();
+        let music = MusicValues { drive: 0.5, ..a() };
+        let mut out = |gain: f32| {
+            e.tick_in(0.1, &music, Level::A, &env(&[gain, 0.0, 0.0], 0))
+                .output
+        };
+        assert!(near(out(1.0), 0.5));
+        // The scene's value now is the one it reads, as the app changes it.
+        assert!(near(out(4.0), 2.0));
+        assert!(near(out(0.5), 0.25));
+        // An int parameter is a number too, and any number of a `when` may be one.
+        let mut e = with_params(
+            "source = \"hits\"\nhow = \"trigger\"\nwhen = { strength = { param = \"gain\" } }",
+        )
+        .unwrap();
+        let hit = hit(0.6);
+        assert_eq!(
+            e.tick_in(0.1, &hit, Level::A, &env(&[0.9, 0.0, 0.0], 0))
+                .output,
+            0.0
+        );
+        assert!(near(
+            e.tick_in(0.1, &hit, Level::A, &env(&[0.5, 0.0, 0.0], 0))
+                .output,
+            0.6
+        ));
+        let err = |text: &str| format!("{:#}", with_params(text).err().expect(text));
+        assert!(
+            err("source = \"drive\"\nhow = \"follow\"\nwhen = { smooth = { param = \"nope\" } }")
+                .contains("no parameter `nope`")
+        );
+        assert!(
+            err("source = \"drive\"\nhow = \"follow\"\nwhen = { smooth = { param = \"on\" } }")
+                .contains("not a number")
+        );
+        assert!(
+            err("source = \"drive\"\nhow = \"follow\"\nwhen = { smooth = { thing = 1 } }")
+                .contains("{ param")
+        );
+        // Without the scene's parameters to look in there is none to find.
+        assert!(
+            Evaluator::new(
+                &bind(
+                    "source = \"drive\"\nhow = \"follow\"\nwhen = { smooth = { param = \"gain\" } }"
+                ),
+                &input([0.0, 1.0], None)
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn an_exponential_release_has_the_release_as_its_time_constant() {
+        let quiet = MusicValues { hit: 0.0, ..a() };
+        let text = |extra: &str| {
+            format!("source = \"hits\"\nhow = \"trigger\"\nwhen = {{ release = 1.0{extra} }}")
+        };
+        let mut e = evaluator(&text(", decay = \"exp\""));
+        run(&mut e, &[hit(1.0)]);
+        // One beat (0.5 s at 120 bpm) is one time constant.
+        let out = run(&mut e, &[quiet; 5]);
+        assert!(near(out[4], (-1.0f32).exp()), "{out:?}");
+        // A fall that never quite reaches nothing is cut off at a thousandth.
+        assert_eq!(run(&mut e, &[quiet; 60])[59], 0.0);
+        // Linear is the default and ends in a beat.
+        let mut linear = evaluator(&text(""));
+        run(&mut linear, &[hit(1.0)]);
+        assert_eq!(run(&mut linear, &[quiet; 6])[5], 0.0);
+        // In seconds, the tempo does not count: 0.1 s of a 1 s release.
+        let mut seconds = evaluator(&text(", per = \"second\""));
+        run(&mut seconds, &[hit(1.0)]);
+        assert!(near(run(&mut seconds, &[quiet])[0], 0.9));
+        // The attack is in the same unit.
+        let mut slow = evaluator(
+            "source = \"hits\"\nhow = \"trigger\"\nwhen = { attack = 1.0, per = \"second\" }",
+        );
+        run(&mut slow, &[hit(1.0)]);
+        assert!(near(run(&mut slow, &[quiet])[0], 0.1));
+        assert!(
+            error("source = \"hits\"\nhow = \"trigger\"\nwhen = { decay = \"fast\" }")
+                .contains("no `when.decay`")
+        );
+    }
+
+    fn two_inputs() -> [InputDecl; 2] {
+        [
+            InputDecl {
+                id: "first".into(),
+                ..input([0.0, 1.0], None)
+            },
+            InputDecl {
+                id: "second".into(),
+                ..input([0.0, 10.0], None)
+            },
+        ]
+    }
+
+    fn binds(texts: &[&str]) -> Vec<Bind> {
+        texts.iter().map(|t| toml::from_str(t).unwrap()).collect()
+    }
+
+    #[test]
+    fn an_input_is_a_source_for_the_inputs_after_it_and_works_out_first() {
+        let inputs = two_inputs();
+        // The reading bind is listed first, and still sees the value of this very frame.
+        let binds = binds(&[
+            "target = \"second\"\nsource = \"input:first\"\nhow = \"follow\"\nwhen = { from = [0, 1], to = [0, 10] }",
+            "target = \"first\"\nsource = \"drive\"\nhow = \"follow\"",
+        ]);
+        let mut bindings = Bindings::new(&inputs, &binds).unwrap();
+        let music = MusicValues { drive: 0.5, ..a() };
+        assert_eq!(bindings.tick(0.1, &music), [0.5, 5.0]);
+        let report = bindings.report();
+        assert_eq!(
+            (report[0].target.as_str(), report[0].source),
+            ("second", "input:first")
+        );
+        // An input is not an event, so a trigger cannot take one.
+        let trigger = binds_of("second", "input:first", "trigger");
+        let e = format!("{:#}", Bindings::new(&inputs, &trigger).err().unwrap());
+        assert!(e.contains("needs a source that counts events"), "{e}");
+        // Only an earlier input: itself, a later one and one that is not there are refused.
+        for (target, source, part) in [
+            ("first", "input:second", "declared before"),
+            ("first", "input:first", "declared before"),
+            ("second", "input:nope", "no input `nope`"),
+        ] {
+            let b = binds_of(target, source, "follow");
+            let e = format!("{:#}", Bindings::new(&inputs, &b).err().unwrap());
+            assert!(e.contains(part), "{e}");
+        }
+    }
+
+    fn binds_of(target: &str, source: &str, how: &str) -> Vec<Bind> {
+        binds(&[&format!(
+            "target = \"{target}\"\nsource = \"{source}\"\nhow = \"{how}\""
+        )])
+    }
+
+    #[test]
+    fn a_reading_is_multiplied_and_added_to_before_the_how() {
+        let music = MusicValues {
+            drive: 0.5,
+            intensity: 0.4,
+            ..a()
+        };
+        let mut e = evaluator(
+            "source = \"drive\"\nhow = \"follow\"\nwhen = { mul = \"intensity\", add = 0.1 }",
+        );
+        assert!(near(run(&mut e, &[music])[0], 0.5 * 0.4 + 0.1));
+        // Alone, `add` shifts, and it may be a parameter.
+        let mut shifted = with_params(
+            "source = \"drive\"\nhow = \"follow\"\nwhen = { add = { param = \"gain\" } }",
+        )
+        .unwrap();
+        let t = shifted.tick_in(0.1, &music, Level::A, &env(&[0.25, 0.0, 0.0], 0));
+        assert!(near(t.output, 0.75) && near(t.source, 0.75));
+        // Tempo scaled by drive makes an accumulate: 120 bpm is 2 beats a second, so a frame
+        // of 0.1 s with drive 0.5 moves it by 0.1.
+        let mut tempo = evaluator(
+            "source = \"tempo\"\nhow = \"accumulate\"\nwhen = { mul = \"drive\", per = \"second\", rate = 0.01 }",
+        );
+        assert!(near(run(&mut tempo, &[music])[0], 120.0 * 0.5 * 0.01 * 0.1));
+        // The factor may be an input: a range driven by another input.
+        let inputs = two_inputs();
+        let binds = binds(&[
+            "target = \"first\"\nsource = \"drive\"\nhow = \"follow\"",
+            "target = \"second\"\nsource = \"intensity\"\nhow = \"follow\"\nwhen = { mul = \"input:first\" }",
+        ]);
+        let mut bindings = Bindings::new(&inputs, &binds).unwrap();
+        // intensity 0.4 times a first of 0.5, in a 0..10 range.
+        assert!(near(bindings.tick(0.1, &music)[1], 0.2 * 10.0));
+        let e = error("source = \"drive\"\nhow = \"follow\"\nwhen = { mul = \"loudness\" }");
+        assert!(
+            e.contains("`when.mul`") && e.contains("no source `loudness`"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn the_ease_takes_a_power_or_a_smoothstep() {
+        let clock = |t: f32| MusicValues { clock: t, ..a() };
+        let step = |extra: &str| evaluator(&format!("source = \"clock\"\nhow = \"step\"\n{extra}"));
+        // The engine's own ease is the default; a power p is 1 - (1 - x)^p inside each beat.
+        let mut quartic = step("when = { ease_power = 4 }");
+        let out = run(&mut quartic, &[clock(2.5), clock(3.0)]);
+        assert!(near(out[0], 2.0 + 1.0 - 0.5f32.powi(4)) && near(out[1], 3.0));
+        let mut plain = step("");
+        assert!(near(run(&mut plain, &[clock(0.5)])[0], course::eased(0.5)));
+        let mut smooth = step("ease = \"smooth\"");
+        let out = run(&mut smooth, &[clock(1.25), clock(1.5), clock(2.0)]);
+        assert!(near(out[0], 1.0 + 0.15625) && near(out[1], 1.5) && near(out[2], 2.0));
+        // On a follow it is the same, and a power needs the out ease.
+        let mut follow = evaluator(
+            "source = \"clock\"\nhow = \"follow\"\nease = \"out\"\nwhen = { from = [0, 1], ease_power = 2 }",
+        );
+        assert!(near(run(&mut follow, &[clock(0.5)])[0], 0.75));
+        for text in [
+            "source = \"clock\"\nhow = \"follow\"\nwhen = { ease_power = 2 }",
+            "source = \"clock\"\nhow = \"step\"\nease = \"smooth\"\nwhen = { ease_power = 2 }",
+            "source = \"clock\"\nhow = \"step\"\nwhen = { ease_power = 0 }",
+        ] {
+            assert!(error(text).contains("ease_power"), "{text}");
+        }
+    }
+
+    /// Events in `frames` of music, one frame each: the index after each.
+    fn picks(text: &str, frames: &[MusicValues]) -> Vec<u32> {
+        let mut e = evaluator(&format!(
+            "source = \"bars\"\nhow = \"pick\"\nwhen = {{ options = 5, {text} }}"
+        ));
+        run(&mut e, frames).iter().map(|v| *v as u32).collect()
+    }
+
+    fn bars(n: usize, strength: f32, section: f32) -> Vec<MusicValues> {
+        vec![
+            MusicValues {
+                bars: 1,
+                section,
+                ..a()
+            };
+            n
+        ]
+        .into_iter()
+        .map(|m| MusicValues { hit: strength, ..m })
+        .collect()
+    }
+
+    #[test]
+    fn a_pick_counts_only_the_events_that_pass_its_strength_every_and_chance() {
+        // Strength: a quiet hit is not counted (the strength is the event's `hit`).
+        let mut e =
+            evaluator("source = \"hits\"\nhow = \"pick\"\nwhen = { options = 3, strength = 0.5 }");
+        assert_eq!(
+            run(&mut e, &[hit(0.2), hit(0.8), hit(0.4), hit(0.5)]),
+            [0.0, 1.0, 1.0, 2.0]
+        );
+        // Every: only the 2nd, 4th ... counted event moves it.
+        assert_eq!(picks("every = 2", &bars(5, 1.0, 0.0)), [0, 1, 1, 2, 2]);
+        // Chance 0 never moves it; 1 is always.
+        assert_eq!(picks("chance = 0", &bars(6, 1.0, 0.0)), [0; 6]);
+        assert_eq!(picks("chance = 1", &bars(3, 1.0, 0.0)), [1, 2, 3]);
+        // In between it is the hash of the section and the event's number: the same song
+        // repeats itself, and a section of its own has its own pattern.
+        let one = picks("chance = 0.5", &bars(40, 1.0, 0.0));
+        assert_eq!(one, picks("chance = 0.5", &bars(40, 1.0, 0.0)));
+        let moves = one.windows(2).filter(|w| w[0] != w[1]).count();
+        assert!((8..=32).contains(&moves), "{moves}");
+        assert_ne!(one, picks("chance = 0.5", &bars(40, 1.0, 3.0)));
+        // The count starts over in each section, so coming back to one gives the same moves.
+        let mut both = bars(10, 1.0, 0.0);
+        both.extend(bars(10, 1.0, 1.0));
+        both.extend(bars(10, 1.0, 0.0));
+        let out = picks("chance = 0.5, jump = \"next\"", &both);
+        let steps = |range: std::ops::Range<usize>, from: u32| -> Vec<u32> {
+            range
+                .map(|i| (out[i] + 5 - if i == 0 { from } else { out[i - 1] }) % 5)
+                .collect()
+        };
+        assert_eq!(steps(0..10, 0), steps(20..30, out[19]));
+    }
+
+    #[test]
+    fn a_pick_starts_where_it_is_told_and_jumps_next_or_random() {
+        let quiet = [a(); 1];
+        assert_eq!(picks("start = 3", &quiet), [3]);
+        // The next moves on from the start, round.
+        assert_eq!(picks("start = 4", &bars(2, 1.0, 0.0)), [0, 1]);
+        // From the seed: the same seed gives the same first look, and seeds spread over the
+        // options.
+        let seeded = |seed: u32| {
+            let mut e = evaluator(
+                "source = \"bars\"\nhow = \"pick\"\nwhen = { options = 5, start = \"seed\" }",
+            );
+            e.tick_in(0.1, &a(), Level::A, &env(&[], seed)).output
+        };
+        assert_eq!(seeded(7), seeded(7));
+        let seen: std::collections::HashSet<u32> = (0..64).map(|s| seeded(s) as u32).collect();
+        assert!(seen.len() >= 4 && seen.iter().all(|i| *i < 5), "{seen:?}");
+        // Random is another option every time, the same ones on every run of the song.
+        let out = picks("jump = \"random\"", &bars(30, 1.0, 2.0));
+        assert!(out.windows(2).all(|w| w[0] != w[1] && w[1] < 5));
+        assert!(out[0] != 0);
+        assert_eq!(out, picks("jump = \"random\"", &bars(30, 1.0, 2.0)));
+        assert!(out.iter().collect::<std::collections::HashSet<_>>().len() >= 4);
+        // These keys are for events: a pick by label refuses them, a bad word is named.
+        assert!(
+            error("source = \"section_label\"\nhow = \"pick\"\nwhen = { options = 3, every = 2 }")
+                .contains("for a pick of an event source")
+        );
+        assert!(
+            error("source = \"bars\"\nhow = \"pick\"\nwhen = { options = 3, jump = \"far\" }")
+                .contains("no `when.jump`")
+        );
+        assert!(
+            error("source = \"bars\"\nhow = \"pick\"\nwhen = { options = 3, start = \"later\" }")
+                .contains("no `when.start`")
+        );
+        assert!(
+            error("source = \"bars\"\nhow = \"pick\"\nwhen = { options = 3, chance = 2 }")
+                .contains("from 0 to 1")
+        );
+    }
+
+    #[test]
+    fn a_step_can_be_offset_and_count_in_bars() {
+        let at4 = |t: f32| MusicValues {
+            clock: t,
+            meter: 4.0,
+            ..a()
+        };
+        let mut offset = evaluator(
+            "source = \"clock\"\nhow = \"step\"\nease = \"none\"\nwhen = { offset = 1.5 }",
+        );
+        // The source's units: 2.4 + 1.5 beats is the 3rd.
+        assert_eq!(run(&mut offset, &[at4(0.0), at4(2.4)]), [1.0, 3.0]);
+        // Every bar, in beats of a bar of 4, with the offset in beats.
+        let mut bar = evaluator(
+            "source = \"clock\"\nhow = \"step\"\nease = \"none\"\nwhen = { every = 1, unit = \"bar\" }",
+        );
+        assert_eq!(
+            run(&mut bar, &[at4(3.9), at4(4.0), at4(8.5)]),
+            [0.0, 1.0, 2.0]
+        );
+        let mut two = evaluator(
+            "source = \"clock\"\nhow = \"step\"\nease = \"none\"\nwhen = { every = 2, unit = \"bar\", offset = 4 }",
+        );
+        assert_eq!(run(&mut two, &[at4(3.9), at4(4.0)]), [0.0, 1.0]);
+        assert!(
+            error("source = \"clock\"\nhow = \"step\"\nwhen = { unit = \"year\" }")
+                .contains("no `when.unit`")
+        );
     }
 }

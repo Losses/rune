@@ -28,7 +28,7 @@ use director::Director;
 pub use director::DirectorView;
 use inputs::EventCounter;
 pub use lens::LensView;
-pub use manifest::{Bind, Effects, FallbackDecl, InputDecl, Pace};
+pub use manifest::{Bind, Effects, FallbackDecl, InputDecl, Pace, Param, ParamKind};
 use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
 use wgsl::{InputLayout, ParamsLayout};
 
@@ -173,6 +173,19 @@ impl Files {
             .params
             .iter()
             .map(|p| p.value().unwrap_or(Value::Float(0.0)))
+            .collect()
+    }
+
+    /// The values of the parameters a bind can read (`{ param = "id" }`): the numeric ones as
+    /// they are now, 0 for the rest, in the manifest's order.
+    fn param_numbers(&self) -> Vec<f32> {
+        self.param_values()
+            .iter()
+            .map(|value| match *value {
+                Value::Float(v) => v,
+                Value::Int(v) => v as f32,
+                _ => 0.0,
+            })
             .collect()
     }
 }
@@ -928,7 +941,8 @@ impl Scene {
         queue.write_buffer(&params_buffer, 0, &params.pack(&files.param_values()));
         let input_layout = InputLayout::new(manifest);
         let input_buffer = uniform("scene inputs", input_layout.size);
-        let bindings = crate::bind::Bindings::new(&manifest.inputs, &manifest.binds)?;
+        let bindings =
+            crate::bind::Bindings::with_scope(&manifest.inputs, &manifest.params, &manifest.binds)?;
         queue.write_buffer(&input_buffer, 0, &input_layout.pack(bindings.values()));
         let storage = |label, size| {
             device.create_buffer(&wgpu::BufferDescriptor {
@@ -1516,8 +1530,11 @@ impl Scene {
             // The binds are only evaluated on the CPU: new ones start over, and the pipelines
             // stay.
             if files.manifest.binds != self.files.manifest.binds {
-                self.bindings =
-                    crate::bind::Bindings::new(&files.manifest.inputs, &files.manifest.binds)?;
+                self.bindings = crate::bind::Bindings::with_scope(
+                    &files.manifest.inputs,
+                    &files.manifest.params,
+                    &files.manifest.binds,
+                )?;
                 queue.write_buffer(
                     &self.input_buffer,
                     0,
@@ -1801,7 +1818,8 @@ impl Scene {
         );
         queue.write_buffer(&self.music, 0, &music.bytes());
         self.music_values = music;
-        let inputs = self.bindings.tick(dt as f32, &music);
+        let params = self.files.param_numbers();
+        let inputs = self.bindings.tick_in(dt as f32, &music, &params, seed);
         queue.write_buffer(&self.input_buffer, 0, &self.input_layout.pack(inputs));
         self.cut = None;
         let shot = match &mut self.director {

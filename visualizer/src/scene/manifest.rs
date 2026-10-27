@@ -645,7 +645,14 @@ impl Manifest {
                 "[[bind]] for `{}`: the input has more than one bind",
                 bind.target
             );
-            crate::bind::Evaluator::new(bind, input)?;
+            crate::bind::Evaluator::new_in(
+                bind,
+                input,
+                crate::bind::Scope {
+                    params: &self.params,
+                    inputs: &self.inputs,
+                },
+            )?;
         }
         for buffer in &self.buffers {
             ensure!(
