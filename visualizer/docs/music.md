@@ -379,45 +379,42 @@ The reference device is an iPhone 13 mini (A15), whose full-resolution output is
 
 ## Shared effects
 
-This section describes interfaces that are planned. None of it is implemented yet, so no scene can use it today. They are written down so that scenes and the runtime agree on the shape.
+The transitions and lens effects are the runtime's. A scene says which suit it; the runtime decides when, from the music's moments. All of them read the semantic signals, are off unless listed, and give way to quality.
 
-All shared effects read the same semantic signals, are declared in `scene.toml` with a strength (all off by default), and give way to quality: when the quality is lowered, they are lowered first.
+### What a scene declares
 
-### Filters and lens effects (glitch, glare, light leaks, motion blur)
+One list, at the top of `scene.toml` (it is a top-level key, so it comes before the tables), for a switch to the scene and for the director's cuts within it alike:
 
-The runtime puts them in the built-in post-processing and adds the matching fields to `struct Post`. They can be triggered in two ways: the scene writes `post.*` in `update()`, as it does now, or it declares them in an `[effects]` table of `scene.toml` and the runtime triggers them on cues, for example `glitch = { on = "cue", min = 0.8, amount = 0.3 }`. An automatic trigger can only hang on `cue` and `impact`. There is no "on every beat" option, by the taste rules above.
+```toml
+effects = ["fade", "dissolve", "flash", "glitch", "flare", "leak"]
+```
 
-#### Lens effects in the post-processing (implemented: `flare`, `leak`, `blocks`)
+- The names are the runtime's. Transitions: `cut`, `fade`, `dissolve`, `flash` (overexposure into a light tint of the theme colour), `glitch` (a datamosh smear), `mosaic` (LED dot blocks), `cutin` (a torn band with the playing cover, after Persona 5's cut-in). Lens effects: `flare`, `leak`, `blocks` (a colour-block frame); `blur` is still to come. A name the runtime does not know is left out with a warning, so a scene written for a newer runtime still loads.
+- `flash`, `glitch`, `mosaic`, `cutin` and `blocks` are strong; the rest are light.
+- Without the list (also MilkDrop presets): a switch fades or dissolves, a cut is a plain cut, no lens effects. A list that names no plain transition (`cut`, `fade`, `dissolve`) keeps the fade and the dissolve for the plain switches.
 
-A scene turns one on by listing it in `effects.lens`; with none listed the post pass does the same work as before (the effects' passes are not encoded and their branches read a uniform of zeros). Each is started at a moment with a strength (0 to 1) and runs its course; none is a constant layer. They are drawn in the app's accent (`frame.accent`; a warm orange before the app tells one) and black and white, and none reaches full white. `blur` is still to come.
+### When they play: the moments (`src/moments.rs`)
 
-- **`flare`**: a burst of thin horizontal streaks, three ghosts and a halo ring, in over half a beat and away over six (a bar and a half). A pass of its own at the size of the second bloom level (a quarter of the internal size) makes it from the bloom's bright part (John Chapman's pseudo lens flare, no light sources are looked for); the composite adds it before tone mapping. It is drawn only from `frame.quality` 0.5 up (it is lowered first).
+- **Moments.** A section start that lifts the energy (`cue` 0.8 or more, which the director's burst of cuts leads to) is a strong moment. Another section start (`cue` 0.5 or more) and an impact are medium moments. Nothing else is one: no effect on a plain beat or a plain cut.
+- **Chance.** A moment plays an effect by the chance of its strength. The user's setting "effects" has two values: default, 40% of the strong moments and 15% of the medium ones (about two effects in a song); more, 60% and 30%. A scene lab may set any chance (it starts at 100%). The roll is a hash of where the moment is in the song (its section, and which impact of it), so a song plays its effects the same way every time. A medium moment does not play within 8 bars of the last effect; a strong one does.
+- **Which.** It depends on what happens at the moment. A scene switch takes a transition of the scene coming (the one going has no say): at a lift whose moment plays, a strong transition the scene lists, picked by the label of the section it lands on; otherwise a lift or a plain change fades and a drop dissolves (a scene that takes neither gets the other, then `cut`). A cut of the director at a moment that plays is dressed with a transition of the list (`fade`, `dissolve`, `flash`, `glitch`, `mosaic`; a cut-in is not drawn over a cut). With no cut, or none that suits, a lens effect of the list plays over the picture. A strong moment takes a strong effect if the scene lists one, a medium moment only a light one, and the section's label picks among them (the same kind of section, the same effect).
+- **The burst's punch.** Every cut of the director's burst gets a short punch whatever the list says (see "Shots and the director").
+
+### Transitions (`src/transition.rs`, `transition.wgsl`)
+
+One transition layer serves the switch from one scene to the next and a cut inside a scene. A switch keeps the old picture (or draws the old scene live for a fade or a flash) and combines it with the new scene; a dressed cut keeps the frame before the cut and plays its course over the scene drawing on after it, with half the durations of a switch so that it stays on the beat. Durations are in beats while the beat is followed: a fade 1 beat out and 1 in, a dissolve 2 beats, a flash 1 beat up and 2 down (the new scene goes in at the peak), a mosaic 1 beat, a glitch 0.15 s, a cut-in a band of two frames, a beat of hold and a tear of three frames. A switch that knows its section start (`cue_in`) starts early, so that the new scene shows on it.
+
+### Lens effects in the post-processing (`scene/lens.rs`, `post.wgsl`)
+
+With none listed, the post pass does the same work as before (the effects' passes are not encoded and their branches read a uniform of zeros). Each is started at a moment with a strength (1 at a strong moment, 0.6 at a medium one) and runs its course; none is a constant layer. They are drawn in the app's accent (`frame.accent`; a warm orange before the app tells one) and black and white, and none reaches full white.
+
+- **`flare`**: a burst of thin horizontal streaks, three ghosts and a halo ring, in over half a beat and away over six (a bar and a half). A pass of its own at the size of the second bloom level makes it from the bloom's bright part (John Chapman's pseudo lens flare, no light sources are looked for). It is drawn only from `frame.quality` 0.5 up.
 - **`leak`**: a soft glow in the accent's colour, a little warmer, that comes in from a corner over 4 beats and goes over the next 16 while its source drifts along its edge.
-- **`blocks`** (the colour-block frame): the whole picture is a flat fill of the accent (at 0.8 of its brightness) with the picture's bright edges drawn over it in white line art (0.92), for about 30 ms: one or two frames, never none.
+- **`blocks`** (the colour-block frame): a flat fill of the accent (at 0.8 of its brightness) with the picture's bright edges drawn over it in white line art, for about 30 ms: one or two frames, never none.
 
-Durations are in beats from `tempo` while the beat is followed (`locked` above 0.5) and at 120 bpm otherwise. For now `Lens::auto_start` (`scene/lens.rs`) starts the listed ones on a cue, as strong as the cue: a flare and a leak from 0.5, blocks from 0.8; the moments are meant to come from one scheduler shared by the effects. A scene lab starts each by hand (`Q` flare, `W` leak, `E` colour block), also in a scene that did not list it.
+### In scene-lab
 
-### Transitions
-
-One transition layer serves both the switch from one scene to the next and a camera cut inside a scene.
-
-- **Two entrances.** A scene switch is started by the runtime. A camera cut comes from the director (see "Shots and the director"), which the runtime knows of (`Scene::cut_this_frame`). Both use the same library of effects. Today the runtime draws a cut, a fade and a dissolve for a switch; a cut of the director is a plain cut.
-- **The runtime** keeps the old picture when a transition starts (a history frame; the old scene is no longer drawn during the switch), combines the old and new pictures according to the effect, and converts the duration to beats with `tempo`.
-- **Timing** reads the semantic signals (`src/switching.rs`). A scene switch waits for a section start where the music changes (using `cue_in` to start the fade early and land on it) instead of a random timer, and goes at the next beat or hit after a longest wait of 90 s. A scene decides its own camera cuts from `cues`.
-- **A scene says which effects suit it** in an `[effects]` table of `scene.toml` (implemented). It says what may be used; the runtime decides when, from the music:
-
-  ```toml
-  [effects]
-  switch = ["fade", "dissolve", "cutin"]   # transitions a switch to this scene may take
-  cut = ["flash", "glitch"]                # transitions that may dress a cut of the director
-  lens = ["flare", "leak"]                 # lens effects
-  ```
-
-  - The scene coming decides how a switch to it looks; the one going has no say. Of a lift, a plain change and a drop, a drop dissolves and the others fade; a scene that takes only one of the two gets that one, then `cut`, and a fade when it names none the runtime draws yet.
-  - Without the table, or a list of it: `switch` is a fade or a dissolve, `cut` and `lens` are empty (a cut is a plain cut, no lens effects). MilkDrop presets have no table and get the same.
-  - The names are the runtime's: transitions `cut`, `fade`, `dissolve`, and to come `cutin`, `flash`, `glitch`, `mosaic`; lens effects to come `flare`, `leak`, `blocks`, `blur`. A name the runtime does not know is left out with a warning, so a scene written for a newer runtime still loads.
-- **Taste.** Transitions are calm by default. Violent ones (a glitch cut, a flash cut) hang only on the strongest cues. There is no "transition on every beat".
-- Glitch and light leaks can be a filter triggered on a cue and a transition. They share one shader.
+Every effect can be played at once by key or button, and the control panel can make every switch, every cut or every moment use one effect, and set the chance (see `scene-lab/README.md`).
 
 ### Lyrics
 

@@ -130,24 +130,29 @@ pub const TRANSITIONS: &[&str] = &[
 /// The lens effects that are known by name, all still to come.
 pub const LENS_EFFECTS: &[&str] = &["flare", "leak", "blocks", "blur"];
 
-/// The `[effects]` table: what the runtime may dress the scene with. The scene says what suits
-/// it; the runtime chooses when, from the music. A scene without the table gets the plain ones.
+/// The `effects` list: the transitions and lens effects that suit the scene, one list for a switch
+/// to the scene and for the director's cuts within it. The scene says what may be used; the runtime
+/// chooses when, from the music's moments (see `crate::moments`). Kept apart by kind here, for the
+/// parts of the runtime that use them. A scene without the list gets the plain ones.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(default)]
+#[serde(from = "Vec<String>")]
 pub struct Effects {
+    /// The names as the scene lists them.
+    pub names: Vec<String>,
     /// The transitions a switch to this scene may take (the scene coming decides, not the one
-    /// going). Default: a fade or a dissolve.
+    /// going). A fade or a dissolve too, unless the list names a plain transition itself.
     pub switch: Vec<String>,
-    /// The transitions that may dress a cut of the director within the scene. Default: none,
-    /// a cut is a plain cut.
+    /// The transitions that may dress a cut of the director within the scene: those of the list
+    /// that play over a cut (not `cut` itself, and not `cutin`, which needs a new scene).
     pub cut: Vec<String>,
-    /// The lens effects the scene takes. Default: none.
+    /// The lens effects the scene takes.
     pub lens: Vec<String>,
 }
 
 impl Default for Effects {
     fn default() -> Self {
         Self {
+            names: Vec::new(),
             switch: vec!["fade".into(), "dissolve".into()],
             cut: Vec::new(),
             lens: Vec::new(),
@@ -155,23 +160,38 @@ impl Default for Effects {
     }
 }
 
+impl From<Vec<String>> for Effects {
+    fn from(names: Vec<String>) -> Self {
+        let of = |known: &[&str]| -> Vec<String> {
+            names
+                .iter()
+                .filter(|name| known.contains(&name.as_str()))
+                .cloned()
+                .collect()
+        };
+        // A list that names none of the plain transitions keeps them for the plain switches.
+        let mut switch = of(TRANSITIONS);
+        if !switch.iter().any(|n| ["cut", "fade", "dissolve"].contains(&n.as_str())) {
+            switch.splice(0..0, ["fade".to_string(), "dissolve".to_string()]);
+        }
+        Self {
+            switch,
+            cut: of(&["fade", "dissolve", "flash", "glitch", "mosaic"]),
+            lens: of(LENS_EFFECTS),
+            names,
+        }
+    }
+}
+
 impl Effects {
-    /// The names the runtime does not know, as `list = name` (an older runtime than the scene's
-    /// author used, or a typo): they are left out with a warning, not refused.
+    /// The names the runtime does not know (an older runtime than the scene's author used, or a
+    /// typo): they are left out with a warning, not refused.
     pub fn unknown(&self) -> Vec<String> {
-        let lists = [
-            ("switch", &self.switch, TRANSITIONS),
-            ("cut", &self.cut, TRANSITIONS),
-            ("lens", &self.lens, LENS_EFFECTS),
-        ];
-        lists
-            .into_iter()
-            .flat_map(|(list, names, known)| {
-                names
-                    .iter()
-                    .filter(|name| !known.contains(&name.as_str()))
-                    .map(move |name| format!("effects.{list} = {name:?}"))
-            })
+        self.names
+            .iter()
+            .filter(|name| !TRANSITIONS.contains(&name.as_str()))
+            .filter(|name| !LENS_EFFECTS.contains(&name.as_str()))
+            .map(|name| format!("effects = {name:?}"))
             .collect()
     }
 }
@@ -807,18 +827,22 @@ move = "glide"
         assert!(plain.effects.cut.is_empty() && plain.effects.lens.is_empty());
         assert!(plain.effects.unknown().is_empty());
 
-        // A list left out keeps its default.
-        let some = format!("{SMALL}\n[effects]\ncut = [\"flash\", \"sparkle\"]\n");
-        let m = Manifest::parse(&some).unwrap();
-        assert_eq!(m.effects.switch, ["fade", "dissolve"]);
-        assert_eq!(m.effects.cut, ["flash", "sparkle"]);
-        assert_eq!(m.effects.unknown(), ["effects.cut = \"sparkle\""]);
-
-        let all = format!(
-            "{SMALL}\n[effects]\nswitch = [\"cutin\", \"cut\"]\nlens = [\"flare\", \"fog\"]\n"
+        // One list, kept apart by kind. It is a top-level key, so it goes before the tables.
+        let listed = SMALL.replacen(
+            "format = 1\n",
+            "format = 1\neffects = [\"fade\", \"flash\", \"cutin\", \"flare\", \"sparkle\"]\n",
+            1,
         );
-        let m = Manifest::parse(&all).unwrap();
-        assert_eq!(m.effects.switch, ["cutin", "cut"]);
-        assert_eq!(m.effects.unknown(), ["effects.lens = \"fog\""]);
+        let m = Manifest::parse(&listed).unwrap();
+        assert_eq!(m.effects.switch, ["fade", "flash", "cutin"]);
+        assert_eq!(m.effects.cut, ["fade", "flash"]);
+        assert_eq!(m.effects.lens, ["flare"]);
+        assert_eq!(m.effects.unknown(), ["effects = \"sparkle\""]);
+        // A list without a plain transition keeps the fade and the dissolve for plain switches.
+        let strong = SMALL.replacen("format = 1\n", "format = 1\neffects = [\"glitch\"]\n", 1);
+        assert_eq!(
+            Manifest::parse(&strong).unwrap().effects.switch,
+            ["fade", "dissolve", "glitch"]
+        );
     }
 }

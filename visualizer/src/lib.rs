@@ -330,8 +330,6 @@ struct PlayingCover {
 
 impl Shared {
     /// The chances the moments get an effect with: a scene lab's, else the user's setting.
-    // The shared scheduler of the moments reads it; it comes in the next change.
-    #[allow(dead_code)]
     fn effect_chances(&self) -> Chances {
         match self.lab_chance.load(Ordering::Relaxed) {
             NO_LAB_CHANCE => match self.effect_level.load(Ordering::Relaxed) {
@@ -1095,6 +1093,10 @@ fn run(
             0 => None,
             argb => Some(scene::argb_to_linear(argb)),
         });
+        // How often the music's moments play an effect: the user's setting, or a lab's chance.
+        let chances = shared.effect_chances();
+        pipeline.set_effect_chances(chances);
+        auto.decider.set_chances(chances);
         if shared.fall_back.swap(false, Ordering::Relaxed) {
             pipeline.fall_back_to_readback();
         }

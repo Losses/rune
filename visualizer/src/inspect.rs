@@ -135,7 +135,7 @@ pub struct InspectShot {
     pub size: String,
 }
 
-/// The scene's `[effects]` lists, as it declares them.
+/// The scene's `effects` list, kept apart by kind as the runtime uses it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InspectEffects {
     pub switch: Vec<String>,

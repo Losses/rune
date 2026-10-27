@@ -4,15 +4,17 @@
 //! colour); none is a constant layer. [`Lens::tick`] makes the small uniform `post.wgsl` reads,
 //! and a scene that lists none gets a uniform of zeros, which costs the post pass nothing.
 //!
-//! What starts them is [`Lens::auto_start`], kept small on purpose: the moments are meant to
-//! come from one scheduler shared by the effects. A scene lab starts them by hand.
+//! What starts them is the shared scheduler of the moments (`crate::moments`): at a moment that
+//! plays an effect and has no cut, [`Lens::start_at`] starts one of those the scene listed. A
+//! scene lab starts them by hand.
 
 use super::inputs::MusicValues;
 use crate::inspect::LabLens;
-use crate::switching::{FOLLOWED, SECTION_CUE};
+use crate::moments::{self, Played, Strength};
+use crate::switching::FOLLOWED;
 
-/// The cue strength from which a colour-block frame is started: the strongest moments only.
-pub const BLOCKS_CUE: f32 = 0.8;
+/// How strong an effect a medium moment starts (a strong moment's is at full strength).
+pub const MEDIUM_STRENGTH: f32 = 0.6;
 /// How long a block frame lasts. About one frame at 30 fps and two at 60 fps; it is always
 /// drawn at least once.
 pub const BLOCKS_SECONDS: f32 = 0.03;
@@ -180,23 +182,33 @@ impl Lens {
         self.blocks = Some((strength.clamp(0.0, 1.0), BLOCKS_SECONDS));
     }
 
-    /// Start the effects the scene listed on the cue of this frame, if there is one: a flare and a
-    /// leak on a section start (a cue of 0.5 or more), a block frame on a strong cue (0.8 or
-    /// more), each as strong as the cue. This is all the automatic triggering there is for now.
-    pub fn auto_start(&mut self, music: &MusicValues) {
-        if music.cues == 0 {
-            return;
-        }
-        if music.cue >= SECTION_CUE {
-            if self.flare_listed {
-                self.start_flare(music.cue);
-            }
-            if self.leak_listed {
-                self.start_leak(music.cue);
-            }
-        }
-        if music.cue >= BLOCKS_CUE && self.blocks_listed {
-            self.start_blocks(music.cue);
+    /// The names of the effects that start at a moment: those the scene listed and those a lab
+    /// forced.
+    fn listed(&self) -> Vec<String> {
+        [
+            (self.flare_listed, "flare"),
+            (self.leak_listed, "leak"),
+            (self.blocks_listed, "blocks"),
+        ]
+        .into_iter()
+        .filter(|(on, _)| *on)
+        .map(|(_, name)| name.to_string())
+        .collect()
+    }
+
+    /// Start the effect a moment that `played` picks among those listed (see
+    /// [`moments::lens_effect`]), at full strength for a strong moment; nothing if the scene
+    /// lists none that suits the moment.
+    pub fn start_at(&mut self, played: Played) {
+        let strength = match played.strength {
+            Strength::Strong => 1.0,
+            Strength::Medium => MEDIUM_STRENGTH,
+        };
+        match moments::lens_effect(&self.listed(), played) {
+            Some(moments::Lens::Flare) => self.start_flare(strength),
+            Some(moments::Lens::Leak) => self.start_leak(strength),
+            Some(moments::Lens::Blocks) => self.start_blocks(strength),
+            None => {}
         }
     }
 
@@ -225,7 +237,6 @@ impl Lens {
             FALLBACK_BEAT_SECONDS
         };
         let beats = dt / beat;
-        self.auto_start(music);
 
         let mut frame = LensFrame::default();
 
@@ -338,9 +349,9 @@ mod tests {
             ..LabLens::default()
         };
         lens.set_forced(flare);
-        lens.tick(1.0 / 60.0, &music(0.5, 1), 1.0);
+        assert_eq!(lens.listed(), ["flare", "leak"]);
         let view = lens.view();
-        assert!(view.flare_listed && view.flare_running && view.leak_running);
+        assert!(view.flare_listed && view.leak_listed);
         assert!(!view.blocks_listed);
         // Without the forcing the flare is not listed, the scene's leak still is.
         lens.set_forced(LabLens::default());
@@ -351,26 +362,32 @@ mod tests {
         assert_eq!(quiet.view(), LensView::default());
     }
 
-    /// A weak cue starts nothing; a section start starts a flare and a leak, a strong cue also a
-    /// block frame, each only if the scene listed it.
+    /// A moment starts one effect of those listed, as the scheduler picks it: a strong one at a
+    /// strong moment, a light one at a medium moment, a weaker one there; none if none suits.
     #[test]
-    fn cues_start_the_listed_effects() {
-        let mut lens = lens(&["flare", "leak", "blocks"]);
-        assert!(lens.tick(1.0 / 60.0, &music(0.49, 1), 1.0).is_idle());
-        assert!(lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0).is_idle());
-        let frame = lens.tick(1.0 / 60.0, &music(0.5, 1), 1.0);
-        assert!(lens.view().flare_running && lens.view().leak_running);
-        assert_eq!(frame.blocks, 0.0);
-        let frame = lens.tick(1.0 / 60.0, &music(0.8, 1), 1.0);
-        assert_eq!(frame.blocks, 0.8);
-        // The cue's count is what starts them, not its envelope.
-        let mut other = self::lens(&["flare"]);
-        other.tick(1.0 / 60.0, &music(1.0, 0), 1.0);
-        assert!(!other.view().flare_running);
-        let mut only_leak = self::lens(&["leak"]);
-        only_leak.tick(1.0 / 60.0, &music(1.0, 1), 1.0);
-        let view = only_leak.view();
-        assert!(view.leak_running && !view.flare_running && !view.blocks_running);
+    fn a_moment_starts_one_listed_effect() {
+        let strong = Played {
+            strength: Strength::Strong,
+            label: 1.0,
+        };
+        let medium = Played {
+            strength: Strength::Medium,
+            label: 1.0,
+        };
+        let mut all = lens(&["flare", "leak", "blocks"]);
+        all.start_at(strong);
+        assert_eq!(all.tick(1.0 / 60.0, &music(0.0, 0), 1.0).blocks, 1.0);
+        let mut light = lens(&["flare", "blocks"]);
+        light.start_at(medium);
+        let view = light.view();
+        assert!(view.flare_running && !view.blocks_running);
+        assert!(run(&mut light, 1.0).flare <= MEDIUM_STRENGTH);
+        // A cue alone starts nothing any more: the scheduler does.
+        let mut cued = lens(&["flare"]);
+        assert!(cued.tick(1.0 / 60.0, &music(1.0, 1), 1.0).is_idle());
+        let mut only_blocks = lens(&["blocks"]);
+        only_blocks.start_at(medium);
+        assert!(only_blocks.tick(1.0 / 60.0, &music(0.0, 0), 1.0).is_idle());
     }
 
     /// An effect runs its course in beats and is over: the flare in a bar or two, the leak over

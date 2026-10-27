@@ -4,6 +4,7 @@
 //! beats that lands on that place. The decision is a pure function of the clock and the music's
 //! values ([`MusicValues`], see `docs/music.md`), so it can be tested without a scene.
 
+use crate::moments::{self, Chances};
 use crate::scene::MusicValues;
 use crate::transition::{
     CUTIN_BAND_SECONDS, CUTIN_MIN_HOLD_SECONDS, CutInStyle, Durations, Transition,
@@ -144,6 +145,8 @@ pub struct SceneSwitch {
     index: f32,
     /// The transitions the scene held for the switch takes (see [`Self::allow`]).
     allowed: Allowed,
+    /// The chance a strong moment gets a strong transition (see [`crate::moments`]).
+    chances: Chances,
 }
 
 /// The transitions a switch may take: those of the scene coming that the runtime draws.
@@ -226,6 +229,21 @@ impl SceneSwitch {
         self.allowed = allowed;
     }
 
+    /// The chances the moments get an effect with (the user's setting, or a scene lab's).
+    pub fn set_chances(&mut self, chances: Chances) {
+        self.chances = chances;
+    }
+
+    /// Whether the switch that lands on the start of section number `section` plays a strong
+    /// transition: only a lift, by the roll of that moment (see [`crate::moments`]).
+    fn plays(&self, change: Change, section: f32) -> bool {
+        change == Change::Lift
+            && moments::rolls(
+                moments::key(section.max(0.0) as u32, 0),
+                self.chances.strong,
+            )
+    }
+
     /// The build [`Decision::Prepare`] asked for is running.
     pub fn prepare_started(&mut self) {
         self.prepare_started = true;
@@ -252,19 +270,23 @@ impl SceneSwitch {
         if !ready {
             return Decision::Wait;
         }
-        // The section the change lands on, by its label, picks among the strong transitions.
+        // The section the change lands on: its label picks among the strong transitions, and its
+        // number is the moment that rolls for one.
         let change = self
             .at_cue(music, elapsed)
-            .map(|change| (change, music.section_label))
+            .map(|change| (change, music.section_label, music.section))
             .or_else(|| {
                 self.coming(music, elapsed)
-                    .map(|change| (change, music.next_label))
+                    .map(|change| (change, music.next_label, music.section + 1.0))
             })
-            .or_else(|| forced(music, elapsed).map(|change| (change, music.section_label)));
+            .or_else(|| {
+                forced(music, elapsed).map(|change| (change, music.section_label, music.section))
+            });
         match change {
-            Some((change, label)) => {
+            Some((change, label, section)) => {
+                let plays = self.plays(change, section);
                 self.restart();
-                let (transition, durations) = choose(change, label, music, self.allowed);
+                let (transition, durations) = choose(change, label, music, self.allowed, plays);
                 Decision::Switch {
                     transition,
                     durations,
@@ -335,7 +357,8 @@ impl SceneSwitch {
         }
         let at = elapsed + f64::from(music.cue_in);
         let place = at >= MIN_SECONDS && (next.differs_from(Some(current)) || at >= RELAX_SECONDS);
-        let (_, durations) = choose(change, music.next_label, music, self.allowed);
+        let plays = self.plays(change, music.section + 1.0);
+        let (_, durations) = choose(change, music.next_label, music, self.allowed, plays);
         (place && f64::from(music.cue_in) <= durations.out).then_some(change)
     }
 }
@@ -364,33 +387,23 @@ pub fn pick_by_label<T: Copy>(options: &[T], label: f32) -> Option<T> {
     options.get(hashed as usize % options.len().max(1)).copied()
 }
 
-/// The whole of the automatic selection of a strong transition, which name at which moment: at
-/// a moment of `cue` [`LIFT_CUE`] or more (a section start that lifts the energy), one of
-/// `options` by the label of the section; at any other, none. A scene switch (see [`choose`])
-/// and a dressed camera cut (see [`dress`]) both ask here, so this is the one place to replace
-/// when the moments come from a shared scheduler.
-fn auto_pick(cue: f32, options: &[Transition], label: f32) -> Option<Transition> {
-    if cue < LIFT_CUE {
-        return None;
-    }
-    pick_by_label(options, label)
-}
-
 /// The transition for a change, among those `allowed`. This is the one place that picks it: a
-/// lift takes a strong transition if the scene allows any, chosen by the label of the section it
-/// lands on; a plain change fades, a drop dissolves. A scene that takes neither of those gets the
+/// lift whose moment `plays` takes a strong transition if the scene allows any, chosen by the
+/// label of the section it lands on; otherwise a plain change or a lift fades, a drop dissolves. A scene that takes neither of those gets the
 /// other one, then a cut, and a fade when it names none the runtime draws.
 fn choose(
     change: Change,
     label: f32,
     music: &MusicValues,
     allowed: Allowed,
+    plays: bool,
 ) -> (Transition, Durations) {
     let beat = beat_seconds(music);
-    let cue = if change == Change::Lift { 1.0 } else { 0.0 };
-    let strong = allowed.strong(label, music.has_chart != 0);
-    if let Some(kind) = auto_pick(cue, &strong, label) {
-        return (kind, durations_of(kind, beat));
+    if plays {
+        let strong = allowed.strong(label, music.has_chart != 0);
+        if let Some(kind) = pick_by_label(&strong, label) {
+            return (kind, durations_of(kind, beat));
+        }
     }
     let want = match change {
         Change::Drop => Transition::Dissolve,
@@ -490,27 +503,6 @@ pub fn dressed_durations(kind: Transition, music: &MusicValues) -> Durations {
             into: full.into * DRESSED_SHARE,
         },
     }
-}
-
-/// The transition that dresses a camera cut of the director with `cue` in a scene whose
-/// `effects.cut` is `names`, if there is one: only a cue of [`LIFT_CUE`] or more (a section start
-/// that lifts the energy, or the last cut of a burst before it) is dressed, with the one of the
-/// scene's names that the label of the section picks. A scene that names none, or only ones the
-/// runtime does not draw, keeps plain cuts.
-pub fn dress(
-    names: &[String],
-    cue: f32,
-    label: f32,
-    music: &MusicValues,
-) -> Option<(Transition, Durations)> {
-    let options: Vec<Transition> = names
-        .iter()
-        .filter_map(|name| Transition::from_name(name))
-        // A cut-in over a camera cut is not drawn yet: it needs the new view under its band.
-        .filter(|&kind| !matches!(kind, Transition::Cut | Transition::CutIn(_)))
-        .collect();
-    let kind = auto_pick(cue, &options, label)?;
-    Some((kind, dressed_durations(kind, music)))
 }
 
 /// The transition and its durations for a switch somebody asks for now (a scene lab), as an
@@ -650,6 +642,8 @@ mod tests {
     /// at 5 s, so that it knows a section before the current one.
     fn seasoned() -> SceneSwitch {
         let mut switch = SceneSwitch::default();
+        // Every lift plays its strong transition, unless a test says otherwise.
+        switch.set_chances(Chances::every(1.0));
         assert_eq!(
             switch.tick(0.0, &song(0.0, 0.5), false, true),
             Decision::Wait
@@ -1178,37 +1172,29 @@ mod tests {
     }
 
     #[test]
-    fn a_cut_is_dressed_only_with_a_lifting_cue_and_a_name_in_the_scenes_list() {
-        let music = MusicValues {
-            tempo: 100.0,
-            ..song(1.0, 0.5)
+    fn a_lift_plays_its_strong_transition_by_the_roll_of_its_moment() {
+        let strong = Allowed::of(&names(&["fade", "flash"]));
+        let kind_at = |chance: f32, label: f32| {
+            let mut switch = seasoned();
+            switch.set_chances(Chances::every(chance));
+            switch.allow(strong);
+            match switch.tick(40.0, &lift(label), false, true) {
+                Decision::Switch { transition, .. } => transition,
+                other => panic!("{other:?}"),
+            }
         };
-        let list = names(&["flash", "glitch", "mosaic"]);
-        // A weak cue (the beat or a cadence, a section start without a lift): plain.
-        assert_eq!(dress(&list, 0.5, 1.0, &music), None);
-        assert_eq!(dress(&list, 0.79, 1.0, &music), None);
-        // A scene with the default empty list, or names nothing draws: plain.
-        assert_eq!(dress(&[], 1.0, 1.0, &music), None);
-        assert_eq!(
-            dress(&names(&["cutin", "sparkle", "cut"]), 1.0, 1.0, &music),
-            None
-        );
-        // Else one of the names, by the label: the same for the same label.
-        let picked: Vec<_> = (0..8)
-            .map(|label| dress(&list, 0.8, label as f32, &music).unwrap().0)
-            .collect();
-        for kind in [Transition::Flash, Transition::Glitch, Transition::Mosaic] {
-            assert!(picked.contains(&kind), "{picked:?}");
-        }
-        assert_eq!(
-            dress(&list, 1.0, 3.0, &music),
-            dress(&list, 0.9, 3.0, &music)
-        );
-        // Fade and dissolve can dress a cut too.
-        assert_eq!(
-            dress(&names(&["dissolve"]), 1.0, 0.0, &music).map(|dressing| dressing.0),
-            Some(Transition::Dissolve)
-        );
+        // Never at a chance of 0, always at 1.
+        assert_eq!(kind_at(0.0, 2.0), Transition::Fade);
+        assert_eq!(kind_at(1.0, 2.0), Transition::Flash);
+        // At the default chance the moment (the section it lands on) decides, the same each time.
+        let mut switch = seasoned();
+        switch.set_chances(Chances::default());
+        switch.allow(strong);
+        let first = switch.tick(40.0, &lift(2.0), false, true);
+        let mut again = seasoned();
+        again.set_chances(Chances::default());
+        again.allow(strong);
+        assert_eq!(again.tick(40.0, &lift(2.0), false, true), first);
     }
 
     #[test]
@@ -1321,13 +1307,13 @@ mod tests {
     #[test]
     fn the_strong_pick_is_by_the_section_label_not_by_chance() {
         let music = lift_120(3.0);
-        let first = choose(Change::Lift, 3.0, &music, with_cutin());
+        let first = choose(Change::Lift, 3.0, &music, with_cutin(), true);
         for _ in 0..20 {
-            assert_eq!(choose(Change::Lift, 3.0, &music, with_cutin()), first);
+            assert_eq!(choose(Change::Lift, 3.0, &music, with_cutin(), true), first);
         }
         // The labels pick the styles, so the next kind of section may dress it another way.
         let styles: Vec<_> = (0..8)
-            .map(|label| choose(Change::Lift, label as f32, &music, with_cutin()).0)
+            .map(|label| choose(Change::Lift, label as f32, &music, with_cutin(), true).0)
             .collect();
         assert!(styles.iter().all(|t| matches!(t, Transition::CutIn(_))));
         assert!(styles.iter().any(|t| *t != styles[0]));

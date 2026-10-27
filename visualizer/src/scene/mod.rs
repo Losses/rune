@@ -45,6 +45,9 @@ pub struct CutInfo {
     pub cue: f32,
     /// 0 for a normal cut, else the position in a burst (1 to 4, see `ShotState::fill`).
     pub fill: u32,
+    /// The transition the moment of the cut dresses it with, if the cut is at a moment that
+    /// plays an effect and the scene lists one that suits it (see [`crate::moments`]).
+    pub dress: Option<crate::transition::Transition>,
 }
 
 /// Buffers of a scene may take this much memory together.
@@ -451,6 +454,9 @@ pub struct Scene {
     forced_cut: Option<CutInfo>,
     /// The lens effects the scene listed (`effects.lens`) and when each is on.
     lens: lens::Lens,
+    /// The moments of the music that play an effect, and their chances (see [`crate::moments`]).
+    moments: crate::moments::Scheduler,
+    chances: crate::moments::Chances,
     /// The visualizer's time when the scene started, and of the last frame.
     started: Option<f64>,
     last: Option<f64>,
@@ -1268,6 +1274,8 @@ impl Scene {
             cut: None,
             forced_cut: None,
             lens: lens::Lens::new(&manifest.effects.lens),
+            moments: crate::moments::Scheduler::default(),
+            chances: crate::moments::Chances::default(),
             started: None,
             last: None,
             last_song: 0.0,
@@ -1355,6 +1363,11 @@ impl Scene {
         self.lens.start_blocks(1.0);
     }
 
+    /// The chances the music's moments play an effect with (the user's setting, or a lab's).
+    pub fn set_effect_chances(&mut self, chances: crate::moments::Chances) {
+        self.chances = chances;
+    }
+
     /// Cut to the next shot now, by the director's rules for the size (see
     /// `Director::force_cut`); the scene hears of it with the next frame, which reports it as its
     /// cut ([`Scene::cut_this_frame`]). Nothing without shots.
@@ -1366,6 +1379,7 @@ impl Scene {
                 motion: cut.motion,
                 cue: self.music_values.cue,
                 fill: 0,
+                dress: None,
             });
         }
     }
@@ -1725,6 +1739,7 @@ impl Scene {
                         motion: cut.motion,
                         cue: music.cue,
                         fill: cut.fill,
+                        dress: None,
                     })
                     .or(self.forced_cut.take());
                 director.state().bytes()
@@ -1732,6 +1747,18 @@ impl Scene {
             None => [0; wgsl::SHOT_SIZE as usize],
         };
         queue.write_buffer(&self.shot, 0, &shot);
+        // A moment that plays an effect: a cut in it is dressed with a transition of the scene's
+        // list; with no cut, or none that suits, a lens effect plays over the picture.
+        if let Some(played) = self.moments.tick(&music, self.chances) {
+            let dress = self
+                .cut
+                .as_ref()
+                .and_then(|_| crate::moments::cut_dressing(&self.cut_transitions, played));
+            match (&mut self.cut, dress) {
+                (Some(cut), Some(kind)) => cut.dress = Some(kind),
+                _ => self.lens.start_at(played),
+            }
+        }
         let lens = self.lens.tick(dt as f32, &music, self.level.quality);
         self.sized.post.write_lens(queue, &lens);
         queue.write_buffer(&self.post_buffer, 0, &self.post_defaults);

@@ -20,6 +20,7 @@ use log::{info, warn};
 use crate::adaptive::{Controller, Level, Report};
 use crate::chart::ChartState;
 use crate::covers::{Atlas, Cell};
+use crate::moments::Chances;
 use crate::gpu_time::GpuTimer;
 use crate::in_flight::InFlight;
 use crate::inspect::{LabLens, LabOverrides, LabPace, LabTransition};
@@ -63,6 +64,8 @@ pub struct Pipeline {
     song: (f64, bool),
     /// The app's accent colour (linear), once the app has told it.
     accent: Option<[f32; 3]>,
+    /// The chances the music's moments play an effect with (see [`crate::moments`]).
+    chances: Chances,
     /// The atlas of covers for scenes that read one.
     covers: Option<Arc<Atlas>>,
     /// The cell of the track playing, which stays over cell 0 of the atlas.
@@ -440,6 +443,7 @@ impl Pipeline {
             chart: None,
             song: (0.0, false),
             accent: None,
+            chances: Chances::default(),
             covers: None,
             playing_cover: None,
             output,
@@ -841,7 +845,22 @@ impl Pipeline {
         self.song = (time, playing);
     }
 
-    /// The app's accent colour (linear), for scenes.
+    /// The chances the music's moments play an effect with, in the scene on screen, the one
+    /// waiting for a transition and every scene that comes.
+    pub fn set_effect_chances(&mut self, chances: Chances) {
+        self.chances = chances;
+        self.scene.set_effect_chances(chances);
+        if let Some(pending) = self
+            .transitions
+            .running
+            .as_mut()
+            .and_then(|running| running.pending.as_mut())
+        {
+            pending.set_effect_chances(chances);
+        }
+    }
+
+    /// The app's accent colour (linear), which scenes and transitions draw in.
     pub fn set_accent(&mut self, accent: Option<[f32; 3]>) {
         self.accent = accent;
     }
@@ -943,6 +962,7 @@ impl Pipeline {
         );
         scene.take_music_from(&mut self.scene);
         scene.set_lens_forced(self.lab.lens);
+        scene.set_effect_chances(self.chances);
         self.scene = scene;
         self.restart_adaptive();
         Ok(())
@@ -1502,7 +1522,10 @@ fn dress_cut(transitions: &mut Transitions, plan: Plan, scene: &Scene, time: f64
         let music = scene.music();
         let chosen = match forced {
             Some(kind) => Some((kind, switching::dressed_durations(kind, music))),
-            None => switching::dress(scene.cut_transitions(), cut.cue, music.section_label, music),
+            // The moment of the cut chose its dressing, if it plays one (see `crate::moments`).
+            None => cut
+                .dress
+                .map(|kind| (kind, switching::dressed_durations(kind, music))),
         };
         // A lab's override replaces whatever was chosen, last of all.
         if let Some((kind, durations)) = switching::cut_dressing(transitions.lab_cuts, chosen, music)
@@ -1978,10 +2001,11 @@ mod tests {
     /// A scene of one colour with two shots, which lets `cut` dress its cuts.
     fn dressed_scene(name: &str, value: f32, cut: &str) -> std::path::PathBuf {
         let dir = plain_scene(name, value);
-        let mut manifest = std::fs::read_to_string(dir.join("scene.toml")).unwrap();
-        manifest.push_str(&format!(
-            "[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\n[effects]\ncut = [\"{cut}\"]\n"
-        ));
+        let manifest = std::fs::read_to_string(dir.join("scene.toml")).unwrap();
+        // The list is a top-level key, so it goes before the tables.
+        let manifest = format!(
+            "effects = [\"{cut}\"]\n{manifest}[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\n"
+        );
         std::fs::write(dir.join("scene.toml"), manifest).unwrap();
         dir
     }
