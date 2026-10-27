@@ -27,8 +27,8 @@ use audio::{Analyzer, SPECTRUM_ROWS, SPECTRUM_WIDTH, WAVEFORM_WIDTH};
 use director::Director;
 pub use director::DirectorView;
 use inputs::EventCounter;
-pub use manifest::Effects;
 pub use lens::LensView;
+pub use manifest::{Effects, Pace};
 use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
 use wgsl::ParamsLayout;
 
@@ -1397,6 +1397,19 @@ impl Scene {
         }
     }
 
+    /// Use `pace` for the director in place of the scene's own, or with none the scene's own
+    /// again (a scene lab). Nothing without shots.
+    pub fn set_pace(&mut self, pace: Option<Pace>) {
+        if let Some(director) = &mut self.director {
+            director.set_pace_override(pace);
+        }
+    }
+
+    /// Make the scene act as if it listed these lens effects too (a scene lab).
+    pub fn set_lens_forced(&mut self, forced: crate::inspect::LabLens) {
+        self.lens.set_forced(forced);
+    }
+
     /// The transitions and lens effects the scene declares.
     pub fn effects(&self) -> &manifest::Effects {
         &self.files.manifest.effects
@@ -1448,6 +1461,7 @@ impl Scene {
         if let Some(index) = self.held_shot {
             next.hold_shot(Some(index));
         }
+        next.lens.set_forced(self.lens.forced());
         next.set_covers(
             device,
             queue,

@@ -380,6 +380,9 @@ pub struct Transitions {
     pub dressed: Option<Dressed>,
     /// What the lab asked a dressed cut to be.
     pub forced: Forced,
+    /// What dresses every camera cut in place of the scene's choice, `Cut` for none (see
+    /// [`crate::LabCommand::CutsWith`]).
+    pub lab_cuts: Option<Transition>,
 }
 
 /// The textures of a running transition.
@@ -510,6 +513,7 @@ impl Transitions {
             captured: Cell::new(false),
             dressed: None,
             forced: Forced::None,
+            lab_cuts: None,
         }
     }
 
