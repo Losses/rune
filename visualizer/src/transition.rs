@@ -133,9 +133,9 @@ pub fn label_hash(label: f32) -> u32 {
     x ^ (x >> 16)
 }
 
-/// How long the band takes to open at the start of a cut-in: four frames at 60 fps (the slash
-/// in two, the band bursting open in two).
-pub const CUTIN_BAND_SECONDS: f64 = 4.0 / 60.0;
+/// How long the band takes to open at the start of a cut-in: ten frames at 60 fps, drawn on twos
+/// like hand-drawn animation (the slash, the burst, the flash held, the overshoot settling).
+pub const CUTIN_BAND_SECONDS: f64 = 10.0 / 60.0;
 /// The shortest the band holds before it tears, in seconds.
 pub const CUTIN_MIN_HOLD_SECONDS: f64 = 0.1;
 
@@ -1031,7 +1031,7 @@ mod tests {
     #[test]
     fn a_cutin_runs_until_its_tear_is_over() {
         let style = CutInStyle::Echo;
-        // 0.5 s up to the tear, 0.05 s of tearing: the band opens in the first four frames and
+        // 0.5 s up to the tear, 0.05 s of tearing: the band opens in the first ten frames and
         // holds for the rest of the 0.5 s, then tears.
         let frame = cutin_frame(0.25, 0.5, 0.05, style).unwrap();
         assert_eq!(
