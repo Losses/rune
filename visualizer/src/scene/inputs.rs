@@ -207,10 +207,27 @@ pub struct EventCounter {
     signals: Signals,
     /// When the last frame was, for fading `hit` by wall time (a paused song still fades it).
     wall: Option<Instant>,
+    /// A test that draws a timeline as fast as the GPU goes: the wall seconds every frame after
+    /// the first counts as (see [`EventCounter::with_wall_dt`]).
+    #[cfg(test)]
+    fixed_wall_dt: Option<f64>,
 }
 
 impl EventCounter {
     const MAX_JUMP: f64 = 8.0;
+
+    /// A counter that starts from nothing and counts every frame after the first as `dt` wall
+    /// seconds, however long it took to draw. The music's signals (the tempo's glide, the clock,
+    /// the drive, the envelopes) move on by wall time, so a timeline drawn as fast as the GPU
+    /// goes, and a slow first frame (a shader compiled cold), would otherwise move them by
+    /// something different on every run.
+    #[cfg(test)]
+    pub(crate) fn with_wall_dt(dt: f64) -> Self {
+        Self {
+            fixed_wall_dt: Some(dt),
+            ..Self::default()
+        }
+    }
 
     /// The crossings since the last call, for the beat, bar and section counters now.
     pub fn tick(&mut self, beat: f64, bar: f64, section: f64) -> (u32, u32, u32) {
@@ -244,6 +261,11 @@ impl EventCounter {
         let dt = self.wall.map_or(0.0, |before| {
             now.saturating_duration_since(before).as_secs_f64()
         });
+        #[cfg(test)]
+        let dt = match self.fixed_wall_dt {
+            Some(fixed) if self.wall.is_some() => fixed,
+            _ => dt,
+        };
         self.wall = Some(now);
         dt.min(MAX_WALL_DT)
     }

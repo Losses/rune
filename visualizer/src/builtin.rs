@@ -152,4 +152,25 @@ mod tests {
         }
         assert!(misses.is_empty(), "{}", misses.join("\n"));
     }
+
+    /// A built-in scene takes what it wants of the music through `[[input]]` and `[[bind]]`
+    /// (see "Bindings" in `docs/music.md`), which fall back where the music cannot be measured
+    /// and which a lab can edit; a read of `music.` in its WGSL does neither.
+    #[test]
+    fn no_built_in_scene_reads_music_directly() {
+        let mut reads = Vec::new();
+        for (dir, files) in SCENES {
+            for (path, bytes) in files.iter().filter(|(path, _)| path.ends_with(".wgsl")) {
+                let source = std::str::from_utf8(bytes).unwrap();
+                for (line, field) in music_fields(source) {
+                    reads.push(format!("{dir}/{path}:{line}: music.{field}"));
+                }
+            }
+        }
+        assert!(
+            reads.is_empty(),
+            "bind these to inputs instead:\n{}",
+            reads.join("\n")
+        );
+    }
 }

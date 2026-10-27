@@ -1788,6 +1788,14 @@ impl Scene {
         self.fixed_seed = seed;
     }
 
+    /// Start the scene's music from nothing and let every frame after the first count as `dt`
+    /// wall seconds (see [`inputs::EventCounter::with_wall_dt`]): the music's signals then
+    /// depend on the timeline alone, not on what scene was drawn before or how fast the GPU was.
+    #[cfg(test)]
+    pub(crate) fn fix_wall_dt(&mut self, dt: f64) {
+        self.events = inputs::EventCounter::with_wall_dt(dt);
+    }
+
     /// The internal resolution (that of `out`, `frame.resolution`).
     pub fn internal_size(&self) -> (u32, u32) {
         self.sized.size
@@ -1910,9 +1918,7 @@ impl Scene {
         );
         queue.write_buffer(&self.music, 0, &music.bytes());
         self.music_values = music;
-        let params = self.files.param_numbers();
-        let inputs = self.bindings.tick_in(dt as f32, &music, &params, seed);
-        queue.write_buffer(&self.input_buffer, 0, &self.input_layout.pack(inputs));
+        // The director decides first, so that the bindings can hear of its cut (`cut`).
         self.cut = None;
         let shot = match &mut self.director {
             Some(director) => {
@@ -1930,6 +1936,11 @@ impl Scene {
             }
             None => [0; wgsl::SHOT_SIZE as usize],
         };
+        let params = self.files.param_numbers();
+        let inputs = self
+            .bindings
+            .tick_cut(dt as f32, &music, &params, seed, self.cut.is_some());
+        queue.write_buffer(&self.input_buffer, 0, &self.input_layout.pack(inputs));
         queue.write_buffer(&self.shot, 0, &shot);
         // The lens effects hear where the music is in its phrase before a moment starts one.
         self.lens.listen(&music);

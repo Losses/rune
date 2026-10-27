@@ -2957,6 +2957,13 @@ mod tests {
 /// Every probe draws at the phone's size on the same timeline: 60 frames a second, a steady
 /// 120 bpm in bars of four (so a scene grows, changes its view and its colours as it would with
 /// music), and each frame's seed fixed, so a scene draws the same frames on every run.
+/// The music's signals move on by wall time, not by the timeline's (`EventCounter::wall_dt`), and
+/// a scene takes the music over from the one before it (`Scene::take_music_from`). Left alone,
+/// that made the first frames differ between runs, and between two draws of the same scene in one
+/// run (the second started from where the first ended): a mean difference of 1 to 3.5 in the first
+/// 20 frames that vanished on a repeat run, since only a cold run, with its shaders compiling, took
+/// long enough for the wall time of those frames to differ much. `load` therefore starts the
+/// music over with every frame counted as 1/60 s of wall time.
 ///
 /// - `PROBE`: the scenes, built-in names or absolute scene folders, comma-separated (default
 ///   Growth). `probe_scene_compare` takes one, and the scene to compare it with in `PROBE_B`.
@@ -3082,6 +3089,7 @@ mod probe {
             .set_level(&pipeline.device, &pipeline.queue, level);
         let seed = env_or("PROBE_SEED", "1").parse().expect("a seed");
         pipeline.scene.fix_seed(Some(seed));
+        pipeline.scene.fix_wall_dt(1.0 / FPS);
         pipeline.take_frame_times();
     }
 

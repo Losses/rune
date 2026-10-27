@@ -115,19 +115,55 @@ enum Decay {
     Exp,
 }
 
-/// A number of a `when`: written in the manifest, or the current value of a parameter.
+/// Where a trigger's envelope starts to fall.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DecayFrom {
+    /// In the frame after the event: the event's frame shows the peak.
+    Next,
+    /// In the event's own frame: the peak is set and the frame's time step already taken off it
+    /// (or, with an `attack`, already rising by it), as a scene that wrote `k = 1; k *= exp(-dt / tau)`
+    /// itself saw it.
+    Event,
+}
+
+/// What a counter's `rate` is measured in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Rate {
+    /// Per beat of the music (per second where the beat is not followed).
+    Beat,
+    Second,
+    /// Per event of an event source, with no time in it.
+    Event,
+}
+
+/// A number of a `when`: written in the manifest, or the current value of a parameter as a
+/// small expression, `param * mul + add` (a bare `{ param = "id" }` has a `mul` of 1 and an
+/// `add` of 0).
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Num {
     Const(f32),
-    Param(usize),
+    Param { index: usize, mul: f32, add: f32 },
+}
+
+/// What a reading is multiplied by before the `how` sees it.
+#[derive(Clone, Copy)]
+enum Mul {
+    /// The value of a source (or of an input).
+    Source(Src),
+    /// A number of the `when`.
+    Num(Num),
 }
 
 /// What a frame offers a binding besides the music: the numeric parameters in the manifest's
-/// order, the frame's seed, and the inputs already worked out in this frame.
+/// order, the frame's seed, whether the scene cut in it, and the inputs already worked out in
+/// this frame.
 #[derive(Clone, Copy, Default)]
 pub struct Env<'a> {
     pub params: &'a [f32],
     pub seed: u32,
+    /// Whether the scene's own director cut to another shot in this frame (what the event
+    /// source `cut` counts; the runtime's own bindings have no scene and never see one).
+    pub cut: bool,
     inputs: &'a [f32],
 }
 
@@ -135,7 +171,9 @@ impl Env<'_> {
     fn num(&self, num: Num) -> f32 {
         match num {
             Num::Const(v) => v,
-            Num::Param(i) => self.params.get(i).copied().unwrap_or(0.0),
+            Num::Param { index, mul, add } => {
+                self.params.get(index).copied().unwrap_or(0.0) * mul + add
+            }
         }
     }
 }
@@ -157,7 +195,7 @@ enum Src {
 impl Src {
     fn read(self, music: &MusicValues, env: &Env) -> Reading {
         match self {
-            Self::Source(source) => source.read(music),
+            Self::Source(source) => source.read_in(music, env.cut),
             Self::Input(slot) => Reading {
                 value: env.inputs.get(slot).copied().unwrap_or(0.0),
                 count: 0,
@@ -221,8 +259,9 @@ enum Mode {
         from: [Num; 2],
         to: [Num; 2],
         curve: Curve,
-        /// A time constant in beats; 0 for none.
+        /// A time constant in `per`; 0 for none.
         smooth: Num,
+        per: Per,
         ease: Ease,
         power: Option<Num>,
         clamp: bool,
@@ -234,6 +273,7 @@ enum Mode {
         release: Num,
         per: Per,
         decay: Decay,
+        decay_from: DecayFrom,
         scale: bool,
     },
     Step {
@@ -249,8 +289,10 @@ enum Mode {
     Pick {
         /// The indices 0..options, for [`pick_by_label`].
         options: Vec<u32>,
-        /// What an event pick does (a value source goes by its label).
+        /// What an event pick does (a value source goes by its label): the least and the most
+        /// strength that counts.
         strength: Num,
+        max_strength: Option<Num>,
         every: Num,
         chance: Num,
         start: Start,
@@ -258,7 +300,11 @@ enum Mode {
     },
     Accumulate {
         rate: Num,
-        per: Per,
+        per: Rate,
+        /// For `Rate::Event`: the least strength that counts.
+        strength: Num,
+        /// An event source that sets the total back to 0.
+        reset: Option<&'static Source>,
         wrap: Option<Num>,
     },
 }
@@ -338,6 +384,9 @@ struct State {
     counted: u32,
     /// The running total (`accumulate`).
     total: f32,
+    /// A label `pick` that starts from the seed: the seed of its first frame, which salts the
+    /// hash of the labels for as long as the bind lives.
+    salt: Option<u32>,
 }
 
 /// The evaluator of one `[[bind]]`.
@@ -347,7 +396,7 @@ pub struct Evaluator {
     source: Src,
     source_name: &'static str,
     /// A reading is `value * mul + add` before the `how` sees it.
-    mul: Option<Src>,
+    mul: Option<Mul>,
     add: Num,
     fallback: Fallback,
     rest: f32,
@@ -390,8 +439,9 @@ struct When<'a> {
 }
 
 impl<'a> When<'a> {
-    /// A number of the key: a literal, or `{ param = "<id>" }`; `valid` says whether a literal
-    /// is acceptable (a parameter is only known to be numeric here), `rule` what it must be.
+    /// A number of the key: a literal, `{ param = "<id>" }`, or `{ param = "<id>", mul = k,
+    /// add = c }` (the parameter times `k`, plus `c`); `valid` says whether a literal is
+    /// acceptable (a parameter is only known to be numeric here), `rule` what it must be.
     fn num_of(
         &self,
         value: &toml::Value,
@@ -401,10 +451,25 @@ impl<'a> When<'a> {
     ) -> Result<Num> {
         let what = format!("`when.{key}`");
         if let toml::Value::Table(table) = value {
-            let id = match (table.len(), table.get("param")) {
-                (1, Some(toml::Value::String(id))) => id,
-                _ => bail!("{what} must be a number or {{ param = \"<id>\" }}"),
+            let shape =
+                || format!("{what} must be a number or {{ param = \"<id>\", mul = k, add = c }}");
+            let id = match table.get("param") {
+                Some(toml::Value::String(id)) => id,
+                _ => bail!("{}", shape()),
             };
+            ensure!(
+                table
+                    .keys()
+                    .all(|key| ["param", "mul", "add"].contains(&key.as_str())),
+                "{}",
+                shape()
+            );
+            let part = |key: &str, default: f32| -> Result<f32> {
+                table.get(key).map_or(Ok(default), |value| {
+                    number(value, &format!("{what}: `{key}` of the parameter"))
+                })
+            };
+            let (mul, add) = (part("mul", 1.0)?, part("add", 0.0)?);
             let index = self
                 .scope
                 .params
@@ -418,7 +483,7 @@ impl<'a> When<'a> {
                 ),
                 "{what}: parameter `{id}` is not a number (float or int)"
             );
-            return Ok(Num::Param(index));
+            return Ok(Num::Param { index, mul, add });
         }
         let v = number(value, &what)?;
         ensure!(valid(v), "{what} {rule}");
@@ -557,7 +622,8 @@ impl Evaluator {
         if how == "trigger" {
             ensure!(
                 source.event(),
-                "a trigger needs a source that counts events (hits, bars, beats, cues, impacts, notes, moment.strong, moment.medium), not `{}`",
+                "a trigger needs a source that counts events ({}), not `{}`",
+                sources::event_names(),
                 bind.source
             );
         }
@@ -579,9 +645,14 @@ impl Evaluator {
             read: Vec::new(),
             scope,
         };
-        let mul = match when.word("mul")? {
+        // A source or input by name, or a number (a literal or a parameter).
+        when.read.push("mul");
+        let mul = match when.table.get("mul") {
             None => None,
-            Some(name) => Some(Src::parse(name, scope, slot).context("`when.mul`")?),
+            Some(toml::Value::String(name)) => Some(Mul::Source(
+                Src::parse(name, scope, slot).context("`when.mul`")?,
+            )),
+            Some(value) => Some(Mul::Num(when.num_of(value, "mul", any, "")?)),
         };
         let add = when.dynamic("add", 0.0, any, "")?;
         let mode = match how {
@@ -600,6 +671,7 @@ impl Evaluator {
                     })?,
                 };
                 let smooth = when.dynamic("smooth", 0.0, non_negative, "must not be negative")?;
+                let per = per_of(&mut when)?;
                 let clamp = when.flag("clamp", true)?;
                 let power = power_of(&mut when, ease.unwrap_or(Ease::None))?;
                 Mode::Follow {
@@ -607,6 +679,7 @@ impl Evaluator {
                     to,
                     curve,
                     smooth,
+                    per,
                     ease: ease.unwrap_or(Ease::None),
                     power,
                     clamp,
@@ -622,12 +695,18 @@ impl Evaluator {
                     Some("exp") => Decay::Exp,
                     Some(other) => bail!("no `when.decay` `{other}` (it is linear or exp)"),
                 };
+                let decay_from = match when.word("decay_from")? {
+                    None | Some("next") => DecayFrom::Next,
+                    Some("event") => DecayFrom::Event,
+                    Some(other) => bail!("no `when.decay_from` `{other}` (it is next or event)"),
+                };
                 Mode::Trigger {
                     threshold,
                     attack,
                     release,
                     per: per_of(&mut when)?,
                     decay,
+                    decay_from,
                     scale: when.flag("scale", true)?,
                 }
             }
@@ -656,6 +735,7 @@ impl Evaluator {
                     "`when.options` must be a whole number from 1 to {MAX_OPTIONS}"
                 );
                 let strength = when.dynamic("strength", 0.0, any, "")?;
+                let max_strength = when.maybe("max_strength", any, "")?;
                 let every = when.dynamic("every", 1.0, positive, "must be above 0")?;
                 let chance = when.dynamic("chance", 1.0, unit_range, "must be from 0 to 1")?;
                 let start = match when.table.get("start") {
@@ -681,17 +761,51 @@ impl Evaluator {
                 Mode::Pick {
                     options: (0..options as u32).collect(),
                     strength,
+                    max_strength,
                     every,
                     chance,
                     start,
                     jump,
                 }
             }
-            _ => Mode::Accumulate {
-                rate: when.dynamic("rate", 1.0, any, "")?,
-                per: per_of(&mut when)?,
-                wrap: wrap_of(&mut when)?,
-            },
+            _ => {
+                let rate = when.dynamic("rate", 1.0, any, "")?;
+                let per = match when.word("per")? {
+                    None | Some("beat") => Rate::Beat,
+                    Some("second") => Rate::Second,
+                    Some("event") => Rate::Event,
+                    Some(other) => bail!("no `when.per` `{other}` (it is beat, second or event)"),
+                };
+                let strength = if per == Rate::Event {
+                    when.dynamic("strength", 0.0, any, "")?
+                } else {
+                    Num::Const(0.0)
+                };
+                let reset = when
+                    .word("reset")?
+                    .map(|name| {
+                        let found = sources::find(name).with_context(|| {
+                            format!(
+                                "`when.reset`: no source `{name}` (it is an event source: {})",
+                                sources::event_names()
+                            )
+                        })?;
+                        ensure!(
+                            found.event,
+                            "`when.reset` must be a source that counts events ({}), not `{name}`",
+                            sources::event_names()
+                        );
+                        Ok(found)
+                    })
+                    .transpose()?;
+                Mode::Accumulate {
+                    rate,
+                    per,
+                    strength,
+                    reset,
+                    wrap: wrap_of(&mut when)?,
+                }
+            }
         };
         when.finish(how)?;
         let fallback = match &bind.fallback {
@@ -721,15 +835,37 @@ impl Evaluator {
                 }
             },
         };
+        if matches!(
+            mode,
+            Mode::Accumulate {
+                per: Rate::Event,
+                ..
+            }
+        ) {
+            ensure!(
+                source.event() && !matches!(fallback, Fallback::Source(s) if !s.event),
+                "`when.per = \"event\"` counts the events of the source, so the source (and a fallback source) must count events ({}), not `{}`",
+                sources::event_names(),
+                bind.source
+            );
+        }
         if how == "pick" {
             let event = source.event() || matches!(fallback, Fallback::Source(s) if s.event);
             let set = |key: &str| bind.when.contains_key(key);
             ensure!(
                 event
-                    || !["strength", "every", "chance", "start", "jump"]
+                    || !["strength", "max_strength", "every", "chance", "jump"]
                         .iter()
                         .any(|k| set(k)),
-                "`strength`, `every`, `chance`, `start` and `jump` are for a pick of an event source"
+                "`strength`, `max_strength`, `every`, `chance` and `jump` are for a pick of an event source"
+            );
+            ensure!(
+                event
+                    || bind
+                        .when
+                        .get("start")
+                        .is_none_or(|v| v.as_str() == Some("seed")),
+                "`start` is for a pick of an event source, except `start = \"seed\"`, which a pick by label takes too"
             );
         }
         let rest = input.rest();
@@ -792,9 +928,10 @@ impl Evaluator {
         let means = match self.fallback {
             Fallback::None => Means::Source(self.source.event(), own),
             _ if self.source.meaningful_at(level) => Means::Source(self.source.event(), own),
-            Fallback::Source(other) => {
-                Means::Fallback(other, self.modulated(other.read(music), music, env))
-            }
+            Fallback::Source(other) => Means::Fallback(
+                other,
+                self.modulated(other.read_in(music, env.cut), music, env),
+            ),
             Fallback::Value(value) => Means::Value(value),
             Fallback::Hold => Means::Hold,
             Fallback::Rest => Means::Rest,
@@ -827,8 +964,10 @@ impl Evaluator {
 
     /// A reading as `mul` and `add` make it.
     fn modulated(&self, mut reading: Reading, music: &MusicValues, env: &Env) -> Reading {
-        if let Some(mul) = self.mul {
-            reading.value *= mul.read(music, env).value;
+        match self.mul {
+            None => {}
+            Some(Mul::Source(source)) => reading.value *= source.read(music, env).value,
+            Some(Mul::Num(num)) => reading.value *= env.num(num),
         }
         reading.value += env.num(self.add);
         reading
@@ -851,6 +990,7 @@ impl Evaluator {
                 to,
                 curve,
                 smooth,
+                per,
                 ease,
                 power,
                 clamp,
@@ -871,10 +1011,12 @@ impl Evaluator {
                 };
                 let target = to[0] + shaped * (to[1] - to[0]);
                 let smooth = env.num(*smooth).max(0.0);
+                let by = match per {
+                    Per::Beat => beats,
+                    Per::Second => dt,
+                };
                 let level = match (self.state.level, smooth > 0.0) {
-                    (Some(level), true) => {
-                        level + (target - level) * (1.0 - (-beats / smooth).exp())
-                    }
+                    (Some(level), true) => level + (target - level) * (1.0 - (-by / smooth).exp()),
                     _ => target,
                 };
                 self.state.level = Some(level);
@@ -886,6 +1028,7 @@ impl Evaluator {
                 release,
                 per,
                 decay,
+                decay_from,
                 scale,
             } => {
                 let by = match per {
@@ -893,34 +1036,39 @@ impl Evaluator {
                     Per::Second => dt,
                 };
                 let (attack, release) = (env.num(*attack).max(0.0), env.num(*release).max(0.0));
-                let level = self.state.level.unwrap_or(0.0);
-                let level = if reading.count > 0 && reading.value >= env.num(*threshold) {
+                let mut level = self.state.level.unwrap_or(0.0);
+                let fired = reading.count > 0 && reading.value >= env.num(*threshold);
+                if fired {
                     self.state.peak = if *scale {
                         reading.value.clamp(0.0, 1.0)
                     } else {
                         1.0
                     };
                     self.state.rising = attack > 0.0;
+                    if !self.state.rising {
+                        level = self.state.peak;
+                    }
+                }
+                // On the event's frame the envelope moves on only when it is asked to: with
+                // `decay_from = "event"` it falls (or, with an attack, starts to rise) by this
+                // frame's step at once. With a `release` of 0 there is nothing to fall by, so
+                // the peak shows for the one frame either way.
+                if !fired || *decay_from == DecayFrom::Event {
                     if self.state.rising {
-                        level
-                    } else {
-                        self.state.peak
+                        level = (level + self.state.peak * by / attack).min(self.state.peak);
+                        self.state.rising = level < self.state.peak;
+                    } else if release > 0.0 {
+                        level = match decay {
+                            Decay::Linear => (level - self.state.peak * by / release).max(0.0),
+                            Decay::Exp => {
+                                let level = level * (-by / release).exp();
+                                if level < 1e-3 { 0.0 } else { level }
+                            }
+                        };
+                    } else if !fired {
+                        level = 0.0;
                     }
-                } else if self.state.rising {
-                    let level = (level + self.state.peak * by / attack).min(self.state.peak);
-                    self.state.rising = level < self.state.peak;
-                    level
-                } else if release > 0.0 {
-                    match decay {
-                        Decay::Linear => (level - self.state.peak * by / release).max(0.0),
-                        Decay::Exp => {
-                            let level = level * (-by / release).exp();
-                            if level < 1e-3 { 0.0 } else { level }
-                        }
-                    }
-                } else {
-                    0.0
-                };
+                }
                 self.state.level = Some(level);
                 self.rest + level * (self.top - self.rest)
             }
@@ -944,6 +1092,7 @@ impl Evaluator {
             Mode::Pick {
                 options,
                 strength,
+                max_strength,
                 every,
                 chance,
                 start,
@@ -964,7 +1113,9 @@ impl Evaluator {
                     }
                     let every = env.num(*every).round().max(1.0) as u32;
                     let chance = env.num(*chance);
-                    if reading.value >= env.num(*strength) {
+                    if reading.value >= env.num(*strength)
+                        && max_strength.is_none_or(|max| reading.value <= env.num(max))
+                    {
                         for _ in 0..reading.count {
                             self.state.counted += 1;
                             let n = self.state.counted;
@@ -986,16 +1137,41 @@ impl Evaluator {
                     }
                 } else if self.state.seen != Some(reading.value) {
                     self.state.seen = Some(reading.value);
-                    self.state.index = pick_by_label(options, reading.value).unwrap_or_default();
+                    self.state.index = match start {
+                        // The seed of the bind's first frame salts the hash, so the same label
+                        // gets the same option all the play through, and another play may not.
+                        Start::Seed => {
+                            let salt = *self.state.salt.get_or_insert(env.seed);
+                            hash(reading.value.max(0.0) as u32, salt, 4) % len
+                        }
+                        Start::Index(_) => {
+                            pick_by_label(options, reading.value).unwrap_or_default()
+                        }
+                    };
                 }
                 self.state.index as f32
             }
-            Mode::Accumulate { rate, per, wrap } => {
-                let by = match per {
-                    Per::Beat => dt * beats_per_second(music),
-                    Per::Second => dt,
+            Mode::Accumulate {
+                rate,
+                per,
+                strength,
+                reset,
+                wrap,
+            } => {
+                if reset.is_some_and(|source| source.read_in(music, env.cut).count > 0) {
+                    self.state.total = 0.0;
+                }
+                let rate = env.num(*rate);
+                let step = match per {
+                    Rate::Beat => reading.value * rate * (dt * beats_per_second(music)),
+                    Rate::Second => reading.value * rate * dt,
+                    // Each event of a frame that is strong enough adds the rate, with no time.
+                    Rate::Event if reading.value >= env.num(*strength) => {
+                        reading.count as f32 * rate
+                    }
+                    Rate::Event => 0.0,
                 };
-                let total = self.state.total + reading.value * env.num(*rate) * by;
+                let total = self.state.total + step;
                 self.state.total =
                     wrap.map_or(total, |wrap| total.rem_euclid(env.num(wrap).max(1e-6)));
                 self.state.total
@@ -1175,12 +1351,26 @@ impl Bindings {
     /// As [`Bindings::tick`], in a frame with the current values of the scene's parameters and
     /// the frame's `seed`.
     pub fn tick_in(&mut self, dt: f32, music: &MusicValues, params: &[f32], seed: u32) -> &[f32] {
+        self.tick_cut(dt, music, params, seed, false)
+    }
+
+    /// As [`Bindings::tick_in`], in a frame where the scene's director did (`cut`) or did not
+    /// cut to another shot, which the event source `cut` counts.
+    pub fn tick_cut(
+        &mut self,
+        dt: f32,
+        music: &MusicValues,
+        params: &[f32],
+        seed: u32,
+        cut: bool,
+    ) -> &[f32] {
         let level = Level::of(music);
         for &i in &self.order {
             let (slot, evaluator) = &mut self.evaluators[i];
             let env = Env {
                 params,
                 seed,
+                cut,
                 inputs: &self.values,
             };
             let output = evaluator.tick_in(dt, music, level, &env).output;
@@ -1736,6 +1926,7 @@ mod tests {
         Env {
             params,
             seed,
+            cut: false,
             inputs: &[],
         }
     }
@@ -2123,5 +2314,328 @@ mod tests {
         wrong[0].source = "loudness".into();
         assert!(bindings.renewed(&inputs, &wrong).is_err());
         assert_eq!(bindings.values()[0], walked);
+    }
+
+    #[test]
+    fn a_trigger_can_start_to_fall_on_the_frame_of_the_event() {
+        let quiet = MusicValues { hit: 0.0, ..a() };
+        let trigger = |when: &str| {
+            evaluator(&format!(
+                "source = \"hits\"\nhow = \"trigger\"\nwhen = {{ {when} }}"
+            ))
+        };
+        // By default the event's frame shows the peak and the fall starts after it; at 120 bpm a
+        // frame of 0.1 s is 0.2 beats.
+        let mut next = trigger("release = 1.0");
+        let out = run(&mut next, &[hit(0.8), quiet]);
+        assert!(near(out[0], 0.8) && near(out[1], 0.8 * 0.8));
+        assert_eq!(
+            trigger("release = 1.0, decay_from = \"next\"").how(),
+            "trigger"
+        );
+        // From the event the same frame has already fallen by its step, as `k = 1; k *= ...`.
+        let mut event = trigger("release = 1.0, decay_from = \"event\"");
+        let out = run(&mut event, &[hit(0.8), quiet]);
+        assert!(near(out[0], 0.8 * 0.8) && near(out[1], 0.8 * 0.6));
+        // An exponential fall: the time constant, here in seconds, is taken off the peak at once.
+        let mut exp =
+            trigger("release = 0.5, decay = \"exp\", per = \"second\", decay_from = \"event\"");
+        let out = run(&mut exp, &[hit(1.0), quiet]);
+        assert!(near(out[0], (-0.2f32).exp()) && near(out[1], (-0.4f32).exp()));
+        // With an attack the rise starts on the event's frame instead of the one after.
+        let mut rising = trigger("attack = 1.0, release = 1.0, decay_from = \"event\"");
+        let out = run(&mut rising, &[hit(0.8), quiet, quiet]);
+        assert!(near(out[0], 0.16) && near(out[1], 0.32) && near(out[2], 0.48));
+        let mut late = trigger("attack = 1.0, release = 1.0");
+        let out = run(&mut late, &[hit(0.8), quiet, quiet]);
+        assert!(near(out[0], 0.0) && near(out[1], 0.16) && near(out[2], 0.32));
+        // A release of 0 has nothing to fall by: the peak is one frame long either way.
+        let mut blink = trigger("release = 0.0, decay_from = \"event\"");
+        let out = run(&mut blink, &[hit(0.8), quiet]);
+        assert!(near(out[0], 0.8) && out[1] == 0.0);
+        assert!(
+            error("source = \"hits\"\nhow = \"trigger\"\nwhen = { decay_from = \"later\" }")
+                .contains("no `when.decay_from`")
+        );
+    }
+
+    #[test]
+    fn an_accumulate_can_count_events_without_wrapping_or_a_clock() {
+        let events = |hits: u32, strength: f32| MusicValues {
+            hits,
+            hit: strength,
+            ..a()
+        };
+        // Each event adds the rate, whatever the frame's length; a quiet frame adds nothing.
+        let mut e = evaluator(
+            "source = \"hits\"\nhow = \"accumulate\"\nwhen = { per = \"event\", rate = 2.0, strength = 0.5 }",
+        );
+        let out = run(
+            &mut e,
+            &[
+                events(3, 0.8),
+                events(2, 0.3),
+                events(0, 0.9),
+                events(1, 0.5),
+            ],
+        );
+        assert_eq!(out, [6.0, 6.0, 6.0, 8.0]);
+        // The default rate is 1, and nothing wraps: the count goes past a pick's 64 options.
+        let mut long =
+            evaluator("source = \"hits\"\nhow = \"accumulate\"\nwhen = { per = \"event\" }");
+        let out = run(&mut long, &vec![events(1, 1.0); 100]);
+        assert_eq!(out[99], 100.0);
+        // A wrap is still there when it is wanted.
+        let mut wrapped = evaluator(
+            "source = \"hits\"\nhow = \"accumulate\"\nwhen = { per = \"event\", wrap = 4 }",
+        );
+        assert_eq!(
+            run(&mut wrapped, &[events(3, 1.0), events(3, 1.0)]),
+            [3.0, 2.0]
+        );
+        // It needs an event source, also as a fallback, and `strength` is only for it.
+        let wrong = error("source = \"drive\"\nhow = \"accumulate\"\nwhen = { per = \"event\" }");
+        assert!(
+            wrong.contains("must count events") && wrong.contains("not `drive`"),
+            "{wrong}"
+        );
+        assert!(error(
+            "source = \"bars\"\nhow = \"accumulate\"\nwhen = { per = \"event\" }\nfallback = \"drive\""
+        )
+        .contains("must count events"));
+        assert!(
+            error("source = \"drive\"\nhow = \"accumulate\"\nwhen = { strength = 0.5 }")
+                .contains("unknown key `strength`")
+        );
+        assert!(
+            error("source = \"hits\"\nhow = \"accumulate\"\nwhen = { per = \"bar\" }")
+                .contains("beat, second or event")
+        );
+    }
+
+    #[test]
+    fn an_accumulate_is_set_back_to_zero_by_an_event_source_such_as_the_scenes_cut() {
+        let music = MusicValues { drive: 1.0, ..a() };
+        let mut e = evaluator(
+            "source = \"drive\"\nhow = \"accumulate\"\nwhen = { per = \"second\", reset = \"cut\" }",
+        );
+        let cut = Env {
+            cut: true,
+            ..env(&[], 0)
+        };
+        let mut tick = |env: &Env| e.tick_in(0.1, &music, Level::A, env).output;
+        assert!(near(tick(&env(&[], 0)), 0.1) && near(tick(&env(&[], 0)), 0.2));
+        // The sum is set back before this frame is added.
+        assert!(near(tick(&cut), 0.1));
+        assert!(near(tick(&env(&[], 0)), 0.2));
+        // Any event source resets, from the music: here a bar line, on an event counter.
+        let mut bars = evaluator(
+            "source = \"hits\"\nhow = \"accumulate\"\nwhen = { per = \"event\", reset = \"bars\" }",
+        );
+        let out = run(
+            &mut bars,
+            &[
+                hit(1.0),
+                hit(1.0),
+                MusicValues {
+                    bars: 1,
+                    ..hit(1.0)
+                },
+                hit(1.0),
+            ],
+        );
+        assert_eq!(out, [1.0, 2.0, 1.0, 2.0]);
+        // `cut` is a source of the scene: nothing in the music is a cut, so the runtime's own
+        // bindings, which read the music alone, never see one.
+        let source = sources::find("cut").unwrap();
+        assert!(source.event && source.levels == [true; 3]);
+        assert_eq!(source.read(&music).count, 0);
+        assert_eq!(source.read_in(&music, true).count, 1);
+        // A bind of it, and a whole scene's bindings told of the cut.
+        let inputs = two_inputs();
+        let binds = binds(&[
+            "target = \"first\"\nsource = \"cut\"\nhow = \"accumulate\"\nwhen = { per = \"event\" }",
+        ]);
+        let mut bindings = Bindings::new(&inputs, &binds).unwrap();
+        assert_eq!(bindings.tick_cut(0.1, &music, &[], 0, false)[0], 0.0);
+        assert_eq!(bindings.tick_cut(0.1, &music, &[], 0, true)[0], 1.0);
+        assert_eq!(bindings.tick(0.1, &music)[0], 1.0);
+        // Only an event source resets.
+        let wrong = error("source = \"drive\"\nhow = \"accumulate\"\nwhen = { reset = \"drive\" }");
+        assert!(
+            wrong.contains("`when.reset` must be a source that counts events"),
+            "{wrong}"
+        );
+        assert!(
+            error("source = \"drive\"\nhow = \"accumulate\"\nwhen = { reset = \"nope\" }")
+                .contains("`when.reset`: no source `nope`")
+        );
+        assert!(
+            error("source = \"drive\"\nhow = \"follow\"\nwhen = { reset = \"cut\" }")
+                .contains("unknown key `reset`")
+        );
+    }
+
+    #[test]
+    fn a_number_may_be_a_small_expression_of_a_parameter() {
+        let music = MusicValues { drive: 0.5, ..a() };
+        let at = |text: &str, gain: f32| {
+            let mut e = with_params(text).unwrap();
+            e.tick_in(0.1, &music, Level::A, &env(&[gain, 3.0, 0.0], 0))
+                .output
+        };
+        // `rate = param * 0.06`.
+        let rate = "source = \"drive\"\nhow = \"accumulate\"\nwhen = { per = \"second\", rate = { param = \"gain\", mul = 0.06 } }";
+        assert!(near(at(rate, 2.0), 0.5 * 0.12 * 0.1));
+        assert!(near(at(rate, 1.0), 0.5 * 0.06 * 0.1));
+        // `add` alone, and both: param * 2 + 1.
+        let both = "source = \"drive\"\nhow = \"follow\"\nwhen = { to = [0, { param = \"gain\", mul = 2, add = 1 }] }";
+        assert!(near(at(both, 2.0), 0.5 * 5.0));
+        let add = "source = \"drive\"\nhow = \"follow\"\nwhen = { to = [{ param = \"gain\", add = 1 }, 10] }";
+        assert!(near(at(add, 2.0), 3.0 + 0.5 * 7.0));
+        // A `from` pair holds them too.
+        let from = "source = \"drive\"\nhow = \"follow\"\nwhen = { from = [0, { param = \"gain\", mul = 2 }] }";
+        assert!(near(at(from, 1.0), 0.25));
+        assert!(near(at(from, 0.5), 0.5));
+        // Anything else in the table is refused, naming the keys.
+        let wrong = format!("{:#}", with_params("source = \"drive\"\nhow = \"follow\"\nwhen = { smooth = { param = \"gain\", scale = 2 } }").err().unwrap());
+        assert!(
+            wrong.contains("param = \"<id>\", mul = k, add = c"),
+            "{wrong}"
+        );
+        let wrong = format!(
+            "{:#}",
+            with_params("source = \"drive\"\nhow = \"follow\"\nwhen = { smooth = { mul = 2 } }")
+                .err()
+                .unwrap()
+        );
+        assert!(wrong.contains("mul = k"), "{wrong}");
+        let wrong = format!("{:#}", with_params("source = \"drive\"\nhow = \"follow\"\nwhen = { smooth = { param = \"gain\", mul = \"x\" } }").err().unwrap());
+        assert!(
+            wrong.contains("`mul` of the parameter must be a number"),
+            "{wrong}"
+        );
+    }
+
+    #[test]
+    fn mul_may_be_a_number_as_well_as_a_source() {
+        let music = MusicValues { drive: 0.5, ..a() };
+        let mut plain =
+            evaluator("source = \"drive\"\nhow = \"follow\"\nwhen = { mul = 0.5, add = 0.1 }");
+        assert!(near(run(&mut plain, &[music])[0], 0.5 * 0.5 + 0.1));
+        // A whole number too, and a parameter of the scene.
+        let mut whole = evaluator("source = \"drive\"\nhow = \"follow\"\nwhen = { mul = 2 }");
+        assert!(near(run(&mut whole, &[music])[0], 1.0));
+        let mut param = with_params(
+            "source = \"drive\"\nhow = \"follow\"\nwhen = { mul = { param = \"gain\", mul = 2 } }",
+        )
+        .unwrap();
+        let t = param.tick_in(0.1, &music, Level::A, &env(&[0.5, 0.0, 0.0], 0));
+        assert!(near(t.output, 0.5));
+        // On an event it scales the strength.
+        let mut strong = evaluator("source = \"hits\"\nhow = \"trigger\"\nwhen = { mul = 0.5 }");
+        assert!(near(run(&mut strong, &[hit(0.8)])[0], 0.4));
+        assert!(
+            error("source = \"drive\"\nhow = \"follow\"\nwhen = { mul = true }")
+                .contains("`when.mul` must be a number")
+        );
+    }
+
+    #[test]
+    fn a_follow_smooths_in_beats_or_in_seconds() {
+        let low = MusicValues { drive: 0.0, ..a() };
+        let high = MusicValues { drive: 1.0, ..a() };
+        let step = |when: &str| {
+            let mut e = evaluator(&format!(
+                "source = \"drive\"\nhow = \"follow\"\nwhen = {{ smooth = 1.0{when} }}"
+            ));
+            run(&mut e, &[low, high])[1]
+        };
+        // At 120 bpm a frame of 0.1 s is 0.2 of the one-beat constant, and 0.1 of the second's.
+        assert!(near(step(""), 1.0 - (-0.2f32).exp()));
+        assert!(near(step(", per = \"beat\""), 1.0 - (-0.2f32).exp()));
+        assert!(near(step(", per = \"second\""), 1.0 - (-0.1f32).exp()));
+        // Without a followed beat a beat is 0.5 s, so seconds are what differs.
+        let c = |drive| MusicValues {
+            drive,
+            ..at(Level::C)
+        };
+        let mut sec = evaluator(
+            "source = \"drive\"\nhow = \"follow\"\nwhen = { smooth = 1.0, per = \"second\" }",
+        );
+        assert!(near(
+            run(&mut sec, &[c(0.0), c(1.0)])[1],
+            1.0 - (-0.1f32).exp()
+        ));
+        assert!(
+            error("source = \"drive\"\nhow = \"follow\"\nwhen = { per = \"bar\" }")
+                .contains("no `when.per`")
+        );
+    }
+
+    #[test]
+    fn a_pick_counts_only_events_within_a_band_of_strength() {
+        let mut e = evaluator(
+            "source = \"hits\"\nhow = \"pick\"\nwhen = { options = 4, strength = 0.3, max_strength = 0.6 }",
+        );
+        assert_eq!(
+            run(&mut e, &[hit(0.2), hit(0.5), hit(0.8), hit(0.6), hit(0.3)]),
+            [0.0, 1.0, 1.0, 2.0, 3.0]
+        );
+        // The most may be a parameter and only an event pick has one.
+        assert!(error("source = \"section_label\"\nhow = \"pick\"\nwhen = { options = 3, max_strength = 0.5 }")
+            .contains("`max_strength`"));
+    }
+
+    #[test]
+    fn a_label_pick_can_start_from_the_seed_and_then_stay_put() {
+        let label = |label: f32| MusicValues {
+            section_label: label,
+            ..a()
+        };
+        let pick = || {
+            evaluator(
+                "source = \"section_label\"\nhow = \"pick\"\nwhen = { options = 64, start = \"seed\" }",
+            )
+        };
+        // One play: the first frame's seed salts it, and later seeds do not matter. The same
+        // label always gets the same option, and a label that changes gets its own.
+        let mut play = pick();
+        let mut at = |l: f32, seed: u32| {
+            play.tick_in(0.1, &label(l), Level::A, &env(&[], seed))
+                .output as u32
+        };
+        let first: Vec<u32> = (0..6).map(|l| at(l as f32, 17 + l)).collect();
+        let again: Vec<u32> = (0..6).map(|l| at(l as f32, 900 + l)).collect();
+        assert_eq!(first, again);
+        assert!(first.iter().all(|i| *i < 64));
+        assert!(first.windows(2).any(|w| w[0] != w[1]));
+        // Another play (another seed at load) may assign differently.
+        let assign = |seed: u32| -> Vec<u32> {
+            let mut e = pick();
+            (0..8)
+                .map(|l| {
+                    e.tick_in(0.1, &label(l as f32), Level::A, &env(&[], seed))
+                        .output as u32
+                })
+                .collect()
+        };
+        assert_eq!(assign(5), assign(5));
+        assert_ne!(assign(5), assign(6));
+        // Without `start` the assignment is the transitions' own, whatever the seed.
+        let mut plain =
+            evaluator("source = \"section_label\"\nhow = \"pick\"\nwhen = { options = 64 }");
+        let out = plain
+            .tick_in(0.1, &label(3.0), Level::A, &env(&[], 99))
+            .output;
+        assert_eq!(
+            out as u32,
+            pick_by_label(&(0..64).collect::<Vec<u32>>(), 3.0).unwrap()
+        );
+        // A start that is an index means nothing without events.
+        assert!(
+            error("source = \"section_label\"\nhow = \"pick\"\nwhen = { options = 3, start = 1 }")
+                .contains("`start` is for a pick of an event source")
+        );
     }
 }
