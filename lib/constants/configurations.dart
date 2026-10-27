@@ -169,3 +169,7 @@ const kVisualizerPresetDirKey = 'visualizer_preset_dir';
 /// playing track, the wall of cover art or the visualizer. This
 /// defaults to 'covers' when the setting is missing.
 const kCoverWallDisplayKey = 'cover_wall_display';
+
+/// 'default' or 'more': how often the visualizer plays effects at the music's
+/// moments. This defaults to 'default' when the setting is missing.
+const kVisualizerEffectLevelKey = 'visualizer_effect_level';

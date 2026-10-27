@@ -1397,6 +1397,22 @@
   "@visualizerRemovePresetFolder": {
     "description": "Button that removes a folder from the visualizer scene folders; the folder itself is not deleted."
   },
+  "visualizerEffects": "Effects",
+  "@visualizerEffects": {
+    "description": "Title of the setting that chooses how often the visualizer plays visual effects at the music's moments."
+  },
+  "visualizerEffectsSubtitle": "How often the visualizer plays effects at the music's moments",
+  "@visualizerEffectsSubtitle": {
+    "description": "Subtitle of the visualizer effects setting."
+  },
+  "visualizerEffectsDefault": "Default",
+  "@visualizerEffectsDefault": {
+    "description": "Option of the visualizer effects setting: effects play now and then, about twice in a song."
+  },
+  "visualizerEffectsMore": "More",
+  "@visualizerEffectsMore": {
+    "description": "Option of the visualizer effects setting: effects play more often."
+  },
   "coverWallDisplay": "Cover wall display",
   "@coverWallDisplay": {
     "description": "Title of the setting that chooses what the cover wall page shows."

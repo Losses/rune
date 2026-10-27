@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::fsio::FsIo;
 use ::playback::player::Playable;
-use ::visualizer::{Location, PcmInput, Transport};
+use ::visualizer::{EffectLevel, Location, PcmInput, Transport};
 
 use crate::{
     Session, Signal, flutter_bridge,
@@ -296,6 +296,31 @@ impl Signal for SetVisualizerAutoSwitchPausedRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         VISUALIZER.set_auto_switch_paused(dart_signal.paused);
+        Ok(Some(()))
+    }
+}
+
+impl ParamsExtractor for SetVisualizerEffectLevelRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for SetVisualizerEffectLevelRequest {
+    type Params = ();
+    type Response = ();
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let level = match dart_signal.level.as_str() {
+            "more" => EffectLevel::More,
+            _ => EffectLevel::Default,
+        };
+        VISUALIZER.set_effect_level(level);
         Ok(Some(()))
     }
 }

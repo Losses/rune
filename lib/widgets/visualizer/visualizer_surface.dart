@@ -8,6 +8,7 @@ import '../../bindings/bindings.dart';
 import '../../providers/cover_wall_display.dart';
 import '../../utils/color_brightness.dart';
 import '../../utils/rune_log.dart';
+import '../../utils/visualizer_effect_level.dart';
 import '../../utils/visualizer_preset_dirs.dart';
 import '../../utils/file_storage/mac_secure_manager.dart';
 
@@ -178,6 +179,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       if (dirs.isNotEmpty) {
         SetVisualizerPresetDirsRequest(paths: dirs).sendSignalToRust();
       }
+      sendVisualizerEffectLevel(await loadVisualizerEffectLevel());
+      if (_disposed) return;
       StartVisualizerRequest(
         width: size.$1,
         height: size.$2,
