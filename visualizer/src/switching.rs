@@ -7,7 +7,7 @@
 use crate::moments::{self, Chances};
 use crate::scene::MusicValues;
 use crate::transition::{
-    CUTIN_BAND_SECONDS, CUTIN_MIN_HOLD_SECONDS, CutInStyle, Durations, Transition,
+    CUTIN_BAND_SECONDS, CUTIN_MIN_HOLD_SECONDS, CutInStyle, Durations, Overlay, Transition,
 };
 
 /// The least time on a scene before the next automatic switch, in seconds of the visualizer's
@@ -56,8 +56,16 @@ pub const UNFOLLOWED_FLASH_SECONDS: (f64, f64) = (0.4, 0.8);
 /// A mosaic takes this many beats, or [`UNFOLLOWED_MOSAIC_SECONDS`] without a followed beat.
 pub const MOSAIC_BEATS: f64 = 1.0;
 pub const UNFOLLOWED_MOSAIC_SECONDS: f64 = 0.5;
-/// A glitch takes a few frames, whatever the beat.
-pub const GLITCH_SECONDS: f64 = 0.15;
+/// A glitch takes this many beats, or [`UNFOLLOWED_GLITCH_SECONDS`] without a followed beat: long
+/// enough for its stages to hold a few frames each.
+pub const GLITCH_BEATS: f64 = 1.0;
+pub const UNFOLLOWED_GLITCH_SECONDS: f64 = 0.5;
+/// A glitch played as a lens effect over the picture takes this many beats, and a mosaic so
+/// this many (see [`overlay_seconds`]).
+pub const LENS_GLITCH_BEATS: f64 = 0.75;
+pub const LENS_MOSAIC_BEATS: f64 = 0.5;
+/// The seconds of a beat for the lens glitch and mosaic without a followed beat (120 bpm).
+pub const UNFOLLOWED_BEAT_SECONDS: f64 = 0.5;
 /// A transition that dresses a cut is short, so that it stays on the beat: this fraction of what
 /// the same transition takes for a switch.
 pub const DRESSED_SHARE: f64 = 0.5;
@@ -460,7 +468,7 @@ fn durations_of(kind: Transition, beat: Option<f64>) -> Durations {
         },
         Transition::Glitch => Durations {
             out: 0.0,
-            into: GLITCH_SECONDS,
+            into: beat.map_or(UNFOLLOWED_GLITCH_SECONDS, |beat| beat * GLITCH_BEATS),
         },
         Transition::Mosaic => Durations {
             out: 0.0,
@@ -497,13 +505,20 @@ pub fn dressed_durations(kind: Transition, music: &MusicValues) -> Durations {
                 into: rise * 2.0,
             }
         }
-        // A few frames already.
-        Transition::Glitch => full,
         _ => Durations {
             out: full.out * DRESSED_SHARE,
             into: full.into * DRESSED_SHARE,
         },
     }
+}
+
+/// How long a lens glitch or mosaic plays, in seconds: in beats while the beat is followed.
+pub fn overlay_seconds(kind: Overlay, music: &MusicValues) -> f64 {
+    let beats = match kind {
+        Overlay::Glitch => LENS_GLITCH_BEATS,
+        Overlay::Mosaic => LENS_MOSAIC_BEATS,
+    };
+    beat_seconds(music).unwrap_or(UNFOLLOWED_BEAT_SECONDS) * beats
 }
 
 /// The transition and its durations for a switch somebody asks for now (a scene lab), as an
@@ -1102,7 +1117,7 @@ mod tests {
     }
 
     #[test]
-    fn the_strong_transitions_take_a_beat_or_a_few_frames() {
+    fn the_strong_transitions_take_a_beat() {
         let beat = |kind| durations_of(kind, Some(0.6));
         assert_eq!(
             beat(Transition::Flash),
@@ -1122,9 +1137,10 @@ mod tests {
             beat(Transition::Glitch),
             Durations {
                 out: 0.0,
-                into: GLITCH_SECONDS
+                into: 0.6
             }
         );
+        assert_eq!(durations_of(Transition::Glitch, None).into, 0.5);
         // Without a followed beat: seconds.
         assert_eq!(
             durations_of(Transition::Flash, None),
@@ -1213,10 +1229,8 @@ mod tests {
             }
         );
         assert_eq!(dressed_durations(Transition::Mosaic, &music).into, 0.25);
-        assert_eq!(
-            dressed_durations(Transition::Glitch, &music).into,
-            GLITCH_SECONDS
-        );
+        // A glitch too: half a beat, its stages a few frames each still.
+        assert_eq!(dressed_durations(Transition::Glitch, &music).into, 0.25);
         assert_eq!(
             dressed_durations(Transition::Fade, &music),
             Durations {

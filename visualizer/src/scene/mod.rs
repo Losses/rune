@@ -454,6 +454,8 @@ pub struct Scene {
     forced_cut: Option<CutInfo>,
     /// The lens effects the scene listed (`effects.lens`) and when each is on.
     lens: lens::Lens,
+    /// The glitch or mosaic over the picture that started in the last frame.
+    overlay: Option<crate::transition::Overlay>,
     /// The moments of the music that play an effect, and their chances (see [`crate::moments`]).
     moments: crate::moments::Scheduler,
     chances: crate::moments::Chances,
@@ -1274,6 +1276,7 @@ impl Scene {
             cut: None,
             forced_cut: None,
             lens: lens::Lens::new(&manifest.effects.lens),
+            overlay: None,
             moments: crate::moments::Scheduler::default(),
             chances: crate::moments::Chances::default(),
             started: None,
@@ -1324,6 +1327,12 @@ impl Scene {
         self.cut
     }
 
+    /// The glitch or mosaic over the picture that started in the last frame drawn, if one did:
+    /// for the transition layer to draw (see `crate::transition::Overlay`).
+    pub fn overlay_this_frame(&self) -> Option<crate::transition::Overlay> {
+        self.overlay
+    }
+
     /// The transitions a switch to this scene may take, by name (its `effects.switch`).
     pub fn switch_transitions(&self) -> &[String] {
         &self.switch_transitions
@@ -1367,6 +1376,11 @@ impl Scene {
     #[cfg(test)]
     pub fn hold_flare(&mut self) {
         self.lens.hold_flare();
+    }
+
+    /// Play a glitch or a mosaic over the picture from the next frame (a scene lab).
+    pub fn start_overlay(&mut self, kind: crate::transition::Overlay) {
+        self.lens.start_overlay(kind);
     }
 
     /// The chances the music's moments play an effect with (the user's setting, or a lab's).
@@ -1769,6 +1783,7 @@ impl Scene {
             }
         }
         let lens = self.lens.tick(dt as f32, &music, self.level.quality);
+        self.overlay = self.lens.take_overlay();
         self.sized.post.write_lens(queue, &lens);
         queue.write_buffer(&self.post_buffer, 0, &self.post_defaults);
         write_texture(
