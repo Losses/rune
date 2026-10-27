@@ -269,8 +269,8 @@ fn set_rings(t: f32) {
     let drift = 0.03 * sin(t * (0.23 + 0.07 * f32(i)) + f32(i) * 1.7);
     a = turn(a, normalize(b), drift);
     if (i == 2u) {
-      a = turn(a, pole(), state.spin);
-      b = turn(b, pole(), state.spin);
+      a = turn(a, pole(), input.spin * 0.06);
+      b = turn(b, pole(), input.spin * 0.06);
     }
     ring_frame(i, a, b);
   }
@@ -477,7 +477,7 @@ fn spin_gem(dt: f32) {
   let time = params.whirl_time;
   let coast = G_COAST * time;
   let drive = G_DRIVE * time;
-  let pace = (0.25 + 1.5 * state.kick) * params.flow;
+  let pace = (0.25 + 1.5 * input.kick_env) * params.flow;
   let n = 4;
   let h = dt / f32(n);
   for (var k = 0; k < n; k++) {
@@ -591,7 +591,7 @@ fn light(strength: f32) {
 // How fast ring i turns of itself, in radians a second: degrees a beat, with the tempo.
 fn own_pace(i: u32) -> f32 {
   var rate = array<f32, 5>(3.0, 4.5, 6.0, 9.0, 13.0);
-  return radians(rate[i]) * params.ring_spin * music.tempo / 60.0;
+  return radians(rate[i]) * params.ring_spin * input.tempo / 60.0;
 }
 
 // How long a surge's push lasts, and how long it takes the ring to ease back to its pace, in
@@ -733,24 +733,25 @@ fn update() {
     state.gem_rest_b = vec4f(1.0, 0.0, 0.0, 0.0);
     state.gem_about = state.gem_rest_a;
   }
-  // How loud it is now (`music.intensity`) and the live levels of the bass, mids and treble
-  // (`music.band_*`) come from the runtime, already smoothed. The tempo to move at is
-  // `music.tempo`, which is always there (a calm one when the music has no beat).
-  let beat_time = 60.0 / max(music.tempo, 40.0);
+  // What the music drives is declared in the manifest (`[[input]]` and `[[bind]]`): how loud it is
+  // (`input.intensity`), the live levels of the bass, mids and treble (`input.band_*`), the tempo
+  // to move at (`input.tempo`, always there: a calm one when the music has no beat; `input.pace_tempo`
+  // is it held at 40 or more) and the moments (`input.beat`, `input.bar_line`, `input.section`,
+  // one-frame pulses).
+  let beat_time = 60.0 / input.pace_tempo;
 
   // Rings move by the bar, the phrase and the section, never step by step on the beat: a bar
   // nudges one ring, each in its turn; a phrase of four bars flings one round a whole turn, each
   // in its turn, its neighbours nudged after; a section flings three, from the inside out.
-  // Bars come only from `music.bars`, so without a beat the rings stay quiet and only the
+  // Bars come only from `input.bar_line`, so without a beat the rings stay quiet and only the
   // cues (and the hits) move them. The kick swells the core.
-  let beat = music.hits > 0u;
+  let beat = input.beat > 0.5;
   if (beat) {
-    state.kick = 1.0;
     state.core_vel += params.core_kick;
   }
   // A cue strong enough (`cue_min`) is the moment to fling rings.
-  let section = music.cues > 0u && music.cue >= params.cue_min && frame.first == 0u;
-  let barred = music.bars > 0u;
+  let section = input.section > 0.5 && frame.first == 0u;
+  let barred = input.bar_line > 0.5;
   if (barred) {
     state.bars += 1.0;
     let bar = u32(state.bars);
@@ -809,7 +810,6 @@ fn update() {
     state.layer = 1.0 - state.layer;
   }
   state.layer_mix += (state.layer - state.layer_mix) * (1.0 - exp(-dt / 0.4));
-  state.kick *= exp(-dt / 0.25);
   for (var i = 0u; i < RINGS; i++) {
     move_ring(i, dt);
   }
@@ -821,7 +821,7 @@ fn update() {
   if (beat) {
     let at = u32(state.beat_in_bar) % 4u;
     let weight = select(select(0.5, 0.75, at == 2u), 1.0, at == 0u);
-    let accent = weight * mix(0.55, 1.0, music.intensity);
+    let accent = weight * mix(0.55, 1.0, input.intensity);
     if (accent > params.accent) {
       light(accent);
     }
@@ -843,7 +843,7 @@ fn update() {
   }
 
   // The core: as big as the music is loud (with the bass), springing out on each kick and back.
-  let big = 1.0 + 0.35 * music.intensity + 0.12 * clamp(music.band_low - 1.0, 0.0, 1.5);
+  let big = 1.0 + 0.35 * input.intensity + 0.12 * clamp(input.band_low - 1.0, 0.0, 1.5);
   var size = state.core_size;
   var size_vel = state.core_vel;
   spring(&size, &size_vel, big, dt, 12.0, 0.35);
@@ -852,15 +852,12 @@ fn update() {
 
   // Between the pushes everything keeps going, each at its own pace, all of it quicker as the
   // music is louder: the ecliptic's precession, the camera, the core's surface
-  // (with the treble) and rays (with the mids).
-  let pace = params.flow * mix(0.35, 1.6, music.intensity);
-  state.spin += dt * 0.06 * pace;
-  state.drift_cam += dt * params.drift * mix(0.6, 1.5, music.intensity);
-  state.core_flow += dt * (0.25 + 0.6 * clamp(music.band_high, 0.0, 2.0)) * params.flow;
-  state.core_rays += dt * (0.1 + 0.4 * clamp(music.band_mid, 0.0, 2.0)) * params.flow;
-  // The character-art planet turns with the tempo, quicker as it is louder: a turn in about 24
-  // beats.
-  state.planet_turn += dt * 6.2831853 / (24.0 * beat_time) * mix(0.6, 1.4, music.intensity) * params.flow;
+  // (with the treble) and rays (with the mids), and the character-art planet, which turns with
+  // the tempo (a turn in about 24 beats). The runtime sums these (`input.spin`, `input.cam_drift`,
+  // `input.core_flow`, `input.core_rays`, `input.planet_turn`: the pace of each, by the second, times
+  // its slider); the scene only scales them to the angle it wants. The camera's sum starts anew
+  // with each shot: the scene notes where it stood at the cut.
+
   // The sphere floats: rising and sinking a little, drifting.
   state.centre = vec3f(0.05 * sin(t * 0.31), 0.08 * sin(t * 0.45), 0.05 * cos(t * 0.27));
 
@@ -870,7 +867,7 @@ fn update() {
     state.cuts_seen = f32(shot.cuts);
     state.view = f32(shot.index);
     state.side = select(-1.0, 1.0, shot.seed < 0.5);
-    state.drift_cam = 0.0;
+    state.drift_base = input.cam_drift;
   }
   var view = state.view;
   if (params.view > 0u) {
@@ -882,7 +879,7 @@ fn update() {
   // circling. Each mirrored by its side; the camera moves slowly and evenly, never with the beat.
   let c = state.centre;
   let s = state.side;
-  let held = state.drift_cam;
+  let held = input.cam_drift - state.drift_base;
   let round = s * held;
   let up = vec3f(0.0, 1.0, 0.0);
   var cam: vec3f;
@@ -922,7 +919,7 @@ fn update() {
   state.focal = focal;
   // Drawn in marks, what is bright fringes a little red and blue, as on a screen.
   if (params.look == 3u) {
-    post.chromatic = 0.0022 * (1.0 + state.kick);
+    post.chromatic = 0.0022 * (1.0 + input.kick_env);
   }
 
   if (params.motion == 0u) {

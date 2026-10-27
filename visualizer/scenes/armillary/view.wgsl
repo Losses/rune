@@ -46,7 +46,7 @@ fn trace(o: vec3f, d: vec3f, skip: u32) -> Hit {
 fn star_core(n: vec3f, d: vec3f) -> vec3f {
   let mu = max(dot(n, -d), 0.0);
   let w = abs(n) / (abs(n.x) + abs(n.y) + abs(n.z));
-  let f = state.core_flow;
+  let f = input.core_flow;
   var grain = 0.0;
   for (var k = 0; k < 2; k++) {
     let s = 7.0 * f32(k + 1);
@@ -170,7 +170,7 @@ fn ascii_planet(o: vec3f, at: vec2f, px1: f32) -> vec3f {
   let n = hit.yzw;
   // Lit from above to one side, a little from in front; the markings turned with the planet.
   let light = normalize(-state.cam_right * 0.55 + state.cam_up * 0.6 - state.cam_fwd * 0.6);
-  let nr = turn(n, normalize(vec3f(0.35, 1.0, 0.2)), -state.planet_turn);
+  let nr = turn(n, normalize(vec3f(0.35, 1.0, 0.2)), -input.planet_turn * (6.2831853 / 1440.0));
   let w = abs(nr) / (abs(nr.x) + abs(nr.y) + abs(nr.z));
   let marks = rv_noise(nr.yz * 2.2 + 1.3) * w.x + rv_noise(nr.zx * 2.2 + 4.1) * w.y + rv_noise(nr.xy * 2.2 + 7.7) * w.z;
   let lit = 0.24 + 0.76 * max(dot(n, light), 0.0);
@@ -214,8 +214,8 @@ fn colour_of(best: Hit, o: vec3f, d: vec3f, pixel: f32) -> vec3f {
   if (best.kind < 5.5) {
     // The core: light flowing over it in slow bands, quicker with the treble, its edge brighter.
     let n = best.n;
-    let flow = rv_noise(vec2f(atan2(n.z, n.x) * 1.5 + state.core_flow, n.y * 2.5 - state.core_flow * 0.6))
-      + 0.5 * rv_noise(vec2f(atan2(n.z, n.x) * 3.0 - state.core_flow * 1.3, n.y * 5.0));
+    let flow = rv_noise(vec2f(atan2(n.z, n.x) * 1.5 + input.core_flow, n.y * 2.5 - input.core_flow * 0.6))
+      + 0.5 * rv_noise(vec2f(atan2(n.z, n.x) * 3.0 - input.core_flow * 1.3, n.y * 5.0));
     let rim = pow(1.0 - max(dot(n, -d), 0.0), 2.0);
     return core_colour() * core_power() * 0.18 * (0.8 + 0.35 * flow + 0.5 * rim);
   }
@@ -715,8 +715,8 @@ fn shade(px: Pixel) -> vec4f {
       col += mix(core_colour(), state.palette[0].rgb, 0.6) * core_power() * 0.12 * exp(-gap * gap / (small * small));
     }
     let a = atan2(dot(off, state.cam_up), dot(off, state.cam_right));
-    let rays = pow(0.5 + 0.5 * sin(a * 7.0 + state.core_rays), 12.0) + pow(0.5 + 0.5 * sin(a * 11.0 - state.core_rays * 1.6 + 1.0), 16.0);
-    let reach = r * (1.0 + 1.2 * clamp(music.band_mid - 0.8, 0.0, 1.5));
+    let rays = pow(0.5 + 0.5 * sin(a * 7.0 + input.core_rays), 12.0) + pow(0.5 + 0.5 * sin(a * 11.0 - input.core_rays * 1.6 + 1.0), 16.0);
+    let reach = r * (1.0 + 1.2 * clamp(input.band_mid - 0.8, 0.0, 1.5));
     // (Only with the glass: with bronze or lines, the core is a plain light.)
     col += core_colour() * rays * smoothstep(r * 0.9, r * 1.2, gap) * exp(-(gap - r) / reach) * 0.08 * params.core * f32(params.look == 0u);
   }

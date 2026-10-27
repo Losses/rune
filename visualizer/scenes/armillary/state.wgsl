@@ -14,8 +14,6 @@ const IN_BATCH: u32 = 24u;
 const FACETS: u32 = 92u;
 
 struct State {
-  // The kick (1 on it, falling away).
-  kick: f32,
   // Bars, phrases and sections (strong cues) counted.
   bars: f32,
   phrases: f32,
@@ -31,14 +29,10 @@ struct State {
   view: f32,
   cuts_seen: f32,
   side: f32,
-  // What keeps turning on its own: the ecliptic's slow precession (faster as the music is
-  // louder), how far the camera has moved in this shot, and the core's flowing surface and its
-  // turning rays.
-  spin: f32,
-  drift_cam: f32,
-  core_flow: f32,
-  core_rays: f32,
-  planet_turn: f32,
+  // What keeps turning on its own (the ecliptic's precession, the camera, the core's surface and
+  // rays, the planet) is summed by the runtime (`input.spin` and the like); the camera's sum as
+  // this shot began.
+  drift_base: f32,
   // The core's size now (it swells with the music and on the kick, sprung), and its speed.
   core_size: f32,
   core_vel: f32,
