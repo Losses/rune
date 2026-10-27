@@ -39,6 +39,12 @@ struct State {
   last_light: f32,
   // The beat: torii passed per beat.
   per_beat: f32,
+  // The light and the pattern the music last said, and the turn that makes the first of each the
+  // one the scene began with (the music's numbers say which kind of section, not which look).
+  light_seen: f32,
+  light_off: f32,
+  pattern_seen: f32,
+  pattern_off: f32,
   // The spirits: the beat's surge, the snare's flick, a leap into the sky (its phase, 0 to 1, and strength), how they move (0 braid,
   // 1 snake, 2 fan), when that last changed, and how many fly.
   surge: f32,

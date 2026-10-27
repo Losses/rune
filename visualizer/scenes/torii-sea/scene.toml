@@ -65,6 +65,124 @@ vignette = 0.2
 contrast = 1.12
 saturation = 1.05
 
+# ---- What the music drives ----
+# The scene says what it wants from the music and the runtime works it out (see "Bindings" in the
+# runtime's docs/music.md); update.wgsl reads the values as `input.<id>`. The events come as
+# one-frame pulses (release 0) and the update shapes their decay itself, because the decay times
+# are parameters of the scene and a bind cannot read a parameter.
+
+[[input]]
+id = "beat"
+label = "A beat, or a hit where no beat is followed"
+
+[[input]]
+id = "tick"
+label = "A followed beat"
+
+[[input]]
+id = "beat_no"
+label = "The number of the beat"
+range = [0.0, 1000000.0]
+
+[[input]]
+id = "beat_pos"
+label = "The beat on the eased clock"
+range = [0.0, 1000000.0]
+
+[[input]]
+id = "bar"
+label = "A bar line"
+
+[[input]]
+id = "lift"
+label = "A section that lifts the energy"
+
+[[input]]
+id = "impact"
+label = "The strength of an impact"
+
+[[input]]
+id = "wave"
+label = "The sea's energy"
+
+[[input]]
+id = "light"
+label = "The kind of light, by section"
+range = [0.0, 3.0]
+
+[[input]]
+id = "pattern"
+label = "The spirits' pattern, by section"
+range = [0.0, 4.0]
+
+# A beat; where none is followed, the hits the music has stand in for it.
+[[bind]]
+target = "beat"
+source = "hits"
+how = "trigger"
+when = { scale = false, release = 0.0 }
+
+[[bind]]
+target = "tick"
+source = "beats"
+how = "trigger"
+when = { scale = false, release = 0.0 }
+
+[[bind]]
+target = "beat_no"
+source = "clock"
+how = "step"
+ease = "none"
+
+[[bind]]
+target = "beat_pos"
+source = "clock"
+how = "step"
+
+[[bind]]
+target = "bar"
+source = "bars"
+how = "trigger"
+when = { scale = false, release = 0.0 }
+
+# Only a section that lifts the energy (a cue of the full strength).
+[[bind]]
+target = "lift"
+source = "cues"
+how = "trigger"
+when = { strength = 0.99, scale = false, release = 0.0 }
+
+# The strength of the hit, for one frame.
+[[bind]]
+target = "impact"
+source = "impacts"
+how = "trigger"
+when = { release = 0.0 }
+
+# How loud the music is, as a slow swell of the sea (a time constant of a beat).
+[[bind]]
+target = "wave"
+source = "drive"
+how = "follow"
+when = { smooth = 1.0 }
+
+# One of the four lights for each kind of section; with no chart each cue turns to the next.
+[[bind]]
+target = "light"
+source = "section_label"
+how = "pick"
+when = { options = 4 }
+fallback = "cues"
+
+# One of five draws of a pattern for each kind of section (the update gives the weave two of the
+# five); with no chart it stays as it was.
+[[bind]]
+target = "pattern"
+source = "section_label"
+how = "pick"
+when = { options = 5 }
+fallback = "hold"
+
 # ---- Beat ----
 
 [[param]]
