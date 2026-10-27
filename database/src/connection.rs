@@ -238,6 +238,10 @@ pub async fn connect_fake_main_db() -> Result<MainDbConnection> {
     Ok(db)
 }
 
+/// The feature vectors of the analysed tracks with their file ids, sorted by
+/// file id.
+pub type RecommendationVectors = Arc<Vec<(u32, [f32; 61])>>;
+
 /// The vectors of all analysed tracks, kept in memory for exact
 /// nearest-neighbour search.
 ///
@@ -251,16 +255,18 @@ pub async fn connect_fake_main_db() -> Result<MainDbConnection> {
 /// computes (or awaits).
 #[derive(Debug, Default)]
 pub struct RecommendationDbConnection {
-    vectors: RwLock<Arc<Vec<(u32, [f32; 61])>>>,
+    vectors: RwLock<RecommendationVectors>,
 }
 
 impl RecommendationDbConnection {
+    /// An empty store, which finds no recommendations until vectors are
+    /// loaded into it.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// The current vectors, sorted by file id, one per file.
-    pub fn vectors(&self) -> Arc<Vec<(u32, [f32; 61])>> {
+    pub fn vectors(&self) -> RecommendationVectors {
         match self.vectors.read() {
             Ok(guard) => guard.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),

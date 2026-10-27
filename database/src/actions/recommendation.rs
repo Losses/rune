@@ -118,13 +118,12 @@ fn feature_columns() -> Vec<String> {
 }
 
 /// Decode one feature value: the column's `f64` as `f32`, NULL as 0, and
-/// `None` for a value that is not finite (which `media_analysis::Model` could
-/// not read either).
+/// `None` for a value that is not a finite `f32` (not finite, which
+/// `media_analysis::Model` could not read either, or too large for `f32`).
 fn decode_feature(value: Option<f64>) -> Option<f32> {
     match value {
         None => Some(0.0),
-        Some(value) if value.is_finite() => Some(value as f32),
-        Some(_) => None,
+        Some(value) => Some(value as f32).filter(|value| value.is_finite()),
     }
 }
 
@@ -383,5 +382,7 @@ mod tests {
         assert_eq!(decode_feature(Some(-1e-3)), Some(-1e-3f64 as f32));
         assert_eq!(decode_feature(Some(f64::NAN)), None);
         assert_eq!(decode_feature(Some(f64::INFINITY)), None);
+        assert_eq!(decode_feature(Some(1e300)), None);
+        assert_eq!(decode_feature(Some(-1e300)), None);
     }
 }

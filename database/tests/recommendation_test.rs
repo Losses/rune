@@ -104,11 +104,11 @@ async fn percentile_recommendation_uses_the_stored_vectors() -> Result<()> {
 
     let low = get_recommendation_by_percentile(&db, &recommend_db, 2, 0).await?;
     let high = get_recommendation_by_percentile(&db, &recommend_db, 2, 1).await?;
-    // 10 files / 2 groups = 5 recommendations per group.
-    assert_eq!(low.len(), 5);
-    assert_eq!(high.len(), 5);
-    assert!(low.iter().map(|r| r.0).sum::<u32>() < high.iter().map(|r| r.0).sum::<u32>());
-    assert!(low.windows(2).all(|w| w[0].1 <= w[1].1));
+    // 10 files / 2 groups = 5 recommendations per group. Group 0 is at the
+    // 1/4 percentile, rank round(0.25 * 9) = 2 (rms 3), and group 1 at 1/2,
+    // rank round(0.5 * 9) = 5 (rms 6). Equal distances go by file id.
+    assert_eq!(low, vec![(3, 0.0), (2, 1.0), (4, 1.0), (1, 2.0), (5, 2.0)]);
+    assert_eq!(high, vec![(6, 0.0), (5, 1.0), (7, 1.0), (4, 2.0), (8, 2.0)]);
     Ok(())
 }
 
