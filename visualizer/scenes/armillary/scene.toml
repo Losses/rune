@@ -62,6 +62,229 @@ contrast = 1.05
 saturation = 1.1
 
 
+# ---- What the music drives ----
+# The scene says what it wants from the music and the runtime works it out (see "Bindings" in the
+# runtime's docs/music.md); the shaders read the values as `input.<id>`. The moments (a beat, a bar
+# line, a section) arrive as one-frame pulses; the kick's envelope and the paces that sum into the
+# ecliptic's precession, the camera's drift, the core's surface and rays and the planet's turn are
+# made by the runtime (the sliders `flow` and `drift` are their rates). The signals the scene only
+# measures come through as they are.
+
+[[input]]
+id = "beat"
+label = "A beat, or a hit where no beat is followed"
+
+[[input]]
+id = "bar_line"
+label = "A bar line (only while the beat is followed)"
+
+[[input]]
+id = "section"
+label = "A cue at least `cue_min` strong"
+
+[[input]]
+id = "kick_env"
+label = "The kick, dying away over a quarter of a second"
+
+[[input]]
+id = "intensity"
+label = "Fast energy"
+
+[[input]]
+id = "band_low"
+label = "The bass level"
+range = [0, 100]
+
+[[input]]
+id = "band_mid"
+label = "The mids level"
+range = [0, 100]
+
+[[input]]
+id = "band_high"
+label = "The treble level"
+range = [0, 100]
+
+[[input]]
+id = "tempo"
+label = "The tempo"
+range = [0, 1000]
+
+[[input]]
+id = "pace_tempo"
+label = "The tempo, held at 40 or more"
+range = [40, 1000]
+
+[[input]]
+id = "spin_pace"
+label = "How fast the ecliptic precesses, with the energy"
+range = [-10, 10]
+
+[[input]]
+id = "drift_pace"
+label = "How fast the camera drifts, with the energy"
+range = [-10, 10]
+
+[[input]]
+id = "flow_high"
+label = "How fast the core flows, with the treble"
+range = [0, 10]
+
+[[input]]
+id = "flow_mid"
+label = "How fast the core's rays turn, with the mids"
+range = [0, 10]
+
+[[input]]
+id = "planet_pace"
+label = "How fast the planet turns, with the energy"
+range = [-10, 10]
+
+[[input]]
+id = "spin"
+label = "The ecliptic's precession, summed"
+range = [0, 1000000]
+
+[[input]]
+id = "cam_drift"
+label = "The camera's drift, summed"
+range = [0, 1000000]
+
+[[input]]
+id = "core_flow"
+label = "The core's flowing surface, summed"
+range = [0, 1000000]
+
+[[input]]
+id = "core_rays"
+label = "The core's turning rays, summed"
+range = [0, 1000000]
+
+[[input]]
+id = "planet_turn"
+label = "The planet's turn in beats, summed (a turn is 24 of them)"
+range = [0, 1000000]
+
+[[bind]]
+target = "beat"
+source = "hits"
+how = "trigger"
+when = { scale = false, release = 0.0 }
+
+[[bind]]
+target = "bar_line"
+source = "bars"
+how = "trigger"
+when = { scale = false, release = 0.0 }
+
+[[bind]]
+target = "section"
+source = "cues"
+how = "trigger"
+when = { strength = { param = "cue_min" }, scale = false, release = 0.0 }
+
+[[bind]]
+target = "kick_env"
+source = "hits"
+how = "trigger"
+when = { scale = false, decay = "exp", release = 0.25, per = "second" }
+
+[[bind]]
+target = "intensity"
+source = "intensity"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "band_low"
+source = "band_low"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "band_mid"
+source = "band_mid"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "band_high"
+source = "band_high"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "tempo"
+source = "tempo"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "pace_tempo"
+source = "tempo"
+how = "follow"
+when = { from = [40.0, 1000.0], to = [40.0, 1000.0] }
+
+[[bind]]
+target = "spin_pace"
+source = "intensity"
+how = "follow"
+when = { clamp = false, from = [0.0, 1.0], to = [0.35, 1.6] }
+
+[[bind]]
+target = "drift_pace"
+source = "intensity"
+how = "follow"
+when = { clamp = false, from = [0.0, 1.0], to = [0.6, 1.5] }
+
+[[bind]]
+target = "flow_high"
+source = "band_high"
+how = "follow"
+when = { from = [0.0, 2.0], to = [0.25, 1.45] }
+
+[[bind]]
+target = "flow_mid"
+source = "band_mid"
+how = "follow"
+when = { from = [0.0, 2.0], to = [0.1, 0.9] }
+
+[[bind]]
+target = "planet_pace"
+source = "intensity"
+how = "follow"
+when = { clamp = false, from = [0.0, 1.0], to = [0.6, 1.4] }
+
+[[bind]]
+target = "spin"
+source = "input:spin_pace"
+how = "accumulate"
+when = { per = "second", rate = { param = "flow" } }
+
+[[bind]]
+target = "cam_drift"
+source = "input:drift_pace"
+how = "accumulate"
+when = { per = "second", rate = { param = "drift" } }
+
+[[bind]]
+target = "core_flow"
+source = "input:flow_high"
+how = "accumulate"
+when = { per = "second", rate = { param = "flow" } }
+
+[[bind]]
+target = "core_rays"
+source = "input:flow_mid"
+how = "accumulate"
+when = { per = "second", rate = { param = "flow" } }
+
+[[bind]]
+target = "planet_turn"
+source = "input:planet_pace"
+how = "accumulate"
+when = { per = "second", mul = "input:pace_tempo", rate = { param = "flow" } }
+
 # ---- Beat ----
 
 [[param]]
