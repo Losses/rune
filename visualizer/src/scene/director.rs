@@ -263,6 +263,8 @@ struct Pickable {
     suits: [bool; 3],
     /// The longest it may last, in seconds, if the scene says.
     longest: Option<f32>,
+    /// Whether it tilts whatever `[camera] dutch_in` says, if the scene says.
+    dutch: Option<bool>,
 }
 
 /// Decides the camera cuts of one scene from the music.
@@ -347,6 +349,7 @@ impl Director {
                 opens: s.opens(),
                 weight: s.weight,
                 longest: s.longest,
+                dutch: s.dutch,
                 suits: [0, 1, 2].map(|tier| super::manifest::suits(&s.tiers, tier)),
             })
             .collect();
@@ -850,8 +853,13 @@ impl Director {
         // From the section's label and the cut's place in it, so a chorus is seen the same way
         // each time.
         let seed = label_hash(label, self.in_section.wrapping_add(7));
-        let level = matches!(size, ShotSize::Wide | ShotSize::Top)
-            || (fill == 0 && self.camera.dutch_in == DutchIn::Bursts);
+        // A shot may say for itself; a burst's shots and the others follow `dutch_in`.
+        let tilts = self
+            .picks
+            .get(index)
+            .and_then(|pick| pick.dutch)
+            .unwrap_or(fill > 0 || self.camera.dutch_in == DutchIn::All);
+        let level = matches!(size, ShotSize::Wide | ShotSize::Top) || !tilts;
         let roll = if level {
             0.0
         } else {
@@ -991,6 +999,7 @@ mod tests {
             weight: 1.0,
             longest: None,
             tiers: Vec::new(),
+            dutch: None,
         }
     }
 
@@ -1710,6 +1719,50 @@ mod tests {
             }
         }
         assert!(tilted >= 2);
+    }
+
+    #[test]
+    fn a_shot_may_say_for_itself_whether_it_tilts() {
+        use ShotSize::*;
+        let shots = |dutch| {
+            vec![
+                picked(Wide, Some(true), 1.0),
+                Shot {
+                    dutch: Some(dutch),
+                    ..picked(Close, None, 1.0)
+                },
+                picked(Medium, None, 1.0),
+            ]
+        };
+        // Each beat's cuts: the size cut to and the roll it got.
+        let rolls = |dutch_in, dutch| {
+            let camera = Camera {
+                dutch_in,
+                ..camera(0.4)
+            };
+            let mut director = Director::new(camera, &shots(dutch));
+            let base = song(0.2);
+            beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+            let mut all = Vec::new();
+            for beat in 1..400 {
+                for (_, cut) in beats(&mut director, beat, 1, &base, plain) {
+                    all.push((cut.size, director.state().roll));
+                }
+            }
+            all
+        };
+        // In a scene that tilts only its bursts, the shot that says so tilts and the others not.
+        let all = rolls(DutchIn::Bursts, true);
+        assert!(all.iter().any(|&(size, _)| size == Close), "{all:?}");
+        assert!(all.iter().any(|&(size, _)| size == Medium), "{all:?}");
+        for &(size, roll) in &all {
+            assert_eq!(roll != 0.0, size == Close, "{all:?}");
+        }
+        // In one that tilts every cut, the shot that says not stays level.
+        let all = rolls(DutchIn::All, false);
+        for &(size, roll) in &all {
+            assert_eq!(roll != 0.0, size == Medium, "{all:?}");
+        }
     }
 
     #[test]

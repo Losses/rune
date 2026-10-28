@@ -291,6 +291,11 @@ pub struct Shot {
     /// not for its climax), and among all if none does.
     #[serde(default)]
     pub tiers: Vec<String>,
+    /// Whether the shot tilts by the dutch angle, whatever `[camera] dutch_in` says: true tilts it
+    /// even in a scene that tilts only its bursts (Neon Street's street side), false keeps it
+    /// level. None: as `dutch_in` says. A wide or a top shot never tilts, so it may not say true.
+    #[serde(default)]
+    pub dutch: Option<bool>,
 }
 
 impl Shot {
@@ -910,6 +915,12 @@ impl Manifest {
                 i + 1,
                 shot.name
             );
+            ensure!(
+                shot.dutch != Some(true) || !matches!(shot.size, ShotSize::Wide | ShotSize::Top),
+                "[[shot]] {} ({:?}): a wide or top shot never tilts, so it may not say dutch = true",
+                i + 1,
+                shot.name
+            );
             for tier in &shot.tiers {
                 ensure!(
                     TIERS.contains(&tier.as_str()),
@@ -1217,6 +1228,15 @@ size = "detail"
         assert!(nan.contains("weight"), "{nan}");
         let longest = with("size = \"top\"", "size = \"top\"\nlongest = 0");
         assert!(longest.contains("longest"), "{longest}");
+        let tilted_top = with("size = \"top\"", "size = \"top\"\ndutch = true");
+        assert!(tilted_top.contains("never tilts"), "{tilted_top}");
+        let text = format!("{SMALL}{SHOTS}").replacen(
+            "size = \"top\"",
+            "size = \"top\"\ndutch = false",
+            1,
+        );
+        let m = Manifest::parse(&text).unwrap();
+        assert!(m.shots.iter().any(|shot| shot.dutch == Some(false)));
         let text = format!("{SMALL}{SHOTS}").replacen(
             "size = \"top\"",
             "size = \"top\"\nlongest = 6.5",
