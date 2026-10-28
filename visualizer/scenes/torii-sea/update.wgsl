@@ -393,8 +393,10 @@ fn update() {
 }
 
 // ---- The torii in sight ----
-// Once a frame, nearest first: the slots out from the camera's, both ways as far as it looks
-// along the line (up to 160), each with its torii of the line and (within 400 m) its two strays.
+// Once a frame, nearest first: the slots out from the camera's, both ways (up to 160), each with
+// its torii of the line and (within 400 m) its two strays, each kept if it may be in the view.
+// Both ways always: a view across the line, or down on it, sees strays far ahead and behind
+// whichever way it faces (picking the ways by where it faced dropped them).
 // Each one in sight is worked out once and kept for the passes, and listed in every tile of the
 // screen its box covers (the box its ray test starts with, turned and leaned as it stands, its
 // eight corners put on the screen; its bounding sphere when a corner is behind the camera). One
@@ -417,11 +419,9 @@ fn list_torii() {
   cam.kx = frame.aspect * cam.ky;
   let sp = params.spacing;
   let here = floor(state.cam_pos.z / sp);
-  let ahead = 3.0 + 157.0 * smoothstep(-0.2, 0.6, state.cam_fwd.z);
-  let behind = 3.0 + 157.0 * smoothstep(0.2, -0.6, state.cam_fwd.z);
-  for (var k = 0.0; k <= max(ahead, behind); k += 1.0) {
+  for (var k = 0.0; k <= 160.0; k += 1.0) {
     for (var way = 1.0; way >= -1.0; way -= 2.0) {
-      if ((way < 0.0 && (k < 0.5 || k > behind)) || (way > 0.0 && k > ahead)) {
+      if (way < 0.0 && k < 0.5) {
         continue;
       }
       let i = here + k * way;
@@ -453,6 +453,10 @@ fn list_torii() {
 fn may_see(c: vec3f, r: f32, cam: Camera) -> bool {
   let q = c - cam.pos;
   let z = dot(q, cam.fwd);
+  // Wholly behind the camera: out of sight (the line both ways is asked about, so half of it is).
+  if (z + r < 0.0) {
+    return false;
+  }
   if (z - r < 0.3) {
     return true;
   }

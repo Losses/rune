@@ -84,15 +84,19 @@ struct State {
   torii_c: array<vec4f, 384>,
   torii_n: u32,
   tile_n: array<u32, 576>,
-  tile: array<u32, 27648>,
+  tile: array<u32, 55296>,
 }
 
-// The most torii in sight at once; the screen's tiles, and how many torii a tile lists at most.
+// The most torii in sight at once; the screen's tiles, and how many torii a tile lists at most:
+// enough for the far line crowded towards the horizon in a view from above (at 48 a tile there
+// filled up and its farthest torii went missing). Smaller tiles would crowd less, but every torii
+// is then listed in more of them, which costs the update more than the longer lists cost the few
+// crowded tiles.
 const TORII: u32 = 384u;
 const TX: u32 = 32u;
 const TY: u32 = 18u;
 const TILES: u32 = 576u;
-const LIST: u32 = 48u;
+const LIST: u32 = 96u;
 
 const SPIRITS: u32 = 5u;
 const POINTS: u32 = 40u;
