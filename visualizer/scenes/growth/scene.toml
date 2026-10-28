@@ -49,8 +49,8 @@ shader = "dof.wgsl"
 target = "out"
 inputs = ["lit"]
 
-# The camera's views, in the order update.wgsl takes them (0 close, 1 closer, 2 and 3 further
-# off, 4 from not far above the tip); a cut jumps to the next. The tilt is the director's dutch
+# The camera's views, in the order update.wgsl takes them (0 close, 1 closer, 2 further off, 3
+# from not far above the tip); a cut jumps to the next. The tilt is the director's dutch
 # angle, none in a wide or a top shot: a few degrees, so it reads as a lean and not a fall.
 [camera]
 dutch = 0.15
@@ -67,11 +67,6 @@ move = "cut"
 
 [[shot]]
 name = "far"
-size = "wide"
-move = "cut"
-
-[[shot]]
-name = "far again"
 size = "wide"
 move = "cut"
 
