@@ -98,13 +98,15 @@ fallback = "hits"
 # of `on` (so only with a followed beat: `beats` means nothing without one, and the burst is off),
 # and the lift is `to` minus `from` at `lift` or more. It cuts on each of the last beats, one for
 # each declared shot (at most four). `chance` (0 to 1, 1 where left out) is how likely a lifting
-# section start is to get its burst, so that not every lift has one. The roll is a hash of the
-# coming section (its number in the song and its label), so a song bursts before the same sections
-# on every play, and a burst not taken holds the cadence back no more. A scene that declares a burst
-# has one at least once in a song, so until one has begun the first lifting section start that a
-# burst fits before takes it whatever the roll (a new song, seen as the song time going back, starts
-# over). The lab can say always or never. A high section's start is always a cut on a strong
-# transition, burst or not.
+# section start is to get its burst: a burst with the switch looks good, but it need not be every
+# time. The roll is a hash of the coming section (its number in the song and its label), so a song
+# bursts before the same sections on every play, and a burst not taken holds the cadence back no
+# more. A scene that declares a burst bursts at least once in a song, not fixed on the first but
+# random: if none of the earlier ones fired, the last one does. So every lift rolls, and the song's
+# last lift (no later boundary of the chart rises by `lift`) bursts whatever the roll if no burst
+# has begun in this song. Lost where that burst cannot fit within `gap`; a scene that comes in after
+# the last lift has no promise; the song time going back starts the account again. The lab can say
+# always or never. A high section's start is always a cut on a strong transition, burst or not.
 [[bind]]
 target = "director.burst"
 source = "cue_in"

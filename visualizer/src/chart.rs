@@ -106,6 +106,10 @@ pub struct ChartState {
     /// Label and energy of the next section (those of this one in the last section).
     pub next_label: f64,
     pub next_energy: f64,
+    /// The biggest rise of energy from one section to the next among the boundaries after the next
+    /// section start (0 where there is none): a section start that lifts by less than this is not
+    /// the song's last lift (see `Director::set_song_ahead`).
+    pub later_rise: f64,
     /// Seconds since the section started and until it ends.
     pub section_time: f64,
     pub section_left: f64,
@@ -273,6 +277,10 @@ impl Chart {
         let next = sections.get(j + 1).unwrap_or(s);
         state.next_label = next.label;
         state.next_energy = next.energy;
+        state.later_rise = sections[(j + 1).min(sections.len())..]
+            .windows(2)
+            .map(|pair| pair[1].energy - pair[0].energy)
+            .fold(0.0, f64::max);
         state.section_time = (t - s.start).max(0.0);
         state.section_left = (s.end - t).max(0.0);
         state.section_confidence = s.confidence;
@@ -660,6 +668,24 @@ mod tests {
         assert!((s.section_left - 1.5).abs() < 1e-9 && (s.section_time - 6.5).abs() < 1e-9);
         let s = chart().at(10.0);
         assert_eq!((s.section, s.section_label, s.next_energy), (1.0, 1.0, 0.9));
+    }
+
+    #[test]
+    fn the_biggest_rise_after_the_coming_section_start_is_known() {
+        // Energies 0.3, 0.9, 0.5, 0.8: the boundaries rise by 0.6, -0.4 and 0.3.
+        let text = CHART.replace(
+            r#"{"start": 8, "end": 20, "label": "B", "energy": 0.9, "repeat": 0, "confidence": 0.6}"#,
+            r#"{"start": 8, "end": 12, "label": "B", "energy": 0.9, "repeat": 0, "confidence": 0.6},
+            {"start": 12, "end": 16, "label": "C", "energy": 0.5, "repeat": 0, "confidence": 0.6},
+            {"start": 16, "end": 20, "label": "D", "energy": 0.8, "repeat": 0, "confidence": 0.6}"#,
+        );
+        let chart = Chart::from_analysis(serde_json::from_str(&text).unwrap());
+        // Before the first start: the later boundaries are 0.9 to 0.5 and 0.5 to 0.8.
+        assert!((chart.at(6.0).later_rise - 0.3).abs() < 1e-9);
+        // Before the second: only 0.5 to 0.8 is left; before the third and in the last, none.
+        assert!((chart.at(10.0).later_rise - 0.3).abs() < 1e-9);
+        assert_eq!(chart.at(14.0).later_rise, 0.0);
+        assert_eq!(chart.at(18.0).later_rise, 0.0);
     }
 
     #[test]

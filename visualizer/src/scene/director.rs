@@ -188,7 +188,7 @@ pub struct DirectorView {
     pub pace_overridden: bool,
     /// The chance `director.burst` gives a section start that lifts its burst, whether the lift
     /// that comes next will be bursting (the lab's choice, else the roll of the coming section
-    /// or the promised first burst of the song), and the lab's choice.
+    /// or the song's last lift if none has burst), and the lab's choice.
     pub burst_chance: f32,
     pub burst_next: bool,
     pub bursts: Option<bool>,
@@ -312,10 +312,13 @@ pub struct Director {
     /// What a scene lab decides of the bursts before a lift in place of the chance: every lift
     /// bursts (`Some(true)`), none does (`Some(false)`), or the runtime's chance (none).
     burst_override: Option<bool>,
-    /// Whether a burst before a lift has begun in this song. A scene that declares a burst has at
-    /// least one in each song, so until one has, a lift that a burst fits before takes it whatever
-    /// the roll.
+    /// Whether a burst before a lift has begun in this song. A scene that declares a burst bursts
+    /// at least once in a song it is on for the end of: if none has begun by the song's last lift,
+    /// that lift bursts whatever the roll.
     burst_taken: bool,
+    /// The biggest rise of energy among the song's section boundaries after the coming section
+    /// start (see [`Self::set_song_ahead`]); none without a chart, where there is no burst.
+    later_rise: Option<f32>,
     /// The song time of the last frame, which going back tells a new song (or a seek) by.
     last_song_time: f32,
     /// The runtime's decisions the director reads (`director.*` and what a section start is),
@@ -379,6 +382,7 @@ impl Director {
             forced_burst: None,
             burst_override: None,
             burst_taken: false,
+            later_rise: None,
             last_song_time: 0.0,
             binds: Arc::default(),
             moments: Arc::default(),
@@ -430,11 +434,19 @@ impl Director {
     }
 
     /// Make every burst before a lift happen (`Some(true)`) or none (`Some(false)`), in place of
-    /// the runtime's chance and the one burst a song is promised; none leaves it to the runtime.
+    /// the runtime's chance and the burst the song's last lift is promised; none leaves it to the runtime.
     /// A burst already under way goes on, and the lab's own (see [`Self::start_burst`]) always
     /// bursts.
     pub fn set_burst_override(&mut self, bursts: Option<bool>) {
         self.burst_override = bursts;
+    }
+
+    /// Tell the director what the song's chart says of the sections after the coming one: the
+    /// biggest rise of energy among their boundaries (`ChartState::later_rise`), or none without a
+    /// chart. A lift that no later boundary matches is the song's last, which is what the promised
+    /// burst of a song waits for.
+    pub fn set_song_ahead(&mut self, later_rise: Option<f32>) {
+        self.later_rise = later_rise;
     }
 
     /// The pace override, to give a rebuilt director (see [`Self::set_pace_override`]).
@@ -498,7 +510,9 @@ impl Director {
             own_pace: self.camera.pace,
             pace_overridden: self.pace_override.is_some(),
             burst_chance: self.binds.burst_chance(),
-            burst_next: self.bursts() > 0 && self.will_burst(music),
+            burst_next: self.bursts() > 0
+                && self.binds.ahead(music).is_some_and(|ahead| ahead.lifts)
+                && self.will_burst(music),
             bursts: self.burst_override,
         }
     }
@@ -719,9 +733,11 @@ impl Director {
     /// The lab's choice decides if it made one. Else the roll does: a number from 0 to 1 hashed
     /// from the coming section (its index in the song, which tells the occurrences of a label
     /// apart, and its label), so that the same section of the same song rolls the same on every
-    /// play and sections differ, under `director.burst`'s `chance`. Whatever it rolled, the first
-    /// burst of the song is taken (a scene that declares one bursts at least once in a song), and
-    /// a burst that has begun goes on to its last cut.
+    /// play and sections differ, under `director.burst`'s `chance`. Failing the roll, the song's
+    /// last lift bursts if none has begun in this song (a scene that declares a burst bursts at
+    /// least once in a song, the guarantee waiting at the end so that the early lifts are left to
+    /// chance). The last lift is the one that no later section boundary rises as much as
+    /// `director.burst`'s `lift`. A burst that has begun goes on to its last cut.
     fn will_burst(&self, music: &MusicValues) -> bool {
         if self.last_fill > 0 {
             return true;
@@ -731,7 +747,8 @@ impl Director {
         }
         let coming = music.section.max(0.0) as u32 + 1;
         let roll = key(coming, BURST_ROLL) ^ music.next_label.to_bits().wrapping_mul(0x27d4_eb2f);
-        !self.burst_taken || rolls(roll, self.binds.burst_chance())
+        rolls(roll, self.binds.burst_chance())
+            || (!self.burst_taken && self.later_rise.is_some_and(|rise| rise < self.binds.lift))
     }
 
     /// Whether this frame is a beat in the last beats before a place worth a burst, one for each
@@ -1029,9 +1046,12 @@ mod tests {
     }
 
     /// A director over [`each_size`] (six shots, so the burst's are indices 6 and on) that
-    /// declares [`four`].
+    /// declares [`four`], whose every lift bursts (`chance = 1`), so that the tests of what a
+    /// burst does do not hang on how a section rolls.
     fn bursting(camera: Camera) -> Director {
-        Director::new(camera, &each_size()).with_bursts(&four())
+        let mut director = Director::new(camera, &each_size()).with_bursts(&four());
+        with_chance(&mut director, Some(1.0));
+        director
     }
 
     /// A song at 120 bpm (a beat is 0.5 s, a bar 2 s) in 4/4 with a chart, the beat followed, in
@@ -2591,8 +2611,6 @@ mod tests {
         for (chance, expected) in [(Some(0.0), false), (Some(1.0), true), (None, true)] {
             let mut director = bursting(camera(0.3));
             with_chance(&mut director, chance);
-            // The song's promised burst is spent, so only the roll is left.
-            director.burst_taken = true;
             for section in 0..40 {
                 let music = coming(section as f32, (section % 3) as f32);
                 assert_eq!(
@@ -2609,7 +2627,7 @@ mod tests {
     #[test]
     fn the_roll_is_the_sections_and_not_the_same_for_all() {
         let mut director = bursting(camera(0.3));
-        director.burst_taken = true;
+        with_chance(&mut director, Some(0.5));
         let rolled = |director: &Director| -> Vec<bool> {
             (0..40)
                 .map(|section| director.will_burst(&coming(section as f32, (section % 3) as f32)))
@@ -2618,7 +2636,7 @@ mod tests {
         let first = rolled(&director);
         // Every play of the song rolls the same, whatever the director has been through.
         let mut other = bursting(camera(0.3));
-        other.burst_taken = true;
+        with_chance(&mut other, Some(0.5));
         beats(&mut other, 0, 30, &song(0.5), plain);
         assert_eq!(rolled(&other), first);
         // Some sections burst and some do not, near the chance of half.
@@ -2632,19 +2650,50 @@ mod tests {
     }
 
     #[test]
-    fn the_first_burst_of_a_song_is_taken_whatever_the_roll_and_a_new_song_starts_over() {
+    fn the_last_lift_of_a_song_bursts_if_none_has_whatever_the_roll() {
+        let bursts = |all: &[(u32, Cut)]| all.iter().filter(|(_, c)| c.fill > 0).count();
+        // A chance of 0, and the chart says a later boundary lifts too: nothing is forced early,
+        // and neither is it where the chart is not known.
+        for later in [Some(0.5), None] {
+            let mut director = bursting(camera(0.3));
+            with_chance(&mut director, Some(0.0));
+            director.set_song_ahead(later);
+            let all = lift_run(&mut director);
+            assert_eq!(bursts(&all), 0, "{later:?} {all:?}");
+        }
+        // No later boundary lifts by `lift` (0.1): this is the last, and it bursts.
+        for later in [0.0, 0.05] {
+            let mut director = bursting(camera(0.3));
+            with_chance(&mut director, Some(0.0));
+            director.set_song_ahead(Some(later));
+            let all = lift_run(&mut director);
+            assert_eq!(bursts(&all), 4, "{later} {all:?}");
+            assert!(director.burst_taken);
+        }
+        // Not if a burst has begun in the song already, and not under the lab's never.
+        let music = coming(1.0, 2.0);
         let mut director = bursting(camera(0.3));
         with_chance(&mut director, Some(0.0));
-        let all = lift_run(&mut director);
-        assert_eq!(all.iter().filter(|(_, c)| c.fill > 0).count(), 4, "{all:?}");
-        // The next lift has none: the promise is kept.
-        assert!(!director.will_burst(&coming(1.0, 2.0)));
-        // The song time going back is a new song, which is promised one again.
+        director.set_song_ahead(Some(0.0));
+        assert!(director.will_burst(&music));
+        director.burst_taken = true;
+        assert!(!director.will_burst(&music));
+        director.burst_taken = false;
+        director.set_burst_override(Some(false));
+        assert!(!director.will_burst(&music));
+    }
+
+    #[test]
+    fn a_song_that_starts_over_is_promised_its_burst_again() {
+        let mut director = bursting(camera(0.3));
+        director.burst_taken = true;
         let frame = MusicValues {
             song_time: 100.0,
             ..song(0.5)
         };
         director.tick(0.016, &frame);
+        assert!(director.burst_taken);
+        // The song time going back is a new song or a seek.
         director.tick(
             0.016,
             &MusicValues {
@@ -2652,7 +2701,7 @@ mod tests {
                 ..frame
             },
         );
-        assert!(director.will_burst(&coming(1.0, 2.0)));
+        assert!(!director.burst_taken);
     }
 
     #[test]
@@ -2665,7 +2714,6 @@ mod tests {
             ..coming(0.0, 1.0)
         };
         let mut director = bursting(camera(0.3));
-        director.burst_taken = true;
         with_chance(&mut director, Some(1.0));
         assert!(director.waits_for_section(&music, true));
         with_chance(&mut director, Some(0.0));
@@ -2713,7 +2761,6 @@ mod tests {
         // Always, though the chance is 0 and the song's burst is spent.
         let mut director = bursting(camera(0.3));
         with_chance(&mut director, Some(0.0));
-        director.burst_taken = true;
         director.set_burst_override(Some(true));
         assert_eq!(bursts(&lift_run(&mut director)), 4);
         // The lab's own burst (B) bursts under never.
