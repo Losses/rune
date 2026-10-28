@@ -10,7 +10,8 @@ common = ["glyphs.wgsl", "city.wgsl"]
 effects = ["fade", "cutin", "flash", "glitch", "flare"]
 
 # The director cuts between the street's views. The camera never rolls of its own accord, and the
-# director's dutch angle comes only with the cuts of a burst: a tilt on every cut was too much.
+# director's dutch angle comes only with the cuts of a burst (a tilt on every cut was too much), and
+# with the street side, which says so itself.
 [camera]
 dutch = 0.3
 dutch_in = "bursts"
@@ -28,6 +29,7 @@ move = "cut"
 name = "street side"
 size = "close"
 move = "cut"
+dutch = true
 
 # Above the signs, looking forward. A far view: not for the climax.
 [[shot]]
