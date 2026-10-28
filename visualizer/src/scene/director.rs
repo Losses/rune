@@ -11,6 +11,7 @@ use super::manifest::{
     BurstShot, Camera, DutchIn, MAX_BURSTS, Manifest, Pace, Shot, ShotMove, ShotSize,
 };
 use crate::bind::{DirectorBinds, MomentBinds, Said};
+use crate::moments::{key, rolls};
 use crate::switching::FOLLOWED;
 
 // The numbers below are the defaults of `director.*` in `runtime.toml`, which the director reads
@@ -56,6 +57,10 @@ pub const PHRASE_BARS: u32 = 8;
 /// wanted, and the burst before an energy lift (as in the reference) stays. A scene of `pace =
 /// "busy"` has them all the same.
 pub const PHRASE_BURSTS: bool = false;
+/// What the roll of a section's burst is mixed with (the `which` of [`key`]), so that it is not
+/// the roll of the moment at the same section start, which would make the sections that burst the
+/// ones that play an effect.
+const BURST_ROLL: u32 = 0xb057;
 /// The share of the dutch angle a shot with seed 0 gets; the seed scales the rest.
 pub const ROLL_LEAST: f32 = 0.5;
 /// The paces a scene lab steps through, from the least often cutting to the most (after the
@@ -113,9 +118,11 @@ pub struct Cut {
     pub motion: ShotMove,
     /// 0 for a normal cut, else the position in a burst (1 to [`MAX_BURSTS`]).
     pub fill: u32,
-    /// The cut a burst leads to: the first after its last (a section's or a phrase's start, or
-    /// the opening after a lab's burst), which lands on a strong transition.
-    pub closes_burst: bool,
+    /// Whether the cut lands on a strong transition of the scene's list, whatever the moment's
+    /// roll: the cut a burst leads to (the first after its last: a section's or a phrase's start,
+    /// or the opening after a lab's burst), and the start of a high section, which a climax is
+    /// always entered on.
+    pub strong: bool,
 }
 
 /// What the camera director tells the scene about the current shot: `struct Shot`.
@@ -179,6 +186,12 @@ pub struct DirectorView {
     pub pace: Pace,
     pub own_pace: Pace,
     pub pace_overridden: bool,
+    /// The chance `director.burst` gives a section start that lifts its burst, whether the lift
+    /// that comes next will be bursting (the lab's choice, else the roll of the coming section
+    /// or the promised first burst of the song), and the lab's choice.
+    pub burst_chance: f32,
+    pub burst_next: bool,
+    pub bursts: Option<bool>,
 }
 
 /// Why a burst cut is wanted now.
@@ -296,6 +309,15 @@ pub struct Director {
     held: bool,
     /// A burst a scene lab asked for, while its cuts are still to come.
     forced_burst: Option<ForcedBurst>,
+    /// What a scene lab decides of the bursts before a lift in place of the chance: every lift
+    /// bursts (`Some(true)`), none does (`Some(false)`), or the runtime's chance (none).
+    burst_override: Option<bool>,
+    /// Whether a burst before a lift has begun in this song. A scene that declares a burst has at
+    /// least one in each song, so until one has, a lift that a burst fits before takes it whatever
+    /// the roll.
+    burst_taken: bool,
+    /// The song time of the last frame, which going back tells a new song (or a seek) by.
+    last_song_time: f32,
     /// The runtime's decisions the director reads (`director.*` and what a section start is),
     /// from `runtime.toml`.
     binds: Arc<DirectorBinds>,
@@ -355,6 +377,9 @@ impl Director {
             pace_override: None,
             held: false,
             forced_burst: None,
+            burst_override: None,
+            burst_taken: false,
+            last_song_time: 0.0,
             binds: Arc::default(),
             moments: Arc::default(),
         };
@@ -396,6 +421,20 @@ impl Director {
     /// The pace in effect: the lab's override, else the scene's own.
     pub fn pace(&self) -> Pace {
         self.pace_override.unwrap_or(self.camera.pace)
+    }
+
+    /// What a scene lab decides of the bursts before a lift, to give a rebuilt director (see
+    /// [`Self::set_burst_override`]).
+    pub fn burst_override(&self) -> Option<bool> {
+        self.burst_override
+    }
+
+    /// Make every burst before a lift happen (`Some(true)`) or none (`Some(false)`), in place of
+    /// the runtime's chance and the one burst a song is promised; none leaves it to the runtime.
+    /// A burst already under way goes on, and the lab's own (see [`Self::start_burst`]) always
+    /// bursts.
+    pub fn set_burst_override(&mut self, bursts: Option<bool>) {
+        self.burst_override = bursts;
     }
 
     /// The pace override, to give a rebuilt director (see [`Self::set_pace_override`]).
@@ -458,6 +497,9 @@ impl Director {
             pace: self.pace(),
             own_pace: self.camera.pace,
             pace_overridden: self.pace_override.is_some(),
+            burst_chance: self.binds.burst_chance(),
+            burst_next: self.bursts() > 0 && self.will_burst(music),
+            bursts: self.burst_override,
         }
     }
 
@@ -521,19 +563,29 @@ impl Director {
         let tier = Tier::of(&self.binds, music);
         self.tier_now = tier;
         let followed = music.locked > FOLLOWED;
+        // Time going back is a new song (or a seek): its burst is still to come.
+        if music.song_time < self.last_song_time - 1.0 {
+            self.burst_taken = false;
+        }
+        self.last_song_time = music.song_time;
         if self.held {
             return None;
         }
 
         // A section starts: establish it, and count the progression again. A start within the gap
-        // of the last cut does not cut (the shot goes on), unless it follows a burst: the burst
-        // and the start after it are one group, which the gap does not hold apart.
+        // of the last cut does not cut (the shot goes on), unless it follows a burst (the burst
+        // and the start after it are one group, which the gap does not hold apart) or it is the
+        // start of a high section: a climax is always entered on a cut, on a strong transition.
         if self.moments.section_start(music) {
             self.begin_section(music.section_label);
             self.bars_in_section = 0;
             self.phrase_start = None;
-            return (self.gap_is_open() || self.last_fill > 0)
-                .then(|| self.cut(Why::Opening, music, tier, 0));
+            let climax = tier == Tier::High;
+            return (self.gap_is_open() || self.last_fill > 0 || climax).then(|| {
+                let mut cut = self.cut(Why::Opening, music, tier, 0);
+                cut.strong |= climax;
+                cut
+            });
         }
         // A phrase that was announced by a burst starts: the same, and in the same group.
         if let Some(start) = self.phrase_start
@@ -576,6 +628,8 @@ impl Director {
         {
             if kind == Burst::Phrase {
                 self.phrase_start = Some(self.bars_in_section + 1);
+            } else if fill == 1 {
+                self.burst_taken = true;
             }
             return Some(self.burst_cut(fill, music, tier));
         }
@@ -648,11 +702,36 @@ impl Director {
         if ahead.cue_in < self.binds.lead().max(self.min_gap()) {
             return true;
         }
-        if self.bursts() == 0 || !ahead.lifts || !followed || music.tempo <= 0.0 {
+        // A burst that will not be taken holds nothing back.
+        if self.bursts() == 0
+            || !ahead.lifts
+            || !followed
+            || music.tempo <= 0.0
+            || !self.will_burst(music)
+        {
             return false;
         }
         let burst = self.bursts() as f32 * 60.0 / music.tempo;
         ahead.cue_in - burst < self.min_gap()
+    }
+
+    /// Whether the burst before the next section start, if that lifts the energy, will be taken.
+    /// The lab's choice decides if it made one. Else the roll does: a number from 0 to 1 hashed
+    /// from the coming section (its index in the song, which tells the occurrences of a label
+    /// apart, and its label), so that the same section of the same song rolls the same on every
+    /// play and sections differ, under `director.burst`'s `chance`. Whatever it rolled, the first
+    /// burst of the song is taken (a scene that declares one bursts at least once in a song), and
+    /// a burst that has begun goes on to its last cut.
+    fn will_burst(&self, music: &MusicValues) -> bool {
+        if self.last_fill > 0 {
+            return true;
+        }
+        if let Some(bursts) = self.burst_override {
+            return bursts;
+        }
+        let coming = music.section.max(0.0) as u32 + 1;
+        let roll = key(coming, BURST_ROLL) ^ music.next_label.to_bits().wrapping_mul(0x27d4_eb2f);
+        !self.burst_taken || rolls(roll, self.binds.burst_chance())
     }
 
     /// Whether this frame is a beat in the last beats before a place worth a burst, one for each
@@ -674,6 +753,7 @@ impl Director {
         };
         if ahead.cue_in >= 0.0
             && ahead.lifts
+            && self.will_burst(music)
             && let Some(fill) = position(ahead.cue_in * music.tempo / 60.0)
         {
             return Some((Burst::Lift, fill));
@@ -778,10 +858,10 @@ impl Director {
             fill,
         };
         self.seconds_since_cut = 0.0;
-        let closes_burst = fill == 0 && self.last_fill > 0;
+        let strong = fill == 0 && self.last_fill > 0;
         self.last_fill = fill;
         Cut {
-            closes_burst,
+            strong,
             index: index as u32,
             size,
             motion: if fill > 0 { ShotMove::Cut } else { motion },
@@ -1851,7 +1931,7 @@ mod tests {
             [Medium, Close, Detail, Top, Wide]
         );
         assert_eq!(
-            all.iter().map(|(_, c)| c.closes_burst).collect::<Vec<_>>(),
+            all.iter().map(|(_, c)| c.strong).collect::<Vec<_>>(),
             [false, false, false, false, true]
         );
         assert!(all.iter().all(|(_, c)| c.motion == ShotMove::Cut));
@@ -2484,7 +2564,166 @@ mod tests {
             ..m
         });
         all.extend(beats(&mut director, 8, 1, &song(0.9), |_, m| start(1.0, m)));
-        assert!(all.is_empty(), "{all:?}");
+        // Only the section start cuts, as a high section's start does within the gap, and no
+        // burst cut came before it.
+        assert_eq!(all.len(), 1, "{all:?}");
+        assert_eq!((all[0].1.fill, all[0].1.strong), (0, true));
+    }
+
+    /// The embedded runtime with `director.burst`'s chance replaced (none: left out of the file).
+    fn with_chance(director: &mut Director, chance: Option<f32>) {
+        let to = chance.map_or(String::new(), |c| format!(", chance = {c:?}"));
+        let runtime = crate::bind::tests::embedded_with(", chance = 0.5", &to);
+        director.set_binds(runtime.director.clone(), runtime.moments.clone());
+    }
+
+    /// The frame `will_burst` is asked on: in section `section`, the next with label `label`.
+    fn coming(section: f32, label: f32) -> MusicValues {
+        MusicValues {
+            section,
+            next_label: label,
+            ..song(0.2)
+        }
+    }
+
+    #[test]
+    fn the_chance_of_a_burst_is_0_never_1_always_and_1_where_left_out() {
+        for (chance, expected) in [(Some(0.0), false), (Some(1.0), true), (None, true)] {
+            let mut director = bursting(camera(0.3));
+            with_chance(&mut director, chance);
+            // The song's promised burst is spent, so only the roll is left.
+            director.burst_taken = true;
+            for section in 0..40 {
+                let music = coming(section as f32, (section % 3) as f32);
+                assert_eq!(
+                    director.will_burst(&music),
+                    expected,
+                    "{chance:?} {section}"
+                );
+            }
+        }
+        // The file's own chance is half.
+        assert_eq!(DirectorBinds::default().burst_chance(), 0.5);
+    }
+
+    #[test]
+    fn the_roll_is_the_sections_and_not_the_same_for_all() {
+        let mut director = bursting(camera(0.3));
+        director.burst_taken = true;
+        let rolled = |director: &Director| -> Vec<bool> {
+            (0..40)
+                .map(|section| director.will_burst(&coming(section as f32, (section % 3) as f32)))
+                .collect()
+        };
+        let first = rolled(&director);
+        // Every play of the song rolls the same, whatever the director has been through.
+        let mut other = bursting(camera(0.3));
+        other.burst_taken = true;
+        beats(&mut other, 0, 30, &song(0.5), plain);
+        assert_eq!(rolled(&other), first);
+        // Some sections burst and some do not, near the chance of half.
+        let bursts = first.iter().filter(|b| **b).count();
+        assert!((8..=32).contains(&bursts), "{first:?}");
+        // The same label in another place of the song rolls on its own.
+        let same_label: Vec<bool> = (0..40)
+            .map(|section| director.will_burst(&coming(section as f32, 1.0)))
+            .collect();
+        assert!(same_label.contains(&true) && same_label.contains(&false));
+    }
+
+    #[test]
+    fn the_first_burst_of_a_song_is_taken_whatever_the_roll_and_a_new_song_starts_over() {
+        let mut director = bursting(camera(0.3));
+        with_chance(&mut director, Some(0.0));
+        let all = lift_run(&mut director);
+        assert_eq!(all.iter().filter(|(_, c)| c.fill > 0).count(), 4, "{all:?}");
+        // The next lift has none: the promise is kept.
+        assert!(!director.will_burst(&coming(1.0, 2.0)));
+        // The song time going back is a new song, which is promised one again.
+        let frame = MusicValues {
+            song_time: 100.0,
+            ..song(0.5)
+        };
+        director.tick(0.016, &frame);
+        director.tick(
+            0.016,
+            &MusicValues {
+                song_time: 0.0,
+                ..frame
+            },
+        );
+        assert!(director.will_burst(&coming(1.0, 2.0)));
+    }
+
+    #[test]
+    fn a_burst_that_is_not_taken_holds_no_cadence_cut_back() {
+        // 7 s to a lifting section: the burst's 2 s would start within the 6 s gap of a cadence
+        // cut, so a burst that will be taken makes the cadence wait; one that will not, no.
+        let music = MusicValues {
+            cue_in: 7.0,
+            next_energy: 0.9,
+            ..coming(0.0, 1.0)
+        };
+        let mut director = bursting(camera(0.3));
+        director.burst_taken = true;
+        with_chance(&mut director, Some(1.0));
+        assert!(director.waits_for_section(&music, true));
+        with_chance(&mut director, Some(0.0));
+        assert!(!director.waits_for_section(&music, true));
+        // The lab can decide either way too.
+        director.set_burst_override(Some(true));
+        assert!(director.waits_for_section(&music, true));
+    }
+
+    #[test]
+    fn a_high_section_start_within_the_gap_cuts_on_a_strong_transition_a_normal_one_does_not() {
+        let at = |energy: f32| {
+            let base = song(energy);
+            let mut director = Director::new(camera(0.0), &each_size());
+            beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+            // 3 s after the cut.
+            assert!(beats(&mut director, 1, 5, &base, plain).is_empty());
+            beats(&mut director, 6, 1, &base, |_, m| start(1.0, m))
+        };
+        let high = at(0.9);
+        assert_eq!(high.len(), 1, "{high:?}");
+        assert!(high[0].1.strong && high[0].1.fill == 0);
+        assert!(at(0.5).is_empty());
+        assert!(at(0.2).is_empty());
+        // Past the gap a normal start cuts, but not on a strong transition by this rule.
+        let base = song(0.5);
+        let mut director = Director::new(camera(0.0), &each_size());
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        beats(&mut director, 1, 13, &base, plain);
+        let cut = beats(&mut director, 14, 1, &base, |_, m| start(1.0, m));
+        assert!(!cut[0].1.strong);
+    }
+
+    #[test]
+    fn the_labs_choice_wins_over_the_chance_and_a_burst_by_hand_always_bursts() {
+        let bursts = |all: &[(u32, Cut)]| all.iter().filter(|(_, c)| c.fill > 0).count();
+        // Never, though the chance is 1 and no burst has been taken.
+        let mut director = bursting(camera(0.3));
+        with_chance(&mut director, Some(1.0));
+        director.set_burst_override(Some(false));
+        let all = lift_run(&mut director);
+        assert_eq!(bursts(&all), 0, "{all:?}");
+        // The climax is still entered on a cut, on a strong transition.
+        assert!(all.last().unwrap().1.strong);
+        // Always, though the chance is 0 and the song's burst is spent.
+        let mut director = bursting(camera(0.3));
+        with_chance(&mut director, Some(0.0));
+        director.burst_taken = true;
+        director.set_burst_override(Some(true));
+        assert_eq!(bursts(&lift_run(&mut director)), 4);
+        // The lab's own burst (B) bursts under never.
+        let mut director = bursting(camera(0.3));
+        director.set_burst_override(Some(false));
+        let base = song(0.2);
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        director.start_burst();
+        let all = beats(&mut director, 1, 6, &base, plain);
+        assert_eq!(bursts(&all), 4, "{all:?}");
     }
 
     #[test]
@@ -2497,7 +2736,7 @@ mod tests {
         let embedded = crate::bind::RuntimeBindings::embedded();
         // The lift of the song is 0.7, and a burst of 4 cuts comes before it.
         assert!(run(&embedded) >= 5);
-        let custom = crate::bind::tests::embedded_with("lift = 0.1 }", "lift = 0.9 }");
+        let custom = crate::bind::tests::embedded_with("lift = 0.1,", "lift = 0.9,");
         assert_eq!(run(&custom), 2);
     }
 }

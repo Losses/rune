@@ -94,15 +94,22 @@ when = { grace = 2.0 }
 fallback = "hits"
 
 # The burst of cuts before a section whose energy lifts, through the shots the scene declares as
-# `[[burst]]` (none declared: no burst). `source` is the time to the next section, read on each
-# beat of `on` (so only with a followed beat: `beats` means nothing without one, and the burst is
-# off), and the lift is `to` minus `from` at `lift` or more. It cuts on each of the last beats, one
-# for each declared shot (at most four).
+# `[[burst]]` (none declared: no burst). `source` is the time to the next section, read on each beat
+# of `on` (so only with a followed beat: `beats` means nothing without one, and the burst is off),
+# and the lift is `to` minus `from` at `lift` or more. It cuts on each of the last beats, one for
+# each declared shot (at most four). `chance` (0 to 1, 1 where left out) is how likely a lifting
+# section start is to get its burst, so that not every lift has one. The roll is a hash of the
+# coming section (its number in the song and its label), so a song bursts before the same sections
+# on every play, and a burst not taken holds the cadence back no more. A scene that declares a burst
+# has one at least once in a song, so until one has begun the first lifting section start that a
+# burst fits before takes it whatever the roll (a new song, seen as the song time going back, starts
+# over). The lab can say always or never. A high section's start is always a cut on a strong
+# transition, burst or not.
 [[bind]]
 target = "director.burst"
 source = "cue_in"
 how = "follow"
-when = { on = "beats", from = "section_energy", to = "next_energy", lift = 0.1 }
+when = { on = "beats", from = "section_energy", to = "next_energy", lift = 0.1, chance = 0.5 }
 
 # --- Looks (src/scene/looks.rs) ----------------------------------------------------------------
 

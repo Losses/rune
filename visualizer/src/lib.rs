@@ -1415,6 +1415,7 @@ fn lab(
         LabCommand::PaceWith(pace) => pipeline.set_pace(pace),
         LabCommand::SwitchWith(transition) => pipeline.set_lab_switch(transition),
         LabCommand::CutsWith(transition) => pipeline.set_lab_cuts(transition),
+        LabCommand::BurstsWith(bursts) => pipeline.set_lab_bursts(bursts),
         LabCommand::LensWith(lens) => pipeline.set_lab_lens(lens),
         LabCommand::ForceLevel(level) => pipeline.set_lab_level(level),
         LabCommand::RuntimeBindings(text) => match bind::RuntimeBindings::parse(&text) {
