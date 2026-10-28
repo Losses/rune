@@ -211,7 +211,7 @@ const SPECS: &[Spec] = &[
         target: "director.burst",
         hows: FOLLOW,
         kind: Kind::Value,
-        keys: &["on", "from", "to", "lift"],
+        keys: &["on", "from", "to", "lift", "chance"],
         several: false,
     },
     Spec {
@@ -693,6 +693,8 @@ pub struct DirectorBinds {
     pub(crate) from: &'static Source,
     pub(crate) to: &'static Source,
     pub(crate) lift: f32,
+    /// The chance (0 to 1) that a section start that lifts gets its burst.
+    pub(crate) chance: f32,
 }
 
 /// What the director sees of the next section (see [`DirectorBinds::ahead`] and
@@ -738,6 +740,11 @@ impl DirectorBinds {
         let grace = cut.num("grace", 2.0)?;
         cut.require(grace >= 0.0, "`when.grace` must not be negative")?;
         let burst = one("director.burst");
+        let chance = burst.num("chance", 1.0)?;
+        burst.require(
+            (0.0..=1.0).contains(&chance),
+            "`when.chance` must be from 0 to 1",
+        )?;
         Ok(Self {
             cadence: cadence.pick(),
             below,
@@ -753,6 +760,7 @@ impl DirectorBinds {
             from: burst.source_in("from", "section_energy", false)?,
             to: burst.source_in("to", "next_energy", false)?,
             lift: burst.num("lift", 0.1)?,
+            chance,
         })
     }
 
@@ -785,6 +793,12 @@ impl DirectorBinds {
     /// The shortest time in seconds between two cuts that are not inside one burst.
     pub fn gap(&self) -> f32 {
         self.gap
+    }
+
+    /// The chance (0 to 1) that a section start that lifts gets its burst of cuts: `director.burst`'s
+    /// `chance`, 1 where the file leaves it out.
+    pub fn burst_chance(&self) -> f32 {
+        self.chance
     }
 
     /// Seconds before a known section start within which a cadence cut waits for it.
@@ -1321,6 +1335,14 @@ pub(crate) mod tests {
         let error = RuntimeBindings::parse(&EMBEDDED.replacen(from, to, 1))
             .expect_err("the text should be refused");
         format!("{error:#}")
+    }
+
+    #[test]
+    fn the_chance_of_a_burst_is_from_0_to_1() {
+        assert!(error_of("chance = 0.5", "chance = 1.5").contains("`when.chance`"));
+        assert!(error_of("chance = 0.5", "chance = -0.1").contains("`when.chance`"));
+        let left_out = embedded_with(", chance = 0.5", "");
+        assert_eq!(left_out.director.burst_chance(), 1.0);
     }
 
     #[test]

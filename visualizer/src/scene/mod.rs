@@ -52,8 +52,8 @@ pub struct CutInfo {
     /// plays an effect and the scene lists one that suits it (see [`crate::moments`]); the cut a
     /// burst leads to always has one.
     pub dress: Option<crate::transition::Transition>,
-    /// The first cut after a burst's last (see `director::Cut::closes_burst`).
-    pub closes_burst: bool,
+    /// The cut lands on a strong transition of the scene's list (see `director::Cut::strong`).
+    pub strong: bool,
 }
 
 /// Buffers of a scene may take this much memory together.
@@ -1536,7 +1536,7 @@ impl Scene {
                 cue: self.music_values.cue,
                 fill: 0,
                 dress: None,
-                closes_burst: cut.closes_burst,
+                strong: cut.strong,
             });
         }
     }
@@ -1605,6 +1605,14 @@ impl Scene {
     pub fn set_pace(&mut self, pace: Option<Pace>) {
         if let Some(director) = &mut self.director {
             director.set_pace_override(pace);
+        }
+    }
+
+    /// Make every lifting section start burst, or none, or with none leave it to the runtime's
+    /// chance (a scene lab; see `Director::set_burst_override`). Nothing without shots.
+    pub fn set_bursts(&mut self, bursts: Option<bool>) {
+        if let Some(director) = &mut self.director {
+            director.set_burst_override(bursts);
         }
     }
 
@@ -1711,6 +1719,7 @@ impl Scene {
         // hold and the pace are the lab's.
         if let (Some(old), Some(new)) = (&self.director, &mut next.director) {
             new.set_pace_override(old.pace_override());
+            new.set_burst_override(old.burst_override());
         }
         if let Some(index) = self.held_shot {
             next.hold_shot(Some(index));
@@ -1984,7 +1993,7 @@ impl Scene {
                         cue: music.cue,
                         fill: cut.fill,
                         dress: None,
-                        closes_burst: cut.closes_burst,
+                        strong: cut.strong,
                     })
                     .or(self.forced_cut.take());
                 director.state().bytes()
@@ -2026,10 +2035,11 @@ impl Scene {
                 _ => self.lens.start_at(played),
             }
         }
-        // The cut a burst leads to lands on a strong transition of the scene's list, whatever the
-        // roll: four hard cuts ending on a plain one stopped short.
+        // The cut a burst leads to, and the start of a high section, land on a strong transition of
+        // the scene's list, whatever the roll: four hard cuts ending on a plain one stopped short,
+        // and a climax is always entered on a cut.
         if let Some(cut) = &mut self.cut
-            && cut.closes_burst
+            && cut.strong
             && cut.dress.is_none()
         {
             let played = crate::moments::Played {

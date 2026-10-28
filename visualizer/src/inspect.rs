@@ -235,6 +235,11 @@ pub struct InspectDirector {
     pub pace: String,
     pub own_pace: String,
     pub pace_overridden: bool,
+    /// The chance (0 to 1) that a section start that lifts gets its burst, whether the coming
+    /// section will burst, and what a lab decided (see [`LabCommand::BurstsWith`]).
+    pub burst_chance: f32,
+    pub burst_next: bool,
+    pub bursts: Option<bool>,
 }
 
 /// The looks of the scene on screen (see [`LabCommand::Look`]).
@@ -396,6 +401,9 @@ pub struct LabOverrides {
     /// What dresses every camera cut of the director, a cut being plain (see
     /// [`LabCommand::CutsWith`]).
     pub cuts: Option<LabTransition>,
+    /// Whether every section start that lifts gets a burst (`Some(true)`), none does
+    /// (`Some(false)`), or the runtime's chance decides (none; see [`LabCommand::BurstsWith`]).
+    pub bursts: Option<bool>,
     /// The lens effects on at every moment.
     pub lens: LabLens,
 }
@@ -441,6 +449,11 @@ pub enum LabCommand {
     /// the moment say (a cut is plain), through the path of [`LabCommand::CutDressed`]; none
     /// leaves the choice. A cut-in is not drawn over a camera cut: it counts as none.
     CutsWith(Option<LabTransition>),
+    /// Every section start that lifts the energy gets its burst of cuts (`Some(true)`), or none
+    /// does (`Some(false)`), in place of `director.burst`'s chance and the burst a song is
+    /// promised; none leaves it to the runtime. For every scene, as [`LabCommand::CutsWith`] is.
+    /// The burst of [`LabCommand::Burst`] is always taken.
+    BurstsWith(Option<bool>),
     /// These lens effects start at every moment, as if every scene listed them, for this scene
     /// and every one that comes, until set again with none on.
     LensWith(LabLens),
@@ -548,6 +561,9 @@ impl InspectDirector {
             pace: view.pace.name().to_string(),
             own_pace: view.own_pace.name().to_string(),
             pace_overridden: view.pace_overridden,
+            burst_chance: view.burst_chance,
+            burst_next: view.burst_next,
+            bursts: view.bursts,
         }
     }
 }

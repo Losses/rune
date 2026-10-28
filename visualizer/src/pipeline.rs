@@ -726,6 +726,22 @@ impl Pipeline {
             .map(Transition::from);
     }
 
+    /// Every lifting section start bursts (`Some(true)`), none does (`Some(false)`), or the
+    /// runtime's chance decides (none), in the scene on screen, the one waiting for a transition
+    /// and every scene that comes (see [`Scene::set_bursts`]).
+    pub fn set_lab_bursts(&mut self, bursts: Option<bool>) {
+        self.lab.bursts = bursts;
+        self.scene.set_bursts(bursts);
+        if let Some(pending) = self
+            .transitions
+            .running
+            .as_mut()
+            .and_then(|running| running.pending.as_mut())
+        {
+            pending.set_bursts(bursts);
+        }
+    }
+
     /// These lens effects start at every moment, in the scene on screen, the one waiting for a
     /// transition and every scene that comes (see [`Scene::set_lens_forced`]).
     pub fn set_lab_lens(&mut self, lens: LabLens) {
@@ -1018,6 +1034,7 @@ impl Pipeline {
         );
         scene.take_music_from(&mut self.scene);
         scene.set_lens_forced(self.lab.lens);
+        scene.set_bursts(self.lab.bursts);
         scene.set_effect_chances(self.chances);
         scene.set_runtime(&self.runtime);
         self.scene = scene;
