@@ -167,8 +167,9 @@ pub struct DirectorView {
     pub tier: &'static str,
     /// Whether the shot is held (see `Director::hold_shot`), so that the director does not cut.
     pub held: bool,
-    /// The scene's shots in order: the name (empty if it has none) and the size.
-    pub shots: Vec<(String, ShotSize)>,
+    /// The scene's shots in order, its `[[shot]]`s and then its `[[burst]]`s: the name (empty if
+    /// it has none), the size, and the place in the burst (1 to 4; 0 for a `[[shot]]`).
+    pub shots: Vec<(String, ShotSize, u32)>,
     /// The pace in effect and the scene's own, and whether a lab overrides it.
     pub pace: Pace,
     pub own_pace: Pace,
@@ -260,6 +261,10 @@ pub struct Director {
     tilt_right: bool,
     /// Cuts since the section started, counting its establishing shot.
     in_section: u32,
+    /// The shot this section's own sequence cut to last (none before its first): what the next
+    /// pick differs from, so that a section's shots follow from its label alone and every chorus
+    /// cuts the same way, whatever was on before it.
+    seq_prev: Option<usize>,
     /// Bars since the section started, counted from its start.
     bars_in_section: u32,
     /// Seconds since the last cut.
@@ -326,6 +331,7 @@ impl Director {
             },
             tilt_right: false,
             in_section: 0,
+            seq_prev: None,
             bars_in_section: 0,
             seconds_since_cut: 0.0,
             beat_in_bar: None,
@@ -404,15 +410,21 @@ impl Director {
         self.set_pace_override(next);
     }
 
-    /// The scene's `[[shot]]`s as a readout lists them: the name (empty if it has none) and the
-    /// size. The burst's shots are not among them: nothing holds or picks them.
-    pub fn shot_list(&self) -> Vec<(String, ShotSize)> {
+    /// The scene's shots as a readout lists them, its `[[shot]]`s and then its `[[burst]]`s (which
+    /// a lab may hold too, to frame them): the name (empty if it has none), the size and the place
+    /// in the burst (0 for a `[[shot]]`).
+    pub fn shot_list(&self) -> Vec<(String, ShotSize, u32)> {
         self.names
             .iter()
             .zip(&self.shots)
-            .take(self.ordinary)
-            .map(|(name, (size, _))| (name.clone(), *size))
+            .enumerate()
+            .map(|(index, (name, (size, _)))| (name.clone(), *size, self.burst_place(index)))
             .collect()
+    }
+
+    /// The place of shot `index` in the burst, from 1; 0 for one of the scene's `[[shot]]`s.
+    fn burst_place(&self, index: usize) -> u32 {
+        (index + 1).saturating_sub(self.ordinary) as u32
     }
 
     /// What the scene is told now.
@@ -455,15 +467,18 @@ impl Director {
         }
     }
 
-    /// Cut to shot `index` (of the scene's `[[shot]]`s) and hold it: the director cuts no more
-    /// until [`Self::release_shot`]. The shot's size and roll follow the rules of any cut. Returns
-    /// the cut, or none for a shot the scene does not have (nothing changes then).
+    /// Cut to shot `index` (of the scene's `[[shot]]`s, then its `[[burst]]`s) and hold it: the
+    /// director cuts no more until [`Self::release_shot`]. The shot's size and roll follow the
+    /// rules of any cut, and a burst's shot is told as its place in the burst, as when the burst
+    /// cuts to it. Returns the cut, or none for a shot the scene does not have (nothing changes
+    /// then).
     pub fn hold_shot(&mut self, index: u32, music: &MusicValues) -> Option<Cut> {
         let index = index as usize;
-        if index >= self.ordinary {
+        if index >= self.shots.len() {
             return None;
         }
-        let cut = self.enter(index, music, Tier::of(&self.binds, music), 0);
+        let fill = self.burst_place(index);
+        let cut = self.enter(index, music, Tier::of(&self.binds, music), fill);
         self.held = true;
         Some(cut)
     }
@@ -498,7 +513,7 @@ impl Director {
         // of the last cut does not cut (the shot goes on), unless it follows a burst: the burst
         // and the start after it are one group, which the gap does not hold apart.
         if self.moments.section_start(music) {
-            self.in_section = 0;
+            self.begin_section(music.section_label);
             self.bars_in_section = 0;
             self.phrase_start = None;
             return (self.gap_is_open() || self.last_fill > 0)
@@ -509,7 +524,7 @@ impl Director {
             && music.bars > 0
             && self.bars_in_section >= start
         {
-            self.in_section = 0;
+            self.begin_section(music.section_label);
             self.phrase_start = None;
             return Some(self.cut(Why::Opening, music, tier, 0));
         }
@@ -656,11 +671,41 @@ impl Director {
     }
 
     /// Cut to a `[[shot]]` that suits `why`, other than the one on, and tell the scene.
+    ///
+    /// The pick follows the section's own sequence, so that the same kind of section cuts the same
+    /// way each time: a section opens with the shot its label picks, and every later cut differs
+    /// from the sequence's last shot. Only an opening that would land on the shot on screen picks
+    /// again away from it (a cut there would only jump), and one of the size of a burst's last
+    /// shot (after a burst that ends from above, a view from above would only seem to move in).
     fn cut(&mut self, why: Why, music: &MusicValues, tier: Tier, fill: u32) -> Cut {
         let label = music.section_label;
         let current = self.state.index as usize;
-        let index = self.pick(why, label, self.in_section, Some(current));
+        let index = match why {
+            Why::Opening => {
+                let index = self.pick(why, label, self.in_section, None);
+                let after_burst = current >= self.ordinary;
+                if index == current || (after_burst && self.shots[index].0 == self.shots[current].0)
+                {
+                    self.pick(why, label, self.in_section, Some(current))
+                } else {
+                    index
+                }
+            }
+            Why::Next(_) => {
+                let prev = self.seq_prev.unwrap_or(current);
+                self.pick(why, label, self.in_section, Some(prev))
+            }
+        };
+        self.seq_prev = Some(index);
         self.enter(index, music, tier, fill)
+    }
+
+    /// A section starts: its sequence of shots and its leaning from the dutch angle begin again,
+    /// from its label.
+    fn begin_section(&mut self, label: f32) {
+        self.in_section = 0;
+        self.seq_prev = None;
+        self.tilt_right = label_hash(label, 3) < 0.5;
     }
 
     /// Cut to shot `index`: count the cut, give the shot its roll and seed, and say how long it
@@ -670,7 +715,9 @@ impl Director {
         let (size, motion) = self.shots[index];
         self.state.cuts = self.state.cuts.wrapping_add(1);
         self.in_section += 1;
-        let seed = label_hash(label, self.state.cuts.wrapping_add(7));
+        // From the section's label and the cut's place in it, so a chorus is seen the same way
+        // each time.
+        let seed = label_hash(label, self.in_section.wrapping_add(7));
         let roll = if matches!(size, ShotSize::Wide | ShotSize::Top) {
             0.0
         } else {
@@ -1464,6 +1511,12 @@ mod tests {
         let song = play(&[2.0, 3.0, 2.0]);
         assert!(song[0].len() >= 5);
         assert_eq!(song, play(&[2.0, 3.0, 2.0]));
+        // The chorus comes back cut the same way, whatever came between. Here the sections end on
+        // the wide shot the chorus opens with, so the second chorus opens on the other wide one
+        // (a cut to the shot on would only jump); the rest of its sequence is the same.
+        assert_eq!(song[0][1..], song[2][1..]);
+        assert_ne!(song[2][0], song[1][song[1].len() - 1]);
+        assert_eq!(play(&[2.0, 5.0, 2.0])[2][1..], song[0][1..]);
         assert_ne!(play(&[2.0])[0], play(&[3.0])[0]);
     }
 
@@ -1648,10 +1701,17 @@ mod tests {
         for _ in 0..20 {
             assert!(director.force_cut(&base).index < 3);
         }
-        // The lab's keys and readout list the scene's three shots only.
-        assert!(director.hold_shot(3, &base).is_none());
-        assert_eq!(director.shot_list().len(), 3);
-        assert!(director.hold_shot(2, &base).is_some());
+        // A lab lists the burst's shots after the scene's and may hold one, told as its place in
+        // the burst, to frame it.
+        assert_eq!(director.shot_list().len(), 5);
+        assert_eq!(director.shot_list()[3].2, 1);
+        assert_eq!(director.shot_list()[2].2, 0);
+        assert_eq!(
+            director.hold_shot(4, &base).map(|c| (c.index, c.fill)),
+            Some((4, 2))
+        );
+        assert!(director.hold_shot(5, &base).is_none());
+        assert!(director.hold_shot(2, &base).is_some_and(|c| c.fill == 0));
     }
 
     #[test]
@@ -2056,11 +2116,15 @@ mod tests {
     fn the_view_lists_the_shots_in_order() {
         let director = bursting(camera(0.0));
         let list = director.view(&song(0.5)).shots;
-        // The burst's four are not shots to hold or to list.
-        assert_eq!(list.len(), 6);
+        // The scene's six, then the burst's four, which a lab may hold too.
+        assert_eq!(list.len(), 10);
         assert_eq!(
             (list[0].1, list[4].1, list[5].1),
             (ShotSize::Wide, ShotSize::Top, ShotSize::Wide)
+        );
+        assert_eq!(
+            list.iter().map(|shot| shot.2).collect::<Vec<_>>(),
+            [0, 0, 0, 0, 0, 0, 1, 2, 3, 4]
         );
     }
 

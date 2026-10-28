@@ -203,6 +203,8 @@ pub struct InspectShot {
     pub name: String,
     /// "wide", "medium", "close", "detail" or "top".
     pub size: String,
+    /// Its place in the burst (1 to 4) for a `[[burst]]` shot; 0 for a `[[shot]]`.
+    pub burst: u32,
 }
 
 /// The scene's `effects` list, kept apart by kind as the runtime uses it.
@@ -462,9 +464,10 @@ impl InspectDirector {
             shots: view
                 .shots
                 .into_iter()
-                .map(|(name, size)| InspectShot {
+                .map(|(name, size, burst)| InspectShot {
                     name,
                     size: size_name(size as u32).to_string(),
+                    burst,
                 })
                 .collect(),
             pace: view.pace.name().to_string(),
