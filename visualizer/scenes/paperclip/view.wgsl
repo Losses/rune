@@ -158,18 +158,83 @@ fn on_paper(p: vec2f, at: vec2f, half: vec2f, turn: f32) -> bool {
   return all(abs(q) < half);
 }
 
-// How much light reaches floor point p past a dancer of group g standing at `at`: the soft
-// shadow of its wire, cast along the light.
-fn shadow(p: vec3f, g: u32, at: vec3f) -> f32 {
-  let l = light();
+// ---- Shadows ----
+//
+// The shadow of a dancer is its wire cast along the light onto the floor as chains of capsules (the
+// segments between the posed points), the eye balls as discs and the brows as thin capsules.
+// Measured where the floor is squashed along the light's side so that a cast sphere is a circle
+// (`squash`). The shadow's edge is as soft as the casting point is high over the floor (the light
+// is not a point): sharp where the wire touches the paper, soft at the head, and a clip in the
+// air is lifted off the floor and softer.
+const PEN_FOOT: f32 = 0.012;
+const PEN_PER_HEIGHT: f32 = 0.08;
+
+// Floor positions squashed along the light's floor direction by the light's slant: a sphere's
+// shadow, an ellipse stretched by that, is a circle in them.
+fn squash(v: vec2f) -> vec2f {
+  let l = LIGHT;
+  let slant = l.y / length(l);
+  let u = normalize(l.xz);
+  return v - u * (dot(v, u) * (1.0 - slant));
+}
+
+// Where a point q, cast along the light onto the floor, falls (squashed).
+fn cast_down(q: vec3f) -> vec2f {
+  return squash(q.xz - LIGHT.xz * (q.y / LIGHT.y));
+}
+
+fn penumbra(height: f32) -> f32 {
+  return PEN_FOOT + PEN_PER_HEIGHT * max(height, 0.0);
+}
+
+// How far inside the shadow of the disc or capsule from a to b (radius r) the floor point at `p`
+// (squashed) is, in the penumbra's widths: below -1 the whole shadow, above 1 none. The edge sits
+// half a width outside r, so that a soft shadow keeps its core.
+fn edge(p: vec2f, a: vec3f, b: vec3f, r: f32) -> f32 {
+  let sa = cast_down(a);
+  let ba = cast_down(b) - sa;
+  let pa = p - sa;
+  let h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
+  let w = penumbra(mix(a.y, b.y, h));
+  return (length(pa - ba * h) - r) / w - 0.5;
+}
+
+// How much of the light dancer g standing at `at` takes from floor point p (squashed, `pf`): 0
+// none, 1 all. A dancer whose cast bound is farther than its widest penumbra costs this one test.
+fn shade_by(pf: vec2f, g: u32, at: vec3f) -> f32 {
+  let bound = state.bound[g];
+  let reach = bound.w + EYE_R + 1.5 * penumbra(bound.y + bound.w);
+  if (length(pf - cast_down(bound.xyz + at)) > reach) {
+    return 0.0;
+  }
   var near = 1e9;
   let stride = select(4u, 2u, frame.quality > 0.5);
-  for (var i = 0u; i < WIRE; i += stride) {
-    let q = point(g, i) + at;
-    let s = q.xz - l.xz * (q.y / l.y);
-    near = min(near, length(p.xz - s));
+  for (var i = 0u; i + 1u < WIRE; i += stride) {
+    near = min(near, edge(pf, point(g, i) + at, point(g, min(i + stride, WIRE - 1u)) + at, WIRE_R));
   }
-  return mix(1.0 - params.shadow, 1.0, smoothstep(0.03, 0.22, near));
+  for (var e = 0u; e < 2u; e++) {
+    let c = point(g, WIRE + e) + at;
+    near = min(near, edge(pf, c, c, EYE_R));
+    if (frame.quality > 0.5) {
+      near = min(near, edge(pf, point(g, WIRE + 2u + e * 2u) + at, point(g, WIRE + 3u + e * 2u) + at, BROW_R));
+    }
+  }
+  return 1.0 - smoothstep(-1.0, 1.0, near);
+}
+
+// The light left at floor point p in cell c: past the lead and past the chorus dancers of the cell
+// and of the three next to it up the light (their shadows fall across the cell's edge).
+fn lit_at(p: vec3f, c: vec2f) -> f32 {
+  let pf = squash(p.xz);
+  var taken = shade_by(pf, 0u, vec3f(0.0));
+  let up = sign(LIGHT.xz);
+  for (var k = 0u; k < 4u; k++) {
+    let cc = c + vec2f(f32(k & 1u), f32(k >> 1u)) * up;
+    if (in_chorus(cc)) {
+      taken = max(taken, shade_by(pf, group_of(cc), cell_at(cc)));
+    }
+  }
+  return 1.0 - params.shadow * taken;
 }
 
 fn shade_floor(p: vec3f, d: vec3f, t: f32) -> vec3f {
@@ -186,20 +251,17 @@ fn shade_floor(p: vec3f, d: vec3f, t: f32) -> vec3f {
   } else if (in_chorus(c) && on_paper(p.xz, cell_at(c).xz, vec2f(0.4, 0.3), hash(c + 0.7) * 3.14)) {
     albedo = state.paper * 0.9;
   }
-  lit *= shadow(p, 0u, vec3f(0.0));
-  if (in_chorus(c)) {
-    lit *= shadow(p, group_of(c), cell_at(c));
-  }
-  let col = albedo * (0.25 + 0.9 * lit);
+  lit *= lit_at(p, c);
+  let col = albedo * (0.12 + 1.04 * lit);
   // Far off, the floor is lost in the dark.
   return mix(params.background.rgb, col, exp(-max(t - 4.0, 0.0) * params.fade));
 }
 
 // Quality (frame.quality, 1 is the full picture). Level 1 walks 28 floor cells per ray and casts
-// the shadow from every second point of the wire, as always. Lower levels walk fewer cells (the
-// far rows of the chorus, which fade into the dark, drop out first) and from 0.5 down cast the
-// shadow from every fourth point (the shadow's edge turns coarser); the lead, the faces and the
-// colours stay.
+// the shadow from a segment of the wire between every second point, and the brows'. Lower levels
+// walk fewer cells (the far rows of the chorus, which fade into the dark, drop out first) and
+// from 0.5 down cast it from every fourth point (the shadow's bends turn coarser) and without the
+// brows; the lead, the faces and the colours stay.
 fn view_steps() -> i32 {
   return i32(round(mix(14.0, 28.0, frame.quality)));
 }
