@@ -117,11 +117,11 @@ mod tests {
             ..Default::default()
         };
         let rhythm = |level| {
-            let chart = forced_chart(level, Some(chart));
+            let chart = forced_chart(level, Some(chart.clone()));
             (trusted_rhythm(live, chart.as_ref()), chart)
         };
         let (r, c) = rhythm(None);
-        assert_eq!((r.bpm, c), (100.0, Some(chart)));
+        assert_eq!((r.bpm, c), (100.0, Some(chart.clone())));
         assert_eq!(rhythm(Some(Level::A)).0.bpm, 100.0);
         // B keeps the chart (its sections and levels) and loses the beat, as a chart without
         // pulse does; the live onsets stay.

@@ -296,6 +296,12 @@ pub struct Shot {
     /// level. None: as `dutch_in` says. A wide or a top shot never tilts, so it may not say true.
     #[serde(default)]
     pub dutch: Option<bool>,
+    /// Whether the director cuts to this shot at least once in a song that has a chart: picked by
+    /// chance as any other, and if it has not been on by the last section that suits it, cut to
+    /// there (Paperclip's circling shot, which only high sections suit, could be left out of a
+    /// whole song by the weights). False: only chance decides.
+    #[serde(default)]
+    pub at_least_once: bool,
 }
 
 impl Shot {
@@ -332,6 +338,11 @@ pub struct Look {
     /// sections and in the theme colour at its climax), and among all if none does.
     #[serde(default)]
     pub tiers: Vec<String>,
+    /// Whether the look is on at least once in a song that has a chart: picked by chance as any
+    /// other, and if it has not been on by the last section start that suits it, changed to there
+    /// (Torii Sea's day). False: only chance decides.
+    #[serde(default)]
+    pub at_least_once: bool,
 }
 
 impl Look {
@@ -1244,6 +1255,14 @@ size = "detail"
         );
         let m = Manifest::parse(&text).unwrap();
         assert!(m.shots.iter().any(|shot| shot.longest == Some(6.5)));
+        // A shot the song is promised is a flag, off where left out.
+        let text = format!("{SMALL}{SHOTS}").replacen(
+            "size = \"top\"",
+            "size = \"top\"\nat_least_once = true",
+            1,
+        );
+        let m = Manifest::parse(&text).unwrap();
+        assert_eq!(m.shots.iter().filter(|shot| shot.at_least_once).count(), 1);
         // One shot at 0 is fine, all of them are not.
         let text =
             format!("{SMALL}{SHOTS}").replacen("size = \"top\"", "size = \"top\"\nweight = 0", 1);
@@ -1279,6 +1298,7 @@ opens = false
         assert_eq!((m.looks[0].weight, m.looks[0].opens), (1.0, true));
         assert_eq!((m.looks[1].weight, m.looks[1].opens), (2.5, false));
         assert_eq!(m.looks[2].name, "");
+        assert!(m.looks.iter().all(|look| !look.at_least_once));
         assert!(m.looks[2].tags.is_empty());
     }
 

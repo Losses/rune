@@ -770,9 +770,16 @@ impl DirectorBinds {
         let Some(energy) = self.cadence.said(music).reading() else {
             return 1;
         };
-        if energy.value < self.below {
+        self.tier_at(energy.value)
+    }
+
+    /// The tier of a section of this level (`section_level`, the cadence's source in
+    /// `runtime.toml`): 0 quiet, 1 normal, 2 high. It is how the director reads the sections
+    /// still to come, which no frame has said yet.
+    pub fn tier_at(&self, level: f32) -> usize {
+        if level < self.below {
             0
-        } else if energy.value > self.above {
+        } else if level > self.above {
             2
         } else {
             1

@@ -9,7 +9,7 @@
 //! the chart is the same as before. A seek, a stall, a new song and the chart arriving fire
 //! nothing.
 
-use crate::chart::{ChartState, LatestOnset};
+use crate::chart::{ChartState, LatestOnset, section_level};
 use crate::rhythm::Rhythm;
 
 use super::inputs::MusicValues;
@@ -195,9 +195,6 @@ const DRIVE_SMOOTH_LIVE: f64 = 1.5;
 /// The time constant (seconds) of `intensity`, and the live energy (about 1 on average) that
 /// stands for 0 and the span up to 1 when there is no chart.
 const INTENSITY_SMOOTH: f64 = 0.8;
-/// How much of a section's `level` is its rank in the song rather than its loudness: half, so a
-/// song loud throughout has more high sections than a quiet one, and every song has some.
-const LEVEL_RANK: f64 = 0.5;
 /// Without a chart, the rank of the slow energy among what the song has had: a histogram of the
 /// time spent at each level, forgetting with this time constant (seconds), so a new song takes
 /// over within minutes.
@@ -556,7 +553,7 @@ impl Signals {
                 (self.drive, rank)
             }
         };
-        ((1.0 - LEVEL_RANK) * energy + LEVEL_RANK * rank).clamp(0.0, 1.0)
+        section_level(energy, rank)
     }
 
     /// The cues of this frame, and `cue` fading or set. The first source that applies decides: a
