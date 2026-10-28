@@ -10,7 +10,7 @@ covers = true
 # The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
 # A wall of old televisions: glitches, dot mosaics and a flash washed in the theme colour suit it
 # (the screens themselves no longer flash when they change: they roll, slip, collapse or tune
-# through snow).
+# through snow). The scene declares no flare and must not: no lens flare over a wall of screens.
 effects = ["fade", "glitch", "mosaic", "flash"]
 
 # The director cuts between the wall's views. The camera has no roll of its own, so the director's
@@ -68,6 +68,23 @@ size = "detail"
 [[burst]]
 name = "the screen filling the picture"
 size = "detail"
+
+# The looks (view.wgsl grades the picture by them and blends them; the runtime picks one at a
+# section start by the section's energy): the wall in grey, dim, with a faint tint of the theme
+# colour, at quiet and ordinary sections, and in the theme colour at the climax. A colleague found
+# the wall's colours too mixed (the covers in every hue beside cream, walnut and red cabinets), so
+# the whole picture is one colour family as Neon Street's is, except the album covers, which are
+# never recoloured: in the grey look fewer screens show one instead (`cover_grey`).
+[[look]]
+name = "grey"
+tags = ["night"]
+tiers = ["quiet", "normal"]
+
+[[look]]
+name = "theme colour"
+tags = ["colour"]
+tiers = ["high"]
+opens = false
 
 [state]
 file = "state.wgsl"
@@ -277,6 +294,15 @@ label = "Weight of covers"
 default = 1.4
 min = 0.0
 max = 3.0
+step = 0.05
+
+[[param]]
+id = "cover_grey"
+group = "Screens"
+label = "Share of the covers' weight kept in the grey look (most screens then show snow and scopes; decided at each cut of the view; the theme colour look keeps all of it)"
+default = 0.2
+min = 0.0
+max = 1.0
 step = 0.05
 
 [[param]]

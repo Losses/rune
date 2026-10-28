@@ -7,6 +7,11 @@
 // across, slips sideways, collapses to a line and opens again, or is tuned through snow. Nothing
 // brightens: every way only moves where the picture is looked up. A burst's close-up shows one
 // set's screen the way the shot was cut for it.
+//
+// The colours: the whole picture is graded (see `grade`) into the look the runtime has chosen,
+// dim grey most of the time and the theme colour at the climax, except the album covers, which
+// are never recoloured. So a picture is carried as two lights, the cover's
+// and the rest, from the screen to the pixel: only the rest is graded.
 
 // Lines down a picture.
 const LINES: f32 = 96.0;
@@ -214,9 +219,11 @@ struct Screen {
   roll: f32,
 }
 
-// One channel by the weights of the three (no covers until the first have come).
+// One channel by the weights of the three (no covers until the first have come). The covers'
+// weight is cut by `state.cover_w`, decided at each cut of the view (see decide_wall): fewer
+// screens show a cover in the grey look.
 fn weighted(u: f32) -> u32 {
-  let w = max(vec3f(params.snow, params.scope, params.cover * f32(frame.covers > 0u)), vec3f(0.0));
+  let w = max(vec3f(params.snow, params.scope, params.cover * state.cover_w * f32(frame.covers > 0u)), vec3f(0.0));
   let x = u * max(w.x + w.y + w.z, 1e-3);
   return select(select(2u, 1u, x < w.x + w.y), 0u, x < w.x);
 }
@@ -401,20 +408,38 @@ fn cover(s: vec2f, asp: f32, seed: f32, foot: f32) -> vec3f {
   return c * mix(vec3f(1.0), 0.4 + 1.8 * mask, fine * 0.6);
 }
 
-fn picture(chan: u32, seed: f32, s: vec2f, asp: f32, foot: f32) -> vec3f {
+// The light of a picture in two parts: the cover's, which the grade leaves as it is, and all the
+// rest (snow, scopes), which it grades. Whatever is done to the light of the picture (a mix, a
+// scale) is done to both.
+struct Pic {
+  rest: vec3f,
+  cover: vec3f,
+}
+
+fn pic_mix(a: Pic, b: Pic, t: f32) -> Pic {
+  return Pic(mix(a.rest, b.rest, t), mix(a.cover, b.cover, t));
+}
+
+fn pic_scale(a: Pic, k: f32) -> Pic {
+  return Pic(a.rest * k, a.cover * k);
+}
+
+const NO_PIC: Pic = Pic(vec3f(0.0), vec3f(0.0));
+
+fn picture(chan: u32, seed: f32, s: vec2f, asp: f32, foot: f32) -> Pic {
   let fade = smoothstep(0.5, 1.5, foot * LINES);
   if (chan == 0u) {
     // Snow is grey, with a touch of the phosphor's colour.
     let v = snow(s, asp, seed, fade);
-    return mix(vec3f(v), phosphor(v), 0.3);
+    return Pic(mix(vec3f(v), phosphor(v), 0.3), vec3f(0.0));
   }
   if (chan == 1u) {
-    return phosphor(scope(s, asp, seed, fade));
+    return Pic(phosphor(scope(s, asp, seed, fade)), vec3f(0.0));
   }
   if (chan == 2u) {
-    return cover(s, asp, seed, foot);
+    return Pic(vec3f(0.0), cover(s, asp, seed, foot));
   }
-  return vec3f(0.0);
+  return NO_PIC;
 }
 
 // The way the wall changes channel now: the one the section's kind picked at the last cut
@@ -429,7 +454,7 @@ fn way_now() -> u32 {
 // Rolling up (down when `down`): the old picture goes out of the screen and the new one follows
 // from the other side, the black bar between them (a set losing its vertical hold), and a few
 // bands torn sideways, most when the roll is half done.
-fn roll_over(sc: Screen, s: vec2f, asp: f32, foot: f32, down: bool) -> vec3f {
+fn roll_over(sc: Screen, s: vec2f, asp: f32, foot: f32, down: bool) -> Pic {
   let y = select(s.y, 1.0 - s.y, down);
   // How far the old picture has gone: the bar and then the new picture follow it.
   let up = roll_ease(sc.roll) * (1.0 + BLANK);
@@ -446,13 +471,13 @@ fn roll_over(sc: Screen, s: vec2f, asp: f32, foot: f32, down: bool) -> vec3f {
     let v = y - up + BLANK + 1.0;
     return picture(sc.chan, sc.seed, vec2f(x, select(v, 1.0 - v, down)), asp, foot);
   }
-  return vec3f(0.0);
+  return NO_PIC;
 }
 
 // Losing the horizontal hold: the picture shears in slanted bands, each its own way, most when the
 // slip is half done, and slides off to one side (which one by the old picture's number) while the
 // new one slides in from the other and straightens, a black gap between.
-fn slip(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
+fn slip(sc: Screen, s: vec2f, asp: f32, foot: f32) -> Pic {
   let dir = select(-1.0, 1.0, hash(vec2f(sc.old_seed, 3.3)) < 0.5);
   let at = roll_ease(sc.roll) * (1.0 + SLIP_GAP);
   let band = floor(s.y * TEAR_BANDS);
@@ -468,12 +493,12 @@ fn slip(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
     let v = u + 1.0 + SLIP_GAP;
     return picture(sc.chan, sc.seed, vec2f(select(v, 1.0 - v, dir < 0.0), s.y), asp, foot);
   }
-  return vec3f(0.0);
+  return NO_PIC;
 }
 
 // The picture squeezes to a thin line across the middle (brighter by nothing: it is the picture's
 // own light, in less room), and the new one opens out of it.
-fn collapse(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
+fn collapse(sc: Screen, s: vec2f, asp: f32, foot: f32) -> Pic {
   let closing = sc.roll < 0.5;
   var k = 1.0;
   if (closing) {
@@ -485,7 +510,7 @@ fn collapse(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
   }
   k = max(k, LINE_MIN);
   if (abs(s.y - 0.5) > 0.5 * k) {
-    return vec3f(0.0);
+    return NO_PIC;
   }
   let at = vec2f(s.x, 0.5 + (s.y - 0.5) / k);
   if (closing) {
@@ -498,7 +523,7 @@ fn collapse(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
 // breaks up into snow cell by cell, and the new one comes up out of the snow the same way, its
 // ghost fading. A cell is either a picture's or the snow's (the scene's own snow, the same
 // brightness), never a sum.
-fn tune(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
+fn tune(sc: Screen, s: vec2f, asp: f32, foot: f32) -> Pic {
   let cell = floor(vec2f(s.x * asp * LINES * 2.0, s.y * LINES));
   let n = hash(cell + vec2f(floor(frame.time * 30.0) * 5.3, sc.seed * 3.1));
   let snowy = picture(0u, sc.seed + 7.0, s, asp, foot);
@@ -509,20 +534,20 @@ fn tune(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
       return snowy;
     }
     let g = GHOST * smoothstep(0.0, 0.3, sc.roll);
-    return mix(picture(sc.old_chan, sc.old_seed, s, asp, foot), picture(sc.old_chan, sc.old_seed, s + off, asp, foot), g);
+    return pic_mix(picture(sc.old_chan, sc.old_seed, s, asp, foot), picture(sc.old_chan, sc.old_seed, s + off, asp, foot), g);
   }
   let t = smoothstep(0.5, 1.0, sc.roll);
   if (n >= t) {
     return snowy;
   }
   let g = GHOST * (1.0 - t);
-  return mix(picture(sc.chan, sc.seed, s, asp, foot), picture(sc.chan, sc.seed, s + off, asp, foot), g);
+  return pic_mix(picture(sc.chan, sc.seed, s, asp, foot), picture(sc.chan, sc.seed, s + off, asp, foot), g);
 }
 
 // What a screen shows at s: its picture, or while it changes channel the way the wall changes
 // (way_now), one of five. Each moves the lookup in the picture, so the scopes' shared buffer is
 // untouched, and none adds light.
-fn screen_picture(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
+fn screen_picture(sc: Screen, s: vec2f, asp: f32, foot: f32) -> Pic {
   if (sc.roll >= 1.0) {
     return picture(sc.chan, sc.seed, s, asp, foot);
   }
@@ -545,21 +570,27 @@ fn screen_picture(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
   }
 }
 
-// The light of a screen at s (0..1 on the glass), foot a pixel's height in picture heights.
-fn screen_light(sc: Screen, s0: vec2f, asp: f32, foot: f32) -> vec3f {
+// The light of a screen at s (0..1 on the glass), foot a pixel's height in picture heights, as the
+// cover's and the rest (see Pic). The scan lines and the tube's darkening are over both: the
+// cover keeps its colours under them.
+fn screen_light(sc: Screen, s0: vec2f, asp: f32, foot: f32) -> Pic {
   // The tube's curve: the picture bows out towards its corners.
   let c = s0 - 0.5;
   let s = c * (1.0 + 0.08 * dot(c, c)) + 0.5;
   var v = screen_picture(sc, s, asp, foot);
   // Scan lines, gone where a pixel covers more than one.
   let lines = 0.5 + 0.5 * cos(s.y * LINES * 6.2831853);
-  v *= mix(1.0, 0.6 + 0.4 * lines, 1.0 - smoothstep(0.35, 0.6, foot * LINES));
   // Darker towards the edges, as a tube's picture is.
-  v *= clamp(1.0 - 1.6 * dot(c, c), 0.0, 1.0);
-  return max(v, vec3f(0.0)) * params.brightness;
+  let k = mix(1.0, 0.6 + 0.4 * lines, 1.0 - smoothstep(0.35, 0.6, foot * LINES)) * clamp(1.0 - 1.6 * dot(c, c), 0.0, 1.0);
+  v = pic_scale(v, k * params.brightness);
+  return Pic(max(v.rest, vec3f(0.0)), max(v.cover, vec3f(0.0)));
 }
 
 // ---- Surfaces ----
+
+// The part of the pixel's light that is a cover's, which the grade leaves alone (set by the screen
+// that is on the pixel; all else is `rest` and graded).
+var<private> cover_light: vec3f;
 
 // A cabinet's finish: its colour, how much it shines and how sharply, whether it is wood, and how
 // old the set is (0 new, 1 worn out).
@@ -865,9 +896,13 @@ fn shade_front(p: vec3f, d: vec3f, s: Set, foot: f32, key: f32) -> vec3f {
     let g = sp / sh;
     // The glass bows out: its normal leans away from the middle.
     let gn = normalize(vec3f(g * 0.2, -1.0));
-    var c = screen_light(sc, sp / (2.0 * sh) + 0.5, sh.x / sh.y, foot / (2.0 * sh.y));
+    let pic = screen_light(sc, sp / (2.0 * sh) + 0.5, sh.x / sh.y, foot / (2.0 * sh.y));
+    var c = pic.rest;
+    cover_light = pic.cover;
     // The picture stops short of the glass's edge, in the shadow of the surround.
-    c *= mix(0.15, 1.0, smoothstep(0.0, 0.025 * min(sh.x, sh.y) / 0.15, -sd));
+    let stop = mix(0.15, 1.0, smoothstep(0.0, 0.025 * min(sh.x, sh.y) / 0.15, -sd));
+    c *= stop;
+    cover_light *= stop;
     // The dark glass itself, and what it reflects: the dim room and the key light.
     let cosv = max(dot(gn, -d), 0.0);
     let fres = 0.04 + 0.96 * pow(1.0 - cosv, 5.0);
@@ -887,6 +922,7 @@ fn shade_front(p: vec3f, d: vec3f, s: Set, foot: f32, key: f32) -> vec3f {
     }
     let film = fin.age * (0.4 + 0.6 * smoothstep(-0.2, 0.6, smudge));
     c = c * (1.0 - 0.12 * film) + film * 0.02 * (state.key * key + vec3f(params.fill * 4.0));
+    cover_light *= 1.0 - 0.12 * film;
     // A price sticker on a corner of the glass, or a strip of tape across one.
     let tag = hash(s.id + 0.29);
     if (tag < params.wear * 0.45) {
@@ -902,6 +938,7 @@ fn shade_front(p: vec3f, d: vec3f, s: Set, foot: f32, key: f32) -> vec3f {
           let lines = step(0.5, fract((local.y + size.y) / 0.006)) * step(abs(local.x), size.x * 0.75) * step(abs(local.y), size.y * 0.7);
           let fine = 1.0 - smoothstep(0.001, 0.003, foot);
           let paper = mix(vec3f(0.62, 0.6, 0.52), vec3f(0.6, 0.5, 0.3), fin.age) * (1.0 - 0.6 * lines * fine);
+          cover_light = vec3f(0.0);
           return lit(paper, gn, d, key, 1.0, 0.1, 12.0, glow * 0.3);
         }
       } else {
@@ -910,6 +947,7 @@ fn shade_front(p: vec3f, d: vec3f, s: Set, foot: f32, key: f32) -> vec3f {
         let across = (local.x - local.y) * 0.7071;
         if (abs(across) < 0.011 && along > -0.06 + 0.004 * rv_noise(vec2f(across * 300.0, 1.0)) && along < 0.05) {
           let tape = vec3f(0.42, 0.37, 0.24) * (1.0 + 0.3 * fin.age);
+          cover_light *= 0.15;
           return mix(c, lit(tape, gn, d, key, 1.0, 0.3, 20.0, glow * 0.4), 0.85);
         }
       }
@@ -1075,7 +1113,54 @@ fn shade_side(p: vec3f, d: vec3f, n0: vec3f, s: Set, foot: f32, key: f32) -> vec
   return lit(k.albedo, n, d, key, open, fin.shine * k.dull, fin.sharp, extra) * open;
 }
 
+// ---- The grade ----
+//
+// The picture, but for the covers, mapped by its lightness onto one colour, as Neon Street's is
+// (the picture's own light is kept: what glows still glows and the dark stays dark):
+//   - the grey look: greys with a faint tint of the theme colour, dimmer than the picture was;
+//   - the theme colour look: a ramp from a dark shade through the theme colour to near white,
+//     in the player's theme colour (state.theme_ramp, as the phosphor follows it).
+// `state.colour` fades from one to the other. No posterizing, no halftone.
+
+// A colour with the lightness l.
+fn at_lightness(c: vec3f, l: f32) -> vec3f {
+  return c / max(rv_luma(c), 1e-4) * l;
+}
+
+fn ramp(t: f32) -> vec3f {
+  let x = clamp(t, 0.0, 1.0) * 3.0;
+  let r = state.theme_ramp;
+  if (x < 1.0) {
+    return mix(r[0].rgb, r[1].rgb, x);
+  }
+  if (x < 2.0) {
+    return mix(r[1].rgb, r[2].rgb, x - 1.0);
+  }
+  return mix(r[2].rgb, r[3].rgb, x - 2.0);
+}
+
+// The lightness at which the theme colour's ramp is half way up: the light of a lit cabinet or
+// a dim screen sits in its lower half, the brightest screens in its upper.
+const TONE_KEY: f32 = 0.2;
+// How dark the grey look is against the picture, and how much of the theme colour tints its greys.
+const GREY_DIM: f32 = 0.6;
+const GREY_TINT: f32 = 0.07;
+
+fn grade(c: vec3f) -> vec3f {
+  let l = rv_luma(c);
+  var out = vec3f(0.0);
+  if (state.colour < 0.999) {
+    let tint = state.theme_ramp[2].rgb / max(rv_luma(state.theme_ramp[2].rgb), 1e-3);
+    out = at_lightness(mix(vec3f(1.0), tint, GREY_TINT), l * GREY_DIM) * (1.0 - state.colour);
+  }
+  if (state.colour > 0.001) {
+    out += at_lightness(ramp(l / (l + TONE_KEY)), l) * state.colour;
+  }
+  return out;
+}
+
 fn shade(px: Pixel) -> vec4f {
+  cover_light = vec3f(0.0);
   let ray = camera_ray(px);
   var w = new_walk();
   let h = trace_with(&w, ray.o, ray.d, view_steps(), 0.0);
@@ -1096,5 +1181,6 @@ fn shade(px: Pixel) -> vec4f {
   } else {
     c = shade_side(p, ray.d, h.n, h.tv, foot, key);
   }
-  return vec4f(c, 1.0);
+  // The room and the screens' other pictures are graded; the covers' light is added as it is.
+  return vec4f(grade(c) + cover_light, 1.0);
 }

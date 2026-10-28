@@ -205,6 +205,13 @@ fn decide_wall() {
   // section's label, so every chorus the same way). Read only here, so it never changes within a
   // shot; the parameter `change_way` may pin one, which the view reads at once.
   state.way = clamp(floor(input.way + 0.5), 0.0, 4.0);
+  // How much of the covers' weight the channels use: the grey look keeps a share of it (most
+  // screens then show snow or a scope), the theme colour look all. Decided here, at the cut, and
+  // never from the look's fade, which moves every frame: channel() is worked out again every frame
+  // and a weight that moved would make screens jump channel between cuts. A look changes at a
+  // section start, which the director normally cuts at; one that comes without a cut (no chart, or
+  // a cut held back) leaves the weight as it was until the next cut.
+  state.cover_w = select(1.0, clamp(params.cover_grey, 0.0, 1.0), look.to == 0u);
 }
 
 fn set_colours() {
@@ -220,6 +227,16 @@ fn set_colours() {
   state.phosphor = max(rv_oklab_to_linear(vec3f(0.72, c * cos(h), c * sin(h))), vec3f(0.0));
   // The key light: a cool white.
   state.key = vec3f(0.82, 0.9, 1.0) * params.key;
+  // The theme colour look's palette, in the same hue: a dark shade up to near white (Neon Street's
+  // stops). The grade takes the colour from it and keeps the picture's own light.
+  state.theme_ramp[0] = vec4f(max(rv_oklab_to_linear(vec3f(0.12, 0.03 * cos(h), 0.03 * sin(h))), vec3f(0.0)), 1.0);
+  state.theme_ramp[1] = vec4f(max(rv_oklab_to_linear(vec3f(0.36, 0.14 * cos(h), 0.14 * sin(h))), vec3f(0.0)), 1.0);
+  state.theme_ramp[2] = vec4f(max(rv_oklab_to_linear(vec3f(0.62, 0.19 * cos(h), 0.19 * sin(h))), vec3f(0.0)), 1.0);
+  state.theme_ramp[3] = vec4f(max(rv_oklab_to_linear(vec3f(0.95, 0.03 * cos(h), 0.03 * sin(h))), vec3f(0.0)), 1.0);
+  // How far the picture is in the theme colour's look: the runtime's fade from look.prev to look.to
+  // (0 the grey look, 1 the colour one). The scene has no setting that pins a look: the lab holds
+  // one.
+  state.colour = select(0.0, 1.0 - look.mix, look.prev == 1u) + select(0.0, look.mix, look.to == 1u);
 }
 
 // Where the scopes' time trace starts: the first rising zero crossing in the first half of the

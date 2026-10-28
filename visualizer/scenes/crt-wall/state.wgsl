@@ -54,6 +54,14 @@ struct State {
   // The phosphor's colour and the key light's, worked out once a frame.
   phosphor: vec3f,
   key: vec3f,
+  // The looks (see `[[look]]`): how far the picture is in the theme colour's one (0 the grey look,
+  // 1 the theme colour), as the runtime fades from look.prev to look.to; the theme colour's
+  // palette in its hue (dark, deep, full, near white), worked out once a frame; and the share of
+  // the covers' weight the screens' channels use, decided at each cut of the view from the look
+  // then (`cover_grey` in the grey look, all in the theme colour one).
+  colour: f32,
+  theme_ramp: array<vec4f, 4>,
+  cover_w: f32,
 }
 
 fn hash(p: vec2f) -> f32 {
