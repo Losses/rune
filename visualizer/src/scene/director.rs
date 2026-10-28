@@ -542,8 +542,12 @@ impl Director {
             let fill = burst.next;
             burst.next += 1;
             burst.wait = FORCED_BURST_SECONDS;
-            if fill >= self.bursts() {
+            if fill > self.bursts() {
+                // The beat after its last cut opens a section, as the section start a burst leads
+                // to would: left alone, the lab's burst stayed on its last shot until the cadence.
                 self.forced_burst = None;
+                self.begin_section(music.section_label);
+                return Some(self.cut(Why::Opening, music, tier, 0));
             }
             return Some(self.burst_cut(fill, music, tier));
         }
@@ -1736,7 +1740,7 @@ mod tests {
     }
 
     #[test]
-    fn a_burst_started_by_hand_cuts_on_the_next_four_beats() {
+    fn a_burst_started_by_hand_cuts_on_the_next_four_beats_and_then_opens_a_section() {
         let mut director = bursting(camera(0.3));
         let base = song(0.2);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
@@ -1745,16 +1749,17 @@ mod tests {
         use ShotSize::*;
         assert_eq!(
             all.iter().map(|(b, _)| *b).collect::<Vec<_>>(),
-            [1, 2, 3, 4],
+            [1, 2, 3, 4, 5],
             "{all:?}"
         );
         assert_eq!(
             all.iter().map(|(_, c)| c.fill).collect::<Vec<_>>(),
-            [1, 2, 3, 4]
+            [1, 2, 3, 4, 0]
         );
+        // The beat after the last opens a section, as the section start after a burst would.
         assert_eq!(
             all.iter().map(|(_, c)| c.size).collect::<Vec<_>>(),
-            [Medium, Close, Detail, Top]
+            [Medium, Close, Detail, Top, Wide]
         );
         assert!(all.iter().all(|(_, c)| c.motion == ShotMove::Cut));
         // Then it is over: no more burst cuts.
@@ -1826,8 +1831,8 @@ mod tests {
                 cuts.push((frame, cut.fill));
             }
         }
-        // At once, then every 0.25 s (4 frames of 0.0625 s).
-        assert_eq!(cuts, [(0, 1), (4, 2), (8, 3), (12, 4)]);
+        // At once, then every 0.25 s (4 frames of 0.0625 s), and the opening after it.
+        assert_eq!(cuts, [(0, 1), (4, 2), (8, 3), (12, 4), (16, 0)]);
     }
 
     #[test]
