@@ -89,19 +89,22 @@ fn choose_view() {
     state.aim = 10.0;
     state.spin = 0.04 * side;
   } else if (v == 4u) {
-    state.below = -10.0;
-    state.dist = 4.0 + 0.6 * params.girth;
+    // About 45 degrees down on the tip, from outside one of the tower's corners (the plates lie
+    // on a square grid: a corner shows two faces, a side only one), drifting round slowly.
+    state.below = -9.0;
+    state.dist = 10.0 + 1.8 * params.girth;
     state.aim = 8.0;
-    state.spin = 0.03 * side;
-    state.deep = 30.0;
+    state.spin = 0.01 * side;
+    state.azimuth = (floor(state.azimuth / 1.5708) + 0.5) * 1.5708;
+    state.deep = 45.0;
   } else if (v == 5u) {
     state.below = 4.0;
     state.dist = 7.0 + params.girth;
     state.aim = 1.0;
     state.spin = 0.05 * side;
   } else if (v == 6u) {
-    state.below = 6.0;
-    state.dist = 4.0 + params.girth;
+    state.below = 7.0;
+    state.dist = 6.0 + 1.2 * params.girth;
     state.aim = 0.0;
     state.spin = 0.05 * side;
   } else if (v == 7u) {
@@ -111,11 +114,12 @@ fn choose_view() {
     state.spin = 0.05 * side;
     state.fov = 0.6;
   } else if (v == 8u) {
-    state.below = -30.0;
-    state.dist = 3.0;
+    // About 60 degrees down, high over the tip.
+    state.below = -24.0;
+    state.dist = 12.0 + 2.0 * params.girth;
     state.aim = 10.0;
     state.spin = 0.02 * side;
-    state.deep = 60.0;
+    state.deep = 80.0;
   } else {
     state.below = 26.0;
     state.dist = 10.0 + 2.0 * params.girth;

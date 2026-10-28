@@ -241,6 +241,11 @@ fn shade(px: Pixel) -> vec4f {
     // Concrete fades into the sky only a little, as air does.
     let fog = params.fog * select(1.0, 0.35, params.style == 1u);
     col = mix(shade_plate(p, d, h, th, pixel), bg, 1.0 - exp(-h.t * 0.007 * fog));
+    // Seen from above, the tower sinks into the haze before the depth it is drawn to, so that
+    // where it stops is never seen.
+    if (state.deep > 0.0) {
+      col = mix(col, bg, smoothstep(0.55, 0.95, (state.top - p.y) / state.deep));
+    }
     depth = h.t;
   }
 
@@ -254,6 +259,10 @@ fn shade(px: Pixel) -> vec4f {
     let t = (-b - sqrt(disc)) / a;
     if (t > 0.0 && t < depth && o.y + d.y * t < state.top + 3.0) {
       col = th.rod * bright;
+      // The rod sinks into the haze with the tower, seen from above.
+      if (state.deep > 0.0) {
+        col = mix(col, bg, smoothstep(0.55, 0.95, (state.top - (o.y + d.y * t)) / state.deep));
+      }
       depth = t;
     }
   }
