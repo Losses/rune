@@ -195,7 +195,7 @@ struct ForcedBurst {
 }
 
 /// The number `rv_label_hash` in `stdlib.wgsl` gives: 0 to 1, the same for the same label and `k`.
-fn label_hash(label: f32, k: u32) -> f32 {
+pub(super) fn label_hash(label: f32, k: u32) -> f32 {
     let multiplier = [0.618_033_9, 0.754_877_7, 0.569_840_3][(k % 3) as usize];
     ((label + 1.0) * multiplier + (k / 3) as f32 * 0.314_159_3).fract()
 }
@@ -212,7 +212,7 @@ enum Why {
 /// The index of the `r`th (0 to 1) of `chances` by their weight, where each is picked in
 /// proportion to its chance and one whose chance is 0 never is. All of them 0 picks evenly. It is
 /// a pure function of `r`, so that a hash of the section picks the same each time.
-fn weighted(chances: &[(usize, f32)], r: f32) -> usize {
+pub(super) fn weighted(chances: &[(usize, f32)], r: f32) -> usize {
     let total: f32 = chances.iter().map(|(_, chance)| chance).sum();
     if total <= 0.0 {
         let at = (r * chances.len() as f32) as usize;

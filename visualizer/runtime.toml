@@ -103,6 +103,23 @@ source = "cue_in"
 how = "follow"
 when = { on = "beats", from = "section_energy", to = "next_energy", lift = 0.1 }
 
+# --- Looks (src/scene/looks.rs) ----------------------------------------------------------------
+
+# When a scene's look changes (its `[[look]]`s: large visual changes such as the light) and over
+# how long. A cue of `strength` or more (a section start, with a chart) changes the look to the
+# one the section's label picks by the looks' weights: every chorus has the same look, and a song
+# plays the same each time. If that is the look on, nothing changes: the look stays tied to the
+# kind of section. Two changes are at least `gap` seconds apart (the scene's start counts as one,
+# so that it keeps the look it opened in for that long). Without a chart there are no labels:
+# a cue of `strength_unlabelled` or more changes the look to the next in an order the scene's
+# seed makes, at least `gap_unlabelled` seconds after the last change. The fade lasts `fade` beats
+# with a followed beat, else `fade_seconds` seconds, eased.
+[[bind]]
+target = "look.change"
+source = "cues"
+how = "trigger"
+when = { strength = 0.5, gap = 8.0, strength_unlabelled = 0.0, gap_unlabelled = 30.0, fade = 1.0, fade_seconds = 0.5 }
+
 # --- Scene switching (src/switching.rs) --------------------------------------------------------
 
 # A place to switch scenes: the start of a section that differs from the one before. A cue of

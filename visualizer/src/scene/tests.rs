@@ -673,6 +673,109 @@ fn a_held_shot_and_a_lab_pace_survive_a_reload_of_the_scene() {
     assert!(!scene.director_view().unwrap().held);
 }
 
+/// A scene whose update copies the look into the state, and whose pass shows the state's `to`
+/// in red (a half for each) and the pass's own view of `to` in green.
+fn looks_scene(name: &str, looks: &str) -> PathBuf {
+    folder(
+        name,
+        &[
+            (
+                MANIFEST,
+                &format!(
+                    "format = 1\nname = \"Looks\"\nlicense = \"MPL-2.0\"\n[state]\nfile = \"state.wgsl\"\nupdate = \"update.wgsl\"\n[[pass]]\nshader = \"a.wgsl\"\ntarget = \"out\"\n[post]\ntonemap = \"none\"\ngrain = 0.0\nchromatic = 0.0\nvignette = 0.0\nbloom = {{ intensity = 0.0 }}\n{looks}"
+                ),
+            ),
+            ("state.wgsl", "struct State {\n  to: u32,\n}\n"),
+            ("update.wgsl", "fn update() {\n  state.to = look.to;\n}\n"),
+            (
+                "a.wgsl",
+                "fn shade(px: Pixel) -> vec4f {\n  return vec4f(f32(state.to) * 0.5, f32(look.to) * 0.5, look.mix, 1.0);\n}\n",
+            ),
+        ],
+    )
+}
+
+#[test]
+fn a_scene_with_looks_reads_them_and_one_without_reads_zeros() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let gpu = (&device, &queue);
+    let screen = Screen::new(&device);
+    let dir = looks_scene(
+        "looks",
+        "[[look]]\nname = \"a\"\n[[look]]\nname = \"b\"\n[[look]]\nname = \"c\"\n",
+    );
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    assert_eq!(scene.looks_view().unwrap().names, ["a", "b", "c"]);
+    // A lab holds look 2 before the first frame: the scene opens in it, and the update and the
+    // pass both read it.
+    assert!(scene.hold_look(Some(2)));
+    assert!(!scene.hold_look(Some(3)), "no such look");
+    frame(&mut scene, gpu, &screen, 0.0, 0.0);
+    let c = screen.middle(&device, &queue);
+    assert!(close(c, [1.0, 1.0, 1.0]), "{c:?}");
+    // Held to another look, it is a change: the fade starts at 0, and `to` is told at once.
+    assert!(scene.hold_look(Some(1)));
+    frame(&mut scene, gpu, &screen, 0.016, 0.0);
+    let c = screen.middle(&device, &queue);
+    assert!(close(c, [0.5, 0.5, 0.0]), "{c:?}");
+    let view = scene.looks_view().unwrap();
+    assert!(view.held);
+    assert_eq!(
+        (view.state.prev, view.state.to, view.state.changes),
+        (2, 1, 1)
+    );
+    assert!(scene.hold_look(None));
+    assert!(!scene.looks_view().unwrap().held);
+
+    let dir = looks_scene("no-looks", "");
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    frame(&mut scene, gpu, &screen, 0.0, 0.0);
+    let c = screen.middle(&device, &queue);
+    assert!(close(c, [0.0, 0.0, 0.0]), "{c:?}");
+    assert!(scene.looks_view().is_none());
+    assert!(!scene.hold_look(Some(0)));
+}
+
+#[test]
+fn a_held_look_survives_a_reload_of_the_scene() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("SKIPPED: no GPU adapter");
+        return;
+    };
+    let gpu = (&device, &queue);
+    let screen = Screen::new(&device);
+    let dir = looks_scene("held-look", "[[look]]\n[[look]]\n");
+    let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
+    frame(&mut scene, gpu, &screen, 0.0, 0.0);
+    assert!(scene.hold_look(Some(1)));
+    std::fs::write(
+        dir.join(MANIFEST),
+        std::fs::read_to_string(dir.join(MANIFEST)).unwrap() + "[[look]]\n[[look]]\n",
+    )
+    .unwrap();
+    assert!(scene.reload(&device, &queue).unwrap());
+    // Another number of looks: it starts over, not held.
+    let view = scene.looks_view().unwrap();
+    assert_eq!(view.names.len(), 4);
+    assert!(!view.held);
+    // The same number of looks (a change elsewhere): the look on and the hold stay.
+    assert!(scene.hold_look(Some(3)));
+    frame(&mut scene, gpu, &screen, 0.0, 0.0);
+    let text = std::fs::read_to_string(dir.join(MANIFEST)).unwrap();
+    std::fs::write(
+        dir.join(MANIFEST),
+        text.replace("tonemap = \"none\"", "tonemap = \"aces\""),
+    )
+    .unwrap();
+    assert!(scene.reload(&device, &queue).unwrap());
+    let view = scene.looks_view().unwrap();
+    assert!(view.held);
+    assert_eq!(view.state.to, 3);
+}
+
 /// The counter with two inputs and two binds: `level` follows the meter (4 beats in a bar, from
 /// 0 to 8: one half), `dist` adds the meter per second (so 4 each second), and `idle` has no
 /// bind and stays at its rest.

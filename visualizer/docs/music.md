@@ -422,6 +422,7 @@ The runtime's own decisions are bindings too: `runtime.toml` (embedded in the vi
 | `director.sizes` | no source | `quiet`, `normal`, `high`: five numbers each, how much wide, medium, close, detail and top are wanted in a section of that tier (3, 3, 1, 0, 1 / 2, 3, 2, 1, 1 / 1, 2, 3, 2, 1) |
 | `director.cut` | `bars`, fallback `hits` | `grace` 2 s |
 | `director.burst` | `cue_in`, on each `on = beats`, a lift of `to` minus `from` | `lift` 0.1 |
+| `look.change` | `cues` (a section start with a chart; any cue without) | `strength` 0.5, `gap` 8 s, `strength_unlabelled` 0, `gap_unlabelled` 30 s, `fade` 1 beat, `fade_seconds` 0.5 s |
 | `switch.place` | `cues` at A and B (a section start that differs), `cues` at C (any) | `strength`, `lift`, `change`, `levels`, `any` |
 | `switch.early` | `cue_in`, to start the fade before the place | |
 | `switch.timing` | no source | `min` 30, `lead` 8, `relax` 60, `max` 90, `grace` 2 s |
@@ -514,6 +515,80 @@ The burst and the section start right after it are one group, which the gap does
 **The punch on a burst's cuts.** Every cut of a burst (`fill` 1 to 4, no chance roll: bursts are rare) gets a short accent from the transition pass, drawn over the live frame only (it holds no picture, so a scene pays for the pass only while it plays): the view starts scaled up by 7 % and settles to 1 over 0.12 s, eased out; a smear of a few taps along a diagonal that changes side with each cut; a slight colour split outwards from the centre; and a faint flash towards the light tint of the theme colour (at most 15 % of the way, never white). All of it fades with the pop, and its strength rises through the burst, 0.4, 0.6, 0.8 and 1.0 for `fill` 1 to 4, so the last cut hits hardest. A dressed cut or a switch under way takes precedence over a punch. In a scene that draws straight into the output (nothing listed to dress its cuts) the punch starts one frame after the cut, since the cut's own frame is already drawn. A scene lab starts a burst by hand with `B` (the next beats, one per declared shot, or the same cuts a quarter second apart without a followed beat; nothing for a scene that declares none).
 
 A scene that wants to dress its cuts reads `cuts`; the runtime itself knows each cut too (`Scene::cut_this_frame`), which the transition layer will use.
+
+## Looks
+
+A scene may have more than one look: a large visual change of the whole picture, such as the light (a low sun, a high one, the blue hour) or the palette. The scene declares its looks and draws them; the runtime decides when the look changes and to which, following the music, and tells the scene through `struct Look`. A scene without `[[look]]` has none: it works as it always did, and `look` reads zeros. Like the director the looks are per scene and start again at a scene switch (`src/scene/looks.rs`).
+
+**A look is a large visual change, nothing smaller.** A change of what moves or what is drawn (the formation of Torii Sea's spirits, a dance move) is not a look: it stays on a binding or a shot, picked by the section. Look changes are rare (a few in a song, at least 8 s apart) and fade, so a look should be something the eye takes as another light, not another motion.
+
+### What a scene declares
+
+```toml
+[[look]]
+name = "low sun"     # for people: the lab lists it
+tags = ["warm"]      # optional hints for the runtime and the lab; declared only, nothing reads them yet
+weight = 1.0         # optional, default 1: how often a kind of section picks it against the others
+
+[[look]]
+name = "day"
+opens = false        # optional, default true: whether the scene may start in this look
+```
+
+- `weight` is a number, 0 or more: a look of 2 is picked twice as often as one of 1, and one of 0 is never picked while another has a chance. A scene whose looks all have weight 0 is refused.
+- `opens = false` keeps the scene from starting in the look (Torii Sea never starts in daylight). A section may still change to it later. A scene whose looks all have `opens = false` is refused.
+- `tags` are strings and only declared: they are in the manifest for the lab and for a later rule (night first, say), and no code reads them.
+
+### What `struct Look` holds
+
+`look` is available to `update()` and to every pass, on a binding of its own (slot 18, after the inputs). The scene draws the look `prev` and the look `to` and blends them by `mix`, as Growth blended its themes.
+
+| Field | Type, range | Meaning |
+|---|---|---|
+| `prev` | u32 | The look before this one, as the order of the `[[look]]`s of `scene.toml` from 0. (`from` would be the natural name, but WGSL reserves it.) |
+| `to` | u32 | The look now. |
+| `mix` | f32, 0 to 1 | How far the fade from `prev` to `to` is, already eased (smoothstep). 1 when no fade is under way. |
+| `changes` | u32 | How many changes so far: a new count is a fresh fade. |
+
+At the scene's start `prev` equals `to` and `mix` is 1.
+
+### The rules
+
+They are `look.change` in `runtime.toml` (`when`: `strength` 0.5, `gap` 8 s, `strength_unlabelled` 0, `gap_unlabelled` 30 s, `fade` 1 beat, `fade_seconds` 0.5 s), the same for every scene, and a scene lab can edit them.
+
+1. **A section start changes the look.** A cue of `strength` or more with a chart (a section start) changes the look to the one the section's label picks: a roll from `rv_label_hash`'s hash of the label, by the looks' `weight`. So every chorus has the same look and a song plays the same each time.
+2. **The look on is kept.** If the pick is the look on, nothing changes (and the gap does not start again): the look stays tied to the kind of section.
+3. **At least `gap` seconds between two changes.** The scene's start counts as one, so a scene keeps the look it opened in for that long.
+4. **Without a chart** there are no labels. A cue of `strength_unlabelled` or more (any cue) changes the look to the next in an order made from the scene's seed, at least `gap_unlabelled` seconds after the last change: reproducible, not random.
+5. **The fade** lasts `fade` beats with a followed beat, else `fade_seconds`, eased.
+6. **The first look** is picked among the looks that `opens`, by weight, from the seed of the scene's first frame.
+
+A scene lab holds a look (`LabCommand::Look(Some(i))`: a change to look `i` with the usual fade, then no more changes) and hands it back with `Look(None)`. A hold stays when the scene's files are saved, if the scene still has as many looks. `Inspect.looks` has the names, the look on, the fade and whether it is held; the timeline marks every change.
+
+### Example
+
+```toml
+# scene.toml
+[[look]]
+name = "low sun"
+tags = ["warm"]
+
+[[look]]
+name = "blue hour"
+tags = ["night"]
+weight = 2
+```
+
+```wgsl
+fn palette(i: u32) -> vec3f { /* the scene's own drawing of look i */ }
+
+fn shade(px: Pixel) -> vec4f {
+  let colour = mix(palette(look.prev), palette(look.to), look.mix);
+  ...
+}
+```
+
+The scene never decides a change: it draws `prev`, `to` and `mix`, and reacts to `look.changes` only for what it must restart.
 
 ## Parameters for tuning
 

@@ -20,7 +20,7 @@ pub use eval::{
 pub use level::{Level, forced_chart};
 pub use runtime::EMBEDDED as RUNTIME_TOML;
 pub use runtime::{
-    Ahead, CourseBinds, DirectorBinds, Heard, MomentBinds, Pick, Place, RuntimeBindings, Said,
-    SwitchBinds, Trigger, counts_here,
+    Ahead, CourseBinds, DirectorBinds, Heard, LookBinds, LookCue, MomentBinds, Pick, Place,
+    RuntimeBindings, Said, SwitchBinds, Trigger, counts_here,
 };
 pub use sources::{Reading, SOURCES, Source, find, names};

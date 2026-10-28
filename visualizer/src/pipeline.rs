@@ -27,7 +27,7 @@ use crate::inspect::{LabLens, LabOverrides, LabPace, LabTransition};
 use crate::moments::Chances;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
-use crate::scene::{DirectorView, FrameInput, MusicValues, Scene, Source};
+use crate::scene::{DirectorView, FrameInput, LooksView, MusicValues, Scene, Source};
 #[cfg(target_os = "windows")]
 use crate::shared_dx12::{SharedTargets, SharedTexture};
 #[cfg(target_os = "linux")]
@@ -612,6 +612,11 @@ impl Pipeline {
         self.scene.director_view()
     }
 
+    /// What a readout shows of the looks of the scene being drawn.
+    pub fn looks_view(&self) -> Option<LooksView> {
+        self.scene.looks_view()
+    }
+
     /// The transition under way at `time` (the render loop's) and how far it is, 0 to 1 over
     /// the whole of it (a fade's out and in together).
     pub fn transition_progress(&self, time: f64) -> Option<(Transition, f32)> {
@@ -746,6 +751,12 @@ impl Pipeline {
     /// [`Scene::hold_shot`]); whether it could.
     pub fn hold_shot(&mut self, index: Option<u32>) -> bool {
         self.latest_mut().hold_shot(index)
+    }
+
+    /// The newest scene holds look `index`, or with none hands its look back to the runtime (see
+    /// [`Scene::hold_look`]); whether it could.
+    pub fn hold_look(&mut self, index: Option<u32>) -> bool {
+        self.latest_mut().hold_look(index)
     }
 
     /// The newest scene's director steps to the next pace (see [`Scene::cycle_pace`]).

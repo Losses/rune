@@ -88,6 +88,10 @@ pub struct Manifest {
     /// [`BurstShot`]). Without any, the scene has no burst.
     #[serde(default, rename = "burst")]
     pub bursts: Vec<BurstShot>,
+    /// The looks of the scene: large visual changes (the light, the palette) the runtime changes
+    /// between by the music (see [`Look`]). Without any, the scene has none.
+    #[serde(default, rename = "look")]
+    pub looks: Vec<Look>,
     /// The transitions and lens effects the scene takes (see [`Effects`]).
     #[serde(default)]
     pub effects: Effects,
@@ -270,6 +274,29 @@ impl Shot {
     pub fn opens(&self) -> bool {
         self.opens.unwrap_or(self.size == ShotSize::Wide)
     }
+}
+
+/// One `[[look]]`: a large visual change of the scene (its light, its palette), which the scene
+/// draws and the runtime decides when to change to (`docs/music.md`, "Looks"). A change of what
+/// moves or what is drawn (a formation, a dance) is not a look.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Look {
+    /// For people: the lab lists it.
+    #[serde(default)]
+    pub name: String,
+    /// Hints for the runtime and the lab ("warm", "night"). Only declared for now: nothing reads
+    /// them yet.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// How often the runtime picks this look against the scene's others for a kind of section: 0
+    /// never (while another has a chance), 2 twice as often as 1. It is finite and 0 or more.
+    #[serde(default = "one")]
+    pub weight: f32,
+    /// Whether the scene may start in this look. A scene that never starts in daylight sets it to
+    /// false on its day.
+    #[serde(default = "yes")]
+    pub opens: bool,
 }
 
 /// The most `[[burst]]` shots a scene declares: the burst cuts on one beat each, and four is the
@@ -541,6 +568,10 @@ pub struct Buffer {
 
 fn one() -> f32 {
     1.0
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -842,6 +873,23 @@ impl Manifest {
             self.bursts.is_empty() || !self.shots.is_empty(),
             "[[burst]] needs at least one [[shot]]"
         );
+        for (i, look) in self.looks.iter().enumerate() {
+            ensure!(
+                look.weight.is_finite() && look.weight >= 0.0,
+                "[[look]] {} ({:?}): weight must be a number, 0 or more, not {}",
+                i + 1,
+                look.name,
+                look.weight
+            );
+        }
+        ensure!(
+            self.looks.is_empty() || self.looks.iter().any(|look| look.weight > 0.0),
+            "the [[look]]s all have weight = 0, so the runtime could never pick one: give at least one a weight above 0"
+        );
+        ensure!(
+            self.looks.is_empty() || self.looks.iter().any(|look| look.opens),
+            "the [[look]]s all have opens = false, so the scene could not start in any: let at least one open"
+        );
         for unknown in self.effects.unknown() {
             log::warn!("{unknown} is not an effect this runtime knows; it is left out");
         }
@@ -1104,6 +1152,68 @@ size = "detail"
         let all = format!("{:#}", Manifest::parse(&all).unwrap_err());
         assert!(
             all.contains("weight = 0") && all.contains("[[shot]]"),
+            "{all}"
+        );
+    }
+
+    const LOOKS: &str = r##"
+[[look]]
+name = "low sun"
+tags = ["warm"]
+
+[[look]]
+name = "day"
+weight = 2.5
+opens = false
+
+[[look]]
+"##;
+
+    #[test]
+    fn looks_are_read_with_their_defaults() {
+        assert!(Manifest::parse(SMALL).unwrap().looks.is_empty());
+        let m = Manifest::parse(&format!("{SMALL}{LOOKS}")).unwrap();
+        assert_eq!(m.looks.len(), 3);
+        assert_eq!(m.looks[0].name, "low sun");
+        assert_eq!(m.looks[0].tags, ["warm"]);
+        assert_eq!((m.looks[0].weight, m.looks[0].opens), (1.0, true));
+        assert_eq!((m.looks[1].weight, m.looks[1].opens), (2.5, false));
+        assert_eq!(m.looks[2].name, "");
+        assert!(m.looks[2].tags.is_empty());
+    }
+
+    #[test]
+    fn a_bad_look_is_named() {
+        let with = |from: &str, to: &str| {
+            let text = format!("{SMALL}{LOOKS}").replacen(from, to, 1);
+            assert_ne!(
+                text,
+                format!("{SMALL}{LOOKS}"),
+                "{from:?} is not in the looks"
+            );
+            format!("{:#}", Manifest::parse(&text).unwrap_err())
+        };
+        let negative = with("weight = 2.5", "weight = -1");
+        assert!(
+            negative.contains("[[look]] 2") && negative.contains("0 or more"),
+            "{negative}"
+        );
+        assert!(with("weight = 2.5", "weight = nan").contains("weight"));
+        let key = with("opens = false", "open = false");
+        assert!(key.contains("open") && key.contains("opens"), "{key}");
+        assert!(with("tags = [\"warm\"]", "tags = \"warm\"").contains("tags"));
+        let parse = |looks: &str| Manifest::parse(&format!("{SMALL}{looks}"));
+        let closed = "[[look]]\nopens = false\n[[look]]\nopens = false\n";
+        let message = format!("{:#}", parse(closed).unwrap_err());
+        assert!(message.contains("opens = false"), "{message}");
+        // One look at weight 0 is fine, all of them are not.
+        assert!(parse("[[look]]\nweight = 0\n[[look]]\n").is_ok());
+        let all = format!(
+            "{:#}",
+            parse("[[look]]\nweight = 0\n[[look]]\nweight = 0\n").unwrap_err()
+        );
+        assert!(
+            all.contains("weight = 0") && all.contains("[[look]]"),
             "{all}"
         );
     }

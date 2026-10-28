@@ -28,6 +28,8 @@ pub const BIND_ASSETS: u32 = 12;
 pub const BIND_SHOT: u32 = 16;
 /// `struct Inputs`, the values the scene's bindings drive.
 pub const BIND_INPUT: u32 = 17;
+/// `struct Look`, which look the scene is in and how far a fade to it has come.
+pub const BIND_LOOK: u32 = 18;
 
 /// `struct Frame` is 64 bytes: time, dt, index, first, resolution (vec2f), aspect, seed, the
 /// app's accent colour (vec4f) at 32, how many covers the atlas holds (u32) at 48 and the quality
@@ -37,6 +39,8 @@ pub const FRAME_SIZE: u64 = 64;
 pub const POST_SIZE: u64 = 64;
 /// `struct Shot` is 32 bytes: eight words, see [`SHOT`].
 pub const SHOT_SIZE: u64 = 32;
+/// `struct Look` is 16 bytes: four words, see [`LOOK`].
+pub const LOOK_SIZE: u64 = 16;
 
 pub const FRAME: &str = "struct Frame {
   time: f32,
@@ -73,6 +77,21 @@ pub const SHOT: &str = "struct Shot {
   length: f32,
   // 0 normally; 1.. is the position in the burst of cuts before a section or a phrase ends.
   fill: u32,
+}
+";
+
+/// What the runtime tells the scene about its looks (see `docs/music.md`, "Looks"); all zeros
+/// for a scene without `[[look]]`s.
+pub const LOOK: &str = "struct Look {
+  // The look before this one, as the order of the [[look]]s of scene.toml from 0. (Not `from`,
+  // which WGSL reserves.)
+  prev: u32,
+  // The look now.
+  to: u32,
+  // 0..1 through the fade from `prev` to `to`, already eased.
+  mix: f32,
+  // How many changes so far: a new one starts a fade.
+  changes: u32,
 }
 ";
 
@@ -225,6 +244,7 @@ pub fn prelude(manifest: &Manifest, stage: Stage) -> String {
     s.push_str(FRAME);
     s.push_str(&music_struct());
     s.push_str(SHOT);
+    s.push_str(LOOK);
     s.push_str(POST);
     s.push_str(PIXEL);
     s.push_str(&ParamsLayout::new(manifest).wgsl);
@@ -240,6 +260,7 @@ pub fn prelude(manifest: &Manifest, stage: Stage) -> String {
 @group(0) @binding({BIND_MUSIC}) var<uniform> music: Music;
 @group(0) @binding({BIND_PARAMS}) var<uniform> params: Params;
 @group(0) @binding({BIND_SHOT}) var<uniform> shot: Shot;
+@group(0) @binding({BIND_LOOK}) var<uniform> look: Look;
 @group(0) @binding({BIND_INPUT}) var<uniform> input: Inputs;
 @group(0) @binding({BIND_STATE}) var<storage, {state_access}> state: State;
 @group(0) @binding({BIND_SPECTRUM}) var spectrum: texture_2d<f32>;
@@ -571,6 +592,47 @@ inputs = ["prev:trail"]
         }
         assert!(BIND_ASSETS + super::super::manifest::MAX_ASSETS as u32 <= BIND_SHOT);
         const { assert!(BIND_SHOT < BIND_INPUT) };
+    }
+
+    #[test]
+    fn every_module_sees_the_look() {
+        let m = manifest();
+        for stage in [Stage::Update, Stage::Pass] {
+            let text = prelude(&m, stage);
+            assert!(text.contains(&format!("@binding({BIND_LOOK}) var<uniform> look: Look;")));
+            assert!(text.contains("struct Look {"));
+        }
+        // The slot is its own: after the inputs, past the assets and the shot, and the struct is
+        // its four words.
+        const { assert!(BIND_INPUT < BIND_LOOK) };
+        assert!(BIND_ASSETS + super::super::manifest::MAX_ASSETS as u32 <= BIND_SHOT);
+        assert_eq!(LOOK_SIZE, 16);
+    }
+
+    #[test]
+    fn no_two_bindings_share_a_slot() {
+        let mut slots = vec![
+            BIND_FRAME,
+            BIND_MUSIC,
+            BIND_PARAMS,
+            BIND_STATE,
+            BIND_POST,
+            BIND_SPECTRUM,
+            BIND_WAVEFORM,
+            BIND_BLUE_NOISE,
+            BIND_LINEAR_CLAMP,
+            BIND_LINEAR_REPEAT,
+            BIND_NEAREST_CLAMP,
+            BIND_COVERS,
+            BIND_SHOT,
+            BIND_INPUT,
+            BIND_LOOK,
+        ];
+        slots.extend(BIND_ASSETS..BIND_ASSETS + super::super::manifest::MAX_ASSETS as u32);
+        let mut sorted = slots.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), slots.len(), "{slots:?}");
     }
 
     #[test]

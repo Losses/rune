@@ -5,7 +5,7 @@
 
 use crate::bind::{Level, Report, Used};
 use crate::scene::Pace;
-use crate::scene::{DirectorView, Effects, LensView, MusicValues};
+use crate::scene::{DirectorView, Effects, LensView, LooksView, MusicValues};
 use crate::switching::FOLLOWED;
 use crate::transition::{CutInStyle, Transition};
 
@@ -26,6 +26,8 @@ pub struct Inspect {
     pub sections: Vec<InspectSection>,
     /// The camera director of the scene on screen, if the scene declares shots.
     pub director: Option<InspectDirector>,
+    /// The looks of the scene on screen, if the scene declares any.
+    pub looks: Option<InspectLooks>,
     /// The transitions and lens effects the scene on screen declares.
     pub effects: InspectEffects,
     pub switching: InspectSwitching,
@@ -235,6 +237,23 @@ pub struct InspectDirector {
     pub pace_overridden: bool,
 }
 
+/// The looks of the scene on screen (see [`LabCommand::Look`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InspectLooks {
+    /// The scene's looks in order (the numbers of [`LabCommand::Look`]): the `name` of each, empty
+    /// if it has none.
+    pub names: Vec<String>,
+    /// The look on, and the one before it.
+    pub on: u32,
+    pub prev: u32,
+    /// How far the fade from the one before is, 0 to 1 (eased).
+    pub mix: f32,
+    /// How many changes so far: a lab marks the timeline where it grows.
+    pub changes: u32,
+    /// Whether the look is held, so that the runtime does not change it.
+    pub held: bool,
+}
+
 /// One of the scene's shots.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InspectShot {
@@ -394,6 +413,10 @@ pub enum LabCommand {
     /// `Some(i)`: cut to shot `i` (from 0) and hold it, so that the director cuts no more, until
     /// `None`. The hold ends with the scene: another scene has its own director.
     Shot(Option<u32>),
+    /// `Some(i)`: change to look `i` (from 0) now with the usual fade and hold it, so that the
+    /// runtime changes the look no more, until `None`, which hands the look back to the runtime.
+    /// A hold stays when the scene's files are saved.
+    Look(Option<u32>),
     /// Switch to the next scene now, as the automatic switch would, built in the background.
     NextScene(LabTransition),
     /// Step the pace of the scene on screen: its own, then sections, calm, normal and busy, then
@@ -482,6 +505,19 @@ impl InspectMusic {
             cue_in: music.cue_in,
             impact: music.impact,
             has_chart: music.has_chart != 0,
+        }
+    }
+}
+
+impl InspectLooks {
+    pub(crate) fn of(view: LooksView) -> Self {
+        Self {
+            names: view.names,
+            on: view.state.to,
+            prev: view.state.prev,
+            mix: view.state.mix,
+            changes: view.state.changes,
+            held: view.held,
         }
     }
 }

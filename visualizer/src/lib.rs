@@ -63,8 +63,8 @@ pub use chart::{Chart, ChartState};
 use chart::{ChartFollower, Playback};
 pub use inspect::{
     Inspect, InspectBinding, InspectDirector, InspectEffects, InspectInput, InspectLens,
-    InspectMusic, InspectSection, InspectShot, InspectSignal, InspectSwitching, InspectTransition,
-    LabCommand, LabLens, LabOverrides, LabPace, LabTransition,
+    InspectLooks, InspectMusic, InspectSection, InspectShot, InspectSignal, InspectSwitching,
+    InspectTransition, LabCommand, LabLens, LabOverrides, LabPace, LabTransition,
 };
 use loading::Loads;
 pub use moments::{Chances, EffectLevel};
@@ -1406,6 +1406,11 @@ fn lab(
                 info!("The scene has no shot {index:?} to hold");
             }
         }
+        LabCommand::Look(index) => {
+            if !pipeline.hold_look(index) {
+                info!("The scene has no look {index:?} to hold");
+            }
+        }
         LabCommand::CyclePace => pipeline.cycle_pace(),
         LabCommand::PaceWith(pace) => pipeline.set_pace(pace),
         LabCommand::SwitchWith(transition) => pipeline.set_lab_switch(transition),
@@ -1459,6 +1464,7 @@ fn inspection(
         signals: InspectSignal::all(pipeline.music(), pipeline.bound_cut()),
         sections: charts.sections(),
         director: pipeline.director_view().map(InspectDirector::of),
+        looks: pipeline.looks_view().map(InspectLooks::of),
         effects: InspectEffects::of(pipeline.effects()),
         lens: {
             let mut lens = InspectLens::from(pipeline.lens_view());

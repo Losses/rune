@@ -243,6 +243,20 @@ const SPECS: &[Spec] = &[
         several: true,
     },
     Spec {
+        target: "look.change",
+        hows: TRIGGER,
+        kind: Kind::Event,
+        keys: &[
+            "strength",
+            "gap",
+            "fade",
+            "fade_seconds",
+            "strength_unlabelled",
+            "gap_unlabelled",
+        ],
+        several: false,
+    },
+    Spec {
         target: "course.length",
         hows: STEP,
         kind: Kind::Bars,
@@ -810,6 +824,98 @@ impl DirectorBinds {
     }
 }
 
+/// `look.change`: when a scene's look changes and over how long (see `scene::looks`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LookBinds {
+    pub(crate) change: Pick,
+    /// The least strength of a cue that changes the look where the song is charted (the
+    /// sections have labels), and the least seconds between two changes.
+    pub(crate) strength: f32,
+    pub(crate) gap: f32,
+    /// The same without a chart, where weaker cues change the look, further apart.
+    pub(crate) strength_unlabelled: f32,
+    pub(crate) gap_unlabelled: f32,
+    /// How long the fade is, in beats while the beat is followed, else in seconds.
+    pub(crate) fade: f32,
+    pub(crate) fade_seconds: f32,
+}
+
+/// What changes a look in a frame (see [`LookBinds::cue`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LookCue {
+    /// A section starts, and its label picks the look.
+    Section,
+    /// A weaker cue, with no sections to go by: the next look in the scene's order.
+    Unlabelled,
+}
+
+impl LookBinds {
+    fn new(binds: &[&Bound]) -> Result<Self> {
+        let change = binds
+            .iter()
+            .find(|b| b.spec.target == "look.change")
+            .expect("checked");
+        let seconds = |key: &str, default: f32| -> Result<f32> {
+            let value = change.num(key, default)?;
+            change.require(value >= 0.0, &format!("`when.{key}` must not be negative"))?;
+            Ok(value)
+        };
+        let strength = seconds("strength", 0.5)?;
+        let strength_unlabelled = seconds("strength_unlabelled", 0.0)?;
+        let gap = seconds("gap", 8.0)?;
+        let gap_unlabelled = seconds("gap_unlabelled", 30.0)?;
+        let fade = seconds("fade", 1.0)?;
+        let fade_seconds = seconds("fade_seconds", 0.5)?;
+        change.require(
+            gap_unlabelled >= gap,
+            "`when.gap_unlabelled` must not be less than `when.gap`",
+        )?;
+        Ok(Self {
+            change: change.pick(),
+            strength,
+            gap,
+            strength_unlabelled,
+            gap_unlabelled,
+            fade,
+            fade_seconds,
+        })
+    }
+
+    /// What changes the look in this frame, if anything: a cue of the strength the frame's level
+    /// asks for. With a chart that is a section start; without one, any cue that is strong
+    /// enough for `strength_unlabelled`.
+    pub fn cue(&self, music: &MusicValues) -> Option<LookCue> {
+        let reading = self
+            .change
+            .said(music)
+            .reading()
+            .filter(|reading| reading.count > 0)?;
+        if Level::of(music) == Level::C {
+            (reading.value >= self.strength_unlabelled).then_some(LookCue::Unlabelled)
+        } else {
+            (reading.value >= self.strength).then_some(LookCue::Section)
+        }
+    }
+
+    /// The least seconds between two changes after a change of this kind.
+    pub fn gap(&self, cue: LookCue) -> f32 {
+        match cue {
+            LookCue::Section => self.gap,
+            LookCue::Unlabelled => self.gap_unlabelled,
+        }
+    }
+
+    /// How long the fade to another look lasts in this frame's music, in seconds: `fade` beats
+    /// while the beat is followed, else `fade_seconds`.
+    pub fn fade_length(&self, music: &MusicValues) -> f32 {
+        if music.locked > FOLLOWED && music.tempo > 0.0 {
+            self.fade * 60.0 / music.tempo
+        } else {
+            self.fade_seconds
+        }
+    }
+}
+
 /// One `switch.place` bind.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Place {
@@ -1044,6 +1150,7 @@ pub struct RuntimeBindings {
     pub moments: Arc<MomentBinds>,
     pub director: Arc<DirectorBinds>,
     pub switching: Arc<SwitchBinds>,
+    pub looks: Arc<LookBinds>,
     pub course: CourseBinds,
     rows: Vec<Row>,
     text: String,
@@ -1098,6 +1205,7 @@ impl RuntimeBindings {
             moments: Arc::new(MomentBinds::new(&area("moments."))?),
             director: Arc::new(DirectorBinds::new(&area("director."))?),
             switching: Arc::new(SwitchBinds::new(&area("switch."))?),
+            looks: Arc::new(LookBinds::new(&area("look."))?),
             course: CourseBinds::new(&area("course."))?,
             rows: bound
                 .iter()
@@ -1186,6 +1294,12 @@ impl Default for SwitchBinds {
     }
 }
 
+impl Default for LookBinds {
+    fn default() -> Self {
+        (*RuntimeBindings::embedded().looks).clone()
+    }
+}
+
 impl Default for CourseBinds {
     fn default() -> Self {
         RuntimeBindings::embedded().course
@@ -1226,6 +1340,7 @@ pub(crate) mod tests {
         assert_eq!(count("moments.medium"), 2);
         assert_eq!(count("switch.place"), 2);
         assert_eq!(count("switch.forced"), 2);
+        assert_eq!(count("look.change"), 1);
     }
 
     #[test]
@@ -1249,6 +1364,63 @@ pub(crate) mod tests {
         bad("quiet = [0, 0, 0, 0, 0]", "all 0");
         bad("quiet = [3, 3, \"x\", 0, 1]", "number");
         bad("quiets = [3, 3, 1, 0, 1]", "quiets");
+    }
+
+    #[test]
+    fn look_change_reads_cues_by_the_level_and_a_bad_table_is_named() {
+        let binds = RuntimeBindings::embedded().looks.clone();
+        let charted = |strength: f32| MusicValues {
+            has_chart: 1,
+            cues: 1,
+            cue: strength,
+            ..MusicValues::default()
+        };
+        // With a chart only a section start (a cue of 0.5 or more) changes the look.
+        assert_eq!(binds.cue(&charted(0.5)), Some(LookCue::Section));
+        assert_eq!(binds.cue(&charted(0.49)), None);
+        assert_eq!(
+            binds.cue(&MusicValues {
+                has_chart: 1,
+                ..MusicValues::default()
+            }),
+            None
+        );
+        // Without, any cue does, further apart.
+        let weak = MusicValues {
+            cues: 1,
+            cue: 0.1,
+            ..MusicValues::default()
+        };
+        assert_eq!(binds.cue(&weak), Some(LookCue::Unlabelled));
+        assert_eq!(
+            (binds.gap(LookCue::Section), binds.gap(LookCue::Unlabelled)),
+            (8.0, 30.0)
+        );
+        // The fade is a beat while the beat is followed, else half a second.
+        let beat = MusicValues {
+            has_chart: 1,
+            locked: 1.0,
+            tempo: 60.0,
+            ..MusicValues::default()
+        };
+        assert_eq!(binds.fade_length(&beat), 1.0);
+        assert_eq!(binds.fade_length(&MusicValues::default()), 0.5);
+        let bad = |from: &str, to: &str, expect: &str| {
+            let message = error_of(from, to);
+            assert!(
+                message.contains("look.change") && message.contains(expect),
+                "{message}"
+            );
+        };
+        bad("gap = 8.0", "gap = -1.0", "gap");
+        bad("fade = 1.0", "fade = \"long\"", "fade");
+        bad("fade_seconds = 0.5", "fade_second = 0.5", "fade_second");
+        bad("gap = 8.0", "gap = 40.0", "gap_unlabelled");
+        bad(
+            "how = \"trigger\"\nwhen = { strength = 0.5, gap",
+            "how = \"follow\"\nwhen = { strength = 0.5, gap",
+            "how",
+        );
     }
 
     #[test]

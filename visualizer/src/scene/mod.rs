@@ -6,6 +6,7 @@ mod audio;
 mod director;
 mod inputs;
 mod lens;
+mod looks;
 pub use inputs::MusicValues;
 mod manifest;
 mod noise;
@@ -28,6 +29,8 @@ use director::Director;
 pub use director::DirectorView;
 use inputs::EventCounter;
 pub use lens::LensView;
+use looks::Looks;
+pub use looks::LooksView;
 pub use manifest::{Bind, Effects, FallbackDecl, InputDecl, Pace, Param, ParamKind};
 use manifest::{Format, Manifest, OUT, PREV, ShotMove, ShotSize, Value};
 use wgsl::{InputLayout, ParamsLayout};
@@ -427,6 +430,8 @@ pub struct Scene {
     music: wgpu::Buffer,
     /// `struct Shot`, the camera director's word to the scene.
     shot: wgpu::Buffer,
+    /// `struct Look`, the runtime's word on the scene's look.
+    look: wgpu::Buffer,
     params_buffer: wgpu::Buffer,
     /// `struct Inputs`, the values the scene's `[[bind]]`s drive, and what drives them.
     input_layout: InputLayout,
@@ -462,6 +467,8 @@ pub struct Scene {
     music_values: inputs::MusicValues,
     /// Decides the camera cuts, if the scene declares shots.
     director: Option<Director>,
+    /// Decides the look changes, if the scene declares looks.
+    looks: Option<Looks>,
     /// The shot a scene lab holds (see [`Scene::hold_shot`]), kept to hold it again when the
     /// scene is rebuilt from its saved files.
     held_shot: Option<u32>,
@@ -944,6 +951,7 @@ impl Scene {
             inputs::MusicValues::default().bytes().len() as u64,
         );
         let shot = uniform("scene shot", wgsl::SHOT_SIZE);
+        let look = uniform("scene look", wgsl::LOOK_SIZE);
         let params_buffer = uniform("scene params", params.size);
         queue.write_buffer(&params_buffer, 0, &params.pack(&files.param_values()));
         let input_layout = InputLayout::new(manifest);
@@ -1082,6 +1090,7 @@ impl Scene {
                 buffer_entry(wgsl::BIND_MUSIC, visibility, uniform),
                 buffer_entry(wgsl::BIND_PARAMS, visibility, uniform),
                 buffer_entry(wgsl::BIND_SHOT, visibility, uniform),
+                buffer_entry(wgsl::BIND_LOOK, visibility, uniform),
                 buffer_entry(wgsl::BIND_INPUT, visibility, uniform),
                 buffer_entry(
                     wgsl::BIND_STATE,
@@ -1121,6 +1130,7 @@ impl Scene {
                 (wgsl::BIND_MUSIC, music.as_entire_binding()),
                 (wgsl::BIND_PARAMS, params_buffer.as_entire_binding()),
                 (wgsl::BIND_SHOT, shot.as_entire_binding()),
+                (wgsl::BIND_LOOK, look.as_entire_binding()),
                 (wgsl::BIND_INPUT, input_buffer.as_entire_binding()),
                 (wgsl::BIND_STATE, state_buffer.as_entire_binding()),
                 (
@@ -1277,6 +1287,7 @@ impl Scene {
             frame,
             music,
             shot,
+            look,
             params_buffer,
             input_layout,
             input_buffer,
@@ -1304,6 +1315,7 @@ impl Scene {
             events: EventCounter::default(),
             music_values: inputs::MusicValues::default(),
             director: Director::for_manifest(manifest),
+            looks: Looks::for_manifest(manifest),
             held_shot: None,
             switch_transitions: manifest.effects.switch.clone(),
             cut_transitions: manifest.effects.cut.clone(),
@@ -1493,6 +1505,9 @@ impl Scene {
         if let Some(director) = &mut self.director {
             director.set_binds(runtime.director.clone(), runtime.moments.clone());
         }
+        if let Some(looks) = &mut self.looks {
+            looks.set_binds(runtime.looks.clone());
+        }
         self.lens.set_binds(runtime);
     }
 
@@ -1547,6 +1562,27 @@ impl Scene {
             None => {
                 director.release_shot();
                 self.held_shot = None;
+                true
+            }
+        }
+    }
+
+    /// What a readout shows of the scene's looks (none for a scene without looks).
+    pub fn looks_view(&self) -> Option<LooksView> {
+        self.looks.as_ref().map(Looks::view)
+    }
+
+    /// Change to look `index` now with the usual fade and hold it, so that the runtime changes
+    /// the look no more, or with none hand the look back to the runtime (see `Looks::hold`).
+    /// Whether the scene has the look.
+    pub fn hold_look(&mut self, index: Option<u32>) -> bool {
+        let Some(looks) = &mut self.looks else {
+            return false;
+        };
+        match index {
+            Some(index) => looks.hold(index, &self.music_values),
+            None => {
+                looks.release();
                 true
             }
         }
@@ -1674,6 +1710,10 @@ impl Scene {
         }
         if let Some(index) = self.held_shot {
             next.hold_shot(Some(index));
+        }
+        // The look on, its fade and a hold stay too.
+        if let (Some(old), Some(new)) = (&self.looks, &mut next.looks) {
+            new.inherit(old);
         }
         next.lens.set_forced(self.lens.forced());
         next.chances = self.chances;
@@ -1956,6 +1996,14 @@ impl Scene {
             .tick_cut(dt as f32, &music, &params, seed, cut);
         queue.write_buffer(&self.input_buffer, 0, &self.input_layout.pack(inputs));
         queue.write_buffer(&self.shot, 0, &shot);
+        let look = match &mut self.looks {
+            Some(looks) => {
+                looks.tick(dt as f32, &music, seed);
+                looks.state().bytes()
+            }
+            None => [0; wgsl::LOOK_SIZE as usize],
+        };
+        queue.write_buffer(&self.look, 0, &look);
         // The lens effects hear where the music is in its phrase before a moment starts one.
         self.lens.listen(&music);
         // A moment that plays an effect: a cut in it is dressed with a transition of the scene's
