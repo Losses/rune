@@ -46,15 +46,19 @@ move = "cut"
 name = "beside"
 size = "close"
 move = "cut"
-# Picked less often than the wide shots.
+# Picked less often than the wide shots, and never kept long: flying close beside them tires the
+# eye.
 weight = 0.4
+longest = 6.0
 
 [[shot]]
 name = "head on"
 size = "detail"
 move = "cut"
-# Picked less often than the wide shots.
+# Picked less often than the wide shots, and never kept long: flying close beside them tires the
+# eye.
 weight = 0.4
+longest = 6.0
 
 # The burst before a section that lifts, a cut on each of its last four beats, each from the
 # other side of the line: the formation passing a gate from above behind, right beside the
