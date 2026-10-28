@@ -20,7 +20,7 @@ use crate::switching::FOLLOWED;
 pub const QUIET_BELOW: f32 = 0.35;
 /// A section whose energy is above this is high.
 #[cfg(test)]
-pub const HIGH_ABOVE: f32 = 0.75;
+pub const HIGH_ABOVE: f32 = 0.71;
 // The cadence is in seconds, whatever the tempo: counted in bars, a fast song cut every few
 // seconds, far too often.
 /// Seconds between two cuts in a quiet section.
@@ -2236,8 +2236,8 @@ mod tests {
         assert_eq!(d.grace, HIT_GRACE_SECONDS);
         assert_eq!(d.lift, FILL_LIFT);
         assert_eq!(d.sizes[1], [2.0, 3.0, 2.0, 1.0, 1.0]);
-        assert_eq!(d.cadence.source().name, "section_energy");
-        assert_eq!(d.cadence.fallback_source().map(|s| s.name), Some("drive"));
+        assert_eq!(d.cadence.source().name, "section_level");
+        assert_eq!(d.cadence.fallback_source().map(|s| s.name), None);
         assert_eq!(d.cut.source().name, "bars");
         assert_eq!(d.cut.fallback_source().map(|s| s.name), Some("hits"));
         assert_eq!(d.burst.source().name, "cue_in");
@@ -2262,12 +2262,12 @@ mod tests {
     #[test]
     fn the_cadence_follows_the_source_the_file_names() {
         let embedded = crate::bind::RuntimeBindings::embedded();
-        // The section's energy, 0.2: a quiet section, a cut after 24 s.
+        // The section's level, 0.2: a quiet section, a cut after 24 s.
         assert_eq!(first_cut_by(&embedded), Some(52));
         // The drive, 0.8: a high one, after 10 s.
-        let when = "when = { below = 0.35, above = 0.65, seconds = [24.0, 16.0, 10.0], gap = 6.0, lead = 4.0 }";
+        let when = "when = { below = 0.35, above = 0.71, seconds = [24.0, 16.0, 10.0], gap = 6.0, lead = 4.0 }";
         let custom = crate::bind::tests::embedded_with(
-            &format!("source = \"section_energy\"\nhow = \"follow\"\n{when}\nfallback = \"drive\""),
+            &format!("source = \"section_level\"\nhow = \"follow\"\n{when}"),
             &format!("source = \"drive\"\nhow = \"follow\"\n{when}"),
         );
         assert_eq!(first_cut_by(&custom), Some(24));

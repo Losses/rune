@@ -59,19 +59,20 @@ fallback = { value = 2.0 }
 
 # How lively the section is, and so how often the shot cuts and which looks and shots suit it: its
 # level in the song (`section_level`: half its loudness, half its rank among the song's sections, so
-# every song has quiet and high parts and a loud one more high ones). Below `below` is quiet, above
-# `above` is high. `seconds` is the time between two cuts, [quiet, normal, high], beat or not (a
-# scene's `pace` scales it: calm times 1.5, busy divided by 1.5). `gap` is the shortest time between
-# any two cuts that are not inside one burst (a scene's `hold` only ever raises it): a cadence cut
-# that comes sooner waits, and a section start that comes sooner does not cut. `lead`: with the next
-# section start known, a cadence cut due less than this many seconds before it (or than `gap`, if
-# longer, so that the section start is not held back) waits and the section start cuts instead; a
-# cadence cut also waits when the burst before a lifting section would start within `gap` of it.
+# every song has quiet and high parts and a loud one more high ones; `above` 0.71 so that the first
+# chorus of a pop song loud throughout, 0.73, is high). Below `below` is quiet, above `above` is
+# high. `seconds` is the time between two cuts, [quiet, normal, high], beat or not (a scene's `pace`
+# scales it: calm times 1.5, busy divided by 1.5). `gap` is the shortest time between any two cuts
+# that are not inside one burst (a scene's `hold` only ever raises it): a cadence cut that comes
+# sooner waits, and a section start that comes sooner does not cut. `lead`: with the next section
+# start known, a cadence cut due less than this many seconds before it (or than `gap`, if longer, so
+# that the section start is not held back) waits and the section start cuts instead; a cadence cut
+# also waits when the burst before a lifting section would start within `gap` of it.
 [[bind]]
 target = "director.cadence"
 source = "section_level"
 how = "follow"
-when = { below = 0.35, above = 0.75, seconds = [24.0, 16.0, 10.0], gap = 6.0, lead = 4.0 }
+when = { below = 0.35, above = 0.71, seconds = [24.0, 16.0, 10.0], gap = 6.0, lead = 4.0 }
 
 # How much each size is wanted in a section of each tier, in the order wide, medium, close, detail,
 # top. At a cadence cut the director picks among the scene's shots whose size differs from the one

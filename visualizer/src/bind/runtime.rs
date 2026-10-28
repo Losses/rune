@@ -723,7 +723,7 @@ impl DirectorBinds {
         cadence.require(gap >= 0.0, "`when.gap` must not be negative")?;
         let lead = cadence.num("lead", 4.0)?;
         cadence.require(lead >= 0.0, "`when.lead` must not be negative")?;
-        let (below, above) = (cadence.num("below", 0.35)?, cadence.num("above", 0.75)?);
+        let (below, above) = (cadence.num("below", 0.35)?, cadence.num("above", 0.71)?);
         cadence.require(
             below <= above,
             "`when.below` must not be above `when.above`",
@@ -1431,7 +1431,7 @@ pub(crate) mod tests {
             message.contains("director.cadense") && message.contains("targets are"),
             "{message}"
         );
-        let message = error_of("source = \"section_energy\"", "source = \"loudness\"");
+        let message = error_of("source = \"section_level\"", "source = \"loudness\"");
         assert!(
             message.contains("director.cadence") && message.contains("loudness"),
             "{message}"
@@ -1441,7 +1441,10 @@ pub(crate) mod tests {
             message.contains("moments.strong") && message.contains("strenght"),
             "{message}"
         );
-        let message = error_of("fallback = \"drive\"", "fallback = \"hold\"");
+        let message = error_of(
+            "source = \"section_level\"\nhow = \"follow\"",
+            "source = \"section_level\"\nhow = \"follow\"\nfallback = \"hold\"",
+        );
         assert!(
             message.contains("director.cadence") && message.contains("hold"),
             "{message}"
@@ -1495,12 +1498,16 @@ pub(crate) mod tests {
             Level::C => MusicValues::default(),
         };
         let cadence = RuntimeBindings::embedded().director.cadence;
-        // The chart's energy where there is a chart, else the fallback.
-        assert!(matches!(cadence.said(&at(Level::A)), Said::Source(_)));
-        assert!(matches!(cadence.said(&at(Level::B)), Said::Source(_)));
+        // The section's level means something at every level.
+        for level in [Level::A, Level::B, Level::C] {
+            assert!(matches!(cadence.said(&at(level)), Said::Source(_)));
+        }
+        // The downbeats only with a followed beat, else the fallback.
+        let cut = RuntimeBindings::embedded().director.cut;
+        assert!(matches!(cut.said(&at(Level::A)), Said::Source(_)));
         assert!(matches!(
-            cadence.said(&at(Level::C)),
-            Said::Fallback(source, _) if source.name == "drive"
+            cut.said(&at(Level::C)),
+            Said::Fallback(source, _) if source.name == "hits"
         ));
         // `bars` count only with a followed beat.
         let gap = RuntimeBindings::embedded().moments.gap;
@@ -1515,7 +1522,7 @@ pub(crate) mod tests {
     fn the_report_shows_the_level_and_which_means_gave_the_value() {
         let runtime = RuntimeBindings::embedded();
         let music = MusicValues {
-            drive: 0.8,
+            level: 0.8,
             ..MusicValues::default()
         };
         let report = runtime.report(&music);
@@ -1524,9 +1531,11 @@ pub(crate) mod tests {
             .find(|r| r.target == "director.cadence")
             .unwrap();
         assert_eq!(cadence.level, Level::C);
-        assert_eq!(cadence.used, Used::Fallback("drive"));
+        assert_eq!(cadence.used, Used::Source);
         assert_eq!(cadence.output, 0.8);
-        assert_eq!(cadence.source, "section_energy");
+        assert_eq!(cadence.source, "section_level");
+        let cut = report.iter().find(|r| r.target == "director.cut").unwrap();
+        assert_eq!(cut.used, Used::Fallback("hits"), "no downbeats at level C");
         let burst = report
             .iter()
             .find(|r| r.target == "director.burst")
@@ -1544,10 +1553,10 @@ pub(crate) mod tests {
         assert_eq!(row("moments.gap").when, "{ every = 8 }");
         assert_eq!(row("moments.gap").fallback, "{ value = 2.0 }");
         assert_eq!(row("director.cut").fallback, "\"hits\"");
-        assert_eq!(row("director.cadence").fallback, "\"drive\"");
+        assert_eq!(row("director.cadence").fallback, "");
         assert_eq!(
             row("director.cadence").when,
-            "{ above = 0.65, below = 0.35, gap = 6.0, lead = 4.0, seconds = [24.0, 16.0, 10.0] }"
+            "{ above = 0.71, below = 0.35, gap = 6.0, lead = 4.0, seconds = [24.0, 16.0, 10.0] }"
         );
         // A bind with no source still shows its numbers, and one with nothing has none.
         assert!(row("switch.timing").when.contains("max = 90.0"));

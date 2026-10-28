@@ -426,9 +426,9 @@ mod tests {
             ..Default::default()
         };
         let bytes = m.bytes();
-        // 57 words padded to a multiple of 16 bytes; the newest are last and the old ones have
+        // 58 words padded to a multiple of 16 bytes; the newest are last and the old ones have
         // not moved.
-        assert_eq!(m.fields().len(), 57);
+        assert_eq!(m.fields().len(), 58);
         assert_eq!(bytes.len(), 240);
         assert_eq!(&bytes[0..4], &2.0f32.to_le_bytes());
         assert_eq!(&bytes[140..144], &1u32.to_le_bytes());
