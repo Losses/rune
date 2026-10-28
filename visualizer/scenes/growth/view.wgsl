@@ -218,11 +218,7 @@ fn shade_plate(p: vec3f, d: vec3f, h: Hit, th: Theme, pixel: f32) -> vec3f {
   let rod = th.rod * params.rod_light * (0.4 + 1.6 * state.rod) * to_rod / (1.0 + 0.2 * rr * rr) * f32(p.y < state.top + 3.0);
   // A broad sheen: what catches the light along the rounded edges.
   let sheen = pow(max(dot(n, normalize(th.sun - d)), 0.0), 24.0) * 0.08 * lit * s.open;
-  var c = albedo * (th.key * key + sky + rod) + th.key * sheen;
-  // New plates flash as they land, in the white light only: under a real light a flat white plate
-  // reads as unlit.
-  c += mix(th.rod, vec3f(1.0), 0.5) * 2.5 * pl.fresh * params.fresh * f32(params.style == 0u);
-  return c;
+  return albedo * (th.key * key + sky + rod) + th.key * sheen;
 }
 
 fn shade(px: Pixel) -> vec4f {
@@ -238,9 +234,8 @@ fn shade(px: Pixel) -> vec4f {
     let p = o + d * h.t;
     // How wide one pixel is, as an angle.
     let pixel = state.lens * 0.9 / px.size.y;
-    // Concrete fades into the sky only a little, as air does.
-    let fog = params.fog * select(1.0, 0.35, params.style == 1u);
-    col = mix(shade_plate(p, d, h, th, pixel), bg, 1.0 - exp(-h.t * 0.007 * fog));
+    // The tower fades into the sky only a little, as air does.
+    col = mix(shade_plate(p, d, h, th, pixel), bg, 1.0 - exp(-h.t * 0.007 * params.fog));
     // Seen from above, the tower sinks into the haze before the depth it is drawn to, so that
     // where it stops is never seen.
     if (state.deep > 0.0) {
@@ -270,10 +265,8 @@ fn shade(px: Pixel) -> vec4f {
   if (a > 1e-6) {
     let tc = max(-b / a, 0.0);
     let gap = length(o.xz + d.xz * tc);
-    // In the white light the glow shows through the plates a little, as through haze; concrete
-    // hides it.
-    let through = select(0.35, 0.0, params.style == 1u);
-    let seen = select(through, 1.0, tc < depth);
+    // The plates hide its glow.
+    let seen = f32(tc < depth);
     col += th.rod * 0.8 * params.rod_glow * (0.03 + 0.15 * state.rod) * exp(-gap * 2.5) * seen;
   }
 

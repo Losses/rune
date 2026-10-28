@@ -1,7 +1,7 @@
 format = 1
 name = "Growth"
 license = "MPL-2.0"
-description = "A tower of plates growing up into white light, a step on every beat"
+description = "A tower of concrete plates growing up, a step on every beat, its light changing with the sections"
 
 common = ["tower.wgsl"]
 
@@ -99,11 +99,12 @@ size = "top"
 
 [post]
 exposure = 0.0
-bloom = { intensity = 0.7, threshold = 0.95, radius = 0.8 }
+# Only the sun glares; the lens is a clean one.
+bloom = { intensity = 0.18, threshold = 0.95, radius = 0.8 }
 tonemap = "agx"
-grain = 0.04
-chromatic = 0.0008
-vignette = 0.12
+grain = 0.02
+chromatic = 0.0
+vignette = 0.25
 contrast = 0.95
 saturation = 0.85
 
@@ -157,12 +158,6 @@ rest = 0.65
 [[input]]
 id = "rod"
 label = "How bright the rod is, by the energy"
-
-[[input]]
-id = "theme_pick"
-label = "The white-light theme, by section (-1: none)"
-range = [-1.0, 4.0]
-rest = -1.0
 
 [[input]]
 id = "tone_pick"
@@ -242,13 +237,6 @@ how = "follow"
 when = { smooth = 1.0 }
 
 [[bind]]
-target = "theme_pick"
-source = "section_label"
-how = "pick"
-when = { options = 5 }
-fallback = "rest"
-
-[[bind]]
 target = "tone_pick"
 source = "section_label"
 how = "pick"
@@ -280,9 +268,9 @@ step = 0.01
 id = "glow"
 group = "Beat"
 label = "Glow"
-default = 0.7
+default = 0.18
 min = 0.0
-max = 3.0
+max = 1.0
 step = 0.05
 
 [[param]]
@@ -351,15 +339,6 @@ default = 0.35
 min = 0.0
 max = 1.0
 step = 0.01
-
-[[param]]
-id = "fresh"
-group = "Growth"
-label = "Flash of new plates"
-default = 1.0
-min = 0.0
-max = 3.0
-step = 0.05
 
 # ---- Tower ----
 
@@ -445,18 +424,10 @@ step = 1.0
 # ---- Look ----
 
 [[param]]
-id = "style"
-type = "choice"
-group = "Look"
-label = "Style"
-default = 1
-options = ["White light (the video)", "Concrete"]
-
-[[param]]
 id = "light"
 type = "choice"
 group = "Look"
-label = "Light on the concrete"
+label = "Light"
 default = 0
 options = ["By section", "Low warm sun", "High white sun", "Blue hour"]
 
@@ -514,14 +485,6 @@ max = 2.0
 step = 0.05
 
 [[param]]
-id = "theme"
-type = "choice"
-group = "Look"
-label = "Theme of the white light"
-default = 0
-options = ["By section", "Ivory", "Gold", "Midnight", "Rose", "Ice"]
-
-[[param]]
 id = "theme_fade"
 group = "Look"
 label = "Time to fade between themes"
@@ -544,9 +507,9 @@ step = 0.05
 id = "fog"
 group = "Look"
 label = "Haze"
-default = 0.6
+default = 0.2
 min = 0.0
-max = 4.0
+max = 1.5
 step = 0.05
 
 [[param]]

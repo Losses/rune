@@ -136,40 +136,28 @@ fn choose_view() {
   state.cuts = shot.cuts;
 }
 
-// How much darker or brighter a theme is exposed: midnight is a dark theme, which the tone mapping
-// would lift to grey at the bright themes' exposure; concrete's blue hour is lit by the rod alone.
+// How much darker or brighter a light is exposed: the high sun a little darker, the blue hour,
+// lit by the rod alone, brighter.
 fn theme_exposure(m: f32) -> f32 {
-  if (abs(m - 2.0) < 0.5) {
-    return -1.6;
-  }
-  if (abs(m - 6.0) < 0.5) {
+  if (abs(m - 1.0) < 0.5) {
     return -0.2;
   }
-  if (abs(m - 7.0) < 0.5) {
+  if (abs(m - 2.0) < 0.5) {
     return 0.6;
   }
   return 0.0;
 }
 
-// Pick the theme to change to, by the section's label (the declared `theme_pick` and `tone_pick`
-// inputs, -1 without a chart), so the same kind of section has the same colours (for concrete,
-// the same light).
+// Pick the light to change to, by the section's label (the declared `tone_pick` input, -1
+// without a chart), so the same kind of section has the same light.
 fn choose_theme(by_section: bool) {
   var m: f32;
-  if (params.style == 1u) {
-    if (params.light > 0u) {
-      m = 4.0 + f32(params.light);
-    } else if (by_section && input.tone_pick >= 0.0) {
-      m = 5.0 + input.tone_pick;
-    } else {
-      m = 5.0 + f32((u32(max(state.theme_to - 5.0, 0.0)) + 1u + u32(random(14u) * 2.0)) % 3u);
-    }
-  } else if (params.theme > 0u) {
-    m = f32(params.theme - 1u);
-  } else if (by_section && input.theme_pick >= 0.0) {
-    m = input.theme_pick;
+  if (params.light > 0u) {
+    m = f32(params.light - 1u);
+  } else if (by_section && input.tone_pick >= 0.0) {
+    m = input.tone_pick;
   } else {
-    m = f32((u32(state.theme_to) + 1u + u32(random(14u) * 4.0)) % 5u);
+    m = f32((u32(state.theme_to) + 1u + u32(random(14u) * 2.0)) % 3u);
   }
   state.theme_next = m;
   state.last_theme = frame.time;
@@ -240,7 +228,6 @@ fn update() {
   // The rod breathes with the energy (declared `rod`, smoothed over a beat). Flashes and glitches
   // are the runtime's shared effects.
   state.rod = input.rod;
-  let concrete = params.style == 1u;
 
   // The view changes when the director cuts (`shot.cuts`); the themes change on the music's
   // cues. A section's start (cue 0.5 or more) takes its own colours from its label, so every
@@ -255,10 +242,6 @@ fn update() {
     } else if (input.cue < 0.5 && t - state.last_theme > 16.0) {
       choose_theme(false);
     }
-  }
-  // A change of style changes the theme at once.
-  if (concrete != (state.theme_next > 4.5)) {
-    choose_theme(false);
   }
   if (state.theme_mix >= 1.0 && state.theme_next != state.theme_to) {
     state.theme_from = state.theme_to;
@@ -287,15 +270,8 @@ fn update() {
   // others.
   state.focus = select(distance(state.look, state.cam_pos), state.dist * 0.85, state.view <= 2u);
 
-  post.bloom_intensity = params.glow * (0.6 + 0.6 * input.drive);
+  // Only the sun glares (`glow`); the lens is a clean one (scene.toml's [post]).
+  post.bloom_intensity = params.glow;
   let dim = mix(theme_exposure(state.theme_from), theme_exposure(state.theme_to), smoothstep(0.0, 1.0, state.theme_mix));
   post.exposure = params.exposure + dim;
-  if (concrete) {
-    // Only the sun glares; the lens is a clean one.
-    post.bloom_intensity = 0.25 * params.glow;
-    post.exposure = params.exposure + dim;
-    post.chromatic = 0.0;
-    post.vignette = 0.25;
-    post.grain = 0.02;
-  }
 }

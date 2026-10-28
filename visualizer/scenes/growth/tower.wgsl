@@ -13,7 +13,6 @@ struct Plate {
   whole_h: vec3f,
   key: vec3f,
   on: f32,
-  fresh: f32,
   shade: f32,
 }
 
@@ -108,7 +107,6 @@ fn kept_from() -> f32 {
 fn plate_at_rest(c: vec3f, squares: Squares) -> Plate {
   var p: Plate;
   p.on = 0.0;
-  p.fresh = 0.0;
   let mid = (c + 0.5) * CELL;
   let r_max = squares.r_max;
   let ring = max(abs(mid.x), abs(mid.z));
@@ -178,7 +176,6 @@ fn plate(c: vec3f, squares: Squares) -> Plate {
   let due = appears_at(mid);
   var p: Plate;
   p.on = 0.0;
-  p.fresh = 0.0;
   if (state.top_to < due) {
     return p;
   }
@@ -199,9 +196,6 @@ fn plate(c: vec3f, squares: Squares) -> Plate {
   let shift = vec3f(out.x, 0.0, out.y) * away * CELL.x * 0.95 * params.fly;
   p.centre += shift;
   p.whole_c += shift;
-  // A flash as it lands, fading.
-  let landed = state.since_beat - params.arrive;
-  p.fresh = f32(due > state.top_prev) * select(0.35 * (1.0 - settle), exp(-landed * 8.0), landed > 0.0);
   return p;
 }
 
@@ -249,7 +243,7 @@ fn theme_now() -> Theme {
   return state.theme;
 }
 
-// The haze everything fades into (for concrete, the sky): brightest towards the light, deeper
+// The haze everything fades into, the sky: brightest towards the light, deeper
 // below.
 fn haze(d: vec3f, th: Theme) -> vec3f {
   let toward = max(dot(d, th.sun), 0.0);
