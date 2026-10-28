@@ -21,8 +21,9 @@ scale = 1.0
 # The camera's views, in the order the view numbers go (the lock below counts the same). The
 # director picks when to cut and to which; the scene glides there. The front view and the high one
 # show the lead with the field behind, so both are wide. The far views (the high one and the one
-# from above) are not for a climax, which wants the near ones (as Neon Street's); the front view
-# suits every section, so a high section can still open on it.
+# from above) are not for a climax, which wants the near ones (as Neon Street's), and the close one
+# beside the lead and the circling one are the climax's own; the front view and the low one suit
+# every section, so a high section can still open on the front.
 [camera]
 dutch = 0.3
 # The shortest shot, in seconds: twice the default glide, as a glide takes at most half a shot.
@@ -48,6 +49,7 @@ tiers = ["quiet", "normal"]
 name = "beside"
 size = "close"
 move = "glide"
+tiers = ["high"]
 
 [[shot]]
 name = "above"
@@ -59,6 +61,7 @@ tiers = ["quiet", "normal"]
 name = "circling"
 size = "medium"
 move = "glide"
+tiers = ["high"]
 
 # The burst before a section that lifts the energy: a hard cut on each of the last four beats, each
 # from a new place round the lead, nearer and then from above (update.wgsl's `view_shot` draws them
