@@ -44,6 +44,9 @@ struct State {
   // How far the picture is in the theme colour's look (0 the grey look, 1 the colour one), the
   // two looks blended as the runtime fades them.
   colour: f32,
+  // The subject the burst's detail shot films (see hero_row): its kind (HERO_*), its row and side,
+  // and 1 while it stands there (from the cut to it to the next cut), else 0.
+  hero: vec4f,
   // The rows ahead of the camera, worked out once a frame (update's fill_rows) so the pixels
   // need not: row0 is the row behind the camera's, and row i of the tables is row0 + i. For each
   // row and side (i * 2 + 0 left, + 1 right): its sign (as sign_of); its wall, what stands
@@ -92,6 +95,25 @@ const SHUTTER: f32 = 8.0;
 
 fn crossing(n: f32) -> bool {
   return n - BLOCK * floor(n / BLOCK) < 0.5;
+}
+
+// ---- The burst's subject ----
+// The burst's detail shot films one thing up close, and to be sure it is there it puts it there:
+// at the cut update picks the kind from the shot's seed (the same section, the same subject), a
+// row a little ahead and a side, and the row's generators give way to it until the next cut: its
+// signs, a torii over the street and a pole go, and on its side what stands before the shop is
+// the subject (or nothing, where the subject stands at the kerb). The street is as it was again
+// after the cut away.
+const HERO_TORII: f32 = 0.0;
+const HERO_BIKE: f32 = 1.0;
+const HERO_SIGNAL: f32 = 2.0;
+const HERO_LAMP: f32 = 3.0;
+const HERO_VENDING: f32 = 4.0;
+const HERO_SHRINE: f32 = 5.0;
+const HERO_KINDS: f32 = 6.0;
+
+fn hero_row(n: f32) -> bool {
+  return state.hero.w > 0.5 && n == state.hero.y;
 }
 
 // How busy the block of row n is, 0 quiet to 1 busy.
@@ -166,6 +188,9 @@ fn arch_on(n: f32) -> bool {
 // going down it) in the place of the signs hanging over it. Not at a cross street, at the
 // shopping street's arch or where a pole stands.
 fn street_torii(n: f32) -> bool {
+  if (hero_row(n)) {
+    return state.hero.x == HERO_TORII;
+  }
   return h21(vec2f(n, 64.3)) < params.street_torii && !crossing(n) && !arch_on(n) && !pole_on(n);
 }
 
@@ -175,7 +200,7 @@ fn street_torii(n: f32) -> bool {
 // little more often than the rest (2.5 times the share), and a row that holds a torii over the
 // street has none.
 fn sign_of(n: f32, s: f32) -> vec4f {
-  if (street_torii(n)) {
+  if (street_torii(n) || hero_row(n)) {
     return vec4f(0.0);
   }
   let id = vec2f(n, s);
@@ -198,10 +223,16 @@ fn shop_kind(n: f32, s: f32) -> f32 {
 
 // What stands on the pavement before shop (n, s): 0 nothing, 1 banners, 2 a standing board, 3 a
 // row of bicycles, 4 a roadside shrine (where it stands, the shop has no awning), 5 vending
-// machines. Nothing at a cross street; before shutters and vending machines only a shrine.
+// machines, 6 the burst's bicycle. Nothing at a cross street; before shutters and vending
+// machines only a shrine. On the burst subject's side of its row, the subject or nothing (a torii
+// over the street leaves the pavement as it is).
 fn furniture(n: f32, s: f32) -> f32 {
   if (crossing(n)) {
     return 0.0;
+  }
+  if (hero_row(n) && s == state.hero.z && state.hero.x != HERO_TORII) {
+    let kind = state.hero.x;
+    return select(select(select(0.0, 4.0, kind == HERO_SHRINE), 5.0, kind == HERO_VENDING), 6.0, kind == HERO_BIKE);
   }
   let id = vec2f(n, s);
   if (h21(id + 91.3) < params.shrines) {
@@ -211,21 +242,29 @@ fn furniture(n: f32, s: f32) -> f32 {
   if (kind == SHUTTER || kind == VENDING) {
     return 0.0;
   }
+  // Standing boards are the commonest: a shopping street has one before most shops.
   let r = h21(id + 92.7) / max(params.street_things, 1e-3);
-  return select(select(select(select(0.0, 5.0, r < 1.0), 3.0, r < 0.75), 2.0, r < 0.55), 1.0, r < 0.35);
+  return select(select(select(select(0.0, 5.0, r < 1.0), 3.0, r < 0.8), 2.0, r < 0.62), 1.0, r < 0.28);
 }
 
-// Whether shop (n, s) has an awning: not over a shutter or a cross street.
+// How many vending machines stand side by side before shop (n, s), where it has them: two or
+// three (city.wgsl draws them).
+fn vendings_of(n: f32, s: f32) -> f32 {
+  return 2.0 + floor(h21(vec2f(n, s) + 97.1) * 2.0);
+}
+
+// Whether shop (n, s) has an awning: not over a shutter or a cross street, nor on the side of the
+// burst's subject (a traffic light's or a lamp's pole would go through it).
 fn awning_on(n: f32, s: f32) -> bool {
   let id = vec2f(n, s);
   let kind = shop_kind(n, s);
   let some = h21(id + 41.1) < 0.5;
-  return !crossing(n) && furniture(n, s) != 4.0 && (kind == CAFE || (some && (kind == BOUTIQUE || kind == DRUGSTORE)));
+  return !crossing(n) && !(hero_row(n) && s == state.hero.z) && furniture(n, s) != 4.0 && (kind == CAFE || (some && (kind == BOUTIQUE || kind == DRUGSTORE)));
 }
 
 // Concrete poles stand at the street's edge every other row, in blocks without lanterns.
 fn pole_on(n: f32) -> bool {
-  return !lantern_block(n) && !crossing(n) && fract(n * 0.5) < 0.25;
+  return !hero_row(n) && !lantern_block(n) && !crossing(n) && fract(n * 0.5) < 0.25;
 }
 
 // People walk the street in three streams, each its own way and pace: two up it, one down. In a

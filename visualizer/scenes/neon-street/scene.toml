@@ -21,9 +21,11 @@ name = "street"
 size = "medium"
 move = "cut"
 
-# From one side, looking across at the shops opposite.
+# The street side: street level a little to one side (as the burst's first view), turned 30 to 36
+# degrees towards the shops on the other side, their fronts and signs filling that side of the frame
+# while the street leads away on the other (the old view across the street read poorly).
 [[shot]]
-name = "aside"
+name = "street side"
 size = "close"
 move = "cut"
 
@@ -43,8 +45,9 @@ tiers = ["quiet", "normal"]
 
 # The burst before a section that lifts, a cut on each of its last four beats, each to a new
 # place along the street: street level looking ahead, close beside a shop front and the sign
-# over it, close on the side of a torii over the street, and high up looking down the street.
-# (update.wgsl's cut() frames them, shot.index 4 to 7.)
+# over it, close on a subject put there for it (a torii over the street, a bicycle, a traffic
+# light, a street lamp, vending machines or a little shrine, by the shot's seed), and high up
+# looking down the street. (update.wgsl's cut() frames them, shot.index 4 to 7.)
 [[burst]]
 name = "street level"
 size = "medium"
@@ -54,7 +57,7 @@ name = "beside the shop front"
 size = "close"
 
 [[burst]]
-name = "side of a torii"
+name = "close on a subject"
 size = "detail"
 
 [[burst]]
@@ -83,7 +86,7 @@ update = "update.wgsl"
 id = "glyphs"
 file = "assets/glyphs.png"
 linear = true
-source = "Rendered from Noto Sans JP (SIL Open Font License 1.1, assets/OFL.txt) by tools/make_glyphs.py"
+source = "Rendered by tools/make_glyphs.py from Noto Sans JP, Dela Gothic One, Reggae One, Rampart One, RocknRoll One, Zen Antique, Yusei Magic and DotGothic16 (all SIL Open Font License 1.1: assets/OFL.txt and assets/OFL-*.txt)"
 
 # The street is drawn at 0.75 of the screen's size and scaled up: about 1.75 times as fast.
 [render]
@@ -434,7 +437,7 @@ id = "cruise"
 group = "Camera"
 label = "Speed down low (3 m and under) for music of middling pace (half when quiet, 1.3 times when loud; slower in a fade and in silence)"
 unit = "m/s"
-default = 5.0
+default = 4.2
 min = 0.0
 max = 15.0
 step = 0.1
@@ -444,7 +447,7 @@ id = "cruise_high"
 group = "Camera"
 label = "Speed up high (45 m) for music of middling pace (0.6 times when quiet, 1.1 times when loud); between the two by the height"
 unit = "m/s"
-default = 3.0
+default = 2.5
 min = 0.0
 max = 15.0
 step = 0.1
@@ -463,7 +466,7 @@ id = "push"
 group = "Camera"
 label = "Push on the beat (down low; a third of it up high)"
 unit = "m/s"
-default = 1.2
+default = 0.9
 min = 0.0
 max = 4.0
 step = 0.05
@@ -518,9 +521,9 @@ default = true
 [[param]]
 id = "yaw"
 group = "Cuts"
-label = "Side view angle"
+label = "How far the street side view turns towards the shops (less on a narrow screen, so the street's far end stays in the frame)"
 unit = "°"
-default = 18.0
+default = 30.0
 min = 0.0
 max = 60.0
 step = 1.0
@@ -528,9 +531,9 @@ step = 1.0
 [[param]]
 id = "yaw_var"
 group = "Cuts"
-label = "Side view angle spread"
+label = "Street side view: the turn's spread"
 unit = "°"
-default = 10.0
+default = 6.0
 min = 0.0
 max = 30.0
 step = 1.0
@@ -662,7 +665,7 @@ step = 0.01
 [[param]]
 id = "street_things"
 group = "Street"
-label = "How many shops have things out front (banners, standing boards, bicycles)"
+label = "How many shops have things out front (banners, standing boards and lit stands, bicycles)"
 default = 0.6
 min = 0.0
 max = 1.0
