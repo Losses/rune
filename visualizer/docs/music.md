@@ -419,6 +419,7 @@ The runtime's own decisions are bindings too: `runtime.toml` (embedded in the vi
 | `moments.medium` | `cues` (a section start, the runtime's one definition of it) and `impacts` | `strength` 0.5, 0 |
 | `moments.gap` | `bars`, fallback a bar of 2 s | `every` 8 |
 | `director.cadence` | `section_energy`, fallback `drive` | `below` 0.35, `above` 0.65, `seconds` per tier (24, 16, 10), `gap` 6 s, `lead` 4 s |
+| `director.sizes` | no source | `quiet`, `normal`, `high`: five numbers each, how much wide, medium, close, detail and top are wanted in a section of that tier (3, 3, 1, 0, 1 / 2, 3, 2, 1, 1 / 1, 2, 3, 2, 1) |
 | `director.cut` | `bars`, fallback `hits` | `grace` 2 s |
 | `director.burst` | `cue_in`, on each `on = beats`, a lift of `to` minus `from` | `lift` 0.1 |
 | `switch.place` | `cues` at A and B (a section start that differs), `cues` at C (any) | `strength`, `lift`, `change`, `levels`, `any` |
@@ -449,6 +450,13 @@ pace = "normal" # how often the director cuts: sections | calm | normal (default
 name = "below"     # for people
 size = "medium"    # wide | medium | close | detail | top
 move = "cut"       # cut | glide
+weight = 1.0       # optional, default 1: how often it is picked against the scene's other shots
+
+# A shot of a size other than wide may still open a section.
+[[shot]]
+name = "from above"
+size = "top"
+opens = true       # optional: may open a section (default true for a wide shot, false otherwise)
 
 # Optional, one to four, in the order the burst cuts to them. Read the warning below first.
 [[burst]]
@@ -456,11 +464,13 @@ name = "in"        # for people
 size = "close"     # as for a shot; its move is always a hard cut
 ```
 
-- `size` says how near the shot is. `top` is a view from above, a special shot that is never the nearest to another size.
+- `size` says how near the shot is. `top` is a view from above, a special shot: a different size from every other, and it opens a section only if it says `opens = true`.
+- `opens` says whether the shot may open a section. Left out, a wide shot may and the others may not. A scene whose wide shot is not its best opening, or that wants a view from above to establish a section, says so here.
+- `weight` is how often the director picks the shot against the scene's others (a number, 0 or more, default 1): a shot of 2 is picked twice as often as one of 1, and one of 0 is never picked while another has a chance. A scene whose shots all have weight 0 is refused. `[[burst]]` takes neither `opens` nor `weight`.
 - `move = "cut"` means the view jumps to the new shot (the transition layer may dress the jump later). `move = "glide"` means the scene slides there itself, over its own duration in beats. The director's timing is the same for both; it only reports the move.
 - `hold` is the shortest a shot may last, in seconds. A scene that glides to a new shot sets it to how long its glide takes, so the shot is reached before the next cut. It only ever raises the gap below (`director.cadence`'s `gap`) for this scene: no cut, of the cadence or of a section start, comes sooner after the last than the larger of the two. Bursts ignore it: they are hard cuts, so during a burst (`shot.fill > 0`) a scene jumps even to a glide shot.
 - `pace` is how often the director cuts this scene, by what suits its subject: each scene declares its own. It scales the seconds of the cadence below: `normal` as they are, `calm` 1.5 times as long, `busy` 1.5 times shorter (and then a burst at the end of every phrase of a high section too, if the scene declares a burst); `sections` has no cadence, only a cut at a section's start (and in the burst before a lift), and its shots have no planned `length` (-1). `hold` still applies to all of them.
-- At least one `[[shot]]` is needed if `[camera]` or `[[burst]]` is given. A scene lacking a size gets the nearest one it has.
+- At least one `[[shot]]` is needed if `[camera]` or `[[burst]]` is given. A scene may lack any size: the director picks among the shots it has.
 - `[camera] fill` is gone: a scene that still has it is refused, with a message that says to declare `[[burst]]` shots instead.
 - `[[burst]]` declares the shots of the burst of cuts before a section that lifts the energy. They are the burst's own: ordinary cuts and section starts never pick them, and the burst never uses a `[[shot]]`. Their `index` in `struct Shot` is the number of `[[shot]]`s plus their place among the bursts, from 0. A scene with none has no burst, ever (nor does the scene lab's `B` do anything).
 
@@ -481,23 +491,23 @@ size = "close"     # as for a shot; its move is always a hard cut
 | `length` | f32, seconds, -1 if unknown | The planned length of the shot (the time to the next cut at the pace in force when it began, a beat in a burst). A section start or a burst may cut it short. -1 before the first cut. |
 | `fill` | u32 | 0 normally; 1 to 4 is the position in a burst of cuts. |
 
-The director starts on a wide shot before any cut, with `cuts` 0.
+The director starts on a shot that opens a section (or the nearest to wide) before any cut, with `cuts` 0.
 
 ### The rules
 
 **Pace follows the section, in seconds.** The energy is `section_energy` with a chart and `drive` without. At `pace = "normal"`, a quiet section (below 0.35) cuts every 24 s, an ordinary one every 16 s and a high one (above 0.65) every 10 s, at any tempo and with a followed beat or without (counting bars cut far too often: a fast song cut every few seconds). `calm` multiplies the seconds by 1.5 and `busy` divides them by 1.5. A cut that is due lands on a downbeat (`bars > 0`) while the beat is followed (`locked` above 0.5); without a followed beat it waits for a hit (`hits > 0`), or happens at once 2 s after it was due.
 
-**The cuts make way for each other.** No cut that is not inside a burst comes less than `gap` seconds (6, or the scene's `hold` if that is longer) after the last one. A cadence cut due sooner waits for the gap; a section start within the gap does not cut (the shot goes on, but the section's progression still starts again, so its next cut is the establishing wide shot). With the next section start known ahead (`cue_in` of 0 or more), a cadence cut due less than `lead` seconds (4) before it waits, or less than `gap` if that is longer (a cut then would hold the section start back), and the section start cuts instead. Without a known section ahead (no chart) only the gap applies. The start of the first section of a scene, before the scene has cut at all, is not held by the gap.
+**The cuts make way for each other.** No cut that is not inside a burst comes less than `gap` seconds (6, or the scene's `hold` if that is longer) after the last one. A cadence cut due sooner waits for the gap; a section start within the gap does not cut (the shot goes on, but the section's progression still starts again, so its next cut opens the section). With the next section start known ahead (`cue_in` of 0 or more), a cadence cut due less than `lead` seconds (4) before it waits, or less than `gap` if that is longer (a cut then would hold the section start back), and the section start cuts instead. Without a known section ahead (no chart) only the gap applies. The start of the first section of a scene, before the scene has cut at all, is not held by the gap.
 
-**Size follows the place in the section.** A section start (`cues > 0` with `cue` of 0.5 or more) cuts to a wide shot, which establishes the section. Each later cut steps one size closer: medium, close, detail, and then again from medium. In a high section the steps stop at close, and the cuts alternate between detail, medium and close from there. A quiet section alternates wide and medium. A section start always begins the progression again.
+**A section start opens with a shot that opens.** A section start (`cues > 0` with `cue` of 0.5 or more) cuts to one of the scene's shots that `opens` (a wide one unless the scene says so), picked by `weight`. It is never the shot on, unless that is the only one that opens. A scene with no shot that opens takes the one nearest to wide. A section start always begins the section again: a start the gap held back leaves the next cut to open the section.
 
-**Consecutive shots differ.** The director never cuts to the shot it is on, unless the scene has only one shot, and then a cut changes `seed`. Among the shots of the size it wants, it picks by a hash of the section's label and the cut's place in the section, so that every chorus picks the same (the hash is `rv_label_hash`'s).
+**The other cuts are picked at random by weight, within a few rules.** A cut within a section goes to another size than the shot on (`top` differs from every size), so the view never repeats itself; a scene whose shots are all of one size cuts to any other shot, and a scene with one shot stays on it and only changes `seed`. Each shot that may be picked has a chance of its `weight` times what `director.sizes` wants of its size in the section's tier (quiet, normal or high, the same energy that sets the cadence): a quiet section wants wide and medium, a high one close and detail, and a shot of a size the tier gives 0 is not picked. If every chance is 0 the weights alone decide, and if those are 0 too, evenly. The choice is a deterministic roll of a hash of the section's label and the cut's number in the section (`rv_label_hash`'s), so a song picks the same shots each time it plays and every chorus the same. A fixed order of sizes was mechanical and predictable, so only these rules are fixed, not the order.
 
 **Dutch angle.** Wide and top shots never tilt. Medium, close and detail shots tilt alternately to the left and to the right, by `dutch * (0.5 + 0.5 * seed)`.
 
 **Glide.** A shot with `move = "glide"` is reported as it is; the scene does the sliding. The director waits no longer and no shorter for it.
 
-**The burst before a change (`fill`).** With the song's analysis, a followed beat and the scene's `[[burst]]` shots, the director cuts on each of the last beats before two places, one beat for each declared shot (1 to 4): a section start that lifts the energy (`cue_in` is known and `next_energy` is 0.1 or more above `section_energy`), and, only if `PHRASE_BURSTS` is set (it is off: fewer cuts are wanted) or the scene's pace is busy, the end of every 8-bar phrase in a high section (phrases count in bars from the section's start). The cuts go to the declared shots in the order of the file, with `fill` 1 to N, tilting alternately as any shot of their size does (wide and top never tilt), and are always hard cuts. Then the normal rules take over at the section start, or at the phrase start, with a wide shot. A scene with a burst should not also plan a move of its own at those beats.
+**The burst before a change (`fill`).** With the song's analysis, a followed beat and the scene's `[[burst]]` shots, the director cuts on each of the last beats before two places, one beat for each declared shot (1 to 4): a section start that lifts the energy (`cue_in` is known and `next_energy` is 0.1 or more above `section_energy`), and, only if `PHRASE_BURSTS` is set (it is off: fewer cuts are wanted) or the scene's pace is busy, the end of every 8-bar phrase in a high section (phrases count in bars from the section's start). The cuts go to the declared shots in the order of the file, with `fill` 1 to N, tilting alternately as any shot of their size does (wide and top never tilt), and are always hard cuts. Then the normal rules take over at the section start, or at the phrase start, with a shot that opens. A scene with a burst should not also plan a move of its own at those beats.
 
 The burst and the section start right after it are one group, which the gap does not hold apart, and the cadence counts on from that section start. The group is kept clear on both sides: no cadence cut comes within the gap before the burst's first cut (with the lift known ahead, the cadence waits), and a burst whose first cut would come within the gap of the last cut is left out whole, since it would not be a burst but a pile of cuts.
 

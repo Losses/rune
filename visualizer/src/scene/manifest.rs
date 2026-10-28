@@ -254,6 +254,22 @@ pub struct Shot {
     pub size: ShotSize,
     #[serde(default, rename = "move")]
     pub motion: ShotMove,
+    /// Whether the shot may open a section. Left out, a wide shot may and the others may not
+    /// (see [`Shot::opens`]).
+    #[serde(default)]
+    pub opens: Option<bool>,
+    /// How often the director picks this shot against the scene's others: 0 never (while another
+    /// has a chance), 2 twice as often as 1. It is finite and 0 or more.
+    #[serde(default = "one")]
+    pub weight: f32,
+}
+
+impl Shot {
+    /// Whether the shot may open a section: what `opens` says, else only a wide shot does, since a
+    /// section is established by looking at all of it.
+    pub fn opens(&self) -> bool {
+        self.opens.unwrap_or(self.size == ShotSize::Wide)
+    }
 }
 
 /// The most `[[burst]]` shots a scene declares: the burst cuts on one beat each, and four is the
@@ -804,6 +820,19 @@ impl Manifest {
             self.camera == Camera::default() || !self.shots.is_empty(),
             "[camera] needs at least one [[shot]]"
         );
+        for (i, shot) in self.shots.iter().enumerate() {
+            ensure!(
+                shot.weight.is_finite() && shot.weight >= 0.0,
+                "[[shot]] {} ({:?}): weight must be a number, 0 or more, not {}",
+                i + 1,
+                shot.name,
+                shot.weight
+            );
+        }
+        ensure!(
+            self.shots.is_empty() || self.shots.iter().any(|shot| shot.weight > 0.0),
+            "the [[shot]]s all have weight = 0, so the director could never pick one: give at least one a weight above 0"
+        );
         ensure!(
             self.bursts.len() <= MAX_BURSTS,
             "at most {MAX_BURSTS} [[burst]] shots (one cut on each of the last {MAX_BURSTS} beats), not {}",
@@ -1026,6 +1055,60 @@ size = "detail"
     }
 
     #[test]
+    fn a_shot_opens_a_section_only_if_wide_or_it_says_so() {
+        let m = Manifest::parse(&format!("{SMALL}{SHOTS}")).unwrap();
+        // Medium and top by default do not; both have the default weight.
+        assert!(!m.shots[0].opens() && !m.shots[1].opens());
+        assert_eq!((m.shots[0].weight, m.shots[1].weight), (1.0, 1.0));
+        let text = format!("{SMALL}{SHOTS}")
+            .replacen(
+                "size = \"top\"",
+                "size = \"top\"\nopens = true\nweight = 2.5",
+                1,
+            )
+            .replacen("size = \"medium\"", "size = \"wide\"", 1);
+        let m = Manifest::parse(&text).unwrap();
+        assert!(m.shots[0].opens() && m.shots[1].opens());
+        assert_eq!(m.shots[1].weight, 2.5);
+        let closed = format!("{SMALL}{SHOTS}").replacen(
+            "size = \"medium\"",
+            "size = \"wide\"\nopens = false",
+            1,
+        );
+        assert!(!Manifest::parse(&closed).unwrap().shots[0].opens());
+    }
+
+    #[test]
+    fn a_bad_weight_is_named_and_all_zero_is_refused() {
+        let with = |from: &str, to: &str| {
+            let text = format!("{SMALL}{SHOTS}").replacen(from, to, 1);
+            assert_ne!(
+                text,
+                format!("{SMALL}{SHOTS}"),
+                "{from:?} is not in the shots"
+            );
+            format!("{:#}", Manifest::parse(&text).unwrap_err())
+        };
+        let negative = with("size = \"top\"", "size = \"top\"\nweight = -1");
+        assert!(
+            negative.contains("weight") && negative.contains("0 or more"),
+            "{negative}"
+        );
+        let nan = with("size = \"top\"", "size = \"top\"\nweight = nan");
+        assert!(nan.contains("weight"), "{nan}");
+        // One shot at 0 is fine, all of them are not.
+        let text =
+            format!("{SMALL}{SHOTS}").replacen("size = \"top\"", "size = \"top\"\nweight = 0", 1);
+        assert!(Manifest::parse(&text).is_ok());
+        let all = text.replacen("size = \"medium\"", "size = \"medium\"\nweight = 0", 1);
+        let all = format!("{:#}", Manifest::parse(&all).unwrap_err());
+        assert!(
+            all.contains("weight = 0") && all.contains("[[shot]]"),
+            "{all}"
+        );
+    }
+
+    #[test]
     fn a_bad_shot_is_named() {
         let with = |from: &str, to: &str| {
             let text = format!("{SMALL}{SHOTS}").replacen(from, to, 1);
@@ -1070,6 +1153,11 @@ size = "detail"
         // A burst's cuts are hard: it has no move of its own.
         let moved = with("size = \"detail\"", "size = \"detail\"\nmove = \"glide\"");
         assert!(moved.contains("move") && moved.contains("size"), "{moved}");
+        // Nor does it open a section or have a weight: only a `[[shot]]` is picked.
+        for key in ["opens = true", "weight = 2"] {
+            let text = with("size = \"detail\"", &format!("size = \"detail\"\n{key}"));
+            assert!(text.contains(key.split(' ').next().unwrap()), "{text}");
+        }
         assert!(with("size = \"detail\"", "size = \"huge\"").contains("huge"));
         let many = format!(
             "{SMALL}{SHOTS}{}",

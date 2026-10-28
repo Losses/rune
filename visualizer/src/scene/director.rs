@@ -56,23 +56,9 @@ pub const PHRASE_BARS: u32 = 8;
 pub const PHRASE_BURSTS: bool = false;
 /// The share of the dutch angle a shot with seed 0 gets; the seed scales the rest.
 pub const ROLL_LEAST: f32 = 0.5;
-/// The farthest apart two sizes are when one of them is `top` and they differ: `top` is never
-/// the nearest size to another one.
-const TOP_DISTANCE: u32 = 10;
-
 /// The paces a scene lab steps through, from the least often cutting to the most (after the
 /// scene's own).
 pub const PACE_CYCLE: [Pace; 4] = [Pace::Sections, Pace::Calm, Pace::Normal, Pace::Busy];
-
-/// The sizes of a high section after it reached `close`, one per cut in turn.
-const HIGH_SIZES: [ShotSize; 4] = [
-    ShotSize::Detail,
-    ShotSize::Medium,
-    ShotSize::Close,
-    ShotSize::Medium,
-];
-/// The sizes of an ordinary section after its establishing shot, one per cut in turn.
-const NORMAL_SIZES: [ShotSize; 3] = [ShotSize::Medium, ShotSize::Close, ShotSize::Detail];
 
 /// How lively the section is, from its energy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,30 +98,6 @@ impl Tier {
 
     fn seconds(self, binds: &DirectorBinds) -> f32 {
         binds.seconds(self.index())
-    }
-
-    /// The size of the cut that is the `step`th since the section's start (step 0 is the
-    /// establishing shot, which is always wide). A quiet section alternates wide and medium, an
-    /// ordinary one steps closer, and a high one steps closer to close and then alternates.
-    fn size(self, step: u32) -> ShotSize {
-        if step == 0 {
-            return ShotSize::Wide;
-        }
-        match self {
-            Self::Quiet => {
-                if step.is_multiple_of(2) {
-                    ShotSize::Wide
-                } else {
-                    ShotSize::Medium
-                }
-            }
-            Self::Normal => NORMAL_SIZES[(step as usize - 1) % NORMAL_SIZES.len()],
-            Self::High => match step {
-                1 => ShotSize::Medium,
-                2 => ShotSize::Close,
-                _ => HIGH_SIZES[(step as usize - 3) % HIGH_SIZES.len()],
-            },
-        }
     }
 }
 
@@ -237,15 +199,47 @@ fn label_hash(label: f32, k: u32) -> f32 {
     ((label + 1.0) * multiplier + (k / 3) as f32 * 0.314_159_3).fract()
 }
 
-/// How far apart two sizes are, for finding the nearest size a scene has.
-fn distance(a: ShotSize, b: ShotSize) -> u32 {
-    if a == b {
-        0
-    } else if a == ShotSize::Top || b == ShotSize::Top {
-        TOP_DISTANCE
-    } else {
-        (a as u32).abs_diff(b as u32)
+/// What a cut is for, which decides which shots it may go to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Why {
+    /// A section starts: any shot that opens a section.
+    Opening,
+    /// The cadence (or a lab) cuts within a section: a shot of another size, as the tier wants.
+    Next(Tier),
+}
+
+/// The index of the `r`th (0 to 1) of `chances` by their weight, where each is picked in
+/// proportion to its chance and one whose chance is 0 never is. All of them 0 picks evenly. It is
+/// a pure function of `r`, so that a hash of the section picks the same each time.
+fn weighted(chances: &[(usize, f32)], r: f32) -> usize {
+    let total: f32 = chances.iter().map(|(_, chance)| chance).sum();
+    if total <= 0.0 {
+        let at = (r * chances.len() as f32) as usize;
+        return chances[at.min(chances.len() - 1)].0;
     }
+    let target = r * total;
+    let mut sum = 0.0;
+    for (index, chance) in chances {
+        sum += chance;
+        if sum > target && *chance > 0.0 {
+            return *index;
+        }
+    }
+    // Only a rounding error in the sum gets here: the last shot that has a chance.
+    chances
+        .iter()
+        .rev()
+        .find(|(_, chance)| *chance > 0.0)
+        .map_or(chances[0].0, |(index, _)| *index)
+}
+
+/// What a `[[shot]]` declares of when the director picks it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Pickable {
+    /// It may open a section.
+    opens: bool,
+    /// How often it is picked against the others.
+    weight: f32,
 }
 
 /// Decides the camera cuts of one scene from the music.
@@ -259,6 +253,8 @@ pub struct Director {
     /// How many of `shots` are `[[shot]]`s: the ones ordinary cuts and section starts pick from.
     /// The rest are the burst's, which only the burst cuts to.
     ordinary: usize,
+    /// What each `[[shot]]` says of when it is picked, in the same order (only the ordinary ones).
+    picks: Vec<Pickable>,
     state: ShotState,
     /// The next tilted shot leans to the right (positive roll).
     tilt_right: bool,
@@ -304,12 +300,20 @@ impl Director {
         assert!(!shots.is_empty(), "a director needs a shot");
         let names = shots.iter().map(|s| s.name.clone()).collect();
         let ordinary = shots.len();
+        let picks = shots
+            .iter()
+            .map(|s| Pickable {
+                opens: s.opens(),
+                weight: s.weight,
+            })
+            .collect();
         let shots: Vec<(ShotSize, ShotMove)> = shots.iter().map(|s| (s.size, s.motion)).collect();
         let mut director = Self {
             camera,
             shots,
             names,
             ordinary,
+            picks,
             state: ShotState {
                 index: 0,
                 cuts: 0,
@@ -334,7 +338,7 @@ impl Director {
             binds: Arc::default(),
             moments: Arc::default(),
         };
-        let index = director.pick(ShotSize::Wide, 0.0, 0, None);
+        let index = director.pick(Why::Opening, 0.0, 0, None);
         director.state.index = index as u32;
         director.state.size = director.shots[index].0 as u32;
         director.state.seed = label_hash(0.0, 0);
@@ -436,7 +440,7 @@ impl Director {
     /// cadence counts from this cut on. A held shot is cut away from (and stays held).
     pub fn force_cut(&mut self, music: &MusicValues) -> Cut {
         let tier = Tier::of(&self.binds, music);
-        self.cut(tier.size(self.in_section), music, tier, 0)
+        self.cut(self.why(tier), music, tier, 0)
     }
 
     /// Start a burst of cuts now, through the shots the scene declares as `[[burst]]`, as the one
@@ -498,7 +502,7 @@ impl Director {
             self.bars_in_section = 0;
             self.phrase_start = None;
             return (self.gap_is_open() || self.last_fill > 0)
-                .then(|| self.cut(ShotSize::Wide, music, tier, 0));
+                .then(|| self.cut(Why::Opening, music, tier, 0));
         }
         // A phrase that was announced by a burst starts: the same, and in the same group.
         if let Some(start) = self.phrase_start
@@ -507,7 +511,7 @@ impl Director {
         {
             self.in_section = 0;
             self.phrase_start = None;
-            return Some(self.cut(ShotSize::Wide, music, tier, 0));
+            return Some(self.cut(Why::Opening, music, tier, 0));
         }
         // A burst a scene lab started.
         if let Some(burst) = &mut self.forced_burst {
@@ -555,7 +559,7 @@ impl Director {
             }
             Said::Off => false,
         };
-        landed.then(|| self.cut(tier.size(self.in_section), music, tier, 0))
+        landed.then(|| self.cut(self.why(tier), music, tier, 0))
     }
 
     /// The shortest time between two cuts that are not inside one burst: `director.cadence`'s
@@ -640,11 +644,22 @@ impl Director {
         self.enter(self.ordinary + fill as usize - 1, music, tier, fill)
     }
 
-    /// Cut to a `[[shot]]` of about this size, other than the one on, and tell the scene.
-    fn cut(&mut self, want: ShotSize, music: &MusicValues, tier: Tier, fill: u32) -> Cut {
+    /// What an ordinary cut is for: it opens the section if none has been cut to since the section
+    /// started (a section start within the gap did not cut, so the next cut establishes the
+    /// section), else it goes to another size.
+    fn why(&self, tier: Tier) -> Why {
+        if self.in_section == 0 {
+            Why::Opening
+        } else {
+            Why::Next(tier)
+        }
+    }
+
+    /// Cut to a `[[shot]]` that suits `why`, other than the one on, and tell the scene.
+    fn cut(&mut self, why: Why, music: &MusicValues, tier: Tier, fill: u32) -> Cut {
         let label = music.section_label;
         let current = self.state.index as usize;
-        let index = self.pick(want, label, self.in_section, Some(current));
+        let index = self.pick(why, label, self.in_section, Some(current));
         self.enter(index, music, tier, fill)
     }
 
@@ -688,29 +703,72 @@ impl Director {
         }
     }
 
-    /// The shot to cut to for a size: the nearest size the scene has among its `[[shot]]`s other
-    /// than `not` (all of them if the scene has just one; the burst's shots are never among
-    /// them), and among those the one the section's label and `k` hash to, so that a section of
-    /// the same kind picks the same. A scene without `top` gets a wide shot in its place.
-    fn pick(&self, want: ShotSize, label: f32, k: u32, not: Option<usize>) -> usize {
+    /// The shot to cut to, among the `[[shot]]`s (the burst's are never among them), other than
+    /// `not` (all of them if the scene has just one), picked by weight with the section's label
+    /// and `k` hashed to the roll, so that a section of the same kind picks the same.
+    ///
+    /// A section start picks among the shots that open a section, by `weight`; with none that
+    /// does, the one nearest to wide. Any other cut picks among the shots of another size than
+    /// the one on (`top` differs from every size; if every shot is of the one size, any other
+    /// shot), each by its `weight` times what `director.sizes` wants of its size in the tier. If
+    /// that leaves no chance at all, by `weight` alone.
+    fn pick(&self, why: Why, label: f32, k: u32, not: Option<usize>) -> usize {
         let shots = &self.shots[..self.ordinary];
-        let want = if want == ShotSize::Top && shots.iter().all(|(s, _)| *s != ShotSize::Top) {
-            ShotSize::Wide
-        } else {
-            want
-        };
-        let allowed = |i: &usize| not != Some(*i) || shots.len() == 1;
-        let nearest = (0..shots.len())
-            .filter(allowed)
-            .map(|i| distance(shots[i].0, want))
-            .min()
-            .unwrap_or(0);
-        let tied: Vec<usize> = (0..shots.len())
-            .filter(allowed)
-            .filter(|&i| distance(shots[i].0, want) == nearest)
+        let candidates: Vec<usize> = (0..shots.len())
+            .filter(|i| not != Some(*i) || shots.len() == 1)
             .collect();
-        let at = (label_hash(label, k) * tied.len() as f32) as usize;
-        tied[at.min(tied.len() - 1)]
+        let weight = |i: usize| self.picks[i].weight;
+        let chances: Vec<(usize, f32)> = match why {
+            Why::Opening => {
+                let opening: Vec<usize> =
+                    (0..shots.len()).filter(|&i| self.picks[i].opens).collect();
+                // The shot on is left out, unless it is the only one that opens.
+                let others: Vec<usize> = match opening.as_slice() {
+                    [only] => vec![*only],
+                    _ => opening
+                        .iter()
+                        .copied()
+                        .filter(|i| not != Some(*i))
+                        .collect(),
+                };
+                if others.is_empty() {
+                    let nearest = candidates.iter().map(|&i| shots[i].0 as u32).min();
+                    let nearest = candidates
+                        .iter()
+                        .copied()
+                        .filter(|&i| Some(shots[i].0 as u32) == nearest);
+                    nearest.map(|i| (i, weight(i))).collect()
+                } else {
+                    others.into_iter().map(|i| (i, weight(i))).collect()
+                }
+            }
+            Why::Next(tier) => {
+                let on = shots[not.unwrap_or(0)].0;
+                let differing: Vec<usize> = candidates
+                    .iter()
+                    .copied()
+                    .filter(|&i| shots[i].0 != on || not.is_none())
+                    .collect();
+                let candidates = if differing.is_empty() {
+                    candidates
+                } else {
+                    differing
+                };
+                let wanted: Vec<(usize, f32)> = candidates
+                    .iter()
+                    .map(|&i| {
+                        let wish = self.binds.size_wish(tier.index(), shots[i].0 as usize);
+                        (i, weight(i) * wish)
+                    })
+                    .collect();
+                if wanted.iter().any(|(_, chance)| *chance > 0.0) {
+                    wanted
+                } else {
+                    candidates.into_iter().map(|i| (i, weight(i))).collect()
+                }
+            }
+        };
+        weighted(&chances, label_hash(label, k))
     }
 }
 
@@ -723,6 +781,17 @@ mod tests {
             name: String::new(),
             size,
             motion,
+            opens: None,
+            weight: 1.0,
+        }
+    }
+
+    /// A cutting shot of this size that says when it is picked.
+    fn picked(size: ShotSize, opens: Option<bool>, weight: f32) -> Shot {
+        Shot {
+            opens,
+            weight,
+            ..shot(size, ShotMove::Cut)
         }
     }
 
@@ -1058,7 +1127,7 @@ mod tests {
     }
 
     #[test]
-    fn a_section_starts_wide_and_steps_closer() {
+    fn a_section_starts_on_a_shot_that_opens_and_each_cut_is_another_size() {
         let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.5);
         let first = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
@@ -1067,25 +1136,25 @@ mod tests {
             .into_iter()
             .map(|(_, cut)| cut.size)
             .collect();
-        use ShotSize::*;
-        assert_eq!(sizes, [Medium, Close, Detail, Medium, Close, Detail]);
+        assert!(sizes.len() >= 5);
+        let mut last = ShotSize::Wide;
+        for size in sizes {
+            assert_ne!(size, last);
+            last = size;
+        }
     }
-
     #[test]
-    fn a_new_section_starts_the_progression_again() {
+    fn a_new_section_opens_again_after_cuts_within_the_last() {
         let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.5);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         // Cadence cuts at beats 32 and 64, then a section starts 13 s after the last.
         let before = beats(&mut director, 1, 89, &base, plain);
         assert_eq!(before.len(), 2);
-        assert_eq!(before[1].1.size, ShotSize::Close);
         let again = beats(&mut director, 90, 1, &base, |_, m| start(1.0, m));
         assert_eq!(again[0].1.size, ShotSize::Wide);
-        let next = beats(&mut director, 91, 40, &base, plain);
-        assert_eq!(next[0].1.size, ShotSize::Medium);
+        assert_eq!(director.in_section, 1);
     }
-
     #[test]
     fn a_weak_cue_is_not_a_section_start() {
         let mut director = Director::new(camera(0.0), &each_size());
@@ -1098,61 +1167,216 @@ mod tests {
         assert!(cuts.is_empty());
     }
 
-    #[test]
-    fn a_quiet_section_alternates_wide_and_medium() {
-        let mut director = Director::new(camera(0.0), &each_size());
-        let base = song(0.2);
-        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        let sizes: Vec<ShotSize> = beats(&mut director, 1, 160, &base, plain)
-            .into_iter()
-            .map(|(_, cut)| cut.size)
-            .collect();
-        use ShotSize::*;
-        assert_eq!(sizes, [Medium, Wide, Medium].repeat(2)[..sizes.len()]);
-        assert!(sizes.len() >= 3);
+    /// How many of the `labels` (0, 1, 2, ...) pick each size of `each_size()`'s shots as the cut
+    /// after the top shot (index 4), in a tier, at the cut number `k`, with the runtime's defaults.
+    fn size_counts(tier: Tier, labels: u32) -> [u32; 5] {
+        let director = Director::new(camera(0.0), &each_size());
+        let mut counts = [0; 5];
+        for label in 0..labels {
+            let index = director.pick(Why::Next(tier), label as f32, 1, Some(4));
+            counts[director.shots[index].0 as usize] += 1;
+        }
+        counts
     }
 
     #[test]
-    fn a_high_section_steps_closer_and_then_alternates() {
-        let mut director = Director::new(camera(0.0), &each_size());
-        let base = song(0.9);
-        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
-        let sizes: Vec<ShotSize> = beats(&mut director, 1, 150, &base, plain)
-            .into_iter()
-            .map(|(_, cut)| cut.size)
-            .collect();
-        use ShotSize::*;
-        assert_eq!(
-            sizes[..7],
-            [Medium, Close, Detail, Medium, Close, Medium, Detail]
-        );
-        assert!(sizes.iter().all(|s| !matches!(s, Wide | Top)));
+    fn a_high_section_picks_close_and_detail_more_often_and_a_quiet_one_wide_and_medium() {
+        let quiet = size_counts(Tier::Quiet, 600);
+        let high = size_counts(Tier::High, 600);
+        let near = |c: [u32; 5]| c[2] + c[3];
+        let far = |c: [u32; 5]| c[0] + c[1];
+        assert!(far(quiet) > 2 * near(quiet), "{quiet:?}");
+        assert!(near(high) > far(high), "{high:?}");
+        assert!(near(high) > 3 * near(quiet), "{quiet:?} {high:?}");
+        // Detail has no wish in a quiet section: never.
+        assert_eq!(quiet[3], 0, "{quiet:?}");
+        // Top is wanted in every tier: after a wide shot it is picked in each.
+        let director = Director::new(camera(0.0), &each_size());
+        for tier in [Tier::Quiet, Tier::Normal, Tier::High] {
+            assert!((0..300).any(|label| {
+                let to = director.pick(Why::Next(tier), label as f32, 1, Some(0));
+                director.shots[to].0 == ShotSize::Top
+            }));
+        }
     }
 
     #[test]
-    fn a_missing_size_is_the_nearest_one() {
+    fn a_section_start_only_picks_shots_that_open_and_a_top_can() {
         use ShotSize::*;
-        // Only wide and detail: medium goes to wide, close to detail.
-        let shots = [Wide, Detail]
-            .map(|size| shot(size, ShotMove::Cut))
-            .to_vec();
+        let shots = [
+            picked(Wide, None, 1.0),
+            picked(Medium, None, 1.0),
+            picked(Top, Some(true), 1.0),
+            picked(Wide, Some(false), 1.0),
+            picked(Close, None, 1.0),
+        ];
         let director = Director::new(camera(0.0), &shots);
-        assert_eq!(director.pick(Medium, 0.0, 0, None), 0);
-        assert_eq!(director.pick(Close, 0.0, 0, None), 1);
-        // Top is never the nearest to another size, and is wide where missing.
-        let with_top = [Top, Wide].map(|size| shot(size, ShotMove::Cut)).to_vec();
-        let director = Director::new(camera(0.0), &with_top);
-        assert_eq!(director.pick(Detail, 0.0, 0, None), 1);
-        assert_eq!(director.pick(Top, 0.0, 0, None), 0);
+        let mut seen = [0; 5];
+        for label in 0..200 {
+            seen[director.pick(Why::Opening, label as f32, 0, Some(1))] += 1;
+        }
+        // Only the wide shot that opens and the top that says so.
+        assert_eq!(seen[1] + seen[3] + seen[4], 0, "{seen:?}");
+        assert!(seen[0] > 0 && seen[2] > 0, "{seen:?}");
+        // The shot on is not picked again, unless it is the only one that opens.
+        for label in 0..50 {
+            assert_eq!(director.pick(Why::Opening, label as f32, 0, Some(0)), 2);
+        }
+        let one = [picked(Wide, None, 1.0), picked(Close, None, 1.0)];
+        let director = Director::new(camera(0.0), &one);
+        assert_eq!(director.pick(Why::Opening, 0.3, 0, Some(0)), 0);
+    }
+
+    #[test]
+    fn a_section_start_without_a_shot_that_opens_takes_the_nearest_to_wide() {
+        use ShotSize::*;
+        let shots = [Top, Close, Medium, Detail].map(|size| shot(size, ShotMove::Cut));
         let director = Director::new(camera(0.0), &shots);
-        assert_eq!(director.pick(Top, 0.0, 0, None), 0);
+        assert_eq!(director.state().index, 2);
+        for label in 0..20 {
+            assert_eq!(director.pick(Why::Opening, label as f32, 0, Some(0)), 2);
+        }
+        // Not the shot on: the next nearest.
+        assert_eq!(director.pick(Why::Opening, 0.5, 0, Some(2)), 1);
+        let only_top = [shot(Top, ShotMove::Cut), shot(Top, ShotMove::Cut)];
+        let director = Director::new(camera(0.0), &only_top);
+        assert_eq!(director.pick(Why::Opening, 0.5, 0, Some(0)), 1);
+    }
+
+    #[test]
+    fn a_cut_in_a_section_never_keeps_the_size_while_another_size_exists() {
+        use ShotSize::*;
+        let shots = [Wide, Wide, Medium, Medium, Close, Detail, Top, Top]
+            .map(|size| shot(size, ShotMove::Cut));
+        let director = Director::new(camera(0.0), &shots);
+        for tier in [Tier::Quiet, Tier::Normal, Tier::High] {
+            for current in 0..shots.len() {
+                for label in 0..40 {
+                    for k in 1..4 {
+                        let to =
+                            director.pick(Why::Next(tier), label as f32 * 0.37, k, Some(current));
+                        assert_ne!(shots[to].size, shots[current].size, "{tier:?} {current}");
+                    }
+                }
+            }
+        }
+        // With one size only, any other shot; with one shot, the same.
+        let same = [shot(Medium, ShotMove::Cut), shot(Medium, ShotMove::Cut)];
+        let director = Director::new(camera(0.0), &same);
+        assert_eq!(director.pick(Why::Next(Tier::Normal), 0.1, 1, Some(0)), 1);
+        let alone = [shot(Medium, ShotMove::Cut)];
+        let director = Director::new(camera(0.0), &alone);
+        assert_eq!(director.pick(Why::Next(Tier::Normal), 0.1, 1, Some(0)), 0);
+    }
+
+    #[test]
+    fn a_shot_of_weight_0_is_never_picked_while_another_has_a_chance() {
+        use ShotSize::*;
+        let shots = [
+            picked(Wide, None, 1.0),
+            picked(Wide, None, 0.0),
+            picked(Medium, None, 0.0),
+            picked(Close, None, 1.0),
+            picked(Detail, None, 2.0),
+        ];
+        let director = Director::new(camera(0.0), &shots);
+        for tier in [Tier::Quiet, Tier::Normal, Tier::High] {
+            for label in 0..200 {
+                let label = label as f32 * 0.173;
+                for current in [0, 3, 4] {
+                    let to = director.pick(Why::Next(tier), label, 1, Some(current));
+                    assert!(to != 1 && to != 2, "{tier:?} {current} {label}");
+                }
+                assert_ne!(director.pick(Why::Opening, label, 0, Some(3)), 1);
+            }
+        }
+        // A weight is a share: the detail shot (2) against the close one (1) in a high section.
+        let (mut close, mut detail) = (0, 0);
+        for label in 0..600 {
+            match director.pick(Why::Next(Tier::High), label as f32, 1, Some(0)) {
+                3 => close += 1,
+                4 => detail += 1,
+                other => panic!("{other}"),
+            }
+        }
+        // Wishes 3 and 2 times weights 1 and 2: 3 against 4.
+        assert!(detail > close, "{close} {detail}");
+    }
+
+    #[test]
+    fn when_no_candidate_is_wanted_the_weights_alone_decide_and_then_evenly() {
+        use ShotSize::*;
+        // Detail is not wanted in a quiet section (0): the only candidate still gets picked.
+        let shots = [picked(Wide, None, 1.0), picked(Detail, None, 1.0)];
+        let director = Director::new(camera(0.0), &shots);
+        assert_eq!(director.pick(Why::Next(Tier::Quiet), 0.4, 1, Some(0)), 1);
+        // Two of them, one of weight 0: the other, by weight alone.
+        let shots = [
+            picked(Wide, None, 1.0),
+            picked(Detail, None, 0.0),
+            picked(Detail, None, 3.0),
+        ];
+        let director = Director::new(camera(0.0), &shots);
+        for label in 0..50 {
+            assert_eq!(
+                director.pick(Why::Next(Tier::Quiet), label as f32 * 0.31, 1, Some(0)),
+                2
+            );
+        }
+        // Weights all 0 among the candidates: evenly.
+        let shots = [
+            picked(Wide, None, 1.0),
+            picked(Detail, None, 0.0),
+            picked(Detail, None, 0.0),
+        ];
+        let director = Director::new(camera(0.0), &shots);
+        let picks: Vec<usize> = (0..100)
+            .map(|label| director.pick(Why::Next(Tier::Quiet), label as f32 * 0.07, 1, Some(0)))
+            .collect();
+        assert!(picks.contains(&1) && picks.contains(&2));
+    }
+
+    #[test]
+    fn the_same_label_and_cut_number_pick_the_same_shot() {
+        let a = Director::new(camera(0.0), &each_size());
+        let b = Director::new(camera(0.0), &each_size());
+        for label in 0..30 {
+            for k in 0..6 {
+                let (label, current) = (label as f32, (k as usize + 2) % 6);
+                assert_eq!(
+                    a.pick(Why::Next(Tier::High), label, k, Some(current)),
+                    b.pick(Why::Next(Tier::High), label, k, Some(current))
+                );
+                assert_eq!(
+                    a.pick(Why::Opening, label, k, Some(current)),
+                    b.pick(Why::Opening, label, k, Some(current))
+                );
+            }
+        }
+        // And the choice varies with the label.
+        let picks: std::collections::HashSet<usize> = (0..30)
+            .map(|label| a.pick(Why::Next(Tier::Normal), label as f32, 1, Some(4)))
+            .collect();
+        assert!(picks.len() >= 3);
+    }
+
+    #[test]
+    fn the_weighted_pick_follows_the_shares() {
+        let chances = [(7, 1.0), (8, 0.0), (9, 3.0)];
+        assert_eq!(weighted(&chances, 0.0), 7);
+        assert_eq!(weighted(&chances, 0.24), 7);
+        assert_eq!(weighted(&chances, 0.26), 9);
+        assert_eq!(weighted(&chances, 0.999_999), 9);
+        assert_eq!(weighted(&[(4, 0.0), (5, 0.0)], 0.0), 4);
+        assert_eq!(weighted(&[(4, 0.0), (5, 0.0)], 0.99), 5);
+        assert_eq!(weighted(&[(4, 0.0), (5, 2.0)], 0.0), 5);
     }
 
     #[test]
     fn a_shot_is_never_twice_in_a_row() {
-        // Three medium shots and one wide: every size wanted has several or one choice.
+        // Two shots that open (a section start never repeats the one on) and pairs of the others.
         use ShotSize::*;
-        let shots = [Wide, Medium, Medium, Close, Close, Detail]
+        let shots = [Wide, Wide, Medium, Medium, Close, Close, Detail]
             .map(|size| shot(size, ShotMove::Cut))
             .to_vec();
         for energy in [0.2, 0.5, 0.9] {
@@ -1204,11 +1428,10 @@ mod tests {
     #[test]
     fn the_same_kind_of_section_picks_the_same_shots() {
         use ShotSize::*;
-        let shots = [
-            Wide, Wide, Medium, Medium, Medium, Close, Close, Detail, Detail,
-        ]
-        .map(|size| shot(size, ShotMove::Cut))
-        .to_vec();
+        // One shot that opens, so that every section starts the same and the rest is the roll.
+        let shots = [Wide, Medium, Medium, Close, Close, Detail, Detail, Top]
+            .map(|size| shot(size, ShotMove::Cut))
+            .to_vec();
         let mut director = Director::new(camera(0.0), &shots);
         // Sections 60 s apart, so that each starts well past the gap after the cadence's cuts.
         let mut section = |label: f32, from: u32| -> Vec<u32> {
@@ -1223,9 +1446,9 @@ mod tests {
         let first = section(2.0, 0);
         let other = section(3.0, 120);
         let again = section(2.0, 240);
-        // The first starts with a shot that was on before it, so compare from the second cut.
-        assert_eq!(first[1..], again[1..]);
-        assert_ne!(first[1..], other[1..]);
+        assert!(first.len() >= 5);
+        assert_eq!(first, again);
+        assert_ne!(first, other);
     }
 
     #[test]
@@ -1665,19 +1888,25 @@ mod tests {
     }
 
     #[test]
-    fn a_forced_cut_follows_the_size_rules_and_is_reported() {
-        use ShotSize::*;
+    fn a_forced_cut_follows_the_pick_rules_and_is_reported() {
         let mut director = Director::new(camera(0.0), &each_size());
         let base = song(0.5);
         beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         assert_eq!(director.state().cuts, 1);
-        // An ordinary section steps closer: medium, close, detail.
-        let sizes: Vec<ShotSize> = (0..3).map(|_| director.force_cut(&base).size).collect();
-        assert_eq!(sizes, [Medium, Close, Detail]);
+        // Each is another size than the one before, and one of the scene's shots.
+        let mut last = director.state().size;
+        let mut cuts = Vec::new();
+        for _ in 0..3 {
+            let cut = director.force_cut(&base);
+            assert_ne!(cut.size as u32, last);
+            assert!(cut.index < 6);
+            last = cut.size as u32;
+            cuts.push(cut);
+        }
         let state = *director.state();
         assert_eq!(state.cuts, 4);
-        assert_eq!(state.size, Detail as u32);
-        assert_eq!(state.index, 3);
+        assert_eq!(state.size, last);
+        assert_eq!(state.index, cuts[2].index);
         assert_eq!(state.age, 0.0);
         assert_eq!(state.fill, 0);
         // The cadence counts from the forced cut: 16 s later, not before.
@@ -1782,6 +2011,7 @@ mod tests {
         assert_eq!((d.gap, d.lead), (GAP_SECONDS, LEAD_SECONDS));
         assert_eq!(d.grace, HIT_GRACE_SECONDS);
         assert_eq!(d.lift, FILL_LIFT);
+        assert_eq!(d.sizes[1], [2.0, 3.0, 2.0, 1.0, 1.0]);
         assert_eq!(d.cadence.source().name, "section_energy");
         assert_eq!(d.cadence.fallback_source().map(|s| s.name), Some("drive"));
         assert_eq!(d.cut.source().name, "bars");
