@@ -17,15 +17,20 @@ struct State {
   dir: f32,
   vel: f32,
   vtgt: f32,
-  // The drive (smoothed once more) that the speed follows, and seconds per beat.
+  // The energy (smoothed once more) that the speed follows.
   ens: f32,
-  beat_len: f32,
+  // The step counter the screens change channel by: how many steps (a beat at most every half
+  // beat, and only while something is heard), and the seconds since the last one.
+  count: f32,
+  step_age: f32,
+  // The phase of the snow's rolling bar, which moves on as much as the music is heard.
+  bar: f32,
   // The scopes: where in the waveform the time trace starts (a rising zero crossing, so it stands
   // still) and the gain that keeps the trace a steady size.
   trig: f32,
   gain: f32,
-  // The share of screens switched off in this section, and the section's number (how the
-  // channels group).
+  // The share of screens switched off and the number the channels group by, both decided at each
+  // cut of the view (the picture changes anyway) and kept until the next.
   dark: f32,
   section: f32,
   // The phosphor's colour and the key light's, worked out once a frame.

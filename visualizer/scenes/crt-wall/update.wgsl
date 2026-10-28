@@ -1,6 +1,6 @@
-// Once per frame: the beat length the screens change channel by (the clock itself is the
-// runtime's), the camera travelling along the wall as fast as the music sounds (pushed on each
-// beat), the views following the director's cuts, the phosphor's colour from the player's, and
+// Once per frame: the step the screens change channel by, the camera travelling along the wall as
+// fast as the music sounds (pushed on each step, still in silence), the views following the
+// director's cuts, what the cut decides for the wall, the phosphor's colour from the player's, and
 // the scopes' trigger and gain.
 
 // A number from 0 to 1 for this cut, `n` telling the uses apart: made from the shot's seed from
@@ -49,6 +49,18 @@ fn choose_view() {
   state.cam.y = 1.0 + 60.0 * random(7u);
 }
 
+// What a cut of the view decides for the wall, so that nothing on it pops between cuts: how many
+// screens are off and how the channels group. The picture changes anyway at a cut.
+fn decide_wall() {
+  // Some sets are always off, and more in a quiet part of the song: `section_level` (0 quiet to 1
+  // high, as the director's tiers read it) takes the share from all off_always + off down to
+  // off_always along (1 - level)^1.5, the curve the drive had.
+  state.dark = params.off_always + params.off * pow(max(1.0 - input.section_level, 0.0), 1.5);
+  // The channels group anew at each cut, from the section's number and the cuts so far (so a
+  // section with several cuts, and a song with no sections to tell, group differently each time).
+  state.section = input.section + 101.0 * f32(shot.cuts);
+}
+
 fn set_colours() {
   // The phosphor: the player's colour if it follows it, else its own. Either way held to one
   // lightness and a modest chroma, so every screen glows alike.
@@ -95,54 +107,55 @@ fn update() {
     state.gain = 4.0;
     state.cuts = shot.cuts;
     choose_view();
+    decide_wall();
     state.vel = params.cruise;
     state.vtgt = params.cruise;
+    // No change is rolling when the scene begins.
+    state.step_age = 1000.0;
   }
 
-  // The runtime keeps the beat clock and says how far the beat is followed (`locked`). The screens
-  // change channel on the clock, so a beat length in seconds is all the view needs besides it.
-  // Without a followed beat the screens keep their channels (their flashes and jolts fade with
-  // `locked`) and the hits of the music stand in for the beat in the camera's push.
-  state.beat_len = 60.0 / input.tempo;
-  let beat = input.beat > 0.5;
+  // The screens' step: the count goes on by one on a beat (the music's hits where no beat is
+  // followed), but only if half a beat has passed since the last step (hits can be dense) and
+  // something is heard (`audible`), so that a stray onset in near silence moves nothing and a
+  // song's fade-out and silence leave every screen on its channel. The screens change channel on
+  // the count and roll for `change_time` seconds after it; the camera is pushed on it.
+  let beat_len = 60.0 / (90.0 * input.pace);
+  state.step_age = min(state.step_age + dt, 1000.0);
+  let heard = input.audible > 0.3;
+  let stepped = input.beat > 0.5 && heard && state.step_age >= 0.5 * beat_len;
+  if (stepped) {
+    state.count += 1.0;
+    state.step_age = 0.0;
+  }
 
   // The energy the speed follows: the slow drive, eased once more.
-  state.ens = rv_approach(state.ens, 0.5 + 1.5 * input.drive, dt, 0.6);
+  state.ens = rv_approach(state.ens, input.energy, dt, 0.6);
 
-  // The channels group anew at a section start, from the section's number, so each section is
-  // grouped its own way; at any other cut of the view they group anew from the number moved on.
-  let section_start = input.section_start > 0.5;
-  if (section_start) {
-    state.section = input.section;
-  }
-  // The director cuts: take its shot as the view. The camera jumps along the wall, so the new
-  // view starts at the speed the music sounds now.
+  // The director cuts: take its shot as the view, and decide the wall's off screens and grouping
+  // (nothing else changes them). The camera jumps along the wall, so the new view starts at the
+  // speed the music sounds now.
   var fresh = false;
   if (shot.cuts != state.cuts) {
     state.cuts = shot.cuts;
     choose_view();
-    if (!section_start) {
-      state.section += 101.0;
-    }
+    decide_wall();
     fresh = true;
   }
-  // Some sets are always off, and more in a quiet section.
-  state.dark = params.off_always + params.off * pow(max(1.0 - input.drive, 0.0), 1.5);
 
-  // How fast the music sounds, as a pace against a song of middling tempo: the camera's cruise
-  // is for 90 bpm, a faster song goes faster and a slower one slower.
-  let pace = clamp(input.tempo / 90.0, 0.25, 3.0);
-
-  // The camera glides along the wall at a cruise, pushed on each beat and easing back; from the
-  // side faster, close up slower.
-  let cruise = params.cruise * pace * (1.0 + params.energy_speed * (state.ens - 1.0));
-  state.vtgt = cruise + (state.vtgt - cruise) * exp(-dt / max(params.ease, 0.05)) + f32(beat) * params.push * cruise;
+  // The camera glides along the wall at a cruise, pushed on each step and easing back; from the
+  // side faster, close up slower. The cruise is for 90 bpm (`pace`), and goes with how much is
+  // heard (smoothed, so it slows with a fade) and stops in silence.
+  let cruise = params.cruise * input.pace * (1.0 + params.energy_speed * (state.ens - 1.0)) * input.audible;
+  state.vtgt = cruise + (state.vtgt - cruise) * exp(-dt / max(params.ease, 0.05)) + f32(stepped) * params.push * cruise;
   if (fresh) {
     state.vel = state.vtgt;
   }
   state.vel += (state.vtgt - state.vel) * (1.0 - exp(-dt / max(params.accel, 0.01)));
   let view_speed = select(select(select(1.0, 0.45, state.view > 2.5), 1.6, state.view > 0.5 && state.view < 1.5), 1.0, state.view < 0.5);
   state.cam.x += dt * state.dir * state.vel * view_speed;
+
+  // The snow's bar rolls on as much as the music is heard.
+  state.bar += dt * input.audible;
 
   set_colours();
   set_scope();

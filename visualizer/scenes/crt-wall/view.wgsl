@@ -2,12 +2,16 @@
 // throws the piles' shadows, and the screens light what stands beside them. The cabinets come in
 // a few finishes (charcoal, cream, silver, gloss black, walnut, the odd red), with strips of
 // brushed metal or speaker cloth; every screen shows one of three channels, and changes channel
-// on its own beat in a flash: it brightens, cuts at the brightest and settles.
+// on its own beat by rolling: the old picture goes up out of the screen and the new one comes in
+// from below, a black bar between them and a few tears across, as a set that loses its vertical
+// hold for a moment. Nothing brightens.
 
 // Lines down a picture.
 const LINES: f32 = 96.0;
-// How long a screen brightens before it cuts.
-const RISE: f32 = 0.06;
+// The black bar between the old picture and the new while a screen rolls, in picture heights, and
+// the bands the tears cut the picture into.
+const BLANK: f32 = 0.14;
+const TEAR_BANDS: f32 = 14.0;
 
 // Quality (frame.quality, 1 is the full picture; every level keeps the composition and colour).
 // What each level drops:
@@ -189,14 +193,15 @@ fn trace_with(w: ptr<function, Walk>, o: vec3f, d0: vec3f, steps: i32, start: f3
 
 // ---- Channels ----
 
-// What a screen shows now: its channel (0 snow, 1 scope, 2 a cover, 3 off), how bright the flash
-// of a change is, how hard the latest beat reached it, and its own number for the channel's
-// details.
+// What a screen shows now: its channel (0 snow, 1 scope, 2 a cover, 3 off) and its own number for
+// the channel's details, and, while it changes channel, the channel and number it changes from and
+// how far the change is (0 just begun, 1 over or none).
 struct Screen {
   chan: u32,
-  flash: f32,
-  amt: f32,
   seed: f32,
+  old_chan: u32,
+  old_seed: f32,
+  roll: f32,
 }
 
 // One channel by the weights of the three (no covers until the first have come).
@@ -207,7 +212,8 @@ fn weighted(u: f32) -> u32 {
 }
 
 // The channel a set is on after its kk-th change. Sets near one another lean to the same channel
-// (each section groups them anew), and in a quiet section some are off.
+// (each cut of the view groups them anew), and in a quiet section some are off (also decided at
+// the cut).
 fn channel(s: Set, kk: f32) -> u32 {
   let region = floor(s.centre.xy / vec2f(1.8, 1.3));
   if (hash(s.id * 1.37 + vec2f(state.section, 4.4)) < state.dark) {
@@ -221,43 +227,56 @@ fn channel(s: Set, kk: f32) -> u32 {
 
 fn screen_of(s: Set) -> Screen {
   var sc: Screen;
-  // Each set hears the beat a little late, by its own share of a beat (in quarters).
-  let lag = floor(hash(s.id + 1.3) * params.stagger * 4.0) * 0.25;
-  let c = input.clock - lag;
-  let sb = floor(c);
-  // A set changes channel every 1/share beats, each on its own beat.
+  // A set changes channel every 1/share steps of the scene's count (update()), each on its own
+  // step, by its own phase h.
   let share = clamp(params.share, 0.01, 1.0);
   let h = hash(s.id + 2.9);
-  let kk = floor(sb * share + h);
+  let kk = floor(state.count * share + h);
   sc.chan = channel(s, kk);
   sc.seed = hash(s.id + vec2f(kk * 0.61, 0.0)) * 97.0;
-  // The flash: rising just before the change, cut at its brightest, then falling away. A change
-  // that lands on the same channel is still a change of picture.
-  let since = (c - ceil((kk - h) / share)) * state.beat_len;
-  let until = (ceil((kk + 1.0 - h) / share) - c) * state.beat_len;
-  let before = 1.0 - smoothstep(0.0, RISE, until);
-  let after = exp(-since / max(params.flash_time, 0.01));
-  sc.flash = max(before, after) * params.flash * input.locked;
-  // Some sets jump on each beat, each by its own amount.
-  let jolt = hash(s.id * 1.9 + vec2f(sb * 4.3, 2.7));
-  let react = select(0.0, 0.6 + 0.8 * hash(s.id * 2.3 + vec2f(sb * 7.1, 5.5)), jolt < params.react);
-  sc.amt = react * exp(-fract(c) * state.beat_len / max(params.kick_decay, 0.01)) * input.locked;
+  sc.old_chan = sc.chan;
+  sc.old_seed = sc.seed;
+  sc.roll = 1.0;
+  // This step changed it, and it is still rolling: the picture it had a step ago goes. A change
+  // that lands on the same channel is still a change of picture (it has a new number).
+  let before = floor((state.count - 1.0) * share + h);
+  if (state.step_age < params.change_time && kk != before) {
+    sc.old_chan = channel(s, before);
+    sc.old_seed = hash(s.id + vec2f(before * 0.61, 0.0)) * 97.0;
+    sc.roll = state.step_age / params.change_time;
+  }
   return sc;
 }
 
-// The light a screen gives on average, for what it lights around it.
-fn screen_glow(sc: Screen) -> vec3f {
+// The roll's progress eased: a fast start that settles.
+fn roll_ease(x: f32) -> f32 {
+  let r = 1.0 - clamp(x, 0.0, 1.0);
+  return 1.0 - r * r * r;
+}
+
+// The light a channel gives on average, for what it lights around it.
+fn channel_glow(chan: u32, seed: f32) -> vec3f {
   var c = vec3f(0.0);
-  if (sc.chan == 0u) {
+  if (chan == 0u) {
     c = state.phosphor * 0.3;
-  } else if (sc.chan == 1u) {
+  } else if (chan == 1u) {
     c = state.phosphor * 0.1;
-  } else if (sc.chan == 2u && frame.covers > 0u) {
+  } else if (chan == 2u && frame.covers > 0u) {
     // The cover's own average colour, from its smallest mip.
-    let k = cover_cell(sc.seed);
+    let k = cover_cell(seed);
     c = textureSampleLevel(covers, linear_clamp, (vec2f(f32(k % 8u), f32(k / 8u)) + 0.5) / 8.0, 7.0).rgb * 0.35 * params.cover_light;
   }
-  return (c + state.phosphor * 0.6 * sc.flash) * params.brightness;
+  return c;
+}
+
+// The light a screen gives on average, for what it lights around it; while it rolls, from the old
+// channel's to the new one's with the roll.
+fn screen_glow(sc: Screen) -> vec3f {
+  var c = channel_glow(sc.chan, sc.seed);
+  if (sc.roll < 1.0) {
+    c = mix(channel_glow(sc.old_chan, sc.old_seed), c, roll_ease(sc.roll));
+  }
+  return c * params.brightness;
 }
 
 // ---- Pictures; s is 0..1 across the picture (y up), asp its width over its height, foot a
@@ -268,14 +287,13 @@ fn phosphor(v: f32) -> vec3f {
   return state.phosphor * v + vec3f(max(v - 0.85, 0.0) * 0.7);
 }
 
-// Snow: the noise of no station, torn sideways by the beat, a bright bar slowly rolling up.
-fn snow(s: vec2f, asp: f32, seed: f32, amt: f32, fade: f32) -> f32 {
+// Snow: the noise of no station (it hisses in silence too), a bright bar slowly rolling up on a
+// phase of its own that stops in silence (state.bar).
+fn snow(s: vec2f, asp: f32, seed: f32, fade: f32) -> f32 {
   let t = frame.time;
-  let band = floor(s.y * 24.0);
-  let tear = (hash(vec2f(band, floor(t * 24.0) + seed)) - 0.5) * 0.22 * amt;
-  let g = floor(vec2f((s.x + tear) * asp * LINES * 2.0, s.y * LINES));
+  let g = floor(vec2f(s.x * asp * LINES * 2.0, s.y * LINES));
   let n = hash(g + vec2f(floor(t * 30.0) * 13.17, seed * 7.3));
-  let bar = 0.18 * smoothstep(0.82, 1.0, sin(s.y * 3.0 - t * 1.7 + seed));
+  let bar = 0.18 * smoothstep(0.82, 1.0, sin(s.y * 3.0 - state.bar * 1.7 + seed));
   return mix(n, 0.5, fade * 0.4) * 0.3 + bar * 0.7;
 }
 
@@ -314,13 +332,13 @@ fn cover_cell(seed: f32) -> u32 {
 }
 
 // A cover, square in the middle of the picture, black either side as an old set shows a square
-// picture; swelling a little on the beat. Close up, the tube's stripes of red, green and blue.
-fn cover(s: vec2f, asp: f32, seed: f32, amt: f32, foot: f32) -> vec3f {
+// picture. Close up, the tube's stripes of red, green and blue.
+fn cover(s: vec2f, asp: f32, seed: f32, foot: f32) -> vec3f {
   if (frame.covers == 0u) {
     return vec3f(0.0);
   }
   let k = cover_cell(seed);
-  let side = 0.94 * (1.0 + 0.04 * amt);
+  let side = 0.94;
   let f = vec2f((s.x - 0.5) * asp, s.y - 0.5) / side + 0.5;
   if (any(f < vec2f(0.0)) || any(f > vec2f(1.0))) {
     return vec3f(0.0);
@@ -334,18 +352,42 @@ fn cover(s: vec2f, asp: f32, seed: f32, amt: f32, foot: f32) -> vec3f {
   return c * mix(vec3f(1.0), 0.4 + 1.8 * mask, fine * 0.6);
 }
 
-fn picture(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
+fn picture(chan: u32, seed: f32, s: vec2f, asp: f32, foot: f32) -> vec3f {
   let fade = smoothstep(0.5, 1.5, foot * LINES);
-  if (sc.chan == 0u) {
+  if (chan == 0u) {
     // Snow is grey, with a touch of the phosphor's colour.
-    let v = snow(s, asp, sc.seed, sc.amt, fade);
+    let v = snow(s, asp, seed, fade);
     return mix(vec3f(v), phosphor(v), 0.3);
   }
-  if (sc.chan == 1u) {
-    return phosphor(scope(s, asp, sc.seed, fade));
+  if (chan == 1u) {
+    return phosphor(scope(s, asp, seed, fade));
   }
-  if (sc.chan == 2u) {
-    return cover(s, asp, sc.seed, sc.amt, foot);
+  if (chan == 2u) {
+    return cover(s, asp, seed, foot);
+  }
+  return vec3f(0.0);
+}
+
+// What a screen shows at s: its picture, or while it changes channel the old picture rolling up
+// out of the screen and the new one rolling in from below, the black bar between them passing up
+// (a set losing its vertical hold), and a few bands torn sideways, most when the roll is half
+// done. It moves the lookup in the picture, so the scopes' shared buffer is untouched.
+fn screen_picture(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
+  if (sc.roll >= 1.0) {
+    return picture(sc.chan, sc.seed, s, asp, foot);
+  }
+  // How far up the old picture has gone: the bar and then the new picture follow it up.
+  let up = roll_ease(sc.roll) * (1.0 + BLANK);
+  let band = floor(s.y * TEAR_BANDS);
+  let tick = floor(sc.roll * 6.0) + sc.seed;
+  let torn = step(0.7, hash(vec2f(band, tick)));
+  let tear = (hash(vec2f(band + 31.0, tick * 1.7)) - 0.5) * 0.3 * torn * sin(3.14159265 * sc.roll);
+  let x = s.x + tear;
+  if (s.y >= up) {
+    return picture(sc.old_chan, sc.old_seed, vec2f(x, s.y - up), asp, foot);
+  }
+  if (s.y <= up - BLANK) {
+    return picture(sc.chan, sc.seed, vec2f(x, s.y - up + BLANK + 1.0), asp, foot);
   }
   return vec3f(0.0);
 }
@@ -355,9 +397,7 @@ fn screen_light(sc: Screen, s0: vec2f, asp: f32, foot: f32) -> vec3f {
   // The tube's curve: the picture bows out towards its corners.
   let c = s0 - 0.5;
   let s = c * (1.0 + 0.08 * dot(c, c)) + 0.5;
-  var v = picture(sc, s, asp, foot);
-  // A change of channel lights the whole tube for a moment.
-  v += phosphor(sc.flash * 1.1);
+  var v = screen_picture(sc, s, asp, foot);
   // Scan lines, gone where a pixel covers more than one.
   let lines = 0.5 + 0.5 * cos(s.y * LINES * 6.2831853);
   v *= mix(1.0, 0.6 + 0.4 * lines, 1.0 - smoothstep(0.35, 0.6, foot * LINES));

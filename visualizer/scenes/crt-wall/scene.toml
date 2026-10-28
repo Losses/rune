@@ -8,7 +8,8 @@ common = ["wall.wgsl"]
 covers = true
 
 # The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
-# A wall of old televisions: glitches, dot mosaics and a flash washed in the theme colour suit it.
+# A wall of old televisions: glitches, dot mosaics and a flash washed in the theme colour suit it
+# (the screens themselves no longer flash when they change: they roll).
 effects = ["fade", "glitch", "mosaic", "flash"]
 
 # The director cuts between the wall's views. The camera has no roll of its own, so the director's
@@ -85,11 +86,13 @@ shader = "view.wgsl"
 target = "out"
 inputs = ["scope_buf", "plan"]
 
+# `update()` sets the exposure, the bloom's strength and the grain every frame from the parameters
+# `exposure`, `glow` and `grain`; these are the values it starts from, the parameters' defaults.
 [post]
-exposure = 0.0
-bloom = { intensity = 0.25, threshold = 1.0, radius = 0.6 }
+exposure = -1.6
+bloom = { intensity = 0.5, threshold = 1.0, radius = 0.6 }
 tonemap = "agx"
-grain = 0.025
+grain = 0.045
 chromatic = 0.0
 vignette = 0.4
 contrast = 1.1
@@ -98,16 +101,13 @@ saturation = 1.0
 # ---- What the music drives ----
 # The scene says what it wants from the music and the runtime works it out (see "Bindings" in the
 # runtime's docs/music.md); the shaders read the values as `input.<id>`. The events the scene only
-# needs to know of arrive as one-frame pulses (release 0). The signals it only measures come
-# through as they are (an unclamped `follow`), so that a lab can see them and change their source.
+# needs to know of arrive as one-frame pulses (release 0). What it only measures is mapped in the
+# binds where it can be (the pace, the energy); the one raw number kept is `section`, because the
+# shader needs the section's own number (it seeds how the channels group), not a mapping of it.
 
 [[input]]
 id = "beat"
 label = "A beat, or a hit where no beat is followed"
-
-[[input]]
-id = "section_start"
-label = "A section start (a cue of at least half strength)"
 
 [[input]]
 id = "section"
@@ -115,22 +115,24 @@ label = "Which section, counted (every section its own number)"
 range = [0.0, 1000.0]
 
 [[input]]
-id = "clock"
-label = "The beat clock"
-range = [0.0, 1000000.0]
+id = "pace"
+label = "How fast the music is, against a song of 90 bpm (held to 0.25 to 3)"
+range = [0.25, 3.0]
+rest = 1.0
 
 [[input]]
-id = "tempo"
-label = "The tempo"
-range = [0.0, 1000.0]
+id = "audible"
+label = "How much is heard (falls with a fade, 0 in silence)"
 
 [[input]]
-id = "locked"
-label = "How much the beat is followed"
+id = "section_level"
+label = "How high this section is in the song (0 quiet, 1 high)"
 
 [[input]]
-id = "drive"
-label = "Slow energy"
+id = "energy"
+label = "The slow energy, as the camera's speed wants it (0.5 to 2)"
+range = [0.5, 2.0]
+rest = 1.0
 
 [[bind]]
 target = "beat"
@@ -139,101 +141,62 @@ how = "trigger"
 when = { scale = false, release = 0.0 }
 
 [[bind]]
-target = "section_start"
-source = "cues"
-how = "trigger"
-when = { strength = 0.5, scale = false, release = 0.0 }
-
-[[bind]]
 target = "section"
 source = "section"
 how = "follow"
 when = { clamp = false, to = [0.0, 1.0] }
 
+# The camera's cruise is for 90 bpm: a faster song goes faster and a slower one slower. 22.5 to 270
+# bpm is 0.25 to 3 times that, and the ends are held.
 [[bind]]
-target = "clock"
-source = "clock"
-how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
-
-[[bind]]
-target = "tempo"
+target = "pace"
 source = "tempo"
 how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
+when = { from = [22.5, 270.0], to = [0.25, 3.0] }
 
+# How much is heard, eased over half a second so that what moves with it slows with a song's own
+# fade (the camera, the snow's bar); the step counter only counts while it is above 0.3.
 [[bind]]
-target = "locked"
-source = "locked"
+target = "audible"
+source = "audible"
 how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
+when = { smooth = 0.5, per = "second" }
 
+# How high the section is in the song, 0 to 1 (at A, B and C alike: half its loudness, half its
+# rank among the song's sections). The wall reads it at each cut to decide how many screens are off.
 [[bind]]
-target = "drive"
+target = "section_level"
+source = "section_level"
+how = "follow"
+
+# The slow energy, 0 to 1, as 0.5 to 2 times the cruise it asks for (a quiet part half as fast, a
+# loud one twice).
+[[bind]]
+target = "energy"
 source = "drive"
 how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
-
-# ---- Beat ----
-
-[[param]]
-id = "kick_decay"
-group = "Beat"
-label = "Kick decay"
-unit = "s"
-default = 0.2
-min = 0.04
-max = 1.0
-step = 0.01
+when = { from = [0.0, 1.0], to = [0.5, 2.0] }
 
 # ---- Screens ----
 
 [[param]]
 id = "share"
 group = "Screens"
-label = "Share of screens changing channel on a beat"
+label = "Share of screens changing channel on a beat (each on its own beat)"
 default = 0.25
 min = 0.02
 max = 1.0
 step = 0.01
 
 [[param]]
-id = "stagger"
+id = "change_time"
 group = "Screens"
-label = "Most a screen lags the beat (in quarter beats)"
-unit = "beats"
-default = 0.75
-min = 0.0
-max = 2.0
-step = 0.25
-
-[[param]]
-id = "flash"
-group = "Screens"
-label = "Flash on a change of channel"
-default = 1.0
-min = 0.0
-max = 3.0
-step = 0.05
-
-[[param]]
-id = "flash_time"
-group = "Screens"
-label = "How fast the flash fades"
+label = "How long the picture rolls on a change of channel"
 unit = "s"
-default = 0.12
-min = 0.02
-max = 1.0
+default = 0.18
+min = 0.05
+max = 0.6
 step = 0.01
-
-[[param]]
-id = "react"
-group = "Screens"
-label = "Share of screens jolted by a beat (snow torn, figures sped)"
-default = 0.5
-min = 0.0
-max = 1.0
-step = 0.05
 
 [[param]]
 id = "snow"
@@ -301,7 +264,7 @@ step = 0.05
 [[param]]
 id = "off"
 group = "Screens"
-label = "Screens dark in quiet sections (with a chart)"
+label = "Screens also dark in the quietest sections (decided at each cut of the view)"
 default = 0.6
 min = 0.0
 max = 1.0
