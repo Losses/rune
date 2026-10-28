@@ -8,13 +8,18 @@ fn random(n: u32) -> f32 {
   return rv_unit(frame.seed * 2654435761u + n);
 }
 
-// Take up the director's shot: its index (0 high behind, looking down the line; 1 low behind to
-// one side, looking on to the light; 2 close, among the spirits at a gate; 3 detail, a long lens
-// on the spirits' head) is the view, and its seed picks the side of the line the other three are
-// on. No shot glides, so all are simply cut to.
+// Take up the director's shot: its index is the view (0 high behind, looking down the line; 1
+// low behind to one side, looking on to the light; 2 close beside the spirits, flying with them;
+// 3 ahead of them, watching them come on; then the burst's four: 4 above and behind to one side,
+// 5 close beside their heads, 6 a long lens on their heads from ahead, 7 high above the line), and
+// its seed picks the side of the line. The burst's cuts change side each beat. No shot glides, so
+// all are simply cut to.
 fn take_shot() {
   state.view = f32(shot.index);
   state.lat = select(-1.0, 1.0, shot.seed < 0.5);
+  if (shot.fill > 0u) {
+    state.lat = select(-1.0, 1.0, shot.fill % 2u == 1u);
+  }
   state.cuts_seen = f32(shot.cuts);
 }
 
@@ -300,22 +305,48 @@ fn update() {
   var cam: vec3f;
   var aim_at: vec3f;
   var lens = 1.0;
-  if (state.view > 2.5) {
-    // A long lens on the head of the spirits from well back and low, close beside the line, so
-    // a gate's top and the spirits cut through it fill the frame and the sea and sky only
-    // frame them; the lens is long so the shot reads as a different one from the close.
-    let cz = s - 16.0;
-    cam = vec3f(path_x(cz) - state.lat * 2.5, params.through - 0.5, cz);
-    aim_at = vec3f(path_x(s + 3.0), params.through + 0.6, s + 3.0);
-    lens = 0.38;
+  // Seen from behind, the spirits are the ends of their trails; their heads and their moves show
+  // from the side and from ahead, so the near shots are there.
+  if (state.view > 6.5) {
+    // The burst's last: high above the line, a little behind and to one side, looking down on
+    // the gates winding on ahead and the spirits threading them.
+    let cz = s - 4.0;
+    cam = vec3f(path_x(cz) + state.lat * 4.0, params.through + 30.0, cz);
+    aim_at = vec3f(path_x(s + 12.0), 0.0, s + 12.0);
+    lens = 1.0;
+  } else if (state.view > 5.5) {
+    // The burst's detail: a long lens on their heads from ahead, as they come on.
+    let cz = s + 14.0;
+    cam = vec3f(path_x(cz) - state.lat * 0.8, params.through + 0.4, cz);
+    aim_at = vec3f(path_x(s), params.through + 0.3, s);
+    lens = 0.4;
+  } else if (state.view > 4.5) {
+    // The burst's close: right beside their heads, looking straight across at them, between a
+    // gate's pillar and the end of its beams.
+    let cz = s + 0.5;
+    cam = vec3f(path_x(cz) + state.lat * 3.2, params.through + 0.3, cz);
+    aim_at = vec3f(path_x(s + 0.5), params.through + 0.2, s + 0.5);
+    lens = 0.85;
+  } else if (state.view > 3.5) {
+    // The burst's medium: above and behind to one side, the whole formation passing a gate.
+    let cz = s - 7.0;
+    cam = vec3f(path_x(cz) + state.lat * 6.0, params.through + 4.5, cz);
+    aim_at = vec3f(path_x(s + 3.0), params.through, s + 3.0);
+    lens = 0.9;
+  } else if (state.view > 2.5) {
+    // Ahead of the spirits, in the line, watching them come on through the gates behind them, a
+    // slightly long lens on the leaders' heads; the camera flies through each gate as they do.
+    let cz = s + 9.0;
+    cam = vec3f(path_x(cz) + state.lat * 1.2, params.through + 0.6, cz);
+    aim_at = vec3f(path_x(s), params.through + 0.3, s);
+    lens = 0.55;
   } else if (state.view > 1.5) {
-    // Close: just behind the spirits, level with the gates' opening and a little to one side
-    // (the seed picks which), looking on through the gate they are passing, so its pillars stand
-    // either side of them and fill the frame; the sea and the sky show beyond and below. The
-    // lens is about the wide shots' (1.05 and 0.75), so the gate's size says how near it is.
-    let cz = s - 6.5;
-    cam = vec3f(path_x(cz) + state.lat * 3.0, params.through - 0.6, cz);
-    aim_at = vec3f(path_x(s + 5.0), params.through + 0.2, s + 5.0);
+    // Close beside them, level with them and a little ahead, flying with them and looking back
+    // across at them (the seed picks the side): every trail whole, the formation changing, the
+    // gates sweeping past in front. Outside the pillars and the beams' ends.
+    let cz = s + 1.5;
+    cam = vec3f(path_x(cz) + state.lat * 5.5, params.through + 0.4, cz);
+    aim_at = vec3f(path_x(s - 0.5), params.through + 0.2, s - 0.5);
     lens = 0.95;
   } else if (state.view > 0.5) {
     // From behind and to one side, a little above the water and looking slightly down (lower,

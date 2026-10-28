@@ -24,16 +24,14 @@ scale = 0.75
 shader = "view.wgsl"
 target = "out"
 
-# The close and the detail shot are near the spirits, so the director may burst to them before a
-# section that lifts the energy.
 [camera]
 dutch = 0.3
 # A slow flight over the sea: cut less often than an ordinary scene.
 pace = "calm"
 
 # Looking down the line from high behind, and from low behind to one side: both see the whole
-# line and its sky, so both are wide. Then close among the spirits at a gate, and a long lens on
-# their head.
+# line and its sky, so both are wide. Then close beside the spirits, flying with them, and ahead
+# of them, watching them come on (from behind they are only the ends of their trails).
 [[shot]]
 name = "high behind"
 size = "wide"
@@ -45,14 +43,33 @@ size = "wide"
 move = "cut"
 
 [[shot]]
-name = "at the gate"
+name = "beside"
 size = "close"
 move = "cut"
 
 [[shot]]
-name = "spirit's head"
+name = "head on"
 size = "detail"
 move = "cut"
+
+# The burst before a section that lifts, a cut on each of its last four beats, each from the
+# other side of the line: the formation passing a gate from above behind, right beside the
+# spirits' heads, a long lens on their heads from ahead, and high above the winding line.
+[[burst]]
+name = "above behind"
+size = "medium"
+
+[[burst]]
+name = "beside the heads"
+size = "close"
+
+[[burst]]
+name = "heads, long lens"
+size = "detail"
+
+[[burst]]
+name = "high above"
+size = "top"
 
 # The looks: the four lights of the scene (sea.wgsl draws them, as `light_of`; the order is the
 # order it takes). The runtime decides when the light changes: a section start picks the look by
