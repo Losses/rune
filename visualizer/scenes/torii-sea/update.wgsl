@@ -71,12 +71,12 @@ fn update() {
   let locked = input.locked;
 
   // The kick (the sea heaves, the water rings round the pillars) and the beat's surge.
-  let kin = max(beat, params.hits * input.kick * locked);
+  let kin = max(beat, input.kick);
   state.kick = max(state.kick * exp(-dt / params.kick_decay), kin);
   // The beat's surge: its envelope, with the decay time of `surge_decay`, from the runtime.
   state.surge = input.surge_env;
-  // The snare (or a clap) flicks.
-  if (input.snare > 0.7 && state.flick < 0.3) {
+  // The snare (or a clap) flicks, once for a hit until it has mostly died away.
+  if (input.snare_hit > 0.5 && state.flick < 0.3) {
     state.flick = 1.0;
   }
   state.flick *= exp(-dt / 0.18);
@@ -145,7 +145,7 @@ fn update() {
   // A quiet passage flies slower and a loud one faster (`energy`), a fade slows it and silence
   // nearly stills it (`audible`). Locked to the beat, a slower flight passes a gate every two beats
   // instead of one, so it stays on the beat.
-  let pace = input.tempo / 90.0;
+  let pace = input.pace;
   let by_energy = mix(1.0, mix(0.5, 1.2, input.energy), params.energy_speed);
   let cruise = params.cruise * pace * by_energy * mix(0.2, 1.0, input.audible);
   state.vtarget = cruise + (state.vtarget - cruise) * exp(-dt / 0.6);
@@ -163,13 +163,13 @@ fn update() {
 
   // The spirits. Their centre runs at s, through the middle of each gate as the beat comes.
   let s = state.s;
-  let n = clamp(round(state.count + (input.drive - 0.5) * 2.0), 1.0, f32(SPIRITS));
+  let n = clamp(round(state.count + input.more_spirits), 1.0, f32(SPIRITS));
   // How hard they move, by how loud it is this moment (not the section's average): `energy`, the
   // moment's energy spread over its range, which follows the phrases but not every hit, and
   // calmer still as the music fades (`audible`). Quiet, small calm moves; loud, wide and sharp
   // ones. It scales how far they go and how stiffly they spring, never where they are
   // in their figures, so a change of loudness does not make them jump. (Called `drive` here, as a
-  // motion scale; it is not `input.drive`.)
+  // motion scale; it is no input.)
   let drive = mix(1.0, mix(0.35, 1.6, input.energy), params.energy_motion) * mix(0.4, 1.0, input.audible);
   let k = params.stiff * mix(0.7, 1.3, clamp((drive - 0.35) / 1.25, 0.0, 1.0));
   let c = 2.0 * sqrt(k) * params.damp;
@@ -183,7 +183,7 @@ fn update() {
   let stepped = input.beat_pos;
   let fb = input.beat_no;
   let snap = stepped - fb;
-  let per_bar = max(floor(input.meter), 1.0);
+  let per_bar = floor(input.meter);
   for (var h = 0u; h < SPIRITS; h++) {
     let fh = f32(h);
     let on = f32(fh < n);
@@ -382,7 +382,7 @@ fn update() {
   }
   list_torii();
 
-  post.bloom_intensity = params.glow * (0.6 + 0.5 * input.drive);
+  post.bloom_intensity = input.bloom;
   post.exposure = params.exposure;
   // The theme's hue.
   let follow = params.player_colour == 1u && frame.accent.a > 0.5;

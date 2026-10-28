@@ -181,25 +181,37 @@ label = "The tempo"
 range = [0.0, 1000.0]
 
 [[input]]
+id = "pace"
+label = "The tempo against 90 bpm"
+range = [0.0, 1000.0]
+
+[[input]]
 id = "meter"
-label = "Beats to the bar"
-range = [0.0, 64.0]
+label = "Beats to the bar (at least 1)"
+range = [1.0, 64.0]
 
 [[input]]
 id = "locked"
 label = "How much the beat is followed"
 
 [[input]]
-id = "drive"
-label = "Slow energy"
+id = "more_spirits"
+label = "How many more spirits than the pattern has, by the slow energy (-1 to 1)"
+range = [-1.0, 1.0]
+rest = 0.0
+
+[[input]]
+id = "bloom"
+label = "The bloom's intensity, rising with the slow energy"
+range = [0.0, 3.0]
 
 [[input]]
 id = "kick"
-label = "The kick"
+label = "The kick, only while the beat is followed, as much as `hits` lets through"
 
 [[input]]
-id = "snare"
-label = "The snare"
+id = "snare_hit"
+label = "A snare hit (the snare past 0.7)"
 
 [[input]]
 id = "band_low"
@@ -320,11 +332,19 @@ source = "tempo"
 how = "follow"
 when = { clamp = false, to = [0.0, 1.0] }
 
+# The tempo against 90 bpm (the flight's `cruise` is the speed at 90).
+[[bind]]
+target = "pace"
+source = "tempo"
+how = "follow"
+when = { from = [0.0, 90.0], to = [0.0, 1.0], clamp = false }
+
+# At least one beat to the bar, as the shader divides by it.
 [[bind]]
 target = "meter"
 source = "meter"
 how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
+when = { from = [1.0, 64.0], to = [1.0, 64.0] }
 
 [[bind]]
 target = "locked"
@@ -332,23 +352,37 @@ source = "locked"
 how = "follow"
 when = { clamp = false, to = [0.0, 1.0] }
 
+# One spirit more for each half of the slow energy over a half, one fewer for each half under it
+# (the pattern's own count is the shader's).
 [[bind]]
-target = "drive"
+target = "more_spirits"
 source = "drive"
 how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
+when = { from = [0.5, 1.0], to = [0.0, 1.0], clamp = false }
 
+# The bloom's glow, from 0.6 of `glow` in a quiet passage to 1.1 of it at the top of the energy.
+[[bind]]
+target = "bloom"
+source = "drive"
+how = "follow"
+when = { to = [{ param = "glow", mul = 0.6 }, { param = "glow", mul = 1.1 }], clamp = false }
+
+# The kick's onsets, as much as `hits` lets through (the beat itself comes as `beat`), and only as
+# far as the beat is followed.
 [[bind]]
 target = "kick"
 source = "low"
 how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
+when = { to = [0.0, { param = "hits" }], mul = "locked", clamp = false }
 
+# The snare's onsets past 0.7 count as a hit: a trigger takes only an event source and the snare
+# is a level (`mid`), so this is a follow that steps from 0 to 1 at 0.7. The flick's latch and its
+# fall stay in the shader.
 [[bind]]
-target = "snare"
+target = "snare_hit"
 source = "mid"
 how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
+when = { from = [0.7, 0.7001] }
 
 [[bind]]
 target = "band_low"
