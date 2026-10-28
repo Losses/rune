@@ -718,6 +718,9 @@ impl Director {
             .filter(|i| not != Some(*i) || shots.len() == 1)
             .collect();
         let weight = |i: usize| self.picks[i].weight;
+        // The size of the shot on, which may be one of the burst's (after a burst): its size is in
+        // the whole list.
+        let on = not.map(|i| self.shots[i].0);
         let chances: Vec<(usize, f32)> = match why {
             Why::Opening => {
                 let opening: Vec<usize> =
@@ -729,6 +732,14 @@ impl Director {
                     .copied()
                     .filter(|i| candidates.contains(i))
                     .collect();
+                // Of another size than the shot on where one opens (after a burst that ends from
+                // above, a view from above again would only seem to move in).
+                let fresh: Vec<usize> = others
+                    .iter()
+                    .copied()
+                    .filter(|&i| on != Some(shots[i].0))
+                    .collect();
+                let others = if fresh.is_empty() { others } else { fresh };
                 if others.is_empty() {
                     let nearest = candidates.iter().map(|&i| shots[i].0 as u32).min();
                     let nearest = candidates
@@ -741,9 +752,6 @@ impl Director {
                 }
             }
             Why::Next(tier) => {
-                // The shot on may be one of the burst's, after a burst a lab started: its size is
-                // in the whole list.
-                let on = not.map(|i| self.shots[i].0);
                 let differing: Vec<usize> = candidates
                     .iter()
                     .copied()
@@ -1709,6 +1717,24 @@ mod tests {
         let after: Vec<_> = all.iter().filter(|(_, c)| c.fill == 0).collect();
         assert!(!after.is_empty(), "{all:?}");
         assert!(after.iter().all(|(_, c)| (c.index as usize) < ordinary));
+    }
+
+    #[test]
+    fn a_section_start_opens_with_another_size_than_the_shot_on_where_it_can() {
+        use ShotSize::*;
+        let shots = [
+            picked(Wide, None, 1.0),
+            picked(Top, Some(true), 1.0),
+            picked(Medium, None, 1.0),
+        ];
+        let director = Director::new(camera(0.0), &shots).with_bursts(&[BurstShot {
+            name: String::new(),
+            size: Top,
+        }]);
+        // On the burst's view from above, every label opens with the wide shot, not the top.
+        for label in 0..50 {
+            assert_eq!(director.pick(Why::Opening, label as f32, 0, Some(3)), 0);
+        }
     }
 
     #[test]
