@@ -16,10 +16,11 @@ fn aim(eye: vec3f, at: vec3f) -> vec2f {
   return vec2f(atan2(-d.x, d.z), atan2(d.y, length(d.xz)));
 }
 
-// The burst's detail shot: put its subject in row n on side s (see hero_row in state.wgsl) and
-// frame it as suits its size, from where the camera stands and what it looks at. The camera
-// creeps on through the shot (update), a little nearer by its end.
-fn frame_hero(kind: f32, n: f32, s: f32) {
+// The burst's close shots: put its subject in row n on side s (see hero_row in state.wgsl) and
+// frame it as suits its size, from where the camera stands and what it looks at; `back` stands
+// that many times as far off along the ground (at the same height), for the wider of the two.
+// The camera creeps on through the shot (update), a little nearer by its end.
+fn frame_hero(kind: f32, n: f32, s: f32, back: f32) {
   state.hero = vec4f(kind, n, s, 1.0);
   let z = n * UNIT;
   let wall = wall_x(n, s);
@@ -59,6 +60,7 @@ fn frame_hero(kind: f32, n: f32, s: f32) {
     eye = vec3f(s * (wall - 2.5), 0.7, mid - 1.7);
     at = vec3f(s * (wall - 1.0), 1.15, mid);
   }
+  eye = vec3f(at.xz + (eye.xz - at.xz) * back, eye.y).xzy;
   let look = aim(eye, at);
   state.lat = eye.x;
   state.eye = eye.y;
@@ -69,13 +71,12 @@ fn frame_hero(kind: f32, n: f32, s: f32) {
 
 // Frame the shot the director cut to: street level, the street side, above the signs, or high
 // over the city (the director chooses which and when, see `[[shot]]` in scene.toml), or one of
-// the burst's four (shot.index 4 to 7, shot.fill 1 to 4): street level looking ahead, close
-// beside a shop front and its signs, close on the burst's subject, and high up looking down the
-// street. Each burst view jumps to a new place along the street, to one that has what it shows
-// (a sign, the subject) a little ahead. The district's colours may change at the cut: at a
-// section start they come from the section's label, so every chorus is seen in the same colours;
-// at any other cut they change now and then, by chance. (The look's grey or theme colour is the
-// runtime's: see grade.wgsl.)
+// the burst's four (shot.index 4 to 7, shot.fill 1 to 4): street level looking ahead, close on a
+// subject, closer on another, and high up looking down the street. Each burst view jumps to a
+// new place along the street, the subjects put a little ahead. The district's colours may change
+// at the cut: at a section start they come from the section's label, so every chorus is seen in
+// the same colours; at any other cut they change now and then, by chance. (The look's grey or
+// theme colour is the runtime's: see grade.wgsl.)
 fn cut() {
   let label = select(-1.0, input.label, input.cue_mid > 0.5);
   let styled = label >= 0.0 && params.same_view == 1u;
@@ -85,6 +86,8 @@ fn cut() {
   let r3 = random(3u);
   let sg = select(-1.0, 1.0, r3 < 0.5);
   let view = f32(min(shot.index, 7u));
+  let was = state.view;
+  let before = state.hero;
   state.view = view;
   // Somewhere else along the street, and the street as it is (the burst's subject goes).
   state.pos.z = random(4u) * 2000.0;
@@ -95,36 +98,23 @@ fn cut() {
     state.lat = (r3 - 0.5) * 2.0;
     state.yaw_base = (r1 - 0.5) * 10.0 * DEG;
     state.pitch_base = -0.62;
-  } else if (view == 6.0) {
-    // Close on the burst's subject: a torii over the street, a bicycle, a traffic light, a street
-    // lamp, vending machines or a little shrine, by the shot's seed, put in a row a little ahead
-    // (not at a cross street or an arch).
+  } else if (view == 5.0 || view == 6.0) {
+    // Close on a subject (5), then closer on another (6): a torii over the street, a bicycle, a
+    // traffic light, a street lamp, vending machines or a little shrine, by the shot's seed, put in
+    // a row a little ahead (not at a cross street or an arch). The second is never the kind the
+    // first was (the two must differ).
     var n = floor(state.pos.z / UNIT) + 3.0;
     for (var i = 0; i < 3; i++) {
       if (crossing(n) || arch_on(n)) {
         n += 1.0;
       }
     }
-    frame_hero(min(floor(random(8u) * HERO_KINDS), HERO_KINDS - 1.0), n, sg);
-  } else if (view == 5.0) {
-    // Close beside a shop front and the nearest sign on its side: in the street by the wall,
-    // 4.5 m before the sign, looking along the wall at it.
-    let n0 = floor(state.pos.z / UNIT) + 3.0;
-    var sign_z = state.pos.z + 5.0 * UNIT;
-    var up = 7.0;
-    for (var i = 0u; i < 120u; i++) {
-      let sn = sign_of(n0 + f32(i), sg);
-      if (sn.y > 0.0) {
-        sign_z = sn.x;
-        up = sn.z + min(0.5 * (sn.w - sn.z), 2.0);
-        break;
-      }
+    var kind = min(floor(random(8u) * HERO_KINDS), HERO_KINDS - 1.0);
+    if (view == 6.0 && was == 5.0 && before.w > 0.5) {
+      let other = min(floor(random(8u) * (HERO_KINDS - 1.0)), HERO_KINDS - 2.0);
+      kind = (before.x + 1.0 + other) % HERO_KINDS;
     }
-    state.eye = 3.2;
-    state.lat = sg * 1.9;
-    state.pos.z = sign_z - 4.5;
-    state.yaw_base = -sg * 0.28;
-    state.pitch_base = clamp(atan2(up - state.eye, 4.7), 0.1, 0.6);
+    frame_hero(kind, n, sg, select(1.0, 1.35, view == 5.0));
   } else if (view == 4.0) {
     // Street level a little to one side, looking ahead down the street.
     state.eye = 2.2;
@@ -272,8 +262,8 @@ fn update() {
   let push = params.push * mix(1.0, 1.0 / 3.0, up) * slow;
   state.vtarget = cruise + (state.vtarget - cruise) * exp(-dt / params.ease) + beat * push;
   state.vel += (state.vtarget - state.vel) * (1.0 - exp(-dt / params.accel));
-  // Close on the burst's subject the camera only creeps, or it would be past it within the beat.
-  state.pos.z += dt * state.vel * select(1.0, 0.2, state.view == 6.0);
+  // Close on a burst's subject the camera only creeps, or it would be past it within the beat.
+  state.pos.z += dt * state.vel * select(1.0, 0.2, state.hero.w > 0.5);
   if (state.pos.z > 4000.0) {
     state.pos.z -= 3000.0;
   }

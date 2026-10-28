@@ -43,17 +43,18 @@ size = "wide"
 move = "cut"
 tiers = ["quiet", "normal"]
 
-# The burst before a section that lifts, a cut on each of its last four beats, each to a new
-# place along the street: street level looking ahead, close beside a shop front and the sign
-# over it, close on a subject put there for it (a torii over the street, a bicycle, a traffic
-# light, a street lamp, vending machines or a little shrine, by the shot's seed), and high up
-# looking down the street. (update.wgsl's cut() frames them, shot.index 4 to 7.)
+# The burst before a section that lifts, a cut on each of its last four beats, each to a new place
+# along the street: street level looking ahead, close on a subject put there for it (a torii over
+# the street, a bicycle, a traffic light, a street lamp, vending machines or a little shrine, by the
+# shot's seed), closer on another of a different kind, and high up looking down the street (the shot
+# beside a shop front became the first subject). (update.wgsl's cut() frames them, shot.index 4 to
+# 7.)
 [[burst]]
 name = "street level"
 size = "medium"
 
 [[burst]]
-name = "beside the shop front"
+name = "close on a subject"
 size = "close"
 
 [[burst]]
