@@ -72,6 +72,15 @@ impl Transition {
     pub fn goes_out_and_in(self) -> bool {
         matches!(self, Self::Fade | Self::Flash)
     }
+
+    /// Whether it is one of the strong transitions (`crate::moments::STRONG`), which strong
+    /// moments play, as against the light ones.
+    pub fn is_strong(self) -> bool {
+        matches!(
+            self,
+            Self::Flash | Self::Glitch | Self::Mosaic | Self::CutIn(_)
+        )
+    }
 }
 
 /// The accents of a cut-in, picked by the kind of section it lands on.
@@ -1250,6 +1259,20 @@ impl Params {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_strong_transitions_are_the_ones_strong_moments_play() {
+        for name in [
+            "cut", "fade", "dissolve", "flash", "glitch", "mosaic", "cutin",
+        ] {
+            let kind = Transition::from_name(name).unwrap();
+            assert_eq!(
+                kind.is_strong(),
+                crate::moments::STRONG.contains(&name),
+                "{name}"
+            );
+        }
+    }
 
     #[test]
     fn a_fade_goes_out_then_in_then_is_done() {

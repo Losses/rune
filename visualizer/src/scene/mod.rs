@@ -2037,16 +2037,21 @@ impl Scene {
         }
         // The cut a burst leads to, and the start of a high section, land on a strong transition of
         // the scene's list, whatever the roll: four hard cuts ending on a plain one stopped short,
-        // and a climax is always entered on a cut.
+        // and a climax is always entered on a cut. A light one the moment gave it (a high section
+        // after a high one does not lift, so its moment is a medium one) makes way for it.
         if let Some(cut) = &mut self.cut
             && cut.strong
-            && cut.dress.is_none()
+            && !cut
+                .dress
+                .is_some_and(crate::transition::Transition::is_strong)
         {
             let played = crate::moments::Played {
                 strength: crate::moments::Strength::Strong,
                 label: music.section_label,
             };
-            cut.dress = crate::moments::cut_dressing(&self.cut_transitions, played);
+            if let Some(kind) = crate::moments::cut_dressing(&self.cut_transitions, played) {
+                cut.dress = Some(kind);
+            }
         }
         let lens = self.lens.tick(dt as f32, &music, self.level.quality);
         self.overlay = self.lens.take_overlay();
