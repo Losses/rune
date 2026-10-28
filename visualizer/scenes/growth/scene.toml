@@ -79,6 +79,8 @@ move = "cut"
 name = "above"
 size = "top"
 move = "cut"
+# It may open a section as the wide shots do.
+opens = true
 
 # The burst before a section that lifts, a cut on each of its last four beats, as the tower grows
 # a step on each (after the reference video's three pushes in and a look from above): under the
