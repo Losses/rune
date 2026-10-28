@@ -723,7 +723,7 @@ impl DirectorBinds {
         cadence.require(gap >= 0.0, "`when.gap` must not be negative")?;
         let lead = cadence.num("lead", 4.0)?;
         cadence.require(lead >= 0.0, "`when.lead` must not be negative")?;
-        let (below, above) = (cadence.num("below", 0.35)?, cadence.num("above", 0.65)?);
+        let (below, above) = (cadence.num("below", 0.35)?, cadence.num("above", 0.75)?);
         cadence.require(
             below <= above,
             "`when.below` must not be above `when.above`",

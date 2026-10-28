@@ -110,11 +110,14 @@ pub struct MusicValues {
     /// A phase in beats that moves on as much as the music does (MilkDrop's way of moving with
     /// `bass_att`), for motion that needs no beat.
     pub flow: f32,
+    /// How high the section is in the song, 0 to 1: half its loudness, half its rank among the
+    /// song's sections (see `scene::signals`).
+    pub level: f32,
 }
 
 impl MusicValues {
     /// Name and value of every field, in the order of `struct Music`. New fields go at the end.
-    pub fn fields(&self) -> [(&'static str, Word); 57] {
+    pub fn fields(&self) -> [(&'static str, Word); 58] {
         use Word::{F, U};
         [
             ("song_time", F(self.song_time)),
@@ -174,6 +177,7 @@ impl MusicValues {
             ("impacts", U(self.impacts)),
             ("impact", F(self.impact)),
             ("flow", F(self.flow)),
+            ("level", F(self.level)),
         ]
     }
 

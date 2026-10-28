@@ -195,6 +195,14 @@ const DRIVE_SMOOTH_LIVE: f64 = 1.5;
 /// The time constant (seconds) of `intensity`, and the live energy (about 1 on average) that
 /// stands for 0 and the span up to 1 when there is no chart.
 const INTENSITY_SMOOTH: f64 = 0.8;
+/// How much of a section's `level` is its rank in the song rather than its loudness: half, so a
+/// song loud throughout has more high sections than a quiet one, and every song has some.
+const LEVEL_RANK: f64 = 0.5;
+/// Without a chart, the rank of the slow energy among what the song has had: a histogram of the
+/// time spent at each level, forgetting with this time constant (seconds), so a new song takes
+/// over within minutes.
+const LEVEL_BINS: usize = 16;
+const LEVEL_MEMORY: f64 = 180.0;
 const INTENSITY_ENERGY_FLOOR: f64 = 0.6;
 const INTENSITY_ENERGY_SPAN: f64 = 1.0;
 /// A section whose energy is more than this above the one before is a lift: a cue of 1 rather
@@ -293,6 +301,9 @@ pub struct Signals {
     locked: f64,
     drive: f64,
     intensity: f64,
+    /// Seconds spent at each slow energy, in [`LEVEL_BINS`] steps, forgetting slowly: what the
+    /// level ranks the energy by without a chart.
+    heard: [f64; LEVEL_BINS],
     /// The energy of the section as of the last frame, to compare the next one against.
     section_energy: f64,
     last_cue: f64,
@@ -331,6 +342,7 @@ impl Default for Signals {
             locked: 0.0,
             drive: 0.0,
             intensity: 0.0,
+            heard: [0.0; LEVEL_BINS],
             section_energy: 0.0,
             last_cue: f64::NEG_INFINITY,
             bars_since_cue: 0,
@@ -391,6 +403,7 @@ impl Signals {
         m.locked = self.locked as f32;
         m.drive = self.drive as f32;
         m.intensity = self.intensity as f32;
+        m.level = self.level(input, m, dt) as f32;
         m.cues = cues;
         m.cue = self.cue as f32;
         m.cue_in = if has_chart { m.section_left } else { -1.0 };
@@ -518,6 +531,32 @@ impl Signals {
         }
         self.drive = approach(self.drive, drive, dt, tau).clamp(0.0, 1.0);
         self.intensity = approach(self.intensity, intensity, dt, INTENSITY_SMOOTH).clamp(0.0, 1.0);
+    }
+
+    /// `level`: how high the section is in the song, half its loudness and half its rank. With a
+    /// chart, the section's energy and its rank among the song's sections (both known ahead);
+    /// without, the slow energy and its rank among what the song has had so far.
+    fn level(&mut self, input: &SignalInput, m: &MusicValues, dt: f64) -> f64 {
+        let (energy, rank) = match input.chart {
+            Some(chart) => (f64::from(m.section_energy), chart.section_rank),
+            None => {
+                let forget = (-dt / LEVEL_MEMORY).exp();
+                for seconds in &mut self.heard {
+                    *seconds *= forget;
+                }
+                let bin = ((self.drive * LEVEL_BINS as f64) as usize).min(LEVEL_BINS - 1);
+                self.heard[bin] += dt;
+                let total: f64 = self.heard.iter().sum();
+                let rank = if total > 0.0 {
+                    let below: f64 = self.heard[..bin].iter().sum();
+                    (below + 0.5 * self.heard[bin]) / total
+                } else {
+                    0.5
+                };
+                (self.drive, rank)
+            }
+        };
+        ((1.0 - LEVEL_RANK) * energy + LEVEL_RANK * rank).clamp(0.0, 1.0)
     }
 
     /// The cues of this frame, and `cue` fading or set. The first source that applies decides: a

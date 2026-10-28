@@ -161,6 +161,12 @@ pub static SOURCES: &[Source] = &[
         |m, _| value(m.intensity),
     ),
     level_source(
+        "section_level",
+        ALL,
+        "How high the section is in the song: half its loudness, half how it ranks among the song's sections (the loudest 1), so every song has quiet and high parts and a loud one more high ones.",
+        |m, _| value(m.level),
+    ),
+    level_source(
         "audible",
         ALL,
         "How much is heard: 1 at a usual loudness, falling with a fade-out to 0 in silence.",

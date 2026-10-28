@@ -20,7 +20,7 @@ use crate::switching::FOLLOWED;
 pub const QUIET_BELOW: f32 = 0.35;
 /// A section whose energy is above this is high.
 #[cfg(test)]
-pub const HIGH_ABOVE: f32 = 0.65;
+pub const HIGH_ABOVE: f32 = 0.75;
 // The cadence is in seconds, whatever the tempo: counted in bars, a fast song cut every few
 // seconds, far too often.
 /// Seconds between two cuts in a quiet section.
@@ -246,6 +246,8 @@ struct Pickable {
     opens: bool,
     /// How often it is picked against the others.
     weight: f32,
+    /// Whether it suits a quiet, a normal and a high section.
+    suits: [bool; 3],
     /// The longest it may last, in seconds, if the scene says.
     longest: Option<f32>,
 }
@@ -272,6 +274,8 @@ pub struct Director {
     /// pick differs from, so that a section's shots follow from its label alone and every chorus
     /// cuts the same way, whatever was on before it.
     seq_prev: Option<usize>,
+    /// The section's tier as of the last frame: which shots suit it.
+    tier_now: Tier,
     /// Bars since the section started, counted from its start.
     bars_in_section: u32,
     /// Seconds since the last cut.
@@ -318,6 +322,7 @@ impl Director {
                 opens: s.opens(),
                 weight: s.weight,
                 longest: s.longest,
+                suits: [0, 1, 2].map(|tier| super::manifest::suits(&s.tiers, tier)),
             })
             .collect();
         let shots: Vec<(ShotSize, ShotMove)> = shots.iter().map(|s| (s.size, s.motion)).collect();
@@ -340,6 +345,7 @@ impl Director {
             tilt_right: false,
             in_section: 0,
             seq_prev: None,
+            tier_now: Tier::Normal,
             bars_in_section: 0,
             seconds_since_cut: 0.0,
             beat_in_bar: None,
@@ -460,6 +466,7 @@ impl Director {
     /// cadence counts from this cut on. A held shot is cut away from (and stays held).
     pub fn force_cut(&mut self, music: &MusicValues) -> Cut {
         let tier = Tier::of(&self.binds, music);
+        self.tier_now = tier;
         self.cut(self.why(tier), music, tier, 0)
     }
 
@@ -512,6 +519,7 @@ impl Director {
             self.beat_in_bar = self.beat_in_bar.map(|beat| beat + music.beats);
         }
         let tier = Tier::of(&self.binds, music);
+        self.tier_now = tier;
         let followed = music.locked > FOLLOWED;
         if self.held {
             return None;
@@ -795,6 +803,21 @@ impl Director {
         let candidates: Vec<usize> = (0..shots.len())
             .filter(|i| not != Some(*i) || shots.len() == 1)
             .collect();
+        // Only the shots that suit the section's energy, if any does.
+        let tier = match why {
+            Why::Next(tier) => tier,
+            Why::Opening => self.tier_now,
+        };
+        let suiting: Vec<usize> = candidates
+            .iter()
+            .copied()
+            .filter(|&i| self.picks[i].suits[tier.index()])
+            .collect();
+        let candidates = if suiting.is_empty() {
+            candidates
+        } else {
+            suiting
+        };
         let weight = |i: usize| self.picks[i].weight;
         // The size of the shot on, which may be one of the burst's (after a burst): its size is in
         // the whole list.
@@ -870,6 +893,7 @@ mod tests {
             opens: None,
             weight: 1.0,
             longest: None,
+            tiers: Vec::new(),
         }
     }
 
@@ -941,6 +965,7 @@ mod tests {
             drive: energy,
             section_energy: energy,
             next_energy: energy,
+            level: energy,
             cue_in: -1.0,
             ..MusicValues::default()
         }
@@ -2347,6 +2372,38 @@ mod tests {
         all.extend(beats(&mut director, 42, 1, &base, |_, m| start(1.0, m)));
         let cut_at: Vec<_> = all.iter().map(|(beat, _)| *beat).collect();
         assert_eq!(cut_at, [42]);
+    }
+
+    #[test]
+    fn a_high_section_never_cuts_to_a_shot_that_does_not_suit_it() {
+        use ShotSize::*;
+        let not_high = |size| Shot {
+            tiers: vec!["quiet".into(), "normal".into()],
+            ..picked(size, None, 1.0)
+        };
+        // Two far views not for the climax, and the near ones.
+        let shots = vec![
+            not_high(Wide),
+            Shot {
+                opens: Some(true),
+                ..not_high(Top)
+            },
+            picked(Medium, Some(true), 1.0),
+            picked(Close, None, 1.0),
+            picked(Detail, None, 1.0),
+        ];
+        let mut director = Director::new(camera(0.0), &shots);
+        let base = song(0.9);
+        let mut all = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        all.extend(beats(&mut director, 1, 400, &base, plain));
+        assert!(all.len() > 10);
+        assert!(all.iter().all(|(_, cut)| cut.index >= 2), "{all:?}");
+        // A quiet section may use them.
+        let mut director = Director::new(camera(0.0), &shots);
+        let quiet = song(0.1);
+        let mut all = beats(&mut director, 0, 1, &quiet, |_, m| start(0.0, m));
+        all.extend(beats(&mut director, 1, 400, &quiet, plain));
+        assert!(all.iter().any(|(_, cut)| cut.index < 2), "{all:?}");
     }
 
     #[test]

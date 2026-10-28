@@ -45,6 +45,9 @@ struct Section {
     energy: f64,
     repeat: f64,
     confidence: f64,
+    /// Where the section's energy ranks in the song, 0 to 1: the share of the song's time in
+    /// quieter sections (half of that in sections as loud).
+    rank: f64,
 }
 
 struct Lead {
@@ -97,6 +100,9 @@ pub struct ChartState {
     pub section_label: f64,
     pub section_repeat: f64,
     pub section_energy: f64,
+    /// Where this section's energy ranks in the song, 0 to 1 (the share of the song's time in
+    /// quieter sections): how high it is against the rest of the song.
+    pub section_rank: f64,
     /// Label and energy of the next section (those of this one in the last section).
     pub next_label: f64,
     pub next_energy: f64,
@@ -159,8 +165,10 @@ impl Chart {
                 energy: s.energy,
                 repeat: f64::from(s.repeat),
                 confidence: s.confidence,
+                rank: 0.0,
             })
             .collect();
+        let sections = ranked(sections);
         let lead = chart
             .lead
             .into_iter()
@@ -261,6 +269,7 @@ impl Chart {
         state.section_label = s.label;
         state.section_repeat = s.repeat;
         state.section_energy = s.energy;
+        state.section_rank = s.rank;
         let next = sections.get(j + 1).unwrap_or(s);
         state.next_label = next.label;
         state.next_energy = next.energy;
@@ -268,6 +277,33 @@ impl Chart {
         state.section_left = (s.end - t).max(0.0);
         state.section_confidence = s.confidence;
     }
+}
+
+/// The sections with their ranks (see `Section::rank`), by time: a section is as high as the
+/// share of the song's time spent in quieter sections, plus half that in sections as loud.
+fn ranked(mut sections: Vec<Section>) -> Vec<Section> {
+    let total: f64 = sections.iter().map(|s| (s.end - s.start).max(0.0)).sum();
+    if total <= 0.0 {
+        return sections;
+    }
+    let spans: Vec<(f64, f64)> = sections
+        .iter()
+        .map(|s| (s.energy, (s.end - s.start).max(0.0)))
+        .collect();
+    for s in &mut sections {
+        let below: f64 = spans
+            .iter()
+            .filter(|(e, _)| *e < s.energy)
+            .map(|(_, d)| d)
+            .sum();
+        let same: f64 = spans
+            .iter()
+            .filter(|(e, _)| *e == s.energy)
+            .map(|(_, d)| d)
+            .sum();
+        s.rank = (below + 0.5 * same) / total;
+    }
+    sections
 }
 
 /// The rhythm the scenes get: the beats come from the song's chart and from nothing else.

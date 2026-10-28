@@ -286,6 +286,11 @@ pub struct Shot {
     /// tires the eye if it stays (Torii Sea's near ones). None: as long as the cadence keeps it.
     #[serde(default)]
     pub longest: Option<f32>,
+    /// The kinds of section, by energy, the shot suits: any of "quiet", "normal", "high"; empty for
+    /// all. The director picks among the shots that suit the section (Neon Street's far views are
+    /// not for its climax), and among all if none does.
+    #[serde(default)]
+    pub tiers: Vec<String>,
 }
 
 impl Shot {
@@ -327,9 +332,16 @@ pub struct Look {
 impl Look {
     /// Whether the look suits a section of tier `tier` (0 quiet, 1 normal, 2 high).
     pub fn suits(&self, tier: usize) -> bool {
-        const NAMES: [&str; 3] = ["quiet", "normal", "high"];
-        self.tiers.is_empty() || self.tiers.iter().any(|t| t == NAMES[tier.min(2)])
+        suits(&self.tiers, tier)
     }
+}
+
+/// The names of the tiers a look or a shot may say it suits, quietest first.
+pub const TIERS: [&str; 3] = ["quiet", "normal", "high"];
+
+/// Whether `tiers` (empty for all) holds tier `tier` (0 quiet, 1 normal, 2 high).
+pub fn suits(tiers: &[String], tier: usize) -> bool {
+    tiers.is_empty() || tiers.iter().any(|t| t == TIERS[tier.min(2)])
 }
 
 /// The most `[[burst]]` shots a scene declares: the burst cuts on one beat each, and four is the
@@ -898,6 +910,15 @@ impl Manifest {
                 i + 1,
                 shot.name
             );
+            for tier in &shot.tiers {
+                ensure!(
+                    TIERS.contains(&tier.as_str()),
+                    "[[shot]] {} ({:?}): tiers takes \"quiet\", \"normal\" and \"high\", not {:?}",
+                    i + 1,
+                    shot.name,
+                    tier
+                );
+            }
         }
         ensure!(
             self.shots.is_empty() || self.shots.iter().any(|shot| shot.weight > 0.0),
