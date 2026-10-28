@@ -42,49 +42,115 @@ fn posed(p: vec3f, pose: Pose) -> vec3f {
   return q + vec3f(0.0, pose.hop + WIRE_R + 0.005, 0.0);
 }
 
-// The big move of bar n: 0 none (just the groove), 1 a bow, 2 a hop, 3 a whole turn, 4 a deep
-// bend to one side, 5 a wiggle up the wire, 6 a backflip (only when it is loud; else a hop).
-// Calm music keeps to the groove; the louder, the more often a move. The bar after a turn or a
-// backflip may be a dizzy one instead.
-fn move_of(n: f32) -> u32 {
-  let h = hash(vec2f(n, state.section * 0.37 + 1.3));
-  if (h > state.level * 1.1 - 0.15 || dizzy(n) || !move_allowed(n)) {
-    return 0u;
-  }
-  let m = 1u + u32(hash(vec2f(n, state.section * 0.61 + 7.7)) * 6.0) % 6u;
-  return select(m, 2u, m == 6u && state.level < params.flip_level);
-}
-
-// The move of bar n before any dizziness (so that whether bar n is dizzy can ask about n - 1).
-fn spun(n: f32) -> bool {
-  if (!move_allowed(n)) {
-    return false;
-  }
-  let h = hash(vec2f(n, state.section * 0.37 + 1.3));
-  if (h > state.level * 1.1 - 0.15) {
-    return false;
-  }
-  let m = 1u + u32(hash(vec2f(n, state.section * 0.61 + 7.7)) * 6.0) % 6u;
-  return m == 3u || (m == 6u && state.level >= params.flip_level);
-}
-
-// Whether bar n is spent dizzy: now and then, after a whole turn or a backflip.
-fn dizzy(n: f32) -> bool {
-  return move_allowed(n) && spun(n - 1.0) && hash(vec2f(n, state.section * 0.29 + 12.3)) < params.dizzy;
-}
-
-// Whether bar n's big move may start: decided when the bar began on the lead (`update`), by
-// whether enough was heard then. A bar not seen begin (the first frames) is allowed.
-fn move_allowed(n: f32) -> bool {
+// What bar n does, from the record made as it began (see `decide_bar`); a bar with no record
+// (before the first, or after a jump in time) has no move and is not dizzy.
+fn rec_slot(n: f32) -> i32 {
   let slot = u32(max(n, 0.0)) % 4u;
-  if (state.gate_bar[slot] == n) {
-    return state.gate_open[slot] > 0.5;
-  }
-  return true;
+  return select(-1, i32(slot), state.rec_bar[slot] == n);
 }
 
-// The groove of the dancer `late` beats behind: the dip (1 at the beat, falling away fast), the nod
-// (a swell over the beat) and the sway (-1 to 1, one side or the other).
+// The big move of bar n: 0 none (just the groove), 1 a bow, 2 a hop, 3 a whole turn, 4 a deep
+// bend to one side, 5 a wiggle up the wire, 6 a backflip.
+fn move_of(n: f32) -> u32 {
+  let s = rec_slot(n);
+  return select(0u, u32(state.rec_move[max(s, 0)]), s >= 0);
+}
+
+// Which way bar n's move goes (-1 or 1).
+fn side_of(n: f32) -> f32 {
+  let s = rec_slot(n);
+  return select(1.0, state.rec_side[max(s, 0)], s >= 0);
+}
+
+// The amplitude bar n's move is danced at (the dance's strength as the bar began, before what is
+// heard: a move under way still calms with a fade and stills in silence, see pose_at).
+fn move_amp_of(n: f32) -> f32 {
+  let s = rec_slot(n);
+  return select(0.0, state.rec_amp[max(s, 0)], s >= 0);
+}
+
+// Whether bar n is spent dizzy: now and then, the bar after a whole turn or a backflip.
+fn dizzy(n: f32) -> bool {
+  let s = rec_slot(n);
+  return s >= 0 && state.rec_dizzy[s] > 0.5;
+}
+
+// Decide bar n, as it begins on the lead, once: its move, side, dizziness and amplitude go in the
+// record and stay. Calm music keeps to the groove; the louder the section (`level`) the more likely
+// a move in a bar that may have one, and a backflip only when it is loud (`flip_level`), both read
+// here and never again. A big move needs enough heard (`moves`), and room: after one at least
+// `move_every` bars to the next, one more after a whole turn or a backflip (the moves are
+// interrupted by new ones, and do not run on). The bar after a turn or a backflip may be dizzy
+// instead, and that bar is one of the bars of room.
+fn decide_bar(n: f32) {
+  let slot = u32(max(n, 0.0)) % 4u;
+  var mv = 0u;
+  var dz = 0.0;
+  let side = select(-1.0, 1.0, hash(vec2f(n, 3.3)) < 0.5);
+  if (input.moves > 0.5) {
+    // What the bar before did (a bar before the record's four, or never seen, did nothing).
+    let before = move_of(n - 1.0);
+    var since = n - state.move_bar;
+    if (since < 0.0) {
+      since = 1e9;
+    }
+    if ((before == 3u || before == 6u) && hash(vec2f(n, state.section * 0.29 + 12.3)) < params.dizzy) {
+      dz = 1.0;
+    } else if (since >= state.move_gap
+        && hash(vec2f(n, state.section * 0.37 + 1.3)) <= state.level * 1.1 - 0.15) {
+      mv = 1u + u32(hash(vec2f(n, state.section * 0.61 + 7.7)) * 6.0) % 6u;
+      if (mv == 6u && state.level < params.flip_level) {
+        mv = 2u;
+      }
+    }
+  }
+  if (mv > 0u) {
+    state.move_bar = n;
+    state.move_gap = max(round(params.move_every), 1.0) + select(0.0, 1.0, mv == 3u || mv == 6u);
+  }
+  state.rec_bar[slot] = n;
+  state.rec_move[slot] = f32(mv);
+  state.rec_side[slot] = side;
+  state.rec_dizzy[slot] = dz;
+  state.rec_amp[slot] = strength();
+}
+
+// How hard they dance, before what is heard: the dance's strength and the energy of the moment
+// (spread over its range, as Torii Sea's spirits).
+fn strength() -> f32 {
+  return params.dance * mix(1.0, mix(0.5, 1.25, input.energy), params.energy_dance);
+}
+
+// Smootherstep of x clamped to 0 to 1: no speed at either end.
+fn ease(x: f32) -> f32 {
+  let t = clamp(x, 0.0, 1.0);
+  return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
+// A move's envelope over its bar (u, 0 to 1): rising over the first beat and settling over the
+// last, so it starts and ends at rest.
+fn envelope(u: f32) -> f32 {
+  let w = clamp(1.0 / input.meter, 0.05, 0.5);
+  return ease(u / w) * ease((1.0 - u) / w);
+}
+
+// The dip of a hit, `a` beats after it: down over a tenth of a beat to the bottom (a hit cannot be
+// seen coming), then back up as the groove always did. It is 0 at the hit itself, so it never drops
+// in one frame (no per-beat jolt).
+fn dip_at(a: f32) -> f32 {
+  return select(exp(-(a - 0.1) * 6.0), ease(a / 0.1), a < 0.1);
+}
+
+// The dip on the beat clock, at phase b: the beat is known before it comes, so the dip goes down
+// over the last 0.15 of the beat before and is at its bottom on the beat, then back up.
+fn dip_on_beat(b: f32) -> f32 {
+  let a = fract(b + 0.15) - 0.15;
+  return select(exp(-a * 6.0), ease((a + 0.15) / 0.15), a < 0.0);
+}
+
+// The groove of the dancer `late` beats behind: the dip (easing down to its bottom, on the beat
+// on the clock and a tenth of a beat after a hit, then up again), the nod (a swell over the beat) and the sway (-1 to 1, one
+// side or the other).
 // With the beat followed (`locked`, A) it is locked to the beat clock: down on every beat, the
 // side changing on each. Where it is not (B and C) it is on the hits instead, the heard onsets: the
 // dip and the nod come on each hit and the sway swings, eased over half a beat, to the other side
@@ -94,7 +160,7 @@ fn move_allowed(n: f32) -> bool {
 // fades.
 fn groove_at(late: f32) -> vec3f {
   let b = input.clock - late;
-  let on_beat = vec3f(exp(-fract(b) * 6.0), sin(fract(b) * 3.14159), cos(3.14159 * b));
+  let on_beat = vec3f(dip_on_beat(b), sin(fract(b) * 3.14159), cos(3.14159 * b));
   if (input.locked >= 1.0) {
     return on_beat;
   }
@@ -109,28 +175,35 @@ fn groove_at(late: f32) -> vec3f {
       // The side the swing leaves: hit k goes from one side to the other, alternately.
       let from_side = select(1.0, -1.0, (state.hit_n - m - 1u) % 2u == 1u);
       let swing = from_side * cos(3.14159 * clamp(age * 2.0, 0.0, 1.0));
-      on_hits = vec3f(exp(-age * 6.0), sin(3.14159 * clamp(age, 0.0, 1.0)), swing * (1.0 - smoothstep(2.0, 4.0, age)));
+      on_hits = vec3f(dip_at(age), sin(3.14159 * clamp(age, 0.0, 1.0)), swing * (1.0 - smoothstep(2.0, 4.0, age)));
       break;
     }
   }
   return mix(on_hits, on_beat, input.locked);
 }
 
-// The pose `late` beats behind the beat, danced `amp` hard.
-fn pose_at(late: f32, amp: f32) -> Pose {
+// The pose `late` beats behind the beat; `scale` is how much of the dance this dancer gets (the
+// lead 1, the chorus less), which multiplies the dance's strength now (the groove) and the
+// strength of the bar's own record (its big move).
+fn pose_at(late: f32, scale: f32) -> Pose {
   var p: Pose;
+  let amp = state.amp * scale;
   let b = input.clock - late;
-  // The groove: down on every beat and back, swaying to one side on one beat and the other on
-  // the next, a little nod.
-  let groove = groove_at(late);
-  p.squash = -0.16 * amp * groove.x + 0.04 * amp * groove.y;
-  p.sway = 0.28 * amp * groove.z;
-  p.bow = 0.1 * amp * groove.x;
-  // The bar's big move.
-  // (The runtime aligns the clock so that a whole bar starts on the music's downbeat.)
+  // The bar's big move, from the record made as the bar began (the runtime aligns the clock so
+  // that a whole bar starts on the music's downbeat).
   let bar = b / input.meter;
   let n = floor(bar);
   let u = fract(bar);
+  let mv = move_of(n);
+  let mamp = move_amp_of(n) * scale * input.audible;
+  // The groove: down on every beat and back, swaying to one side on one beat and the other on
+  // the next, a little nod. While a big move is under way it gives way to it, fading down as the
+  // move eases in and back up as it eases out, so the two are not simply added.
+  let groove = groove_at(late);
+  let own = envelope(u) * select(0.0, 1.0, mv > 0u);
+  p.squash = (-0.16 * amp * groove.x + 0.04 * amp * groove.y) * (1.0 - 0.7 * own);
+  p.sway = 0.28 * amp * groove.z * (1.0 - own);
+  p.bow = 0.1 * amp * groove.x * (1.0 - 0.7 * own);
   // Dizzy, the music forgotten: the head wanders round in slow circles, the clip unsteady on its
   // foot (and, a dance like the rest, stilled in silence).
   if (dizzy(n)) {
@@ -140,8 +213,9 @@ fn pose_at(late: f32, amp: f32) -> Pose {
     p.sway = mix(p.sway, 0.38 * sin(t) * input.audible, fade);
     p.bow = mix(p.bow, 0.32 * cos(t) * input.audible, fade);
   }
-  let half = sin(3.14159 * clamp(u * 2.0, 0.0, 1.0));
-  let side = select(-1.0, 1.0, hash(vec2f(n, 3.3)) < 0.5);
+  // Down, held a little, and back, over the whole bar: eased at both ends.
+  let fill = ease(u / 0.3) * ease((1.0 - u) / 0.3);
+  let side = side_of(n);
   // Turning to face the camera: a quick turn that swings a little past and back, with a small
   // hop, the chorus following in its wave.
   let turn = clamp((bar - state.face_bar) * input.meter / max(params.turn_beats, 0.25), 0.0, 1.0);
@@ -149,31 +223,36 @@ fn pose_at(late: f32, amp: f32) -> Pose {
   let swing = 1.0 + 2.70158 * s1 * s1 * s1 + 1.70158 * s1 * s1;
   p.spin = mix(state.face_from, state.face_to, swing);
   p.hop += 0.12 * amp * sin(3.14159 * turn);
-  switch move_of(n) {
+  switch mv {
     case 1u: {
-      p.bow += 0.9 * amp * half;
+      p.bow += 0.9 * mamp * fill;
     }
     case 2u: {
-      let x = clamp(u * input.meter, 0.0, 1.0);
-      p.hop += 0.45 * amp * 4.0 * x * (1.0 - x);
-      p.squash += 0.12 * amp * 4.0 * x * (1.0 - x);
+      // Crouch, spring up (a beat and a half in the air), land with a give that settles.
+      let crouch = ease(u / 0.1) * (1.0 - ease((u - 0.1) / 0.05));
+      let air = min(1.5 / input.meter, 0.6);
+      let x = clamp((u - 0.15) / air, 0.0, 1.0);
+      let land = ease((u - 0.15 - air) / 0.03) * (1.0 - ease((u - 0.18 - air) / 0.2));
+      p.hop += 0.45 * mamp * 4.0 * x * (1.0 - x);
+      p.squash += -0.15 * mamp * crouch - 0.15 * mamp * land + 0.12 * mamp * sin(3.14159 * x);
     }
     case 3u: {
       p.spin += 6.28318 * side * smoothstep(0.0, 0.75, u);
     }
     case 4u: {
-      p.sway += 1.0 * amp * side * half;
+      p.sway += 1.0 * mamp * side * fill;
     }
     case 5u: {
-      p.twist += 1.6 * amp * sin(6.28318 * u * 2.0) * (1.0 - u);
+      // The wire wriggles up from rest and dies away to rest.
+      p.twist += 1.6 * mamp * sin(6.28318 * u * 2.0) * ease(u / 0.12) * (1.0 - ease((u - 0.2) / 0.8));
     }
     case 6u: {
       // Crouch, spring up turning over backwards, land and give.
       let crouch = smoothstep(0.0, 0.12, u) * (1.0 - smoothstep(0.12, 0.18, u));
       let x = clamp((u - 0.15) / 0.6, 0.0, 1.0);
-      let land = smoothstep(0.74, 0.78, u) * (1.0 - smoothstep(0.78, 0.95, u));
+      let land = smoothstep(0.74, 0.78, u) * (1.0 - smoothstep(0.78, 0.97, u));
       p.squash += -0.25 * crouch - 0.2 * land + 0.1 * sin(3.14159 * x);
-      p.hop += (0.4 + 0.6 * amp) * 4.0 * x * (1.0 - x);
+      p.hop += (0.4 + 0.6 * mamp) * 4.0 * x * (1.0 - x);
       p.flip = 6.28318 * smoothstep(0.0, 1.0, x);
     }
     default: {}
@@ -321,14 +400,14 @@ fn write_group(g: u32, pose: Pose, late: f32) -> f32 {
 // little smaller instead. (The lead is looked for everywhere and dances in full.)
 fn pose_group(g: u32) {
   let late = select(f32(g) * 0.125, 0.0, g == 0u);
-  var amp = state.amp * select(params.chorus, 1.0, g == 0u);
+  var scale = select(params.chorus, 1.0, g == 0u);
   let room = 0.5 * CELL - 0.02;
   for (var k = 0; k < 3; k++) {
-    let reach = write_group(g, pose_at(late, amp), late);
+    let reach = write_group(g, pose_at(late, scale), late);
     if (g == 0u || reach <= room) {
       break;
     }
-    amp *= room / reach * 0.97;
+    scale *= room / reach * 0.97;
   }
 }
 
@@ -440,8 +519,9 @@ fn update() {
     state.cuts = shot.cuts;
     state.glide = 1.0;
     state.last_fill = shot.fill;
-    state.gate_bar = vec4f(-1.0);
-    state.gate_open = vec4f(1.0);
+    state.rec_bar = vec4f(-1.0);
+    state.move_bar = -1000.0;
+    state.move_gap = 1.0;
     state.gate_last = floor(input.clock / input.meter) - 1.0;
     state.hit_last = -1000.0;
   }
@@ -458,15 +538,21 @@ fn update() {
   // range, as Torii Sea's spirits) times how much is heard, so a quiet passage is a gentle dance, a
   // fade calms it and silence stills it.
   state.level = input.level * params.dance;
-  let by_energy = mix(1.0, mix(0.5, 1.25, input.energy), params.energy_dance);
-  state.amp = params.dance * by_energy * input.audible;
+  state.amp = strength() * input.audible;
 
-  // A bar's big move may start only if enough is heard as the bar begins (on the lead).
+  // A bar is decided once, as it begins on the lead (a bar met in its middle, after a jump in
+  // time, is left with no move rather than starting one half way).
   if (floor(now_bar) != state.gate_last) {
-    let slot = u32(max(floor(now_bar), 0.0)) % 4u;
-    state.gate_bar[slot] = floor(now_bar);
-    state.gate_open[slot] = select(0.0, 1.0, input.moves > 0.5);
-    state.gate_last = floor(now_bar);
+    let n = floor(now_bar);
+    if (fract(now_bar) < 0.25) {
+      decide_bar(n);
+    } else {
+      let slot = u32(max(n, 0.0)) % 4u;
+      state.rec_bar[slot] = n;
+      state.rec_move[slot] = 0.0;
+      state.rec_dizzy[slot] = 0.0;
+    }
+    state.gate_last = n;
   }
 
   // The hits the groove is on where the beat is not followed: kept with their times (a hit within
@@ -550,7 +636,7 @@ fn update() {
   // A locked view stays level.
   state.roll = mix(state.roll_from, select(shot.roll, 0.0, params.view_lock > 0.5), k);
   // The camera looks up after the lead when it hops or flips, a little late.
-  state.lift += (pose_at(0.0, state.amp).hop - state.lift) * (1.0 - exp(-dt / 0.15));
+  state.lift += (pose_at(0.0, 1.0).hop - state.lift) * (1.0 - exp(-dt / 0.15));
   state.aim = state.aim_base + vec3f(0.0, 0.6 * state.lift, 0.0);
 
   // The dancers turn to face the camera when it has gone well round them, on a bar line, once the last turn has spread through the chorus. On the circling view

@@ -355,6 +355,15 @@ max = 1.0
 step = 0.05
 
 [[param]]
+id = "move_every"
+group = "Dance"
+label = "Fewest bars from one big move to the next (one more after a whole turn or a backflip)"
+default = 2.0
+min = 1.0
+max = 8.0
+step = 1
+
+[[param]]
 id = "flip_level"
 group = "Dance"
 label = "How hard they must be dancing to backflip"

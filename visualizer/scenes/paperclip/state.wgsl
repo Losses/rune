@@ -61,12 +61,21 @@ struct State {
   // the side the burst's second cut filmed from (its third films from the other).
   last_fill: u32,
   burst_side: f32,
-  // Whether a bar's big move may start, for the last four bars (slot n % 4: the bar number, then
-  // 1 allowed, 0 not): decided when the bar begins on the lead, so that the chorus, which dances
-  // the same bar later in the wave, makes the same move or none.
-  gate_bar: vec4f,
-  gate_open: vec4f,
+  // What each of the last four bars does, decided once as the bar begins on the lead (slot
+  // n % 4; see `decide_bar`): the bar number, its big move (0 none to 6 a backflip), the side
+  // it goes to (-1 or 1), whether the bar is spent dizzy (1 or 0) and the amplitude it is danced
+  // at. The chorus dances the same bar later in the wave and reads the same record, so nothing
+  // changes in the middle of a bar, whatever the section, the cues or the level do. A bar with
+  // no record has no move. Then the bar last decided, the bar of the last big move and how
+  // many bars must pass before the next one.
+  rec_bar: vec4f,
+  rec_move: vec4f,
+  rec_side: vec4f,
+  rec_dizzy: vec4f,
+  rec_amp: vec4f,
   gate_last: f32,
+  move_bar: f32,
+  move_gap: f32,
   // Without a followed beat, the hits the dance is on: the times (seconds) of the last eight, how
   // many there have been and when the last one counted (hits closer than half a beat are one).
   hit_t: array<vec4f, 2>,
