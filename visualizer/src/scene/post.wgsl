@@ -35,6 +35,11 @@ struct Lens {
   leak_y: f32,
   leak_size: f32,
   phase: f32,
+  // How far the flare's streaks lean from the horizontal, in radians.
+  angle: f32,
+  pad0: f32,
+  pad1: f32,
+  pad2: f32,
 }
 
 struct Varyings {
@@ -162,6 +167,32 @@ const FLARE_AROUND: f32 = 0.06;
 // so a sun of twenty draws a streak a little longer than a lamp of three, not seven times it.
 const FLARE_MOST: f32 = 4.0;
 
+// The flare is drawn on a canvas turned by its angle (`lens.angle`), so that its streaks, which
+// its pyramid smears only along the canvas's width, lean so in the picture. The canvas is turned
+// about the centre and scaled up to cover the picture's corners. From a point of the canvas (its
+// uv) to the picture's uv, and back.
+fn flare_turn() -> vec3f {
+  let c = cos(lens.angle);
+  let s = sin(lens.angle);
+  let a = frame.aspect;
+  let cover = max(abs(c) + abs(s) / a, a * abs(s) + abs(c));
+  return vec3f(c, s, cover);
+}
+
+fn flare_canvas_to_picture(q: vec2f) -> vec2f {
+  let t = flare_turn();
+  let a = frame.aspect;
+  let p = (q - 0.5) * vec2f(a, 1.0) * t.z;
+  return vec2f(p.x * t.x - p.y * t.y, p.x * t.y + p.y * t.x) / vec2f(a, 1.0) + 0.5;
+}
+
+fn flare_picture_to_canvas(uv: vec2f) -> vec2f {
+  let t = flare_turn();
+  let a = frame.aspect;
+  let p = (uv - 0.5) * vec2f(a, 1.0);
+  return vec2f(p.x * t.x + p.y * t.y, -p.x * t.y + p.y * t.x) / t.z / vec2f(a, 1.0) + 0.5;
+}
+
 // The brightness round `uv`: eight taps on a ring `FLARE_AROUND` off, the brightest channel of
 // each, averaged.
 fn flare_around(uv: vec2f) -> f32 {
@@ -188,9 +219,12 @@ fn finite(c: vec3f) -> vec3f {
 // shimmers about the threshold glows steadily.
 @fragment
 fn flare_bright(v: Varyings) -> @location(0) vec4f {
-  let c = finite(downsample(v.uv, true) * exp2(post.exposure));
+  // The picture's point under this point of the turned canvas; nothing outside the picture.
+  let at = flare_canvas_to_picture(v.uv);
+  let inside = f32(all(at >= vec2f(0.0)) && all(at <= vec2f(1.0)));
+  let c = finite(downsample(at, true) * exp2(post.exposure)) * inside;
   let b = max(c.r, max(c.g, c.b));
-  let threshold = max(FLARE_THRESHOLD, FLARE_LOCAL * flare_around(v.uv));
+  let threshold = max(FLARE_THRESHOLD, FLARE_LOCAL * flare_around(at));
   let knee = threshold * FLARE_KNEE;
   var soft = clamp(b - threshold + knee, 0.0, 2.0 * knee);
   soft = soft * soft / (4.0 * knee);
@@ -418,7 +452,7 @@ fn composite(v: Varyings) -> @location(0) vec4f {
     display = screen(display, leak_light(uv));
   }
   if (lens.flare > 0.0) {
-    let flare_light = textureSampleLevel(flare_tex, smp, uv, 0.0).rgb;
+    let flare_light = textureSampleLevel(flare_tex, smp, flare_picture_to_canvas(uv), 0.0).rgb;
     let light = 1.0 - exp(-flare_light * lens.flare);
     display = screen(display, encode_srgb(min(light, vec3f(0.8))));
   }

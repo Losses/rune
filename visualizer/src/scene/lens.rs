@@ -41,8 +41,14 @@ const LEAK_REACH: f32 = 0.25;
 /// The flare is drawn from this quality (`frame.quality`) up: it is lowered first.
 pub const FLARE_MIN_QUALITY: f32 = 0.5;
 
-/// The size of [`LensFrame`] in the uniform: eight f32.
-pub const LENS_SIZE: u64 = 32;
+/// The size of [`LensFrame`] in the uniform: twelve f32 (nine, padded to a multiple of 16
+/// bytes).
+pub const LENS_SIZE: u64 = 48;
+/// The most the flare's streaks lean from the horizontal, either way (radians, 40 degrees): a
+/// streak always level is dull, and one near upright reads as a fault.
+pub const FLARE_TILT: f32 = 0.698_131_7;
+/// The number the flare's lean is hashed with, beside the section's label.
+const FLARE_TILT_KEY: u32 = 211;
 
 /// What the post pass is told for one frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -62,6 +68,8 @@ pub struct LensFrame {
     pub leak_size: f32,
     /// A number that grows over the leak, which the shader turns into slow changes of shape.
     pub leak_phase: f32,
+    /// How far the flare's streaks lean from the horizontal, in radians (see [`FLARE_TILT`]).
+    pub flare_angle: f32,
 }
 
 impl LensFrame {
@@ -83,6 +91,10 @@ impl LensFrame {
             self.leak_at[1],
             self.leak_size,
             self.leak_phase,
+            self.flare_angle,
+            0.0,
+            0.0,
+            0.0,
         ];
         for (chunk, v) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(values) {
             *chunk = v.to_le_bytes();
@@ -177,6 +189,11 @@ fn leak_origin(music: &MusicValues, phrase: &Phrase) -> (f32, f32) {
     (origin, if h & 1 == 0 { 1.0 } else { -1.0 })
 }
 
+/// How far a flare started in a section of `label` leans its streaks (see [`FLARE_TILT`]).
+fn flare_angle(label: f32) -> f32 {
+    (super::director::label_hash(label, FLARE_TILT_KEY) * 2.0 - 1.0) * FLARE_TILT
+}
+
 /// The lens effects of one scene.
 pub struct Lens {
     /// The effects that start at a moment: those the scene listed and those a lab forced.
@@ -185,6 +202,9 @@ pub struct Lens {
     glitch_listed: bool,
     mosaic_listed: bool,
     flare: Option<Run>,
+    /// How far the flare under way leans (see [`FLARE_TILT`]): taken when it starts, kept while
+    /// it swells again.
+    flare_angle: f32,
     leak: Option<Leak>,
     /// Where the music is in its phrase, and the music last heard: what an effect that starts
     /// takes its course and its place from (see [`Lens::listen`]).
@@ -212,6 +232,7 @@ impl Lens {
             glitch_listed: has("glitch"),
             mosaic_listed: has("mosaic"),
             flare: None,
+            flare_angle: 0.0,
             leak: None,
             phrase: Phrase::default(),
             music: MusicValues::default(),
@@ -279,8 +300,15 @@ impl Lens {
 
     /// Start a flare of `strength` (0 to 1) now, to the end of the phrase. One at a time: one
     /// under way swells again from where it is (see [`Run::restarted`]).
+    ///
+    /// A new flare leans its streaks by an angle of its own, up to [`FLARE_TILT`] either way,
+    /// picked by the section's label: the same kind of section flares the same way, and a song the
+    /// same way each time it plays.
     pub fn start_flare(&mut self, strength: f32) {
         let fresh = self.course();
+        if self.flare.is_none() {
+            self.flare_angle = flare_angle(self.music.section_label);
+        }
         self.flare = Some(match self.flare {
             Some(run) => run.restarted(strength, fresh),
             None => Run {
@@ -315,6 +343,7 @@ impl Lens {
     /// (a probe's look at a steady flare).
     #[cfg(test)]
     pub fn hold_flare(&mut self) {
+        self.flare_angle = flare_angle(self.music.section_label);
         self.flare = Some(Run {
             strength: 1.0,
             course: self.course().at_peak(),
@@ -409,6 +438,7 @@ impl Lens {
             } else {
                 if quality >= FLARE_MIN_QUALITY {
                     frame.flare = FLARE_PEAK * run.level();
+                    frame.flare_angle = self.flare_angle;
                     frame.flare_stretch = FLARE_STRETCH_FROM
                         + (FLARE_STRETCH - FLARE_STRETCH_FROM) * run.course.shape();
                 }
@@ -485,6 +515,52 @@ mod tests {
         assert_eq!(lens.view(), LensView::default());
         assert!(run(&mut lens, 5.0).is_idle());
         assert_eq!(frame.bytes(), [0; LENS_SIZE as usize]);
+    }
+
+    /// A flare leans its streaks by an angle of its section's label, within the tilt either way:
+    /// the same label the same lean, another label another, kept while it swells again.
+    #[test]
+    fn a_flare_leans_by_its_section_and_keeps_its_lean() {
+        let angle_in = |label: f32| {
+            let mut lens = lens(&["flare"]);
+            lens.listen(&MusicValues {
+                section_label: label,
+                ..music(0.0, 0)
+            });
+            lens.start_flare(1.0);
+            lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0).flare_angle
+        };
+        let angles: Vec<f32> = (0..12).map(|label| angle_in(label as f32)).collect();
+        assert!(angles.iter().all(|a| a.abs() <= FLARE_TILT), "{angles:?}");
+        assert_eq!(angle_in(3.0), angles[3]);
+        assert!(
+            angles.iter().any(|a| (a - angles[0]).abs() > 0.1),
+            "{angles:?}"
+        );
+        assert!(angles.iter().any(|a| *a > 0.0) && angles.iter().any(|a| *a < 0.0));
+
+        let mut lens = lens(&["flare"]);
+        lens.listen(&MusicValues {
+            section_label: 2.0,
+            ..music(0.0, 0)
+        });
+        lens.start_flare(1.0);
+        let first = lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0).flare_angle;
+        lens.listen(&MusicValues {
+            section_label: 5.0,
+            ..music(0.0, 0)
+        });
+        lens.start_flare(1.0);
+        assert_eq!(
+            lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0).flare_angle,
+            first
+        );
+        // The angle is told in the uniform, after the leak's phase.
+        let frame = LensFrame {
+            flare_angle: 0.5,
+            ..LensFrame::default()
+        };
+        assert_eq!(&frame.bytes()[32..36], &0.5f32.to_le_bytes());
     }
 
     /// A lab's forcing makes a scene act as if it listed the effect, and taking it away leaves what
