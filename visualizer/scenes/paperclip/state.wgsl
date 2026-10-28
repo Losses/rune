@@ -54,6 +54,24 @@ struct State {
   mood_prev: f32,
   mood_bar: f32,
   surprise: f32,
+  // How hard they dance now: the dance's strength, the energy of the moment and how much is heard
+  // (`level` above is only the section's: it decides what comes, not how big).
+  amp: f32,
+  // The shot's fill at the last cut (a burst's cut is 1 to 4: the cut that ends it jumps too) and
+  // the side the burst's second cut filmed from (its third films from the other).
+  last_fill: u32,
+  burst_side: f32,
+  // Whether a bar's big move may start, for the last four bars (slot n % 4: the bar number, then
+  // 1 allowed, 0 not): decided when the bar begins on the lead, so that the chorus, which dances
+  // the same bar later in the wave, makes the same move or none.
+  gate_bar: vec4f,
+  gate_open: vec4f,
+  gate_last: f32,
+  // Without a followed beat, the hits the dance is on: the times (seconds) of the last eight, how
+  // many there have been and when the last one counted (hits closer than half a beat are one).
+  hit_t: array<vec4f, 2>,
+  hit_n: u32,
+  hit_last: f32,
   // The paper's colour.
   paper: vec3f,
   // Each group's clip posed: its points (the first six also carry, in w, which way its head faces
