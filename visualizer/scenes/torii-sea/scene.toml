@@ -89,6 +89,8 @@ name = "day"
 tags = ["day"]
 # The scene never starts in daylight, though a section may change to it.
 opens = false
+# Seen at least once a song: if no section has changed to it by the song's last, that one does.
+at_least_once = true
 
 [[look]]
 name = "low sun"

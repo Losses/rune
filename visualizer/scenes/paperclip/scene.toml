@@ -62,6 +62,9 @@ name = "circling"
 size = "medium"
 move = "glide"
 tiers = ["high"]
+# Shown at least once a song: if chance has not cut to it by the song's last climax, it is cut to
+# there.
+at_least_once = true
 
 # The burst before a section that lifts the energy: a hard cut on each of the last four beats, each
 # from a new place round the lead, nearer and then from above (update.wgsl's `view_shot` draws them
