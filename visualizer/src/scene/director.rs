@@ -1046,9 +1046,12 @@ mod tests {
     }
 
     /// A director over [`each_size`] (six shots, so the burst's are indices 6 and on) that
-    /// declares [`four`].
+    /// declares [`four`], whose every lift bursts (`chance = 1`), so that the tests of what a
+    /// burst does do not hang on how a section rolls.
     fn bursting(camera: Camera) -> Director {
-        Director::new(camera, &each_size()).with_bursts(&four())
+        let mut director = Director::new(camera, &each_size()).with_bursts(&four());
+        with_chance(&mut director, Some(1.0));
+        director
     }
 
     /// A song at 120 bpm (a beat is 0.5 s, a bar 2 s) in 4/4 with a chart, the beat followed, in
@@ -2624,6 +2627,7 @@ mod tests {
     #[test]
     fn the_roll_is_the_sections_and_not_the_same_for_all() {
         let mut director = bursting(camera(0.3));
+        with_chance(&mut director, Some(0.5));
         let rolled = |director: &Director| -> Vec<bool> {
             (0..40)
                 .map(|section| director.will_burst(&coming(section as f32, (section % 3) as f32)))
@@ -2632,6 +2636,7 @@ mod tests {
         let first = rolled(&director);
         // Every play of the song rolls the same, whatever the director has been through.
         let mut other = bursting(camera(0.3));
+        with_chance(&mut other, Some(0.5));
         beats(&mut other, 0, 30, &song(0.5), plain);
         assert_eq!(rolled(&other), first);
         // Some sections burst and some do not, near the chance of half.
