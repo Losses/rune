@@ -257,7 +257,8 @@ fn shade(px: Pixel) -> vec4f {
   let bright = 0.7 + 1.0 * state.rod;
   if (disc > 0.0 && a > 1e-6) {
     let t = (-b - sqrt(disc)) / a;
-    if (t > 0.0 && t < depth && o.y + d.y * t < state.top + 3.0) {
+    // The rod has no end in view: it rises out of the picture, whatever the view.
+    if (t > 0.0 && t < depth) {
       col = th.rod * bright;
       // The rod sinks into the haze with the tower, seen from above.
       if (state.deep > 0.0) {
@@ -272,7 +273,7 @@ fn shade(px: Pixel) -> vec4f {
     // In the white light the glow shows through the plates a little, as through haze; concrete
     // hides it.
     let through = select(0.35, 0.0, params.style == 1u);
-    let seen = select(through, 1.0, tc < depth) * f32(o.y + d.y * tc < state.top + 3.0);
+    let seen = select(through, 1.0, tc < depth);
     col += th.rod * 0.8 * params.rod_glow * (0.03 + 0.15 * state.rod) * exp(-gap * 2.5) * seen;
   }
 

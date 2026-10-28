@@ -74,19 +74,20 @@ fn choose_view() {
   let v = shot.index;
   let side = select(-1.0, 1.0, random(5u) < 0.5);
   // How far below the tip the camera is (less than 0 above it), how far from the axis, how far
-  // below the tip it aims, how fast it drifts round, its field of view and how much of the tower
-  // under the tip it must see.
+  // below the tip it aims (the three views from below look up at about 29 degrees, which is to be
+  // kept: raise one by taking the same off `below` and `aim`), how fast it drifts round, its field
+  // of view and how much of the tower under the tip it must see.
   state.fov = 1.0;
   state.deep = 0.0;
   if (v == 2u) {
-    state.below = 34.0;
+    state.below = 18.0;
     state.dist = 12.0 + 2.4 * params.girth;
-    state.aim = 22.0;
+    state.aim = 6.0;
     state.spin = 0.03 * side;
   } else if (v == 1u) {
-    state.below = 18.0;
+    state.below = 10.0;
     state.dist = 8.0 + 1.6 * params.girth;
-    state.aim = 10.0;
+    state.aim = 2.0;
     state.spin = 0.04 * side;
   } else if (v == 3u) {
     // About 30 degrees down on the tip, from outside one of the tower's corners (the plates lie
@@ -119,11 +120,11 @@ fn choose_view() {
     state.dist = 20.0 + 3.0 * params.girth;
     state.aim = 10.0;
     state.spin = 0.02 * side;
-    state.deep = 80.0;
+    state.deep = 60.0;
   } else {
-    state.below = 26.0;
+    state.below = 14.0;
     state.dist = 10.0 + 2.0 * params.girth;
-    state.aim = 16.0;
+    state.aim = 4.0;
     state.spin = 0.05 * side;
   }
   // The burst's cuts come from round the tower, each from a new side.
