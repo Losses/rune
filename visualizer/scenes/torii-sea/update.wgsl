@@ -36,19 +36,6 @@ fn choose_mode_of(draw: f32) {
   choose_mode(draw, fract(draw * 0.618034 + 0.7));
 }
 
-// Set the light: 0 day, 1 a low sun ahead, 2 blue hour, 3 night.
-fn choose_light(draw: f32) {
-  var m = draw;
-  if (params.light_mode > 0u) {
-    m = f32(params.light_mode - 1u);
-  }
-  state.light_next = m;
-  state.light_from = m;
-  state.light_to = m;
-  state.light_mix = 1.0;
-  state.last_light = frame.time;
-}
-
 // Where the line runs at z, at the gates' opening height: the spirits' track.
 fn track(z: f32) -> vec3f {
   return vec3f(way_x(z), params.through, z);
@@ -64,18 +51,11 @@ fn update() {
     state.lens = 1.0;
     state.wave = params.wave_height;
     take_shot();
-    // The first pattern is drawn from the scene's seed, the first light from the music's
-    // (`light_turn` starts from the seed), and never day: a low sun, blue hour or night. The
-    // first kind of section the music says (`light` and `pattern`, -1 while it says none) is
-    // seen as a change.
+    // The first pattern is drawn from the scene's seed. The first light is the runtime's (a look
+    // that opens: never day). The first kind of section the music says (`pattern`, -1 while it
+    // says none) is seen as a change.
     choose_mode(floor(random(31u) * 5.0), random(32u));
-    choose_light(f32(1u + u32(input.light_turn) % 3u));
-    state.light_seen = -2.0;
     state.pattern_seen = -2.0;
-    state.turn_seen = input.light_turn;
-    state.light_from = state.light_next;
-    state.light_to = state.light_next;
-    state.light_mix = 1.0;
   }
 
   // Without a beat (the runtime tells of none) the hits of the music stand in for it.
@@ -133,28 +113,11 @@ fn update() {
   }
 
   // The director cuts the shot; here only the cue's other work is left. A new kind of section
-  // (`light` and `pattern` change; they are -1 where the music has no sections) is lit and
-  // patterned its own way, the same each time that kind comes back. A cue without one (every 8
-  // bars, or after 16 s without a beat) now and then turns the light to another one (`light_turn`,
-  // which the runtime moves on by chance). The pattern also changes every few bars while the beat
-  // is followed.
+  // (`pattern` changes; it is -1 where the music has no sections) is patterned its own way, the
+  // same each time that kind comes back. The pattern also changes every few bars while the beat
+  // is followed. The light is no work of the scene's: the runtime changes the look (`look`).
   if (shot.cuts != u32(state.cuts_seen)) {
     take_shot();
-  }
-  let light_by_section = input.light != state.light_seen;
-  if (light_by_section) {
-    state.light_seen = input.light;
-    if (input.light >= 0.0) {
-      choose_light(input.light);
-    }
-  }
-  if (input.light_turn != state.turn_seen) {
-    // The runtime picked another light than the last turn's: as far on as it went.
-    let by = (u32(input.light_turn) + 4u - u32(state.turn_seen)) % 4u;
-    state.turn_seen = input.light_turn;
-    if (!light_by_section) {
-      choose_light(f32((u32(state.light_to) + by) % 4u));
-    }
   }
   if (input.pattern != state.pattern_seen) {
     state.pattern_seen = input.pattern;
@@ -327,7 +290,7 @@ fn update() {
   // The camera, by its shot, moving on with the spirits; it never sways, nor rises with their
   // leaps. Its roll is the director's dutch angle, fixed within a shot.
   var cam: vec3f;
-  var look: vec3f;
+  var aim_at: vec3f;
   var lens = 1.0;
   if (state.view > 2.5) {
     // A long lens on the head of the spirits from well back and low, close beside the line, so
@@ -335,7 +298,7 @@ fn update() {
     // frame them; the lens is long so the shot reads as a different one from the close.
     let cz = s - 16.0;
     cam = vec3f(path_x(cz) - state.lat * 2.5, params.through - 0.5, cz);
-    look = vec3f(path_x(s + 3.0), params.through + 0.6, s + 3.0);
+    aim_at = vec3f(path_x(s + 3.0), params.through + 0.6, s + 3.0);
     lens = 0.38;
   } else if (state.view > 1.5) {
     // Close: just behind the spirits, level with the gates' opening and a little to one side
@@ -344,7 +307,7 @@ fn update() {
     // lens is about the wide shots' (1.05 and 0.75), so the gate's size says how near it is.
     let cz = s - 6.5;
     cam = vec3f(path_x(cz) + state.lat * 3.0, params.through - 0.6, cz);
-    look = vec3f(path_x(s + 5.0), params.through + 0.2, s + 5.0);
+    aim_at = vec3f(path_x(s + 5.0), params.through + 0.2, s + 5.0);
     lens = 0.95;
   } else if (state.view > 0.5) {
     // From behind and to one side, a little above the water and looking slightly down (lower,
@@ -353,7 +316,7 @@ fn update() {
     let cz = s - 18.0;
     // Out between the line's gates and the strays, clear of both.
     cam = vec3f(path_x(cz) + state.lat * 9.0, params.rear_height, cz);
-    look = vec3f(path_x(s + 30.0), 1.0, s + 30.0);
+    aim_at = vec3f(path_x(s + 30.0), 1.0, s + 30.0);
     lens = 0.75;
   } else {
     // High up on the left and well behind the spirits, looking on ahead down the line to the
@@ -361,11 +324,11 @@ fn update() {
     // +z).
     let cz = s - params.cam_dist * 3.0;
     cam = vec3f(path_x(cz) - params.side_offset * 1.6, params.high, cz);
-    look = vec3f(path_x(s + 40.0), 0.0, s + 40.0);
+    aim_at = vec3f(path_x(s + 40.0), 0.0, s + 40.0);
     lens = 1.05;
   }
   state.cam_pos = cam;
-  state.cam_fwd = normalize(look - cam);
+  state.cam_fwd = normalize(aim_at - cam);
   state.roll = shot.roll;
   state.lens = lens;
   let right = normalize(cross(vec3f(0.0, 1.0, 0.0), state.cam_fwd));

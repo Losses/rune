@@ -31,16 +31,8 @@ struct State {
   // The theme colour's hue (OKLab, radians): the player's accent colour, or the one set. The
   // spirits take it, and the sea a little of it; the torii keep their own.
   theme_hue: f32,
-  // The light: fading from one to the next, the one waiting, and when it last changed.
-  light_from: f32,
-  light_to: f32,
-  light_mix: f32,
-  light_next: f32,
-  last_light: f32,
-  // What the music last said of the light and pattern (the kind of section) and of the light's turns.
-  light_seen: f32,
+  // What the music last said of the pattern (the kind of section).
   pattern_seen: f32,
-  turn_seen: f32,
   // The beat: torii passed per beat.
   per_beat: f32,
   // The spirits: the beat's surge, the snare's flick, a leap into the sky (its phase, 0 to 1, and strength), how they move (0 braid,

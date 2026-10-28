@@ -97,6 +97,21 @@ size = "detail"
 name = "high above"
 size = "top"
 
+# The looks: one material, concrete, under three lights (update.wgsl draws them, as `theme_of`
+# in state.wgsl; the order is the order it takes). The runtime decides when the light changes: a
+# section start picks the look by the section's label (the same each time), and the song's first
+# light is picked from the scene's seed (see "Looks" in the runtime's docs/music.md).
+[[look]]
+name = "low sun"
+tags = ["warm"]
+
+[[look]]
+name = "high sun"
+
+[[look]]
+name = "blue hour"
+tags = ["night"]
+
 [post]
 exposure = 0.0
 # Only the sun glares; the lens is a clean one.
@@ -123,10 +138,6 @@ label = "A followed beat"
 [[input]]
 id = "bar_line"
 label = "A bar line"
-
-[[input]]
-id = "cue"
-label = "A cue strong enough to change the theme (its strength)"
 
 [[input]]
 id = "tempo"
@@ -159,12 +170,6 @@ rest = 0.65
 id = "rod"
 label = "How bright the rod is, by the energy"
 
-[[input]]
-id = "tone_pick"
-label = "The concrete's light, by section (-1: none)"
-range = [-1.0, 2.0]
-rest = -1.0
-
 [[bind]]
 target = "beat"
 source = "hits"
@@ -182,12 +187,6 @@ target = "bar_line"
 source = "bars"
 how = "trigger"
 when = { scale = false, release = 0.0 }
-
-[[bind]]
-target = "cue"
-source = "cues"
-how = "trigger"
-when = { strength = { param = "theme_cue" }, release = 0.0 }
 
 [[bind]]
 target = "tempo"
@@ -235,13 +234,6 @@ target = "rod"
 source = "intensity"
 how = "follow"
 when = { smooth = 1.0 }
-
-[[bind]]
-target = "tone_pick"
-source = "section_label"
-how = "pick"
-when = { options = 3 }
-fallback = "rest"
 
 # ---- Beat ----
 
@@ -427,9 +419,9 @@ step = 1.0
 id = "light"
 type = "choice"
 group = "Look"
-label = "Light"
+label = "Light (a fixed one overrides the runtime's changes by section)"
 default = 0
-options = ["By section", "Low warm sun", "High white sun", "Blue hour"]
+options = ["Automatic", "Low warm sun", "High white sun", "Blue hour"]
 
 [[param]]
 id = "surface"
@@ -482,25 +474,6 @@ label = "How colourful, following the player (0 is black and white)"
 default = 1.0
 min = 0.0
 max = 2.0
-step = 0.05
-
-[[param]]
-id = "theme_fade"
-group = "Look"
-label = "Time to fade between themes"
-unit = "s"
-default = 0.5
-min = 0.05
-max = 10.0
-step = 0.05
-
-[[param]]
-id = "theme_cue"
-group = "Look"
-label = "Weakest cue that changes the theme"
-default = 0.3
-min = 0.0
-max = 1.0
 step = 0.05
 
 [[param]]

@@ -54,6 +54,29 @@ name = "spirit's head"
 size = "detail"
 move = "cut"
 
+# The looks: the four lights of the scene (sea.wgsl draws them, as `light_of`; the order is the
+# order it takes). The runtime decides when the light changes: a section start picks the look by
+# the section's label (the same each time) and fades to it, and the scene's first light is drawn
+# from its seed among the looks that open (see "Looks" in the runtime's docs/music.md). The
+# spirits' pattern is no look: it stays on `pattern`, picked by the section.
+[[look]]
+name = "day"
+tags = ["day"]
+# The scene never starts in daylight, though a section may change to it.
+opens = false
+
+[[look]]
+name = "low sun"
+tags = ["warm"]
+
+[[look]]
+name = "blue hour"
+tags = ["night"]
+
+[[look]]
+name = "night"
+tags = ["night"]
+
 [post]
 exposure = 0.0
 bloom = { intensity = 0.4, threshold = 1.0, radius = 0.7 }
@@ -175,17 +198,6 @@ range = [0.0, 100.0]
 [[input]]
 id = "wave"
 label = "The sea's energy, swelling slowly"
-
-[[input]]
-id = "light"
-label = "The kind of light, by section (-1: none)"
-range = [-1.0, 3.0]
-rest = -1.0
-
-[[input]]
-id = "light_turn"
-label = "The light a cue turns to, by chance"
-range = [0.0, 3.0]
 
 [[input]]
 id = "pattern"
@@ -337,19 +349,6 @@ target = "wave"
 source = "drive"
 how = "follow"
 when = { smooth = 1.0 }
-
-[[bind]]
-target = "light"
-source = "section_label"
-how = "pick"
-when = { options = 4 }
-fallback = "rest"
-
-[[bind]]
-target = "light_turn"
-source = "cues"
-how = "pick"
-when = { options = 4, strength = 0.2, chance = 0.5, start = "seed", jump = "random" }
 
 [[bind]]
 target = "pattern"
@@ -987,9 +986,9 @@ step = 0.01
 id = "light_mode"
 type = "choice"
 group = "Light"
-label = "Light"
+label = "Light (a fixed one overrides the runtime's changes by section)"
 default = 0
-options = ["By section (with the cut)", "Day", "A low sun ahead (backlight)", "Blue hour", "Night"]
+options = ["Automatic", "Day", "A low sun ahead (backlight)", "Blue hour", "Night"]
 
 [[param]]
 id = "shadows"

@@ -38,17 +38,11 @@ struct State {
   cam_top: f32,
   cam_rise: f32,
   aim: f32,
-  // The colours: fading from one theme to the next, the one waiting, and when it last changed.
-  theme_from: f32,
-  theme_to: f32,
-  theme_mix: f32,
-  theme_next: f32,
-  last_theme: f32,
   // How full each layer is (the `fill` when the tip grew past its middle), four layers to an
   // element, the layer's index going round `FILL_LAYERS`.
   fills: array<vec4f, 64>,
-  // The colours now: the last theme fading into the next, in the player's colour if it follows
-  // it (see update).
+  // The colours now: the last look fading into the next (`look`, the runtime's), in the player's
+  // colour if it follows it (see update).
   theme: Theme,
 }
 
@@ -111,7 +105,7 @@ struct Theme {
   sun: vec3f,
 }
 
-// The themes: one material, concrete, under three lights: 0 a low warm sun from the side, 1 a
+// The looks (the `[[look]]`s of scene.toml, in order): one material, concrete, under three lights: 0 a low warm sun from the side, 1 a
 // high white sun, 2 the blue hour, the sun gone and the rod lighting the core. The light from
 // below is what the sunlit ground throws back: the camera looks up, at the plates' undersides.
 fn theme_of(m: f32) -> Theme {

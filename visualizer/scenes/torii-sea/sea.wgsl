@@ -690,7 +690,7 @@ struct Light {
   disc: f32,
 }
 
-// The four lights, one for each kind of section, changing only when the camera cuts:
+// The four lights (the `[[look]]`s of scene.toml, in this order), one for each kind of section:
 // 0 a clear day, the sun ahead and up a little, warm light and cool shade;
 // 1 a low sun ahead, the torii dark against a bright hazy sky and a path of light on the water;
 // 2 the blue hour, the sun just gone: a deep blue sky, a warm glow low on the horizon ahead, a
@@ -738,9 +738,32 @@ fn light_of(m: f32) -> Light {
   return l;
 }
 
-// The light now: it changes at a cut, at once.
+// The looks on screen: the one before, the one now and how far the fade is, all the runtime's
+// (`look`, see scene.toml's [[look]]s). The `light_mode` parameter pins one and overrides it.
+fn looks_now() -> vec3f {
+  if (params.light_mode > 0u) {
+    let pinned = f32(params.light_mode - 1u);
+    return vec3f(pinned, pinned, 1.0);
+  }
+  return vec3f(f32(look.prev), f32(look.to), look.mix);
+}
+
+// The light now: the look before fading into the look now (the runtime's mix is eased already).
 fn light_now() -> Light {
-  return light_of(state.light_to);
+  let now = looks_now();
+  var l = light_of(now.y);
+  if (now.z < 1.0) {
+    let a = light_of(now.x);
+    l.sun = normalize(mix(a.sun, l.sun, now.z));
+    l.sun_colour = mix(a.sun_colour, l.sun_colour, now.z);
+    l.zenith = mix(a.zenith, l.zenith, now.z);
+    l.horizon = mix(a.horizon, l.horizon, now.z);
+    l.ambient = mix(a.ambient, l.ambient, now.z);
+    l.clouds = mix(a.clouds, l.clouds, now.z);
+    l.night = mix(a.night, l.night, now.z);
+    l.disc = mix(a.disc, l.disc, now.z);
+  }
+  return l;
 }
 
 fn sky(d: vec3f, l: Light) -> vec3f {
@@ -806,7 +829,9 @@ fn spirit_of(m: f32) -> vec3f {
   return vec3f(0.5, 0.88, 1.0);
 }
 
-// The spirits in the theme's colour: each light's own lightness, the theme's hue.
+// The spirits in the theme's colour: each light's own lightness (fading with the look), the
+// theme's hue.
 fn spirit_colour() -> vec3f {
-  return themed(spirit_of(state.light_to), 0.14);
+  let now = looks_now();
+  return themed(mix(spirit_of(now.x), spirit_of(now.y), now.z), 0.14);
 }

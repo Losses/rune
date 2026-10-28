@@ -33,12 +33,24 @@ fn rehue(c: vec3f, hue: f32, most: f32) -> vec3f {
   return oklch(lab.x, min(length(lab.yz), most), hue);
 }
 
-// The colours now: the last theme fading into the next; in the player's colour if it follows it
+// The looks on screen: the one before, the one now and how far the fade is, all the runtime's
+// (`look`, see scene.toml's [[look]]s). The `light` parameter pins one and overrides it.
+fn looks_now() -> vec3f {
+  if (params.light > 0u) {
+    let pinned = f32(params.light - 1u);
+    return vec3f(pinned, pinned, 1.0);
+  }
+  return vec3f(f32(look.prev), f32(look.to), look.mix);
+}
+
+// The colours now: the last look fading into the next; in the player's colour if it follows it
 // and the player has told it.
 fn set_theme() {
-  let a = theme_of(state.theme_from);
-  let b = theme_of(state.theme_to);
-  let k = smoothstep(0.0, 1.0, state.theme_mix);
+  let now = looks_now();
+  let a = theme_of(now.x);
+  let b = theme_of(now.y);
+  // The runtime's mix is eased already.
+  let k = now.z;
   var th = Theme(mix(a.haze_up, b.haze_up, k), mix(a.haze_down, b.haze_down, k), mix(a.glow, b.glow, k),
     mix(a.pale, b.pale, k), mix(a.mid, b.mid, k), mix(a.dark, b.dark, k), mix(a.odd, b.odd, k),
     mix(a.key, b.key, k), mix(a.sky_up, b.sky_up, k), mix(a.sky_down, b.sky_down, k),
@@ -148,21 +160,6 @@ fn theme_exposure(m: f32) -> f32 {
   return 0.0;
 }
 
-// Pick the light to change to, by the section's label (the declared `tone_pick` input, -1
-// without a chart), so the same kind of section has the same light.
-fn choose_theme(by_section: bool) {
-  var m: f32;
-  if (params.light > 0u) {
-    m = f32(params.light - 1u);
-  } else if (by_section && input.tone_pick >= 0.0) {
-    m = input.tone_pick;
-  } else {
-    m = f32((u32(state.theme_to) + 1u + u32(random(14u) * 2.0)) % 3u);
-  }
-  state.theme_next = m;
-  state.last_theme = frame.time;
-}
-
 // The layers whose middle the tip grew past, from `below` to `above`, take how full the music is
 // now: a layer keeps it once grown, as its plates never change.
 fn remember_fill(below: f32, above: f32, fill: f32) {
@@ -176,7 +173,6 @@ fn remember_fill(below: f32, above: f32, fill: f32) {
 
 fn update() {
   let dt = rv_dt();
-  let t = frame.time;
   if (frame.first == 1u) {
     state.top = 40.0;
     state.top_to = 40.0;
@@ -188,10 +184,6 @@ fn update() {
     }
     state.azimuth = random(4u) * 6.283;
     choose_view();
-    choose_theme(false);
-    state.theme_from = state.theme_next;
-    state.theme_to = state.theme_next;
-    state.theme_mix = 1.0;
     state.cam_top = state.top;
     state.cam_rise = 0.0;
     state.top_prev = state.top;
@@ -229,26 +221,12 @@ fn update() {
   // are the runtime's shared effects.
   state.rod = input.rod;
 
-  // The view changes when the director cuts (`shot.cuts`); the themes change on the music's
-  // cues. A section's start (cue 0.5 or more) takes its own colours from its label, so every
-  // chorus has the same ones. A weaker cue (eight bars, or a long time without a hit) changes the
-  // theme only if the last change was long ago.
+  // The view changes when the director cuts (`shot.cuts`). The light is the runtime's: it
+  // changes the look on a section start by the section's label, and `look` says which and how
+  // far the fade is.
   if (shot.cuts != state.cuts) {
     choose_view();
   }
-  if (input.cue > 0.0) {
-    if (input.cue >= 0.5 && t - state.last_theme > 2.0) {
-      choose_theme(true);
-    } else if (input.cue < 0.5 && t - state.last_theme > 16.0) {
-      choose_theme(false);
-    }
-  }
-  if (state.theme_mix >= 1.0 && state.theme_next != state.theme_to) {
-    state.theme_from = state.theme_to;
-    state.theme_to = state.theme_next;
-    state.theme_mix = 0.0;
-  }
-  state.theme_mix = min(state.theme_mix + dt / max(params.theme_fade, 0.05), 1.0);
   set_theme();
 
   // It circles at the tempo while the music is heard, and comes to rest in silence.
@@ -272,6 +250,7 @@ fn update() {
 
   // Only the sun glares (`glow`); the lens is a clean one (scene.toml's [post]).
   post.bloom_intensity = params.glow;
-  let dim = mix(theme_exposure(state.theme_from), theme_exposure(state.theme_to), smoothstep(0.0, 1.0, state.theme_mix));
+  let now = looks_now();
+  let dim = mix(theme_exposure(now.x), theme_exposure(now.y), now.z);
   post.exposure = params.exposure + dim;
 }
