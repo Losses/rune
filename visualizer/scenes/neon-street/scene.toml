@@ -27,17 +27,19 @@ name = "aside"
 size = "close"
 move = "cut"
 
-# Above the signs, looking forward.
+# Above the signs, looking forward. A far view: not for the climax.
 [[shot]]
 name = "high"
 size = "wide"
 move = "cut"
+tiers = ["quiet", "normal"]
 
-# High over the city, looking down.
+# High over the city, looking down. Not for the climax either.
 [[shot]]
 name = "overview"
 size = "wide"
 move = "cut"
+tiers = ["quiet", "normal"]
 
 # The burst before a section that lifts, a cut on each of its last four beats, each to a new
 # place along the street: street level looking ahead, close beside a shop front and the sign
