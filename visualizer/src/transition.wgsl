@@ -341,7 +341,9 @@ fn glitch_flow(
   }
   let row = u32(uv.y * rows);
   let band = hash3(state, row, u32(rows));
-  let strength = clamp(amount, 0.0, 1.0);
+  // The first beat hits on the moment that started the glitch, strong whatever the course's swell
+  // has reached (left to it, the moment passed with little for a beat or more).
+  let strength = select(clamp(amount, 0.0, 1.0), max(clamp(amount, 0.0, 1.0), 0.8), beat < 1.0);
   if unit(hash(band ^ 0x11u)) >= 0.4 * strength {
     return here;
   }
@@ -451,13 +453,16 @@ fn mosaic_blocks(
   if step >= 3u {
     return here;
   }
-  let strength = clamp(amount, 0.0, 1.0);
-  if unit(hash3(seed, hit, 0xd1u)) >= min(0.3 + 1.2 * strength, 1.0) {
+  // The first hit lands on the moment that started the mosaic, whole frame and strong, whatever
+  // the course's swell has reached (left to the roll, the moment passed with nothing for beats).
+  let first = hit == 0u;
+  let strength = select(clamp(amount, 0.0, 1.0), max(clamp(amount, 0.0, 1.0), 0.8), first);
+  if !first && unit(hash3(seed, hit, 0xd1u)) >= min(0.3 + 1.2 * strength, 1.0) {
     return here;
   }
   let size = vec2f(textureDimensions(tex));
   let uv = (vec2f(at) + 0.5) / size;
-  let region = mosaic_region(hash3(seed, hit, 0xd2u));
+  let region = select(mosaic_region(hash3(seed, hit, 0xd2u)), vec4f(0.0, 0.0, 1.0, 1.0), first);
   if any(uv < region.xy) || any(uv >= region.zw) {
     return here;
   }
