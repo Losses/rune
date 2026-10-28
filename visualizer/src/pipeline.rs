@@ -3095,9 +3095,14 @@ mod probe {
     }
 
     fn pipeline() -> Pipeline {
+        // PROBE_SIZE=<width>x<height> in place of the reference phone's.
+        let size = std::env::var("PROBE_SIZE").ok().map_or(SIZE, |s| {
+            let (w, h) = s.split_once('x').expect("PROBE_SIZE is WxH");
+            (w.parse().unwrap(), h.parse().unwrap())
+        });
         let mut pipeline = Pipeline::new(
-            SIZE.0,
-            SIZE.1,
+            size.0,
+            size.1,
             44_100,
             true,
             None,
@@ -3241,7 +3246,19 @@ mod probe {
                 load(&mut pipeline, scene, level);
                 sizes[k] = pipeline.scene.internal_size();
                 let least = &mut least[k];
-                run(&mut pipeline, frames, &[], |i, time, _| {
+                // With PROBE_HOLD=<shot index>, the director holds that shot, cut to again every
+                // PROBE_HOLD_EVERY frames (default 60).
+                let hold: Option<u32> =
+                    std::env::var("PROBE_HOLD").ok().map(|s| s.parse().unwrap());
+                let every: u32 = env_or("PROBE_HOLD_EVERY", "60").parse().unwrap();
+                let before = |pipeline: &mut Pipeline, i: u32| {
+                    if let Some(index) = hold
+                        && i % every == 1
+                    {
+                        pipeline.hold_shot(Some(index));
+                    }
+                };
+                run_with(&mut pipeline, frames, &[], before, |i, time, _| {
                     if let Some(&time) = time.last() {
                         least[i as usize] = least[i as usize].min(time);
                     }
@@ -3697,13 +3714,24 @@ mod probe {
         let frames = frame_numbers();
         let mut pipeline = pipeline();
         let size = pipeline.size();
+        // With PROBE_HOLD=<shot index>, the director cuts to that shot and holds it, again every
+        // PROBE_HOLD_EVERY frames (default 60), each time a new cut (a new shot.seed).
+        let hold: Option<u32> = std::env::var("PROBE_HOLD").ok().map(|s| s.parse().unwrap());
+        let every: u32 = env_or("PROBE_HOLD_EVERY", "60").parse().unwrap();
         for scene in env_or("PROBE", "Growth").split(',') {
             for level in levels("1:1") {
                 load(&mut pipeline, scene, level);
-                run(
+                run_with(
                     &mut pipeline,
                     *frames.last().unwrap(),
                     &frames,
+                    |pipeline, i| {
+                        if let Some(index) = hold
+                            && i % every == 1
+                        {
+                            pipeline.hold_shot(Some(index));
+                        }
+                    },
                     |i, _, pixels| {
                         if let Some(pixels) = pixels {
                             let name =
