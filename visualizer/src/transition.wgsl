@@ -423,19 +423,18 @@ fn glitch_flow(
   return min(rgb, vec3f(0.92));
 }
 
-// The mosaic, made to hit (the classic one was too gentle, then the whole frame too much): big flat
-// blocks of the picture, posterized to five levels with a touch of contrast, in patches that come
-// and go in places on the screen, never the whole frame. As a switch the whole frame steps up to
-// the coarsest cells, the new picture is behind them, and they step down again.
+// The mosaic. As a switch, big flat blocks of the picture, posterized to five levels with a touch
+// of contrast: the whole frame steps up to the coarsest cells, the new picture is behind them, and
+// they step down again. Over the picture, many small patches of cells that come and go, each in its
+// own time.
 
-// The cell of a mosaic at its coarsest, as a share of the frame's height, at the least and at
-// the most of a lens effect's amount.
-const MOSAIC_CELL_LEAST: f32 = 0.05;
-const MOSAIC_CELL_MOST: f32 = 0.12;
-// The steps of a lens patch's life: the share of the coarsest cell, coarse to finer.
-const MOSAIC_STEPS: vec3f = vec3f(1.0, 0.62, 0.38);
-// A slot of the cross-rhythm of the patches, in beats: three in two.
-const MOSAIC_SLOT: f32 = 0.6666667;
+// A slot of the lens mosaic's patches, in beats, and how many slots back a patch may still be
+// up (its longest life over the slot).
+const MOSAIC_SLOT: f32 = 0.25;
+const MOSAIC_LOOK_BACK: i32 = 13;
+// The shortest and the longest life of a lens patch, in beats.
+const MOSAIC_LIFE_LEAST: f32 = 0.25;
+const MOSAIC_LIFE_MOST: f32 = 3.0;
 
 // The colour of a mosaic cell of `cell` pixels whose corner is at `origin` (pixels): the average
 // of the picture at nine points of it.
@@ -472,14 +471,16 @@ fn mosaic_patch(id: u32, reach: f32) -> vec4f {
   return vec4f(x, y, x + w, y + h);
 }
 
-// The mosaic as a lens effect over the picture `tex` at `at`: patches of big blocks that appear
-// and disappear in places, on a cross-rhythm of the linear beat time `lin` (beats since it
-// started), three slots in two beats. A slot hosts a patch by a roll against `amount` (0 to 1,
-// 30% at the least to every slot at the most); the first always lands, strong, on the moment that
-// started the mosaic. A patch lives 1 to 2 beats from a start a little after its slot's (up to
-// a quarter beat), so two or three are up at once, in blocks that go from the coarsest size (5%
-// of the height at a low amount to 12% at the peak) to 62% and 38% of it over its life. The rest
-// of the frame is the picture.
+// The mosaic as a lens effect over the picture `tex` at `at`: many small patches of blocks that
+// come and go in places, each staying its own time. The linear beat time `lin` (beats since it
+// started) has a slot every quarter beat with two chances of a patch, each taken by a roll against
+// `amount` (0 to 1: 20% at the least, 80% at the most), at a jitter of its own in the slot; the
+// first slot's two always land, strong, on the moment that started the mosaic. A patch is 4 to 13%
+// of the shorter side tall and 0.8 to 2.2 times as wide, somewhere in the frame, in two to five
+// flat cells of its own grid across its height, and lives a quarter beat to three beats (most of
+// them short), so a handful are up at once at a low amount and some eight at the most. Its cells
+// are the picture's average, not posterized, so that they read as a flicker of the picture and not
+// as tiles. The rest of the frame is the picture.
 fn mosaic_blocks(
   tex: texture_2d<f32>,
   at: vec2i,
@@ -489,30 +490,43 @@ fn mosaic_blocks(
 ) -> vec3f {
   let here = load(tex, at).rgb;
   let size = vec2f(textureDimensions(tex));
-  let uv = (vec2f(at) + 0.5) / size;
   let slot = i32(floor(max(lin, 0.0) / MOSAIC_SLOT));
   let s = clamp(amount, 0.0, 1.0);
-  for (var n = slot; n >= max(slot - 4, 0); n -= 1) {
+  // The newest first, back as far as the longest life reaches.
+  for (var n = slot; n >= max(slot - MOSAIC_LOOK_BACK, 0); n -= 1) {
     let first = n == 0;
-    let base = hash3(seed ^ 0x3a1u, u32(n), 0xd1u);
-    if !first && unit(hash(base ^ 0x1u)) >= 0.3 + 0.7 * s {
-      continue;
+    for (var j = 0u; j < 2u; j += 1u) {
+      let base = hash3(seed ^ 0x3a1u, u32(n), 0xd1u + j);
+      if !first && unit(hash(base ^ 0x1u)) >= 0.2 + 0.6 * s {
+        continue;
+      }
+      let life = MOSAIC_LIFE_LEAST
+        + (MOSAIC_LIFE_MOST - MOSAIC_LIFE_LEAST) * pow(unit(hash(base ^ 0x2u)), 2.0);
+      let start = f32(n) * MOSAIC_SLOT + select(MOSAIC_SLOT * unit(hash(base ^ 0x3u)), 0.0, first);
+      let age = lin - start;
+      if age < 0.0 || age >= select(life, max(life, 1.0), first) {
+        continue;
+      }
+      // The patch in pixels: its height a share of the frame's shorter side (a phone held
+      // upright has the same small patches), its width by its own shape.
+      let strength = select(s, max(s, 0.8), first);
+      let tall = min(size.x, size.y)
+        * (0.04 + 0.09 * unit(hash(base ^ 0x4u)))
+        * (0.7 + 0.3 * strength);
+      let wide = tall * (0.8 + 1.4 * unit(hash(base ^ 0x5u)));
+      let corner = vec2f(
+        (size.x - wide) * unit(hash(base ^ 0x6u)),
+        (size.y - tall) * unit(hash(base ^ 0x7u)),
+      );
+      let p = vec2f(at) + 0.5 - corner;
+      if any(p < vec2f(0.0)) || any(p >= vec2f(wide, tall)) {
+        continue;
+      }
+      let cells = 2.0 + floor(4.0 * unit(hash(base ^ 0x8u)));
+      let cell = max(round(tall / cells), 6.0);
+      let origin = floor(p / cell) * cell + corner;
+      return min(cell_colour(tex, origin, cell), vec3f(0.92));
     }
-    let strength = select(s, max(s, 0.8), first);
-    let life = 1.0 + unit(hash(base ^ 0x2u));
-    let start = f32(n) * MOSAIC_SLOT + select(0.25 * unit(hash(base ^ 0x3u)), 0.0, first);
-    let age = lin - start;
-    if age < 0.0 || age >= life {
-      continue;
-    }
-    let spot = mosaic_patch(base, strength);
-    if any(uv < spot.xy) || any(uv >= spot.zw) {
-      continue;
-    }
-    let step = min(u32(age / life * 3.0), 2u);
-    let coarsest = mix(MOSAIC_CELL_LEAST, MOSAIC_CELL_MOST, strength);
-    let cell = max(round(size.y * coarsest * MOSAIC_STEPS[step]), 6.0);
-    return pixelated(tex, at, cell, spot.xy * size);
   }
   return here;
 }
