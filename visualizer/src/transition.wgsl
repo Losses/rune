@@ -40,10 +40,10 @@ struct Transition {
   // A punch: the scale of the picture, the length of the smear (of the height), the colour
   // split (of the distance from the centre) and the flash towards `color`.
   // A glitch: the share of pieces that break, the share that show the new picture, 1 for the
-  // subtle one over the picture; over the picture as a lens effect: its amount, its time in
-  // beats, 1, and 1 (see `glitch_flow`; the beat's accent is in the progress). A mosaic: 0 for a
-  // switch (its course is the progress); over the picture 1, its amount and its eased beat time
-  // (see `mosaic_blocks`; the beat's accent is in the progress). A flash's rise:
+  // subtle one over the picture; over the picture as a lens effect: its amount, its eased beat
+  // time, its linear beat time since it started, and 1 (see `glitch_flow`; the beat's accent is
+  // in the progress). A mosaic: 0 for a switch (its course is the progress); over the picture 1,
+  // its amount, its eased beat time and its linear one (see `mosaic_blocks`). A flash's rise:
   // the theme colour at its brightest (display values) and the share of the rise that is the
   // wash.
   extra: vec4f,
@@ -284,7 +284,7 @@ fn glitch(
   let top = f32(row) / rows;
   // The pieces of the row: narrow ones more often than wide ones.
   let w = unit(hash(band ^ 0x51u));
-  let width = select(0.06 + 0.64 * w * w, 0.05 + 0.3 * w * w, subtle);
+  let width = select(0.04 + 0.4 * w * w, 0.05 + 0.3 * w * w, subtle);
   let piece = u32(floor(uv.x / width + unit(hash(band ^ 0x77u)) + 8.0));
   let id = hash3(band, piece, 3u);
   let use_new = unit(hash(id ^ 0x1234u)) < reveal;
@@ -305,94 +305,137 @@ fn noise1(x: f32, salt: u32) -> f32 {
   return mix(a, b, f * f * (3.0 - 2.0 * f));
 }
 
-// The glitch as a lens effect over the live picture `tex`, on the eased beat time `t`: the picture
-// jumps. Each beat is cut into three states, the eased time passing them in its first fifth, so
-// every beat the tears jump to a new layout and hold it; now and then (a fifth of the beats) a
-// beat holds one state all through, with its rows held (a stutter). The frame is cut into rows
-// of one of three heights (a tenth, a 24th, a 60th of the height), and `amount` (0 to 1) decides
-// how many are torn: up to 40%. A torn row, whole or from one edge, is the picture shifted
-// sideways by a tenth of the width or more (the beat's `accent`, 0 to 1, pushes it further), its
-// colour channels torn apart, and some rows are inverted or burnt to the theme colour. Never
-// full white.
+// A block of a lens glitch (see `glitch_flow`): the rectangle `id` makes in the event `state` is
+// (x0, y0, x1, y1 as shares of the frame): mostly a few % to a third of the width and a few rows
+// tall, one in eight a long thin tear.
+fn glitch_block(id: u32) -> vec4f {
+  var w = 0.03 + 0.3 * pow(unit(hash(id ^ 0x1u)), 1.5);
+  var h = 0.025 + 0.095 * unit(hash(id ^ 0x2u));
+  if unit(hash(id ^ 0x3u)) < 0.125 {
+    w = 0.55 + 0.45 * unit(hash(id ^ 0x4u));
+    h = 0.012 + 0.02 * unit(hash(id ^ 0x5u));
+  }
+  let x = (1.0 - w) * unit(hash(id ^ 0x6u));
+  let y = (1.0 - h) * unit(hash(id ^ 0x7u));
+  return vec4f(x, y, x + w, y + h);
+}
+
+// The glitch as a lens effect over the live picture `tex`: events on a cross-rhythm, five in
+// three beats of the linear beat time `lin` (beats since it started; the eased time dwells on the
+// whole beats, so events would sit on them), each a fraction of a beat (0.1 to 0.3) at a jitter of
+// its own in its slot (up to 0.2), now and then a second one close behind; a slot hosts an event
+// by a roll against `amount` (0 to 1, from the course and the music) and the first one always
+// lands, strong, on the moment that started the glitch. An event is a random set of blocks
+// (2 to 8 by the amount, a few % to a third of the width, a few rows tall, a long tear now and
+// then) and the rest of the frame is the picture. A block is the picture displaced, colour
+// split, inverted, burnt to the theme colour or a held copy of another region. The beat's
+// `accent` (0 to 1) pushes the displacement a little. Never full white; nothing lights the whole
+// frame. The pattern is the seed's, so the same start gives the same events.
 fn glitch_flow(
   tex: texture_2d<f32>,
   at: vec2i,
   seed: u32,
   amount: f32,
-  t: f32,
+  lin: f32,
   accent: f32,
   theme: vec3f,
 ) -> vec3f {
   let size = vec2f(textureDimensions(tex));
   let uv = (vec2f(at) + 0.5) / size;
   let here = load(tex, at).rgb;
-  let beat = floor(t);
-  let sub = min(u32((t - beat) * 3.0), 2u);
-  let stutter = unit(hash3(seed, u32(beat), 0xc1u)) < 0.2;
-  let state = hash3(seed ^ 0x5bd1u, u32(beat), select(sub, 3u, stutter));
-  let coarse = u32(uv.y * 8.0);
-  let pick = unit(hash3(state, coarse, 1u));
-  var rows = 10.0;
-  if pick > 0.3 {
-    rows = 24.0;
+  let slot_length = 0.6;
+  let slot = i32(floor(max(lin, 0.0) / slot_length));
+  let s = clamp(amount, 0.0, 1.0);
+  var found = false;
+  var state = 0u;
+  var strength = s;
+  for (var n = max(slot - 1, 0); n <= slot; n += 1) {
+    let first = n == 0;
+    let base = hash3(seed ^ 0x5bd1u, u32(n), 0x31u);
+    let hosts = first || unit(hash(base ^ 0x1u)) < 0.5 + 0.5 * s;
+    if !hosts {
+      continue;
+    }
+    let double = !first && unit(hash(base ^ 0x2u)) < 0.3;
+    for (var j = 0; j < 2; j += 1) {
+      if j == 1 && !double {
+        continue;
+      }
+      let jitter = select(0.2 * unit(hash(base ^ 0x3u)), 0.0, first);
+      let start = (f32(n) + 0.0) * slot_length + jitter + f32(j) * 0.2;
+      let length = 0.12 + 0.28 * unit(hash3(base, u32(j), 0x4u));
+      if lin >= start && lin < start + length {
+        found = true;
+        state = hash3(base, u32(j), 0x5u);
+        strength = select(s, max(s, 0.8), first);
+      }
+    }
   }
-  if pick > 0.7 {
-    rows = 60.0;
-  }
-  let row = u32(uv.y * rows);
-  let band = hash3(state, row, u32(rows));
-  // The first beat hits on the moment that started the glitch, strong whatever the course's swell
-  // has reached (left to it, the moment passed with little for a beat or more).
-  let strength = select(clamp(amount, 0.0, 1.0), max(clamp(amount, 0.0, 1.0), 0.8), beat < 1.0);
-  if unit(hash(band ^ 0x11u)) >= 0.4 * strength {
+  if !found {
     return here;
   }
-  // How far along the row the tear reaches, from the left or the right edge.
-  let reach = select(1.0, 0.4 + 0.6 * unit(hash(band ^ 0x13u)), unit(hash(band ^ 0x12u)) < 0.5);
-  let from_left = (band & 0x100u) == 0u;
-  let outside = select((uv.x < 1.0 - reach), (uv.x > reach), from_left);
-  if outside {
+  let count = min(2u + u32(strength * 6.0 * (0.5 + 0.5 * unit(hash(state ^ 0x6u)))), 8u);
+  var hit = false;
+  var id = 0u;
+  for (var k = 0u; k < count; k += 1u) {
+    let bid = hash3(state, k, 0x77u);
+    let r = glitch_block(bid);
+    if all(uv >= r.xy) && all(uv < r.zw) {
+      hit = true;
+      id = bid;
+    }
+  }
+  if !hit {
     return here;
   }
-  let sign = select(-1.0, 1.0, (band & 0x200u) == 0u);
-  let off = sign * ((0.07 + 0.2 * unit(hash(band ^ 0x14u))) * (0.65 + 0.35 * strength)
-    + accent * 0.05);
-  let split = (0.012 + 0.03 * unit(hash(band ^ 0x15u))) * (0.6 + 0.4 * strength);
-  var y = uv.y;
-  if stutter {
-    // The rows held: the picture of every fourth row drawn down the next ones.
-    let hold = rows * 0.25;
-    y = floor(y * hold) / hold;
+  let sign = select(-1.0, 1.0, (id & 0x100u) == 0u);
+  let reach = 0.6 + 0.4 * strength;
+  let kind = unit(hash(id ^ 0x8u));
+  var off = 0.0;
+  var split = 0.006;
+  var seek = vec2f(0.0);
+  if kind < 0.3 {
+    off = sign * (0.05 + 0.2 * unit(hash(id ^ 0x9u))) * reach + sign * accent * 0.03;
+  } else if kind < 0.5 {
+    off = sign * 0.02;
+    split = (0.025 + 0.04 * unit(hash(id ^ 0xau))) * reach;
+  } else if kind >= 0.8 {
+    // A held copy of another region.
+    seek = vec2f(
+      (unit(hash(id ^ 0xbu)) - 0.5) * 0.7,
+      (unit(hash(id ^ 0xcu)) - 0.5) * 0.5,
+    );
+  } else {
+    off = sign * 0.03;
   }
-  let x = uv.x - off;
+  let x = uv.x - off + seek.x;
+  let y = uv.y + seek.y;
   var rgb = vec3f(
-    load_uv(tex, vec2f(fract(x + split), y)).r,
-    load_uv(tex, vec2f(fract(x), y)).g,
-    load_uv(tex, vec2f(fract(x - split), y)).b,
+    load_uv(tex, vec2f(fract(x + split), fract(y))).r,
+    load_uv(tex, vec2f(fract(x), fract(y))).g,
+    load_uv(tex, vec2f(fract(x - split), fract(y))).b,
   );
-  let kind = unit(hash(band ^ 0x16u));
-  if kind < 0.2 {
+  if kind >= 0.5 && kind < 0.65 {
     rgb = vec3f(1.0) - rgb;
-  } else if kind < 0.35 {
+  } else if kind >= 0.65 && kind < 0.8 {
     rgb = hue_of(theme) * (0.12 + 1.1 * luma(rgb));
   }
   return min(rgb, vec3f(0.92));
 }
 
-// The mosaic, made to hit (the classic one was too gentle): big flat blocks of the picture,
-// posterized to five levels with a touch of contrast, a whole region or the whole frame at once. As
-// a lens effect a hit takes a region to blocks in steps with the beat, coarse to finer, and the
-// picture comes back; as a switch the whole frame steps up to the coarsest cells, the new picture
-// is behind them, and they step down again.
+// The mosaic, made to hit (the classic one was too gentle, then the whole frame too much): big flat
+// blocks of the picture, posterized to five levels with a touch of contrast, in patches that come
+// and go in places on the screen, never the whole frame. As a switch the whole frame steps up to
+// the coarsest cells, the new picture is behind them, and they step down again.
 
 // The cell of a mosaic at its coarsest, as a share of the frame's height, at the least and at
 // the most of a lens effect's amount.
 const MOSAIC_CELL_LEAST: f32 = 0.05;
 const MOSAIC_CELL_MOST: f32 = 0.12;
-// The steps of a lens mosaic's hit, one per beat: the share of the coarsest cell; then it rests
-// for `MOSAIC_REST` beats.
+// The steps of a lens patch's life: the share of the coarsest cell, coarse to finer.
 const MOSAIC_STEPS: vec3f = vec3f(1.0, 0.62, 0.38);
-const MOSAIC_REST: u32 = 1u;
+// A slot of the cross-rhythm of the patches, in beats: three in two.
+const MOSAIC_SLOT: f32 = 0.6666667;
 
 // The colour of a mosaic cell of `cell` pixels whose corner is at `origin` (pixels): the average
 // of the picture at nine points of it.
@@ -412,68 +455,71 @@ fn posterize(c: vec3f) -> vec3f {
   return min(floor(hard * 4.0 + 0.5) / 4.0, vec3f(0.92));
 }
 
-// The picture at `at` in cells of `cell` pixels (the grid from the frame's corner), flat and
+// The picture at `at` in cells of `cell` pixels (the grid from `anchor`, pixels), flat and
 // posterized.
-fn pixelated(tex: texture_2d<f32>, at: vec2i, cell: f32) -> vec3f {
-  let origin = floor((vec2f(at) + 0.5) / cell) * cell;
+fn pixelated(tex: texture_2d<f32>, at: vec2i, cell: f32, anchor: vec2f) -> vec3f {
+  let origin = floor((vec2f(at) + 0.5 - anchor) / cell) * cell + anchor;
   return posterize(cell_colour(tex, origin, cell));
 }
 
-// A region of the frame for the hit of `id`: the whole frame, or a rectangle of it (x0, y0, x1,
-// y1 as shares of the frame), from 45% by 40% up.
-fn mosaic_region(id: u32) -> vec4f {
-  if unit(hash(id ^ 0xe1u)) < 0.4 {
-    return vec4f(0.0, 0.0, 1.0, 1.0);
-  }
-  let w = 0.45 + 0.4 * unit(hash(id ^ 0xe2u));
-  let h = 0.4 + 0.4 * unit(hash(id ^ 0xe3u));
+// A patch of the frame for `id` (x0, y0, x1, y1 as shares of the frame): 15 to 45% of the width
+// by 15 to 40% of the height, scaled by `reach` (0 to 1), somewhere in it.
+fn mosaic_patch(id: u32, reach: f32) -> vec4f {
+  let w = (0.15 + 0.3 * unit(hash(id ^ 0xe2u))) * (0.6 + 0.4 * reach);
+  let h = (0.15 + 0.25 * unit(hash(id ^ 0xe3u))) * (0.6 + 0.4 * reach);
   let x = (1.0 - w) * unit(hash(id ^ 0xe4u));
   let y = (1.0 - h) * unit(hash(id ^ 0xe5u));
   return vec4f(x, y, x + w, y + h);
 }
 
-// The mosaic as a lens effect over the picture `tex` at `at`, on the eased beat time `t` (the
-// whole beats are the steps): a hit lasts three beats in blocks of the coarsest size (a share of
-// the height from 5% to 12% by `amount`, 0 to 1), then 62% of it, then 38%, and then the picture
-// is back for one beat. Whether a hit comes is a roll against the amount (30% and up), so it rises and falls
-// with the music. The region is picked by the hit.
+// The mosaic as a lens effect over the picture `tex` at `at`: patches of big blocks that appear
+// and disappear in places, on a cross-rhythm of the linear beat time `lin` (beats since it
+// started), three slots in two beats. A slot hosts a patch by a roll against `amount` (0 to 1,
+// 30% at the least to every slot at the most); the first always lands, strong, on the moment that
+// started the mosaic. A patch lives 1 to 2 beats from a start a little after its slot's (up to
+// a quarter beat), so two or three are up at once, in blocks that go from the coarsest size (5%
+// of the height at a low amount to 12% at the peak) to 62% and 38% of it over its life. The rest
+// of the frame is the picture.
 fn mosaic_blocks(
   tex: texture_2d<f32>,
   at: vec2i,
   seed: u32,
   amount: f32,
-  t: f32,
-  accent: f32,
+  lin: f32,
 ) -> vec3f {
   let here = load(tex, at).rgb;
-  let beat = u32(max(floor(t), 0.0));
-  let length = 3u + MOSAIC_REST;
-  let hit = beat / length;
-  let step = beat % length;
-  if step >= 3u {
-    return here;
-  }
-  // The first hit lands on the moment that started the mosaic, whole frame and strong, whatever
-  // the course's swell has reached (left to the roll, the moment passed with nothing for beats).
-  let first = hit == 0u;
-  let strength = select(clamp(amount, 0.0, 1.0), max(clamp(amount, 0.0, 1.0), 0.8), first);
-  if !first && unit(hash3(seed, hit, 0xd1u)) >= min(0.3 + 1.2 * strength, 1.0) {
-    return here;
-  }
   let size = vec2f(textureDimensions(tex));
   let uv = (vec2f(at) + 0.5) / size;
-  let region = select(mosaic_region(hash3(seed, hit, 0xd2u)), vec4f(0.0, 0.0, 1.0, 1.0), first);
-  if any(uv < region.xy) || any(uv >= region.zw) {
-    return here;
+  let slot = i32(floor(max(lin, 0.0) / MOSAIC_SLOT));
+  let s = clamp(amount, 0.0, 1.0);
+  for (var n = slot; n >= max(slot - 4, 0); n -= 1) {
+    let first = n == 0;
+    let base = hash3(seed ^ 0x3a1u, u32(n), 0xd1u);
+    if !first && unit(hash(base ^ 0x1u)) >= 0.3 + 0.7 * s {
+      continue;
+    }
+    let strength = select(s, max(s, 0.8), first);
+    let life = 1.0 + unit(hash(base ^ 0x2u));
+    let start = f32(n) * MOSAIC_SLOT + select(0.25 * unit(hash(base ^ 0x3u)), 0.0, first);
+    let age = lin - start;
+    if age < 0.0 || age >= life {
+      continue;
+    }
+    let spot = mosaic_patch(base, strength);
+    if any(uv < spot.xy) || any(uv >= spot.zw) {
+      continue;
+    }
+    let step = min(u32(age / life * 3.0), 2u);
+    let coarsest = mix(MOSAIC_CELL_LEAST, MOSAIC_CELL_MOST, strength);
+    let cell = max(round(size.y * coarsest * MOSAIC_STEPS[step]), 6.0);
+    return pixelated(tex, at, cell, spot.xy * size);
   }
-  let coarsest = mix(MOSAIC_CELL_LEAST, MOSAIC_CELL_MOST, strength);
-  let cell = max(round(size.y * coarsest * MOSAIC_STEPS[step]), 6.0);
-  return pixelated(tex, at, cell);
+  return here;
 }
 
 // A mosaic switch at `progress`, in ten steps: the old picture in cells that step up from 3% of
-// the height to 12% (the first two in a region of the frame, then the whole of it); at half way
-// the new picture is behind the largest cells, which step down again to 2%.
+// the height to 12% (the first two in two patches of the frame, then the whole of it); at half
+// way the new picture is behind the largest cells, which step down again to 2%.
 fn mosaic_switch(
   before: texture_2d<f32>,
   after: texture_2d<f32>,
@@ -487,15 +533,18 @@ fn mosaic_switch(
   var share = array<f32, 10>(0.03, 0.05, 0.08, 0.1, 0.12, 0.12, 0.09, 0.06, 0.035, 0.02);
   let cell = max(round(size.y * share[step]), 4.0);
   if step >= 5u {
-    return pixelated(after, at, cell);
+    return pixelated(after, at, cell, vec2f(0.0));
   }
   if step < 2u {
-    let region = mosaic_region(seed);
-    if any(uv < region.xy) || any(uv >= region.zw) {
+    let a = mosaic_patch(seed, 1.0);
+    let b = mosaic_patch(seed ^ 0x9e3779b9u, 1.0);
+    let in_a = all(uv >= a.xy) && all(uv < a.zw);
+    let in_b = all(uv >= b.xy) && all(uv < b.zw);
+    if !in_a && !in_b {
       return load(before, at).rgb;
     }
   }
-  return pixelated(before, at, cell);
+  return pixelated(before, at, cell, vec2f(0.0));
 }
 
 // The punch on a cut of a burst: the frame scaled about its centre, smeared along a diagonal
@@ -558,7 +607,7 @@ fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
       let e = transition.extra;
       if e.w > 0.5 {
         // Over the live picture, as a lens effect, moving continuously.
-        let rgb = glitch_flow(fresh, at, transition.seed, e.x, e.y, transition.progress, transition.color.rgb);
+        let rgb = glitch_flow(fresh, at, transition.seed, e.x, e.z, transition.progress, transition.color.rgb);
         return vec4f(rgb, frame_now.a);
       }
       let subtle = e.z > 0.5;
@@ -569,7 +618,7 @@ fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
       let e = transition.extra;
       if e.x > 0.5 {
         // Over the live picture, as a lens effect.
-        let rgb = mosaic_blocks(fresh, at, transition.seed, e.y, e.z, transition.progress);
+        let rgb = mosaic_blocks(fresh, at, transition.seed, e.y, e.w);
         return vec4f(rgb, frame_now.a);
       }
       let rgb = mosaic_switch(held, fresh, at, transition.seed, transition.progress);

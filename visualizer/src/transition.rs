@@ -497,8 +497,10 @@ pub struct OverlayFrame {
     pub seed: u32,
     /// How much: its course's amount (with the music) times the most of the kind.
     pub amount: f32,
-    /// Its eased beat time: what its pieces and blocks live by.
+    /// Its eased beat time (it dwells on the whole beats).
     pub beats: f32,
+    /// Its linear beat time since it started: what its events and patches are timed by.
+    pub linear: f32,
     /// The accent of the last beat, 0 to 1 (see `crate::course::Course::accent`).
     pub accent: f32,
     /// Whether the scene keeps its frames under it, for a cut to be dressed (see
@@ -575,6 +577,7 @@ impl OverlayRun {
             seed: seed_of(self.start),
             amount: self.course.amount() * most,
             beats: self.course.motion(),
+            linear: self.course.age_beats(),
             accent: self.course.accent(),
             keep: false,
         })
@@ -1071,12 +1074,12 @@ impl Transitions {
                     // Wide tears of the live picture that jump with the beat; the
                     // accent of the beat in the progress.
                     Overlay::Glitch => {
-                        params.extra = [frame.amount, frame.beats, 1.0, 1.0];
+                        params.extra = [frame.amount, frame.beats, frame.linear, 1.0];
                         (KIND_GLITCH, frame.accent, frame.seed, theme)
                     }
                     // Big hard blocks that hit a region on the beat.
                     Overlay::Mosaic => {
-                        params.extra = [1.0, frame.amount, frame.beats, 0.0];
+                        params.extra = [1.0, frame.amount, frame.beats, frame.linear];
                         (KIND_MOSAIC, frame.accent, frame.seed, theme)
                     }
                 }
