@@ -266,6 +266,11 @@ pub struct Shot {
     /// has a chance), 2 twice as often as 1. It is finite and 0 or more.
     #[serde(default = "one")]
     pub weight: f32,
+    /// The longest the shot may last, in seconds: after that the director cuts away at the next
+    /// place a cut lands on, however long the cadence's wait (the gap still holds). For a shot that
+    /// tires the eye if it stays (Torii Sea's near ones). None: as long as the cadence keeps it.
+    #[serde(default)]
+    pub longest: Option<f32>,
 }
 
 impl Shot {
@@ -859,6 +864,12 @@ impl Manifest {
                 shot.name,
                 shot.weight
             );
+            ensure!(
+                shot.longest.is_none_or(|s| s.is_finite() && s > 0.0),
+                "[[shot]] {} ({:?}): longest must be a number of seconds above 0",
+                i + 1,
+                shot.name
+            );
         }
         ensure!(
             self.shots.is_empty() || self.shots.iter().any(|shot| shot.weight > 0.0),
@@ -1144,6 +1155,15 @@ size = "detail"
         );
         let nan = with("size = \"top\"", "size = \"top\"\nweight = nan");
         assert!(nan.contains("weight"), "{nan}");
+        let longest = with("size = \"top\"", "size = \"top\"\nlongest = 0");
+        assert!(longest.contains("longest"), "{longest}");
+        let text = format!("{SMALL}{SHOTS}").replacen(
+            "size = \"top\"",
+            "size = \"top\"\nlongest = 6.5",
+            1,
+        );
+        let m = Manifest::parse(&text).unwrap();
+        assert!(m.shots.iter().any(|shot| shot.longest == Some(6.5)));
         // One shot at 0 is fine, all of them are not.
         let text =
             format!("{SMALL}{SHOTS}").replacen("size = \"top\"", "size = \"top\"\nweight = 0", 1);

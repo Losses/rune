@@ -244,6 +244,8 @@ struct Pickable {
     opens: bool,
     /// How often it is picked against the others.
     weight: f32,
+    /// The longest it may last, in seconds, if the scene says.
+    longest: Option<f32>,
 }
 
 /// Decides the camera cuts of one scene from the music.
@@ -313,6 +315,7 @@ impl Director {
             .map(|s| Pickable {
                 opens: s.opens(),
                 weight: s.weight,
+                longest: s.longest,
             })
             .collect();
         let shots: Vec<(ShotSize, ShotMove)> = shots.iter().map(|s| (s.size, s.motion)).collect();
@@ -569,7 +572,7 @@ impl Director {
         // The cadence of the section: its seconds since the last cut, landing on the event of
         // `director.cut`, and not close to a section start or the burst before it, which cut
         // instead.
-        let wait = self.cadence_seconds(tier)?;
+        let wait = self.shot_wait(self.state.index as usize, tier)?;
         if self.seconds_since_cut < wait || self.waits_for_section(music, followed) {
             return None;
         }
@@ -607,6 +610,21 @@ impl Director {
             Pace::Busy => seconds / PACE_FACTOR,
         };
         Some(seconds.max(self.min_gap()))
+    }
+
+    /// How long shot `index` waits for the next cut by the cadence: the section's seconds at the
+    /// scene's pace, or the shot's own `longest` if that is shorter, but at least the gap. None
+    /// where nothing but a section's start cuts it.
+    fn shot_wait(&self, index: usize, tier: Tier) -> Option<f32> {
+        let longest = self
+            .picks
+            .get(index)
+            .and_then(|pick| pick.longest)
+            .map(|s| s.max(self.min_gap()));
+        match (self.cadence_seconds(tier), longest) {
+            (Some(cadence), Some(longest)) => Some(cadence.min(longest)),
+            (cadence, longest) => cadence.or(longest),
+        }
     }
 
     /// Whether a cadence cut now would crowd the cuts that come next, so that it waits: the next
@@ -743,7 +761,7 @@ impl Director {
             length: if fill > 0 && music.locked > FOLLOWED {
                 beat
             } else {
-                self.cadence_seconds(tier).unwrap_or(-1.0)
+                self.shot_wait(index, tier).unwrap_or(-1.0)
             },
             fill,
         };
@@ -847,6 +865,7 @@ mod tests {
             motion,
             opens: None,
             weight: 1.0,
+            longest: None,
         }
     }
 
@@ -2289,6 +2308,34 @@ mod tests {
         all.extend(beats(&mut director, 42, 1, &base, |_, m| start(1.0, m)));
         let cut_at: Vec<_> = all.iter().map(|(beat, _)| *beat).collect();
         assert_eq!(cut_at, [42]);
+    }
+
+    #[test]
+    fn a_shot_with_a_longest_is_cut_away_from_after_it() {
+        use ShotSize::*;
+        let run = |longest: Option<f32>| {
+            let shots = vec![
+                Shot {
+                    longest,
+                    ..picked(Wide, Some(true), 1.0)
+                },
+                picked(Medium, None, 1.0),
+            ];
+            let mut director = Director::new(camera(0.0), &shots);
+            assert_eq!(director.state().index, 0);
+            beats(&mut director, 1, 80, &song(0.5), plain)
+                .iter()
+                .map(|(beat, _)| *beat)
+                .collect::<Vec<_>>()
+        };
+        // A normal section waits 16 s (32 beats); a wide shot of 8 s is cut away from at 8 s,
+        // and the medium one after it, with none, waits its 16 s.
+        assert_eq!(run(None)[0], 32);
+        let cuts = run(Some(8.0));
+        assert_eq!(cuts[0], 16);
+        assert_eq!(cuts[1] - cuts[0], 32);
+        // Never under the gap.
+        assert_eq!(run(Some(1.0))[0], 12);
     }
 
     #[test]
