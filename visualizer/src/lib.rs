@@ -63,8 +63,8 @@ pub use chart::{Chart, ChartState};
 use chart::{ChartFollower, Playback};
 pub use inspect::{
     Inspect, InspectBinding, InspectDirector, InspectEffects, InspectInput, InspectLens,
-    InspectMusic, InspectSection, InspectShot, InspectSwitching, InspectTransition, LabCommand,
-    LabLens, LabOverrides, LabPace, LabTransition,
+    InspectMusic, InspectSection, InspectShot, InspectSignal, InspectSwitching, InspectTransition,
+    LabCommand, LabLens, LabOverrides, LabPace, LabTransition,
 };
 use loading::Loads;
 pub use moments::{Chances, EffectLevel};
@@ -1456,6 +1456,7 @@ fn inspection(
         fps: shared.status().measured_fps,
         gpu_ms: pipeline.last_gpu_seconds().map(|s| (s * 1e3) as f32),
         music: InspectMusic::of(pipeline.music()),
+        signals: InspectSignal::all(pipeline.music(), pipeline.bound_cut()),
         sections: charts.sections(),
         director: pipeline.director_view().map(InspectDirector::of),
         effects: InspectEffects::of(pipeline.effects()),
