@@ -189,9 +189,17 @@ fn leak_origin(music: &MusicValues, phrase: &Phrase) -> (f32, f32) {
     (origin, if h & 1 == 0 { 1.0 } else { -1.0 })
 }
 
-/// How far a flare started in a section of `label` leans its streaks (see [`FLARE_TILT`]).
-fn flare_angle(label: f32) -> f32 {
-    (super::director::label_hash(label, FLARE_TILT_KEY) * 2.0 - 1.0) * FLARE_TILT
+/// How far a flare leans its streaks (see [`FLARE_TILT`]): by the section's label with the
+/// song's analysis, so the same kind of section flares the same way; without it (an online track,
+/// the first seconds before the analysis) every section is one, so by how many flares came before
+/// (`count`), each another way, the same order each time the song plays.
+fn flare_angle(music: &MusicValues, count: u32) -> f32 {
+    let r = if music.has_chart > 0 {
+        super::director::label_hash(music.section_label, FLARE_TILT_KEY)
+    } else {
+        super::director::label_hash(count as f32, FLARE_TILT_KEY + 1)
+    };
+    (r * 2.0 - 1.0) * FLARE_TILT
 }
 
 /// The lens effects of one scene.
@@ -203,8 +211,9 @@ pub struct Lens {
     mosaic_listed: bool,
     flare: Option<Run>,
     /// How far the flare under way leans (see [`FLARE_TILT`]): taken when it starts, kept while
-    /// it swells again.
+    /// it swells again; and how many flares have started.
     flare_angle: f32,
+    flares: u32,
     leak: Option<Leak>,
     /// Where the music is in its phrase, and the music last heard: what an effect that starts
     /// takes its course and its place from (see [`Lens::listen`]).
@@ -233,6 +242,7 @@ impl Lens {
             mosaic_listed: has("mosaic"),
             flare: None,
             flare_angle: 0.0,
+            flares: 0,
             leak: None,
             phrase: Phrase::default(),
             music: MusicValues::default(),
@@ -307,7 +317,8 @@ impl Lens {
     pub fn start_flare(&mut self, strength: f32) {
         let fresh = self.course();
         if self.flare.is_none() {
-            self.flare_angle = flare_angle(self.music.section_label);
+            self.flare_angle = flare_angle(&self.music, self.flares);
+            self.flares = self.flares.wrapping_add(1);
         }
         self.flare = Some(match self.flare {
             Some(run) => run.restarted(strength, fresh),
@@ -343,7 +354,7 @@ impl Lens {
     /// (a probe's look at a steady flare).
     #[cfg(test)]
     pub fn hold_flare(&mut self) {
-        self.flare_angle = flare_angle(self.music.section_label);
+        self.flare_angle = flare_angle(&self.music, self.flares);
         self.flare = Some(Run {
             strength: 1.0,
             course: self.course().at_peak(),
@@ -524,6 +535,7 @@ mod tests {
         let angle_in = |label: f32| {
             let mut lens = lens(&["flare"]);
             lens.listen(&MusicValues {
+                has_chart: 1,
                 section_label: label,
                 ..music(0.0, 0)
             });
@@ -541,12 +553,14 @@ mod tests {
 
         let mut lens = lens(&["flare"]);
         lens.listen(&MusicValues {
+            has_chart: 1,
             section_label: 2.0,
             ..music(0.0, 0)
         });
         lens.start_flare(1.0);
         let first = lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0).flare_angle;
         lens.listen(&MusicValues {
+            has_chart: 1,
             section_label: 5.0,
             ..music(0.0, 0)
         });
@@ -555,6 +569,19 @@ mod tests {
             lens.tick(1.0 / 60.0, &music(0.0, 0), 1.0).flare_angle,
             first
         );
+        // Without the song's analysis, flare after flare leans another way.
+        let mut fresh = self::lens(&["flare"]);
+        let mut unlabelled = Vec::new();
+        for _ in 0..6 {
+            fresh.start_flare(1.0);
+            unlabelled.push(fresh.tick(1.0 / 60.0, &music(0.0, 0), 1.0).flare_angle);
+            fresh.flare = None;
+        }
+        assert!(
+            unlabelled.windows(2).all(|w| w[0] != w[1]),
+            "{unlabelled:?}"
+        );
+        assert!(unlabelled.iter().all(|a| a.abs() <= FLARE_TILT));
         // The angle is told in the uniform, after the leak's phase.
         let frame = LensFrame {
             flare_angle: 0.5,
