@@ -244,26 +244,26 @@ fn channel(s: Set, kk: f32) -> u32 {
 
 // What a burst's close-up shows on its set's screen (the channel, as a float, and the seed): the
 // wave against time, a cover from the library, the stereo picture, or the cover of the song
-// playing; where there is no such cover, the next best (the library's, else the stereo picture).
+// playing; where there is no such cover, the other cover (so the two close-ups of a screen are
+// covers even with only the song's own, as in a scene lab), else a scope.
 fn hero_picture() -> vec2f {
   let n = frame.covers;
   let kind = u32(state.hero_kind);
   let library = n > 1u;
   // A library cover by the shot's number (cells 1 to n - 1).
   let cell = 1u + min(u32(state.hero_pick * f32(max(n, 2u) - 1u)), max(n, 2u) - 2u);
-  if (kind == 1u && library) {
-    return vec2f(2.0, COVER_AT + f32(cell));
-  }
-  if (kind == 3u) {
-    // The smallest mip holds one texel a cell: whether cell 0 has a cover at all.
-    if (n > 0u && textureSampleLevel(covers, linear_clamp, vec2f(0.0625), 7.0).a > 0.5) {
+  // The smallest mip holds one texel a cell: whether cell 0 has a cover at all.
+  let playing = n > 0u && textureSampleLevel(covers, linear_clamp, vec2f(0.0625), 7.0).a > 0.5;
+  if (kind == 1u || kind == 3u) {
+    // The song's own where it is wanted, or where the library has none to give.
+    if ((kind == 3u || !library) && playing) {
       return vec2f(2.0, COVER_AT);
     }
     if (library) {
       return vec2f(2.0, COVER_AT + f32(cell));
     }
   }
-  // The scope: the stereo picture on the odd shots of the burst, else the wave against time.
+  // A scope: the stereo picture where it is asked for (or the song's cover was), else the wave.
   return vec2f(1.0, select(0.75, 0.25, kind >= 2u));
 }
 

@@ -94,15 +94,22 @@ fn hero_suits(s: Set, fill: u32, yaw: f32) -> bool {
 // the shot (a few nearby points are tried), and is put in front of it at the distance that gives
 // the framing, each shot nearer than the one before:
 //   1  close: turned about 20 degrees, the whole set in frame; its screen shows the wave
-//   2  close: turned about 25 degrees the other way, nearer, the set filling the frame; a cover
-//      from the library
-//   3  detail: straight on, the screen about 70 % of the picture's height; the stereo picture
+//   2  close: turned about 25 degrees the other way, nearer, the set filling the frame; the
+//      stereo picture
+//   3  detail: straight on, the screen about 70 % of the picture's height; a cover from the
+//      library
 //   4  detail: straight on, the screen filling the picture; the cover of the song playing
-// The picture's share of the screen or set is its height over the picture's, 2 * lens * distance; a
-// dutch angle turns the frame, so the first three are made smaller until the turned box is inside
-// it, which is also what keeps them whole in a picture narrower than they are (a phone held
-// upright). The last is meant to fill the frame, by its height or, in such a picture, by its width,
-// and a corner of it goes past the frame when the picture is turned.
+// (the two close-ups of the screen are both covers). The picture's share of the screen or set is
+// its height over the picture's, 2 * lens * distance; a dutch angle turns the frame, so the first
+// three are made
+// smaller until the turned box is inside it, which is also what keeps them whole in a picture
+// narrower than they are (a phone held upright). The last is meant to fill the frame, by its
+// height or, in such a picture, by its width, and a corner of it goes past the frame when the
+// picture is turned.
+// What each of the burst's shots shows on its set's screen, by fill (the kinds of hero_picture in
+// view.wgsl: 0 the wave, 1 a library cover, 2 the stereo picture, 3 the cover of the song playing).
+const BURST_SHOWS = array<u32, 4>(0u, 2u, 1u, 3u);
+
 fn choose_burst() {
   let fill = shot.fill;
   state.view = 4.0;
@@ -127,7 +134,7 @@ fn choose_burst() {
   state.pitch = (random(3u) - 0.5) * 0.04;
   state.lens = lens;
   state.dir = way;
-  state.hero_kind = f32(fill - 1u);
+  state.hero_kind = f32(BURST_SHOWS[fill - 1u]);
   state.hero_pick = random(4u);
 
   // Somewhere new on the wall, and a set there that suits the shot.

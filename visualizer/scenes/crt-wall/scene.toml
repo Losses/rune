@@ -52,19 +52,20 @@ move = "cut"
 name = "a set from the side"
 size = "close"
 
-# turned the other way, nearer, only that set, a cover from the library on its screen;
+# turned the other way, nearer, only that set, the stereo picture on its screen;
 [[burst]]
 name = "the set nearer, the other side"
 size = "close"
 
-# straight on, its screen about 70 % of the picture's height, scan lines readable, the stereo
-# picture on it;
+# straight on, its screen about 70 % of the picture's height, scan lines readable, a cover from the
+# library on it (the song playing's where the library has none, as in a scene lab: the two close-ups
+# of a screen are both covers);
 [[burst]]
 name = "a screen straight on"
 size = "detail"
 
 # straight on, nearest, the screen filling the picture: the cover of the song playing (the library's
-# if there is none, the stereo picture if there are no covers at all).
+# if there is none, a scope if there are no covers at all).
 [[burst]]
 name = "the screen filling the picture"
 size = "detail"
