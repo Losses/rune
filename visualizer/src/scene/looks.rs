@@ -11,6 +11,7 @@ use super::director::{label_hash, weighted};
 use super::inputs::MusicValues;
 use super::manifest::{Look, Manifest};
 use crate::bind::{DirectorBinds, LookBinds, LookCue};
+use crate::chart::{SongSection, last_chance};
 
 /// The `k` the label's hash is taken with for the look. The director takes the small numbers (and
 /// `k + 7`) for its shots, so a section's look is not tied to its shot.
@@ -109,6 +110,19 @@ pub struct Looks {
     director: Arc<DirectorBinds>,
     /// Whether each look suits a quiet, a normal and a high section.
     suits: Vec<[bool; 3]>,
+    /// Whether each look says `at_least_once`.
+    promises: Vec<bool>,
+    /// The sections of the song with their levels, shared with the director (see
+    /// [`Self::set_song`]); none without a chart, where nothing is promised.
+    song: Option<Arc<[SongSection]>>,
+    /// For each look: the section of the song whose start is its last chance, if it says
+    /// `at_least_once` and the song has a section it can be changed to at.
+    promised: Vec<Option<usize>>,
+    /// For each look: whether it has been on in this song. Starts again when the song time goes
+    /// back, the look then on counting.
+    shown: Vec<bool>,
+    /// The song time of the last frame, which going back tells a new song (or a seek) by.
+    last_song_time: f32,
 }
 
 impl Looks {
@@ -141,6 +155,11 @@ impl Looks {
                 .iter()
                 .map(|look| [look.suits(0), look.suits(1), look.suits(2)])
                 .collect(),
+            promises: looks.iter().map(|look| look.at_least_once).collect(),
+            song: None,
+            promised: vec![None; looks.len()],
+            shown: vec![false; looks.len()],
+            last_song_time: 0.0,
         }
     }
 
@@ -149,6 +168,73 @@ impl Looks {
     pub fn set_binds(&mut self, binds: Arc<LookBinds>, director: Arc<DirectorBinds>) {
         self.binds = binds;
         self.director = director;
+        self.plan_promises();
+    }
+
+    /// Tell the looks the sections of the song with their levels (`ChartState::song`, the list
+    /// the director has), or none without a chart. A look that says `at_least_once` is promised a
+    /// change at the start of the last section that suits it (see [`Self::promise`]). Only a
+    /// different list makes the looks plan again, and one that replaces another forgets what was
+    /// on.
+    pub fn set_song(&mut self, song: Option<&Arc<[SongSection]>>) {
+        match (&self.song, song) {
+            (Some(on), Some(new)) if Arc::ptr_eq(on, new) => return,
+            (None, None) => return,
+            (Some(_), Some(_)) => self.forget_shown(),
+            _ => {}
+        }
+        self.song = song.cloned();
+        self.plan_promises();
+    }
+
+    /// Start the song's account again: only the look on counts as shown.
+    fn forget_shown(&mut self) {
+        self.shown.fill(false);
+        if self.started {
+            self.shown[self.state.to as usize] = true;
+        }
+    }
+
+    /// Decide again at which section start each look that says `at_least_once` is promised.
+    fn plan_promises(&mut self) {
+        self.promised = (0..self.picks.len())
+            .map(|i| self.promises[i].then(|| self.promise(i)).flatten())
+            .collect();
+    }
+
+    /// The section whose start is the last chance of look `index`: the last that suits it by its
+    /// `tiers` (the level against `director.cadence`'s thresholds), or where none does the song's
+    /// highest (the last of equals), as for a shot. Only a section start where the look's gap
+    /// allows a change counts: the first section, or one that starts at least `look.change`'s
+    /// gap after the one before it (a look changes only at section starts, so the change before
+    /// is then far enough). None where no section does, or the song is not known.
+    fn promise(&self, index: usize) -> Option<usize> {
+        let song = self.song.as_ref()?;
+        let gap = self.binds.gap(LookCue::Section);
+        let fits = |i: usize| i == 0 || song[i].start - song[i - 1].start >= gap;
+        let suits =
+            |section: &SongSection| self.suits[index][self.director.tier_at(section.level).min(2)];
+        last_chance(song, suits, fits)
+    }
+
+    /// The look the song still owes at the start of the section playing, if any: one that says
+    /// `at_least_once`, has not been on in this song and has this section as its last chance.
+    fn owed(&self, music: &MusicValues) -> Option<usize> {
+        let section = music.section.max(0.0) as usize;
+        (0..self.picks.len()).find(|&i| self.promised[i] == Some(section) && !self.shown[i])
+    }
+
+    /// Whether the song still owes look `index` a change, at this section start or a later one.
+    #[cfg(test)]
+    fn is_owed(&self, index: usize, music: &MusicValues) -> bool {
+        let section = music.section.max(0.0) as usize;
+        !self.shown.get(index).copied().unwrap_or(true)
+            && self
+                .promised
+                .get(index)
+                .copied()
+                .flatten()
+                .is_some_and(|last| last >= section)
     }
 
     /// The looks that suit a section of `tier`, or all of them if none does.
@@ -192,6 +278,8 @@ impl Looks {
         self.fade_age = old.fade_age;
         self.held = old.held;
         self.held_first = old.held_first;
+        self.shown = old.shown.clone();
+        self.last_song_time = old.last_song_time;
     }
 
     /// The first look, picked among the looks that open by `seed`, each by its weight.
@@ -241,6 +329,7 @@ impl Looks {
     fn change(&mut self, to: usize, seconds: f32) {
         self.state.prev = self.state.to;
         self.state.to = to as u32;
+        self.shown[to] = true;
         self.state.changes = self.state.changes.wrapping_add(1);
         self.state.mix = if seconds > 0.0 { 0.0 } else { 1.0 };
         self.fade_length = seconds;
@@ -284,6 +373,7 @@ impl Looks {
             let first = self.held_first.unwrap_or_else(|| self.open(seed));
             self.state.prev = first as u32;
             self.state.to = first as u32;
+            self.shown[first] = true;
             return false;
         }
         if self.state.mix < 1.0 {
@@ -295,6 +385,11 @@ impl Looks {
             };
         }
         self.since_change += dt;
+        // Time going back is a new song (or a seek): its promise is still to keep.
+        if music.song_time < self.last_song_time - 1.0 {
+            self.forget_shown();
+        }
+        self.last_song_time = music.song_time;
         if self.held {
             return false;
         }
@@ -306,7 +401,10 @@ impl Looks {
         }
         let tier = self.director.tier(music);
         let to = match cue {
-            LookCue::Section => self.pick(music.section_label, tier),
+            // The look the song owes goes first, at the section start that is its last chance.
+            LookCue::Section => self
+                .owed(music)
+                .unwrap_or_else(|| self.pick(music.section_label, tier)),
             LookCue::Unlabelled => self.next(tier),
         };
         // The look stays tied to the kind of section: the one on is not changed to again.
@@ -329,6 +427,7 @@ mod tests {
             weight,
             opens,
             tiers: Vec::new(),
+            at_least_once: false,
         }
     }
 
@@ -638,5 +737,160 @@ mod tests {
         let mut other = Looks::new(&[look("a", true, 1.0), look("b", true, 1.0)]);
         other.inherit(&old);
         assert!(!other.view().held && other.state().changes == 0);
+    }
+
+    /// The sections of a song from `(seconds, level)` each, one after the other from 0.
+    fn song_of(spec: &[(f32, f32)]) -> Arc<[SongSection]> {
+        let mut at = 0.0;
+        spec.iter()
+            .map(|&(length, level)| {
+                let section = SongSection {
+                    start: at,
+                    end: at + length,
+                    level,
+                };
+                at += length;
+                section
+            })
+            .collect()
+    }
+
+    /// A night look for every kind of section and a day look for `tiers` that says
+    /// `at_least_once` and is never picked by chance (weight 0), and does not open.
+    fn night_and_day(tiers: &[&str]) -> Looks {
+        let night = look("night", true, 1.0);
+        let day = Look {
+            tiers: tiers.iter().map(|t| t.to_string()).collect(),
+            at_least_once: true,
+            ..look("day", false, 0.0)
+        };
+        Looks::new(&[night, day])
+    }
+
+    /// Plays a song through, a section start after another with its whole length between, and
+    /// returns the look on in each section. The song's sections are told or not.
+    fn play(looks: &mut Looks, song: &Arc<[SongSection]>, tell: bool) -> Vec<u32> {
+        looks.set_song(tell.then_some(song));
+        looks.tick(0.0, &MusicValues::default(), 7);
+        song.iter()
+            .enumerate()
+            .map(|(i, section)| {
+                let frame = MusicValues {
+                    section: i as f32,
+                    level: section.level,
+                    section_energy: section.level,
+                    song_time: section.start,
+                    ..section_start(i as f32)
+                };
+                looks.tick(section.end - section.start, &frame, 7);
+                looks.state().to
+            })
+            .collect()
+    }
+
+    /// A charted frame where the section labelled `label` starts.
+    fn section_start(label: f32) -> MusicValues {
+        section(label, 1.0)
+    }
+
+    #[test]
+    fn a_look_that_chance_never_picks_is_changed_to_at_the_last_section_that_suits_it() {
+        // Quiet, high, normal, high, normal: the last high section is the fourth.
+        let song = song_of(&[
+            (40.0, 0.2),
+            (40.0, 0.9),
+            (40.0, 0.5),
+            (40.0, 0.9),
+            (40.0, 0.5),
+        ]);
+        let mut looks = night_and_day(&["high"]);
+        let on = play(&mut looks, &song, true);
+        // The day (1) comes at the fourth section's start only; the look the section after it
+        // picks by its kind is the night again.
+        assert_eq!(on, [0, 0, 0, 1, 0]);
+        assert!(!looks.is_owed(1, &MusicValues::default()));
+        // Not told of the song, nothing is promised: only chance, which never picks it.
+        let mut unknown = night_and_day(&["high"]);
+        assert_eq!(play(&mut unknown, &song, false), [0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn a_song_with_no_section_of_its_tiers_shows_the_look_at_its_highest() {
+        let song = song_of(&[
+            (40.0, 0.5),
+            (40.0, 0.6),
+            (40.0, 0.65),
+            (40.0, 0.65),
+            (40.0, 0.55),
+        ]);
+        let mut looks = night_and_day(&["quiet"]);
+        assert_eq!(play(&mut looks, &song, true), [0, 0, 0, 1, 0]);
+    }
+
+    #[test]
+    fn a_look_already_on_is_not_changed_to_again_for_the_promise() {
+        // The day is picked by chance in every high section (the night does not suit them), so it
+        // has been on long before the last one: the song plays as it does without the promise.
+        let song = song_of(&[(40.0, 0.9), (40.0, 0.5), (40.0, 0.9), (40.0, 0.5)]);
+        let looks = |promise: bool| {
+            let night = Look {
+                tiers: vec!["quiet".into(), "normal".into()],
+                ..look("night", true, 1.0)
+            };
+            let day = Look {
+                tiers: vec!["high".into()],
+                at_least_once: promise,
+                ..look("day", false, 1.0)
+            };
+            Looks::new(&[night, day])
+        };
+        let with = play(&mut looks(true), &song, true);
+        assert_eq!(with, play(&mut looks(false), &song, true));
+        assert_eq!(with, [1, 0, 1, 0]);
+    }
+
+    #[test]
+    fn a_section_start_too_soon_after_the_one_before_is_not_the_last_chance() {
+        // The last high section starts 4 s after the one before it, within the look's gap of 8:
+        // the change would not be allowed. The high section before it is the last chance.
+        let song = song_of(&[(40.0, 0.5), (4.0, 0.9), (40.0, 0.9), (40.0, 0.5)]);
+        let mut looks = night_and_day(&["high"]);
+        looks.set_song(Some(&song));
+        assert_eq!(looks.promised[1], Some(1));
+        // Nothing fits: no section starts far enough after another, but the first.
+        let song = song_of(&[(4.0, 0.5), (4.0, 0.9)]);
+        looks.set_song(Some(&song));
+        assert_eq!(looks.promised[1], Some(0));
+        let alone = song_of(&[(40.0, 0.9)]);
+        looks.set_song(Some(&alone));
+        assert_eq!(looks.promised[1], Some(0));
+        looks.set_song(None);
+        assert_eq!(looks.promised[1], None);
+    }
+
+    #[test]
+    fn the_song_going_back_owes_the_look_again() {
+        let song = song_of(&[(40.0, 0.5), (40.0, 0.9), (40.0, 0.5)]);
+        let mut looks = night_and_day(&["high"]);
+        assert_eq!(play(&mut looks, &song, true), [0, 1, 0]);
+        assert!(looks.shown[1]);
+        let at = |section: f32, time: f32| MusicValues {
+            section,
+            song_time: time,
+            ..MusicValues::default()
+        };
+        assert!(!looks.is_owed(1, &at(0.0, 3.0)));
+        // A seek back: a new account, in which only the look on counts.
+        looks.tick(0.016, &at(0.0, 3.0), 7);
+        assert!(!looks.shown[1] && looks.shown[0]);
+        assert!(looks.is_owed(1, &at(0.0, 3.0)));
+        // Past its last chance it is not owed any more, and a late section does not change to it.
+        assert!(!looks.is_owed(1, &at(2.0, 85.0)));
+        assert!(looks.owed(&at(2.0, 85.0)).is_none());
+        // Another song forgets what was on too.
+        play(&mut looks, &song, true);
+        assert!(looks.shown[1]);
+        looks.set_song(Some(&song_of(&[(40.0, 0.5), (40.0, 0.9)])));
+        assert!(!looks.shown[1]);
     }
 }

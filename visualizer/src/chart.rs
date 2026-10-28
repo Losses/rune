@@ -57,11 +57,55 @@ struct Lead {
     stream: f64,
 }
 
+/// How much of a section's level is its rank in the song rather than its loudness: half, so a song
+/// loud throughout has more high sections than a quiet one, and every song has some.
+const LEVEL_RANK: f64 = 0.5;
+
+/// How high a section is in the song, 0 to 1: half its energy, half its rank (`MusicValues::level`
+/// is this for the section playing, and the director's tiers cut it by `director.cadence`).
+pub fn section_level(energy: f64, rank: f64) -> f64 {
+    ((1.0 - LEVEL_RANK) * energy + LEVEL_RANK * rank).clamp(0.0, 1.0)
+}
+
+/// One section of the song as the director learns it ahead of time (`ChartState::song`): where it
+/// lies and how high it is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SongSection {
+    /// Song seconds.
+    pub start: f32,
+    pub end: f32,
+    /// How high the section is in the song, as [`section_level`] makes it.
+    pub level: f32,
+}
+
+/// The section of the song that is the last chance of something the song is promised (a shot or a
+/// look that says `at_least_once`): the last section that `suits` it and that `fits` (a section
+/// by its place, for the one that asks to say whether the change can be made there), or, where no
+/// section does both, the song's highest section that fits (by level, the last of equals). None
+/// where no section fits. Shots and looks share it, so the two promises read the song the same
+/// way.
+pub fn last_chance(
+    song: &[SongSection],
+    suits: impl Fn(&SongSection) -> bool,
+    fits: impl Fn(usize) -> bool,
+) -> Option<usize> {
+    (0..song.len())
+        .rev()
+        .find(|&i| suits(&song[i]) && fits(i))
+        .or_else(|| {
+            (0..song.len())
+                .filter(|&i| fits(i))
+                .max_by(|&a, &b| song[a].level.total_cmp(&song[b].level).then(a.cmp(&b)))
+        })
+}
+
 pub struct Chart {
     beats: Vec<Beat>,
     beats_per_bar: f64,
     meter_confidence: f64,
     sections: Vec<Section>,
+    /// The sections as the director learns them ahead (`ChartState::song`), made once.
+    song: Arc<[SongSection]>,
     /// `(time, strength)` per stream, in the order of [`STREAMS`].
     streams: [Vec<(f64, f64)>; 5],
     lead: Vec<Lead>,
@@ -83,7 +127,7 @@ pub struct LatestOnset {
 }
 
 /// The chart at one moment, for the scenes.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ChartState {
     /// Tempo over the beats around now; 0 without beats.
     pub bpm: f64,
@@ -114,6 +158,10 @@ pub struct ChartState {
     pub section_time: f64,
     pub section_left: f64,
     pub section_confidence: f64,
+    /// Every section of the song with its level, shared by all frames of the chart (cloning it is
+    /// a counter), for the director to tell which later section suits a shot (see
+    /// `Director::set_song`). None where the chart has no sections.
+    pub song: Option<Arc<[SongSection]>>,
     /// Onset envelopes of the streams (low, mid, high, harmonic, phrase): the latest onset's
     /// strength, fading.
     pub events: [f64; 5],
@@ -173,6 +221,14 @@ impl Chart {
             })
             .collect();
         let sections = ranked(sections);
+        let song = sections
+            .iter()
+            .map(|s| SongSection {
+                start: s.start as f32,
+                end: s.end as f32,
+                level: section_level(s.energy, s.rank) as f32,
+            })
+            .collect();
         let lead = chart
             .lead
             .into_iter()
@@ -190,6 +246,7 @@ impl Chart {
             beats_per_bar: f64::from(chart.meter.beats_per_bar.max(1)),
             meter_confidence: chart.meter.confidence,
             sections,
+            song,
             streams,
             lead,
             curves: chart.curves,
@@ -284,6 +341,7 @@ impl Chart {
         state.section_time = (t - s.start).max(0.0);
         state.section_left = (s.end - t).max(0.0);
         state.section_confidence = s.confidence;
+        state.song = Some(Arc::clone(&self.song));
     }
 }
 

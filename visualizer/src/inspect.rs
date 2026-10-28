@@ -268,6 +268,9 @@ pub struct InspectShot {
     pub size: String,
     /// Its place in the burst (1 to 4) for a `[[burst]]` shot; 0 for a `[[shot]]`.
     pub burst: u32,
+    /// Whether the song still owes the shot a cut (it says `at_least_once` and has not been on
+    /// in this song, with its last chance still ahead).
+    pub owed: bool,
 }
 
 /// The scene's `effects` list, kept apart by kind as the runtime uses it.
@@ -552,10 +555,12 @@ impl InspectDirector {
             shots: view
                 .shots
                 .into_iter()
-                .map(|(name, size, burst)| InspectShot {
+                .zip(view.owed)
+                .map(|((name, size, burst), owed)| InspectShot {
                     name,
                     size: size_name(size as u32).to_string(),
                     burst,
+                    owed,
                 })
                 .collect(),
             pace: view.pace.name().to_string(),

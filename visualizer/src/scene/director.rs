@@ -11,6 +11,7 @@ use super::manifest::{
     BurstShot, Camera, DutchIn, MAX_BURSTS, Manifest, Pace, Shot, ShotMove, ShotSize,
 };
 use crate::bind::{DirectorBinds, MomentBinds, Said};
+use crate::chart::{SongSection, last_chance};
 use crate::moments::{key, rolls};
 use crate::switching::FOLLOWED;
 
@@ -192,6 +193,9 @@ pub struct DirectorView {
     pub burst_chance: f32,
     pub burst_next: bool,
     pub bursts: Option<bool>,
+    /// For each shot of `shots`: whether the song still owes it a cut (it says `at_least_once`,
+    /// has not been on in this song, and the section playing is not past its last chance).
+    pub owed: Vec<bool>,
 }
 
 /// Why a burst cut is wanted now.
@@ -265,6 +269,8 @@ struct Pickable {
     longest: Option<f32>,
     /// Whether it tilts whatever `[camera] dutch_in` says, if the scene says.
     dutch: Option<bool>,
+    /// Whether the song is promised a cut to it (`[[shot]] at_least_once`).
+    at_least_once: bool,
 }
 
 /// Decides the camera cuts of one scene from the music.
@@ -321,6 +327,16 @@ pub struct Director {
     /// The biggest rise of energy among the song's section boundaries after the coming section
     /// start (see [`Self::set_song_ahead`]); none without a chart, where there is no burst.
     later_rise: Option<f32>,
+    /// The sections of the song with their levels, as the chart tells them ahead of time (see
+    /// [`Self::set_song`]); none without a chart, where nothing is promised.
+    song: Option<Arc<[SongSection]>>,
+    /// For each `[[shot]]`: the section of the song it is promised in, if it says
+    /// `at_least_once` and the song has a section it can be cut to in (see [`Self::promise`]).
+    /// Made when the song or the bindings change, so a frame only compares an index.
+    promised: Vec<Option<usize>>,
+    /// For each `[[shot]]`: whether it has been on in this song. Like `burst_taken` it starts
+    /// again when the song time goes back.
+    shown: Vec<bool>,
     /// The song time of the last frame, which going back tells a new song (or a seek) by.
     last_song_time: f32,
     /// The runtime's decisions the director reads (`director.*` and what a section start is),
@@ -350,6 +366,7 @@ impl Director {
                 weight: s.weight,
                 longest: s.longest,
                 dutch: s.dutch,
+                at_least_once: s.at_least_once,
                 suits: [0, 1, 2].map(|tier| super::manifest::suits(&s.tiers, tier)),
             })
             .collect();
@@ -386,6 +403,9 @@ impl Director {
             burst_override: None,
             burst_taken: false,
             later_rise: None,
+            song: None,
+            promised: vec![None; ordinary],
+            shown: vec![false; ordinary],
             last_song_time: 0.0,
             binds: Arc::default(),
             moments: Arc::default(),
@@ -423,6 +443,7 @@ impl Director {
     pub fn set_binds(&mut self, binds: Arc<DirectorBinds>, moments: Arc<MomentBinds>) {
         self.binds = binds;
         self.moments = moments;
+        self.plan_promises();
     }
 
     /// The pace in effect: the lab's override, else the scene's own.
@@ -450,6 +471,73 @@ impl Director {
     /// burst of a song waits for.
     pub fn set_song_ahead(&mut self, later_rise: Option<f32>) {
         self.later_rise = later_rise;
+    }
+
+    /// Tell the director the sections of the song with their levels (`ChartState::song`), or none
+    /// without a chart. A shot that says `at_least_once` is promised a cut in the last section
+    /// that suits it (see [`Self::promise`]), which the director can only tell by knowing every
+    /// later section's level ahead of time. The scene hands it over each frame, but only a
+    /// different song (another list, not another frame of the same) makes the director plan
+    /// again, and one that replaces another forgets what was on.
+    pub fn set_song(&mut self, song: Option<&Arc<[SongSection]>>) {
+        match (&self.song, song) {
+            (Some(on), Some(new)) if Arc::ptr_eq(on, new) => return,
+            (None, None) => return,
+            (Some(_), Some(_)) => self.shown.fill(false),
+            _ => {}
+        }
+        self.song = song.cloned();
+        self.plan_promises();
+    }
+
+    /// Decide again in which section each shot that says `at_least_once` is promised.
+    fn plan_promises(&mut self) {
+        self.promised = (0..self.ordinary)
+            .map(|i| {
+                self.picks[i]
+                    .at_least_once
+                    .then(|| self.promise(i))
+                    .flatten()
+            })
+            .collect();
+    }
+
+    /// The section of the song in which shot `index` is cut to if it has not been on by then: the
+    /// last section that suits it by its `tiers` (the section's level against `director.cadence`'s
+    /// thresholds), or, where no section suits it, the song's highest (the last of equals). A
+    /// section counts only if a cut can be made in it after its opening: it must last the gap
+    /// from the opening, the room `waits_for_section` keeps before the next section start (the
+    /// larger of `lead` and the gap) and the cut's grace to land. If the last section that suits
+    /// is too short, the one before it that suits is the last chance; if none is long enough,
+    /// the highest section of the song that is, by level, the last of equals first. None where
+    /// no section is long enough, or the song is not known.
+    fn promise(&self, index: usize) -> Option<usize> {
+        let song = self.song.as_ref()?;
+        let room = self.min_gap() + self.binds.lead().max(self.min_gap()) + self.binds.grace;
+        let fits = |i: usize| song[i].end - song[i].start >= room;
+        let suits =
+            |section: &SongSection| self.picks[index].suits[self.binds.tier_at(section.level)];
+        last_chance(song, suits, fits)
+    }
+
+    /// The shot the song is still owed in the section playing, if any: one that says
+    /// `at_least_once`, has not been on in this song and has this section as its last chance.
+    /// The first of them if several.
+    fn owed(&self, music: &MusicValues) -> Option<usize> {
+        let section = music.section.max(0.0) as usize;
+        (0..self.ordinary).find(|&i| self.promised[i] == Some(section) && !self.shown[i])
+    }
+
+    /// Whether the song still owes shot `index` a cut, in this section or a later one.
+    fn is_owed(&self, index: usize, music: &MusicValues) -> bool {
+        let section = music.section.max(0.0) as usize;
+        !self.shown.get(index).copied().unwrap_or(true)
+            && self
+                .promised
+                .get(index)
+                .copied()
+                .flatten()
+                .is_some_and(|last| last >= section)
     }
 
     /// The pace override, to give a rebuilt director (see [`Self::set_pace_override`]).
@@ -517,6 +605,9 @@ impl Director {
                 && self.binds.ahead(music).is_some_and(|ahead| ahead.lifts)
                 && self.will_burst(music),
             bursts: self.burst_override,
+            owed: (0..self.shots.len())
+                .map(|index| self.is_owed(index, music))
+                .collect(),
         }
     }
 
@@ -583,6 +674,7 @@ impl Director {
         // Time going back is a new song (or a seek): its burst is still to come.
         if music.song_time < self.last_song_time - 1.0 {
             self.burst_taken = false;
+            self.shown.fill(false);
         }
         self.last_song_time = music.song_time;
         if self.held {
@@ -653,8 +745,16 @@ impl Director {
         // The cadence of the section: its seconds since the last cut, landing on the event of
         // `director.cut`, and not close to a section start or the burst before it, which cut
         // instead.
-        let wait = self.shot_wait(self.state.index as usize, tier)?;
-        if self.seconds_since_cut < wait || self.waits_for_section(music, followed) {
+        let wait = self.shot_wait(self.state.index as usize, tier);
+        // A shot the song still owes, in the section that is its last chance, is cut to at the
+        // gap from the opening if the cadence would not cut again before the section ends.
+        let hurried = self.hurries(wait, music);
+        let wait = match (wait, hurried) {
+            (Some(wait), true) => wait.min(self.min_gap()),
+            (None, true) => self.min_gap(),
+            (wait, false) => wait?,
+        };
+        if self.seconds_since_cut < wait || (!hurried && self.waits_for_section(music, followed)) {
             return None;
         }
         let landed = match self.binds.cut(music) {
@@ -706,6 +806,25 @@ impl Director {
             (Some(cadence), Some(longest)) => Some(cadence.min(longest)),
             (cadence, longest) => cadence.or(longest),
         }
+    }
+
+    /// Whether a shot the song owes is to be cut to sooner than the cadence would cut, `wait`
+    /// seconds after the last cut: a shot is owed in this section, its opening is on (the opening
+    /// keeps its own rule), and the cadence's next cut would come too late, that is within the
+    /// room `waits_for_section` keeps clear before the next section start (or never, at a pace
+    /// that cuts only at section starts). Otherwise the cadence's own next cut is the promised
+    /// one (see [`Self::cut`]).
+    fn hurries(&self, wait: Option<f32>, music: &MusicValues) -> bool {
+        if self.in_section == 0 || self.owed(music).is_none() {
+            return false;
+        }
+        let Some(wait) = wait else {
+            return true;
+        };
+        let left = music.cue_in;
+        let due = (wait - self.seconds_since_cut).max(0.0);
+        let keeps_clear = self.binds.lead().max(self.min_gap());
+        left >= 0.0 && due + self.binds.grace + keeps_clear > left
     }
 
     /// Whether a cadence cut now would crowd the cuts that come next, so that it waits: the next
@@ -826,10 +945,11 @@ impl Director {
                     index
                 }
             }
-            Why::Next(_) => {
+            // The shot the song owes goes first, in the section that is its last chance.
+            Why::Next(_) => self.owed(music).unwrap_or_else(|| {
                 let prev = self.seq_prev.unwrap_or(current);
                 self.pick(why, label, self.in_section, Some(prev))
-            }
+            }),
         };
         self.seq_prev = Some(index);
         self.enter(index, music, tier, fill)
@@ -850,6 +970,9 @@ impl Director {
         let (size, motion) = self.shots[index];
         self.state.cuts = self.state.cuts.wrapping_add(1);
         self.in_section += 1;
+        if let Some(shown) = self.shown.get_mut(index) {
+            *shown = true;
+        }
         // From the section's label and the cut's place in it, so a chorus is seen the same way
         // each time.
         let seed = label_hash(label, self.in_section.wrapping_add(7));
@@ -1000,6 +1123,7 @@ mod tests {
             longest: None,
             tiers: Vec::new(),
             dutch: None,
+            at_least_once: false,
         }
     }
 
@@ -2838,5 +2962,239 @@ mod tests {
         assert!(run(&embedded) >= 5);
         let custom = crate::bind::tests::embedded_with("lift = 0.1,", "lift = 0.9,");
         assert_eq!(run(&custom), 2);
+    }
+
+    /// The sections of a song from `(seconds, level)` each, one after the other from 0.
+    fn sections_of(spec: &[(f32, f32)]) -> Arc<[SongSection]> {
+        let mut at = 0.0;
+        spec.iter()
+            .map(|&(length, level)| {
+                let section = SongSection {
+                    start: at,
+                    end: at + length,
+                    level,
+                };
+                at += length;
+                section
+            })
+            .collect()
+    }
+
+    /// Two wide shots (the opening may pick either), a medium and a close one that says
+    /// `at_least_once`, suits `tiers` and is never picked by chance (weight 0).
+    fn promised_shots(tiers: &[&str]) -> Vec<Shot> {
+        use ShotSize::*;
+        let mut shots = [Wide, Wide, Medium, Close]
+            .map(|size| shot(size, ShotMove::Cut))
+            .to_vec();
+        shots[3].weight = 0.0;
+        shots[3].at_least_once = true;
+        shots[3].tiers = tiers.iter().map(|t| t.to_string()).collect();
+        shots
+    }
+
+    /// Plays a whole song through, a frame per beat at 120 bpm (the beat followed, a section's
+    /// first frame its start, the seconds left in it known). Returns each cut with the section
+    /// it was in and the seconds into that section.
+    fn play(director: &mut Director, chart: &Arc<[SongSection]>) -> Vec<(usize, f32, Cut)> {
+        play_with(director, chart, true)
+    }
+
+    /// [`play`], with the song's sections told to the director or not.
+    fn play_with(
+        director: &mut Director,
+        chart: &Arc<[SongSection]>,
+        tell: bool,
+    ) -> Vec<(usize, f32, Cut)> {
+        director.set_song(tell.then_some(chart));
+        let mut cuts = Vec::new();
+        let mut beat = 0u32;
+        for (i, section) in chart.iter().enumerate() {
+            let beats = ((section.end - section.start) / 0.5) as u32;
+            for b in 0..beats {
+                let into = b as f32 * 0.5;
+                let frame = MusicValues {
+                    section: i as f32,
+                    section_energy: section.level,
+                    next_energy: section.level,
+                    cue_in: section.end - section.start - into,
+                    song_time: section.start + into,
+                    beats: 1,
+                    bars: u32::from(beat.is_multiple_of(4)),
+                    ..song(section.level)
+                };
+                let frame = if b == 0 {
+                    start(i as f32, frame)
+                } else {
+                    frame
+                };
+                beat += 1;
+                if let Some(cut) = director.tick(0.5, &frame) {
+                    cuts.push((i, into, cut));
+                }
+            }
+        }
+        cuts
+    }
+
+    /// The cuts to the promised shot (index 3 of [`promised_shots`]).
+    fn to_promised(cuts: &[(usize, f32, Cut)]) -> Vec<(usize, f32)> {
+        cuts.iter()
+            .filter(|(_, _, cut)| cut.index == 3)
+            .map(|&(section, into, _)| (section, into))
+            .collect()
+    }
+
+    #[test]
+    fn a_shot_that_chance_never_picks_is_cut_to_in_the_last_section_that_suits_it() {
+        // Quiet, high, normal, high, normal: the last high section is the fourth.
+        let chart = sections_of(&[
+            (40.0, 0.2),
+            (40.0, 0.9),
+            (40.0, 0.5),
+            (40.0, 0.9),
+            (40.0, 0.5),
+        ]);
+        let mut director = Director::new(camera(0.0), &promised_shots(&["high"]));
+        let cuts = play(&mut director, &chart);
+        let promised = to_promised(&cuts);
+        // Once, in the fourth section, and after its opening: its first cut is the opening.
+        assert_eq!(promised.len(), 1, "{cuts:?}");
+        assert_eq!(promised[0].0, 3);
+        assert!(promised[0].1 >= 6.0, "{promised:?}");
+        let first = cuts.iter().find(|(section, ..)| *section == 3).unwrap();
+        assert_ne!(first.2.index, 3, "{cuts:?}");
+        // Nothing is owed afterwards, in the lab's readout either.
+        assert!(!director.is_owed(3, &MusicValues::default()));
+    }
+
+    #[test]
+    fn a_shot_already_on_is_not_cut_to_again_for_the_promise() {
+        // Two shots, a wide and a close one that says it: a high section's cuts alternate
+        // between them, so the shot is on long before the last section. The song plays exactly
+        // as it does with no promise.
+        let shots = |promise: bool| {
+            let mut shots = vec![
+                shot(ShotSize::Wide, ShotMove::Cut),
+                shot(ShotSize::Close, ShotMove::Cut),
+            ];
+            shots[1].at_least_once = promise;
+            shots[1].tiers = vec!["high".to_string()];
+            shots
+        };
+        let chart = sections_of(&[(40.0, 0.9), (40.0, 0.5), (40.0, 0.9)]);
+        let with = play(&mut Director::new(camera(0.0), &shots(true)), &chart);
+        let without = play(&mut Director::new(camera(0.0), &shots(false)), &chart);
+        assert_eq!(with, without);
+        assert!(with.iter().any(|(_, _, cut)| cut.index == 1));
+    }
+
+    #[test]
+    fn a_song_with_no_section_of_its_tier_still_shows_the_shot_in_its_highest() {
+        // The shot suits only quiet sections, and this song has none. The highest is the third,
+        // and the last of two equals wins.
+        let chart = sections_of(&[
+            (40.0, 0.5),
+            (40.0, 0.6),
+            (40.0, 0.65),
+            (40.0, 0.65),
+            (40.0, 0.55),
+        ]);
+        let mut director = Director::new(camera(0.0), &promised_shots(&["quiet"]));
+        let cuts = play(&mut director, &chart);
+        let promised = to_promised(&cuts);
+        assert_eq!(promised.len(), 1, "{cuts:?}");
+        assert_eq!(promised[0].0, 3);
+    }
+
+    #[test]
+    fn a_section_too_short_for_a_cut_after_the_gap_is_not_the_last_chance() {
+        let mut director = Director::new(camera(0.0), &promised_shots(&["high"]));
+        // The last high section lasts 10 s: the gap, the room before the next section and the
+        // cut's grace need 14. The high section before it is the last chance.
+        let chart = sections_of(&[(40.0, 0.9), (40.0, 0.5), (10.0, 0.9), (40.0, 0.5)]);
+        director.set_song(Some(&chart));
+        assert_eq!(director.promised[3], Some(0));
+        // None suits and the highest is short: the next highest that fits.
+        let mut director = Director::new(camera(0.0), &promised_shots(&["quiet"]));
+        let chart = sections_of(&[(40.0, 0.5), (40.0, 0.6), (10.0, 0.65), (40.0, 0.55)]);
+        director.set_song(Some(&chart));
+        assert_eq!(director.promised[3], Some(1));
+        // A song with no section that long promises nothing.
+        let chart = sections_of(&[(10.0, 0.5), (12.0, 0.9)]);
+        director.set_song(Some(&chart));
+        assert_eq!(director.promised[3], None);
+        // Without a chart nothing is promised either.
+        director.set_song(None);
+        assert_eq!(director.promised[3], None);
+    }
+
+    #[test]
+    fn the_cut_comes_after_the_gap_if_the_cadence_would_not_cut_again_in_the_section() {
+        // A calm pace cuts a high section every 15 s, and the last high section lasts 20: the
+        // cadence's cut would come within the room kept before the next section start.
+        let chart = sections_of(&[(40.0, 0.5), (20.0, 0.9), (40.0, 0.5)]);
+        let mut calm = camera(0.0);
+        calm.pace = Pace::Calm;
+        let mut director = Director::new(calm, &promised_shots(&["high"]));
+        let cuts = play(&mut director, &chart);
+        let promised = to_promised(&cuts);
+        assert_eq!(promised.len(), 1, "{cuts:?}");
+        assert_eq!(promised[0].0, 1);
+        assert!(
+            (6.0..=8.5).contains(&promised[0].1),
+            "the gap from the opening: {promised:?}"
+        );
+        // A scene that cuts only at section starts has the same promise.
+        let mut sections = camera(0.0);
+        sections.pace = Pace::Sections;
+        let mut director = Director::new(sections, &promised_shots(&["high"]));
+        let promised = to_promised(&play(&mut director, &chart));
+        assert_eq!(promised.len(), 1);
+        assert_eq!(promised[0].0, 1);
+    }
+
+    #[test]
+    fn a_shot_without_the_flag_plays_as_before_and_a_song_not_known_promises_nothing() {
+        let chart = sections_of(&[(40.0, 0.2), (40.0, 0.9), (40.0, 0.5)]);
+        let mut plain = promised_shots(&["high"]);
+        plain[3].at_least_once = false;
+        plain[3].weight = 1.0;
+        let known = play(&mut Director::new(camera(0.0), &plain), &chart);
+        let mut director = Director::new(camera(0.0), &plain);
+        let unknown = play_with(&mut director, &chart, false);
+        assert_eq!(known, unknown);
+        // And a flagged shot in a song whose chart is not known is never owed.
+        let mut director = Director::new(camera(0.0), &promised_shots(&["high"]));
+        assert!(director.promised.iter().all(Option::is_none));
+        assert!(!director.is_owed(3, &song(0.9)));
+        director.set_song(None);
+        assert!(director.owed(&song(0.9)).is_none());
+    }
+
+    #[test]
+    fn the_song_going_back_owes_the_shot_again() {
+        let chart = sections_of(&[(40.0, 0.5), (40.0, 0.9), (40.0, 0.5)]);
+        let mut director = Director::new(camera(0.0), &promised_shots(&["high"]));
+        play(&mut director, &chart);
+        assert!(director.shown[3]);
+        let at = |section: f32, time: f32| MusicValues {
+            section,
+            song_time: time,
+            ..song(0.5)
+        };
+        assert!(!director.is_owed(3, &at(2.0, 100.0)));
+        // A seek back to the first section: a new account, the shot owed with its chance ahead.
+        director.tick(0.016, &at(0.0, 3.0));
+        assert!(!director.shown[3]);
+        assert!(director.is_owed(3, &at(0.0, 3.0)));
+        // Past its last chance it is no longer owed, and the director does not cut to it late.
+        assert!(!director.is_owed(3, &at(2.0, 85.0)));
+        assert!(director.owed(&at(2.0, 85.0)).is_none());
+        // Another song forgets what was on too.
+        play(&mut director, &chart);
+        assert!(director.shown[3]);
+        director.set_song(Some(&sections_of(&[(40.0, 0.5), (40.0, 0.9)])));
+        assert!(!director.shown[3]);
     }
 }

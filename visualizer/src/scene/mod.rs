@@ -1986,6 +1986,7 @@ impl Scene {
         let shot = match &mut self.director {
             Some(director) => {
                 director.set_song_ahead(input.chart.map(|c| c.later_rise as f32));
+                director.set_song(input.chart.and_then(|c| c.song.as_ref()));
                 self.cut = director
                     .tick(dt as f32, &music)
                     .map(|cut| CutInfo {
@@ -2013,6 +2014,7 @@ impl Scene {
         queue.write_buffer(&self.shot, 0, &shot);
         let look = match &mut self.looks {
             Some(looks) => {
+                looks.set_song(input.chart.and_then(|c| c.song.as_ref()));
                 looks.tick(dt as f32, &music, seed);
                 looks.state().bytes()
             }

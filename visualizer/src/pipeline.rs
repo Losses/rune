@@ -888,7 +888,7 @@ impl Pipeline {
 
     /// The song's chart at this frame, or none without one.
     pub fn set_chart(&mut self, chart: Option<&ChartState>) {
-        self.chart = chart.copied();
+        self.chart = chart.cloned();
     }
 
     /// The song time and whether it plays, for scenes.
