@@ -6,6 +6,11 @@ struct State {
   roll: f32,
   look: vec3f,
   lens: f32,
+  // The view's own field of view (1 is the usual, less is a longer lens), how far below the tip
+  // the tower is drawn at least (more for a view from above), and the distance in focus.
+  fov: f32,
+  deep: f32,
+  focus: f32,
   // The tower's tip as the camera chases it, and where it has grown to.
   top: f32,
   top_to: f32,
@@ -19,8 +24,9 @@ struct State {
   tilt: f32,
   azimuth: f32,
   spin: f32,
-  // How many cuts of the director the view has followed.
+  // How many cuts of the director the view has followed, and the view taken (its shot).
   cuts: u32,
+  view: u32,
   // The tip before the last beat's growth (what grew since is still flying in), and how bright
   // the rod is.
   top_prev: f32,

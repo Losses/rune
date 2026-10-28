@@ -50,8 +50,8 @@ target = "out"
 inputs = ["lit"]
 
 # The camera's views, in the order update.wgsl takes them (0 close, 1 closer, 2 and 3 further
-# off); a cut jumps to the next. The tilt is the director's dutch angle, none in a wide shot: a
-# few degrees, so it reads as a lean and not a fall.
+# off, 4 from not far above the tip); a cut jumps to the next. The tilt is the director's dutch
+# angle, none in a wide or a top shot: a few degrees, so it reads as a lean and not a fall.
 [camera]
 dutch = 0.15
 
@@ -74,6 +74,31 @@ move = "cut"
 name = "far again"
 size = "wide"
 move = "cut"
+
+[[shot]]
+name = "above"
+size = "top"
+move = "cut"
+
+# The burst before a section that lifts, a cut on each of its last four beats, as the tower grows
+# a step on each (after the reference video's three pushes in and a look from above): under the
+# tip, close on its other side, one plate landing, and high above the tip. Each comes from a new
+# side of the tower.
+[[burst]]
+name = "under the tip"
+size = "medium"
+
+[[burst]]
+name = "the other side"
+size = "close"
+
+[[burst]]
+name = "a plate landing"
+size = "detail"
+
+[[burst]]
+name = "high above"
+size = "top"
 
 [post]
 exposure = 0.0

@@ -59,9 +59,9 @@ fn trace(o: vec3f, d0: vec3f, steps: i32) -> Hit {
   // No axis exactly zero, so every step stays finite.
   let d = select(d0, vec3f(1e-6), abs(d0) < vec3f(1e-6));
   let reach = params.girth * 1.4 * 1.6 * FILL_GIRTH.y * 1.4 + 3.0 + CELL.x;
-  // Only from a little under the camera up: the camera always looks up, and what is below it is
-  // let go of.
-  let lo = vec3f(-reach, min(state.cam_pos.y - params.keep_below, state.top - 4.0), -reach);
+  // Only from a little under the camera up (the camera looks up, and what is below it is let go
+  // of), or the top of the tower seen from above.
+  let lo = vec3f(-reach, kept_from(), -reach);
   let hi = vec3f(reach, state.top + 1.0, reach);
   let mid = 0.5 * (lo + hi);
   let size = 0.5 * (hi - lo);

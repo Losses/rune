@@ -94,7 +94,13 @@ fn tier(h: f32, sizes: vec3f) -> f32 {
 // the buffer `layers`, read as one long row of texels: six for each layer from this one up, its
 // girth and number, then its five square plates.
 fn table_first() -> f32 {
-  return floor(min(state.cam_pos.y - params.keep_below, state.top - 4.0) / CELL.y) - 2.0;
+  return floor(kept_from() / CELL.y) - 2.0;
+}
+
+// The lowest height drawn: a little under the camera, which looks up the tower from below, or
+// further down for a view from above (`deep`).
+fn kept_from() -> f32 {
+  return min(state.cam_pos.y - params.keep_below, state.top - max(4.0, state.deep));
 }
 
 // The plate a cell holds, where it rests, if any: one of its layer's square plates, or a small

@@ -2,7 +2,7 @@
 // samples, each weighted by its own blur so sharp edges do not bleed.
 
 fn blur_of(depth: f32) -> f32 {
-  let focus = max(state.dist * 0.85, 2.0);
+  let focus = max(state.focus, 2.0);
   return clamp(params.dof * abs(depth - focus) / max(depth, 0.5), 0.0, 1.0) * 14.0;
 }
 

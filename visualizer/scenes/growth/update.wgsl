@@ -62,17 +62,23 @@ fn random(n: u32) -> f32 {
   return rv_unit(frame.seed * 2654435761u + n);
 }
 
-// Take the view the director cut to, at once: a cut is a cut, never a slide. Every view looks up
-// the tower from below (so what is under the camera never needs drawing): 0 close, 1 closer, 2
-// further off; the director's two wide shots both take the further one, which has the room. It
-// circles the same way the whole song (turning back would brake and speed up again), and the
-// tilt is the shot's own dutch angle (none in a wide shot).
+// Take the view the director cut to, at once: a cut is a cut, never a slide. The views, in the
+// order of scene.toml's shots: 0 steep, 1 near and 2, 3 far look up the tower from below (so
+// what is under the camera never needs drawing); 4 looks down on the tip from not far above. Then
+// the burst's four, one a beat before a section that lifts: under the tip, close on its other
+// side, a plate landing at the growing front through a longer lens, and high above the tip, the
+// tower's rings growing up at the lens. The camera circles the same way the whole song (turning
+// back would brake and speed up again), each of the burst's cuts comes from round the tower, and
+// the tilt is the shot's own dutch angle (none in a wide or a top shot).
 fn choose_view() {
-  let v = min(shot.index, 2u);
+  let v = shot.index;
   let side = select(-1.0, 1.0, random(5u) < 0.5);
-  // How far below the tip the camera is, how far from the axis, how far below the tip it aims,
-  // and how fast it drifts round.
-  if (v == 2u) {
+  // How far below the tip the camera is (less than 0 above it), how far from the axis, how far
+  // below the tip it aims, how fast it drifts round, its field of view and how much of the tower
+  // under the tip it must see.
+  state.fov = 1.0;
+  state.deep = 0.0;
+  if (v == 2u || v == 3u) {
     state.below = 34.0;
     state.dist = 12.0 + 2.4 * params.girth;
     state.aim = 22.0;
@@ -82,12 +88,45 @@ fn choose_view() {
     state.dist = 8.0 + 1.6 * params.girth;
     state.aim = 10.0;
     state.spin = 0.04 * side;
+  } else if (v == 4u) {
+    state.below = -10.0;
+    state.dist = 4.0 + 0.6 * params.girth;
+    state.aim = 8.0;
+    state.spin = 0.03 * side;
+    state.deep = 30.0;
+  } else if (v == 5u) {
+    state.below = 4.0;
+    state.dist = 7.0 + params.girth;
+    state.aim = 1.0;
+    state.spin = 0.05 * side;
+  } else if (v == 6u) {
+    state.below = 6.0;
+    state.dist = 4.0 + params.girth;
+    state.aim = 0.0;
+    state.spin = 0.05 * side;
+  } else if (v == 7u) {
+    state.below = 1.5;
+    state.dist = 3.0 + 0.8 * params.girth;
+    state.aim = 1.5;
+    state.spin = 0.05 * side;
+    state.fov = 0.6;
+  } else if (v == 8u) {
+    state.below = -30.0;
+    state.dist = 3.0;
+    state.aim = 10.0;
+    state.spin = 0.02 * side;
+    state.deep = 60.0;
   } else {
     state.below = 26.0;
     state.dist = 10.0 + 2.0 * params.girth;
     state.aim = 16.0;
     state.spin = 0.05 * side;
   }
+  // The burst's cuts come from round the tower, each from a new side.
+  if (shot.fill > 0u) {
+    state.azimuth += 2.2 * side;
+  }
+  state.view = v;
   state.tilt = shot.roll;
   state.cuts = shot.cuts;
 }
@@ -238,7 +277,10 @@ fn update() {
   state.cam_pos = vec3f(out.x * state.dist, state.cam_top - state.below, out.y * state.dist);
   state.look = vec3f(out.x * state.dist * 0.1, state.cam_top - state.aim, out.y * state.dist * 0.1);
   state.roll = state.tilt;
-  state.lens = 1.0 - params.zoom * state.kick;
+  state.lens = state.fov * (1.0 - params.zoom * state.kick);
+  // In focus: the tower's core for the views from below, and what the camera looks at for the
+  // others.
+  state.focus = select(distance(state.look, state.cam_pos), state.dist * 0.85, state.view <= 3u);
 
   post.bloom_intensity = params.glow * (0.6 + 0.6 * input.drive);
   let dim = mix(theme_exposure(state.theme_from), theme_exposure(state.theme_to), smoothstep(0.0, 1.0, state.theme_mix));
