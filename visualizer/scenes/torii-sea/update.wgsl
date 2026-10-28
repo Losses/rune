@@ -415,8 +415,14 @@ fn list_torii() {
   cam.fwd = state.cam_fwd;
   cam.right = state.cam_right;
   cam.up = state.cam_up;
-  cam.ky = 0.5 * state.lens * 0.8;
-  cam.kx = frame.aspect * cam.ky;
+  // The screen is turned by the dutch angle on the camera's plane (see view.wgsl's camera_ray):
+  // what may be seen reaches out to the turned rectangle's bounds.
+  let ky = 0.5 * state.lens * 0.8;
+  let kx = frame.aspect * ky;
+  let cr = abs(cos(state.roll));
+  let sr = abs(sin(state.roll));
+  cam.kx = cr * kx + sr * ky;
+  cam.ky = sr * kx + cr * ky;
   let sp = params.spacing;
   let here = floor(state.cam_pos.z / sp);
   for (var k = 0.0; k <= 160.0; k += 1.0) {
@@ -507,7 +513,10 @@ fn see_torii(g0: Gate, slot: f32) {
       whole = true;
       break;
     }
-    let s = focal * vec2f(dot(q, state.cam_right), dot(q, state.cam_up)) / qz;
+    // On the screen, which is the camera's plane turned back by the dutch angle: the tiles are
+    // the screen's (left unturned, a torii was listed in tiles beside the ones it covers, and
+    // cut off along their edges in a tilted shot).
+    let s = rv_rotate(focal * vec2f(dot(q, state.cam_right), dot(q, state.cam_up)) / qz, -state.roll);
     lo_s = min(lo_s, s);
     hi_s = max(hi_s, s);
   }
@@ -516,7 +525,7 @@ fn see_torii(g0: Gate, slot: f32) {
     var c = vec2f(0.0);
     var rad = 10.0;
     if (zc > r * 1.05) {
-      c = focal * vec2f(dot(v, state.cam_right), dot(v, state.cam_up)) / zc;
+      c = rv_rotate(focal * vec2f(dot(v, state.cam_right), dot(v, state.cam_up)) / zc, -state.roll);
       rad = focal * r / sqrt(zc * zc - r * r);
     }
     lo_s = c - rad;
