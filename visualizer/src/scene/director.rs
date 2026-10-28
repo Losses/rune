@@ -111,6 +111,9 @@ pub struct Cut {
     pub motion: ShotMove,
     /// 0 for a normal cut, else the position in a burst (1 to [`MAX_BURSTS`]).
     pub fill: u32,
+    /// The cut a burst leads to: the first after its last (a section's or a phrase's start, or
+    /// the opening after a lab's burst), which lands on a strong transition.
+    pub closes_burst: bool,
 }
 
 /// What the camera director tells the scene about the current shot: `struct Shot`.
@@ -745,8 +748,10 @@ impl Director {
             fill,
         };
         self.seconds_since_cut = 0.0;
+        let closes_burst = fill == 0 && self.last_fill > 0;
         self.last_fill = fill;
         Cut {
+            closes_burst,
             index: index as u32,
             size,
             motion: if fill > 0 { ShotMove::Cut } else { motion },
@@ -1756,10 +1761,15 @@ mod tests {
             all.iter().map(|(_, c)| c.fill).collect::<Vec<_>>(),
             [1, 2, 3, 4, 0]
         );
-        // The beat after the last opens a section, as the section start after a burst would.
+        // The beat after the last opens a section, as the section start after a burst would, and
+        // it is the cut that closes the burst (the scene lands it on a strong transition).
         assert_eq!(
             all.iter().map(|(_, c)| c.size).collect::<Vec<_>>(),
             [Medium, Close, Detail, Top, Wide]
+        );
+        assert_eq!(
+            all.iter().map(|(_, c)| c.closes_burst).collect::<Vec<_>>(),
+            [false, false, false, false, true]
         );
         assert!(all.iter().all(|(_, c)| c.motion == ShotMove::Cut));
         // Then it is over: no more burst cuts.

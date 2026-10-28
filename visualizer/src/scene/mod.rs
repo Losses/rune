@@ -49,8 +49,11 @@ pub struct CutInfo {
     /// 0 for a normal cut, else the position in a burst (1 to 4, see `ShotState::fill`).
     pub fill: u32,
     /// The transition the moment of the cut dresses it with, if the cut is at a moment that
-    /// plays an effect and the scene lists one that suits it (see [`crate::moments`]).
+    /// plays an effect and the scene lists one that suits it (see [`crate::moments`]); the cut a
+    /// burst leads to always has one.
     pub dress: Option<crate::transition::Transition>,
+    /// The first cut after a burst's last (see `director::Cut::closes_burst`).
+    pub closes_burst: bool,
 }
 
 /// Buffers of a scene may take this much memory together.
@@ -1533,6 +1536,7 @@ impl Scene {
                 cue: self.music_values.cue,
                 fill: 0,
                 dress: None,
+                closes_burst: cut.closes_burst,
             });
         }
     }
@@ -1980,6 +1984,7 @@ impl Scene {
                         cue: music.cue,
                         fill: cut.fill,
                         dress: None,
+                        closes_burst: cut.closes_burst,
                     })
                     .or(self.forced_cut.take());
                 director.state().bytes()
@@ -2020,6 +2025,18 @@ impl Scene {
                 _ if forced => {}
                 _ => self.lens.start_at(played),
             }
+        }
+        // The cut a burst leads to lands on a strong transition of the scene's list, whatever the
+        // roll: four hard cuts ending on a plain one stopped short.
+        if let Some(cut) = &mut self.cut
+            && cut.closes_burst
+            && cut.dress.is_none()
+        {
+            let played = crate::moments::Played {
+                strength: crate::moments::Strength::Strong,
+                label: music.section_label,
+            };
+            cut.dress = crate::moments::cut_dressing(&self.cut_transitions, played);
         }
         let lens = self.lens.tick(dt as f32, &music, self.level.quality);
         self.overlay = self.lens.take_overlay();
