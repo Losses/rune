@@ -722,15 +722,13 @@ impl Director {
             Why::Opening => {
                 let opening: Vec<usize> =
                     (0..shots.len()).filter(|&i| self.picks[i].opens).collect();
-                // The shot on is left out, unless it is the only one that opens.
-                let others: Vec<usize> = match opening.as_slice() {
-                    [only] => vec![*only],
-                    _ => opening
-                        .iter()
-                        .copied()
-                        .filter(|i| not != Some(*i))
-                        .collect(),
-                };
+                // The shot on is left out (a cut to it would only jump), unless it is the scene's
+                // only shot; with no other that opens, the nearest to wide opens instead.
+                let others: Vec<usize> = opening
+                    .iter()
+                    .copied()
+                    .filter(|i| candidates.contains(i))
+                    .collect();
                 if others.is_empty() {
                     let nearest = candidates.iter().map(|&i| shots[i].0 as u32).min();
                     let nearest = candidates
@@ -743,11 +741,13 @@ impl Director {
                 }
             }
             Why::Next(tier) => {
-                let on = shots[not.unwrap_or(0)].0;
+                // The shot on may be one of the burst's, after a burst a lab started: its size is
+                // in the whole list.
+                let on = not.map(|i| self.shots[i].0);
                 let differing: Vec<usize> = candidates
                     .iter()
                     .copied()
-                    .filter(|&i| shots[i].0 != on || not.is_none())
+                    .filter(|&i| on != Some(shots[i].0))
                     .collect();
                 let candidates = if differing.is_empty() {
                     candidates
@@ -1218,13 +1218,14 @@ mod tests {
         // Only the wide shot that opens and the top that says so.
         assert_eq!(seen[1] + seen[3] + seen[4], 0, "{seen:?}");
         assert!(seen[0] > 0 && seen[2] > 0, "{seen:?}");
-        // The shot on is not picked again, unless it is the only one that opens.
+        // The shot on is not picked again: the other that opens is, or with none the nearest to
+        // wide (a cut to the shot on would only jump).
         for label in 0..50 {
             assert_eq!(director.pick(Why::Opening, label as f32, 0, Some(0)), 2);
         }
         let one = [picked(Wide, None, 1.0), picked(Close, None, 1.0)];
         let director = Director::new(camera(0.0), &one);
-        assert_eq!(director.pick(Why::Opening, 0.3, 0, Some(0)), 0);
+        assert_eq!(director.pick(Why::Opening, 0.3, 0, Some(0)), 1);
     }
 
     #[test]
@@ -1426,29 +1427,36 @@ mod tests {
     }
 
     #[test]
-    fn the_same_kind_of_section_picks_the_same_shots() {
+    fn a_song_picks_the_same_shots_each_time_it_plays_and_each_kind_of_section_its_own() {
         use ShotSize::*;
-        // One shot that opens, so that every section starts the same and the rest is the roll.
-        let shots = [Wide, Medium, Medium, Close, Close, Detail, Detail, Top]
-            .map(|size| shot(size, ShotMove::Cut))
-            .to_vec();
-        let mut director = Director::new(camera(0.0), &shots);
-        // Sections 60 s apart, so that each starts well past the gap after the cadence's cuts.
-        let mut section = |label: f32, from: u32| -> Vec<u32> {
-            let base = MusicValues {
-                section_label: label,
-                ..song(0.9)
-            };
-            let mut all = beats(&mut director, from, 1, &base, |_, m| start(label, m));
-            all.extend(beats(&mut director, from + 1, 119, &base, plain));
-            all.iter().map(|(_, cut)| cut.index).collect()
+        let shots = [
+            Wide, Wide, Medium, Medium, Close, Close, Detail, Detail, Top,
+        ]
+        .map(|size| shot(size, ShotMove::Cut))
+        .to_vec();
+        // A play of sections with these labels, 60 s apart (well past the gap after the
+        // cadence's cuts): the shots it cuts to, section by section.
+        let play = |labels: &[f32]| -> Vec<Vec<u32>> {
+            let mut director = Director::new(camera(0.0), &shots);
+            let mut from = 0;
+            labels
+                .iter()
+                .map(|&label| {
+                    let base = MusicValues {
+                        section_label: label,
+                        ..song(0.9)
+                    };
+                    let mut all = beats(&mut director, from, 1, &base, |_, m| start(label, m));
+                    all.extend(beats(&mut director, from + 1, 119, &base, plain));
+                    from += 120;
+                    all.iter().map(|(_, cut)| cut.index).collect()
+                })
+                .collect()
         };
-        let first = section(2.0, 0);
-        let other = section(3.0, 120);
-        let again = section(2.0, 240);
-        assert!(first.len() >= 5);
-        assert_eq!(first, again);
-        assert_ne!(first, other);
+        let song = play(&[2.0, 3.0, 2.0]);
+        assert!(song[0].len() >= 5);
+        assert_eq!(song, play(&[2.0, 3.0, 2.0]));
+        assert_ne!(play(&[2.0])[0], play(&[3.0])[0]);
     }
 
     #[test]
@@ -1688,6 +1696,34 @@ mod tests {
                 .iter()
                 .all(|(_, c)| c.fill == 0)
         );
+    }
+
+    #[test]
+    fn the_cut_after_a_burst_started_by_hand_picks_one_of_the_scenes_shots() {
+        let mut director = bursting(camera(0.3));
+        let ordinary = director.ordinary;
+        let base = song(0.2);
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        director.start_burst();
+        let all = beats(&mut director, 1, 80, &base, plain);
+        let after: Vec<_> = all.iter().filter(|(_, c)| c.fill == 0).collect();
+        assert!(!after.is_empty(), "{all:?}");
+        assert!(after.iter().all(|(_, c)| (c.index as usize) < ordinary));
+    }
+
+    #[test]
+    fn a_section_start_on_the_only_shot_that_opens_cuts_to_another() {
+        use ShotSize::*;
+        let shots: Vec<Shot> = [Wide, Medium, Close]
+            .map(|size| shot(size, ShotMove::Cut))
+            .to_vec();
+        let mut director = Director::new(camera(0.0), &shots);
+        let base = song(0.5);
+        // The director starts on the wide shot, the only one that opens.
+        assert_eq!(director.state.index, 0);
+        let cut = beats(&mut director, 0, 1, &base, |_, m| start(1.0, m));
+        assert_eq!(cut.len(), 1);
+        assert_ne!(cut[0].1.index, 0);
     }
 
     #[test]
