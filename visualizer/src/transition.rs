@@ -1,6 +1,6 @@
 //! Scene switches that are not a cut: the old scene fades to black and the new one fades in, or the
 //! old picture dissolves into the new scene, or one of the strong ones: a flash of the theme
-//! colour, a glitch, a classic mosaic. While a transition runs, scenes draw into an
+//! colour, a glitch, a hard mosaic. While a transition runs, scenes draw into an
 //! intermediate texture and one fullscreen pass (`transition.wgsl`) writes the output from it;
 //! when none runs, nothing extra is drawn or held.
 //!
@@ -44,9 +44,9 @@ pub enum Transition {
     /// flat light, in stages that hold a few frames each and stutter back to an earlier one;
     /// the new scene shows through more pieces stage by stage (see [`glitch_step`]).
     Glitch,
-    /// Classic mosaic: small blocks of the old picture go to flat cells, then the whole frame
-    /// does, its cells growing, the new picture behind it at the largest, and the new picture
-    /// comes back out of the cells (see `mosaic_switch` in `transition.wgsl`).
+    /// Hard mosaic: the old picture in flat posterized cells that step up (a region, then the
+    /// whole frame), the new picture behind the largest, and the cells step down again (see
+    /// `mosaic_switch` in `transition.wgsl`).
     Mosaic,
 }
 
@@ -447,12 +447,12 @@ pub struct GlitchStep {
 /// the first stage, then the new picture comes through the heaviest stage and the breaks die down
 /// over it.
 const GLITCH_SWITCH: [(u32, f32, f32); 6] = [
-    (0, 0.45, 0.0),
-    (1, 0.75, 0.0),
-    (0, 0.6, 0.0),
-    (2, 0.85, 0.5),
-    (3, 0.55, 1.0),
-    (4, 0.2, 1.0),
+    (0, 0.55, 0.0),
+    (1, 0.85, 0.0),
+    (0, 0.7, 0.0),
+    (2, 0.95, 0.5),
+    (3, 0.7, 1.0),
+    (4, 0.25, 1.0),
 ];
 
 /// The stage of a glitch that switches the scene, `progress` (0 to 1) of the way through, from the
@@ -474,19 +474,18 @@ pub fn glitch_step(progress: f32, seed: u32) -> GlitchStep {
 /// and falls with the music, as the flare's and the leak's do (see `crate::course`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Overlay {
-    /// Thin broken pieces that come and go, a few, then more, then a few again, all of it moving
-    /// continuously with the tempo.
+    /// Wide tears that jump with the beat: rows shifted sideways by a tenth of the width or more,
+    /// their colours split, some inverted or burnt to the theme colour, a stutter now and then.
     Glitch,
-    /// Small blocks of classic mosaic (the picture in flat cells), each with a life of its own
-    /// (see `transition.wgsl`).
+    /// Big hard blocks (flat, posterized) over a region or the whole frame, stepping coarse to
+    /// finer with the beat (see `transition.wgsl`).
     Mosaic,
 }
 
-/// The most of a glitch overlay: the share of the pieces of its thin rows that are broken at
-/// once.
-pub const OVERLAY_GLITCH_MOST: f32 = 0.1;
-/// The most of a mosaic overlay: the share of its blocks' lives that count (see `block_life` in
-/// `transition.wgsl`), at the peak of its course with the music at full intensity.
+/// The most of a glitch overlay: its amount at the peak, which tears 40% of the rows.
+pub const OVERLAY_GLITCH_MOST: f32 = 1.0;
+/// The most of a mosaic overlay: its amount at the peak of its course with the music at full
+/// intensity, which sets the size of its blocks and how often a hit comes.
 pub const OVERLAY_MOSAIC_MOST: f32 = 1.0;
 
 /// What the pass draws in one frame of an overlay: all of it moves on its eased beat time (see
@@ -1069,13 +1068,13 @@ impl Transitions {
             Plan::Overlay(frame) => {
                 let theme = accent.unwrap_or(FALLBACK_ACCENT).map(encode_srgb);
                 match frame.kind {
-                    // Thin rows of the live picture, half see-through, that come and go; the
+                    // Wide tears of the live picture that jump with the beat; the
                     // accent of the beat in the progress.
                     Overlay::Glitch => {
                         params.extra = [frame.amount, frame.beats, 1.0, 1.0];
                         (KIND_GLITCH, frame.accent, frame.seed, theme)
                     }
-                    // Blocks of classic mosaic that come and go, the same way.
+                    // Big hard blocks that hit a region on the beat.
                     Overlay::Mosaic => {
                         params.extra = [1.0, frame.amount, frame.beats, 0.0];
                         (KIND_MOSAIC, frame.accent, frame.seed, theme)
