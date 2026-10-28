@@ -149,8 +149,11 @@ saturation = 1.05
 # The scene says what it wants from the music and the runtime works it out (see "Bindings" in the
 # runtime's docs/music.md); the shaders read the values as `input.<id>`, never `music.*`. The
 # events the scene only needs to know of arrive as one-frame pulses (release 0); the envelopes
-# whose time the scene sets (`kick_decay`, `shake_decay`) are made by the runtime. The signals the
-# scene only measures come through as they are (an unclamped `follow`).
+# whose time the scene sets (`shake_decay`) are made by the runtime. What the scene needs mapped
+# (the pace, the bloom, the shake's gain, the brightness) is mapped here; only what its shaders
+# need as it is comes through raw (an unclamped `follow`): `tempo` and `meter` for a bar's length
+# in the build-up, `drive` for the share of dark signs (a power the bind cannot say), `next_energy`
+# to compare with it, `label` and `section` (a kind and a number of section), `cue_in`.
 
 [[input]]
 id = "beat"
@@ -165,21 +168,8 @@ id = "cue_mid"
 label = "A cue of at least half strength"
 
 [[input]]
-id = "beat_no"
-label = "The number of the beat or hit, counted on and on"
-range = [0.0, 1000000.0]
-
-[[input]]
 id = "signal"
 label = "The traffic lights, changing every four bars"
-
-[[input]]
-id = "kick_env"
-label = "The kick of a beat, dying away as `kick_decay` says"
-
-[[input]]
-id = "kick_soft"
-label = "The kick between beats, while the beat is followed"
 
 [[input]]
 id = "lift_env"
@@ -218,8 +208,22 @@ id = "next_energy"
 label = "The energy of the next section"
 
 [[input]]
-id = "intensity"
-label = "Fast energy"
+id = "pace"
+label = "How fast the song is against 90 bpm (0.4 to 2 times)"
+range = [0.4, 2.0]
+rest = 1.0
+
+[[input]]
+id = "bloom"
+label = "The bloom's strength, by the slow energy"
+range = [0.0, 6.0]
+rest = 0.55
+
+[[input]]
+id = "gain"
+label = "How much a shake is scaled by the loudness (more when loud)"
+range = [0.0, 3.0]
+rest = 1.0
 
 [[input]]
 id = "energy"
@@ -237,9 +241,15 @@ range = [-1.0, 1000.0]
 rest = -1.0
 
 [[input]]
-id = "band_low"
-label = "The bass level"
-range = [0.0, 100.0]
+id = "bright"
+label = "How bright the signs and shop fronts are, by the energy (a 1 s average)"
+range = [0.0, 2.0]
+rest = 1.0
+
+[[input]]
+id = "bass_swell"
+label = "The bass's swell round the usual brightness (0 at an average bass)"
+range = [-1.0, 1.0]
 
 [[bind]]
 target = "beat"
@@ -260,29 +270,11 @@ how = "trigger"
 when = { strength = 0.5, scale = false, release = 0.0 }
 
 [[bind]]
-target = "beat_no"
-source = "hits"
-how = "accumulate"
-when = { per = "event" }
-
-[[bind]]
 target = "signal"
 source = "clock"
 how = "step"
 ease = "none"
 when = { every = 4, unit = "bar", wrap = 2 }
-
-[[bind]]
-target = "kick_env"
-source = "hits"
-how = "trigger"
-when = { scale = false, decay = "exp", release = { param = "kick_decay" }, per = "second" }
-
-[[bind]]
-target = "kick_soft"
-source = "low"
-how = "follow"
-when = { mul = "locked" }
 
 [[bind]]
 target = "lift_env"
@@ -332,11 +324,30 @@ source = "next_energy"
 how = "follow"
 when = { clamp = false, to = [0.0, 1.0] }
 
+# How fast the song is against 90 bpm, which is what a cruise is at: the tempo over 90, kept to
+# 0.4 to 2 times (36 to 180 bpm).
 [[bind]]
-target = "intensity"
+target = "pace"
+source = "tempo"
+how = "follow"
+when = { from = [36.0, 180.0] }
+
+# The bloom: `glow` at a quiet moment's 0.7 up to 1.3 times it at the loudest, by the slow energy
+# (the look's own dimmer grey is update's).
+[[bind]]
+target = "bloom"
+source = "drive"
+how = "follow"
+when = { to = [{ param = "glow", mul = 0.7 }, { param = "glow", mul = 1.3 }] }
+
+# What scales a shake by the loudness: `shake_energy` of the way from the same shake at every
+# loudness (1) to a quiet one at nothing and a loud one at 1.25 times (the intensity squared, as
+# the source times itself).
+[[bind]]
+target = "gain"
 source = "intensity"
 how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
+when = { mul = "intensity", to = [{ param = "shake_energy", mul = -1.0, add = 1.0 }, { param = "shake_energy", mul = 0.25, add = 1.0 }] }
 
 # The energy of the moment, its usual span spread over the whole range (as Torii Sea's): the glide
 # is slow in a quiet passage. And how much is heard, smoothed over half a beat: a fade slows the
@@ -360,32 +371,26 @@ how = "follow"
 when = { clamp = false, to = [0.0, 1.0] }
 fallback = { value = -1.0 }
 
+# How much brighter or dimmer the signs and shop fronts are with the energy: `energy_light` of
+# the way from a usual brightness at the middle of the energy's span to 0.6 times it when quiet and
+# 1.4 times when loud, over a second so that it reads as a passage and not a pulse (so the energy
+# reads on screen). How many signs are dark stays on the slow `drive` (update): a count following
+# the fast energy would pop signs on and off.
 [[bind]]
-target = "band_low"
+target = "bright"
+source = "intensity"
+how = "follow"
+when = { from = [0.2, 0.85], smooth = 1.0, per = "second", to = [{ param = "energy_light", mul = -0.4, add = 1.0 }, { param = "energy_light", mul = 0.4, add = 1.0 }] }
+
+# The bass swells the brightness round what it is: 0 where the low band is at its average (1), up
+# to 0.3 times `bass_glow` above it at twice that and as far below at none, smoothed over 0.15 s.
+[[bind]]
+target = "bass_swell"
 source = "band_low"
 how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
+when = { from = [0.0, 2.0], smooth = 0.15, per = "second", to = [{ param = "bass_glow", mul = -0.3 }, { param = "bass_glow", mul = 0.3 }] }
 
 # ---- Beat ----
-
-[[param]]
-id = "hits"
-group = "Beat"
-label = "Kicks between beats"
-default = 0.5
-min = 0.0
-max = 1.0
-step = 0.05
-
-[[param]]
-id = "kick_decay"
-group = "Beat"
-label = "Kick decay"
-unit = "s"
-default = 0.15
-min = 0.04
-max = 0.6
-step = 0.01
 
 [[param]]
 id = "shake"
@@ -414,24 +419,6 @@ default = 0.35
 min = 0.05
 max = 1.5
 step = 0.05
-
-[[param]]
-id = "pump"
-group = "Beat"
-label = "Brightness on the kick"
-default = 0.0
-min = 0.0
-max = 3.0
-step = 0.05
-
-[[param]]
-id = "zoom"
-group = "Beat"
-label = "Zoom on the kick"
-default = 0.0
-min = 0.0
-max = 0.2
-step = 0.005
 
 # ---- Camera ----
 
@@ -593,34 +580,6 @@ max = 0.8
 step = 0.01
 
 [[param]]
-id = "pulse"
-group = "Signs"
-label = "Sign pulse"
-default = 0.0
-min = 0.0
-max = 3.0
-step = 0.05
-
-[[param]]
-id = "react"
-group = "Signs"
-label = "Share of signs on a beat"
-default = 0.6
-min = 0.0
-max = 1.0
-step = 0.05
-
-[[param]]
-id = "stagger"
-group = "Signs"
-label = "Stagger"
-unit = "s"
-default = 0.25
-min = 0.0
-max = 1.0
-step = 0.01
-
-[[param]]
 id = "switch_share"
 group = "Signs"
 label = "Share of signs changing text on a beat"
@@ -639,10 +598,19 @@ max = 1.0
 step = 0.05
 
 [[param]]
+id = "energy_light"
+group = "Signs"
+label = "Signs and shop fronts follow the energy (0 none; 1 is 0.6 times as bright when quiet and 1.4 times when loud)"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
 id = "bass_glow"
 group = "Signs"
-label = "Glow with the bass"
-default = 0.0
+label = "Signs and shop fronts swell with the bass (1 is 0.3 times brighter at the loudest bass and 0.3 times dimmer with none; 0 off)"
+default = 1.0
 min = 0.0
 max = 2.0
 step = 0.05
@@ -763,15 +731,6 @@ id = "glow"
 group = "Look"
 label = "Bloom"
 default = 0.55
-min = 0.0
-max = 3.0
-step = 0.05
-
-[[param]]
-id = "glow_beat"
-group = "Look"
-label = "Bloom on the kick"
-default = 0.0
 min = 0.0
 max = 3.0
 step = 0.05

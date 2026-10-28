@@ -17,26 +17,35 @@ struct State {
   // Gliding: speed and where it heads.
   vel: f32,
   vtarget: f32,
-  // The beat: the kick on every beat, and the rare accents that shake the camera.
-  kick: f32,
+  // The accents that shake the camera, and the shake itself.
   accent: f32,
   shake: f32,
-  beat_count: f32,
-  // When the music last had a hit (scene time), and the gap before it.
-  beat_time: f32,
-  beat_gap: f32,
+  // When the music last had a hit that was heard (scene time), and the gap before it: the big
+  // screen's ring starts from it.
+  ring_time: f32,
+  ring_gap: f32,
   // The lanterns' swing on their strings (an angle, and how fast it changes): pushed one way and
-  // the other on alternate beats, dying away between.
+  // the other, dying away between; the count of pushes (for the side) and when the last was.
   sway: f32,
   sway_v: f32,
+  sway_n: f32,
+  sway_time: f32,
+  // How far the dot-matrix boards and the big screens' bands have scrolled, in beats: a phase
+  // that moves at the song's pace (`scroll_t` is the speed it heads for, in beats a second,
+  // pushed up on a beat and easing off, as the camera's `vtarget`), and when it was last pushed.
+  scroll: f32,
+  scroll_v: f32,
+  scroll_t: f32,
+  scroll_time: f32,
   // The theme colour's palette (see update): black, deep, full and near white, all in its hue.
   theme_ramp: array<vec4f, 4>,
   // How many cuts the director had made when the view last changed.
   cuts: u32,
   // 1 at a cut, fading out: the trail is cleared across a cut.
   clear: f32,
-  // The share of signs that are dark, how often the signs changed their pattern, the colours of
-  // the district (a hue, 0..1) and the traffic lights (0 red, 1 green).
+  // The share of signs that are dark, how far the signs' patterns and the big screens' modes have
+  // moved on (one for each hit that is heard, less in a fade), the colours of the district (a
+  // hue, 0..1) and the traffic lights (0 red, 1 green).
   dark: f32,
   changes: f32,
   district: f32,

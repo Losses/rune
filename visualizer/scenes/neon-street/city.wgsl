@@ -74,32 +74,9 @@ fn neon(k: f32) -> vec3f {
   return mix(vec3f(rv_luma(c)), c, params.sign_saturation);
 }
 
-// ---- The beat on lights ----
-
-// How long light `id` waits after beat bi before it jumps.
-fn lag_of(id: vec2f, bi: f32) -> f32 {
-  return h21(id * 0.73 + bi * vec2f(1.7, 9.1)) * params.stagger;
-}
-
-// How much brighter light `id` is now: each takes each beat after its own delay, some skip it.
-fn light_kick(id: vec2f) -> f32 {
-  // Without pulses (the default) nothing below counts.
-  if (params.pulse == 0.0) {
-    return 0.0;
-  }
-  let since_beat = frame.time - state.beat_time;
-  var bi = state.beat_count;
-  var since = since_beat - lag_of(id, bi);
-  if (since < 0.0) {
-    bi -= 1.0;
-    since = since_beat + state.beat_gap - lag_of(id, bi);
-  }
-  let share = params.react * (0.5 + input.drive);
-  let react = step(h21(id * 1.9 + bi * vec2f(4.3, 2.7)), share) * (0.5 + h21(id * 2.3 + bi * vec2f(7.1, 5.5)));
-  return params.pulse * react * exp(-max(since, 0.0) / params.kick_decay) * step(0.0, since);
-}
-
-// Which pattern sign `id` shows: some signs change on every beat.
+// Which pattern sign `id` shows: `changes` goes up by one for each hit that is heard (less in a
+// fade, none in silence), and a sign takes a new pattern each time it has gone up by two
+// (`switch_share`, a half), at a phase of its own.
 fn pattern_of(id: vec2f) -> f32 {
   return floor(state.changes * params.switch_share + h21(id + 0.5) * 5.3);
 }
@@ -109,8 +86,11 @@ fn lit(id: vec2f) -> f32 {
   return step(state.dark, h21(id * 3.71 + vec2f(input.section * 1.37, 2.9)));
 }
 
-fn glow_now(id: vec2f) -> f32 {
-  return (1.0 + light_kick(id)) * (0.85 + params.bass_glow * 0.3 * min(input.band_low, 2.0));
+// How bright the signs and the big screens are: 0.85 at a usual energy, dimmer in a quiet passage
+// and brighter in a loud one (`bright`, the energy's 1 s average), swelling and dipping with the
+// bass round that (`bass_swell`, 0 at a band_low of 1).
+fn glow_now() -> f32 {
+  return 0.85 * input.bright * (1.0 + input.bass_swell);
 }
 
 // ---- Layout ----
@@ -327,14 +307,14 @@ fn sign_colour(n: f32, s: f32) -> vec3f {
 }
 
 fn sign_light(n: f32, s: f32) -> vec3f {
-  return sign_colour(n, s) * glow_now(vec2f(n, s));
+  return sign_colour(n, s) * glow_now();
 }
 
 
 // What the shop of building n on side s gives off (black for a shutter or a cross street),
-// steady (as it lights the street) and swelling with the bass (as it is seen).
+// following the energy and the bass as the signs do (as it lights the street and as it is seen).
 fn shop_light(n: f32, s: f32) -> vec3f {
-  return shop_colour(n, s) * (0.8 + params.bass_glow * 0.25 * min(input.band_low, 2.0));
+  return shop_colour(n, s) * 0.8 * input.bright * (1.0 + input.bass_swell);
 }
 
 fn shop_colour(n: f32, s: f32) -> vec3f {
@@ -656,7 +636,7 @@ fn sign_face(n: f32, s: f32, p: vec3f, aa: f32) -> vec3f {
   let v = sg.w - p.y;
   let bg = neon(h21(id + 4.7));
   // Older signs are dimmer.
-  let glow = glow_now(id) * (0.7 + 0.45 * h21(id + 2.8)) * flicker(id);
+  let glow = glow_now() * (0.7 + 0.45 * h21(id + 2.8)) * flicker(id);
   let face = face_of(id);
   let style = h21(id + 6.1);
   var col: vec3f;
@@ -685,12 +665,12 @@ fn sign_face(n: f32, s: f32, p: vec3f, aa: f32) -> vec3f {
     let word = select(word_for(sid, 4.0), big_word(sid, false), h21(sid + 9.9) < 0.3);
     col = lettered(sid, word, face_of(sid), true, x, sv, w, seg, floor(h21(sid + 3.6) * 4.0), 1.0, 0.0, aa) * glow * (0.85 + 0.3 * h21(sid + 1.0));
   } else {
-    // An amber dot-matrix board scrolling a step on every beat.
+    // An amber dot-matrix board scrolling on at the song's pace (`scroll`, a step a beat).
     let pitch = 0.075;
     let dot_id = floor(vec2f(x, v) / pitch);
     let f = fract(vec2f(x, v) / pitch) - 0.5;
     let pattern = pattern_of(id);
-    let on = step(0.5, fract((dot_id.y + dot_id.x * 0.7) / 6.0 - state.changes * 0.5 + pattern * 0.13));
+    let on = step(0.5, fract((dot_id.y + dot_id.x * 0.7) / 6.0 - state.scroll * 0.5 + pattern * 0.13));
     let led = mix(smoothstep(0.42, 0.25, length(f)), 0.45, smoothstep(0.3, 1.0, aa / pitch));
     col = vec3f(0.01) + vec3f(1.0, 0.45, 0.06) * 2.6 * glow * on * led;
   }
@@ -701,7 +681,7 @@ fn sign_face(n: f32, s: f32, p: vec3f, aa: f32) -> vec3f {
 // 0 a lit board with dark letters, 1 lit letters on a dark board, 2 white letters on dark wood.
 fn board(id: vec2f, w: f32, face: f32, style: f32, x: f32, y: f32, width: f32, height: f32, light: vec3f, aa: f32) -> vec3f {
   let bg = neon(h21(id + 4.7));
-  let glow = glow_now(id) * (0.75 + 0.4 * h21(id + 2.8)) * flicker(id);
+  let glow = glow_now() * (0.75 + 0.4 * h21(id + 2.8)) * flicker(id);
   let ink = horizontal_word(face, w, x, y - 0.1 * height, width, height * 0.8, aa, 0.0);
   var col: vec3f;
   if (style < 0.5) {
@@ -720,7 +700,7 @@ fn board(id: vec2f, w: f32, face: f32, style: f32, x: f32, y: f32, width: f32, h
 // A panel along a facade; x, y in metres from its top left: a screen showing the spectrum, or a
 // lettered board (lettered()), its word along it or one or two big characters.
 fn panel(id: vec2f, x: f32, y: f32, w: f32, h: f32, aa: f32) -> vec3f {
-  let glow = glow_now(id);
+  let glow = glow_now();
   var col: vec3f;
   if (h > 1.0 && h21(id + 2.9) < 0.25) {
     // A screen: bars of the spectrum, in LED cells.
@@ -741,10 +721,12 @@ fn panel(id: vec2f, x: f32, y: f32, w: f32, h: f32, aa: f32) -> vec3f {
   return mix(col * 0.03 + vec3f(0.01), col, lit(id));
 }
 
-// A big screen; x, y in metres from its top left. What it shows changes every 16 beats: the
-// spectrum as bars, a ring from the middle on every beat, or bands sweeping a step a beat.
+// A big screen; x, y in metres from its top left. What it shows changes every 16 hits that are
+// heard: the spectrum as bars, a ring from the middle on every hit, or bands sweeping on at the
+// song's pace. In a fade the ring weakens (and the hits are counted less), in silence nothing
+// moves or changes.
 fn big_screen(id: vec2f, x: f32, y: f32, w: f32, h: f32, aa: f32) -> vec3f {
-  let mode = floor(h21(id + vec2f(floor(state.beat_count / 16.0), 4.2)) * 3.0);
+  let mode = floor(h21(id + vec2f(floor(state.changes / 16.0), 4.2)) * 3.0);
   let uv = vec2f(x / w, y / h);
   let nc = neon(h21(id + 4.7));
   let nc2 = neon(h21(id + 8.8));
@@ -757,17 +739,17 @@ fn big_screen(id: vec2f, x: f32, y: f32, w: f32, h: f32, aa: f32) -> vec3f {
     c = mix(nc, nc2, up) * step(up, level * level * 1.3) * rv_band(fract(uv.x * bars), 0.1, 0.9, aa * bars / w);
   } else if (mode < 2.0) {
     let r = length((uv - 0.5) * vec2f(w / h, 1.0));
-    let since = frame.time - state.beat_time;
-    let ring = exp(-abs(r - since * 1.2) * 18.0) + 0.5 * exp(-abs(r - (since + state.beat_gap) * 1.2) * 18.0);
+    let since = frame.time - state.ring_time;
+    let ring = (exp(-abs(r - since * 1.2) * 18.0) + 0.5 * exp(-abs(r - (since + state.ring_gap) * 1.2) * 18.0)) * input.audible;
     c = mix(nc, nc2, smoothstep(0.0, 0.8, r)) * ring + nc2 * 0.05;
   } else {
-    let band = fract(uv.x * 3.0 + uv.y * 1.5 - state.changes * 0.25);
+    let band = fract(uv.x * 3.0 + uv.y * 1.5 - state.scroll * 0.25);
     c = mix(nc, nc2, step(0.5, band)) * (0.3 + 0.7 * smoothstep(0.5, 0.0, abs(band - 0.5)));
   }
   let cell = 0.1;
   let px = rv_band(fract(x / cell), 0.1, 0.9, aa / cell) * rv_band(fract(y / cell), 0.1, 0.9, aa / cell);
   let pixels = mix(px, 0.8, smoothstep(0.3, 1.0, aa / cell));
-  return vec3f(0.004) + c * 1.8 * glow_now(id) * pixels * lit(id);
+  return vec3f(0.004) + c * 1.8 * glow_now() * pixels * lit(id);
 }
 
 // ---- Buildings ----
@@ -853,7 +835,7 @@ fn shop_front(n: f32, s: f32, u: f32, along: f32, y: f32, light: vec3f, aa: f32)
   let kind = shop_kind(n, s);
   let shop = shop_light(n, s);
   let wall = albedo_of(id) * light;
-  let glow = glow_now(id);
+  let glow = glow_now();
   if (y >= 2.45) {
     // The fascia.
     let t = (y - 2.45) / 0.65;
@@ -929,7 +911,7 @@ fn shop_front(n: f32, s: f32, u: f32, along: f32, y: f32, light: vec3f, aa: f32)
     c = mix(c, mix(cloth, vec3f(0.85), emblem) * (light * 3.0 + shop * 0.5), noren);
     let lp = vec2f((u - 1.45) / 0.2, (y - 1.75) / 0.3);
     let lantern = smoothstep(1.0 + aa * 5.0, 1.0, length(lp));
-    return mix(c, vec3f(2.4, 0.25, 0.08) * (1.0 + light_kick(id)) * (1.1 - 0.5 * dot(lp, lp)), lantern);
+    return mix(c, vec3f(2.4, 0.25, 0.08) * (1.1 - 0.5 * dot(lp, lp)), lantern);
   }
   if (kind == GAMES) {
     // Wide open, rows of machines flickering inside, a frame of chasing bulbs.
@@ -1062,7 +1044,7 @@ fn stack_face(b: f32, s: f32, x: f32, y: f32, width: f32, height: f32, aa: f32) 
   let word = select(word_for(tid, 4.0), big_word(tid, h21(tid + 9.7) < 0.4), h21(tid + 9.9) < 0.3);
   let frame = select(1.0, 2.0, h21(tid + 13.1) < 0.15);
   var col = lettered(tid, word, face_of(tid), true, x, v - 0.05, width, seg - 0.1, floor(h21(tid + 3.6) * 4.0), frame, 0.0, aa);
-  col *= glow_now(tid) * (0.75 + 0.4 * h21(tid + 2.8)) * flicker(tid);
+  col *= glow_now() * (0.75 + 0.4 * h21(tid + 2.8)) * flicker(tid);
   col = mix(col * 0.03 + vec3f(0.01), col, lit(tid));
   // The frame between the boxes.
   return mix(col, vec3f(0.03), 1.0 - rv_band(v, 0.05, seg - 0.05, aa));
@@ -1074,7 +1056,7 @@ fn stack_face(b: f32, s: f32, x: f32, y: f32, width: f32, height: f32, aa: f32) 
 fn big_face(id: vec2f, x: f32, y: f32, size: vec2f, aa: f32) -> vec4f {
   let shape = big_shape(id);
   let style = floor(h21(id + 3.6) * 4.0);
-  let glow = glow_now(id) * (0.8 + 0.35 * h21(id + 2.8)) * flicker(id);
+  let glow = glow_now() * (0.8 + 0.35 * h21(id + 2.8)) * flicker(id);
   var col: vec3f;
   var cover = 1.0;
   if (shape < 0.5 || shape > 2.5) {
@@ -1123,12 +1105,12 @@ fn facade(n: f32, s: f32, u: f32, y: f32, aa: f32) -> vec3f {
       c = big_screen(bid, ab - 0.3, top - y, width - 0.6, top - 3.4, aa);
     }
   } else if (kind < 0.32) {
-    // Neon tubes up the front, each pulsing on its own beat.
+    // Neon tubes up the front.
     c = storeys(bid, 0.2, ub, y - 0.1, hb, light, aa) * 0.5;
     let k = floor(ub / 0.75);
     let x = fract(ub / 0.75) - 0.5;
     let tube = smoothstep(0.06 + aa, 0.0, abs(x)) * rv_band(y, 3.3, hb - 0.8, aa) * step(0.5, k) * step(k, width / 0.75 - 1.5);
-    c += neon(h21(vec2f(k, b) + 5.5)) * 3.0 * tube * (1.0 + light_kick(vec2f(b * 7.0 + k, s))) * lit(bid);
+    c += neon(h21(vec2f(k, b) + 5.5)) * 3.0 * tube * lit(bid);
   } else if (kind < 0.47) {
     // Glass offices.
     c = storeys(bid, 0.65, ub, y - 0.1, hb, light, aa);
@@ -1178,9 +1160,13 @@ fn roof(i: i32, n: f32, xz: vec2f, size: vec2f, aa: f32) -> vec3f {
   let f = fract(xz / 1.5) - 0.5;
   let box_on = step(h21(cell + id), 0.18) * step(0.6, edge);
   c = mix(c, vec3f(0.12, 0.12, 0.13), box_on * smoothstep(0.3 + aa, 0.3 - aa, max(abs(f.x), abs(f.y))));
-  // A red light at a corner, blinking with the beat.
+  // A red light at a corner, blinking as an aircraft's obstruction light does: about once a second
+  // on a clock of its own (its own period and phase for each roof), rising and fading softly, and
+  // not with the music (no light pulses on the beat).
   let beacon = step(h21(id + 4.4), 0.3) * smoothstep(0.25 + aa, 0.0, length(xz - vec2f(0.4)));
-  c += vec3f(5.0, 0.4, 0.25) * beacon * (0.3 + 1.7 * exp(-(frame.time - state.beat_time) * 5.0));
+  let period = 0.9 + 0.3 * h21(id + 6.6);
+  let rise = 0.5 - 0.5 * cos(6.2832 * fract(frame.time / period + h21(id + 5.5)));
+  c += vec3f(5.0, 0.4, 0.25) * beacon * (0.3 + 1.7 * rise * rise);
   return c;
 }
 
@@ -2156,7 +2142,7 @@ fn board_face(n: f32, s: f32, p: vec3f, aa: f32) -> vec3f {
     return c * light;
   }
   // A lit stand: its two faces lettered, its sides the colour, dimmer, its top and foot dark.
-  let glow = glow_now(id) * (0.8 + 0.3 * h21(id + 2.8));
+  let glow = glow_now() * (0.8 + 0.3 * h21(id + 2.8));
   if (p.y > b.w - 0.01 || p.y < 0.1) {
     return vec3f(0.03) * light;
   }
@@ -2457,8 +2443,7 @@ fn strings(o: vec3f, d: vec3f, tmax: f32, pix: f32) -> vec4f {
     let aa = footprint / 0.15;
     let lantern = smoothstep(1.0 + aa, 1.0 - aa, r) * step(abs(k * 0.72), HALF - 0.4);
     if (lantern > 0.0 || wire > 0.0) {
-      let glow = 1.0 + light_kick(vec2f(m, k));
-      let colour = lantern_colour(m) * glow * (1.3 - 0.6 * r * r) * (0.75 + 0.25 * cos(q.y * 9.0));
+      let colour = lantern_colour(m) * (1.3 - 0.6 * r * r) * (0.75 + 0.25 * cos(q.y * 9.0));
       return vec4f(colour * lantern, max(lantern, min(wire, 1.0) * 0.9));
     }
   }

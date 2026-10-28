@@ -3,6 +3,9 @@
 
 const DEG: f32 = 0.0174533;
 
+// How long a push on the scroll's speed takes to ease off, seconds.
+const SCROLL_EASE: f32 = 0.25;
+
 // A number from 0 to 1 for this cut, `n` telling the uses apart: made from the shot's seed from
 // the runtime's director, which is fixed within a shot and new at each cut.
 fn random(n: u32) -> f32 {
@@ -193,28 +196,54 @@ fn update() {
     state.vel = params.cruise;
     state.vtarget = params.cruise;
     state.lens = 1.0;
-    state.beat_gap = 0.5;
+    state.ring_gap = 0.5;
     state.district = random(7u);
     state.cuts = shot.cuts;
     cut();
     state.clear = 0.0;
   }
 
-  // Without a beat the hits of the music stand in for it, except for the lanterns' swing, which
-  // only follows a beat the runtime trusts (it counts beats only then).
+  // Without a beat the hits of the music stand in for it. A hit counts for the things below only
+  // while something is heard: a stray onset in near silence (`audible` under 0.3) moves nothing.
+  // `tick` is a beat the runtime follows (level A); `beat_s` is a beat's length in seconds.
   let beat = input.beat;
-  state.beat_count = input.beat_no;
-  state.changes = input.beat_no;
-  if (input.beat > 0.5) {
-    state.beat_gap = min(t - state.beat_time, 2.0);
-    state.beat_time = t;
-    if (input.tick > 0.5) {
-      state.sway_v += params.swing * 6.0 * select(-1.0, 1.0, fract(state.beat_count * 0.5) < 0.25);
-    }
+  let heard = beat > 0.5 && input.audible > 0.3;
+  let beat_s = 0.667 / input.pace;
+  if (heard) {
+    // Another step for the signs' patterns and the big screens' modes, a smaller one in a fade
+    // (so they come slower), and the big screen's ring starts.
+    state.changes += input.audible;
+    state.ring_gap = min(t - state.ring_time, 2.0);
+    state.ring_time = t;
+  }
+  // The lanterns swing to a followed beat, a side and then the other. Without one the hits do it,
+  // only 0.6 as hard and at most every other beat (onsets can be dense), alternating all the same
+  // (the lanterns at the other levels too).
+  let followed = input.tick > 0.5;
+  if (followed || (heard && t - state.sway_time > 2.0 * beat_s)) {
+    state.sway_n += 1.0;
+    state.sway_time = t;
+    state.sway_v += params.swing * 6.0 * select(0.6, 1.0, followed) * select(-1.0, 1.0, fract(state.sway_n * 0.5) < 0.25);
   }
   // The lanterns swing back on their strings, slowly coming to rest.
   state.sway_v += (-36.0 * state.sway - 3.0 * state.sway_v) * dt;
   state.sway += state.sway_v * dt;
+
+  // The boards and the bands scroll on at the song's pace, a beat's worth in a beat on average:
+  // 0.6 of it steadily and the rest as a push on each beat (a followed one, or a heard hit at
+  // most once in 0.9 beats' time), the speed easing off after it as the camera's does. Both are
+  // times `audible`, so a fade slows the scroll and the weaker pushes, and in silence it stands
+  // still (no jump a step on the beat, and still in silence).
+  let scroll_rate = 1.5 * input.pace * input.audible;
+  state.scroll_t = 0.6 * scroll_rate + (state.scroll_t - 0.6 * scroll_rate) * exp(-dt / SCROLL_EASE);
+  if (followed || (heard && t - state.scroll_time > 0.9 * beat_s)) {
+    state.scroll_t += 0.4 * input.audible / SCROLL_EASE;
+    state.scroll_time = t;
+  }
+  state.scroll_v += (state.scroll_t - state.scroll_v) * (1.0 - exp(-dt / 0.1));
+  // Kept under 4096, a multiple of every period the scroll is read in.
+  state.scroll = (state.scroll + state.scroll_v * dt) % 4096.0;
+
   // The traffic lights change every four bars (input.signal is 0 and 1 by turns, green first).
   state.signal = 1.0 - input.signal;
 
@@ -231,13 +260,9 @@ fn update() {
     rising = ramp * ramp;
   }
 
-  // The kick on every beat (glow, brightness, a small zoom), stronger when the music is loud.
-  let gain = max(1.0 + params.shake_energy * (1.25 * input.intensity * input.intensity - 1.0), 0.0);
-  state.kick = max(input.kick_env, params.hits * input.kick_soft) * gain;
-
   // Accents shake the camera, and seldom: a cue that lifts the energy (strength 1), or a hard hit
   // in the middle of a section (the runtime keeps those at least 6 s apart).
-  state.accent = max(input.lift_env, 0.7 * input.impact_env) * gain;
+  state.accent = max(input.lift_env, 0.7 * input.impact_env) * input.gain;
   state.shake = 0.012 * state.accent * params.shake;
 
   // The director cuts: take its shot as the view. The trail is cleared across the cut.
@@ -253,7 +278,7 @@ fn update() {
   // `cruise_high` at 45 m by the height's logarithm, a quiet passage at half speed to a loud one
   // 1.3 times down low, 0.6 to 1.1 times up high (`energy`), the push on the beat a third as strong
   // up high. A fade slows it and silence nearly stills it (`audible`).
-  let pace = clamp(input.tempo / 90.0, 0.4, 2.0);
+  let pace = input.pace;
   let up = clamp(log(max(state.eye, 0.1) / 3.0) / log(15.0), 0.0, 1.0);
   let swing = mix(vec2f(0.5, 1.3), vec2f(0.6, 1.1), up);
   let by_energy = mix(1.0, mix(swing.x, swing.y, input.energy), params.energy_speed);
@@ -276,17 +301,18 @@ fn update() {
   // The camera never rolls of its own accord: the director's dutch angle (only in a burst) and
   // the shake at an accent are all there is.
   state.roll = shot.roll + state.shake * 0.5 * wobble.y;
-  state.lens = (1.0 - params.zoom * state.kick) * (1.0 - 0.25 * params.build * rising);
+  state.lens = 1.0 - 0.25 * params.build * rising;
 
   set_theme();
   fill_rows();
   // The looks: 0 grey, 1 the theme colour. How far the picture is in the colour one now, as the
   // runtime fades from look.prev to look.to (grade.wgsl draws both).
   state.colour = select(0.0, 1.0 - look.mix, look.prev == 1u) + select(0.0, look.mix, look.to == 1u);
-  // The look follows too: more glow when it is loud and on the kick, and a dimmer one in grey.
-  post.bloom_intensity = params.glow * (0.7 + 0.6 * input.drive) * mix(0.7, 1.0, state.colour) + params.glow_beat * state.kick;
-  post.chromatic = 0.0012 * params.chroma * (1.0 + 2.0 * state.kick + 4.0 * state.accent);
-  post.exposure = params.exposure + 0.15 * params.pump * state.kick;
+  // The look follows too: more glow when it is loud (`bloom`), and a dimmer one in grey.
+  post.bloom_intensity = input.bloom * mix(0.7, 1.0, state.colour);
+  // The accent shakes the camera and nothing else: the chromatic aberration stays as it is.
+  post.chromatic = 0.0012 * params.chroma;
+  post.exposure = params.exposure;
 }
 
 // What the rows ahead of the camera hold (see State): what every pixel would otherwise work out
