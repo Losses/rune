@@ -152,6 +152,35 @@ fn up(v: Varyings) -> @location(0) vec4f {
 // knee on each side, as a share of it.
 const FLARE_THRESHOLD: f32 = 1.0;
 const FLARE_KNEE: f32 = 0.3;
+// A highlight is what stands out from its surroundings: the threshold is raised to this many
+// times the brightness round it (sampled this far off, as a share of the picture's height). A
+// streak is a small light smeared; a wide bright sky smeared is a white wall (Torii Sea's low sun
+// washed the whole picture out so).
+const FLARE_LOCAL: f32 = 1.5;
+const FLARE_AROUND: f32 = 0.06;
+// How much of a highlight above its threshold counts, at most: the excess is eased towards this,
+// so a sun of twenty draws a streak a little longer than a lamp of three, not seven times it.
+const FLARE_MOST: f32 = 4.0;
+
+// The brightness round `uv`: eight taps on a ring `FLARE_AROUND` off, the brightest channel of
+// each, averaged.
+fn flare_around(uv: vec2f) -> f32 {
+  let r = vec2f(FLARE_AROUND / frame.aspect, FLARE_AROUND);
+  var sum = 0.0;
+  for (var i = 0; i < 8; i++) {
+    let a = f32(i) * 0.7853982;
+    let c = textureSampleLevel(source, smp, uv + vec2f(cos(a), sin(a)) * r, 0.0).rgb;
+    sum += max(c.r, max(c.g, c.b));
+  }
+  return sum / 8.0 * exp2(post.exposure);
+}
+
+// `c`, or nothing where it is not a finite colour (a NaN or an infinity from a scene would
+// otherwise be smeared across the picture and kept by the history).
+fn finite(c: vec3f) -> vec3f {
+  let ok = all(c == c) && all(abs(c) < vec3f(1e20));
+  return select(vec3f(0.0), c, ok);
+}
 
 // The highlights at a quarter of the width and half the height: the 13 taps with the Karis
 // average (no halftone dot or lone bright pixel flickers), above the threshold with a soft knee,
@@ -159,13 +188,16 @@ const FLARE_KNEE: f32 = 0.3;
 // shimmers about the threshold glows steadily.
 @fragment
 fn flare_bright(v: Varyings) -> @location(0) vec4f {
-  let c = downsample(v.uv, true) * exp2(post.exposure);
+  let c = finite(downsample(v.uv, true) * exp2(post.exposure));
   let b = max(c.r, max(c.g, c.b));
-  let knee = FLARE_THRESHOLD * FLARE_KNEE;
-  var soft = clamp(b - FLARE_THRESHOLD + knee, 0.0, 2.0 * knee);
+  let threshold = max(FLARE_THRESHOLD, FLARE_LOCAL * flare_around(v.uv));
+  let knee = threshold * FLARE_KNEE;
+  var soft = clamp(b - threshold + knee, 0.0, 2.0 * knee);
   soft = soft * soft / (4.0 * knee);
-  let now = c * max(soft, b - FLARE_THRESHOLD) / max(b, 1e-4);
-  let before = textureSampleLevel(flare_tex, smp, v.uv, 0.0).rgb;
+  let over = max(soft, b - threshold);
+  let kept = over / (1.0 + over / FLARE_MOST);
+  let now = c * kept / max(b, 1e-4);
+  let before = finite(textureSampleLevel(flare_tex, smp, v.uv, 0.0).rgb);
   return vec4f(mix(now, before, 0.5 * lens.history), 1.0);
 }
 
