@@ -432,7 +432,17 @@ step = 0.005
 [[param]]
 id = "cruise"
 group = "Camera"
-label = "Speed for music of middling pace (half when quiet, 1.1 times when loud; slower in a fade and in silence)"
+label = "Speed down low (3 m and under) for music of middling pace (half when quiet, 1.3 times when loud; slower in a fade and in silence)"
+unit = "m/s"
+default = 5.0
+min = 0.0
+max = 15.0
+step = 0.1
+
+[[param]]
+id = "cruise_high"
+group = "Camera"
+label = "Speed up high (45 m) for music of middling pace (0.6 times when quiet, 1.1 times when loud); between the two by the height"
 unit = "m/s"
 default = 3.0
 min = 0.0
@@ -442,7 +452,7 @@ step = 0.1
 [[param]]
 id = "energy_speed"
 group = "Camera"
-label = "Energy on the speed (0 none, 1 half speed when quiet, 1.1 times when loud)"
+label = "Energy on the speed (0 none; 1 down low half speed when quiet and 1.3 times when loud, up high 0.6 to 1.1 times)"
 default = 1.0
 min = 0.0
 max = 1.0
@@ -451,9 +461,9 @@ step = 0.05
 [[param]]
 id = "push"
 group = "Camera"
-label = "Push on the beat"
+label = "Push on the beat (down low; a third of it up high)"
 unit = "m/s"
-default = 0.8
+default = 1.2
 min = 0.0
 max = 4.0
 step = 0.05

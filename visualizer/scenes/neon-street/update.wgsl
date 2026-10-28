@@ -196,16 +196,20 @@ fn update() {
   }
   state.clear *= exp(-dt / 0.12);
 
-  // Gliding as fast as the music: the tempo over 90 bpm is the pace, so cruise is the speed at
-  // 90 bpm, faster for a faster song and slower for a slower one, at any height (up high it was
-  // too fast). A quiet passage glides at half speed and a loud one a tenth faster (`energy`), a
-  // fade slows it and silence nearly stills it (`audible`). A push on every beat, as slow as the
-  // rest.
+  // Gliding as fast as the music: the tempo over 90 bpm is the pace, so a cruise is the speed at 90
+  // bpm, faster for a faster song and slower for a slower one. Down low it is faster and swings
+  // more with the music, up high slower and steadier (both by the music): from `cruise` at 3 m to
+  // `cruise_high` at 45 m by the height's logarithm, a quiet passage at half speed to a loud one
+  // 1.3 times down low, 0.6 to 1.1 times up high (`energy`), the push on the beat a third as strong
+  // up high. A fade slows it and silence nearly stills it (`audible`).
   let pace = clamp(input.tempo / 90.0, 0.4, 2.0);
-  let by_energy = mix(1.0, mix(0.5, 1.1, input.energy), params.energy_speed);
+  let up = clamp(log(max(state.eye, 0.1) / 3.0) / log(15.0), 0.0, 1.0);
+  let swing = mix(vec2f(0.5, 1.3), vec2f(0.6, 1.1), up);
+  let by_energy = mix(1.0, mix(swing.x, swing.y, input.energy), params.energy_speed);
   let slow = pace * by_energy * mix(0.2, 1.0, input.audible);
-  let cruise = params.cruise * slow;
-  state.vtarget = cruise + (state.vtarget - cruise) * exp(-dt / params.ease) + beat * params.push * slow;
+  let cruise = mix(params.cruise, params.cruise_high, up) * slow;
+  let push = params.push * mix(1.0, 1.0 / 3.0, up) * slow;
+  state.vtarget = cruise + (state.vtarget - cruise) * exp(-dt / params.ease) + beat * push;
   state.vel += (state.vtarget - state.vel) * (1.0 - exp(-dt / params.accel));
   state.pos.z += dt * state.vel;
   if (state.pos.z > 4000.0) {
