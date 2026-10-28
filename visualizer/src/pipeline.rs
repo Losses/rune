@@ -602,6 +602,11 @@ impl Pipeline {
         self.last_gpu
     }
 
+    /// Whether the bindings of the scene being drawn heard a cut in the last frame.
+    pub fn bound_cut(&self) -> bool {
+        self.scene.bound_cut()
+    }
+
     /// What a readout shows of the camera director of the scene being drawn.
     pub fn director_view(&self) -> Option<DirectorView> {
         self.scene.director_view()

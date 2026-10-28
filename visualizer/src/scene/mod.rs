@@ -487,6 +487,9 @@ pub struct Scene {
     last_song: f64,
     index: u32,
     first: bool,
+    /// Whether the bindings heard the director's cut in the last frame (`cut`): a cut, or the
+    /// scene's first frame when it has a director.
+    bound_cut: bool,
     /// Tests only: each frame's seed comes from this and the frame's index instead of at random,
     /// so that the same timeline draws the same pictures (see [`Scene::fix_seed`]).
     #[cfg(test)]
@@ -1315,6 +1318,7 @@ impl Scene {
             last_song: 0.0,
             index: 0,
             first: true,
+            bound_cut: false,
             on_disk: files.clone(),
             files,
             #[cfg(test)]
@@ -1417,6 +1421,12 @@ impl Scene {
     /// to dress (see [`Scene::cut_transitions`]).
     pub fn cut_this_frame(&self) -> Option<CutInfo> {
         self.cut
+    }
+
+    /// Whether the bindings heard a cut of the director in the last frame drawn: what the `cut`
+    /// source reads (see [`crate::bind::Source::read_in`]).
+    pub fn bound_cut(&self) -> bool {
+        self.bound_cut
     }
 
     /// The glitch or mosaic over the picture that started in the last frame drawn, if one did:
@@ -1940,6 +1950,7 @@ impl Scene {
         // The scene's first frame begins its first shot, so it counts as a cut too (a drift that
         // starts over with each shot starts there); a reload that keeps the state does not.
         let cut = self.cut.is_some() || (self.first && self.director.is_some());
+        self.bound_cut = cut;
         let inputs = self
             .bindings
             .tick_cut(dt as f32, &music, &params, seed, cut);

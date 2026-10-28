@@ -19,6 +19,9 @@ pub struct Inspect {
     /// The GPU time of a recent frame in milliseconds, where frames are timed.
     pub gpu_ms: Option<f32>,
     pub music: InspectMusic,
+    /// What every source of the registry ([`crate::bind::SOURCES`]) said in this frame, in the
+    /// registry's order: the readings the bindings of the scene on screen hear.
+    pub signals: Vec<InspectSignal>,
     /// The sections of the song's chart, once it is known (else empty).
     pub sections: Vec<InspectSection>,
     /// The camera director of the scene on screen, if the scene declares shots.
@@ -155,6 +158,42 @@ pub struct InspectMusic {
     /// The envelope of the last impact, 0 to 1.
     pub impact: f32,
     pub has_chart: bool,
+}
+
+/// What one source of the binding engine said in the last frame.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InspectSignal {
+    pub name: String,
+    /// Whether it counts events (then `count` and `value` is the strength of the event).
+    pub event: bool,
+    /// The value the bindings read; for an event, its strength.
+    pub value: f32,
+    /// How many events came in the frame; 0 for a source that is not an event.
+    pub count: u32,
+    /// Whether the source means something at the fallback level the music was at.
+    pub meaningful: bool,
+}
+
+impl InspectSignal {
+    /// Every source's reading from the frame's music and whether the scene's director cut in it
+    /// (what the bindings read through [`crate::bind::Source::read_in`]), with whether it means
+    /// something at the level of that music.
+    pub(crate) fn all(music: &MusicValues, cut: bool) -> Vec<Self> {
+        let level = Level::of(music);
+        crate::bind::SOURCES
+            .iter()
+            .map(|source| {
+                let reading = source.read_in(music, cut);
+                Self {
+                    name: source.name.to_string(),
+                    event: source.event,
+                    value: reading.value,
+                    count: reading.count,
+                    meaningful: source.meaningful_at(level),
+                }
+            })
+            .collect()
+    }
 }
 
 /// One section of the song's chart.
@@ -497,5 +536,38 @@ mod tests {
         // Before the first bar and with no meter nothing breaks.
         let read = InspectMusic::of(&MusicValues::default());
         assert_eq!((read.bar, read.beat_in_bar), (0, 1));
+    }
+
+    #[test]
+    fn every_source_is_read_as_the_bindings_read_it() {
+        let music = MusicValues {
+            tempo: 120.0,
+            hit: 0.75,
+            hits: 2,
+            has_chart: 0,
+            ..MusicValues::default()
+        };
+        let signals = InspectSignal::all(&music, true);
+        // All of them, in the registry's order.
+        let names: Vec<&str> = signals.iter().map(|s| s.name.as_str()).collect();
+        let registry: Vec<&str> = crate::bind::SOURCES.iter().map(|s| s.name).collect();
+        assert_eq!(names, registry);
+        let find = |name: &str| signals.iter().find(|s| s.name == name).unwrap();
+        assert_eq!(find("tempo").value, 120.0);
+        assert!(!find("tempo").event);
+        let hits = find("hits");
+        assert!(hits.event);
+        assert_eq!((hits.value, hits.count), (0.75, 2));
+        // The cut source hears the frame's cut flag.
+        assert_eq!(find("cut").count, 1);
+        let quiet = InspectSignal::all(&music, false);
+        assert_eq!(quiet.iter().find(|s| s.name == "cut").unwrap().count, 0);
+        // Without a chart (level C) `bars` means nothing, and `tempo` does.
+        assert!(!find("bars").meaningful);
+        assert!(find("tempo").meaningful);
+        for (signal, source) in signals.iter().zip(crate::bind::SOURCES) {
+            let reading = source.read_in(&music, true);
+            assert_eq!((signal.value, signal.count), (reading.value, reading.count));
+        }
     }
 }
