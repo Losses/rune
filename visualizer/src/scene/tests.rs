@@ -617,10 +617,10 @@ fn a_scene_cut_is_reported_for_the_frame_it_happens_in() {
     };
     let dir = shots_scene(
         "cut",
-        "[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\nmove = \"glide\"\n",
+        "[[shot]]\nsize = \"wide\"\nmove = \"glide\"\n[[shot]]\nsize = \"close\"\nopens = true\nmove = \"glide\"\n",
     );
     let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
-    // Cuts come from the music's values, which a test cannot choose here, so tick the
+    // The section start cuts to the other shot that opens one. Cuts come from the music's values, which a test cannot choose here, so tick the
     // director the way the frame does and see that what it said reaches the scene's report.
     let director = scene.director.as_mut().unwrap();
     let music = MusicValues {
@@ -628,8 +628,14 @@ fn a_scene_cut_is_reported_for_the_frame_it_happens_in() {
         cue: 1.0,
         ..MusicValues::default()
     };
+    let on = director.state().index;
     let cut = director.tick(0.016, &music).unwrap();
-    assert_eq!((cut.index, cut.size), (1, ShotSize::Close));
+    // Both open a section, so it cuts to the one it was not on.
+    assert_eq!(cut.index, 1 - on);
+    assert_eq!(
+        cut.size,
+        [ShotSize::Wide, ShotSize::Close][cut.index as usize]
+    );
     assert_eq!(cut.motion, ShotMove::Glide);
 }
 

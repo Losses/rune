@@ -201,6 +201,13 @@ const SPECS: &[Spec] = &[
         several: false,
     },
     Spec {
+        target: "director.sizes",
+        hows: &[],
+        kind: Kind::None,
+        keys: &["quiet", "normal", "high"],
+        several: false,
+    },
+    Spec {
         target: "director.burst",
         hows: FOLLOW,
         kind: Kind::Value,
@@ -478,6 +485,26 @@ impl Bound {
         result.with_context(|| self.name.clone())
     }
 
+    /// Five numbers in `when`, finite and 0 or more and not all 0 (the director's wish for each
+    /// size, see `director.sizes`).
+    fn wishes(&self, key: &str, default: [f32; 5]) -> Result<[f32; 5]> {
+        let what = format!("`when.{key}`");
+        let result = (|| match self.when.get(key) {
+            None => Ok(default),
+            Some(toml::Value::Array(items)) if items.len() == 5 => {
+                let mut wishes = [0.0; 5];
+                for (wish, item) in wishes.iter_mut().zip(items) {
+                    *wish = number(item, &what)?;
+                    ensure!(*wish >= 0.0, "{what} must not hold a negative number");
+                }
+                ensure!(wishes.iter().any(|w| *w > 0.0), "{what} must not be all 0");
+                Ok(wishes)
+            }
+            Some(_) => bail!("{what} must be five numbers: [wide, medium, close, detail, top]"),
+        })();
+        result.with_context(|| self.name.clone())
+    }
+
     /// A source named in `when`, which must be an event source if `event`.
     fn source_in(&self, key: &str, default: &str, event: bool) -> Result<&'static Source> {
         let result = (|| {
@@ -642,6 +669,9 @@ pub struct DirectorBinds {
     pub(crate) seconds: [f32; 3],
     pub(crate) gap: f32,
     pub(crate) lead: f32,
+    /// How much each size is wanted in a section of each tier, in the order wide, medium, close,
+    /// detail, top.
+    pub(crate) sizes: [[f32; 5]; 3],
     pub(crate) cut: Pick,
     pub grace: f32,
     pub(crate) burst: Pick,
@@ -684,6 +714,12 @@ impl DirectorBinds {
             below <= above,
             "`when.below` must not be above `when.above`",
         )?;
+        let sizes = one("director.sizes");
+        let sizes = [
+            sizes.wishes("quiet", [3.0, 3.0, 1.0, 0.0, 1.0])?,
+            sizes.wishes("normal", [2.0, 3.0, 2.0, 1.0, 1.0])?,
+            sizes.wishes("high", [1.0, 2.0, 3.0, 2.0, 1.0])?,
+        ];
         let cut = one("director.cut");
         let grace = cut.num("grace", 2.0)?;
         cut.require(grace >= 0.0, "`when.grace` must not be negative")?;
@@ -695,6 +731,7 @@ impl DirectorBinds {
             seconds,
             gap,
             lead,
+            sizes,
             cut: cut.pick(),
             grace,
             burst: burst.pick(),
@@ -723,6 +760,12 @@ impl DirectorBinds {
     /// Seconds between two cadence cuts in a tier, beat or not.
     pub fn seconds(&self, tier: usize) -> f32 {
         self.seconds[tier]
+    }
+
+    /// How much a shot of the size with this index (wide 0, medium, close, detail, top 4) is
+    /// wanted in a section of a tier: `director.sizes`.
+    pub fn size_wish(&self, tier: usize, size: usize) -> f32 {
+        self.sizes[tier][size]
     }
 
     /// The shortest time in seconds between two cuts that are not inside one burst.
@@ -1183,6 +1226,29 @@ pub(crate) mod tests {
         assert_eq!(count("moments.medium"), 2);
         assert_eq!(count("switch.place"), 2);
         assert_eq!(count("switch.forced"), 2);
+    }
+
+    #[test]
+    fn the_sizes_are_read_per_tier_and_a_bad_table_is_named() {
+        let sizes = RuntimeBindings::embedded().director.sizes;
+        assert_eq!(sizes[0], [3.0, 3.0, 1.0, 0.0, 1.0]);
+        assert_eq!(sizes[1], [2.0, 3.0, 2.0, 1.0, 1.0]);
+        assert_eq!(sizes[2], [1.0, 2.0, 3.0, 2.0, 1.0]);
+        assert_eq!(RuntimeBindings::embedded().director.size_wish(2, 3), 2.0);
+        let bad = |to: &str, expect: &str| {
+            let message = error_of("quiet = [3, 3, 1, 0, 1]", to);
+            assert!(
+                message.contains("director.sizes") && message.contains(expect),
+                "{message}"
+            );
+        };
+        bad("quiet = [3, 3, 1, 0]", "five numbers");
+        bad("quiet = [3, 3, 1, 0, 1, 1]", "five numbers");
+        bad("quiet = 3", "five numbers");
+        bad("quiet = [3, 3, -1, 0, 1]", "negative");
+        bad("quiet = [0, 0, 0, 0, 0]", "all 0");
+        bad("quiet = [3, 3, \"x\", 0, 1]", "number");
+        bad("quiets = [3, 3, 1, 0, 1]", "quiets");
     }
 
     #[test]

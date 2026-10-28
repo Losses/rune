@@ -16,7 +16,7 @@
 # - Several binds on one target are an OR (moments.medium, switch.place, switch.forced); the
 #   first of them is the main one where a decision needs one number from the group.
 # - `when.levels` ("A", "B", "C" in any mix) limits a bind to those levels (switch.place only).
-# - `source` and `how` may be left out of a bind that only holds numbers (switch.timing).
+# - `source` and `how` may be left out of a bind that only holds numbers (switch.timing, director.sizes).
 
 # --- Moments: when an effect may play (src/moments.rs) ----------------------------------------
 
@@ -72,6 +72,16 @@ source = "section_energy"
 how = "follow"
 when = { below = 0.35, above = 0.65, seconds = [24.0, 16.0, 10.0], gap = 6.0, lead = 4.0 }
 fallback = "drive"
+
+# How much each size is wanted in a section of each tier, in the order wide, medium, close, detail,
+# top. At a cadence cut the director picks among the scene's shots whose size differs from the one
+# on, each by its `weight` times the number here for its size (0 never, while another size is
+# wanted at all). A quiet section looks wide and medium, a high one close and detail, and `top`
+# is wanted the same everywhere. A section start is not asked: it picks among the shots that
+# `opens` (a wide one unless the scene says so), by their `weight`.
+[[bind]]
+target = "director.sizes"
+when = { quiet = [3, 3, 1, 0, 1], normal = [2, 3, 2, 1, 1], high = [1, 2, 3, 2, 1] }
 
 # What a cut lands on once the cadence's seconds are due. With a followed beat, a downbeat. Without,
 # the first hit, or `grace` seconds later, whichever comes first.
