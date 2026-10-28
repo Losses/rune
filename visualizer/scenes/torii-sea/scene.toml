@@ -30,8 +30,8 @@ dutch = 0.3
 pace = "calm"
 
 # Looking down the line from high behind, and from low behind to one side: both see the whole
-# line and its sky, so both are wide. Then close beside the spirits, flying with them, and ahead
-# of them, watching them come on (from behind they are only the ends of their trails).
+# line and its sky, so both are wide. Then beside the spirits, flying with them, and ahead of them
+# to one side, watching them come on (from behind they are only the ends of their trails).
 [[shot]]
 name = "high behind"
 size = "wide"

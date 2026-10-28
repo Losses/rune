@@ -10,7 +10,7 @@ fn random(n: u32) -> f32 {
 
 // Take up the director's shot: its index is the view (0 high behind, looking down the line; 1
 // low behind to one side, looking on to the light; 2 close beside the spirits, flying with them;
-// 3 ahead of them, watching them come on; then the burst's four: 4 above and behind to one side,
+// 3 ahead of them to one side, watching them come on; then the burst's four: 4 above and behind to one side,
 // 5 close beside their heads, 6 a long lens on their heads from ahead, 7 high above the line), and
 // its seed picks the side of the line. The burst's cuts change side each beat. No shot glides, so
 // all are simply cut to.
@@ -334,18 +334,20 @@ fn update() {
     aim_at = vec3f(path_x(s + 3.0), params.through, s + 3.0);
     lens = 0.9;
   } else if (state.view > 2.5) {
-    // Ahead of the spirits, in the line, watching them come on through the gates behind them, a
-    // slightly long lens on the leaders' heads; the camera flies through each gate as they do.
-    let cz = s + 9.0;
-    cam = vec3f(path_x(cz) + state.lat * 1.2, params.through + 0.6, cz);
+    // Ahead of the spirits and to one side, outside the gates, looking down at about 20 degrees
+    // as they come on through the gates towards it, a slightly long lens on the leaders' heads.
+    // (The torii are listed both ways from the camera, by where it looks, so those behind them
+    // are there.)
+    let cz = s + 20.0;
+    cam = vec3f(path_x(cz) + state.lat * 8.0, params.through + 8.1, cz);
     aim_at = vec3f(path_x(s), params.through + 0.3, s);
     lens = 0.55;
   } else if (state.view > 1.5) {
-    // Close beside them, level with them and a little ahead, flying with them and looking back
-    // across at them (the seed picks the side): every trail whole, the formation changing, the
-    // gates sweeping past in front. Outside the pillars and the beams' ends.
-    let cz = s + 1.5;
-    cam = vec3f(path_x(cz) + state.lat * 5.5, params.through + 0.4, cz);
+    // Beside them and a little ahead, flying with them and looking back across and down at them
+    // at about 20 degrees (the seed picks the side): every trail whole, the formation changing,
+    // the gates sweeping past below. Well outside the pillars and the beams' ends.
+    let cz = s + 2.5;
+    cam = vec3f(path_x(cz) + state.lat * 12.0, params.through + 4.7, cz);
     aim_at = vec3f(path_x(s - 0.5), params.through + 0.2, s - 0.5);
     lens = 0.95;
   } else if (state.view > 0.5) {
