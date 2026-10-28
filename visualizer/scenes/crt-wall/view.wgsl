@@ -2,9 +2,11 @@
 // throws the piles' shadows, and the screens light what stands beside them. The cabinets come in
 // a few finishes (charcoal, cream, silver, gloss black, walnut, the odd red), with strips of
 // brushed metal or speaker cloth; every screen shows one of three channels, and changes channel
-// on its own beat by rolling: the old picture goes up out of the screen and the new one comes in
-// from below, a black bar between them and a few tears across, as a set that loses its vertical
-// hold for a moment. Nothing brightens.
+// on its own beat, the whole wall one way at a time (by the kind of section, or as a setting
+// pins): the picture rolls up or down out of the screen with a black bar between and a few tears
+// across, slips sideways, collapses to a line and opens again, or is tuned through snow. Nothing
+// brightens: every way only moves where the picture is looked up. A burst's close-up shows one
+// set's screen the way the shot was cut for it.
 
 // Lines down a picture.
 const LINES: f32 = 96.0;
@@ -12,6 +14,14 @@ const LINES: f32 = 96.0;
 // the bands the tears cut the picture into.
 const BLANK: f32 = 0.14;
 const TEAR_BANDS: f32 = 14.0;
+// The ways of changing channel: the black gap between the two pictures of a sideways slip (in
+// picture widths), the thinnest a collapsed picture gets (in picture heights), and the share of
+// the picture the offset ghost of a tuned-through one is.
+const SLIP_GAP: f32 = 0.1;
+const LINE_MIN: f32 = 0.012;
+const GHOST: f32 = 0.3;
+// A seed from here on names the cover cell itself (the seed less this) instead of picking one.
+const COVER_AT: f32 = 1000.0;
 
 // Quality (frame.quality, 1 is the full picture; every level keeps the composition and colour).
 // What each level drops:
@@ -225,8 +235,43 @@ fn channel(s: Set, kk: f32) -> u32 {
   return weighted(hash(s.id * 2.11 + vec2f(kk, 6.6)));
 }
 
+// What a burst's close-up shows on its set's screen (the channel, as a float, and the seed): the
+// wave against time, a cover from the library, the stereo picture, or the cover of the song
+// playing; where there is no such cover, the next best (the library's, else the stereo picture).
+fn hero_picture() -> vec2f {
+  let n = frame.covers;
+  let kind = u32(state.hero_kind);
+  let library = n > 1u;
+  // A library cover by the shot's number (cells 1 to n - 1).
+  let cell = 1u + min(u32(state.hero_pick * f32(max(n, 2u) - 1u)), max(n, 2u) - 2u);
+  if (kind == 1u && library) {
+    return vec2f(2.0, COVER_AT + f32(cell));
+  }
+  if (kind == 3u) {
+    // The smallest mip holds one texel a cell: whether cell 0 has a cover at all.
+    if (n > 0u && textureSampleLevel(covers, linear_clamp, vec2f(0.0625), 7.0).a > 0.5) {
+      return vec2f(2.0, COVER_AT);
+    }
+    if (library) {
+      return vec2f(2.0, COVER_AT + f32(cell));
+    }
+  }
+  // The scope: the stereo picture on the odd shots of the burst, else the wave against time.
+  return vec2f(1.0, select(0.75, 0.25, kind >= 2u));
+}
+
 fn screen_of(s: Set) -> Screen {
   var sc: Screen;
+  if (state.hero_on > 0.5 && all(s.id == state.hero_id)) {
+    // The set a burst's shot is on: its picture for the whole shot, never dark, never changing.
+    let h = hero_picture();
+    sc.chan = u32(h.x);
+    sc.seed = h.y;
+    sc.old_chan = sc.chan;
+    sc.old_seed = sc.seed;
+    sc.roll = 1.0;
+    return sc;
+  }
   // A set changes channel every 1/share steps of the scene's count (update()), each on its own
   // step, by its own phase h.
   let share = clamp(params.share, 0.01, 1.0);
@@ -316,8 +361,12 @@ fn scope(s: vec2f, asp: f32, seed: f32, fade: f32) -> f32 {
 }
 
 // Which cell of the covers a screen shows: now and then the cover of the song playing (cell 0),
-// else one of the library's; the playing one only when there is one.
+// else one of the library's; the playing one only when there is one. A burst's close-up names its
+// cell itself (a seed from COVER_AT on).
 fn cover_cell(seed: f32) -> u32 {
+  if (seed >= COVER_AT) {
+    return u32(seed - COVER_AT + 0.5);
+  }
   let n = frame.covers;
   if (n <= 1u) {
     return 0u;
@@ -368,28 +417,132 @@ fn picture(chan: u32, seed: f32, s: vec2f, asp: f32, foot: f32) -> vec3f {
   return vec3f(0.0);
 }
 
-// What a screen shows at s: its picture, or while it changes channel the old picture rolling up
-// out of the screen and the new one rolling in from below, the black bar between them passing up
-// (a set losing its vertical hold), and a few bands torn sideways, most when the roll is half
-// done. It moves the lookup in the picture, so the scopes' shared buffer is untouched.
-fn screen_picture(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
-  if (sc.roll >= 1.0) {
-    return picture(sc.chan, sc.seed, s, asp, foot);
+// The way the wall changes channel now: the one the section's kind picked at the last cut
+// (state.way), or the one `change_way` pins (0 follows the music).
+fn way_now() -> u32 {
+  if (params.change_way > 0u) {
+    return params.change_way - 1u;
   }
-  // How far up the old picture has gone: the bar and then the new picture follow it up.
+  return min(u32(state.way), 4u);
+}
+
+// Rolling up (down when `down`): the old picture goes out of the screen and the new one follows
+// from the other side, the black bar between them (a set losing its vertical hold), and a few
+// bands torn sideways, most when the roll is half done.
+fn roll_over(sc: Screen, s: vec2f, asp: f32, foot: f32, down: bool) -> vec3f {
+  let y = select(s.y, 1.0 - s.y, down);
+  // How far the old picture has gone: the bar and then the new picture follow it.
   let up = roll_ease(sc.roll) * (1.0 + BLANK);
-  let band = floor(s.y * TEAR_BANDS);
+  let band = floor(y * TEAR_BANDS);
   let tick = floor(sc.roll * 6.0) + sc.seed;
   let torn = step(0.7, hash(vec2f(band, tick)));
   let tear = (hash(vec2f(band + 31.0, tick * 1.7)) - 0.5) * 0.3 * torn * sin(3.14159265 * sc.roll);
   let x = s.x + tear;
-  if (s.y >= up) {
-    return picture(sc.old_chan, sc.old_seed, vec2f(x, s.y - up), asp, foot);
+  if (y >= up) {
+    let v = y - up;
+    return picture(sc.old_chan, sc.old_seed, vec2f(x, select(v, 1.0 - v, down)), asp, foot);
   }
-  if (s.y <= up - BLANK) {
-    return picture(sc.chan, sc.seed, vec2f(x, s.y - up + BLANK + 1.0), asp, foot);
+  if (y <= up - BLANK) {
+    let v = y - up + BLANK + 1.0;
+    return picture(sc.chan, sc.seed, vec2f(x, select(v, 1.0 - v, down)), asp, foot);
   }
   return vec3f(0.0);
+}
+
+// Losing the horizontal hold: the picture shears in slanted bands, each its own way, most when the
+// slip is half done, and slides off to one side (which one by the old picture's number) while the
+// new one slides in from the other and straightens, a black gap between.
+fn slip(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
+  let dir = select(-1.0, 1.0, hash(vec2f(sc.old_seed, 3.3)) < 0.5);
+  let at = roll_ease(sc.roll) * (1.0 + SLIP_GAP);
+  let band = floor(s.y * TEAR_BANDS);
+  let tick = floor(sc.roll * 6.0) + sc.seed;
+  let shear = sin(3.14159265 * sc.roll) * ((s.y - 0.5) * 0.5 + (hash(vec2f(band, tick)) - 0.5) * 0.25);
+  // The x that the old picture leaves to the right: the other way round when it leaves to the left.
+  let x = select(s.x + shear, 1.0 - (s.x + shear), dir < 0.0);
+  let u = x - at;
+  if (u >= 0.0) {
+    return picture(sc.old_chan, sc.old_seed, vec2f(select(u, 1.0 - u, dir < 0.0), s.y), asp, foot);
+  }
+  if (u <= -SLIP_GAP) {
+    let v = u + 1.0 + SLIP_GAP;
+    return picture(sc.chan, sc.seed, vec2f(select(v, 1.0 - v, dir < 0.0), s.y), asp, foot);
+  }
+  return vec3f(0.0);
+}
+
+// The picture squeezes to a thin line across the middle (brighter by nothing: it is the picture's
+// own light, in less room), and the new one opens out of it.
+fn collapse(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
+  let closing = sc.roll < 0.5;
+  var k = 1.0;
+  if (closing) {
+    let u = clamp(sc.roll / 0.45, 0.0, 1.0);
+    k = (1.0 - u) * (1.0 - u);
+  } else {
+    let u = clamp((sc.roll - 0.55) / 0.45, 0.0, 1.0);
+    k = 1.0 - (1.0 - u) * (1.0 - u);
+  }
+  k = max(k, LINE_MIN);
+  if (abs(s.y - 0.5) > 0.5 * k) {
+    return vec3f(0.0);
+  }
+  let at = vec2f(s.x, 0.5 + (s.y - 0.5) / k);
+  if (closing) {
+    return picture(sc.old_chan, sc.old_seed, at, asp, foot / k);
+  }
+  return picture(sc.chan, sc.seed, at, asp, foot / k);
+}
+
+// A dial turned through the channels: the old picture, with a faint ghost of itself beside it,
+// breaks up into snow cell by cell, and the new one comes up out of the snow the same way, its
+// ghost fading. A cell is either a picture's or the snow's (the scene's own snow, the same
+// brightness), never a sum.
+fn tune(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
+  let cell = floor(vec2f(s.x * asp * LINES * 2.0, s.y * LINES));
+  let n = hash(cell + vec2f(floor(frame.time * 30.0) * 5.3, sc.seed * 3.1));
+  let snowy = picture(0u, sc.seed + 7.0, s, asp, foot);
+  let off = vec2f(0.04, 0.0);
+  if (sc.roll < 0.5) {
+    let t = smoothstep(0.0, 0.5, sc.roll);
+    if (n < t) {
+      return snowy;
+    }
+    let g = GHOST * smoothstep(0.0, 0.3, sc.roll);
+    return mix(picture(sc.old_chan, sc.old_seed, s, asp, foot), picture(sc.old_chan, sc.old_seed, s + off, asp, foot), g);
+  }
+  let t = smoothstep(0.5, 1.0, sc.roll);
+  if (n >= t) {
+    return snowy;
+  }
+  let g = GHOST * (1.0 - t);
+  return mix(picture(sc.chan, sc.seed, s, asp, foot), picture(sc.chan, sc.seed, s + off, asp, foot), g);
+}
+
+// What a screen shows at s: its picture, or while it changes channel the way the wall changes
+// (way_now), one of five. Each moves the lookup in the picture, so the scopes' shared buffer is
+// untouched, and none adds light.
+fn screen_picture(sc: Screen, s: vec2f, asp: f32, foot: f32) -> vec3f {
+  if (sc.roll >= 1.0) {
+    return picture(sc.chan, sc.seed, s, asp, foot);
+  }
+  switch way_now() {
+    case 1u: {
+      return roll_over(sc, s, asp, foot, true);
+    }
+    case 2u: {
+      return slip(sc, s, asp, foot);
+    }
+    case 3u: {
+      return collapse(sc, s, asp, foot);
+    }
+    case 4u: {
+      return tune(sc, s, asp, foot);
+    }
+    default: {
+      return roll_over(sc, s, asp, foot, false);
+    }
+  }
 }
 
 // The light of a screen at s (0..1 on the glass), foot a pixel's height in picture heights.

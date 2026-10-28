@@ -1,7 +1,7 @@
 format = 1
 name = "CRT Wall"
 license = "MPL-2.0"
-description = "An endless wall of old television sets piled every which way, each flicking to another channel on its own beat"
+description = "An endless wall of old television sets piled every which way, each changing channel on its own beat"
 
 common = ["wall.wgsl"]
 # Covers from the library, for the screens that show one.
@@ -9,11 +9,13 @@ covers = true
 
 # The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
 # A wall of old televisions: glitches, dot mosaics and a flash washed in the theme colour suit it
-# (the screens themselves no longer flash when they change: they roll).
+# (the screens themselves no longer flash when they change: they roll, slip, collapse or tune
+# through snow).
 effects = ["fade", "glitch", "mosaic", "flash"]
 
 # The director cuts between the wall's views. The camera has no roll of its own, so the director's
-# dutch angle is the only tilt.
+# dutch angle is the only tilt, on the ordinary close shots as on the burst's (so `dutch_in` stays
+# at its default).
 [camera]
 dutch = 0.3
 
@@ -40,6 +42,32 @@ move = "cut"
 name = "close"
 size = "close"
 move = "cut"
+
+# The burst before a section that lifts, a cut on each of its last four beats, each nearer than the
+# one before and each on one set the scene chooses somewhere new on the wall and whose screen it
+# sets, so the subject is in frame without searching the picture for one (update.wgsl's choose_burst
+# frames them, shot.index 4 to 7). Turned about 20 degrees, the whole set in frame, its screen the
+# wave against time;
+[[burst]]
+name = "a set from the side"
+size = "close"
+
+# turned the other way, nearer, only that set, a cover from the library on its screen;
+[[burst]]
+name = "the set nearer, the other side"
+size = "close"
+
+# straight on, its screen about 70 % of the picture's height, scan lines readable, the stereo
+# picture on it;
+[[burst]]
+name = "a screen straight on"
+size = "detail"
+
+# straight on, nearest, the screen filling the picture: the cover of the song playing (the library's
+# if there is none, the stereo picture if there are no covers at all).
+[[burst]]
+name = "the screen filling the picture"
+size = "detail"
 
 [state]
 file = "state.wgsl"
@@ -115,6 +143,11 @@ label = "Which section, counted (every section its own number)"
 range = [0.0, 1000.0]
 
 [[input]]
+id = "way"
+label = "The way the screens change channel (every kind of section its own, 0 to 4)"
+range = [0.0, 4.0]
+
+[[input]]
 id = "pace"
 label = "How fast the music is, against a song of 90 bpm (held to 0.25 to 3)"
 range = [0.25, 3.0]
@@ -145,6 +178,19 @@ target = "section"
 source = "section"
 how = "follow"
 when = { clamp = false, to = [0.0, 1.0] }
+
+# How the wall changes channel, one of five (0 rolls up, 1 rolls down, 2 slips sideways, 3 collapses
+# to a line, 4 tunes through snow): the kind of section picks it from its label, so every chorus the
+# same way, and the whole wall changes one way at a time (more than one way, but a wall where a
+# quarter of the screens change every beat would be busy if they mixed). With no chart the cues
+# (section starts, or the music's own moments) move it on now and then. The wall reads it only at a
+# cut (update.wgsl's decide_wall).
+[[bind]]
+target = "way"
+source = "section_label"
+how = "pick"
+when = { options = 5 }
+fallback = "cues"
 
 # The camera's cruise is for 90 bpm: a faster song goes faster and a slower one slower. 22.5 to 270
 # bpm is 0.25 to 3 times that, and the ends are held.
@@ -191,12 +237,20 @@ step = 0.01
 [[param]]
 id = "change_time"
 group = "Screens"
-label = "How long the picture rolls on a change of channel"
+label = "How long a change of channel takes"
 unit = "s"
 default = 0.18
 min = 0.05
 max = 0.6
 step = 0.01
+
+[[param]]
+id = "change_way"
+type = "choice"
+group = "Screens"
+label = "How the screens change channel"
+default = 0
+options = ["By the kind of section", "Roll up", "Roll down", "Slip sideways", "Collapse to a line", "Tune through snow"]
 
 [[param]]
 id = "snow"
