@@ -44,7 +44,8 @@ fn spirit_light(p: vec3f, n: vec3f) -> vec3f {
     let d2 = dot(to, to);
     c += tint * s.w * max(dot(n, to * inverseSqrt(max(d2, 1e-4))), 0.0) / (1.0 + d2 * 0.6);
   }
-  return c * params.spirit_light * (1.0 + state.surge + state.kick);
+  // As steady as the spirits are: the beat moves them, it does not flash their light.
+  return c * params.spirit_light;
 }
 
 fn shade_torii(p: vec3f, d: vec3f, t: f32, h: Hit, l: Light, pixel: f32) -> vec3f {
@@ -387,7 +388,7 @@ fn spirits(p: vec2f, d: vec3f, scene_z: f32, pix: f32, l: Light) -> vec4f {
         }
         let n = state.ribbon_n[2u * (h * POINTS + j) + k].xyz;
         // Glowing along its whole length, most near the front.
-        let glow = tint * glow_k * (0.35 + 0.65 * pow(max(1.0 - age, 0.0), params.trail_fade * 3.0)) * (0.7 + 0.3 * live) * (1.0 + state.surge);
+        let glow = tint * glow_k * (0.35 + 0.65 * pow(max(1.0 - age, 0.0), params.trail_fade * 3.0)) * (0.7 + 0.3 * live);
         best = vec4f(paper_lit(n, d, l, glow), cov.x * present * smoothstep(1.5, 3.0, depth));
         best_z = depth;
       }

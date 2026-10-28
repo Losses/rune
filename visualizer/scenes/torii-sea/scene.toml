@@ -6,8 +6,8 @@ description = "Endless torii winding over the sea, waves breaking with the music
 common = ["sea.wgsl"]
 
 # The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
-# A calm sea: a flash that turns the hour, a flare and a light leak, nothing harsh.
-effects = ["fade", "dissolve", "flash", "flare", "leak"]
+# A calm sea: a flash that turns the hour and a flare, nothing harsh. No light leak.
+effects = ["fade", "dissolve", "flash", "flare"]
 
 [state]
 file = "state.wgsl"
@@ -169,10 +169,6 @@ id = "drive"
 label = "Slow energy"
 
 [[input]]
-id = "intensity"
-label = "Fast energy"
-
-[[input]]
 id = "kick"
 label = "The kick"
 
@@ -198,6 +194,15 @@ range = [0.0, 100.0]
 [[input]]
 id = "wave"
 label = "The sea's energy, swelling slowly"
+
+[[input]]
+id = "energy"
+label = "The energy of the moment, spread over the whole range"
+
+[[input]]
+id = "audible"
+label = "How much is heard (falling with a fade, 0 in silence)"
+rest = 1.0
 
 [[input]]
 id = "pattern"
@@ -309,12 +314,6 @@ how = "follow"
 when = { clamp = false, to = [0.0, 1.0] }
 
 [[bind]]
-target = "intensity"
-source = "intensity"
-how = "follow"
-when = { clamp = false, to = [0.0, 1.0] }
-
-[[bind]]
 target = "kick"
 source = "low"
 how = "follow"
@@ -349,6 +348,23 @@ target = "wave"
 source = "drive"
 how = "follow"
 when = { smooth = 1.0 }
+
+# The energy of the moment, its usual span spread over the whole range (as Growth's `fill`): the
+# flight's speed, how freely the spirits move and how brightly the lanterns glow all follow it,
+# so a quiet passage is slower, calmer and darker.
+[[bind]]
+target = "energy"
+source = "intensity"
+how = "follow"
+when = { from = [0.2, 0.85], smooth = 0.5 }
+
+# How much is heard, smoothed over half a beat: a fade slows the flight and calms the spirits,
+# and silence nearly stills them.
+[[bind]]
+target = "audible"
+source = "audible"
+how = "follow"
+when = { smooth = 0.5 }
 
 [[bind]]
 target = "pattern"
@@ -741,8 +757,8 @@ step = 0.5
 [[param]]
 id = "energy_speed"
 group = "Speed"
-label = "Energy on the speed"
-default = 0.3
+label = "Energy on the speed (0 none, 1 half speed when quiet, 1.2 times when loud)"
+default = 1.0
 min = 0.0
 max = 1.0
 step = 0.05

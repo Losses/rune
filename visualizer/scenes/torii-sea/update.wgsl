@@ -127,15 +127,22 @@ fn update() {
   } else if (input.cue < 0.5 && input.bar_line > 0.5) {
     let bar = u32(floor(input.bar));
     if (t - state.last_mode > 4.0 && (bar + 2u) % max(u32(params.mode_bars), 1u) == 0u) {
-      choose_mode(floor(random(31u) * 5.0), random(32u));
+      // Another pattern than the one on, drawn by the bar (the scene's seed alone would draw the
+      // same one every time, and it never changed).
+      let next = (u32(state.mode) + 1u + u32(random(31u + bar) * 3.0)) % 4u;
+      choose_mode(f32(next), random(32u + bar));
     }
   }
 
   // Gliding as fast as the music's tempo, locked to the beat: a gate passes on every beat (or
   // every two or four, or two a beat, whichever is nearest that pace). `pace` is the tempo over
   // 90 bpm, so `cruise` is the speed at 90 bpm (the old pace multiplier was 1 at a middling song).
+  // A quiet passage flies slower and a loud one faster (`energy`), a fade slows it and silence
+  // nearly stills it (`audible`). Locked to the beat, a slower flight passes a gate every two beats
+  // instead of one, so it stays on the beat.
   let pace = input.tempo / 90.0;
-  let cruise = params.cruise * pace * (1.0 + params.energy_speed * (1.5 * input.drive - 0.5));
+  let by_energy = mix(1.0, mix(0.5, 1.2, input.energy), params.energy_speed);
+  let cruise = params.cruise * pace * by_energy * mix(0.2, 1.0, input.audible);
   state.vtarget = cruise + (state.vtarget - cruise) * exp(-dt / 0.6);
   let one = params.spacing * input.tempo / 60.0;
   let want = clamp(round(log2(max(state.vtarget, 0.1) / one)), -2.0, 1.0);
@@ -152,12 +159,13 @@ fn update() {
   // The spirits. Their centre runs at s, through the middle of each gate as the beat comes.
   let s = state.s;
   let n = clamp(round(state.count + (input.drive - 0.5) * 2.0), 1.0, f32(SPIRITS));
-  // How hard they move, by how loud it is this moment (not the section's average): the runtime's
-  // `intensity`, which follows the phrases but not every hit. Quiet, small calm moves; loud, wide
-  // and sharp ones. It scales how far they go and how stiffly they spring, never where they are
+  // How hard they move, by how loud it is this moment (not the section's average): `energy`, the
+  // moment's energy spread over its range, which follows the phrases but not every hit, and
+  // calmer still as the music fades (`audible`). Quiet, small calm moves; loud, wide and sharp
+  // ones. It scales how far they go and how stiffly they spring, never where they are
   // in their figures, so a change of loudness does not make them jump. (Called `drive` here, as a
   // motion scale; it is not `input.drive`.)
-  let drive = mix(1.0, mix(0.35, 1.6, clamp(input.intensity, 0.0, 1.0)), params.energy_motion);
+  let drive = mix(1.0, mix(0.35, 1.6, input.energy), params.energy_motion) * mix(0.4, 1.0, input.audible);
   let k = params.stiff * mix(0.7, 1.3, clamp((drive - 0.35) / 1.25, 0.0, 1.0));
   let c = 2.0 * sqrt(k) * params.damp;
   // Through a gate they draw in to its middle; between gates they spread.
