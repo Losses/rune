@@ -80,15 +80,21 @@ fn face_ink(face: u32, e: u32, g0: vec2f, look: vec2f) -> vec2f {
       return vec2f((1.0 - smoothstep(w * 0.7, w, d)) * step(-0.25, g.y), 0.0);
     }
     case 3u: {
-      // @ @ : dizzy spirals, about one and a half turns wide apart (a pitch of 0.5 from just off
-      // the centre out to 0.75, no knot of tight rings in the middle) and as bold as the other
-      // faces' strokes for big pixels, turning slowly.
+      // @ @ : a dizzy spiral of one and a half turns, turning slowly: one line the same width all
+      // along, with round ends, from just off the centre out to 0.75.
       let q = rv_rotate(g, frame.time * 2.0 * mirror);
-      let r = length(q);
+      let pitch = 0.375;
       let a = atan2(q.y, q.x) / 6.28318;
-      let k = r / 0.5 - a;
-      let d = abs(fract(k) - 0.5) * 0.5;
-      return vec2f((1.0 - smoothstep(w * 0.7, w, d)) * step(0.1, r) * step(r, 0.75), 0.0);
+      let k = length(q) / pitch - a;
+      // How many turns out along the line the nearest stretch of it is (it runs from 0.5 to 2), and
+      // how far off it this point is; past an end, how far from that end.
+      let turns = floor(k) + 0.5 + a;
+      var d = select(1.0, abs(fract(k) - 0.5) * pitch, turns >= 0.5 && turns <= 2.0);
+      let inner = 0.5 * pitch * vec2f(1.0, 0.0);
+      let outer = 2.0 * pitch * vec2f(-1.0, 0.0);
+      d = min(d, min(length(q - inner), length(q - outer)));
+      let stroke = 0.11;
+      return vec2f(1.0 - smoothstep(stroke * 0.7, stroke, d), 0.0);
     }
     case 4u: {
       // Wide eyed: a small pupil.
