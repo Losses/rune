@@ -10,10 +10,14 @@ fn random(n: u32) -> f32 {
 }
 
 // Frame the shot the director cut to: street level, aside looking across, above the signs, or
-// high over the city (the director chooses which and when, see `[[shot]]` in scene.toml). The
-// district's colours may change at the cut: at a section start they come from the section's label,
-// so every chorus is seen in the same colours; at any other cut they change now and then, by
-// chance.
+// high over the city (the director chooses which and when, see `[[shot]]` in scene.toml), or one
+// of the burst's four (shot.index 4 to 7, shot.fill 1 to 4): street level looking ahead, close
+// beside a shop front and its signs, close on the side of a torii over the street, and high up
+// looking down the street. Each burst view jumps to a new place along the street, to one that
+// has what it shows (a sign, a torii) a little ahead. The district's colours may change at the
+// cut: at a section start they come from the section's label, so every chorus is seen in the
+// same colours; at any other cut they change now and then, by chance. (The look's grey or theme
+// colour is the runtime's: see grade.wgsl.)
 fn cut() {
   let label = select(-1.0, input.label, input.cue_mid > 0.5);
   let styled = label >= 0.0 && params.same_view == 1u;
@@ -22,10 +26,58 @@ fn cut() {
   let r2 = random(2u);
   let r3 = random(3u);
   let sg = select(-1.0, 1.0, r3 < 0.5);
-  let view = f32(min(shot.index, 3u));
+  let view = f32(min(shot.index, 7u));
   state.view = view;
-  state.side = f32(view == 1.0);
-  if (view == 3.0) {
+  // Somewhere else along the street.
+  state.pos.z = random(4u) * 2000.0;
+  if (view == 7.0) {
+    // High, looking down the street (the overview shot is higher and steeper).
+    state.eye = 20.0;
+    state.lat = (r3 - 0.5) * 2.0;
+    state.yaw_base = (r1 - 0.5) * 10.0 * DEG;
+    state.pitch_base = -0.62;
+  } else if (view == 6.0) {
+    // Close on the side of the nearest torii over the street ahead: from beside its one pillar,
+    // 2 m before it, looking up at the pillar and the beams going away across the street.
+    var z_torii = state.pos.z + 6.0 * UNIT;
+    let n0 = floor(state.pos.z / UNIT) + 4.0;
+    for (var i = 0u; i < 120u; i++) {
+      if (street_torii(n0 + f32(i))) {
+        z_torii = (n0 + f32(i) + 0.5) * UNIT;
+        break;
+      }
+    }
+    state.eye = 1.8;
+    state.lat = sg * 0.3;
+    state.pos.z = z_torii - 2.0;
+    state.yaw_base = sg * atan2(2.2 + 0.3, 2.0);
+    state.pitch_base = 0.5;
+  } else if (view == 5.0) {
+    // Close beside a shop front and the nearest sign on its side: in the street by the wall,
+    // 4.5 m before the sign, looking along the wall at it.
+    let n0 = floor(state.pos.z / UNIT) + 3.0;
+    var sign_z = state.pos.z + 5.0 * UNIT;
+    var up = 7.0;
+    for (var i = 0u; i < 120u; i++) {
+      let sn = sign_of(n0 + f32(i), sg);
+      if (sn.y > 0.0) {
+        sign_z = sn.x;
+        up = sn.z + min(0.5 * (sn.w - sn.z), 2.0);
+        break;
+      }
+    }
+    state.eye = 3.2;
+    state.lat = sg * 1.9;
+    state.pos.z = sign_z - 4.5;
+    state.yaw_base = -sg * 0.28;
+    state.pitch_base = clamp(atan2(up - state.eye, 4.7), 0.1, 0.6);
+  } else if (view == 4.0) {
+    // Street level a little to one side, looking ahead down the street.
+    state.eye = 2.2;
+    state.lat = sg * (0.6 + 0.8 * r2);
+    state.yaw_base = -sg * (1.0 + 3.0 * r1) * DEG;
+    state.pitch_base = 0.04;
+  } else if (view == 3.0) {
     state.eye = params.overview_height * (0.85 + 0.3 * r1);
     state.lat = (r3 - 0.5) * 6.0;
     state.yaw_base = (r1 - 0.5) * 30.0 * DEG;
@@ -49,8 +101,6 @@ fn cut() {
   if (label >= 0.0 || random(5u) < 0.3) {
     state.district = select(random(6u), fract(k * 0.381966 + 0.05), styled);
   }
-  // Somewhere else along the street.
-  state.pos.z = random(4u) * 2000.0;
   // The trail is cleared at every cut (compose.wgsl).
   state.clear = 1.0;
 }
@@ -80,8 +130,8 @@ fn set_theme() {
   let theme = oklab(select(params.theme.rgb, frame.accent.rgb, follow));
   let h = atan2(theme.z, theme.y);
   state.theme_ramp[0] = oklch(0.12, 0.03, h);
-  state.theme_ramp[1] = oklch(0.36, 0.11, h);
-  state.theme_ramp[2] = oklch(0.62, 0.16, h);
+  state.theme_ramp[1] = oklch(0.36, 0.14, h);
+  state.theme_ramp[2] = oklch(0.62, 0.19, h);
   state.theme_ramp[3] = oklch(0.95, 0.03, h);
 }
 
@@ -147,13 +197,15 @@ fn update() {
   state.clear *= exp(-dt / 0.12);
 
   // Gliding as fast as the music: the tempo over 90 bpm is the pace, so cruise is the speed at
-  // 90 bpm, faster for a faster song and slower for a slower one. A push on every beat; faster
-  // up high.
-  let pace = clamp(input.tempo / 90.0, 0.25, 3.0);
-  let energy_scale = 1.0 + params.energy_speed * (1.5 * input.drive - 0.5);
-  let height = 1.0 + max(state.eye - params.eye, 0.0) / 12.0;
-  let cruise = params.cruise * height * pace * energy_scale;
-  state.vtarget = cruise + (state.vtarget - cruise) * exp(-dt / params.ease) + beat * params.push * pace;
+  // 90 bpm, faster for a faster song and slower for a slower one, at any height (up high it was
+  // too fast). A quiet passage glides at half speed and a loud one a tenth faster (`energy`), a
+  // fade slows it and silence nearly stills it (`audible`). A push on every beat, as slow as the
+  // rest.
+  let pace = clamp(input.tempo / 90.0, 0.4, 2.0);
+  let by_energy = mix(1.0, mix(0.5, 1.1, input.energy), params.energy_speed);
+  let slow = pace * by_energy * mix(0.2, 1.0, input.audible);
+  let cruise = params.cruise * slow;
+  state.vtarget = cruise + (state.vtarget - cruise) * exp(-dt / params.ease) + beat * params.push * slow;
   state.vel += (state.vtarget - state.vel) * (1.0 - exp(-dt / params.accel));
   state.pos.z += dt * state.vel;
   if (state.pos.z > 4000.0) {
@@ -165,13 +217,18 @@ fn update() {
   state.pos.y = state.eye;
   state.yaw = state.yaw_base + 0.01 * sin(t * 0.17) + state.shake * wobble.x;
   state.pitch = state.pitch_base + 0.008 * sin(t * 0.13) + state.shake * wobble.y;
-  state.roll = 0.004 * sin(t * 0.23) + state.side * 0.015 * sin(t * 0.31) + shot.roll + state.shake * 0.5 * wobble.y;
+  // The camera never rolls of its own accord: the director's dutch angle (only in a burst) and
+  // the shake at an accent are all there is.
+  state.roll = shot.roll + state.shake * 0.5 * wobble.y;
   state.lens = (1.0 - params.zoom * state.kick) * (1.0 - 0.25 * params.build * rising);
 
   set_theme();
   fill_rows();
-  // The look follows too: more glow when it is loud and on the kick.
-  post.bloom_intensity = params.glow * (0.7 + 0.6 * input.drive) + params.glow_beat * state.kick;
+  // The looks: 0 grey, 1 the theme colour. How far the picture is in the colour one now, as the
+  // runtime fades from look.prev to look.to (grade.wgsl draws both).
+  state.colour = select(0.0, 1.0 - look.mix, look.prev == 1u) + select(0.0, look.mix, look.to == 1u);
+  // The look follows too: more glow when it is loud and on the kick, and a dimmer one in grey.
+  post.bloom_intensity = params.glow * (0.7 + 0.6 * input.drive) * mix(0.7, 1.0, state.colour) + params.glow_beat * state.kick;
   post.chromatic = 0.0012 * params.chroma * (1.0 + 2.0 * state.kick + 4.0 * state.accent);
   post.exposure = params.exposure + 0.15 * params.pump * state.kick;
 }

@@ -7,12 +7,12 @@ struct State {
   pitch: f32,
   roll: f32,
   lens: f32,
-  // The view chosen at the last cut: across, eye height, yaw and pitch, and its kind.
+  // The view chosen at the last cut: across, eye height, yaw and pitch, and which shot (the
+  // director's index).
   lat: f32,
   eye: f32,
   yaw_base: f32,
   pitch_base: f32,
-  side: f32,
   view: f32,
   // Gliding: speed and where it heads.
   vel: f32,
@@ -41,6 +41,9 @@ struct State {
   changes: f32,
   district: f32,
   signal: f32,
+  // How far the picture is in the theme colour's look (0 the grey look, 1 the colour one), the
+  // two looks blended as the runtime fades them.
+  colour: f32,
   // The rows ahead of the camera, worked out once a frame (update's fill_rows) so the pixels
   // need not: row0 is the row behind the camera's, and row i of the tables is row0 + i. For each
   // row and side (i * 2 + 0 left, + 1 right): its sign (as sign_of); its wall, what stands
@@ -152,20 +155,40 @@ fn height_of(i: i32, n: f32) -> f32 {
   return STOREY * (3.0 + floor(h * h * 16.0)) + 3.0;
 }
 
-// The sign building n on side s hangs out: z of its face, width (0: none), bottom, top. Busy
-// blocks have more and bigger signs; each block has one big sign on each side.
+// The shopping street's arch at the start of block n (its first row past the cross street), on
+// most blocks: two posts and a board over the whole street with the street's name (city.wgsl).
+fn arch_on(n: f32) -> bool {
+  let b = floor(n / BLOCK);
+  return n - b * BLOCK > 0.5 && n - b * BLOCK < 1.5 && h21(vec2f(b, 61.1)) < params.arches;
+}
+
+// Whether row n holds a torii over the street (a big gate spanning it, square on to the camera
+// going down it) in the place of the signs hanging over it. Not at a cross street, at the
+// shopping street's arch or where a pole stands.
+fn street_torii(n: f32) -> bool {
+  return h21(vec2f(n, 64.3)) < params.street_torii && !crossing(n) && !arch_on(n) && !pole_on(n);
+}
+
+// The sign building n on side s hangs out over the street, facing the camera: z of its face,
+// width (0: none), bottom, top. Busy blocks have more and bigger signs; each block has one big
+// sign on each side. Only `street_signs` of what the street once had are left, the big ones a
+// little more often than the rest (2.5 times the share), and a row that holds a torii over the
+// street has none.
 fn sign_of(n: f32, s: f32) -> vec4f {
+  if (street_torii(n)) {
+    return vec4f(0.0);
+  }
   let id = vec2f(n, s);
   let block = floor(n / BLOCK);
   let hb = height_of(i32(s), n);
   let hero = n - block * BLOCK == 1.0 + floor(h21(vec2f(block, s) + 5.5) * (BLOCK - 1.0));
-  if (hero && hb > 9.0) {
+  if (hero && hb > 9.0 && h21(id + 8.8) < min(2.5 * params.street_signs, 1.0)) {
     return vec4f(n * UNIT + 0.5 + 2.5 * h21(id + 3.9), 1.35, 3.2, hb - 0.5);
   }
   let b = busy(n);
   let y0 = 3.4 + 1.4 * h21(id + 1.3);
   let y1 = min(y0 + 3.0 + 7.0 * h21(id + 2.6) * mix(0.6, 1.0, b), hb - 0.4);
-  let on = step(h21(id + 0.9), mix(0.4, 0.95, b)) * step(1.6, y1 - y0) * f32(!crossing(n));
+  let on = step(h21(id + 0.9), mix(0.4, 0.95, b) * params.street_signs) * step(1.6, y1 - y0) * f32(!crossing(n));
   return vec4f(n * UNIT + 0.4 + 3.4 * h21(id + 3.9), (0.6 + 0.45 * h21(id + 5.2)) * mix(0.9, 1.15, b) * on, y0, y1);
 }
 

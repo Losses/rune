@@ -207,6 +207,11 @@ fn torii_of(i: i32, n: f32) -> vec4f {
   return vec4f(x, mix(z0 + 1.0, z1 - 1.0, h21(id + 73.7)), size, hb);
 }
 
+// The torii over the street (street_torii): the roof torii's gate, scaled (its pillars 2.2 m
+// either side of the middle, its kasagi reaching 3.5 m and topping 6.6 m, under the arch's
+// 7.15 m), in the middle of its row.
+const STREET_TORII: f32 = 2.2;
+
 // The ray against roof torii r (from torii_of): t and the face (as box_hit), and the piece (0 a
 // pillar, 1 the nuki, 2 the kasagi); t < 0 for a miss. Straight boxes: pillars, the nuki through
 // them, the kasagi over it overhanging both sides.
@@ -1430,12 +1435,7 @@ fn shrine_face(n: f32, s: f32, part: f32, p: vec3f) -> vec3f {
   return vec3f(0.32, 0.31, 0.3) * light;
 }
 
-// The shopping street's arch at the start of block n (its first row past the cross street), on
-// most blocks: two posts and a board over the whole street with the street's name.
-fn arch_on(n: f32) -> bool {
-  let b = floor(n / BLOCK);
-  return n - b * BLOCK > 0.5 && n - b * BLOCK < 1.5 && h21(vec2f(b, 61.1)) < params.arches;
-}
+// (arch_on, whether a block has the shopping street's arch, is in state.wgsl.)
 
 // The ray against the arch of row n: t and the part (0 a post, 1 the board, 2 its cap).
 fn arch_hit(o: vec3f, inv: vec3f, n: f32) -> vec2f {
@@ -1488,6 +1488,19 @@ fn arch_face(n: f32, part: f32, p: vec3f, aa: f32) -> vec3f {
     c = mix(c, vec3f(1.6, 1.5, 1.4), max(first, second));
   }
   return c;
+}
+
+// The torii over the street, as the roof torii is drawn (scene()): vermilion, the kasagi's top
+// black, lit from below by the street's lights and a warm glow at its feet, and faintly by the
+// city. `piece` 0 a pillar, 1 the nuki, 2 the kasagi; `face` 1 across, 2 along, 3 top.
+fn street_torii_face(piece: f32, face: f32, p: vec3f) -> vec3f {
+  var albedo = vec3f(0.55, 0.06, 0.025);
+  if (piece > 1.5 && face > 2.5) {
+    albedo = vec3f(0.02);
+  }
+  let dim = select(select(0.8, 1.0, face < 1.5), 0.6, face > 2.5);
+  let light = params.ambient * vec3f(0.9, 0.95, 1.1) * 4.0 + street_light(vec3f(p.x, 0.0, p.z), true) * 0.3 * exp(-p.y * 0.25) + vec3f(0.45, 0.24, 0.12) * 0.6 * exp(-p.y * 0.5);
+  return albedo * light * dim;
 }
 
 // A standing board before shop (n, s): dark, in a wooden frame, a word chalked down it, facing
@@ -1710,6 +1723,14 @@ fn hit_street(o: vec3f, d: vec3f, best: f32, steps: f32, pix: f32, dither: f32) 
         if (tp < r.x) {
           r = vec4f(tp, 9.0, n, s);
         }
+      }
+    }
+    // A torii over the street where the row holds one, under 6.7 m: t, the face and the piece
+    // (torii_hit), kind 18.
+    if (lo.y < 6.7 && street_torii(n)) {
+      let tt = torii_hit(o, inv, vec4f(0.0, (n + 0.5) * UNIT, STREET_TORII, 0.0));
+      if (tt.x > 0.0 && tt.x < r.x) {
+        r = vec4f(tt.x, 18.0 + 0.1 * tt.z, n, tt.y);
       }
     }
     // The arch over the street at the start of a block, under 7.2 m.
@@ -2148,7 +2169,9 @@ fn scene(o: vec3f, d: vec3f, pix: f32, tmax: f32, met: vec4f) -> vec4f {
   let p = o + d * t;
   let dist = t * len;
   var col: vec3f;
-  if (things.y > 16.5) {
+  if (things.y > 17.5) {
+    col = street_torii_face(round((things.y - 18.0) * 10.0), things.w, p);
+  } else if (things.y > 16.5) {
     col = vending_face(floor(things.z), things.w, round(fract(things.z) * 5.0), p, dist * pix / max(abs(dn.x), 0.15));
   } else if (things.y > 15.5) {
     col = front_part_face(things.z, things.w, (things.y - 16.0) * 10.0, p, dn, dist * pix / max(abs(dn.x), 0.15));

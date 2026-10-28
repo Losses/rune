@@ -5,6 +5,6 @@ fn shade(px: Pixel) -> vec4f {
   let now = textureSampleLevel(inked, linear_clamp, px.uv, 0.0).rgb;
   let before = textureSampleLevel(prev_trail, linear_clamp, px.uv, 0.0).rgb;
   // High up the camera flies fast: a long trail there would show every window twice.
-  let keep = params.blur * (1.0 - state.clear) * select(1.0, 0.3, state.view > 2.5);
+  let keep = params.blur * (1.0 - state.clear) * select(1.0, 0.3, state.view == 3.0 || state.view == 7.0);
   return vec4f(mix(now, before, keep), 1.0);
 }

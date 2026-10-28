@@ -9,10 +9,11 @@ common = ["glyphs.wgsl", "city.wgsl"]
 # A neon street at night, in the spirit of Persona 5: the cut-in belongs here.
 effects = ["fade", "cutin", "flash", "glitch", "flare"]
 
-# The director cuts between the street's views. The small roll wobble of the camera stays; the
-# director's dutch angle comes on top of it.
+# The director cuts between the street's views. The camera never rolls of its own accord, and the
+# director's dutch angle comes only with the cuts of a burst: a tilt on every cut was too much.
 [camera]
 dutch = 0.3
+dutch_in = "bursts"
 
 # Street level, looking down the street.
 [[shot]]
@@ -37,6 +38,40 @@ move = "cut"
 name = "overview"
 size = "wide"
 move = "cut"
+
+# The burst before a section that lifts, a cut on each of its last four beats, each to a new
+# place along the street: street level looking ahead, close beside a shop front and the sign
+# over it, close on the side of a torii over the street, and high up looking down the street.
+# (update.wgsl's cut() frames them, shot.index 4 to 7.)
+[[burst]]
+name = "street level"
+size = "medium"
+
+[[burst]]
+name = "beside the shop front"
+size = "close"
+
+[[burst]]
+name = "side of a torii"
+size = "detail"
+
+[[burst]]
+name = "high, down the street"
+size = "top"
+
+# The looks: the street at night in grey, and in the theme colour (grade.wgsl draws both and
+# blends them). The runtime picks the look at a section start by the section's energy: grey in
+# quiet and ordinary sections, the theme colour at the climax.
+[[look]]
+name = "grey"
+tags = ["night"]
+tiers = ["quiet", "normal"]
+
+[[look]]
+name = "theme colour"
+tags = ["colour"]
+tiers = ["high"]
+opens = false
 
 [state]
 file = "state.wgsl"
@@ -179,6 +214,15 @@ id = "intensity"
 label = "Fast energy"
 
 [[input]]
+id = "energy"
+label = "The energy of the moment, spread over the whole range"
+
+[[input]]
+id = "audible"
+label = "How much is heard (falling with a fade, 0 in silence)"
+rest = 1.0
+
+[[input]]
 id = "cue_in"
 label = "Seconds to the next section (-1: unknown)"
 range = [-1.0, 1000.0]
@@ -286,6 +330,21 @@ source = "intensity"
 how = "follow"
 when = { clamp = false, to = [0.0, 1.0] }
 
+# The energy of the moment, its usual span spread over the whole range (as Torii Sea's): the glide
+# is slow in a quiet passage. And how much is heard, smoothed over half a beat: a fade slows the
+# glide and silence nearly stills it.
+[[bind]]
+target = "energy"
+source = "intensity"
+how = "follow"
+when = { from = [0.2, 0.85], smooth = 0.5 }
+
+[[bind]]
+target = "audible"
+source = "audible"
+how = "follow"
+when = { smooth = 0.5 }
+
 [[bind]]
 target = "cue_in"
 source = "cue_in"
@@ -371,9 +430,9 @@ step = 0.005
 [[param]]
 id = "cruise"
 group = "Camera"
-label = "Speed for music of middling pace"
+label = "Speed for music of middling pace (half when quiet, 1.1 times when loud; slower in a fade and in silence)"
 unit = "m/s"
-default = 4.5
+default = 3.0
 min = 0.0
 max = 15.0
 step = 0.1
@@ -381,10 +440,10 @@ step = 0.1
 [[param]]
 id = "energy_speed"
 group = "Camera"
-label = "Speed follows the energy"
-default = 0.3
+label = "Energy on the speed (0 none, 1 half speed when quiet, 1.1 times when loud)"
+default = 1.0
 min = 0.0
-max = 2.0
+max = 1.0
 step = 0.05
 
 [[param]]
@@ -392,7 +451,7 @@ id = "push"
 group = "Camera"
 label = "Push on the beat"
 unit = "m/s"
-default = 1.5
+default = 0.8
 min = 0.0
 max = 4.0
 step = 0.05
@@ -441,7 +500,7 @@ step = 0.05
 id = "same_view"
 type = "bool"
 group = "Cuts"
-label = "Same district colours for the same kind of section"
+label = "Same district colours for the same kind of section (the signs' colours; in grey only the red lights keep theirs)"
 default = true
 
 [[param]]
@@ -569,6 +628,24 @@ default = 0.0
 min = 0.0
 max = 2.0
 step = 0.05
+
+[[param]]
+id = "street_signs"
+group = "Signs"
+label = "How many of the signs hanging over the street (facing the camera) are left, against what there was (the big ones keep more)"
+default = 0.2
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "street_torii"
+group = "Street"
+label = "Torii over the street: the share of rows that hold one (those rows have no signs)"
+default = 0.07
+min = 0.0
+max = 0.3
+step = 0.01
 
 [[param]]
 id = "street_things"
@@ -776,8 +853,8 @@ id = "palette"
 type = "choice"
 group = "Look"
 label = "Palette"
-default = 5
-options = ["Own colours", "Reds", "Ink, red lights only", "Reds and ink by section", "The theme colour (the player's accent)", "The theme colour and ink by section"]
+default = 4
+options = ["Own colours", "Reds", "Ink, red lights only", "The theme colour (the player's accent)", "By look: dim grey, the theme colour at the climax"]
 
 [[param]]
 id = "palette_key"
