@@ -444,6 +444,7 @@ A scene that has more than one way to look at its subject declares them as shots
 ```toml
 [camera]
 dutch = 0.35   # the largest dutch angle (roll) in radians; 0 means this scene never tilts
+dutch_in = "bursts"  # optional, default "all": tilt only a burst's cuts (a tilt on every cut was too much for Neon Street)
 hold = 8.0     # the shortest shot in seconds (default 0): a scene that glides sets it to its glide's length
 pace = "normal" # how often the director cuts: sections | calm | normal (default) | busy
 
@@ -534,10 +535,15 @@ weight = 1.0         # optional, default 1: how often a kind of section picks it
 [[look]]
 name = "day"
 opens = false        # optional, default true: whether the scene may start in this look
+
+[[look]]
+name = "theme colour"
+tiers = ["high"]     # optional, default all: the kinds of section, by energy, it suits
 ```
 
 - `weight` is a number, 0 or more: a look of 2 is picked twice as often as one of 1, and one of 0 is never picked while another has a chance. A scene whose looks all have weight 0 is refused.
 - `opens = false` keeps the scene from starting in the look (Torii Sea never starts in daylight). A section may still change to it later. A scene whose looks all have `opens = false` is refused.
+- `tiers` picks looks by the section's energy: any of `"quiet"`, `"normal"`, `"high"` (the director's tiers, from `director.cadence`'s `below` and `above` on the section's energy, else the music's slow energy). A section picks only among the looks that suit its tier, and among all if none does. Neon Street is grey in its quiet and normal sections and in the theme colour at its climax: a grey look with `tiers = ["quiet", "normal"]` and a colour one with `tiers = ["high"]`. Left out, a look suits every tier.
 - `tags` are strings and only declared: they are in the manifest for the lab and for a later rule (night first, say), and no code reads them.
 
 ### What `struct Look` holds
@@ -557,10 +563,10 @@ At the scene's start `prev` equals `to` and `mix` is 1.
 
 They are `look.change` in `runtime.toml` (`when`: `strength` 0.5, `gap` 8 s, `strength_unlabelled` 0, `gap_unlabelled` 30 s, `fade` 1 beat, `fade_seconds` 0.5 s), the same for every scene, and a scene lab can edit them.
 
-1. **A section start changes the look.** A cue of `strength` or more with a chart (a section start) changes the look to the one the section's label picks: a roll from `rv_label_hash`'s hash of the label, by the looks' `weight`. So every chorus has the same look and a song plays the same each time.
+1. **A section start changes the look.** A cue of `strength` or more with a chart (a section start) changes the look to the one the section's label picks among those whose `tiers` suit the section's energy: a roll from `rv_label_hash`'s hash of the label, by the looks' `weight`. So every chorus has the same look and a song plays the same each time.
 2. **The look on is kept.** If the pick is the look on, nothing changes (and the gap does not start again): the look stays tied to the kind of section.
 3. **At least `gap` seconds between two changes.** The scene's start counts as one, so a scene keeps the look it opened in for that long.
-4. **Without a chart** there are no labels. A cue of `strength_unlabelled` or more (any cue) changes the look to the next in an order made from the scene's seed, at least `gap_unlabelled` seconds after the last change: reproducible, not random.
+4. **Without a chart** there are no labels. A cue of `strength_unlabelled` or more (any cue) changes the look to the next that suits the music's energy in an order made from the scene's seed, at least `gap_unlabelled` seconds after the last change: reproducible, not random.
 5. **The fade** lasts `fade` beats with a followed beat, else `fade_seconds`, eased.
 6. **The first look** is picked among the looks that `opens`, by weight, from the seed of the scene's first frame.
 

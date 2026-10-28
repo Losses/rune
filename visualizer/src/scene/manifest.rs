@@ -110,6 +110,21 @@ pub struct Camera {
     pub hold: f32,
     /// How often the director cuts the scene: what suits its subject.
     pub pace: Pace,
+    /// Which cuts tilt by the dutch angle: all of them but wide and top ones, or only a burst's (a
+    /// tilt on every cut was too much for Neon Street).
+    #[serde(rename = "dutch_in")]
+    pub dutch_in: DutchIn,
+}
+
+/// Which cuts the dutch angle tilts (`[camera] dutch_in`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DutchIn {
+    /// Every cut to a medium, close or detail shot.
+    #[default]
+    All,
+    /// Only the cuts of a burst.
+    Bursts,
 }
 
 /// How often the director cuts a scene, against the section's energy (see `director`).
@@ -302,6 +317,19 @@ pub struct Look {
     /// false on its day.
     #[serde(default = "yes")]
     pub opens: bool,
+    /// The kinds of section, by energy, the look suits: any of "quiet", "normal", "high"; empty
+    /// for all. A section start picks among the looks that suit it (a scene grey in its quiet
+    /// sections and in the theme colour at its climax), and among all if none does.
+    #[serde(default)]
+    pub tiers: Vec<String>,
+}
+
+impl Look {
+    /// Whether the look suits a section of tier `tier` (0 quiet, 1 normal, 2 high).
+    pub fn suits(&self, tier: usize) -> bool {
+        const NAMES: [&str; 3] = ["quiet", "normal", "high"];
+        self.tiers.is_empty() || self.tiers.iter().any(|t| t == NAMES[tier.min(2)])
+    }
 }
 
 /// The most `[[burst]]` shots a scene declares: the burst cuts on one beat each, and four is the
@@ -901,6 +929,17 @@ impl Manifest {
             self.looks.is_empty() || self.looks.iter().any(|look| look.opens),
             "the [[look]]s all have opens = false, so the scene could not start in any: let at least one open"
         );
+        for (i, look) in self.looks.iter().enumerate() {
+            for tier in &look.tiers {
+                ensure!(
+                    matches!(tier.as_str(), "quiet" | "normal" | "high"),
+                    "[[look]] {} ({:?}): tiers takes \"quiet\", \"normal\" and \"high\", not {:?}",
+                    i + 1,
+                    look.name,
+                    tier
+                );
+            }
+        }
         for unknown in self.effects.unknown() {
             log::warn!("{unknown} is not an effect this runtime knows; it is left out");
         }
@@ -1200,6 +1239,20 @@ opens = false
         assert_eq!((m.looks[1].weight, m.looks[1].opens), (2.5, false));
         assert_eq!(m.looks[2].name, "");
         assert!(m.looks[2].tags.is_empty());
+    }
+
+    #[test]
+    fn a_look_says_the_sections_it_suits_and_a_camera_may_tilt_in_bursts_only() {
+        let text = format!(
+            "{SMALL}\n[camera]\ndutch = 0.3\ndutch_in = \"bursts\"\n\n[[shot]]\nsize = \"wide\"\n\n[[look]]\nname = \"grey\"\ntiers = [\"quiet\", \"normal\"]\n\n[[look]]\nname = \"colour\"\ntiers = [\"high\"]\n"
+        );
+        let m = Manifest::parse(&text).unwrap();
+        assert_eq!(m.camera.dutch_in, DutchIn::Bursts);
+        assert!(m.looks[0].suits(0) && m.looks[0].suits(1) && !m.looks[0].suits(2));
+        assert!(m.looks[1].suits(2) && !m.looks[1].suits(0));
+        let bad = text.replace("\"high\"]", "\"loud\"]");
+        let error = format!("{:#}", Manifest::parse(&bad).unwrap_err());
+        assert!(error.contains("tiers") && error.contains("loud"), "{error}");
     }
 
     #[test]

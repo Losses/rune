@@ -7,7 +7,9 @@
 use std::sync::Arc;
 
 use super::inputs::MusicValues;
-use super::manifest::{BurstShot, Camera, MAX_BURSTS, Manifest, Pace, Shot, ShotMove, ShotSize};
+use super::manifest::{
+    BurstShot, Camera, DutchIn, MAX_BURSTS, Manifest, Pace, Shot, ShotMove, ShotSize,
+};
 use crate::bind::{DirectorBinds, MomentBinds, Said};
 use crate::switching::FOLLOWED;
 
@@ -743,7 +745,9 @@ impl Director {
         // From the section's label and the cut's place in it, so a chorus is seen the same way
         // each time.
         let seed = label_hash(label, self.in_section.wrapping_add(7));
-        let roll = if matches!(size, ShotSize::Wide | ShotSize::Top) {
+        let level = matches!(size, ShotSize::Wide | ShotSize::Top)
+            || (fill == 0 && self.camera.dutch_in == DutchIn::Bursts);
+        let roll = if level {
             0.0
         } else {
             self.tilt_right = !self.tilt_right;
@@ -899,6 +903,7 @@ mod tests {
             dutch,
             hold: 0.0,
             pace: Pace::Normal,
+            dutch_in: DutchIn::All,
         }
     }
 
@@ -1546,6 +1551,40 @@ mod tests {
         assert_ne!(song[2][0], song[1][song[1].len() - 1]);
         assert_eq!(play(&[2.0, 5.0, 2.0])[2][1..], song[0][1..]);
         assert_ne!(play(&[2.0])[0], play(&[3.0])[0]);
+    }
+
+    #[test]
+    fn a_scene_that_tilts_in_bursts_only_keeps_its_other_cuts_level() {
+        let mut director = bursting(Camera {
+            dutch_in: DutchIn::Bursts,
+            ..camera(0.4)
+        });
+        let base = song(0.2);
+        beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        let mut level = 0;
+        for (_, cut) in beats(&mut director, 1, 200, &base, plain) {
+            assert_eq!(cut.fill, 0);
+            assert_eq!(director.state().roll, 0.0, "{cut:?}");
+            level += 1;
+        }
+        assert!(level > 3);
+        // A burst's near cuts tilt.
+        director.start_burst();
+        let mut tilted = 0;
+        for beat in 201..204 {
+            for (_, cut) in beats(&mut director, beat, 1, &base, plain) {
+                if cut.fill > 0
+                    && matches!(
+                        cut.size,
+                        ShotSize::Medium | ShotSize::Close | ShotSize::Detail
+                    )
+                {
+                    assert!(director.state().roll.abs() > 0.0, "{cut:?}");
+                    tilted += 1;
+                }
+            }
+        }
+        assert!(tilted >= 2);
     }
 
     #[test]

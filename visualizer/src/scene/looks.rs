@@ -10,7 +10,7 @@ use std::sync::Arc;
 use super::director::{label_hash, weighted};
 use super::inputs::MusicValues;
 use super::manifest::{Look, Manifest};
-use crate::bind::{LookBinds, LookCue};
+use crate::bind::{DirectorBinds, LookBinds, LookCue};
 
 /// The `k` the label's hash is taken with for the look. The director takes the small numbers (and
 /// `k + 7`) for its shots, so a section's look is not tied to its shot.
@@ -105,6 +105,10 @@ pub struct Looks {
     /// The look the scene opens in if it is held before its first frame.
     held_first: Option<usize>,
     binds: Arc<LookBinds>,
+    /// The section's tier (quiet, normal, high), as the director has it: what a look `suits`.
+    director: Arc<DirectorBinds>,
+    /// Whether each look suits a quiet, a normal and a high section.
+    suits: Vec<[bool; 3]>,
 }
 
 impl Looks {
@@ -132,12 +136,31 @@ impl Looks {
             held: false,
             held_first: None,
             binds: Arc::default(),
+            director: Arc::default(),
+            suits: looks
+                .iter()
+                .map(|look| [look.suits(0), look.suits(1), look.suits(2)])
+                .collect(),
         }
     }
 
-    /// Decide by these bindings from now on (a scene lab replaced `runtime.toml`).
-    pub fn set_binds(&mut self, binds: Arc<LookBinds>) {
+    /// Decide by these bindings from now on (a scene lab replaced `runtime.toml`): the looks'
+    /// own, and the director's, whose tiers say which looks suit a section.
+    pub fn set_binds(&mut self, binds: Arc<LookBinds>, director: Arc<DirectorBinds>) {
         self.binds = binds;
+        self.director = director;
+    }
+
+    /// The looks that suit a section of `tier`, or all of them if none does.
+    fn suiting(&self, tier: usize) -> Vec<usize> {
+        let fit: Vec<usize> = (0..self.picks.len())
+            .filter(|&i| self.suits[i][tier.min(2)])
+            .collect();
+        if fit.is_empty() {
+            (0..self.picks.len()).collect()
+        } else {
+            fit
+        }
     }
 
     /// What the scene is told now.
@@ -189,26 +212,29 @@ impl Looks {
         weighted(&chances, unit(seed))
     }
 
-    /// The look a section picks: by the weights, with the section's label hashed to the roll, so
-    /// that a section of the same kind picks the same.
-    fn pick(&self, label: f32) -> usize {
+    /// The look a section of `tier` picks among those that suit it: by the weights, with the
+    /// section's label hashed to the roll, so that a section of the same kind picks the same.
+    fn pick(&self, label: f32, tier: usize) -> usize {
         let chances: Vec<(usize, f32)> = self
-            .picks
-            .iter()
-            .enumerate()
-            .map(|(i, (_, weight))| (i, *weight))
+            .suiting(tier)
+            .into_iter()
+            .map(|i| (i, self.picks[i].1))
             .collect();
         weighted(&chances, label_hash(label, PICK_K))
     }
 
-    /// The look after the one on in the order made from the seed.
-    fn next(&self) -> usize {
+    /// The look after the one on in the order made from the seed, of those that suit `tier`.
+    fn next(&self, tier: usize) -> usize {
+        let fit = self.suiting(tier);
         let at = self
             .order
             .iter()
             .position(|&i| i == self.state.to as usize)
             .unwrap_or(0);
-        self.order[(at + 1) % self.order.len()]
+        (1..=self.order.len())
+            .map(|k| self.order[(at + k) % self.order.len()])
+            .find(|i| fit.contains(i))
+            .unwrap_or(self.order[(at + 1) % self.order.len()])
     }
 
     /// Start a fade to look `to` of `seconds`.
@@ -278,9 +304,10 @@ impl Looks {
         if self.since_change < self.binds.gap(cue) {
             return false;
         }
+        let tier = self.director.tier(music);
         let to = match cue {
-            LookCue::Section => self.pick(music.section_label),
-            LookCue::Unlabelled => self.next(),
+            LookCue::Section => self.pick(music.section_label, tier),
+            LookCue::Unlabelled => self.next(tier),
         };
         // The look stays tied to the kind of section: the one on is not changed to again.
         if to == self.state.to as usize {
@@ -301,7 +328,40 @@ mod tests {
             tags: Vec::new(),
             weight,
             opens,
+            tiers: Vec::new(),
         }
+    }
+
+    /// A grey look for quiet and normal sections and one in the theme colour for high ones pick
+    /// by the section's energy: every quiet or normal section the grey, every high one the colour.
+    #[test]
+    fn a_section_picks_among_the_looks_that_suit_its_energy() {
+        let grey = Look {
+            tiers: vec!["quiet".into(), "normal".into()],
+            ..look("grey", true, 1.0)
+        };
+        let colour = Look {
+            tiers: vec!["high".into()],
+            ..look("colour", false, 1.0)
+        };
+        let looks = Looks::new(&[grey, colour]);
+        for label in 0..20 {
+            assert_eq!(looks.pick(label as f32, 0), 0);
+            assert_eq!(looks.pick(label as f32, 1), 0);
+            assert_eq!(looks.pick(label as f32, 2), 1);
+        }
+        // None suits: all may be picked.
+        let only_high = Looks::new(&[
+            Look {
+                tiers: vec!["high".into()],
+                ..look("a", true, 1.0)
+            },
+            Look {
+                tiers: vec!["high".into()],
+                ..look("b", true, 1.0)
+            },
+        ]);
+        assert_eq!(only_high.suiting(0), [0, 1]);
     }
 
     /// Four looks, the second of which may not open.
@@ -390,7 +450,7 @@ mod tests {
             // Whatever the scene opened in, the label's look is on, and the same each time.
             let to = after(label, 7);
             assert_eq!(to, after(label, 99), "label {label}");
-            assert_eq!(to, four().pick(label) as u32);
+            assert_eq!(to, four().pick(label, 1) as u32);
             seen[to as usize] = true;
         }
         assert!(seen.iter().filter(|s| **s).count() >= 3, "{seen:?}");
@@ -409,7 +469,7 @@ mod tests {
         // Find a label whose look differs from the one on, change to it, and let the gap pass.
         let label = (0..8)
             .map(|l| l as f32)
-            .find(|l| looks.pick(*l) as u32 != looks.state().to)
+            .find(|l| looks.pick(*l, 1) as u32 != looks.state().to)
             .unwrap();
         assert!(looks.tick(0.0, &section(label, 1.0), 7));
         let changes = looks.state().changes;
@@ -427,7 +487,7 @@ mod tests {
         let other = |looks: &Looks| {
             (0..8)
                 .map(|l| l as f32)
-                .find(|l| looks.pick(*l) as u32 != looks.state().to)
+                .find(|l| looks.pick(*l, 1) as u32 != looks.state().to)
                 .unwrap()
         };
         // Within 8 s of the start no section changes the look.
@@ -483,7 +543,7 @@ mod tests {
         let label_for = |looks: &Looks| {
             (0..8)
                 .map(|l| l as f32)
-                .find(|l| looks.pick(*l) as u32 != looks.state().to)
+                .find(|l| looks.pick(*l, 1) as u32 != looks.state().to)
                 .unwrap()
         };
         // One beat at 60 bpm is a second: half-way (eased) at half a second.
@@ -543,7 +603,7 @@ mod tests {
         assert!(!looks.view().held);
         let label = (0..8)
             .map(|l| l as f32)
-            .find(|l| looks.pick(*l) != 3)
+            .find(|l| looks.pick(*l, 1) != 3)
             .unwrap();
         assert!(!looks.tick(0.0, &section(label, 1.0), 7));
         looks.tick(8.0, &MusicValues::default(), 7);

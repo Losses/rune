@@ -1509,7 +1509,7 @@ impl Scene {
             director.set_binds(runtime.director.clone(), runtime.moments.clone());
         }
         if let Some(looks) = &mut self.looks {
-            looks.set_binds(runtime.looks.clone());
+            looks.set_binds(runtime.looks.clone(), runtime.director.clone());
         }
         self.lens.set_binds(runtime);
     }
