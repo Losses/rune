@@ -1985,6 +1985,7 @@ impl Scene {
         self.cut = None;
         let shot = match &mut self.director {
             Some(director) => {
+                director.set_song_ahead(input.chart.map(|c| c.later_rise as f32));
                 self.cut = director
                     .tick(dt as f32, &music)
                     .map(|cut| CutInfo {
