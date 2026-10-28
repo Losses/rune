@@ -283,6 +283,12 @@ impl Course {
         eased(self.beat)
     }
 
+    /// The beats since it started, linear (the eased [`Course::motion`] dwells on the whole
+    /// beats): for what is timed on a cross-rhythm.
+    pub fn age_beats(&self) -> f32 {
+        self.age
+    }
+
     /// The accent of the last push now, 0 to 1: as strong as the beat was, up at once, settled
     /// by the next beat.
     pub fn accent(&self) -> f32 {
