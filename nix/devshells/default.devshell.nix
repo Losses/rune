@@ -11,17 +11,7 @@ let
   flutterPkg = pkgs.flutter347;
 
   # rinf code generator, pinned to the rinf version in native/hub/Cargo.toml.
-  # The prebuilt binary in ~/.cargo/bin (cargo-binstall) has a hard-coded
-  # dynamic loader and cannot run on NixOS; build from source instead.
-  rinfCli = pkgs.rustPlatform.buildRustPackage rec {
-    pname = "rinf_cli";
-    version = "8.7.1";
-    src = pkgs.fetchCrate {
-      inherit pname version;
-      hash = "sha256-MDiWD2CevkJHRTmnBWpvHra3i2985nO5mJ9uOVK55l8=";
-    };
-    cargoHash = "sha256-RIccbZFfMcxhmMuN72YQbAbRnDrpz/i4I7Zb8WngXT4=";
-  };
+  rinfCli = import ../packages/rinf-cli.nix { inherit pkgs; };
 
   rustToolchain = rust-bin.stable.${rustVersion}.default.override {
     extensions = [ "rust-src" "rustfmt" "clippy" "rust-analyzer" ];
@@ -154,7 +144,9 @@ pkgs.mkShell {
     alias ls=eza
     alias find=fd
     flutter config --jdk-dir "${pinnedJDK}"
-    export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath (with pkgs; [ wayland fontconfig libxkbcommon libx11 libGL ])}:$LD_LIBRARY_PATH
+    # The visualizer's wgpu loads the Vulkan loader at run time; without it no
+    # GPU adapter is found and it cannot draw.
+    export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath (with pkgs; [ wayland fontconfig libxkbcommon libx11 libGL vulkan-loader ])}:$LD_LIBRARY_PATH
     # Keep user-installed cargo binaries (protoc-gen-prost, ...) reachable,
     # but AFTER the Nix toolchain so they can never shadow it (the Nix rinf
     # intentionally shadows the broken prebuilt one in ~/.cargo/bin).

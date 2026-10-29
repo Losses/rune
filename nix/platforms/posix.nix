@@ -93,6 +93,8 @@ in {
   };
 
   packages = {
-    default = pkgs.callPackage ../packages/rune.nix { };
+    default = pkgs.callPackage ../packages/rune.nix {
+      rinf-cli = import ../packages/rinf-cli.nix { inherit pkgs; };
+    };
   };
 }

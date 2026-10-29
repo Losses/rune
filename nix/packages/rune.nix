@@ -4,13 +4,17 @@
   flutter,
   rustPlatform,
   alsa-lib,
-  fetchFromGitHub,
   replaceVars,
   pkg-config,
+  cmake,
   openssl,
   dbus,
+  gsettings-desktop-schemas,
+  dconf,
   libnotify,
   libayatana-appindicator,
+  vulkan-loader,
+  rinf-cli,
   targetFlutterPlatform ? "linux",
 }:
 
@@ -28,40 +32,36 @@ let
     maintainers = with lib.maintainers; [ losses ];
   };
 
-  pubspecLock = lib.importJSON ../../pubspec.lock.json;
+  # The lock files of the checkout, read as they are (`autoPubspecLock` turns
+  # `pubspec.lock` into the JSON the Dart builder wants while evaluating).
+  pubspecLockFile = ../../pubspec.lock;
 
   gitHashes = {
-    macos_secure_bookmarks = "sha256-qC3Ytxkg5bGh6rns0Z/hG3uLYf0Qyw6y6Hq+da1Je0I=";
+    macos_secure_bookmarks = "sha256-f6TDL1JfWc8zGE8H3+YLNmRW3/KJSgjQiwhk44bMp5g=";
     fluent_ui = "sha256-r40uN7mwr6MCNg41AKdk2Z9Zd4pUCxV0xwLXKgNauqo=";
     scrollable_positioned_list = "sha256-tkRlxnmyG5r5yZwEvj9KDfEf4OuSM0HEwPOYm7T7LnQ=";
-    system_tray = "sha256-1XMVu1uHy4ZgPKDqfQ7VTDVJvDxky5+/BbocGz8rKYs=";
+    system_tray = "sha256-yx4Tc+HDx9LdVWJZKniQr6H3BsifPlNwVGxHj3jpvlE=";
   };
 
   src = flutter.buildFlutterApplication {
-    inherit version pubspecLock gitHashes;
+    inherit version gitHashes;
+    autoPubspecLock = pubspecLockFile;
     pname = "source";
 
-    src = fetchFromGitHub {
-      owner = "Losses";
-      repo = "rune";
-      tag = "v${version}";
-      hash = "sha256-vYbi6vguKPI7UoCIKjlGHTQi+OoVjPbIOLNyoW2DOv0=";
-    };
+    # The checkout itself: its own lock files are used above, and a released
+    # tarball need not agree with them.
+    src = ../..;
 
     nativeBuildInputs = [
-      wrapGAppsHook
-      gsettings-desktop-schemas
-      dconf
-      rustPlatform.cargoSetupHook
       pkg-config
+      rinf-cli
     ];
 
+    # Only the sources are wanted here; the app is built below. `rinf gen`
+    # writes the Dart and Rust bindings, which the repository does not carry.
     buildPhase = ''
       runHook preBuild
 
-      export CARGO_HOME=$(mktemp -d)
-      cargo install rinf_cli
-      export PATH="$CARGO_HOME/bin:$PATH"
       rinf gen
 
       runHook postBuild
@@ -70,6 +70,9 @@ let
     installPhase = ''
       runHook preInstall
 
+      # The pub phases point `pubspec.lock` into /build; the app build below
+      # links its own.
+      rm -f pubspec.lock
       cp -r . $out
       mkdir $debug
 
@@ -83,12 +86,12 @@ let
     inherit version src;
     pname = "libhub";
 
-    useFetchCargoVendor = true;
-
-    cargoHash = "sha256-+7zUUUpXYKmeCVA+XZLMR1Z41ZIIfHvPTelCCY/UOfI=";
+    cargoHash = "sha256-UmaYXyfXMM/mU02qN96ulv22kR7KSfrnqsk4S8aJQZs=";
 
     nativeBuildInputs = [
       pkg-config
+      # `opusic-sys` builds the Opus it vendors with CMake.
+      cmake
     ];
 
     buildInputs = [
@@ -110,20 +113,30 @@ flutter.buildFlutterApplication {
   inherit
     version
     src
-    pubspecLock
     gitHashes
     ;
+  autoPubspecLock = pubspecLockFile;
   pname = "rune-${targetFlutterPlatform}";
 
+  # No Rust is built here: the `rinf` source builder links the prebuilt
+  # `libhub` (see `customSourceBuilders`), so `cargoSetupHook` would only try
+  # to unpack cargo dependencies that do not exist.
   nativeBuildInputs = [
-    rustPlatform.cargoSetupHook
     pkg-config
   ];
 
   buildInputs = [
     libnotify
     libayatana-appindicator
+    gsettings-desktop-schemas
+    dconf
   ];
+
+  # wgpu, which draws the visualizer, loads the Vulkan loader at run time, so
+  # it is not an ELF dependency and no RUNPATH would find it.
+  extraWrapProgramArgs = lib.optionalString stdenv.hostPlatform.isLinux ''
+    --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ vulkan-loader ]}
+  '';
 
   customSourceBuilders = {
     rinf =
