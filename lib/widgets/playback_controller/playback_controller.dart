@@ -52,7 +52,10 @@ class PlaybackControllerState extends State<PlaybackController> {
                   transform: Matrix4.identity()
                     ..scaleByDouble(1.0, scaleY, 1.0, 1.0)
                     ..translateByDouble(0.0, (1 - scaleY) * 100, 0.0, 1.0),
-                  child: const FFTVisualize(),
+                  // The spectrum redraws every frame while music plays; without a
+                  // boundary of its own, each redraw repaints the whole page
+                  // behind it (the cover wall, its shader, the scene).
+                  child: const RepaintBoundary(child: FFTVisualize()),
                 ),
               ),
             ),
