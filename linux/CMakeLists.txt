@@ -72,6 +72,7 @@ apply_standard_settings(${BINARY_NAME})
 
 # Add dependency libraries. Add any application-specific dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter)
+target_link_libraries(${BINARY_NAME} PRIVATE ${CMAKE_DL_LIBS})
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
 
 # Run the Flutter tool portions of the build. This must not be removed.

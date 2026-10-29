@@ -1,12 +1,23 @@
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../bindings/bindings.dart';
+import '../../../utils/l10n.dart';
 import '../../../utils/color_brightness.dart';
+import '../../../utils/visualizer_supported.dart';
+import '../../../utils/router/router_aware_flyout_controller.dart';
+import '../../../widgets/context_menu_wrapper.dart';
+import '../../../widgets/visualizer/visualizer_controller.dart';
+import '../../../widgets/visualizer/visualizer_surface.dart';
+import '../../../widgets/visualizer/visualizer_preset_name.dart';
 import '../../../widgets/cover_wall_background/gradient_container.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
 import '../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../providers/responsive_providers.dart';
+import '../../../providers/cover_wall_display.dart';
 
 import 'back_button.dart';
 import 'playing_track.dart';
@@ -32,9 +43,142 @@ const effectParams = EffectParams(
 );
 
 class CoverWallLayoutState extends State<CoverWallLayout> {
+  final _focusNode = FocusNode();
+  final _visualizer = VisualizerController();
+  final _contextController = RouterAwareFlyoutController();
+  final _contextAttachKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
+    _contextController.controller.addListener(_handleContextControllerUpdate);
+  }
+
+  @override
+  void dispose() {
+    _contextController.controller
+        .removeListener(_handleContextControllerUpdate);
+    _contextController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  // The visualizer waits with switching presets while the menu is open.
+  void _handleContextControllerUpdate() {
+    _visualizer.setMenuOpen(_contextController.isOpen);
+  }
+
+  Future<void> _openContextMenu(Offset localPosition) async {
+    if (!mounted) return;
+    final targetContext = _contextAttachKey.currentContext;
+
+    if (targetContext == null) return;
+    final box = targetContext.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(
+      localPosition,
+      ancestor: Navigator.of(context).context.findRenderObject(),
+    );
+
+    final s = S.of(context);
+    final provider = context.read<CoverWallDisplayProvider>();
+    final showVisualizer = provider.showVisualizer;
+    if (showVisualizer && _visualizer.hasPresets) {
+      await _visualizer.refreshPresets();
+      if (!mounted) return;
+    }
+
+    MenuFlyoutItem displayItem(CoverWallDisplay display, String title) {
+      final active = provider.display == display;
+      return MenuFlyoutItem(
+        leading: Icon(
+          active ? Symbols.radio_button_checked : Symbols.radio_button_unchecked,
+        ),
+        text: Text(title),
+        onPressed: () => provider.setDisplay(display),
+      );
+    }
+
+    MenuFlyoutItem presetItem(VisualizerPresetEntry preset) {
+      final current = _visualizer.status?.presetPath == preset.path;
+      return MenuFlyoutItem(
+        leading: current ? const Icon(Symbols.check) : null,
+        text: Text(preset.name),
+        onPressed: () => _visualizer.loadPreset(preset.path),
+      );
+    }
+
+    // The built-in scenes, then a submenu for each folder of scenes.
+    MenuFlyoutItemBase presetMenu() {
+      final groups = <String, List<VisualizerPresetEntry>>{};
+      final builtIn = <VisualizerPresetEntry>[];
+      for (final preset in _visualizer.presets) {
+        if (preset.builtin) {
+          builtIn.add(preset);
+        } else {
+          (groups[preset.group] ??= []).add(preset);
+        }
+      }
+      return MenuFlyoutSubItem(
+        leading: const Icon(Symbols.list),
+        text: Text(s.visualizerChoosePreset),
+        items: (_) => [
+          ...builtIn.map(presetItem),
+          if (builtIn.isNotEmpty && groups.isNotEmpty)
+            const MenuFlyoutSeparator(),
+          for (final group in groups.entries)
+            MenuFlyoutSubItem(
+              text: Text(group.key),
+              items: (_) => group.value.map(presetItem).toList(),
+            ),
+        ],
+      );
+    }
+
+    _contextController.showFlyout(
+      position: position,
+      builder: (_) {
+        return MenuFlyout(
+          items: [
+            displayItem(CoverWallDisplay.covers, s.coverWallDisplayCovers),
+            displayItem(
+              CoverWallDisplay.visualizer,
+              s.coverWallDisplayVisualizer,
+            ),
+            if (showVisualizer && _visualizer.hasPresets) ...[
+              const MenuFlyoutSeparator(),
+              MenuFlyoutItem(
+                leading: const Icon(Symbols.skip_previous),
+                text: Text(s.visualizerPrevious),
+                onPressed: _visualizer.previous,
+              ),
+              MenuFlyoutItem(
+                leading: const Icon(Symbols.skip_next),
+                text: Text(s.visualizerNext),
+                onPressed: _visualizer.next,
+              ),
+              MenuFlyoutItem(
+                leading: const Icon(Symbols.shuffle),
+                text: Text(s.visualizerRandom),
+                onPressed: _visualizer.random,
+              ),
+              if (_visualizer.presets.isNotEmpty) presetMenu(),
+              const MenuFlyoutSeparator(),
+              MenuFlyoutItem(
+                leading: Icon(
+                  _visualizer.locked ? Symbols.lock_open : Symbols.lock,
+                ),
+                text: Text(
+                  _visualizer.locked
+                      ? s.visualizerUnlockPreset
+                      : s.visualizerLockPreset,
+                ),
+                onPressed: _visualizer.toggleLock,
+              ),
+            ],
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -45,6 +189,8 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
 
     final r = Provider.of<ResponsiveProvider>(context);
     final isMini = r.smallerOrEqualTo(DeviceType.car, false);
+    final showVisualizer = context
+        .select<CoverWallDisplayProvider, bool>((p) => p.showVisualizer);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -71,13 +217,18 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
           ),
         );
 
-        return Stack(
+        final stack = Stack(
           alignment: isMini ? Alignment.centerLeft : Alignment.bottomCenter,
           children: [
             Container(
               color: isDark ? Colors.black : theme.accentColor.lightest.lighten(0.2),
             ),
-            coverArtWall,
+            if (showVisualizer)
+              Positioned.fill(
+                child: VisualizerSurface(controller: _visualizer),
+              )
+            else
+              coverArtWall,
             Container(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
@@ -111,8 +262,44 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
               top: 0,
               left: 0,
               child: BackButton(),
-            )
+            ),
+            // The name of a preset that just started, in the corner.
+            if (showVisualizer) VisualizerPresetName(controller: _visualizer),
           ],
+        );
+
+        if (!isVisualizerSupported) return stack;
+
+        // Right-clicks anywhere on the page open the menu; the playing track
+        // handles its own clicks first.
+        final menuArea = ContextMenuWrapper(
+          onContextMenu: _openContextMenu,
+          onMiddleClick: (_) {},
+          contextAttachKey: _contextAttachKey,
+          contextController: _contextController,
+          child: stack,
+        );
+
+        // The page needs the focus for the keys; a click takes it back.
+        return CallbackShortcuts(
+          bindings: {
+            if (showVisualizer) ...{
+              const SingleActivator(LogicalKeyboardKey.arrowRight):
+                  _visualizer.next,
+              const SingleActivator(LogicalKeyboardKey.arrowLeft):
+                  _visualizer.previous,
+              const SingleActivator(LogicalKeyboardKey.keyR):
+                  _visualizer.random,
+            },
+          },
+          child: Focus(
+            autofocus: showVisualizer,
+            focusNode: _focusNode,
+            child: Listener(
+              onPointerDown: (_) => _focusNode.requestFocus(),
+              child: menuArea,
+            ),
+          ),
         );
       },
     );

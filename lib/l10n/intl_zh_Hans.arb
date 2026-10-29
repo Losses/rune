@@ -1348,5 +1348,81 @@
   "deduplicating": "正在去重",
   "@deduplicating": {
     "description": "表示当前正在执行去重过程的标签。向用户展示系统正在移除音乐库或播放列表中的重复曲目。也可使用“正在移除重复项”或“去重进行中”等表达。"
+  },
+  "visualizerPrevious": "上一个场景",
+  "@visualizerPrevious": {
+    "description": "可视化中切换到上一个场景的右键菜单项。"
+  },
+  "visualizerNext": "下一个场景",
+  "@visualizerNext": {
+    "description": "可视化中切换到下一个场景的右键菜单项。"
+  },
+  "visualizerRandom": "随机场景",
+  "@visualizerRandom": {
+    "description": "可视化中切换到随机场景的右键菜单项。"
+  },
+  "visualizerChoosePreset": "选择场景",
+  "@visualizerChoosePreset": {
+    "description": "可视化右键菜单项，打开子菜单按名称选择某个场景。"
+  },
+  "visualizerLockPreset": "锁定场景",
+  "@visualizerLockPreset": {
+    "description": "可视化右键菜单项，使其不再自动切换场景，保持当前的场景。"
+  },
+  "visualizerUnlockPreset": "解除锁定场景",
+  "@visualizerUnlockPreset": {
+    "description": "可视化右键菜单项，使其重新自动切换场景。"
+  },
+  "visualizerAddPresetFolder": "添加场景文件夹",
+  "@visualizerAddPresetFolder": {
+    "description": "设置中添加存放可视化场景的文件夹的标题。"
+  },
+  "visualizerAddPresetFolderSubtitle": "添加一个可视化场景文件夹，所有文件夹的场景会合并使用。",
+  "@visualizerAddPresetFolderSubtitle": {
+    "description": "添加可视化场景文件夹的设置的副标题。"
+  },
+  "visualizerRemovePresetFolder": "移除",
+  "@visualizerRemovePresetFolder": {
+    "description": "从可视化场景文件夹中移除一个文件夹的按钮；文件夹本身不会被删除。"
+  },
+  "visualizerEffects": "特效频率",
+  "@visualizerEffects": {
+    "description": "选择可视化在音乐的重点时刻播放特效的频率的设置项标题。"
+  },
+  "visualizerEffectsSubtitle": "可视化在音乐的重点时刻播放特效的频率",
+  "@visualizerEffectsSubtitle": {
+    "description": "可视化特效频率设置项的副标题。"
+  },
+  "visualizerEffectsDefault": "默认",
+  "@visualizerEffectsDefault": {
+    "description": "可视化特效频率设置项的选项：偶尔播放特效，一首歌大约两次。"
+  },
+  "visualizerEffectsMore": "多",
+  "@visualizerEffectsMore": {
+    "description": "可视化特效频率设置项的选项：更频繁地播放特效。"
+  },
+  "coverWallDisplay": "封面墙显示内容",
+  "@coverWallDisplay": {
+    "description": "选择封面墙页面显示内容的设置项标题。"
+  },
+  "coverWallDisplaySubtitle": "在封面墙页面显示封面或可视化",
+  "@coverWallDisplaySubtitle": {
+    "description": "封面墙显示内容设置项的副标题。"
+  },
+  "coverWallDisplayCovers": "封面墙",
+  "@coverWallDisplayCovers": {
+    "description": "封面墙显示内容设置项的选项，也是封面墙页面右键菜单项，显示专辑封面墙。"
+  },
+  "coverWallDisplayVisualizer": "可视化",
+  "@coverWallDisplayVisualizer": {
+    "description": "封面墙显示内容设置项的选项，也是封面墙页面右键菜单项，显示音乐可视化。"
+  },
+  "coverWallVisualizerSubtitle": "随音乐变化的画面",
+  "@coverWallVisualizerSubtitle": {
+    "description": "封面墙设为显示可视化时，播放控制栏中打开封面墙的项目的副标题。"
+  },
+  "visualizerCredits": "第三方素材致谢",
+  "@visualizerCredits": {
+    "description": "关于页面中致谢可视化内置场景所用第三方素材的分区标题。"
   }
 }

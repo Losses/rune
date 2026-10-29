@@ -1338,5 +1338,81 @@
   "deduplicating": "正在去重",
   "@deduplicating": {
     "description": "表示當前正在執行去重過程的標籤。向用戶展示系統正在移除音樂庫或播放列表中的重複曲目。也可使用“正在移除重複項”或“去重進行中”等表達。"
+  },
+  "visualizerPrevious": "上一個場景",
+  "@visualizerPrevious": {
+    "description": "視覺化中切換到上一個場景的右鍵選單項。"
+  },
+  "visualizerNext": "下一個場景",
+  "@visualizerNext": {
+    "description": "視覺化中切換到下一個場景的右鍵選單項。"
+  },
+  "visualizerRandom": "隨機場景",
+  "@visualizerRandom": {
+    "description": "視覺化中切換到隨機場景的右鍵選單項。"
+  },
+  "visualizerChoosePreset": "選擇場景",
+  "@visualizerChoosePreset": {
+    "description": "視覺化右鍵選單項，開啟子選單依名稱選擇某個場景。"
+  },
+  "visualizerLockPreset": "鎖定場景",
+  "@visualizerLockPreset": {
+    "description": "視覺化右鍵選單項，使其不再自動切換場景，保持目前的場景。"
+  },
+  "visualizerUnlockPreset": "解除鎖定場景",
+  "@visualizerUnlockPreset": {
+    "description": "視覺化右鍵選單項，使其重新自動切換場景。"
+  },
+  "visualizerAddPresetFolder": "新增場景資料夾",
+  "@visualizerAddPresetFolder": {
+    "description": "設定中新增存放視覺化場景的資料夾的標題。"
+  },
+  "visualizerAddPresetFolderSubtitle": "新增一個視覺化場景資料夾，所有資料夾的場景會合併使用。",
+  "@visualizerAddPresetFolderSubtitle": {
+    "description": "新增視覺化場景資料夾的設定的副標題。"
+  },
+  "visualizerRemovePresetFolder": "移除",
+  "@visualizerRemovePresetFolder": {
+    "description": "從視覺化場景資料夾中移除一個資料夾的按鈕；資料夾本身不會被刪除。"
+  },
+  "visualizerEffects": "特效頻率",
+  "@visualizerEffects": {
+    "description": "選擇視覺化在音樂的重點時刻播放特效的頻率的設置項標題。"
+  },
+  "visualizerEffectsSubtitle": "視覺化在音樂的重點時刻播放特效的頻率",
+  "@visualizerEffectsSubtitle": {
+    "description": "視覺化特效頻率設置項的副標題。"
+  },
+  "visualizerEffectsDefault": "預設",
+  "@visualizerEffectsDefault": {
+    "description": "視覺化特效頻率設置項的選項：偶爾播放特效，一首歌大約兩次。"
+  },
+  "visualizerEffectsMore": "多",
+  "@visualizerEffectsMore": {
+    "description": "視覺化特效頻率設置項的選項：更頻繁地播放特效。"
+  },
+  "coverWallDisplay": "封面牆顯示內容",
+  "@coverWallDisplay": {
+    "description": "選擇封面牆頁面顯示內容的設置項標題。"
+  },
+  "coverWallDisplaySubtitle": "在封面牆頁面顯示封面或視覺化",
+  "@coverWallDisplaySubtitle": {
+    "description": "封面牆顯示內容設置項的副標題。"
+  },
+  "coverWallDisplayCovers": "封面牆",
+  "@coverWallDisplayCovers": {
+    "description": "封面牆顯示內容設置項的選項，也是封面牆頁面右鍵選單項，顯示專輯封面牆。"
+  },
+  "coverWallDisplayVisualizer": "視覺化",
+  "@coverWallDisplayVisualizer": {
+    "description": "封面牆顯示內容設置項的選項，也是封面牆頁面右鍵選單項，顯示音樂視覺化。"
+  },
+  "coverWallVisualizerSubtitle": "隨音樂變化的畫面",
+  "@coverWallVisualizerSubtitle": {
+    "description": "封面牆設為顯示視覺化時，播放控制列中開啟封面牆的項目的副標題。"
+  },
+  "visualizerCredits": "第三方素材致謝",
+  "@visualizerCredits": {
+    "description": "關於頁面中致謝視覺化內建場景所用第三方素材的區段標題。"
   }
 }

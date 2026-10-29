@@ -107,6 +107,87 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             local_only: false,
         },
+        // Visualizer (the GPU and the frame buffer live in this process)
+        RequestResponse {
+            request: "StartVisualizerRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "StopVisualizerRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "ResizeVisualizerRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "SetVisualizerPresetDirsRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "SetVisualizerAccentRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "SetVisualizerVisibleRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "LoadVisualizerPresetRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "NextVisualizerPresetRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "PreviousVisualizerPresetRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "RandomVisualizerPresetRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "SetVisualizerAutoSwitchPausedRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "SetVisualizerEffectLevelRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "VisualizerStatusRequest".to_string(),
+            response: Some("VisualizerStatusResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "ListVisualizerPresetsRequest".to_string(),
+            response: Some("ListVisualizerPresetsResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "ListVisualizerCreditsRequest".to_string(),
+            response: Some("ListVisualizerCreditsResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "VisualizerTextureShownRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
         // SFX
         RequestResponse {
             request: "SfxPlayRequest".to_string(),

@@ -17,7 +17,7 @@ bytes = "1.11.1"
 chrono = { version = "0.4.39", features = ["serde"] }
 futures = "0.3.31"
 log = "0.4.25"
-netdev = "0.32.0"
+netdev = "0.47.0"
 num-bigint = "0.4.6"
 num-integer = "0.1.46"
 num-traits = "0.2.19"

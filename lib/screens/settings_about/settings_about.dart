@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/settings_manager.dart';
@@ -207,6 +210,8 @@ class _InfoSection extends StatelessWidget {
                   SystemInfo(data: data),
                   _ActivationInfo(),
                   _CopyrightInfo(),
+                  const SizedBox(height: 24),
+                  _CreditsInfo(),
                 ],
               );
             }
@@ -224,6 +229,7 @@ class _InfoSection extends StatelessWidget {
                     SystemInfo(data: data),
                     _ActivationInfo(),
                     _CopyrightInfo(),
+                    _CreditsInfo(),
                   ],
                 ),
               ),
@@ -383,6 +389,120 @@ class _CopyrightInfo extends StatelessWidget {
         const SizedBox(height: 4),
         Text(S.of(context).licenseAnnouncement),
       ],
+    );
+  }
+}
+
+/// What the built-in visualizer scenes owe the makers of their assets, as the scenes write it.
+class _CreditsInfo extends StatefulWidget {
+  @override
+  State<_CreditsInfo> createState() => _CreditsInfoState();
+}
+
+class _CreditsInfoState extends State<_CreditsInfo> {
+  late final Future<List<VisualizerCredit>> _credits = _fetch();
+
+  Future<List<VisualizerCredit>> _fetch() async {
+    final response = ListVisualizerCreditsResponse.rustSignalStream.first
+        .timeout(const Duration(seconds: 1));
+    ListVisualizerCreditsRequest().sendSignalToRust();
+    try {
+      return (await response).message.credits;
+    } on TimeoutException {
+      return const [];
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<VisualizerCredit>>(
+      future: _credits,
+      builder: (context, snapshot) {
+        final credits = snapshot.data ?? const [];
+        if (credits.isEmpty) return const SizedBox.shrink();
+        final typography = FluentTheme.of(context).typography;
+
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(S.of(context).visualizerCredits, style: typography.subtitle),
+              for (final credit in credits) ...[
+                const SizedBox(height: 8),
+                Text(credit.scene, style: typography.bodyStrong),
+                for (final asset in credit.assets) ...[
+                  const SizedBox(height: 2),
+                  _LinkedText(asset),
+                ],
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Text whose web addresses open in the browser.
+class _LinkedText extends StatefulWidget {
+  final String text;
+
+  const _LinkedText(this.text);
+
+  @override
+  State<_LinkedText> createState() => _LinkedTextState();
+}
+
+class _LinkedTextState extends State<_LinkedText> {
+  static final _url = RegExp(r'https?://[^\s,;)]+');
+  final _recognizers = <TapGestureRecognizer>[];
+
+  void _disposeRecognizers() {
+    for (final recognizer in _recognizers) {
+      recognizer.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _disposeRecognizers();
+
+    final theme = FluentTheme.of(context);
+    final spans = <InlineSpan>[];
+    var end = 0;
+    for (final match in _url.allMatches(widget.text)) {
+      // A full stop that ends the sentence is not part of the address.
+      var url = match.group(0)!;
+      if (url.endsWith('.')) url = url.substring(0, url.length - 1);
+      spans.add(TextSpan(text: widget.text.substring(end, match.start)));
+      final recognizer =
+          TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(url));
+      _recognizers.add(recognizer);
+      spans.add(
+        TextSpan(
+          text: url,
+          style: TextStyle(
+            color: theme.accentColor.defaultBrushFor(theme.brightness),
+          ),
+          recognizer: recognizer,
+        ),
+      );
+      end = match.start + url.length;
+    }
+    spans.add(TextSpan(text: widget.text.substring(end)));
+
+    return Text.rich(
+      TextSpan(children: spans),
+      style: theme.typography.caption,
     );
   }
 }

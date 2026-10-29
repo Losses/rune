@@ -29,7 +29,7 @@ use ::fsio::FsIo;
 use ::playback::{
     MediaMetadata, MediaPlayback, MediaPosition,
     controller::{MediaControlManager, get_default_cover_art_path, handle_media_control_event},
-    player::{Playable, PlayingItem, PlaylistStatus},
+    player::{Playable, PlaybackState, PlayingItem, PlaylistStatus},
 };
 use ::scrobbling::{ScrobblingTrack, manager::ScrobblingServiceManager};
 
@@ -106,6 +106,8 @@ pub async fn initialize_local_player(
     manager.lock().await.initialize()?;
 
     info!("Initializing event listeners");
+    // The visualizer opens the playing file through it, to analyse it.
+    crate::visualizer::VISUALIZER.set_fsio(Arc::clone(&fsio_for_status));
     task::spawn(async move {
         let fsio = Arc::clone(&fsio_for_status);
         let main_db = Arc::clone(&main_db_for_status);
@@ -115,6 +117,14 @@ pub async fn initialize_local_player(
 
         while let Ok(status) = status_receiver.recv().await {
             debug!("Player status updated: {status:?}");
+            // The visualizer stands still while the music does, and finds the song's chart.
+            let playing = status.state == PlaybackState::Playing;
+            crate::visualizer::VISUALIZER.set_playing(playing);
+            crate::visualizer::VISUALIZER.set_playback(
+                status.path.as_deref(),
+                status.position,
+                playing,
+            );
 
             let item = status.item.clone();
 
@@ -145,6 +155,8 @@ pub async fn initialize_local_player(
                             }
                             Err(_) => None,
                         };
+                        // Scenes of the visualizer that read covers get new ones.
+                        crate::visualizer::playing_cover_changed(cover_art.as_deref());
 
                         match dispatcher
                             .lock()
@@ -195,6 +207,9 @@ pub async fn initialize_local_player(
                 }
                 none => {
                     // If the index is None, send empty metadata
+                    if last_status_item.is_some() {
+                        crate::visualizer::playing_cover_changed(None);
+                    }
                     last_status_item = none;
                     PlayingItemMetadataSummary::default()
                 }

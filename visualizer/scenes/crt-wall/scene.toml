@@ -1,0 +1,617 @@
+format = 1
+name = "CRT Wall"
+license = "MPL-2.0"
+description = "An endless wall of old television sets piled every which way, each changing channel on its own beat"
+
+common = ["wall.wgsl"]
+# Covers from the library, for the screens that show one.
+covers = true
+
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md): A wall of
+# old televisions: glitches, dot mosaics and a flash washed in the theme colour suit it (the screens
+# themselves no longer flash when they change: they roll, slip, collapse or tune through snow). The
+# scene declares no flare and must not: no lens flare over a wall of screens. Every other lens
+# effect is declared.
+[effects]
+# Transitions: switching into this scene, and dressing a hard cut of the camera in it.
+transitions = ["fade", "glitch", "mosaic", "flash"]
+# Lens effects: over the picture, with no change of picture.
+lens = ["leak", "glitch", "mosaic"]
+
+# The director cuts between the wall's views. The camera has no roll of its own, so the director's
+# dutch angle is the only tilt, on the ordinary close shots as on the burst's (so `dutch_in` stays
+# at its default).
+[camera]
+dutch = 0.3
+
+# Straight on at the wall's distance, a few screens' worth of piles in the frame.
+[[shot]]
+name = "front"
+size = "wide"
+move = "cut"
+
+# From one side, looking along the wall. It may open a section too, so that not every section opens
+# straight on (the openers needed another view).
+[[shot]]
+name = "side"
+size = "medium"
+move = "cut"
+opens = true
+
+# There is no far view for now: it was too like the one straight on.
+
+# Close up through a long lens.
+[[shot]]
+name = "close"
+size = "close"
+move = "cut"
+
+# Looking up the wall: near it, pitched up 30 to 40 degrees, the piles converging upward into the
+# dark, with a small dutch angle (a third of the director's, update.wgsl).
+[[shot]]
+name = "up"
+size = "medium"
+move = "cut"
+
+# The burst before a section that lifts, a cut on each of its last four beats, each nearer than the
+# one before and each on one set the scene chooses somewhere new on the wall and whose screen it
+# sets, so the subject is in frame without searching the picture for one (update.wgsl's choose_burst
+# frames them, shot.index 4 to 7). Turned about 20 degrees, the whole set in frame, its screen the
+# wave against time;
+[[burst]]
+name = "a set from the side"
+size = "close"
+
+# turned the other way, nearer, only that set, the stereo picture on its screen;
+[[burst]]
+name = "the set nearer, the other side"
+size = "close"
+
+# straight on, its screen about 70 % of the picture's height, scan lines readable, a cover from the
+# library on it (the song playing's where the library has none, as in a scene lab: the two close-ups
+# of a screen are both covers);
+[[burst]]
+name = "a screen straight on"
+size = "detail"
+
+# straight on, nearest, the screen filling the picture: the cover of the song playing (the library's
+# if there is none, a scope if there are no covers at all).
+[[burst]]
+name = "the screen filling the picture"
+size = "detail"
+
+# The looks (view.wgsl grades the picture by them and blends them; the runtime picks one at a
+# section start by the section's energy): the wall in grey, dim, with a faint tint of the theme
+# colour, at quiet and ordinary sections, and in the theme colour at the climax. A colleague found
+# the wall's colours too mixed (the covers in every hue beside cream, walnut and red cabinets), so
+# the whole picture is one colour family as Neon Street's is, except the album covers, which are
+# never recoloured: in the grey look fewer screens show one instead (`cover_grey`).
+[[look]]
+name = "grey"
+tags = ["night"]
+tiers = ["quiet", "normal"]
+
+[[look]]
+name = "theme colour"
+tags = ["colour"]
+tiers = ["high"]
+opens = false
+# A song with no high section would stay grey throughout: it is promised the look once, in its
+# highest section then.
+at_least_once = true
+
+[state]
+file = "state.wgsl"
+update = "update.wgsl"
+
+# The whole picture's resolution, per side, stretched to the screen after. 1 draws every pixel;
+# for phones 0.6 keeps the scan lines and grilles readable close up, 0.5 softens them.
+[render]
+scale = 1.0
+
+[[asset]]
+id = "plastic"
+file = "assets/plastic.png"
+# Data, not colour: the normal, how open each spot is and the face's tone.
+linear = true
+source = "Made by tools/make_textures.py"
+
+# The scopes' trace, small: it is only ever seen on a screen.
+[[buffer]]
+id = "scope_buf"
+scale = 0.3
+persistent = true
+
+# The plan of the wall around where the camera looks, worked out once a frame so that every pixel
+# reads its bays, piles and pools of light, and the scopes their points, rather than working them
+# out again. It needs 29 x 75 texels (enough at half the internal resolution on a phone);
+# smaller, the passes work them out themselves.
+[[buffer]]
+id = "plan"
+format = "rgba32float"
+scale = 0.17
+
+[[pass]]
+shader = "plan.wgsl"
+target = "plan"
+
+[[pass]]
+shader = "scope.wgsl"
+target = "scope_buf"
+inputs = ["prev:scope_buf", "plan"]
+
+[[pass]]
+shader = "view.wgsl"
+target = "out"
+inputs = ["scope_buf", "plan"]
+
+# `update()` sets the exposure, the bloom's strength and the grain every frame from the parameters
+# `exposure`, `glow` and `grain`; these are the values it starts from, the parameters' defaults.
+[post]
+exposure = -1.6
+bloom = { intensity = 0.5, threshold = 1.0, radius = 0.6 }
+tonemap = "agx"
+grain = 0.045
+chromatic = 0.0
+vignette = 0.4
+contrast = 1.1
+saturation = 1.0
+
+# ---- What the music drives ----
+# The scene says what it wants from the music and the runtime works it out (see "Bindings" in the
+# runtime's docs/music.md); the shaders read the values as `input.<id>`. The events the scene only
+# needs to know of arrive as one-frame pulses (release 0). What it only measures is mapped in the
+# binds where it can be (the pace, the energy); the one raw number kept is `section`, because the
+# shader needs the section's own number (it seeds how the channels group), not a mapping of it.
+
+[[input]]
+id = "beat"
+label = "A beat, or a hit where no beat is followed"
+
+[[input]]
+id = "section"
+label = "Which section, counted (every section its own number)"
+range = [0.0, 1000.0]
+
+[[input]]
+id = "way"
+label = "The way the screens change channel (every kind of section its own, 0 to 4)"
+range = [0.0, 4.0]
+
+[[input]]
+id = "pace"
+label = "How fast the music is, against a song of 90 bpm (held to 0.25 to 3)"
+range = [0.25, 3.0]
+rest = 1.0
+
+[[input]]
+id = "audible"
+label = "How much is heard (falls with a fade, 0 in silence)"
+
+[[input]]
+id = "section_level"
+label = "How high this section is in the song (0 quiet, 1 high)"
+
+[[input]]
+id = "energy"
+label = "The energy of the moment, spread over the whole range and eased over a second (0 to 1)"
+rest = 0.5
+
+[[bind]]
+target = "beat"
+source = "hits"
+how = "trigger"
+when = { scale = false, release = 0.0 }
+
+[[bind]]
+target = "section"
+source = "section"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+# How the wall changes channel, one of five (0 rolls up, 1 rolls down, 2 slips sideways, 3 collapses
+# to a line, 4 tunes through snow): the kind of section picks it from its label, so every chorus the
+# same way, and the whole wall changes one way at a time (more than one way, but a wall where a
+# quarter of the screens change every beat would be busy if they mixed). With no chart the cues
+# (section starts, or the music's own moments) move it on now and then. The wall reads it only at a
+# cut (update.wgsl's decide_wall).
+[[bind]]
+target = "way"
+source = "section_label"
+how = "pick"
+when = { options = 5 }
+fallback = "cues"
+
+# The camera's cruise is for 90 bpm: a faster song goes faster and a slower one slower. 22.5 to 270
+# bpm is 0.25 to 3 times that, and the ends are held.
+[[bind]]
+target = "pace"
+source = "tempo"
+how = "follow"
+when = { from = [22.5, 270.0], to = [0.25, 3.0] }
+
+# How much is heard, eased over half a second so that what moves with it slows with a song's own
+# fade (the camera, the snow's bar); the step counter only counts while it is above 0.3.
+[[bind]]
+target = "audible"
+source = "audible"
+how = "follow"
+when = { smooth = 0.5, per = "second" }
+
+# How high the section is in the song, 0 to 1 (at A, B and C alike: half its loudness, half its
+# rank among the song's sections). The wall reads it at each cut to decide how many screens are off.
+[[bind]]
+target = "section_level"
+source = "section_level"
+how = "follow"
+
+# The energy of the moment: `intensity` sits between about 0.2 and 0.85, so it is spread over 0 to 1
+# first, and eased over a second so that nothing follows it as a pulse. The camera's speed and the
+# screens' light follow it (as Neon Street's signs do).
+[[bind]]
+target = "energy"
+source = "intensity"
+how = "follow"
+when = { from = [0.2, 0.85], smooth = 1.0, per = "second" }
+
+# ---- Screens ----
+
+[[param]]
+id = "share"
+group = "Screens"
+label = "Share of screens changing channel on a beat (each on its own beat)"
+default = 0.25
+min = 0.02
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "change_time"
+group = "Screens"
+label = "How long a change of channel takes"
+unit = "s"
+default = 0.18
+min = 0.05
+max = 0.6
+step = 0.01
+
+[[param]]
+id = "change_way"
+type = "choice"
+group = "Screens"
+label = "How the screens change channel"
+default = 0
+options = ["By the kind of section", "Roll up", "Roll down", "Slip sideways", "Collapse to a line", "Tune through snow"]
+
+[[param]]
+id = "snow"
+group = "Screens"
+label = "Weight of snow"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "scope"
+group = "Screens"
+label = "Weight of scopes"
+default = 0.35
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "cover"
+group = "Screens"
+label = "Weight of covers"
+default = 1.4
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "cover_grey"
+group = "Screens"
+label = "Share of the covers' weight kept in the grey look (most screens then show snow and scopes; decided at each cut of the view; the theme colour look keeps all of it)"
+default = 0.2
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "now_playing"
+group = "Screens"
+label = "Share of covers that are the song playing"
+default = 0.3
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "cover_light"
+group = "Screens"
+label = "Cover brightness"
+default = 0.6
+min = 0.1
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "group"
+group = "Screens"
+label = "How much neighbouring screens share a channel"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "off_always"
+group = "Screens"
+label = "Screens always off"
+default = 0.2
+min = 0.0
+max = 0.8
+step = 0.05
+
+[[param]]
+id = "off"
+group = "Screens"
+label = "Screens also dark in the quietest sections (decided at each cut of the view)"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "brightness"
+group = "Screens"
+label = "Screen brightness"
+default = 0.9
+min = 0.1
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "energy_light"
+group = "Screens"
+label = "Energy on the screens' light (1 is 0.75 to 1.2 times, slowly; 0 none)"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "persist"
+group = "Screens"
+label = "Scope persistence"
+unit = "s"
+default = 0.12
+min = 0.01
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "gaps"
+group = "Screens"
+label = "Empty slots"
+default = 0.04
+min = 0.0
+max = 0.5
+step = 0.01
+
+# ---- Material and light ----
+
+[[param]]
+id = "cabinet"
+group = "Material and light"
+label = "Charcoal cabinet albedo"
+default = 0.045
+min = 0.005
+max = 0.5
+step = 0.005
+
+[[param]]
+id = "wear"
+group = "Material and light"
+label = "Wear (grime, dust, rubbed edges, yellowing, stickers and tape, lost knobs)"
+default = 0.8
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "odd"
+group = "Material and light"
+label = "Share of red cabinets"
+default = 0.04
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "surface"
+group = "Material and light"
+label = "Plastic surface detail (normal map)"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "glass"
+group = "Material and light"
+label = "Glass reflections"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "key"
+group = "Material and light"
+label = "Key light"
+default = 0.8
+min = 0.0
+max = 10.0
+step = 0.1
+
+[[param]]
+id = "shadows"
+group = "Material and light"
+label = "Shadows"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "spill"
+group = "Material and light"
+label = "Screens lighting the sets beside them"
+default = 3.0
+min = 0.0
+max = 10.0
+step = 0.1
+
+[[param]]
+id = "pools"
+group = "Material and light"
+label = "Key light in pools (0 is even)"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "fill"
+group = "Material and light"
+label = "The room's fill light"
+default = 0.02
+min = 0.0
+max = 0.3
+step = 0.005
+
+# ---- Camera ----
+
+[[param]]
+id = "distance"
+group = "Camera"
+label = "Front view's distance from the wall"
+unit = "m"
+default = 4.0
+min = 1.0
+max = 8.0
+step = 0.1
+
+[[param]]
+id = "side_angle"
+group = "Camera"
+label = "Side view's turn"
+unit = "°"
+default = 30.0
+min = 5.0
+max = 60.0
+step = 1
+
+[[param]]
+id = "cruise"
+group = "Camera"
+label = "Cruise speed (a song of middling pace)"
+unit = "m/s"
+default = 0.35
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "push"
+group = "Camera"
+label = "Push on each beat"
+default = 0.6
+min = 0.0
+max = 3.0
+step = 0.05
+
+[[param]]
+id = "ease"
+group = "Camera"
+label = "Easing back to cruise"
+unit = "s"
+default = 0.6
+min = 0.05
+max = 4.0
+step = 0.05
+
+[[param]]
+id = "accel"
+group = "Camera"
+label = "Speed smoothing"
+unit = "s"
+default = 0.25
+min = 0.01
+max = 2.0
+step = 0.01
+
+[[param]]
+id = "energy_speed"
+group = "Camera"
+label = "Energy on speed (1 is 0.6 to 1.4 times, 0 none)"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+# ---- Colour and look ----
+
+[[param]]
+id = "player_colour"
+type = "bool"
+group = "Colour and look"
+label = "Phosphor in the player's theme colour (the system's accent, the chosen colour or the cover's)"
+default = true
+
+[[param]]
+id = "tint"
+type = "color"
+group = "Colour and look"
+label = "Phosphor colour when not following"
+default = "#8cf0b0"
+
+[[param]]
+id = "chroma"
+group = "Colour and look"
+label = "How colourful the phosphor is"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "exposure"
+group = "Colour and look"
+label = "Exposure"
+unit = "EV"
+default = -1.6
+min = -3.0
+max = 3.0
+step = 0.1
+
+[[param]]
+id = "glow"
+group = "Colour and look"
+label = "Glow"
+default = 0.5
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "grain"
+group = "Colour and look"
+label = "Grain"
+default = 0.045
+min = 0.0
+max = 0.2
+step = 0.005

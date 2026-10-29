@@ -1,0 +1,161 @@
+# The runtime's own decisions, declared the way a scene declares its bindings (see "The runtime's
+# bindings" in docs/music.md). This file is embedded in the visualizer and read at start; a scene
+# lab can replace it live. Its values are today's behaviour: every number and every source here is
+# what the code did before the decisions were opened, and a test pins that.
+#
+# A bind is { target, source, how, when, fallback }, as in scene.toml, with these differences:
+#
+# - The targets are the runtime's decisions (below), not a scene's inputs.
+# - `how` says how the decision reads its source: `trigger` (an event that counts when it is at
+#   least `strength`), `follow` (a level), `step` (a count of events, or a length in them).
+# - A source is read at the fallback level the music is at (A chart and a followed beat, B a chart
+#   alone, C none). Where the source means nothing at that level, the `fallback` takes over: a
+#   source, or `{ value = x }`. With no fallback the decision is off there. `bars` and `beats` mean
+#   something only while the beat is followed (`locked` above 0.5); the other sources, at the
+#   levels `docs/music.md` lists.
+# - Several binds on one target are an OR (moments.medium); the first of them is the main one where
+#   a decision needs one number from the group.
+# - `source` and `how` may be left out of a bind that only holds numbers (director.sizes).
+
+# --- Moments: when an effect may play (src/moments.rs) ----------------------------------------
+
+# A strong moment: a section start that lifts the energy, a cue of 0.8 or more. The burst of cuts
+# leads to it. It plays a strong effect if the scene lists one.
+[[bind]]
+target = "moments.strong"
+source = "cues"
+how = "trigger"
+when = { strength = 0.8 }
+
+# A medium moment: another section start (a cue of 0.5 or more), or an impact. Both are ORed. The
+# first bind is also what the whole runtime calls "a section start": the director's establishing
+# cut, the start of a phrase for the effects' course, and the look's changes. A bind on `cues`
+# rolls its chance by the section it starts; a bind on any other source, by its number in the
+# section.
+[[bind]]
+target = "moments.medium"
+source = "cues"
+how = "trigger"
+when = { strength = 0.5 }
+
+[[bind]]
+target = "moments.medium"
+source = "impacts"
+how = "trigger"
+when = { strength = 0.0 }
+
+# A medium moment does not play within this many `every` of the source (bars, or beats) of the
+# last effect. Where the source is not counted (the beat is not followed) one of them is taken as
+# the fallback's value in seconds.
+[[bind]]
+target = "moments.gap"
+source = "bars"
+how = "step"
+when = { every = 8 }
+fallback = { value = 2.0 }
+
+# --- The camera director (src/scene/director.rs) -----------------------------------------------
+
+# How lively the section is, and so how often the shot cuts and which looks and shots suit it: its
+# level in the song (`section_level`: half its loudness, half its rank among the song's sections, so
+# every song has quiet and high parts and a loud one more high ones; `above` 0.71 so that the first
+# chorus of a pop song loud throughout, 0.73, is high). Below `below` is quiet, above `above` is
+# high. `seconds` is the time between two cuts, [quiet, normal, high], beat or not (a scene's `pace`
+# scales it: calm times 1.5, busy divided by 1.5). `gap` is the shortest time between any two cuts
+# that are not inside one burst (a scene's `hold` only ever raises it): a cadence cut that comes
+# sooner waits, and a section start that comes sooner does not cut. `lead`: with the next section
+# start known, a cadence cut due less than this many seconds before it (or than `gap`, if longer, so
+# that the section start is not held back) waits and the section start cuts instead; a cadence cut
+# also waits when the burst before a lifting section would start within `gap` of it.
+[[bind]]
+target = "director.cadence"
+source = "section_level"
+how = "follow"
+when = { below = 0.35, above = 0.71, seconds = [24.0, 16.0, 10.0], gap = 6.0, lead = 4.0 }
+
+# How much each size is wanted in a section of each tier, in the order wide, medium, close, detail,
+# top. At a cadence cut the director picks among the scene's shots whose size differs from the one
+# on, each by its `weight` times the number here for its size (0 never, while another size is
+# wanted at all). A quiet section looks wide and medium, a high one close and detail, and `top`
+# is wanted the same everywhere. A section start is not asked: it picks among the shots that
+# `opens` (a wide one unless the scene says so), by their `weight`.
+[[bind]]
+target = "director.sizes"
+when = { quiet = [3, 3, 1, 0, 1], normal = [2, 3, 2, 1, 1], high = [1, 2, 3, 2, 1] }
+
+# What a cut lands on once the cadence's seconds are due. With a followed beat, a downbeat. Without,
+# the first hit, or `grace` seconds later, whichever comes first.
+[[bind]]
+target = "director.cut"
+source = "bars"
+how = "trigger"
+when = { grace = 2.0 }
+fallback = "hits"
+
+# The burst of cuts before a section whose energy lifts, through the shots the scene declares as
+# `[[burst]]` (none declared: no burst). `source` is the time to the next section, read on each beat
+# of `on` (so only with a followed beat: `beats` means nothing without one, and the burst is off),
+# and the lift is `to` minus `from` at `lift` or more. It cuts on each of the last beats, one for
+# each declared shot (at most four). `chance` (0 to 1, 1 where left out) is how likely a lifting
+# section start is to get its burst: a burst with the switch looks good, but it need not be every
+# time. The roll is a hash of the coming section (its number in the song and its label), so a song
+# bursts before the same sections on every play, and a burst not taken holds the cadence back no
+# more. A scene that declares a burst bursts at least once in a song, not fixed on the first but
+# random: if none of the earlier ones fired, the last one does. So every lift rolls, and the song's
+# last lift (no later boundary of the chart rises by `lift`) bursts whatever the roll if no burst
+# has begun in this song. Lost where that burst cannot fit within `gap`; a scene that comes in after
+# the last lift has no promise; the song time going back starts the account again. The lab can say
+# always or never. A high section's start is always a cut on a strong transition, burst or not.
+[[bind]]
+target = "director.burst"
+source = "cue_in"
+how = "follow"
+when = { on = "beats", from = "section_energy", to = "next_energy", lift = 0.1, chance = 0.5 }
+
+# --- Looks (src/scene/looks.rs) ----------------------------------------------------------------
+
+# When a scene's look changes (its `[[look]]`s: large visual changes such as the light) and over
+# how long. A cue of `strength` or more (a section start, with a chart) changes the look to the
+# one the section's label picks by the looks' weights: every chorus has the same look, and a song
+# plays the same each time. If that is the look on, nothing changes: the look stays tied to the
+# kind of section. Two changes are at least `gap` seconds apart (the scene's start counts as one,
+# so that it keeps the look it opened in for that long). Without a chart there are no labels:
+# a cue of `strength_unlabelled` or more changes the look to the next in an order the scene's
+# seed makes, at least `gap_unlabelled` seconds after the last change. The fade lasts `fade` beats
+# with a followed beat, else `fade_seconds` seconds, eased.
+[[bind]]
+target = "look.change"
+source = "cues"
+how = "trigger"
+when = { strength = 0.5, gap = 8.0, strength_unlabelled = 0.0, gap_unlabelled = 30.0, fade = 1.0, fade_seconds = 0.5 }
+
+# --- The effects' course (src/course.rs) -------------------------------------------------------
+
+# How long a long effect lasts: to the next `phrase` of the source (bars) from the section's
+# start, but at least `least` and at most `most` of them. Where the source is not counted, the
+# fallback's value in seconds.
+[[bind]]
+target = "course.length"
+source = "bars"
+how = "step"
+when = { phrase = 4, least = 2, most = 8 }
+fallback = { value = 4.0 }
+
+# How much of the effect is on: its shape times the source, from `least` at 0 to 1 at 1. The
+# source is smoothed over about a beat.
+[[bind]]
+target = "course.amount"
+source = "intensity"
+how = "follow"
+when = { least = 0.35 }
+
+# What moves in the effect moves on an eased beat time: the beat time runs with the source's beats
+# while the beat is followed (starting in phase with `phase`), with a push at every beat as strong
+# as the `hit` and at least `push_least` of it. Without a followed beat the fallback's events
+# push it on to the next whole beat, a beat being `beat_seconds` long.
+[[bind]]
+target = "course.motion"
+source = "beats"
+how = "step"
+when = { phase = "clock", push_least = 0.3, beat_seconds = 0.5 }
+fallback = "hits"

@@ -18,3 +18,4 @@ mod search;
 mod sfx;
 mod stat;
 mod system;
+mod visualizer;

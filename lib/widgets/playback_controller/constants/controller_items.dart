@@ -18,6 +18,7 @@ import '../../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../../providers/status.dart';
 import '../../../providers/volume.dart';
 import '../../../providers/full_screen.dart';
+import '../../../providers/cover_wall_display.dart';
 
 import '../lyric_button.dart';
 import '../next_button.dart';
@@ -53,6 +54,16 @@ class ControllerEntry {
     required this.onShortcut,
   });
 }
+
+/// Whether the cover wall shows the visualizer, which renames its entry.
+bool _coverWallShowsVisualizer(BuildContext context, {bool listen = true}) =>
+    Provider.of<CoverWallDisplayProvider>(context, listen: listen)
+        .showVisualizer;
+
+String _coverWallTitle(BuildContext context, {bool listen = true}) =>
+    _coverWallShowsVisualizer(context, listen: listen)
+        ? S.of(context).coverWallDisplayVisualizer
+        : S.of(context).coverWall;
 
 List<ControllerEntry> controllerItems = [
   ControllerEntry(
@@ -433,24 +444,28 @@ List<ControllerEntry> controllerItems = [
   ),
   ControllerEntry(
     id: 'cover_wall',
-    icon: (context) => Symbols.photo,
-    titleBuilder: (context) => S.of(context).coverWall,
-    subtitleBuilder: (context) => S.of(context).coverWallSubtitle,
+    icon: (context) =>
+        _coverWallShowsVisualizer(context) ? Symbols.graphic_eq : Symbols.photo,
+    titleBuilder: (context) => _coverWallTitle(context),
+    subtitleBuilder: (context) => _coverWallShowsVisualizer(context)
+        ? S.of(context).coverWallVisualizerSubtitle
+        : S.of(context).coverWallSubtitle,
     shortcuts: [const SingleActivator(LogicalKeyboardKey.keyN, alt: true)],
     onShortcut: (context) {
       showCoverArtWall();
     },
-    tooltipBuilder: (context) => S.of(context).coverWall,
+    tooltipBuilder: (context) => _coverWallTitle(context),
     controllerButtonBuilder: (context, shadows) => CoverWallButton(
       shadows: shadows,
     ),
     flyoutEntryBuilder: (context) async {
+      final visualizer = _coverWallShowsVisualizer(context, listen: false);
       return MenuFlyoutItem(
-        leading: const Icon(Symbols.photo),
+        leading: Icon(visualizer ? Symbols.graphic_eq : Symbols.photo),
         text: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(S.of(context).coverWall),
+            Text(_coverWallTitle(context, listen: false)),
             ShortcutText(Platform.isMacOS ? '⌥+N' : 'Alt+N'),
           ],
         ),

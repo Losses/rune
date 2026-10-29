@@ -28,8 +28,14 @@ class MainActivity: FlutterActivity() {
     private external fun initializeContext(context: Any)
     private external fun releaseContext()
 
+    /** Hands the engine's texture registry to the hub, which shows the visualizer in a texture. */
+    private external fun attachFlutter(registry: Any): Boolean
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        if (!attachFlutter(flutterEngine.renderer)) {
+            Log.e("Visualizer", "The hub could not take the texture registry")
+        }
         popChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ci.not.rune/pop")
     }
 

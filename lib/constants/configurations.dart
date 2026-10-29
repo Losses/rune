@@ -155,3 +155,21 @@ const kLinuxCustomWindowControlsKey = 'linux_custom_window_controls';
 /// theme or use a fixed color mode. Options include "auto" (follows system theme),
 /// "light" (always use light icon), and "dark" (always use dark icon).
 const kTrayIconColorModeKey = 'tray_icon_color_mode';
+
+/// The folders with scenes (folders with a `scene.toml`) that the visualizer
+/// cycles through, a list of paths. On macOS their security-scoped bookmarks are
+/// kept by `MacSecureManager` so the folders stay readable after a restart.
+const kVisualizerPresetDirsKey = 'visualizer_preset_dirs';
+
+/// The single preset folder of earlier versions; `loadVisualizerPresetDirs`
+/// moves it into [kVisualizerPresetDirsKey].
+const kVisualizerPresetDirKey = 'visualizer_preset_dir';
+
+/// 'covers' or 'visualizer': what the cover wall page shows behind the
+/// playing track, the wall of cover art or the visualizer. This
+/// defaults to 'covers' when the setting is missing.
+const kCoverWallDisplayKey = 'cover_wall_display';
+
+/// 'default' or 'more': how often the visualizer plays effects at the music's
+/// moments. This defaults to 'default' when the setting is missing.
+const kVisualizerEffectLevelKey = 'visualizer_effect_level';

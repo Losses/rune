@@ -1,0 +1,57 @@
+[package]
+name = "visualizer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "visualizer"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.98"
+chart_analyzer = { path = "../chart-analyzer" }
+fsio = { path = "../fsio" }
+log = "0.4.22"
+rand = "0.8.5"
+realfft = "3.4.0"
+rtrb = "0.3.2"
+serde = { version = "1.0.219", features = ["derive"] }
+half = "2.7.1"
+image = { version = "0.25.5", default-features = false, features = ["png", "jpeg"] }
+naga = { version = "30.0.1", features = ["wgsl-in"] }
+toml = "0.8.20"
+pollster = "0.4"
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl"] }
+
+# The backends of the platform's native graphics API. The objc2 crates are the IOSurface frame
+# path of macOS and iOS, the versions wgpu-hal's Metal backend uses, so its
+# texture types are ours.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["metal"] }
+
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFDictionary", "CFNumber", "CFString"] }
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-io-surface", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferIOSurface", "CVPixelBufferPool", "CVReturn"] }
+objc2-io-surface = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-core-foundation", "IOSurfaceRef", "IOSurfaceTypes"] }
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "objc2-io-surface", "MTLAllocation", "MTLDevice", "MTLPixelFormat", "MTLResource", "MTLTexture", "MTLTypes"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["vulkan"] }
+
+# The shared-texture frame path of Windows. wgpu-hal's DirectX 12 backend uses this version of the
+# windows crate, so its COM types are ours.
+[target.'cfg(target_os = "windows")'.dependencies]
+# `static-dxc` builds DXC into the program, which wgpu then compiles shaders with in place of FXC
+# (old and very slow: a minute or more for one large scene shader). wgpu-hal links it on x86_64
+# only; on ARM64 wgpu looks for `dxcompiler.dll` and falls back to FXC.
+wgpu = { version = "30", default-features = false, features = ["dx12", "static-dxc"] }
+windows = { version = "0.62", default-features = false, features = ["Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Security"] }
+
+# The shared-image frame path of Linux. wgpu-hal's Vulkan backend uses this version of ash, so
+# its Vulkan types are ours.
+[target.'cfg(target_os = "linux")'.dependencies]
+ash = { version = "0.38", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+serde_json = "1.0.140"

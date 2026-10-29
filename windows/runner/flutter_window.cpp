@@ -25,6 +25,21 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  // The Rust hub registers the visualizer's texture with the engine itself. Its
+  // symbols are looked up at run time: the Dart side (rinf) loads hub.dll as
+  // well, and a missing library or symbol only leaves the visualizer without a
+  // texture.
+  HMODULE hub = GetModuleHandleW(L"hub.dll");
+  if (!hub) {
+    hub = LoadLibraryW(L"hub.dll");
+  }
+  if (hub) {
+    if (auto attach = reinterpret_cast<bool (*)(void*)>(
+            GetProcAddress(hub, "rune_flutter_attach"))) {
+      attach(flutter_controller_->engine()->GetRegistrarForPlugin(
+          "RuneFlutterTexture"));
+    }
+  }
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {

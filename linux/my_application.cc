@@ -1,5 +1,6 @@
 #include "my_application.h"
 
+#include <dlfcn.h>
 #include <flutter_linux/flutter_linux.h>
 #include <bitsdojo_window_linux/bitsdojo_window_plugin.h>
 #ifdef GDK_WINDOWING_X11
@@ -95,6 +96,21 @@ static void my_application_activate(GApplication* application) {
   main_window = window;
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+
+  // The Rust hub registers the visualizer's texture with the engine itself. Its
+  // symbols are looked up at run time: the Dart side (rinf) loads libhub.so as
+  // well, and a missing library or symbol only leaves the visualizer without a
+  // texture.
+  void* hub = dlopen("libhub.so", RTLD_NOW | RTLD_NOLOAD);
+  if (hub == nullptr) {
+    hub = dlopen("libhub.so", RTLD_NOW);
+  }
+  if (hub != nullptr) {
+    if (auto attach = reinterpret_cast<bool (*)(void*)>(
+            dlsym(hub, "rune_flutter_attach"))) {
+      attach(fl_view_get_engine(view));
+    }
+  }
 
   // Initialize bitsdojo window
   g_bdw = bitsdojo_window_from(window);

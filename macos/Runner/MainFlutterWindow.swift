@@ -39,6 +39,15 @@ class MainFlutterWindow: BitsdojoWindow {
       }
     }
 
+    // The Rust hub registers the visualizer's texture with the engine itself. Its symbols live in
+    // rinf.framework, which is loaded in-process; resolving at run time avoids a link-time
+    // dependency.
+    if let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "rune_flutter_attach") {
+      typealias Attach = @convention(c) (UnsafeMutableRawPointer) -> Bool
+      let attach = unsafeBitCast(symbol, to: Attach.self)
+      _ = attach(Unmanaged.passUnretained(flutterViewController.engine).toOpaque())
+    }
+
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     WindowButtonPositioner.shared.prepare(window: self)

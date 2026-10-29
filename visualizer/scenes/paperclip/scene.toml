@@ -1,0 +1,522 @@
+format = 1
+name = "Paperclip"
+license = "MPL-2.0"
+description = "A paperclip dancing on its sheet of paper, a field of them dancing behind"
+
+common = ["clip.wgsl"]
+
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md): A nineties
+# render in big pixels: a dot mosaic, and a flash washed in the theme colour; every lens effect.
+[effects]
+# Transitions: switching into this scene, and dressing a hard cut of the camera in it.
+transitions = ["fade", "mosaic", "cutin", "flash"]
+# Lens effects: over the picture, with no change of picture.
+lens = ["flare", "leak", "glitch", "mosaic"]
+
+[state]
+file = "state.wgsl"
+update = "update.wgsl"
+
+# The dancers are drawn at a fraction of the screen's resolution and blown up into big pixels (see
+# the buffer below); this is the size of the finished picture.
+[render]
+scale = 1.0
+
+# The camera's views, in the order the view numbers go (the lock below counts the same). The
+# director picks when to cut and to which; the scene glides there. The front view and the high one
+# show the lead with the field behind, so both are wide. The far views (the high one and the one
+# from above) are not for a climax, which wants the near ones (as Neon Street's), and the close one
+# beside the lead and the circling one are the climax's own; the front view and the low one suit
+# every section, so a high section can still open on the front.
+[camera]
+dutch = 0.3
+# The shortest shot, in seconds: twice the default glide, as a glide takes at most half a shot.
+hold = 8.0
+
+[[shot]]
+name = "front"
+size = "wide"
+move = "glide"
+
+[[shot]]
+name = "low"
+size = "medium"
+move = "glide"
+
+[[shot]]
+name = "high"
+size = "wide"
+move = "glide"
+tiers = ["quiet", "normal"]
+
+[[shot]]
+name = "beside"
+size = "close"
+move = "glide"
+tiers = ["high"]
+
+[[shot]]
+name = "above"
+size = "top"
+move = "glide"
+tiers = ["quiet", "normal"]
+
+[[shot]]
+name = "circling"
+size = "medium"
+move = "glide"
+tiers = ["high"]
+# Shown at least once a song: if chance has not cut to it by the song's last climax, it is cut to
+# there.
+at_least_once = true
+
+# The burst before a section that lifts the energy: a hard cut on each of the last four beats, each
+# from a new place round the lead, nearer and then from above (update.wgsl's `view_shot` draws them
+# as views 6 to 9). The cut after the burst jumps too, as does the start of a high section: a hard
+# cut, which the runtime tells by `shot.hard`.
+[[burst]]
+name = "medium in front"
+size = "medium"
+
+[[burst]]
+name = "close beside its face"
+size = "close"
+
+[[burst]]
+name = "its eyes, long lens"
+size = "detail"
+
+[[burst]]
+name = "high above the field"
+size = "top"
+
+# The picture in a few big pixels, as a nineties render was: 0.25 of the screen per side (a
+# quarter is about 480 by 270 on a 1080p screen). Smaller is chunkier, and cheaper.
+[[buffer]]
+id = "lo"
+scale = 0.25
+
+[[pass]]
+shader = "view.wgsl"
+target = "lo"
+
+[[pass]]
+shader = "pixel.wgsl"
+target = "out"
+inputs = ["lo"]
+
+# The pixel pass sets the colours itself: no tone mapping and nothing on top.
+[post]
+exposure = 0.0
+bloom = { intensity = 0.0, threshold = 1.0, radius = 0.5 }
+tonemap = "none"
+grain = 0.0
+chromatic = 0.0
+vignette = 0.0
+contrast = 1.0
+saturation = 1.0
+
+# ---- What the music drives ----
+# The scene says what it wants from the music and the runtime works it out (see "Bindings" in the
+# runtime's docs/music.md); the shaders read the values as `input.<id>`. A bind maps a value where
+# the shader only uses the mapped one (`level`); the raw ones below stay raw because the shader
+# needs the number itself, each said where it is declared. The cues are one-frame pulses the scene
+# reacts to, and the eyebrows' lift is an envelope the runtime makes.
+
+# The beat clock, in beats: its phase is where in the beat the dancers are and `floor` which beat
+# and bar, so it is read raw (an unclamped `follow` that goes straight on past 1).
+[[input]]
+id = "clock"
+label = "The beat clock"
+range = [0.0, 1000000.0]
+
+# Seconds a beat lasts (60 / tempo) and beats to the bar: the length of a bar, which the camera's
+# slow moves and glides are counted in, and the bar a big move is on. Both are read raw.
+[[input]]
+id = "tempo"
+label = "The tempo"
+range = [0.0, 1000.0]
+
+[[input]]
+id = "meter"
+label = "Beats to the bar"
+range = [0.0, 64.0]
+
+# How much the beat is followed (0 to 1): it fades the groove that is locked to the beat, and the
+# shader needs the fade itself.
+[[input]]
+id = "locked"
+label = "How much the beat is followed"
+
+# How much is heard (1 while the music plays, falling with a fade, 0 in silence): the dance's
+# amplitude and the camera's slow moves are multiplied by it, so they calm with a fade and stand
+# still in silence (as Growth and Torii Sea).
+[[input]]
+id = "audible"
+label = "How much is heard (falling with a fade, 0 in silence)"
+rest = 1.0
+
+# Whether a bar's big move may start: 1 when enough is heard, 0 in silence and in a deep fade.
+[[input]]
+id = "moves"
+label = "Big moves may start (enough is heard)"
+rest = 1.0
+
+# The energy of the moment, its usual span spread over the whole range (as Torii Sea's `energy`):
+# how hard they dance follows it, so a quiet passage is a gentle dance and a loud one a big one.
+[[input]]
+id = "energy"
+label = "The energy of the moment, spread over the whole range"
+rest = 0.5
+
+# A hit to dance to when there is no followed beat (the beat itself at A, the heard onsets at B
+# and C): the dip, the nod and the sway's change of side come on it (update.wgsl's `groove_at`).
+[[input]]
+id = "hit"
+label = "A hit to dance to where the beat is not followed"
+
+# The section's level, the slow drive mapped to 0.25 to 1: how often a big move comes, whether a
+# backflip is allowed and the moods and faces go by it, as they changed by the phrase would look
+# restless. (How hard they dance is `energy`'s.)
+[[input]]
+id = "level"
+label = "The section's level (how often a big move, the moods, a backflip)"
+
+# The kind of section and the section's number: hashed to pick the mood and the moves, so the
+# numbers themselves are read raw (the same label gives the same mood).
+[[input]]
+id = "label"
+label = "The label of the section"
+range = [0.0, 1000.0]
+
+[[input]]
+id = "new_section"
+label = "A section starts"
+
+[[input]]
+id = "cue_weak"
+label = "A cue strong enough to change the mood"
+
+[[input]]
+id = "section"
+label = "Which section, counted (it picks the moves)"
+range = [0.0, 1000000.0]
+
+[[input]]
+id = "impact_env"
+label = "The brows' lift on an impact, fading"
+
+[[input]]
+id = "lift_env"
+label = "A section that lifts the energy: brows and wide eyes, fading"
+
+[[bind]]
+target = "clock"
+source = "clock"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "tempo"
+source = "tempo"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "meter"
+source = "meter"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "locked"
+source = "locked"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+# 0.25 + 0.85 * drive, held at 1: the drive's 0 to 0.882 spread over 0.25 to 1. The runtime has
+# smoothed the drive already.
+[[bind]]
+target = "level"
+source = "drive"
+how = "follow"
+when = { from = [0.0, 0.88235294], to = [0.25, 1.0] }
+
+# Smoothed over half a beat, so a fade calms the dance and the camera as the song fades.
+[[bind]]
+target = "audible"
+source = "audible"
+how = "follow"
+when = { smooth = 0.5 }
+
+# 1 above about 0.3 of what is heard, else 0: a big move does not start in silence (one under way
+# finishes).
+[[bind]]
+target = "moves"
+source = "audible"
+how = "follow"
+when = { from = [0.28, 0.32], smooth = 0.5 }
+
+[[bind]]
+target = "energy"
+source = "intensity"
+how = "follow"
+when = { from = [0.2, 0.85], smooth = 0.5 }
+
+[[bind]]
+target = "hit"
+source = "hits"
+how = "trigger"
+when = { scale = false, release = 0.0 }
+
+[[bind]]
+target = "label"
+source = "section_label"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "new_section"
+source = "cues"
+how = "trigger"
+when = { strength = 0.5, scale = false, release = 0.0 }
+
+[[bind]]
+target = "cue_weak"
+source = "cues"
+how = "trigger"
+when = { strength = { param = "cue_min" }, scale = false, release = 0.0 }
+
+[[bind]]
+target = "section"
+source = "section"
+how = "follow"
+when = { clamp = false, to = [0.0, 1.0] }
+
+[[bind]]
+target = "impact_env"
+source = "impacts"
+how = "trigger"
+when = { scale = false, decay = "exp", release = 0.6, per = "second", decay_from = "event" }
+
+[[bind]]
+target = "lift_env"
+source = "cues"
+how = "trigger"
+when = { strength = 0.9, scale = false, decay = "exp", release = 0.6, per = "second", decay_from = "event" }
+
+# ---- Dance ----
+
+[[param]]
+id = "dance"
+group = "Dance"
+label = "How hard they dance"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[param]]
+id = "energy_dance"
+group = "Dance"
+label = "How much the energy of the moment drives how hard they dance (0 none, 1 half as hard when quiet, 1.25 times when loud)"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "chorus"
+group = "Dance"
+label = "How hard the chorus dances (0: no chorus)"
+default = 0.7
+min = 0.0
+max = 1.5
+step = 0.05
+
+[[param]]
+id = "wave"
+group = "Dance"
+label = "Beats later per unit from the lead (the wave)"
+unit = "beats"
+default = 0.06
+min = 0.0
+max = 0.3
+step = 0.01
+
+[[param]]
+id = "turn_beats"
+group = "Dance"
+label = "Beats to turn round to the camera"
+default = 2.0
+min = 0.5
+max = 8.0
+step = 0.5
+
+[[param]]
+id = "dizzy"
+group = "Dance"
+label = "Chance of getting dizzy (@ @) after a turn or a backflip"
+default = 0.3
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "move_every"
+group = "Dance"
+label = "Fewest bars from one big move to the next (one more after a whole turn or a backflip)"
+default = 2.0
+min = 1.0
+max = 8.0
+step = 1
+
+[[param]]
+id = "flip_level"
+group = "Dance"
+label = "How hard they must be dancing to backflip"
+default = 0.6
+min = 0.0
+max = 1.5
+step = 0.05
+
+[[param]]
+id = "face_lock"
+group = "Dance"
+label = "Hold one face (0 by the music; 1 open, 2 >_<, 3 ^ ^, 4 @ @, 5 wide, 6 drowsy, 7 stars, 8 shut)"
+default = 0.0
+min = 0.0
+max = 8.0
+step = 1
+
+[[param]]
+id = "peak"
+group = "Dance"
+label = "Energy above which the eyes go >_<"
+default = 0.65
+min = 0.3
+max = 1.1
+step = 0.05
+
+[[param]]
+id = "cue_min"
+group = "Dance"
+label = "Cue strength that changes the mood (0.5 is a section start)"
+default = 0.3
+min = 0.1
+max = 1.0
+step = 0.05
+
+# ---- Camera ----
+
+[[param]]
+id = "view_lock"
+group = "Camera"
+label = "Hold one view (0 by the music; 1 front, 2 low, 3 high and far, 4 close beside, 5 behind the chorus, 6 circling)"
+default = 0.0
+min = 0.0
+max = 6.0
+step = 1
+
+[[param]]
+id = "ring_bars"
+group = "Camera"
+label = "Bars for the circling view to go round once"
+default = 16.0
+min = 2.0
+max = 64.0
+step = 1
+
+[[param]]
+id = "glide"
+group = "Camera"
+label = "Bars to glide to another view (at most half the shot)"
+default = 2.0
+min = 0.25
+max = 8.0
+step = 0.25
+
+[[param]]
+id = "view_bars"
+group = "Camera"
+label = "Bars a view's own slow move lasts"
+default = 16.0
+min = 1.0
+max = 64.0
+step = 1
+
+[[param]]
+id = "drift"
+group = "Camera"
+label = "How far the camera moves within a view"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.1
+
+# ---- Look ----
+
+[[param]]
+id = "metal"
+type = "color"
+group = "Look"
+label = "The clip's metal"
+default = "#8f95c4"
+
+[[param]]
+id = "paper"
+type = "color"
+group = "Look"
+label = "The paper"
+default = "#e2d79a"
+
+[[param]]
+id = "player_colour"
+type = "bool"
+group = "Look"
+label = "Paper in the player's theme colour"
+default = false
+
+[[param]]
+id = "background"
+type = "color"
+group = "Look"
+label = "Background"
+default = "#0c0f16"
+
+[[param]]
+id = "shadow"
+group = "Look"
+label = "Shadow on the paper"
+default = 0.75
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
+id = "fade"
+group = "Look"
+label = "How fast the distance fades to dark"
+default = 0.08
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
+id = "levels"
+group = "Look"
+label = "Levels per colour channel"
+default = 7.0
+min = 2.0
+max = 32.0
+step = 1
+
+[[param]]
+id = "exposure"
+group = "Look"
+label = "Exposure"
+unit = "EV"
+default = 0.0
+min = -3.0
+max = 3.0
+step = 0.1
