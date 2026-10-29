@@ -53,16 +53,8 @@ pub fn credits() -> Vec<Credit> {
         .collect()
 }
 
-/// Built-in scenes that were called something else: the app saves a chosen scene as
-/// `builtin:<name>`, so a listener who chose one of these still gets it (the old name, the new).
-const RENAMED: &[(&str, &str)] = &[("Badge Tunnel", "Emoji Tunnel")];
-
-/// The built-in scene called `name`, or once called `name`.
+/// The built-in scene called `name`.
 pub fn find(name: &str) -> Option<Builtin> {
-    let name = RENAMED
-        .iter()
-        .find(|(old, _)| *old == name)
-        .map_or(name, |(_, new)| new);
     scenes().into_iter().find(|scene| scene.name == name)
 }
 
@@ -90,8 +82,6 @@ mod tests {
             ]
         );
         assert!(find(DEFAULT_PRESET_NAME).is_some());
-        // A scene chosen before its rename (saved as `builtin:Badge Tunnel`) is still found.
-        assert_eq!(find("Badge Tunnel").unwrap().name, "Emoji Tunnel");
         assert_eq!(find("Emoji Tunnel").unwrap().name, "Emoji Tunnel");
         // The images of a scene came along.
         let (_, files) = SCENES.iter().find(|(dir, _)| *dir == "growth").unwrap();
