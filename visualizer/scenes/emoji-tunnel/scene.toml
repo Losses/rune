@@ -1,7 +1,7 @@
 format = 1
-name = "Badge Tunnel"
+name = "Emoji Tunnel"
 license = "MPL-2.0"
-description = "Flying down a tunnel of light past lacquered tortoiseshell badges printed with family crests in gold leaf"
+description = "Flying down a tunnel of light past emoji (or, by a switch, lacquered tortoiseshell badges printed with family crests in gold leaf)"
 
 common = ["badge.wgsl"]
 
@@ -174,11 +174,6 @@ id = "bar_line"
 label = "A bar line, where a beat is followed"
 
 [[input]]
-id = "coming"
-label = "The palette of the badges coming, a new one at each cue"
-range = [0.0, 2.0]
-
-[[input]]
 id = "audible"
 label = "How much is heard (falls with a fade, 0 in silence)"
 
@@ -227,12 +222,6 @@ target = "note"
 source = "notes"
 how = "trigger"
 when = { release = 0.0 }
-
-[[bind]]
-target = "coming"
-source = "cues"
-how = "pick"
-when = { options = 3, strength = 0.5, start = "seed", jump = "random" }
 
 [[bind]]
 target = "tempo"
@@ -404,14 +393,6 @@ max = 1.0
 step = 0.01
 
 [[param]]
-id = "palette"
-type = "choice"
-group = "Badges"
-label = "Lacquer and leaf, by their lightness (the look gives the colour: grey or the theme colour)"
-default = 0
-options = ["By section", "Black lacquer, gold", "Vermilion, gold", "Indigo, silver"]
-
-[[param]]
 id = "cubes"
 group = "Badges"
 label = "How many flakes of leaf"
@@ -511,14 +492,6 @@ type = "color"
 group = "Colour"
 label = "The colour when not following (and in the scene lab)"
 default = "#6a7cf0"
-
-[[param]]
-id = "view"
-type = "choice"
-group = "Camera"
-label = "Shot"
-default = 0
-options = ["Gliding from place to place with the music", "Down the middle, the core on a third", "Low, looking up, the emoji going by overhead", "From one side, looking across", "Rolled hard", "A long lens, flattened", "Looking back, the emoji going away"]
 
 [[param]]
 id = "focal"

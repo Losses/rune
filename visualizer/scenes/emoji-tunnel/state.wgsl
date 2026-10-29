@@ -1,4 +1,4 @@
-// What Badge Tunnel keeps from frame to frame: how far the camera has flown down the tunnel and
+// What Emoji Tunnel keeps from frame to frame: how far the camera has flown down the tunnel and
 // how fast, the scene's own time and the hits it has counted, the shot; and the things ahead of
 // it, worked out afresh each frame (badges, cubes and sparkles), already projected and sorted into
 // screen tiles, so a pixel looks only at the few that could cover it.
@@ -60,8 +60,7 @@ struct State {
   turn: f32,
   // The place the camera is filming from or gliding to (see update), its side and its dutch
   // angle; how many of the director's cuts it has followed; when it set off, from where, and how
-  // long the glide takes. (The badges' colours from then on are `input.coming`: 0 black
-  // lacquer and gold, 1 vermilion and gold, 2 indigo and silver.)
+  // long the glide takes.
   view: f32,
   side: f32,
   roll_to: f32,
@@ -111,12 +110,12 @@ struct State {
   // The seconds since the last bar line (level A only).
   bar_age: f32,
   // How many emoji the music calls for: the notes a second of late (smoothed), the farthest slot
-  // given its share yet, and each slot's share, badge colours and chance of a light (x, y, z),
-  // set as it comes into sight far ahead (so what is near never comes and goes, nor changes
-  // colour): kept for as far behind as ahead, for a camera looking back.
+  // given its share yet, and each slot's share and chance of a light (x, y), set as it comes into
+  // sight far ahead (so what is near never comes and goes): kept for as far behind as ahead, for a
+  // camera looking back.
   note_rate: f32,
   last_slot: f32,
-  slot_set: array<vec4f, 128>,
+  slot_set: array<vec2f, 128>,
   // The colours as made (see update), the theme colour look's ramp (dark to near white, in the
   // theme colour's hue) and how far the picture is in that look (0 the grey look, 1 the colour
   // one): see `grade` in tunnel.wgsl.

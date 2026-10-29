@@ -1,9 +1,9 @@
 // Once per frame: the camera flies down the tunnel as fast as the beat (and the energy), surging on
 // each counted hit; the badges' crests turn a step on it; the emoji move on it and to the melody,
-// each in its own way; now and then (on a cue) the camera glides to another place to film from, and
-// the badges coming change colour. All of it stands still in silence and slows with a fade (the
-// phase and the flight go by how much is heard). Then everything in the slots in sight is placed,
-// turned, projected and sorted into the screen's tiles, nearest first.
+// each in its own way; now and then (as the director cuts) the camera glides to another place to
+// film from. All of it stands still in silence and slows with a fade (the phase and the flight go
+// by how much is heard). Then everything in the slots in sight is placed, turned, projected and
+// sorted into the screen's tiles, nearest first.
 
 // ---- Colour ----
 // The tunnel's colours are made by hand, each with its own hue, but the picture is graded by its
@@ -35,8 +35,8 @@ fn oklch(lightness: f32, chroma: f32, hue: f32) -> vec3f {
 // depths (far, near); 2 the core's light, 3 its halo, 4 its rays; 5 the speed lines; 6–9 the
 // glints (white, cyan, pink, gold); 10 the haze; 11 the sparkles; 12–14 the lacquers (black,
 // vermilion, indigo); 15, 16 the leaves (gold, silver); 17, 18 what the tunnel mirrors (below,
-// above), 19 the core in it, 20 the light behind,
-// 21, 22 the strip lights; 23 the key light's highlight.
+// above), 19 the core in it, 20 the light behind, 21, 22 the strip lights; 23 the key light's
+// highlight.
 fn colour_made(k: u32) -> vec3f {
   var c = array<vec3f, 24>(
     vec3f(0.002, 0.003, 0.01), vec3f(0.006, 0.012, 0.04), vec3f(0.6, 0.75, 1.0), vec3f(0.12, 0.2, 0.6), vec3f(0.5, 0.65, 1.0),
@@ -86,20 +86,11 @@ fn turned(a: f32, b: f32, c: f32) -> mat3x3f {
   return m;
 }
 
-// A badge's look, packed in one number: its lacquer (0 black, 1 vermilion, 2 indigo) and its
-// leaf (8 × 0 gold, 1 silver), by the section's palette: 0 black lacquer and gold, a quarter of
-// them vermilion; 1 vermilion and gold, a quarter black; 2 indigo and silver, a quarter black.
-fn look_of(palette: f32, id: vec2f) -> f32 {
-  let accent = hash(id + 12.1) < 0.25;
-  var body = select(0.0, 1.0, accent);
-  var leaf = 0.0;
-  if (palette > 1.5) {
-    body = select(2.0, 0.0, accent);
-    leaf = 1.0;
-  } else if (palette > 0.5) {
-    body = select(1.0, 0.0, accent);
-  }
-  return body + 8.0 * leaf;
+// A badge's look, packed in one number (badge.wgsl takes the lacquer from it, 0 black, 1
+// vermilion, and the leaf from 8 × 0 gold): black lacquer and gold leaf, a quarter of the badges
+// vermilion. The look the runtime has chosen gives the colour: they differ by lightness.
+fn look_of(id: vec2f) -> f32 {
+  return select(0.0, 1.0, hash(id + 12.1) < 0.25);
 }
 
 // v turned by angle t about the unit axis a.
@@ -158,7 +149,7 @@ fn kind_at(slot: f32, q: u32) -> f32 {
     kind = select(select(-1.0, CUBE, h < 0.5 * badges + 0.3 * params.cubes), BADGE, h < 0.5 * badges);
   } else {
     kind = select(select(-1.0, CUBE, h < params.sparks + 0.2 * params.cubes), SPARK, h < params.sparks);
-    if (hash(id + 15.3) < params.lights * given.z) {
+    if (hash(id + 15.3) < params.lights * given.y) {
       kind = LIGHT;
     }
   }
@@ -314,7 +305,7 @@ fn build(i: u32, id: vec2f, kind: f32, hero: bool) {
   state.rx[i] = vec4f(m[0], kind * 10.0 + shape);
   // (A light's brightness, a little different from one to the next, rides where a badge's look
   // does.)
-  state.ry[i] = vec4f(m[1], select(look_of(select(given.y, f32(params.palette) - 1.0, params.palette > 0u), id), 0.8 + 0.4 * hash(id + 16.6), kind == LIGHT));
+  state.ry[i] = vec4f(m[1], select(look_of(id), 0.8 + 0.4 * hash(id + 16.6), kind == LIGHT));
   // Its crest (of CRESTS), and which way it turns on the beat (16 for the other way); or its
   // emoji (of 64).
   let crest = floor(hash(id + 13.1) * f32(CRESTS));
@@ -455,15 +446,14 @@ fn choose_hero(fill: u32) {
 // behind another, flattened; 5 turned round, the emoji going away into the dark behind. Never
 // straight along the tunnel (the core dead centre reads flat), and never further off the middle
 // than the emoji leave clear. `roll` is the shot's dutch angle: the rolled place takes a third of
-// it on top of its own roll (the rest take all of it); a place chosen by hand (`locked`) has none,
-// and its fourth is the older, flatter pose with its harder roll (0.62, the yaw only 0.07).
+// it on top of its own roll (the rest take all of it).
 // Places 6 to 9 are the burst's close-ups (the burst's `shot.fill` 1 to 4, in scene.toml's order):
 // the camera on the middle line, turned as the table says, with the whole dutch angle; what each
 // shows is the thing carried in front of it (see `BURST_LOOK` and `hero_position`).
-fn pose_of(view: u32, side: f32, roll: f32, locked: bool) -> Pose {
+fn pose_of(view: u32, side: f32, roll: f32) -> Pose {
   var turn = array<vec4f, 10>(
     vec4f(0.42, -0.14, 0.1, 1.0), vec4f(0.18, 0.3, -0.14, 1.0), vec4f(0.7, 0.1, 0.3, 1.0),
-    select(vec4f(0.25, 0.06, 0.55, 1.0), vec4f(0.07, 0.06, 0.62, 1.0), locked), vec4f(0.15, -0.08, 0.05, 1.7), vec4f(2.76, -0.06, 0.12, 1.0),
+    vec4f(0.25, 0.06, 0.55, 1.0), vec4f(0.15, -0.08, 0.05, 1.7), vec4f(2.76, -0.06, 0.12, 1.0),
     vec4f(BURST_LOOK[0].x, BURST_LOOK[0].y, 0.0, 1.0), vec4f(BURST_LOOK[1].x, BURST_LOOK[1].y, 0.0, 1.0),
     vec4f(BURST_LOOK[2].x, BURST_LOOK[2].y, 0.0, 1.0), vec4f(BURST_LOOK[3].x, BURST_LOOK[3].y, 0.0, 1.0));
   var at = array<vec2f, 10>(vec2f(0.0), vec2f(0.0, -0.6), vec2f(-0.7, -0.15), vec2f(0.0), vec2f(0.0, 0.35), vec2f(0.0, 0.2),
@@ -477,7 +467,7 @@ fn pose_of(view: u32, side: f32, roll: f32, locked: bool) -> Pose {
 // Where the camera is now, on its way from where it set off to where it is going: easing out
 // and in, slowest at either end.
 fn pose_now(t: f32) -> Pose {
-  let to = pose_of(u32(state.view), state.side, state.roll_to, params.view > 0u);
+  let to = pose_of(u32(state.view), state.side, state.roll_to);
   let k = clamp((t - state.last_view) / max(state.glide, 1e-3), 0.0, 1.0);
   let e = k * k * k * (k * (k * 6.0 - 15.0) + 10.0);
   return Pose(mix(state.set_off.turn, to.turn, e), mix(state.set_off.at, to.at, e));
@@ -551,15 +541,12 @@ fn update() {
   // place). The side changes only on the way to the middle place, by the shot's seed, so that no
   // glide swings across the tunnel. The glide takes `glide_bars` bars (bars of `input.meter` beats at
   // `input.tempo`, so it is a time even when there is no beat), but at most half of the shot, so
-  // it never outlasts it. On a section's start (a cue of 0.5 or more) the badges coming take
-  // another palette (`input.coming`, a pick on the cues). A place chosen by hand it glides to over
-  // the same bars (at least two seconds, at most twenty), and the director's shots are ignored.
-  let fixed = params.view > 0u;
+  // it never outlasts it. The director's shots are the only camera (the lab holds any of them).
   if (frame.first == 1u) {
-    state.view = select(f32(shot.index), f32(params.view) - 1.0, fixed);
-    state.side = select(-1.0, 1.0, select(shot.seed, random(3u), fixed) < 0.5);
-    state.roll_to = select(shot.roll, 0.0, fixed);
-    state.set_off = pose_of(u32(state.view), state.side, state.roll_to, fixed);
+    state.view = f32(shot.index);
+    state.side = select(-1.0, 1.0, shot.seed < 0.5);
+    state.roll_to = shot.roll;
+    state.set_off = pose_of(u32(state.view), state.side, state.roll_to);
     state.last_view = t;
     state.glide = 1.0;
     state.cuts = shot.cuts;
@@ -570,12 +557,8 @@ fn update() {
   }
   let bar_time = input.meter * 60.0 / input.tempo;
   var go = -1.0;
-  var glide = clamp(params.glide_bars * bar_time, 2.0, 20.0);
-  if (fixed) {
-    if (f32(params.view) - 1.0 != state.view) {
-      go = f32(params.view) - 1.0;
-    }
-  } else if (shot.cuts != state.cuts) {
+  var glide = 1.0;
+  if (shot.cuts != state.cuts) {
     go = f32(shot.index);
     if (go == 0.0 && shot.seed < 0.5) {
       state.side = -state.side;
@@ -630,7 +613,7 @@ fn update() {
   // The SLOTS slots in sight: looking ahead, from a few behind (a turned camera sees beside
   // itself) on; looking back, the other way round; turned aside, as many either way (neither far
   // end is in the picture then). Each slot coming into sight far ahead takes the share the music
-  // calls for now, and the palette.
+  // calls for now, and the chance of a light.
   for (var k = 0u; k < TILES; k++) {
     state.tile_n[k] = 0u;
   }
@@ -657,7 +640,7 @@ fn update() {
     state.last_slot = here - f32(SLOTS) - 1.0;
   }
   for (var n = max(state.last_slot + 1.0, here - f32(SLOTS)); n <= farthest; n += 1.0) {
-    state.slot_set[slot_cell(n)] = vec4f(share, input.coming, input.crowd_by_energy, 0.0);
+    state.slot_set[slot_cell(n)] = vec2f(share, input.crowd_by_energy);
   }
   state.last_slot = max(state.last_slot, farthest);
   for (var j = 0u; j < SLOTS; j++) {

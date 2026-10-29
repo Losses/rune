@@ -1,4 +1,4 @@
-"""Make the badges' emoji: python make_emoji.py [twemoji | noto-3D | noto-2D] [cache dir]
+"""Make the scene's emoji: python make_emoji.py [twemoji | noto-3D | noto-2D] [cache dir]
 
 Needs Pillow, and rsvg-convert (librsvg) for Twemoji. Writes ../assets/emoji.png, 2048 x 2048: 64
 emoji in an 8 x 8 grid, 256 pixels a cell, each drawn 224 pixels across in the middle of its cell
