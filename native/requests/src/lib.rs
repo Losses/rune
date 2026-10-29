@@ -179,6 +179,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: true,
         },
         RequestResponse {
+            request: "ListVisualizerCreditsRequest".to_string(),
+            response: Some("ListVisualizerCreditsResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
             request: "VisualizerTextureShownRequest".to_string(),
             response: None,
             local_only: true,

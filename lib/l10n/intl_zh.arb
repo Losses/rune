@@ -1414,5 +1414,9 @@
   "coverWallVisualizerSubtitle": "隨音樂變化的畫面",
   "@coverWallVisualizerSubtitle": {
     "description": "封面牆設為顯示視覺化時，播放控制列中開啟封面牆的項目的副標題。"
+  },
+  "visualizerCredits": "第三方素材致謝",
+  "@visualizerCredits": {
+    "description": "關於頁面中致謝視覺化內建場景所用第三方素材的區段標題。"
   }
 }

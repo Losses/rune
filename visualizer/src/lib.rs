@@ -59,6 +59,7 @@ pub use bind::{Level, RuntimeBindings, Used};
 /// The runtime's decisions as the visualizer is built with them (`runtime.toml`), the text a lab
 /// edits and sends with [`LabCommand::RuntimeBindings`].
 pub const RUNTIME_TOML: &str = bind::RUNTIME_TOML;
+pub use builtin::{Credit, credits as builtin_credits};
 pub use chart::{Chart, ChartState};
 use chart::{ChartFollower, Playback};
 pub use inspect::{

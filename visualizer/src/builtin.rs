@@ -31,6 +31,28 @@ pub fn scenes() -> Vec<Builtin> {
         .collect()
 }
 
+/// What a built-in scene's assets owe their makers: the scene's name and the `source` of each
+/// asset that has one, as written (they carry the licence and any change made).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Credit {
+    pub scene: String,
+    pub assets: Vec<String>,
+}
+
+/// The credits of every built-in scene that has any, by folder name.
+pub fn credits() -> Vec<Credit> {
+    scenes()
+        .into_iter()
+        .filter_map(|scene| {
+            let assets = scene.source.asset_sources().ok()?;
+            (!assets.is_empty()).then_some(Credit {
+                scene: scene.name,
+                assets,
+            })
+        })
+        .collect()
+}
+
 /// The built-in scene called `name`.
 pub fn find(name: &str) -> Option<Builtin> {
     scenes().into_iter().find(|scene| scene.name == name)
@@ -74,6 +96,31 @@ mod tests {
                 .flat_map(|(_, files)| files.iter())
                 .all(|(path, _)| !path.split('/').any(|part| part.starts_with('.')))
         );
+    }
+
+    #[test]
+    fn credits_come_back_under_their_scene_and_name_twemoji() {
+        let credits = credits();
+        assert!(!credits.is_empty());
+        let names: Vec<_> = scenes().into_iter().map(|s| s.name).collect();
+        for credit in &credits {
+            assert!(names.contains(&credit.scene), "{}", credit.scene);
+            assert!(!credit.assets.is_empty());
+            assert!(credit.assets.iter().all(|line| !line.trim().is_empty()));
+        }
+        // Twemoji's licence asks for credit where its graphics are shown.
+        let twemoji = credits
+            .iter()
+            .find(|credit| credit.assets.iter().any(|line| line.contains("Twemoji")))
+            .expect("a scene credits Twemoji");
+        let line = twemoji
+            .assets
+            .iter()
+            .find(|l| l.contains("Twemoji"))
+            .unwrap();
+        assert!(line.contains("CC-BY 4.0"));
+        // A scene with no outside assets has no entry.
+        assert!(credits.len() < scenes().len());
     }
 
     /// The raw fields of `struct Music` that a built-in scene must not read, each with what it

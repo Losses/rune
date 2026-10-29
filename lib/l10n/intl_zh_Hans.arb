@@ -1424,5 +1424,9 @@
   "coverWallVisualizerSubtitle": "随音乐变化的画面",
   "@coverWallVisualizerSubtitle": {
     "description": "封面墙设为显示可视化时，播放控制栏中打开封面墙的项目的副标题。"
+  },
+  "visualizerCredits": "第三方素材致谢",
+  "@visualizerCredits": {
+    "description": "关于页面中致谢可视化内置场景所用第三方素材的分区标题。"
   }
 }

@@ -386,6 +386,33 @@ impl Signal for VisualizerTextureShownRequest {
     }
 }
 
+impl ParamsExtractor for ListVisualizerCreditsRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for ListVisualizerCreditsRequest {
+    type Params = ();
+    type Response = ListVisualizerCreditsResponse;
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        _dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let credits = ::visualizer::builtin_credits()
+            .into_iter()
+            .map(|credit| VisualizerCredit {
+                scene: credit.scene,
+                assets: credit.assets,
+            })
+            .collect();
+        Ok(Some(ListVisualizerCreditsResponse { credits }))
+    }
+}
+
 impl ParamsExtractor for ListVisualizerPresetsRequest {
     type Params = ();
 

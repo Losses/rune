@@ -110,6 +110,17 @@ impl Source {
         Ok(Manifest::parse(&text).context(MANIFEST)?.name)
     }
 
+    /// The `source` of each of the scene's `[[asset]]`s that says where it comes from.
+    pub fn asset_sources(&self) -> Result<Vec<String>> {
+        let (_, text) = self.read_text(MANIFEST)?;
+        let manifest = Manifest::parse(&text).context(MANIFEST)?;
+        Ok(manifest
+            .assets
+            .into_iter()
+            .filter_map(|asset| asset.source)
+            .collect())
+    }
+
     fn read_text(&self, name: &str) -> Result<(String, String)> {
         let text = String::from_utf8(self.read(name)?)
             .with_context(|| format!("{name} is not UTF-8 text"))?;
