@@ -7,14 +7,15 @@
 fn backdrop(o: vec3f, d: vec3f, pixel: f32) -> vec3f {
   let ahead = max(d.z, 0.0);
   var c = mix(state.colours[0].rgb, state.colours[1].rgb, smoothstep(0.0, 1.0, d.z));
-  let core = params.core * (0.75 + 0.5 * input.intensity);
+  let core = params.core * mix(0.75, 1.25, input.energy);
   // As big on the screen through a longer lens (which would spread its glow over the picture).
   let zoom = pow(state.focal / params.focal, 2.0);
   c += state.colours[2].rgb * core * (pow(ahead, 1500.0 * zoom) * 8.0 + pow(ahead, 150.0 * zoom) * 1.0 + pow(ahead, 14.0 * zoom) * 0.15);
   c += state.colours[3].rgb * core * pow(ahead, 8.0 * zoom) * 0.04;
-  // Rays from the core: brighter and dimmer by the way round it.
+  // Rays from the core: brighter and dimmer by the way round it, slowly turning (on the scene's
+  // time, so they stand still in silence).
   let round = normalize(d.xy + vec2f(1e-6, 0.0));
-  let rays = pow(0.5 + 0.5 * rv_noise(round * 5.0 + vec2f(frame.time * 0.05, 0.0)), 6.0);
+  let rays = pow(0.5 + 0.5 * rv_noise(round * 5.0 + vec2f(state.phase * 0.05, 0.0)), 6.0);
   c += state.colours[4].rgb * core * rays * pow(ahead, 30.0 * zoom) * 1.5;
 
   let a = dot(d.xy, d.xy);
@@ -80,13 +81,13 @@ fn backdrop(o: vec3f, d: vec3f, pixel: f32) -> vec3f {
   return c;
 }
 
-// A sparkle: four thin rays and a bright point, on the screen.
+// A sparkle: four thin rays and a bright point, on the screen, twinkling on the scene's time.
 fn sparkle(i: u32, at: vec2f) -> vec3f {
   let sc = state.scr[i];
   let q = (at - sc.xy) / sc.z;
   let rays = exp(-abs(q.y) * 30.0) * max(1.0 - abs(q.x), 0.0) + exp(-abs(q.x) * 30.0) * max(1.0 - abs(q.y), 0.0);
   let core = exp(-dot(q, q) * 40.0);
-  let twinkle = 0.6 + 0.4 * sin(frame.time * mix(3.0, 7.0, hash(vec2f(f32(i), 3.3))) + f32(i));
+  let twinkle = 0.6 + 0.4 * sin(state.phase * mix(3.0, 7.0, hash(vec2f(f32(i), 3.3))) + f32(i));
   let fade = exp(-sc.w * 0.02);
   return state.colours[11].rgb * (rays * 1.2 + core * 3.0) * twinkle * fade * 0.9;
 }

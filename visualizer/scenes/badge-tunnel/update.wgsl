@@ -1,8 +1,9 @@
-// Once per frame: the camera flies down the tunnel as fast as the beat, surging on each kick; the
-// badges turn a step on every beat; the emoji move to the melody, each in its own way; now and
-// then (on a cue) the camera glides to another place to film from, and the
-// badges coming change colour. Then everything in the slots in sight is placed, turned,
-// projected and sorted into the screen's tiles, nearest first.
+// Once per frame: the camera flies down the tunnel as fast as the beat (and the energy), surging
+// on each counted hit; the badges' crests turn a step on it; the emoji move to the melody, each in
+// its own way; now and then (on a cue) the camera glides to another place to film from, and the
+// badges coming change colour. All of it stands still in silence and slows with a fade (the phase
+// and the flight go by how much is heard). Then everything in the slots in sight is placed,
+// turned, projected and sorted into the screen's tiles, nearest first.
 
 // ---- Colour ----
 // The tunnel's colours are hand made, each with its own hue. Following the player's colour (its
@@ -126,7 +127,8 @@ fn slot_cell(n: f32) -> u32 {
 // Thing q of slot `slot`, into place i: where it is, how it is turned, what it is.
 fn place(i: u32, slot: f32, q: u32) {
   let id = vec2f(slot, f32(q) * 17.0);
-  let t = frame.time;
+  // The scene's own time (it stands still in silence), for everything that turns of itself.
+  let t = state.phase;
   // What it is: the first of a slot's three a badge or nothing, the second a badge, a cube or
   // nothing, the third a sparkle, a cube or nothing.
   // (How many badges or emoji: as many as the slot's share, set by the music, allows.)
@@ -168,7 +170,7 @@ fn place(i: u32, slot: f32, q: u32) {
   state.pos[i] = vec4f(r * cos(th), r * sin(th), z, size);
 
   // Badges face the way the camera comes, tipped a little each its own way; a few tumble over
-  // and over. (On the beat it is the crest that turns, within its frame: see badge.wgsl.) Gold
+  // and over. (On a counted hit it is the crest that turns, within its frame: see badge.wgsl.) Gold
   // flakes tumble.
   var m: mat3x3f;
   var shape = 0.0;
@@ -184,13 +186,13 @@ fn place(i: u32, slot: f32, q: u32) {
     shape = 6.0;
   } else if (kind == EMOJI) {
     // An emoji faces the camera square on, turning slowly in the picture's plane, each at its
-    // own pace and either way; on the kick it rocks a little further and back. To the melody, each
-    // in its own way, on the notes it answers: 0 swelling and back, 1 spinning a whole turn round,
-    // 2 flipping over side to side, 3 flipping over top to bottom, 4 hopping up and down again,
-    // 5 rocking side to side, dying away. The swell, the hop and the rock as big as the note is
-    // strong; a spin or a flip always a whole turn, easing in and out.
+    // own pace and either way; on a counted hit it rocks a little further and back. To the
+    // melody, each in its own way, on the notes it answers: 0 swelling and back, 1 spinning a
+    // whole turn round, 2 flipping over side to side, 3 flipping over top to bottom, 4 hopping up
+    // and down again, 5 rocking side to side, dying away. The swell, the hop and the rock as big
+    // as the note is strong; a spin or a flip always a whole turn, easing in and out.
     let way = select(-1.0, 1.0, hash(id + 9.9) < 0.5);
-    var c = hash(id + 10.1) * 6.2831853 + way * (t * params.spin * mix(0.4, 1.2, hash(id + 7.7)) + params.rock * input.kick);
+    var c = hash(id + 10.1) * 6.2831853 + way * (t * params.spin * mix(0.4, 1.2, hash(id + 7.7)) + params.rock * state.kick);
     let act = floor(hash(id + 14.2) * 6.0);
     let heard = note_for(id);
     let p = heard.x / params.move_time;
@@ -289,19 +291,22 @@ fn project(i: u32) {
 // Six places to film from, each mirrored by the side, in the order of the shots in scene.toml:
 // 0 down the middle, the core on a third, a little above; 1 lower, looking up, the emoji going by
 // overhead; 2 off to one side, looking across at the far side's stream, so that none goes by
-// close; 3 near the middle, a little aside; 4 a long lens, the emoji stacked one behind another,
-// flattened; 5 turned round, the emoji going away into the dark behind. Never straight along the
-// tunnel (the core dead centre reads flat), and never further off the middle than the emoji leave
-// clear. `roll` is the shot's dutch angle; a place chosen by hand (`locked`) has none, and its
-// fourth keeps the hard roll that is its own look.
+// close; 3 rolled, near the middle but turned a quarter radian aside, so that the core is off
+// centre and the picture leans; 4 a long lens, the emoji stacked one behind another, flattened;
+// 5 turned round, the emoji going away into the dark behind. Never straight along the tunnel (the
+// core dead centre reads flat), and never further off the middle than the emoji leave clear.
+// `roll` is the shot's dutch angle: the rolled place takes a third of it on top of its own roll
+// (the rest take all of it); a place chosen by hand (`locked`) has none, and its fourth is the
+// older, flatter pose with its harder roll (0.62, the yaw only 0.07).
 fn pose_of(view: u32, side: f32, roll: f32, locked: bool) -> Pose {
   var turn = array<vec4f, 6>(
     vec4f(0.42, -0.14, 0.1, 1.0), vec4f(0.18, 0.3, -0.14, 1.0), vec4f(0.7, 0.1, 0.3, 1.0),
-    vec4f(0.07, 0.06, select(0.0, 0.62, locked), 1.0), vec4f(0.15, -0.08, 0.05, 1.7), vec4f(2.76, -0.06, 0.12, 1.0));
+    select(vec4f(0.25, 0.06, 0.55, 1.0), vec4f(0.07, 0.06, 0.62, 1.0), locked), vec4f(0.15, -0.08, 0.05, 1.7), vec4f(2.76, -0.06, 0.12, 1.0));
   var at = array<vec2f, 6>(vec2f(0.0), vec2f(0.0, -0.6), vec2f(-0.7, -0.15), vec2f(0.0), vec2f(0.0, 0.35), vec2f(0.0, 0.2));
   let q = turn[view];
   // The dutch angle rides in the unused z of `at`, so it glides with the rest of the pose.
-  return Pose(vec4f(q.x * side, q.y, q.z * side, q.w), vec4f(at[view].x * side, at[view].y, roll, 0.0));
+  let tilt = select(roll, roll * 0.33, view == 3u);
+  return Pose(vec4f(q.x * side, q.y, q.z * side, q.w), vec4f(at[view].x * side, at[view].y, tilt, 0.0));
 }
 
 // Where the camera is now, on its way from where it set off to where it is going: easing out
@@ -318,42 +323,65 @@ fn update() {
   let t = frame.time;
   if (frame.first == 1u) {
     state.s = 0.0;
-    state.speed = params.per_beat * input.tempo / 60.0;
+    state.speed = input.flight;
+    // No hit has been counted yet.
+    state.step_age = 1000.0;
   }
+
+  // How much is heard, and the scene's time by it: the phase goes on by `dt` times
+  // `input.audible` (smoothed in its bind, so it slows with a song's own fade), so that everything
+  // turning of itself stands still in silence. Only while something is heard (above 0.3) does a
+  // note or a hit count, so a stray onset in near silence moves nothing.
+  state.phase += dt * input.audible;
+  let heard = input.audible > 0.3;
 
   // The melody's notes come from the runtime (`input.note`, the strength of a note this frame,
   // 0 on none; never two within a tenth of a second); they are kept in turn for the emoji to
-  // answer.
+  // answer, while something is heard.
   state.note_rate *= exp(-dt / 2.0);
-  if (input.note > 0.0) {
+  if (input.note > 0.0 && heard) {
     state.note_count += 1.0;
     state.notes[u32(state.note_count) % 8u] = vec4f(t, max(input.note, 0.3), 0.0, 0.0);
     state.note_rate += 0.5;
   }
 
-  // How many emoji the music calls for now: by the slow energy (`input.drive`: the section's, in
-  // its last four bars turning to the next one's, so a chorus thickens as it comes); a quarter
-  // more while the melody is busy (four notes a second), a quarter fewer while it rests. `crowd`
-  // says how far the number follows the music at all.
+  // How many emoji the music calls for now: by the slow energy (`input.crowd_by_energy`, a
+  // quarter to all: the section's, in its last four bars turning to the next one's, so a chorus
+  // thickens as it comes); a quarter more while the melody is busy (four notes a second), a
+  // quarter fewer while it rests. `crowd` says how far the number follows the music at all.
   let busy = clamp(state.note_rate / 4.0, 0.0, 1.0);
-  let share = mix(1.0, mix(0.25, 1.0, clamp(input.drive, 0.0, 1.0)) * mix(0.75, 1.25, busy), params.crowd);
+  let share = mix(1.0, input.crowd_by_energy * mix(0.75, 1.25, busy), params.crowd);
 
-  // The beat: the kick (`input.kick`), the surge forward (`input.surge_env`) and the badges' turn
-  // (`input.beat_pos`, a step on every beat, eased) are all declared in scene.toml.
+  // The hits, counted here. `input.hit` is a heard hit (at level A each beat followed; at B and C
+  // every onset, which can be dense), so the count goes on by one only if at least half a beat
+  // has passed since the last step and something is heard. From the count: the kick (rocking
+  // the emoji, 0.25 s), the surge forward (0.3 s), and the crests' turn, the count with the last
+  // step eased in over 0.15 s, so a crest steps once per counted step and settles.
+  let beat_len = 60.0 / max(input.tempo, 20.0);
+  state.step_age = min(state.step_age + dt, 1000.0);
+  if (input.hit > 0.5 && heard && state.step_age >= 0.5 * beat_len) {
+    state.count += 1.0;
+    state.step_age = 0.0;
+  }
+  state.kick = exp(-state.step_age / 0.25);
+  state.surge = exp(-state.step_age / 0.3);
+  let arrived = clamp(state.step_age / 0.15, 0.0, 1.0);
+  state.turn = state.count - 1.0 + (1.0 - exp(-3.0 * arrived)) / (1.0 - exp(-3.0));
 
-  // Down the tunnel `per_beat` metres a beat of `input.tempo` (which is a calm one from how the
-  // music sounds when it has no beat), faster when it is loud.
-  let want = params.per_beat * input.tempo / 60.0 * mix(0.8, 1.2, input.intensity);
+  // Down the tunnel `per_beat` metres a beat of the tempo times how much is heard (`input.flight`;
+  // the tempo is a calm one from how the music sounds when it has no beat), faster when the
+  // energy is high (`energy_speed` says how much: 0 keeps it steady).
+  let want = input.flight * (1.0 + params.energy_speed * (mix(0.6, 1.4, input.energy) - 1.0));
   state.speed += (want - state.speed) * (1.0 - exp(-dt / 0.6));
-  state.s += state.speed * (1.0 + params.surge * input.surge_env) * dt;
+  state.s += state.speed * (1.0 + params.surge * state.surge) * dt;
 
   // The camera glides to the place the director cuts to (`shot.cuts` changes; shot `index` is the
   // place). The side changes only on the way to the middle place, by the shot's seed, so that no
   // glide swings across the tunnel. The glide takes `glide_bars` bars (bars of `input.meter` beats at
   // `input.tempo`, so it is a time even when there is no beat), but at most half of the shot, so
   // it never outlasts it. On a section's start (a cue of 0.5 or more) the badges coming take
-  // another palette (`input.coming`, a pick on the cues). A place chosen by hand it glides to at
-  // once, and the director's shots are ignored.
+  // another palette (`input.coming`, a pick on the cues). A place chosen by hand it glides to over
+  // the same bars (at least two seconds, at most twenty), and the director's shots are ignored.
   let fixed = params.view > 0u;
   if (frame.first == 1u) {
     state.view = select(f32(shot.index), f32(params.view) - 1.0, fixed);
@@ -382,8 +410,10 @@ fn update() {
       glide = min(glide, 0.5 * shot.length);
     }
     glide = max(glide, 0.25);
-    // In a burst of cuts (`shot.fill`) it jumps there, as a cut does.
-    if (shot.fill > 0u) {
+    // On a hard cut (`shot.hard`) it jumps there: inside a burst of cuts, the cut that ends the
+    // burst, and the start of a high section, which the runtime dresses with a strong transition (a
+    // hard cut is fine when a climax begins).
+    if (shot.hard == 1u) {
       glide = 0.001;
     }
   }
@@ -395,9 +425,11 @@ fn update() {
     state.glide = glide;
   }
 
-  // Where it is, drifting a little round that, slowly: only a few degrees, over half a minute.
+  // Where it is, drifting a little round that, slowly: only a few degrees, over half a minute,
+  // on the scene's own time, so it stands still in silence.
   let pose = pose_now(t);
-  let drift = params.drift * vec3f(0.03 * sin(t * 0.21), 0.015 * sin(t * 0.17 + 1.0), 0.04 * sin(t * 0.13 + 2.0));
+  let ph = state.phase;
+  let drift = params.drift * vec3f(0.03 * sin(ph * 0.21), 0.015 * sin(ph * 0.17 + 1.0), 0.04 * sin(ph * 0.13 + 2.0));
   let yaw = pose.turn.x + drift.x;
   let pitch = pose.turn.y + drift.y;
   let roll = pose.turn.z + pose.at.z + drift.z;

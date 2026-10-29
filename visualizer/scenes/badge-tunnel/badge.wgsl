@@ -164,8 +164,8 @@ fn leaf(col: vec3f, n: vec3f, d: vec3f) -> vec3f {
   return col * env(reflect(d, n)) * 0.9 + col * glint(n, d, 12.0) * 1.2 + col * 0.3;
 }
 
-// How far crest k turns on each beat: by its symmetry, so it always comes to rest upright (the
-// waves do not turn).
+// How far crest k turns on each counted hit: by its symmetry, so it always comes to rest upright
+// (the waves do not turn).
 fn crest_turn(k: f32) -> f32 {
   var order = array<f32, 12>(3.0, 4.0, 6.0, 6.0, 4.0, 5.0, 0.0, 3.0, 8.0, 2.0, 2.0, 4.0);
   let o = order[u32(clamp(k, 0.0, 11.0))];
@@ -203,7 +203,7 @@ fn shade_badge(i: u32, d: vec3f, t: f32, nl: vec3f, q: vec3f, pixel: f32) -> vec
   var cover = max(band(reach.x, FRAME_OUT.x, FRAME_OUT.y, f), band(reach.x, FRAME_IN.x, FRAME_IN.y, f));
   let k = rz.w % 16.0;
   let way = select(-1.0, 1.0, rz.w >= 16.0);
-  let a = input.beat_pos * crest_turn(k) * way;
+  let a = state.turn * crest_turn(k) * way;
   var cq = q.xy / CREST_R;
   if (nl.z > 0.0) {
     // (Mirrored on the back, so it reads the right way round from either side.)

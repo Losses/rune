@@ -1,7 +1,7 @@
 // What Badge Tunnel keeps from frame to frame: how far the camera has flown down the tunnel and
-// how fast, the music it flies to, the shot; and the things ahead of it, worked out afresh each
-// frame (badges, cubes and sparkles), already projected and sorted into screen tiles, so a pixel
-// looks only at the few that could cover it.
+// how fast, the scene's own time and the hits it has counted, the shot; and the things ahead of
+// it, worked out afresh each frame (badges, cubes and sparkles), already projected and sorted into
+// screen tiles, so a pixel looks only at the few that could cover it.
 
 // The tunnel is cut into slots along its length, each holding up to PER things, and the camera
 // sees SLOTS of them, ahead or (looking back) behind.
@@ -31,10 +31,23 @@ struct Pose {
 }
 
 struct State {
-  // How far the camera has come and how fast it flies (the kick, the surge and the badges' turn
-  // are inputs: see scene.toml).
+  // How far the camera has come and how fast it flies.
   s: f32,
   speed: f32,
+  // The scene's own time for everything that moves of itself (the emoji's and badges' turning,
+  // the flakes' tumbling, the core's rays, the sparkles' twinkle, the camera's drift): it
+  // advances by `dt` times how much is heard (`input.audible`), so all of it slows with a fade
+  // and stands still in silence. (`frame.time` stays where it measures the time since an event:
+  // a note's move, a glide.)
+  phase: f32,
+  // The hits the scene counts (see update): how many, the seconds since the last, and what they
+  // give: the kick (a decaying envelope, rocking the emoji), the surge forward, and the crests'
+  // turn (the count, the last step eased in over a moment).
+  count: f32,
+  step_age: f32,
+  kick: f32,
+  surge: f32,
+  turn: f32,
   // The place the camera is filming from or gliding to (see update), its side and its dutch
   // angle; how many of the director's cuts it has followed; when it set off, from where, and how
   // long the glide takes. (The badges' colours from then on are `input.coming`: 0 black

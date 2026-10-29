@@ -68,7 +68,8 @@ at_least_once = true
 
 # The burst before a section that lifts the energy: a hard cut on each of the last four beats, each
 # from a new place round the lead, nearer and then from above (update.wgsl's `view_shot` draws them
-# as views 6 to 9). The cut after the burst jumps too.
+# as views 6 to 9). The cut after the burst jumps too, as does the start of a high section: a hard
+# cut, which the runtime tells by `shot.hard`.
 [[burst]]
 name = "medium in front"
 size = "medium"

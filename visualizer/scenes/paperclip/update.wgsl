@@ -518,7 +518,6 @@ fn update() {
     choose_view(shot.index, shot.seed, 1.0);
     state.cuts = shot.cuts;
     state.glide = 1.0;
-    state.last_fill = shot.fill;
     state.rec_bar = vec4f(-1.0);
     state.move_bar = -1000.0;
     state.move_gap = 1.0;
@@ -607,12 +606,13 @@ fn update() {
     } else if (shot.fill == 3u) {
       state.side = -state.burst_side;
     }
-    // Inside a burst of cuts the shots last a beat each: jump there instead of gliding. The cut
-    // that ends the burst jumps too, not a two-bar glide from the burst's view from above.
-    if (shot.fill > 0u || state.last_fill > 0u) {
+    // A hard cut jumps there instead of gliding (`shot.hard`): inside a burst of cuts, where the
+    // shots last a beat each; the cut that ends the burst, not a two-bar glide from the burst's
+    // view from above; and the start of a high section, which the runtime dresses with a strong
+    // transition (a hard cut is fine when a climax begins).
+    if (shot.hard == 1u) {
       state.glide = 1.0;
     }
-    state.last_fill = shot.fill;
   }
   // The circling view goes round once in so many bars, the way of its side; it stops in silence.
   if (state.view > 4.5 && state.view < 5.5) {

@@ -57,9 +57,7 @@ struct State {
   // How hard they dance now: the dance's strength, the energy of the moment and how much is heard
   // (`level` above is only the section's: it decides what comes, not how big).
   amp: f32,
-  // The shot's fill at the last cut (a burst's cut is 1 to 4: the cut that ends it jumps too) and
-  // the side the burst's second cut filmed from (its third films from the other).
-  last_fill: u32,
+  // The side the burst's second cut filmed from (its third films from the other).
   burst_side: f32,
   // What each of the last four bars does, decided once as the bar begins on the lead (slot
   // n % 4; see `decide_bar`): the bar number, its big move (0 none to 6 a backflip), the side
