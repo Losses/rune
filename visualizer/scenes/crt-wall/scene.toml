@@ -7,15 +7,16 @@ common = ["wall.wgsl"]
 # Covers from the library, for the screens that show one.
 covers = true
 
-# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
-# A wall of old televisions: glitches, dot mosaics and a flash washed in the theme colour suit it
-# (the screens themselves no longer flash when they change: they roll, slip, collapse or tune
-# through snow). The scene declares no flare and must not: no lens flare over a wall of screens.
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md): A wall of
+# old televisions: glitches, dot mosaics and a flash washed in the theme colour suit it (the screens
+# themselves no longer flash when they change: they roll, slip, collapse or tune through snow). The
+# scene declares no flare and must not: no lens flare over a wall of screens. Every other lens
+# effect is declared.
 [effects]
 # Transitions: switching into this scene, and dressing a hard cut of the camera in it.
 transitions = ["fade", "glitch", "mosaic", "flash"]
 # Lens effects: over the picture, with no change of picture.
-lens = ["glitch", "mosaic"]
+lens = ["leak", "glitch", "mosaic"]
 
 # The director cuts between the wall's views. The camera has no roll of its own, so the director's
 # dutch angle is the only tilt, on the ordinary close shots as on the burst's (so `dutch_in` stays

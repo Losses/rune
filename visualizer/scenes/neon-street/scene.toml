@@ -6,12 +6,12 @@ description = "A shopping street at night, walked on the beat"
 common = ["glyphs.wgsl", "city.wgsl"]
 
 # The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
-# A neon street at night, in the spirit of Persona 5: the cut-in belongs here.
+# A neon street at night, in the spirit of Persona 5: the cut-in belongs here. Every lens effect.
 [effects]
 # Transitions: switching into this scene, and dressing a hard cut of the camera in it.
 transitions = ["fade", "cutin", "flash", "glitch"]
 # Lens effects: over the picture, with no change of picture.
-lens = ["flare", "glitch"]
+lens = ["flare", "leak", "glitch", "mosaic"]
 
 # The director cuts between the street's views. The camera never rolls of its own accord, and the
 # director's dutch angle comes only with the cuts of a burst (a tilt on every cut was too much), and
@@ -25,6 +25,8 @@ dutch_in = "bursts"
 name = "street"
 size = "medium"
 move = "cut"
+# It may open a section of any kind: the views that open the others are not for a climax.
+opens = true
 
 # The street side: street level a little to one side (as the burst's first view), turned 30 to 36
 # degrees towards the shops on the other side, their fronts and signs filling that side of the frame
@@ -84,6 +86,9 @@ name = "theme colour"
 tags = ["colour"]
 tiers = ["high"]
 opens = false
+# A song with no high section would stay grey throughout: it is promised the look once, in its
+# highest section then.
+at_least_once = true
 
 [state]
 file = "state.wgsl"
@@ -690,15 +695,6 @@ default = 45.0
 min = 15.0
 max = 120.0
 step = 5.0
-
-[[param]]
-id = "palette_spread"
-group = "Signs"
-label = "Colour spread within a district"
-default = 1.0
-min = 0.0
-max = 3.0
-step = 0.05
 
 [[param]]
 id = "sign_saturation"

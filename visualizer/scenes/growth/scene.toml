@@ -5,15 +5,14 @@ description = "A tower of concrete plates growing up, a step on every beat, its 
 
 common = ["tower.wgsl"]
 
-# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
-# A tower that grows towards the light: a flash, a flare and a light leak, and the glitch of the
-# video. The flashes and glitches are the runtime's, at the music's moments; the scene keeps none
-# of its own.
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md): A tower
+# that grows towards the light: a flash, and every lens effect. The flashes and glitches are the
+# runtime's, at the music's moments; the scene keeps none of its own.
 [effects]
 # Transitions: switching into this scene, and dressing a hard cut of the camera in it.
 transitions = ["fade", "dissolve", "flash", "glitch"]
 # Lens effects: over the picture, with no change of picture.
-lens = ["flare", "leak", "glitch"]
+lens = ["flare", "leak", "glitch", "mosaic"]
 
 [state]
 file = "state.wgsl"

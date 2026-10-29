@@ -5,13 +5,13 @@ description = "A paperclip dancing on its sheet of paper, a field of them dancin
 
 common = ["clip.wgsl"]
 
-# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
-# A nineties render in big pixels: a dot mosaic, and a flash washed in the theme colour.
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md): A nineties
+# render in big pixels: a dot mosaic, and a flash washed in the theme colour; every lens effect.
 [effects]
 # Transitions: switching into this scene, and dressing a hard cut of the camera in it.
 transitions = ["fade", "mosaic", "cutin", "flash"]
 # Lens effects: over the picture, with no change of picture.
-lens = ["mosaic"]
+lens = ["flare", "leak", "glitch", "mosaic"]
 
 [state]
 file = "state.wgsl"
