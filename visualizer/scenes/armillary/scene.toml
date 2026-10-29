@@ -49,28 +49,57 @@ target = "out"
 [camera]
 dutch = 0.3
 
-# The four setups, in this order (update.wgsl maps `shot.index` to them). Below and far off frame
-# the whole sphere at about the same size (the focal length over the distance), so both are wide;
-# through the rings is twice as near; from above is the top view.
+# The four setups, in this order (update.wgsl maps `shot.index` to them), each with a character of
+# its own. Below is wide, from below and to one side, pushing in. Level is medium: at the middle's
+# height, from a side, nearer than below, so the rings are seen nearly edge on and cross as tilted
+# lines and narrow ellipses. Through the rings is closer still, among the rings. Above is the top
+# view. A far or top view is not for a climax; every kind of section has a shot to open it (quiet:
+# below; ordinary and high: below, level).
 [[shot]]
 name = "below"
 size = "wide"
 move = "cut"
 
 [[shot]]
-name = "far"
-size = "wide"
+name = "level"
+size = "medium"
 move = "cut"
+opens = true
+tiers = ["normal", "high"]
 
 [[shot]]
 name = "through the rings"
 size = "close"
 move = "cut"
+tiers = ["normal", "high"]
 
 [[shot]]
 name = "above"
 size = "top"
 move = "cut"
+tiers = ["quiet", "normal"]
+
+# The burst before a section that lifts, four hard cuts, one a beat (update.wgsl `choose_burst`
+# chooses what each frames, at the cut, and keeps it for the cut): along a ring (the next one in the
+# lighting order, lit for the cut), a metre outside it, its arc sweeping across the picture round to
+# the planet; at a polygon, lit for the cut, seen 30 degrees off its face; down the pole, the rings
+# as ellipses round the planet; and last the planet, filling most of the picture, the nearest rings'
+# marks passing in front of it. One of them is on the planet and one on a polygon.
+[[burst]]
+name = "along a ring"
+size = "close"
+
+[[burst]]
+name = "a shape"
+size = "detail"
+
+[[burst]]
+name = "down the pole"
+size = "top"
+
+[[burst]]
+name = "the planet"
+size = "close"
 
 # Kept dark: it is watched mostly at night.
 [post]

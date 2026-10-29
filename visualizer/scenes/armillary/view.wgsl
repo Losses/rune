@@ -15,10 +15,6 @@ fn light_by_energy() -> f32 {
 // It swells with the music and on each beat; its characters stay the same size (they are cut for
 // the planet at rest, so a swelling planet takes in more of them, never sliding them), and the
 // grid keeps to whole pixels. Its body is dark: it hides the stars behind it, and gives no glow.
-fn planet_radius() -> f32 {
-  return params.planet * (0.82 + 0.35 * clamp(state.core_size - 1.0, 0.0, 0.8));
-}
-
 fn ascii_planet(o: vec3f, at: vec2f, px1: f32) -> vec3f {
   let c = CENTRE;
   let v = c - o;
@@ -143,8 +139,10 @@ fn mark(at: vec2f, b: vec3f, o: vec3f, size: f32, plus: bool, px1: f32, limit: f
   }
   let s = state.focal * vec2f(dot(v, state.cam_right), dot(v, state.cam_up)) / zc;
   let true_rad = state.focal * size / zc;
-  // Never under a pixel across: smaller, it is dimmer instead.
-  let rad = max(true_rad, px1 * 0.6);
+  // Never under a pixel across: smaller, it is dimmer instead. Nor more than 0.02 of the picture's
+  // height in radius: a mark by the lens (the burst's cut beside a ring) would blow up into a blur;
+  // marks nearer than 0.3 are left out altogether (above).
+  let rad = min(max(true_rad, px1 * 0.6), 0.02);
   let dim = min(pow(true_rad / rad, 2.0), 1.0);
   let q = at - s;
   var ink: f32;

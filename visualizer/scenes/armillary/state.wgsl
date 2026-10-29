@@ -44,6 +44,18 @@ struct State {
   // and the batch of shapes lit last (-1 none).
   kick_prev: f32,
   last_batch: f32,
+  // The burst's cut (see `choose_burst` in update): what it frames, decided at the cut and kept for
+  // it: the ring or shape it looks at and the angle on the ring, how far the camera is, the
+  // direction it looks from, an offset of what it aims at, and the directions the burst has
+  // looked from so far (summed, so the last cut looks from another side).
+  burst_a: f32,
+  burst_phi: f32,
+  burst_dist: f32,
+  burst_dir: vec3f,
+  burst_off: vec3f,
+  burst_seen: vec3f,
+  // 1 while the shape the burst looks at is held lit.
+  burst_hold: f32,
   // The planet's size now (it swells with the music and on each beat, sprung), and its speed.
   core_size: f32,
   core_vel: f32,
@@ -116,6 +128,12 @@ fn turn(v: vec3f, a: vec3f, t: f32) -> vec3f {
 fn pole() -> vec3f {
   let lat = radians(params.latitude);
   return vec3f(0.0, sin(lat), cos(lat));
+}
+
+// The planet's radius: it swells with the music and on each beat (view.wgsl draws it, and the
+// burst frames it).
+fn planet_radius() -> f32 {
+  return params.planet * (0.82 + 0.35 * clamp(state.core_size - 1.0, 0.0, 0.8));
 }
 
 fn screen_uv(p: vec2f, aspect: f32) -> vec2f {

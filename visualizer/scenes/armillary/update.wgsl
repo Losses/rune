@@ -306,9 +306,13 @@ fn light(strength: f32) {
     }
     return;
   }
-  // A batch of the shapes, the next batch in turn, each made anew as it lights
-  // (somewhere else, another shape): unlit they are not there, so no one sees them change.
-  // The batch before gives way to it, dimming at once to a third and fading on from there.
+  light_shapes(strength, n);
+}
+
+// A batch of the shapes, the next batch in turn (`n` counts the lightings), each made anew as it
+// lights (somewhere else, another shape): unlit they are not there, so no one sees them change.
+// The batch before gives way to it, dimming at once to a third and fading on from there.
+fn light_shapes(strength: f32, n: u32) {
   let batch = n % BATCHES;
   state.last_batch = f32(batch);
   let tip = (vec3f(random(50u), random(51u), random(52u)) - 0.5) * 1.2;
@@ -400,7 +404,8 @@ fn project(i: u32) -> vec4f {
   let v = p.xyz - state.cam_pos;
   let zc = dot(v, state.cam_fwd);
   // (Not one right by the lens: it would be a blur across the picture.)
-  if (zc < 3.0) {
+  // (The burst's cut at a polygon stands nearer than that.)
+  if (zc < select(3.0, 0.6, state.view > 4.5 && state.view < 5.5)) {
     state.shape_scr[i] = vec4f(0.0, 0.0, -1.0, -1.0);
     return none;
   }
@@ -415,6 +420,105 @@ fn project(i: u32) -> vec4f {
     return none;
   }
   return vec4f(c, rad, f32(i));
+}
+
+// ---- The burst ----
+// The burst of four hard cuts before a section that lifts (`shot.fill` 1 to 4, the shots 4 to 7).
+// Each is another way of looking, and its subject is chosen here, at the cut, and kept for the cut:
+// 1 along a ring, close beside it; 2 at a polygon, lit for it, seen 30 degrees off its face; 3 down
+// the pole, the rings as ellipses round the planet; 4 the planet, filling most of the picture.
+// What a cut frames is put at the picture's middle at a distance worked out from its size, so
+// that the dutch angle (a turn about the camera's axis) cannot lose it; its size is measured on
+// the shorter side of the picture (`frame_unit`), so it also fits a portrait one.
+
+// A random number that differs from cut to cut (`random` is the same all through a run).
+fn random_cut(n: u32) -> f32 {
+  return rv_unit(frame.seed * 2654435761u + n * 40503u + shot.cuts * 7919u + 977u);
+}
+
+// The shorter side of the picture, in units of its height.
+fn frame_unit() -> f32 {
+  return min(1.0, frame.aspect);
+}
+
+// How far a camera of focal length `f` stands from a sphere of radius `r` for it to show with the
+// radius `rho` on the screen (units of the picture's height).
+fn frame_dist(r: f32, rho: f32, f: f32) -> f32 {
+  let reach = f * r / rho;
+  return sqrt(r * r + reach * reach);
+}
+
+fn burst_ring_radius(i: u32) -> f32 {
+  return ring_size(i).x - ring_size(i).y * 0.5;
+}
+
+fn choose_burst(fill: u32, th: vec2f) {
+  let u = frame_unit();
+  let f = params.lens;
+  let up = vec3f(0.0, 1.0, 0.0);
+  state.burst_off = vec3f(0.0);
+  state.burst_hold = 0.0;
+  if (fill == 1u) {
+    // Along a ring: the ring the order lights next, lit now as a beat's accent would, in full (and
+    // the beat's own lighting is left out this frame: see update), so it is the bright subject.
+    // The order never lights the ring the lighting just before lit, so the ring that was lit
+    // last is never this one. It is held lit for the cut, from a place round it that the cut's
+    // own number picks.
+    state.lits += 1.0;
+    let ring = ring_lit_first(u32(state.lits));
+    light_ring(ring, 1.0, 0u);
+    state.burst_a = f32(ring);
+    state.burst_phi = random_cut(1u) * 6.2831853;
+    state.burst_hold = 1.0;
+    state.burst_seen = vec3f(0.0);
+  } else if (fill == 2u) {
+    // At a polygon: a batch lights now, as a beat's accent would (and the beat's own lighting is
+    // left out this frame: see update), the band of it facing the side the camera will be on;
+    // one of it is picked by the cut's number; the camera stands on the outer side of it, 30
+    // degrees off its face, at the distance that gives its outline a radius of 0.36 of the
+    // picture's short side. (The camera's place is set early here, for the batch to face it.)
+    let side = vec3f(cos(random_cut(2u) * 6.2831853), 0.25, sin(random_cut(2u) * 6.2831853));
+    state.cam_fwd = -normalize(side);
+    state.cam_pos = CENTRE + normalize(side) * 9.0;
+    state.lits += 1.0;
+    light_shapes(mix(0.55, 1.0, input.energy), u32(state.lits));
+    let batch = u32(state.last_batch);
+    let many = max(u32(state.batch_look[batch].x), 1u);
+    let pick = batch + BATCHES * min(u32(random_cut(3u) * f32(many)), many - 1u);
+    for (var k = 0u; k < many; k++) {
+      place(batch + BATCHES * k, th);
+    }
+    let p = state.shape_pos[pick];
+    let out = normalize(p.xyz - CENTRE);
+    let n = state.shape_n[pick].xyz;
+    let face = n * select(-1.0, 1.0, dot(n, out) >= 0.0);
+    var across = cross(face, up);
+    if (length(across) < 0.2) {
+      across = cross(face, vec3f(1.0, 0.0, 0.0));
+    }
+    state.burst_dir = normalize(face * 0.8660254 + normalize(across) * state.side * 0.5);
+    state.burst_a = f32(pick);
+    state.burst_dist = frame_dist(p.w, 0.36 * u, f);
+    state.burst_hold = 1.0;
+    state.burst_seen += normalize(p.xyz + state.burst_dir * state.burst_dist - CENTRE);
+  } else if (fill == 3u) {
+    // Down the pole: far enough that the outer ring (with its width) fills 0.88 of the short side.
+    state.burst_dir = pole();
+    state.burst_dist = frame_dist(ring_size(4u).x, 0.44 * u, f);
+    state.burst_seen += pole();
+  } else {
+    // The planet: from the side the burst has looked at least, a little off its middle, filling
+    // 0.7 of the short side.
+    let r = planet_radius();
+    let wander = normalize(vec3f(random_cut(5u) - 0.5, random_cut(6u) - 0.5, random_cut(7u) - 0.5) + vec3f(0.0, 0.0, 0.01));
+    state.burst_dir = normalize(select(wander, wander * 0.35 - normalize(state.burst_seen), length(state.burst_seen) > 0.2));
+    state.burst_dist = frame_dist(r, 0.35 * u, f);
+    var across = cross(state.burst_dir, up);
+    if (length(across) < 0.2) {
+      across = vec3f(1.0, 0.0, 0.0);
+    }
+    state.burst_off = normalize(across) * 0.12 * r + up * 0.05 * r;
+  }
 }
 
 fn update() {
@@ -531,6 +635,21 @@ fn update() {
     move_ring(i, dt);
   }
 
+  // The director cuts to another shot: its index is the view and its seed picks the side. (The
+  // cut count is compared with the one seen, so the first frame frames the first shot too.) A cut of
+  // the burst (the views 4 to 7) chooses what it frames now (`choose_burst`), the first frame of it.
+  var burst_lit = false;
+  if (frame.first == 1u || shot.cuts != u32(state.cuts_seen)) {
+    state.cuts_seen = f32(shot.cuts);
+    state.view = f32(shot.index);
+    state.side = select(-1.0, 1.0, shot.seed < 0.5);
+    if (shot.fill > 0u) {
+      choose_burst(shot.fill, theme());
+      burst_lit = shot.fill <= 2u;
+    }
+  }
+  let view = state.view;
+
   // Accents fall on the counted beats: the bar's first beat strongest, its third next, the others
   // least, all of it stronger with the energy (0.55 times in the quietest passage, whole in the
   // loudest, so in a quiet passage only the first and third beats pass `accent`). What is lit
@@ -539,7 +658,8 @@ fn update() {
     let at = u32(state.beat_in_bar) % 4u;
     let weight = select(select(0.5, 0.75, at == 2u), 1.0, at == 0u);
     let accent = weight * mix(0.55, 1.0, input.energy);
-    if (accent > params.accent) {
+    // (The burst's cut at a polygon has lit a batch of its own this frame, on the beat it is on.)
+    if (accent > params.accent && !burst_lit) {
       light(accent);
     }
   }
@@ -564,7 +684,10 @@ fn update() {
     // The dots brighten all together, quickly at first and slower as they near the accent's
     // strength (a time constant of a third of `light_spread` beats), and dim together as it fades.
     var on = state.ring_on[i];
-    on.z *= on_fade;
+    // (The ring the burst looks along is held lit for its cut.)
+    if (!(state.burst_hold > 0.5 && view > 3.5 && view < 4.5 && i == u32(state.burst_a))) {
+      on.z *= on_fade;
+    }
     let rise = 1.0 - exp(-dt * 3.0 / max(params.light_spread * beat_time, 0.01));
     on.y = select(on.z, on.y + (on.z - on.y) * rise, on.z > on.y);
     state.ring_on[i] = on;
@@ -589,49 +712,92 @@ fn update() {
   // radians); the shaders read them as they are. The camera's sum starts anew with each shot
   // (`reset = "cut"`).
 
-  // The director cuts to another shot: its index is the view and its seed picks the side.
-  // (The cut count is compared with the one seen, so the first frame frames the first shot too.)
-  if (frame.first == 1u || shot.cuts != u32(state.cuts_seen)) {
-    state.cuts_seen = f32(shot.cuts);
-    state.view = f32(shot.index);
-    state.side = select(-1.0, 1.0, shot.seed < 0.5);
-  }
-  let view = state.view;
+  // The rings first: the camera of a burst's cut at a ring follows the ring as it swings.
+  set_rings();
 
-  // The shot, about the sphere in space: 0 a little below, pushing in; 1 far off, the
-  // sphere small among the stars, circling; 2 close, the rings crossing, circling; 3 from above,
+  // The shot, about the sphere in space: 0 a little below, pushing in; 1 level, from the side,
+  // the rings seen nearly edge on, circling; 2 close, the rings crossing, circling; 3 from above,
   // circling. Each mirrored by its side; the camera moves slowly and evenly, never with the beat.
+  // The burst's cuts, 4 to 7 (see `choose_burst`): along a ring, at a polygon, down the pole, at
+  // the planet; each framed from what was chosen at the cut, and pushing in a few percent over its
+  // length, by how much is heard.
   let c = CENTRE;
   let s = state.side;
   let held = input.cam_drift;
   let round = s * held;
   let up = vec3f(0.0, 1.0, 0.0);
+  var upward = up;
   var cam: vec3f;
   var aim: vec3f;
   var focal: f32;
+  let push = 0.04 * smoothstep(0.0, 1.0, clamp(shot.age / max(shot.length, 0.25), 0.0, 1.0)) * input.audible;
   if (view < 0.5) {
     aim = c + vec3f(0.0, 0.3, 0.0);
     cam = mix(c + vec3f(4.4 * s, -1.8, -5.6), aim, 0.3 * (1.0 - exp(-held / 30.0)));
     focal = 0.9;
   } else if (view < 1.5) {
-    cam = c + turn(vec3f(6.5 * s, 1.8, -9.4), up, round * 0.012);
+    // Level with the middle, from a side (20 degrees off the line of the meridian's axis), nearer
+    // than the first (the focal length over the distance is 0.167 against 0.123): the horizon ring
+    // is a line across the picture and the others cross it as tilted lines and narrow ellipses.
+    cam = c + turn(vec3f(5.64 * s, 0.0, -2.05), up, round * 0.015);
     aim = c;
-    focal = 1.25;
+    focal = 1.0;
   } else if (view < 2.5) {
     cam = c + turn(vec3f(2.6 * s, 1.0, -3.4), up, round * 0.02);
     aim = c + turn(vec3f(-0.3 * s, -0.2, 0.0), up, round * 0.02);
     focal = 1.0;
-  } else {
+  } else if (view < 3.5) {
     cam = c + turn(vec3f(1.6 * s, 8.0, -4.2), up, round * 0.015);
     aim = c;
     focal = 1.0;
+  } else if (view < 4.5) {
+    // Along a ring, the ring the cut lit: the camera 1.2 m outside it (in its plane's outward
+    // direction) and 0.5 m off its plane, looking along its tangent turned in towards the middle,
+    // so the arc sweeps from big marks near the lens across to the far side with the planet in
+    // the picture. The angle is chosen by the picture's shape, with the planet about 35 degrees
+    // off the view axis in a wide picture (ring plane level, so the arc sweeps across) and 25 in a
+    // tall one (the ring's inward side up, so it sweeps from the bottom up), both inside the
+    // lens's field; a wide lens, which the lens setting does not change.
+    let i = u32(state.burst_a);
+    let x = state.ring_x[i].xyz;
+    let y = state.ring_y[i].xyz;
+    let z = state.ring_z[i].xyz;
+    let out = x * cos(state.burst_phi) + y * sin(state.burst_phi);
+    let along = (y * cos(state.burst_phi) - x * sin(state.burst_phi)) * s;
+    let zup = z * select(-1.0, 1.0, dot(z, up) >= 0.0);
+    let tall = frame.aspect < 1.0;
+    let turn_in = select(0.9599, 1.1345, tall);
+    let heading = normalize(along * cos(turn_in) - out * sin(turn_in));
+    cam = c + out * (burst_ring_radius(i) + 1.2) + zup * 0.5 + heading * (2.0 * push);
+    aim = cam + heading * 6.0 - zup * 0.5;
+    upward = select(zup, -out, tall);
+    focal = select(0.6, 0.55, tall);
+  } else if (view < 5.5) {
+    // At the polygon the cut lit.
+    let p = state.shape_pos[u32(state.burst_a)].xyz;
+    aim = p;
+    cam = p + state.burst_dir * state.burst_dist * (1.0 - push);
+    focal = params.lens;
+  } else if (view < 6.5) {
+    // Down the pole.
+    aim = c;
+    cam = c + state.burst_dir * state.burst_dist * (1.0 - push);
+    upward = normalize(up - state.burst_dir * dot(up, state.burst_dir));
+    focal = params.lens;
+  } else {
+    // The planet.
+    aim = c + state.burst_off;
+    cam = c + state.burst_dir * state.burst_dist * (1.0 - push);
+    focal = params.lens;
   }
   // Further back with a longer lens, the same framing with less of the near side of each ring
-  // swelling: concentric rings aim concentric.
-  cam = aim + (cam - aim) * params.lens;
-  focal *= params.lens;
+  // swelling: concentric rings look concentric. (The burst's cuts are framed with it already.)
+  if (view < 3.5) {
+    cam = aim + (cam - aim) * params.lens;
+    focal *= params.lens;
+  }
   let fwd = normalize(aim - cam);
-  let level_right = normalize(cross(up, fwd));
+  let level_right = normalize(cross(upward, fwd));
   let level_up = cross(fwd, level_right);
   // The director's dutch angle, fixed within a shot: the camera turns about its own axis.
   let roll = shot.roll;
@@ -644,7 +810,6 @@ fn update() {
   // widening averaged at 120 bpm, 0.0022 * (1 + 0.43)), not following any beat.
   post.chromatic = 0.003;
 
-  set_rings();
   // (The theme is worked out once, for the palette and for every shape's colour.)
   let th = theme();
   set_palette(th);
@@ -653,7 +818,9 @@ fn update() {
   // drawn, in the order of their numbers: one write each, however big they are on the screen.
   var hits = 0u;
   for (var i = 0u; i < SHAPES; i++) {
-    let lit = state.shape_look[i].y * fade;
+    // (The shape the burst looks at is held lit for its cut.)
+    let held_shape = state.burst_hold > 0.5 && view > 4.5 && view < 5.5 && i == u32(state.burst_a);
+    let lit = select(state.shape_look[i].y * fade, state.shape_look[i].y, held_shape);
     state.shape_look[i].y = lit;
     if (lit < 0.02) {
       continue;
