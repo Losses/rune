@@ -255,19 +255,14 @@ mod android {
         }
         // SAFETY: `fd` is a new descriptor nothing else owns.
         let wake = unsafe { OwnedFd::from_raw_fd(fd) };
-        // Only the main thread gets here, so nothing else sets it in between.
-        let main = MAIN.get_or_init(|| MainLooper {
-            thread,
-            wake,
-            calls: Mutex::new(VecDeque::new()),
-        });
         // SAFETY: `looper` is this thread's. It is acquired for good, so it outlives the watch;
-        // the descriptor lives in `MAIN` for the rest of the process. `drain` takes no data.
+        // the descriptor goes to `MAIN` below and lives there for the rest of the process.
+        // `drain` takes no data.
         let added = unsafe {
             ndk::ALooper_acquire(looper);
             ndk::ALooper_addFd(
                 looper,
-                main.wake.as_raw_fd(),
+                wake.as_raw_fd(),
                 ndk::ALOOPER_POLL_CALLBACK,
                 ndk::ALOOPER_EVENT_INPUT,
                 Some(drain),
@@ -275,9 +270,19 @@ mod android {
             )
         };
         if added != 1 {
+            // SAFETY: undoes the acquire above; `wake` closes when it drops here.
+            unsafe { ndk::ALooper_release(looper) };
             error!("The main looper does not watch the eventfd");
             return Err(TextureError::PlatformThread);
         }
+        // Set only once the watch works: a later attach must not find a main looper that never
+        // wakes, or every call for the main thread would wait forever. Only the main thread gets
+        // here, so nothing else sets it in between.
+        let _ = MAIN.set(MainLooper {
+            thread,
+            wake,
+            calls: Mutex::new(VecDeque::new()),
+        });
         Ok(())
     }
 

@@ -28,6 +28,7 @@ unsafe extern "C" {
     /// The looper of the calling thread, or null; not acquired.
     pub(crate) fn ALooper_forThread() -> *mut ALooper;
     pub(crate) fn ALooper_acquire(looper: *mut ALooper);
+    pub(crate) fn ALooper_release(looper: *mut ALooper);
     /// Returns 1 if the file descriptor was added, -1 on error. With a callback it is called on
     /// the looper's thread while the looper polls.
     pub(crate) fn ALooper_addFd(
