@@ -20,6 +20,8 @@ struct State {
   count: f32,
   beat_age: f32,
   phase: f32,
+  // How far the picture is in the theme colour look (0 the grey look, 1 the colour one).
+  colour: f32,
   // Bars, phrases and sections (strong cues) counted.
   bars: f32,
   phrases: f32,

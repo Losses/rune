@@ -13,6 +13,24 @@ transitions = ["fade", "dissolve", "flash"]
 # Lens effects: over the picture, with no change of picture.
 lens = ["flare"]
 
+# The looks (update.wgsl maps the colours by them and blends them; the runtime picks one at a
+# section start by the section's energy): the sphere in grey, a little dim, with a faint tint of
+# the theme colour, at quiet and ordinary sections, and in the theme colour at the climax. The
+# whole picture is one colour family, as Emoji Tunnel's, CRT Wall's and Neon Street's are.
+[[look]]
+name = "grey"
+tags = ["night"]
+tiers = ["quiet", "normal"]
+
+[[look]]
+name = "theme colour"
+tags = ["colour"]
+tiers = ["high"]
+opens = false
+# A song with no high section would stay grey throughout: it is promised the look once, in its
+# highest section then.
+at_least_once = true
+
 [state]
 file = "state.wgsl"
 update = "update.wgsl"
@@ -303,24 +321,15 @@ default = true
 id = "theme"
 type = "color"
 group = "Colour"
-label = "The theme colour when not following the player; only its hue is taken, and every colour is made from it"
+label = "The theme colour when not following the player; only its hue and a little of its chroma are taken, and every colour is made from it (the looks then take the chroma down)"
 default = "#007aff"
-
-[[param]]
-id = "chroma"
-group = "Colour"
-label = "How colourful (0 is black and white)"
-default = 1.0
-min = 0.0
-max = 2.0
-step = 0.05
 
 # ---- Sphere ----
 
 [[param]]
 id = "core"
 group = "Sphere"
-label = "How bright the planet's characters are"
+label = "How bright the planet's characters are (brighter with the energy, 0.65 to 1.25 times)"
 default = 1.0
 min = 0.0
 max = 3.0
@@ -456,7 +465,7 @@ id = "light_beats"
 group = "Sphere"
 label = "Beats before a lit ring has dimmed by half"
 unit = "beats"
-default = 2.0
+default = 0.5
 min = 0.25
 max = 8.0
 step = 0.25

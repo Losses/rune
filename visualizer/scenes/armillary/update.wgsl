@@ -11,11 +11,11 @@
 
 // ---- Colour ----
 // Every colour in the picture comes from one: the theme colour, the player's own (which follows
-// the system, the listener's choice or the cover) unless the setting says to use its own. Only its hue is
-// kept, and how colourful it is (held down, so it is never loud at night); every colour is made
-// from them in OKLab, where a step in lightness or hue looks as big as it is: lines near white,
-// the light warmer and fuller, the space round it all but black, a little turn of the hue here
-// and there and nothing more.
+// the system, the listener's choice or the cover) unless the setting says to use its own. Only its
+// hue is kept, and how colourful it is (held down, so it is never loud at night, and taken down
+// further by the grey look); every colour is made from them in OKLab, where a step in lightness
+// or hue looks as big as it is: lines near white, the light warmer and fuller, the space round it
+// all but black, a little turn of the hue here and there and nothing more.
 
 fn oklab(c: vec3f) -> vec3f {
   let l = pow(max(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b, 0.0), 1.0 / 3.0);
@@ -41,11 +41,29 @@ fn tint(lightness: f32, chroma: f32, hue: f32) -> vec4f {
 }
 
 // The theme's hue and (held down) chroma: of the player's accent colour once it has told it,
-// else of the setting.
+// else of the setting. The look then takes the chroma down (see `grade`).
 fn theme() -> vec2f {
   let follow = params.follow == 1u && frame.accent.a > 0.5;
   let lab = oklab(select(params.theme.rgb, frame.accent.rgb, follow));
-  return vec2f(atan2(lab.z, lab.y), min(length(lab.yz), 0.12) * params.chroma);
+  return vec2f(atan2(lab.z, lab.y), min(length(lab.yz), 0.12));
+}
+
+// The looks (the runtime picks them; see the `[[look]]`s): the theme colour look has the colours
+// as made, the grey look keeps the theme's hue with only a faint tint of its chroma, and a little
+// dimmer (as Emoji Tunnel's and CRT Wall's greys are). Every colour in the picture is made from
+// the theme's hue and chroma, so the looks are mapped here, where they are made, not graded over
+// the finished picture. `state.colour` is how far the picture is in the theme colour look (0 the
+// grey look, 1 the colour one), blending the two as the runtime fades from one to the other.
+const GREY_TINT: f32 = 0.15;
+const GREY_DIM: f32 = 0.85;
+
+// The chroma the colours are made with, and the light they are scaled by.
+fn grade_chroma(c: f32) -> f32 {
+  return c * mix(GREY_TINT, 1.0, state.colour);
+}
+
+fn grade_light() -> f32 {
+  return mix(GREY_DIM, 1.0, state.colour);
 }
 
 // The palette, by number: 0 the planet's characters and the lines; 1 the light of the lit dots and
@@ -54,17 +72,18 @@ fn theme() -> vec2f {
 // the gem, the star and the lamp; the numbers stay as they were.)
 fn set_palette(th: vec2f) {
   let h = th.x;
-  let c = th.y;
-  state.palette[0] = tint(0.92, c * 0.45, h);
-  state.palette[1] = tint(0.8, c, h);
-  state.palette[3] = vec4f(oklch(0.33, c * 0.6, h + 0.25), 0.0);
-  state.palette[4] = vec4f(oklch(0.35, c * 0.5, h - 0.25), 0.0);
-  state.palette[5] = vec4f(oklch(0.13, c * 0.25, h), 0.0);
-  state.palette[6] = tint(0.93, c * 0.15, h - 0.5);
-  state.palette[7] = tint(0.93, c * 0.25, h + 0.5);
+  let c = grade_chroma(th.y);
+  let dim = grade_light();
+  state.palette[0] = tint(0.92, c * 0.45, h) * dim;
+  state.palette[1] = tint(0.8, c, h) * dim;
+  state.palette[3] = vec4f(oklch(0.33, c * 0.6, h + 0.25) * dim, 0.0);
+  state.palette[4] = vec4f(oklch(0.35, c * 0.5, h - 0.25) * dim, 0.0);
+  state.palette[5] = vec4f(oklch(0.13, c * 0.25, h) * dim, 0.0);
+  state.palette[6] = tint(0.93, c * 0.15, h - 0.5) * dim;
+  state.palette[7] = tint(0.93, c * 0.25, h + 0.5) * dim;
   // Each ring the marks' colour, its hue turned a few degrees its own way.
   for (var i = 0u; i < RINGS; i++) {
-    state.ring_tint[i] = tint(0.92, c * 0.45, h + (f32(i) - 2.0) * 0.07);
+    state.ring_tint[i] = tint(0.92, c * 0.45, h + (f32(i) - 2.0) * 0.07) * dim;
   }
 }
 
@@ -305,8 +324,8 @@ fn light(strength: f32) {
 fn place(i: u32, th: vec2f) {
   let batch = i % BATCHES;
   let place_in = i / BATCHES;
-  let look = state.batch_look[batch];
-  let many = max(u32(look.x), 1u);
+  let made = state.batch_look[batch];
+  let many = max(u32(made.x), 1u);
   let present = f32(place_in < many);
   let id = vec2f(f32(i), 3.7 + state.shape_look[i].z * 17.31);
   let band_id = vec2f(f32(batch), 5.3 + state.shape_look[i].z * 17.31);
@@ -319,7 +338,7 @@ fn place(i: u32, th: vec2f) {
   let lift = (hash(id + 0.2) - 0.5) * 1.0;
   let out = normalize((e1 * cos(round_at) + e2 * sin(round_at)) * cos(lift) + axis * sin(lift));
   let r = mix(4.6, 6.1, hash(id + 0.1));
-  let size = mix(0.25, 0.95, pow(hash(id + 0.5), 1.5)) * look.y * params.shape_size;
+  let size = mix(0.25, 0.95, pow(hash(id + 0.5), 1.5)) * made.y * params.shape_size;
   state.shape_pos[i] = vec4f(state.centre + out * r, size * present);
   // Facing the middle, tipped (some well over), turning slowly in its own plane.
   let n = normalize(out + (vec3f(hash(id + 2.1), hash(id + 2.2), hash(id + 2.3)) - 0.5) * 1.1);
@@ -329,7 +348,7 @@ fn place(i: u32, th: vec2f) {
   state.shape_n[i] = vec4f(n, sides);
   state.shape_u[i] = vec4f(turn(u0, n, angle), 0.0);
   // The lines' colour, a little lighter or darker, its hue turned up to ten degrees either way.
-  state.shape_tint[i] = tint(0.92 + 0.05 * (hash(id + 3.1) - 0.5), th.y * 0.5, th.x + (hash(id + 3.2) - 0.5) * 0.35);
+  state.shape_tint[i] = tint(0.92 + 0.05 * (hash(id + 3.1) - 0.5), grade_chroma(th.y) * 0.5, th.x + (hash(id + 3.2) - 0.5) * 0.35) * grade_light();
 }
 
 // Where shape i is on the screen and how far it reaches (kept for the pixels), and, if it is to
@@ -377,6 +396,11 @@ fn update() {
   // one when the music has no beat, held at 40 or more) and the moments (`input.hit`,
   // `input.bar_line`, `input.section`, one-frame pulses).
   let beat_time = 60.0 / input.pace_tempo;
+
+  // How far the picture is in the theme colour look: the runtime's fade from look.prev to look.to
+  // (0 the grey look, 1 the colour one; the looks are in the order of the `[[look]]`s). No setting
+  // pins a look: the lab holds one.
+  state.colour = select(0.0, 1.0 - look.mix, look.prev == 1u) + select(0.0, look.mix, look.to == 1u);
 
   // How much is heard, and the scene's own time by it: the phase goes on by `dt` times
   // `input.audible` (smoothed in its bind, so it slows with a song's own fade), so that everything
@@ -536,30 +560,30 @@ fn update() {
   let round = s * held;
   let up = vec3f(0.0, 1.0, 0.0);
   var cam: vec3f;
-  var look: vec3f;
+  var aim: vec3f;
   var focal: f32;
   if (view < 0.5) {
-    look = c + vec3f(0.0, 0.3, 0.0);
-    cam = mix(c + vec3f(4.4 * s, -1.8, -5.6), look, 0.3 * (1.0 - exp(-held / 30.0)));
+    aim = c + vec3f(0.0, 0.3, 0.0);
+    cam = mix(c + vec3f(4.4 * s, -1.8, -5.6), aim, 0.3 * (1.0 - exp(-held / 30.0)));
     focal = 0.9;
   } else if (view < 1.5) {
     cam = c + turn(vec3f(6.5 * s, 1.8, -9.4), up, round * 0.012);
-    look = c;
+    aim = c;
     focal = 1.25;
   } else if (view < 2.5) {
     cam = c + turn(vec3f(2.6 * s, 1.0, -3.4), up, round * 0.02);
-    look = c + turn(vec3f(-0.3 * s, -0.2, 0.0), up, round * 0.02);
+    aim = c + turn(vec3f(-0.3 * s, -0.2, 0.0), up, round * 0.02);
     focal = 1.0;
   } else {
     cam = c + turn(vec3f(1.6 * s, 8.0, -4.2), up, round * 0.015);
-    look = c;
+    aim = c;
     focal = 1.0;
   }
   // Further back with a longer lens, the same framing with less of the near side of each ring
-  // swelling: concentric rings look concentric.
-  cam = look + (cam - look) * params.lens;
+  // swelling: concentric rings aim concentric.
+  cam = aim + (cam - aim) * params.lens;
   focal *= params.lens;
-  let fwd = normalize(look - cam);
+  let fwd = normalize(aim - cam);
   let level_right = normalize(cross(up, fwd));
   let level_up = cross(fwd, level_right);
   // The director's dutch angle, fixed within a shot: the camera turns about its own axis.

@@ -1,6 +1,12 @@
 // The sphere in space as the camera sees it: the sky and the planet at its heart in characters,
 // the rings' marks over it, and the shapes that reach this pixel laid over.
 
+// How bright the rings, the shapes and the planet's characters are with the energy: 0.65 times in
+// the quietest passage, 1.25 times in the loudest, about 0.95 at a middling one.
+fn light_by_energy() -> f32 {
+  return mix(0.65, 1.25, input.energy);
+}
+
 // The planet at the heart, drawn in character art: the planet's disc on the screen cut
 // into character cells, rows of them anchored to it; each cell a character as dense as the planet
 // is bright at the cell's middle, from the ramp . : - + = % * # @ (each drawn in a five by three
@@ -51,7 +57,7 @@ fn ascii_planet(o: vec3f, at: vec2f, px1: f32) -> vec3f {
   let gx = u32(f.x * 3.0);
   let gy = u32((1.0 - f.y) * 5.0);
   let on = (glyph >> (14u - (gy * 3u + gx))) & 1u;
-  return state.palette[0].rgb * f32(on) * mix(0.55, 1.0, bright) * 0.5 * params.core;
+  return state.palette[0].rgb * f32(on) * mix(0.55, 1.0, bright) * 0.5 * params.core * light_by_energy();
 }
 
 // The point of a circle about the core (axis ax, radius r) nearest the ray, found in a few steps:
@@ -125,11 +131,10 @@ fn line_at(o: vec3f, d: vec3f, dx: vec3f, dy: vec3f, i: u32, r: f32, amp: f32, w
 // The rings drawn in marks: each a string of small round dots, or (every other ring) of
 // little crosses, bigger and brighter on the near side and small and faint on the far, so the
 // depth is in their size; the ecliptic's ticks short columns of dots, as many as the spectrum is loud there.
-// An accent lights a ring: its dots switch on one after another both ways from one place, each
-// at once and fully, a little bigger and in the theme's colour, and dim together. Each dot is
-// found exactly: the few nearest where the ray crosses the ring's plane and where it passes
-// nearest the ring, each put on the screen and measured there. Hidden behind the core (further
-// than `limit`).
+// An accent lights a ring: its dots brighten together, a little bigger and in the theme's colour,
+// and dim together (`ring_on`). Each dot is found exactly: the few nearest where the ray crosses
+// the ring's plane and where it passes nearest the ring, each put on the screen and measured
+// there. Hidden behind the planet (further than `limit`).
 fn mark(at: vec2f, b: vec3f, o: vec3f, size: f32, plus: bool, px1: f32, limit: f32) -> vec2f {
   let v = b - o;
   let zc = dot(v, state.cam_fwd);
@@ -195,12 +200,6 @@ fn could_mark(o: vec3f, d: vec3f, ax: vec3f, lo: f32, hi: f32, reach: f32) -> bo
   let f0 = ww + t0 * (2.0 * wd + t0);
   let f1 = ww + t1 * (2.0 * wd + t1);
   return max(f0, f1) >= low * low;
-}
-
-// How bright the rings and the shapes are with the energy: 0.65 times in the quietest passage, 1.25
-// times in the loudest, about 0.95 at a middling one.
-fn light_by_energy() -> f32 {
-  return mix(0.65, 1.25, input.energy);
 }
 
 fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
