@@ -6,9 +6,9 @@
 // The lens effects of a scene that lists them (struct Lens, see scene/lens.rs; all zeros
 // otherwise, and then nothing below costs a tap; each effect is started at a moment and runs
 // its course, so these are strengths that rise and fall). The flare is drawn at a quarter of the
-// size in passes of its own (`flare_bright`, `streak_down`, `streak_up`, `flare`); the composite
-// lays it and the light leak over the tone-mapped picture, in display values, so they lift the
-// dark instead of greying it, and neither reaches full white.
+// size in passes of its own (`flare_bright`, `streak_down`, `streak_up`, `ghost_down`,
+// `ghost_blur`, `flare`); the composite lays it and the light leak over the tone-mapped picture,
+// in display values, so they lift the dark instead of greying it, and neither reaches full white.
 
 @group(0) @binding(0) var<storage, read> post: Post;
 @group(0) @binding(1) var<uniform> frame: Frame;
@@ -256,21 +256,58 @@ fn streak_up(v: Varyings) -> @location(0) vec4f {
   return vec4f((a + b) * 0.5 * lens.stretch, 1.0);
 }
 
-// The highlights softened over about four texels, for the ghosts.
-fn bright_soft(uv: vec2f) -> vec3f {
+// A ghost is the defocused image of the aperture, so every light, small or large, leaves a soft
+// round disc of its own. The highlights' texels are twice as wide as tall, so reading them a
+// texel off gave a small light a sharp block; the ghosts and the halo read this instead: the
+// highlights averaged over a disc, measured in the picture's own units, in two passes at an
+// eighth of the width and height (square texels, so the disc is round) into the other textures
+// the flare keeps (`bloom` here). The first folds the highlights' texels, two by four, into
+// those of the small texture over two by two of them (eight taps; each is a bilinear one that
+// averages four texels or two), so a light that moves a texel changes its ghost by a fraction of
+// a texel's worth.
+@fragment
+fn ghost_down(v: Varyings) -> @location(0) vec4f {
   let t = 1.0 / vec2f(textureDimensions(source));
-  let a = textureSampleLevel(source, smp, uv + vec2f(-t.x, -t.y), 0.0).rgb;
-  let b = textureSampleLevel(source, smp, uv + vec2f(t.x, -t.y), 0.0).rgb;
-  let c = textureSampleLevel(source, smp, uv + vec2f(-t.x, t.y), 0.0).rgb;
-  let d = textureSampleLevel(source, smp, uv + vec2f(t.x, t.y), 0.0).rgb;
-  return (a + b + c + d) * 0.25;
+  var sum = vec3f(0.0);
+  for (var x = 0; x < 2; x++) {
+    for (var y = 0; y < 4; y++) {
+      let at = vec2f(f32(x) * 2.0 - 1.0, f32(y) * 2.0 - 3.0) * t;
+      sum += textureSampleLevel(source, smp, v.uv + at, 0.0).rgb;
+    }
+  }
+  return vec4f(sum / 8.0, 1.0);
 }
 
-// The softened highlights at `at`, split a little in colour along the line from the centre, the
-// more the further out (`out` is 0 at the centre, 1 in a corner), as a lens fringes.
+// The radius of that disc, as a share of the picture's height: one texel of highlight gives a
+// soft disc of about twice this across.
+const GHOST_RADIUS: f32 = 0.02;
+
+// The second pass: a mean over the disc of nineteen bilinear taps (the middle, six at half the
+// radius and twelve at the full radius, turned half a step from the six). The canvas is
+// `flare_turn().z` pictures high and turning does not change a disc.
+@fragment
+fn ghost_blur(v: Varyings) -> @location(0) vec4f {
+  let r = vec2f(GHOST_RADIUS / frame.aspect, GHOST_RADIUS) / flare_turn().z;
+  var sum = textureSampleLevel(source, smp, v.uv, 0.0).rgb;
+  for (var i = 0; i < 6; i++) {
+    let a = f32(i) * 1.0471976;
+    sum += textureSampleLevel(source, smp, v.uv + vec2f(cos(a), sin(a)) * r * 0.5, 0.0).rgb;
+  }
+  for (var i = 0; i < 12; i++) {
+    let a = (f32(i) + 0.5) * 0.5235988;
+    sum += textureSampleLevel(source, smp, v.uv + vec2f(cos(a), sin(a)) * r, 0.0).rgb;
+  }
+  return vec4f(sum / 19.0, 1.0);
+}
+
+// The soft discs of the highlights at `at`, split a little in colour along the line from the
+// centre, the more the further out (`out` is 0 at the centre, 1 in a corner), as a lens fringes.
 fn bright_fringed(at: vec2f, out: f32) -> vec3f {
   let shift = normalize(at - 0.5 + vec2f(1e-5)) * 0.012 * out * out;
-  return vec3f(bright_soft(at + shift).r, bright_soft(at).g, bright_soft(at - shift).b);
+  let r = textureSampleLevel(bloom, smp, at + shift, 0.0).r;
+  let g = textureSampleLevel(bloom, smp, at, 0.0).g;
+  let b = textureSampleLevel(bloom, smp, at - shift, 0.0).b;
+  return vec3f(r, g, b);
 }
 
 // How many ghosts, how far apart along the line to the centre, and the halo's radius.

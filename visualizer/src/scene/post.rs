@@ -40,6 +40,8 @@ struct Pipelines {
     flare_bright: wgpu::RenderPipeline,
     streak_down: wgpu::RenderPipeline,
     streak_up: wgpu::RenderPipeline,
+    ghost_down: wgpu::RenderPipeline,
+    ghost_blur: wgpu::RenderPipeline,
     flare: wgpu::RenderPipeline,
     composite: wgpu::RenderPipeline,
 }
@@ -52,6 +54,9 @@ struct FlareTargets {
     /// The streaks' pyramid: each level half the width of the one before (the first half that
     /// of `bright`), all of its height, down to a few texels across.
     levels: Vec<(wgpu::Texture, wgpu::TextureView)>,
+    /// The highlights folded into an eighth of the internal width and height, and then blurred
+    /// over a disc, for the ghosts and the halo (see `ghost_down` in `post.wgsl`).
+    ghost: [(wgpu::Texture, wgpu::TextureView); 2],
     /// The flare, which the composite lays over the picture; the size of `bright`.
     flare: (wgpu::Texture, wgpu::TextureView),
 }
@@ -358,7 +363,11 @@ impl Post {
                 let group = self.bind(device, &pair[1].1, none);
                 self.draw(encoder, &p.streak_up, &group, &pair[0].1, false, None);
             }
-            let group = self.bind(device, bright, [noise, noise, &t.levels[0].1]);
+            let group = self.bind(device, bright, none);
+            self.draw(encoder, &p.ghost_down, &group, &t.ghost[0].1, true, None);
+            let group = self.bind(device, &t.ghost[0].1, none);
+            self.draw(encoder, &p.ghost_blur, &group, &t.ghost[1].1, true, None);
+            let group = self.bind(device, bright, [&t.ghost[1].1, noise, &t.levels[0].1]);
             self.draw(encoder, &p.flare, &group, &t.flare.1, true, None);
             composite[2] = &t.flare.1;
         }
@@ -403,6 +412,7 @@ impl FlareTargets {
     /// For the internal size `size`.
     fn new(device: &wgpu::Device, size: (u32, u32)) -> Self {
         let quarter = ((size.0 / 4).max(1), (size.1 / 2).max(1));
+        let eighth = ((size.0 / 8).max(1), (size.1 / 8).max(1));
         let mut levels = Vec::new();
         let mut width = quarter.0;
         while levels.is_empty() || (width > STREAK_MIN_WIDTH && levels.len() < STREAK_MAX_LEVELS) {
@@ -419,6 +429,10 @@ impl FlareTargets {
                 lens_target(device, "scene flare highlights", quarter),
             ],
             levels,
+            ghost: [
+                lens_target(device, "scene flare ghosts", eighth),
+                lens_target(device, "scene flare ghosts", eighth),
+            ],
             flare: lens_target(device, "scene flare", quarter),
         }
     }
@@ -506,6 +520,8 @@ fn pipelines(
         flare_bright: pipeline("flare_bright", BLOOM_FORMAT, None),
         streak_down: pipeline("streak_down", BLOOM_FORMAT, None),
         streak_up: pipeline("streak_up", BLOOM_FORMAT, add),
+        ghost_down: pipeline("ghost_down", BLOOM_FORMAT, None),
+        ghost_blur: pipeline("ghost_blur", BLOOM_FORMAT, None),
         flare: pipeline("flare", BLOOM_FORMAT, None),
         composite: pipeline("composite", output, None),
     }
