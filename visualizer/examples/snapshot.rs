@@ -125,7 +125,7 @@ fn write_bmp(path: &str, width: u32, height: u32, pixels: &[u8]) -> std::io::Res
     out.extend_from_slice(&[0; 4]);
     out.extend_from_slice(&size.to_le_bytes());
     out.extend_from_slice(&[0; 16]);
-    for pixel in pixels.chunks_exact(4) {
+    for pixel in pixels.as_chunks::<4>().0 {
         if cfg!(target_vendor = "apple") {
             out.extend_from_slice(pixel);
         } else {

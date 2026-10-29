@@ -101,7 +101,8 @@ pub fn pack(current: Option<&RgbaImage>, random: &[RgbaImage]) -> Option<Atlas> 
         };
         let (x0, y0) = ((i as u32 % GRID) * CELL, (i as u32 / GRID) * CELL);
         let cell = fit_cell(image);
-        for (row, pixels) in cell.as_raw().chunks_exact((CELL * 4) as usize).enumerate() {
+        let (rows, _) = cell.as_raw().as_chunks::<{ (CELL * 4) as usize }>();
+        for (row, pixels) in rows.iter().enumerate() {
             let at = (((y0 + row as u32) * SIZE + x0) * 4) as usize;
             rgba[at..at + pixels.len()].copy_from_slice(pixels);
         }

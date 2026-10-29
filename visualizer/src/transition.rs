@@ -1556,7 +1556,7 @@ mod tests {
         // Before the start counts as the start.
         assert_eq!(punch_frame(-1.0, 2), punch_frame(0.0, 2));
         // A faint flash: well under a flash transition's.
-        assert!(PUNCH_FLASH <= 0.2);
+        const { assert!(PUNCH_FLASH <= 0.2) };
     }
 
     #[test]

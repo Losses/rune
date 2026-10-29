@@ -609,7 +609,7 @@ inputs = ["prev:trail"]
             "@binding({BIND_COVERS}) var covers: texture_2d<f32>;"
         )));
         assert!(!prelude(&m, Stage::Update).contains("var covers"));
-        assert!(BIND_COVERS < BIND_ASSETS);
+        const { assert!(BIND_COVERS < BIND_ASSETS) };
     }
 
     #[test]

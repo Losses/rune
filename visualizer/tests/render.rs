@@ -1,7 +1,7 @@
 //! Headless GPU tests. They skip (and say so) when the machine has no GPU adapter.
 
-use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::atomic::AtomicU32;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use rtrb::{Producer, RingBuffer};
@@ -145,7 +145,11 @@ fn collect(visualizer: &Visualizer, feeder: &mut Feeder, count: usize) -> (Vec<C
 }
 
 fn is_black(pixels: &[u8]) -> bool {
-    pixels.chunks_exact(4).all(|p| p[..3] == [0, 0, 0])
+    pixels
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|p| p[..3] == [0, 0, 0])
 }
 
 fn check_frames(frames: &[Captured], width: u32, height: u32) {
