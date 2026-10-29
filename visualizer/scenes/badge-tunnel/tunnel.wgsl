@@ -117,10 +117,10 @@ fn light(i: u32, at: vec2f) -> vec3f {
   return state.colours[11].rgb * (core * LIGHT_CORE + glow * LIGHT_GLOW) * state.ry[i].w * area * fade;
 }
 
-// The mip of the emoji atlas for an emoji of size `size` at depth z: how many of its 128 pixels
+// The mip of the emoji atlas for an emoji of size `size` at depth z: how many of its 256 pixels
 // one pixel of the screen covers.
 fn emoji_lod(z: f32, pixel: f32, size: f32) -> f32 {
-  return log2(max(z * pixel / (2.0 * size) * 128.0, 1.0));
+  return log2(max(z * pixel / (2.0 * size) * 256.0, 1.0));
 }
 
 // ---- The grade ----

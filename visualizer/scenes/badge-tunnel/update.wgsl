@@ -1,8 +1,8 @@
-// Once per frame: the camera flies down the tunnel as fast as the beat (and the energy), surging
-// on each counted hit; the badges' crests turn a step on it; the emoji move to the melody, each in
-// its own way; now and then (on a cue) the camera glides to another place to film from, and the
-// badges coming change colour. All of it stands still in silence and slows with a fade (the phase
-// and the flight go by how much is heard). Then everything in the slots in sight is placed,
+// Once per frame: the camera flies down the tunnel as fast as the beat (and the energy), surging on
+// each counted hit; the badges' crests turn a step on it; the emoji move on it and to the melody,
+// each in its own way; now and then (on a cue) the camera glides to another place to film from, and
+// the badges coming change colour. All of it stands still in silence and slows with a fade (the
+// phase and the flight go by how much is heard). Then everything in the slots in sight is placed,
 // turned, projected and sorted into the screen's tiles, nearest first.
 
 // ---- Colour ----
@@ -107,21 +107,33 @@ fn turn(v: vec3f, a: vec3f, t: f32) -> vec3f {
   return v * cos(t) + cross(a, v) * sin(t) + a * dot(a, v) * (1.0 - cos(t));
 }
 
-// The last note of the melody this emoji answered (each answers about `dance` of them, different
-// ones for different emoji): how long ago, and how strong; long ago if none of the last eight.
-fn note_for(id: vec2f) -> vec2f {
-  let count = u32(state.note_count);
-  for (var k = 0u; k < 8u; k++) {
+// The last moment (a counted beat or a note of the melody) this emoji answered: each moment is
+// answered by the share of the emoji it names, different ones for different emoji, by a hash of
+// the emoji and the moment. How long ago, and how strong; long ago if none of the last sixteen,
+// or none within `move_time` (an older one is a finished move).
+fn moment_for(id: vec2f) -> vec2f {
+  let count = u32(state.moment_count);
+  for (var k = 0u; k < 16u; k++) {
     if (k >= count) {
       break;
     }
     let n = count - k;
-    if (hash(id + vec2f(f32(n) * 1.618, 3.1)) < params.dance) {
-      let e = state.notes[n % 8u];
-      return vec2f(frame.time - e.x, e.y);
+    let e = state.moments[n % 16u];
+    let age = frame.time - e.x;
+    if (age > params.move_time) {
+      break;
+    }
+    if (hash(id + vec2f(f32(n) * 1.618, 3.1)) < e.z) {
+      return vec2f(age, e.y);
     }
   }
   return vec2f(1e3, 0.0);
+}
+
+// A moment that starts moves: its strength and the share of the emoji that answer it.
+fn push_moment(t: f32, strength: f32, share: f32) {
+  state.moment_count += 1.0;
+  state.moments[u32(state.moment_count) % 16u] = vec4f(t, strength, clamp(share, 0.0, 1.0), 0.0);
 }
 
 // Where slot n's share and colours are kept.
@@ -137,13 +149,7 @@ fn slot_cell(n: f32) -> u32 {
 fn kind_at(slot: f32, q: u32) -> f32 {
   let id = vec2f(slot, f32(q) * 17.0);
   let h = hash(id + 0.7);
-  var given = state.slot_set[slot_cell(slot)];
-  // In a burst's close-ups the tunnel is at its fullest, emoji and lights: looking across or up it
-  // sees only a slice of the tunnel, which the section's share left bare. Its cuts are hard ones,
-  // in and out, so nothing is seen to come or go.
-  if (state.hero_on > 0.5) {
-    given = vec4f(max(given.x, 1.25), given.y, max(given.z, 1.0), given.w);
-  }
+  let given = state.slot_set[slot_cell(slot)];
   let badges = params.badges * given.x;
   var kind = -1.0;
   if (q == 0u) {
@@ -259,15 +265,17 @@ fn build(i: u32, id: vec2f, kind: f32, hero: bool) {
     shape = 6.0;
   } else if (kind == EMOJI) {
     // An emoji faces the camera square on, turning slowly in the picture's plane, each at its
-    // own pace and either way; on a counted hit it rocks a little further and back. To the
-    // melody, each in its own way, on the notes it answers: 0 swelling and back, 1 spinning a
-    // whole turn round, 2 flipping over side to side, 3 flipping over top to bottom, 4 hopping up
-    // and down again, 5 rocking side to side, dying away. The swell, the hop and the rock as big
-    // as the note is strong; a spin or a flip always a whole turn, easing in and out.
+    // own pace and either way; on a counted hit it rocks a little further and back. On the
+    // moments it answers (a share of the emoji on each counted beat, by the energy, more on a
+    // bar's first; a few more on the notes of the melody while it is busy), each in its own way:
+    // 0 swelling and back, 1 spinning a whole turn round, 2 flipping over side to side, 3 flipping
+    // over top to bottom, 4 hopping up and down again, 5 rocking side to side, dying away. The
+    // swell, the hop and the rock as big as the moment is strong (the energy's, or the note's); a
+    // spin or a flip always a whole turn, easing in and out.
     let way = select(-1.0, 1.0, hash(id + 9.9) < 0.5);
     var c = hash(id + 10.1) * 6.2831853 + way * (t * params.spin * mix(0.4, 1.2, hash(id + 7.7)) + params.rock * state.kick);
     let act = floor(hash(id + 14.2) * 6.0);
-    let heard = note_for(id);
+    let heard = moment_for(id);
     let p = heard.x / params.move_time;
     let done = clamp(p, 0.0, 1.0);
     let eased = done * done * (3.0 - 2.0 * done);
@@ -483,6 +491,7 @@ fn update() {
     state.speed = input.flight;
     // No hit has been counted yet.
     state.step_age = 1000.0;
+    state.bar_age = 1000.0;
   }
 
   // How much is heard, and the scene's time by it: the phase goes on by `dt` times
@@ -493,12 +502,12 @@ fn update() {
   let heard = input.audible > 0.3;
 
   // The melody's notes come from the runtime (`input.note`, the strength of a note this frame,
-  // 0 on none; never two within a tenth of a second); they are kept in turn for the emoji to
-  // answer, while something is heard.
+  // 0 on none; never two within a tenth of a second, and none without a chart); each is a moment
+  // that starts moves, a share of `melody` times how busy the melody is (four notes a second is
+  // fully busy), as big as the note is strong, while something is heard.
   state.note_rate *= exp(-dt / 2.0);
   if (input.note > 0.0 && heard) {
-    state.note_count += 1.0;
-    state.notes[u32(state.note_count) % 8u] = vec4f(t, max(input.note, 0.3), 0.0, 0.0);
+    push_moment(t, max(input.note, 0.3), params.melody * clamp(state.note_rate / 4.0, 0.0, 1.0));
     state.note_rate += 0.5;
   }
 
@@ -516,9 +525,15 @@ fn update() {
   // step eased in over 0.15 s, so a crest steps once per counted step and settles.
   let beat_len = 60.0 / max(input.tempo, 20.0);
   state.step_age = min(state.step_age + dt, 1000.0);
+  state.bar_age = select(min(state.bar_age + dt, 1000.0), 0.0, input.bar_line > 0.5);
   if (input.hit > 0.5 && heard && state.step_age >= 0.5 * beat_len) {
     state.count += 1.0;
     state.step_age = 0.0;
+    // The counted beat is a moment that starts moves: a share of the emoji by the energy (a third
+    // as many when it is low), half as many again on a bar's first beat (a bar line within a
+    // moment of it: only where the beat is followed), as big as the energy.
+    let bar = select(1.0, 1.5, state.bar_age < 0.12);
+    push_moment(t, mix(0.6, 1.1, input.energy), params.dance * mix(0.35, 1.0, input.energy) * bar);
   }
   state.kick = exp(-state.step_age / 0.25);
   state.surge = exp(-state.step_age / 0.3);

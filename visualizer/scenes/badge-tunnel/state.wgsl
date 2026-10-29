@@ -101,9 +101,15 @@ struct State {
   ry: array<vec4f, 193>,
   rz: array<vec4f, 193>,
   scr: array<vec4f, 193>,
-  // The melody: its last eight notes, in turn (when, how strong), and how many have been heard.
-  notes: array<vec4f, 8>,
-  note_count: f32,
+  // The moments that start the emoji's moves, in turn: the counted beats and the melody's notes
+  // (when, how strong, what share of the emoji answer it); the last sixteen, and how many there
+  // have been. A move takes `move_time` (2 s at the most) and the beats and notes come at ten a
+  // second at the most, so sixteen reach back as far as an emoji looks for the one it answers
+  // (the search stops at a moment older than `move_time`).
+  moments: array<vec4f, 16>,
+  moment_count: f32,
+  // The seconds since the last bar line (level A only).
+  bar_age: f32,
   // How many emoji the music calls for: the notes a second of late (smoothed), the farthest slot
   // given its share yet, and each slot's share, badge colours and chance of a light (x, y, z),
   // set as it comes into sight far ahead (so what is near never comes and goes, nor changes
