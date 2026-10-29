@@ -25,6 +25,11 @@ fn report(result: Result<()>) -> Result<Option<()>> {
     Ok(Some(()))
 }
 
+/// Held through a start and a stop, which are handled concurrently: a surface that replaces
+/// another sends a stop and then a start, and the start must wait for the stop to give the audio
+/// back.
+static STARTING_OR_STOPPING: Mutex<()> = Mutex::const_new(());
+
 impl ParamsExtractor for StartVisualizerRequest {
     type Params = (
         Arc<Mutex<dyn Playable>>,
@@ -58,6 +63,7 @@ impl Signal for StartVisualizerRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let _turn = STARTING_OR_STOPPING.lock().await;
         provide_covers(fsio, main_db, recommend_db);
         let tap = player.lock().await.pcm_tap();
         // A restart: take the audio back from the running visualizer first.
@@ -107,6 +113,7 @@ impl Signal for StopVisualizerRequest {
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let _turn = STARTING_OR_STOPPING.lock().await;
         let tap = player.lock().await.pcm_tap();
         tap.set_enabled(false);
         if let Some(input) = flutter_bridge::stop_visualizer().await {
