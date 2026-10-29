@@ -380,11 +380,23 @@ impl Lens {
     /// [`moments::lens_effect`]), at full strength for a strong moment; nothing if the scene
     /// lists none that suits the moment.
     pub fn start_at(&mut self, played: Played) {
+        let lens = moments::lens_effect(&self.listed(), played);
+        self.start_lens(played, lens);
+    }
+
+    /// Start the effect a moment that `played` picks over a cut the scene glides to: a light one
+    /// only (see [`moments::lens_over_glide`]), at the moment's strength.
+    pub fn start_over_glide(&mut self, played: Played) {
+        let lens = moments::lens_over_glide(&self.listed(), played);
+        self.start_lens(played, lens);
+    }
+
+    fn start_lens(&mut self, played: Played, lens: Option<moments::Lens>) {
         let strength = match played.strength {
             Strength::Strong => 1.0,
             Strength::Medium => MEDIUM_STRENGTH,
         };
-        match moments::lens_effect(&self.listed(), played) {
+        match lens {
             Some(moments::Lens::Flare) => self.start_flare(strength),
             Some(moments::Lens::Leak) => self.start_leak(strength),
             Some(moments::Lens::Glitch) => self.start_overlay(Overlay::Glitch),
