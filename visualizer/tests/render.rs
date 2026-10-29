@@ -1,6 +1,6 @@
 //! Headless GPU tests. They skip (and say so) when the machine has no GPU adapter.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
@@ -36,7 +36,14 @@ struct Feeder {
     samples_sent: u64,
     started: Instant,
     noise: u32,
+    /// The test's turn at the GPU, held as long as it feeds the visualizer (see [`GPU`]).
+    _turn: MutexGuard<'static, ()>,
 }
+
+/// The tests take turns at the GPU: several devices made at once on macOS were lost now and then
+/// ("the driver implementation is at fault"), and a test that gets no GPU is skipped, so seven or
+/// eight of the thirteen passed without running whenever they ran side by side.
+static GPU: Mutex<()> = Mutex::new(());
 
 impl Feeder {
     fn pump(&mut self) {
@@ -63,6 +70,8 @@ fn start(width: u32, height: u32) -> Option<(Visualizer, Feeder)> {
 
 /// `readback`: read frames back even on macOS (see `Visualizer::prefer_readback`).
 fn start_with(width: u32, height: u32, readback: bool) -> Option<(Visualizer, Feeder)> {
+    // A test that failed holding its turn poisons the lock; the next may still go.
+    let turn = GPU.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let (producer, consumer) = RingBuffer::new(1 << 16);
     let input = PcmInput {
         consumer,
@@ -77,6 +86,7 @@ fn start_with(width: u32, height: u32, readback: bool) -> Option<(Visualizer, Fe
         samples_sent: 0,
         started: Instant::now(),
         noise: 1,
+        _turn: turn,
     };
     // Wait for the first frame or for the failure to get a GPU.
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -477,11 +487,11 @@ fn the_runtime_bindings_are_replaced_whole_and_a_wrong_text_keeps_the_old() {
         return;
     };
     visualizer.set_inspecting(true);
-    assert_eq!(cadence_source(&visualizer, &mut feeder), "section_energy");
+    assert_eq!(cadence_source(&visualizer, &mut feeder), "section_level");
 
     // A good text replaces them from the next frame.
     let drive = RUNTIME_TOML.replacen(
-        "source = \"section_energy\"\nhow = \"follow\"",
+        "source = \"section_level\"\nhow = \"follow\"",
         "source = \"drive\"\nhow = \"follow\"",
         1,
     );
