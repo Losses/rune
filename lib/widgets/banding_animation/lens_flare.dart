@@ -1,7 +1,7 @@
-import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_shaders/flutter_shaders.dart';
 
 class LensFlareEffect extends StatefulWidget {
@@ -20,27 +20,55 @@ class LensFlareEffect extends StatefulWidget {
   State<LensFlareEffect> createState() => _LensFlareEffectState();
 }
 
-class _LensFlareEffectState extends State<LensFlareEffect> {
-  late Future<ui.FragmentProgram> _shaderProgram;
-  late Timer _timer;
+class _LensFlareEffectState extends State<LensFlareEffect>
+    with SingleTickerProviderStateMixin {
+  late Future<ui.FragmentShader> _shader;
+  ui.FragmentShader? _fragmentShader;
+  late final Ticker _ticker;
   double _time = 0.0;
 
   @override
   void initState() {
     super.initState();
-    _shaderProgram = _loadShader();
+    _shader = _loadShader();
 
-    // Start a timer to update the time every frame
-    _timer = Timer.periodic(const Duration(milliseconds: 16), (Timer timer) {
-      setState(() {
-        _time += 0.016 / 10; // Increment time by 16 milliseconds
-      });
+    // Advance the shader time from the frame pipeline instead of a
+    // free-running Timer.periodic. A Ticker follows the animation clock, is
+    // muted by TickerMode together with the rest of the app, and stops as soon
+    // as this widget is disposed.
+    _ticker = createTicker(_handleTick)..start();
+  }
+
+  void _handleTick(Duration elapsed) {
+    setState(() {
+      // Keep the old speed: 0.1 unit per second of elapsed time.
+      _time = elapsed.inMicroseconds / 10000000;
     });
   }
 
-  Future<ui.FragmentProgram> _loadShader() async {
+  Future<ui.FragmentShader> _loadShader() async {
     try {
-      return await ui.FragmentProgram.fromAsset('lib/shaders/lens_flare.frag');
+      final program = await ui.FragmentProgram.fromAsset(
+        'lib/shaders/lens_flare.frag',
+      );
+
+      // Create the shader once and reuse it for every frame. A shader keeps
+      // the image passed to setImageSampler alive until it is disposed, and
+      // AnimatedSampler hands us a new full-size snapshot of the child every
+      // frame. A fresh shader per frame left every snapshot to the garbage
+      // collector; on iOS (Impeller) they piled up to gigabytes within a few
+      // seconds and the app was killed for exceeding its memory limit.
+      final shader = program.fragmentShader();
+
+      // The widget can be removed before the asset finishes loading. Its
+      // dispose has then already run with no shader to release.
+      if (!mounted) {
+        shader.dispose();
+      } else {
+        _fragmentShader = shader;
+      }
+
+      return shader;
     } catch (e) {
       rethrow;
     }
@@ -48,25 +76,24 @@ class _LensFlareEffectState extends State<LensFlareEffect> {
 
   @override
   void dispose() {
-    _timer.cancel();
+    _ticker.dispose();
+    _fragmentShader?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<ui.FragmentProgram>(
-      future: _shaderProgram,
+    return FutureBuilder<ui.FragmentShader>(
+      future: _shader,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return Container();
         }
 
-        final shader = snapshot.data!;
+        final fragmentShader = snapshot.data!;
 
         return AnimatedSampler(
           (image, size, canvas) {
-            final fragmentShader = shader.fragmentShader();
-
             fragmentShader
               ..setImageSampler(0, image)
               // resolution

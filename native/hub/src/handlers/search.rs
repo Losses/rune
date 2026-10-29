@@ -53,6 +53,7 @@ impl Signal for SearchForRequest {
         let mut albums: Vec<i32> = Vec::new();
         let mut playlists: Vec<i32> = Vec::new();
         let mut tracks: Vec<i32> = Vec::new();
+        let mut genres: Vec<i32> = Vec::new();
 
         for (collection_type, ids) in results {
             let ids: Vec<i32> = ids.iter().map(|&x| x as i32).collect();
@@ -61,6 +62,7 @@ impl Signal for SearchForRequest {
                 CollectionQueryType::Album => albums.extend(ids),
                 CollectionQueryType::Playlist => playlists.extend(ids),
                 CollectionQueryType::Track => tracks.extend(ids),
+                CollectionQueryType::Genre => genres.extend(ids),
                 _ => {}
             }
         }
@@ -70,6 +72,7 @@ impl Signal for SearchForRequest {
             albums,
             playlists,
             tracks,
+            genres,
         }))
     }
 }

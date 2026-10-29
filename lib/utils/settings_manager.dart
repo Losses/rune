@@ -17,6 +17,15 @@ Future<String> getSettingsPath() async {
   return (await getApplicationDocumentsDirectory()).path;
 }
 
+/// Returns [value] if it is a [T], or null as if the setting was never saved,
+/// so that one stored value of the wrong type cannot stop Rune from starting.
+T? castSetting<T>(String key, Object? value) {
+  if (value is T?) return value;
+
+  warn$("Ignoring setting $key: expected $T, found ${value.runtimeType}");
+  return null;
+}
+
 class SettingsManager {
   static final SettingsManager _instance = SettingsManager._internal();
   factory SettingsManager() => _instance;
@@ -47,7 +56,7 @@ class SettingsManager {
   Future<T?> getValue<T>(String key) async {
     await _initFuture;
     String storageKey = StorageKeyManager.getStorageKey(key);
-    return _storage.read<T?>(storageKey);
+    return castSetting<T>(storageKey, _storage.read(storageKey));
   }
 
   Future<void> setValue<T>(String key, T value) async {

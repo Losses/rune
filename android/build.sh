@@ -86,7 +86,7 @@ fi
 
 # Exec Flutter build
 echo "Starting Flutter build..."
-flutter build apk --release --split-per-abi
+flutter build apk --release --split-per-abi --verbose
 
 # Report build result
 if [ $? -eq 0 ]; then

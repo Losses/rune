@@ -43,9 +43,27 @@ class _RuneRouterFrameImplementationState
     extends State<RuneRouterFrameImplementation> {
   final _playbackControllerKey = GlobalKey();
 
+  /// Whether the one-shot startup branding animation is still shown.
+  ///
+  /// The branding animation only plays once per app launch. Keeping it mounted
+  /// after it finished would leave an invisible layer in the tree that keeps
+  /// scheduling frames (its lens flare used to tick every 16ms), so it is
+  /// removed as soon as it completes.
+  late bool _showBrandingAnimation;
+
   @override
   void initState() {
     super.initState();
+    _showBrandingAnimation = !disableBrandingAnimation;
+  }
+
+  void _handleBrandingAnimationCompleted() {
+    if (!mounted || !_showBrandingAnimation) {
+      return;
+    }
+    setState(() {
+      _showBrandingAnimation = false;
+    });
   }
 
   @override
@@ -114,7 +132,8 @@ class _RuneRouterFrameImplementationState
       },
       child: Stack(
         children: [
-          if (!disableBrandingAnimation) const BrandingAnimation(),
+          if (_showBrandingAnimation)
+            BrandingAnimation(onCompleted: _handleBrandingAnimationCompleted),
           ScaleFadeContainer(
             delay: disableBrandingAnimation
                 ? const Duration(milliseconds: 0)

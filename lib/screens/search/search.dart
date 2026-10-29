@@ -15,6 +15,7 @@ import '../../screens/search/widgets/small_screen_search_track_list.dart';
 import '../../screens/search/constants/search_categories.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
+import '../../utils/rune_log.dart';
 
 import 'utils/track_items_to_search_card.dart';
 import 'utils/collection_items_to_search_card.dart';
@@ -134,6 +135,14 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
 
     _lastSearched = task;
     if (_debounce?.isActive ?? false) _debounce!.cancel();
+
+    // An empty box shows nothing; a search still running is dropped when it
+    // finishes, since the text no longer matches.
+    if (task.trim().isEmpty) {
+      _clearResults();
+      return;
+    }
+
     _debounce = Timer(const Duration(milliseconds: 300), () {
       if (!_isRequestInProgress && searchController.text.trim().isNotEmpty) {
         _performSearch(searchController.text);
@@ -159,44 +168,79 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
 
     try {
       final response = await searchFor(query);
-      setState(() {
-        _searchResults = response;
-      });
 
-      items = {};
+      final Map<CollectionType, List<SearchCard>> found = {};
 
       if (response.tracks.isNotEmpty) {
-        items[CollectionType.track] = trackItemsToSearchCard(
+        found[CollectionType.track] = trackItemsToSearchCard(
           await fetchMediaFileByIds(response.tracks, true),
         );
       }
       if (response.artists.isNotEmpty) {
-        items[CollectionType.artist] = await collectionResponseToSearchCard(
+        found[CollectionType.artist] = await collectionResponseToSearchCard(
           response.artists,
           CollectionType.artist,
         );
       }
       if (response.albums.isNotEmpty) {
-        items[CollectionType.album] = await collectionResponseToSearchCard(
+        found[CollectionType.album] = await collectionResponseToSearchCard(
           response.albums,
           CollectionType.album,
         );
       }
       if (response.playlists.isNotEmpty) {
-        items[CollectionType.playlist] = await collectionResponseToSearchCard(
+        found[CollectionType.playlist] = await collectionResponseToSearchCard(
           response.playlists,
           CollectionType.playlist,
         );
       }
+      if (response.genres.isNotEmpty) {
+        found[CollectionType.genre] = await collectionResponseToSearchCard(
+          response.genres,
+          CollectionType.genre,
+        );
+      }
+
+      // The text changed while this search ran; its results are out of date
+      // and the new text is searched below.
+      if (!mounted || searchController.text != query) return;
+
+      // The text changed while this search ran; its results are out of date
+      // and the new text is searched below.
+      if (!mounted || searchController.text != query) return;
 
       setState(() {
+        _searchResults = response;
+        items = found;
         resetAnimations();
         playAnimations();
       });
     } catch (e) {
-      // Handle error
+      // A failed request is reported by the hub; the page keeps searching.
+      error$('Search for "$query" failed: $e');
+      // Do not leave the results of an earlier text under this one.
+      if (mounted && searchController.text == query) _clearResults();
     } finally {
       _isRequestInProgress = false;
+      _catchUp(query);
+    }
+  }
+
+  void _clearResults() {
+    setState(() {
+      _searchResults = null;
+      items = {};
+    });
+  }
+
+  // A debounced search that fires while another one runs is skipped. Once
+  // that one is done, search for what the box says now.
+  void _catchUp(String searched) {
+    if (!mounted || (_debounce?.isActive ?? false)) return;
+
+    final text = searchController.text;
+    if (text != searched && text.trim().isNotEmpty) {
+      _performSearch(text);
     }
   }
 

@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart';
+
+import '../../utils/rune_log.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/file_storage/mac_secure_manager.dart';
 import '../../providers/library_path.dart';
@@ -17,21 +20,35 @@ class FileStorageService {
 
     final raw = await settingsManager.getValue<List<dynamic>>(kOpenedFilesKey);
 
-    return List<Map<String, dynamic>>.from(raw ?? []);
+    return normalizeOpenedFiles(raw ?? []);
+  }
+
+  // Older versions of Rune store bare paths and do not touch the data version,
+  // so check every entry instead of trusting the version.
+  @visibleForTesting
+  List<Map<String, dynamic>> normalizeOpenedFiles(List<dynamic> raw) {
+    final entries = <Map<String, dynamic>>[];
+    for (final item in raw) {
+      if (item is String && item.isNotEmpty) {
+        entries.add(_migrateLegacyPath(item));
+      } else if (item is Map<String, dynamic> &&
+          item['path'] is String &&
+          item['path'] != '') {
+        entries.add(Map<String, dynamic>.from(item));
+      } else {
+        warn$("Ignoring opened library entry: $item");
+      }
+    }
+    return entries;
   }
 
   Future<void> _migrateData(int oldVersion) async {
     if (oldVersion == 1) {
-      final List<String> legacyPaths =
-          ((await settingsManager.getValue<List<dynamic>>(kOpenedFilesKey)) ??
-                  [])
-              .map((x) => x.toString())
-              .toList();
+      final raw =
+          await settingsManager.getValue<List<dynamic>>(kOpenedFilesKey);
 
-      final migrated =
-          legacyPaths.map((path) => _migrateLegacyPath(path)).toList();
-
-      await settingsManager.setValue(kOpenedFilesKey, migrated);
+      await settingsManager.setValue(
+          kOpenedFilesKey, normalizeOpenedFiles(raw ?? []));
       await settingsManager.setValue(kDataVersionKey, _currentDataVersion);
     }
   }

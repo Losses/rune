@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -12,6 +13,7 @@ class BandScreenLyricsView extends StatefulWidget {
   final List<LyricContentLine> lyrics;
   final int currentTimeMilliseconds;
   final List<int> activeLines;
+  final ValueListenable<double> interpolatedTime;
 
   const BandScreenLyricsView({
     super.key,
@@ -19,6 +21,7 @@ class BandScreenLyricsView extends StatefulWidget {
     required this.lyrics,
     required this.currentTimeMilliseconds,
     required this.activeLines,
+    required this.interpolatedTime,
   });
 
   @override
@@ -39,6 +42,7 @@ class LibraryHomeListState extends State<BandScreenLyricsView> {
           lyrics: widget.lyrics,
           currentTimeMilliseconds: widget.currentTimeMilliseconds,
           activeLines: widget.activeLines,
+          interpolatedTime: widget.interpolatedTime,
         ),
       );
     }
@@ -48,6 +52,7 @@ class LibraryHomeListState extends State<BandScreenLyricsView> {
       lyrics: widget.lyrics,
       currentTimeMilliseconds: widget.currentTimeMilliseconds,
       activeLines: widget.activeLines,
+      interpolatedTime: widget.interpolatedTime,
     );
   }
 }

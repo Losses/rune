@@ -56,12 +56,23 @@ class MacSecureManager {
 
     final secureBookmarks = SecureBookmarks();
 
-    final bookmarks = _storage.getValues<Iterable<dynamic>>().toList();
+    final dirs = _storage.getKeys<Iterable<dynamic>>().toList();
 
-    for (final bookmark in bookmarks) {
-      final resolvedFile =
-          await secureBookmarks.resolveBookmark(bookmark, isDirectory: true);
-      await secureBookmarks.startAccessingSecurityScopedResource(resolvedFile);
+    for (final dir in dirs) {
+      // A folder that was deleted, or sits on a drive that is not plugged in,
+      // cannot be resolved. Skip it so that it does not stop Rune from
+      // starting, and keep the bookmark in case the folder comes back.
+      try {
+        final resolvedFile = await secureBookmarks.resolveBookmark(
+          _storage.read(dir),
+          isDirectory: true,
+        );
+        await secureBookmarks.startAccessingSecurityScopedResource(
+          resolvedFile,
+        );
+      } catch (e) {
+        warn$("Skipping secure bookmark for $dir: $e");
+      }
     }
   }
 }

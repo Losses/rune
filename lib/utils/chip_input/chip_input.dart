@@ -93,6 +93,8 @@ class _ChipInputState<T> extends State<ChipInput<T>> {
     );
 
     _searcher.addListener(() {
+      // An empty box shows the initial list, not a search that finished late.
+      if (_textController.clearText.isEmpty) return;
       setState(() {
         searchResults = _searcher.searchResults;
       });

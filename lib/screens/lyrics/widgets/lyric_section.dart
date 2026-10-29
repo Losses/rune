@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
@@ -10,16 +11,22 @@ const fontWeight = FontWeight.w600;
 
 class LyricSection extends StatefulWidget {
   final LyricContentLineSection section;
-  final int currentTimeMilliseconds;
+  final ValueListenable<double> interpolatedTime;
   final bool isActive;
   final bool isPassed;
+
+  /// The section is the whole line: the lyrics are timed by line, not by word,
+  /// so the line lights up at once instead of being swept, which would also
+  /// sweep every wrapped row at the same time.
+  final bool wholeLine;
 
   const LyricSection({
     super.key,
     required this.section,
-    required this.currentTimeMilliseconds,
+    required this.interpolatedTime,
     required this.isActive,
     required this.isPassed,
+    this.wholeLine = false,
   });
 
   @override
@@ -28,17 +35,13 @@ class LyricSection extends StatefulWidget {
 
 class _LyricSectionState extends State<LyricSection>
     with TickerProviderStateMixin {
-  late AnimationController _progressAnimationController;
-  late Animation<double> _progressAnimation;
   late AnimationController _blurAnimationController;
   late Animation<double> _blurAnimation;
-  double _previousProgress = 0.0;
   double _targetBlurValue = 0.0;
 
   @override
   void initState() {
     super.initState();
-    _initProgressAnimation();
     _initBlurAnimation();
   }
 
@@ -48,18 +51,6 @@ class _LyricSectionState extends State<LyricSection>
     if (widget.isActive) {
       _updateActiveBlur(5.0);
     }
-  }
-
-  void _initProgressAnimation() {
-    _progressAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 16),
-      vsync: this,
-    );
-    _previousProgress = calculateProgress();
-    _progressAnimation = Tween<double>(
-      begin: _previousProgress,
-      end: _previousProgress,
-    ).animate(_progressAnimationController);
   }
 
   void _initBlurAnimation() {
@@ -104,12 +95,6 @@ class _LyricSectionState extends State<LyricSection>
   void didUpdateWidget(LyricSection oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (widget.currentTimeMilliseconds != oldWidget.currentTimeMilliseconds ||
-        widget.isActive != oldWidget.isActive ||
-        widget.isPassed != oldWidget.isPassed) {
-      _updateProgressAnimation();
-    }
-
     if (widget.isActive != oldWidget.isActive) {
       if (!widget.isActive) {
         _updateActiveBlur(0.0);
@@ -119,54 +104,39 @@ class _LyricSectionState extends State<LyricSection>
     }
   }
 
-  void _updateProgressAnimation() {
-    final newProgress = calculateProgress();
-    if (newProgress != _previousProgress) {
-      _progressAnimation = Tween<double>(
-        begin: _previousProgress,
-        end: newProgress,
-      ).animate(
-        CurvedAnimation(
-          parent: _progressAnimationController,
-          curve: Curves.linear,
-        ),
-      );
-      _previousProgress = newProgress;
-      _progressAnimationController.forward(from: 0);
-    }
-  }
-
   @override
   void dispose() {
-    _progressAnimationController.dispose();
     _blurAnimationController.dispose();
     super.dispose();
   }
 
-  double calculateProgress() {
+  double calculateProgress(double currentTime) {
     if (widget.isPassed) return 1.0;
     if (!widget.isActive) return 0.0;
+    if (widget.wholeLine) return 1.0;
 
-    final duration = widget.section.endTime - widget.section.startTime;
-    if (duration <= 0) return 0.0;
+    final section = widget.section;
+    final duration = section.endTime - section.startTime;
 
-    if (widget.currentTimeMilliseconds >= widget.section.endTime) {
-      return 1.0;
-    } else if (widget.currentTimeMilliseconds > widget.section.startTime) {
-      return (widget.currentTimeMilliseconds - widget.section.startTime) /
-          duration;
-    }
-    return 0.0;
+    // A section without duration is fully lit as soon as it starts.
+    if (duration <= 0) return currentTime >= section.startTime ? 1.0 : 0.0;
+
+    return ((currentTime - section.startTime) / duration).clamp(0.0, 1.0);
   }
 
   @override
   Widget build(BuildContext context) {
+    // Only the active section follows the interpolated time; the others
+    // never repaint with it.
     return AnimatedBuilder(
-      animation: Listenable.merge([_progressAnimation, _blurAnimation]),
+      animation: Listenable.merge([
+        _blurAnimation,
+        if (widget.isActive && !widget.wholeLine) widget.interpolatedTime,
+      ]),
       builder: (context, child) {
         return _LyricContent(
           section: widget.section,
-          progress: _progressAnimation.value,
+          progress: calculateProgress(widget.interpolatedTime.value),
           isActive: widget.isActive,
           isPassed: widget.isPassed,
           blur: _blurAnimation.value,

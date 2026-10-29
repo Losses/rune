@@ -90,6 +90,23 @@ where
     Ok(())
 }
 
+/// Builds the FTS5 query for what the user typed. Each word is quoted, so symbols such as `@`
+/// are searched as text instead of read as query syntax, and the words may come in any order.
+/// A trailing `*` makes the last word match as a prefix; it goes after the closing quote,
+/// because inside the quotes it would be plain text.
+fn match_expression(query_str: &str) -> String {
+    let words = query_str.trim_end_matches('*');
+    let mut expression = words
+        .split_whitespace()
+        .map(|word| format!("\"{}\"", deunicode(word).trim().replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if words.len() != query_str.len() && !expression.is_empty() {
+        expression.push('*');
+    }
+    expression
+}
+
 #[derive(Debug, FromQueryResult)]
 pub struct SearchResult {
     pub key: String,
@@ -105,16 +122,18 @@ pub async fn search_for(
 ) -> Result<HashMap<CollectionQueryType, Vec<i64>>> {
     let mut results: HashMap<CollectionQueryType, Vec<i64>> = HashMap::new();
 
-    if query_str.is_empty() {
+    let expression = match_expression(query_str);
+    if expression.is_empty() {
         return Ok(results);
     }
 
+    // Folders are not indexed.
     for collection_type in [
         CollectionQueryType::Track,
         CollectionQueryType::Artist,
         CollectionQueryType::Album,
-        CollectionQueryType::Directory,
         CollectionQueryType::Playlist,
+        CollectionQueryType::Genre,
     ] {
         if let Some(ref search_fields) = search_fields
             && !search_fields.contains(&collection_type)
@@ -122,12 +141,10 @@ pub async fn search_for(
             continue;
         }
 
-        let query_str = deunicode(query_str);
-
         let top_docs = SearchResult::find_by_statement(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             r#"SELECT * FROM search_index WHERE doc MATCH ? AND entry_type = ? ORDER BY rank LIMIT ?;"#,
-            [ format!("\"{}\"", query_str.replace("\"", "\"\"")).into(), collection_type.to_string().into(), (n * 2).to_string().into() ],
+            [ expression.clone().into(), collection_type.to_string().into(), (n * 2).to_string().into() ],
         )).all(main_db).await?;
 
         for item in top_docs {

@@ -1,7 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use arroy::{
@@ -188,28 +185,29 @@ pub async fn connect_main_db(
     let storage_info = get_storage_info(fsio, lib_path, db_path)?;
     let db_file = storage_info.get_main_db_path();
 
-    let db_url = if db_uses_local_fs(&storage_info.db_dir) {
+    let db_path = if db_uses_local_fs(&storage_info.db_dir) {
         tokio::fs::create_dir_all(&storage_info.db_dir).await?;
         if !tokio::fs::try_exists(&db_file).await? {
             tokio::fs::write(&db_file, b"").await?;
         }
-        format!("sqlite:{}?mode=rwc", db_file.to_string_lossy())
+        db_file
     } else {
         if !storage_info.db_dir.exists() {
             fsio.ensure_directory(&storage_info.db_dir).await?;
         }
         let db_node = fsio.ensure_file(&db_file).await?;
-        format!(
-            "sqlite:{}?mode=rwc",
-            fsio.canonicalize_path(&db_node.path)?.to_string_lossy()
-        )
+        fsio.canonicalize_path(&db_node.path)?
     };
 
-    let connection_options = SqliteConnectOptions::from_str(&db_url)?;
+    // The path goes in as it is, not through a URL: a Windows path such as `\\?\UNC\...`
+    // would otherwise be cut at its `?`.
+    let connection_options = SqliteConnectOptions::new()
+        .filename(&db_path)
+        .create_if_missing(true);
 
     let pool = SqlitePool::connect_with(connection_options).await?;
 
-    info!("Initializing main database: {}", { db_url });
+    info!("Initializing main database: {}", db_path.display());
 
     let db = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
 

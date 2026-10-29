@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:clipboard/clipboard.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -16,6 +17,7 @@ import 'simple_lyric_section.dart';
 class LyricLine extends StatefulWidget {
   final List<LyricContentLineSection> sections;
   final int currentTimeMilliseconds;
+  final ValueListenable<double> interpolatedTime;
   final bool isActive;
   final bool isPassed;
   final bool isStatic;
@@ -24,6 +26,7 @@ class LyricLine extends StatefulWidget {
     super.key,
     required this.sections,
     required this.currentTimeMilliseconds,
+    required this.interpolatedTime,
     required this.isActive,
     required this.isPassed,
     required this.isStatic,
@@ -45,6 +48,8 @@ class _LyricLineState extends State<LyricLine>
 
   final _contextController = RouterAwareFlyoutController();
   final _contextAttachKey = GlobalKey();
+  // Keeps the section state when the blur/opacity wrappers come and go.
+  final _contentKey = GlobalKey();
 
   @override
   void initState() {
@@ -53,19 +58,22 @@ class _LyricLineState extends State<LyricLine>
       duration: const Duration(milliseconds: 500),
       vsync: this,
     );
-    _blurAnimation = Tween<double>(begin: 0.0, end: 0.0).animate(
+    _targetBlur = _currentTargetBlur();
+    _targetOpacity = _currentTargetOpacity();
+    _blurAnimation =
+        Tween<double>(begin: _targetBlur, end: _targetBlur).animate(
       CurvedAnimation(
         parent: _animationController,
         curve: Curves.easeInOut,
       ),
     );
-    _opacityAnimation = Tween<double>(begin: 1.0, end: 1.0).animate(
+    _opacityAnimation =
+        Tween<double>(begin: _targetOpacity, end: _targetOpacity).animate(
       CurvedAnimation(
         parent: _animationController,
         curve: Curves.easeInOut,
       ),
     );
-    _updateAnimations();
 
     _contextController.controller.addListener(_handleContextControllerUpdate);
   }
@@ -85,9 +93,22 @@ class _LyricLineState extends State<LyricLine>
     _updateAnimations();
   }
 
+  double _currentTargetBlur() =>
+      _isHovered || _contextMenuIsOpen ? 0 : _calculateTargetBlur();
+
+  double _currentTargetOpacity() =>
+      _isHovered || _contextMenuIsOpen ? 0.9 : 1.0;
+
   void _updateAnimations() {
-    _targetBlur = _isHovered || _contextMenuIsOpen ? 0 : _calculateTargetBlur();
-    _targetOpacity = _isHovered || _contextMenuIsOpen ? 0.9 : 1.0;
+    final targetBlur = _currentTargetBlur();
+    final targetOpacity = _currentTargetOpacity();
+
+    // Restarting the animation on every position update would keep it stuck
+    // at its eased start.
+    if (targetBlur == _targetBlur && targetOpacity == _targetOpacity) return;
+
+    _targetBlur = targetBlur;
+    _targetOpacity = targetOpacity;
 
     _blurAnimation = Tween<double>(
       begin: _blurAnimation.value,
@@ -112,18 +133,28 @@ class _LyricLineState extends State<LyricLine>
     _animationController.forward(from: 0.0);
   }
 
+  int get _startTime =>
+      widget.sections.isEmpty ? 0 : widget.sections.first.startTime;
+
+  int get _endTime =>
+      widget.sections.isEmpty ? _startTime : widget.sections.last.endTime;
+
   double _calculateTargetBlur() {
     if (widget.isActive) return 0.0;
 
-    final startTime = widget.sections.first.startTime;
-    final endTime = widget.sections.last.endTime;
+    final startTime = _startTime;
+    final endTime = _endTime;
 
     final timeDiff = widget.isPassed
         ? widget.currentTimeMilliseconds - endTime
         : startTime - widget.currentTimeMilliseconds;
 
     final maxTimeDiff = 5000.0;
-    return (timeDiff.clamp(0, maxTimeDiff) / maxTimeDiff) * 3.0;
+    final blur = (timeDiff.clamp(0, maxTimeDiff) / maxTimeDiff) * 3.0;
+
+    // Quantized so a slowly growing blur does not restart the animation on
+    // every position update.
+    return (blur * 4).round() / 4;
   }
 
   void _openLyricContextMenu(
@@ -190,7 +221,8 @@ class _LyricLineState extends State<LyricLine>
       },
       child: GestureDetector(
           onTap: () {
-            seekAbsolute(widget.sections.first.startTime);
+            if (widget.sections.isEmpty) return;
+            seekAbsolute(_startTime);
           },
           child: ContextMenuWrapper(
               onContextMenu: _openLyricContextMenu,
@@ -201,18 +233,26 @@ class _LyricLineState extends State<LyricLine>
                 animation:
                     Listenable.merge([_blurAnimation, _opacityAnimation]),
                 builder: (context, child) {
-                  return Opacity(
-                    opacity: _opacityAnimation.value,
-                    child: ImageFiltered(
+                  final blur = _blurAnimation.value;
+                  final opacity = _opacityAnimation.value;
+
+                  Widget result = child!;
+                  if (blur != 0) {
+                    result = ImageFiltered(
                       imageFilter: ImageFilter.blur(
-                        sigmaX: _blurAnimation.value,
-                        sigmaY: _blurAnimation.value,
+                        sigmaX: blur,
+                        sigmaY: blur,
                       ),
-                      child: child,
-                    ),
-                  );
+                      child: result,
+                    );
+                  }
+                  if (opacity != 1) {
+                    result = Opacity(opacity: opacity, child: result);
+                  }
+                  return result;
                 },
                 child: Container(
+                  key: _contentKey,
                   padding: const EdgeInsets.symmetric(
                       vertical: 10.0, horizontal: 16.0),
                   child: widget.isStatic
@@ -230,10 +270,10 @@ class _LyricLineState extends State<LyricLine>
                             return LyricSection(
                               key: ValueKey(section.$1),
                               section: section.$2,
-                              currentTimeMilliseconds:
-                                  widget.currentTimeMilliseconds,
+                              interpolatedTime: widget.interpolatedTime,
                               isActive: widget.isActive,
                               isPassed: widget.isPassed,
+                              wholeLine: widget.sections.length == 1,
                             );
                           }).toList(),
                         ),

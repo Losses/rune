@@ -73,6 +73,17 @@ class MediumScreenSearchTrackList extends StatelessWidget {
                     items: items[CollectionType.playlist],
                     groupId: 2,
                   ),
+                  if (items[CollectionType.genre]?.isNotEmpty ?? false)
+                    SearchListSectionTitle(text: S.of(context).genres),
+                  LargeScreenSearchTrackListImplementation(
+                    rows: rows,
+                    ratio: ratio,
+                    gapSize: gapSize,
+                    cellSize: cellSize,
+                    collectionType: CollectionType.genre,
+                    items: items[CollectionType.genre],
+                    groupId: 4,
+                  ),
                   if (items[CollectionType.track]?.isNotEmpty ?? false)
                     SearchListSectionTitle(text: S.of(context).tracks),
                   LargeScreenSearchTrackListImplementation(

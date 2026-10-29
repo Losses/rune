@@ -10,7 +10,14 @@ import '../../constants/configurations.dart';
 import 'branding_animation_implementation.dart';
 
 class BrandingAnimation extends StatefulWidget {
-  const BrandingAnimation({super.key});
+  const BrandingAnimation({super.key, this.onCompleted});
+
+  /// Called once the entrance animation has played to completion.
+  ///
+  /// The branding animation is a one-shot startup overlay; the host uses this
+  /// to remove it from the widget tree instead of keeping an invisible layer
+  /// that still schedules frames.
+  final VoidCallback? onCompleted;
 
   @override
   State<BrandingAnimation> createState() => _BrandingAnimationState();
@@ -76,7 +83,13 @@ class _BrandingAnimationState extends State<BrandingAnimation>
           (await AssetHelper.instance.getAudioFileFromAssets(sfxPath)).path,
         );
       }
+      if (!mounted) {
+        return;
+      }
       await _controller.forward().orCancel;
+      if (mounted) {
+        widget.onCompleted?.call();
+      }
     } on TickerCanceled {
       // The animation got canceled, probably because we were disposed.
     }

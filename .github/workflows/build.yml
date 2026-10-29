@@ -2,6 +2,20 @@ name: Build
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Target pipeline to run"
+        required: true
+        default: "windows"
+        type: choice
+        options:
+          - all
+          - windows
+          - linux
+          - macos
+          - steam-sniper
+          - mac-app-store
+          - ios-app-store
   push:
     tags:
       - v*
@@ -14,6 +28,7 @@ jobs:
   # same script exercised by .github/workflows/windows-test-build.yml.
   build-windows:
     name: Build Windows (${{ matrix.arch }})
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'windows'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     permissions:
@@ -306,9 +321,14 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
 
   build-linux:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'linux'
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -376,9 +396,14 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
 
   build-steam-sniper:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'steam-sniper'
     runs-on: ubuntu-latest
     container: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:beta
     permissions:
@@ -461,9 +486,14 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
 
   build-macos:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'macos'
     runs-on: xcode-27
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
@@ -572,6 +602,10 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
           makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
 
       - name: Release ZIP
@@ -582,12 +616,16 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
           makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
 
       - name: Clean up
         if: ${{ always() }}
         run: |
-          just macos-ci-clean
+          command -v just &>/dev/null && just macos-ci-clean || true
           if [ -f "$RUNNER_TEMP/rune-signing.keychain-db" ]; then
             echo "$RUNNER_TEMP/rune-signing.keychain-db"
             security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db
@@ -599,7 +637,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
       MACOSX_DEPLOYMENT_TARGET: "12.0"
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'mac-app-store')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -688,7 +726,7 @@ jobs:
       - name: Clean up
         if: ${{ always() }}
         run: |
-          just macos-ci-clean
+          command -v just &>/dev/null && just macos-ci-clean || true
           if [ -f "$RUNNER_TEMP/rune-signing.keychain-db" ]; then
             echo "$RUNNER_TEMP/rune-signing.keychain-db"
             security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db
@@ -700,7 +738,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
       IPHONEOS_DEPLOYMENT_TARGET: "15.0"
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'ios-app-store')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

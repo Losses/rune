@@ -55,6 +55,10 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.debug
+            // ndk-saf resolves androidx.documentfile.provider.DocumentFile by
+            // binary name from JNI, which R8 cannot see: without these rules the
+            // class is shrunk/renamed and picking a library folder crashes.
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 
