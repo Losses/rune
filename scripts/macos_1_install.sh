@@ -17,7 +17,7 @@ install_if_missing() {
 install_if_missing flutter "Flutter" "--cask flutter"
 install_if_missing rustup "rustup" "rustup"
 
-brew install lmdb create-dmg protobuf CocoaPods
+brew install create-dmg protobuf CocoaPods
 brew link cocoapods
 
 if [ -f "$HOME/.cargo/env" ] && command -v rustc >/dev/null 2>&1; then

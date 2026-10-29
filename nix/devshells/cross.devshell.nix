@@ -16,7 +16,6 @@ pkgsCross.callPackage (
     openssl,
     stdenv,
     zstd,
-    lmdb,
     sqlite,
     clippy,
     rust-analyzer,
@@ -79,7 +78,6 @@ pkgsCross.callPackage (
       libGL
       wayland
       zstd
-      lmdb
       sqlite
       openssl
       alsa-lib
@@ -101,7 +99,7 @@ pkgsCross.callPackage (
       alias build='flutter-elinux build elinux --target-arch=arm64'
       export PATH=$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
       export LDFLAGS="-L${stdenv.cc.cc.lib}/lib -L${wayland}/lib $LDFLAGS"
-      export PKG_CONFIG_PATH=${zstd.dev}/lib/pkgconfig:${lmdb.dev}/lib/pkgconfig:${sqlite.dev}/lib/pkgconfig:${openssl.dev}/lib/pkgconfig:${alsa-lib.dev}/lib/pkgconfig:${libffi.dev}/lib/pkgconfig:${wayland.dev}/lib/pkgconfig
+      export PKG_CONFIG_PATH=${zstd.dev}/lib/pkgconfig:${sqlite.dev}/lib/pkgconfig:${openssl.dev}/lib/pkgconfig:${alsa-lib.dev}/lib/pkgconfig:${libffi.dev}/lib/pkgconfig:${wayland.dev}/lib/pkgconfig
       export CC="${stdenv.cc.targetPrefix}clang"
       export CXX="${stdenv.cc.targetPrefix}clang++"
 

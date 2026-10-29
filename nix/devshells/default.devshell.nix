@@ -125,7 +125,6 @@ pkgs.mkShell {
     alsa-lib.dev
     wayland.dev
     zstd.dev
-    lmdb.dev
     sqlite.dev
     util-linux.dev
     libsysprof-capture

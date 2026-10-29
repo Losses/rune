@@ -66,7 +66,7 @@ pub async fn initialize_databases(
         .await
         .with_context(|| "Failed to connect to main DB")?;
 
-    let recommend_db = connect_recommendation_db(fsio, path, db_path)
+    let recommend_db = connect_recommendation_db(fsio, path, db_path, &main_db)
         .await
         .with_context(|| "Failed to connect to recommendation DB")?;
 

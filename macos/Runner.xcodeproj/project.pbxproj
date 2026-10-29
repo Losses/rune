@@ -31,8 +31,6 @@
 		3E0301F499D96F4A26E64C79 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7E987AD63B0BB03B1571CD1B /* Pods_Runner.framework */; };
 		7A143E8D37CD27827323C459 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 640D7ED92CA3032038442C3E /* Pods_RunnerTests.framework */; };
 		F94E0AC72CB41AB900F42987 /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F94E0AC62CB41AB900F42987 /* MediaPlayer.framework */; };
-		F98FC3EC2CC1519400433075 /* liblmdb.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = F98FC3EB2CC1519400433075 /* liblmdb.dylib */; };
-		F98FC3ED2CC1519400433075 /* liblmdb.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = F98FC3EB2CC1519400433075 /* liblmdb.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,20 +49,6 @@
 			remoteInfo = FLX;
 		};
 /* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		F98FC3EE2CC1519400433075 /* Embed Libraries */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				F98FC3ED2CC1519400433075 /* liblmdb.dylib in Embed Libraries */,
-			);
-			name = "Embed Libraries";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		19E4CBEC2B77AFE9524D7265 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
@@ -98,13 +82,7 @@
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		BF367EEA278B7F8AFA1F73F7 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		C470B631790BB0BA4EE17160 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
-		F929E5012CB5B7C500A66BD1 /* liblmdb.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liblmdb.dylib; path = ../../../../../opt/homebrew/Cellar/lmdb/0.9.33/lib/liblmdb.dylib; sourceTree = "<group>"; };
-		F929E5062CB6027A00A66BD1 /* liblmdb.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = liblmdb.a; path = ../../../../../opt/homebrew/Cellar/lmdb/0.9.33/lib/liblmdb.a; sourceTree = "<group>"; };
-		F929E5082CB6028D00A66BD1 /* lmdb.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = lmdb.h; path = ../../../../../opt/homebrew/Cellar/lmdb/0.9.33/include/lmdb.h; sourceTree = "<group>"; };
 		F94E0AC62CB41AB900F42987 /* MediaPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaPlayer.framework; path = System/Library/Frameworks/MediaPlayer.framework; sourceTree = SDKROOT; };
-		F98FC3E72CC149D600433075 /* liblmdb_universal.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liblmdb_universal.dylib; path = "liblmdb-0.9.33/liblmdb_universal.dylib"; sourceTree = "<group>"; };
-		F98FC3EB2CC1519400433075 /* liblmdb.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liblmdb.dylib; path = "liblmdb-0.9.33/liblmdb.dylib"; sourceTree = "<group>"; };
-		F9AD579B2CB885550085EEDC /* liblmdb.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liblmdb.dylib; path = "liblmdb-0.9.33/lib/liblmdb.dylib"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -121,7 +99,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				F94E0AC72CB41AB900F42987 /* MediaPlayer.framework in Frameworks */,
-				F98FC3EC2CC1519400433075 /* liblmdb.dylib in Frameworks */,
 				3E0301F499D96F4A26E64C79 /* Pods_Runner.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -221,12 +198,6 @@
 		D73912EC22F37F3D000D13A0 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				F98FC3EB2CC1519400433075 /* liblmdb.dylib */,
-				F98FC3E72CC149D600433075 /* liblmdb_universal.dylib */,
-				F9AD579B2CB885550085EEDC /* liblmdb.dylib */,
-				F929E5082CB6028D00A66BD1 /* lmdb.h */,
-				F929E5062CB6027A00A66BD1 /* liblmdb.a */,
-				F929E5012CB5B7C500A66BD1 /* liblmdb.dylib */,
 				F94E0AC62CB41AB900F42987 /* MediaPlayer.framework */,
 				7E987AD63B0BB03B1571CD1B /* Pods_Runner.framework */,
 				640D7ED92CA3032038442C3E /* Pods_RunnerTests.framework */,
@@ -265,7 +236,6 @@
 				33CC10EA2044A3C60003C045 /* Frameworks */,
 				33CC10EB2044A3C60003C045 /* Resources */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
-				F98FC3EE2CC1519400433075 /* Embed Libraries */,
 				49F4F5C94F95A1D2DE120731 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
@@ -619,12 +589,6 @@
 					"@executable_path/../Frameworks",
 					"$(inherited)",
 				);
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					/opt/homebrew/Cellar/lmdb/0.9.33/lib,
-					"$(PROJECT_DIR)/liblmdb-0.9.33/lib",
-					"$(PROJECT_DIR)/liblmdb-0.9.33",
-				);
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -767,12 +731,6 @@
 					"@executable_path/../Frameworks",
 					"$(inherited)",
 				);
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					/opt/homebrew/Cellar/lmdb/0.9.33/lib,
-					"$(PROJECT_DIR)/liblmdb-0.9.33/lib",
-					"$(PROJECT_DIR)/liblmdb-0.9.33",
-				);
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -801,12 +759,6 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"@executable_path/../Frameworks",
 					"$(inherited)",
-				);
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					/opt/homebrew/Cellar/lmdb/0.9.33/lib,
-					"$(PROJECT_DIR)/liblmdb-0.9.33/lib",
-					"$(PROJECT_DIR)/liblmdb-0.9.33",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;

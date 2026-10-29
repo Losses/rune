@@ -1,18 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    sync::{Arc, RwLock},
+};
 
 use anyhow::{Context, Result};
-use arroy::{
-    Database as ArroyDatabase,
-    distances::Euclidean,
-    internals::{KeyCodec, NodeCodec},
-};
-use heed::{Env, EnvFlags, EnvOpenOptions};
-use log::info;
+use log::{info, warn};
 use sea_orm::{
     Database, SqlxSqliteConnector,
     sqlx::{SqlitePool, sqlite::SqliteConnectOptions},
 };
-use tempfile::tempdir;
 use uuid::Uuid;
 #[cfg(windows)]
 use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, SetFileAttributesW};
@@ -23,6 +20,7 @@ use ::fsio::FsIo;
 use ::migration::{Migrator, MigratorTrait};
 
 use crate::actions::mixes::initialize_mix_queries;
+use crate::actions::recommendation::load_recommendation_vectors;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StorageMode {
@@ -41,8 +39,14 @@ impl StorageInfo {
         self.db_dir.join(".0.db")
     }
 
-    pub fn get_recommendation_db_path(&self) -> PathBuf {
-        self.db_dir.join(".analysis.db")
+    /// Where older versions kept the LMDB recommendation index: a directory
+    /// (`.analysis`, before August 2025) or a file (`.analysis.db`). Nothing
+    /// reads them any more, they are only deleted.
+    pub fn get_legacy_recommendation_db_paths(&self) -> [PathBuf; 2] {
+        [
+            self.db_dir.join(".analysis"),
+            self.db_dir.join(".analysis.db"),
+        ]
     }
 }
 
@@ -234,75 +238,124 @@ pub async fn connect_fake_main_db() -> Result<MainDbConnection> {
     Ok(db)
 }
 
-const DB_SIZE: usize = 2 * 1024 * 1024 * 1024;
+/// The feature vectors of the analysed tracks with their file ids, sorted by
+/// file id.
+pub type RecommendationVectors = Arc<Vec<(u32, [f32; 61])>>;
 
-#[derive(Debug, Clone)]
+/// The vectors of all analysed tracks, kept in memory for exact
+/// nearest-neighbour search.
+///
+/// The data lives in the `media_analysis` table of the main database and is
+/// read from there: when the library is opened (see
+/// [`connect_recommendation_db`]) and again after every analysis run (see
+/// `sync_recommendation`). Nothing is stored on disk.
+///
+/// The vectors are replaced as a whole behind an `Arc`, so a query only holds
+/// the lock for the moment it takes to clone the pointer and never while it
+/// computes (or awaits).
+#[derive(Debug, Default)]
 pub struct RecommendationDbConnection {
-    pub env: Env,
-    pub db: ArroyDatabase<Euclidean>,
+    vectors: RwLock<RecommendationVectors>,
 }
 
+impl RecommendationDbConnection {
+    /// An empty store, which finds no recommendations until vectors are
+    /// loaded into it.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The current vectors, sorted by file id, one per file.
+    pub fn vectors(&self) -> RecommendationVectors {
+        match self.vectors.read() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    /// Replace all vectors. The input is sorted by file id; on duplicate ids
+    /// the last one wins.
+    pub fn replace(&self, vectors: impl IntoIterator<Item = (u32, [f32; 61])>) {
+        let map: BTreeMap<u32, [f32; 61]> = vectors.into_iter().collect();
+        let vectors = Arc::new(map.into_iter().collect::<Vec<_>>());
+        match self.vectors.write() {
+            Ok(mut guard) => *guard = vectors,
+            Err(poisoned) => *poisoned.into_inner() = vectors,
+        }
+    }
+}
+
+/// Prepare the recommendation store of a library.
+///
+/// Older versions kept the vectors in a LMDB index (the directory `.analysis`
+/// or the file `.analysis.db`). It was only a copy of `media_analysis`, so it
+/// is deleted here. The store is then filled from `main_db`. Neither a failure
+/// to delete the legacy data nor a failure to read the vectors prevents the
+/// library from opening: both are logged, and the store stays empty in the
+/// second case until the next `sync_recommendation`.
 pub async fn connect_recommendation_db(
     fsio: &FsIo,
     lib_path: &str,
     db_path: Option<&str>,
+    main_db: &MainDbConnection,
 ) -> Result<RecommendationDbConnection> {
     let storage_info = get_storage_info(fsio, lib_path, db_path)?;
-    let analysis_path = storage_info.get_recommendation_db_path();
 
-    let path_string = if db_uses_local_fs(&storage_info.db_dir) {
-        tokio::fs::create_dir_all(&storage_info.db_dir).await?;
-        if !tokio::fs::try_exists(&analysis_path).await? {
-            tokio::fs::write(&analysis_path, b"").await?;
+    for legacy_path in storage_info.get_legacy_recommendation_db_paths() {
+        if let Err(e) = remove_legacy_recommendation_db(fsio, &storage_info, &legacy_path).await {
+            warn!(
+                "Failed to delete the legacy recommendation database {}: {e:#}",
+                legacy_path.display()
+            );
         }
-        analysis_path.to_string_lossy().into_owned()
-    } else {
-        if !storage_info.db_dir.exists() {
-            fsio.ensure_directory(&storage_info.db_dir).await?;
-        }
-        let db_node = fsio.ensure_file(&analysis_path).await?;
-        db_node.path.to_string_lossy().into_owned()
-    };
-    let path_str = path_string.as_str();
-
-    info!("Initializing recommendation database: {path_str}");
-
-    let env = unsafe {
-        EnvOpenOptions::new()
-            .map_size(DB_SIZE)
-            .flags(EnvFlags::NO_LOCK)
-            .flags(EnvFlags::NO_SUB_DIR)
-            .open(path_str)
     }
-    .with_context(|| "Failed to open the recommendation database")?;
 
-    let mut wtxn = env.write_txn()?;
-    let db: ArroyDatabase<Euclidean> = env
-        .database_options()
-        .types::<KeyCodec, NodeCodec<Euclidean>>()
-        .create(&mut wtxn)?;
-    wtxn.commit()?;
+    info!("Loading recommendation vectors");
+    let recommend_db = RecommendationDbConnection::new();
+    if let Err(e) = load_recommendation_vectors(main_db, &recommend_db).await {
+        warn!("Failed to load the recommendation vectors, recommendations are empty: {e:#}");
+    }
 
-    Ok(RecommendationDbConnection { env, db })
+    Ok(recommend_db)
+}
+
+/// Delete a legacy recommendation file or directory (with its content).
+/// Does nothing if it does not exist.
+async fn remove_legacy_recommendation_db(
+    fsio: &FsIo,
+    storage_info: &StorageInfo,
+    legacy_path: &Path,
+) -> Result<()> {
+    if db_uses_local_fs(&storage_info.db_dir) {
+        let metadata = match tokio::fs::symlink_metadata(legacy_path).await {
+            Ok(metadata) => metadata,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        if metadata.is_dir() {
+            tokio::fs::remove_dir_all(legacy_path).await?;
+        } else {
+            tokio::fs::remove_file(legacy_path).await?;
+        }
+    } else {
+        if !fsio.exists(legacy_path)? {
+            return Ok(());
+        }
+        if fsio.is_dir(legacy_path).await? {
+            fsio.remove_dir_all(legacy_path).await?;
+        } else {
+            fsio.remove_file(legacy_path).await?;
+        }
+    }
+    info!(
+        "Deleted legacy recommendation database {}",
+        legacy_path.display()
+    );
+    Ok(())
 }
 
 pub fn connect_fake_recommendation_db() -> Result<RecommendationDbConnection> {
     info!("Initializing fake recommendation database");
 
-    let dir = tempdir()?;
-    let env = unsafe {
-        EnvOpenOptions::new()
-            .map_size(DB_SIZE)
-            .flags(EnvFlags::NO_LOCK)
-            .open(dir.path())?
-    };
-
-    let mut wtxn = env.write_txn()?;
-    let db: ArroyDatabase<Euclidean> = env
-        .database_options()
-        .types::<KeyCodec, NodeCodec<Euclidean>>()
-        .create(&mut wtxn)?;
-    wtxn.commit()?;
-
-    Ok(RecommendationDbConnection { env, db })
+    Ok(RecommendationDbConnection::new())
 }
