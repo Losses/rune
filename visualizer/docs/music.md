@@ -74,7 +74,7 @@ They are added at the end of `struct Music`, after `hit`; the existing fields ke
 
 The two fallbacks do not depend on the chart, so that a chart with one long section still has cues.
 
-Two cues are at least 4 s apart. A scene should act on a cue only when its strength is enough for what it does (for example a camera cut at `cue >= 0.5`, a special effect at `cue >= 0.8`). Do not use timers for this, and do not check for a chart.
+Two cues are at least 4 s apart, and with a chart neither fallback (eight bars, or the first hit after a quiet spell) comes within 4 s before a section start the chart knows is coming, so that the gap never drops a section start. A scene should act on a cue only when its strength is enough for what it does (for example a camera cut at `cue >= 0.5`, a special effect at `cue >= 0.8`). Do not use timers for this, and do not check for a chart.
 
 **`cue_in`.** The time until the next cue that is known in advance. For now that is the chart's `section_left`; it is -1 when nothing is known, which is always the case in C. Use it to start a camera slide early so that the new view arrives on the section's start, and as a lead-in for transitions. Test for `cue_in >= 0.0` before using it.
 

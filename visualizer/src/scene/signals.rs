@@ -558,13 +558,17 @@ impl Signals {
 
     /// The cues of this frame, and `cue` fading or set. The first source that applies decides: a
     /// section of the chart; else, while the beat is locked, every [`CUE_BARS`] bars since the
-    /// last cue; else the first hit after [`CUE_IDLE`] seconds without one.
+    /// last cue; else the first hit after [`CUE_IDLE`] seconds without one. Neither of the last
+    /// two comes within [`CUE_GAP`] before a section start the chart knows is coming: the gap
+    /// would drop that section start for it.
     fn cues(&mut self, input: &SignalInput, m: &MusicValues, steady: bool, dt: f64) -> u32 {
         self.cue *= (-dt / CUE_DECAY).exp();
         let section = (input.chart.is_some() && m.sections > 0).then(|| {
             let lift = f64::from(m.section_energy) > self.section_energy + CUE_LIFT;
             if lift { 1.0 } else { 0.5 }
         });
+        let section_soon =
+            input.chart.is_some() && m.section_left > 0.0 && f64::from(m.section_left) < CUE_GAP;
         let strength = if section.is_some() {
             // A section start begins the count of bars again.
             self.bars_since_cue = 0;
@@ -577,6 +581,7 @@ impl Signals {
             (m.hits > 0 && self.now - self.last_cue >= CUE_IDLE).then_some(CUE_IDLE_STRENGTH)
         };
         match strength {
+            Some(_) if section.is_none() && section_soon => 0,
             Some(strength) if steady && self.now - self.last_cue >= CUE_GAP => {
                 self.last_cue = self.now;
                 self.bars_since_cue = 0;

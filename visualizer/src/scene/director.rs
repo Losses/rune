@@ -3317,4 +3317,102 @@ mod tests {
         director.set_song(Some(&sections_of(&[(40.0, 0.5), (40.0, 0.9)])));
         assert!(!director.shown[3]);
     }
+
+    /// Play `chart` (an analysis as JSON) from its start to `until` seconds at 60 frames a
+    /// second through the runtime's own path (the chart's state, the trusted rhythm, the music's
+    /// raw values and signals), as the app does, and return each cut with its song time.
+    fn play_chart(director: &mut Director, chart: &str, until: f64) -> Vec<(f64, Cut)> {
+        use crate::scene::inputs::{EventCounter, Levels, music};
+        let chart = crate::chart::Chart::from_analysis(serde_json::from_str(chart).unwrap());
+        let dt = 1.0 / 60.0;
+        let mut events = EventCounter::with_wall_dt(dt);
+        let mut cuts = Vec::new();
+        for frame in 0..(until / dt) as u32 {
+            let t = f64::from(frame) * dt;
+            let state = chart.at(t);
+            let rhythm = crate::chart::trusted_rhythm(Default::default(), Some(&state));
+            let m = music(
+                &rhythm,
+                Some(&state),
+                Levels::default(),
+                (t, true),
+                &mut events,
+            );
+            director.set_song_ahead(Some(state.later_rise as f32));
+            director.set_song(state.song.as_ref());
+            if let Some(cut) = director.tick(dt as f32, &m) {
+                cuts.push((t, cut));
+            }
+        }
+        cuts
+    }
+
+    /// A chart at 120 bpm in 4/4 (a beat every 0.5 s from 0, a bar every 2 s) with these
+    /// sections (start, end, energy), labelled from A, heard throughout.
+    fn chart_json(sections: &[(f64, f64, f64)]) -> String {
+        let end = sections.last().map_or(0.0, |s| s.1);
+        let beats: Vec<String> = (0..(end * 2.0) as u32)
+            .map(|i| {
+                format!(
+                    r#"{{"t": {}, "bar": {}, "pos": {}, "strength": 1, "confidence": 0.9}}"#,
+                    f64::from(i) * 0.5,
+                    i / 4,
+                    i % 4
+                )
+            })
+            .collect();
+        let sections: Vec<String> = sections
+            .iter()
+            .enumerate()
+            .map(|(i, (start, end, energy))| {
+                format!(
+                    r#"{{"start": {start}, "end": {end}, "label": "{}", "energy": {energy}, "repeat": 0, "confidence": 1}}"#,
+                    char::from(b'A' + i as u8)
+                )
+            })
+            .collect();
+        format!(
+            r#"{{"version": 1, "title": "t", "audio": "/a.wav", "duration": {end},
+            "analysis_seconds": 1, "analyzer": "test",
+            "tempo": {{"bpm": 120, "confidence": 0.9, "feel": 5.0}},
+            "beats": [{}],
+            "meter": {{"beats_per_bar": 4, "confidence": 0.9}},
+            "sections": [{}],
+            "streams": {{"low": {{"name": "x", "events": []}}, "mid": {{"name": "x", "events": []}},
+                "high": {{"name": "x", "events": []}}, "harmonic": {{"name": "x", "events": []}},
+                "phrase": {{"name": "x", "events": []}}}},
+            "lead": [],
+            "curves": {{"hop": 0.5, "loudness": [0.5], "brightness": [0], "percussive": [0],
+                "beat_conf": [0.9], "feel": [5]}}}}"#,
+            beats.join(","),
+            sections.join(",")
+        )
+    }
+
+    #[test]
+    fn a_burst_leads_to_its_cut_when_an_eighth_bar_cue_comes_just_before_the_lift() {
+        // A quiet first section of nine bars, then a high one. With the beat followed, a cue of
+        // 0.3 comes every eight bars since the last cue, chart or not: here at 16 s, two seconds
+        // before the section starts at 18 s, where the burst runs (beats at 16 to 17.5 s).
+        let chart = chart_json(&[(0.0, 18.0, 0.2), (18.0, 40.0, 0.9)]);
+        let mut director = bursting(camera(0.3));
+        let cuts = play_chart(&mut director, &chart, 30.0);
+        let burst: Vec<(f64, u32)> = cuts
+            .iter()
+            .filter(|(_, c)| c.fill > 0)
+            .map(|(t, c)| ((t * 2.0).round() / 2.0, c.fill))
+            .collect();
+        assert_eq!(
+            burst,
+            [(16.0, 1), (16.5, 2), (17.0, 3), (17.5, 4)],
+            "{cuts:?}"
+        );
+        // The cut after the burst's last is the section start it leads to, a strong cut to one
+        // of the scene's shots, not a cadence cut seconds later.
+        let last = cuts.iter().position(|(_, c)| c.fill == 4).unwrap();
+        let (at, after) = cuts.get(last + 1).expect("a cut after the burst");
+        assert!((18.0..18.05).contains(at), "{cuts:?}");
+        assert_eq!((after.fill, after.strong), (0, true));
+        assert!((after.index as usize) < director.ordinary);
+    }
 }
