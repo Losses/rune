@@ -9,6 +9,25 @@ common = ["badge.wgsl"]
 # A loud flight through badges: a cut-in or a glitch at the big moments.
 effects = ["fade", "dissolve", "cutin", "glitch", "flare"]
 
+# The looks (tunnel.wgsl grades the picture by them and blends them; the runtime picks one at a
+# section start by the section's energy): the tunnel in grey, a little dim, with a faint tint of the
+# theme colour, at quiet and ordinary sections, and in the theme colour at the climax. The whole
+# picture is one colour family, as CRT Wall's and Neon Street's are, except the emoji, which are
+# never recoloured.
+[[look]]
+name = "grey"
+tags = ["night"]
+tiers = ["quiet", "normal"]
+
+[[look]]
+name = "theme colour"
+tags = ["colour"]
+tiers = ["high"]
+opens = false
+# A song with no high section would stay grey throughout: it is promised the look once, in its
+# highest section then.
+at_least_once = true
+
 [state]
 file = "state.wgsl"
 update = "update.wgsl"
@@ -30,11 +49,11 @@ file = "assets/crests.png"
 linear = true
 source = "Drawn by tools/make_crests.py"
 
-# The camera glides between six places to film from, in the order update.wgsl takes them. Which the
-# director picks for a section follows its energy (`tiers`): the quiet ones get the wide and the
-# long lens, the high ones the low, across and rolled views, and each tier has a shot that may open
-# it (the middle; low as well for the ordinary and high ones). It never opens a section looking
-# back.
+# The camera glides between six places to film from, in the order update.wgsl takes them; the burst
+# below adds four more. Which the director picks for a section follows its energy (`tiers`): the
+# quiet ones get the wide and the long lens, the high ones the low, across and rolled views, and
+# each tier has a shot that may open it (the middle; low as well for the ordinary and high ones). It
+# never opens a section looking back.
 [camera]
 dutch = 0.35
 # The shortest shot is eight seconds, so that a glide (at most half a shot) has four seconds at least.
@@ -83,6 +102,31 @@ size = "wide"
 move = "glide"
 tiers = ["quiet", "normal"]
 opens = false
+
+# The burst before a section that lifts: a cut on each of the last four beats, each a close-up of
+# another emoji (a badge, where the content is badges) that the scene chooses from the tunnel's own
+# at the cut and carries in front of the camera, so that the tunnel rushes past it. update.wgsl's
+# `choose_hero` and `BURST_LOOK` make them (shot.index 6 to 9, `shot.fill` 1 to 4). Each cut is a
+# hard one (`shot.hard`), as is the cut after the burst.
+# Face on, a little off the middle, the core's light behind it.
+[[burst]]
+name = "face on"
+size = "close"
+
+# Turned about 60 degrees: its cut edge and its face both show.
+[[burst]]
+name = "from the side"
+size = "close"
+
+# From below, looking up, against the haze and the lines.
+[[burst]]
+name = "from below"
+size = "close"
+
+# The emoji filling the picture.
+[[burst]]
+name = "filling the picture"
+size = "detail"
 
 [[pass]]
 shader = "tunnel.wgsl"
@@ -333,7 +377,7 @@ step = 0.01
 id = "palette"
 type = "choice"
 group = "Badges"
-label = "Lacquer and leaf"
+label = "Lacquer and leaf, by their lightness (the look gives the colour: grey or the theme colour)"
 default = 0
 options = ["By section", "Black lacquer, gold", "Vermilion, gold", "Indigo, silver"]
 
@@ -407,7 +451,7 @@ step = 0.01
 [[param]]
 id = "clouds"
 group = "Tunnel"
-label = "The haze (violet, unless it follows the player's colour)"
+label = "The haze"
 default = 1.0
 min = 0.0
 max = 3.0
@@ -419,17 +463,15 @@ step = 0.05
 id = "player_colour"
 type = "bool"
 group = "Colour"
-label = "Follow the player's theme colour (the system's accent, the chosen colour or the cover's): every colour keeps its lights and darks and how colourful it is, in its hue"
+label = "The looks' colour follows the player's theme colour (the system's accent, the chosen colour or the cover's), else the colour below (the emoji are not touched)"
 default = true
 
 [[param]]
-id = "chroma"
+id = "tint"
+type = "color"
 group = "Colour"
-label = "How colourful, following the player (0 is black and white)"
-default = 1.0
-min = 0.0
-max = 2.0
-step = 0.05
+label = "The colour when not following (and in the scene lab)"
+default = "#6a7cf0"
 
 [[param]]
 id = "view"

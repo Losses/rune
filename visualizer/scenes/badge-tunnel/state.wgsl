@@ -7,7 +7,11 @@
 // sees SLOTS of them, ahead or (looking back) behind.
 const SLOTS: u32 = 64u;
 const PER: u32 = 3u;
+// (The slots' things; the arrays below hold one more, HERO.)
 const ITEMS: u32 = 192u;
+// One more place, after the slots', for the emoji (or badge) a burst's close-up is of: it flies
+// with the camera (see update).
+const HERO: u32 = 192u;
 const SLOT_LEN: f32 = 1.6;
 // The screen's tiles, and how many things a tile lists at most (nearest first).
 const TX: u32 = 16u;
@@ -59,6 +63,24 @@ struct State {
   last_view: f32,
   set_off: Pose,
   glide: f32,
+  // A burst's close-up (the places 6 to 9, `shot.fill` 1 to 4): the thing it is of, chosen at the
+  // cut from the tunnel's own (`hero_id` as a slot's thing is named, `hero_slot` and `hero_q` its
+  // place in the tunnel, whose copy is not drawn for the shot; a slot far off the tunnel's when
+  // it was none that suited), carried along in front of the camera (`hero_on` 1 for a burst's
+  // shot), pushed in a few percent (`hero_push`, 0 to 1); and the pictures the burst has used,
+  // so that each close-up is of another.
+  hero_on: f32,
+  hero_id: vec2f,
+  hero_slot: f32,
+  hero_q: f32,
+  hero_push: f32,
+  // Its share of the picture's height (held to its width in a narrow picture), its place in the
+  // picture (by height, from the middle) and how far its face is turned from the camera, all of
+  // the burst's shot.
+  hero_share: f32,
+  hero_at: vec2f,
+  hero_turn: f32,
+  hero_used: array<f32, 4>,
   // The camera.
   cam_pos: vec3f,
   cam_fwd: vec3f,
@@ -68,11 +90,11 @@ struct State {
   // Each thing: its centre and size (w); the rows of its turn from the world into its own frame,
   // their w its kind and shape, its look (lacquer and leaf) and its crest; and where it is on the
   // screen (centre, radius, and its distance along the view).
-  pos: array<vec4f, 192>,
-  rx: array<vec4f, 192>,
-  ry: array<vec4f, 192>,
-  rz: array<vec4f, 192>,
-  scr: array<vec4f, 192>,
+  pos: array<vec4f, 193>,
+  rx: array<vec4f, 193>,
+  ry: array<vec4f, 193>,
+  rz: array<vec4f, 193>,
+  scr: array<vec4f, 193>,
   // The melody: its last eight notes, in turn (when, how strong), and how many have been heard.
   notes: array<vec4f, 8>,
   note_count: f32,
@@ -83,8 +105,12 @@ struct State {
   note_rate: f32,
   last_slot: f32,
   slot_set: array<vec2f, 128>,
-  // The colours, all from the player's theme colour if it follows it (see update).
+  // The colours as made (see update), the theme colour look's ramp (dark to near white, in the
+  // theme colour's hue) and how far the picture is in that look (0 the grey look, 1 the colour
+  // one): see `grade` in tunnel.wgsl.
   colours: array<vec4f, 24>,
+  theme_ramp: array<vec4f, 4>,
+  colour: f32,
   // The tiles: how many each lists, and the lists.
   tile_n: array<u32, 144>,
   tile: array<u32, 4608>,

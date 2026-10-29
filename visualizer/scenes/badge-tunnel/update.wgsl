@@ -6,11 +6,13 @@
 // turned, projected and sorted into the screen's tiles, nearest first.
 
 // ---- Colour ----
-// The tunnel's colours are hand made, each with its own hue. Following the player's colour (its
-// accent, which follows the system, the listener's choice or the cover), every one keeps how light
-// and how colourful it is (held down, so it is never loud) and takes the player's hue, those that
-// were of several colours turned a little either side of it so they still differ. In OKLab,
-// where a step in lightness or hue looks as big as it is.
+// The tunnel's colours are made by hand, each with its own hue, but the picture is graded by its
+// lightness into the look the runtime has chosen (see `grade` in tunnel.wgsl): greys with a faint
+// tint at quiet and ordinary sections, a ramp from a dark shade through the theme colour to near
+// white at the climax. So the made colours matter only by their lightness (the lacquers still
+// differ by it); the theme colour is worked out here, once a frame, into the ramp. The emoji are
+// never graded: they keep their own colours. In OKLab, where a step in lightness or hue looks as
+// big as it is.
 
 fn oklab(c: vec3f) -> vec3f {
   let l = pow(max(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b, 0.0), 1.0 / 3.0);
@@ -29,10 +31,11 @@ fn oklch(lightness: f32, chroma: f32, hue: f32) -> vec3f {
   return max(vec3f(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s), vec3f(0.0));
 }
 
-// The colours as made, by number: 0, 1 the tunnel's depths (far, near); 2 the core's light, 3 its
-// halo, 4 its rays; 5 the speed lines; 6–9 the glints (white, cyan, pink, gold); 10 the haze;
-// 11 the sparkles; 12–14 the lacquers (black, vermilion, indigo); 15, 16 the leaves (gold,
-// silver); 17, 18 what the tunnel mirrors (below, above), 19 the core in it, 20 the light behind,
+// The colours as made (their lightness is what the grade keeps), by number: 0, 1 the tunnel's
+// depths (far, near); 2 the core's light, 3 its halo, 4 its rays; 5 the speed lines; 6–9 the
+// glints (white, cyan, pink, gold); 10 the haze; 11 the sparkles; 12–14 the lacquers (black,
+// vermilion, indigo); 15, 16 the leaves (gold, silver); 17, 18 what the tunnel mirrors (below,
+// above), 19 the core in it, 20 the light behind,
 // 21, 22 the strip lights; 23 the key light's highlight.
 fn colour_made(k: u32) -> vec3f {
   var c = array<vec3f, 24>(
@@ -44,25 +47,27 @@ fn colour_made(k: u32) -> vec3f {
   return c[k];
 }
 
-// How far each turns from the player's hue: the glints and the haze, which were of their own
-// colours, a little either side.
-fn hue_offset(k: u32) -> f32 {
-  var o = array<f32, 24>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.25, 0.3, 0.15, -0.15, 0.0, 0.0, 0.2, -0.1, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-  return o[k];
-}
-
 fn set_colours() {
-  let follow = params.player_colour == 1u && frame.accent.a > 0.5;
-  let theme = oklab(frame.accent.rgb);
-  let h = atan2(theme.z, theme.y);
   for (var k = 0u; k < 24u; k++) {
-    var c = colour_made(k);
-    if (follow) {
-      let lab = oklab(c);
-      c = oklch(lab.x, min(length(lab.yz), 0.12 * params.chroma), h + hue_offset(k));
-    }
-    state.colours[k] = vec4f(c, 0.0);
+    state.colours[k] = vec4f(colour_made(k), 0.0);
   }
+  // The theme colour's hue: the player's if it follows it (and the lab, which has none, gets the
+  // scene's own `tint`), else the scene's own.
+  var hue_of = params.tint.rgb;
+  if (params.player_colour == 1u && frame.accent.a > 0.5) {
+    hue_of = frame.accent.rgb;
+  }
+  let theme = oklab(hue_of);
+  let h = atan2(theme.z, theme.y);
+  // The theme colour look's palette: a dark shade up to near white (as Neon Street's and CRT
+  // Wall's stops). The grade takes the colour from it and keeps the picture's own light.
+  state.theme_ramp[0] = vec4f(oklch(0.12, 0.03, h), 1.0);
+  state.theme_ramp[1] = vec4f(oklch(0.36, 0.14, h), 1.0);
+  state.theme_ramp[2] = vec4f(oklch(0.62, 0.19, h), 1.0);
+  state.theme_ramp[3] = vec4f(oklch(0.95, 0.03, h), 1.0);
+  // How far the picture is in the theme colour's look: the runtime's fade from look.prev to
+  // look.to (0 the grey look, 1 the colour one). No setting pins a look: the lab holds one.
+  state.colour = select(0.0, 1.0 - look.mix, look.prev == 1u) + select(0.0, look.mix, look.to == 1u);
 }
 
 fn random(n: u32) -> f32 {
@@ -124,14 +129,12 @@ fn slot_cell(n: f32) -> u32 {
   return u32(((i32(n) % 128) + 128) % 128);
 }
 
-// Thing q of slot `slot`, into place i: where it is, how it is turned, what it is.
-fn place(i: u32, slot: f32, q: u32) {
+// What thing q of slot `slot` is: -1 nothing, or BADGE, CUBE, SPARK or (where the content is
+// emoji) EMOJI. The first of a slot's three a badge or nothing, the second a badge, a cube or
+// nothing, the third a sparkle, a cube or nothing. (How many badges or emoji: as many as the
+// slot's share, set by the music, allows.)
+fn kind_at(slot: f32, q: u32) -> f32 {
   let id = vec2f(slot, f32(q) * 17.0);
-  // The scene's own time (it stands still in silence), for everything that turns of itself.
-  let t = state.phase;
-  // What it is: the first of a slot's three a badge or nothing, the second a badge, a cube or
-  // nothing, the third a sparkle, a cube or nothing.
-  // (How many badges or emoji: as many as the slot's share, set by the music, allows.)
   let h = hash(id + 0.7);
   let given = state.slot_set[slot_cell(slot)];
   let badges = params.badges * given.x;
@@ -146,11 +149,50 @@ fn place(i: u32, slot: f32, q: u32) {
   if (kind == BADGE && params.content == 0u) {
     kind = EMOJI;
   }
+  return kind;
+}
+
+fn hide(i: u32) {
+  state.pos[i] = vec4f(0.0, 0.0, -1e6, 0.0);
+  state.rx[i] = vec4f(1.0, 0.0, 0.0, -10.0);
+}
+
+// Which picture a badge (its crest) or an emoji (of 64) is, by its name.
+fn picture_of(id: vec2f, kind: f32) -> f32 {
+  return floor(hash(id + 13.1) * select(f32(CRESTS), 64.0, kind == EMOJI));
+}
+
+// Thing q of slot `slot`, into place i: where it is, how it is turned, what it is.
+fn place(i: u32, slot: f32, q: u32) {
+  var kind = kind_at(slot, q);
+  // The thing a burst's close-up is of is drawn there, not here.
+  if (state.hero_on > 0.5 && slot == state.hero_slot && f32(q) == state.hero_q) {
+    kind = -1.0;
+  }
   if (kind < 0.0) {
-    state.pos[i] = vec4f(0.0, 0.0, -1e6, 0.0);
-    state.rx[i] = vec4f(1.0, 0.0, 0.0, -10.0);
+    hide(i);
     return;
   }
+  build(i, vec2f(slot, f32(q) * 17.0), kind, false);
+}
+
+// Where a burst's close-up has its thing, for a thing of this size: straight ahead of the camera
+// at the distance that gives its share of the picture's height (the camera's own height and
+// width: a narrow picture holds it by its width), at its place in the picture, nearer by a few
+// percent as the shot goes on. All of it in the camera's own frame, so the dutch angle never
+// moves it out of the picture.
+fn hero_position(size: f32) -> vec3f {
+  let z = 2.0 * size * state.focal / state.hero_share * (1.0 - 0.05 * (1.0 - pow(1.0 - state.hero_push, 2.0)));
+  let k = z / state.focal;
+  return state.cam_pos + state.cam_fwd * z + state.cam_right * (state.hero_at.x * k) + state.cam_up * (state.hero_at.y * k);
+}
+
+// Thing `id` of the kind, into place i (the thing at the camera's side, `hero`, in a burst).
+fn build(i: u32, id: vec2f, kind: f32, hero: bool) {
+  // The scene's own time (it stands still in silence), for everything that turns of itself.
+  let t = state.phase;
+  let given = state.slot_set[slot_cell(id.x)];
+  let slot = id.x;
   let z = (slot + hash(id + 1.1)) * SLOT_LEN;
   let th = hash(id + 2.2) * 6.2831853;
   let hr = sqrt(hash(id + 3.3));
@@ -168,13 +210,29 @@ fn place(i: u32, slot: f32, q: u32) {
     size = mix(0.07, 0.2, hash(id + 4.4));
   }
   state.pos[i] = vec4f(r * cos(th), r * sin(th), z, size);
+  if (hero) {
+    state.pos[i] = vec4f(hero_position(size), size);
+  }
 
   // Badges face the way the camera comes, tipped a little each its own way; a few tumble over
   // and over. (On a counted hit it is the crest that turns, within its frame: see badge.wgsl.) Gold
   // flakes tumble.
   var m: mat3x3f;
   var shape = 0.0;
-  if (kind == BADGE) {
+  if (kind == BADGE && hero) {
+    // A badge in a close-up faces the camera, tipped a little, and turned as the shot says.
+    var ax = state.cam_right;
+    var ay = state.cam_up;
+    var az = state.cam_fwd;
+    let ty = (hash(id + 6.6) - 0.5) * 0.4 + state.hero_turn;
+    let tx = (hash(id + 8.8) - 0.5) * 0.4;
+    ax = turn(ax, ay, ty);
+    az = turn(az, ay, ty);
+    ay = turn(ay, ax, tx);
+    az = turn(az, ax, tx);
+    m = mat3x3f(ax, ay, az);
+    shape = 6.0;
+  } else if (kind == BADGE) {
     let ht = hash(id + 5.5);
     var b = (hash(id + 6.6) - 0.5) * 1.1;
     if (ht < params.tumble) {
@@ -211,6 +269,9 @@ fn place(i: u32, slot: f32, q: u32) {
       state.pos[i] = vec4f(state.pos[i].xyz + state.cam_up * size * 0.8 * heard.y * sin(3.14159265 * clamp(p * 1.4, 0.0, 1.0)), size);
     } else {
       flip.y = 0.7 * heard.y * sin(done * 9.4247780) * (1.0 - done);
+    }
+    if (hero) {
+      flip.y += state.hero_turn;
     }
     var ax = state.cam_right * cos(c) + state.cam_up * sin(c);
     var ay = state.cam_up * cos(c) - state.cam_right * sin(c);
@@ -288,21 +349,88 @@ fn project(i: u32) {
 }
 
 // ---- The camera ----
-// Six places to film from, each mirrored by the side, in the order of the shots in scene.toml:
-// 0 down the middle, the core on a third, a little above; 1 lower, looking up, the emoji going by
-// overhead; 2 off to one side, looking across at the far side's stream, so that none goes by
-// close; 3 rolled, near the middle but turned a quarter radian aside, so that the core is off
-// centre and the picture leans; 4 a long lens, the emoji stacked one behind another, flattened;
-// 5 turned round, the emoji going away into the dark behind. Never straight along the tunnel (the
-// core dead centre reads flat), and never further off the middle than the emoji leave clear.
-// `roll` is the shot's dutch angle: the rolled place takes a third of it on top of its own roll
-// (the rest take all of it); a place chosen by hand (`locked`) has none, and its fourth is the
-// older, flatter pose with its harder roll (0.62, the yaw only 0.07).
+// The burst's four close-ups, each of another emoji (or, as badges, badge) the scene chooses at the
+// cut, each its own kind of close-up, by `shot.fill` 1 to 4 (the places 6 to 9). For each: the
+// camera's yaw (to the shot's side) and pitch; its share of the picture's height (held to 64 % of
+// its width where that is narrower, the fourth to 96 %, since the picture turns by the dutch angle
+// and the thing turns in its plane); its place in the picture (by height; x to the shot's side);
+// and how far its face is turned from the camera, to the same side. 1 face on, a little off the
+// middle, the core's light just behind it; 2 turned about 60 degrees, so that its cut edge and its
+// face both read; 3 from below, the camera looking up, so that it stands against the haze and the
+// lines; 4 the detail, the emoji filling the picture.
+const BURST_LOOK = array<vec4f, 4>(vec4f(0.14, -0.04, 0.40, 0.0), vec4f(0.22, 0.04, 0.50, 1.05), vec4f(0.10, 0.55, 0.42, 0.0), vec4f(0.06, 0.0, 0.90, 0.0));
+const BURST_AT = array<vec2f, 4>(vec2f(-0.05, 0.04), vec2f(0.07, 0.0), vec2f(0.0, 0.0), vec2f(0.0, 0.0));
+
+// A burst's close-up (`fill` 1 to 4): the thing it is of. Another picture each time (a thing in
+// sight of the tunnel's own that is not one of the burst's pictures yet; none, any picture that is
+// not: a name that is no slot's).
+fn choose_hero(fill: u32) {
+  let main = select(BADGE, EMOJI, params.content == 0u);
+  if (fill <= 1u) {
+    state.hero_used = array<f32, 4>(-1.0, -1.0, -1.0, -1.0);
+  }
+  let here = floor(state.s / SLOT_LEN);
+  let start = u32(30.0 * random(300u + 7u * shot.cuts + fill));
+  var found = false;
+  var id = vec2f(0.0);
+  for (var n = 0u; n < 60u && !found; n++) {
+    let slot = here + 5.0 + f32((start + n) % 30u);
+    let q = n % 3u;
+    if (kind_at(slot, q) == main) {
+      let c = vec2f(slot, f32(q) * 17.0);
+      let p = picture_of(c, main);
+      var fresh = true;
+      for (var k = 0u; k + 1u < fill; k++) {
+        fresh = fresh && state.hero_used[k] != p;
+      }
+      if (fresh) {
+        id = c;
+        found = true;
+      }
+    }
+  }
+  state.hero_slot = select(-1e9, id.x, found);
+  state.hero_q = select(0.0, id.y / 17.0, found);
+  if (!found) {
+    for (var m = 0u; m < 200u; m++) {
+      let c = vec2f(5000.0 + 37.0 * f32(m + 11u * shot.cuts), 0.0);
+      let p = picture_of(c, main);
+      var fresh = true;
+      for (var k = 0u; k + 1u < fill; k++) {
+        fresh = fresh && state.hero_used[k] != p;
+      }
+      id = c;
+      if (fresh) {
+        break;
+      }
+    }
+  }
+  state.hero_id = id;
+  state.hero_used[fill - 1u] = picture_of(id, main);
+  state.hero_push = 0.0;
+}
+
+// Six places to film from (and, after them, the burst's four, above), each mirrored by the side, in
+// the order of the shots in scene.toml: 0 down the middle, the core on a third, a little above; 1
+// lower, looking up, the emoji going by overhead; 2 off to one side, looking across at the far
+// side's stream, so that none goes by close; 3 rolled, near the middle but turned a quarter radian
+// aside, so that the core is off centre and the picture leans; 4 a long lens, the emoji stacked one
+// behind another, flattened; 5 turned round, the emoji going away into the dark behind. Never
+// straight along the tunnel (the core dead centre reads flat), and never further off the middle
+// than the emoji leave clear. `roll` is the shot's dutch angle: the rolled place takes a third of
+// it on top of its own roll (the rest take all of it); a place chosen by hand (`locked`) has none,
+// and its fourth is the older, flatter pose with its harder roll (0.62, the yaw only 0.07).
+// Places 6 to 9 are the burst's close-ups (the burst's `shot.fill` 1 to 4, in scene.toml's order):
+// the camera on the middle line, turned as the table says, with the whole dutch angle; what each
+// shows is the thing carried in front of it (see `BURST_LOOK` and `hero_position`).
 fn pose_of(view: u32, side: f32, roll: f32, locked: bool) -> Pose {
-  var turn = array<vec4f, 6>(
+  var turn = array<vec4f, 10>(
     vec4f(0.42, -0.14, 0.1, 1.0), vec4f(0.18, 0.3, -0.14, 1.0), vec4f(0.7, 0.1, 0.3, 1.0),
-    select(vec4f(0.25, 0.06, 0.55, 1.0), vec4f(0.07, 0.06, 0.62, 1.0), locked), vec4f(0.15, -0.08, 0.05, 1.7), vec4f(2.76, -0.06, 0.12, 1.0));
-  var at = array<vec2f, 6>(vec2f(0.0), vec2f(0.0, -0.6), vec2f(-0.7, -0.15), vec2f(0.0), vec2f(0.0, 0.35), vec2f(0.0, 0.2));
+    select(vec4f(0.25, 0.06, 0.55, 1.0), vec4f(0.07, 0.06, 0.62, 1.0), locked), vec4f(0.15, -0.08, 0.05, 1.7), vec4f(2.76, -0.06, 0.12, 1.0),
+    vec4f(BURST_LOOK[0].x, BURST_LOOK[0].y, 0.0, 1.0), vec4f(BURST_LOOK[1].x, BURST_LOOK[1].y, 0.0, 1.0),
+    vec4f(BURST_LOOK[2].x, BURST_LOOK[2].y, 0.0, 1.0), vec4f(BURST_LOOK[3].x, BURST_LOOK[3].y, 0.0, 1.0));
+  var at = array<vec2f, 10>(vec2f(0.0), vec2f(0.0, -0.6), vec2f(-0.7, -0.15), vec2f(0.0), vec2f(0.0, 0.35), vec2f(0.0, 0.2),
+    vec2f(0.0), vec2f(0.0), vec2f(0.0), vec2f(0.0));
   let q = turn[view];
   // The dutch angle rides in the unused z of `at`, so it glides with the rest of the pose.
   let tilt = select(roll, roll * 0.33, view == 3u);
@@ -391,6 +519,10 @@ fn update() {
     state.last_view = t;
     state.glide = 1.0;
     state.cuts = shot.cuts;
+    state.hero_on = select(0.0, 1.0, state.view > 5.5);
+    if (state.view > 5.5) {
+      choose_hero(u32(state.view) - 5u);
+    }
   }
   let bar_time = input.meter * 60.0 / input.tempo;
   var go = -1.0;
@@ -423,6 +555,13 @@ fn update() {
     state.view = go;
     state.last_view = t;
     state.glide = glide;
+    // A burst's close-up (the places 6 to 9) is of a thing chosen now, from the side the shot's
+    // seed gives; its cut is a hard one, so the camera is there at once (`shot.hard` above).
+    state.hero_on = select(0.0, 1.0, go > 5.5);
+    if (go > 5.5) {
+      state.side = select(-1.0, 1.0, shot.seed < 0.5);
+      choose_hero(u32(go) - 5u);
+    }
   }
 
   // Where it is, drifting a little round that, slowly: only a few degrees, over half a minute,
@@ -451,6 +590,21 @@ fn update() {
   for (var k = 0u; k < TILES; k++) {
     state.tile_n[k] = 0u;
   }
+  // In a burst's close-up the thing it is of goes in front of the camera, listed first so that no
+  // tile is too full for it; it is pushed in a few percent over a beat, by how much is heard.
+  if (state.hero_on > 0.5) {
+    let fill = u32(state.view) - 5u;
+    var looks = BURST_LOOK;
+    var looks_at = BURST_AT;
+    state.hero_turn = looks[fill - 1u].w * state.side;
+    state.hero_at = vec2f(looks_at[fill - 1u].x * state.side, looks_at[fill - 1u].y);
+    state.hero_share = min(looks[fill - 1u].z, select(0.64, 0.96, fill == 4u) * frame.aspect);
+    state.hero_push = min(state.hero_push + dt * input.audible / max(beat_len, 0.2), 1.0);
+    build(HERO, state.hero_id, select(BADGE, EMOJI, params.content == 0u), true);
+  } else {
+    hide(HERO);
+  }
+  project(HERO);
   let here = floor(state.s / SLOT_LEN);
   let away = acos(clamp(fwd.z, -1.0, 1.0));
   let base = here - 4.0 - floor(f32(SLOTS - 8u) * smoothstep(1.1, 2.04, away));

@@ -1,6 +1,7 @@
 // The tunnel as the camera sees it: the core's light far ahead and its rays, the speed lines
-// rushing past on the tunnel's unseen walls, violet haze; and in front of them, the things of this
-// pixel's tile, the nearest one met, the sparkles in front of it laid over.
+// rushing past on the tunnel's unseen walls, haze; and in front of them, the things of this
+// pixel's tile, the nearest one met, the sparkles in front of it laid over. Everything but the
+// emoji is then graded into the look the runtime has chosen (see `grade`).
 
 // The tunnel: the core's glow along +z, rays round it, the lines on three walls further and
 // further out, and the haze.
@@ -98,6 +99,53 @@ fn emoji_lod(z: f32, pixel: f32, size: f32) -> f32 {
   return log2(max(z * pixel / (2.0 * size) * 128.0, 1.0));
 }
 
+// ---- The grade ----
+//
+// The picture, but for the emoji, mapped by its lightness onto one colour, as Neon Street's and CRT
+// Wall's are (the picture's own light is kept: what glows still glows and the dark stays dark):
+//   - the grey look: greys with a faint tint of the theme colour, a little dimmer than the picture
+//     was;
+//   - the theme colour look: a ramp from a dark shade through the theme colour to near white
+//     (state.theme_ramp).
+// `state.colour` fades from one to the other. The emoji keep their own colours: their light is
+// carried apart and added after the grade.
+
+// A colour with the lightness l.
+fn at_lightness(c: vec3f, l: f32) -> vec3f {
+  return c / max(rv_luma(c), 1e-4) * l;
+}
+
+fn ramp(t: f32) -> vec3f {
+  let x = clamp(t, 0.0, 1.0) * 3.0;
+  let r = state.theme_ramp;
+  if (x < 1.0) {
+    return mix(r[0].rgb, r[1].rgb, x);
+  }
+  if (x < 2.0) {
+    return mix(r[1].rgb, r[2].rgb, x - 1.0);
+  }
+  return mix(r[2].rgb, r[3].rgb, x - 2.0);
+}
+
+// The lightness at which the theme colour's ramp is half way up.
+const TONE_KEY: f32 = 0.2;
+// How dark the grey look is against the picture, and how much of the theme colour tints its greys.
+const GREY_DIM: f32 = 0.85;
+const GREY_TINT: f32 = 0.07;
+
+fn grade(c: vec3f) -> vec3f {
+  let l = rv_luma(c);
+  var out = vec3f(0.0);
+  if (state.colour < 0.999) {
+    let tint = state.theme_ramp[2].rgb / max(rv_luma(state.theme_ramp[2].rgb), 1e-3);
+    out = at_lightness(mix(vec3f(1.0), tint, GREY_TINT), l * GREY_DIM) * (1.0 - state.colour);
+  }
+  if (state.colour > 0.001) {
+    out += at_lightness(ramp(l / (l + TONE_KEY)), l) * state.colour;
+  }
+  return out;
+}
+
 fn shade(px: Pixel) -> vec4f {
   let o = state.cam_pos;
   let d = normalize(state.cam_fwd * state.focal + state.cam_right * px.p.x + state.cam_up * px.p.y);
@@ -143,7 +191,9 @@ fn shade(px: Pixel) -> vec4f {
     }
   }
 
-  var col = bg;
+  // The picture in two parts: the emoji's own light (never graded) and all the rest (graded).
+  var rest = bg;
+  var emoji = vec3f(0.0);
   if (best.x < 1e8) {
     let i = who;
     let kind = floor(state.rx[i].w / 10.0);
@@ -151,18 +201,23 @@ fn shade(px: Pixel) -> vec4f {
     let pos = state.pos[i];
     let rel = o + d * best.x - pos.xyz;
     let q = vec3f(dot(rel, state.rx[i].xyz), dot(rel, state.ry[i].xyz), dot(rel, state.rz[i].xyz)) / pos.w;
-    var cover = 1.0;
-    if (kind == BADGE) {
-      c = shade_badge(i, d, best.x, best.yzw, q, pixel);
-    } else if (kind == EMOJI) {
-      let e = shade_emoji(i, d, best.yzw, q, emoji_lod(state.scr[i].w, pixel, pos.w));
-      c = e.rgb;
-      cover = e.a;
-    } else {
-      c = shade_flake(i, d, best.yzw);
-    }
     // Far off, they come out of the tunnel's light.
-    col = mix(bg, mix(c, bg, smoothstep(55.0, 95.0, best.x)), cover);
+    let far = smoothstep(55.0, 95.0, best.x);
+    if (kind == EMOJI) {
+      // The pixel is the backdrop, mixed with the emoji by how much of it the emoji covers and
+      // how near it is: the backdrop's part is graded, the emoji's is not.
+      let e = shade_emoji(i, d, best.yzw, q, emoji_lod(state.scr[i].w, pixel, pos.w));
+      let k = e.a * (1.0 - far);
+      emoji = e.rgb * k;
+      rest = bg * (1.0 - k);
+    } else {
+      if (kind == BADGE) {
+        c = shade_badge(i, d, best.x, best.yzw, q, pixel);
+      } else {
+        c = shade_flake(i, d, best.yzw);
+      }
+      rest = mix(c, bg, far);
+    }
   }
 
   // The sparkles in front of whatever was met.
@@ -173,9 +228,9 @@ fn shade(px: Pixel) -> vec4f {
       let sc = state.scr[i];
       let off = px.p - sc.xy;
       if (dot(off, off) < sc.z * sc.z) {
-        col += sparkle(i, px.p);
+        rest += sparkle(i, px.p);
       }
     }
   }
-  return vec4f(col, 1.0);
+  return vec4f(grade(rest) + emoji, 1.0);
 }
