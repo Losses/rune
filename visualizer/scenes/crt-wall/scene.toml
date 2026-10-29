@@ -29,11 +29,13 @@ name = "front"
 size = "wide"
 move = "cut"
 
-# From one side, looking along the wall.
+# From one side, looking along the wall. It may open a section too, so that not every section opens
+# straight on (the openers needed another view).
 [[shot]]
 name = "side"
 size = "medium"
 move = "cut"
+opens = true
 
 # There is no far view for now: it was too like the one straight on.
 
