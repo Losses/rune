@@ -56,6 +56,7 @@ class _VisualizerPresetNameState extends State<VisualizerPresetName> {
   @override
   Widget build(BuildContext context) {
     final label = widget.controller.label.value;
+    final isError = label?.isError == true;
     final theme = FluentTheme.of(context);
     final viewPadding = MediaQuery.viewPaddingOf(context);
     final r = Provider.of<ResponsiveProvider>(context);
@@ -78,10 +79,12 @@ class _VisualizerPresetNameState extends State<VisualizerPresetName> {
           duration: _fade,
           child: Text(
             label?.text ?? '',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            // A problem is shown whole: the tail says why (a scene's file and
+            // line, the graphics API a GPU was looked for in).
+            maxLines: isError ? null : 1,
+            overflow: isError ? null : TextOverflow.ellipsis,
             style: theme.typography.bodyStrong?.copyWith(
-              color: label?.isError == true ? Colors.red : null,
+              color: isError ? Colors.red : null,
               shadows: [
                 Shadow(
                   color: theme.brightness.isDark

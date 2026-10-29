@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -73,18 +75,25 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
     final targetContext = _contextAttachKey.currentContext;
 
     if (targetContext == null) return;
+    // The menu goes on the app's own navigator: the page's is under the
+    // playback controller and the navigation bar, which would cover it.
+    final navigator = Navigator.of(context, rootNavigator: true);
     final box = targetContext.findRenderObject() as RenderBox;
     final position = box.localToGlobal(
       localPosition,
-      ancestor: Navigator.of(context).context.findRenderObject(),
+      ancestor: navigator.context.findRenderObject(),
     );
+    // The flyout is outside the page, so it needs the page's theme (dark over
+    // a scene in light mode).
+    final theme = FluentTheme.of(context);
 
     final s = S.of(context);
     final provider = context.read<CoverWallDisplayProvider>();
     final showVisualizer = provider.showVisualizer;
     if (showVisualizer && _visualizer.hasPresets) {
-      await _visualizer.refreshPresets();
-      if (!mounted) return;
+      // The list is refreshed behind the menu: waiting for it here (up to a
+      // second) made every open of the menu late.
+      unawaited(_visualizer.refreshPresets());
     }
 
     MenuFlyoutItem displayItem(CoverWallDisplay display, String title) {
@@ -136,46 +145,50 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
 
     _contextController.showFlyout(
       position: position,
+      navigatorKey: navigator,
       builder: (_) {
-        return MenuFlyout(
-          items: [
-            displayItem(CoverWallDisplay.covers, s.coverWallDisplayCovers),
-            displayItem(
-              CoverWallDisplay.visualizer,
-              s.coverWallDisplayVisualizer,
-            ),
-            if (showVisualizer && _visualizer.hasPresets) ...[
-              const MenuFlyoutSeparator(),
-              MenuFlyoutItem(
-                leading: const Icon(Symbols.skip_previous),
-                text: Text(s.visualizerPrevious),
-                onPressed: _visualizer.previous,
+        return FluentTheme(
+          data: theme,
+          child: MenuFlyout(
+            items: [
+              displayItem(CoverWallDisplay.covers, s.coverWallDisplayCovers),
+              displayItem(
+                CoverWallDisplay.visualizer,
+                s.coverWallDisplayVisualizer,
               ),
-              MenuFlyoutItem(
-                leading: const Icon(Symbols.skip_next),
-                text: Text(s.visualizerNext),
-                onPressed: _visualizer.next,
-              ),
-              MenuFlyoutItem(
-                leading: const Icon(Symbols.shuffle),
-                text: Text(s.visualizerRandom),
-                onPressed: _visualizer.random,
-              ),
-              if (_visualizer.presets.isNotEmpty) presetMenu(),
-              const MenuFlyoutSeparator(),
-              MenuFlyoutItem(
-                leading: Icon(
-                  _visualizer.locked ? Symbols.lock_open : Symbols.lock,
+              if (showVisualizer && _visualizer.hasPresets) ...[
+                const MenuFlyoutSeparator(),
+                MenuFlyoutItem(
+                  leading: const Icon(Symbols.skip_previous),
+                  text: Text(s.visualizerPrevious),
+                  onPressed: _visualizer.previous,
                 ),
-                text: Text(
-                  _visualizer.locked
-                      ? s.visualizerUnlockPreset
-                      : s.visualizerLockPreset,
+                MenuFlyoutItem(
+                  leading: const Icon(Symbols.skip_next),
+                  text: Text(s.visualizerNext),
+                  onPressed: _visualizer.next,
                 ),
-                onPressed: _visualizer.toggleLock,
-              ),
+                MenuFlyoutItem(
+                  leading: const Icon(Symbols.shuffle),
+                  text: Text(s.visualizerRandom),
+                  onPressed: _visualizer.random,
+                ),
+                if (_visualizer.presets.isNotEmpty) presetMenu(),
+                const MenuFlyoutSeparator(),
+                MenuFlyoutItem(
+                  leading: Icon(
+                    _visualizer.locked ? Symbols.lock_open : Symbols.lock,
+                  ),
+                  text: Text(
+                    _visualizer.locked
+                        ? s.visualizerUnlockPreset
+                        : s.visualizerLockPreset,
+                  ),
+                  onPressed: _visualizer.toggleLock,
+                ),
+              ],
             ],
-          ],
+          ),
         );
       },
     );
@@ -191,6 +204,9 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
     final isMini = r.smallerOrEqualTo(DeviceType.car, false);
     final showVisualizer = context
         .select<CoverWallDisplayProvider, bool>((p) => p.showVisualizer);
+    // The visualizer draws its scene on black; until it does, the covers stay.
+    final visualizerDrawing = context
+        .select<CoverWallDisplayProvider, bool>((p) => p.presetsLoaded);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -223,12 +239,14 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
             Container(
               color: isDark ? Colors.black : theme.accentColor.lightest.lighten(0.2),
             ),
+            // The wall stays behind the visualizer until it draws, so one that
+            // cannot start (no GPU adapter) leaves the covers on screen
+            // instead of a black page.
+            if (!showVisualizer || !visualizerDrawing) coverArtWall,
             if (showVisualizer)
               Positioned.fill(
                 child: VisualizerSurface(controller: _visualizer),
-              )
-            else
-              coverArtWall,
+              ),
             Container(
               decoration: BoxDecoration(
                 gradient: RadialGradient(

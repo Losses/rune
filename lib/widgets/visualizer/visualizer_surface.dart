@@ -189,6 +189,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
 
       // The built-in scenes are always there.
       _controller.hasPresets = true;
+      // The context menu lists them: fetched now, so that it never waits.
+      unawaited(_controller.refreshPresets());
       setState(() => _renderedSize = size);
     } catch (e) {
       error$('Failed to start the visualizer: $e');
@@ -260,40 +262,42 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     final pixelRatio = MediaQuery.devicePixelRatioOf(context);
     _syncAccent(FluentTheme.of(context).accentColor);
 
-    return ColoredBox(
-      // Under the letterbox bars and before the first frame.
-      color: Colors.black,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final size = constraints.biggest;
-          if (size.width > 0 && size.height > 0) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              if (_renderedSize == null) {
-                _start(size, pixelRatio);
-              } else {
-                _scheduleResize(size, pixelRatio);
-              }
-            });
-          }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = constraints.biggest;
+        if (size.width > 0 && size.height > 0) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            if (_renderedSize == null) {
+              _start(size, pixelRatio);
+            } else {
+              _scheduleResize(size, pixelRatio);
+            }
+          });
+        }
 
-          return _buildTexture();
-        },
-      ),
+        return _buildTexture();
+      },
     );
   }
 
   /// Letterboxed: the texture keeps the aspect ratio of the size that was
   /// requested from Rust, so a window that changes shape never stretches it.
+  /// Nothing is painted until there is a texture, so the cover wall behind
+  /// shows while the visualizer starts, and stays if it cannot start at all.
   Widget _buildTexture() {
     final id = _textureId;
     final size = _renderedSize;
     if (id == null || size == null) return const SizedBox.expand();
 
-    return Center(
-      child: AspectRatio(
-        aspectRatio: size.$1 / size.$2,
-        child: Texture(textureId: id),
+    return ColoredBox(
+      // Under the letterbox bars.
+      color: Colors.black,
+      child: Center(
+        child: AspectRatio(
+          aspectRatio: size.$1 / size.$2,
+          child: Texture(textureId: id),
+        ),
       ),
     );
   }
