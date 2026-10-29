@@ -37,8 +37,8 @@ pub const BIND_LOOK: u32 = 18;
 pub const FRAME_SIZE: u64 = 64;
 /// `struct Post` is 64 bytes: eight f32, the tint (vec4f) at 32, contrast and saturation, padding.
 pub const POST_SIZE: u64 = 64;
-/// `struct Shot` is 32 bytes: eight words, see [`SHOT`].
-pub const SHOT_SIZE: u64 = 32;
+/// `struct Shot` is 48 bytes: nine words and three of padding, see [`SHOT`].
+pub const SHOT_SIZE: u64 = 48;
 /// `struct Look` is 16 bytes: four words, see [`LOOK`].
 pub const LOOK_SIZE: u64 = 16;
 
@@ -77,6 +77,14 @@ pub const SHOT: &str = "struct Shot {
   length: f32,
   // 0 normally; 1.. is the position in the burst of cuts before a section or a phrase ends.
   fill: u32,
+  // 1 when this shot was entered by a hard cut and the scene is to jump to it: a cut to a
+  // shot that cuts, any cut of a burst, and a strong cut (the cut a burst leads to, the
+  // start of a high section), even to a shot that glides. 0 when it is to glide to it. 1 for
+  // the scene's first shot.
+  hard: u32,
+  _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
 }
 ";
 
@@ -523,6 +531,29 @@ inputs = ["prev:trail"]
     }
 
     const STATE: &str = "struct State {\n  eye: vec3f,\n  kick: f32,\n  count: u32,\n}\n";
+
+    #[test]
+    fn struct_shot_is_as_many_words_as_the_state_writes() {
+        // Every field of `struct Shot` is a 4-byte word, and the director writes them all.
+        let words = SHOT.matches(": u32,").count() + SHOT.matches(": f32,").count();
+        assert_eq!(words as u64 * 4, SHOT_SIZE);
+        assert_eq!(
+            crate::scene::director::ShotState {
+                index: 0,
+                cuts: 0,
+                size: 0,
+                roll: 0.0,
+                seed: 0.0,
+                age: 0.0,
+                length: 0.0,
+                fill: 0,
+                hard: 0
+            }
+            .bytes()
+            .len() as u64,
+            SHOT_SIZE
+        );
+    }
 
     #[test]
     fn params_are_laid_out_as_wgsl_wants() {

@@ -48,9 +48,9 @@ pub struct CutInfo {
     pub cue: f32,
     /// 0 for a normal cut, else the position in a burst (1 to 4, see `ShotState::fill`).
     pub fill: u32,
-    /// The transition the moment of the cut dresses it with, if the cut is at a moment that
-    /// plays an effect and the scene lists one that suits it (see [`crate::moments`]); the cut a
-    /// burst leads to always has one.
+    /// The transition the moment of the cut dresses it with, if the cut is hard and at a moment
+    /// that plays an effect and the scene lists one that suits it (see [`crate::moments`]); the
+    /// cut a burst leads to always has one. A glide (`motion`) has none.
     pub dress: Option<crate::transition::Transition>,
     /// The cut lands on a strong transition of the scene's list (see `director::Cut::strong`).
     pub strong: bool,
@@ -2023,15 +2023,20 @@ impl Scene {
         queue.write_buffer(&self.look, 0, &look);
         // The lens effects hear where the music is in its phrase before a moment starts one.
         self.lens.listen(&music);
-        // A moment that plays an effect: a cut in it is dressed with a transition of the scene's
-        // list; with no cut, or none that suits, a lens effect plays over the picture.
+        // A moment that plays an effect: a hard cut in it is dressed with a transition of the
+        // scene's list; with no cut, a glide, or no transition that suits, a lens effect plays
+        // over the picture.
         if let Some(played) = self.moments.tick(&music, self.chances) {
             // What a lab forced on plays at every moment, on top of what the moment does.
             let forced = self.lens.start_forced(played);
-            let dress = self
-                .cut
-                .as_ref()
-                .and_then(|_| crate::moments::cut_dressing(&self.cut_transitions, played));
+            // A cut the scene glides to is not dressed: the moment plays a lens effect instead.
+            let dress = self.cut.as_ref().and_then(|cut| {
+                crate::moments::dressing_of_cut(
+                    &self.cut_transitions,
+                    played,
+                    cut.motion == ShotMove::Glide,
+                )
+            });
             match (&mut self.cut, dress) {
                 (Some(cut), Some(kind)) => cut.dress = Some(kind),
                 _ if forced => {}

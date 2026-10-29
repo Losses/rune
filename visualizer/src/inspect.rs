@@ -218,6 +218,8 @@ pub struct InspectDirector {
     pub cuts: u32,
     /// 0 normally, else the position in a burst of cuts.
     pub fill: u32,
+    /// Whether the shot was entered by a hard cut (the scene jumps) and not a glide.
+    pub hard: bool,
     /// The dutch angle in radians, signed.
     pub roll: f32,
     /// Seconds since the shot began, and its planned length (-1 when unknown).
@@ -547,6 +549,7 @@ impl InspectDirector {
             size: size_name(state.size).to_string(),
             cuts: state.cuts,
             fill: state.fill,
+            hard: state.hard == 1,
             roll: state.roll,
             age: state.age,
             length: state.length,

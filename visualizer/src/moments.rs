@@ -9,10 +9,12 @@
 //!   section, and which impact of it), not dice: the same song plays its effects the same way each
 //!   time. A medium moment does not play within [`GAP_BARS`] of the last effect.
 //! - **Which.** It depends on what happens then. A scene switch takes a transition of the scene
-//!   coming (see `switching`); a cut of the director is dressed with a transition of the scene's
-//!   list; with neither, a lens effect of the list plays over the picture. A strong moment takes a
-//!   strong effect if the scene lists one, a medium moment only a light one. Among those, the
-//!   section's label picks (the same kind of section, the same effect).
+//!   coming (see `switching`); a hard cut of the director is dressed with a transition of the
+//!   scene's list; with neither, a lens effect of the list plays over the picture. A cut to a
+//!   shot the scene glides to is not dressed: it plays as a moment with no cut does, and a strong
+//!   cut is never one of those, it is hard. A strong moment takes a strong effect if the scene
+//!   lists one, a medium moment only a light one. Among those, the section's label picks (the same
+//!   kind of section, the same effect).
 
 use std::sync::Arc;
 
@@ -195,6 +197,16 @@ pub fn cut_dressing(names: &[String], played: Played) -> Option<Transition> {
     pick_by_label(&options, played.label).and_then(Transition::from_name)
 }
 
+/// What a cut at a moment that plays gets: its dressing from the scene's list, or none for a cut
+/// the scene glides to (`glides`), which is not dressed and leaves the moment to a lens effect.
+pub fn dressing_of_cut(names: &[String], played: Played, glides: bool) -> Option<Transition> {
+    if glides {
+        None
+    } else {
+        cut_dressing(names, played)
+    }
+}
+
 /// A lens effect that may play.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lens {
@@ -221,6 +233,21 @@ pub fn lens_effect(names: &[String], played: Played) -> Option<Lens> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cut_the_scene_glides_to_is_not_dressed_and_a_hard_one_is() {
+        let list: Vec<String> = ["glitch", "fade"].map(String::from).to_vec();
+        let played = Played {
+            strength: Strength::Strong,
+            label: 1.0,
+        };
+        assert_eq!(dressing_of_cut(&list, played, true), None);
+        assert_eq!(
+            dressing_of_cut(&list, played, false),
+            cut_dressing(&list, played)
+        );
+        assert!(dressing_of_cut(&list, played, false).is_some());
+    }
 
     #[test]
     fn the_settings_are_the_users_numbers() {

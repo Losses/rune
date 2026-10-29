@@ -115,7 +115,10 @@ pub struct Cut {
     /// The `[[shot]]` it cut to.
     pub index: u32,
     pub size: ShotSize,
-    /// The shot's move, but always `Cut` inside a burst: a burst's cuts are hard.
+    /// The shot's move, but always `Cut` for a hard cut: inside a burst, and on a strong cut (the
+    /// cut a burst leads to, the start of a high section), whatever the shot's `move` says, so a
+    /// gliding scene jumps there. A `Glide` is a move the scene makes itself and the transition
+    /// layer does not dress.
     pub motion: ShotMove,
     /// 0 for a normal cut, else the position in a burst (1 to [`MAX_BURSTS`]).
     pub fill: u32,
@@ -145,11 +148,15 @@ pub struct ShotState {
     pub length: f32,
     /// 0 normally, else the position in a burst.
     pub fill: u32,
+    /// 1 when the shot was entered by a hard cut (a cut to a `move = "cut"` shot, any cut of a
+    /// burst, a strong cut) and the scene is to jump to it; 0 when it is to glide to it. The
+    /// scene's first shot is 1: there is nothing to glide from.
+    pub hard: u32,
 }
 
 impl ShotState {
-    /// The layout of `struct Shot`: eight words (32 bytes, a multiple of 16).
-    pub fn bytes(&self) -> [u8; 32] {
+    /// The layout of `struct Shot`: nine words and three of padding (48 bytes, a multiple of 16).
+    pub fn bytes(&self) -> [u8; 48] {
         let words = [
             self.index.to_le_bytes(),
             self.cuts.to_le_bytes(),
@@ -159,8 +166,9 @@ impl ShotState {
             self.age.to_le_bytes(),
             self.length.to_le_bytes(),
             self.fill.to_le_bytes(),
+            self.hard.to_le_bytes(),
         ];
-        let mut bytes = [0; 32];
+        let mut bytes = [0; 48];
         for (i, word) in words.iter().enumerate() {
             bytes[i * 4..i * 4 + 4].copy_from_slice(word);
         }
@@ -386,6 +394,7 @@ impl Director {
                 age: 0.0,
                 length: -1.0,
                 fill: 0,
+                hard: 1,
             },
             tilt_right: false,
             in_section: 0,
@@ -692,7 +701,9 @@ impl Director {
             let climax = tier == Tier::High;
             return (self.gap_is_open() || self.last_fill > 0 || climax).then(|| {
                 let mut cut = self.cut(Why::Opening, music, tier, 0);
-                cut.strong |= climax;
+                if climax {
+                    self.harden(&mut cut);
+                }
                 cut
             });
         }
@@ -1004,17 +1015,32 @@ impl Director {
                 self.shot_wait(index, tier).unwrap_or(-1.0)
             },
             fill,
+            hard: 0,
         };
         self.seconds_since_cut = 0.0;
         let strong = fill == 0 && self.last_fill > 0;
         self.last_fill = fill;
-        Cut {
+        let mut cut = Cut {
             strong,
             index: index as u32,
             size,
-            motion: if fill > 0 { ShotMove::Cut } else { motion },
+            motion,
             fill,
+        };
+        if fill > 0 || strong {
+            self.harden(&mut cut);
+        } else {
+            self.state.hard = u32::from(motion == ShotMove::Cut);
         }
+        cut
+    }
+
+    /// Make `cut` a strong, hard one: it lands on a strong transition and the scene jumps to the
+    /// shot, whatever the shot's `move` (a burst's cuts are hard too, see [`Self::enter`]).
+    fn harden(&mut self, cut: &mut Cut) {
+        cut.strong = cut.strong || cut.fill == 0;
+        cut.motion = ShotMove::Cut;
+        self.state.hard = 1;
     }
 
     /// The shot to cut to, among the `[[shot]]`s (the burst's are never among them), other than
@@ -1267,6 +1293,7 @@ mod tests {
             age: 1.5,
             length: -1.0,
             fill: 4,
+            hard: 1,
         };
         let bytes = state.bytes();
         assert_eq!(bytes.len() as u64, crate::scene::wgsl::SHOT_SIZE);
@@ -1275,6 +1302,102 @@ mod tests {
         assert_eq!(f32::from_le_bytes(word(3)), 0.5);
         assert_eq!(f32::from_le_bytes(word(6)), -1.0);
         assert_eq!(u32::from_le_bytes(word(7)), 4);
+        assert_eq!(u32::from_le_bytes(word(8)), 1);
+        assert!(bytes[36..].iter().all(|b| *b == 0));
+    }
+
+    fn glides() -> Vec<Shot> {
+        each_size()
+            .into_iter()
+            .map(|s| shot(s.size, ShotMove::Glide))
+            .collect()
+    }
+
+    #[test]
+    fn an_ordinary_cut_to_a_glide_shot_glides_and_a_cut_shot_jumps() {
+        let base = song(0.5);
+        let mut director = Director::new(camera(0.0), &glides());
+        assert_eq!(
+            director.state().hard,
+            1,
+            "the first shot has nothing to glide from"
+        );
+        let cuts = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        assert_eq!(cuts.len(), 1);
+        assert_eq!(
+            (cuts[0].1.motion, cuts[0].1.strong, director.state().hard),
+            (ShotMove::Glide, false, 0)
+        );
+        let mut director = Director::new(camera(0.0), &each_size());
+        let cuts = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        assert_eq!(
+            (cuts[0].1.motion, director.state().hard),
+            (ShotMove::Cut, 1)
+        );
+    }
+
+    #[test]
+    fn a_strong_cut_and_a_burst_are_hard_even_in_a_gliding_scene() {
+        let mut director = Director::new(camera(0.3), &glides()).with_bursts(&four());
+        with_chance(&mut director, Some(1.0));
+        let mut states = Vec::new();
+        let base = song(0.2);
+        let mut all = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
+        states.push(director.state().hard);
+        let coming = MusicValues {
+            next_energy: 0.9,
+            ..base
+        };
+        for beat in 1..24 {
+            let cuts = beats(&mut director, beat, 1, &coming, |b, m| MusicValues {
+                cue_in: (24 - b) as f32 * 0.5,
+                ..m
+            });
+            if !cuts.is_empty() {
+                states.push(director.state().hard);
+            }
+            all.extend(cuts);
+        }
+        let high = song(0.9);
+        let cuts = beats(&mut director, 24, 1, &high, |_, m| start(1.0, m));
+        states.push(director.state().hard);
+        all.extend(cuts);
+        // The opening glides; the four burst cuts and the cut they lead to jump.
+        assert_eq!(all.len(), 6, "{all:?}");
+        assert_eq!(all[0].1.motion, ShotMove::Glide);
+        assert!(all[1..].iter().all(|(_, c)| c.motion == ShotMove::Cut));
+        assert!(all.last().unwrap().1.strong);
+        assert_eq!(states, [0, 1, 1, 1, 1, 1]);
+    }
+
+    #[test]
+    fn the_start_of_a_high_section_is_a_hard_cut_to_a_glide_shot_without_a_burst() {
+        let base = song(0.9);
+        let mut director = Director::new(camera(0.0), &glides());
+        let cuts = beats(&mut director, 0, 1, &base, |_, m| start(1.0, m));
+        let (_, cut) = cuts[0];
+        assert_eq!((cut.motion, cut.strong, cut.fill), (ShotMove::Cut, true, 0));
+        assert_eq!(director.state().hard, 1);
+    }
+
+    #[test]
+    fn a_lab_burst_and_the_opening_after_it_are_hard_in_a_gliding_scene() {
+        let mut director = Director::new(camera(0.3), &glides()).with_bursts(&four());
+        director.start_burst();
+        let all = beats(&mut director, 0, 6, &song(0.2), plain);
+        assert!(all.len() >= 5, "{all:?}");
+        assert!(all[..5].iter().all(|(_, c)| c.motion == ShotMove::Cut));
+        assert!(all[4].1.strong);
+    }
+
+    #[test]
+    fn a_shot_held_by_hand_reports_how_it_was_entered() {
+        let mut director = Director::new(camera(0.0), &glides()).with_bursts(&four());
+        let music = song(0.5);
+        let cut = director.hold_shot(2, &music).unwrap();
+        assert_eq!((cut.motion, director.state().hard), (ShotMove::Glide, 0));
+        let cut = director.hold_shot(7, &music).unwrap();
+        assert_eq!((cut.motion, director.state().hard), (ShotMove::Cut, 1));
     }
 
     #[test]
@@ -1754,7 +1877,8 @@ mod tests {
         let base = song(0.9);
         let cuts = beats(&mut director, 0, 1, &base, |_, m| start(0.0, m));
         assert_eq!(cuts[0].1.index, 0);
-        assert_eq!(cuts[0].1.motion, ShotMove::Glide);
+        // The start of a high section is a hard cut, even to a glide shot.
+        assert_eq!(cuts[0].1.motion, ShotMove::Cut);
         let mut seeds = vec![director.state().seed];
         for beat in 1..130u32 {
             let frame = MusicValues {
@@ -2236,15 +2360,11 @@ mod tests {
 
     #[test]
     fn a_burst_cuts_hard_to_a_glide_shot() {
-        let shots: Vec<Shot> = each_size()
-            .into_iter()
-            .map(|s| shot(s.size, ShotMove::Glide))
-            .collect();
-        let mut director = Director::new(camera(0.3), &shots).with_bursts(&four());
+        let mut director = Director::new(camera(0.3), &glides()).with_bursts(&four());
         let all = lift_run(&mut director);
         assert!(all.iter().any(|(_, c)| c.fill > 0));
         for (_, cut) in &all {
-            let want = if cut.fill > 0 {
+            let want = if cut.fill > 0 || cut.strong {
                 ShotMove::Cut
             } else {
                 ShotMove::Glide
