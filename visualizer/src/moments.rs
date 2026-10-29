@@ -207,6 +207,19 @@ pub fn dressing_of_cut(names: &[String], played: Played, glides: bool) -> Option
     }
 }
 
+/// The lens effect that plays at a moment over a cut the scene glides to: a light one of the list
+/// only (a flare, a leak), never a glitch or a mosaic over a smooth move, which the scene's list
+/// keeps for its hard cuts. The section's label picks among them as at any moment.
+pub fn lens_over_glide(names: &[String], played: Played) -> Option<Lens> {
+    lens_effect(
+        names,
+        Played {
+            strength: Strength::Medium,
+            ..played
+        },
+    )
+}
+
 /// A lens effect that may play.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lens {
@@ -247,6 +260,31 @@ mod tests {
             cut_dressing(&list, played)
         );
         assert!(dressing_of_cut(&list, played, false).is_some());
+    }
+
+    /// Over a glide a strong moment plays only a light lens effect of the list, never the glitch
+    /// or the mosaic it would play with no cut, and nothing if the list has no light one.
+    #[test]
+    fn a_glide_gets_only_a_light_lens_effect() {
+        let names = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let list = names(&["glitch", "mosaic", "flare"]);
+        for label in 0..8 {
+            let played = Played {
+                strength: Strength::Strong,
+                label: label as f32,
+            };
+            assert!(matches!(
+                lens_effect(&list, played),
+                Some(Lens::Glitch | Lens::Mosaic)
+            ));
+            assert_eq!(lens_over_glide(&list, played), Some(Lens::Flare));
+        }
+        let strong_only = names(&["glitch"]);
+        let played = Played {
+            strength: Strength::Strong,
+            label: 0.0,
+        };
+        assert_eq!(lens_over_glide(&strong_only, played), None);
     }
 
     #[test]

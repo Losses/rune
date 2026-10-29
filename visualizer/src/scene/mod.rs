@@ -2029,17 +2029,19 @@ impl Scene {
         if let Some(played) = self.moments.tick(&music, self.chances) {
             // What a lab forced on plays at every moment, on top of what the moment does.
             let forced = self.lens.start_forced(played);
-            // A cut the scene glides to is not dressed: the moment plays a lens effect instead.
-            let dress = self.cut.as_ref().and_then(|cut| {
-                crate::moments::dressing_of_cut(
-                    &self.cut_transitions,
-                    played,
-                    cut.motion == ShotMove::Glide,
-                )
+            // A cut the scene glides to is not dressed: the moment plays a light lens effect
+            // instead (no glitch or mosaic over a smooth move).
+            let glides = self
+                .cut
+                .as_ref()
+                .is_some_and(|cut| cut.motion == ShotMove::Glide);
+            let dress = self.cut.as_ref().and_then(|_| {
+                crate::moments::dressing_of_cut(&self.cut_transitions, played, glides)
             });
             match (&mut self.cut, dress) {
                 (Some(cut), Some(kind)) => cut.dress = Some(kind),
                 _ if forced => {}
+                _ if glides => self.lens.start_over_glide(played),
                 _ => self.lens.start_at(played),
             }
         }
