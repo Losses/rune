@@ -144,14 +144,29 @@ impl SceneBuild {
     }
 
     fn run_bare(self) -> Result<Scene> {
-        Scene::load_from(
-            &self.device,
-            &self.queue,
-            self.source,
-            self.format,
-            self.size,
-            self.sample_rate,
-        )
+        // wgpu's Vulkan backend compiles shaders with naga, which panics on the odd one (a struct
+        // field's address as a call argument, for one). That happens on this thread; without the
+        // guard the scene would never come in and the status would say nothing.
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Scene::load_from(
+                &self.device,
+                &self.queue,
+                self.source,
+                self.format,
+                self.size,
+                self.sample_rate,
+            )
+        }))
+        .unwrap_or_else(|payload| {
+            let said = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned());
+            Err(anyhow!(
+                "The graphics driver panicked while building the scene{}",
+                said.map(|s| format!(": {s}")).unwrap_or_default()
+            ))
+        })
     }
 }
 
