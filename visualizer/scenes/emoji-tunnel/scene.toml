@@ -48,14 +48,15 @@ scale = 0.75
 [[asset]]
 id = "emoji"
 file = "assets/emoji.png"
-source = "Twemoji 17.0.3 (the jdecked fork), graphics by Twitter, Inc and other contributors, CC-BY 4.0: https://github.com/jdecked/twemoji, https://creativecommons.org/licenses/by/4.0/. Packed by tools/make_emoji.py"
+source = "Twemoji 17.0.3 (the jdecked fork), graphics by Twitter, Inc and other contributors, licensed under CC-BY 4.0: https://creativecommons.org/licenses/by/4.0/ (source: https://github.com/jdecked/twemoji). Changed: resized and packed into an atlas."
 
 [[asset]]
 id = "crests"
 file = "assets/crests.png"
 # Data, not colour: each crest's signed distance field.
 linear = true
-source = "Drawn by tools/make_crests.py"
+# Drawn for the scene by tools/make_crests.py (no source to credit: the About page lists only
+# the assets that say where they come from).
 
 # The camera glides between six places to film from, in the order update.wgsl takes them; the burst
 # below adds four more. Which the director picks for a section follows its energy (`tiers`): the

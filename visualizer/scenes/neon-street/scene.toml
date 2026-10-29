@@ -93,7 +93,7 @@ update = "update.wgsl"
 id = "glyphs"
 file = "assets/glyphs.png"
 linear = true
-source = "Rendered by tools/make_glyphs.py from Noto Sans JP, Dela Gothic One, Reggae One, Rampart One, RocknRoll One, Zen Antique, Yusei Magic and DotGothic16 (all SIL Open Font License 1.1: assets/OFL.txt and assets/OFL-*.txt)"
+source = "Glyphs rendered from Noto Sans JP, Dela Gothic One, Reggae One, Rampart One, RocknRoll One, Zen Antique, Yusei Magic and DotGothic16, each under the SIL Open Font License 1.1: https://openfontlicense.org/. The licence texts ship with the scene (assets/OFL.txt and assets/OFL-*.txt). Changed: rendered into a glyph atlas."
 
 # The street is drawn at 0.75 of the screen's size and scaled up: about 1.75 times as fast.
 [render]
