@@ -1,6 +1,6 @@
 # Visualizer scenes
 
-The visualizer draws scenes in Rune's own format and nothing else. Rune ships seven (Armillary, Badge Tunnel, CRT Wall, Growth, Neon Street, Paperclip, Torii Sea), compiled into the binary on every platform. More come from folders the user picks.
+The visualizer draws scenes in Rune's own format and nothing else. Rune ships seven (Armillary, CRT Wall, Emoji Tunnel, Growth, Neon Street, Paperclip, Torii Sea), compiled into the binary on every platform. More come from folders the user picks.
 
 ## Where scenes come from
 
