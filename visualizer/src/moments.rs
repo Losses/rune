@@ -31,8 +31,8 @@ pub const GAP_BARS: f32 = 8.0;
 pub const STRONG: &[&str] = &["flash", "glitch", "mosaic", "cutin"];
 /// The transitions that may dress a cut, strong first, then light.
 const CUT_DRESSINGS: &[&str] = &["flash", "glitch", "mosaic", "dissolve", "fade"];
-/// The lens effects, strong first, then light. A glitch and a mosaic that the scene lists also
-/// play over the picture at a strong moment with no cut, as a lens effect.
+/// The lens effects, strong first, then light. A glitch and a mosaic that the scene lists in its
+/// `lens` play over the picture at a strong moment with no cut.
 const LENS: &[&str] = &["glitch", "mosaic", "flare", "leak"];
 
 /// How often effects play, the user's setting.
@@ -174,7 +174,7 @@ impl Scheduler {
     }
 }
 
-/// Of `names` (a list kept apart by kind, see `scene::manifest::Effects`), the ones in `order` that
+/// Of `names` (one of the lists of `scene::manifest::Effects`), the ones in `order` that
 /// a moment of `strength` may play: strong and light ones at a strong moment (the strong ones if
 /// there are any), light ones only at a medium one.
 fn eligible<'a>(names: &[String], order: &[&'a str], strength: Strength) -> Vec<&'a str> {
@@ -232,7 +232,7 @@ pub enum Lens {
 }
 
 /// The lens effect that plays at a moment with no cut, from the scene's lens list (its
-/// `effects.lens`, with the glitch and the mosaic of its list).
+/// `[effects] lens`).
 pub fn lens_effect(names: &[String], played: Played) -> Option<Lens> {
     let options = eligible(names, LENS, played.strength);
     pick_by_label(&options, played.label).map(|name| match name {

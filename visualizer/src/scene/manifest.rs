@@ -159,53 +159,87 @@ pub const TRANSITIONS: &[&str] = &[
     "cut", "fade", "dissolve", "cutin", "flash", "glitch", "mosaic",
 ];
 /// The lens effects that are known by name: those the runtime draws (see `scene::lens`), and
-/// `blur`, still to come. (`blocks`, a colour-block frame, is now the start of a `flash`.)
-pub const LENS_EFFECTS: &[&str] = &["flare", "leak", "blur"];
-/// The transitions that also play as a lens effect over the picture, at a strong moment with no
-/// cut, when the scene lists them (see `crate::moments::lens_effect`).
-pub const LENS_TRANSITIONS: &[&str] = &["glitch", "mosaic"];
+/// `blur`, still to come. (`blocks`, a colour-block frame, is now the start of a `flash`.) The
+/// `glitch` and the `mosaic` exist as both a transition and a lens effect.
+pub const LENS_EFFECTS: &[&str] = &["flare", "leak", "blur", "glitch", "mosaic"];
 
-/// The `effects` list: the transitions and lens effects that suit the scene, one list for a switch
-/// to the scene and for the director's cuts within it. The scene says what may be used; the runtime
-/// chooses when, from the music's moments (see `crate::moments`). Kept apart by kind here, for the
-/// parts of the runtime that use them. A scene without the list gets the plain ones.
+/// The `[effects]` table: the transitions and the lens effects that suit the scene, declared apart.
+/// A transition happens at a change of picture: switching into the scene, and a hard cut of the
+/// director's camera in it (one list for both). A lens effect lies over a picture that goes on. The
+/// glitch and the mosaic are both, so a scene says for which. The scene says what may be used; the
+/// runtime chooses when, from the music's moments (see `crate::moments`). A scene without the table
+/// gets the plain transitions and no lens effect.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(from = "Vec<String>")]
+#[serde(try_from = "RawEffects")]
 pub struct Effects {
-    /// The names as the scene lists them.
-    pub names: Vec<String>,
     /// The transitions a switch to this scene may take (the scene coming decides, not the one
-    /// going). A fade or a dissolve too, unless the list names a plain transition itself.
+    /// going). A fade or a dissolve too, unless `transitions` names a plain one itself.
     pub switch: Vec<String>,
-    /// The transitions that may dress a cut of the director within the scene: those of the list
-    /// that play over a cut (not `cut` itself, and not `cutin`, which needs a new scene).
+    /// The transitions that may dress a cut of the director within the scene: those of
+    /// `transitions` that play over a cut (not `cut` itself, and not `cutin`, which needs a new
+    /// scene).
     pub cut: Vec<String>,
-    /// The lens effects the scene takes: those of the list, and its glitch and mosaic, which also
-    /// play over the picture.
+    /// The lens effects the scene takes: exactly those of `lens`.
     pub lens: Vec<String>,
+    /// The names of either list the runtime does not know, as `transitions = "x"`.
+    unknown: Vec<String>,
+}
+
+/// `[effects]` as the file writes it. Any other key is refused: a top-level key written after the
+/// table would otherwise land in it unnoticed.
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct RawEffects {
+    #[serde(default)]
+    transitions: Vec<String>,
+    #[serde(default)]
+    lens: Vec<String>,
 }
 
 impl Default for Effects {
     fn default() -> Self {
         Self {
-            names: Vec::new(),
             switch: vec!["fade".into(), "dissolve".into()],
             cut: Vec::new(),
             lens: Vec::new(),
+            unknown: Vec::new(),
         }
     }
 }
 
-impl From<Vec<String>> for Effects {
-    fn from(names: Vec<String>) -> Self {
+impl TryFrom<RawEffects> for Effects {
+    type Error = String;
+
+    fn try_from(raw: RawEffects) -> Result<Self, String> {
+        let mut unknown = Vec::new();
+        for name in &raw.transitions {
+            if TRANSITIONS.contains(&name.as_str()) {
+            } else if LENS_EFFECTS.contains(&name.as_str()) {
+                return Err(format!(
+                    "[effects] transitions: {name:?} is a lens effect, which lies over the picture: put it in lens = [...]"
+                ));
+            } else {
+                unknown.push(format!("[effects] transitions = {name:?}"));
+            }
+        }
+        for name in &raw.lens {
+            if LENS_EFFECTS.contains(&name.as_str()) {
+            } else if TRANSITIONS.contains(&name.as_str()) {
+                return Err(format!(
+                    "[effects] lens: {name:?} is a transition, which happens at a change of picture: put it in transitions = [...]"
+                ));
+            } else {
+                unknown.push(format!("[effects] lens = {name:?}"));
+            }
+        }
         let of = |known: &[&str]| -> Vec<String> {
-            names
+            raw.transitions
                 .iter()
                 .filter(|name| known.contains(&name.as_str()))
                 .cloned()
                 .collect()
         };
-        // A list that names none of the plain transitions keeps them for the plain switches.
+        // Transitions that name none of the plain ones keep them for the plain switches.
         let mut switch = of(TRANSITIONS);
         if !switch
             .iter()
@@ -213,18 +247,17 @@ impl From<Vec<String>> for Effects {
         {
             switch.splice(0..0, ["fade".to_string(), "dissolve".to_string()]);
         }
-        Self {
+        Ok(Self {
             switch,
             cut: of(&["fade", "dissolve", "flash", "glitch", "mosaic"]),
-            lens: names
+            lens: raw
+                .lens
                 .iter()
-                .filter(|n| {
-                    LENS_EFFECTS.contains(&n.as_str()) || LENS_TRANSITIONS.contains(&n.as_str())
-                })
+                .filter(|name| LENS_EFFECTS.contains(&name.as_str()))
                 .cloned()
                 .collect(),
-            names,
-        }
+            unknown,
+        })
     }
 }
 
@@ -232,12 +265,7 @@ impl Effects {
     /// The names the runtime does not know (an older runtime than the scene's author used, or a
     /// typo): they are left out with a warning, not refused.
     pub fn unknown(&self) -> Vec<String> {
-        self.names
-            .iter()
-            .filter(|name| !TRANSITIONS.contains(&name.as_str()))
-            .filter(|name| !LENS_EFFECTS.contains(&name.as_str()))
-            .map(|name| format!("effects = {name:?}"))
-            .collect()
+        self.unknown.clone()
     }
 }
 
@@ -737,11 +765,17 @@ impl Manifest {
     }
 
     pub fn parse(text: &str) -> Result<Self> {
+        // The keys were removed, and a table without them would read the file the same way (or fail
+        // with a word about types), so they are looked for by name.
+        let table = text.parse::<toml::Table>()?;
+        ensure!(
+            !table.get("effects").is_some_and(toml::Value::is_array),
+            "the top-level effects = [...] list was removed: declare an [effects] table instead, \
+             transitions = [...] for the switch into the scene and the cuts of its camera, \
+             lens = [...] for the effects over the picture"
+        );
         let manifest: Self = toml::from_str(text)?;
-        // The key was removed, and a table without it would read the file the same way, so it is
-        // looked for by name.
-        let removed = text
-            .parse::<toml::Table>()?
+        let removed = table
             .get("camera")
             .and_then(|camera| camera.get("fill"))
             .is_some();
@@ -1589,22 +1623,85 @@ fallback = { value = 0.25 }
         assert!(plain.effects.cut.is_empty() && plain.effects.lens.is_empty());
         assert!(plain.effects.unknown().is_empty());
 
-        // One list, kept apart by kind. It is a top-level key, so it goes before the tables.
-        let listed = SMALL.replacen(
-            "format = 1\n",
-            "format = 1\neffects = [\"fade\", \"flash\", \"cutin\", \"flare\", \"sparkle\"]\n",
-            1,
-        );
-        let m = Manifest::parse(&listed).unwrap();
+        // Two lists, one per kind. Tables go after the top-level keys.
+        let with = |table: &str| format!("{SMALL}\n[effects]\n{table}");
+        let m = Manifest::parse(&with(
+            "transitions = [\"fade\", \"flash\", \"cutin\", \"sparkle\"]\nlens = [\"flare\", \"swirl\"]\n",
+        ))
+        .unwrap();
         assert_eq!(m.effects.switch, ["fade", "flash", "cutin"]);
         assert_eq!(m.effects.cut, ["fade", "flash"]);
         assert_eq!(m.effects.lens, ["flare"]);
-        assert_eq!(m.effects.unknown(), ["effects = \"sparkle\""]);
-        // A list without a plain transition keeps the fade and the dissolve for plain switches.
-        let strong = SMALL.replacen("format = 1\n", "format = 1\neffects = [\"glitch\"]\n", 1);
-        let strong = Manifest::parse(&strong).unwrap().effects;
-        assert_eq!(strong.switch, ["fade", "dissolve", "glitch"]);
-        // A glitch or a mosaic is a lens effect too.
-        assert_eq!(strong.lens, ["glitch"]);
+        assert_eq!(
+            m.effects.unknown(),
+            [
+                "[effects] transitions = \"sparkle\"",
+                "[effects] lens = \"swirl\""
+            ]
+        );
+        // Either key alone.
+        let only_lens = Manifest::parse(&with("lens = [\"leak\"]\n"))
+            .unwrap()
+            .effects;
+        assert_eq!(only_lens.switch, ["fade", "dissolve"]);
+        assert!(only_lens.cut.is_empty());
+        assert_eq!(only_lens.lens, ["leak"]);
+        let only_transitions = Manifest::parse(&with("transitions = [\"flash\"]\n"))
+            .unwrap()
+            .effects;
+        assert_eq!(only_transitions.switch, ["fade", "dissolve", "flash"]);
+        assert_eq!(only_transitions.cut, ["flash"]);
+        assert!(only_transitions.lens.is_empty());
+        // An empty table is the default.
+        assert_eq!(
+            Manifest::parse(&with("")).unwrap().effects,
+            Effects::default()
+        );
+    }
+
+    #[test]
+    fn a_glitch_or_mosaic_is_a_transition_and_a_lens_effect_only_where_declared() {
+        let with = |table: &str| format!("{SMALL}\n[effects]\n{table}");
+        let lens_only = Manifest::parse(&with("lens = [\"glitch\", \"mosaic\"]\n"))
+            .unwrap()
+            .effects;
+        assert!(lens_only.cut.is_empty() && !lens_only.switch.contains(&"glitch".to_string()));
+        assert_eq!(lens_only.lens, ["glitch", "mosaic"]);
+        let transitions_only = Manifest::parse(&with("transitions = [\"glitch\", \"mosaic\"]\n"))
+            .unwrap()
+            .effects;
+        assert_eq!(transitions_only.cut, ["glitch", "mosaic"]);
+        assert!(transitions_only.lens.is_empty());
+    }
+
+    #[test]
+    fn a_name_of_the_other_kind_and_the_old_list_are_refused() {
+        let with = |table: &str| format!("{SMALL}\n[effects]\n{table}");
+        let message = Manifest::parse(&with("transitions = [\"flare\"]\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            message.contains("flare") && message.contains("lens = ["),
+            "{message}"
+        );
+        let message = Manifest::parse(&with("lens = [\"flash\"]\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            message.contains("flash") && message.contains("transitions = ["),
+            "{message}"
+        );
+        let old = SMALL.replacen(
+            "format = 1\n",
+            "format = 1\neffects = [\"fade\", \"flare\"]\n",
+            1,
+        );
+        let message = Manifest::parse(&old).unwrap_err().to_string();
+        assert!(
+            message.contains("[effects]")
+                && message.contains("transitions")
+                && message.contains("lens"),
+            "{message}"
+        );
     }
 }

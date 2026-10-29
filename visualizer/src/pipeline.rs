@@ -2579,9 +2579,8 @@ mod tests {
     fn dressed_scene(name: &str, value: f32, cut: &str) -> std::path::PathBuf {
         let dir = plain_scene(name, value);
         let manifest = std::fs::read_to_string(dir.join("scene.toml")).unwrap();
-        // The list is a top-level key, so it goes before the tables.
         let manifest = format!(
-            "effects = [\"{cut}\"]\n{manifest}[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\n"
+            "{manifest}[effects]\ntransitions = [\"{cut}\"]\n[[shot]]\nsize = \"wide\"\n[[shot]]\nsize = \"close\"\n"
         );
         std::fs::write(dir.join("scene.toml"), manifest).unwrap();
         dir
