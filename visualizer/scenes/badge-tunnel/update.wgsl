@@ -137,7 +137,13 @@ fn slot_cell(n: f32) -> u32 {
 fn kind_at(slot: f32, q: u32) -> f32 {
   let id = vec2f(slot, f32(q) * 17.0);
   let h = hash(id + 0.7);
-  let given = state.slot_set[slot_cell(slot)];
+  var given = state.slot_set[slot_cell(slot)];
+  // In a burst's close-ups the tunnel is at its fullest, emoji and lights: looking across or up it
+  // sees only a slice of the tunnel, which the section's share left bare. Its cuts are hard ones,
+  // in and out, so nothing is seen to come or go.
+  if (state.hero_on > 0.5) {
+    given = vec4f(max(given.x, 1.25), given.y, max(given.z, 1.0), given.w);
+  }
   let badges = params.badges * given.x;
   var kind = -1.0;
   if (q == 0u) {
@@ -374,12 +380,15 @@ fn project(i: u32) {
 // camera's yaw (to the shot's side) and pitch; its share of the picture's height (held to 64 % of
 // its width where that is narrower, the fourth to 96 %, since the picture turns by the dutch angle
 // and the thing turns in its plane); its place in the picture (by height; x to the shot's side);
-// and how far its face is turned from the camera, to the same side. 1 face on, a little off the
-// middle, the core's light just behind it; 2 turned about 60 degrees, so that its cut edge and its
-// face both read; 3 from below, the camera looking up, so that it stands against the haze and the
-// lines; 4 the detail, the emoji filling the picture.
-const BURST_LOOK = array<vec4f, 4>(vec4f(0.14, -0.04, 0.40, 0.0), vec4f(0.22, 0.04, 0.50, 1.05), vec4f(0.10, 0.55, 0.42, 0.0), vec4f(0.06, 0.0, 0.90, 0.0));
-const BURST_AT = array<vec2f, 4>(vec2f(-0.05, 0.04), vec2f(0.07, 0.0), vec2f(0.0, 0.0), vec2f(0.0, 0.0));
+// and how far its face is turned from the camera, to the same side. Each looks another way (a
+// burst should not always face the tunnel): 1 face on, the camera turned 35 degrees off the axis,
+// so that the core sits well to one side; 2 across the tunnel (yaw 86 degrees), the lines, the
+// flakes and the other emoji sweeping sideways past the emoji, which is turned about 60 degrees, so
+// that its cut edge and its face both read; 3 from below, steeply up (63 degrees) towards the
+// tunnel's ceiling, things streaming down past the emoji; 4 the detail, the emoji filling the
+// picture, the camera turned round (160 degrees), the tunnel going away into the dark behind it.
+const BURST_LOOK = array<vec4f, 4>(vec4f(0.60, -0.04, 0.40, 0.0), vec4f(1.50, 0.04, 0.50, 1.05), vec4f(0.10, 1.10, 0.42, 0.0), vec4f(2.80, 0.0, 0.90, 0.0));
+const BURST_AT = array<vec2f, 4>(vec2f(0.05, 0.03), vec2f(0.07, 0.0), vec2f(0.0, 0.0), vec2f(0.0, 0.0));
 
 // A burst's close-up (`fill` 1 to 4): the thing it is of. Another picture each time (a thing in
 // sight of the tunnel's own that is not one of the burst's pictures yet; none, any picture that is

@@ -105,25 +105,26 @@ opens = false
 
 # The burst before a section that lifts: a cut on each of the last four beats, each a close-up of
 # another emoji (a badge, where the content is badges) that the scene chooses from the tunnel's own
-# at the cut and carries in front of the camera, so that the tunnel rushes past it. update.wgsl's
-# `choose_hero` and `BURST_LOOK` make them (shot.index 6 to 9, `shot.fill` 1 to 4). Each cut is a
-# hard one (`shot.hard`), as is the cut after the burst.
-# Face on, a little off the middle, the core's light behind it.
+# at the cut and carries in front of the camera, so that the tunnel rushes past it (a few close-ups
+# of emoji of all kinds). update.wgsl's `choose_hero` and `BURST_LOOK` make them (shot.index 6 to 9,
+# `shot.fill` 1 to 4). Each cut is a hard one (`shot.hard`), as is the cut after the burst. Face on,
+# the camera turned 35 degrees off the tunnel's way, the core well to one side.
 [[burst]]
 name = "face on"
 size = "close"
 
-# Turned about 60 degrees: its cut edge and its face both show.
+# Across the tunnel, the things sweeping sideways past it; the emoji turned about 60 degrees, so
+# that its cut edge and its face both show.
 [[burst]]
 name = "from the side"
 size = "close"
 
-# From below, looking up, against the haze and the lines.
+# From below, steeply up towards the ceiling, things streaming down past it.
 [[burst]]
 name = "from below"
 size = "close"
 
-# The emoji filling the picture.
+# The emoji filling the picture, the camera turned round, the tunnel going away behind it.
 [[burst]]
 name = "filling the picture"
 size = "detail"
