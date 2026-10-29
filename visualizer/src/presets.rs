@@ -156,9 +156,9 @@ impl PresetList {
 
     /// Scan every folder of `dirs` and its subfolders and replace the list with the scenes of
     /// all of them, once per folder, next to the built-in scenes; a scene folder with the name of a
-    /// built-in scene replaces it. Hidden folders and symlinked folders (possible cycles) are
-    /// skipped. A folder that cannot be read is skipped; its error is in the
-    /// second part of the result. Returns the number of scenes in the list.
+    /// built-in scene is a scene of its own and does not replace it. Hidden folders and symlinked
+    /// folders (possible cycles) are skipped. A folder that cannot be read is skipped; its error is
+    /// in the second part of the result. Returns the number of scenes in the list.
     pub fn scan_all(&mut self, dirs: &[PathBuf]) -> (usize, Vec<anyhow::Error>) {
         let mut entries = Vec::new();
         let mut errors = Vec::new();
@@ -172,12 +172,10 @@ impl PresetList {
 
     fn replace(&mut self, mut entries: Vec<Entry>) -> usize {
         for name in &self.builtins {
-            if !entries.iter().any(|e| e.preset.name == *name) {
-                entries.push(Entry {
-                    preset: Preset::builtin(name),
-                    group: String::new(),
-                });
-            }
+            entries.push(Entry {
+                preset: Preset::builtin(name),
+                group: String::new(),
+            });
         }
         entries.sort_by(|a, b| a.preset.cmp(&b.preset));
         entries.dedup_by(|a, b| a.preset == b.preset);
@@ -379,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn builtins_are_listed_and_a_folder_scene_of_the_same_name_replaces_one() {
+    fn builtins_are_listed_and_a_folder_scene_of_the_same_name_is_listed_beside_one() {
         let names = ["Alpha", "Beta"].map(String::from).to_vec();
         let mut list = PresetList::with_builtins(names);
         // Before any scan the built-in scenes are there.
@@ -388,35 +386,41 @@ mod tests {
         for name in ["Beta", "Gamma"] {
             scene(&dir, name);
         }
-        assert_eq!(list.scan_all(std::slice::from_ref(&dir)).0, 3);
+        assert_eq!(list.scan_all(std::slice::from_ref(&dir)).0, 4);
         assert_eq!(list.folder_len(), 2);
         let infos = list.infos();
+        // The folder's Beta does not replace the built-in one: both are listed.
         let beta: Vec<_> = infos.iter().filter(|i| i.name == "Beta").collect();
-        assert_eq!(beta.len(), 1);
-        assert_eq!(beta[0].location, Location::Folder(dir.join("Beta")));
+        assert_eq!(beta.len(), 2);
+        assert!(
+            beta.iter()
+                .any(|i| i.location == Location::Folder(dir.join("Beta")))
+        );
+        assert!(
+            beta.iter()
+                .any(|i| i.location == Location::Builtin("Beta".into()) && i.group.is_empty())
+        );
         assert!(infos.contains(&PresetInfo {
             name: "Alpha".into(),
             location: Location::Builtin("Alpha".into()),
             group: String::new(),
         }));
-        // Built-in scenes take part in random picks and the history.
+        // Every scene takes part in random picks and the history.
         let mut rng = rng();
         let mut seen = Vec::new();
-        for _ in 0..60 {
+        for _ in 0..100 {
             let preset = list.random(&mut rng).unwrap();
             if !seen.contains(&preset.location) {
                 seen.push(preset.location);
             }
         }
-        assert_eq!(seen.len(), 3);
+        assert_eq!(seen.len(), 4);
         assert!(seen.contains(&Location::Builtin("Alpha".into())));
-        // Without the folder the built-in Beta is back.
+        assert!(seen.contains(&Location::Builtin("Beta".into())));
+        assert!(seen.contains(&Location::Folder(dir.join("Beta"))));
+        // Without the folder only the built-in scenes are left.
         assert_eq!(list.scan_all(&[]).0, 2);
-        assert!(
-            list.infos()
-                .iter()
-                .any(|i| i.location == Location::Builtin("Beta".into()))
-        );
+        assert_eq!(list.folder_len(), 0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

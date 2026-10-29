@@ -349,6 +349,7 @@ impl Signal for VisualizerStatusRequest {
             target_fps: status.target_fps,
             measured_fps: status.measured_fps,
             preset_name: status.preset_name,
+            preset_path: status.preset_path,
             preset_count: u32::try_from(status.preset_count).unwrap_or(u32::MAX),
             adapter: status.adapter,
             transport: match status.transport {

@@ -17,7 +17,7 @@ A path is relative to the scene's folder and goes only downward: no `..`, no lea
 
 **A user's scenes** are the folders the user adds in Settings > Theme. The scan looks through each folder and its subfolders for a folder that holds a `scene.toml`; what is inside a scene is not scanned for more scenes, and hidden folders and symlinks are skipped. A scene found this way is loaded from disk and reloads whenever its files change.
 
-**Names.** A built-in scene is known by its `name` (`"Torii Sea"`) and chosen as `builtin:<name>`. A folder scene is listed under its folder's name, not its `name`; a folder scene with the same name as a built-in one replaces it. A built-in scene that is renamed keeps its old name as an alias, in `RENAMED` in `src/builtin.rs` (`Badge Tunnel` is `Emoji Tunnel`), so that a listener who had chosen it still gets it.
+**Names.** A built-in scene is known by its `name` (`"Torii Sea"`) and chosen as `builtin:<name>`. A folder scene is listed under its folder's name, not its `name`; a folder scene with the same name as a built-in one does not replace it: both are listed, the built-in one without a group. A built-in scene that is renamed keeps its old name as an alias, in `RENAMED` in `src/builtin.rs` (`Badge Tunnel` is `Emoji Tunnel`), so that a listener who had chosen it still gets it.
 
 ## `scene.toml`
 

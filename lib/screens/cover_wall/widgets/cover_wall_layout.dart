@@ -99,7 +99,7 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
     }
 
     MenuFlyoutItem presetItem(VisualizerPresetEntry preset) {
-      final current = _visualizer.status?.presetName == preset.name;
+      final current = _visualizer.status?.presetPath == preset.path;
       return MenuFlyoutItem(
         leading: current ? const Icon(Symbols.check) : null,
         text: Text(preset.name),
@@ -107,7 +107,7 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
       );
     }
 
-    // A submenu for each folder of scenes, and one for the built-in scenes.
+    // The built-in scenes, then a submenu for each folder of scenes.
     MenuFlyoutItemBase presetMenu() {
       final groups = <String, List<VisualizerPresetEntry>>{};
       final builtIn = <VisualizerPresetEntry>[];
@@ -122,15 +122,13 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
         leading: const Icon(Symbols.list),
         text: Text(s.visualizerChoosePreset),
         items: (_) => [
+          ...builtIn.map(presetItem),
+          if (builtIn.isNotEmpty && groups.isNotEmpty)
+            const MenuFlyoutSeparator(),
           for (final group in groups.entries)
             MenuFlyoutSubItem(
               text: Text(group.key),
               items: (_) => group.value.map(presetItem).toList(),
-            ),
-          if (builtIn.isNotEmpty)
-            MenuFlyoutSubItem(
-              text: Text(s.visualizerBuiltInPresets),
-              items: (_) => builtIn.map(presetItem).toList(),
             ),
         ],
       );

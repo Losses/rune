@@ -16,8 +16,8 @@ import '../../../bindings/bindings.dart';
 /// The scene folders of the visualizer, managed like the library folders.
 /// They are saved here and also sent to Rust, which is shared by all
 /// visualizers of the app, so a running visualizer follows at once. The
-/// visualizer also has built-in scenes; a folder scene named like one replaces
-/// it.
+/// visualizer also has built-in scenes, which a folder scene named like one
+/// does not replace.
 class VisualizerPresetSetting extends StatefulWidget {
   const VisualizerPresetSetting({super.key});
 

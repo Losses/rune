@@ -217,6 +217,9 @@ pub struct Status {
     pub target_fps: u32,
     pub measured_fps: f32,
     pub preset_name: String,
+    /// Where the scene on screen is, as [`Location`]'s text (`builtin:<name>` or a folder's
+    /// path): the name alone does not tell a built-in scene from a folder scene of that name.
+    pub preset_path: String,
     /// Scenes to choose from: the built-in ones and those of the chosen folders.
     pub preset_count: usize,
     pub adapter: String,
@@ -673,10 +676,10 @@ impl Visualizer {
 
     /// Scan the folders `dirs` and their subfolders for scenes (folders with a `scene.toml`) for
     /// next/previous/random, replacing the earlier folders and emptying the history. A scene
-    /// folder named like a built-in scene replaces it. Returns the number of scenes to choose
-    /// from, the built-in ones included. A folder that cannot be read is skipped and shows up in
-    /// [`Status::last_error`]. Without scenes in the folders a running visualizer changes to the
-    /// first built-in scene; otherwise the caller loads one.
+    /// folder named like a built-in scene is listed beside it. Returns the number of scenes to
+    /// choose from, the built-in ones included. A folder that cannot be read is skipped and shows
+    /// up in [`Status::last_error`]. Without scenes in the folders a running visualizer changes to
+    /// the first built-in scene; otherwise the caller loads one.
     pub fn set_preset_dirs(&self, dirs: &[PathBuf]) -> Result<usize> {
         let mut library = lock(&self.library);
         let (count, errors) = library.folder.scan_all(dirs);
@@ -886,6 +889,7 @@ fn run(
         status.adapter = pipeline.adapter_name.clone();
         status.transport = Some(transport);
         status.preset_name = pipeline.preset_name().to_string();
+        status.preset_path = Location::Builtin(status.preset_name.clone()).to_string();
     }
     notify_transport(shared, transport);
 
@@ -1114,7 +1118,9 @@ fn run(
         if let Some(bench) = &mut bench
             && bench.step(&mut pipeline, Instant::now())
         {
-            shared.status().preset_name = pipeline.preset_name().to_string();
+            let mut status = shared.status();
+            status.preset_name = pipeline.preset_name().to_string();
+            status.preset_path = Location::Builtin(status.preset_name.clone()).to_string();
         }
         let rendered = pipeline.render(time)?;
         let age = match shared.taken_age.swap(0, Ordering::Relaxed) {
@@ -1241,17 +1247,17 @@ impl AutoScene {
 struct Loaded {
     /// How to show it.
     switch: Switch,
-    /// The folder to watch for changes, for a scene from a folder.
-    watched: Option<PathBuf>,
+    /// Where the scene is from; a folder is watched for changes.
+    location: Location,
     scene: Result<Scene>,
 }
 
 /// Start building the scene `build` makes, which replaces any load still running. The scene on
-/// screen stays until it is built (see [`install`]). `watched` is the folder to watch once it is.
+/// screen stays until it is built (see [`install`]). `location` is where it is from.
 fn start_load(
     shared: &Shared,
     loads: &mut Loads<Loaded>,
-    watched: Option<PathBuf>,
+    location: Location,
     switch: Switch,
     build: Result<SceneBuild>,
 ) {
@@ -1259,7 +1265,7 @@ fn start_load(
         loads
             .start(move || Loaded {
                 switch,
-                watched,
+                location,
                 scene: build.run(),
             })
             .context("Failed to start a thread to build the scene")
@@ -1281,8 +1287,15 @@ fn install(
         pipeline.switch_to(scene, transition, durations)
     }) {
         Ok(()) => {
-            *watched = loaded.watched.map(Watched::new);
-            shared.status().preset_name = pipeline.preset_name().to_string();
+            *watched = match &loaded.location {
+                Location::Folder(dir) => Some(Watched::new(dir.clone())),
+                Location::Builtin(_) => None,
+            };
+            {
+                let mut status = shared.status();
+                status.preset_name = pipeline.preset_name().to_string();
+                status.preset_path = loaded.location.to_string();
+            }
             if pipeline.wants_covers() {
                 shared.wants_covers.store(true, Ordering::Relaxed);
                 let request = lock(&shared.covers_requester).clone();
@@ -1307,13 +1320,13 @@ fn start_scene_load(
     match location {
         Location::Folder(dir) => {
             let build = Ok(pipeline.scene_build_dir(&dir));
-            start_load(shared, loads, Some(dir), switch, build);
+            start_load(shared, loads, Location::Folder(dir), switch, build);
         }
         Location::Builtin(name) => {
             start_load(
                 shared,
                 loads,
-                None,
+                Location::Builtin(name.clone()),
                 switch,
                 pipeline.scene_build_builtin(&name),
             );
@@ -1353,7 +1366,8 @@ fn apply(
         }
         Command::LoadDefaultScene => {
             let build = pipeline.scene_build_builtin(pipeline::DEFAULT_PRESET_NAME);
-            start_load(shared, loads, None, switch, build);
+            let location = Location::Builtin(pipeline::DEFAULT_PRESET_NAME.to_string());
+            start_load(shared, loads, location, switch, build);
             return;
         }
         #[cfg(target_os = "android")]

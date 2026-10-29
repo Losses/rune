@@ -76,6 +76,8 @@ pub struct VisualizerStatusResponse {
     pub target_fps: u32,
     pub measured_fps: f32,
     pub preset_name: String,
+    /// Where the scene on screen is, in the form of `VisualizerPresetEntry::path`.
+    pub preset_path: String,
     pub preset_count: u32,
     pub adapter: String,
     /// How frames reach the screen: "iosurface" (no copies, macOS), "dxgi-shared" (no copies,
