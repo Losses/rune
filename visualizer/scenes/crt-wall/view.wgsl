@@ -173,7 +173,11 @@ fn trace_with(w: ptr<function, Walk>, o: vec3f, d0: vec3f, steps: i32, start: f3
     let kb = floor((p.y - lift) / BLOCK);
     if (any(vec2f(b, kb) != (*w).bay_key)) {
       (*w).bay_key = vec2f(b, kb);
-      (*w).bay = planned_bay(b, kb, lift, (*w).window, &(*w).row);
+      // Through a local: naga's SPIR-V backend cannot take the address of a field of a struct
+      // reached through a pointer, and panics with "Expression is not cached".
+      var row = (*w).row;
+      (*w).bay = planned_bay(b, kb, lift, (*w).window, &row);
+      (*w).row = row;
     }
     let col = column_in((*w).bay, b, kb, p.x);
     if (col.id != (*w).pile_key) {
