@@ -9,7 +9,11 @@ common = ["tower.wgsl"]
 # A tower that grows towards the light: a flash, a flare and a light leak, and the glitch of the
 # video. The flashes and glitches are the runtime's, at the music's moments; the scene keeps none
 # of its own.
-effects = ["fade", "dissolve", "flash", "flare", "leak", "glitch"]
+[effects]
+# Transitions: switching into this scene, and dressing a hard cut of the camera in it.
+transitions = ["fade", "dissolve", "flash", "glitch"]
+# Lens effects: over the picture, with no change of picture.
+lens = ["flare", "leak", "glitch"]
 
 [state]
 file = "state.wgsl"

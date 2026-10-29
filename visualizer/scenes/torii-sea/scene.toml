@@ -7,7 +7,11 @@ common = ["sea.wgsl"]
 
 # The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
 # A calm sea: a flash that turns the hour and a flare, nothing harsh. No light leak.
-effects = ["fade", "dissolve", "flash", "flare"]
+[effects]
+# Transitions: switching into this scene, and dressing a hard cut of the camera in it.
+transitions = ["fade", "dissolve", "flash"]
+# Lens effects: over the picture, with no change of picture.
+lens = ["flare"]
 
 [state]
 file = "state.wgsl"

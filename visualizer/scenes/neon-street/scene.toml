@@ -7,7 +7,11 @@ common = ["glyphs.wgsl", "city.wgsl"]
 
 # The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
 # A neon street at night, in the spirit of Persona 5: the cut-in belongs here.
-effects = ["fade", "cutin", "flash", "glitch", "flare"]
+[effects]
+# Transitions: switching into this scene, and dressing a hard cut of the camera in it.
+transitions = ["fade", "cutin", "flash", "glitch"]
+# Lens effects: over the picture, with no change of picture.
+lens = ["flare", "glitch"]
 
 # The director cuts between the street's views. The camera never rolls of its own accord, and the
 # director's dutch angle comes only with the cuts of a burst (a tilt on every cut was too much), and

@@ -11,7 +11,11 @@ covers = true
 # A wall of old televisions: glitches, dot mosaics and a flash washed in the theme colour suit it
 # (the screens themselves no longer flash when they change: they roll, slip, collapse or tune
 # through snow). The scene declares no flare and must not: no lens flare over a wall of screens.
-effects = ["fade", "glitch", "mosaic", "flash"]
+[effects]
+# Transitions: switching into this scene, and dressing a hard cut of the camera in it.
+transitions = ["fade", "glitch", "mosaic", "flash"]
+# Lens effects: over the picture, with no change of picture.
+lens = ["glitch", "mosaic"]
 
 # The director cuts between the wall's views. The camera has no roll of its own, so the director's
 # dutch angle is the only tilt, on the ordinary close shots as on the burst's (so `dutch_in` stays

@@ -6,13 +6,16 @@ description = "Flying down a tunnel of light past lacquered tortoiseshell badges
 common = ["badge.wgsl"]
 
 # The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md): all of
-# them, the three lens effects (flare, leak, glitch) and the three dressings of a cut (flash,
-# glitch, mosaic) among them. A cut the camera glides to gets no dressing and only a light lens
-# effect (the flare or the leak); a hard cut (the start of a climax, the burst's cuts and the cut
-# after it) takes a strong one; switching into the scene may take any of them, by the runtime's
-# choice. (While one list holds both kinds, listing the mosaic for cuts also lets it play over the
-# picture at a strong moment.)
-effects = ["fade", "dissolve", "cutin", "flash", "glitch", "mosaic", "flare", "leak"]
+# them. The transitions are the three dressings of a cut (flash, glitch, mosaic) and the ones for
+# switching in; the lens effects are the flare, the leak and the glitch, and no mosaic over the
+# picture. A cut the camera glides to gets no dressing and only a light lens effect (the flare or
+# the leak); a hard cut (the start of a climax, the burst's cuts and the cut after it) takes a
+# strong transition; switching into the scene may take any of them, by the runtime's choice.
+[effects]
+# Transitions: switching into this scene, and dressing a hard cut of the camera in it.
+transitions = ["fade", "dissolve", "cutin", "flash", "glitch", "mosaic"]
+# Lens effects: over the picture, with no change of picture.
+lens = ["flare", "leak", "glitch"]
 
 # The looks (tunnel.wgsl grades the picture by them and blends them; the runtime picks one at a
 # section start by the section's energy): the tunnel in grey, a little dim, with a faint tint of the
