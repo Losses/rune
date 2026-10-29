@@ -71,6 +71,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   @override
   void initState() {
     super.initState();
+    _coverWallDisplay = context.read<CoverWallDisplayProvider>();
     _controller.attach();
     WidgetsBinding.instance.addObserver(this);
     _syncVisible(WidgetsBinding.instance.lifecycleState);
@@ -107,8 +108,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     _beganSeen = true;
   }
   // Kept for dispose, where the context may no longer be used.
-  late final CoverWallDisplayProvider _coverWallDisplay =
-      context.read<CoverWallDisplayProvider>();
+  late final CoverWallDisplayProvider _coverWallDisplay;
 
   void _syncAccent(Color accent) {
     final argb = accent.hexValue;

@@ -24,15 +24,19 @@ class VisualizerDarkTheme extends StatelessWidget {
       (p) => p.showVisualizer && p.presetsLoaded,
     );
     final theme = FluentTheme.of(context);
-    if (!enabled || !showVisualizer || theme.brightness.isDark) return child;
+    final dark = enabled && showVisualizer && !theme.brightness.isDark;
 
+    // Always under a theme of its own, so that switching to the dark one does
+    // not rebuild [child] from scratch (which would restart the visualizer).
     return FluentTheme(
-      data: FluentThemeData(
-        brightness: Brightness.dark,
-        accentColor: theme.accentColor,
-        visualDensity: theme.visualDensity,
-        fontFamily: theme.typography.body?.fontFamily,
-      ),
+      data: dark
+          ? FluentThemeData(
+              brightness: Brightness.dark,
+              accentColor: theme.accentColor,
+              visualDensity: theme.visualDensity,
+              fontFamily: theme.typography.body?.fontFamily,
+            )
+          : theme,
       child: child,
     );
   }
