@@ -1,4 +1,4 @@
-//! Scenes in Rune's own format: a folder with
+//! Scenes in Rune's own format (`docs/scenes.md`): a folder with
 //! `scene.toml` and WGSL files. The scene's `update()` runs once per frame on the GPU, its passes
 //! draw into HDR buffers, and the runtime's post-processing makes the frame.
 

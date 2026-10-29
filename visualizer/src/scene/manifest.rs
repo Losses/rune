@@ -1,4 +1,4 @@
-//! `scene.toml`: what a scene is made of.
+//! `scene.toml`: what a scene is made of. See `docs/scenes.md` for every key.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path};

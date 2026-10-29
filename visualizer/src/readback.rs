@@ -1,5 +1,5 @@
 //! Reading frames back without stalling the render thread or copying them on the CPU
-//! (the Windows / Linux path, also macOS's fallback).
+//! (the fallback where frames cannot stay on the GPU).
 //!
 //! One render target and a few readback buffers. Each frame is copied into a free buffer and
 //! mapped asynchronously; once the mapping is done the mapped buffer itself becomes the frame, so
