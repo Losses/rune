@@ -1,49 +1,26 @@
-//! When the visualizer moves on to another scene by itself, and how. A switch follows the music
-//! instead of a timer: it waits for a place where the music changes (the start of a section that
-//! differs from the one before), never switches too early or too late, and fades over a number of
-//! beats that lands on that place. The decision is a pure function of the clock and the music's
-//! values ([`MusicValues`], see `docs/music.md`), so it can be tested without a scene.
+//! When the visualizer moves on to another scene by itself, and how. A scene stays for as long as
+//! the song it came on with plays, and the next one comes when another file starts: it is built in
+//! the background while the old scene keeps drawing, then shown as soon as it is built, through
+//! black if the new song is silent at that moment (the gap between two tracks), else on the next
+//! beat or hit through a strong transition. A song is a playing file, so a pause, a seek or the
+//! same file starting again is no change, and a song of any length keeps its scene. The decision is
+//! a pure function of the clock, the playing file and the music's values ([`MusicValues`], see
+//! `docs/music.md`), so it can be tested without a scene.
 
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
 
-use crate::bind::SwitchBinds;
-use crate::moments::{self, Chances};
+use crate::bind::audible;
 use crate::scene::MusicValues;
 use crate::transition::{
     CUTIN_BAND_SECONDS, CUTIN_MIN_HOLD_SECONDS, CutInStyle, Durations, Transition,
 };
 
-// The times and strengths below are the defaults of `switch.*` in `runtime.toml`, which the switch
-// reads (a test pins that they agree); a scene lab can replace them live.
-/// The least time on a scene before the next automatic switch, in seconds of the visualizer's
-/// clock (which stands still while paused).
-#[cfg(test)]
-pub const MIN_SECONDS: f64 = 30.0;
-/// How long before [`MIN_SECONDS`] the next scene starts building, so that it is ready when the
-/// first place to switch comes (a build can take seconds on some drivers).
-#[cfg(test)]
-pub const PREPARE_LEAD_SECONDS: f64 = 8.0;
-/// After this long on a scene any section start is a place to switch, also one that repeats the
-/// section before, and so is a cue that is not a section start.
-#[cfg(test)]
-pub const RELAX_SECONDS: f64 = 60.0;
-/// After this long on a scene the switch happens at the next beat or hit, whatever the music does.
-#[cfg(test)]
-pub const MAX_SECONDS: f64 = 90.0;
-/// How long past [`MAX_SECONDS`] the switch waits for a beat or a hit before it happens at once.
-#[cfg(test)]
-pub const MAX_GRACE_SECONDS: f64 = 2.0;
-/// The change of a section's energy that makes it a different section for the switch, and that
-/// makes a lift or a drop (the cue's own rule for a lift is the same, `scene::signals::CUE_LIFT`).
-#[cfg(test)]
-pub const ENERGY_CHANGE: f32 = 0.1;
-/// The strength of a cue from which it is a section start (a cue of 0.3 or 0.2 comes from the
-/// fallbacks of `cues`).
-#[cfg(test)]
-pub const SECTION_CUE: f32 = 0.5;
-/// The strength of a cue that is a section start with an energy lift.
-#[cfg(test)]
-pub const LIFT_CUE: f32 = 0.8;
+/// A new song is silent when `audible` (see `docs/music.md`) is below this: the gap between two
+/// tracks, or the fade-out of the last one.
+pub const SILENT_AUDIBLE: f32 = 0.2;
+/// How long the switch waits for a beat or a hit once the next scene is built, in seconds of the
+/// visualizer's clock. Without one in that time (a long note, no beat heard) it happens at once.
+pub const GIVE_UP_SECONDS: f64 = 2.0;
 /// `locked` above this means the beat is followed, so that the tempo can be used for durations.
 pub const FOLLOWED: f32 = 0.5;
 /// Without a followed beat: how long a fade takes out, and in, in seconds.
@@ -94,77 +71,24 @@ pub enum Decision {
     },
 }
 
-/// The kind of change a switch lands on, which picks its transition.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Change {
-    /// A section with more energy than the one before.
-    Lift,
-    /// A section with less energy than the one before.
-    Drop,
-    /// Anything else, including a switch that is not at a section start.
-    Plain,
-}
-
-/// A section as the switch tells them apart: what kind it is and how loud.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Section {
-    label: f32,
-    energy: f32,
-}
-
-impl Section {
-    fn of(music: &MusicValues) -> Self {
-        Self {
-            label: music.section_label,
-            energy: music.section_energy,
-        }
-    }
-
-    fn next_of(music: &MusicValues) -> Self {
-        Self {
-            label: music.next_label,
-            energy: music.next_energy,
-        }
-    }
-
-    /// Whether the music changes going from `from` to this section. Without a section before
-    /// (nothing seen yet) it does.
-    fn differs_from(self, from: Option<Section>, change: f32) -> bool {
-        from.is_none_or(|from| {
-            from.label != self.label || (from.energy - self.energy).abs() >= change
-        })
-    }
-
-    /// The change going from `from` to this section.
-    fn change_from(self, from: Option<Section>, change: f32) -> Change {
-        match from {
-            Some(from) if self.energy - from.energy >= change => Change::Lift,
-            Some(from) if from.energy - self.energy >= change => Change::Drop,
-            _ => Change::Plain,
-        }
-    }
-}
-
-/// Decides when the next automatic switch happens, from the music. One value lives as long as the
-/// render loop; it remembers the sections it saw across switches, since the music goes on.
+/// Decides when the next automatic switch happens: when the playing file is another one than the
+/// scene on screen came on with. One value lives as long as the render loop.
 #[derive(Default)]
 pub struct SceneSwitch {
-    /// Where a switch lands and how long it waits (`switch.*` of `runtime.toml`).
-    binds: Arc<SwitchBinds>,
-    /// When the scene on screen was shown, on the render loop's clock; set by the first frame
-    /// after a [`Self::restart`].
-    since: Option<f64>,
+    /// The file the scene on screen came on with, once it is known ([`Self::known`]); none if
+    /// nothing was playing then.
+    song: Option<PathBuf>,
+    /// Whether [`Self::song`] was read since the last [`Self::restart`]: the first frame of a scene
+    /// takes the file that plays as the one the scene came on with.
+    known: bool,
+    /// Another file began to play: the next scene is wanted.
+    wanted: bool,
     /// Whether [`Decision::Prepare`] was answered since the last restart.
     prepare_started: bool,
-    /// The section playing and the one before it, as seen in the music's values.
-    current: Option<Section>,
-    before: Option<Section>,
-    /// The number of the current section, to see a section that repeats the last.
-    index: f32,
+    /// When the next scene was first seen built, on the render loop's clock.
+    ready_since: Option<f64>,
     /// The transitions the scene held for the switch takes (see [`Self::allow`]).
     allowed: Allowed,
-    /// The chance a strong moment gets a strong transition (see [`crate::moments`]).
-    chances: Chances,
 }
 
 /// The transitions a switch may take: those of the scene coming that the runtime draws.
@@ -229,24 +153,13 @@ impl Allowed {
 }
 
 impl SceneSwitch {
-    /// Decide by these binds from now on, if they are not the ones already used (a scene lab
-    /// replaced `runtime.toml`).
-    pub fn use_binds(&mut self, binds: &Arc<SwitchBinds>) {
-        if !Arc::ptr_eq(&self.binds, binds) {
-            self.binds = binds.clone();
-        }
-    }
-
-    /// The scene changed (any load, manual or automatic): count again from the next frame.
+    /// The scene changed (any load, manual or automatic): the file playing now is the one it came
+    /// on with, and what was wanted is forgotten.
     pub fn restart(&mut self) {
-        self.since = None;
+        self.known = false;
+        self.wanted = false;
         self.prepare_started = false;
-    }
-
-    /// Seconds the scene on screen has been counted, on the render loop's clock at `now`, once
-    /// the first frame of it was seen.
-    pub fn seconds(&self, now: f64) -> Option<f64> {
-        self.since.map(|since| now - since)
+        self.ready_since = None;
     }
 
     /// The scene built for the switch takes these transitions; until another is built, the
@@ -255,148 +168,61 @@ impl SceneSwitch {
         self.allowed = allowed;
     }
 
-    /// The chances the moments get an effect with (the user's setting, or a scene lab's).
-    pub fn set_chances(&mut self, chances: Chances) {
-        self.chances = chances;
-    }
-
-    /// Whether the switch that lands on the start of section number `section` plays a strong
-    /// transition: only a lift, by the roll of that moment (see [`crate::moments`]).
-    fn plays(&self, change: Change, section: f32) -> bool {
-        change == Change::Lift
-            && moments::rolls(
-                moments::key(section.max(0.0) as u32, 0),
-                self.chances.strong,
-            )
-    }
-
     /// The build [`Decision::Prepare`] asked for is running.
     pub fn prepare_started(&mut self) {
         self.prepare_started = true;
     }
 
-    /// Call once per frame with the music of the frame drawn last. `ready` is whether the next
-    /// scene is built and can be shown at once; a switch only happens then, so that a scene that
-    /// is late waits for the next place instead of switching off the music. While `paused` the
-    /// wait keeps starting over.
-    pub fn tick(&mut self, now: f64, music: &MusicValues, paused: bool, ready: bool) -> Decision {
-        self.observe(music);
+    /// Call once per frame with the file that plays (none: nothing, or a stream that has no path)
+    /// and the music of the frame drawn last. `ready` is whether the next scene is built and can
+    /// be shown at once. While `paused` (the scene is locked, or a menu is open) the scene counts
+    /// as having come on with the file that plays, so a song that begins meanwhile is no change.
+    pub fn tick(
+        &mut self,
+        now: f64,
+        song: Option<&Path>,
+        music: &MusicValues,
+        paused: bool,
+        ready: bool,
+    ) -> Decision {
         if paused {
             self.restart();
             return Decision::Wait;
         }
-        let since = *self.since.get_or_insert(now);
-        let elapsed = now - since;
-        if elapsed < self.binds.min - self.binds.lead {
+        if !self.known {
+            self.song = song.map(Path::to_path_buf);
+            self.known = true;
             return Decision::Wait;
+        }
+        if !self.wanted {
+            match (&self.song, song) {
+                (_, None) => {}
+                // The first song after nothing played: the scene was not on with any.
+                (None, Some(path)) => self.song = Some(path.to_path_buf()),
+                (Some(known), Some(path)) => self.wanted = known != path,
+            }
+            if !self.wanted {
+                return Decision::Wait;
+            }
         }
         if !self.prepare_started {
             return Decision::Prepare;
         }
         if !ready {
+            self.ready_since = None;
             return Decision::Wait;
         }
-        // The section the change lands on: its label picks among the strong transitions, and its
-        // number is the moment that rolls for one.
-        let change = self
-            .at_cue(music, elapsed)
-            .map(|change| (change, music.section_label, music.section))
-            .or_else(|| {
-                self.coming(music, elapsed)
-                    .map(|change| (change, music.next_label, music.section + 1.0))
-            })
-            .or_else(|| {
-                self.forced(music, elapsed)
-                    .map(|change| (change, music.section_label, music.section))
-            });
-        match change {
-            Some((change, label, section)) => {
-                let plays = self.plays(change, section);
-                self.restart();
-                let (transition, durations) = choose(change, label, music, self.allowed, plays);
-                Decision::Switch {
-                    transition,
-                    durations,
-                }
-            }
-            None => Decision::Wait,
+        let since = *self.ready_since.get_or_insert(now);
+        let silent = audible(music) < SILENT_AUDIBLE;
+        if !silent && music.hits == 0 && now - since < GIVE_UP_SECONDS {
+            return Decision::Wait;
         }
-    }
-
-    /// The switch that happens at the next event of `switch.forced` (a beat or a hit) once the
-    /// scene had its `max` seconds, or at once when none comes within `grace` seconds more.
-    fn forced(&self, music: &MusicValues, elapsed: f64) -> Option<Change> {
-        let binds = &self.binds;
-        let moment = binds.forced(music) || elapsed >= binds.max + binds.grace;
-        (elapsed >= binds.max && moment).then_some(Change::Plain)
-    }
-
-    /// Remember the sections: when the music's section is another one than the last frame's, it
-    /// is the current one and the last is the one before.
-    fn observe(&mut self, music: &MusicValues) {
-        // Without a chart there are no sections (and the first frame of a new scene is the
-        // default values).
-        if music.has_chart == 0 {
-            return;
+        self.restart();
+        let (transition, durations) = choose(silent, music.section_label, music, self.allowed);
+        Decision::Switch {
+            transition,
+            durations,
         }
-        let section = Section::of(music);
-        match self.current {
-            Some(current) if current == section && self.index == music.section => {}
-            Some(current) => {
-                self.before = Some(current);
-                self.current = Some(section);
-                self.index = music.section;
-            }
-            None => {
-                self.current = Some(section);
-                self.index = music.section;
-            }
-        }
-    }
-
-    /// Whether this frame is a cue that is a place to switch, and what kind of change it is.
-    fn at_cue(&self, music: &MusicValues, elapsed: f64) -> Option<Change> {
-        if elapsed < self.binds.min {
-            return None;
-        }
-        let heard = self.binds.heard(music)?;
-        if heard.any {
-            // No analysis: the fallback cues are all there is.
-            return Some(Change::Plain);
-        }
-        if heard.strength < heard.section_at {
-            // The 8 bars of a followed beat and the 16 s without a beat.
-            return (elapsed >= self.binds.relax).then_some(Change::Plain);
-        }
-        let section = Section::of(music);
-        let change = self.binds.change();
-        if !section.differs_from(self.before, change) && elapsed < self.binds.relax {
-            return None;
-        }
-        Some(if heard.strength >= heard.lift_at {
-            Change::Lift
-        } else {
-            section.change_from(self.before, change)
-        })
-    }
-
-    /// Whether the next section start is known, is a place to switch, and is so near that a
-    /// fade must start now to land on it. A dissolve starts at the cue, so it is not early.
-    fn coming(&self, music: &MusicValues, elapsed: f64) -> Option<Change> {
-        let cue_in = self.binds.early(music)?;
-        let current = Section::of(music);
-        let next = Section::next_of(music);
-        let changes = self.binds.change();
-        let change = next.change_from(Some(current), changes);
-        if change == Change::Drop {
-            return None;
-        }
-        let at = elapsed + f64::from(cue_in);
-        let place = at >= self.binds.min
-            && (next.differs_from(Some(current), changes) || at >= self.binds.relax);
-        let plays = self.plays(change, music.section + 1.0);
-        let (_, durations) = choose(change, music.next_label, music, self.allowed, plays);
-        (place && f64::from(cue_in) <= durations.out).then_some(change)
     }
 }
 
@@ -417,32 +243,25 @@ pub fn pick_by_label<T: Copy>(options: &[T], label: f32) -> Option<T> {
     options.get(hashed as usize % options.len().max(1)).copied()
 }
 
-/// The transition for a change, among those `allowed`. This is the one place that picks it: a
-/// lift whose moment `plays` takes a strong transition if the scene allows any, chosen by the
-/// label of the section it lands on; otherwise a plain change or a lift fades, a drop dissolves. A scene that takes neither of those gets the
-/// other one, then a cut, and a fade when it names none the runtime draws.
+/// The transition for a switch, among those `allowed`. This is the one place that picks it: a
+/// silent new song fades through black, whatever the scene allows. Otherwise the switch takes a
+/// strong transition if the scene allows any, chosen by the label of the section playing, so that
+/// the same kind of section gets the same one; a scene that allows none fades, else dissolves, else
+/// cuts, and fades when it names none the runtime draws.
 fn choose(
-    change: Change,
+    silent: bool,
     label: f32,
     music: &MusicValues,
     allowed: Allowed,
-    plays: bool,
 ) -> (Transition, Durations) {
     let beat = beat_seconds(music);
-    if plays {
-        let strong = allowed.strong(label, music.has_chart != 0);
-        if let Some(kind) = pick_by_label(&strong, label) {
-            return (kind, durations_of(kind, beat));
-        }
+    if silent {
+        return (Transition::Fade, durations_of(Transition::Fade, beat));
     }
-    let want = match change {
-        Change::Drop => Transition::Dissolve,
-        _ => Transition::Fade,
-    };
-    let other = match want {
-        Transition::Dissolve => Transition::Fade,
-        _ => Transition::Dissolve,
-    };
+    let strong = allowed.strong(label, music.has_chart != 0);
+    if let Some(kind) = pick_by_label(&strong, label) {
+        return (kind, durations_of(kind, beat));
+    }
     let takes = |kind| match kind {
         Transition::Cut => allowed.cut,
         Transition::Fade => allowed.fade,
@@ -452,7 +271,7 @@ fn choose(
         Transition::Mosaic => allowed.mosaic,
         Transition::CutIn(_) => allowed.cutin,
     };
-    let kind = [want, other, Transition::Cut]
+    let kind = [Transition::Fade, Transition::Dissolve, Transition::Cut]
         .into_iter()
         .find(|&kind| takes(kind))
         .unwrap_or(Transition::Fade);
@@ -607,438 +426,10 @@ mod tests {
         assert_eq!(cut(Some(Transition::Glitch), None), glitch);
     }
 
-    /// A song with a chart: tempo 120 (a beat is 0.5 s), the beat followed, in the section with
-    /// this label and energy, no cue.
-    fn song(label: f32, energy: f32) -> MusicValues {
-        MusicValues {
-            has_chart: 1,
-            tempo: 120.0,
-            locked: 1.0,
-            section_label: label,
-            section_energy: energy,
-            next_label: label,
-            next_energy: energy,
-            cue_in: -1.0,
-            ..MusicValues::default()
-        }
-    }
-
-    /// The same without a chart: no beat, no sections.
-    fn no_chart() -> MusicValues {
-        MusicValues {
-            tempo: 120.0,
-            cue_in: -1.0,
-            ..MusicValues::default()
-        }
-    }
-
-    /// A frame of `base` that starts section number `index` with this label and energy, as a cue
-    /// of `cue`.
-    fn start(base: MusicValues, index: f32, label: f32, energy: f32, cue: f32) -> MusicValues {
-        MusicValues {
-            section: index,
-            section_label: label,
-            section_energy: energy,
-            sections: 1,
-            cues: 1,
-            cue,
-            ..base
-        }
-    }
-
-    /// Feed `music` once per second from `from` to `to` and return the first decision that is
-    /// not a wait or a prepare, with its time.
-    fn run(
-        switch: &mut SceneSwitch,
-        from: f64,
-        to: f64,
-        music: &MusicValues,
-    ) -> Option<(f64, Decision)> {
-        let mut t = from;
-        while t < to {
-            match switch.tick(t, music, false, true) {
-                Decision::Wait => {}
-                Decision::Prepare => switch.prepare_started(),
-                decision => return Some((t, decision)),
-            }
-            t += 1.0;
-        }
-        None
-    }
-
-    /// A switch that saw section 0 (label 0, energy 0.5) from 0 s and section 1 (label 1) start
-    /// at 5 s, so that it knows a section before the current one.
-    fn seasoned() -> SceneSwitch {
-        let mut switch = SceneSwitch::default();
-        // Every lift plays its strong transition, unless a test says otherwise.
-        switch.set_chances(Chances::every(1.0));
-        assert_eq!(
-            switch.tick(0.0, &song(0.0, 0.5), false, true),
-            Decision::Wait
-        );
-        switch.prepare_started();
-        switch.tick(5.0, &song(1.0, 0.5), false, true);
-        switch
-    }
-
-    /// A switch that has no chart and started at 0 s.
-    fn fresh() -> SceneSwitch {
-        let mut switch = SceneSwitch::default();
-        assert_eq!(switch.tick(0.0, &no_chart(), false, true), Decision::Wait);
-        switch.prepare_started();
-        switch
-    }
-
-    fn fade(seconds: f64) -> Decision {
-        Decision::Switch {
-            transition: Transition::Fade,
-            durations: Durations {
-                out: seconds,
-                into: seconds,
-            },
-        }
-    }
-
-    #[test]
-    fn nothing_happens_before_the_minimum() {
-        let mut switch = seasoned();
-        // The wait counts from the first frame (0 s). A section start with a new label at 29 s is
-        // too early, and at 30 s it is a switch.
-        let early = start(song(0.0, 0.5), 2.0, 0.0, 0.5, 0.5);
-        assert_eq!(switch.tick(29.0, &early, false, true), Decision::Wait);
-        let change = start(song(0.0, 0.5), 3.0, 2.0, 0.5, 0.5);
-        assert_eq!(switch.tick(30.0, &change, false, true), fade(0.5));
-    }
-
-    #[test]
-    fn the_next_scene_is_prepared_before_it_can_be_used() {
-        let mut switch = SceneSwitch::default();
-        let music = song(0.0, 0.5);
-        assert_eq!(switch.tick(100.0, &music, false, false), Decision::Wait);
-        assert_eq!(switch.tick(121.9, &music, false, false), Decision::Wait);
-        // MIN - lead = 22 s after the first frame.
-        assert_eq!(switch.tick(122.0, &music, false, false), Decision::Prepare);
-        // It is asked again until the build started, and then not any more.
-        assert_eq!(switch.tick(122.1, &music, false, false), Decision::Prepare);
-        switch.prepare_started();
-        assert_eq!(switch.tick(122.2, &music, false, false), Decision::Wait);
-    }
-
-    #[test]
-    fn a_section_with_another_label_switches() {
-        let mut switch = seasoned();
-        let cue = start(song(0.0, 0.5), 2.0, 2.0, 0.5, 0.5);
-        assert_eq!(switch.tick(40.0, &cue, false, true), fade(0.5));
-    }
-
-    #[test]
-    fn a_section_with_another_energy_switches() {
-        let mut switch = seasoned();
-        let cue = start(song(1.0, 0.5), 2.0, 1.0, 0.65, 0.5);
-        assert_eq!(switch.tick(40.0, &cue, false, true), fade(0.5));
-    }
-
-    #[test]
-    fn the_same_section_again_waits_until_the_music_relaxes() {
-        let mut switch = seasoned();
-        // Section 2 repeats section 1's label and energy.
-        let again = start(song(1.0, 0.5), 2.0, 1.0, 0.5, 0.5);
-        assert_eq!(switch.tick(40.0, &again, false, true), Decision::Wait);
-        // After RELAX any section start is enough.
-        let again = start(song(1.0, 0.5), 3.0, 1.0, 0.5, 0.5);
-        assert_eq!(switch.tick(RELAX_SECONDS, &again, false, true), fade(0.5));
-    }
-
-    #[test]
-    fn relax_accepts_the_cue_of_8_bars_but_before_it_waits() {
-        let mut switch = seasoned();
-        let bars = MusicValues {
-            cues: 1,
-            cue: 0.3,
-            ..song(1.0, 0.5)
-        };
-        assert_eq!(switch.tick(40.0, &bars, false, true), Decision::Wait);
-        assert_eq!(switch.tick(RELAX_SECONDS, &bars, false, true), fade(0.5));
-    }
-
-    #[test]
-    fn without_a_chart_any_cue_after_the_minimum_switches() {
-        let mut switch = fresh();
-        let cue = MusicValues {
-            cues: 1,
-            cue: 0.2,
-            ..no_chart()
-        };
-        assert_eq!(switch.tick(29.0, &cue, false, true), Decision::Wait);
-        // Without a followed beat a fade is 0.4 s out and in.
-        assert_eq!(switch.tick(31.0, &cue, false, true), fade(0.4));
-    }
-
-    #[test]
-    fn the_longest_wait_ends_at_the_next_beat_or_hit() {
-        let quiet = song(1.0, 0.5);
-        let mut switch = seasoned();
-        assert_eq!(
-            switch.tick(MAX_SECONDS - 0.1, &quiet, false, true),
-            Decision::Wait
-        );
-        let beat = MusicValues { beats: 1, ..quiet };
-        assert_eq!(switch.tick(MAX_SECONDS, &beat, false, true), fade(0.5));
-
-        let mut switch = seasoned();
-        let hit = MusicValues { hits: 1, ..quiet };
-        assert_eq!(switch.tick(MAX_SECONDS + 0.5, &hit, false, true), fade(0.5));
-
-        // Neither comes: it happens at once after the grace.
-        let mut switch = seasoned();
-        assert_eq!(
-            switch.tick(MAX_SECONDS + 1.9, &quiet, false, true),
-            Decision::Wait
-        );
-        assert_eq!(
-            switch.tick(MAX_SECONDS + MAX_GRACE_SECONDS, &quiet, false, true),
-            fade(0.5)
-        );
-    }
-
-    #[test]
-    fn a_known_section_start_starts_the_fade_early_to_land_on_it() {
-        let mut switch = seasoned();
-        // The next section is another one, 0.5 s away (the fade out is 0.5 s): start now.
-        let coming = MusicValues {
-            next_label: 2.0,
-            cue_in: 0.5,
-            ..song(1.0, 0.5)
-        };
-        assert_eq!(switch.tick(39.0, &coming, false, true), fade(0.5));
-    }
-
-    #[test]
-    fn a_fade_that_is_not_yet_due_waits_for_its_start() {
-        let mut switch = seasoned();
-        let far = MusicValues {
-            next_label: 2.0,
-            cue_in: 2.0,
-            ..song(1.0, 0.5)
-        };
-        assert_eq!(switch.tick(39.0, &far, false, true), Decision::Wait);
-        let near = MusicValues { cue_in: 0.5, ..far };
-        assert_eq!(switch.tick(40.5, &near, false, true), fade(0.5));
-    }
-
-    #[test]
-    fn an_early_fade_counts_its_landing_for_the_minimum() {
-        let mut switch = seasoned();
-        // At 29.8 s the section starts in 0.4 s: it lands at 30.2 s, after the minimum.
-        let coming = MusicValues {
-            next_label: 2.0,
-            cue_in: 0.4,
-            ..song(1.0, 0.5)
-        };
-        assert_eq!(switch.tick(29.8, &coming, false, true), fade(0.5));
-        // At 28 s it would land at 28.4 s, too early.
-        let mut switch = seasoned();
-        assert_eq!(switch.tick(28.0, &coming, false, true), Decision::Wait);
-    }
-
-    #[test]
-    fn a_known_section_that_repeats_the_last_is_not_a_place() {
-        let mut switch = seasoned();
-        let same = MusicValues {
-            cue_in: 0.4,
-            ..song(1.0, 0.5)
-        };
-        assert_eq!(switch.tick(40.0, &same, false, true), Decision::Wait);
-    }
-
-    #[test]
-    fn a_drop_dissolves_over_two_beats_at_the_cue() {
-        let mut switch = seasoned();
-        // Known in advance: nothing starts early for a dissolve.
-        let coming = MusicValues {
-            next_label: 2.0,
-            next_energy: 0.2,
-            cue_in: 0.3,
-            ..song(1.0, 0.5)
-        };
-        assert_eq!(switch.tick(40.0, &coming, false, true), Decision::Wait);
-        let cue = start(song(1.0, 0.5), 2.0, 2.0, 0.2, 0.5);
-        assert_eq!(
-            switch.tick(40.3, &cue, false, true),
-            Decision::Switch {
-                transition: Transition::Dissolve,
-                durations: Durations {
-                    out: 0.0,
-                    into: 1.0
-                },
-            }
-        );
-    }
-
-    #[test]
-    fn the_scene_coming_picks_among_the_transitions_it_takes() {
-        let only = |cut, fade, dissolve| Allowed {
-            cut,
-            fade,
-            dissolve,
-            ..Allowed::default()
-        };
-        let drop = start(song(1.0, 0.5), 2.0, 2.0, 0.2, 0.5);
-        // A drop dissolves; a scene that takes only fades fades at it.
-        let mut switch = seasoned();
-        switch.allow(only(false, true, false));
-        assert_eq!(switch.tick(40.0, &drop, false, true), fade(0.5));
-        // A plain change fades; a scene that takes only dissolves dissolves at it.
-        let mut switch = seasoned();
-        switch.allow(only(false, false, true));
-        let plain = start(song(1.0, 0.5), 2.0, 3.0, 0.5, 0.5);
-        assert!(matches!(
-            switch.tick(40.0, &plain, false, true),
-            Decision::Switch {
-                transition: Transition::Dissolve,
-                ..
-            }
-        ));
-        // Only a cut: a cut, and nothing starts early for it.
-        let mut switch = seasoned();
-        switch.allow(only(true, false, false));
-        let coming = MusicValues {
-            next_label: 3.0,
-            next_energy: 0.5,
-            cue_in: 0.3,
-            ..song(1.0, 0.5)
-        };
-        assert_eq!(switch.tick(39.7, &coming, false, true), Decision::Wait);
-        let Decision::Switch {
-            transition,
-            durations,
-        } = switch.tick(40.0, &plain, false, true)
-        else {
-            panic!("no switch");
-        };
-        assert!(transition == Transition::Cut && durations.is_instant(transition));
-        // None the runtime draws (a scene of later effects only): a fade.
-        let mut switch = seasoned();
-        switch.allow(Allowed::of(&["cutin".to_string()]));
-        assert_eq!(switch.tick(40.0, &drop, false, true), fade(0.5));
-    }
-
-    #[test]
-    fn allowed_transitions_are_read_from_the_names() {
-        let names =
-            |list: &[&str]| Allowed::of(&list.iter().map(|n| n.to_string()).collect::<Vec<_>>());
-        assert_eq!(
-            names(&["fade", "cutin", "cut"]),
-            Allowed {
-                cut: true,
-                fade: true,
-                dissolve: false,
-                cutin: true,
-                ..Allowed::default()
-            }
-        );
-        assert_eq!(names(&["fade", "dissolve"]), Allowed::default());
-    }
-
-    #[test]
-    fn a_dissolve_without_a_followed_beat_takes_1_2_seconds() {
-        let mut switch = seasoned();
-        let cue = MusicValues {
-            locked: 0.0,
-            ..start(song(1.0, 0.5), 2.0, 2.0, 0.2, 0.5)
-        };
-        assert_eq!(
-            switch.tick(40.0, &cue, false, true),
-            Decision::Switch {
-                transition: Transition::Dissolve,
-                durations: Durations {
-                    out: 0.0,
-                    into: 1.2
-                },
-            }
-        );
-    }
-
-    #[test]
-    fn a_lift_fades_for_a_beat_out_and_in() {
-        let mut switch = seasoned();
-        let cue = MusicValues {
-            tempo: 100.0,
-            ..start(song(1.0, 0.5), 2.0, 2.0, 0.9, 1.0)
-        };
-        assert_eq!(switch.tick(40.0, &cue, false, true), fade(0.6));
-    }
-
-    #[test]
-    fn a_scene_that_is_not_built_waits_for_the_next_place() {
-        let mut switch = seasoned();
-        let cue = start(song(0.0, 0.5), 2.0, 2.0, 0.5, 0.5);
-        assert_eq!(switch.tick(40.0, &cue, false, false), Decision::Wait);
-        // The next frame is no cue any more: ready now does not switch off the music.
-        assert_eq!(
-            switch.tick(40.02, &song(2.0, 0.5), false, true),
-            Decision::Wait
-        );
-        let later = start(song(2.0, 0.5), 3.0, 3.0, 0.5, 0.5);
-        assert_eq!(switch.tick(50.0, &later, false, true), fade(0.5));
-    }
-
-    #[test]
-    fn a_switch_starts_the_wait_again() {
-        let mut switch = seasoned();
-        let cue = start(song(0.0, 0.5), 2.0, 2.0, 0.5, 0.5);
-        assert_eq!(switch.tick(40.0, &cue, false, true), fade(0.5));
-        // The next frame counts from there: prepare in 22 s, and no switch before 30 s.
-        let next = start(song(2.0, 0.5), 3.0, 3.0, 0.5, 0.5);
-        assert_eq!(switch.tick(40.5, &next, false, true), Decision::Wait);
-        assert_eq!(
-            switch.tick(62.5, &song(3.0, 0.5), false, true),
-            Decision::Prepare
-        );
-        switch.prepare_started();
-        assert_eq!(switch.tick(65.0, &next, false, true), Decision::Wait);
-    }
-
-    #[test]
-    fn pausing_starts_the_wait_again() {
-        let mut switch = seasoned();
-        let music = song(1.0, 0.5);
-        assert_eq!(switch.tick(100.0, &music, true, true), Decision::Wait);
-        assert_eq!(switch.tick(500.0, &music, true, true), Decision::Wait);
-        // Unpausing counts from the next frame, not from the old start: no prepare yet.
-        assert_eq!(switch.tick(501.0, &music, false, true), Decision::Wait);
-        assert_eq!(switch.tick(510.0, &music, false, true), Decision::Wait);
-        assert_eq!(switch.tick(523.0, &music, false, true), Decision::Prepare);
-    }
-
-    #[test]
-    fn a_manual_load_starts_the_wait_again() {
-        let mut switch = seasoned();
-        switch.tick(25.0, &song(1.0, 0.5), false, true);
-        switch.restart();
-        // Prepare is asked for again, 22 s after the next frame.
-        assert_eq!(
-            switch.tick(26.0, &song(1.0, 0.5), false, true),
-            Decision::Wait
-        );
-        assert_eq!(
-            switch.tick(48.0, &song(1.0, 0.5), false, true),
-            Decision::Prepare
-        );
-    }
-
-    #[test]
-    fn run_helper_finds_a_forced_switch_in_a_quiet_song() {
-        let mut switch = SceneSwitch::default();
-        let (at, decision) = run(&mut switch, 0.0, 200.0, &song(0.0, 0.5)).unwrap();
-        assert!((92.0..=93.0).contains(&at), "{at}");
-        assert_eq!(decision, fade(0.5));
-    }
-
     #[test]
     fn a_requested_switch_takes_the_durations_of_an_automatic_one() {
         // At 120 bpm, followed: a fade takes a beat out and in, a dissolve two beats.
-        let music = song(0.0, 0.5);
+        let music = song(0.0);
         let (kind, durations) = requested(Transition::Fade, &music);
         assert_eq!(kind, Transition::Fade);
         assert_eq!((durations.out, durations.into), (0.5, 0.5));
@@ -1051,72 +442,6 @@ mod tests {
         // Without a followed beat the fixed times.
         let (_, durations) = requested(Transition::Fade, &no_chart());
         assert_eq!(durations.out, UNFOLLOWED_FADE_SECONDS);
-    }
-
-    fn names(list: &[&str]) -> Vec<String> {
-        list.iter().map(|n| n.to_string()).collect()
-    }
-
-    /// A lift to the section with this label, 100 bpm.
-    fn lift(label: f32) -> MusicValues {
-        MusicValues {
-            tempo: 100.0,
-            ..start(song(1.0, 0.5), 2.0, label, 0.9, 1.0)
-        }
-    }
-
-    #[test]
-    fn a_lift_takes_a_strong_transition_the_scene_allows_by_its_section_label() {
-        let strong = Allowed::of(&names(&["fade", "flash", "glitch", "mosaic"]));
-        let kind_at = |allowed, label| {
-            let mut switch = seasoned();
-            switch.allow(allowed);
-            match switch.tick(40.0, &lift(label), false, true) {
-                Decision::Switch { transition, .. } => transition,
-                other => panic!("{other:?}"),
-            }
-        };
-        // The same kind of section, the same transition; and the labels are not all alike.
-        let kinds: Vec<Transition> = (0..8).map(|label| kind_at(strong, label as f32)).collect();
-        assert_eq!(
-            kinds,
-            (0..8)
-                .map(|label| kind_at(strong, label as f32))
-                .collect::<Vec<_>>()
-        );
-        for kind in [Transition::Flash, Transition::Glitch, Transition::Mosaic] {
-            assert!(kinds.contains(&kind), "{kinds:?}");
-        }
-        // A scene that allows one strong transition gets that one.
-        let flash_only = Allowed::of(&names(&["fade", "flash"]));
-        assert!((0..8).all(|label| kind_at(flash_only, label as f32) == Transition::Flash));
-        // A scene without any fades at a lift, as before.
-        assert!((0..8).all(|label| kind_at(Allowed::default(), label as f32) == Transition::Fade));
-    }
-
-    #[test]
-    fn a_plain_change_fades_and_a_drop_dissolves_whatever_the_scene_allows() {
-        let strong = Allowed::of(&names(&["fade", "dissolve", "flash", "glitch", "mosaic"]));
-        let mut switch = seasoned();
-        switch.allow(strong);
-        let drop = start(song(1.0, 0.5), 2.0, 2.0, 0.2, 0.5);
-        assert!(matches!(
-            switch.tick(40.0, &drop, false, true),
-            Decision::Switch {
-                transition: Transition::Dissolve,
-                ..
-            }
-        ));
-        let mut switch = seasoned();
-        switch.allow(strong);
-        let plain = start(song(1.0, 0.5), 2.0, 3.0, 0.5, 0.5);
-        assert!(matches!(
-            switch.tick(40.0, &plain, false, true),
-            Decision::Switch {
-                transition: Transition::Fade,
-                ..
-            }
-        ));
     }
 
     #[test]
@@ -1162,30 +487,13 @@ mod tests {
             }
         );
         assert_eq!(durations_of(Transition::Mosaic, None).into, 0.5);
-        // A flash for a lift starts early, to peak on the section's start.
-        let mut switch = seasoned();
-        switch.allow(Allowed::of(&names(&["flash"])));
-        let coming = MusicValues {
-            next_label: 3.0,
-            next_energy: 0.9,
-            cue_in: 0.5,
-            tempo: 120.0,
-            ..song(1.0, 0.5)
-        };
-        assert!(matches!(
-            switch.tick(39.5, &coming, false, true),
-            Decision::Switch {
-                transition: Transition::Flash,
-                durations: Durations { out, into },
-            } if out == 0.5 && into == 1.0
-        ));
     }
 
     #[test]
     fn a_requested_strong_switch_is_that_transition_with_its_durations() {
         let music = MusicValues {
             tempo: 100.0,
-            ..song(1.0, 0.5)
+            ..song(1.0)
         };
         assert_eq!(
             requested(Transition::Flash, &music),
@@ -1201,36 +509,10 @@ mod tests {
     }
 
     #[test]
-    fn a_lift_plays_its_strong_transition_by_the_roll_of_its_moment() {
-        let strong = Allowed::of(&names(&["fade", "flash"]));
-        let kind_at = |chance: f32, label: f32| {
-            let mut switch = seasoned();
-            switch.set_chances(Chances::every(chance));
-            switch.allow(strong);
-            match switch.tick(40.0, &lift(label), false, true) {
-                Decision::Switch { transition, .. } => transition,
-                other => panic!("{other:?}"),
-            }
-        };
-        // Never at a chance of 0, always at 1.
-        assert_eq!(kind_at(0.0, 2.0), Transition::Fade);
-        assert_eq!(kind_at(1.0, 2.0), Transition::Flash);
-        // At the default chance the moment (the section it lands on) decides, the same each time.
-        let mut switch = seasoned();
-        switch.set_chances(Chances::default());
-        switch.allow(strong);
-        let first = switch.tick(40.0, &lift(2.0), false, true);
-        let mut again = seasoned();
-        again.set_chances(Chances::default());
-        again.allow(strong);
-        assert_eq!(again.tick(40.0, &lift(2.0), false, true), first);
-    }
-
-    #[test]
     fn a_dressed_cut_is_short() {
         let music = MusicValues {
             tempo: 120.0,
-            ..song(1.0, 0.5)
+            ..song(1.0)
         };
         // A beat is 0.5 s: the flash rises for a quarter of it and falls for twice as long.
         assert_eq!(
@@ -1262,6 +544,293 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_requested_cutin_takes_the_durations_of_an_automatic_one() {
+        let (kind, durations) = requested(Transition::CutIn(CutInStyle::Echo), &song(0.0));
+        assert_eq!(kind, Transition::CutIn(CutInStyle::Echo));
+        assert_eq!(durations.out, CUTIN_BAND_SECONDS + 0.5);
+        assert_eq!(durations.into, CUTIN_TEAR_SECONDS);
+        assert!(!durations.is_instant(kind));
+    }
+
+    /// A song with a chart, playing at a usual loudness: tempo 120 (a beat is 0.5 s), the beat
+    /// followed, in the section with this label.
+    fn song(label: f32) -> MusicValues {
+        MusicValues {
+            has_chart: 1,
+            tempo: 120.0,
+            locked: 1.0,
+            loudness: 0.5,
+            section_label: label,
+            ..MusicValues::default()
+        }
+    }
+
+    /// The same without a chart: no beat, no sections.
+    fn no_chart() -> MusicValues {
+        MusicValues {
+            tempo: 120.0,
+            loudness: 0.5,
+            ..MusicValues::default()
+        }
+    }
+
+    /// A frame of `music` with a beat.
+    fn beat(music: MusicValues) -> MusicValues {
+        MusicValues {
+            hits: 1,
+            beats: 1,
+            ..music
+        }
+    }
+
+    /// A frame of `music` in the gap between two songs.
+    fn silence(music: MusicValues) -> MusicValues {
+        MusicValues {
+            loudness: 0.0,
+            ..music
+        }
+    }
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|n| n.to_string()).collect()
+    }
+
+    const A: &str = "/music/a.flac";
+    const B: &str = "/music/b.flac";
+
+    fn tick(switch: &mut SceneSwitch, now: f64, path: &str, music: &MusicValues) -> Decision {
+        switch.tick(now, Some(Path::new(path)), music, false, true)
+    }
+
+    /// A scene that came on with the song A, which still plays at 1 s.
+    fn on_song_a() -> SceneSwitch {
+        let mut switch = SceneSwitch::default();
+        assert_eq!(tick(&mut switch, 0.0, A, &song(0.0)), Decision::Wait);
+        switch.allow(Allowed::of(&names(&["fade", "flash", "glitch", "mosaic"])));
+        switch
+    }
+
+    /// B begins at 10 s and its scene is built at once (the build is told as it is asked for).
+    fn song_b_begins(switch: &mut SceneSwitch, music: &MusicValues) {
+        assert_eq!(tick(switch, 10.0, B, music), Decision::Prepare);
+        assert_eq!(tick(switch, 10.1, B, music), Decision::Prepare);
+        switch.prepare_started();
+    }
+
+    fn fade_through_black(seconds: f64) -> Decision {
+        Decision::Switch {
+            transition: Transition::Fade,
+            durations: Durations {
+                out: seconds,
+                into: seconds,
+            },
+        }
+    }
+
+    fn is_strong(decision: Decision) -> bool {
+        matches!(
+            decision,
+            Decision::Switch {
+                transition: Transition::Flash
+                    | Transition::Glitch
+                    | Transition::Mosaic
+                    | Transition::CutIn(_),
+                ..
+            }
+        )
+    }
+
+    #[test]
+    fn nothing_switches_within_one_song_however_long_it_is() {
+        let mut switch = on_song_a();
+        // Ten minutes of sections, strong cues, beats and a silence in the middle of the song.
+        for step in 0..1200 {
+            let now = f64::from(step) * 0.5;
+            let music = MusicValues {
+                section: (now / 20.0).floor() as f32,
+                section_label: ((now / 20.0).floor() % 3.0) as f32,
+                section_energy: ((now / 20.0).floor() % 2.0) as f32,
+                cue: 1.0,
+                cues: u32::from(step % 40 == 0),
+                ..beat(song(0.0))
+            };
+            let music = if (300.0..304.0).contains(&now) {
+                silence(music)
+            } else {
+                music
+            };
+            assert_eq!(
+                tick(&mut switch, now, A, &music),
+                Decision::Wait,
+                "at {now}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_new_song_builds_the_next_scene_and_switches_at_its_first_beat() {
+        let mut switch = on_song_a();
+        let music = song(2.0);
+        song_b_begins(&mut switch, &music);
+        // The build is under way, and the old scene goes on.
+        assert_eq!(
+            switch.tick(11.0, Some(Path::new(B)), &beat(music), false, false),
+            Decision::Wait
+        );
+        // Built: it waits for a beat, then takes a strong transition of the scene.
+        assert_eq!(tick(&mut switch, 12.0, B, &music), Decision::Wait);
+        assert!(is_strong(tick(&mut switch, 12.3, B, &beat(music))));
+        // Switched: this song's scene is the new one, and B going on is no change.
+        for step in 0..100 {
+            let now = 13.0 + f64::from(step);
+            assert_eq!(tick(&mut switch, now, B, &beat(music)), Decision::Wait);
+        }
+    }
+
+    #[test]
+    fn without_a_beat_the_switch_takes_the_first_hit_or_gives_up_after_two_seconds() {
+        let mut switch = on_song_a();
+        song_b_begins(&mut switch, &no_chart());
+        assert_eq!(tick(&mut switch, 20.0, B, &no_chart()), Decision::Wait);
+        assert_eq!(tick(&mut switch, 21.9, B, &no_chart()), Decision::Wait);
+        let late = tick(&mut switch, 22.0, B, &no_chart());
+        assert!(is_strong(late), "{late:?}");
+        // Another time a hit comes before that.
+        let mut switch = on_song_a();
+        song_b_begins(&mut switch, &no_chart());
+        assert_eq!(tick(&mut switch, 20.0, B, &no_chart()), Decision::Wait);
+        assert!(is_strong(tick(&mut switch, 20.5, B, &beat(no_chart()))));
+    }
+
+    #[test]
+    fn a_new_song_that_starts_in_silence_fades_through_black_at_once() {
+        let mut switch = on_song_a();
+        let quiet = silence(no_chart());
+        song_b_begins(&mut switch, &quiet);
+        // The fixed fade, as the beat is not followed.
+        assert_eq!(
+            tick(&mut switch, 10.5, B, &quiet),
+            fade_through_black(UNFOLLOWED_FADE_SECONDS)
+        );
+        // With the beat followed (a fade-out of a chart's song): a beat out and in.
+        let mut switch = on_song_a();
+        let quiet = silence(song(0.0));
+        song_b_begins(&mut switch, &quiet);
+        assert_eq!(tick(&mut switch, 10.5, B, &quiet), fade_through_black(0.5));
+    }
+
+    #[test]
+    fn a_scene_that_is_not_built_yet_waits_on_the_old_one() {
+        let mut switch = on_song_a();
+        let music = song(1.0);
+        song_b_begins(&mut switch, &silence(music));
+        for step in 0..50 {
+            let now = 11.0 + f64::from(step);
+            let decision = switch.tick(now, Some(Path::new(B)), &silence(music), false, false);
+            assert_eq!(decision, Decision::Wait);
+        }
+        assert_eq!(
+            tick(&mut switch, 62.0, B, &silence(music)),
+            fade_through_black(0.5)
+        );
+    }
+
+    #[test]
+    fn pausing_seeking_and_the_same_file_again_are_no_change() {
+        let mut switch = on_song_a();
+        let at = |song_time: f32| MusicValues {
+            song_time,
+            ..song(0.0)
+        };
+        // A seek is a jump of the song's time, a pause is a standing one.
+        assert_eq!(tick(&mut switch, 5.0, A, &at(150.0)), Decision::Wait);
+        assert_eq!(tick(&mut switch, 6.0, A, &at(3.0)), Decision::Wait);
+        assert_eq!(tick(&mut switch, 7.0, A, &at(3.0)), Decision::Wait);
+        // No file for a moment (between two reports) and the same one again (repeat one).
+        let none = switch.tick(8.0, None, &song(0.0), false, true);
+        assert_eq!(none, Decision::Wait);
+        assert_eq!(tick(&mut switch, 9.0, A, &at(0.0)), Decision::Wait);
+        assert_eq!(tick(&mut switch, 9.5, A, &beat(at(0.0))), Decision::Wait);
+    }
+
+    #[test]
+    fn a_locked_scene_stays_across_songs_and_the_next_change_after_it_switches() {
+        let mut switch = on_song_a();
+        // Locked (the loop passes `paused`): B begins and then C, with nothing happening.
+        let music = song(0.0);
+        assert_eq!(
+            switch.tick(10.0, Some(Path::new(B)), &music, true, false),
+            Decision::Wait
+        );
+        assert_eq!(
+            switch.tick(500.0, Some(Path::new(B)), &music, true, false),
+            Decision::Wait
+        );
+        // Unlocked while B plays: B is what the scene is on with, so nothing yet.
+        for step in 0..20 {
+            let now = 501.0 + f64::from(step);
+            assert_eq!(tick(&mut switch, now, B, &beat(music)), Decision::Wait);
+        }
+        // Then the next song changes it.
+        assert_eq!(tick(&mut switch, 600.0, A, &music), Decision::Prepare);
+    }
+
+    #[test]
+    fn a_scene_loaded_by_hand_takes_the_song_that_plays_and_drops_what_was_wanted() {
+        let mut switch = on_song_a();
+        song_b_begins(&mut switch, &song(0.0));
+        switch.restart();
+        for step in 0..10 {
+            let now = 11.0 + f64::from(step);
+            assert_eq!(tick(&mut switch, now, B, &beat(song(0.0))), Decision::Wait);
+        }
+    }
+
+    #[test]
+    fn nothing_switches_without_a_file() {
+        let mut switch = SceneSwitch::default();
+        switch.allow(Allowed::of(&names(&["flash"])));
+        for step in 0..1000 {
+            let now = f64::from(step);
+            let decision = switch.tick(now, None, &beat(song(0.0)), false, true);
+            assert_eq!(decision, Decision::Wait);
+        }
+        // The first song after that is what the scene is on with, not a change; the next is.
+        assert_eq!(tick(&mut switch, 1000.0, A, &song(0.0)), Decision::Wait);
+        assert_eq!(tick(&mut switch, 1001.0, A, &song(0.0)), Decision::Wait);
+        assert_eq!(tick(&mut switch, 1002.0, B, &song(0.0)), Decision::Prepare);
+    }
+
+    #[test]
+    fn the_scene_coming_picks_the_strong_transition_by_the_section_label() {
+        let strong = Allowed::of(&names(&["fade", "flash", "glitch", "mosaic"]));
+        let music = song(1.0);
+        let kind_at = |allowed, label| choose(false, label, &music, allowed).0;
+        // The same kind of section, the same transition; and the labels are not all alike.
+        let kinds: Vec<Transition> = (0..8).map(|label| kind_at(strong, label as f32)).collect();
+        assert_eq!(
+            kinds,
+            (0..8)
+                .map(|label| kind_at(strong, label as f32))
+                .collect::<Vec<_>>()
+        );
+        for kind in [Transition::Flash, Transition::Glitch, Transition::Mosaic] {
+            assert!(kinds.contains(&kind), "{kinds:?}");
+        }
+        // A scene that allows one strong transition gets that one.
+        let flash_only = Allowed::of(&names(&["fade", "flash"]));
+        assert!((0..8).all(|label| kind_at(flash_only, label as f32) == Transition::Flash));
+        // A scene without any fades, else dissolves, else cuts, and fades if it names none.
+        assert_eq!(kind_at(Allowed::default(), 2.0), Transition::Fade);
+        let only = |name: &str| Allowed::of(&names(&[name]));
+        assert_eq!(kind_at(only("dissolve"), 2.0), Transition::Dissolve);
+        assert_eq!(kind_at(only("cut"), 2.0), Transition::Cut);
+        assert_eq!(kind_at(only("nothing"), 2.0), Transition::Fade);
+        // In silence it fades through black whatever the scene takes.
+        assert_eq!(choose(true, 2.0, &music, strong).0, Transition::Fade);
+    }
+
     /// Allowed with only the cut-in as a strong transition, and the plain ones as ever.
     fn with_cutin() -> Allowed {
         Allowed {
@@ -1270,177 +839,28 @@ mod tests {
         }
     }
 
-    /// A lift at 120 bpm (a beat is 0.5 s), landing on a section with this label.
-    fn lift_120(label: f32) -> MusicValues {
-        start(song(1.0, 0.5), 2.0, label, 0.9, 1.0)
-    }
-
-    fn cutin(style: CutInStyle, hold: f64) -> Decision {
-        Decision::Switch {
-            transition: Transition::CutIn(style),
-            durations: Durations {
-                out: CUTIN_BAND_SECONDS + hold,
-                into: CUTIN_TEAR_SECONDS,
-            },
-        }
-    }
-
     #[test]
-    fn a_lift_cuts_in_when_the_scene_takes_it() {
-        let mut switch = seasoned();
-        switch.allow(with_cutin());
+    fn a_switch_cuts_in_when_the_scene_takes_it() {
         // A beat of hold at 120 bpm, in the style of the section's label.
         let style = CutInStyle::of_section(2.0, true);
         assert_eq!(
-            switch.tick(40.0, &lift_120(2.0), false, true),
-            cutin(style, 0.5)
-        );
-        // The beat not followed: the fixed hold.
-        let mut switch = seasoned();
-        switch.allow(with_cutin());
-        let music = MusicValues {
-            locked: 0.0,
-            ..lift_120(2.0)
-        };
-        assert_eq!(
-            switch.tick(40.0, &music, false, true),
-            cutin(style, UNFOLLOWED_CUTIN_HOLD_SECONDS)
-        );
-    }
-
-    #[test]
-    fn only_a_lift_cuts_in_and_a_scene_that_does_not_list_it_fades() {
-        let allowed = with_cutin();
-        // A plain change fades and a drop dissolves, whatever the scene takes.
-        let mut switch = seasoned();
-        switch.allow(allowed);
-        let plain = start(song(1.0, 0.5), 2.0, 2.0, 0.5, 0.5);
-        assert_eq!(switch.tick(40.0, &plain, false, true), fade(0.5));
-        let mut switch = seasoned();
-        switch.allow(allowed);
-        let drop = start(song(1.0, 0.5), 2.0, 2.0, 0.2, 0.5);
-        assert!(matches!(
-            switch.tick(40.0, &drop, false, true),
-            Decision::Switch {
-                transition: Transition::Dissolve,
-                ..
-            }
-        ));
-        // A scene with the default list fades at a lift.
-        let mut switch = seasoned();
-        assert_eq!(switch.tick(40.0, &lift_120(2.0), false, true), fade(0.5));
-    }
-
-    #[test]
-    fn the_strong_pick_is_by_the_section_label_not_by_chance() {
-        let music = lift_120(3.0);
-        let first = choose(Change::Lift, 3.0, &music, with_cutin(), true);
-        for _ in 0..20 {
-            assert_eq!(choose(Change::Lift, 3.0, &music, with_cutin(), true), first);
-        }
-        // The labels pick the styles, so the next kind of section may dress it another way.
-        let styles: Vec<_> = (0..8)
-            .map(|label| choose(Change::Lift, label as f32, &music, with_cutin(), true).0)
-            .collect();
-        assert!(styles.iter().all(|t| matches!(t, Transition::CutIn(_))));
-        assert!(styles.iter().any(|t| *t != styles[0]));
-    }
-
-    #[test]
-    fn a_known_lift_starts_the_cutin_early_to_tear_at_the_section() {
-        let mut switch = seasoned();
-        switch.allow(with_cutin());
-        // The band and its hold take 0.667 s, so it starts when the next section is that near,
-        // in the style of the section coming.
-        let coming = |cue_in| MusicValues {
-            next_label: 2.0,
-            next_energy: 0.9,
-            cue_in,
-            ..song(1.0, 0.5)
-        };
-        assert_eq!(switch.tick(39.0, &coming(0.7), false, true), Decision::Wait);
-        let style = CutInStyle::of_section(2.0, true);
-        assert_eq!(
-            switch.tick(39.1, &coming(0.6), false, true),
-            cutin(style, 0.5)
-        );
-    }
-
-    #[test]
-    fn a_requested_cutin_takes_the_durations_of_an_automatic_one() {
-        let (kind, durations) = requested(Transition::CutIn(CutInStyle::Echo), &song(0.0, 0.5));
-        assert_eq!(kind, Transition::CutIn(CutInStyle::Echo));
-        assert_eq!(durations.out, CUTIN_BAND_SECONDS + 0.5);
-        assert_eq!(durations.into, CUTIN_TEAR_SECONDS);
-        assert!(!durations.is_instant(kind));
-    }
-
-    #[test]
-    fn the_runtime_file_has_todays_numbers() {
-        let runtime = crate::bind::RuntimeBindings::embedded();
-        let s = &runtime.switching;
-        assert_eq!(
-            (s.min, s.lead, s.relax, s.max, s.grace),
+            choose(false, 2.0, &song(2.0), with_cutin()),
             (
-                MIN_SECONDS,
-                PREPARE_LEAD_SECONDS,
-                RELAX_SECONDS,
-                MAX_SECONDS,
-                MAX_GRACE_SECONDS
+                Transition::CutIn(style),
+                Durations {
+                    out: CUTIN_BAND_SECONDS + 0.5,
+                    into: CUTIN_TEAR_SECONDS,
+                }
             )
         );
-        assert_eq!(s.change(), ENERGY_CHANGE);
-        assert_eq!(s.places[0].strength, SECTION_CUE);
-        assert_eq!(s.places[0].lift, LIFT_CUE);
-        assert!(!s.places[0].any && s.places[1].any);
-        assert_eq!(s.early.source().name, "cue_in");
-        let forced: Vec<&str> = s.forced.iter().map(|p| p.source().name).collect();
-        assert_eq!(forced, ["beats", "hits"]);
-    }
-
-    #[test]
-    fn the_wait_follows_the_times_of_the_file() {
-        let change = start(song(0.0, 0.5), 2.0, 2.0, 0.5, 0.5);
-        // A new section at 12 s: too early by the minimum of 30 s.
-        let mut switch = seasoned();
-        assert_eq!(switch.tick(12.0, &change, false, true), Decision::Wait);
-        let custom = crate::bind::tests::embedded_with("min = 30.0", "min = 10.0");
-        let mut switch = seasoned();
-        switch.use_binds(&custom.switching);
-        assert_eq!(switch.tick(12.0, &change, false, true), fade(0.5));
-    }
-
-    #[test]
-    fn what_is_a_section_start_follows_the_file() {
-        // A cue of 0.5 with a new label switches by the file; as a weaker cue it waits.
-        let cue = start(song(0.0, 0.5), 2.0, 2.0, 0.5, 0.5);
-        let mut switch = seasoned();
-        assert_eq!(switch.tick(40.0, &cue, false, true), fade(0.5));
-        let custom = crate::bind::tests::embedded_with(
-            "when = { levels = \"AB\", strength = 0.5, lift = 0.8, change = 0.1 }",
-            "when = { levels = \"AB\", strength = 0.9, lift = 0.95, change = 0.1 }",
-        );
-        let mut switch = seasoned();
-        switch.use_binds(&custom.switching);
-        assert_eq!(switch.tick(40.0, &cue, false, true), Decision::Wait);
-        assert_eq!(switch.tick(RELAX_SECONDS, &cue, false, true), fade(0.5));
-    }
-
-    #[test]
-    fn what_ends_the_longest_wait_follows_the_file() {
-        // Only the hits end it: a beat that is not a hit does not.
-        let custom = crate::bind::tests::embedded_with(
-            "[[bind]]\ntarget = \"switch.forced\"\nsource = \"beats\"\nhow = \"trigger\"\n",
-            "",
-        );
-        let beat = MusicValues {
-            beats: 1,
-            ..song(1.0, 0.5)
+        // The beat not followed: the fixed hold.
+        let music = MusicValues {
+            locked: 0.0,
+            ..song(2.0)
         };
-        let mut switch = seasoned();
-        switch.use_binds(&custom.switching);
-        assert_eq!(switch.tick(MAX_SECONDS, &beat, false, true), Decision::Wait);
-        let hit = MusicValues { hits: 1, ..beat };
-        assert_eq!(switch.tick(MAX_SECONDS, &hit, false, true), fade(0.5));
+        assert_eq!(
+            choose(false, 2.0, &music, with_cutin()).1.out,
+            CUTIN_BAND_SECONDS + UNFOLLOWED_CUTIN_HOLD_SECONDS
+        );
     }
 }

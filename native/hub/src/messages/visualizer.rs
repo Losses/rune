@@ -52,7 +52,8 @@ pub struct PreviousVisualizerPresetRequest {}
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct RandomVisualizerPresetRequest {}
 
-/// Pauses the automatic switching of scenes while `paused`; the timer starts over when it ends.
+/// Pauses the automatic switching of scenes while `paused`; a song that begins meanwhile does not
+/// change the scene.
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetVisualizerAutoSwitchPausedRequest {
     pub paused: bool,

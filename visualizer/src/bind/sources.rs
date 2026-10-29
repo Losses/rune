@@ -19,6 +19,12 @@ use crate::scene::MusicValues;
 /// silent.
 const AUDIBLE_FULL: f32 = 0.25;
 
+/// How much is heard in this frame's music: 1 at a usual loudness, falling with a fade-out to 0 in
+/// silence (the `audible` source).
+pub fn audible(music: &MusicValues) -> f32 {
+    (music.loudness / AUDIBLE_FULL).clamp(0.0, 1.0)
+}
+
 /// What a source says in one frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Reading {
@@ -170,7 +176,7 @@ pub static SOURCES: &[Source] = &[
         "audible",
         ALL,
         "How much is heard: 1 at a usual loudness, falling with a fade-out to 0 in silence.",
-        |m, _| value((m.loudness / AUDIBLE_FULL).clamp(0.0, 1.0)),
+        |m, _| value(audible(m)),
     ),
     event_source(
         "hits",

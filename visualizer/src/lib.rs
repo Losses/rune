@@ -258,9 +258,10 @@ impl Default for Library {
 }
 
 impl Library {
-    /// The scene for an automatic switch, if there are scenes to choose from.
-    fn auto_next(&mut self, rng: &mut ThreadRng) -> Option<Result<Preset>> {
-        (self.folder.len() > 0).then(|| self.folder.next(rng))
+    /// The scene for an automatic switch while `current` is on screen, if there are scenes to
+    /// choose from.
+    fn auto_next(&mut self, rng: &mut ThreadRng, current: &Location) -> Option<Result<Preset>> {
+        (self.folder.len() > 0).then(|| self.folder.next_other(rng, current))
     }
 }
 
@@ -523,8 +524,7 @@ impl Visualizer {
     }
 
     /// Follow the player: while the music is paused or stopped the visualizer draws nothing and
-    /// its clock stops, so scenes and the automatic switching resume where they
-    /// were.
+    /// its clock stops, so scenes resume where they were.
     pub fn set_playing(&self, playing: bool) {
         self.shared.playing.store(playing, Ordering::Relaxed);
     }
@@ -739,8 +739,9 @@ impl Visualizer {
         self.load_entry(&preset)
     }
 
-    /// Pause or resume the automatic switching of scenes. A pause makes the timer start over
-    /// when it ends. A new render thread starts unpaused.
+    /// Pause or resume the automatic switching of scenes. While paused a song that begins is no
+    /// change: the scene counts as on with the song that plays when the pause ends. A new render
+    /// thread starts unpaused.
     pub fn set_auto_switch_paused(&self, paused: bool) {
         self.shared
             .auto_switch_paused
@@ -1040,12 +1041,17 @@ fn run(
             Err(TryLockError::Poisoned(e)) => Some(e.into_inner()),
             Err(TryLockError::WouldBlock) => None,
         };
-        // The switch follows the music (see [`switching`]). It only happens with the next scene
-        // built and no scene of the user's still on its way.
+        // The switch follows the songs (see [`switching`]): it comes when another file starts. It
+        // only happens with the next scene built and no scene loaded by hand still on its way.
         let ready = auto.held.is_some() && !loads.is_pending();
-        let decision = auto
-            .decider
-            .tick(time, pipeline.music(), switch_paused, ready);
+        let song = lock(&shared.playback).path.clone();
+        let decision = auto.decider.tick(
+            time,
+            song.as_deref(),
+            pipeline.music(),
+            switch_paused,
+            ready,
+        );
         if switch_paused {
             // Nothing is built ahead while the switch waits.
             auto.restart();
@@ -1054,7 +1060,8 @@ fn run(
             Decision::Wait => {}
             Decision::Prepare => {
                 if let Some(mut library) = free() {
-                    let next = library.auto_next(&mut rng);
+                    let current = Location::parse(&shared.status().preset_path);
+                    let next = library.auto_next(&mut rng, &current);
                     drop(library);
                     match next {
                         Some(Ok(preset)) => {
@@ -1110,8 +1117,6 @@ fn run(
         // How often the music's moments play an effect: the user's setting, or a lab's chance.
         let chances = shared.effect_chances();
         pipeline.set_effect_chances(chances);
-        auto.decider.set_chances(chances);
-        auto.decider.use_binds(&pipeline.runtime().switching);
         if shared.fall_back.swap(false, Ordering::Relaxed) {
             pipeline.fall_back_to_readback();
         }
@@ -1446,7 +1451,8 @@ fn lab(
             Err(e) => shared.set_error(format!("{e:#}")),
         },
         LabCommand::NextScene(transition) => {
-            let next = lock(library).auto_next(&mut rand::thread_rng());
+            let current = Location::parse(&shared.status().preset_path);
+            let next = lock(library).auto_next(&mut rand::thread_rng(), &current);
             match next {
                 Some(Ok(preset)) => {
                     let (transition, durations) = switching::replaced(
@@ -1502,7 +1508,6 @@ fn inspection(
             percent => Some(percent),
         },
         switching: InspectSwitching {
-            scene_seconds: auto.decider.seconds(time),
             preparing: auto.loads.is_pending(),
             held: auto.held.is_some(),
             transition: pipeline.transition_progress(time).map(|(kind, progress)| {

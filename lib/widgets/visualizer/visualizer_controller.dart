@@ -96,8 +96,8 @@ class VisualizerController {
     _syncAutoSwitchPaused();
   }
 
-  // Rust waits with the automatic switching while the scene is locked or the
-  // menu is open, and counts again from zero afterwards.
+  // Rust does not switch scenes by itself while the scene is locked or the
+  // menu is open, and takes the song that plays afterwards as the scene's own.
   void _syncAutoSwitchPaused() {
     if (!_attached) return;
     final paused = _locked || _menuOpen;

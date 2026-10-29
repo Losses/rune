@@ -8,13 +8,13 @@
 //!   setting, or a scene lab's). The roll is a hash of where the moment is in the song (its
 //!   section, and which impact of it), not dice: the same song plays its effects the same way each
 //!   time. A medium moment does not play within [`GAP_BARS`] of the last effect.
-//! - **Which.** It depends on what happens then. A scene switch takes a transition of the scene
-//!   coming (see `switching`); a hard cut of the director is dressed with a transition of the
-//!   scene's list; with neither, a lens effect of the list plays over the picture. A cut to a
-//!   shot the scene glides to is not dressed: it plays as a moment with no cut does, and a strong
-//!   cut is never one of those, it is hard. A strong moment takes a strong effect if the scene
-//!   lists one, a medium moment only a light one. Among those, the section's label picks (the same
-//!   kind of section, the same effect).
+//! - **Which.** It depends on what happens then. A scene switch, made when a new song starts, takes
+//!   a transition of the scene coming (see `switching`); a hard cut of the director is dressed with
+//!   a transition of the scene's list; with neither, a lens effect of the list plays over the
+//!   picture. A cut to a shot the scene glides to is not dressed: it plays as a moment with no cut
+//!   does, and a strong cut is never one of those, it is hard. A strong moment takes a strong
+//!   effect if the scene lists one, a medium moment only a light one. Among those, the section's
+//!   label picks (the same kind of section, the same effect).
 
 use std::sync::Arc;
 
@@ -436,8 +436,8 @@ mod tests {
         let runtime = RuntimeBindings::embedded();
         let m = &runtime.moments;
         assert_eq!(m.strong.len(), 1);
-        assert_eq!(m.strong[0].strength, crate::switching::LIFT_CUE);
-        assert_eq!(m.medium[0].strength, crate::switching::SECTION_CUE);
+        assert_eq!(m.strong[0].strength, 0.8);
+        assert_eq!(m.medium[0].strength, 0.5);
         assert_eq!(m.medium[0].pick.source().name, "cues");
         assert_eq!(m.medium[1].pick.source().name, "impacts");
         assert_eq!(m.medium[1].strength, 0.0);

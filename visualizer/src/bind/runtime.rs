@@ -1,8 +1,8 @@
-//! The runtime's own decisions as bindings: when an effect plays, when the camera cuts, when the
-//! scene switches, how long an effect lasts and what moves in it. `runtime.toml` declares them in
-//! the shape of a scene's `[[bind]]`; this module reads the file into one typed struct per area,
-//! which the decision code (`moments`, `scene::director`, `switching`, `course`) asks instead of
-//! keeping constants. See "The runtime's bindings" in `docs/music.md`.
+//! The runtime's own decisions as bindings: when an effect plays, when the camera cuts, how long an
+//! effect lasts and what moves in it. `runtime.toml` declares them in the shape of a scene's
+//! `[[bind]]`; this module reads the file into one typed struct per area, which the decision code
+//! (`moments`, `scene::director`, `course`) asks instead of keeping constants. See "The runtime's
+//! bindings" in `docs/music.md`.
 //!
 //! The file's values are the constants the code had before, so that behaviour at the defaults is
 //! the same; a test pins that. A source is read through [`super::sources`], so a name means one
@@ -71,13 +71,11 @@ pub(crate) enum Fb {
     Value(f32),
 }
 
-/// A bind's source, the levels it is limited to (if any) and what it falls back to: what one
-/// decision reads.
+/// A bind's source and what it falls back to: what one decision reads.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pick {
     pub(crate) source: &'static Source,
     pub(crate) fallback: Option<Fb>,
-    pub(crate) levels: Option<[bool; 3]>,
 }
 
 impl Pick {
@@ -86,7 +84,6 @@ impl Pick {
         Self {
             source,
             fallback: None,
-            levels: None,
         }
     }
 
@@ -113,10 +110,7 @@ impl Pick {
 
     /// Whether the bind's own source is the one read in this frame.
     pub fn applies(&self, music: &MusicValues) -> bool {
-        match self.levels {
-            Some(levels) => levels[Level::of(music).index()],
-            None => counts_here(self.source, music),
-        }
+        counts_here(self.source, music)
     }
 
     /// What the bind says in this frame's music.
@@ -213,34 +207,6 @@ const SPECS: &[Spec] = &[
         kind: Kind::Value,
         keys: &["on", "from", "to", "lift", "chance"],
         several: false,
-    },
-    Spec {
-        target: "switch.place",
-        hows: TRIGGER,
-        kind: Kind::Event,
-        keys: &["levels", "strength", "lift", "change", "any"],
-        several: true,
-    },
-    Spec {
-        target: "switch.early",
-        hows: FOLLOW,
-        kind: Kind::Value,
-        keys: &[],
-        several: false,
-    },
-    Spec {
-        target: "switch.timing",
-        hows: &[],
-        kind: Kind::None,
-        keys: &["min", "lead", "relax", "max", "grace"],
-        several: false,
-    },
-    Spec {
-        target: "switch.forced",
-        hows: TRIGGER,
-        kind: Kind::Event,
-        keys: &[],
-        several: true,
     },
     Spec {
         target: "look.change",
@@ -438,18 +404,7 @@ impl Bound {
                         Some(Fb::Source(fallback))
                     }
                 };
-                let levels = match raw.when.get("levels") {
-                    None => None,
-                    Some(toml::Value::String(letters)) => Some(levels_of(letters)?),
-                    Some(other) => {
-                        bail!("`when.levels` must be letters such as \"AB\", not {other}")
-                    }
-                };
-                Some(Pick {
-                    source,
-                    fallback,
-                    levels,
-                })
+                Some(Pick { source, fallback })
             }
         };
         Ok(Self {
@@ -470,17 +425,6 @@ impl Bound {
         match self.when.get(key) {
             Some(value) => number(value, &format!("`when.{key}`")),
             None => Ok(default),
-        }
-        .with_context(|| self.name.clone())
-    }
-
-    fn flag(&self, key: &str, default: bool) -> Result<bool> {
-        match self.when.get(key) {
-            None => Ok(default),
-            Some(toml::Value::Boolean(v)) => Ok(*v),
-            Some(other) => Err(anyhow::anyhow!(
-                "`when.{key}` must be true or false, not {other}"
-            )),
         }
         .with_context(|| self.name.clone())
     }
@@ -546,20 +490,6 @@ impl Bound {
 fn find(name: &str) -> Result<&'static Source> {
     sources::find(name)
         .with_context(|| format!("no source `{name}` (the sources are: {})", sources::names()))
-}
-
-fn levels_of(letters: &str) -> Result<[bool; 3]> {
-    let mut levels = [false; 3];
-    for letter in letters.chars() {
-        match letter {
-            'A' => levels[0] = true,
-            'B' => levels[1] = true,
-            'C' => levels[2] = true,
-            other => bail!("no level `{other}` in `when.levels` (A, B or C)"),
-        }
-    }
-    ensure!(levels != [false; 3], "`when.levels` names no level");
-    Ok(levels)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -937,123 +867,6 @@ impl LookBinds {
     }
 }
 
-/// One `switch.place` bind.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Place {
-    pub(crate) pick: Pick,
-    pub(crate) strength: f32,
-    pub(crate) lift: f32,
-    pub(crate) change: f32,
-    /// Any event is a place (no section is known to differ).
-    pub(crate) any: bool,
-}
-
-/// What a place heard in a frame.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Heard {
-    pub strength: f32,
-    /// The least strength of a section start, and of a lift.
-    pub section_at: f32,
-    pub lift_at: f32,
-    /// Any event is a place.
-    pub any: bool,
-}
-
-/// `switch.*`: where scenes switch and how long they wait.
-#[derive(Clone, Debug, PartialEq)]
-pub struct SwitchBinds {
-    pub(crate) places: Vec<Place>,
-    pub(crate) early: Pick,
-    pub(crate) forced: Vec<Pick>,
-    pub min: f64,
-    pub lead: f64,
-    pub relax: f64,
-    pub max: f64,
-    pub grace: f64,
-}
-
-impl SwitchBinds {
-    fn new(binds: &[&Bound]) -> Result<Self> {
-        let of = |target: &'static str| binds.iter().filter(move |b| b.spec.target == target);
-        let places = of("switch.place")
-            .map(|b| {
-                Ok(Place {
-                    pick: b.pick(),
-                    strength: b.num("strength", 0.0)?,
-                    lift: b.num("lift", 0.8)?,
-                    change: b.num("change", 0.1)?,
-                    any: b.flag("any", false)?,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let timing = of("switch.timing").next().expect("checked");
-        let seconds = |key: &str, default: f32| -> Result<f64> {
-            let value = timing.num(key, default)?;
-            timing.require(value >= 0.0, &format!("`when.{key}` must not be negative"))?;
-            Ok(f64::from(value))
-        };
-        let (min, lead, relax, max, grace) = (
-            seconds("min", 30.0)?,
-            seconds("lead", 8.0)?,
-            seconds("relax", 60.0)?,
-            seconds("max", 90.0)?,
-            seconds("grace", 2.0)?,
-        );
-        timing.require(lead <= min, "`when.lead` must not be more than `when.min`")?;
-        timing.require(
-            min <= relax && relax <= max,
-            "the times must go min, relax, max",
-        )?;
-        Ok(Self {
-            places,
-            early: of("switch.early").next().expect("checked").pick(),
-            forced: of("switch.forced").map(|b| b.pick()).collect(),
-            min,
-            lead,
-            relax,
-            max,
-            grace,
-        })
-    }
-
-    /// What the places hear in this frame: the first that applies at the frame's level and has an
-    /// event.
-    pub fn heard(&self, music: &MusicValues) -> Option<Heard> {
-        self.places.iter().find_map(|place| {
-            let reading = place.pick.said(music).reading()?;
-            (reading.count > 0).then_some(Heard {
-                strength: reading.value,
-                section_at: place.strength,
-                lift_at: place.lift,
-                any: place.any,
-            })
-        })
-    }
-
-    /// How much a section's energy must change for it to be another section, or a lift or drop
-    /// (from the first place that tells sections apart).
-    pub fn change(&self) -> f32 {
-        self.places
-            .iter()
-            .find(|place| !place.any)
-            .map_or(0.1, |place| place.change)
-    }
-
-    /// The seconds to the next section start, if it is known and the early fade may use it.
-    pub fn early(&self, music: &MusicValues) -> Option<f32> {
-        self.early
-            .said(music)
-            .reading()
-            .map(|reading| reading.value)
-            .filter(|seconds| *seconds >= 0.0)
-    }
-
-    /// Whether an event that ends the wait came this frame.
-    pub fn forced(&self, music: &MusicValues) -> bool {
-        self.forced.iter().any(|pick| pick.said(music).count() > 0)
-    }
-}
-
 /// `course.*`: how long the long effects last, how much of them is on, and what moves in them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CourseBinds {
@@ -1170,7 +983,6 @@ struct Row {
 pub struct RuntimeBindings {
     pub moments: Arc<MomentBinds>,
     pub director: Arc<DirectorBinds>,
-    pub switching: Arc<SwitchBinds>,
     pub looks: Arc<LookBinds>,
     pub course: CourseBinds,
     rows: Vec<Row>,
@@ -1225,7 +1037,6 @@ impl RuntimeBindings {
         Ok(Self {
             moments: Arc::new(MomentBinds::new(&area("moments."))?),
             director: Arc::new(DirectorBinds::new(&area("director."))?),
-            switching: Arc::new(SwitchBinds::new(&area("switch."))?),
             looks: Arc::new(LookBinds::new(&area("look."))?),
             course: CourseBinds::new(&area("course."))?,
             rows: bound
@@ -1309,12 +1120,6 @@ impl Default for DirectorBinds {
     }
 }
 
-impl Default for SwitchBinds {
-    fn default() -> Self {
-        (*RuntimeBindings::embedded().switching).clone()
-    }
-}
-
 impl Default for LookBinds {
     fn default() -> Self {
         (*RuntimeBindings::embedded().looks).clone()
@@ -1367,8 +1172,6 @@ pub(crate) mod tests {
         // Several binds on one target: the ORs.
         let count = |target: &str| report.iter().filter(|r| r.target == target).count();
         assert_eq!(count("moments.medium"), 2);
-        assert_eq!(count("switch.place"), 2);
-        assert_eq!(count("switch.forced"), 2);
         assert_eq!(count("look.change"), 1);
     }
 
@@ -1495,11 +1298,6 @@ pub(crate) mod tests {
             message.contains("director.cadence") && message.contains("how"),
             "{message}"
         );
-        let message = error_of("levels = \"C\"", "levels = \"D\"");
-        assert!(
-            message.contains("switch.place") && message.contains("level"),
-            "{message}"
-        );
         // A target left without a bind.
         let without = EMBEDDED.replacen(
             "target = \"course.amount\"",
@@ -1587,10 +1385,5 @@ pub(crate) mod tests {
             row("director.cadence").when,
             "{ above = 0.71, below = 0.35, gap = 6.0, lead = 4.0, seconds = [24.0, 16.0, 10.0] }"
         );
-        // A bind with no source still shows its numbers, and one with nothing has none.
-        assert!(row("switch.timing").when.contains("max = 90.0"));
-        assert_eq!(row("switch.timing").source, "");
-        assert_eq!(row("switch.early").when, "{}");
-        assert_eq!(row("switch.early").fallback, "");
     }
 }

@@ -13,10 +13,9 @@
 #   source, or `{ value = x }`. With no fallback the decision is off there. `bars` and `beats` mean
 #   something only while the beat is followed (`locked` above 0.5); the other sources, at the
 #   levels `docs/music.md` lists.
-# - Several binds on one target are an OR (moments.medium, switch.place, switch.forced); the
-#   first of them is the main one where a decision needs one number from the group.
-# - `when.levels` ("A", "B", "C" in any mix) limits a bind to those levels (switch.place only).
-# - `source` and `how` may be left out of a bind that only holds numbers (switch.timing, director.sizes).
+# - Several binds on one target are an OR (moments.medium); the first of them is the main one where
+#   a decision needs one number from the group.
+# - `source` and `how` may be left out of a bind that only holds numbers (director.sizes).
 
 # --- Moments: when an effect may play (src/moments.rs) ----------------------------------------
 
@@ -30,7 +29,7 @@ when = { strength = 0.8 }
 
 # A medium moment: another section start (a cue of 0.5 or more), or an impact. Both are ORed. The
 # first bind is also what the whole runtime calls "a section start": the director's establishing
-# cut, the start of a phrase for the effects' course, and the switch's places. A bind on `cues`
+# cut, the start of a phrase for the effects' course, and the look's changes. A bind on `cues`
 # rolls its chance by the section it starts; a bind on any other source, by its number in the
 # section.
 [[bind]]
@@ -129,50 +128,6 @@ target = "look.change"
 source = "cues"
 how = "trigger"
 when = { strength = 0.5, gap = 8.0, strength_unlabelled = 0.0, gap_unlabelled = 30.0, fade = 1.0, fade_seconds = 0.5 }
-
-# --- Scene switching (src/switching.rs) --------------------------------------------------------
-
-# A place to switch scenes: the start of a section that differs from the one before. A cue of
-# `strength` or more is a section start; it differs when its label changes or its energy by
-# `change`; a lift is a cue of `lift` or more. Weaker cues (the 8 bars of a followed beat, the 16
-# s without one) are places only after `switch.timing`'s `relax`.
-[[bind]]
-target = "switch.place"
-source = "cues"
-how = "trigger"
-when = { levels = "AB", strength = 0.5, lift = 0.8, change = 0.1 }
-
-# Without a chart there are no sections: any cue is a place, after the minimum.
-[[bind]]
-target = "switch.place"
-source = "cues"
-how = "trigger"
-when = { levels = "C", any = true }
-
-# A section start that is known ahead (with a chart), so that the fade can start early and land on
-# it: the fade starts when this many seconds are left.
-[[bind]]
-target = "switch.early"
-source = "cue_in"
-how = "follow"
-
-# The wait of a scene, in seconds of the visualizer's clock: no switch before `min`, the next
-# scene starts building `lead` seconds before it, any section start is a place after `relax`, and
-# after `max` the switch happens at the next event of `switch.forced`, or `grace` seconds later.
-[[bind]]
-target = "switch.timing"
-when = { min = 30.0, lead = 8.0, relax = 60.0, max = 90.0, grace = 2.0 }
-
-# What ends a scene's wait after `max`: the next beat or hit.
-[[bind]]
-target = "switch.forced"
-source = "beats"
-how = "trigger"
-
-[[bind]]
-target = "switch.forced"
-source = "hits"
-how = "trigger"
 
 # --- The effects' course (src/course.rs) -------------------------------------------------------
 

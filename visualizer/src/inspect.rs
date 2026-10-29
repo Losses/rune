@@ -296,8 +296,6 @@ impl InspectEffects {
 /// The automatic switching of scenes.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InspectSwitching {
-    /// Seconds on this scene on the visualizer's clock, once it is counted.
-    pub scene_seconds: Option<f64>,
     /// Whether the next scene is being built, or is built and held for the switch.
     pub preparing: bool,
     pub held: bool,

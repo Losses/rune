@@ -238,12 +238,49 @@ impl PresetList {
         Ok(Some(self.history[self.cursor].clone()))
     }
 
+    /// The scene for an automatic switch, while `current` is on screen: forward in the history if
+    /// the way back was taken (and that scene is another one), else a new random scene other than
+    /// `current`, so that a switch always shows something new unless there is only one scene.
+    pub fn next_other(&mut self, rng: &mut impl Rng, current: &Location) -> Result<Preset> {
+        if self.cursor + 1 < self.history.len()
+            && self.history[self.cursor + 1].location != *current
+        {
+            self.cursor += 1;
+            return Ok(self.history[self.cursor].clone());
+        }
+        self.random_other(rng, current)
+    }
+
+    /// A new random scene other than `current`, or any when `current` is the only one. Forward
+    /// history is dropped.
+    pub fn random_other(&mut self, rng: &mut impl Rng, current: &Location) -> Result<Preset> {
+        self.check_not_empty()?;
+        let others: Vec<&Entry> = self
+            .entries
+            .iter()
+            .filter(|entry| entry.preset.location != *current)
+            .collect();
+        let preset = if others.is_empty() {
+            self.entries[rng.gen_range(0..self.entries.len())]
+                .preset
+                .clone()
+        } else {
+            others[rng.gen_range(0..others.len())].preset.clone()
+        };
+        self.remember(preset)
+    }
+
     /// A new random scene. Forward history is dropped.
     pub fn random(&mut self, rng: &mut impl Rng) -> Result<Preset> {
         self.check_not_empty()?;
         let preset = self.entries[rng.gen_range(0..self.entries.len())]
             .preset
             .clone();
+        self.remember(preset)
+    }
+
+    /// Make `preset` the newest of the history, dropping what lies ahead of the current one.
+    fn remember(&mut self, preset: Preset) -> Result<Preset> {
         if !self.history.is_empty() {
             self.history.truncate(self.cursor + 1);
         }
@@ -448,6 +485,22 @@ mod tests {
         let second = list.random(&mut rng).unwrap();
         assert_eq!(list.previous().unwrap(), Some(first));
         assert_eq!(list.next(&mut rng).unwrap(), second);
+    }
+
+    #[test]
+    fn an_automatic_pick_is_never_the_scene_on_screen_unless_it_is_the_only_one() {
+        let mut list = listed(&["a", "b", "c"]);
+        let mut rng = rng();
+        let mut current = list.random(&mut rng).unwrap();
+        for _ in 0..200 {
+            let next = list.next_other(&mut rng, &current.location).unwrap();
+            assert_ne!(next.location, current.location);
+            current = next;
+        }
+        assert_eq!(list.history.len(), HISTORY_LEN);
+        let mut only = listed(&["a"]);
+        let alone = Preset::from_path(Path::new("a")).location;
+        assert_eq!(only.next_other(&mut rng, &alone).unwrap().location, alone);
     }
 
     #[test]
