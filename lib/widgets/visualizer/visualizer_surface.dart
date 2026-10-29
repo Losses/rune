@@ -213,9 +213,12 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   void _scheduleResize(Size logical, double pixelRatio) {
     if (_renderedSize == null) return;
     final size = _renderSize(logical, pixelRatio);
+
+    // A pending resize to an older size must not fire, also when the size is
+    // back to the rendered one.
+    _resizeTimer?.cancel();
     if (size == _renderedSize) return;
 
-    _resizeTimer?.cancel();
     _resizeTimer = Timer(_resizeDebounce, () {
       if (_disposed) return;
       ResizeVisualizerRequest(
