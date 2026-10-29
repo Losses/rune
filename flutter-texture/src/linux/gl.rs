@@ -375,11 +375,20 @@ impl Gl {
         self.clear_errors();
         let mut memory = 0;
         // SAFETY: plain calls on the current context with valid pointers. Only a successful import
-        // takes the descriptor over; otherwise it is closed here.
+        // takes the descriptor over; otherwise it is closed here. The parameter call is checked
+        // before the import, so that an error of its own is not taken for the import's.
         unsafe {
             (ext.create_memory_objects)(1, &mut memory);
             // Vulkan allocated the memory for the image alone.
             (ext.memory_object_parameteriv)(memory, GL_DEDICATED_MEMORY_OBJECT_EXT, &GL_TRUE);
+            let error = self.error();
+            if error != GL_NO_ERROR {
+                (ext.delete_memory_objects)(1, &memory);
+                return Err(format!(
+                    "OpenGL cannot set up the memory of image {} (error 0x{error:x})",
+                    image.image_id
+                ));
+            }
             let raw = fd.into_raw_fd();
             (ext.import_memory_fd)(memory, image.memory_size, GL_HANDLE_TYPE_OPAQUE_FD_EXT, raw);
             let error = self.error();
