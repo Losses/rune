@@ -24,6 +24,12 @@ const BADGE: f32 = 0.0;
 const CUBE: f32 = 1.0;
 const SPARK: f32 = 2.0;
 const EMOJI: f32 = 3.0;
+// A light: a small round point of bright light with a soft glow, a place in the tunnel's space that
+// goes by with the flight (for the lens flare to find).
+const LIGHT: f32 = 4.0;
+// The least a light's glow is across on the screen, in pixels of its height (its core is a fifth
+// of that).
+const LIGHT_LEAST: f32 = 10.0;
 // How many crests assets/crests.png holds.
 const CRESTS: u32 = 12u;
 
@@ -99,12 +105,12 @@ struct State {
   notes: array<vec4f, 8>,
   note_count: f32,
   // How many emoji the music calls for: the notes a second of late (smoothed), the farthest slot
-  // given its share yet, and each slot's
-  // share and badge colours, set as it comes into sight far ahead (so what is near never comes and
-  // goes, nor changes colour): kept for as far behind as ahead, for a camera looking back.
+  // given its share yet, and each slot's share, badge colours and chance of a light (x, y, z),
+  // set as it comes into sight far ahead (so what is near never comes and goes, nor changes
+  // colour): kept for as far behind as ahead, for a camera looking back.
   note_rate: f32,
   last_slot: f32,
-  slot_set: array<vec2f, 128>,
+  slot_set: array<vec4f, 128>,
   // The colours as made (see update), the theme colour look's ramp (dark to near white, in the
   // theme colour's hue) and how far the picture is in that look (0 the grey look, 1 the colour
   // one): see `grade` in tunnel.wgsl.

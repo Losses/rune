@@ -1,7 +1,7 @@
 // The tunnel as the camera sees it: the core's light far ahead and its rays, the speed lines
 // rushing past on the tunnel's unseen walls, haze; and in front of them, the things of this
-// pixel's tile, the nearest one met, the sparkles in front of it laid over. Everything but the
-// emoji is then graded into the look the runtime has chosen (see `grade`).
+// pixel's tile, the nearest one met, the sparkles and the small lights in front of it laid over.
+// Everything but the emoji is then graded into the look the runtime has chosen (see `grade`).
 
 // The tunnel: the core's glow along +z, rays round it, the lines on three walls further and
 // further out, and the haze.
@@ -93,6 +93,30 @@ fn sparkle(i: u32, at: vec2f) -> vec3f {
   return state.colours[11].rgb * (rays * 1.2 + core * 3.0) * twinkle * fade * 0.9;
 }
 
+// How bright a light's core is (HDR, against what the lens flare takes for a highlight: above 1
+// and 1.5 times what is round it, after a 13-tap average at a quarter of the size), and how much of
+// that its glow is, at the glow's heart. The glow is soft and dim, so that the tunnel is hardly
+// brighter for the lights.
+const LIGHT_CORE: f32 = 20.0;
+const LIGHT_GLOW: f32 = 0.35;
+
+// A light: a small bright disc with a soft glow round it, on the screen, steady (it does not
+// flash, twinkle or follow the beat), coming out of the tunnel's light far off like the other
+// things, and fading out as it comes near, before it is no longer drawn (3 m: see `project`), so
+// that none goes out at once as it passes. `scr.z` is the glow's radius on the screen, the core a
+// fifth of it; a light further off than its core is a pixel across is dimmed by its area, so it
+// never swells to a larger point than it is.
+fn light(i: u32, at: vec2f) -> vec3f {
+  let sc = state.scr[i];
+  let d = length(at - sc.xy) / sc.z;
+  let true_glow = state.focal * state.pos[i].w / sc.w;
+  let area = min(1.0, true_glow * true_glow / (sc.z * sc.z));
+  let core = 1.0 - smoothstep(0.14, 0.22, d);
+  let glow = exp(-d * d * 9.0);
+  let fade = (1.0 - smoothstep(55.0, 95.0, sc.w)) * smoothstep(3.0, 7.0, sc.w);
+  return state.colours[11].rgb * (core * LIGHT_CORE + glow * LIGHT_GLOW) * state.ry[i].w * area * fade;
+}
+
 // The mip of the emoji atlas for an emoji of size `size` at depth z: how many of its 128 pixels
 // one pixel of the screen covers.
 fn emoji_lod(z: f32, pixel: f32, size: f32) -> f32 {
@@ -168,7 +192,7 @@ fn shade(px: Pixel) -> vec4f {
     }
     let rx = state.rx[i];
     let kind = floor(rx.w / 10.0);
-    if (kind == SPARK) {
+    if (kind == SPARK || kind == LIGHT) {
       continue;
     }
     let pos = state.pos[i];
@@ -220,15 +244,20 @@ fn shade(px: Pixel) -> vec4f {
     }
   }
 
-  // The sparkles in front of whatever was met.
+  // The sparkles and the lights in front of whatever was met.
   let depth = best.x * dot(d, state.cam_fwd);
   for (var j = 0u; j < count; j++) {
     let i = state.tile[k * LIST + j];
-    if (floor(state.rx[i].w / 10.0) == SPARK && state.scr[i].w < depth) {
+    let what = floor(state.rx[i].w / 10.0);
+    if ((what == SPARK || what == LIGHT) && state.scr[i].w < depth) {
       let sc = state.scr[i];
       let off = px.p - sc.xy;
       if (dot(off, off) < sc.z * sc.z) {
-        rest += sparkle(i, px.p);
+        if (what == LIGHT) {
+          rest += light(i, px.p);
+        } else {
+          rest += sparkle(i, px.p);
+        }
       }
     }
   }

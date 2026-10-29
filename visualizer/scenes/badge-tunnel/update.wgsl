@@ -129,10 +129,11 @@ fn slot_cell(n: f32) -> u32 {
   return u32(((i32(n) % 128) + 128) % 128);
 }
 
-// What thing q of slot `slot` is: -1 nothing, or BADGE, CUBE, SPARK or (where the content is
-// emoji) EMOJI. The first of a slot's three a badge or nothing, the second a badge, a cube or
-// nothing, the third a sparkle, a cube or nothing. (How many badges or emoji: as many as the
-// slot's share, set by the music, allows.)
+// What thing q of slot `slot` is: -1 nothing, or BADGE, CUBE, SPARK, LIGHT or (where the content
+// is emoji) EMOJI. The first of a slot's three a badge or nothing, the second a badge, a cube or
+// nothing, the third a sparkle, a cube or nothing, and now and then a light in its place. (How
+// many badges or emoji: as many as the slot's share, set by the music, allows; how many lights:
+// `lights` of them a slot at the most, as the slot's share of energy allows.)
 fn kind_at(slot: f32, q: u32) -> f32 {
   let id = vec2f(slot, f32(q) * 17.0);
   let h = hash(id + 0.7);
@@ -145,6 +146,9 @@ fn kind_at(slot: f32, q: u32) -> f32 {
     kind = select(select(-1.0, CUBE, h < 0.5 * badges + 0.3 * params.cubes), BADGE, h < 0.5 * badges);
   } else {
     kind = select(select(-1.0, CUBE, h < params.sparks + 0.2 * params.cubes), SPARK, h < params.sparks);
+    if (hash(id + 15.3) < params.lights * given.z) {
+      kind = LIGHT;
+    }
   }
   if (kind == BADGE && params.content == 0u) {
     kind = EMOJI;
@@ -205,6 +209,11 @@ fn build(i: u32, id: vec2f, kind: f32, hero: bool) {
   } else if (kind == CUBE) {
     r = mix(1.0, params.outer + 3.0, hr);
     size = mix(0.05, 0.12, hash(id + 4.4));
+  } else if (kind == LIGHT) {
+    // Between the emoji's radii and a little beyond, never in the clear middle. Its size is the
+    // glow's radius, in metres; the bright core is a fifth of it.
+    r = mix(params.inner, params.outer + 2.0, hr);
+    size = mix(0.5, 0.9, hash(id + 4.4));
   } else {
     r = mix(0.6, params.outer + 5.0, hr);
     size = mix(0.07, 0.2, hash(id + 4.4));
@@ -282,11 +291,16 @@ fn build(i: u32, id: vec2f, kind: f32, hero: bool) {
     az = turn(az, ax, flip.x);
     m = mat3x3f(ax, ay, az);
     state.pos[i].w = size;
+  } else if (kind == LIGHT) {
+    // A light is round and steady: nothing turns.
+    m = mat3x3f(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0));
   } else {
     m = turned(hash(id + 5.5) * 6.28 + t * 1.3, hash(id + 6.6) * 6.28 + t * 0.9, hash(id + 8.8) * 6.28);
   }
   state.rx[i] = vec4f(m[0], kind * 10.0 + shape);
-  state.ry[i] = vec4f(m[1], look_of(select(given.y, f32(params.palette) - 1.0, params.palette > 0u), id));
+  // (A light's brightness, a little different from one to the next, rides where a badge's look
+  // does.)
+  state.ry[i] = vec4f(m[1], select(look_of(select(given.y, f32(params.palette) - 1.0, params.palette > 0u), id), 0.8 + 0.4 * hash(id + 16.6), kind == LIGHT));
   // Its crest (of CRESTS), and which way it turns on the beat (16 for the other way); or its
   // emoji (of 64).
   let crest = floor(hash(id + 13.1) * f32(CRESTS));
@@ -310,8 +324,9 @@ fn project(i: u32) {
   // A sphere round it: a badge reaches out to its corners and past its thickness.
   let bound = p.w * select(select(1.0, 1.42, kind == EMOJI), 1.25, kind == BADGE);
   // (A sparkle right by the lens is not drawn: its glow, spread over the whole screen, would
-  // white it out; nor a flake, which a camera off the middle may pass close by.)
-  if (zc < -bound || (kind == SPARK && zc < 1.0) || (kind == CUBE && zc < 0.8)) {
+  // white it out; nor a light, for the same reason, nor a flake, which a camera off the middle
+  // may pass close by.)
+  if (zc < -bound || (kind == SPARK && zc < 1.0) || (kind == LIGHT && zc < 3.0) || (kind == CUBE && zc < 0.8)) {
     state.scr[i] = vec4f(0.0, 0.0, -1.0, -1.0);
     return;
   }
@@ -324,6 +339,11 @@ fn project(i: u32) {
     if (kind == SPARK) {
       // A sparkle's rays reach well past its core; and it is never less than a few pixels.
       rad = max(rad * 3.0, 4.0 / frame.resolution.y);
+    }
+    if (kind == LIGHT) {
+      // A light's core is never less than a pixel or two, however far (it is dimmed by its
+      // area instead, in tunnel.wgsl).
+      rad = max(rad, LIGHT_LEAST / frame.resolution.y);
     }
   }
   state.scr[i] = vec4f(c, rad, zc);
@@ -613,7 +633,7 @@ fn update() {
     state.last_slot = here - f32(SLOTS) - 1.0;
   }
   for (var n = max(state.last_slot + 1.0, here - f32(SLOTS)); n <= farthest; n += 1.0) {
-    state.slot_set[slot_cell(n)] = vec2f(share, input.coming);
+    state.slot_set[slot_cell(n)] = vec4f(share, input.coming, input.crowd_by_energy, 0.0);
   }
   state.last_slot = max(state.last_slot, farthest);
   for (var j = 0u; j < SLOTS; j++) {

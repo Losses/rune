@@ -440,6 +440,15 @@ max = 1.0
 step = 0.01
 
 [[param]]
+id = "lights"
+group = "Tunnel"
+label = "Small points of light flying past, at most this many a slot of tunnel, fewer in a quiet section (the lens flare streaks them)"
+default = 0.25
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[param]]
 id = "glints"
 group = "Tunnel"
 label = "Glints round the middle"
