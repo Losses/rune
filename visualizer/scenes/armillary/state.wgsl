@@ -1,9 +1,13 @@
-// What Armillary keeps from frame to frame: the sphere floating in space and its rings, each
+// What Armillary keeps from frame to frame: the sphere hung in space and its rings, each
 // moved as a body hung in its place is (pushed, swinging out and back or going round a whole turn,
 // slowed by friction, nudged a moment later by another's push); the planet at its heart, swelling
 // with the music; the shot; and the shapes, big polygons drawn in fine lines that appear round it
 // a batch at a time as accents light them, projected and listed (those on the screen) so a pixel
 // can skip at a glance the ones that cannot touch it.
+
+// The sphere's middle: the planet, and the centre of every ring. It stays where it is (it does not
+// float).
+const CENTRE: vec3f = vec3f(0.0);
 
 const RINGS: u32 = 5u;
 const SHAPES: u32 = 96u;
@@ -13,10 +17,9 @@ const IN_BATCH: u32 = 24u;
 
 struct State {
   // The beats the scene counts (see update): how many, and the seconds since the last. And the
-  // scene's own time for everything that moves of itself (the rings' and the sphere's floating,
-  // the shapes' turn in their planes): it advances by `dt` times how much is heard
-  // (`input.audible`), so all of it slows with a fade and stands still in silence. (`frame.time`
-  // stays only in the stars' twinkle, which is light, not motion.)
+  // scene's own time for everything that moves of itself (the shapes' turn in their planes): it
+  // advances by `dt` times how much is heard (`input.audible`), so it slows with a fade and stands
+  // still in silence. (`frame.time` stays only in the stars' twinkle, which is light, not motion.)
   count: f32,
   beat_age: f32,
   phase: f32,
@@ -37,11 +40,13 @@ struct State {
   view: f32,
   cuts_seen: f32,
   side: f32,
+  // The kicks between the beats (see update): the kick's envelope a frame ago (to tell a jump up),
+  // and the batch of shapes lit last (-1 none).
+  kick_prev: f32,
+  last_batch: f32,
   // The planet's size now (it swells with the music and on each beat, sprung), and its speed.
   core_size: f32,
   core_vel: f32,
-  // Where the sphere's middle is now (the planet, the centre of every ring): floating.
-  centre: vec3f,
   // The camera.
   cam_pos: vec3f,
   cam_fwd: vec3f,

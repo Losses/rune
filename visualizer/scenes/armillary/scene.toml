@@ -1,17 +1,18 @@
 format = 1
 name = "Armillary"
 license = "MPL-2.0"
-description = "An armillary sphere floating in space, its rings strings of dots and crosses hung as pendulums, pushed to swing out and turn over; a planet in character art at its heart, swelling with the music; polygons drawn in lines round it, lit by the accents"
+description = "An armillary sphere hung in space, its rings strings of dots and crosses hung as pendulums, pushed to swing out and turn over; a planet in character art at its heart, swelling with the music; polygons drawn in lines round it, lit by the accents"
 
 common = ["world.wgsl"]
 
-# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
-# An instrument of the night sky: a flash like daybreak, and a flare off its bright rings.
+# The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md): An
+# instrument of the night sky: a flash like daybreak, a flare off its lit rings, and all of the lens
+# effects.
 [effects]
 # Transitions: switching into this scene, and dressing a hard cut of the camera in it.
 transitions = ["fade", "dissolve", "flash"]
 # Lens effects: over the picture, with no change of picture.
-lens = ["flare"]
+lens = ["flare", "leak", "glitch", "mosaic"]
 
 # The looks (update.wgsl maps the colours by them and blends them; the runtime picks one at a
 # section start by the section's energy): the sphere in grey, a little dim, with a faint tint of
@@ -132,6 +133,15 @@ label = "A bar line, where the beat is followed"
 id = "followed"
 label = "The beat is followed (1: the music's own bar lines; 0: every fourth counted beat is a bar line)"
 
+# The kick: the percussive low band's onset envelope (it jumps to an onset's strength and
+# decays), times `followed`, so only where the beat is followed (level A) and 0 at B and C: there
+# the counted beats already are the heard onsets, the kick among them, and it would count them
+# twice. (A bind `fallback` does not do this: `low` means something at every level.) A raw
+# envelope because the scene needs the jump itself (see update.wgsl).
+[[input]]
+id = "kick"
+label = "The kick's onset, dying away (only where the beat is followed)"
+
 [[input]]
 id = "section"
 label = "A cue at least `cue_min` strong"
@@ -201,6 +211,12 @@ how = "trigger"
 when = { scale = false, release = 0.0 }
 
 # `locked` is smoothed (0.3 s) and 0 or 1 at heart; read as a switch about one half.
+[[bind]]
+target = "kick"
+source = "low"
+how = "follow"
+when = { mul = "input:followed" }
+
 [[bind]]
 target = "followed"
 source = "locked"
@@ -345,15 +361,6 @@ max = 8.0
 step = 0.1
 
 [[param]]
-id = "nebula"
-group = "Sphere"
-label = "The nebula's brightness"
-default = 1.0
-min = 0.0
-max = 3.0
-step = 0.05
-
-[[param]]
 id = "latitude"
 group = "Sphere"
 label = "Latitude (how the pole tips)"
@@ -461,14 +468,23 @@ max = 4.0
 step = 0.25
 
 [[param]]
+id = "kick_light"
+group = "Sphere"
+label = "How strongly a kick between the beats lights (the next ring, never the one lit just before; or the last batch of shapes again; only where the beat is followed; 0 is off)"
+default = 0.6
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[param]]
 id = "light_beats"
 group = "Sphere"
-label = "Beats before a lit ring has dimmed by half"
+label = "How fast a lit ring dims: the time constant, in beats (0.25: it has fallen to 1/e in a quarter of a beat)"
 unit = "beats"
-default = 0.5
-min = 0.25
-max = 8.0
-step = 0.25
+default = 0.25
+min = 0.05
+max = 4.0
+step = 0.05
 
 [[param]]
 id = "planet"

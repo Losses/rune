@@ -1,5 +1,5 @@
 // Space round the sphere, and what meets a ray exactly (no marching): the planet at its heart. The
-// space behind: stars and nebulae, lit from one side.
+// space behind: stars.
 
 const MISS: vec4f = vec4f(1e9, 0.0, 0.0, 0.0);
 
@@ -16,9 +16,6 @@ fn sphere_hit(o: vec3f, d: vec3f, c: vec3f, r: f32) -> vec4f {
   }
   return vec4f(t, normalize(oc + d * t));
 }
-
-// The faint light of the stars and nebulae: cool, from one side more than the others.
-const STARLIGHT: vec3f = vec3f(-0.55, 0.45, 0.7);
 
 // ---- Space ----
 
@@ -61,52 +58,13 @@ fn stars(d: vec3f, pixel: f32, cells: f32, share: f32, bright: f32) -> vec3f {
   return tint * glow * bright * mix(0.25, 1.0, pow(hash(key + 0.7), 4.0)) * twinkle;
 }
 
-// rv_noise to the bit, a little cheaper: the two corners of a row of its lattice share the hash
-// of their row.
-fn sky_noise(p: vec2f) -> f32 {
-  let i = floor(p);
-  let f = fract(p);
-  let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-  let at = bitcast<vec2u>(vec2i(i));
-  let row0 = rv_hash(at.y);
-  let row1 = rv_hash(at.y + 1u);
-  let a = dot(sky_gradient(rv_hash(at.x ^ row0)), f);
-  let b = dot(sky_gradient(rv_hash((at.x + 1u) ^ row0)), f - vec2f(1.0, 0.0));
-  let c = dot(sky_gradient(rv_hash(at.x ^ row1)), f - vec2f(0.0, 1.0));
-  let d = dot(sky_gradient(rv_hash((at.x + 1u) ^ row1)), f - vec2f(1.0, 1.0));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-
-// rv_gradient of a lattice point whose hash is h.
-fn sky_gradient(h: u32) -> vec2f {
-  let a = f32(h >> 8u) / 16777216.0 * RV_TAU;
-  return vec2f(cos(a), sin(a));
-}
-
-// Space along d: near black deep indigo; a band of nebula across it, violet and teal, brightest
-// where the starlight comes from; and stars of two sizes. Below full quality the nebula is a
-// little softer, without its fine detail (its two shades evenly mixed), as bright on the whole.
+// Space along d: near black deep indigo, and stars of two sizes (no nebula: it looked artificial).
 fn sky(d: vec3f, pixel: f32) -> vec3f {
-  var c = state.palette[5].rgb;
-  let band = exp(-pow(dot(d, normalize(vec3f(0.3, 0.85, -0.4))), 2.0) / 0.08);
-  // (Far from the band, where it has faded to under a thousandth, the nebula is left out: it would
-  // add under a ten-thousandth of white.)
-  var cloud = 0.0;
-  if (band >= 1e-3) {
-    let n = sky_noise(d.xy * 3.0 + 1.3) + sky_noise(d.yz * 3.0 + 4.1) + sky_noise(d.zx * 3.0 + 7.7);
-    var fine = 0.1;
-    if (frame.quality > 0.8) {
-      fine = sky_noise(d.xy * 9.0) + sky_noise(d.yz * 9.0) + sky_noise(d.zx * 9.0);
-    }
-    cloud = smoothstep(-0.3, 1.2, n + 0.35 * fine) * band;
-    let toward = max(dot(d, normalize(STARLIGHT)), 0.0);
-    c += mix(state.palette[3].rgb, state.palette[4].rgb, smoothstep(-0.5, 0.8, fine)) * cloud * (0.6 + 1.4 * toward) * params.nebula;
-  }
   // (Dense enough that the long lens's narrow view is still full of them.)
-  // (Behind the rings' marks, the sky keeps back: fewer, fainter stars, less nebula.)
+  // (Behind the rings' marks, the sky keeps back: fewer, fainter stars.)
   let keep = 0.45;
-  c = mix(state.palette[5].rgb, c, keep);
+  var c = state.palette[5].rgb;
   c += stars(d, pixel, 90.0, 0.2 * keep, 2.2) * keep;
-  c += stars(d, pixel, 260.0, 0.12 * keep, 0.7) * (0.35 + cloud * 2.5) * keep;
+  c += stars(d, pixel, 260.0, 0.12 * keep, 0.7) * 0.35 * keep;
   return c;
 }

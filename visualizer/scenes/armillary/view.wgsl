@@ -20,7 +20,7 @@ fn planet_radius() -> f32 {
 }
 
 fn ascii_planet(o: vec3f, at: vec2f, px1: f32) -> vec3f {
-  let c = state.centre;
+  let c = CENTRE;
   let v = c - o;
   let zc = dot(v, state.cam_fwd);
   if (zc < 0.5) {
@@ -63,12 +63,12 @@ fn ascii_planet(o: vec3f, at: vec2f, px1: f32) -> vec3f {
 // The point of a circle about the core (axis ax, radius r) nearest the ray, found in a few steps:
 // how far along the ray, and the point.
 fn nearest_on_circle(o: vec3f, d: vec3f, ax: vec3f, r: f32) -> vec4f {
-  var tc = max(dot(state.centre - o, d), 0.0);
-  var c = state.centre;
+  var tc = max(dot(CENTRE - o, d), 0.0);
+  var c = CENTRE;
   for (var it = 0; it < 4; it++) {
-    let v = o + d * tc - state.centre;
+    let v = o + d * tc - CENTRE;
     let onplane = v - ax * dot(v, ax);
-    c = state.centre + onplane * (r / max(length(onplane), 1e-4));
+    c = CENTRE + onplane * (r / max(length(onplane), 1e-4));
     tc = max(dot(c - o, d), 0.0);
   }
   return vec4f(tc, c);
@@ -100,9 +100,9 @@ fn line_at(o: vec3f, d: vec3f, dx: vec3f, dy: vec3f, i: u32, r: f32, amp: f32, w
   // its 96 points) over the angle they turn through. Where that puts the pixel further than
   // `far` pixels from the line, only the glow's tail would reach it (under a hundred-thousandth):
   // left out. At half quality and below the glow ends sooner, at half that.
-  let p = o + d * hc.y - state.centre;
-  let sr = length(o + dx * hr.y - state.centre - p);
-  let sa = length(o + dy * ha.y - state.centre - p);
+  let p = o + d * hc.y - CENTRE;
+  let sr = length(o + dx * hr.y - CENTRE - p);
+  let sa = length(o + dy * ha.y - CENTRE - p);
   let inner = length(p) - max(sr, sa);
   if (inner > 1e-3) {
     let steep = (1.0 + pushed * 15.3 / inner) * length(vec2f(sr, sa));
@@ -123,7 +123,7 @@ fn line_at(o: vec3f, d: vec3f, dx: vec3f, dy: vec3f, i: u32, r: f32, amp: f32, w
   let gap = abs(here.off.x) / max(length(vec2f(right.x - here.off.x, above.x - here.off.x)), 1e-6);
   let w = max(width, 1.0);
   let ink = (1.0 - smoothstep(w * 0.5, w * 0.5 + 1.0, gap)) * width / w + exp(-gap / (2.0 + 2.0 * lit)) * lit * 0.12;
-  let q = o + d * here.off.y - state.centre;
+  let q = o + d * here.off.y - CENTRE;
   let side = clamp(dot(q, -state.cam_fwd) / r, -1.0, 1.0);
   return vec2f(ink, side * 0.5 + 0.5);
 }
@@ -166,7 +166,7 @@ fn mark(at: vec2f, b: vec3f, o: vec3f, size: f32, plus: bool, px1: f32, limit: f
 // theirs, never under a pixel), taken back to the distance it is at, with a little to spare. A
 // mark further from the ray draws nothing there.
 fn mark_reach(o: vec3f, hi: f32, size: f32, pixel: f32, plus: bool) -> f32 {
-  let foot = pixel * (length(o - state.centre) + hi);
+  let foot = pixel * (length(o - CENTRE) + hi);
   let rad = max(size, 0.6 * foot);
   return select(1.02 * (rad + 0.5 * foot) + 1e-5, 2.0 * rad + 2.5 * foot, plus);
 }
@@ -175,7 +175,7 @@ fn mark_reach(o: vec3f, hi: f32, size: f32, pixel: f32, plus: bool) -> f32 {
 // could be within `reach` of the ray o, d at all: only if the ray comes within that of the ring's
 // plane while it is within that of the band between lo and hi.
 fn could_mark(o: vec3f, d: vec3f, ax: vec3f, lo: f32, hi: f32, reach: f32) -> bool {
-  let w = o - state.centre;
+  let w = o - CENTRE;
   let den = dot(d, ax);
   let height = dot(w, ax);
   // How far from the core the ray is, |w + d t|², at its nearest and at the ends of the stretch
@@ -202,12 +202,22 @@ fn could_mark(o: vec3f, d: vec3f, ax: vec3f, lo: f32, hi: f32, reach: f32) -> bo
   return max(f0, f1) >= low * low;
 }
 
+// What lighting adds to the rings, against the light's colour: the line of the spectrum, and the
+// lit dots (`ring_on`, not dimmed by the grey look). The lens flare takes only highlights above 1
+// after exposure and 1.5 times their surroundings, read at a quarter of the width, so a lit ring
+// must be much brighter than it looks: measured with `probe_flare_steady` (the flare's layer, a
+// threshold: none below 4 and 5, a layer of 0.14 at 5 and 6, 0.6 at 6 and 7, 1.4 at 7 and 8 on the
+// strongest beats). At these values the flare comes on the bar's first beat (where the accent is
+// strongest), not on the weaker beats.
+const LIT_LINE: f32 = 6.0;
+const LIT_DOTS: f32 = 7.0;
+
 fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
   var col = vec3f(0.0);
   let d = view_ray(at);
   let dx = view_ray(at + vec2f(px1, 0.0));
   let dy = view_ray(at + vec2f(0.0, px1));
-  let c0 = state.centre;
+  let c0 = CENTRE;
   for (var i = 0u; i < RINGS; i++) {
     let x = state.ring_x[i].xyz;
     let y = state.ring_y[i].xyz;
@@ -228,7 +238,9 @@ fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
     // whole line a moment.
     if (spec > 0.01) {
       let line = line_at(o, d, dx, dy, i, r, amp, 1.8, 0.4, limit);
-      col += state.palette[1].rgb * line.x * spec * (0.3 + on.y * 0.8) * params.ring_glow * bright * mix(0.45, 1.0, line.y);
+      // (At rest 0.3 of the light's colour, dimmed by the grey look; what lighting adds is not
+      // dimmed by it, and is bright enough for the lens flare to catch: see LIT_LINE.)
+      col += (state.palette[1].rgb * 0.3 + state.palette[2].rgb * on.y * LIT_LINE) * line.x * spec * params.ring_glow * bright * mix(0.45, 1.0, line.y);
     }
     // (Most pixels are far from every mark of a ring: there it is not looked at. Its dots are
     // between r and r + amp from the core, the ecliptic's ticks between r - 3.6 gap and r - 0.9
@@ -334,7 +346,7 @@ fn ring_marks(o: vec3f, at: vec2f, px1: f32, limit: f32) -> vec3f {
         }
         m.x *= 1.0 - spec;
         if (m.x > 0.0) {
-          let ink = state.ring_tint[i].rgb * rest * mix(0.3, 1.0, side) + state.palette[1].rgb * glow * 2.5 * bright;
+          let ink = state.ring_tint[i].rgb * rest * mix(0.3, 1.0, side) + state.palette[2].rgb * glow * LIT_DOTS * bright;
           best = max(best, ink * m.x);
         }
         // The ecliptic's ticks: inward from every sixth dot, as many dots as it is loud there.
@@ -392,7 +404,7 @@ fn off_ring(o: vec3f, d: vec3f, i: u32, r: f32, amp: f32, near: RingAt) -> RingA
     at_ring.off = h;
     return at_ring;
   }
-  let q = o + d * h.y - state.centre;
+  let q = o + d * h.y - CENTRE;
   let at = fract(atan2(dot(q, state.ring_y[i].xyz), dot(q, state.ring_x[i].xyz)) / 6.2831853) * 96.0;
   let k = floor(at);
   // (Between the same two points as `near`, the spectrum is not looked up again.)
@@ -415,11 +427,11 @@ fn off_circle(o: vec3f, d: vec3f, ax: vec3f, r: f32) -> vec2f {
   if (abs(den) < 1e-5) {
     return vec2f(0.0, -1.0);
   }
-  let t = dot(state.centre - o, ax) / den;
+  let t = dot(CENTRE - o, ax) / den;
   if (t <= 0.0 || t > 100.0) {
     return vec2f(0.0, -1.0);
   }
-  return vec2f(length(o + d * t - state.centre) - r, t);
+  return vec2f(length(o + d * t - CENTRE) - r, t);
 }
 
 fn shade(px: Pixel) -> vec4f {
@@ -430,7 +442,7 @@ fn shade(px: Pixel) -> vec4f {
   // The planet is the only solid: dark, hiding the sky behind it (its characters are drawn over it
   // below); the rings are marks, never met as solids. The marks and the shapes are hidden behind
   // it (further than `best`).
-  let best = sphere_hit(o, d, state.centre, planet_radius()).x;
+  let best = sphere_hit(o, d, CENTRE, planet_radius()).x;
   var col = select(sky(d, pixel), state.palette[5].rgb, best < 1e8);
   col += ring_marks(o, px.p, 1.0 / px.size.y, best);
   col += ascii_planet(o, px.p, 1.0 / px.size.y);

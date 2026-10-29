@@ -66,18 +66,19 @@ fn grade_light() -> f32 {
   return mix(GREY_DIM, 1.0, state.colour);
 }
 
-// The palette, by number: 0 the planet's characters and the lines; 1 the light of the lit dots and
-// the line of the spectrum; 3, 4 the nebula's two shades (its hue turned a little either way);
-// 5 deep space; 6, 7 the stars' two tints. (2 and 8 to 13 went with the glass and bronze rings,
-// the gem, the star and the lamp; the numbers stay as they were.)
+// The palette, by number: 0 the planet's characters and the lines; 1 the rings' light at rest (the
+// dots, and the line of the spectrum); 2 what lighting adds to them, the same colour not dimmed by
+// the grey look (it is light, not colour: the flare takes only highlights, so it must stay bright;
+// the look's chroma is kept); 5 deep space; 6, 7 the stars' two tints. (8 to 13 went with the glass
+// and bronze rings, the gem, the star and the lamp, 3 and 4 with the nebula; the numbers stay as
+// they were.)
 fn set_palette(th: vec2f) {
   let h = th.x;
   let c = grade_chroma(th.y);
   let dim = grade_light();
   state.palette[0] = tint(0.92, c * 0.45, h) * dim;
   state.palette[1] = tint(0.8, c, h) * dim;
-  state.palette[3] = vec4f(oklch(0.33, c * 0.6, h + 0.25) * dim, 0.0);
-  state.palette[4] = vec4f(oklch(0.35, c * 0.5, h - 0.25) * dim, 0.0);
+  state.palette[2] = tint(0.8, c, h);
   state.palette[5] = vec4f(oklch(0.13, c * 0.25, h) * dim, 0.0);
   state.palette[6] = tint(0.93, c * 0.15, h - 0.5) * dim;
   state.palette[7] = tint(0.93, c * 0.25, h + 0.5) * dim;
@@ -251,16 +252,13 @@ fn rest_rings() {
   }
 }
 
-// The rings now, from how each is moving; each also drifts a little on its own, as a thing
-// floating does; the ecliptic precesses about the pole.
-fn set_rings(t: f32) {
+// The rings now, from how each is moving; the ecliptic precesses about the pole.
+fn set_rings() {
   for (var i = 0u; i < RINGS; i++) {
     let m = state.ring_turn[i];
     let about = state.ring_about[i].xyz;
     var a = turn(state.ring_rest_a[i].xyz, about, m.x);
     var b = turn(state.ring_rest_b[i].xyz, about, m.x);
-    let drift = 0.03 * sin(t * (0.23 + 0.07 * f32(i)) + f32(i) * 1.7);
-    a = turn(a, normalize(b), drift);
     if (i == 2u) {
       a = turn(a, pole(), input.spin);
       b = turn(b, pole(), input.spin);
@@ -280,16 +278,31 @@ fn light_ring(i: u32, strength: f32, n: u32) {
   state.ring_on[i] = vec4f(random(60u + n), on.y, max(on.z, strength), 0.5 * params.light_reach);
 }
 
+// The rings in the order they light, an order that leaps about: the ecliptic, the horizon, the
+// sun's, the meridian, the outer ring. The ring a lighting `n` lights, and (a strong one) the one
+// it lights with it. Neither is one that the lighting before lit: the first is the next in the
+// order, the second two on, and a lighting and the next are (n, n + 2) and (n + 1, n + 3), which
+// share none of five. The kick's lighting takes the next number too, so it keeps to the same rule
+// (two lightings in a row must never be the same ring).
+fn ring_lit_first(n: u32) -> u32 {
+  var order = array<u32, 5>(2u, 0u, 3u, 1u, 4u);
+  return order[n % 5u];
+}
+
+fn ring_lit_second(n: u32) -> u32 {
+  var order = array<u32, 5>(2u, 0u, 3u, 1u, 4u);
+  return order[(n + 2u) % 5u];
+}
+
 // An accent as strong as `strength` lights whichever of the two is lighting now: the next ring
 // in an order that leaps about, and on a strong one another with it; or a batch of the shapes.
 fn light(strength: f32) {
   state.lits += 1.0;
-  var order = array<u32, 5>(2u, 0u, 3u, 1u, 4u);
   let n = u32(state.lits);
   if (state.layer < 0.5) {
-    light_ring(order[n % 5u], strength, 0u);
+    light_ring(ring_lit_first(n), strength, 0u);
     if (strength > 0.85) {
-      light_ring(order[(n + 2u) % 5u], strength * 0.7, 1u);
+      light_ring(ring_lit_second(n), strength * 0.7, 1u);
     }
     return;
   }
@@ -297,13 +310,14 @@ fn light(strength: f32) {
   // (somewhere else, another shape): unlit they are not there, so no one sees them change.
   // The batch before gives way to it, dimming at once to a third and fading on from there.
   let batch = n % BATCHES;
+  state.last_batch = f32(batch);
   let tip = (vec3f(random(50u), random(51u), random(52u)) - 0.5) * 1.2;
   state.batch_axis[batch] = vec4f(normalize(-state.cam_fwd + tip), 0.0);
   // How many: never the same, more on a stronger beat. How big: as they are close up, up to
   // twice that seen from far off, so they look much the same size in every shot.
   let most = f32(IN_BATCH) * params.shapes;
   let count = clamp(round(most * mix(0.35, 1.0, random(53u)) * mix(0.7, 1.0, strength)), 2.0, f32(IN_BATCH));
-  let far = clamp(length(state.cam_pos - state.centre) / 8.0, 1.0, 2.0);
+  let far = clamp(length(state.cam_pos - CENTRE) / 8.0, 1.0, 2.0);
   state.batch_look[batch] = vec4f(count, far, 0.0, 0.0);
   for (var i = 0u; i < SHAPES; i++) {
     if (i % BATCHES == batch) {
@@ -311,6 +325,28 @@ fn light(strength: f32) {
       state.shape_look[i].y = strength;
     } else {
       state.shape_look[i].y *= 0.35;
+    }
+  }
+}
+
+// A kick between the beats lights as strongly as `strength`, of its own. While the rings are
+// lighting: the next ring in the order, as a beat's light does (never the one lit just before, and
+// it takes the next number, so the next beat does not light it either). While the shapes are: the
+// last batch again, if that is above what it has now (a shape that has faded out is not there; it
+// is placed again only when its batch is lit).
+fn kick_light(strength: f32) {
+  if (state.layer < 0.5) {
+    state.lits += 1.0;
+    light_ring(ring_lit_first(u32(state.lits)), strength, 0u);
+    return;
+  }
+  if (state.last_batch < -0.5) {
+    return;
+  }
+  let batch = u32(state.last_batch);
+  for (var i = 0u; i < SHAPES; i++) {
+    if (i % BATCHES == batch && state.shape_look[i].y >= 0.02 && strength > state.shape_look[i].y) {
+      state.shape_look[i].y = strength;
     }
   }
 }
@@ -339,7 +375,7 @@ fn place(i: u32, th: vec2f) {
   let out = normalize((e1 * cos(round_at) + e2 * sin(round_at)) * cos(lift) + axis * sin(lift));
   let r = mix(4.6, 6.1, hash(id + 0.1));
   let size = mix(0.25, 0.95, pow(hash(id + 0.5), 1.5)) * made.y * params.shape_size;
-  state.shape_pos[i] = vec4f(state.centre + out * r, size * present);
+  state.shape_pos[i] = vec4f(CENTRE + out * r, size * present);
   // Facing the middle, tipped (some well over), turning slowly in its own plane.
   let n = normalize(out + (vec3f(hash(id + 2.1), hash(id + 2.2), hash(id + 2.3)) - 0.5) * 1.1);
   let u0 = normalize(cross(n, select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(n.y) > 0.9)));
@@ -387,6 +423,7 @@ fn update() {
     state.core_size = 1.0;
     rest_rings();
     state.spec_ring = 4.0;
+    state.last_batch = -1.0;
     // No beat has been counted yet.
     state.beat_age = 1000.0;
   }
@@ -404,9 +441,9 @@ fn update() {
 
   // How much is heard, and the scene's own time by it: the phase goes on by `dt` times
   // `input.audible` (smoothed in its bind, so it slows with a song's own fade), so that everything
-  // that turns or floats of itself (the rings' floating, the sphere's, the shapes' turn in their
-  // planes) stands still in silence; the paces the runtime sums (`input.spin`, `input.cam_drift`,
-  // `input.planet_turn`) are multiplied by it in their binds. Only while something is heard (above
+  // that turns of itself (the shapes' turn in their planes) stands still in silence; the paces the
+  // runtime sums (`input.spin`, `input.cam_drift`, `input.planet_turn`) are multiplied by it in
+  // their binds. Only while something is heard (above
   // 0.3) does a discrete move happen (a beat counted, a bar's nudge, a phrase's whole turn, a
   // section's three rings, the lighting, the planet's swell), so a stray onset in near silence
   // moves nothing; a push already given (a pendulum settling back, a push landing after its delay)
@@ -506,11 +543,26 @@ fn update() {
       light(accent);
     }
   }
+  // The kicks between the beats, where the beat is followed (`input.kick` is 0 elsewhere, its bind
+  // multiplies by `followed`: at levels B and C the counted beats already are the heard onsets,
+  // the kick among them). A kick is an onset: the envelope jumps up by more than 0.3 from the
+  // frame before. Taken only while something is heard, and between a quarter and three quarters
+  // of a beat after the last counted beat (so not the kick on a beat, which that beat has lit, nor
+  // one just ahead of the next, which the next will light): it is a lighting of its own, as
+  // strong as `kick_light` times the kick's strength times the energy's factor (see
+  // `kick_light()`: the next ring, never the one lit just before; or the last batch again).
+  let jump = input.kick - state.kick_prev;
+  state.kick_prev = input.kick;
+  if (jump > 0.3 && heard && !beat && state.beat_age >= 0.25 * beat_time && state.beat_age <= 0.75 * beat_time) {
+    kick_light(params.kick_light * input.kick * mix(0.55, 1.0, input.energy));
+  }
   let fade = exp(-dt * 0.693 / (params.lit_beats * beat_time));
-  let on_fade = exp(-dt * 0.693 / (params.light_beats * beat_time));
+  // A lit ring's dots fall with a time constant of `light_beats` beats (a quarter; the dots take
+  // 1/6 beat to rise and 1/4 to fall).
+  let on_fade = exp(-dt / (params.light_beats * beat_time));
   for (var i = 0u; i < RINGS; i++) {
     // The dots brighten all together, quickly at first and slower as they near the accent's
-    // strength (most of the way in `light_spread` beats), and dim together as it fades.
+    // strength (a time constant of a third of `light_spread` beats), and dim together as it fades.
     var on = state.ring_on[i];
     on.z *= on_fade;
     let rise = 1.0 - exp(-dt * 3.0 / max(params.light_spread * beat_time, 0.01));
@@ -537,11 +589,6 @@ fn update() {
   // radians); the shaders read them as they are. The camera's sum starts anew with each shot
   // (`reset = "cut"`).
 
-  // The sphere floats: rising and sinking a little, drifting (on the phase, so it stills in
-  // silence).
-  let t = state.phase;
-  state.centre = vec3f(0.05 * sin(t * 0.31), 0.08 * sin(t * 0.45), 0.05 * cos(t * 0.27));
-
   // The director cuts to another shot: its index is the view and its seed picks the side.
   // (The cut count is compared with the one seen, so the first frame frames the first shot too.)
   if (frame.first == 1u || shot.cuts != u32(state.cuts_seen)) {
@@ -551,10 +598,10 @@ fn update() {
   }
   let view = state.view;
 
-  // The shot, about the sphere floating in space: 0 a little below, pushing in; 1 far off, the
+  // The shot, about the sphere in space: 0 a little below, pushing in; 1 far off, the
   // sphere small among the stars, circling; 2 close, the rings crossing, circling; 3 from above,
   // circling. Each mirrored by its side; the camera moves slowly and evenly, never with the beat.
-  let c = state.centre;
+  let c = CENTRE;
   let s = state.side;
   let held = input.cam_drift;
   let round = s * held;
@@ -597,7 +644,7 @@ fn update() {
   // widening averaged at 120 bpm, 0.0022 * (1 + 0.43)), not following any beat.
   post.chromatic = 0.003;
 
-  set_rings(t);
+  set_rings();
   // (The theme is worked out once, for the palette and for every shape's colour.)
   let th = theme();
   set_palette(th);
