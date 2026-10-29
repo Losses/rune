@@ -101,6 +101,25 @@ pub struct VisualizerTextureShownRequest {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ListVisualizerPresetsRequest {}
 
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct ListVisualizerCreditsRequest {}
+
+/// What the assets of one built-in scene owe their makers.
+#[derive(Serialize, Deserialize, SignalPiece)]
+pub struct VisualizerCredit {
+    /// The scene's name.
+    pub scene: String,
+    /// The `source` of each asset of the scene that has one, as the scene writes it in English:
+    /// the work, its authors, its licence and what was changed.
+    pub assets: Vec<String>,
+}
+
+/// The credits of the built-in scenes that have any.
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct ListVisualizerCreditsResponse {
+    pub credits: Vec<VisualizerCredit>,
+}
+
 #[derive(Serialize, Deserialize, SignalPiece)]
 pub struct VisualizerPresetEntry {
     pub name: String,

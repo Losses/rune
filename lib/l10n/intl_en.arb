@@ -1432,5 +1432,9 @@
   "coverWallVisualizerSubtitle": "Visuals that follow the music",
   "@coverWallVisualizerSubtitle": {
     "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerCredits": "Third-party credits",
+  "@visualizerCredits": {
+    "description": "Title of the About page section that credits the third-party assets of the visualizer's built-in scenes."
   }
 }
