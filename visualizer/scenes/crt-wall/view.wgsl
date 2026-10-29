@@ -321,6 +321,14 @@ fn channel_glow(chan: u32, seed: f32) -> vec3f {
   return c;
 }
 
+// How bright the screens are now: their setting, and the energy's (0.75 to 1.2 times, eased over a
+// second by its bind, so it moves with the passages of the song and never with the beat), for the
+// whole screen, covers included (their brightness, never their colours), and for the light it
+// throws on the cabinets. About 1 at a middling energy.
+fn screens_light() -> f32 {
+  return params.brightness * (1.0 + params.energy_light * (0.45 * input.energy - 0.25));
+}
+
 // The light a screen gives on average, for what it lights around it; while it rolls, from the old
 // channel's to the new one's with the roll.
 fn screen_glow(sc: Screen) -> vec3f {
@@ -328,7 +336,7 @@ fn screen_glow(sc: Screen) -> vec3f {
   if (sc.roll < 1.0) {
     c = mix(channel_glow(sc.old_chan, sc.old_seed), c, roll_ease(sc.roll));
   }
-  return c * params.brightness;
+  return c * screens_light();
 }
 
 // ---- Pictures; s is 0..1 across the picture (y up), asp its width over its height, foot a
@@ -582,7 +590,7 @@ fn screen_light(sc: Screen, s0: vec2f, asp: f32, foot: f32) -> Pic {
   let lines = 0.5 + 0.5 * cos(s.y * LINES * 6.2831853);
   // Darker towards the edges, as a tube's picture is.
   let k = mix(1.0, 0.6 + 0.4 * lines, 1.0 - smoothstep(0.35, 0.6, foot * LINES)) * clamp(1.0 - 1.6 * dot(c, c), 0.0, 1.0);
-  v = pic_scale(v, k * params.brightness);
+  v = pic_scale(v, k * screens_light());
   return Pic(max(v.rest, vec3f(0.0)), max(v.cover, vec3f(0.0)));
 }
 
@@ -1181,6 +1189,12 @@ fn shade(px: Pixel) -> vec4f {
   } else {
     c = shade_side(p, ray.d, h.n, h.tv, foot, key);
   }
+  // Looking up the wall the piles go on into the dark: beyond a few metres the light falls off.
+  // Only that view, and only what is far along the ray.
+  var into_dark = 1.0;
+  if (state.view > 3.5 && state.view < 4.5) {
+    into_dark = exp(-0.12 * max(h.t - 3.0, 0.0));
+  }
   // The room and the screens' other pictures are graded; the covers' light is added as it is.
-  return vec4f(grade(c) + cover_light, 1.0);
+  return vec4f((grade(c) + cover_light) * into_dark, 1.0);
 }

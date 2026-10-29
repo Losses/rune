@@ -12,8 +12,8 @@ fn random(n: u32) -> f32 {
 // Frame the shot the director cut to, and where on the wall to see it from. The director chooses
 // which and when (see `[[shot]]` and `[[burst]]` in scene.toml); the scene only knows how each
 // looks. Views: 0 straight on, 1 from one side looking along the wall, 2 far off, 3 close up
-// through a long lens (shot.index 0 to 3), and 4 for a burst's close-ups (shot.index 4 to 7,
-// shot.fill 1 to 4), each framed on a set the scene chose (choose_burst).
+// through a long lens, 4 looking up the wall (shot.index 0 to 4), and 5 for a burst's close-ups
+// (shot.index 5 to 8, shot.fill 1 to 4), each framed on a set the scene chose (choose_burst).
 fn choose_view() {
   if (shot.fill > 0u) {
     choose_burst();
@@ -22,7 +22,7 @@ fn choose_view() {
   state.hero_on = 0.0;
   let r2 = random(2u);
   let r3 = random(3u);
-  let v = f32(min(shot.index, 3u));
+  let v = f32(min(shot.index, 4u));
   state.view = v;
   state.roll = shot.roll;
   let way = select(-1.0, 1.0, r2 < 0.5);
@@ -44,11 +44,23 @@ fn choose_view() {
     state.pitch = (r3 - 0.5) * 0.05;
     state.lens = 0.42;
     state.dir = way;
-  } else {
+  } else if (v < 3.5) {
     state.cam.z = -params.distance * 0.85;
     state.yaw = way * 0.12;
     state.pitch = (r3 - 0.5) * 0.06;
     state.lens = 0.3;
+    state.dir = way;
+  } else {
+    // Looking up the wall: near it, pitched up 30 to 40 degrees, so the piles converge upward into
+    // the dark; a little turned, and a third of the director's dutch angle (30 to 100 % of 0.3 rad
+    // on a medium shot, so about 2 to 6 degrees, never none). The plan centres where the view meets
+    // the wall (plan_look), which is higher up the steeper it looks, and is big enough for the
+    // whole frame.
+    state.cam.z = -params.distance * 0.6;
+    state.yaw = way * 0.05;
+    state.pitch = 0.52 + 0.17 * r3;
+    state.lens = 0.6;
+    state.roll = shot.roll * 0.33;
     state.dir = way;
   }
   // Somewhere new on the wall (it has no end either way).
@@ -112,7 +124,7 @@ const BURST_SHOWS = array<u32, 4>(0u, 2u, 1u, 3u);
 
 fn choose_burst() {
   let fill = shot.fill;
-  state.view = 4.0;
+  state.view = 5.0;
   state.roll = shot.roll;
   let way = select(-1.0, 1.0, random(2u) < 0.5);
   // The shot turns to one side and the next to the other.
@@ -273,7 +285,6 @@ fn update() {
   let t = frame.time;
   if (frame.first == 1u) {
     state.cam = vec3f(0.0, 10.0, -params.distance);
-    state.ens = 1.0;
     state.gain = 4.0;
     state.cuts = shot.cuts;
     choose_view();
@@ -298,9 +309,6 @@ fn update() {
     state.step_age = 0.0;
   }
 
-  // The energy the speed follows: the slow drive, eased once more.
-  state.ens = rv_approach(state.ens, input.energy, dt, 0.6);
-
   // The director cuts: take its shot as the view, and decide the wall's off screens and grouping
   // (nothing else changes them). The camera jumps along the wall, so the new view starts at the
   // speed the music sounds now.
@@ -316,14 +324,23 @@ fn update() {
   // side faster, close up slower (a burst's close-ups do not cruise, below). The cruise is for 90
   // bpm (`pace`), and goes with how much is heard (smoothed, so it slows with a fade) and stops in
   // silence.
-  let cruise = params.cruise * input.pace * (1.0 + params.energy_speed * (state.ens - 1.0)) * input.audible;
+  let cruise = params.cruise * input.pace * (1.0 + params.energy_speed * (mix(0.6, 1.4, input.energy) - 1.0)) * input.audible;
   state.vtgt = cruise + (state.vtgt - cruise) * exp(-dt / max(params.ease, 0.05)) + f32(stepped) * params.push * cruise;
   if (fresh) {
     state.vel = state.vtgt;
   }
   state.vel += (state.vtgt - state.vel) * (1.0 - exp(-dt / max(params.accel, 0.01)));
-  let view_speed = select(select(select(1.0, 0.45, state.view > 2.5), 1.6, state.view > 0.5 && state.view < 1.5), 1.0, state.view < 0.5);
-  if (state.view > 3.5) {
+  // The views' own speeds: straight on and far 1, from the side 1.6, close 0.45, looking up 1.2
+  // (near the wall, so the same speed sweeps the picture faster).
+  var view_speed = 1.0;
+  if (state.view > 0.5 && state.view < 1.5) {
+    view_speed = 1.6;
+  } else if (state.view > 2.5 && state.view < 3.5) {
+    view_speed = 0.45;
+  } else if (state.view > 3.5 && state.view < 4.5) {
+    view_speed = 1.2;
+  }
+  if (state.view > 4.5) {
     // A burst's close-up does not cruise (a long lens would carry its screen out of frame in a
     // beat): it pushes in slowly towards what it looks at, a few percent of the way over a second,
     // eased, and still in silence.

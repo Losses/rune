@@ -17,8 +17,6 @@ struct State {
   dir: f32,
   vel: f32,
   vtgt: f32,
-  // The energy (smoothed once more) that the speed follows.
-  ens: f32,
   // The step counter the screens change channel by: how many steps (a beat at most every half
   // beat, and only while something is heard), and the seconds since the last one.
   count: f32,
