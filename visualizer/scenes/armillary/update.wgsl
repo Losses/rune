@@ -1,15 +1,13 @@
-// Once per frame: the music moves the sphere as hands move a real one, in one of two ways. Free
-// (see below): each ring always tumbling on its own, a push setting it tumbling a new way, surging
-// round. Or as pendulums: each ring a body hung so it rests in its place: pushed, it swings out and
-// comes back, slowed by friction; pushed hard, it goes over the top and on round a whole turn to
-// its place again, a little past it and back. A push on one nudges its neighbours a moment later. A
-// bar nudges one ring; a phrase of four bars flings one round a whole turn, each ring in its turn,
-// each time the other way; a section flings three of them, one after another from the inside out,
-// each the other way from the one before. Nothing steps with the beat. The gem at the heart rolls a
-// whole turn each phrase. On the beats, the rings or (taking turns) a batch of shapes light and
-// fade. The ecliptic precesses steadily. The core breathes with the music. The camera cuts
-// where the runtime's director says, to the shot it picks. Then the shapes are placed and
-// projected, and the ones on the screen listed.
+// Once per frame: the music moves the sphere as hands move a real one. Each ring is a pendulum, a
+// body hung so it rests in its place: pushed, it swings out and comes back, slowed by friction;
+// pushed hard, it goes over the top and on round a whole turn to its place again, a little past
+// it and back. A push on one nudges its neighbours a moment later. A bar nudges one ring; a
+// phrase of four bars flings one round a whole turn, each ring in its turn, each time the other
+// way; a section flings three of them, one after another from the inside out, each the other way
+// from the one before. Nothing steps with the beat. On the beats, the dots of a ring or (taking
+// turns) a batch of shapes light and fade. The ecliptic precesses steadily. The planet at the
+// heart turns and swells with the music. The camera cuts where the runtime's director says, to the
+// shot it picks. Then the shapes are placed and projected, and the ones on the screen listed.
 
 // ---- Colour ----
 // Every colour in the picture comes from one: the theme colour, the player's own (which follows
@@ -50,28 +48,21 @@ fn theme() -> vec2f {
   return vec2f(atan2(lab.z, lab.y), min(length(lab.yz), 0.12) * params.chroma);
 }
 
-// The palette, by number: 0 the lines; 1 the core's light; 2 the rings' haze; 3, 4 the nebula's
-// two shades (its hue turned a little either way); 5 deep space; 6, 7 the stars' two tints;
-// 8 bronze; 9 the faint light of the stars; 10, 11 what space mirrors (deep, and towards the
-// nebula); 12 glass; 13 the little star core's edge, fuller.
+// The palette, by number: 0 the planet's characters and the lines; 1 the light of the lit dots and
+// the line of the spectrum; 3, 4 the nebula's two shades (its hue turned a little either way);
+// 5 deep space; 6, 7 the stars' two tints. (2 and 8 to 13 went with the glass and bronze rings,
+// the gem, the star and the lamp; the numbers stay as they were.)
 fn set_palette(th: vec2f) {
   let h = th.x;
   let c = th.y;
   state.palette[0] = tint(0.92, c * 0.45, h);
   state.palette[1] = tint(0.8, c, h);
-  state.palette[2] = tint(0.78, c * 0.9, h);
   state.palette[3] = vec4f(oklch(0.33, c * 0.6, h + 0.25), 0.0);
   state.palette[4] = vec4f(oklch(0.35, c * 0.5, h - 0.25), 0.0);
   state.palette[5] = vec4f(oklch(0.13, c * 0.25, h), 0.0);
   state.palette[6] = tint(0.93, c * 0.15, h - 0.5);
   state.palette[7] = tint(0.93, c * 0.25, h + 0.5);
-  state.palette[8] = vec4f(oklch(0.62, c * 0.8, h), 0.0);
-  state.palette[9] = tint(0.85, c * 0.3, h + 0.7);
-  state.palette[10] = vec4f(oklch(0.17, c * 0.3, h), 0.0);
-  state.palette[11] = vec4f(oklch(0.42, c * 0.5, h + 0.25), 0.0);
-  state.palette[12] = tint(0.78, c * 0.9, h);
-  state.palette[13] = tint(0.68, c * 1.2, h + 0.25);
-  // Each ring the lines' colour, its hue turned a few degrees its own way.
+  // Each ring the marks' colour, its hue turned a few degrees its own way.
   for (var i = 0u; i < RINGS; i++) {
     state.ring_tint[i] = tint(0.92, c * 0.45, h + (f32(i) - 2.0) * 0.07);
   }
@@ -95,11 +86,11 @@ fn spring(x: ptr<function, f32>, v: ptr<function, f32>, to: f32, dt: f32, snap: 
   }
 }
 
-// The rings: outer radius, width, half thickness and ticks (0 none), by number: 0 the horizon,
-// 1 the meridian, 2 the ecliptic, 3 the sun's ring, 4 an outer ring round them all (the moon's
-// ring, once the innermost, sat too close to the core).
-fn ring_size(i: u32) -> vec4f {
-  var sizes = array<vec4f, 5>(vec4f(3.5, 0.22, 0.035, 24.0), vec4f(2.85, 0.15, 0.04, 36.0), vec4f(2.2, 0.24, 0.03, 72.0), vec4f(1.6, 0.08, 0.025, 12.0), vec4f(4.2, 0.12, 0.025, 0.0));
+// The rings: outer radius and width, by number: 0 the horizon, 1 the meridian, 2 the ecliptic,
+// 3 the sun's ring, 4 an outer ring round them all (the moon's ring, once the innermost, sat too
+// close to the core). The marks lie along the middle of the band (a radius less half the width).
+fn ring_size(i: u32) -> vec2f {
+  var sizes = array<vec2f, 5>(vec2f(3.5, 0.22), vec2f(2.85, 0.15), vec2f(2.2, 0.24), vec2f(1.6, 0.08), vec2f(4.2, 0.12));
   return sizes[i];
 }
 
@@ -174,12 +165,7 @@ fn whirl(i: u32, way: f32, across: f32) {
 // Ring k flung round `way`, its neighbours nudged after it the other way, less the further they
 // are.
 fn whirl_one(k: u32, way: f32, across: f32) {
-  if (params.motion == 0u) {
-    retumble(k, way, across);
-    surge(k, 6.2831853);
-  } else {
-    whirl(k, way, across);
-  }
+  whirl(k, way, across);
   for (var i = 0u; i < RINGS; i++) {
     let apart = abs(f32(i) - f32(k));
     if (apart > 0.5 && apart < 2.5) {
@@ -197,22 +183,11 @@ fn move_ring(i: u32, dt: f32) {
     state.ring_wait[i] = select(w, vec4f(0.0), w.y <= 0.0);
     if (w.y <= 0.0) {
       if (w.z > 0.5) {
-        if (params.motion == 0u) {
-          retumble(i, w.x, w.w);
-          surge(i, 6.2831853);
-        } else {
-          whirl(i, w.x, w.w);
-        }
-      } else if (params.motion == 0u) {
-        surge(i, w.x);
+        whirl(i, w.x, w.w);
       } else {
         push(i, w.x);
       }
     }
-  }
-  if (params.motion == 0u) {
-    spin_ring(i, dt);
-    return;
   }
   var m = state.ring_turn[i];
   let time = ring_time(i);
@@ -234,7 +209,7 @@ fn move_ring(i: u32, dt: f32) {
   state.ring_rest_b[i] = vec4f(normalize(mix(state.ring_rest_b[i].xyz, home_b(i), ease)), 0.0);
 }
 
-// A ring's frame from its axis and a direction in its plane (where its ticks start).
+// A ring's frame from its axis and a direction in its plane (where its first mark lies).
 fn ring_frame(i: u32, axis: vec3f, along: vec3f) {
   let size = ring_size(i);
   let z = normalize(axis);
@@ -242,8 +217,7 @@ fn ring_frame(i: u32, axis: vec3f, along: vec3f) {
   let y = cross(z, x);
   state.ring_x[i] = vec4f(x, size.x);
   state.ring_y[i] = vec4f(y, size.y);
-  state.ring_z[i] = vec4f(z, size.z);
-  state.ring_look[i] = vec4f(size.w, 0.0, 0.0, 0.0);
+  state.ring_z[i] = vec4f(z, 0.0);
 }
 
 // Every ring in its place, still; a nudge before its first turn tilts it about a line in its
@@ -276,275 +250,15 @@ fn set_rings(t: f32) {
   }
 }
 
-// ---- The gem (core look 3) ----
-// A ball of crystal cut all over in facets, cut by hand: laid out as a geodesic ball is (twelve
-// pentagons and eighty hexagons: the facets' normals are the points of an icosahedron with each
-// edge cut in three, and the middles of its faces), but each tipped a little its own way and cut
-// a little deeper or shallower, so no two are quite alike.
-// Drawn in lines: eighty triangles, as a crystal is cut. The corners of a geodesic ball (an
-// icosahedron with each edge halved), each moved a little by hand along the ball and in or out,
-// and a facet through every three that make a face: each its outward normal and how far it lies
-// from the middle (w).
-fn gem_facet_few(k: u32) -> vec4f {
-  var planes = array<vec4f, 80>(
-    vec4f(-0.28120, 0.93519, 0.21527, 0.90920),
-    vec4f(0.32149, 0.92761, 0.19021, 0.91200),
-    vec4f(-0.05288, 0.76212, 0.64527, 0.90214),
-    vec4f(-0.07019, 0.91762, 0.39120, 0.90339),
-    vec4f(-0.27341, 0.95234, -0.13527, 0.91142),
-    vec4f(0.24492, 0.95475, -0.16874, 0.92199),
-    vec4f(-0.02022, 0.81919, -0.57317, 0.90525),
-    vec4f(-0.01200, 0.94655, -0.32233, 0.90293),
-    vec4f(-0.58693, 0.74809, 0.30964, 0.92550),
-    vec4f(-0.29509, 0.57041, 0.76652, 0.90470),
-    vec4f(-0.70453, 0.34320, 0.62116, 0.93357),
-    vec4f(-0.55556, 0.55447, 0.61961, 0.91731),
-    vec4f(-0.59581, 0.74067, -0.31051, 0.91128),
-    vec4f(-0.33558, 0.63151, -0.69899, 0.90208),
-    vec4f(-0.77067, 0.27545, -0.57463, 0.92869),
-    vec4f(-0.54149, 0.61544, -0.57274, 0.90072),
-    vec4f(-0.80885, 0.58788, -0.01285, 0.90948),
-    vec4f(-0.95940, 0.16474, -0.22895, 0.91041),
-    vec4f(-0.96568, 0.17679, 0.19031, 0.90723),
-    vec4f(-0.95115, 0.30872, -0.00110, 0.89167),
-    vec4f(0.54171, 0.79488, 0.27332, 0.89794),
-    vec4f(0.30216, 0.60964, 0.73283, 0.90702),
-    vec4f(0.74171, 0.33102, 0.58334, 0.91637),
-    vec4f(0.53566, 0.62226, 0.57084, 0.89770),
-    vec4f(0.60120, 0.73771, -0.30715, 0.91467),
-    vec4f(0.40658, 0.59689, -0.69168, 0.90666),
-    vec4f(0.72858, 0.19824, -0.65565, 0.91044),
-    vec4f(0.53357, 0.57942, -0.61610, 0.89878),
-    vec4f(0.74614, 0.66551, -0.01927, 0.90325),
-    vec4f(0.94661, 0.12519, -0.29707, 0.93424),
-    vec4f(0.93893, 0.23788, 0.24863, 0.92133),
-    vec4f(0.93499, 0.35352, 0.02863, 0.90901),
-    vec4f(-0.30218, -0.93594, 0.18082, 0.91425),
-    vec4f(0.20273, -0.96184, 0.18373, 0.92301),
-    vec4f(-0.06226, -0.78075, 0.62174, 0.93054),
-    vec4f(-0.03728, -0.94977, 0.31073, 0.91327),
-    vec4f(-0.29224, -0.92816, -0.23047, 0.92492),
-    vec4f(0.27043, -0.94821, -0.16664, 0.92335),
-    vec4f(-0.08357, -0.73782, -0.66980, 0.92347),
-    vec4f(-0.06866, -0.93178, -0.35646, 0.92690),
-    vec4f(-0.56012, -0.77109, 0.30280, 0.91046),
-    vec4f(-0.34432, -0.62706, 0.69875, 0.92127),
-    vec4f(-0.78101, -0.28393, 0.55624, 0.92293),
-    vec4f(-0.56505, -0.63219, 0.53014, 0.90718),
-    vec4f(-0.51632, -0.77436, -0.36577, 0.92608),
-    vec4f(-0.27122, -0.62456, -0.73237, 0.91302),
-    vec4f(-0.72618, -0.31870, -0.60918, 0.92564),
-    vec4f(-0.50274, -0.61747, -0.60497, 0.90975),
-    vec4f(-0.76207, -0.64742, -0.01019, 0.93405),
-    vec4f(-0.94981, -0.20244, -0.23848, 0.91731),
-    vec4f(-0.96033, -0.12973, 0.24687, 0.91419),
-    vec4f(-0.94680, -0.31773, -0.05117, 0.91556),
-    vec4f(0.62268, -0.68765, 0.37337, 0.91442),
-    vec4f(0.22882, -0.58650, 0.77695, 0.93344),
-    vec4f(0.73319, -0.34629, 0.58525, 0.91115),
-    vec4f(0.61940, -0.56285, 0.54731, 0.90264),
-    vec4f(0.57519, -0.76031, -0.30179, 0.90926),
-    vec4f(0.31386, -0.56505, -0.76302, 0.92216),
-    vec4f(0.80409, -0.29178, -0.51798, 0.92601),
-    vec4f(0.57050, -0.60814, -0.55200, 0.91042),
-    vec4f(0.78386, -0.62058, -0.02102, 0.91381),
-    vec4f(0.91542, -0.24868, -0.31650, 0.92746),
-    vec4f(0.92776, -0.21528, 0.30481, 0.93997),
-    vec4f(0.89533, -0.44309, -0.04545, 0.92115),
-    vec4f(0.08862, -0.30509, 0.94819, 0.92225),
-    vec4f(0.19204, 0.25758, 0.94698, 0.91091),
-    vec4f(0.62133, 0.00318, 0.78354, 0.91197),
-    vec4f(0.32586, 0.04116, 0.94452, 0.90630),
-    vec4f(-0.20342, -0.29324, 0.93415, 0.91878),
-    vec4f(-0.20511, 0.29648, 0.93275, 0.91067),
-    vec4f(-0.60060, 0.00065, 0.79955, 0.92248),
-    vec4f(-0.39015, -0.00487, 0.92074, 0.90901),
-    vec4f(0.18979, -0.25236, -0.94884, 0.91354),
-    vec4f(0.23982, 0.25499, -0.93673, 0.92996),
-    vec4f(0.69648, 0.09682, -0.71101, 0.91136),
-    vec4f(0.35592, 0.02968, -0.93404, 0.91639),
-    vec4f(-0.10708, -0.26181, -0.95916, 0.91969),
-    vec4f(-0.19030, 0.28130, -0.94056, 0.93019),
-    vec4f(-0.65120, -0.03902, -0.75790, 0.93238),
-    vec4f(-0.30622, 0.00415, -0.95195, 0.92487)
-  );
-  return planes[k];
-}
+// ---- Accents ----
+// The rings rest as faint dots and an accent lights one, all its dots together (see view.wgsl),
+// fading back over a moment; a strong one lights two. Or it lights a batch of the shapes.
 
-fn gem_facet(k: u32) -> vec3f {
-  var normals = array<vec3f, 92>(
-    vec3f(-0.52573, 0.85065, 0.00000),
-    vec3f(0.52573, 0.85065, 0.00000),
-    vec3f(-0.52573, -0.85065, 0.00000),
-    vec3f(0.52573, -0.85065, 0.00000),
-    vec3f(0.00000, -0.52573, 0.85065),
-    vec3f(0.00000, 0.52573, 0.85065),
-    vec3f(0.00000, -0.52573, -0.85065),
-    vec3f(0.00000, 0.52573, -0.85065),
-    vec3f(0.85065, 0.00000, -0.52573),
-    vec3f(0.85065, 0.00000, 0.52573),
-    vec3f(-0.85065, 0.00000, -0.52573),
-    vec3f(-0.85065, 0.00000, 0.52573),
-    vec3f(-0.20177, 0.97943, 0.00000),
-    vec3f(0.20177, 0.97943, 0.00000),
-    vec3f(-0.40355, 0.85473, 0.32648),
-    vec3f(-0.20177, 0.73003, 0.65295),
-    vec3f(-0.40355, 0.85473, -0.32648),
-    vec3f(-0.20177, 0.73003, -0.65295),
-    vec3f(-0.73003, 0.65295, -0.20177),
-    vec3f(-0.85473, 0.32648, -0.40355),
-    vec3f(-0.73003, 0.65295, 0.20177),
-    vec3f(-0.85473, 0.32648, 0.40355),
-    vec3f(0.40355, 0.85473, 0.32648),
-    vec3f(0.20177, 0.73003, 0.65295),
-    vec3f(0.40355, 0.85473, -0.32648),
-    vec3f(0.20177, 0.73003, -0.65295),
-    vec3f(0.73003, 0.65295, -0.20177),
-    vec3f(0.85473, 0.32648, -0.40355),
-    vec3f(0.73003, 0.65295, 0.20177),
-    vec3f(0.85473, 0.32648, 0.40355),
-    vec3f(-0.20177, -0.97943, 0.00000),
-    vec3f(0.20177, -0.97943, 0.00000),
-    vec3f(-0.40355, -0.85473, 0.32648),
-    vec3f(-0.20177, -0.73003, 0.65295),
-    vec3f(-0.40355, -0.85473, -0.32648),
-    vec3f(-0.20177, -0.73003, -0.65295),
-    vec3f(-0.73003, -0.65295, -0.20177),
-    vec3f(-0.85473, -0.32648, -0.40355),
-    vec3f(-0.73003, -0.65295, 0.20177),
-    vec3f(-0.85473, -0.32648, 0.40355),
-    vec3f(0.40355, -0.85473, 0.32648),
-    vec3f(0.20177, -0.73003, 0.65295),
-    vec3f(0.40355, -0.85473, -0.32648),
-    vec3f(0.20177, -0.73003, -0.65295),
-    vec3f(0.73003, -0.65295, -0.20177),
-    vec3f(0.85473, -0.32648, -0.40355),
-    vec3f(0.73003, -0.65295, 0.20177),
-    vec3f(0.85473, -0.32648, 0.40355),
-    vec3f(0.00000, -0.20177, 0.97943),
-    vec3f(0.00000, 0.20177, 0.97943),
-    vec3f(0.32648, -0.40355, 0.85473),
-    vec3f(0.65295, -0.20177, 0.73003),
-    vec3f(-0.32648, -0.40355, 0.85473),
-    vec3f(-0.65295, -0.20177, 0.73003),
-    vec3f(0.32648, 0.40355, 0.85473),
-    vec3f(0.65295, 0.20177, 0.73003),
-    vec3f(-0.32648, 0.40355, 0.85473),
-    vec3f(-0.65295, 0.20177, 0.73003),
-    vec3f(0.00000, -0.20177, -0.97943),
-    vec3f(0.00000, 0.20177, -0.97943),
-    vec3f(0.32648, -0.40355, -0.85473),
-    vec3f(0.65295, -0.20177, -0.73003),
-    vec3f(-0.32648, -0.40355, -0.85473),
-    vec3f(-0.65295, -0.20177, -0.73003),
-    vec3f(0.32648, 0.40355, -0.85473),
-    vec3f(0.65295, 0.20177, -0.73003),
-    vec3f(-0.32648, 0.40355, -0.85473),
-    vec3f(-0.65295, 0.20177, -0.73003),
-    vec3f(0.97943, 0.00000, -0.20177),
-    vec3f(0.97943, 0.00000, 0.20177),
-    vec3f(-0.97943, 0.00000, -0.20177),
-    vec3f(-0.97943, 0.00000, 0.20177),
-    vec3f(0.00000, 0.93417, 0.35682),
-    vec3f(0.00000, 0.93417, -0.35682),
-    vec3f(-0.57735, 0.57735, 0.57735),
-    vec3f(-0.57735, 0.57735, -0.57735),
-    vec3f(-0.93417, 0.35682, 0.00000),
-    vec3f(0.57735, 0.57735, 0.57735),
-    vec3f(0.57735, 0.57735, -0.57735),
-    vec3f(0.93417, 0.35682, 0.00000),
-    vec3f(0.00000, -0.93417, 0.35682),
-    vec3f(0.00000, -0.93417, -0.35682),
-    vec3f(-0.57735, -0.57735, 0.57735),
-    vec3f(-0.57735, -0.57735, -0.57735),
-    vec3f(-0.93417, -0.35682, 0.00000),
-    vec3f(0.57735, -0.57735, 0.57735),
-    vec3f(0.57735, -0.57735, -0.57735),
-    vec3f(0.93417, -0.35682, 0.00000),
-    vec3f(0.35682, 0.00000, 0.93417),
-    vec3f(-0.35682, 0.00000, 0.93417),
-    vec3f(0.35682, 0.00000, -0.93417),
-    vec3f(-0.35682, 0.00000, -0.93417)
-  );
-  return normals[k];
-}
-
-// The gem turns as a free ring does: slowly all the time about its axis (a little quicker on
-// each kick, so its facets flash with the beat), and at each phrase it rolls a whole turn about
-// a new axis, surging round and easing back to its pace.
-fn spin_gem(dt: f32) {
-  var m = state.gem_roll;
-  let time = params.whirl_time;
-  let coast = G_COAST * time;
-  let drive = G_DRIVE * time;
-  let pace = (0.25 + 1.5 * input.kick_env) * params.flow;
-  let n = 4;
-  let h = dt / f32(n);
-  for (var k = 0; k < n; k++) {
-    m.y += (m.z + (pace - m.y) / coast) * h;
-    m.x += m.y * h;
-    m.z *= exp(-h / drive);
-  }
-  state.gem_roll = m;
-}
-
-// The gem rolls a whole turn, `way` (1 or -1) round about the line on the screen at angle
-// `across`: where it is now becomes where it turns from, its speed kept.
-fn roll_gem(way: f32, across: f32) {
-  let m = state.gem_roll;
-  let about = state.gem_about.xyz;
-  state.gem_rest_a = vec4f(turn(state.gem_rest_a.xyz, about, m.x), 0.0);
-  state.gem_rest_b = vec4f(turn(state.gem_rest_b.xyz, about, m.x), 0.0);
-  state.gem_about = vec4f((state.cam_right * cos(across) + state.cam_up * sin(across)) * way, 0.0);
-  let time = params.whirl_time;
-  state.gem_roll = vec4f(0.0, abs(m.y), m.z + 6.2831853 / (G_DRIVE * time * G_COAST * time), 0.0);
-}
-
-// The gem's facets as it is turned now.
-fn set_gem(t: f32) {
-  let m = state.gem_roll;
-  let about = state.gem_about.xyz;
-  let ey = normalize(turn(state.gem_rest_a.xyz, about, m.x));
-  let b = turn(state.gem_rest_b.xyz, about, m.x);
-  let ex = normalize(b - ey * dot(b, ey));
-  let ez = cross(ex, ey);
-  let few = params.core_look == 4u;
-  state.gem_count = select(FACETS, 80u, few);
-  for (var k = 0u; k < state.gem_count; k++) {
-    let id = vec2f(f32(k), 9.1);
-    let lean = (vec3f(hash(id), hash(id + 0.3), hash(id + 0.7)) - 0.5) * 0.25;
-    var f = vec4f(normalize(gem_facet(k) + lean), 1.0 - 0.05 * hash(id + 1.1));
-    if (few) {
-      f = gem_facet_few(k);
-    }
-    state.gem[k] = vec4f(normalize(ex * f.x + ey * f.y + ez * f.z), f.w);
-  }
-}
-
-// ---- Accents (look 2) ----
-// Drawn as lines, the rings rest as faint hairlines and an accent lights one at once, thicker
-// and bright, fading back over a moment (a strong one lights two); most times it also takes a
-// new tilt as it lights, so the accent brings a new shape, not only light.
-
-// Ring i lit as strongly as `strength`. Drawn in marks, the dots round `light_reach` of the ring
-// (from somewhere new) brighten together, then dim together; one still lit brightens from where
-// it is.
+// Ring i lit as strongly as `strength`: the dots round `light_reach` of the ring (from somewhere
+// new) brighten together, then dim together; one still lit brightens from where it is.
 fn light_ring(i: u32, strength: f32, n: u32) {
-  state.ring_lit[i].x = max(state.ring_lit[i].x, strength);
-  if (params.look == 3u) {
-    let on = state.ring_on[i];
-    state.ring_on[i] = vec4f(random(60u + n), on.y, max(on.z, strength), 0.5 * params.light_reach);
-  }
-  if (params.look >= 2u && params.motion == 0u && random(20u + n) < params.renew) {
-    let up = random(30u + n) * 2.0 - 1.0;
-    let round = random(40u + n) * 6.2831853;
-    let a = vec3f(sqrt(1.0 - up * up) * cos(round), up, sqrt(1.0 - up * up) * sin(round));
-    let b = normalize(cross(a, select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(up) > 0.9)));
-    state.ring_rest_a[i] = vec4f(a, 0.0);
-    state.ring_rest_b[i] = vec4f(b, 0.0);
-    state.ring_about[i] = vec4f(cross(a, b), 0.0);
-    state.ring_turn[i].x = 0.0;
-  }
+  let on = state.ring_on[i];
+  state.ring_on[i] = vec4f(random(60u + n), on.y, max(on.z, strength), 0.5 * params.light_reach);
 }
 
 // An accent as strong as `strength` lights whichever of the two is lighting now: the next ring
@@ -582,80 +296,6 @@ fn light(strength: f32) {
   }
 }
 
-// ---- Free (motion 0) ----
-// Each ring on its own, always turning: slowly and evenly with the tempo about a line across its
-// own plane (so it tumbles), the small ones quicker. A push sends it surging further round,
-// easing back to its own pace after; a push of its own also sets it tumbling about a new line,
-// and rings pushed together are set tumbling every one a different way.
-
-// How fast ring i turns of itself, in radians a second: degrees a beat, with the tempo.
-fn own_pace(i: u32) -> f32 {
-  var rate = array<f32, 5>(3.0, 4.5, 6.0, 9.0, 13.0);
-  return radians(rate[i]) * params.ring_spin * input.tempo / 60.0;
-}
-
-// How long a surge's push lasts, and how long it takes the ring to ease back to its pace, in
-// proportion to the ring's time.
-const G_DRIVE: f32 = 0.1;
-const G_COAST: f32 = 0.45;
-
-// Ring i sent `angle` further round (negative: held back, or turned back a little).
-fn surge(i: u32, angle: f32) {
-  let time = ring_time(i);
-  state.ring_turn[i].z += angle / (G_DRIVE * time * G_COAST * time);
-}
-
-// Ring i set tumbling `way` (1 or -1) about the line across its plane nearest the line on the
-// screen at angle `across`: where it is now becomes where it turns from, its speed kept.
-fn retumble(i: u32, way: f32, across: f32) {
-  let m = state.ring_turn[i];
-  let about = state.ring_about[i].xyz;
-  let a = turn(state.ring_rest_a[i].xyz, about, m.x);
-  let b = turn(state.ring_rest_b[i].xyz, about, m.x);
-  state.ring_rest_a[i] = vec4f(a, 0.0);
-  state.ring_rest_b[i] = vec4f(b, 0.0);
-  let line = state.cam_right * cos(across) + state.cam_up * sin(across);
-  var onplane = line - a * dot(line, a);
-  if (length(onplane) < 0.3) {
-    onplane = cross(a, state.cam_fwd);
-  }
-  state.ring_about[i] = vec4f(normalize(onplane) * way, 0.0);
-  state.ring_turn[i] = vec4f(0.0, abs(m.y), m.z, m.w);
-}
-
-// Ring i turning for dt: its speed driven by any push, easing back to its own pace; and the
-// slow turn of its ticks round its own plane.
-fn spin_ring(i: u32, dt: f32) {
-  var m = state.ring_turn[i];
-  let time = ring_time(i);
-  let coast = G_COAST * time;
-  let drive = G_DRIVE * time;
-  let pace = own_pace(i);
-  let n = 4;
-  let h = dt / f32(n);
-  for (var k = 0; k < n; k++) {
-    m.y += (m.z + (pace - m.y) / coast) * h;
-    m.x += m.y * h;
-    m.z *= exp(-h / drive);
-  }
-  m.w += pace * 0.5 * dt;
-  state.ring_turn[i] = m;
-}
-
-// The rings now, each from where it turns from, turned so far about its line; each drifting a
-// little, as a thing floating does.
-fn set_free(t: f32) {
-  for (var i = 0u; i < RINGS; i++) {
-    let m = state.ring_turn[i];
-    let about = state.ring_about[i].xyz;
-    var a = turn(state.ring_rest_a[i].xyz, about, m.x);
-    var b = turn(state.ring_rest_b[i].xyz, about, m.x);
-    a = turn(a, normalize(b), 0.03 * sin(t * (0.23 + 0.07 * f32(i)) + f32(i) * 1.7));
-    // Its ticks turn round its own plane.
-    ring_frame(i, a, turn(b, normalize(a), m.w));
-  }
-}
-
 // Shape i: where it hangs and how it lies, made anew each time its batch is lit (from how many
 // times that is). A polygon of three to six sides, hanging just outside the outermost ring; the
 // shapes of a batch (how many, and how big for the camera's distance, set as it lit) spaced
@@ -670,7 +310,7 @@ fn place(i: u32, th: vec2f) {
   let present = f32(place_in < many);
   let id = vec2f(f32(i), 3.7 + state.shape_look[i].z * 17.31);
   let band_id = vec2f(f32(batch), 5.3 + state.shape_look[i].z * 17.31);
-  let t = frame.time;
+  let t = state.phase;
   // The batch's band, its shapes round it, unevenly spaced, some well above or below it.
   let axis = state.batch_axis[batch].xyz;
   let e1 = normalize(cross(axis, select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(axis.y) > 0.9)));
@@ -724,34 +364,55 @@ fn project(i: u32) -> vec4f {
 
 fn update() {
   let dt = rv_dt();
-  let t = frame.time;
   if (frame.first == 1u) {
     state.core_size = 1.0;
     rest_rings();
     state.spec_ring = 4.0;
-    state.gem_rest_a = vec4f(turn(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0), 0.45), 0.0);
-    state.gem_rest_b = vec4f(1.0, 0.0, 0.0, 0.0);
-    state.gem_about = state.gem_rest_a;
+    // No beat has been counted yet.
+    state.beat_age = 1000.0;
   }
-  // What the music drives is declared in the manifest (`[[input]]` and `[[bind]]`): how loud it is
-  // (`input.intensity`), the live levels of the bass, mids and treble (`input.band_*`), the tempo
-  // to move at (`input.tempo`, always there: a calm one when the music has no beat; `input.pace_tempo`
-  // is it held at 40 or more) and the moments (`input.beat`, `input.bar_line`, `input.section`,
-  // one-frame pulses).
+  // What the music drives is declared in the manifest (`[[input]]` and `[[bind]]`): how much is
+  // heard (`input.audible`), the energy of the moment (`input.energy`), how far the bass is above
+  // its average (`input.core_bass`), the tempo to move at (`input.pace_tempo`, always there: a calm
+  // one when the music has no beat, held at 40 or more) and the moments (`input.hit`,
+  // `input.bar_line`, `input.section`, one-frame pulses).
   let beat_time = 60.0 / input.pace_tempo;
+
+  // How much is heard, and the scene's own time by it: the phase goes on by `dt` times
+  // `input.audible` (smoothed in its bind, so it slows with a song's own fade), so that everything
+  // that turns or floats of itself (the rings' floating, the sphere's, the shapes' turn in their
+  // planes) stands still in silence; the paces the runtime sums (`input.spin`, `input.cam_drift`,
+  // `input.planet_turn`) are multiplied by it in their binds. Only while something is heard (above
+  // 0.3) does a discrete move happen (a beat counted, a bar's nudge, a phrase's whole turn, a
+  // section's three rings, the lighting, the planet's swell), so a stray onset in near silence
+  // moves nothing; a push already given (a pendulum settling back, a push landing after its delay)
+  // is let finish. The stars' twinkle stays on the clock (it is light, not motion).
+  state.phase += dt * input.audible;
+  let heard = input.audible > 0.3;
+
+  // The beats, counted here. `input.hit` is a heard hit: at level A each beat followed, at B and C
+  // every onset (the kick, snare and hat, which can be dense). So a beat counts only if at least
+  // half a beat has passed since the last counted one and something is heard. Everything that
+  // goes by the beat (the planet's swell, the accents, the beat of the bar) uses the counted
+  // beats only.
+  state.beat_age = min(state.beat_age + dt, 1000.0);
+  let beat = input.hit > 0.5 && heard && state.beat_age >= 0.5 * beat_time;
+  if (beat) {
+    state.count += 1.0;
+    state.beat_age = 0.0;
+    state.core_vel += params.core_kick;
+  }
+  // Bar lines: where the beat is followed (`input.followed`, level A), the music's own
+  // (`input.bar_line`); everywhere else (levels B and C, which have none) every fourth counted
+  // beat. Either way the beat of the bar starts again on the bar line used.
+  let followed = input.followed > 0.5;
+  let barred = select(beat && state.beat_in_bar + 1.0 >= 4.0, input.bar_line > 0.5 && heard, followed);
 
   // Rings move by the bar, the phrase and the section, never step by step on the beat: a bar
   // nudges one ring, each in its turn; a phrase of four bars flings one round a whole turn, each
-  // in its turn, its neighbours nudged after; a section flings three, from the inside out.
-  // Bars come only from `input.bar_line`, so without a beat the rings stay quiet and only the
-  // cues (and the hits) move them. The kick swells the core.
-  let beat = input.beat > 0.5;
-  if (beat) {
-    state.core_vel += params.core_kick;
-  }
-  // A cue strong enough (`cue_min`) is the moment to fling rings.
-  let section = input.section > 0.5 && frame.first == 0u;
-  let barred = input.bar_line > 0.5;
+  // in its turn, its neighbours nudged after; a section flings three, from the inside out. A
+  // cue strong enough (`cue_min`) is the moment to fling rings.
+  let section = input.section > 0.5 && frame.first == 0u && heard;
   if (barred) {
     state.bars += 1.0;
     let bar = u32(state.bars);
@@ -765,8 +426,6 @@ fn update() {
         pick = others[(u32(random(60u) * 4.0) + 1u + u32(random(61u) * 3.0)) % 4u];
       }
       state.spec_ring = f32(pick);
-      // The gem rolls a whole turn, the other way from the last.
-      roll_gem(select(-1.0, 1.0, u32(state.phrases) % 2u == 1u), random(7u) * 6.2831853);
       if (!section) {
         // The rings in an order that leaps about: the moon's, the ecliptic, the horizon, the
         // sun's, the meridian.
@@ -776,13 +435,8 @@ fn update() {
       }
     } else {
       let k = (bar * 2u + 1u) % RINGS;
-      if (params.motion == 0u) {
-        // Set tumbling a new way, and a little further round.
-        retumble(k, select(-1.0, 1.0, bar % 2u == 0u), random(6u) * 3.1415927);
-        surge(k, radians(params.sway) * 6.0);
-      } else {
-        push(k, radians(params.sway) * 1.5 * select(-1.0, 1.0, bar % 2u == 0u));
-      }
+      // The push is as big as the energy is (0.6 to 1.4 times).
+      push(k, radians(params.sway) * 1.5 * select(-1.0, 1.0, bar % 2u == 0u) * mix(0.6, 1.4, input.energy));
     }
   }
   if (section) {
@@ -802,8 +456,10 @@ fn update() {
       push_later(i, select(-1.0, 1.0, k % 2u == 0u), 0.12 * inner, true, across + f32(k) * 1.885);
     }
   }
-  if (beat) {
-    state.beat_in_bar = select(state.beat_in_bar + 1.0, 0.0, barred);
+  if (barred) {
+    state.beat_in_bar = 0.0;
+  } else if (beat) {
+    state.beat_in_bar += 1.0;
   }
   // The rings and the shapes take turns to light, every `layer_bars` bars.
   if (barred && u32(state.bars) % u32(max(params.layer_bars, 1)) == 0u) {
@@ -813,15 +469,15 @@ fn update() {
   for (var i = 0u; i < RINGS; i++) {
     move_ring(i, dt);
   }
-  spin_gem(dt);
 
-  // Accents fall on the beats: the bar's first beat strongest, its third next, the others least,
-  // all of it stronger as the music is louder (so in a quiet passage only the strong beats
-  // light). What is lit fades by the beat: by half in `lit_beats` beats.
+  // Accents fall on the counted beats: the bar's first beat strongest, its third next, the others
+  // least, all of it stronger with the energy (0.55 times in the quietest passage, whole in the
+  // loudest, so in a quiet passage only the first and third beats pass `accent`). What is lit
+  // fades by the beat: by half in `lit_beats` beats.
   if (beat) {
     let at = u32(state.beat_in_bar) % 4u;
     let weight = select(select(0.5, 0.75, at == 2u), 1.0, at == 0u);
-    let accent = weight * mix(0.55, 1.0, input.intensity);
+    let accent = weight * mix(0.55, 1.0, input.energy);
     if (accent > params.accent) {
       light(accent);
     }
@@ -829,7 +485,6 @@ fn update() {
   let fade = exp(-dt * 0.693 / (params.lit_beats * beat_time));
   let on_fade = exp(-dt * 0.693 / (params.light_beats * beat_time));
   for (var i = 0u; i < RINGS; i++) {
-    state.ring_lit[i].x *= fade;
     // The dots brighten all together, quickly at first and slower as they near the accent's
     // strength (most of the way in `light_spread` beats), and dim together as it fades.
     var on = state.ring_on[i];
@@ -842,8 +497,9 @@ fn update() {
     state.ring_spec[i].x += (to - state.ring_spec[i].x) * (1.0 - exp(-dt / 0.6));
   }
 
-  // The core: as big as the music is loud (with the bass), springing out on each kick and back.
-  let big = 1.0 + 0.35 * input.intensity + 0.12 * clamp(input.band_low - 1.0, 0.0, 1.5);
+  // The planet: as big as the energy is (with the bass), springing out on each counted beat and
+  // back.
+  let big = 1.0 + 0.35 * input.energy + 0.12 * input.core_bass;
   var size = state.core_size;
   var size_vel = state.core_vel;
   spring(&size, &size_vel, big, dt, 12.0, 0.35);
@@ -851,14 +507,15 @@ fn update() {
   state.core_vel = size_vel;
 
   // Between the pushes everything keeps going, each at its own pace, all of it quicker as the
-  // music is louder: the ecliptic's precession, the camera, the core's surface
-  // (with the treble) and rays (with the mids), and the character-art planet, which turns with
-  // the tempo (a turn in about 24 beats). The runtime sums these (`input.spin`, `input.cam_drift`,
-  // `input.core_flow`, `input.core_rays`, `input.planet_turn`: the pace of each, by the second, times
-  // its slider, in radians); the shaders read them as they are. The camera's sum starts anew with
-  // each shot (`reset = "cut"`).
+  // music is louder: the ecliptic's precession, the camera, and the character-art planet, which
+  // turns with the tempo (a turn in about 24 beats). The runtime sums these (`input.spin`,
+  // `input.cam_drift`, `input.planet_turn`: the pace of each, by the second, times its slider, in
+  // radians); the shaders read them as they are. The camera's sum starts anew with each shot
+  // (`reset = "cut"`).
 
-  // The sphere floats: rising and sinking a little, drifting.
+  // The sphere floats: rising and sinking a little, drifting (on the phase, so it stills in
+  // silence).
+  let t = state.phase;
   state.centre = vec3f(0.05 * sin(t * 0.31), 0.08 * sin(t * 0.45), 0.05 * cos(t * 0.27));
 
   // The director cuts to another shot: its index is the view and its seed picks the side.
@@ -868,10 +525,7 @@ fn update() {
     state.view = f32(shot.index);
     state.side = select(-1.0, 1.0, shot.seed < 0.5);
   }
-  var view = state.view;
-  if (params.view > 0u) {
-    view = f32(params.view - 1u);
-  }
+  let view = state.view;
 
   // The shot, about the sphere floating in space: 0 a little below, pushing in; 1 far off, the
   // sphere small among the stars, circling; 2 close, the rings crossing, circling; 3 from above,
@@ -908,31 +562,21 @@ fn update() {
   let fwd = normalize(look - cam);
   let level_right = normalize(cross(up, fwd));
   let level_up = cross(fwd, level_right);
-  // The director's dutch angle, fixed within a shot: the camera turns about its own axis. A shot
-  // the user locked stays level.
-  let roll = select(shot.roll, 0.0, params.view > 0u);
+  // The director's dutch angle, fixed within a shot: the camera turns about its own axis.
+  let roll = shot.roll;
   state.cam_pos = cam;
   state.cam_fwd = fwd;
   state.cam_right = level_right * cos(roll) + level_up * sin(roll);
   state.cam_up = level_up * cos(roll) - level_right * sin(roll);
   state.focal = focal;
-  // Drawn in marks, what is bright fringes a little red and blue, as on a screen.
-  if (params.look == 3u) {
-    post.chromatic = 0.0022 * (1.0 + input.kick_env);
-  }
+  // What is bright fringes a little red and blue, as on a screen: fixed (about what the beat's
+  // widening averaged at 120 bpm, 0.0022 * (1 + 0.43)), not following any beat.
+  post.chromatic = 0.003;
 
-  if (params.motion == 0u) {
-    set_free(t);
-  } else {
-    set_rings(t);
-  }
+  set_rings(t);
   // (The theme is worked out once, for the palette and for every shape's colour.)
   let th = theme();
   set_palette(th);
-  // (Only the gem has facets: a single thread setting them every frame costs the phone dearly.)
-  if (params.core_look == 3u || params.core_look == 4u) {
-    set_gem(t);
-  }
   // The shapes fade with the beat; one that is not lit is not there (it is placed again when it
   // lights), so it is passed by. The rest are placed and projected, and listed if they are to be
   // drawn, in the order of their numbers: one write each, however big they are on the screen.

@@ -1,24 +1,30 @@
-// What Armillary keeps from frame to frame: the music; the sphere floating in space and its
-// rings, each moved as a body hung in its place is (pushed, swinging out and back or going round
-// a whole turn, slowed by friction, nudged a moment later by another's push); the core of light, breathing with the music; the
-// shot; and the shapes, big polygons drawn in fine lines that appear round it a batch at a time
-// as accents light them, projected and listed (those on the screen) so a pixel can skip at a
-// glance the ones that cannot touch it.
+// What Armillary keeps from frame to frame: the sphere floating in space and its rings, each
+// moved as a body hung in its place is (pushed, swinging out and back or going round a whole turn,
+// slowed by friction, nudged a moment later by another's push); the planet at its heart, swelling
+// with the music; the shot; and the shapes, big polygons drawn in fine lines that appear round it
+// a batch at a time as accents light them, projected and listed (those on the screen) so a pixel
+// can skip at a glance the ones that cannot touch it.
 
 const RINGS: u32 = 5u;
 const SHAPES: u32 = 96u;
 // The shapes come in batches, each lit at once; so many batches, so many shapes in each.
 const BATCHES: u32 = 4u;
 const IN_BATCH: u32 = 24u;
-// The cut gem's facets (core look 3).
-const FACETS: u32 = 92u;
 
 struct State {
+  // The beats the scene counts (see update): how many, and the seconds since the last. And the
+  // scene's own time for everything that moves of itself (the rings' and the sphere's floating,
+  // the shapes' turn in their planes): it advances by `dt` times how much is heard
+  // (`input.audible`), so all of it slows with a fade and stands still in silence. (`frame.time`
+  // stays only in the stars' twinkle, which is light, not motion.)
+  count: f32,
+  beat_age: f32,
+  phase: f32,
   // Bars, phrases and sections (strong cues) counted.
   bars: f32,
   phrases: f32,
   sections: f32,
-  // Accents, which light the rings drawn as lines or the shapes: which beat of the bar this is,
+  // Accents, which light the rings' dots or the shapes: which counted beat of the bar this is,
   // how many times something has lit, which of the two is lighting now (0 the rings, 1 the
   // shapes) and how far the picture has gone over to it (eased).
   beat_in_bar: f32,
@@ -29,18 +35,10 @@ struct State {
   view: f32,
   cuts_seen: f32,
   side: f32,
-  // The core's size now (it swells with the music and on the kick, sprung), and its speed.
+  // The planet's size now (it swells with the music and on each beat, sprung), and its speed.
   core_size: f32,
   core_vel: f32,
-  // How the gem turns, as a free ring does: where it turns from (its upright and a line across),
-  // the axis it turns about, and the turn (angle, speed, the push behind it).
-  gem_rest_a: vec4f,
-  gem_rest_b: vec4f,
-  gem_about: vec4f,
-  gem_roll: vec4f,
-  // How many facets the gem has (eighty triangles when it is drawn in lines).
-  gem_count: u32,
-  // Where the sphere's middle is now (the core of light, the centre of every ring): floating.
+  // Where the sphere's middle is now (the planet, the centre of every ring): floating.
   centre: vec3f,
   // The camera.
   cam_pos: vec3f,
@@ -48,12 +46,11 @@ struct State {
   cam_right: vec3f,
   cam_up: vec3f,
   focal: f32,
-  // The rings: the rows of each one's turn from the world into its own frame (z its axis), their
-  // w its outer radius, its width and half its thickness; and its look (x how its ticks are cut).
+  // The rings: the rows of each one's turn from the world into its own frame (z its axis), the w
+  // of the first its outer radius and of the second its width.
   ring_x: array<vec4f, 5>,
   ring_y: array<vec4f, 5>,
   ring_z: array<vec4f, 5>,
-  ring_look: array<vec4f, 5>,
   // How each ring moves: where it rests (its axis and a line in its plane); the turn it is making
   // (angle, speed, the push behind it) about an axis; a push waiting to land (how much, how soon,
   // whether it is a whole turn, and what picks that turn's axis).
@@ -62,9 +59,7 @@ struct State {
   ring_turn: array<vec4f, 5>,
   ring_about: array<vec4f, 5>,
   ring_wait: array<vec4f, 5>,
-  // How lit each ring is (x, 1 at an accent's full strength, fading).
-  ring_lit: array<vec4f, 5>,
-  // Drawn in marks (look 3), the dots an accent lights round each ring, all at once: where they
+  // The dots an accent lights round each ring, all at once: where they
   // start (x, in turns), how bright they are now (y, rising to z), how bright the accent left
   // them (z, fading) and how far either way from the start they are lit (w, turns).
   ring_on: array<vec4f, 5>,
@@ -85,11 +80,9 @@ struct State {
   // (x) and how big they are drawn for the camera's distance then (y).
   batch_axis: array<vec4f, 4>,
   batch_look: array<vec4f, 4>,
-  // The gem's facets, turned with it: each one's outward normal (in the world).
-  gem: array<vec4f, 92>,
   // The colours, all from the one theme colour (see update): the palette, a tint for each ring
   // and for each shape (each a little its own).
-  palette: array<vec4f, 16>,
+  palette: array<vec4f, 8>,
   ring_tint: array<vec4f, 5>,
   shape_tint: array<vec4f, 96>,
   // The shapes that are drawn this frame, in a short list: how many, and for each its centre on
