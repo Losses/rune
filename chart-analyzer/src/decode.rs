@@ -40,6 +40,9 @@ const SINC_LEN: usize = 256;
 const OVERSAMPLING: usize = 256;
 /// Frames the resampler takes at a time.
 const CHUNK: usize = 4096;
+/// The lowest sample rate taken. A lower one is no music, and resampling it up to the analysis
+/// rate would make a huge number of samples from a few frames.
+const MIN_SAMPLE_RATE: u32 = 1000;
 
 /// What `decode_with` fails with when its `cancel` flag was set: not a fault of the file, so
 /// that a caller can tell it by `error.downcast_ref::<Cancelled>()` and not log it as one.
@@ -202,6 +205,9 @@ fn release(held: &mut Vec<f32>, given: &mut usize, keep: usize, sink: &mut dyn F
 
 impl Resampler {
     fn new(from: u32, to: u32) -> Result<Resampler> {
+        if from < MIN_SAMPLE_RATE {
+            bail!("the sample rate of {from} Hz is too low");
+        }
         let ratio = f64::from(to) / f64::from(from);
         let sinc = if from == to {
             None
@@ -326,6 +332,13 @@ mod tests {
             .max_by(|&a, &b| out[a].total_cmp(&out[b]))
             .unwrap();
         assert!((4999..=5000).contains(&peak), "{peak}");
+    }
+
+    #[test]
+    fn a_tiny_sample_rate_is_refused() {
+        assert!(resample(vec![0.0; 100], 1, 22050).is_err());
+        assert!(resample(vec![0.0; 100], 999, 22050).is_err());
+        assert!(resample(vec![0.0; 100], 1000, 22050).is_ok());
     }
 
     #[test]
