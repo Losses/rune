@@ -1192,7 +1192,7 @@ fn shade(px: Pixel) -> vec4f {
   // Looking up the wall the piles go on into the dark: beyond a few metres the light falls off.
   // Only that view, and only what is far along the ray.
   var into_dark = 1.0;
-  if (state.view > 3.5 && state.view < 4.5) {
+  if (state.view > 2.5 && state.view < 3.5) {
     into_dark = exp(-0.12 * max(h.t - 3.0, 0.0));
   }
   // The room and the screens' other pictures are graded; the covers' light is added as it is.

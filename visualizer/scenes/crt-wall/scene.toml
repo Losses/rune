@@ -31,13 +31,7 @@ name = "side"
 size = "medium"
 move = "cut"
 
-# Far off, the most of the wall in view. Not for a climax: a far view suits the quiet and ordinary
-# sections, and it still opens a section (it is wide).
-[[shot]]
-name = "far"
-size = "wide"
-move = "cut"
-tiers = ["quiet", "normal"]
+# There is no far view for now: it was too like the one straight on.
 
 # Close up through a long lens.
 [[shot]]
@@ -55,7 +49,7 @@ move = "cut"
 # The burst before a section that lifts, a cut on each of its last four beats, each nearer than the
 # one before and each on one set the scene chooses somewhere new on the wall and whose screen it
 # sets, so the subject is in frame without searching the picture for one (update.wgsl's choose_burst
-# frames them, shot.index 5 to 8). Turned about 20 degrees, the whole set in frame, its screen the
+# frames them, shot.index 4 to 7). Turned about 20 degrees, the whole set in frame, its screen the
 # wave against time;
 [[burst]]
 name = "a set from the side"

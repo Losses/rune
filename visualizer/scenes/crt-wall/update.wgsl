@@ -11,9 +11,9 @@ fn random(n: u32) -> f32 {
 
 // Frame the shot the director cut to, and where on the wall to see it from. The director chooses
 // which and when (see `[[shot]]` and `[[burst]]` in scene.toml); the scene only knows how each
-// looks. Views: 0 straight on, 1 from one side looking along the wall, 2 far off, 3 close up
-// through a long lens, 4 looking up the wall (shot.index 0 to 4), and 5 for a burst's close-ups
-// (shot.index 5 to 8, shot.fill 1 to 4), each framed on a set the scene chose (choose_burst).
+// looks. Views: 0 straight on, 1 from one side looking along the wall, 2 close up through a long
+// lens, 3 looking up the wall (shot.index 0 to 3), and 4 for a burst's close-ups (shot.index 4 to
+// 7, shot.fill 1 to 4), each framed on a set the scene chose (choose_burst).
 fn choose_view() {
   if (shot.fill > 0u) {
     choose_burst();
@@ -22,7 +22,7 @@ fn choose_view() {
   state.hero_on = 0.0;
   let r2 = random(2u);
   let r3 = random(3u);
-  let v = f32(min(shot.index, 4u));
+  let v = f32(min(shot.index, 3u));
   state.view = v;
   state.roll = shot.roll;
   let way = select(-1.0, 1.0, r2 < 0.5);
@@ -39,12 +39,6 @@ fn choose_view() {
     state.lens = 0.5;
     state.dir = way;
   } else if (v < 2.5) {
-    state.cam.z = -params.distance * 1.6;
-    state.yaw = 0.0;
-    state.pitch = (r3 - 0.5) * 0.05;
-    state.lens = 0.42;
-    state.dir = way;
-  } else if (v < 3.5) {
     state.cam.z = -params.distance * 0.85;
     state.yaw = way * 0.12;
     state.pitch = (r3 - 0.5) * 0.06;
@@ -124,7 +118,7 @@ const BURST_SHOWS = array<u32, 4>(0u, 2u, 1u, 3u);
 
 fn choose_burst() {
   let fill = shot.fill;
-  state.view = 5.0;
+  state.view = 4.0;
   state.roll = shot.roll;
   let way = select(-1.0, 1.0, random(2u) < 0.5);
   // The shot turns to one side and the next to the other.
@@ -330,17 +324,17 @@ fn update() {
     state.vel = state.vtgt;
   }
   state.vel += (state.vtgt - state.vel) * (1.0 - exp(-dt / max(params.accel, 0.01)));
-  // The views' own speeds: straight on and far 1, from the side 1.6, close 0.45, looking up 1.2
-  // (near the wall, so the same speed sweeps the picture faster).
+  // The views' own speeds: straight on 1, from the side 1.6, close 0.45, looking up 1.2 (near the
+  // wall, so the same speed sweeps the picture faster).
   var view_speed = 1.0;
   if (state.view > 0.5 && state.view < 1.5) {
     view_speed = 1.6;
-  } else if (state.view > 2.5 && state.view < 3.5) {
+  } else if (state.view > 1.5 && state.view < 2.5) {
     view_speed = 0.45;
-  } else if (state.view > 3.5 && state.view < 4.5) {
+  } else if (state.view > 2.5 && state.view < 3.5) {
     view_speed = 1.2;
   }
-  if (state.view > 4.5) {
+  if (state.view > 3.5) {
     // A burst's close-up does not cruise (a long lens would carry its screen out of frame in a
     // beat): it pushes in slowly towards what it looks at, a few percent of the way over a second,
     // eased, and still in silence.
