@@ -25,9 +25,10 @@ fn report(result: Result<()>) -> Result<Option<()>> {
     Ok(Some(()))
 }
 
-/// Held through a start and a stop, which are handled concurrently: a surface that replaces
-/// another sends a stop and then a start, and the start must wait for the stop to give the audio
-/// back.
+/// Held through a start, a stop and a resize, which are handled concurrently: a surface that
+/// replaces another sends a stop and then a start, and the start must wait for the stop to give
+/// the audio back; a resize that lands while a start prepares its window must wait for the start,
+/// or it finds nothing to resize and is lost.
 static STARTING_OR_STOPPING: Mutex<()> = Mutex::const_new(());
 
 impl ParamsExtractor for StartVisualizerRequest {
@@ -139,6 +140,7 @@ impl Signal for ResizeVisualizerRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let _turn = STARTING_OR_STOPPING.lock().await;
         report(flutter_bridge::resize_visualizer(dart_signal.width, dart_signal.height).await)
     }
 }
