@@ -82,12 +82,13 @@ packages:
     source: hosted
     version: "0.1.6"
   bitsdojo_window_linux:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: bitsdojo_window_linux
-      sha256: "9519c0614f98be733e0b1b7cb15b827007886f6fe36a4fb62cf3d35b9dd578ab"
-      url: "https://pub.dev"
-    source: hosted
+      path: bitsdojo_window_linux
+      ref: "2877c2e6c11e7b5a132426035d3fe3df55f73f4f"
+      resolved-ref: "2877c2e6c11e7b5a132426035d3fe3df55f73f4f"
+      url: "https://github.com/Losses/bitsdojo_window.git"
+    source: git
     version: "0.1.4"
   bitsdojo_window_macos:
     dependency: transitive

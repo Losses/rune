@@ -97,6 +97,14 @@ dependencies:
   file_selector: ^1.0.3
   vector_math: ^2.1.4
 
+dependency_overrides:
+  # Preserve GTK device metadata in synthesized pointer events.
+  bitsdojo_window_linux:
+    git:
+      url: https://github.com/Losses/bitsdojo_window.git
+      ref: 2877c2e6c11e7b5a132426035d3fe3df55f73f4f
+      path: bitsdojo_window_linux
+
 dev_dependencies:
   build_runner: ^2.4.11
   flutter_test:
