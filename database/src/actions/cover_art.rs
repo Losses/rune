@@ -12,7 +12,7 @@ use log::info;
 use once_cell::sync::Lazy;
 use sea_orm::{
     ActiveValue, ColumnTrait, Condition, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryFilter,
+    QueryFilter, QuerySelect,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -295,39 +295,40 @@ pub async fn get_files_with_cover_art_timestamps(
     let mut result = HashMap::new();
 
     for chunk in file_ids.chunks(chunk_size) {
-        // Get files with cover art in this chunk
-        let files = media_files::Entity::find()
-            .filter(media_files::Column::Id.is_in(chunk.to_vec()))
+        // Do not hydrate whole cover models here: their image BLOBs can total
+        // gigabytes even when a rescan has no changed files.
+        let files: Vec<(i32, String, i32)> = media_files::Entity::find()
+            .select_only()
+            .column(media_files::Column::Id)
+            .column(media_files::Column::LastModified)
+            .column(media_files::Column::CoverArtId)
+            .filter(media_files::Column::Id.is_in(chunk.iter().copied()))
             .filter(media_files::Column::CoverArtId.is_not_null())
+            .into_tuple()
             .all(main_db)
             .await
-            .with_context(|| "Failed to query files with cover art")?;
+            .context("Failed to query files with cover art")?;
 
-        // Get the cover art records for these files
-        let cover_art_ids: Vec<i32> = files.iter().filter_map(|f| f.cover_art_id).collect();
-
-        let cover_art_map: HashMap<i32, String> = if !cover_art_ids.is_empty() {
+        let cover_art_ids: Vec<i32> = files.iter().map(|(_, _, id)| *id).collect();
+        let cover_art_map: HashMap<i32, String> = if cover_art_ids.is_empty() {
+            HashMap::new()
+        } else {
             media_cover_art::Entity::find()
+                .select_only()
+                .column(media_cover_art::Column::Id)
+                .column(media_cover_art::Column::UpdatedAtHlcTs)
                 .filter(media_cover_art::Column::Id.is_in(cover_art_ids))
+                .into_tuple::<(i32, String)>()
                 .all(main_db)
                 .await
-                .with_context(|| "Failed to query cover art records")?
+                .context("Failed to query cover art timestamps")?
                 .into_iter()
-                .map(|ca| (ca.id, ca.updated_at_hlc_ts))
                 .collect()
-        } else {
-            HashMap::new()
         };
 
-        // Combine the results
-        for file in files {
-            if let Some(cover_art_id) = file.cover_art_id
-                && let Some(cover_art_updated_at) = cover_art_map.get(&cover_art_id)
-            {
-                result.insert(
-                    file.id,
-                    (file.last_modified.clone(), cover_art_updated_at.clone()),
-                );
+        for (file_id, last_modified, cover_art_id) in files {
+            if let Some(updated_at) = cover_art_map.get(&cover_art_id) {
+                result.insert(file_id, (last_modified, updated_at.clone()));
             }
         }
     }

@@ -79,6 +79,7 @@ pub trait FileIo: Send + Sync {
     }
 }
 
+#[derive(Clone)]
 pub struct FsIo {
     inner: Arc<dyn FileIo>,
 }
