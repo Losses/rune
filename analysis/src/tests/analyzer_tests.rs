@@ -4,94 +4,26 @@ mod tests {
     use log::info;
 
     use crate::{
-        analyzer::core_analyzer::Analyzer, legacy::legacy_fft_v1, measure_time,
-        utils::computing_device::ComputingDevice,
+        analyzer::core_analyzer::Analyzer, measure_time, utils::computing_device::ComputingDevice,
     };
 
     #[test]
-    fn test_analyze_cpu_vs_legacy() {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-        let file_path = "../assets/startup_0.ogg";
+    fn test_analyze_cpu_v2_is_deterministic() {
         let fsio = FsIo::new();
-        let window_size = 1024;
-        let overlap_size = 512;
-
-        let mut analyzer =
-            Analyzer::new(ComputingDevice::Cpu, window_size, overlap_size, None, None);
-
-        let cpu_result = measure_time!("CPU FFT", analyzer.process(&fsio, file_path)).unwrap();
-
-        let legacy_cpu_result = measure_time!(
-            "LEGACY CPU FFT",
-            legacy_fft_v1::fft(&fsio, file_path, window_size, overlap_size, None)
-        )
-        .unwrap();
-
-        info!("CPU result: {cpu_result:?}");
-        info!("Legacy CPU result: {legacy_cpu_result:?}");
-
-        // Compare results with tolerance
-        assert!(
-            (cpu_result.rms - legacy_cpu_result.rms).abs() < 0.01,
-            "RMS difference too large: {} vs {}",
-            cpu_result.rms,
-            legacy_cpu_result.rms
-        );
-        assert!(
-            (cpu_result.energy - legacy_cpu_result.energy).abs() < 5.0,
-            "Energy difference too large: {} vs {}",
-            cpu_result.energy,
-            legacy_cpu_result.energy
-        );
-        assert!(
-            cpu_result.zcr.abs_diff(legacy_cpu_result.zcr) < 10,
-            "ZCR values don't match: {} vs {}",
-            cpu_result.zcr,
-            legacy_cpu_result.zcr
-        );
-    }
-
-    #[tokio::test]
-    async fn test_analyze_gpu_vs_legacy() {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-        let file_path = "../assets/startup_0.ogg";
-        let fsio = FsIo::new();
-        let window_size = 1024;
-        let overlap_size = 512;
-
-        let mut analyzer =
-            Analyzer::new(ComputingDevice::Gpu, window_size, overlap_size, None, None);
-
-        let gpu_result = measure_time!("GPU FFT", analyzer.process(&fsio, file_path)).unwrap();
-
-        let legacy_cpu_result = measure_time!(
-            "LEGACY CPU FFT",
-            legacy_fft_v1::fft(&fsio, file_path, window_size, overlap_size, None)
-        )
-        .unwrap();
-
-        info!("GPU result: {gpu_result:?}");
-        info!("Legacy CPU result: {legacy_cpu_result:?}");
-
-        // Compare results with tolerance
-        assert!(
-            (gpu_result.rms - legacy_cpu_result.rms).abs() < 0.01,
-            "RMS difference too large: {} vs {}",
-            gpu_result.rms,
-            legacy_cpu_result.rms
-        );
-        assert!(
-            (gpu_result.energy - legacy_cpu_result.energy).abs() < 5.0,
-            "Energy difference too large: {} vs {}",
-            gpu_result.energy,
-            legacy_cpu_result.energy
-        );
-        assert!(
-            gpu_result.zcr.abs_diff(legacy_cpu_result.zcr) < 10,
-            "ZCR values don't match: {} vs {}",
-            gpu_result.zcr,
-            legacy_cpu_result.zcr
-        );
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/startup_0.ogg");
+        let run = || {
+            Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None)
+                .process(&fsio, path)
+                .unwrap()
+        };
+        let a = run();
+        let b = run();
+        assert_eq!(a.spectrum, b.spectrum);
+        assert_eq!(a.rms, b.rms);
+        assert_eq!(a.energy, b.energy);
+        assert_eq!(a.zcr, b.zcr);
+        assert!(a.total_samples > 0 && a.rms.is_finite());
+        assert!(a.spectrum.iter().any(|x| x.re > 0.0));
     }
 
     #[tokio::test]

@@ -8,6 +8,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub file_id: i32,
+    pub analysis_version: i32,
     pub rms: Option<Decimal>,
     pub zcr: Option<Decimal>,
     pub energy: Option<Decimal>,

@@ -152,10 +152,11 @@ pub(crate) async fn load_recommendation_vectors(
     recommend_db: &RecommendationDbConnection,
 ) -> Result<()> {
     let sql = format!(
-        "SELECT file_id, {} FROM media_analysis",
+        "SELECT file_id, {} FROM media_analysis WHERE analysis_version = ?",
         feature_columns().join(", ")
     );
     let rows = sqlx::query(&sql)
+        .bind(analysis::CURRENT_ANALYSIS_VERSION)
         .fetch_all(main_db.get_sqlite_connection_pool())
         .await
         .with_context(|| "Failed to read analysis data")?;
