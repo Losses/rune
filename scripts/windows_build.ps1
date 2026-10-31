@@ -27,6 +27,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $ProjectRoot = Resolve-Path "$ScriptDir\.."
 . "$ScriptDir\windows_monitor.ps1"
+. "$ScriptDir\windows_verify_flutter_framework.ps1"
 $Diagnostics = Join-Path $ProjectRoot "build\diagnostics\$Arch"
 $Monitor = @{ DiagnosticDirectory = $Diagnostics }
 
@@ -88,6 +89,7 @@ Write-Host "  -> [4a] Flutter toolchain warm-up finished." -ForegroundColor Gree
 Write-Host "  -> [4b] flutter pub get (network; cold cache can take minutes)..." -ForegroundColor Cyan
 Invoke-MonitoredCommand @Monitor -Stage "4b-pub-get" -FilePath flutter -ArgumentList @("--suppress-analytics", "pub", "get", "--verbose") -TimeoutSeconds 900
 Write-Host "  -> [4b] flutter pub get finished." -ForegroundColor Green
+Assert-RuneFlutterFramework -Checkout $ProjectRoot
 
 # Generate Dart bindings from Rust structs (lib/bindings/bindings.dart).
 # rinf's cargokit build_tool only runs `cargo build`, so the Dart codegen is a

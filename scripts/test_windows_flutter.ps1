@@ -23,6 +23,16 @@ try {
     if (-not (Test-Path "$root\.ready")) { throw 'Facade initialization marker missing' }
     if ((Get-Item "$root\bin\cache").Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Mutable cache must not be a junction' }
     if (-not ((Get-Item "$root\bin\cache\dart-sdk").Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Dart SDK must remain linked, not copied' }
+    if (Test-Path (Join-Path $Package 'flutter-193372.patch')) {
+        $flutterPackage = Join-Path $root 'packages\flutter'
+        if ((Get-Item $flutterPackage).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Patched Flutter package must be a private copy' }
+        $semantics = Get-Content (Join-Path $flutterPackage 'lib\src\semantics\semantics.dart') -Raw
+        if (-not $semantics.Contains('_isSkippedInHitTestTree')) { throw 'Flutter accessibility patch not present in facade' }
+    }
+    if (Test-Path (Join-Path $Package 'flutter-windows-ime-geometry.patch')) {
+        $editable = Get-Content (Join-Path $root 'packages\flutter\lib\src\services\text_input.dart') -Raw
+        if (-not $editable.Contains("Windows' IMM bridge transforms the rectangle origin")) { throw 'Flutter Windows IME patch not present in facade' }
+    }
     Invoke-MonitoredCommand -Stage flutter-nested-version -FilePath "$root\bin\flutter.bat" -ArgumentList @('--version') -DiagnosticDirectory $diagnostics -TimeoutSeconds 120
     Invoke-MonitoredCommand -Stage dart-early-version -FilePath "$root\bin\dart.bat" -ArgumentList @('--version') -DiagnosticDirectory $diagnostics -TimeoutSeconds 120
     Invoke-MonitoredCommand -Stage flutter-cache-write -FilePath "$root\bin\flutter.bat" -ArgumentList @('precache', '--windows') -DiagnosticDirectory $diagnostics -TimeoutSeconds 600

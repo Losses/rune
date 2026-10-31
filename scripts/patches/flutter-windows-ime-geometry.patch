@@ -1,0 +1,208 @@
+diff --git a/packages/flutter/lib/src/services/text_input.dart b/packages/flutter/lib/src/services/text_input.dart
+index db503ab..b7cf15d 100644
+--- a/packages/flutter/lib/src/services/text_input.dart
++++ b/packages/flutter/lib/src/services/text_input.dart
+@@ -13,6 +13,7 @@ library;
+ 
+ import 'dart:async';
+ import 'dart:io' show Platform;
++import 'dart:math' as math;
+ import 'dart:ui' show FlutterView, FontWeight, Locale, Offset, Rect, Size, TextAlign, TextDirection;
+ 
+ import 'package:flutter/foundation.dart';
+@@ -2615,6 +2616,35 @@ mixin TextInputControl {
+   void finishAutofillContext({bool shouldSave = true}) {}
+ }
+ 
++// Windows' IMM bridge transforms the rectangle origin but not its extent.
++// Keep other TextInputControls' composing rectangles in local coordinates.
++Rect _windowsEngineComposingRect(Rect rect, Matrix4? transform) {
++  if (!rect.isFinite || rect.width < 0 || rect.height < 0 || transform == null) return rect;
++  final m = transform.storage;
++  if (!m.every((double value) => value.isFinite) || m[3] != 0 || m[7] != 0 || m[15] != 1) {
++    return rect;
++  }
++  final double determinant = m[0] * m[5] - m[4] * m[1];
++  if (!determinant.isFinite || determinant == 0) return rect;
++  final xs = <double>[];
++  final ys = <double>[];
++  for (final x in <double>[rect.left, rect.right]) {
++    for (final y in <double>[rect.top, rect.bottom]) {
++      xs.add(m[0] * x + m[4] * y + m[12]);
++      ys.add(m[1] * x + m[5] * y + m[13]);
++    }
++  }
++  final double left = xs.reduce(math.min);
++  final double right = xs.reduce(math.max);
++  final double top = ys.reduce(math.min);
++  final double bottom = ys.reduce(math.max);
++  final double dx = left - m[12];
++  final double dy = top - m[13];
++  final double originX = (m[5] * dx - m[4] * dy) / determinant;
++  final double originY = (-m[1] * dx + m[0] * dy) / determinant;
++  final Rect result = Rect.fromLTWH(originX, originY, right - left, bottom - top);
++  return result.isFinite ? result : rect;
++}
+ /// Provides access to the platform text input control.
+ class _PlatformTextInputControl with TextInputControl {
+   _PlatformTextInputControl._();
+@@ -2722,10 +2752,24 @@ class _PlatformTextInputControl with TextInputControl {
+           onError: (Object error, StackTrace stack) =>
+               _reportError(error, stack, 'while setting text input size and transform'),
+         );
++    // The local rect may be unchanged when only an ancestor transform changes.
++    // Resend only to the platform, leaving custom TextInputControls untouched.
++    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
++      final Rect? rect = TextInput._instance._currentConnection?._cachedRect;
++      if (rect != null) {
++        setComposingRect(rect.isFinite ? rect : Offset.zero & const Size(-1, -1));
++      }
++    }
+   }
+ 
+   @override
+   void setComposingRect(Rect rect) {
++    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
++      rect = _windowsEngineComposingRect(
++        rect,
++        TextInput._instance._currentConnection?._cachedTransform,
++      );
++    }
+     _channel
+         .invokeMethod<void>('TextInput.setMarkedTextRect', <String, dynamic>{
+           'width': rect.width,
+diff --git a/packages/flutter/test/widgets/windows_ime_geometry_compat_test.dart b/packages/flutter/test/widgets/windows_ime_geometry_compat_test.dart
+new file mode 100644
+index 0000000..d1bcd81
+--- /dev/null
++++ b/packages/flutter/test/widgets/windows_ime_geometry_compat_test.dart
+@@ -0,0 +1,129 @@
++// Copyright 2014 The Flutter Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++import 'package:flutter/material.dart';
++import 'package:flutter/foundation.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:flutter/services.dart';
++
++class StubInputClient extends Fake implements TextInputClient {}
++
++class LocalRectControl with TextInputControl {
++  Rect? rect;
++  @override
++  void setComposingRect(Rect value) {
++    rect = value;
++  }
++}
++
++void main() {
++  testWidgets(
++    'Windows composing rectangle follows full editable transform',
++    (WidgetTester tester) async {
++      final custom = LocalRectControl();
++      TextInput.setInputControl(custom);
++      final controller = TextEditingController();
++      final focus = FocusNode();
++      var scale = 1.0;
++      var angle = 0.0;
++      late StateSetter rebuild;
++      await tester.pumpWidget(
++        MaterialApp(
++          home: StatefulBuilder(
++            builder: (context, setState) {
++              rebuild = setState;
++              return Scaffold(
++                body: Transform.rotate(
++                  angle: angle,
++                  child: Transform.scale(
++                    scale: scale,
++                    child: TextField(controller: controller, focusNode: focus),
++                  ),
++                ),
++              );
++            },
++          ),
++        ),
++      );
++      await tester.showKeyboard(find.byType(EditableText));
++      controller.value = const TextEditingValue(
++        text: 'nihao',
++        selection: TextSelection.collapsed(offset: 5),
++        composing: TextRange(start: 0, end: 5),
++      );
++      await tester.pump();
++      await tester.pump();
++      final state = tester.state<EditableTextState>(find.byType(EditableText));
++      final editable = state.renderEditable;
++      void verify() {
++        final call = tester.testTextInput.log.lastWhere(
++          (c) => c.method == 'TextInput.setMarkedTextRect',
++        );
++        final args = call.arguments as Map<dynamic, dynamic>;
++        final local = editable.getRectForComposingRange(controller.value.composing)!;
++        expect(custom.rect, local);
++        final transform = editable.getTransformTo(null);
++        final expected = MatrixUtils.transformRect(transform, local);
++        final sentOrigin = MatrixUtils.transformPoint(
++          transform,
++          Offset(args['x'] as double, args['y'] as double),
++        );
++        if (defaultTargetPlatform != TargetPlatform.windows) {
++          expect(args['x'] as double, closeTo(local.left, 0.001));
++          expect(args['y'] as double, closeTo(local.top, 0.001));
++          expect(args['width'] as double, closeTo(local.width, 0.001));
++          expect(args['height'] as double, closeTo(local.height, 0.001));
++          return;
++        }
++        expect(sentOrigin.dx, closeTo(expected.left, 0.001));
++        expect(sentOrigin.dy, closeTo(expected.top, 0.001));
++        expect(args['width'] as double, closeTo(expected.width, 0.001));
++        expect(args['height'] as double, closeTo(expected.height, 0.001));
++      }
++
++      verify();
++      tester.testTextInput.log.clear();
++      rebuild(() => scale = 2.0);
++      await tester.pump();
++      await tester.pump();
++      if (defaultTargetPlatform == TargetPlatform.windows) {
++        verify();
++      } else {
++        expect(
++          tester.testTextInput.log.where((c) => c.method == 'TextInput.setMarkedTextRect'),
++          isEmpty,
++        );
++      }
++      tester.testTextInput.log.clear();
++      rebuild(() => angle = 0.25);
++      await tester.pump();
++      await tester.pump();
++      if (defaultTargetPlatform == TargetPlatform.windows) verify();
++      expect(focus.hasFocus, isTrue);
++      expect(controller.value.composing, const TextRange(start: 0, end: 5));
++      await tester.pumpWidget(const SizedBox());
++      TextInput.restorePlatformInputControl();
++      controller.dispose();
++      focus.dispose();
++    },
++    variant: const TargetPlatformVariant(<TargetPlatform>{
++      TargetPlatform.windows,
++      TargetPlatform.linux,
++    }),
++  );
++  testWidgets('Windows preserves the invalid composing rectangle sentinel', (tester) async {
++    final connection = TextInput.attach(StubInputClient(), const TextInputConfiguration());
++    connection.setEditableSizeAndTransform(const Size(100, 100), Matrix4.diagonal3Values(2, 2, 1));
++    connection.setComposingRect(const Rect.fromLTWH(double.infinity, 0, 1, 1));
++    await tester.pump();
++    final args =
++        tester.testTextInput.log
++                .lastWhere((c) => c.method == 'TextInput.setMarkedTextRect')
++                .arguments
++            as Map<dynamic, dynamic>;
++    expect(args['width'], -1.0);
++    expect(args['height'], -1.0);
++    connection.close();
++  }, variant: const TargetPlatformVariant(<TargetPlatform>{TargetPlatform.windows}));
++}

@@ -10,6 +10,14 @@ $dartSdk = $env:dartSdk.Replace('/', '\')
 if (-not (Test-Path "$dartSdk\bin\dart.exe")) { throw "Pinned native Dart missing: $dartSdk" }
 Set-Content "$env:out\dart-sdk-path.txt" $dartSdk -Encoding UTF8
 Set-Content "$env:out\architecture.txt" $env:arch -Encoding ASCII
+if ($env:axPatch) {
+    if (-not (Test-Path -LiteralPath $env:axPatch -PathType Leaf)) { throw 'Flutter accessibility patch missing' }
+    Copy-Item -LiteralPath $env:axPatch -Destination (Join-Path $env:out 'flutter-193372.patch')
+}
+if ($env:imePatch) {
+    if (-not (Test-Path -LiteralPath $env:imePatch -PathType Leaf)) { throw 'Flutter Windows IME patch missing' }
+    Copy-Item -LiteralPath $env:imePatch -Destination (Join-Path $env:out 'flutter-windows-ime-geometry.patch')
+}
 New-Item -ItemType Directory "$env:out\flutter\bin" -Force | Out-Null
 Copy-Item $env:launcher "$env:out\flutter\bin\flutter-launcher.ps1"
 foreach ($command in @('flutter', 'dart')) {

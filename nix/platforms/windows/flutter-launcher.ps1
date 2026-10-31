@@ -67,8 +67,26 @@ try {
         foreach ($item in Get-ChildItem "$source\packages" -Directory -Force) {
             $dest = Join-Path "$root\packages" $item.Name
             # PubDependencies regenerates package_config.json and resolves tool deps.
-            if ($item.Name -eq 'flutter_tools') { Copy-WritableTree $item.FullName $dest }
+            if ($item.Name -eq 'flutter_tools' -or ($item.Name -eq 'flutter' -and ((Test-Path "$package\flutter-193372.patch") -or (Test-Path "$package\flutter-windows-ime-geometry.patch")))) { Copy-WritableTree $item.FullName $dest }
             else { Link-Directory $item.FullName $dest }
+        }
+        # Apply the pinned framework fix only to the private copy. Restrict
+        # repository discovery so the source SDK's .git junction is not used.
+        $patches = @('flutter-193372.patch', 'flutter-windows-ime-geometry.patch') | ForEach-Object { Join-Path $package $_ } | Where-Object { Test-Path -LiteralPath $_ }
+        if ($patches.Count -gt 0) {
+            $privateFlutter = Join-Path $root 'packages\flutter'
+            if ((Get-Item -LiteralPath $privateFlutter -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Patched Flutter package must be private' }
+            $git = Get-Command git.exe -ErrorAction Stop
+            $oldCeiling = $env:GIT_CEILING_DIRECTORIES
+            try {
+                $env:GIT_CEILING_DIRECTORIES = $root
+                foreach ($patch in $patches) {
+                    & $git.Source -C $privateFlutter apply -p3 --check $patch
+                    if ($LASTEXITCODE -ne 0) { throw "Flutter patch does not apply cleanly: $patch" }
+                    & $git.Source -C $privateFlutter apply -p3 $patch
+                    if ($LASTEXITCODE -ne 0) { throw "Flutter patch failed: $patch" }
+                }
+            } finally { $env:GIT_CEILING_DIRECTORIES = $oldCeiling }
         }
         # Nested CMake invocations must also bypass upstream batch bootstrap.
         foreach ($name in @('flutter', 'dart')) {

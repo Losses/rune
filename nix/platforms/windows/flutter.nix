@@ -64,6 +64,9 @@ let
     dartSdk = if nativeDart == null then "${rawPackage}/flutter/bin/cache/dart-sdk" else "${nativeDart}/dart-sdk";
     inherit arch;
     launcher = ./flutter-launcher.ps1;
+    # A package input changes the facade cache key when this patch changes.
+    axPatch = if version == "3.47.6" then ../../../scripts/patches/flutter-193372.patch else "";
+    imePatch = if version == "3.47.6" then ../../../scripts/patches/flutter-windows-ime-geometry.patch else "";
     PATH = "C:\\Windows\\System32;C:\\Windows\\System32\\WindowsPowerShell\\v1.0";
   };
 
