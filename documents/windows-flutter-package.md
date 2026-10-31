@@ -51,7 +51,7 @@ Use Nix package changes to select a new SDK version. The launcher rejects Flutte
    ```
 
 5. For a Nix package, run `scripts/test_windows_flutter.ps1 -Package <package-output>` on Windows. It checks launcher initialization and reuse, native Dart architecture, cache placement, Windows precache and immutable source metadata.
-6. Cold-build Rune and run the [native input, accessibility and DPI checks](application-scaling.md#native-acceptance-cases). Preserve the Fluent Slider's Material semantics when updating the vendored controls. Run `test/widgets/fluent_slider_semantics_test.dart`.
+6. Cold-build Rune and run the [native input, accessibility and DPI checks](application-scaling.md#native-acceptance-cases). Preserve the Fluent Slider's Material semantics when updating the Fluent UI fork. Run `flutter test test/fluent_slider_semantics_test.dart` in that fork.
 
 ## Select a build architecture and validate packages
 

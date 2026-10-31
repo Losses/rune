@@ -26,7 +26,7 @@ MediaQuery.devicePixelRatio = View.devicePixelRatio * s
 Physical pixels = UI logical pixels * MediaQuery.devicePixelRatio
 ```
 
-When changing `AppViewport`, update size, padding, insets, display-feature rectangles and corner radii using the same factor. Keep the root widget structure stable at 100% and other percentages. Preserve the system text scaler. Check these changes with `test/providers/app_viewport_test.dart`.
+When changing `AppViewport`, update size, padding, insets, display-feature rectangles and corner radii using the same factor. Keep the root widget structure stable at 100% and other percentages. Preserve the system text scaler. Check these changes with `lib/test/providers/app_viewport_test.dart`.
 
 Use `ScreenSizeProvider.screenSize` for responsive breakpoints and `rawWindowSize` for native window-size persistence. Both are defined in `lib/providers/responsive_providers.dart`.
 
@@ -37,7 +37,7 @@ When a responsive layout moves an active editor between subtrees:
 3. Dispose controllers created by that State. Leave caller-owned controllers to the caller.
 4. Test the layout change while the field has focus and an active composing range.
 
-See `test/widgets/search_breakpoint_input_test.dart` and the editor tests in `test/dialogs/`.
+See `lib/test/widgets/search_breakpoint_input_test.dart` and the editor tests in `lib/test/dialogs/`.
 
 ## Convert pointer and overlay positions
 
@@ -60,17 +60,17 @@ final targetBounds = MatrixUtils.transformRect(
 final pointerInOverlay = overlayBox.globalToLocal(event.position);
 ```
 
-`targetBounds` includes the transformed origin and size. Recompute cached bounds when scale, window size or insets change. If closing a popup instead, remove the specific route or entry that owns it. Test translated targets as well as scaled targets using `test/widgets/fluent_overlay_geometry_test.dart` and `test/widgets/fluent_popup_metrics_test.dart`.
+`targetBounds` includes the transformed origin and size. Recompute cached bounds when scale, window size or insets change. If closing a popup instead, remove the specific route or entry that owns it. Test translated targets as well as scaled targets using `lib/test/widgets/fluent_overlay_geometry_test.dart`. Run `flutter test test/fluent_popup_metrics_test.dart` in the Fluent UI fork for dependency-level popup behavior.
 
 ## Add text input or a selection menu
 
 Use Fluent `TextBox` or `AutoSuggestBox` for application inputs. For an adaptive selection menu, set `contextMenuBuilder: TextBox.adaptiveContextMenuBuilder`. Custom menus must derive anchor positions from `RenderEditable` and convert them into the root overlay's coordinates.
 
-When modifying suggestion-key handling, check the controller's composing range first. While that range is valid and nonempty, return `KeyEventResult.skipRemainingHandlers` for Escape, Enter, numpad Enter, Space, arrow keys, Page Up and Page Down. This stops ancestor shortcuts and lets the platform input method receive those keys. Once composition ends, resume suggestion navigation and dismissal. The handler is in `third_party/fluent_ui/lib/src/controls/form/auto_suggest_box.dart`.
+When modifying suggestion-key handling, check the controller's composing range first. While that range is valid and nonempty, return `KeyEventResult.skipRemainingHandlers` for Escape, Enter, numpad Enter, Space, arrow keys, Page Up and Page Down. This stops ancestor shortcuts and lets the platform input method receive those keys. Once composition ends, resume suggestion navigation and dismissal. The handler is in `lib/src/controls/form/auto_suggest_box.dart` in the [Fluent UI fork](https://github.com/Losses/fluent_ui).
 
-Run `test/widgets/auto_suggest_ime_keys_test.dart` for keyboard changes and `test/providers/desktop_selection_scale_test.dart` and `test/providers/mobile_selection_scale_test.dart` for selection-menu changes. On Android and iOS, retain the vendored TextBox's raw-view-size override around EditableText and its application MediaQuery around the menu builder. Test toolbar restoration with the keyboard visible.
+For keyboard changes, run `flutter test test/auto_suggest_ime_keys_test.dart` in the Fluent UI fork. For application selection-menu changes, run `lib/test/providers/desktop_selection_scale_test.dart` and `lib/test/providers/mobile_selection_scale_test.dart`. On Android and iOS, retain the Fluent UI TextBox's raw-view-size override around EditableText and its application MediaQuery around the menu builder. Test toolbar restoration with the keyboard visible.
 
-When changing Fluent Slider or HoverButton, retain the Slider's Material semantics instead of merging its descendants through HoverButton. Check `test/widgets/fluent_slider_semantics_test.dart` and operate the slider with the platform screen reader.
+When changing Fluent Slider or HoverButton, retain the Slider's Material semantics instead of merging its descendants through HoverButton. Run `flutter test test/fluent_slider_semantics_test.dart` in the Fluent UI fork and operate the slider with the platform screen reader.
 
 For Windows framework changes, use the SDK preparation and upgrade steps in [Windows Flutter SDK](windows-flutter-package.md#framework-compatibility).
 
@@ -78,7 +78,7 @@ For Windows framework changes, use the SDK preparation and upgrade steps in [Win
 
 Compute a raster target from the local logical size and `MediaQuery.devicePixelRatioOf(context)`. Recompute it when either value changes.
 
-For an asynchronous image load, associate each request with a generation number. Discard and dispose a completed image if a newer request has replaced it or the widget has been disposed. Dispose images owned by the widget when replacing them. Use the cache owner's release mechanism for shared images. See `lib/utils/load_and_resize_image.dart` and `test/widgets/cover_wall_scale_test.dart`.
+For an asynchronous image load, associate each request with a generation number. Discard and dispose a completed image if a newer request has replaced it or the widget has been disposed. Dispose images owned by the widget when replacing them. Use the cache owner's release mechanism for shared images. See `lib/utils/load_and_resize_image.dart` and `lib/test/widgets/cover_wall_scale_test.dart`.
 
 For visualizer textures, call `visualizerRenderSize(localSize, effectiveDpr)` from `lib/widgets/visualizer/visualizer_render_size.dart`. It applies the 1920×1080 limit, 64-pixel width alignment and even-height requirement. Pass only finite, positive dimensions. Use the existing 300 ms resize debounce in `VisualizerSurface`.
 
@@ -101,13 +101,13 @@ Resolve packages with the selected Flutter SDK, then run:
 ```sh
 flutter pub get
 flutter analyze --no-pub
-flutter test --no-pub
+flutter test --no-pub lib/test
 ```
 
 For a focused run during development:
 
 ```sh
-flutter test --no-pub test/providers test/settings test/widgets test/dialogs
+flutter test --no-pub lib/test/providers lib/test/settings lib/test/widgets lib/test/dialogs
 ```
 
 ### Native acceptance cases

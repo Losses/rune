@@ -1,0 +1,14 @@
+include: ../../analysis_options.yaml
+
+# The analyzer only recognizes the root test/ directory as test code.
+# This workspace keeps Flutter tests in lib/test/.
+analyzer:
+  errors:
+    invalid_use_of_visible_for_testing_member: ignore
+
+# Tests use dev_dependencies from the application pubspec.
+linter:
+  rules:
+    depend_on_referenced_packages: false
+    # Match the package URIs used by the running application.
+    prefer_relative_imports: false

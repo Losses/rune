@@ -428,9 +428,11 @@ packages:
   fluent_ui:
     dependency: "direct main"
     description:
-      path: "third_party/fluent_ui"
-      relative: true
-    source: path
+      path: "."
+      ref: f955da4cc916b273d7f6903367362e9ccd450526
+      resolved-ref: f955da4cc916b273d7f6903367362e9ccd450526
+      url: "https://github.com/Losses/fluent_ui.git"
+    source: git
     version: "4.9.1"
   flutter:
     dependency: "direct main"

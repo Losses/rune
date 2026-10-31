@@ -1,5 +1,8 @@
 set dotenv-load
 
+test-flutter:
+  flutter test lib/test
+
 lint:
   cargo fmt -- $(find native/hub/src/messages -name "*.rs")
   cargo fmt -- --check

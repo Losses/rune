@@ -37,6 +37,7 @@ let
   pubspecLockFile = ../../pubspec.lock;
 
   gitHashes = {
+    fluent_ui = "sha256-7AUJqeD6szmJDuhjLteSiXHiuoHR2rUrFg8raCsiVw0=";
     macos_secure_bookmarks = "sha256-f6TDL1JfWc8zGE8H3+YLNmRW3/KJSgjQiwhk44bMp5g=";
     scrollable_positioned_list = "sha256-tkRlxnmyG5r5yZwEvj9KDfEf4OuSM0HEwPOYm7T7LnQ=";
     system_tray = "sha256-yx4Tc+HDx9LdVWJZKniQr6H3BsifPlNwVGxHj3jpvlE=";
