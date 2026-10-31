@@ -11,14 +11,14 @@ use symphonia::core::codecs::CODEC_TYPE_NULL;
 use ::analysis::utils::audio_metadata_reader::{get_codec_information, get_format};
 use ::fsio::{FsIo, FsNode};
 
-use crate::crc::media_crc32;
+use media_compute::checksum::MediaCrc;
 
 fn to_unix_path_string(path_buf: PathBuf) -> Option<String> {
     let path = path_buf.as_path();
     path.to_str().map(|path_str| path_str.replace("\\", "/"))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileDescription {
     pub lib_path: Option<PathBuf>,
     /// This is only for debug purpose, to show a shorter path
@@ -31,6 +31,7 @@ pub struct FileDescription {
     pub directory: String,
     pub extension: String,
     pub file_hash: Option<String>,
+    codec_information: Option<(u32, f64)>,
     pub last_modified: String,
     pub raw_node: FsNode,
 }
@@ -46,17 +47,17 @@ impl FileDescription {
             let file = fsio.open(&full_path, "r")?;
             let mut reader = BufReader::new(file);
             let mut buffer = vec![0; CHUNK_SIZE];
-            let mut crc: u32 = 0;
+            let mut crc = MediaCrc::new();
 
             loop {
                 let bytes_read = reader.read(&mut buffer)?;
                 if bytes_read == 0 {
                     break;
                 }
-                crc = media_crc32(&buffer, crc, 0, bytes_read);
+                crc.update(&buffer[..bytes_read]);
             }
 
-            let result = format!("{crc:08x}");
+            let result = format!("{:08x}", crc.finalize());
             self.file_hash = Some(result.clone());
             Ok(result)
         } else if let Some(result) = self.file_hash.clone() {
@@ -67,9 +68,12 @@ impl FileDescription {
     }
 
     pub fn get_codec_information(&mut self, fsio: &FsIo) -> Result<(u32, f64)> {
-        let codec_information = get_codec_information_from_node(fsio, &self.raw_node)?;
-
-        Ok(codec_information)
+        if let Some(info) = self.codec_information {
+            return Ok(info);
+        }
+        let info = get_codec_information_from_node(fsio, &self.raw_node)?;
+        self.codec_information = Some(info);
+        Ok(info)
     }
 }
 
@@ -142,6 +146,7 @@ pub fn describe_file(
         directory,
         extension,
         file_hash: None,
+        codec_information: None,
         last_modified,
         raw_node: fs_node.clone(),
     })
