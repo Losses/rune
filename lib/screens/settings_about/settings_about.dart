@@ -28,6 +28,10 @@ import '../settings_home/settings_home.dart';
 
 const size = 400.0;
 
+/// The first eight characters of [sha], or all of it when it is shorter: a
+/// build without git information has an empty one.
+String shortBuildHash(String sha) => sha.substring(0, min(8, sha.length));
+
 class SettingsAboutPage extends StatelessWidget {
   const SettingsAboutPage({super.key});
 
@@ -275,7 +279,7 @@ class _BuildInfo extends StatelessWidget {
     return _InfoTable(
       title: S.of(context).player,
       rows: [
-        [S.of(context).buildHash, data?.buildSha.substring(0, 8) ?? ""],
+        [S.of(context).buildHash, shortBuildHash(data?.buildSha ?? "")],
         [S.of(context).buildDate, data?.buildDate ?? ""],
         [
           S.of(context).commitDate,
