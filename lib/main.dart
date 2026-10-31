@@ -79,6 +79,24 @@ late bool cafeMode;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isLinux) {
+    try {
+      await AcrylicShaderWarmUp(
+        devicePixelRatio:
+            WidgetsBinding
+                .instance
+                .platformDispatcher
+                .implicitView
+                ?.devicePixelRatio ??
+            1.0,
+        scaleFactors: AppScaleProvider.supportedPercentages
+            .map((percentage) => percentage / 100)
+            .toList(growable: false),
+      ).execute();
+    } catch (error) {
+      warn$('Acrylic shader warm-up failed: $error');
+    }
+  }
   await initializeRust(assignRustSignal);
 
   String? profile = arguments.contains('--profile')
