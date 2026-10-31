@@ -149,7 +149,24 @@ class RevealEffectContextState extends State<RevealEffectContext>
     _currentPosition = position;
     _mouseInBoundary = position != null;
 
-    _scheduleUpdate();
+    final scheduler = SchedulerBinding.instance;
+    final stableGeometry =
+        scheduler.schedulerPhase == SchedulerPhase.idle ||
+        scheduler.schedulerPhase == SchedulerPhase.postFrameCallbacks;
+    final hasActiveLight = _units.any(
+      (unit) => unit.controller.localPosition != null,
+    );
+    if (!_isUpdateScheduled &&
+        !scheduler.hasScheduledFrame &&
+        stableGeometry &&
+        !hasActiveLight) {
+      // Check an inactive pointer without requesting a frame first. Changed
+      // controllers notify their listeners and schedule the necessary paint.
+      _executeUpdate();
+    } else {
+      // Coalesce active lights and geometry changes into one post-layout update.
+      _scheduleUpdate();
+    }
   }
 
   void _updateAnimations(int frame) {
