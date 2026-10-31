@@ -167,12 +167,16 @@ macro_rules! parallel_media_files_processing {
         use tokio::sync::{Mutex, Semaphore};
         use tokio::task;
 
+        anyhow::ensure!($batch_size > 0, "Batch size must be positive");
         let cursor_query_clone = $cursor_query.clone();
         let (tx, rx) = async_channel::bounded($batch_size);
         info!("Batch size: {}", $batch_size);
         let total_tasks = cursor_query_clone.count($main_db).await? as usize;
         info!("Total tasks: {}", { total_tasks });
         let processed_count = Arc::new(Mutex::new(0));
+        // SQLite has one writer. Queue writes before acquiring pool connections
+        // so analysis workers cannot occupy the entire pool waiting for a lock.
+        let result_lock = Arc::new(Mutex::new(()));
 
         let producer_cancel_token = $cancel_token.clone();
         let producer = {
@@ -256,7 +260,7 @@ macro_rules! parallel_media_files_processing {
             let processed_count = Arc::clone(&processed_count);
             let progress_callback = Arc::clone(&$progress_callback);
             async move {
-                let mut active_tasks = vec![];
+                let mut active_tasks = tokio::task::JoinSet::new();
 
                 while let Ok(file_option) = rx.recv().await {
                     match file_option {
@@ -286,8 +290,14 @@ macro_rules! parallel_media_files_processing {
                             let hlc_context_clone = $hlc_context.clone();
                             let process_cancel_token = consumer_cancel_token.clone();
 
+                            let result_lock = Arc::clone(&result_lock);
                             let file_clone = file.clone();
-                            let task = task::spawn(async move {
+                            while let Some(result) = active_tasks.try_join_next() {
+                                if let Err(e) = result {
+                                    error!("Task join error: {e:?}");
+                                }
+                            }
+                            active_tasks.spawn(async move {
                                 let analysis_result = task::spawn_blocking(move || {
                                     let process_fn = $process_fn;
                                     process_fn(
@@ -304,6 +314,7 @@ macro_rules! parallel_media_files_processing {
                                     .with_context(|| "Failed to spawn analysis task")
                                 {
                                     Ok(analysis_result) => {
+                                        let _writer = result_lock.lock().await;
                                         $result_handler(
                                             &main_db,
                                             file,
@@ -322,21 +333,21 @@ macro_rules! parallel_media_files_processing {
 
                                 drop(permit);
                             });
-
-                            active_tasks.push(task);
                         }
                         None => {
                             info!("No files left, waiting for active tasks to complete...");
-                            for task in active_tasks {
-                                if let Err(e) = task.await {
-                                    error!("Task join error: {e:?}");
-                                }
-                            }
                             break;
                         }
                     }
                 }
 
+                // Close the queue so a blocked producer can finish on cancellation.
+                rx.close();
+                while let Some(result) = active_tasks.join_next().await {
+                    if let Err(e) = result {
+                        error!("Task join error: {e:?}");
+                    }
+                }
                 info!("Scanning task finished.");
 
                 Ok::<(), sea_orm::DbErr>(())
@@ -345,16 +356,9 @@ macro_rules! parallel_media_files_processing {
 
         let (producer_result, consumer_result) = futures::join!(producer, consumer);
 
-        // Handle any errors from producer or consumer
-        if let Err(e) = producer_result {
-            error!("Producer error: {e:?}");
-        }
-        if let Err(e) = consumer_result {
-            error!("Consumer error: {e:?}");
-        }
-
-        info!("Total tasks executed: {}", { total_tasks });
-
-        Ok(total_tasks)
+        producer_result?;
+        consumer_result?;
+        let processed = *processed_count.lock().await;
+        Ok(processed)
     }};
 }

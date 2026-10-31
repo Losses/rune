@@ -38,6 +38,8 @@ mod m20250529_000026_create_sync_record_table;
 mod m20251010_000027_add_index_cover_art_file_hash;
 mod m20251010_000028_add_index_media_files_cover_art_id;
 
+mod m20261031_000029_add_library_lookup_indexes;
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -70,6 +72,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250529_000026_create_sync_record_table::Migration),
             Box::new(m20251010_000027_add_index_cover_art_file_hash::Migration),
             Box::new(m20251010_000028_add_index_media_files_cover_art_id::Migration),
+            Box::new(m20261031_000029_add_library_lookup_indexes::Migration),
         ]
     }
 }

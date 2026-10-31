@@ -134,315 +134,102 @@ pub async fn sync_file_descriptions(
     descriptions: &mut [Option<FileDescription>],
     force: bool,
 ) -> Result<()> {
-    debug!("Starting to process multiple files");
+    // Bound both prepared metadata memory and write-lock duration. File I/O is
+    // finished before opening each batch transaction; savepoints isolate bad files.
+    const WRITE_BATCH_SIZE: usize = 16;
+    let mut first_error = None;
+    for batch in descriptions.chunks_mut(WRITE_BATCH_SIZE) {
+        let mut ready = Vec::new();
+        for description in batch.iter_mut().flatten() {
+            let existing = media_files::Entity::find()
+                .filter(media_files::Column::Directory.eq(&description.directory))
+                .filter(media_files::Column::FileName.eq(&description.file_name))
+                .one(main_db)
+                .await?;
+            if !force
+                && existing
+                    .as_ref()
+                    .is_some_and(|file| file.last_modified == description.last_modified)
+            {
+                continue;
+            }
 
-    // Start a transaction
-    let txn = main_db.begin().await?;
-    let mut search_term: Option<(i32, String)> = None;
-
-    let mut update_search_term = |file_id: i32, metadata: &FileMetadata| {
-        if let Some((_, value)) = metadata
-            .metadata
-            .iter()
-            .find(|(key, _)| key == "track_title")
-        {
-            search_term = Some((file_id, value.clone()));
-        } else if let Some(file_name) = metadata.path.file_name() {
-            search_term = Some((file_id, file_name.to_string_lossy().into_owned()))
-        }
-    };
-
-    for description in descriptions.iter_mut() {
-        match description {
-            None => continue,
-            Some(description) => {
-                debug!("Processing file: {}", description.file_name.clone());
-
-                let existing_file = match media_files::Entity::find()
-                    .filter(media_files::Column::Directory.eq(description.directory.clone()))
-                    .filter(media_files::Column::FileName.eq(description.file_name.clone()))
-                    .one(&txn)
-                    .await
-                    .with_context(|| "Unable to query file")
-                {
-                    Ok(file) => file,
-                    Err(e) => {
-                        insert_log(
-                            &txn,
-                            LogLevel::Error,
-                            "actions::metadata::sync_file_descriptions".to_string(),
-                            format!("{e:#?}"),
-                        )
-                        .await?;
-                        continue;
-                    }
-                };
-
-                if let Some(existing_file) = existing_file {
-                    debug!(
-                        "File exists in the database: {}",
-                        description.file_name.clone()
-                    );
-
-                    // File exists in the database
-                    if existing_file.last_modified == description.last_modified && !force {
-                        // If the file's last modified date hasn't changed, skip it
-                        debug!(
-                            "File's last modified date hasn't changed ({}), skipping: {}",
-                            existing_file.last_modified,
-                            description.file_name.clone()
-                        );
-                        continue;
-                    } else {
-                        // If the file's last modified date has changed, check the hash
-                        debug!(
-                            "File's last modified date has changed ({} -> {}), checking hash: {}",
-                            existing_file.last_modified,
-                            description.last_modified,
-                            description.file_name.clone()
-                        );
-
-                        let new_hash = match description.get_crc(fsio).with_context(|| {
-                            format!("Failed to get CRC: {}", description.file_name)
-                        }) {
-                            Ok(hash) => hash,
-                            Err(e) => {
-                                error!("{e:?}");
-                                insert_log(
-                                    &txn,
-                                    LogLevel::Error,
-                                    "actions::metadata::sync_file_descriptions".to_string(),
-                                    format!("{e:#?}"),
-                                )
-                                .await?;
-                                continue;
-                            }
-                        };
-
-                        if existing_file.file_hash == new_hash && !force {
-                            // If the hash is the same, update the last modified date
-                            debug!(
-                                "File hash is the same, updating last modified date: {}",
-                                description.file_name.clone()
-                            );
-
-                            if let Err(e) = update_last_modified(&txn, &existing_file, description)
-                                .await
-                                .with_context(|| {
-                                    format!(
-                                        "Failed to update last modified: {}",
-                                        description.file_name.clone(),
-                                    )
-                                })
-                            {
-                                error!("{e:?}");
-                                insert_log(
-                                    &txn,
-                                    LogLevel::Error,
-                                    "actions::metadata::sync_file_descriptions".to_string(),
-                                    format!("{e:#?}"),
-                                )
-                                .await?;
-                                continue;
-                            }
-
-                            if let Err(e) = unlink_cover_art(&txn, &existing_file)
-                                .await
-                                .with_context(|| {
-                                    format!(
-                                        "Failed to unlink cover art modified: {}",
-                                        description.file_name.clone(),
-                                    )
-                                })
-                            {
-                                error!("{e:?}");
-                                insert_log(
-                                    &txn,
-                                    LogLevel::Error,
-                                    "actions::metadata::sync_file_descriptions".to_string(),
-                                    format!("{e:#?}"),
-                                )
-                                .await?;
-                                continue;
-                            }
-                        } else {
-                            if force {
-                                info!("Force scanning triggered: {}", existing_file.id);
-                            }
-
-                            // If the hash is different, update the metadata
-                            debug!(
-                                "File hash is different, updating metadata: {}",
-                                description.file_name.clone()
-                            );
-
-                            if let Err(e) = update_file_codec_information(
-                                fsio,
-                                &txn,
-                                &existing_file,
-                                description,
-                            )
-                            .await
-                            .with_context(|| {
-                                format!(
-                                    "Failed to update file codec information: {}",
-                                    description.file_name.clone(),
-                                )
-                            }) {
-                                error!("{e:?}");
-                                insert_log(
-                                    &txn,
-                                    LogLevel::Error,
-                                    "actions::metadata::sync_file_descriptions".to_string(),
-                                    format!("{e:#?}"),
-                                )
-                                .await?;
-                                continue;
-                            }
-
-                            let file_metadata = read_metadata(fsio, &description.raw_node)
-                                .with_context(|| {
-                                    format!(
-                                        "Unable to parse file metadata: {:?}",
-                                        description.rel_path
-                                    )
-                                });
-
-                            match file_metadata {
-                                Ok(x) => {
-                                    if let Err(e) = update_file_metadata(
-                                        fsio,
-                                        &txn,
-                                        node_id,
-                                        &existing_file,
-                                        description,
-                                        &x,
-                                    )
-                                    .await
-                                    .with_context(|| {
-                                        format!(
-                                            "Failed to update file metadata: {}",
-                                            description.file_name.clone(),
-                                        )
-                                    }) {
-                                        error!("{e:?}");
-                                        insert_log(
-                                            &txn,
-                                            LogLevel::Error,
-                                            "actions::metadata::sync_file_descriptions".to_string(),
-                                            format!("{e:#?}"),
-                                        )
-                                        .await?;
-                                        continue;
-                                    }
-
-                                    update_search_term(existing_file.id, &x);
-                                }
-                                Err(e) => {
-                                    error!("{e:?}");
-                                    insert_log(
-                                        &txn,
-                                        LogLevel::Error,
-                                        "actions::metadata::sync_file_descriptions".to_string(),
-                                        format!("{e:#?}"),
-                                    )
-                                    .await?;
-                                }
-                            }
-                        }
-                    }
+            let fs = fsio.clone();
+            let mut prepared = description.clone();
+            let old_hash = existing.as_ref().map(|file| file.file_hash.clone());
+            let prepared = tokio::task::spawn_blocking(move || -> Result<_> {
+                let hash = prepared.get_crc(&fs)?;
+                let metadata = if !force && old_hash.as_ref() == Some(&hash) {
+                    None
                 } else {
-                    // If the file is new, insert a new recordF
-                    debug!(
-                        "File is new, inserting new record: {}",
-                        description.file_name.clone()
-                    );
+                    prepared.get_codec_information(&fs)?;
+                    Some(read_metadata(&fs, &prepared.raw_node)?)
+                };
+                Ok((prepared, metadata))
+            })
+            .await
+            .context("Metadata worker failed")?;
+            let (prepared, metadata) = match prepared {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Failed to prepare {}: {e:#}", description.file_name);
+                    continue;
+                }
+            };
+            *description = prepared;
 
-                    let file_metadata =
-                        read_metadata(fsio, &description.raw_node).with_context(|| {
-                            format!(
-                                "Unable to parse metadata: {}",
-                                description.rel_path.clone().display()
-                            )
-                        });
-
-                    match file_metadata {
-                        Ok(x) => {
-                            match insert_new_file(fsio, &txn, node_id, &x, description)
-                                .await
-                                .with_context(|| {
-                                    format!(
-                                        "Failed to insert new file: {}",
-                                        description.file_name.clone()
-                                    )
-                                }) {
-                                Ok(_) => {
-                                    if let Some(existing_file) = existing_file {
-                                        update_search_term(existing_file.id, &x);
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("{e:#?}");
-                                    insert_log(
-                                        &txn,
-                                        LogLevel::Error,
-                                        "actions::metadata::sync_file_descriptions".to_string(),
-                                        format!("{e:#?}"),
-                                    )
-                                    .await?;
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!("{e:?}");
-                            insert_log(
-                                &txn,
-                                LogLevel::Error,
-                                "actions::metadata::sync_file_descriptions".to_string(),
-                                format!("{e:#?}"),
-                            )
+            ready.push((description, existing, metadata));
+        }
+        if ready.is_empty() {
+            continue;
+        }
+        let batch_txn = main_db.begin().await?;
+        for (description, existing, metadata) in ready {
+            let txn = batch_txn.begin().await?;
+            let result: Result<()> = async {
+                match (&existing, &metadata) {
+                    (Some(file), Some(metadata)) => {
+                        update_file_codec_information(fsio, &txn, file, description).await?;
+                        update_file_metadata(fsio, &txn, node_id, file, description, metadata)
                             .await?;
-                        }
+                        unlink_cover_art(&txn, file).await?;
+                        let title = metadata
+                            .metadata
+                            .iter()
+                            .find(|(key, _)| key == "track_title")
+                            .map(|(_, value)| value.as_str())
+                            .unwrap_or(&description.file_name);
+                        add_term(&txn, CollectionQueryType::Track, file.id, title).await?;
+                    }
+                    (Some(file), None) => update_last_modified(&txn, file, description).await?,
+                    (None, Some(metadata)) => {
+                        insert_new_file(fsio, &txn, node_id, metadata, description).await?
+                    }
+                    (None, None) => unreachable!("New files always have metadata"),
+                }
+                Ok(())
+            }
+            .await;
+            match result {
+                Ok(()) => txn.commit().await?,
+                Err(e) => {
+                    txn.rollback().await?;
+                    error!("Failed to save {}: {e:#}", description.file_name);
+                    if first_error.is_none() {
+                        first_error = Some(e);
                     }
                 }
             }
-        };
-    }
-
-    // Commit the transaction
-    if let Err(e) = txn
-        .commit()
-        .await
-        .with_context(|| "Failed to commit transaction")
-    {
-        error!("{e:?}");
-        insert_log(
-            main_db,
-            LogLevel::Error,
-            "actions::metadata::sync_file_descriptions".to_string(),
-            format!("{e:?}"),
-        )
-        .await?;
-    }
-
-    if let Some((id, name)) = search_term
-        && let Err(e) = add_term(main_db, CollectionQueryType::Track, id, &name)
+        }
+        batch_txn
+            .commit()
             .await
-            .with_context(|| "Failed to add term")
-    {
-        error!("{e:?}");
-        insert_log(
-            main_db,
-            LogLevel::Error,
-            "actions::metadata::sync_file_descriptions".to_string(),
-            format!("{e:?}"),
-        )
-        .await?;
+            .context("Failed to commit metadata batch")?;
     }
-
-    debug!("Finished syncing file data");
-
-    Ok(())
+    match first_error {
+        Some(error) => Err(error).context("Failed to save file metadata"),
+        None => Ok(()),
+    }
 }
 
 pub async fn process_files(
