@@ -10,7 +10,7 @@ use fsio::FsIo;
 use log::{debug, info};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, JoinType,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, SelectExt,
 };
 use sync::hlc::SyncTaskContext;
 use tokio::sync::Semaphore;
@@ -152,9 +152,8 @@ fn compute_single_fingerprint(
 pub async fn has_fingerprint(main_db: &DatabaseConnection, file_id: i32) -> Result<bool> {
     Ok(media_file_fingerprint::Entity::find()
         .filter(media_file_fingerprint::Column::MediaFileId.eq(file_id))
-        .count(main_db)
-        .await?
-        > 0)
+        .exists(main_db)
+        .await?)
 }
 
 pub async fn get_fingerprint_count(main_db: &DatabaseConnection) -> Result<u64> {

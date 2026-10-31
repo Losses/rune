@@ -519,7 +519,11 @@ where
         + ModelWithForeignKeyOps
         + Debug
         + Clone,
-    E::ActiveModel: ActiveModelBehavior + Send + Sync + ActiveModelWithForeignKeyOps,
+    E::ActiveModel: ActiveModelBehavior
+        + Send
+        + Sync
+        + ActiveModelWithForeignKeyOps
+        + sea_orm::TryIntoModel<E::Model>,
     FKR: ForeignKeyResolver + Send + Sync,
 {
     let payload: ApplyChangesPayload<E::Model> = serde_json::from_slice(body)

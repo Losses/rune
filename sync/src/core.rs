@@ -2058,7 +2058,7 @@ pub(crate) mod tests {
         let db = Database::connect("sqlite::memory:").await?;
         let schema = Schema::new(DbBackend::Sqlite);
         let stmt = schema.create_table_from_entity(Entity); // Use test_entity::Entity
-        db.execute(db.get_database_backend().build(&stmt)).await?;
+        db.execute(&stmt).await?;
         Ok(db)
     }
 
@@ -3894,16 +3894,10 @@ pub(crate) mod tests {
     async fn setup_db_fk() -> Result<DbConn> {
         let db = Database::connect("sqlite::memory:").await?;
         let schema = Schema::new(DbBackend::Sqlite);
-        db.execute(
-            db.get_database_backend()
-                .build(&schema.create_table_from_entity(author_entity::Entity)),
-        )
-        .await?;
-        db.execute(
-            db.get_database_backend()
-                .build(&schema.create_table_from_entity(post_entity::Entity)),
-        )
-        .await?;
+        db.execute(&schema.create_table_from_entity(author_entity::Entity))
+            .await?;
+        db.execute(&schema.create_table_from_entity(post_entity::Entity))
+            .await?;
         Ok(db)
     }
 

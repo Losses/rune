@@ -840,8 +840,7 @@ pub mod tests {
         // Create the table using the test-specific Entity definition
         // This ensures the `updated_at_hlc_ts` column has the correct TEXT type.
         let create_table_stmt = schema.create_table_from_entity(Entity); // Use test_model_def::Entity
-        db.execute(db.get_database_backend().build(&create_table_stmt))
-            .await?;
+        db.execute(&create_table_stmt).await?;
 
         Ok(db)
     }

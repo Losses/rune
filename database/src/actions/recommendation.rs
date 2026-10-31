@@ -107,7 +107,7 @@ fn feature_columns() -> Vec<String> {
         "spectral_kurtosis",
     ]
     .iter()
-    .map(|c| c.to_string())
+    .map(|c| (*c).to_owned())
     .collect();
     columns.extend((0..12).map(|i| format!("chroma{i}")));
     columns.push("perceptual_spread".to_string());
@@ -151,12 +151,14 @@ pub(crate) async fn load_recommendation_vectors(
     main_db: &MainDbConnection,
     recommend_db: &RecommendationDbConnection,
 ) -> Result<()> {
-    let sql = format!(
-        "SELECT file_id, {} FROM media_analysis WHERE analysis_version = ?",
-        feature_columns().join(", ")
-    );
-    let rows = sqlx::query(&sql)
-        .bind(analysis::CURRENT_ANALYSIS_VERSION)
+    let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT file_id, ");
+    // Column names come only from the fixed feature list; values stay bound.
+    query
+        .push(feature_columns().join(", "))
+        .push(" FROM media_analysis WHERE analysis_version = ")
+        .push_bind(analysis::CURRENT_ANALYSIS_VERSION);
+    let rows = query
+        .build()
         .fetch_all(main_db.get_sqlite_connection_pool())
         .await
         .with_context(|| "Failed to read analysis data")?;

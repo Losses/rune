@@ -1118,7 +1118,7 @@ pub async fn query_mix_media_files(
     }
 
     let final_page_size = if let Some(limit) = pipe_limit {
-        (limit - cursor as u64).min(page_size as u64)
+        std::cmp::min(limit - cursor as u64, page_size as u64)
     } else {
         page_size as u64
     };

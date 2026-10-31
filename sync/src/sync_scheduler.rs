@@ -254,11 +254,8 @@ mod tests {
     async fn setup_scheduler_test_db() -> Result<DbConn> {
         let db = Database::connect("sqlite::memory:").await?;
         let schema = Schema::new(DbBackend::Sqlite);
-        db.execute(
-            db.get_database_backend()
-                .build(&schema.create_table_from_entity(test_entity::Entity)),
-        )
-        .await?;
+        db.execute(&schema.create_table_from_entity(test_entity::Entity))
+            .await?;
         Ok(db)
     }
 

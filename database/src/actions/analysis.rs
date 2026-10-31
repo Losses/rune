@@ -406,9 +406,8 @@ pub async fn if_analyze_exists(main_db: &DatabaseConnection, file_id: i32) -> Re
     Ok(media_analysis::Entity::find()
         .filter(media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION))
         .filter(media_analysis::Column::FileId.eq(file_id))
-        .count(main_db)
-        .await?
-        != 0)
+        .exists(main_db)
+        .await?)
 }
 
 pub async fn get_analyze_count(main_db: &DatabaseConnection) -> Result<u64> {

@@ -539,8 +539,7 @@ impl Migration {
     where
         T: Iden + Copy + 'static,
     {
-        let default_timestamp_value =
-            Value::String(Some(Box::new("1970-01-01 00:00:00.000".to_string())));
+        let default_timestamp_value = Value::String(Some("1970-01-01 00:00:00.000".to_string()));
 
         manager
             .alter_table(
@@ -665,8 +664,7 @@ impl Migration {
         // STEP 1: Add new columns one by one for SQLite compatibility.
         // SQLite's ALTER TABLE command only supports one action at a time.
         // Therefore, we must issue a separate command for each column addition.
-        let default_timestamp_value =
-            Value::String(Some(Box::new("1970-01-01T00:00:00Z".to_string())));
+        let default_timestamp_value = Value::String(Some("1970-01-01T00:00:00Z".to_string()));
 
         manager
             .alter_table(
@@ -864,8 +862,7 @@ impl Migration {
     ) -> Result<(), DbErr> {
         let table = MixQueries::Table;
         // STEP 1: Add new columns one by one for SQLite compatibility.
-        let default_timestamp_value =
-            Value::String(Some(Box::new("1970-01-01T00:00:00Z".to_string())));
+        let default_timestamp_value = Value::String(Some("1970-01-01T00:00:00Z".to_string()));
 
         manager
             .alter_table(
