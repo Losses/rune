@@ -617,7 +617,7 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
 fn apply_join_filter(
     query: Select<media_files::Entity>,
     filter_liked: Option<bool>,
-    filter_analyzed: Option<bool>,
+    _filter_analyzed: Option<bool>,
     sort_track_number: Option<bool>,
     sort_playedthrough_asc: Option<bool>,
     sort_skipped_asc: Option<bool>,
@@ -632,15 +632,6 @@ fn apply_join_filter(
             .column(media_file_stats::Column::Liked)
             .column(media_file_stats::Column::PlayedThrough)
             .column(media_file_stats::Column::Skipped);
-    }
-
-    if filter_analyzed.is_some() {
-        _query = _query
-            .join(
-                JoinType::LeftJoin,
-                media_analysis::Relation::MediaFiles.def().rev(),
-            )
-            .column(media_analysis::Column::Id);
     }
 
     if sort_track_number.is_some() {
@@ -919,11 +910,18 @@ pub async fn query_mix_media_files(
         }
 
         if let Some(analyzed) = filter_analyzed {
-            if analyzed {
-                filter = filter.add(media_analysis::Column::Id.is_not_null());
+            let current = media_analysis::Entity::find()
+                .select_only()
+                .column(media_analysis::Column::FileId)
+                .filter(
+                    media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION),
+                )
+                .into_query();
+            filter = filter.add(if analyzed {
+                media_files::Column::Id.in_subquery(current)
             } else {
-                filter = filter.add(media_analysis::Column::Id.is_null());
-            }
+                media_files::Column::Id.not_in_subquery(current)
+            });
         }
 
         if let Some(cover_art) = filter_cover_art {

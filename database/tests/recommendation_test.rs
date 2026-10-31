@@ -39,9 +39,9 @@ async fn insert_file(db: &DatabaseConnection, id: i32) -> Result<()> {
 /// A track whose analysis has `rms = x` and `zcr = y`, everything else NULL (0).
 async fn insert_analysis(db: &DatabaseConnection, file_id: i32, x: f64, y: f64) -> Result<()> {
     db.execute_unprepared(&format!(
-        "INSERT INTO media_analysis (file_id, rms, zcr, hlc_uuid, created_at_hlc_ts, \
+        "INSERT INTO media_analysis (analysis_version, file_id, rms, zcr, hlc_uuid, created_at_hlc_ts, \
          created_at_hlc_ver, created_at_hlc_nid, updated_at_hlc_ts, updated_at_hlc_ver, updated_at_hlc_nid) \
-         VALUES ({file_id}, {x}, {y}, 'analysis-{file_id}', '', 0, '', '', 0, '')"
+         VALUES (2, {file_id}, {x}, {y}, 'analysis-{file_id}', '', 0, '', '', 0, '')"
     ))
     .await?;
     Ok(())
@@ -310,6 +310,7 @@ async fn loaded_vectors_are_bit_identical_to_the_model_conversion() -> Result<()
             ![
                 "id",
                 "file_id",
+                "analysis_version",
                 "hlc_uuid",
                 "created_at_hlc_ts",
                 "created_at_hlc_ver",
@@ -338,9 +339,9 @@ async fn loaded_vectors_are_bit_identical_to_the_model_conversion() -> Result<()
             })
             .collect();
         db.execute_unprepared(&format!(
-            "INSERT INTO media_analysis (file_id, {}, hlc_uuid, created_at_hlc_ts, created_at_hlc_ver, \
+            "INSERT INTO media_analysis (analysis_version, file_id, {}, hlc_uuid, created_at_hlc_ts, created_at_hlc_ver, \
              created_at_hlc_nid, updated_at_hlc_ts, updated_at_hlc_ver, updated_at_hlc_nid) \
-             VALUES ({id}, {}, 'a{id}', '', 0, '', '', 0, '')",
+             VALUES (2, {id}, {}, 'a{id}', '', 0, '', '', 0, '')",
             columns.join(", "),
             values.join(", ")
         ))
@@ -422,7 +423,12 @@ async fn perf_load_100k_rows() -> Result<()> {
         .await?
         .into_iter()
         .map(|r| r.try_get::<String>("", "name").unwrap())
-        .filter(|c| c.as_str() != "id" && c.as_str() != "file_id" && !c.contains("hlc"))
+        .filter(|c| {
+            c.as_str() != "id"
+                && c.as_str() != "file_id"
+                && c.as_str() != "analysis_version"
+                && !c.contains("hlc")
+        })
         .collect();
     db.execute_unprepared("BEGIN").await?;
     for id in 1..=rows {
@@ -431,9 +437,9 @@ async fn perf_load_100k_rows() -> Result<()> {
             .map(|i| format!("{}", (id as f64 * 0.37 + i as f64).sin()))
             .collect();
         db.execute_unprepared(&format!(
-            "INSERT INTO media_analysis (file_id, {}, hlc_uuid, created_at_hlc_ts, created_at_hlc_ver, \
+            "INSERT INTO media_analysis (analysis_version, file_id, {}, hlc_uuid, created_at_hlc_ts, created_at_hlc_ver, \
              created_at_hlc_nid, updated_at_hlc_ts, updated_at_hlc_ver, updated_at_hlc_nid) \
-             VALUES ({id}, {}, 'a{id}', '', 0, '', '', 0, '')",
+             VALUES (2, {id}, {}, 'a{id}', '', 0, '', '', 0, '')",
             columns.join(", "),
             values.join(", ")
         ))

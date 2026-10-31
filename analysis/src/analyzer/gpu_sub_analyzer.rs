@@ -1,4 +1,3 @@
-use rubato::Resampler;
 use rustfft::num_complex::Complex;
 
 use crate::{
@@ -31,12 +30,7 @@ impl GpuSubAnalyzer {
 
 impl SubAnalyzer for GpuSubAnalyzer {
     fn process_audio_chunk(&mut self, core_analyzer: &mut Analyzer, chunk: &[f32], force: bool) {
-        let resampled_chunk = &core_analyzer
-            .resampler
-            .as_mut()
-            .unwrap()
-            .process(&[chunk], None)
-            .unwrap()[0];
+        let resampled_chunk = chunk;
 
         core_analyzer.total_rms += rms(resampled_chunk);
         core_analyzer.total_zcr += zcr(resampled_chunk);
@@ -65,82 +59,11 @@ impl SubAnalyzer for GpuSubAnalyzer {
             for batch_idx in 0..batch_count {
                 let start = batch_idx * core_analyzer.window_size;
                 for i in 0..core_analyzer.window_size {
-                    core_analyzer.avg_spectrum[i] += self.batch_fft_buffer[start + i];
+                    core_analyzer.avg_spectrum[i].re += self.batch_fft_buffer[start + i].norm_sqr();
                 }
             }
 
             self.batch_cache_buffer_count = 0;
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use fsio::FsIo;
-    use log::info;
-
-    use crate::legacy::legacy_fft_v2::gpu_fft;
-    use crate::measure_time;
-    use crate::utils::computing_device::ComputingDevice;
-
-    use super::*;
-
-    #[test]
-    fn test_gpu_analyzer() {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-        let file_path = "../assets/startup_0.ogg";
-        let window_size = 1024;
-        let batch_size = 1024 * 8;
-        let overlap_size = 512;
-        let fsio = FsIo::new();
-
-        let mut analyzer =
-            Analyzer::new(ComputingDevice::Cpu, window_size, overlap_size, None, None);
-        let gpu_result = measure_time!("GPU FFT", analyzer.process(&fsio, file_path).unwrap());
-
-        let gpu_result1 = measure_time!(
-            "GPU FFT1",
-            gpu_fft(
-                &fsio,
-                file_path,
-                window_size,
-                batch_size,
-                overlap_size,
-                None
-            )
-        )
-        .unwrap();
-
-        info!("GPU result: {gpu_result:?}");
-        info!("GPU result: {gpu_result:?}");
-
-        assert!(
-            (gpu_result.rms - gpu_result1.rms).abs() < 0.01,
-            "GPU FFT result mismatch"
-        );
-        assert!(
-            (gpu_result.energy - gpu_result1.energy).abs() < 5.0,
-            "GPU FFT result mismatch"
-        );
-        assert!(
-            gpu_result.zcr.abs_diff(gpu_result1.zcr) < 10,
-            "ZCR values don't match: {} vs {}",
-            gpu_result.zcr,
-            gpu_result1.zcr
-        );
-        for (i, (gpu_result, gpu_value1)) in gpu_result
-            .spectrum
-            .iter()
-            .zip(gpu_result.spectrum.iter())
-            .enumerate()
-        {
-            assert!(
-                (gpu_result.norm() - gpu_value1.norm()).abs() < 0.001,
-                "Spectrum difference too large at index {}: {} vs {}",
-                i,
-                gpu_result.norm(),
-                gpu_value1.norm()
-            );
         }
     }
 }

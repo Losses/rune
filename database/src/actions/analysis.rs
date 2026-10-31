@@ -11,7 +11,7 @@ use paste::paste;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveValue, QueryOrder, QuerySelect};
+use sea_orm::{ActiveValue, QueryOrder, QuerySelect, QueryTrait, TransactionTrait};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use seq_macro::seq;
 use tokio_util::sync::CancellationToken;
@@ -57,16 +57,17 @@ where
 
     info!("Starting audio library analysis with batch size: {batch_size}");
 
-    let existed_ids: Vec<i32> = media_analysis::Entity::find()
-        .select_only()
-        .column(media_analysis::Column::FileId)
-        .distinct()
-        .into_tuple::<i32>()
-        .all(main_db)
-        .await?;
-
-    let cursor_query =
-        media_files::Entity::find().filter(media_files::Column::Id.is_not_in(existed_ids));
+    let cursor_query = media_files::Entity::find().filter(
+        media_files::Column::Id.not_in_subquery(
+            media_analysis::Entity::find()
+                .filter(
+                    media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION),
+                )
+                .select_only()
+                .column(media_analysis::Column::FileId)
+                .into_query(),
+        ),
+    );
 
     let lib_path = Arc::new(lib_path.to_path_buf());
     let node_id = Arc::new(node_id.to_owned());
@@ -165,6 +166,7 @@ async fn insert_analysis_result(
 ) -> Result<()> {
     let mut new_analysis = media_analysis::ActiveModel {
         file_id: ActiveValue::Set(file_id),
+        analysis_version: ActiveValue::Set(analysis::CURRENT_ANALYSIS_VERSION),
         rms: ActiveValue::Set(Decimal::from_f32(result.raw.rms)),
         zcr: ActiveValue::Set(Decimal::from_f32(result.zcr)),
         energy: ActiveValue::Set(Decimal::from_f32(result.energy)),
@@ -180,7 +182,11 @@ async fn insert_analysis_result(
         hlc_uuid: ActiveValue::Set(
             Uuid::new_v5(
                 &Uuid::NAMESPACE_OID,
-                format!("RUNE_ANALYSIS::{file_hash}").as_bytes(),
+                format!(
+                    "RUNE_ANALYSIS::v{}::{file_hash}",
+                    analysis::CURRENT_ANALYSIS_VERSION
+                )
+                .as_bytes(),
             )
             .to_string(),
         ),
@@ -205,9 +211,17 @@ async fn insert_analysis_result(
         new_analysis.mfcc~N = ActiveValue::Set(Decimal::from_f32(result.raw.mfcc[N]));
     });
 
-    media_analysis::Entity::insert(new_analysis)
-        .exec(main_db)
+    // Only the small replacement is transactional; decoding and DSP happen beforehand.
+    let txn = main_db.begin().await?;
+    media_analysis::Entity::delete_many()
+        .filter(media_analysis::Column::FileId.eq(file_id))
+        .filter(media_analysis::Column::AnalysisVersion.lte(analysis::CURRENT_ANALYSIS_VERSION))
+        .exec(&txn)
         .await?;
+    media_analysis::Entity::insert(new_analysis)
+        .exec(&txn)
+        .await?;
+    txn.commit().await?;
 
     Ok(())
 }
@@ -390,6 +404,7 @@ macro_rules! calculate_array_mean {
 
 pub async fn if_analyze_exists(main_db: &DatabaseConnection, file_id: i32) -> Result<bool> {
     Ok(media_analysis::Entity::find()
+        .filter(media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION))
         .filter(media_analysis::Column::FileId.eq(file_id))
         .count(main_db)
         .await?
@@ -397,7 +412,10 @@ pub async fn if_analyze_exists(main_db: &DatabaseConnection, file_id: i32) -> Re
 }
 
 pub async fn get_analyze_count(main_db: &DatabaseConnection) -> Result<u64> {
-    Ok(media_analysis::Entity::find().count(main_db).await?)
+    Ok(media_analysis::Entity::find()
+        .filter(media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION))
+        .count(main_db)
+        .await?)
 }
 
 /// Computes the centralized analysis result from the database.
@@ -419,6 +437,7 @@ pub async fn get_centralized_analysis_result(
     file_ids: Vec<i32>,
 ) -> Result<AggregatedAnalysisResult> {
     let analysis_results = media_analysis::Entity::find()
+        .filter(media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION))
         .filter(media_analysis::Column::FileId.is_in(file_ids))
         .all(main_db)
         .await?;
@@ -513,6 +532,7 @@ pub async fn get_percentile(
     let index = rank.round() as u64;
 
     let result = match media_analysis::Entity::find()
+        .filter(media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION))
         .select_only()
         .order_by_asc(column)
         .column(column)
@@ -562,10 +582,7 @@ pub async fn get_percentile_analysis_result(
     ]}))
     .collect();
 
-    let total_files = media_files::Entity::find()
-        .count(main_db)
-        .await
-        .with_context(|| "Unable to get total files")? as usize;
+    let total_files = get_analyze_count(main_db).await? as usize;
 
     let futures = columns
         .iter()

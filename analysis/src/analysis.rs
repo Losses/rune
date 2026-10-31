@@ -44,6 +44,31 @@ pub struct AnalysisResult {
     pub mfcc: [f32; 13],
 }
 
+impl AnalysisResult {
+    /// Invalid floating point input/results must never be persisted as current analysis.
+    pub fn is_finite(&self) -> bool {
+        [
+            self.rms,
+            self.energy,
+            self.spectral_centroid,
+            self.spectral_flatness,
+            self.spectral_flux,
+            self.spectral_slope,
+            self.spectral_rolloff,
+            self.spectral_spread,
+            self.spectral_skewness,
+            self.spectral_kurtosis,
+            self.perceptual_spread,
+            self.perceptual_sharpness,
+        ]
+        .iter()
+        .chain(self.chromagram.iter())
+        .chain(self.perceptual_loudness.iter())
+        .chain(self.mfcc.iter())
+        .all(|x| x.is_finite())
+    }
+}
+
 pub fn analyze_audio(
     fsio: &FsIo,
     file_path: &str,
@@ -52,8 +77,12 @@ pub fn analyze_audio(
     computing_device: ComputingDevice,
     cancel_token: Option<CancellationToken>,
 ) -> Result<Option<AnalysisResult>> {
+    anyhow::ensure!(
+        window_size >= 2 && window_size % 2 == 0 && overlap_size < window_size,
+        "Invalid analysis window/overlap"
+    );
     let mut analyzer = Analyzer::new(
-        computing_device,
+        ComputingDevice::Cpu, // v2 uses the validated streaming CPU backend.
         window_size,
         overlap_size,
         None,
@@ -77,8 +106,12 @@ pub fn analyze_audio(
     let spectral_centroid = spectral_centroid(&amp_spectrum);
     let spectral_flatness = spectral_flatness(&amp_spectrum);
     let spectral_flux = spectral_flux(&amp_spectrum, &vec![0.0; amp_spectrum.len()], window_size);
-    let spectral_slope = spectral_slope(&amp_spectrum, audio_desc.sample_rate as f32, window_size);
-    let spectral_rolloff = spectral_rolloff(&amp_spectrum, audio_desc.sample_rate as f32);
+    let spectral_slope = spectral_slope(
+        &amp_spectrum,
+        crate::ANALYSIS_SAMPLE_RATE as f32,
+        window_size,
+    );
+    let spectral_rolloff = spectral_rolloff(&amp_spectrum, crate::ANALYSIS_SAMPLE_RATE as f32);
     let spectral_spread = spectral_spread(&amp_spectrum);
     let spectral_skewness = spectral_skewness(&amp_spectrum);
     let spectral_kurtosis = spectral_kurtosis(&amp_spectrum);
@@ -97,7 +130,7 @@ pub fn analyze_audio(
         .try_into()
         .expect("Expected a Vec of length 12");
 
-    let bark_scale = create_bark_scale(amp_spectrum.len(), 11025.0, amp_spectrum.len());
+    let bark_scale = create_bark_scale(amp_spectrum.len(), 11025.0, window_size);
     let loudness = loudness(&amp_spectrum, &bark_scale, None)?;
     let perceptual_spread = perceptual_spread_from_loudness(&loudness)?;
     let perceptual_sharpness = perceptual_sharpness_from_loudness(&loudness)?;
@@ -112,7 +145,7 @@ pub fn analyze_audio(
         .expect("Expected a Vec of length 13");
 
     // Create and return the analysis result
-    Ok(Some(AnalysisResult {
+    let result = AnalysisResult {
         stat: AudioStat {
             sample_rate: audio_desc.sample_rate,
             duration: audio_desc.duration,
@@ -138,7 +171,9 @@ pub fn analyze_audio(
         perceptual_spread,
         perceptual_sharpness,
         mfcc,
-    }))
+    };
+    anyhow::ensure!(result.is_finite(), "Analysis produced non-finite features");
+    Ok(Some(result))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -165,15 +200,16 @@ pub fn normalize_analysis_result(result: &AnalysisResult) -> NormalizedAnalysisR
     let max_spectral_flatness = 1.0;
     let max_spectral_flux = 1.0;
     let max_spectral_slope = 1.0;
-    let max_spectral_rolloff = (result.stat.sample_rate / 2) as f32;
+    let max_spectral_rolloff = crate::ANALYSIS_SAMPLE_RATE as f32 / 2.0;
     let max_spectral_spread = (result.parameters.window_size / 2) as f32;
     let max_spectral_skewness = 1.0;
     let max_spectral_kurtosis = 1.0;
     let max_chroma = 1.0;
 
     // Normalize each feature
-    let normalized_zcr = result.zcr as f32 / ((result.stat.total_samples / 2) - 1) as f32;
-    let normalized_energy = result.energy / result.stat.total_samples as f32;
+    let normalized_zcr =
+        result.zcr as f32 / result.parameters.window_size.saturating_sub(1).max(1) as f32;
+    let normalized_energy = result.energy / result.parameters.window_size.max(1) as f32;
     let normalized_spectral_centroid = result.spectral_centroid / max_spectral_centroid;
     let normalized_spectral_flatness = result.spectral_flatness / max_spectral_flatness;
     let normalized_spectral_flux = result.spectral_flux / max_spectral_flux;

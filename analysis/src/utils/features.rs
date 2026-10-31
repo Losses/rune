@@ -67,10 +67,14 @@ pub fn amp_spectrum(complex_spectrum: &[Complex<f32>], buffer_size: usize) -> Ve
 pub fn mu(i: usize, amplitude_spect: &[f32]) -> f32 {
     let (mut numerator, mut denominator) = (0.0, 0.0);
     for (k, &amp) in amplitude_spect.iter().enumerate() {
-        numerator += (k.pow(i.try_into().unwrap()) as f32) * amp.abs();
+        numerator += (k as f32).powi(i as i32) * amp.abs();
         denominator += amp;
     }
-    numerator / denominator
+    if denominator > 0.0 {
+        numerator / denominator
+    } else {
+        0.0
+    }
 }
 
 pub fn spectral_centroid(amp_spectrum: &[f32]) -> f32 {
@@ -83,7 +87,11 @@ pub fn spectral_flatness(amp_spectrum: &[f32]) -> f32 {
         numerator += amp.ln();
         denominator += amp;
     }
-    (numerator / amp_spectrum.len() as f32).exp() * amp_spectrum.len() as f32 / denominator
+    if denominator > 0.0 {
+        (numerator / amp_spectrum.len() as f32).exp() * amp_spectrum.len() as f32 / denominator
+    } else {
+        0.0
+    }
 }
 
 pub fn spectral_flux(signal: &[f32], previous_signal: &[f32], buffer_size: usize) -> f32 {
@@ -108,45 +116,72 @@ pub fn spectral_slope(amp_spectrum: &[f32], sample_rate: f32, buffer_size: usize
         amp_freq_sum += cur_freq * amp;
     }
 
-    (amp_spectrum.len() as f32 * amp_freq_sum - freq_sum * amp_sum)
-        / (amp_sum * (pow_freq_sum - freq_sum.powi(2)))
-}
-
-pub fn spectral_rolloff(amp_spectrum: &[f32], sample_rate: f32) -> f32 {
-    let nyq_bin = sample_rate / (2.0 * (amp_spectrum.len() - 1) as f32);
-    let mut ec = amp_spectrum.iter().sum::<f32>();
-    let threshold = 0.99 * ec;
-    let mut n = amp_spectrum.len() - 1;
-
-    while ec > threshold && n > 0 {
-        ec -= amp_spectrum[n];
-        n -= 1;
+    let n = amp_spectrum.len() as f32;
+    let denominator = amp_sum * (n * pow_freq_sum - freq_sum.powi(2));
+    if denominator > 0.0 {
+        (n * amp_freq_sum - freq_sum * amp_sum) / denominator
+    } else {
+        0.0
     }
-
-    (n + 1) as f32 * nyq_bin
 }
 
-pub fn spectral_spread(amp_spectrum: &[f32]) -> f32 {
-    (mu(2, amp_spectrum) - mu(1, amp_spectrum).powi(2)).sqrt()
+/// First bin containing 99% of the cumulative amplitude (Nyquist excluded).
+pub fn spectral_rolloff(amp_spectrum: &[f32], sample_rate: f32) -> f32 {
+    let total: f32 = amp_spectrum.iter().sum();
+    if total <= 0.0 {
+        return 0.0;
+    }
+    let mut sum = 0.0;
+    for (i, amp) in amp_spectrum.iter().enumerate() {
+        sum += amp;
+        if sum >= 0.99 * total {
+            return i as f32 * sample_rate / (2 * amp_spectrum.len()) as f32;
+        }
+    }
+    0.0
 }
 
-pub fn spectral_skewness(amp_spectrum: &[f32]) -> f32 {
-    let mu1 = mu(1, amp_spectrum);
-    let mu2 = mu(2, amp_spectrum);
-    let mu3 = mu(3, amp_spectrum);
-    let numerator = 2.0 * mu1.powi(3) - 3.0 * mu1 * mu2 + mu3;
-    let denominator = (mu2 - mu1.powi(2)).sqrt().powi(3);
-    numerator / denominator
+fn central_moments(spectrum: &[f32]) -> (f64, f64, f64) {
+    let weight: f64 = spectrum.iter().map(|&x| x as f64).sum();
+    if weight <= 0.0 {
+        return (0.0, 0.0, 0.0);
+    }
+    let mean = spectrum
+        .iter()
+        .enumerate()
+        .map(|(i, &x)| i as f64 * x as f64)
+        .sum::<f64>()
+        / weight;
+    let mut moments = (0.0, 0.0, 0.0);
+    for (i, &x) in spectrum.iter().enumerate() {
+        let d = i as f64 - mean;
+        moments.0 += x as f64 * d.powi(2);
+        moments.1 += x as f64 * d.powi(3);
+        moments.2 += x as f64 * d.powi(4);
+    }
+    (moments.0 / weight, moments.1 / weight, moments.2 / weight)
 }
 
-pub fn spectral_kurtosis(amp_spectrum: &[f32]) -> f32 {
-    let mu1 = mu(1, amp_spectrum);
-    let mu2 = mu(2, amp_spectrum);
-    let mu3 = mu(3, amp_spectrum);
-    let mu4 = mu(4, amp_spectrum);
-    let numerator = -3.0 * mu1.powi(4) + 6.0 * mu1 * mu2 - 4.0 * mu1 * mu3 + mu4;
-    let denominator = (mu2 - mu1.powi(2)).powi(2);
-    numerator / denominator
+pub fn spectral_spread(spectrum: &[f32]) -> f32 {
+    central_moments(spectrum).0.sqrt() as f32
+}
+
+pub fn spectral_skewness(spectrum: &[f32]) -> f32 {
+    let (variance, third, _) = central_moments(spectrum);
+    if variance > 0.0 {
+        (third / variance.powf(1.5)) as f32
+    } else {
+        0.0
+    }
+}
+
+pub fn spectral_kurtosis(spectrum: &[f32]) -> f32 {
+    let (variance, _, fourth) = central_moments(spectrum);
+    if variance > 0.0 {
+        (fourth / variance.powi(2)) as f32
+    } else {
+        0.0
+    }
 }
 
 pub fn chroma(amp_spectrum: &[f32], chroma_filter_bank: &[Vec<f32>]) -> Vec<f32> {
@@ -307,7 +342,7 @@ pub fn loudness(
         }
     }
 
-    bb_limits[number_of_bark_bands] = normalised_spectrum.len() as i32 - 1;
+    bb_limits[number_of_bark_bands] = normalised_spectrum.len() as i32;
 
     // Process
     for i in 0..number_of_bark_bands {
@@ -334,7 +369,11 @@ pub fn perceptual_spread_from_loudness(loudness_value: &BarkLoudness) -> Result<
         .fold(0.0_f32, f32::max);
 
     // Calculate the spread
-    let spread = ((loudness_value.total - max_specific) / loudness_value.total).powi(2);
+    let spread = if loudness_value.total > 0.0 {
+        ((loudness_value.total - max_specific) / loudness_value.total).powi(2)
+    } else {
+        0.0
+    };
 
     Ok(spread)
 }
@@ -350,14 +389,18 @@ pub fn perceptual_sharpness_from_loudness(loudness_value: &BarkLoudness) -> Resu
     let spec = &loudness_value.specific;
     let mut output = 0.0;
 
-    for i in 0..spec.len() {
-        if i < 15 {
-            output += (i as f32 + 1.0) * spec[i + 1];
-        } else {
-            output += 0.066 * (0.171 * (i as f32 + 1.0)).exp();
-        }
+    if loudness_value.total <= 0.0 {
+        return Ok(0.0);
     }
-
+    for (i, &specific) in spec.iter().enumerate() {
+        let bark = i as f32 + 1.0;
+        let weight = if i < 15 {
+            1.0
+        } else {
+            0.066 * (0.171 * bark).exp()
+        };
+        output += bark * weight * specific;
+    }
     output *= 0.11 / loudness_value.total;
 
     Ok(output)
@@ -416,8 +459,8 @@ fn memoize_cosines(n: usize) {
         let mut cosines = vec![0.0; n * n];
 
         for k in 0..n {
-            for n in 0..n {
-                cosines[n + k * n] = (pi_n * (n as f32 + 0.5) * k as f32).cos();
+            for sample in 0..n {
+                cosines[sample + k * n] = (pi_n * (sample as f32 + 0.5) * k as f32).cos();
             }
         }
 
@@ -539,4 +582,58 @@ fn freq_to_mel(freq: f32) -> f32 {
 
 fn mel_to_freq(mel: f32) -> f32 {
     700.0 * (10.0f32.powf(mel / 2595.0) - 1.0)
+}
+
+#[cfg(test)]
+mod version_two_tests {
+    use super::*;
+
+    #[test]
+    fn dct_matches_independent_double_precision_reference() {
+        for n in [1, 2, 13, 24] {
+            let signal: Vec<f32> = (0..n).map(|i| (i as f32 * 0.3).sin() + 1.0).collect();
+            let actual = dct(&signal, None);
+            for (k, &value) in actual.iter().enumerate() {
+                let expected: f64 = signal
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &x)| {
+                        2.0 * x as f64
+                            * (std::f64::consts::PI / n as f64 * (i as f64 + 0.5) * k as f64).cos()
+                    })
+                    .sum();
+                assert!((value as f64 - expected).abs() < 0.0001);
+            }
+        }
+        let constant = dct(&[1.0; 13], None);
+        assert!((constant[0] - 26.0).abs() < 0.0001);
+        assert!(constant[1..].iter().all(|x| x.abs() < 0.0001));
+    }
+
+    #[test]
+    fn silence_and_single_bin_have_defined_features() {
+        for bin in [None, Some(100)] {
+            let mut spectrum = vec![0.0; 512];
+            if let Some(i) = bin {
+                spectrum[i] = 1.0;
+            }
+            assert_eq!(spectral_centroid(&spectrum), bin.unwrap_or(0) as f32);
+            assert_eq!(
+                spectral_rolloff(&spectrum, 11025.0),
+                bin.unwrap_or(0) as f32 * 11025.0 / 1024.0
+            );
+            assert_eq!(spectral_spread(&spectrum), 0.0);
+            assert_eq!(spectral_skewness(&spectrum), 0.0);
+            assert_eq!(spectral_kurtosis(&spectrum), 0.0);
+            assert!(spectral_flatness(&spectrum).is_finite());
+            assert!(spectral_slope(&spectrum, 11025.0, 1024).is_finite());
+            let loud = loudness(&spectrum, &create_bark_scale(512, 11025.0, 1024), None).unwrap();
+            assert!(perceptual_spread_from_loudness(&loud).unwrap().is_finite());
+            assert!(
+                perceptual_sharpness_from_loudness(&loud)
+                    .unwrap()
+                    .is_finite()
+            );
+        }
+    }
 }
