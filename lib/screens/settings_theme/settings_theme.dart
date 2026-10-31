@@ -1,10 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../utils/settings_page_padding.dart';
-import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 
 import 'widgets/color_mode_setting.dart';
+import 'widgets/interface_scale_setting.dart';
 import 'widgets/theme_color_setting.dart';
 import 'widgets/window_size_setting.dart';
 import 'widgets/dynamic_colors_setting.dart';
@@ -26,23 +27,34 @@ class _SettingsThemeState extends State<SettingsTheme> {
   @override
   Widget build(BuildContext context) {
     return PageContentFrame(
-      child: UnavailablePageOnBand(
-        child: SingleChildScrollView(
-          padding: getScrollContainerPadding(context),
-          child: SettingsPagePadding(
-            child: Column(
-              children: [
-                ColorModeSetting(),
-                ThemeColorSetting(),
-                DynamicColorsSetting(),
-                BrandingAnimationSetting(),
-                WindowSizeSetting(),
-                RememberWindowSizeSetting(),
-                LinuxCustomWindowControlsSetting(),
-                CoverWallDisplaySetting(),
-                VisualizerPresetSetting(),
-                VisualizerEffectLevelSetting(),
-              ],
+      left: false,
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: math.max(220, constraints.maxWidth),
+            child: SingleChildScrollView(
+              padding: getScrollContainerPadding(context),
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: constraints.maxWidth < 300 ? 4 : 24,
+                ),
+                child: Column(
+                  children: [
+                    InterfaceScaleSetting(),
+                    ColorModeSetting(),
+                    ThemeColorSetting(),
+                    DynamicColorsSetting(),
+                    BrandingAnimationSetting(),
+                    WindowSizeSetting(),
+                    RememberWindowSizeSetting(),
+                    LinuxCustomWindowControlsSetting(),
+                    CoverWallDisplaySetting(),
+                    VisualizerPresetSetting(),
+                    VisualizerEffectLevelSetting(),
+                  ],
+                ),
+              ),
             ),
           ),
         ),

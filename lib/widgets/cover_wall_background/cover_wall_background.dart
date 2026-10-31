@@ -21,11 +21,17 @@ const coverCount = '40';
 class CoverWallBackground extends StatefulWidget {
   final int seed;
   final int gap;
+  @visibleForTesting
+  final Future<List<String>> Function()? loadPaths;
+  @visibleForTesting
+  final Future<ui.Image> Function(String, int)? loadImage;
 
   const CoverWallBackground({
     super.key,
     required this.seed,
     required this.gap,
+    this.loadPaths,
+    this.loadImage,
   });
 
   @override
@@ -37,6 +43,7 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
   List<ui.Image?> images = [];
   int size = 0;
   late double pixelRatio;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -48,7 +55,6 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     pixelRatio = MediaQuery.devicePixelRatioOf(context);
-    _loadAllImages();
   }
 
   @override
@@ -59,30 +65,34 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
 
   @override
   void dispose() {
-    super.dispose();
-    for (int i = 0; i < images.length; i += 1) {
-      images[i] = null;
+    for (final image in images) {
+      image?.dispose();
     }
+    super.dispose();
   }
 
   loadCoverList() async {
-    final String count =
-        await SettingsManager().getValue<String?>(kRandomCoverWallCountKey) ??
-            coverCount;
-
-    final queryResult = await queryMixTracks(
-      QueryList([
-        ("lib::random", count.toString()),
-        ("filter::with_cover_art", "true"),
-      ]),
-      0,
-      int.parse(count),
-    );
-
+    final List<String> coverPaths;
+    if (widget.loadPaths != null) {
+      coverPaths = await widget.loadPaths!();
+    } else {
+      final String count =
+          await SettingsManager().getValue<String?>(kRandomCoverWallCountKey) ??
+          coverCount;
+      final queryResult = await queryMixTracks(
+        QueryList([
+          ("lib::random", count.toString()),
+          ("filter::with_cover_art", "true"),
+        ]),
+        0,
+        int.parse(count),
+      );
+      coverPaths = queryResult.map((x) => x.coverArtPath).toList();
+    }
     if (!mounted) return;
 
     setState(() {
-      paths = queryResult.map((x) => x.coverArtPath).toSet();
+      paths = coverPaths.toSet();
       images = List.filled(paths.length, null);
     });
 
@@ -94,7 +104,7 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
 
     // We need BoxConstraints for this calculation
     final box = context.findRenderObject() as RenderBox?;
-    if (box == null) return;
+    if (box == null || !box.hasSize) return;
 
     final constraints = BoxConstraints(
       maxWidth: box.size.width,
@@ -109,26 +119,33 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
 
     if (size == nextSize) return;
     size = nextSize;
+    final generation = ++_loadGeneration;
 
     final pathsList = paths.toList();
     for (int i = 0; i < pathsList.length; i += 1) {
       final path = pathsList[i];
 
-      // First process the cover art path to handle remote URLs
-      processCoverArtPath(path).then((processedPath) {
-        // Then load and resize the image from the processed path
-        loadAndResizeImage(processedPath, nextSize).then((image) {
-          if (!mounted) return;
+      Future<ui.Image> load() async {
+        if (widget.loadImage != null) return widget.loadImage!(path, nextSize);
+        final processedPath = await processCoverArtPath(path);
+        return loadAndResizeImage(processedPath, nextSize);
+      }
 
-          setState(() {
-            images[i] = image;
+      load()
+          .then((image) {
+            if (!mounted || generation != _loadGeneration) {
+              image.dispose();
+              return;
+            }
+            final previous = images[i];
+            setState(() {
+              images = List.of(images)..[i] = image;
+            });
+            previous?.dispose();
+          })
+          .catchError((error) {
+            error$('Error loading image: $error');
           });
-        }).catchError((error) {
-          error$('Error loading image: $error');
-        });
-      }).catchError((error) {
-        error$('Error processing cover art path: $error');
-      });
     }
   }
 
@@ -140,6 +157,16 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final requiredSize = nearestPowerOfTwo(
+          calculateCoverWallGridSize(constraints).ceil() *
+              maxRandomGridConfigSize *
+              pixelRatio.ceil(),
+        );
+        if (requiredSize != size) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _loadAllImages();
+          });
+        }
         final grid = generateTilesOfSize(
           constraints,
           paths.length,

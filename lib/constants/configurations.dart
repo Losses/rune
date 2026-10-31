@@ -173,3 +173,6 @@ const kCoverWallDisplayKey = 'cover_wall_display';
 /// 'default' or 'more': how often the visualizer plays effects at the music's
 /// moments. This defaults to 'default' when the setting is missing.
 const kVisualizerEffectLevelKey = 'visualizer_effect_level';
+
+/// Per-profile multiplier for the application's interface, as an integer percent.
+const kInterfaceScaleKey = 'interface_scale';

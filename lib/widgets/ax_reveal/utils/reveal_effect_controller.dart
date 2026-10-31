@@ -8,9 +8,9 @@ import 'reveal_config.dart';
 import 'animation_unit.dart';
 
 class RevealEffectController extends ChangeNotifier {
-  final RevealConfig config;
+  RevealConfig config;
   late final AnimationUnit _animationUnit;
-  late final RevealEffectContextState _effectContext;
+  RevealEffectContextState _effectContext;
   final GlobalKey _widgetKey = GlobalKey();
   Offset? _localPosition;
 
@@ -20,11 +20,21 @@ class RevealEffectController extends ChangeNotifier {
       _animationUnit.mouseDownAnimateLogicFrame;
   Offset? get localPosition => _localPosition;
 
-  RevealEffectController(BuildContext context, this.config) {
-    _effectContext = RevealEffectContext.of(context);
-
+  RevealEffectController(BuildContext context, this.config)
+    : _effectContext = RevealEffectContext.of(context) {
     _animationUnit = AnimationUnit(controller: this);
     _effectContext.addUnit(_animationUnit);
+  }
+
+  void updateContext(RevealEffectContextState context) {
+    if (identical(_effectContext, context)) return;
+    _effectContext.removeUnit(_animationUnit);
+    _effectContext = context;
+    _effectContext.addUnit(_animationUnit);
+    if (_animationUnit.mousePressed || _animationUnit.mouseReleased) {
+      _effectContext.startAnimation(_animationUnit);
+    }
+    _effectContext.forceRefresh();
   }
 
   void updateMousePosition(Offset? position) {
@@ -37,7 +47,7 @@ class RevealEffectController extends ChangeNotifier {
       final h = renderBox.size.height;
       final s = renderBox.size.shortestSide;
 
-      final hR = s * config.hoverLightFillRadius;
+      final hR = renderBox.size.longestSide * config.hoverLightFillRadius;
       final bR = s * config.borderFillRadius;
 
       final r = max(hR, bR);

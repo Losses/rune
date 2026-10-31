@@ -68,6 +68,7 @@ class SearchPageImplementation extends StatefulWidget {
 
 class _SearchPageImplementationState extends State<SearchPageImplementation> {
   final searchController = TextEditingController();
+  final GlobalKey<SearchSuggestBoxState> _searchBoxKey = GlobalKey();
 
   (CollectionType, String Function(BuildContext)) selectedItem =
       searchCategories[0];
@@ -257,6 +258,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
   @override
   Widget build(BuildContext context) {
     final autoSuggestBox = SearchSuggestBox(
+      key: _searchBoxKey,
       controller: searchController,
       searchResults: _searchResults,
       registerSearchTask: _registerSearchTask,

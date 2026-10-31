@@ -4,6 +4,7 @@ import '../collection_item.dart';
 import 'utils/reveal_config.dart';
 import 'utils/reveal_effect_painter.dart';
 import 'utils/reveal_effect_controller.dart';
+import 'widgets/reveal_effect_context.dart';
 
 class AxReveal extends StatefulWidget {
   final Widget child;
@@ -20,48 +21,65 @@ class AxReveal extends StatefulWidget {
 }
 
 class _AxRevealState extends State<AxReveal> {
-  late final RevealEffectController _controller;
+  RevealEffectController? _controller;
   Offset? _mouseDownPosition;
 
   @override
   didChangeDependencies() {
     super.didChangeDependencies();
-    _controller = RevealEffectController(context, widget.config);
+    if (_controller == null) {
+      _controller = RevealEffectController(context, widget.config);
+    } else {
+      _controller!.updateContext(RevealEffectContext.of(context));
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant AxReveal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _controller!.config = widget.config;
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
   void _handleMouseDown(PointerEvent event) {
     setState(() {
-      _mouseDownPosition = event.localPosition;
+      _mouseDownPosition = event.position;
     });
 
-    _controller.mouseDown();
+    _controller!.mouseDown();
   }
 
   void _handleMouseUp(PointerEvent event) {
-    _controller.mouseUp();
+    _controller!.mouseUp();
   }
 
   @override
   Widget build(BuildContext context) {
     return Listener(
-      key: _controller.widgetKey,
+      key: _controller!.widgetKey,
       onPointerDown: _handleMouseDown,
       onPointerUp: _handleMouseUp,
       child: ListenableBuilder(
-        listenable: _controller,
+        listenable: _controller!,
         builder: (context, child) {
+          final renderBox =
+              _controller!.widgetKey.currentContext?.findRenderObject()
+                  as RenderBox?;
+          final mouseDownPosition =
+              _mouseDownPosition != null && renderBox != null
+              ? renderBox.globalToLocal(_mouseDownPosition!)
+              : null;
           return CustomPaint(
             foregroundPainter: RevealEffectPainter(
-              mousePosition: _controller.localPosition,
-              mouseReleased: _controller.mouseReleased,
-              mouseDownPosition: _mouseDownPosition,
-              logicFrame: _controller.mouseDownAnimateLogicFrame,
+              mousePosition: _controller!.localPosition,
+              mouseReleased: _controller!.mouseReleased,
+              mouseDownPosition: mouseDownPosition,
+              logicFrame: _controller!.mouseDownAnimateLogicFrame,
               config: widget.config,
             ),
             child: child,

@@ -1424,5 +1424,8 @@
   "visualizerCredits": "第三方素材致谢",
   "@visualizerCredits": {
     "description": "关于页面中致谢可视化内置场景所用第三方素材的分区标题。"
-  }
+  },
+  "interfaceScale": "界面缩放",
+  "interfaceScaleSubtitle": "相对于系统缩放立即调整文字和应用内容。窗口大小和屏幕分辨率不会改变。100% 遵循系统缩放。",
+  "interfaceScaleSaveError": "无法保存界面缩放"
 }

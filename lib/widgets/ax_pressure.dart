@@ -31,6 +31,24 @@ class AxPressure extends StatefulWidget {
 
 class AxPressureState extends State<AxPressure> {
   Matrix4? _transform;
+  Size? _viewportSize;
+  double? _pixelRatio;
+  bool _pointerActive = false;
+  bool _ignorePointer = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final size = MediaQuery.sizeOf(context);
+    final ratio = MediaQuery.devicePixelRatioOf(context);
+    if (_viewportSize != null &&
+        (size != _viewportSize || ratio != _pixelRatio)) {
+      _ignorePointer = _pointerActive;
+      _resetTransform();
+    }
+    _viewportSize = size;
+    _pixelRatio = ratio;
+  }
 
   @override
   void initState() {
@@ -86,29 +104,37 @@ class AxPressureState extends State<AxPressure> {
     // Use listener to pop event to parents widget
     return Listener(
       onPointerDown: (event) {
+        _pointerActive = true;
+        _ignorePointer = false;
         _updateTransform(event.localPosition, context.size!);
       },
       onPointerMove: (event) {
+        if (_ignorePointer) return;
         _updateTransform(event.localPosition, context.size!);
       },
       onPointerUp: (event) {
+        _pointerActive = false;
+        _ignorePointer = false;
         setState(() => _resetTransform());
       },
       onPointerCancel: (event) {
+        _pointerActive = false;
+        _ignorePointer = false;
         setState(() => _resetTransform());
       },
       onPointerPanZoomStart: (event) {
+        _pointerActive = true;
+        _ignorePointer = false;
         _updateTransform(event.localPosition, context.size!);
       },
       onPointerPanZoomUpdate: (event) {
-        // Since the localPosition is fixed in the onPointerPanZoomUpdate event, it is necessary to use a fitting method to calculate the actual required localPosition.
-        // The best fitting method we can find is to add the widget's position to the event.localPan.
-        final RenderBox box = context.findRenderObject() as RenderBox;
-        final widgetPosition = box.localToGlobal(Offset.zero);
-        final localPosition = event.localPan + widgetPosition;
+        if (_ignorePointer) return;
+        final localPosition = event.localPosition + event.localPan;
         _updateTransform(localPosition, context.size!);
       },
       onPointerPanZoomEnd: (event) {
+        _pointerActive = false;
+        _ignorePointer = false;
         setState(() => _resetTransform());
       },
       child: Container(

@@ -1338,5 +1338,8 @@
   "deduplicating": "方除復中",
   "@deduplicating": {
     "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
-  }
+  },
+  "interfaceScale": "介面縮放",
+  "interfaceScaleSubtitle": "相對於系統縮放立即調整文字與應用程式內容。視窗大小和螢幕解析度不會改變。100% 遵循系統縮放。",
+  "interfaceScaleSaveError": "無法儲存介面縮放"
 }

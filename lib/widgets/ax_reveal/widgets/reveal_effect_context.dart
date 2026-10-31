@@ -7,10 +7,7 @@ import '../utils/animation_unit.dart';
 class RevealEffectContext extends StatefulWidget {
   final Widget child;
 
-  const RevealEffectContext({
-    super.key,
-    required this.child,
-  });
+  const RevealEffectContext({super.key, required this.child});
 
   @override
   RevealEffectContextState createState() => RevealEffectContextState();
@@ -71,6 +68,15 @@ class RevealEffectContextState extends State<RevealEffectContext>
     _ticker = createTicker(_handleTick);
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Geometry changes (including application scale) require the last global
+    // pointer position to be projected into each target's new local space.
+    MediaQuery.maybeOf(context);
+    _scheduleUpdate();
+  }
+
   final List<AnimationUnit> _animationQueue = [];
   final List<AnimationUnit> _units = [];
   int _currentFrame = 0;
@@ -120,8 +126,8 @@ class RevealEffectContextState extends State<RevealEffectContext>
     if (!_isUpdateScheduled) {
       _isUpdateScheduled = true;
       SchedulerBinding.instance.addPostFrameCallback((_) {
-        _executeUpdate();
         _isUpdateScheduled = false;
+        if (mounted) _executeUpdate();
       });
     }
   }
@@ -162,7 +168,8 @@ class RevealEffectContextState extends State<RevealEffectContext>
 
       double unitLogicFrame = relativeFrame.toDouble();
       if (unit.mouseReleased && unit.mouseDownAnimateReleasedFrame != null) {
-        unitLogicFrame += (frame - unit.mouseDownAnimateReleasedFrame!) *
+        unitLogicFrame +=
+            (frame - unit.mouseDownAnimateReleasedFrame!) *
             unit.releaseAnimationAccelerateRate;
       }
       unit.mouseDownAnimateLogicFrame =
@@ -192,10 +199,7 @@ class RevealEffectContextState extends State<RevealEffectContext>
             updateMousePosition(event.position);
           }
         },
-        child: Container(
-          key: _containerKey,
-          child: widget.child,
-        ),
+        child: Container(key: _containerKey, child: widget.child),
       ),
     );
   }

@@ -1338,5 +1338,8 @@
   "deduplicating": "デデュープリケーティングちゅう",
   "@deduplicating": {
     "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
-  }
+  },
+  "interfaceScale": "インターフェースの拡大率",
+  "interfaceScaleSubtitle": "システムの拡大率を基準に、文字やアプリの内容をすぐに変更します。ウィンドウのサイズや画面解像度は変わりません。100% はシステムの拡大率に従います。",
+  "interfaceScaleSaveError": "拡大率を保存できませんでした"
 }

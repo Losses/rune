@@ -40,6 +40,7 @@ class TurnstileAnimationState extends State<TurnstileAnimation>
     _controller = AnimationController(vsync: this, duration: widget.duration);
     _tileKeys = List.generate(widget.tiles.length, (_) => GlobalKey());
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _calculateTileOffsets();
       _implementAnimations();
       if (_tileOffsets.length == widget.tiles.length) {
@@ -51,8 +52,10 @@ class TurnstileAnimationState extends State<TurnstileAnimation>
   void _implementAnimations() {
     final int tileCount = widget.tiles.length;
     for (int i = 0; i < tileCount; i++) {
-      final beginTime =
-          _getBeginTimeFactor(_tileOffsets[i].dx, _tileOffsets[i].dy);
+      final beginTime = _getBeginTimeFactor(
+        _tileOffsets[i].dx,
+        _tileOffsets[i].dy,
+      );
 
       final rotationTween = Tween<double>(
         begin: widget.enterMode == EnterMode.enter
@@ -90,13 +93,15 @@ class TurnstileAnimationState extends State<TurnstileAnimation>
   void _calculateTileOffsets() {
     final RenderBox wrapRenderBox =
         _wrapKey.currentContext!.findRenderObject() as RenderBox;
-    final wrapOffset = wrapRenderBox.localToGlobal(Offset.zero);
 
     for (var key in _tileKeys) {
       final RenderBox tileRenderBox =
           key.currentContext!.findRenderObject() as RenderBox;
-      final tileOffset = tileRenderBox.localToGlobal(Offset.zero);
-      _tileOffsets.add(tileOffset - wrapOffset);
+      final tileOffset = tileRenderBox.localToGlobal(
+        Offset.zero,
+        ancestor: wrapRenderBox,
+      );
+      _tileOffsets.add(tileOffset);
       _tileSizes.add(tileRenderBox.size);
     }
   }
@@ -107,8 +112,9 @@ class TurnstileAnimationState extends State<TurnstileAnimation>
     // const double randomFactor = 0.0714;
     const double randomFactor = 0.1;
 
-    final columnFactor =
-        widget.enterMode == EnterMode.enter ? xFactor : -xFactor;
+    final columnFactor = widget.enterMode == EnterMode.enter
+        ? xFactor
+        : -xFactor;
     return y * yFactor + x * columnFactor + _random.nextDouble() * randomFactor;
   }
 

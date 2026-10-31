@@ -1432,5 +1432,11 @@
   "visualizerCredits": "Third-party credits",
   "@visualizerCredits": {
     "description": "Title of the About page section that credits the third-party assets of the visualizer's built-in scenes."
-  }
+  },
+  "interfaceScale": "Interface scale",
+  "interfaceScaleSubtitle": "Changes text and app content immediately relative to the system scale. Window size and display resolution do not change. 100% follows the system scale.",
+  "interfaceScaleSaveError": "Could not save interface scale",
+  "@interfaceScale": {"description": "Title of the application interface scale setting."},
+  "@interfaceScaleSubtitle": {"description": "Explains interface scaling relative to system scaling."},
+  "@interfaceScaleSaveError": {"description": "Error title when saving interface scale fails."}
 }

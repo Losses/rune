@@ -54,7 +54,7 @@ class GradientContainerState extends State<GradientContainer> {
   late Future<(ui.FragmentProgram, FragmentShader)> _shaderProgram;
   late Timer _timer;
   double _time = 0.0;
-  Offset _mousePosition = Offset.zero;
+  Offset? _globalMousePosition;
 
   final GlobalKey _containerKey = GlobalKey();
 
@@ -76,8 +76,9 @@ class GradientContainerState extends State<GradientContainer> {
 
   Future<(ui.FragmentProgram, FragmentShader)> _loadShader() async {
     try {
-      final fragmentProgram =
-          await ui.FragmentProgram.fromAsset('lib/shaders/gradient.frag');
+      final fragmentProgram = await ui.FragmentProgram.fromAsset(
+        'lib/shaders/gradient.frag',
+      );
       final fragmentShader = fragmentProgram.fragmentShader();
 
       return (fragmentProgram, fragmentShader);
@@ -87,22 +88,17 @@ class GradientContainerState extends State<GradientContainer> {
   }
 
   void _updateMousePosition(PointerEvent event) {
-    final currentContext = _containerKey.currentContext;
-
-    if (currentContext == null) return;
-
-    final RenderBox renderBox = currentContext.findRenderObject() as RenderBox;
-    final Offset localPosition = renderBox.globalToLocal(event.position);
     setState(() {
-      _mousePosition = localPosition;
+      _globalMousePosition = event.position;
     });
   }
 
   @override
   void dispose() {
     _timer.cancel();
-    WidgetsBinding.instance.pointerRouter
-        .removeGlobalRoute(_updateMousePosition);
+    WidgetsBinding.instance.pointerRouter.removeGlobalRoute(
+      _updateMousePosition,
+    );
     super.dispose();
   }
 
@@ -122,6 +118,12 @@ class GradientContainerState extends State<GradientContainer> {
 
         return AnimatedSampler(
           (ui.Image image, Size size, Canvas canvas) {
+            final renderBox =
+                _containerKey.currentContext?.findRenderObject() as RenderBox?;
+            final mousePosition =
+                _globalMousePosition != null && renderBox != null
+                ? renderBox.globalToLocal(_globalMousePosition!)
+                : Offset.zero;
             fragmentShader
               ..setImageSampler(0, image)
               // resolution
@@ -130,8 +132,8 @@ class GradientContainerState extends State<GradientContainer> {
               // u_time
               ..setFloat(2, _time)
               // u_mouse
-              ..setFloat(3, _mousePosition.dx)
-              ..setFloat(4, _mousePosition.dy)
+              ..setFloat(3, mousePosition.dx)
+              ..setFloat(4, mousePosition.dy)
               // u_params
               ..setFloat(5, widget.gradientParams.multX)
               ..setFloat(6, widget.gradientParams.multY)

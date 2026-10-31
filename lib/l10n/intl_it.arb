@@ -1340,5 +1340,8 @@
   "deduplicating": "Rimozione Duplicati",
   "@deduplicating": {
     "description": "Etichetta che indica che il processo di rimozione duplicati è attualmente attivo. Mostrato agli utenti mentre i brani duplicati vengono rimossi dalla loro libreria musicale o playlist. Formulazioni alternative potrebbero includere 'Rimozione duplicati in corso' o 'Deduplicazione in corso' a seconda di cosa è più naturale nella lingua di destinazione."
-  }
+  },
+  "interfaceScale": "Scala dell’interfaccia",
+  "interfaceScaleSubtitle": "Modifica subito testo e contenuti rispetto alla scala di sistema. La dimensione della finestra e la risoluzione non cambiano. Il 100% segue la scala di sistema.",
+  "interfaceScaleSaveError": "Impossibile salvare la scala dell’interfaccia"
 }

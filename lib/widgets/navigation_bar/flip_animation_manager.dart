@@ -26,6 +26,41 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
   final Map<String, FlipTextPositions> _cachedPositions = {};
   final Map<String, FlipTextStyles> _cachedStyles = {};
   final List<OverlayEntry> _overlayEntries = [];
+  VoidCallback? _cancelAnimation;
+  bool _disposing = false;
+  (Size, double, EdgeInsets, EdgeInsets, EdgeInsets)? _viewportMetrics;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final media = MediaQuery.of(context);
+    final metrics = (
+      media.size,
+      media.devicePixelRatio,
+      media.padding,
+      media.viewPadding,
+      media.viewInsets,
+    );
+    if (_viewportMetrics != null && metrics != _viewportMetrics) {
+      _cachedPositions.clear();
+      final animation = _cancelAnimation;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            animation != null &&
+            identical(animation, _cancelAnimation)) {
+          _stopAllAnimations();
+        }
+      });
+    }
+    _viewportMetrics = metrics;
+  }
+
+  @override
+  void dispose() {
+    _disposing = true;
+    _stopAllAnimations();
+    super.dispose();
+  }
 
   void registerStyle(
     String key,
@@ -82,6 +117,8 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
   }
 
   void _stopAllAnimations() {
+    _cancelAnimation?.call();
+    _cancelAnimation = null;
     for (var overlayEntry in _overlayEntries) {
       overlayEntry.remove();
     }
@@ -109,8 +146,18 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     _setVisibility(toKey, false);
 
     final completer = Completer<bool>();
+    var cancelled = false;
+    _cancelAnimation = () {
+      cancelled = true;
+      if (!_disposing) {
+        _setVisibility(fromKey, true);
+        _setVisibility(toKey, true);
+      }
+      if (!completer.isCompleted) completer.complete(false);
+    };
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || cancelled) return;
       cachePositionWithKey(fromKey);
       cachePositionWithKey(toKey);
 
@@ -129,30 +176,12 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
         _setVisibility(toKey, false);
       }
 
-      if (fromPosition == null) {
-        completer.complete(false);
-        _setVisibility(toKey, true);
-        return;
-      }
-      if (toPosition == null) {
-        completer.complete(false);
-        _setVisibility(fromKey, true);
-        return;
-      }
-
-      if (fromStyles == null) {
-        completer.complete(false);
-        _setVisibility(toKey, true);
-        return;
-      }
-      if (toStyles == null) {
-        completer.complete(false);
-        _setVisibility(fromKey, true);
-        return;
-      }
-
-      if (!fromPosition.context.mounted && !toPosition.context.mounted) {
-        completer.complete(false);
+      if (fromPosition == null ||
+          toPosition == null ||
+          fromStyles == null ||
+          toStyles == null ||
+          (!fromPosition.context.mounted && !toPosition.context.mounted)) {
+        _stopAllAnimations();
         return;
       }
 
@@ -183,7 +212,8 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
             if (toPosition.context.mounted) {
               _setVisibility(toKey, true);
             }
-            completer.complete(true);
+            _cancelAnimation = null;
+            if (!completer.isCompleted) completer.complete(true);
           },
         ),
       );
@@ -191,8 +221,6 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
       _overlayEntries.add(overlayEntry);
 
       Overlay.of(context, rootOverlay: true).insert(overlayEntry);
-
-      (overlayEntry.builder(context) as FlipTextAnimation).createState();
     });
 
     return completer.future;
@@ -223,12 +251,11 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     }
 
     final box = context.findRenderObject() as RenderBox;
-    final position = box.localToGlobal(Offset.zero);
+    final overlay = Overlay.of(this.context, rootOverlay: true);
+    final overlayBox = overlay.context.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(Offset.zero, ancestor: overlayBox);
 
-    return FlipTextPositions(
-      context: context,
-      position: position,
-    );
+    return FlipTextPositions(context: context, position: position);
   }
 
   @override

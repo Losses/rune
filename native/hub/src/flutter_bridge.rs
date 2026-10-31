@@ -121,6 +121,24 @@ pub async fn prepare_visualizer(width: u32, height: u32) {
     #[cfg(not(target_os = "android"))]
     let _ = (width, height);
     if TEXTURE_LAYER {
+        #[cfg(target_os = "windows")]
+        {
+            let readback = std::env::var_os("RUNE_VISUALIZER_READBACK");
+            let shared = std::env::var_os("RUNE_WINDOWS_DXGI_SHARED");
+            // Registration can succeed even when Flutter later fails to import
+            // the shared surface. Prefer pixels until that path is verified.
+            let prefer_readback = readback.as_deref().is_some_and(|value| value == "1")
+                || !shared.as_deref().is_some_and(|value| value == "1");
+            VISUALIZER.prefer_readback(prefer_readback);
+            info!(
+                "Windows Flutter visualizer transport preference: {}",
+                if prefer_readback {
+                    "readback"
+                } else {
+                    "experimental DXGI shared"
+                }
+            );
+        }
         let capabilities = flutter_texture::capabilities().await;
         VISUALIZER.set_graphics_adapter(capabilities.adapter_luid);
         VISUALIZER.set_graphics_device(capabilities.device_uuids.map(|uuids| DeviceUuids {

@@ -1338,5 +1338,8 @@
   "deduplicating": "移除緊重複項目",
   "@deduplicating": {
     "description": "表示當前執行緊移除重複過程嘅標籤。向用戶展示系統喺度移除音樂庫或播放清單入面嘅重複歌曲。亦可用「移除緊重複項」或「去重進行中」等表達。"
-  }
+  },
+  "interfaceScale": "介面縮放",
+  "interfaceScaleSubtitle": "相對於系統縮放立即調整文字與應用程式內容。視窗大小和螢幕解析度不會改變。100% 遵循系統縮放。",
+  "interfaceScaleSaveError": "無法儲存介面縮放"
 }

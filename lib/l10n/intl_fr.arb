@@ -1340,5 +1340,8 @@
   "deduplicating": "Déduplication en cours",
   "@deduplicating": {
     "description": "Étiquette indiquant que le processus de déduplication est actuellement actif. Affiché aux utilisateurs pendant que les pistes dupliquées sont supprimées de leur bibliothèque musicale ou playlist. Les phrasés alternatifs pourraient inclure 'Suppression des doublons en cours' ou 'Déduplication en cours' selon ce qui est le plus naturel dans la langue cible."
-  }
+  },
+  "interfaceScale": "Échelle de l’interface",
+  "interfaceScaleSubtitle": "Modifie immédiatement le texte et le contenu par rapport à l’échelle du système. La taille de la fenêtre et la résolution ne changent pas. 100 % suit l’échelle du système.",
+  "interfaceScaleSaveError": "Impossible d’enregistrer l’échelle de l’interface"
 }

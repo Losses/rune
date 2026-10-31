@@ -24,7 +24,10 @@ EdgeInsets getScrollContainerPadding(
 
   final inset = MediaQuery.viewInsetsOf(context);
   final responsive = Provider.of<ResponsiveProvider>(context, listen: listen);
-  final screen = Provider.of<ScreenSizeProvider>(context, listen: listen).screenSize;
+  final screen = Provider.of<ScreenSizeProvider>(
+    context,
+    listen: listen,
+  ).screenSize;
 
   if (bottom) {
     if (responsive.smallerOrEqualTo(DeviceType.zune, false)) {
@@ -87,7 +90,7 @@ class PageContentFrame extends StatelessWidget {
     final responsive = Provider.of<ResponsiveProvider>(context);
 
     double topBarHeight = Platform.isAndroid
-        ? MediaQueryData.fromView(View.of(context)).padding.top
+        ? MediaQuery.paddingOf(context).top
         : 0;
 
     if (top) {

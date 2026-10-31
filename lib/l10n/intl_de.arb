@@ -1338,5 +1338,8 @@
   "deduplicating": "Duplikate werden entfernt",
   "@deduplicating": {
     "description": "Beschriftung, die anzeigt, dass der Duplikate-Entfernungs-Prozess derzeit aktiv ist. Angezeigt für Benutzer, während doppelte Titel aus ihrer Musikbibliothek oder Playlist entfernt werden. Alternative Formulierungen könnten 'Duplikate entfernen läuft' oder 'Duplikate-Entfernung läuft' sein, je nachdem, was in der Zielsprache am natürlichsten ist."
-  }
+  },
+  "interfaceScale": "Oberflächenskalierung",
+  "interfaceScaleSubtitle": "Ändert Text und App-Inhalte sofort relativ zur Systemskalierung. Fenstergröße und Bildschirmauflösung bleiben unverändert. 100 % entspricht der Systemskalierung.",
+  "interfaceScaleSaveError": "Oberflächenskalierung konnte nicht gespeichert werden"
 }

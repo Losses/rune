@@ -185,11 +185,33 @@ class CoverArtDiskState extends State<CoverArtDisk>
   double _targetDragOffsetY = 0.0;
 
   Offset? _startPosition;
+  Offset? _startLocalPosition;
   static const double _dragThreshold = 10.0;
   static const double dragLerpFactor = 0.15;
 
   double _finalOffsetX = 0.0;
   double _finalOffsetY = 0.0;
+  Size? _viewportSize;
+  double? _pixelRatio;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final size = MediaQuery.sizeOf(context);
+    final ratio = MediaQuery.devicePixelRatioOf(context);
+    if (_viewportSize != null &&
+        (size != _viewportSize || ratio != _pixelRatio)) {
+      _startPosition = null;
+      _startLocalPosition = null;
+      _isDragging = false;
+      _targetDragOffsetX = 0;
+      _targetDragOffsetY = 0;
+      _finalOffsetX = 0;
+      _finalOffsetY = 0;
+    }
+    _viewportSize = size;
+    _pixelRatio = ratio;
+  }
 
   _onPressed() {
     showCoverArtWall();
@@ -206,6 +228,8 @@ class CoverArtDiskState extends State<CoverArtDisk>
   void _handlePointerDown(PointerDownEvent event) {
     _pointerDownButton = event.buttons;
     _startPosition = event.position;
+    final box = (context.findRenderObject() as RenderBox).parent as RenderBox;
+    _startLocalPosition = box.globalToLocal(event.position);
     _targetDragOffsetX = 0;
     _targetDragOffsetY = 0;
     _isDragging = false;
@@ -222,6 +246,9 @@ class CoverArtDiskState extends State<CoverArtDisk>
     }
 
     if (_isDragging) {
+      final box = (context.findRenderObject() as RenderBox).parent as RenderBox;
+      final localDelta =
+          _startLocalPosition! - box.globalToLocal(event.position);
       setState(() {
         final isCar = Provider.of<ResponsiveProvider>(
           context,
@@ -230,9 +257,9 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
         if (isCar) {
           _targetDragOffsetX = 0;
-          _targetDragOffsetY = delta.dy;
+          _targetDragOffsetY = localDelta.dy;
         } else {
-          _targetDragOffsetX = delta.dx;
+          _targetDragOffsetX = localDelta.dx;
           _targetDragOffsetY = 0;
         }
       });
@@ -240,6 +267,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
   }
 
   void _handlePointerUp(PointerUpEvent event) {
+    if (_startPosition == null) return;
     if (_isDragging) {
       // Check if the switch is triggered
       final size = min(
@@ -276,6 +304,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
       _showContextMenu(event);
     }
     _startPosition = null;
+    _startLocalPosition = null;
   }
 
   _showContextMenu(PointerUpEvent event) {
@@ -369,6 +398,15 @@ class CoverArtDiskState extends State<CoverArtDisk>
           onPointerDown: _handlePointerDown,
           onPointerMove: _handlePointerMove,
           onPointerUp: _handlePointerUp,
+          onPointerCancel: (_) {
+            _startPosition = null;
+            _startLocalPosition = null;
+            setState(() {
+              _isDragging = false;
+              _targetDragOffsetX = 0;
+              _targetDragOffsetY = 0;
+            });
+          },
           child: FlyoutTarget(
             key: _contextAttachKey,
             controller: _contextController.controller,

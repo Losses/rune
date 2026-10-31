@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -13,28 +12,10 @@ import '../../utils/visualizer_preset_dirs.dart';
 import '../../utils/file_storage/mac_secure_manager.dart';
 
 import 'visualizer_controller.dart';
+import 'visualizer_render_size.dart';
 
 const _targetFps = 60;
-const _maxRenderWidth = 1920;
-const _maxRenderHeight = 1080;
 const _resizeDebounce = Duration(milliseconds: 300);
-
-/// The physical size of the view, shrunk to fit 1920x1080 with its aspect
-/// ratio kept. The width is rounded down to a multiple of 64, because frames
-/// read back from the GPU have tightly packed rows only then, which Windows
-/// hands to Flutter without copying them first; the height follows the width
-/// so the aspect ratio stays the view's, and is rounded to an even number.
-(int, int) _renderSize(Size logical, double pixelRatio) {
-  final width = logical.width * pixelRatio;
-  final height = logical.height * pixelRatio;
-  final scale = min(
-    1.0,
-    min(_maxRenderWidth / width, _maxRenderHeight / height),
-  );
-  final renderWidth = max(64, (width * scale).floor() ~/ 64 * 64);
-  final renderHeight = max(2, (renderWidth * height / width).round() & ~1);
-  return (renderWidth, renderHeight);
-}
 
 /// The visualizer, drawn into a texture that fills the available space. The
 /// texture and the Rust render thread exist as long as this widget is in the
@@ -103,10 +84,12 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     }
     if (status.presetName == _announced) return;
     _announced = status.presetName;
-    _controller.label.value =
-        _beganSeen ? VisualizerLabel(status.presetName) : null;
+    _controller.label.value = _beganSeen
+        ? VisualizerLabel(status.presetName)
+        : null;
     _beganSeen = true;
   }
+
   // Kept for dispose, where the context may no longer be used.
   late final CoverWallDisplayProvider _coverWallDisplay;
 
@@ -162,7 +145,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     _starting = true;
 
     try {
-      final size = _renderSize(logical, pixelRatio);
+      final size = visualizerRenderSize(logical, pixelRatio);
 
       // Rust registers the texture once the visualizer runs and sends its id.
       _textureSubscription ??= VisualizerTextureResponse.rustSignalStream
@@ -214,7 +197,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
 
   void _scheduleResize(Size logical, double pixelRatio) {
     if (_renderedSize == null) return;
-    final size = _renderSize(logical, pixelRatio);
+    final size = visualizerRenderSize(logical, pixelRatio);
 
     // A pending resize to an older size must not fire, also when the size is
     // back to the rendered one.
@@ -265,7 +248,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = constraints.biggest;
-        if (size.width > 0 && size.height > 0) {
+        if (size.width > 0 && size.height > 0 && size.isFinite) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             if (_renderedSize == null) {

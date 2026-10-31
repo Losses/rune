@@ -37,6 +37,8 @@ import 'config/routes.dart';
 import 'config/app_title.dart';
 import 'config/shortcuts.dart';
 
+import 'widgets/app_viewport.dart';
+import 'widgets/app_scale_shortcuts.dart';
 import 'widgets/router/discovery_frame.dart';
 import 'widgets/router/no_effect_page_route.dart';
 import 'widgets/title_bar/window_frame.dart';
@@ -50,6 +52,7 @@ import 'bindings/bindings.dart';
 
 import 'constants/configurations.dart';
 
+import 'providers/app_scale.dart';
 import 'providers/crash.dart';
 import 'providers/cover_wall_display.dart';
 import 'providers/volume.dart';
@@ -84,13 +87,16 @@ void main(List<String> arguments) async {
 
   final SettingsManager settingsManager = SettingsManager();
   StorageKeyManager.initialize(profile);
+  final appScale = AppScaleProvider();
+  await appScale.initialize();
   await MacSecureManager().completed;
 
   final licenseProvider = LicenseProvider();
   await licenseProvider.initialized.future;
 
   info$(
-      'Cached license: isStoreMode: ${licenseProvider.isStoreMode}, isPro: ${licenseProvider.isPro}');
+    'Cached license: isStoreMode: ${licenseProvider.isStoreMode}, isPro: ${licenseProvider.isPro}',
+  );
 
   await FullScreen.ensureInitialized();
 
@@ -108,8 +114,9 @@ void main(List<String> arguments) async {
     info$('Device is not Windows 10, skip the patch');
   }
 
-  final String? colorMode =
-      await settingsManager.getValue<String>(kColorModeKey);
+  final String? colorMode = await settingsManager.getValue<String>(
+    kColorModeKey,
+  );
 
   updateColorMode(colorMode);
 
@@ -127,7 +134,7 @@ void main(List<String> arguments) async {
 
   disableBrandingAnimation =
       await settingsManager.getValue<bool>(kDisableBrandingAnimationKey) ??
-          false;
+      false;
 
   cafeMode = (await settingsManager.getValue<String>(kCafeModeKey)) == "true";
 
@@ -135,7 +142,8 @@ void main(List<String> arguments) async {
   late bool linuxCustomWindowControls;
   if (Platform.isLinux) {
     linuxCustomWindowControls =
-        (await settingsManager.getValue<bool>(kLinuxCustomWindowControlsKey)) ?? false;
+        (await settingsManager.getValue<bool>(kLinuxCustomWindowControlsKey)) ??
+        false;
   } else {
     linuxCustomWindowControls = false;
   }
@@ -147,9 +155,7 @@ void main(List<String> arguments) async {
       [
         TargetPlatform.windows,
         TargetPlatform.android,
-      ].contains(
-        defaultTargetPlatform,
-      )) {
+      ].contains(defaultTargetPlatform)) {
     SystemTheme.accentColor.load();
   }
 
@@ -202,18 +208,21 @@ void main(List<String> arguments) async {
 
   final windowSizeMode =
       await settingsManager.getValue<String>(kWindowSizeKey) ?? 'normal';
-  final bool? rememberWindowSize =
-      await SettingsManager().getValue<bool>(kRememberWindowSizeKey);
+  final bool? rememberWindowSize = await SettingsManager().getValue<bool>(
+    kRememberWindowSizeKey,
+  );
 
   final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
 
   Size windowSize = windowSizes[windowSizeMode]!;
+  var hasRememberedSize = false;
 
   if (rememberWindowSize == true) {
     final rememberedWindowSize = await getSavedWindowSize();
 
     if (rememberedWindowSize != null) {
       windowSize = rememberedWindowSize;
+      hasRememberedSize = true;
     }
   }
 
@@ -222,20 +231,21 @@ void main(List<String> arguments) async {
       appWindow.size = windowSize;
     }
 
-    if (Platform.isLinux) {
+    if (Platform.isLinux && !hasRememberedSize) {
       windowSize = windowSize / firstView.devicePixelRatio;
     }
   }
 
   setAdaptiveSwitchingEnabled();
 
-  mainLoop(licenseProvider, linuxCustomWindowControls);
+  mainLoop(licenseProvider, linuxCustomWindowControls, appScale);
   if (isDesktop && !Platform.isMacOS) {
     appWindow.show();
   }
 
-  bool? storedFullScreen =
-      await settingsManager.getValue<bool>('fullscreen_state');
+  bool? storedFullScreen = await settingsManager.getValue<bool>(
+    'fullscreen_state',
+  );
 
   if (isDesktop) {
     doWhenWindowReady(() {
@@ -260,29 +270,23 @@ void main(List<String> arguments) async {
   }
 }
 
-void mainLoop(LicenseProvider licenseProvider, bool linuxCustomWindowControls) {
+void mainLoop(
+  LicenseProvider licenseProvider,
+  bool linuxCustomWindowControls,
+  AppScaleProvider appScale,
+) {
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider.value(value: appScale),
+        ChangeNotifierProvider(lazy: false, create: (_) => CrashProvider()),
+        ChangeNotifierProvider(lazy: false, create: (_) => VolumeProvider()),
+        ChangeNotifierProvider(lazy: false, create: (_) => ScrobbleProvider()),
+        ChangeNotifierProvider(lazy: false, create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(
           lazy: false,
-          create: (_) => CrashProvider(),
-        ),
-        ChangeNotifierProvider(
-          lazy: false,
-          create: (_) => VolumeProvider(),
-        ),
-        ChangeNotifierProvider(
-          lazy: false,
-          create: (_) => ScrobbleProvider(),
-        ),
-        ChangeNotifierProvider(
-          lazy: false,
-          create: (_) => PlaylistProvider(),
-        ),
-        ChangeNotifierProvider(
-          lazy: false,
-          create: (_) => ScreenSizeProvider(),
+          create: (context) =>
+              ScreenSizeProvider(context.read<AppScaleProvider>()),
         ),
         ChangeNotifierProvider(
           lazy: false,
@@ -374,8 +378,8 @@ class _RuneState extends State<Rune> {
           initialRoute: initialPath == null
               ? "/"
               : cafeMode
-                  ? '/cover_wall'
-                  : "/library",
+              ? '/cover_wall'
+              : "/library",
           navigatorKey: rootNavigatorKey,
           onGenerateRoute: (settings) {
             final routeName = settings.name!;
@@ -428,15 +432,13 @@ class _RuneState extends State<Rune> {
                 child: Shortcuts(
                   shortcuts: shortcuts,
                   child: NavigationShortcutManager(
-                    RuneLifecycle(
-                      RevealEffectContext(child: child!),
-                    ),
+                    RuneLifecycle(RevealEffectContext(child: child!)),
                   ),
                 ),
               ),
             );
 
-            return content;
+            return AppViewport(child: AppScaleShortcuts(child: content));
           },
         );
       },
@@ -464,20 +466,21 @@ class RuneLifecycleState extends State<RuneLifecycle> {
 
     if (cafeMode && initialPath != null) {
       Future.delayed(
-              Duration(seconds: disableBrandingAnimation == true ? 1 : 4))
-          .then((_) {
+        Duration(seconds: disableBrandingAnimation == true ? 1 : 4),
+      ).then((_) {
         operatePlaybackWithMixQuery(
-            queries: const QueryList([
-              ("lib::random", "1"),
-              ("filter::analyzed", "true"),
-              ("pipe::recommend", "-1")
-            ]),
-            playbackMode: 99,
-            hintPosition: -1,
-            initialPlaybackId: -1,
-            instantlyPlay: true,
-            operateMode: PlaylistOperateMode.replace,
-            fallbackPlayingItems: []);
+          queries: const QueryList([
+            ("lib::random", "1"),
+            ("filter::analyzed", "true"),
+            ("pipe::recommend", "-1"),
+          ]),
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: -1,
+          instantlyPlay: true,
+          operateMode: PlaylistOperateMode.replace,
+          fallbackPlayingItems: [],
+        );
       });
     }
   }

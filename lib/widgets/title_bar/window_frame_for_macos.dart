@@ -23,31 +23,41 @@ class WindowFrameForMacOS extends StatefulWidget {
 }
 
 class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
-  late FullScreenProvider _fullscreen;
-  late ResponsiveProvider _responsiveProvider;
+  FullScreenProvider? _fullscreen;
+  ResponsiveProvider? _responsiveProvider;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _fullscreen = Provider.of<FullScreenProvider>(context, listen: false);
-    _responsiveProvider =
-        Provider.of<ResponsiveProvider>(context, listen: false);
-
-    _fullscreen.addListener(updateWindowControlButtons);
-    _responsiveProvider.addListener(updateWindowControlButtons);
+  void initState() {
+    super.initState();
     $router.addListener(updateWindowControlButtons);
   }
 
   @override
-  dispose() {
-    super.dispose();
-    _fullscreen.removeListener(updateWindowControlButtons);
-    _responsiveProvider.removeListener(updateWindowControlButtons);
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final fullscreen = context.read<FullScreenProvider>();
+    final responsive = context.read<ResponsiveProvider>();
+    if (!identical(_fullscreen, fullscreen)) {
+      _fullscreen?.removeListener(updateWindowControlButtons);
+      _fullscreen = fullscreen..addListener(updateWindowControlButtons);
+    }
+    if (!identical(_responsiveProvider, responsive)) {
+      _responsiveProvider?.removeListener(updateWindowControlButtons);
+      _responsiveProvider = responsive..addListener(updateWindowControlButtons);
+    }
+  }
+
+  @override
+  void dispose() {
+    _fullscreen?.removeListener(updateWindowControlButtons);
+    _responsiveProvider?.removeListener(updateWindowControlButtons);
     $router.removeListener(updateWindowControlButtons);
+    super.dispose();
   }
 
   void updateWindowControlButtons() {
-    var currentDeviceType = _responsiveProvider.currentDeviceType;
+    if (!mounted || _responsiveProvider == null) return;
+    final currentDeviceType = _responsiveProvider!.currentDeviceType;
     if (currentDeviceType == DeviceType.band ||
         currentDeviceType == DeviceType.dock) {
       MacOSWindowControlButtonManager.shared.setHide();
@@ -86,7 +96,7 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
             DeviceType.dock,
             DeviceType.belt,
             DeviceType.zune,
-            DeviceType.tv
+            DeviceType.tv,
           ],
           builder: (context, activeBreakpoint) {
             if (activeBreakpoint == DeviceType.band ||
@@ -106,7 +116,7 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
                         width: 320,
                         child: DragMoveWindowArea(enableDoubleTap: false),
                       ),
-                      Expanded(child: DragMoveWindowArea())
+                      Expanded(child: DragMoveWindowArea()),
                     ],
                   ),
                 ),
@@ -115,7 +125,8 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
                   child: Row(
                     children: [
                       Expanded(
-                          child: DragMoveWindowArea(enableDoubleTap: false)),
+                        child: DragMoveWindowArea(enableDoubleTap: false),
+                      ),
                     ],
                   ),
                 ),

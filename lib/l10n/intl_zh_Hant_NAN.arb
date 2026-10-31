@@ -1340,5 +1340,8 @@
   "deduplicating": "當咧去重疊",
   "@deduplicating": {
     "description": "表示目前當咧執行去重疊過程的標籤。向使用者展示系統當咧移除音樂庫或播放清單中的重覆歌曲。嘛會當用「當咧移除重覆的項目」或「去重疊進行中」等表達。"
-  }
+  },
+  "interfaceScale": "介面縮放",
+  "interfaceScaleSubtitle": "相對於系統縮放立即調整文字與應用程式內容。視窗大小和螢幕解析度不會改變。100% 遵循系統縮放。",
+  "interfaceScaleSaveError": "無法儲存介面縮放"
 }

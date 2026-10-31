@@ -71,6 +71,7 @@ class _MixStudioDialogImplementationState
   late final _controller = MixEditorController();
   final _layoutManager = StartScreenLayoutManager();
   final _scrollController = ScrollController();
+  final _editorKey = GlobalKey();
 
   bool isLoading = false;
   String _query = '';
@@ -251,9 +252,11 @@ class _MixStudioDialogImplementationState
     final smallerThanTablet = r.smallerOrEqualTo(DeviceType.tablet);
     final smallerThanZune = r.smallerOrEqualTo(DeviceType.zune);
 
+    final editorHeight = (height.clamp(dialogMinimumViewportHeight, double.infinity) - reduce)
+        .clamp(120.0, double.infinity);
     final editor = SizedBox(
-      height: height - reduce,
-      child: MixEditor(controller: _controller),
+      height: editorHeight,
+      child: MixEditor(key: _editorKey, controller: _controller),
     );
 
     return UnavailableDialogOnBand(
@@ -278,7 +281,7 @@ class _MixStudioDialogImplementationState
           ),
           content: Container(
             constraints: BoxConstraints(
-              maxHeight: height < reduce ? reduce : height - reduce,
+              maxHeight: editorHeight,
             ),
             child: smallerThanTablet
                 ? editor
@@ -292,7 +295,7 @@ class _MixStudioDialogImplementationState
                       const SizedBox(width: 6),
                       Expanded(
                         child: SizedBox(
-                          height: height - reduce,
+                          height: editorHeight,
                           child: ChangeNotifierProvider<
                               StartScreenLayoutManager>.value(
                             value: _layoutManager,

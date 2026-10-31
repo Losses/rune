@@ -1340,5 +1340,8 @@
   "deduplicating": "Maldubligante",
   "@deduplicating": {
     "description": "Etikedo indikanta ke la maldubliga proceso estas nuntempe aktiva. Montrita al uzantoj dum duobligitaj kantoj estas forigataj el ilia muzikbiblioteko aŭ ludlisto. Alternativaj frazigoj povus inkluzivi 'Forigi duoblaĵojn progresanta' aŭ 'Maldubligado progresanta' depende de tio kio estas plej natura en la cela lingvo."
-  }
+  },
+  "interfaceScale": "Interface scale",
+  "interfaceScaleSubtitle": "Changes text and app content immediately relative to the system scale. Window size and display resolution do not change. 100% follows the system scale.",
+  "interfaceScaleSaveError": "Could not save interface scale"
 }

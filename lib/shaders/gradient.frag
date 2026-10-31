@@ -146,7 +146,7 @@ void main() {
     float BW = u_params2.w;
 
     // shader
-    vec2 uv = gl_FragCoord.xy / resolution.xy;
+    vec2 uv = FlutterFragCoord().xy / resolution.xy;
     vec2 mouse_uv = ((u_mouse / resolution.xy) - 0.5) * 2;
 
     vec2 scale_uv = uv;

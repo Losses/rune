@@ -11,6 +11,7 @@ import '../../config/navigation_query.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/navigation_bar/navigation_back_button.dart';
 import '../../providers/router_path.dart';
+import '../../utils/native_window_metrics.dart';
 import '../../providers/responsive_providers.dart';
 import '../../providers/linux_custom_window_controls.dart';
 
@@ -199,7 +200,9 @@ class NavigationBarState extends State<NavigationBar> {
                 offset: Offset(0 + viewPadding.left, -44 + viewPadding.top),
                 child: Padding(
                   padding: Platform.isMacOS
-                      ? const EdgeInsets.only(left: 24)
+                      ? EdgeInsets.only(
+                          left: nativeWindowLogicalToLocal(context, 24),
+                        )
                       : const EdgeInsets.only(),
                   child: FocusTraversalGroup(
                     child: Column(
@@ -210,8 +213,10 @@ class NavigationBarState extends State<NavigationBar> {
                   ),
                 ),
               ),
-            if (!isZune && !Platform.isWindows && !(Platform.isLinux &&
-                context.watch<LinuxCustomWindowControlsProvider>().enabled))
+            if (!isZune &&
+                !Platform.isWindows &&
+                !(Platform.isLinux &&
+                    context.watch<LinuxCustomWindowControlsProvider>().enabled))
               Positioned(
                 top: 16 + viewPadding.top,
                 right: 16 + viewPadding.right,

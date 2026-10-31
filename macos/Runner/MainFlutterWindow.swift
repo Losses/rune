@@ -30,10 +30,13 @@ class MainFlutterWindow: BitsdojoWindow {
       switch call.method {
       case "set_vertical":
         WindowButtonPositioner.shared.setVertical()
+        result(nil)
       case "set_hide":
         WindowButtonPositioner.shared.setHide()
+        result(nil)
       case "set_show":
         WindowButtonPositioner.shared.setShow()
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }

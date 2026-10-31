@@ -1,6 +1,6 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:desktop_drop/desktop_drop.dart';
+import 'app_drop_target.dart';
 import 'package:fast_file_picker/fast_file_picker.dart';
 
 import '../../main.dart';
@@ -111,7 +111,7 @@ class _RuneRouterFrameImplementationState
       ),
     );
 
-    return DropTarget(
+    return AppDropTarget(
       onDragDone: (detail) {
         final files = detail.files
             .map((xfile) => FastFilePickerPath.fromPath(xfile.name, xfile.path))

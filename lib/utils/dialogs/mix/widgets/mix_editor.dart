@@ -31,25 +31,48 @@ import 'search_chip_input_section.dart';
 
 class MixEditor extends StatefulWidget {
   final MixEditorController? controller;
-  const MixEditor({super.key, this.controller});
+  /// Optional suggestion data sources for isolated editor tests.
+  @visibleForTesting
+  final Future<List<AutoSuggestBoxItem<int>>> Function(CollectionType)?
+      initialSuggestions;
+  @visibleForTesting
+  final Future<List<String>> Function()? groupSuggestions;
+  const MixEditor({
+    super.key,
+    this.controller,
+    this.initialSuggestions,
+    this.groupSuggestions,
+  });
 
   @override
   State<MixEditor> createState() => _MixEditorState();
 }
 
 class _MixEditorState extends State<MixEditor> {
-  late final MixEditorController _controller;
+  late MixEditorController _controller;
+  late bool _ownsController;
 
   @override
   void initState() {
     super.initState();
 
+    _ownsController = widget.controller == null;
     _controller = widget.controller ?? MixEditorController();
   }
 
   @override
+  void didUpdateWidget(covariant MixEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      if (_ownsController) _controller.dispose();
+      _ownsController = widget.controller == null;
+      _controller = widget.controller ?? MixEditorController();
+    }
+  }
+
+  @override
   void dispose() {
-    if (widget.controller == null) {
+    if (_ownsController) {
       _controller.dispose();
     }
     super.dispose();
@@ -60,8 +83,9 @@ class _MixEditorState extends State<MixEditor> {
     return SmallerOrEqualTo(
       deviceType: DeviceType.zune,
       builder: (context, isMini) {
-        return ChangeNotifierProvider<MixEditorController>(
-          create: (_) => _controller,
+        return ChangeNotifierProvider<MixEditorController>.value(
+          key: ObjectKey(_controller),
+          value: _controller,
           child: ListView(
             padding: isMini ? null : const EdgeInsets.only(right: 16),
             children: [
@@ -72,13 +96,15 @@ class _MixEditorState extends State<MixEditor> {
               EditableComboBoxSection(
                 controller: _controller.groupController,
                 title: S.of(context).group,
-                getItems: () =>
-                    fetchCollectionGroupSummaryTitle(CollectionType.mix),
+                getItems: widget.groupSuggestions ??
+                    () => fetchCollectionGroupSummaryTitle(CollectionType.mix),
               ),
               SearchChipInputSection(
                 controller: _controller.artistsController,
                 title: S.of(context).artists,
-                getInitResult: () => getInitResult(CollectionType.artist),
+                getInitResult: () => (widget.initialSuggestions ?? getInitResult)(
+                  CollectionType.artist,
+                ),
                 searchForItems: (query) => _searchItems(
                   query,
                   'artists',
@@ -93,7 +119,9 @@ class _MixEditorState extends State<MixEditor> {
               SearchChipInputSection(
                 controller: _controller.albumsController,
                 title: S.of(context).albums,
-                getInitResult: () => getInitResult(CollectionType.album),
+                getInitResult: () => (widget.initialSuggestions ?? getInitResult)(
+                  CollectionType.album,
+                ),
                 searchForItems: (query) => _searchItems(
                   query,
                   'albums',
@@ -107,7 +135,9 @@ class _MixEditorState extends State<MixEditor> {
               SearchChipInputSection(
                 controller: _controller.genresController,
                 title: S.of(context).genres,
-                getInitResult: () => getInitResult(CollectionType.genre),
+                getInitResult: () => (widget.initialSuggestions ?? getInitResult)(
+                  CollectionType.genre,
+                ),
                 searchForItems: (query) => _searchItems(
                   query,
                   'genres',
@@ -121,7 +151,9 @@ class _MixEditorState extends State<MixEditor> {
               SearchChipInputSection(
                 controller: _controller.playlistsController,
                 title: S.of(context).playlists,
-                getInitResult: () => getInitResult(CollectionType.playlist),
+                getInitResult: () => (widget.initialSuggestions ?? getInitResult)(
+                  CollectionType.playlist,
+                ),
                 searchForItems: (query) => _searchItems(
                   query,
                   'playlists',
@@ -139,6 +171,9 @@ class _MixEditorState extends State<MixEditor> {
                 controller: _controller.tracksController,
                 title: S.of(context).tracks,
                 getInitResult: () async {
+                  if (widget.initialSuggestions != null) {
+                    return widget.initialSuggestions!(CollectionType.track);
+                  }
                   return (await fetchTrackSummary())
                       .map((x) =>
                           AutoSuggestBoxItem<int>(value: x.$1, label: x.$2))

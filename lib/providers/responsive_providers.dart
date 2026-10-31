@@ -4,12 +4,10 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/settings_manager.dart';
+import 'app_scale.dart';
 import '../constants/configurations.dart';
 
-enum DeviceOrientation {
-  vertical,
-  horizontal,
-}
+enum DeviceOrientation { vertical, horizontal }
 
 enum DeviceType {
   dock(
@@ -110,15 +108,22 @@ enum DeviceType {
     required this.end,
   });
 
-  static DeviceType _determineDeviceType(
-      {double? size, DeviceOrientation? orientation}) {
-    assert(size != null || orientation != null,
-        'At least one of size or orientation must be provided');
+  static DeviceType _determineDeviceType({
+    double? size,
+    DeviceOrientation? orientation,
+  }) {
+    assert(
+      size != null || orientation != null,
+      'At least one of size or orientation must be provided',
+    );
 
     return DeviceType.values
         .where((type) => orientation == null || type.orientation == orientation)
         .firstWhere(
-          (type) => size == null || (size >= type.start && size <= type.end),
+          (type) =>
+              size == null ||
+              (size >= type.start &&
+                  (type.end == double.infinity || size < type.end + 1)),
           orElse: () => DeviceType.values.firstWhere(
             (type) =>
                 (orientation == null || type.orientation == orientation) &&
@@ -148,8 +153,9 @@ enum DeviceType {
 }
 
 Future<Size?> getSavedWindowSize() async {
-  final savedSize =
-      await SettingsManager().getValue<String>(kRememberdWindowSizeKey);
+  final savedSize = await SettingsManager().getValue<String>(
+    kRememberdWindowSizeKey,
+  );
 
   if (savedSize == null) return null;
 
@@ -158,52 +164,71 @@ Future<Size?> getSavedWindowSize() async {
     if (parts.length == 2) {
       final width = double.parse(parts[0]);
       final height = double.parse(parts[1]);
-      return Size(width, height);
+      if (width.isFinite && height.isFinite && width > 0 && height > 0) {
+        return Size(width, height);
+      }
     }
   } catch (e) {
     debugPrint('Error parsing saved window size: $e');
   }
-  return Size.zero;
+  return null;
 }
 
-Timer? _debounceTimer;
-
 class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
-  Size _screenSize = Size.zero;
+  ScreenSizeProvider([AppScaleProvider? scale])
+    : this.withWriter(
+        scale,
+        (size) =>
+            SettingsManager().setValue<String>(kRememberdWindowSizeKey, size),
+      );
 
-  ScreenSizeProvider() {
+  ScreenSizeProvider.withWriter(this._scale, this._writeSize) {
+    _scale?.addListener(_scaleChanged);
     WidgetsBinding.instance.addObserver(this);
     _updateScreenSize();
   }
 
-  Size get screenSize => _screenSize;
+  final AppScaleProvider? _scale;
+  final Future<void> Function(String) _writeSize;
+  Future<void> _writes = Future.value();
+  Size _rawWindowSize = Size.zero;
+  Timer? _debounceTimer;
+  Size get rawWindowSize => _rawWindowSize;
+  Size get screenSize => _rawWindowSize / (_scale?.scaleFactor ?? 1);
+
+  void _scaleChanged() => notifyListeners();
 
   @override
-  void didChangeMetrics() {
-    super.didChangeMetrics();
-    _updateScreenSize();
-  }
+  void didChangeMetrics() => _updateScreenSize();
 
   void _updateScreenSize() {
-    final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
-    final size = firstView.physicalSize / firstView.devicePixelRatio;
-    if (size != _screenSize) {
-      _screenSize = size;
+    // Rune owns one application window; use its first (and only) view.
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    if (views.isEmpty) return;
+    final view = views.first;
+    if (view.devicePixelRatio <= 0) return;
+    final size = view.physicalSize / view.devicePixelRatio;
+    if (size != _rawWindowSize) {
+      _rawWindowSize = size;
       notifyListeners();
-
-      // Debounce the save operation
       _debounceTimer?.cancel();
-
-      _debounceTimer = Timer(const Duration(seconds: 1), () {
-        final sizeString = '${size.width},${size.height}';
-        SettingsManager().setValue<String>(kRememberdWindowSizeKey, sizeString);
-      });
+      // Minimized windows must not overwrite the last usable size.
+      if (size.width > 0 && size.height > 0) {
+        _debounceTimer = Timer(const Duration(seconds: 1), () {
+          _writes = _writes
+              .then((_) => _writeSize('${size.width},${size.height}'))
+              .catchError((Object error) {
+                debugPrint('Could not save window size: $error');
+              });
+        });
+      }
     }
   }
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
+    _scale?.removeListener(_scaleChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -217,23 +242,46 @@ class ResponsiveProvider extends ChangeNotifier {
 
   get currentDeviceType => _forceDeviceType ?? _currentDeviceType;
 
-  ResponsiveProvider(ScreenSizeProvider screenSizeProvider) {
-    screenSizeProvider.addListener(_updateDeviceTypes);
+  final ScreenSizeProvider _screenSizeProvider;
+  final Future<String?> Function() _readForceLayout;
+  bool _disposed = false;
+
+  ResponsiveProvider(
+    this._screenSizeProvider, [
+    Future<String?> Function()? readForceLayout,
+  ]) : _readForceLayout =
+           readForceLayout ??
+           (() => SettingsManager().getValue<String>(kForceLayoutModeKey)) {
+    _screenSizeProvider.addListener(_updateDeviceTypes);
     _updateDeviceTypes();
     updateForceLayoutConfig();
   }
 
-  updateForceLayoutConfig() {
-    SettingsManager().getValue<String>(kForceLayoutModeKey).then((x) {
-      if (x == null) return;
+  @override
+  void dispose() {
+    _disposed = true;
+    _screenSizeProvider.removeListener(_updateDeviceTypes);
+    super.dispose();
+  }
 
-      _forceDeviceType = DeviceType.fromString(x);
-      notifyListeners();
-    });
+  Future<void> updateForceLayoutConfig() async {
+    try {
+      final value = await _readForceLayout();
+      if (_disposed) return;
+      final next = DeviceType.values
+          .where((type) => type.name == value)
+          .firstOrNull;
+      if (_forceDeviceType != next) {
+        _forceDeviceType = next;
+        notifyListeners();
+      }
+    } catch (error) {
+      debugPrint('Could not load layout mode: $error');
+    }
   }
 
   void _updateDeviceTypes() {
-    final size = ScreenSizeProvider().screenSize;
+    final size = _screenSizeProvider.screenSize;
     final width = size.width;
     final height = size.height;
 
@@ -267,9 +315,11 @@ class ResponsiveProvider extends ChangeNotifier {
   DeviceType getActiveDeviceType(List<DeviceType> deviceTypes) {
     if (_forceDeviceType != null) {
       deviceTypes = deviceTypes
-          .where((device) =>
-              device.orientation == _forceDeviceType!.orientation &&
-              device.end <= _forceDeviceType!.end)
+          .where(
+            (device) =>
+                device.orientation == _forceDeviceType!.orientation &&
+                device.end <= _forceDeviceType!.end,
+          )
           .toList();
 
       if (deviceTypes.isEmpty) {
@@ -284,14 +334,10 @@ class ResponsiveProvider extends ChangeNotifier {
         .where((bp) => bp.orientation == DeviceOrientation.horizontal)
         .toList();
 
-    DeviceType? verticalActive =
-        _currentVerticalDeviceType._getActiveForOrientation(
-      verticalDeviceTypes,
-    );
-    DeviceType? horizontalActive =
-        _currentHorizontalDeviceType._getActiveForOrientation(
-      horizontalDeviceTypes,
-    );
+    DeviceType? verticalActive = _currentVerticalDeviceType
+        ._getActiveForOrientation(verticalDeviceTypes);
+    DeviceType? horizontalActive = _currentHorizontalDeviceType
+        ._getActiveForOrientation(horizontalDeviceTypes);
 
     if (verticalActive != null && horizontalActive != null) {
       return verticalActive.priority >= horizontalActive.priority
@@ -310,8 +356,10 @@ class ResponsiveProvider extends ChangeNotifier {
   }
 
   bool _compareDeviceType(
-      DeviceType deviceType, bool Function(DeviceType, DeviceType) comparison,
-      [bool strictOrientation = true]) {
+    DeviceType deviceType,
+    bool Function(DeviceType, DeviceType) comparison, [
+    bool strictOrientation = true,
+  ]) {
     if (!strictOrientation &&
         currentDeviceType.orientation != deviceType.orientation) {
       return false;
@@ -319,20 +367,27 @@ class ResponsiveProvider extends ChangeNotifier {
 
     final selectedCompareTarget =
         deviceType.orientation == DeviceOrientation.vertical
-            ? _currentVerticalDeviceType
-            : _currentHorizontalDeviceType;
+        ? _currentVerticalDeviceType
+        : _currentHorizontalDeviceType;
 
     return comparison(selectedCompareTarget, deviceType);
   }
 
   bool smallerOrEqualTo(DeviceType deviceType, [bool autoOrientation = true]) =>
       _compareDeviceType(
-          deviceType, (a, b) => a.start <= b.start, autoOrientation);
+        deviceType,
+        (a, b) => a.start <= b.start,
+        autoOrientation,
+      );
 
-  bool largerOrEqualTo(DeviceType deviceType,
-          [bool strictOrientation = true]) =>
-      _compareDeviceType(
-          deviceType, (a, b) => a.end >= b.end, strictOrientation);
+  bool largerOrEqualTo(
+    DeviceType deviceType, [
+    bool strictOrientation = true,
+  ]) => _compareDeviceType(
+    deviceType,
+    (a, b) => a.end >= b.end,
+    strictOrientation,
+  );
 
   bool equalTo(DeviceType deviceType, [bool strictOrientation = true]) =>
       _compareDeviceType(deviceType, (a, b) => a == b, strictOrientation);
@@ -384,11 +439,7 @@ class EqualTo extends StatelessWidget {
   final DeviceType deviceType;
   final Widget Function(BuildContext context, bool matches) builder;
 
-  const EqualTo({
-    super.key,
-    required this.deviceType,
-    required this.builder,
-  });
+  const EqualTo({super.key, required this.deviceType, required this.builder});
 
   @override
   Widget build(BuildContext context) {
@@ -404,7 +455,7 @@ class EqualTo extends StatelessWidget {
 class DeviceTypeBuilder extends StatelessWidget {
   final List<DeviceType> deviceType;
   final Widget Function(BuildContext context, DeviceType activeDeviceType)
-      builder;
+  builder;
 
   const DeviceTypeBuilder({
     super.key,
@@ -481,10 +532,7 @@ bool smallerThanWatch(Size size) {
 class SmallerOrEqualThanWatch extends StatelessWidget {
   final Widget Function(BuildContext context, bool isWatch) builder;
 
-  const SmallerOrEqualThanWatch({
-    super.key,
-    required this.builder,
-  });
+  const SmallerOrEqualThanWatch({super.key, required this.builder});
 
   @override
   Widget build(BuildContext context) {
