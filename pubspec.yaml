@@ -60,7 +60,7 @@ dependencies:
   flutter_boring_avatars: ^2.0.1
   logger: ^2.4.0
   flutter_svg: ^2.0.10+1
-  rinf: ^8.7.1
+  rinf: ^8.11.0
   tuple: ^2.0.2
   meta: ^1.15.0
   very_good_infinite_list: ^0.9.0

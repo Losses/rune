@@ -10,6 +10,6 @@ cd ..
 brew install CocoaPods create-dmg protobuf
 
 # Match the Rinf 8 bindings used by the application.
-cargo install rinf_cli --version 8.7.1 --locked
+cargo install rinf_cli --version 8.11.0 --locked
 
 flutter pub global activate protoc_plugin
