@@ -6,6 +6,8 @@ Rune uses this source dependency so fixes apply reproducibly to local and CI bui
 
 Local patches:
 
+- `styles/acrylic.dart`: apply tint and luminosity blends inside the clipped backdrop layer. Keep the blur and noise layers enabled.
+- `flyouts/content.dart`: isolate each menu row so hover changes do not repaint unchanged rows or the acrylic background.
 - `flyouts/flyout.dart`: normalize hover positions into Navigator coordinates; dismiss the owning flyout when geometry changes without popping a newer route.
 - `flyouts/menu.dart`: normalize submenu pointer geometry into Navigator coordinates.
 - `surfaces/tooltip.dart`: normalize cursor placement into root-overlay coordinates and invalidate stale geometry, including keyboard/safe-area changes.

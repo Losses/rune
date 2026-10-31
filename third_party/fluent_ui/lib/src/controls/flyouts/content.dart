@@ -156,7 +156,9 @@ class FlyoutListTile extends StatelessWidget {
     assert(debugCheckHasFluentTheme(context));
     final size = Flyout.maybeOf(context)?.size;
 
-    return HoverButton(
+    // Hover changes only this row. Keep the other rows and the acrylic
+    // background out of its repaint traversal.
+    final button = HoverButton(
       key: key,
       onPressed: onPressed,
       focusNode: focusNode,
@@ -255,5 +257,6 @@ class FlyoutListTile extends StatelessWidget {
         );
       },
     );
+    return RepaintBoundary(child: button);
   }
 }

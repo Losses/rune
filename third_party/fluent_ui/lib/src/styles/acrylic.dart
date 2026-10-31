@@ -378,45 +378,51 @@ class _AcrylicGuts extends StatelessWidget {
 
     final disabled = DisableAcrylic.of(context) != null;
 
+    // Apply color blends inside the clipped backdrop layer. Painting them
+    // before the filter makes each blend read from the main render target.
+    final content = CustomPaint(
+      painter: _AcrylicPainter(
+        tintColor: disabled ? tint.withOpacity(1.0) : tint,
+        luminosityColor: AcrylicHelper.getLuminosityColor(
+          tint,
+          disabled ? 1.0 : properties.luminosityAlpha,
+        ),
+      ),
+      child: disabled
+          ? child
+          : Stack(children: [
+              const Opacity(
+                opacity: 0.02,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    image: DecorationImage(
+                      image: AssetImage(
+                        'assets/AcrylicNoise.png',
+                        package: 'fluent_ui',
+                      ),
+                      alignment: AlignmentDirectional.topStart,
+                      repeat: ImageRepeat.repeat,
+                    ),
+                    backgroundBlendMode: BlendMode.srcOver,
+                    color: Colors.transparent,
+                  ),
+                ),
+              ),
+              child,
+            ]),
+    );
+
     return ClipPath(
       clipper: ShapeBorderClipper(shape: properties.shape),
-      child: CustomPaint(
-        painter: _AcrylicPainter(
-          tintColor: disabled ? tint.withOpacity(1.0) : tint,
-          luminosityColor: AcrylicHelper.getLuminosityColor(
-            tint,
-            disabled ? 1.0 : properties.luminosityAlpha,
-          ),
-        ),
-        child: disabled
-            ? child
-            : BackdropFilter(
-                filter: ImageFilter.blur(
-                  sigmaX: properties.blurAmount,
-                  sigmaY: properties.blurAmount,
-                ),
-                child: Stack(children: [
-                  const Opacity(
-                    opacity: 0.02,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        image: DecorationImage(
-                          image: AssetImage(
-                            'assets/AcrylicNoise.png',
-                            package: 'fluent_ui',
-                          ),
-                          alignment: AlignmentDirectional.topStart,
-                          repeat: ImageRepeat.repeat,
-                        ),
-                        backgroundBlendMode: BlendMode.srcOver,
-                        color: Colors.transparent,
-                      ),
-                    ),
-                  ),
-                  child,
-                ]),
+      child: disabled
+          ? content
+          : BackdropFilter(
+              filter: ImageFilter.blur(
+                sigmaX: properties.blurAmount,
+                sigmaY: properties.blurAmount,
               ),
-      ),
+              child: content,
+            ),
     );
   }
 }
