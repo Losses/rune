@@ -1,0 +1,61 @@
+{
+  "be": [
+    "am",
+    "pm"
+  ],
+
+  "ko": [
+    "hour",
+    "minute",
+    "am",
+    "pm",
+    "month",
+    "day",
+    "year"
+  ],
+
+  "ms": [
+    "hour",
+    "minute",
+    "am",
+    "pm",
+    "month",
+    "day",
+    "year"
+  ],
+
+  "my": [
+    "am",
+    "pm"
+  ],
+
+  "pl": [
+    "hour",
+    "minute",
+    "am",
+    "pm",
+    "month",
+    "day",
+    "year"
+  ],
+
+  "ru": [
+    "hour",
+    "minute",
+    "am",
+    "pm",
+    "month",
+    "day",
+    "year"
+  ],
+
+  "uk": [
+    "am",
+    "pm"
+  ],
+
+  "uz": [
+    "am",
+    "pm"
+  ]
+}
