@@ -1,5 +1,7 @@
 use anyhow::Result;
 use std::env;
+use std::path::Path;
+use std::process::Command;
 #[cfg(target_os = "macos")]
 use swift_rs::SwiftLinker;
 use vergen::{BuildBuilder, Emitter, RustcBuilder};
@@ -18,6 +20,7 @@ fn main() -> Result<()> {
         .add_instructions(&build)?
         .add_instructions(&rustc)?
         .emit()?;
+    emit_git_commit();
 
     let target = std::env::var("TARGET").unwrap();
 
@@ -27,6 +30,35 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Hands the About page the commit the build is made from, in the variables vergen's git feature
+/// sets. Without git, or outside a checkout (a source archive, a nix build), they stay unset.
+fn emit_git_commit() {
+    let git = |args: &[&str]| -> Option<String> {
+        let output = Command::new("git").args(args).output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        Some(String::from_utf8(output.stdout).ok()?.trim().to_owned())
+    };
+    let Some(sha) = git(&["rev-parse", "HEAD"]) else {
+        return;
+    };
+    println!("cargo:rustc-env=VERGEN_GIT_SHA={sha}");
+    if let Some(timestamp) = git(&["log", "-1", "--format=%cI"]) {
+        println!("cargo:rustc-env=VERGEN_GIT_COMMIT_TIMESTAMP={timestamp}");
+    }
+
+    // Run again when HEAD moves: a commit, a checkout, or the branch packed into packed-refs.
+    let mut watched = vec!["HEAD".to_owned(), "packed-refs".to_owned()];
+    watched.extend(git(&["symbolic-ref", "-q", "HEAD"]));
+    for name in watched {
+        let path = git(&["rev-parse", "--path-format=absolute", "--git-path", &name]);
+        if let Some(path) = path.filter(|path| Path::new(path).exists()) {
+            println!("cargo:rerun-if-changed={path}");
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
