@@ -82,6 +82,8 @@ However, for users with specific needs, you can choose to build your own binary 
 
 If you want to compile your own binary package. The [documentation](https://github.com/Losses/rune/blob/master/documents/compiling.md) and [CI scripts](https://github.com/Losses/rune/blob/master/.github/workflows/build.yml) serve as excellent references.
 
+The [application scaling documentation](documents/application-scaling.md) describes how to implement and test interface scaling.
+
 Additionally, when using these unofficial sources, **you still need to purchase a license to become a genuine user**.
 
 ## Release Policy

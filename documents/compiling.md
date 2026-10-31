@@ -82,7 +82,7 @@
 
 1. **Configure Development Environment**:
 
-   - **Flutter SDK**: [Installation Guide](https://docs.flutter.dev/get-started/install)
+   - **Flutter SDK**: follow the [Windows SDK preparation and compatibility requirements](windows-flutter-package.md#framework-compatibility). An arbitrary unpatched installation does not satisfy the current application build requirements.
    - **Rust Toolchain**: [Installation Guide](https://www.rust-lang.org/tools/install)
 
    Verify your setup with:
@@ -96,6 +96,8 @@
 
    ```powershell
    flutter pub get
+   . .\scripts\windows_verify_flutter_framework.ps1
+   Assert-RuneFlutterFramework -Checkout (Get-Location).Path
    rinf gen
    flutter build windows --release
    ```
@@ -165,3 +167,20 @@ open ./macos/Runner.xcworkspace
 ```
 
 We use the signing configuration in our production GitHub Actions workflow, so please don't commit and push any changes to the signing configuration.
+
+### Development storage and test isolation
+
+When using a separate development volume, place the checkout and SDKs there and set the following paths before installing dependencies or building:
+
+- Set `PUB_CACHE` for Pub.
+- Set `CARGO_HOME` and `CARGO_TARGET_DIR` for Cargo.
+- Set `GEM_HOME`, `GEM_PATH` and `GEM_SPEC_CACHE` for Ruby.
+- Set `CP_HOME_DIR` and `CP_CACHE_DIR` for CocoaPods.
+- Set `BUNDLE_PATH`, `BUNDLE_USER_HOME` and `BUNDLE_USER_CACHE` for Bundler.
+- Set `TMPDIR`, `CLANG_MODULE_CACHE_PATH` and `SWIFT_MODULECACHE_PATH` for compiler temporary files and module caches.
+
+To use `scripts/macos_scale_run.sh`, set `RUNE_SCALE_VOLUME` to the mounted development volume and `RUNE_SCALE_TOOLS` to an existing tools directory on that volume. Install Flutter under that directory as `flutter` and make CMake available on `PATH`. The wrapper checks storage before running the supplied command.
+
+Create those directories on the selected volume and check their resolved paths with `df -h`. Keep `HOME` at its normal location. Inspect the Xcode build log for derived-data and module-cache paths, and the Cargo log for the target directory. macOS app containers and system caches still require free space on the system volume.
+
+Use a separate checkout and test library for native input tests. To isolate macOS application files, give the test build a separate bundle identifier and container. Keep this signing configuration local to the test checkout. Prepare silent settings and run the checks in [Application scaling](application-scaling.md#native-acceptance-cases).
