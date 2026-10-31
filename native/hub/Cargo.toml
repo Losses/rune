@@ -23,7 +23,7 @@ path = "src/server/client/main.rs"
 [dependencies]
 rinf = "8.0.0"
 tokio = { version = "1.44.2", features = ["sync", "time", "rt-multi-thread"] }
-sea-orm = "1.1.0"
+sea-orm = "2.0.4"
 lyric = { path = "../../lyric" }
 database = { path = "../../database" }
 sync = { path = "../../sync" }

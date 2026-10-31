@@ -10,15 +10,13 @@ path = "src/lib.rs"
 
 [dependencies]
 chrono = "0.4.38"
-async-std = { version = "1", features = ["attributes", "tokio1"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 once_cell = "1.21.3"
+uuid = { version = "1", features = ["v4", "v5"] }
 
 [dependencies.sea-orm-migration]
-version = "1.1.0"
+version = "2.0.4"
 features = [
-  # Enable at least one `ASYNC_RUNTIME` and `DATABASE_DRIVER` feature if you want to run migration via CLI.
-  # View the list of supported features at https://www.sea-ql.org/SeaORM/docs/install-and-config/database-and-async-runtime.
-  # e.g.
-  # "runtime-tokio-rustls",  # `ASYNC_RUNTIME` feature
-  # "sqlx-postgres",         # `DATABASE_DRIVER` feature
+  "runtime-tokio-native-tls",
+  "sqlx-sqlite",
 ]

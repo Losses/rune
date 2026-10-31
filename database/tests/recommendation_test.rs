@@ -299,7 +299,7 @@ async fn ties_at_the_cut_off_keep_the_lowest_ids() -> Result<()> {
 async fn loaded_vectors_are_bit_identical_to_the_model_conversion() -> Result<()> {
     let db = setup_db().await?;
     let columns: Vec<String> = db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             db.get_database_backend(),
             "PRAGMA table_info(media_analysis)",
         ))
@@ -416,7 +416,7 @@ async fn perf_load_100k_rows() -> Result<()> {
 
     let rows = 100_000;
     let columns: Vec<String> = db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             db.get_database_backend(),
             "PRAGMA table_info(media_analysis)",
         ))

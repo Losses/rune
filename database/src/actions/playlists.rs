@@ -1,3 +1,4 @@
+use sea_orm::ExprTrait;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
