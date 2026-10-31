@@ -38,7 +38,7 @@ let
 
   gitHashes = {
     bitsdojo_window_linux = "sha256-irPQE+PP2mfTNW5PMSVr6al2iE6kBu3ujCXiiQL71m0=";
-    fluent_ui = "sha256-7AUJqeD6szmJDuhjLteSiXHiuoHR2rUrFg8raCsiVw0=";
+    fluent_ui = "sha256-mmIYLO6e6GkLtOmCRgGKdONTv7v7+w43Hr0cRZTipGs=";
     macos_secure_bookmarks = "sha256-f6TDL1JfWc8zGE8H3+YLNmRW3/KJSgjQiwhk44bMp5g=";
     scrollable_positioned_list = "sha256-tkRlxnmyG5r5yZwEvj9KDfEf4OuSM0HEwPOYm7T7LnQ=";
     system_tray = "sha256-yx4Tc+HDx9LdVWJZKniQr6H3BsifPlNwVGxHj3jpvlE=";
