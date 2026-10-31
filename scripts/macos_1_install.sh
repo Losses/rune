@@ -34,7 +34,7 @@ rustup target add aarch64-apple-darwin
 flutter pub global activate protoc_plugin
 export PATH="$PATH":"$HOME/.pub-cache/bin"
 
-cargo install rinf_cli
+cargo install rinf_cli --version 8.11.0 --locked
 
 echo "DEBUG: ----------------------------"
 

@@ -352,7 +352,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install the Rust dependencies
-        run: cargo install rinf_cli
+        run: cargo install rinf_cli --version 8.11.0 --locked
 
       - name: Flutter pub get
         run: flutter pub get
@@ -434,7 +434,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install the Rust dependencies
-        run: cargo install rinf_cli
+        run: cargo install rinf_cli --version 8.11.0 --locked
 
       - name: Flutter pub get
         run: flutter pub get

@@ -16,7 +16,7 @@ if ! command -v rustup >/dev/null 2>&1; then
 fi
 rustup default stable || true
 rustup target add aarch64-apple-ios x86_64-apple-ios aarch64-apple-ios-sim || true
-cargo install rinf_cli --version 8.7.1 --locked
+cargo install rinf_cli --version 8.11.0 --locked
 
 # Flutter
 if ! command -v flutter >/dev/null 2>&1; then

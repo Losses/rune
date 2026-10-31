@@ -11,7 +11,7 @@
 , rust
 , msvc
 , system ? "x86_64-windows"
-, version ? "8.7.1"
+, version ? "8.11.0"
 }:
 
 let
@@ -21,7 +21,7 @@ let
   rinfCrate = fetchurl {
     name = "crate-rinf_cli-${version}.tar.gz";
     url = "https://static.crates.io/crates/rinf_cli/${version}/download";
-    sha256 = "1e82b79df638977ca905e91ede963b8849b7665cb8a445ab2b147dc76c890ab7";
+    sha256 = "7fdaaf8d1bcc664a475db46209477d08eb8482fea2d5e65c6c1179414e482a96";
   };
 
   mkDep = pkg: {
