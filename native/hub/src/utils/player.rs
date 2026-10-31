@@ -496,11 +496,23 @@ async fn update_media_controls_metadata(
 ) -> Result<()> {
     let mut manager = manager.lock().await;
 
+    #[cfg(not(target_os = "macos"))]
     let cover_url = if cover_art_path.is_none() {
         get_default_cover_art_path().to_str()
     } else {
         cover_art_path.map(|x| x.as_str())
     };
+
+    #[cfg(target_os = "macos")]
+    let cover_url_owned = {
+        let path = match cover_art_path {
+            Some(path) => std::path::Path::new(path),
+            None => get_default_cover_art_path(),
+        };
+        macos_cover_file_url(path)
+    };
+    #[cfg(target_os = "macos")]
+    let cover_url = cover_url_owned.as_deref();
 
     let metadata = MediaMetadata {
         title: Some(&status.title),
@@ -516,6 +528,51 @@ async fn update_media_controls_metadata(
     };
 
     Ok(())
+}
+
+// Souvlaki's macOS backend passes this value to NSURL URLWithString. A plain
+// filesystem path is not a URL, particularly when it contains URL delimiters.
+#[cfg(any(target_os = "macos", test))]
+fn macos_cover_file_url(path: &std::path::Path) -> Option<String> {
+    if !path.is_absolute() || !path.is_file() {
+        return None;
+    }
+    url::Url::from_file_path(path).ok().map(Into::into)
+}
+
+#[cfg(test)]
+mod cover_file_url_tests {
+    use super::macos_cover_file_url;
+    use std::path::Path;
+
+    #[test]
+    fn macos_cover_url_encodes_and_round_trips_local_path() {
+        let dir = std::env::temp_dir().join(format!(
+            "rune-cover-url-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("album # \u{4f60}\u{597d}.png");
+        std::fs::write(&path, b"test fixture").unwrap();
+        let url = macos_cover_file_url(&path).unwrap();
+        assert!(url.starts_with("file://"));
+        assert!(url.contains("%20") && url.contains("%23"));
+        assert_eq!(url::Url::parse(&url).unwrap().to_file_path().unwrap(), path);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn macos_cover_url_rejects_missing_relative_and_directory_paths() {
+        let dir = std::env::temp_dir();
+        assert!(macos_cover_file_url(Path::new("")).is_none());
+        assert!(macos_cover_file_url(Path::new("relative.png")).is_none());
+        assert!(macos_cover_file_url(&dir.join("rune-cover-url-nonexistent-53a246.png")).is_none());
+        assert!(macos_cover_file_url(&dir).is_none());
+    }
 }
 
 async fn update_media_controls_progress(

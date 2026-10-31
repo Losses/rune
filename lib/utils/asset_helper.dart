@@ -14,6 +14,7 @@ class AssetHelper {
     final byteData = await rootBundle.load(asset);
     final tempFile = File(
         "${(await getTemporaryDirectory()).path}/${asset.split('/').last}");
+    await tempFile.parent.create(recursive: true);
     final file = await tempFile.writeAsBytes(
       byteData.buffer
           .asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
