@@ -20,7 +20,7 @@ import uuid
 def ws_connect(base):
     hostport, _, path = base.partition("/")
     host, _, port = hostport.partition(":")
-    s = socket.create_connection((host, int(port)))
+    s = socket.create_connection((host, int(port)), timeout=20)
     key = base64.b64encode(os.urandom(16)).decode()
     req = (
         f"GET /{path}/ws HTTP/1.1\r\nHost: {hostport}\r\nUpgrade: websocket\r\n"
@@ -29,7 +29,14 @@ def ws_connect(base):
     s.sendall(req.encode())
     resp = b""
     while b"\r\n\r\n" not in resp:
-        resp += s.recv(4096)
+        chunk = s.recv(4096)
+        if not chunk:
+            s.close()
+            raise ConnectionError("VM service closed during WebSocket handshake")
+        resp += chunk
+        if len(resp) > 65536:
+            s.close()
+            raise ConnectionError("VM service returned an oversized handshake")
     assert b"101" in resp.split(b"\r\n")[0], resp
     return s
 
