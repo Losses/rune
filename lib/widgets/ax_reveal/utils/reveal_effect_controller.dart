@@ -38,6 +38,7 @@ class RevealEffectController extends ChangeNotifier {
   }
 
   void updateMousePosition(Offset? position) {
+    final previousPosition = _localPosition;
     if (position != null && _widgetKey.currentContext != null) {
       final RenderBox renderBox =
           _widgetKey.currentContext!.findRenderObject() as RenderBox;
@@ -65,7 +66,7 @@ class RevealEffectController extends ChangeNotifier {
       _localPosition = null;
     }
 
-    notify();
+    if (_localPosition != previousPosition) notify();
   }
 
   void mouseDown() {
@@ -82,8 +83,7 @@ class RevealEffectController extends ChangeNotifier {
   }
 
   void mouseExit() {
-    _localPosition = null;
-    notify();
+    updateMousePosition(null);
   }
 
   @override

@@ -30,16 +30,13 @@ class RevealEffectContextState extends State<RevealEffectContext>
     _currentFrame++;
     _updateAnimations(_currentFrame);
 
-    for (final unit in _units) {
+    // Only press animations need continuous updates. Hover positions are
+    // refreshed once after layout, when pointer or geometry changes arrive.
+    for (final unit in List<AnimationUnit>.of(_animationQueue)) {
       if (unit.cleanedUpForAnimation) {
         stopAnimation(unit);
-        unit.cleanedUpForAnimation = false;
-      } else {
-        final isPlayingAnimation = unit.mousePressed || unit.mouseReleased;
-        if (_mouseInBoundary || isPlayingAnimation) {
-          unit.controller.notify();
-        }
       }
+      unit.controller.notify();
     }
 
     _paintedPosition = _currentPosition;
@@ -129,6 +126,7 @@ class RevealEffectContextState extends State<RevealEffectContext>
         _isUpdateScheduled = false;
         if (mounted) _executeUpdate();
       });
+      SchedulerBinding.instance.ensureVisualUpdate();
     }
   }
 
@@ -137,7 +135,8 @@ class RevealEffectContextState extends State<RevealEffectContext>
       unit.controller.updateMousePosition(_currentPosition);
     }
 
-    if (_mouseInBoundary || hasActiveAnimations) {
+    _paintedPosition = _currentPosition;
+    if (hasActiveAnimations) {
       _ensureTickerStarted();
     }
   }
