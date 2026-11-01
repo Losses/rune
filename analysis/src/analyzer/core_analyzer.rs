@@ -80,7 +80,7 @@ impl Analyzer {
         batch_size: Option<usize>,
         cancel_token: Option<CancellationToken>,
     ) -> Self {
-        assert!(window_size >= 2 && window_size % 2 == 0);
+        assert!(window_size >= 2 && window_size.is_multiple_of(2));
         assert!(overlap_size < window_size);
         let batch_size = if let Some(batch_size) = batch_size {
             batch_size
