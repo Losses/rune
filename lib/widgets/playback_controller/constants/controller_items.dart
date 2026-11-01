@@ -18,7 +18,7 @@ import '../../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../../providers/status.dart';
 import '../../../providers/volume.dart';
 import '../../../providers/full_screen.dart';
-import '../../../providers/cover_wall_display.dart';
+import '../../../providers/visualizer_scenes.dart';
 
 import '../lyric_button.dart';
 import '../next_button.dart';
@@ -57,12 +57,12 @@ class ControllerEntry {
 
 /// Whether the cover wall shows the visualizer, which renames its entry.
 bool _coverWallShowsVisualizer(BuildContext context, {bool listen = true}) =>
-    Provider.of<CoverWallDisplayProvider>(context, listen: listen)
+    Provider.of<VisualizerScenesProvider>(context, listen: listen)
         .showVisualizer;
 
 String _coverWallTitle(BuildContext context, {bool listen = true}) =>
     _coverWallShowsVisualizer(context, listen: listen)
-        ? S.of(context).coverWallDisplayVisualizer
+        ? S.of(context).visualizer
         : S.of(context).coverWall;
 
 List<ControllerEntry> controllerItems = [

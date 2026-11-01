@@ -44,8 +44,8 @@ pub fn media_crc32(array: &[u8], initial: u32, from: usize, to: usize) -> u32 {
         return initial;
     }
     let mut result = initial;
-    let mut blocks = array[from..to].chunks_exact(8);
-    for block in &mut blocks {
+    let (blocks, rest) = array[from..to].as_chunks::<8>();
+    for block in blocks {
         let head = result ^ u32::from_be_bytes([block[0], block[1], block[2], block[3]]);
         result = TABLES[7][(head >> 24) as usize]
             ^ TABLES[6][((head >> 16) & 0xff) as usize]
@@ -56,7 +56,7 @@ pub fn media_crc32(array: &[u8], initial: u32, from: usize, to: usize) -> u32 {
             ^ TABLES[1][block[6] as usize]
             ^ TABLES[0][block[7] as usize];
     }
-    for &byte in blocks.remainder() {
+    for &byte in rest {
         result = (result << 8) ^ TABLES[0][(byte as u32 ^ (result >> 24)) as usize];
     }
     result

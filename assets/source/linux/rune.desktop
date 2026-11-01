@@ -4,5 +4,6 @@ Name=Rune
 Comment=Experience timeless melodies with a music player that blends classic design with modern technology
 Categories=AudioVideo;Audio;Player;Music;
 Icon=rune
-Exec=rune
+Exec=rune %F
 Terminal=false
+MimeType=application/x-rune-scene;

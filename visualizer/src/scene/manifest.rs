@@ -153,31 +153,24 @@ impl Pace {
     }
 }
 
-/// The transitions that are known by name: `cut` and those the runtime draws (see
-/// `crate::transition`), and those still to come, which a scene may already list.
-pub const TRANSITIONS: &[&str] = &[
-    "cut", "fade", "dissolve", "cutin", "flash", "glitch", "mosaic",
-];
+/// The transitions that are known by name: those the runtime draws over a cut of the director's
+/// camera (see `crate::transition`).
+pub const TRANSITIONS: &[&str] = &["fade", "dissolve", "flash", "glitch", "mosaic"];
 /// The lens effects that are known by name: those the runtime draws (see `scene::lens`), and
 /// `blur`, still to come. (`blocks`, a colour-block frame, is now the start of a `flash`.) The
 /// `glitch` and the `mosaic` exist as both a transition and a lens effect.
 pub const LENS_EFFECTS: &[&str] = &["flare", "leak", "blur", "glitch", "mosaic"];
 
 /// The `[effects]` table: the transitions and the lens effects that suit the scene, declared apart.
-/// A transition happens at a change of picture: switching into the scene, and a hard cut of the
-/// director's camera in it (one list for both). A lens effect lies over a picture that goes on. The
-/// glitch and the mosaic are both, so a scene says for which. The scene says what may be used; the
-/// runtime chooses when, from the music's moments (see `crate::moments`). A scene without the table
-/// gets the plain transitions and no lens effect.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+/// A transition happens at a change of picture, a hard cut of the director's camera. A lens effect
+/// lies over a picture that goes on. The glitch and the mosaic are both, so a scene says for which.
+/// The scene says what may be used; the runtime chooses when, from the music's moments (see
+/// `crate::moments`). A scene without the table gets plain cuts and no lens effect.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(try_from = "RawEffects")]
 pub struct Effects {
-    /// The transitions a switch to this scene may take (the scene coming decides, not the one
-    /// going). A fade or a dissolve too, unless `transitions` names a plain one itself.
-    pub switch: Vec<String>,
     /// The transitions that may dress a cut of the director within the scene: those of
-    /// `transitions` that play over a cut (not `cut` itself, and not `cutin`, which needs a new
-    /// scene).
+    /// `transitions` the runtime knows.
     pub cut: Vec<String>,
     /// The lens effects the scene takes: exactly those of `lens`.
     pub lens: Vec<String>,
@@ -194,17 +187,6 @@ struct RawEffects {
     transitions: Vec<String>,
     #[serde(default)]
     lens: Vec<String>,
-}
-
-impl Default for Effects {
-    fn default() -> Self {
-        Self {
-            switch: vec!["fade".into(), "dissolve".into()],
-            cut: Vec::new(),
-            lens: Vec::new(),
-            unknown: Vec::new(),
-        }
-    }
 }
 
 impl TryFrom<RawEffects> for Effects {
@@ -239,17 +221,8 @@ impl TryFrom<RawEffects> for Effects {
                 .cloned()
                 .collect()
         };
-        // Transitions that name none of the plain ones keep them for the plain switches.
-        let mut switch = of(TRANSITIONS);
-        if !switch
-            .iter()
-            .any(|n| ["cut", "fade", "dissolve"].contains(&n.as_str()))
-        {
-            switch.splice(0..0, ["fade".to_string(), "dissolve".to_string()]);
-        }
         Ok(Self {
-            switch,
-            cut: of(&["fade", "dissolve", "flash", "glitch", "mosaic"]),
+            cut: of(TRANSITIONS),
             lens: raw
                 .lens
                 .iter()
@@ -1619,7 +1592,6 @@ fallback = { value = 0.25 }
     #[test]
     fn effects_default_to_the_plain_ones_and_unknown_names_are_only_named() {
         let plain = Manifest::parse(SMALL).unwrap();
-        assert_eq!(plain.effects.switch, ["fade", "dissolve"]);
         assert!(plain.effects.cut.is_empty() && plain.effects.lens.is_empty());
         assert!(plain.effects.unknown().is_empty());
 
@@ -1629,12 +1601,13 @@ fallback = { value = 0.25 }
             "transitions = [\"fade\", \"flash\", \"cutin\", \"sparkle\"]\nlens = [\"flare\", \"swirl\"]\n",
         ))
         .unwrap();
-        assert_eq!(m.effects.switch, ["fade", "flash", "cutin"]);
         assert_eq!(m.effects.cut, ["fade", "flash"]);
         assert_eq!(m.effects.lens, ["flare"]);
+        // A cut-in switched scenes, which the scenes no longer do by themselves: unknown now.
         assert_eq!(
             m.effects.unknown(),
             [
+                "[effects] transitions = \"cutin\"",
                 "[effects] transitions = \"sparkle\"",
                 "[effects] lens = \"swirl\""
             ]
@@ -1643,13 +1616,11 @@ fallback = { value = 0.25 }
         let only_lens = Manifest::parse(&with("lens = [\"leak\"]\n"))
             .unwrap()
             .effects;
-        assert_eq!(only_lens.switch, ["fade", "dissolve"]);
         assert!(only_lens.cut.is_empty());
         assert_eq!(only_lens.lens, ["leak"]);
         let only_transitions = Manifest::parse(&with("transitions = [\"flash\"]\n"))
             .unwrap()
             .effects;
-        assert_eq!(only_transitions.switch, ["fade", "dissolve", "flash"]);
         assert_eq!(only_transitions.cut, ["flash"]);
         assert!(only_transitions.lens.is_empty());
         // An empty table is the default.
@@ -1665,7 +1636,7 @@ fallback = { value = 0.25 }
         let lens_only = Manifest::parse(&with("lens = [\"glitch\", \"mosaic\"]\n"))
             .unwrap()
             .effects;
-        assert!(lens_only.cut.is_empty() && !lens_only.switch.contains(&"glitch".to_string()));
+        assert!(lens_only.cut.is_empty());
         assert_eq!(lens_only.lens, ["glitch", "mosaic"]);
         let transitions_only = Manifest::parse(&with("transitions = [\"glitch\", \"mosaic\"]\n"))
             .unwrap()

@@ -42,6 +42,10 @@ class MainFlutterWindow: BitsdojoWindow {
       }
     }
 
+    // The window loads before the system hands over the files the app was opened with.
+    SceneFiles.shared.attach(messenger: flutterViewController.engine.binaryMessenger)
+    (NSApp.delegate as? FlutterAppDelegate)?.addApplicationLifecycleDelegate(SceneFiles.shared)
+
     // The Rust hub registers the visualizer's texture with the engine itself. Its symbols live in
     // rinf.framework, which is loaded in-process; resolving at run time avoids a link-time
     // dependency.

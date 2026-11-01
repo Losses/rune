@@ -22,6 +22,8 @@ image = { version = "0.25.5", default-features = false, features = ["png", "jpeg
 naga = { version = "30.0.1", features = ["wgsl-in"] }
 toml = "0.8.20"
 pollster = "0.4"
+# Scenes packed into one file (`.runescene`); zip with deflate is what every archiver makes.
+zip = { version = "9", default-features = false, features = ["deflate"] }
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl"] }
 
 # The backends of the platform's native graphics API. The objc2 crates are the IOSurface frame

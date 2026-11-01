@@ -278,7 +278,6 @@ pub struct InspectShot {
 /// The scene's `effects` list, kept apart by kind as the runtime uses it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InspectEffects {
-    pub switch: Vec<String>,
     pub cut: Vec<String>,
     pub lens: Vec<String>,
 }
@@ -286,19 +285,15 @@ pub struct InspectEffects {
 impl InspectEffects {
     pub(crate) fn of(effects: &Effects) -> Self {
         Self {
-            switch: effects.switch.clone(),
             cut: effects.cut.clone(),
             lens: effects.lens.clone(),
         }
     }
 }
 
-/// The automatic switching of scenes.
+/// A switch between scenes or a dressed cut, while one is under way.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InspectSwitching {
-    /// Whether the next scene is being built, or is built and held for the switch.
-    pub preparing: bool,
-    pub held: bool,
     /// The transition under way.
     pub transition: Option<InspectTransition>,
 }
@@ -398,7 +393,7 @@ pub struct LabOverrides {
     /// The fallback level the music is held at, whatever the song has (see
     /// [`LabCommand::ForceLevel`]).
     pub level: Option<Level>,
-    /// What every scene switch uses, the automatic ones and those asked for (see
+    /// What a switch of [`LabCommand::NextScene`] uses in place of the one it asks for (see
     /// [`LabCommand::SwitchWith`]).
     pub switch: Option<LabTransition>,
     /// What dresses every camera cut of the director, a cut being plain (see
@@ -428,7 +423,8 @@ pub enum LabCommand {
     /// runtime changes the look no more, until `None`, which hands the look back to the runtime.
     /// A hold stays when the scene's files are saved.
     Look(Option<u32>),
-    /// Switch to the next scene now, as the automatic switch would, built in the background.
+    /// Switch to the next scene in the order now, through this transition, built in the
+    /// background.
     NextScene(LabTransition),
     /// Step the pace of the scene on screen: its own, then sections, calm, normal and busy, then
     /// its own again. It changes how often the director cuts, and lasts as long as the scene.
@@ -445,8 +441,8 @@ pub enum LabCommand {
     LensGlitch,
     /// Play a mosaic over the picture now, the same way.
     LensMosaic,
-    /// Every scene switch, the automatic ones and those of [`LabCommand::NextScene`], takes this
-    /// transition (with the durations its kind takes), whatever was chosen; none leaves the choice.
+    /// Every switch of [`LabCommand::NextScene`] takes this transition (with the durations its kind
+    /// takes), whatever it asks for; none leaves the one asked for.
     SwitchWith(Option<LabTransition>),
     /// Every camera cut of the director is dressed with this transition, whatever the scene and
     /// the moment say (a cut is plain), through the path of [`LabCommand::CutDressed`]; none

@@ -15,7 +15,7 @@ A path is relative to the scene's folder and goes only downward: no `..`, no lea
 
 **Built-in scenes** are the folders of `visualizer/scenes/<kebab-name>/`, such as `visualizer/scenes/torii-sea/`. `build.rs` embeds every file of every such folder into the program, except hidden files and a top-level `tools/` folder (the scripts that made an asset stay in the repository and out of the program). A scene is added to the program by adding a folder with a `scene.toml` there. Built-in scenes are MPL-2.0 like the rest of Rune.
 
-**A user's scenes** are the folders the user adds in Settings > Theme. The scan looks through each folder and its subfolders for a folder that holds a `scene.toml`; what is inside a scene is not scanned for more scenes, and hidden folders and symlinks are skipped. A scene found this way is loaded from disk and reloads whenever its files change.
+**Other scenes** come as scene files: a scene folder packed into one zip archive with the extension `.runescene` (type `ci.not.rune.scene` on Apple platforms, MIME type `application/x-rune-scene`). The archive holds the scene's files with `scene.toml` at its root, or in one folder at its root, which is what zipping the scene folder gives; nothing in it may point outside it, and it may unpack to 512 MiB at most. Opening the file with Rune or dropping it on the window unpacks it into the app's own folder of scenes, under the file's name (`Night Drive.runescene` is the scene "Night Drive"), replacing a scene of that name; the scene list under Settings > Theme deletes it again. `src/package.rs` does the unpacking. An imported scene is loaded from disk and reloads whenever its files change.
 
 **Names.** A built-in scene is known by its `name` (`"Torii Sea"`) and chosen as `builtin:<name>`. A folder scene is listed under its folder's name, not its `name`; a folder scene with the same name as a built-in one does not replace it: both are listed, the built-in one without a group.
 
@@ -176,7 +176,7 @@ Each is declared as below and explained in the section linked. Their errors are 
 | `[[look]]` | `name`, `tags`, `weight` (1), `opens` (`true`), `tiers`, `at_least_once` | [Looks](music.md#looks) | an unknown key; `weight` below 0 or all 0; all `opens = false`; a bad `tiers` word |
 | `[effects]` | `transitions`, `lens` | [Shared effects](music.md#shared-effects) | any other key; a lens effect under `transitions` or the reverse |
 
-`pace` is `sections`, `calm`, `normal` or `busy`; `dutch_in` is `all` or `bursts`; `move` is `cut` or `glide`; `size` is `wide`, `medium`, `close`, `detail` or `top`; `tiers` takes `quiet`, `normal` and `high`. `transitions` takes `cut`, `fade`, `dissolve`, `cutin`, `flash`, `glitch` and `mosaic`; `lens` takes `flare`, `leak`, `blur`, `glitch` and `mosaic` (`blur` is accepted and not drawn yet). An `[effects]` name the runtime does not know (a newer scene on an older runtime) is left out with a warning, not refused. The old top-level `effects = [...]` list is refused with a message that shows the table to write.
+`pace` is `sections`, `calm`, `normal` or `busy`; `dutch_in` is `all` or `bursts`; `move` is `cut` or `glide`; `size` is `wide`, `medium`, `close`, `detail` or `top`; `tiers` takes `quiet`, `normal` and `high`. `transitions` takes `fade`, `dissolve`, `flash`, `glitch` and `mosaic`, which dress a hard cut of the camera; `lens` takes `flare`, `leak`, `blur`, `glitch` and `mosaic` (`blur` is accepted and not drawn yet). An `[effects]` name the runtime does not know (a newer scene on an older runtime) is left out with a warning, not refused. The old top-level `effects = [...]` list is refused with a message that shows the table to write.
 
 ### Typos and the TOML trap
 
@@ -461,7 +461,7 @@ fn shade(px: Pixel) -> vec4f {
 
 The built-in scenes are the fuller examples. `visualizer/scenes/armillary/` is the one to read first: one pass, with shots, bursts, looks and effects, `common` and a state and an update. `torii-sea/` is the same shape with four looks. `growth/` has two buffers, three passes and an asset. `neon-street/` has four buffers, one of them persistent, and five passes. `crt-wall/` also reads the covers (`covers = true`), and `emoji-tunnel/` has two assets.
 
-To see a scene while writing it: add its folder in Settings > Theme, lock it from the cover wall's context menu so the switching leaves it alone, and edit; the scene reloads on every save and shows a problem in the visualizer's corner until the next save fixes it. `cargo run -p visualizer --example snapshot -- <dir> [scene folder]` renders a scene to images (see `README.md`).
+To see a scene while writing it, `cargo run -p visualizer --example snapshot -- <dir> [scene folder]` renders it to images (see `README.md`). To try it in Rune, zip its folder into a `.runescene` file and import that; the cover wall's context menu shows it, and it stays on screen until another scene is chosen.
 
 ## Versioning
 
@@ -479,5 +479,5 @@ How a mistake is reported:
 ## What lives elsewhere
 
 - [`music.md`](music.md): what each field of `music` means and which to read; bindings and their sources, hows and fallbacks; the camera director and shots; looks; the shared transitions and lens effects; the parameters for tuning; the performance budget and the rules for authors.
-- `README.md`: how the folders are scanned and switched between, the frame, the beat tracker and the chart, adaptive quality, benchmarking and how frames reach Flutter.
+- `README.md`: how the folders are scanned and when the scene changes, the frame, the beat tracker and the chart, adaptive quality, benchmarking and how frames reach Flutter.
 - `src/scene/manifest.rs`, `src/scene/wgsl.rs`, `src/scene/stdlib.wgsl`: the source of this document.
