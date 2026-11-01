@@ -222,7 +222,7 @@ pub struct Status {
     pub preset_name: String,
     /// Where the scene on screen is, as [`Location`]'s text (`builtin:<name>`, a folder's path or
     /// `app:cover-wall`): the name alone does not tell a built-in scene from a folder scene of that
-    /// name.
+    /// name. Empty until the scene the visualizer begins with is on screen.
     pub preset_path: String,
     /// Scenes to choose from: the built-in ones and those of the chosen folders.
     pub preset_count: usize,
@@ -697,7 +697,7 @@ impl Visualizer {
             let message: Vec<String> = errors.iter().map(|e| format!("{e:#}")).collect();
             self.shared.set_error("scan_scenes", message.join("; "));
         }
-        // Not running: `start` begins with the built-in scene anyway.
+        // Not running: `start` begins with a scene that is listed.
         let current = Location::parse(&self.shared.status().preset_path);
         if matches!(current, Location::Folder(_)) && !library.folder.contains(&current) {
             let _ = self.send(Command::LoadDefaultScene);
@@ -919,8 +919,6 @@ fn run(
         let mut status = shared.status();
         status.adapter = pipeline.adapter_name.clone();
         status.transport = Some(transport);
-        status.preset_name = pipeline.preset_name().to_string();
-        status.preset_path = Location::Builtin(status.preset_name.clone()).to_string();
     }
     notify_transport(shared, transport);
 
@@ -953,6 +951,8 @@ fn run(
     // The pipeline comes with the default scene. The visualizer begins with the scene shown last,
     // or without one with the first in the order. Another scene is shown at once when it is
     // built.
+    // The status names no scene until one is on screen, so that the app does not take the default
+    // scene for the one it resumes.
     let begin = Location::Builtin(pipeline.preset_name().to_string());
     if bench.is_none() {
         let first = lock(library).folder.resume();
@@ -960,6 +960,9 @@ fn run(
             hidden = true;
             start_scene_load(shared, &pipeline, &mut loads, preset.location, AT_ONCE);
         }
+    }
+    if !hidden {
+        show_pipeline_scene(shared, &pipeline);
     }
 
     loop {
@@ -1083,9 +1086,7 @@ fn run(
         if let Some(bench) = &mut bench
             && bench.step(&mut pipeline, Instant::now())
         {
-            let mut status = shared.status();
-            status.preset_name = pipeline.preset_name().to_string();
-            status.preset_path = Location::Builtin(status.preset_name.clone()).to_string();
+            show_pipeline_scene(shared, &pipeline);
         }
         let rendered = pipeline.render(time)?;
         let age = match shared.taken_age.swap(0, Ordering::Relaxed) {
@@ -1256,11 +1257,22 @@ fn install(
             // A scene that was to replace the one the visualizer began with failed: show that one
             // instead of nothing. The cover wall stays up.
             if shared.status().preset_path != Location::CoverWall.to_string() {
+                if *hidden {
+                    show_pipeline_scene(shared, pipeline);
+                }
                 *hidden = false;
             }
             shared.set_error("load_scene", format!("{e:#}"));
         }
     }
+}
+
+/// Name the built-in scene the pipeline draws in the status: the one it began with, or the
+/// benchmark's.
+fn show_pipeline_scene(shared: &Shared, pipeline: &Pipeline) {
+    let mut status = shared.status();
+    status.preset_name = pipeline.preset_name().to_string();
+    status.preset_path = Location::Builtin(status.preset_name.clone()).to_string();
 }
 
 /// Start building the scene at `location`, to be shown through `switch` (see [`start_load`]).
@@ -1353,8 +1365,8 @@ fn apply(
 const NO_LAB_CHANCE: u8 = u8::MAX;
 
 /// Carry out a scene lab's request. The scene a switch asks for is built in the background and
-/// shown like one the user chose, but through the transition asked for, with the durations an
-/// automatic switch of that kind takes (see [`switching::requested`]).
+/// shown like one the user chose, but through the transition asked for, with the durations a
+/// switch of that kind takes with the music (see [`switching::requested`]).
 fn lab(
     shared: &Shared,
     library: &Mutex<Library>,

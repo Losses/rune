@@ -5,12 +5,17 @@
 #include <flutter/encodable_value.h>
 #include <flutter/flutter_view_controller.h>
 #include <flutter/method_channel.h>
+#include <windows.h>
 
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "win32_window.h"
+
+// Identifies a scene file path in a WM_COPYDATA message: a second instance
+// sends it to the first one.
+constexpr ULONG_PTR kSceneFileCopyData = 0x52554E45;
 
 // A window that does nothing but host a Flutter view.
 class FlutterWindow : public Win32Window {

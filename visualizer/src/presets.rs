@@ -1,4 +1,4 @@
-//! The scene folders of a directory, picked at random with a history, the way MilkDrop 2 does it.
+//! The scenes the visualizer can show, in the user's order, with a history of what was loaded.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -144,7 +144,7 @@ fn collect(dir: &Path, entries: &mut Vec<Entry>) -> Result<()> {
     Ok(())
 }
 
-/// The scenes that take part in rotation (the built-in ones, those of the scene folders and the
+/// The scenes the visualizer can show (the built-in ones, those of the scene folders and the
 /// app's cover wall if it has one), with the history of what was loaded. Scenes the user turned
 /// off are listed but not picked. A switch takes the next scene in the user's order; "previous"
 /// walks back through the last [`HISTORY_LEN`] scenes, as in MilkDrop 2 (Nullsoft, BSD-3), and

@@ -3,6 +3,7 @@
 //! on. An entry's domain is `visualizer::<operation>`, whose last part the page shows as its
 //! title, and its detail is the error or the diagnostic.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -66,9 +67,14 @@ fn queue(level: LogLevel, operation: &str, detail: String) {
     });
 }
 
-/// Write the entries to `main_db` from now on, the ones that waited first. Only the first call
-/// starts the writer; call it within the runtime.
+/// The database the writer inserts into: the library open now.
+static TARGET: Mutex<Option<Arc<MainDbConnection>>> = Mutex::new(None);
+
+/// Write the entries to `main_db` from now on, the ones that waited first. Every call replaces
+/// the database, so that entries go to the library open now; only the first call starts the
+/// writer, which needs the runtime.
 pub fn write_to(main_db: Arc<MainDbConnection>) {
+    *TARGET.lock().unwrap_or_else(|e| e.into_inner()) = Some(main_db);
     let receiver = PENDING
         .receiver
         .lock()
@@ -78,18 +84,53 @@ pub fn write_to(main_db: Arc<MainDbConnection>) {
         return;
     };
     tokio::spawn(async move {
-        let mut last: Option<(String, String, Instant)> = None;
+        let mut recent: HashMap<(String, String), Instant> = HashMap::new();
         while let Some(entry) = receiver.recv().await {
-            let repeated = last.as_ref().is_some_and(|(domain, detail, at)| {
-                *domain == entry.domain && *detail == entry.detail && at.elapsed() < REPEAT
-            });
-            if repeated {
+            if is_repeat(&mut recent, &entry.domain, &entry.detail, Instant::now()) {
                 continue;
             }
-            last = Some((entry.domain.clone(), entry.detail.clone(), Instant::now()));
+            let main_db = TARGET.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let Some(main_db) = main_db else {
+                continue;
+            };
             if let Err(e) = insert_log(&*main_db, entry.level, entry.domain, entry.detail).await {
                 error!("Failed to log a visualizer entry: {e:#?}");
             }
         }
     });
+}
+
+/// Whether the entry was written within [`REPEAT`] before `now`; if not, remember it as written
+/// now. Entries older than the window are forgotten, so the memory stays small.
+fn is_repeat(
+    recent: &mut HashMap<(String, String), Instant>,
+    domain: &str,
+    detail: &str,
+    now: Instant,
+) -> bool {
+    recent.retain(|_, at| now.saturating_duration_since(*at) < REPEAT);
+    let key = (domain.to_string(), detail.to_string());
+    if recent.contains_key(&key) {
+        return true;
+    }
+    recent.insert(key, now);
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_entry_is_written_once_per_window_even_when_two_alternate() {
+        let mut recent = HashMap::new();
+        let start = Instant::now();
+        assert!(!is_repeat(&mut recent, "visualizer::gpu", "a", start));
+        assert!(!is_repeat(&mut recent, "visualizer::gpu", "b", start));
+        assert!(is_repeat(&mut recent, "visualizer::gpu", "a", start));
+        assert!(is_repeat(&mut recent, "visualizer::gpu", "b", start));
+        let later = start + REPEAT;
+        assert!(!is_repeat(&mut recent, "visualizer::gpu", "a", later));
+        assert_eq!(recent.len(), 1);
+    }
 }

@@ -10,6 +10,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.UUID
 import kotlin.concurrent.thread
 
 class MainActivity: FlutterActivity() {
@@ -123,7 +124,9 @@ class MainActivity: FlutterActivity() {
             }
             // Only the last path component, so that a name can not escape the folder.
             val fileName = File(name ?: "").name.ifEmpty { "scene.runescene" }
-            val folder = File(cacheDir, "scene-imports")
+            // Each copy gets its own folder, so a file of the same name that is still
+            // importing is not overwritten.
+            val folder = File(File(cacheDir, "scene-imports"), UUID.randomUUID().toString())
             folder.mkdirs()
             val target = File(folder, fileName)
             val input = contentResolver.openInputStream(uri) ?: return null

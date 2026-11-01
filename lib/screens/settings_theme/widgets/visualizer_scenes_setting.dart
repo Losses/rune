@@ -15,22 +15,22 @@ import '../../../widgets/settings/settings_block_title.dart';
 
 /// The scenes of the visualizer: check the ones the menu offers, and drag them
 /// into the order "next" goes through. The scene stays when the song changes.
-/// The last checked scene cannot be unchecked.
-/// Without a GPU for the scenes only the cover wall can be chosen; the other
-/// scenes are greyed out.
+/// The last checked scene cannot be unchecked. Without a GPU for the scenes
+/// (or until it is known) the section is left out, as the visualizer is.
 class VisualizerScenesSetting extends StatelessWidget {
   const VisualizerScenesSetting({super.key});
 
   @override
   Widget build(BuildContext context) {
-    if (!isVisualizerSupported) return const SizedBox.shrink();
+    final provider = context.watch<VisualizerScenesProvider>();
+    if (!isVisualizerSupported || provider.gpu != true) {
+      return const SizedBox.shrink();
+    }
 
     final s = S.of(context);
     final theme = FluentTheme.of(context);
-    final provider = context.watch<VisualizerScenesProvider>();
     final scenes = provider.scenes;
     final enabledCount = scenes.where((scene) => scene.enabled).length;
-    final noGpu = provider.gpu == false;
 
     return Padding(
       padding: const EdgeInsets.all(4),
@@ -47,16 +47,6 @@ class VisualizerScenesSetting extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (noGpu)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: InfoBar(
-                    title: Text(s.visualizerNoGpu),
-                    content: Text(provider.gpuProblem ?? ''),
-                    severity: InfoBarSeverity.warning,
-                    isLong: true,
-                  ),
-                ),
               PointerTypeBuilder(
                 builder: (kind) {
                   return ReorderableColumn(
@@ -86,9 +76,7 @@ class VisualizerScenesSetting extends StatelessWidget {
                                       ),
                                     ),
                                     checked: scene.enabled,
-                                    onChanged:
-                                        (noGpu && !scene.isCoverWall) ||
-                                            (scene.enabled && enabledCount <= 1)
+                                    onChanged: scene.enabled && enabledCount <= 1
                                         ? null
                                         : (checked) {
                                             if (checked != null) {

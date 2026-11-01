@@ -16,6 +16,12 @@ static void* g_bdw = nullptr;
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+
+  // Delivers scene files (.runescene) to Dart.
+  FlMethodChannel* scene_channel;
+  // Scene file paths received before Dart called takePending.
+  GPtrArray* pending_scene_files;
+  gboolean dart_listening;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -60,9 +66,51 @@ static void method_call_handler(FlMethodChannel* channel, FlMethodCall* method_c
   }
 }
 
+// Scene files: paths queue until Dart has called takePending once, then they
+// are sent with "open".
+static void scene_method_call_handler(FlMethodChannel* channel,
+                                      FlMethodCall* method_call,
+                                      gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  if (strcmp(fl_method_call_get_name(method_call), "takePending") == 0) {
+    g_autoptr(FlValue) paths = fl_value_new_list();
+    for (guint i = 0; i < self->pending_scene_files->len; i++) {
+      fl_value_append_take(
+          paths, fl_value_new_string(
+                     static_cast<const gchar*>(self->pending_scene_files->pdata[i])));
+    }
+    g_ptr_array_set_size(self->pending_scene_files, 0);
+    self->dart_listening = TRUE;
+    g_autoptr(FlMethodResponse) response =
+        FL_METHOD_RESPONSE(fl_method_success_response_new(paths));
+    fl_method_call_respond(method_call, response, nullptr);
+  } else {
+    fl_method_call_respond_not_implemented(method_call, nullptr);
+  }
+}
+
+// Queues the path, or sends it to Dart once Dart is listening.
+static void receive_scene_file(MyApplication* self, const gchar* path) {
+  if (self->dart_listening && self->scene_channel != nullptr) {
+    g_autoptr(FlValue) paths = fl_value_new_list();
+    fl_value_append_take(paths, fl_value_new_string(path));
+    fl_method_channel_invoke_method(self->scene_channel, "open", paths, nullptr,
+                                    nullptr, nullptr);
+  } else {
+    g_ptr_array_add(self->pending_scene_files, g_strdup(path));
+  }
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+
+  // A second launch activates this instance: show the window it already has.
+  if (main_window != nullptr) {
+    gtk_window_present(main_window);
+    return;
+  }
+
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
@@ -125,7 +173,31 @@ static void my_application_activate(GApplication* application) {
 
   fl_method_channel_set_method_call_handler(channel, method_call_handler, nullptr, nullptr);
 
+  self->scene_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "ci.not.rune/scene_files",
+      FL_METHOD_CODEC(fl_standard_method_codec_new()));
+  fl_method_channel_set_method_call_handler(self->scene_channel,
+                                            scene_method_call_handler, self,
+                                            nullptr);
+
   gtk_widget_grab_focus(GTK_WIDGET(view));
+}
+
+// Implements GApplication::open. A second launch forwards its scene files to
+// this instance, which is the only one with a window.
+static void my_application_open(GApplication* application, GFile** files,
+                                gint n_files, const gchar* hint) {
+  MyApplication* self = MY_APPLICATION(application);
+  for (gint i = 0; i < n_files; i++) {
+    g_autofree gchar* path = g_file_get_path(files[i]);
+    if (path != nullptr) {
+      receive_scene_file(self, path);
+    }
+  }
+  if (main_window != nullptr) {
+    gtk_window_present(main_window);
+  }
 }
 
 // Implements GApplication::local_command_line.
@@ -139,6 +211,27 @@ static gboolean my_application_local_command_line(GApplication* application, gch
      g_warning("Failed to register: %s", error->message);
      *exit_status = 1;
      return TRUE;
+  }
+
+  if (g_application_get_is_remote(application)) {
+    // Another instance is running. Hand it the scene files, or just ask it to
+    // show its window, and let this process exit.
+    g_autoptr(GPtrArray) files = g_ptr_array_new_with_free_func(g_object_unref);
+    for (gchar** argument = self->dart_entrypoint_arguments;
+         *argument != nullptr; argument++) {
+      g_autofree gchar* lower = g_ascii_strdown(*argument, -1);
+      if (g_str_has_suffix(lower, ".runescene")) {
+        g_ptr_array_add(files, g_file_new_for_commandline_arg(*argument));
+      }
+    }
+    if (files->len > 0) {
+      g_application_open(application, reinterpret_cast<GFile**>(files->pdata),
+                         files->len, "");
+    } else {
+      g_application_activate(application);
+    }
+    *exit_status = 0;
+    return TRUE;
   }
 
   g_application_activate(application);
@@ -169,22 +262,27 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  g_clear_object(&self->scene_channel);
+  g_clear_pointer(&self->pending_scene_files, g_ptr_array_unref);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 
 static void my_application_class_init(MyApplicationClass* klass) {
   G_APPLICATION_CLASS(klass)->activate = my_application_activate;
+  G_APPLICATION_CLASS(klass)->open = my_application_open;
   G_APPLICATION_CLASS(klass)->local_command_line = my_application_local_command_line;
   G_APPLICATION_CLASS(klass)->startup = my_application_startup;
   G_APPLICATION_CLASS(klass)->shutdown = my_application_shutdown;
   G_OBJECT_CLASS(klass)->dispose = my_application_dispose;
 }
 
-static void my_application_init(MyApplication* self) {}
+static void my_application_init(MyApplication* self) {
+  self->pending_scene_files = g_ptr_array_new_with_free_func(g_free);
+}
 
 MyApplication* my_application_new() {
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID,
-                                     "flags", G_APPLICATION_NON_UNIQUE,
+                                     "flags", G_APPLICATION_HANDLES_OPEN,
                                      nullptr));
 }

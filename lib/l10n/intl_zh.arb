@@ -1347,10 +1347,6 @@
   "@visualizerScenesSubtitle": {
     "description": "視覺化場景設置項的副標題。"
   },
-  "visualizerNoGpu": "此裝置沒有可供視覺化使用的顯示卡，只能顯示封面牆",
-  "@visualizerNoGpu": {
-    "description": "裝置沒有可用顯示卡（沒有，或只有軟體算繪器）時，視覺化場景設定中顯示的警告標題；其他場景會變灰。下方附視覺化給出的原因（英文）。"
-  },
   "visualizerSceneImported": "已匯入 {name}",
   "@visualizerSceneImported": {
     "description": "匯入視覺化場景檔案後的通知。",

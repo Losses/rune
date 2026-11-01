@@ -1,6 +1,7 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
+#include <shellapi.h>
 
 #include <string>
 #include <vector>
@@ -12,9 +13,6 @@
 auto bdw = bitsdojo_window_configure(BDW_CUSTOM_FRAME | BDW_HIDE_ON_STARTUP);
 
 namespace {
-
-// Identifies a scene file path in a WM_COPYDATA message, see FlutterWindow.
-constexpr ULONG_PTR kSceneFileCopyData = 0x52554E45;
 
 bool IsSceneFile(const std::string& path) {
   const std::string extension = ".runescene";
@@ -31,6 +29,22 @@ bool IsSceneFile(const std::string& path) {
     }
   }
   return true;
+}
+
+// The path as an absolute UTF-8 path. The running instance has its own working
+// directory, so a path relative to this process would resolve to another file.
+std::string AbsolutePathUtf8(const wchar_t* path) {
+  DWORD length = ::GetFullPathNameW(path, 0, nullptr, nullptr);
+  if (length == 0) {
+    return Utf8FromUtf16(path);
+  }
+  std::wstring full(length, L'\0');
+  length = ::GetFullPathNameW(path, length, &full[0], nullptr);
+  if (length == 0 || length >= full.size()) {
+    return Utf8FromUtf16(path);
+  }
+  full.resize(length);
+  return Utf8FromUtf16(full.c_str());
 }
 
 }  // namespace
@@ -55,8 +69,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       // Pass the scene files from the command line to the running instance.
       // SendMessage returns after the receiver handled the message, so the
       // paths are delivered before this process exits.
-      for (const std::string& path : GetCommandLineArguments()) {
-        if (IsSceneFile(path)) {
+      int argc = 0;
+      wchar_t** argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
+      for (int i = 1; argv != nullptr && i < argc; i++) {
+        if (IsSceneFile(Utf8FromUtf16(argv[i]))) {
+          const std::string path = AbsolutePathUtf8(argv[i]);
           COPYDATASTRUCT data;
           data.dwData = kSceneFileCopyData;
           data.cbData = static_cast<DWORD>(path.size());
@@ -64,6 +81,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
           ::SendMessage(hwnd, WM_COPYDATA, reinterpret_cast<WPARAM>(hwnd),
                         reinterpret_cast<LPARAM>(&data));
         }
+      }
+      if (argv != nullptr) {
+        ::LocalFree(argv);
       }
     }
     // Release the mutex handle

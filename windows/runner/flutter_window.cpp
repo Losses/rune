@@ -117,7 +117,7 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_COPYDATA: {
       // A second instance forwards the scene file it was asked to open.
       const auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lparam);
-      if (data && data->dwData == 0x52554E45 && data->lpData) {
+      if (data && data->dwData == kSceneFileCopyData && data->lpData) {
         ReceiveSceneFile(std::string(static_cast<const char*>(data->lpData),
                                      data->cbData));
         return TRUE;

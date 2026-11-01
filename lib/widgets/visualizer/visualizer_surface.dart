@@ -62,9 +62,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   // not announced.
   void _updateLabel(VisualizerStatusResponse status) {
     final error = status.lastError;
-    _controller.label.value = error == null
-        ? null
-        : VisualizerLabel(error, isError: true);
+    _controller.problem.value = error;
   }
 
   // Kept for dispose, where the context may no longer be used.
@@ -138,15 +136,12 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
         fps: _targetFps,
       ).sendSignalToRust();
 
-      // The built-in scenes are always there.
-      _controller.hasPresets = true;
       setState(() => _renderedSize = size);
     } catch (e) {
       error$('Failed to start the visualizer: $e');
       // Leave `_starting` set so the next frames don't retry in a loop; showing
       // the surface again retries.
-      _controller.startError = e.toString();
-      _controller.label.value = VisualizerLabel(e.toString(), isError: true);
+      _controller.problem.value = e.toString();
     }
   }
 
@@ -190,19 +185,17 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       if (_disposed || !mounted) return;
       final status = signal.message;
 
-      _controller.status = status;
       _updateLabel(status);
-      _controller.scenePath.value = status.running ? status.presetPath : null;
-      if (status.running) {
-        _controller.hasPresets = status.presetCount > 0;
+      // No path yet: the scene the visualizer begins with is still being
+      // built, and the page stays as it is until it shows.
+      final path = status.running ? status.presetPath : '';
+      _controller.scenePath.value = path.isEmpty ? null : path;
+      if (path.isNotEmpty) {
         // The scene to resume next time, also after a restart.
-        if (status.presetPath.isNotEmpty) {
-          _scenes.setLastScene(status.presetPath);
-        }
+        _scenes.setLastScene(path);
       }
       // Scenes draw on black; the page darkens for them.
-      _scenes.sceneShowing =
-          status.running && status.presetPath != kCoverWallScenePath;
+      _scenes.sceneShowing = path.isNotEmpty && path != kCoverWallScenePath;
     } on TimeoutException {
       // The next tick asks again.
     }

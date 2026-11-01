@@ -12,38 +12,37 @@ const _fade = Duration(milliseconds: 400);
 /// A problem of the visualizer (the texture could not be set up, a scene
 /// failed) in the top left corner, until it is gone. It keeps clear of the
 /// macOS window buttons and the cover wall's back button.
-class VisualizerPresetName extends StatefulWidget {
-  const VisualizerPresetName({super.key, required this.controller});
+class VisualizerProblem extends StatefulWidget {
+  const VisualizerProblem({super.key, required this.controller});
 
   final VisualizerController controller;
 
   @override
-  State<VisualizerPresetName> createState() => _VisualizerPresetNameState();
+  State<VisualizerProblem> createState() => _VisualizerProblemState();
 }
 
-class _VisualizerPresetNameState extends State<VisualizerPresetName> {
+class _VisualizerProblemState extends State<VisualizerProblem> {
   bool _visible = false;
 
   @override
   void initState() {
     super.initState();
-    widget.controller.label.addListener(_onLabelChanged);
+    widget.controller.problem.addListener(_onProblemChanged);
   }
 
   @override
   void dispose() {
-    widget.controller.label.removeListener(_onLabelChanged);
+    widget.controller.problem.removeListener(_onProblemChanged);
     super.dispose();
   }
 
-  void _onLabelChanged() {
-    setState(() => _visible = widget.controller.label.value != null);
+  void _onProblemChanged() {
+    setState(() => _visible = widget.controller.problem.value != null);
   }
 
   @override
   Widget build(BuildContext context) {
-    final label = widget.controller.label.value;
-    final isError = label?.isError == true;
+    final problem = widget.controller.problem.value;
     final theme = FluentTheme.of(context);
     final viewPadding = MediaQuery.viewPaddingOf(context);
     final r = Provider.of<ResponsiveProvider>(context);
@@ -65,13 +64,11 @@ class _VisualizerPresetNameState extends State<VisualizerPresetName> {
           opacity: _visible ? 1 : 0,
           duration: _fade,
           child: Text(
-            label?.text ?? '',
-            // A problem is shown whole: the tail says why (a scene's file and
-            // line, the graphics API a GPU was looked for in).
-            maxLines: isError ? null : 1,
-            overflow: isError ? null : TextOverflow.ellipsis,
+            // Shown whole: the tail says why (a scene's file and line, the
+            // graphics API a GPU was looked for in).
+            problem ?? '',
             style: theme.typography.bodyStrong?.copyWith(
-              color: isError ? Colors.red : null,
+              color: Colors.red,
               shadows: [
                 Shadow(
                   color: theme.brightness.isDark

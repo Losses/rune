@@ -1357,10 +1357,6 @@
   "@visualizerScenesSubtitle": {
     "description": "可视化场景设置项的副标题。"
   },
-  "visualizerNoGpu": "此设备没有可供可视化使用的显卡，只能显示封面墙",
-  "@visualizerNoGpu": {
-    "description": "设备没有可用显卡（没有，或只有软件渲染器）时，可视化场景设置中显示的警告标题；其他场景会变灰。下方附可视化给出的原因（英文）。"
-  },
   "visualizerSceneImported": "已导入 {name}",
   "@visualizerSceneImported": {
     "description": "导入可视化场景文件后的通知。",

@@ -52,10 +52,14 @@ class VisualizerScene {
 /// rest is saved in the settings.
 class VisualizerScenesProvider extends ChangeNotifier {
   List<VisualizerScene> _scenes = const [];
+  // The saved order and unchecked scenes, also of scenes that are not listed
+  // now (a scan that failed, or one that has not run yet): they keep their
+  // place and their check until they are deleted.
+  List<String> _order = const [];
+  Set<String> _disabled = const {};
   bool _log = false;
   String? _lastScene;
   bool? _gpu;
-  String? _gpuProblem;
   bool _loaded = false;
   bool _sceneShowing = false;
   Future<void>? _refreshing;
@@ -79,11 +83,9 @@ class VisualizerScenesProvider extends ChangeNotifier {
 
   /// Whether this machine has a GPU for the scenes: null until Rust has
   /// looked. Without one (no GPU, or only a software renderer that would draw
-  /// on the CPU) only the cover wall can be shown.
+  /// on the CPU) the visualizer stays out of sight: the cover wall shows, and
+  /// the settings leave its scenes out.
   bool? get gpu => _gpu;
-
-  /// Why there is no GPU for the scenes, as Rust says it (in English).
-  String? get gpuProblem => _gpuProblem;
 
   /// Whether the visualizer's diagnostics go to the Log page (its errors
   /// always do).
@@ -132,17 +134,18 @@ class VisualizerScenesProvider extends ChangeNotifier {
       );
       // Rust answers once the library is open, which can take a while (or
       // wait for the user to pick one); until then the cover wall page shows
-      // the plain wall. Signals sent before that are lost, so they are sent
-      // again with every attempt.
+      // the plain wall. Signals sent before that wait for it, so these go once
+      // and the list is asked for until it comes.
+      SetVisualizerLogRequest(enabled: _log).sendSignalToRust();
+      SetVisualizerPresetDirsRequest(paths: [dir]).sendSignalToRust();
       while (!_loaded) {
-        SetVisualizerLogRequest(enabled: _log).sendSignalToRust();
-        SetVisualizerPresetDirsRequest(paths: [dir]).sendSignalToRust();
         await refresh();
         if (!_loaded) await Future.delayed(const Duration(seconds: 3));
       }
       // Scene files the system asked Rune to open; Rust is listening now.
       SceneFiles.opened.listen((file) async {
         final result = await importScene(file);
+        await _dropCopy(file);
         _imports.add(result);
       });
       await _probeGpu();
@@ -181,6 +184,20 @@ class VisualizerScenesProvider extends ChangeNotifier {
     return VisualizerImport(name);
   }
 
+  /// Deletes the copy of an opened scene file that Android and iOS make to
+  /// hand it over (`scene-imports/<id>/<file>` in the app's cache), once it is
+  /// imported.
+  Future<void> _dropCopy(String file) async {
+    final parts = p.split(file);
+    final at = parts.lastIndexOf('scene-imports');
+    if (at < 0 || at + 2 >= parts.length) return;
+    try {
+      await Directory(p.joinAll(parts.take(at + 2))).delete(recursive: true);
+    } catch (e) {
+      error$('Failed to delete the copy of $file: $e');
+    }
+  }
+
   /// Deletes an imported scene.
   Future<String?> removeScene(VisualizerScene scene) async {
     if (!scene.imported) return null;
@@ -198,6 +215,9 @@ class VisualizerScenesProvider extends ChangeNotifier {
     } on TimeoutException {
       return 'No answer from the visualizer';
     }
+    _order = [..._order]..remove(scene.path);
+    _disabled = {..._disabled}..remove(scene.path);
+    await _save();
     await refresh();
     return null;
   }
@@ -211,19 +231,18 @@ class VisualizerScenesProvider extends ChangeNotifier {
     try {
       final support = (await response).message;
       _gpu = support.supported;
-      _gpuProblem = support.problem;
     } on TimeoutException {
       _gpu = false;
-      _gpuProblem = 'No answer from the GPU probe';
     }
     notifyListeners();
   }
 
   /// Asks Rust for the scenes and reconciles them with the saved order and
   /// unchecked scenes. Scenes seen for the first time (all of them on the
-  /// first run, then new built-in scenes and those of a new folder) are
-  /// checked, at the end of the order; on the first run the cover wall comes
-  /// first. Calls that overlap share one run after the current one.
+  /// first run, then new built-in and imported scenes) are checked, at the end
+  /// of the order; on the first run the cover wall comes first. Some scene
+  /// always stays checked: the cover wall if there is none. Calls that overlap
+  /// share one run after the current one.
   Future<void> refresh() {
     final running = _refreshing;
     if (running != null) {
@@ -256,29 +275,32 @@ class VisualizerScenesProvider extends ChangeNotifier {
       return;
     }
 
-    final storedOrder = await _loadPaths(kVisualizerScenesKey);
-    final storedDisabled = await _loadPaths(kVisualizerDisabledScenesKey);
+    // The settings are read once; after that the lists here are newer.
+    final storedOrder = _loaded
+        ? _order
+        : await _loadPaths(kVisualizerScenesKey);
+    final storedDisabled = _loaded
+        ? _disabled
+        : await _loadPaths(kVisualizerDisabledScenesKey);
     final byPath = {for (final entry in listed) entry.path: entry};
+    final (order, disabled) = reconcileScenes(
+      listed: listed.map((entry) => entry.path).toList(),
+      storedOrder: storedOrder,
+      storedDisabled: storedDisabled,
+    );
 
-    final order = <String>[];
-    if (storedOrder == null && byPath.containsKey(kCoverWallScenePath)) {
-      order.add(kCoverWallScenePath);
-    }
-    order.addAll((storedOrder ?? const []).where(byPath.containsKey));
-    for (final entry in listed) {
-      if (!order.contains(entry.path)) order.add(entry.path);
-    }
-    final disabled = (storedDisabled ?? const []).toSet();
-
+    _order = order;
+    _disabled = disabled;
     _scenes = [
       for (final path in order)
-        VisualizerScene(
-          path: path,
-          name: byPath[path]!.name,
-          group: byPath[path]!.group,
-          builtin: byPath[path]!.builtin,
-          enabled: !disabled.contains(path),
-        ),
+        if (byPath[path] case final entry?)
+          VisualizerScene(
+            path: path,
+            name: entry.name,
+            group: entry.group,
+            builtin: entry.builtin,
+            enabled: !disabled.contains(path),
+          ),
     ];
     _loaded = true;
     await _save();
@@ -296,27 +318,26 @@ class VisualizerScenesProvider extends ChangeNotifier {
   }
 
   Future<void> _save() async {
-    await $settingsManager.setValue(
-      kVisualizerScenesKey,
-      _scenes.map((scene) => scene.path).toList(),
-    );
+    await $settingsManager.setValue(kVisualizerScenesKey, _order);
     await $settingsManager.setValue(
       kVisualizerDisabledScenesKey,
-      _disabledPaths(),
+      _disabled.toList(),
     );
   }
 
-  List<String> _disabledPaths() => [
-    for (final scene in _scenes)
-      if (!scene.enabled) scene.path,
-  ];
-
   void _sendChoice() {
     SetVisualizerScenesRequest(
-      order: _scenes.map((scene) => scene.path).toList(),
-      disabled: _disabledPaths(),
+      order: _order,
+      disabled: _disabled.toList(),
       last: _lastScene,
     ).sendSignalToRust();
+  }
+
+  void _placeListed() {
+    _order = placeArranged(
+      _order,
+      _scenes.map((scene) => scene.path).toList(),
+    );
   }
 
   /// Moves a scene, with the semantics of `ReorderableColumn.onReorder`.
@@ -330,6 +351,7 @@ class VisualizerScenesProvider extends ChangeNotifier {
     final scenes = [..._scenes];
     scenes.insert(newIndex, scenes.removeAt(oldIndex));
     _scenes = scenes;
+    _placeListed();
     _save();
     notifyListeners();
     _sendChoice();
@@ -345,10 +367,55 @@ class VisualizerScenesProvider extends ChangeNotifier {
     final scenes = [..._scenes];
     scenes[index] = scenes[index].copyWith(enabled: enabled);
     _scenes = scenes;
+    _disabled = enabled ? ({..._disabled}..remove(path)) : {..._disabled, path};
     _save();
     notifyListeners();
     _sendChoice();
   }
+}
+
+/// The order of the scenes and the unchecked ones, from what was saved
+/// (`storedOrder` is null on the first run) and the scenes Rust lists now.
+/// Saved scenes that are not listed keep their place and their check; listed
+/// ones seen for the first time are checked, at the end, the cover wall first
+/// on the first run. Some listed scene always stays checked: the cover wall,
+/// or else the first in the order.
+(List<String>, Set<String>) reconcileScenes({
+  required List<String> listed,
+  required Iterable<String>? storedOrder,
+  required Iterable<String>? storedDisabled,
+}) {
+  final order = <String>[];
+  void add(String path) {
+    if (!order.contains(path)) order.add(path);
+  }
+
+  if (storedOrder == null && listed.contains(kCoverWallScenePath)) {
+    add(kCoverWallScenePath);
+  }
+  storedOrder?.forEach(add);
+  listed.forEach(add);
+  final disabled = {...?storedDisabled};
+  if (listed.isNotEmpty && listed.every(disabled.contains)) {
+    disabled.remove(
+      listed.contains(kCoverWallScenePath)
+          ? kCoverWallScenePath
+          : order.firstWhere(listed.contains),
+    );
+  }
+  return (order, disabled);
+}
+
+/// `order` with the scenes of `arranged` in their new order, in the places
+/// they had: a scene that is not in `arranged` (not listed now) keeps its
+/// place among them.
+List<String> placeArranged(List<String> order, List<String> arranged) {
+  final listed = arranged.toSet();
+  final next = arranged.iterator;
+  return [
+    for (final path in order)
+      if (listed.contains(path) && next.moveNext()) next.current else path,
+  ];
 }
 
 /// How importing a scene file went: [error] says why it is not a scene.

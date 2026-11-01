@@ -1365,10 +1365,6 @@
   "@visualizerScenesSubtitle": {
     "description": "Subtitle of the visualizer scenes setting."
   },
-  "visualizerNoGpu": "This device has no GPU for the visualizer, so only the cover wall can be shown",
-  "@visualizerNoGpu": {
-    "description": "Title of a warning in the visualizer scenes setting when the device has no usable GPU (none, or only a software renderer); the other scenes are greyed out. The reason from the visualizer follows below it, in English."
-  },
   "visualizerSceneImported": "Imported {name}",
   "@visualizerSceneImported": {
     "description": "Notification after a visualizer scene file was imported.",

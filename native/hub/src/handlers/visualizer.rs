@@ -430,7 +430,10 @@ impl Signal for ImportVisualizerSceneRequest {
         let dir = PathBuf::from(&dart_signal.dir);
         let imported = {
             let (file, dir) = (file.clone(), dir.clone());
-            tokio::task::spawn_blocking(move || ::visualizer::package::import(&file, &dir)).await?
+            // A panic in the task is an answer too: the request must not end in a crash response.
+            tokio::task::spawn_blocking(move || ::visualizer::package::import(&file, &dir))
+                .await
+                .unwrap_or_else(|e| Err(anyhow::anyhow!("The import stopped unexpectedly: {e}")))
         };
         let (path, error) = match imported {
             Ok(path) => {
@@ -474,7 +477,10 @@ impl Signal for RemoveVisualizerSceneRequest {
         let dir = PathBuf::from(&dart_signal.dir);
         let removed = {
             let (path, dir) = (path.clone(), dir.clone());
-            tokio::task::spawn_blocking(move || ::visualizer::package::remove(&path, &dir)).await?
+            // A panic in the task is an answer too: the request must not end in a crash response.
+            tokio::task::spawn_blocking(move || ::visualizer::package::remove(&path, &dir))
+                .await
+                .unwrap_or_else(|e| Err(anyhow::anyhow!("The removal stopped unexpectedly: {e}")))
         };
         let error = match removed {
             Ok(()) => {

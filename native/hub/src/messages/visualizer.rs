@@ -54,8 +54,8 @@ pub struct PreviousVisualizerPresetRequest {}
 pub struct RandomVisualizerPresetRequest {}
 
 /// How the scenes are picked (paths in the form of `VisualizerPresetEntry::path`), replacing what
-/// was set before. Next and the switch at every song go through the scenes in `order`; scenes not
-/// in it, such as those of a folder scanned later, come after it. `disabled` are left out, but can
+/// was set before. "Next" goes through the scenes in `order`, and the visualizer begins with its
+/// first one when there is no scene to resume; scenes not in it come after it. `disabled` are left out, but can
 /// still be loaded by path; turning every scene off counts as turning none off.
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetVisualizerScenesRequest {

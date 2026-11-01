@@ -10,7 +10,7 @@ import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../widgets/visualizer/visualizer_controller.dart';
 import '../../../widgets/visualizer/visualizer_surface.dart';
-import '../../../widgets/visualizer/visualizer_preset_name.dart';
+import '../../../widgets/visualizer/visualizer_problem.dart';
 import '../../../widgets/cover_wall_background/gradient_container.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
 import '../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
@@ -200,8 +200,8 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
               left: 0,
               child: BackButton(),
             ),
-            // The name of a preset that just started, in the corner.
-            if (showVisualizer) VisualizerPresetName(controller: _visualizer),
+            // A problem of the visualizer, in the corner.
+            if (showVisualizer) VisualizerProblem(controller: _visualizer),
           ],
         );
 
