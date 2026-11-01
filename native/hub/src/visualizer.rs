@@ -15,7 +15,15 @@ use anyhow::Result;
 use log::warn;
 use visualizer::Visualizer;
 
-pub static VISUALIZER: LazyLock<Visualizer> = LazyLock::new(Visualizer::new);
+/// The app's cover wall is one of its scenes, and its errors go to the Log page.
+pub static VISUALIZER: LazyLock<Visualizer> = LazyLock::new(|| {
+    let visualizer = Visualizer::new();
+    visualizer.offer_cover_wall();
+    visualizer.set_error_listener(Some(Arc::new(|operation, message| {
+        crate::visualizer_log::error(operation, message.to_string())
+    })));
+    visualizer
+});
 
 /// How many random covers a scene that reads covers gets besides the one of the track playing.
 const RANDOM_COVERS: usize = 63;

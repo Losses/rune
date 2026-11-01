@@ -10,6 +10,7 @@ pub mod messages;
 pub mod server;
 pub mod utils;
 pub mod visualizer;
+mod visualizer_log;
 
 use std::{future::Future, sync::Arc, time::Duration};
 

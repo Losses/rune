@@ -9,7 +9,7 @@ common = ["tower.wgsl"]
 # that grows towards the light: a flash, and every lens effect. The flashes and glitches are the
 # runtime's, at the music's moments; the scene keeps none of its own.
 [effects]
-# Transitions: switching into this scene, and dressing a hard cut of the camera in it.
+# Transitions: dressing a hard cut of the camera.
 transitions = ["fade", "dissolve", "flash", "glitch"]
 # Lens effects: over the picture, with no change of picture.
 lens = ["flare", "leak", "glitch", "mosaic"]

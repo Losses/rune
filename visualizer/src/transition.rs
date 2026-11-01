@@ -51,7 +51,7 @@ pub enum Transition {
 }
 
 impl Transition {
-    /// The transition a name of `effects.switch` or `effects.cut` stands for, if the runtime
+    /// The transition a name of `effects.cut` (or a lab) stands for, if the runtime
     /// draws it (a cut-in in its default style; the unknown ones are not here).
     pub fn from_name(name: &str) -> Option<Self> {
         Some(match name {

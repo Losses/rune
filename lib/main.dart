@@ -19,6 +19,7 @@ import 'l10n/app_localizations.dart';
 import 'utils/l10n.dart';
 import 'utils/locale.dart';
 import 'utils/rune_log.dart';
+import 'utils/scene_files.dart';
 import 'utils/platform.dart';
 import 'utils/query_list.dart';
 import 'utils/tray_manager.dart';
@@ -54,7 +55,7 @@ import 'constants/configurations.dart';
 
 import 'providers/app_scale.dart';
 import 'providers/crash.dart';
-import 'providers/cover_wall_display.dart';
+import 'providers/visualizer_scenes.dart';
 import 'providers/volume.dart';
 import 'providers/status.dart';
 import 'providers/license.dart';
@@ -98,6 +99,8 @@ void main(List<String> arguments) async {
     }
   }
   await initializeRust(assignRustSignal);
+  // Scene files the app was opened with, or is asked to open later.
+  SceneFiles.start(arguments);
 
   String? profile = arguments.contains('--profile')
       ? arguments[arguments.indexOf('--profile') + 1]
@@ -324,7 +327,7 @@ void mainLoop(
         ChangeNotifierProvider(create: (_) => licenseProvider),
         ChangeNotifierProvider(create: (_) => BroadcastProvider()),
         ChangeNotifierProvider(create: (_) => FullScreenProvider()),
-        ChangeNotifierProvider(create: (_) => CoverWallDisplayProvider()),
+        ChangeNotifierProvider(create: (_) => VisualizerScenesProvider()),
         ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),

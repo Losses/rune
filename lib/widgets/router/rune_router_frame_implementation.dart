@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'app_drop_target.dart';
@@ -9,6 +11,7 @@ import '../../utils/query_list.dart';
 import '../../utils/playing_item.dart';
 import '../../utils/filter_audio_files.dart';
 import '../../utils/is_cover_art_wall_layout.dart';
+import '../../utils/show_visualizer_import.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../screens/bsod/bsod.dart';
 import '../../widgets/navigation_bar/flip_animation.dart';
@@ -22,6 +25,7 @@ import '../../providers/crash.dart';
 import '../../providers/router_path.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
+import '../../providers/visualizer_scenes.dart';
 import '../visualizer/visualizer_dark_theme.dart';
 
 import '../../bindings/bindings.dart';
@@ -51,10 +55,34 @@ class _RuneRouterFrameImplementationState
   /// removed as soon as it completes.
   late bool _showBrandingAnimation;
 
+  // Imports of scene files the system asked Rune to open, to tell about.
+  StreamSubscription<VisualizerImport>? _sceneImports;
+
   @override
   void initState() {
     super.initState();
     _showBrandingAnimation = !disableBrandingAnimation;
+    _sceneImports = context.read<VisualizerScenesProvider>().imports.listen((
+      result,
+    ) {
+      if (mounted) showVisualizerImport(context, result);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sceneImports?.cancel();
+    super.dispose();
+  }
+
+  // Scene files dropped on the window are imported; the rest is played.
+  Future<void> _importScenes(List<String> paths) async {
+    final provider = context.read<VisualizerScenesProvider>();
+    for (final path in paths) {
+      final result = await provider.importScene(path);
+      if (!mounted) return;
+      showVisualizerImport(context, result);
+    }
   }
 
   void _handleBrandingAnimationCompleted() {
@@ -113,9 +141,14 @@ class _RuneRouterFrameImplementationState
 
     return AppDropTarget(
       onDragDone: (detail) {
+        bool isScene(String path) => path.toLowerCase().endsWith('.runescene');
+        final scenes = detail.files.map((x) => x.path).where(isScene).toList();
+        if (scenes.isNotEmpty) _importScenes(scenes);
         final files = detail.files
+            .where((xfile) => !isScene(xfile.path))
             .map((xfile) => FastFilePickerPath.fromPath(xfile.name, xfile.path))
             .toList();
+        if (files.isEmpty) return;
 
         safeOperatePlaybackWithMixQuery(
           context: context,

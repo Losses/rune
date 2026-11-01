@@ -1357,73 +1357,51 @@
   "@linuxCustomWindowControlsSubtitle": {
     "description": "Subtitle explaining what the Linux custom window controls setting does."
   },
-  "visualizerPrevious": "Previous scene",
-  "@visualizerPrevious": {
-    "description": "Context menu item of the visualizer that switches to the previous scene."
+  "visualizerScenes": "Scenes",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
   },
-  "visualizerNext": "Next scene",
-  "@visualizerNext": {
-    "description": "Context menu item of the visualizer that switches to the next scene."
+  "visualizerScenesSubtitle": "Check the scenes the cover wall's menu offers. Drag to reorder.",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
   },
-  "visualizerRandom": "Random scene",
-  "@visualizerRandom": {
-    "description": "Context menu item of the visualizer that switches to a random scene."
+  "visualizerSceneImported": "Imported {name}",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
   },
-  "visualizerChoosePreset": "Choose scene",
-  "@visualizerChoosePreset": {
-    "description": "Context menu item of the visualizer that opens a submenu to pick one scene by name."
+  "visualizerSceneImportFailed": "Could not import {name}",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
   },
-  "visualizerLockPreset": "Lock scene",
-  "@visualizerLockPreset": {
-    "description": "Context menu item of the visualizer that stops it from switching to other scenes by itself, so the current scene stays."
+  "visualizerDeleteScene": "Delete Scene",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
   },
-  "visualizerUnlockPreset": "Unlock scene",
-  "@visualizerUnlockPreset": {
-    "description": "Context menu item of the visualizer that lets it switch to other scenes by itself again."
+  "visualizerDeleteSceneConfirm": "Delete {name}? Import its scene file again to get it back.",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
   },
-  "visualizerAddPresetFolder": "Add scene folder",
-  "@visualizerAddPresetFolder": {
-    "description": "Title of the setting that adds a folder with scenes for the visualizer."
-  },
-  "visualizerAddPresetFolderSubtitle": "Add a folder with visualizer scenes. Scenes of all folders are combined.",
-  "@visualizerAddPresetFolderSubtitle": {
-    "description": "Subtitle of the setting that adds a visualizer scene folder."
-  },
-  "visualizerRemovePresetFolder": "Remove",
-  "@visualizerRemovePresetFolder": {
-    "description": "Button that removes a folder from the visualizer scene folders; the folder itself is not deleted."
-  },
-  "visualizerEffects": "Effects",
-  "@visualizerEffects": {
-    "description": "Title of the setting that chooses how often the visualizer plays visual effects at the music's moments."
-  },
-  "visualizerEffectsSubtitle": "How often the visualizer plays effects at the music's moments",
-  "@visualizerEffectsSubtitle": {
-    "description": "Subtitle of the visualizer effects setting."
-  },
-  "visualizerEffectsDefault": "Default",
-  "@visualizerEffectsDefault": {
-    "description": "Option of the visualizer effects setting: effects play now and then, about twice in a song."
-  },
-  "visualizerEffectsMore": "More",
-  "@visualizerEffectsMore": {
-    "description": "Option of the visualizer effects setting: effects play more often."
-  },
-  "coverWallDisplay": "Cover wall display",
-  "@coverWallDisplay": {
-    "description": "Title of the setting that chooses what the cover wall page shows."
-  },
-  "coverWallDisplaySubtitle": "Show cover art or the visualizer on the cover wall page",
-  "@coverWallDisplaySubtitle": {
-    "description": "Subtitle of the cover wall display setting."
-  },
-  "coverWallDisplayCovers": "Cover art wall",
-  "@coverWallDisplayCovers": {
-    "description": "Option of the cover wall display setting, also a context menu item of the cover wall page, that shows the wall of album covers."
-  },
-  "coverWallDisplayVisualizer": "Visualizer",
-  "@coverWallDisplayVisualizer": {
-    "description": "Option of the cover wall display setting, also a context menu item of the cover wall page, that shows the music visualizer."
+  "visualizer": "Visualizer",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
   },
   "coverWallVisualizerSubtitle": "Visuals that follow the music",
   "@coverWallVisualizerSubtitle": {

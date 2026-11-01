@@ -6,10 +6,10 @@ description = "A shopping street at night, walked on the beat"
 common = ["glyphs.wgsl", "city.wgsl"]
 
 # The effects that suit the scene (see "Shared effects" in the runtime's docs/music.md):
-# A neon street at night, in the spirit of Persona 5: the cut-in belongs here. Every lens effect.
+# A neon street at night, in the spirit of Persona 5: hard flashes and glitches. Every lens effect.
 [effects]
-# Transitions: switching into this scene, and dressing a hard cut of the camera in it.
-transitions = ["fade", "cutin", "flash", "glitch"]
+# Transitions: dressing a hard cut of the camera.
+transitions = ["fade", "flash", "glitch"]
 # Lens effects: over the picture, with no change of picture.
 lens = ["flare", "leak", "glitch", "mosaic"]
 
