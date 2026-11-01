@@ -162,3 +162,9 @@ android/app/src/main/jniLibs/x86/libc++_shared.so
 android/app/src/main/jniLibs/x86_64/libc++_shared.so
 .workspace-board/**/*
 .workspace-board**/**/*
+
+# Release notes draft (auto-ignored)
+RELEASE_NOTES.txt
+release_notes.txt
+*.release.txt
+upgrade.txt

@@ -716,8 +716,8 @@ async function main() {
   if (innoSetupFile) changedFiles.push(innoSetupFile);
   changedFiles.push(updateMetainfoXml(info, parsed.categories, options.dryRun));
   changedFiles.push(...updateAppleProjectConfigs(info, options.dryRun));
-  const localProps = updateAndroidLocalProperties(info, options.dryRun);
-  if (localProps) changedFiles.push(localProps);
+  // Update android local.properties if it exists (for local gradle builds, ignored by git)
+  updateAndroidLocalProperties(info, options.dryRun);
   changedFiles.push(updateChangelogMd(info, parsed.categories, options.dryRun));
 
   // 6. Build GitHub release body
