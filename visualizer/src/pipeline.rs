@@ -666,6 +666,11 @@ impl Pipeline {
         self.scene.looks_view()
     }
 
+    /// Whether a scene switch is under way: its transition runs, or a scene waits for it.
+    pub fn switching(&self) -> bool {
+        self.transitions.running.is_some()
+    }
+
     /// The transition under way at `time` (the render loop's) and how far it is, 0 to 1 over
     /// the whole of it (a fade's out and in together).
     pub fn transition_progress(&self, time: f64) -> Option<(Transition, f32)> {

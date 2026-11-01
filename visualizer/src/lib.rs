@@ -989,9 +989,20 @@ fn run(
         tracker.push(&pcm, channels);
         keep_recent(&mut pcm, channels, sample_rate);
 
-        // A scene that finished building replaces the one on screen, also while paused.
+        // A scene that finished building replaces the one on screen, also while paused: then at
+        // once, without a transition.
         if let Some(loaded) = loads.take() {
-            install(shared, &mut pipeline, &mut watched, &mut hidden, loaded);
+            let paused = bench.is_none()
+                && (!shared.playing.load(Ordering::Relaxed)
+                    || !shared.visible.load(Ordering::Relaxed));
+            install(
+                shared,
+                &mut pipeline,
+                &mut watched,
+                &mut hidden,
+                loaded,
+                paused,
+            );
             still_drawn = false;
         }
 
@@ -1023,7 +1034,9 @@ fn run(
         // The benchmark draws with the music paused or the window out of sight too.
         let paused = bench.is_none()
             && (!shared.playing.load(Ordering::Relaxed) || !shared.visible.load(Ordering::Relaxed));
-        if paused && still_drawn {
+        // A scene switch that began while the music played runs its transition to the end first,
+        // so that the new scene does not wait for the music to play again.
+        if paused && still_drawn && !pipeline.switching() {
             // Keep the last frame on screen and wait, for commands, the music or the window.
             let since = Instant::now();
             // The frame drawn last may still be on its way.
@@ -1208,20 +1221,26 @@ fn start_load(
 }
 
 /// Show a scene that finished building, or its error (the scene on screen stays then). The cover
-/// wall hides the scene on screen; the scene after it shows at once.
+/// wall hides the scene on screen; the scene after it shows at once, and so does a scene while the
+/// music is `paused`.
 fn install(
     shared: &Shared,
     pipeline: &mut Pipeline,
     watched: &mut Option<Watched>,
     hidden: &mut bool,
     loaded: Loaded,
+    paused: bool,
 ) {
     let switched = loaded.scene.and_then(|scene| {
         let Some(scene) = scene else {
             *hidden = true;
             return Ok(());
         };
-        let Switch(transition, durations) = if *hidden { AT_ONCE } else { loaded.switch };
+        let Switch(transition, durations) = if *hidden || paused {
+            AT_ONCE
+        } else {
+            loaded.switch
+        };
         pipeline.switch_to(scene, transition, durations)?;
         *hidden = false;
         Ok(())
