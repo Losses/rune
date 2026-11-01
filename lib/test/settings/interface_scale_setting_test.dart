@@ -77,7 +77,7 @@ void main() {
   testWidgets('compact setting exposes scale choices', (tester) async {
     final scale = AppScaleProvider(read: () async => 100, write: (_) async {});
     await tester.pumpWidget(_app(scale, compact: true));
-    await tester.tap(find.text('Interface scale'));
+    await tester.tap(find.text('Interface Scale'));
     await tester.pumpAndSettle();
     expect(find.text('200%'), findsOneWidget);
     await tester.tap(find.text('200%'));
