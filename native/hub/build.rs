@@ -42,23 +42,36 @@ fn emit_git_commit() {
         }
         Some(String::from_utf8(output.stdout).ok()?.trim().to_owned())
     };
-    let Some(sha) = git(&["rev-parse", "HEAD"]) else {
-        return;
-    };
-    println!("cargo:rustc-env=VERGEN_GIT_SHA={sha}");
-    if let Some(timestamp) = git(&["log", "-1", "--format=%cI"]) {
-        println!("cargo:rustc-env=VERGEN_GIT_COMMIT_TIMESTAMP={timestamp}");
-    }
-
-    // Run again when HEAD moves: a commit, a checkout, or the branch packed into packed-refs.
-    let mut watched = vec!["HEAD".to_owned(), "packed-refs".to_owned()];
-    watched.extend(git(&["symbolic-ref", "-q", "HEAD"]));
-    for name in watched {
-        let path = git(&["rev-parse", "--path-format=absolute", "--git-path", &name]);
+    // Run again when HEAD moves: a commit, a checkout, the branch packed into packed-refs or a
+    // reftable update. Watched before HEAD is read, so a repository's first commit is picked up too.
+    for name in ["HEAD", "packed-refs", "reftable/tables.list"] {
+        let path = git(&["rev-parse", "--path-format=absolute", "--git-path", name]);
         if let Some(path) = path.filter(|path| Path::new(path).exists()) {
             println!("cargo:rerun-if-changed={path}");
         }
     }
+    // A branch kept only in packed-refs has no file of its own until a commit writes one, so
+    // watch the nearest folder that exists, up to refs/heads: Cargo also reruns for a file created
+    // inside it.
+    if let Some(branch) = git(&["symbolic-ref", "-q", "HEAD"])
+        && let Some(path) = git(&["rev-parse", "--path-format=absolute", "--git-path", &branch])
+        && let Some(path) = Path::new(&path)
+            .ancestors()
+            .take(branch.split('/').count() - 1)
+            .find(|path| path.exists())
+    {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+
+    // One read, so the hash and the date come from the same commit.
+    let Some(commit) = git(&["log", "-1", "--format=%H %cI"]) else {
+        return;
+    };
+    let Some((sha, timestamp)) = commit.split_once(' ') else {
+        return;
+    };
+    println!("cargo:rustc-env=VERGEN_GIT_SHA={sha}");
+    println!("cargo:rustc-env=VERGEN_GIT_COMMIT_TIMESTAMP={timestamp}");
 }
 
 #[cfg(target_os = "macos")]
