@@ -13,7 +13,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 
 const ROOT_DIR = path.resolve(__dirname, "..");
 const DEFAULT_NOTES_FILES = ["RELEASE_NOTES.txt", "release_notes.txt", "upgrade.txt"];
@@ -163,6 +163,19 @@ function runCommand(command: string, options: { silent?: boolean } = {}): string
   } catch (error: any) {
     const stderr = error.stderr ? error.stderr.toString() : error.message;
     throw new Error(`Command failed: ${command}\n${stderr}`);
+  }
+}
+
+function runFile(file: string, args: string[], options: { silent?: boolean } = {}): string {
+  try {
+    return execFileSync(file, args, {
+      cwd: ROOT_DIR,
+      encoding: "utf-8",
+      stdio: options.silent ? "pipe" : ["pipe", "pipe", "pipe"],
+    }).trim();
+  } catch (error: any) {
+    const stderr = error.stderr ? error.stderr.toString() : error.message;
+    throw new Error(`Command failed: ${file} ${args.join(" ")}\n${stderr}`);
   }
 }
 
@@ -747,16 +760,16 @@ async function main() {
   console.log("\n[git] Staging modified version files...");
   for (const file of changedFiles) {
     if (fs.existsSync(file)) {
-      runCommand(`git add "${path.relative(ROOT_DIR, file)}"`);
+      runFile("git", ["add", path.relative(ROOT_DIR, file)]);
     }
   }
 
   const commitMsg = `chore: Bump to \`${info.tagVersion}\``;
   console.log(`[git] Committing: ${commitMsg}`);
-  runCommand(`git commit -m "${commitMsg}"`);
+  runFile("git", ["commit", "-m", commitMsg]);
 
   console.log(`[git] Tagging: ${info.tagVersion}`);
-  runCommand(`git tag "${info.tagVersion}"`);
+  runFile("git", ["tag", info.tagVersion]);
 
   if (options.noPush) {
     console.log(`\n[done] Local version bump and tag created successfully. (--no-push active)`);
@@ -765,10 +778,10 @@ async function main() {
 
   // 8. Git push and GitHub release
   console.log("[git] Pushing commit to remote...");
-  runCommand("git push origin HEAD");
+  runFile("git", ["push", "origin", "HEAD"]);
 
   console.log(`[git] Pushing tag ${info.tagVersion} to remote...`);
-  runCommand(`git push origin "${info.tagVersion}"`);
+  runFile("git", ["push", "origin", info.tagVersion]);
 
   console.log("[gh] Creating GitHub release...");
   const tempNotesPath = path.join(ROOT_DIR, `.release_notes_tmp_${Date.now()}.md`);
@@ -776,9 +789,16 @@ async function main() {
 
   try {
     const prereleaseFlag = info.isPrerelease ? "--prerelease" : "--latest";
-    runCommand(
-      `gh release create "${info.tagVersion}" --title "${info.tagVersion}" --notes-file "${tempNotesPath}" ${prereleaseFlag}`
-    );
+    runFile("gh", [
+      "release",
+      "create",
+      info.tagVersion,
+      "--title",
+      info.tagVersion,
+      "--notes-file",
+      tempNotesPath,
+      prereleaseFlag,
+    ]);
     console.log(`[gh] Successfully published GitHub release: ${info.tagVersion}`);
   } finally {
     if (fs.existsSync(tempNotesPath)) {
