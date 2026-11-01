@@ -57,6 +57,24 @@
   </screenshots>
 
   <releases>
+    <release version="2.0.0-alpha.16" date="2026-10-31">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Make the cover wall a visualizer scene, list scenes under Theme settings, and support importing .runescene files.</li>
+          <li>Use the new Liquid Glass app icon on macOS and iOS.</li>
+          <li>Support persistent interface scaling across layout and rendering.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Select Skia and precompile acrylic shaders to prevent popup menu stalls on Linux.</li>
+          <li>Show the build&apos;s git hash and commit date on the About page.</li>
+          <li>Recommend tracks with exact search over analysis data instead of LMDB.</li>
+          <li>Accelerate audio processing kernels, CRC, and library database lookups.</li>
+          <li>Standardize English settings names and descriptions.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.15" date="2026-10-27">
       <description>
         <p>Bugs</p>
