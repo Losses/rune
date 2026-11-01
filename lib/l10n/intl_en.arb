@@ -1429,10 +1429,6 @@
   "@coverWallVisualizerSubtitle": {
     "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
   },
-  "visualizerCredits": "Third-party credits",
-  "@visualizerCredits": {
-    "description": "Title of the About page section that credits the third-party assets of the visualizer's built-in scenes."
-  },
   "interfaceScale": "Interface scale",
   "interfaceScaleSubtitle": "Changes text and app content immediately relative to the system scale. Window size and display resolution do not change. 100% follows the system scale.",
   "interfaceScaleSaveError": "Could not save interface scale",

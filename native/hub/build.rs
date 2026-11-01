@@ -1,5 +1,7 @@
 use anyhow::Result;
 use std::env;
+use std::path::Path;
+use std::process::Command;
 #[cfg(target_os = "macos")]
 use swift_rs::SwiftLinker;
 use vergen::{BuildBuilder, Emitter, RustcBuilder};
@@ -18,6 +20,7 @@ fn main() -> Result<()> {
         .add_instructions(&build)?
         .add_instructions(&rustc)?
         .emit()?;
+    emit_git_commit();
 
     let target = std::env::var("TARGET").unwrap();
 
@@ -27,6 +30,48 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Hands the About page the commit the build is made from, in the variables vergen's git feature
+/// sets. Without git, or outside a checkout (a source archive, a nix build), they stay unset.
+fn emit_git_commit() {
+    let git = |args: &[&str]| -> Option<String> {
+        let output = Command::new("git").args(args).output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        Some(String::from_utf8(output.stdout).ok()?.trim().to_owned())
+    };
+    // Run again when HEAD moves: a commit, a checkout, the branch packed into packed-refs or a
+    // reftable update. Watched before HEAD is read, so a repository's first commit is picked up too.
+    for name in ["HEAD", "packed-refs", "reftable/tables.list"] {
+        let path = git(&["rev-parse", "--path-format=absolute", "--git-path", name]);
+        if let Some(path) = path.filter(|path| Path::new(path).exists()) {
+            println!("cargo:rerun-if-changed={path}");
+        }
+    }
+    // A branch kept only in packed-refs has no file of its own until a commit writes one, so
+    // watch the nearest folder that exists, up to refs/heads: Cargo also reruns for a file created
+    // inside it.
+    if let Some(branch) = git(&["symbolic-ref", "-q", "HEAD"])
+        && let Some(path) = git(&["rev-parse", "--path-format=absolute", "--git-path", &branch])
+        && let Some(path) = Path::new(&path)
+            .ancestors()
+            .take(branch.split('/').count() - 1)
+            .find(|path| path.exists())
+    {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+
+    // One read, so the hash and the date come from the same commit.
+    let Some(commit) = git(&["log", "-1", "--format=%H %cI"]) else {
+        return;
+    };
+    let Some((sha, timestamp)) = commit.split_once(' ') else {
+        return;
+    };
+    println!("cargo:rustc-env=VERGEN_GIT_SHA={sha}");
+    println!("cargo:rustc-env=VERGEN_GIT_COMMIT_TIMESTAMP={timestamp}");
 }
 
 #[cfg(target_os = "macos")]
