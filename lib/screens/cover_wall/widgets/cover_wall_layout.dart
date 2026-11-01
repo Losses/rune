@@ -1,11 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../../bindings/bindings.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/color_brightness.dart';
 import '../../../utils/visualizer_supported.dart';
@@ -19,7 +16,7 @@ import '../../../widgets/cover_wall_background/cover_wall_background.dart';
 import '../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../providers/responsive_providers.dart';
-import '../../../providers/cover_wall_display.dart';
+import '../../../providers/visualizer_scenes.dart';
 
 import 'back_button.dart';
 import 'playing_track.dart';
@@ -51,30 +48,21 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
   final _contextAttachKey = GlobalKey();
 
   @override
-  void initState() {
-    super.initState();
-    _contextController.controller.addListener(_handleContextControllerUpdate);
-  }
-
-  @override
   void dispose() {
-    _contextController.controller
-        .removeListener(_handleContextControllerUpdate);
     _contextController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
-  // The visualizer waits with switching presets while the menu is open.
-  void _handleContextControllerUpdate() {
-    _visualizer.setMenuOpen(_contextController.isOpen);
-  }
-
+  // The menu lists the checked scenes, the one on screen checked; without
+  // the visualizer there is nothing to choose.
   Future<void> _openContextMenu(Offset localPosition) async {
     if (!mounted) return;
     final targetContext = _contextAttachKey.currentContext;
 
     if (targetContext == null) return;
+    final provider = context.read<VisualizerScenesProvider>();
+    if (!provider.showVisualizer) return;
     // The menu goes on the app's own navigator: the page's is under the
     // playback controller and the navigation bar, which would cover it.
     final navigator = Navigator.of(context, rootNavigator: true);
@@ -88,60 +76,7 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
     final theme = FluentTheme.of(context);
 
     final s = S.of(context);
-    final provider = context.read<CoverWallDisplayProvider>();
-    final showVisualizer = provider.showVisualizer;
-    if (showVisualizer && _visualizer.hasPresets) {
-      // The list is refreshed behind the menu: waiting for it here (up to a
-      // second) made every open of the menu late.
-      unawaited(_visualizer.refreshPresets());
-    }
-
-    MenuFlyoutItem displayItem(CoverWallDisplay display, String title) {
-      final active = provider.display == display;
-      return MenuFlyoutItem(
-        leading: Icon(
-          active ? Symbols.radio_button_checked : Symbols.radio_button_unchecked,
-        ),
-        text: Text(title),
-        onPressed: () => provider.setDisplay(display),
-      );
-    }
-
-    MenuFlyoutItem presetItem(VisualizerPresetEntry preset) {
-      final current = _visualizer.status?.presetPath == preset.path;
-      return MenuFlyoutItem(
-        leading: current ? const Icon(Symbols.check) : null,
-        text: Text(preset.name),
-        onPressed: () => _visualizer.loadPreset(preset.path),
-      );
-    }
-
-    // The built-in scenes, then a submenu for each folder of scenes.
-    MenuFlyoutItemBase presetMenu() {
-      final groups = <String, List<VisualizerPresetEntry>>{};
-      final builtIn = <VisualizerPresetEntry>[];
-      for (final preset in _visualizer.presets) {
-        if (preset.builtin) {
-          builtIn.add(preset);
-        } else {
-          (groups[preset.group] ??= []).add(preset);
-        }
-      }
-      return MenuFlyoutSubItem(
-        leading: const Icon(Symbols.list),
-        text: Text(s.visualizerChoosePreset),
-        items: (_) => [
-          ...builtIn.map(presetItem),
-          if (builtIn.isNotEmpty && groups.isNotEmpty)
-            const MenuFlyoutSeparator(),
-          for (final group in groups.entries)
-            MenuFlyoutSubItem(
-              text: Text(group.key),
-              items: (_) => group.value.map(presetItem).toList(),
-            ),
-        ],
-      );
-    }
+    final current = _visualizer.scenePath.value;
 
     _contextController.showFlyout(
       position: position,
@@ -151,42 +86,15 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
           data: theme,
           child: MenuFlyout(
             items: [
-              displayItem(CoverWallDisplay.covers, s.coverWallDisplayCovers),
-              displayItem(
-                CoverWallDisplay.visualizer,
-                s.coverWallDisplayVisualizer,
-              ),
-              if (showVisualizer && _visualizer.hasPresets) ...[
-                const MenuFlyoutSeparator(),
-                MenuFlyoutItem(
-                  leading: const Icon(Symbols.skip_previous),
-                  text: Text(s.visualizerPrevious),
-                  onPressed: _visualizer.previous,
-                ),
-                MenuFlyoutItem(
-                  leading: const Icon(Symbols.skip_next),
-                  text: Text(s.visualizerNext),
-                  onPressed: _visualizer.next,
-                ),
-                MenuFlyoutItem(
-                  leading: const Icon(Symbols.shuffle),
-                  text: Text(s.visualizerRandom),
-                  onPressed: _visualizer.random,
-                ),
-                if (_visualizer.presets.isNotEmpty) presetMenu(),
-                const MenuFlyoutSeparator(),
-                MenuFlyoutItem(
-                  leading: Icon(
-                    _visualizer.locked ? Symbols.lock_open : Symbols.lock,
+              for (final scene in provider.scenes)
+                if (scene.enabled)
+                  MenuFlyoutItem(
+                    leading: scene.path == current
+                        ? const Icon(Symbols.check)
+                        : null,
+                    text: Text(scene.isCoverWall ? s.coverWall : scene.name),
+                    onPressed: () => _visualizer.loadPreset(scene.path),
                   ),
-                  text: Text(
-                    _visualizer.locked
-                        ? s.visualizerUnlockPreset
-                        : s.visualizerLockPreset,
-                  ),
-                  onPressed: _visualizer.toggleLock,
-                ),
-              ],
             ],
           ),
         );
@@ -203,10 +111,7 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
     final r = Provider.of<ResponsiveProvider>(context);
     final isMini = r.smallerOrEqualTo(DeviceType.car, false);
     final showVisualizer = context
-        .select<CoverWallDisplayProvider, bool>((p) => p.showVisualizer);
-    // The visualizer draws its scene on black; until it does, the covers stay.
-    final visualizerDrawing = context
-        .select<CoverWallDisplayProvider, bool>((p) => p.presetsLoaded);
+        .select<VisualizerScenesProvider, bool>((p) => p.showVisualizer);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -239,14 +144,28 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
             Container(
               color: isDark ? Colors.black : theme.accentColor.lightest.lighten(0.2),
             ),
-            // The wall stays behind the visualizer until it draws, so one that
-            // cannot start (no GPU adapter) leaves the covers on screen
-            // instead of a black page.
-            if (!showVisualizer || !visualizerDrawing) coverArtWall,
-            if (showVisualizer)
+            if (showVisualizer) ...[
               Positioned.fill(
                 child: VisualizerSurface(controller: _visualizer),
               ),
+              // The wall is the scene named by the cover wall path; Rust
+              // draws nothing then, and the wall fades in over the texture.
+              // It also stays until a scene runs, so a visualizer that cannot
+              // start leaves the covers on screen instead of a black page.
+              Positioned.fill(
+                child: ValueListenableBuilder<String?>(
+                  valueListenable: _visualizer.scenePath,
+                  builder: (context, path, child) => AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: path == null || path == kCoverWallScenePath
+                        ? child
+                        : const SizedBox.shrink(),
+                  ),
+                  child: coverArtWall,
+                ),
+              ),
+            ] else
+              coverArtWall,
             Container(
               decoration: BoxDecoration(
                 gradient: RadialGradient(

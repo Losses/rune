@@ -3,7 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../providers/router_path.dart';
-import '../../providers/cover_wall_display.dart';
+import '../../providers/visualizer_scenes.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/navigation/utils/escape_from_cover_art_wall.dart';
 
@@ -32,7 +32,7 @@ class CoverWallButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visualizer = context.select<CoverWallDisplayProvider, bool>(
+    final visualizer = context.select<VisualizerScenesProvider, bool>(
       (p) => p.showVisualizer,
     );
 

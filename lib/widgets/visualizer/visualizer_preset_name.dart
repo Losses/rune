@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -8,14 +7,11 @@ import '../../providers/responsive_providers.dart';
 
 import 'visualizer_controller.dart';
 
-const _shownFor = Duration(seconds: 4);
 const _fade = Duration(milliseconds: 400);
 
-/// The name of the scene that just started, in the top left corner of the
-/// visualizer for a few seconds, the way Winamp shows a preset's name. It
-/// keeps clear of the macOS window buttons and the cover wall's back button.
-/// A problem (the texture could not be set up, a scene failed) stays until
-/// it is gone.
+/// A problem of the visualizer (the texture could not be set up, a scene
+/// failed) in the top left corner, until it is gone. It keeps clear of the
+/// macOS window buttons and the cover wall's back button.
 class VisualizerPresetName extends StatefulWidget {
   const VisualizerPresetName({super.key, required this.controller});
 
@@ -26,7 +22,6 @@ class VisualizerPresetName extends StatefulWidget {
 }
 
 class _VisualizerPresetNameState extends State<VisualizerPresetName> {
-  Timer? _hideTimer;
   bool _visible = false;
 
   @override
@@ -38,19 +33,11 @@ class _VisualizerPresetNameState extends State<VisualizerPresetName> {
   @override
   void dispose() {
     widget.controller.label.removeListener(_onLabelChanged);
-    _hideTimer?.cancel();
     super.dispose();
   }
 
   void _onLabelChanged() {
-    final label = widget.controller.label.value;
-    _hideTimer?.cancel();
-    setState(() => _visible = label != null);
-    if (label != null && !label.isError) {
-      _hideTimer = Timer(_shownFor, () {
-        if (mounted) setState(() => _visible = false);
-      });
-    }
+    setState(() => _visible = widget.controller.label.value != null);
   }
 
   @override

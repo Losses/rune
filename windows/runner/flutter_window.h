@@ -2,9 +2,13 @@
 #define RUNNER_FLUTTER_WINDOW_H_
 
 #include <flutter/dart_project.h>
+#include <flutter/encodable_value.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "win32_window.h"
 
@@ -28,6 +32,17 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  // Delivers scene files (.runescene) to Dart.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      scene_channel_;
+
+  // Scene file paths received before Dart called takePending.
+  std::vector<std::string> pending_scene_files_;
+  bool dart_listening_ = false;
+
+  // Queues the path, or sends it to Dart once Dart is listening.
+  void ReceiveSceneFile(const std::string& path);
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

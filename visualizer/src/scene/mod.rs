@@ -486,8 +486,6 @@ pub struct Scene {
     /// The shot a scene lab holds (see [`Scene::hold_shot`]), kept to hold it again when the
     /// scene is rebuilt from its saved files.
     held_shot: Option<u32>,
-    /// The transitions a switch to the scene may take, by name (its `effects.switch`).
-    switch_transitions: Vec<String>,
     /// The transitions that may dress a cut of the director, by name (its `effects.cut`).
     cut_transitions: Vec<String>,
     /// The cut the director made in the last frame.
@@ -1331,7 +1329,6 @@ impl Scene {
             director: Director::for_manifest(manifest),
             looks: Looks::for_manifest(manifest),
             held_shot: None,
-            switch_transitions: manifest.effects.switch.clone(),
             cut_transitions: manifest.effects.cut.clone(),
             cut: None,
             forced_cut: None,
@@ -1465,11 +1462,6 @@ impl Scene {
     /// mosaic over the picture takes its length from.
     pub fn phrase(&self) -> crate::course::Phrase {
         self.lens.phrase()
-    }
-
-    /// The transitions a switch to this scene may take, by name (its `effects.switch`).
-    pub fn switch_transitions(&self) -> &[String] {
-        &self.switch_transitions
     }
 
     /// The transitions that may dress a cut of the director in this scene, by name (its

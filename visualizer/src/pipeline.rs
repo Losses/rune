@@ -261,6 +261,49 @@ fn choose_adapter(
     adapter_luid: Option<u64>,
     device_uuids: Option<DeviceUuids>,
 ) -> Result<(wgpu::Adapter, bool)> {
+    let (adapter, shareable) =
+        any_adapter(instance, compatible_surface, adapter_luid, device_uuids)?;
+    refuse_software(&adapter)?;
+    Ok((adapter, shareable))
+}
+
+/// Whether this machine has a GPU the visualizer runs on: the name of the adapter it would take,
+/// or why there is none. It takes about as long as creating a GPU instance, so call it off the
+/// UI's thread.
+pub fn probe_gpu() -> Result<String> {
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        ..Default::default()
+    }))
+    .map_err(|e| anyhow!("No GPU adapter: {e}"))?;
+    refuse_software(&adapter)?;
+    Ok(adapter.get_info().name)
+}
+
+/// A software renderer (llvmpipe or lavapipe on Linux, WARP on Windows, SwiftShader) draws the
+/// scenes on the CPU, where they take several cores and slow the whole app down; on Windows WARP's
+/// shader compiler also crashes the process on most scenes (its control-flow analysis overruns its
+/// own stack). The visualizer does not start on one.
+fn refuse_software(adapter: &wgpu::Adapter) -> Result<()> {
+    let info = adapter.get_info();
+    if info.device_type == wgpu::DeviceType::Cpu {
+        anyhow::bail!(
+            "The visualizer needs a GPU; only a software renderer ({}) is available",
+            info.name
+        );
+    }
+    Ok(())
+}
+
+/// The adapter Flutter renders on where frames can be shared with it, else the best one there is,
+/// and whether frames may be shared.
+fn any_adapter(
+    instance: &wgpu::Instance,
+    compatible_surface: Option<&wgpu::Surface<'_>>,
+    adapter_luid: Option<u64>,
+    device_uuids: Option<DeviceUuids>,
+) -> Result<(wgpu::Adapter, bool)> {
     #[cfg(target_os = "windows")]
     match adapter_luid {
         Some(luid) => match crate::shared_dx12::adapter_with_luid(instance, luid) {
@@ -289,15 +332,6 @@ fn choose_adapter(
         ..Default::default()
     }))
     .map_err(|e| anyhow!("No GPU adapter: {e}"))?;
-    // Without a DirectX 12 GPU wgpu falls back to WARP, Windows' software renderer, whose shader
-    // compiler crashes the whole process on most scenes (its control-flow analysis overruns its
-    // own stack), so the visualizer does not start there.
-    #[cfg(target_os = "windows")]
-    if adapter.get_info().device_type == wgpu::DeviceType::Cpu {
-        return Err(anyhow!(
-            "The visualizer needs a DirectX 12 GPU; only Windows' software renderer is available"
-        ));
-    }
     Ok((
         adapter,
         cfg!(not(any(target_os = "windows", target_os = "linux"))),

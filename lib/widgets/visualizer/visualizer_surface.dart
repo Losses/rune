@@ -4,12 +4,9 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../bindings/bindings.dart';
-import '../../providers/cover_wall_display.dart';
+import '../../providers/visualizer_scenes.dart';
 import '../../utils/color_brightness.dart';
 import '../../utils/rune_log.dart';
-import '../../utils/visualizer_effect_level.dart';
-import '../../utils/visualizer_preset_dirs.dart';
-import '../../utils/file_storage/mac_secure_manager.dart';
 
 import 'visualizer_controller.dart';
 import 'visualizer_render_size.dart';
@@ -43,16 +40,12 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   Timer? _resizeTimer;
   Timer? _statusTimer;
 
-  // Whether the scene the visualizer began with was seen.
-  bool _beganSeen = false;
-  int _pollTick = 0;
-
   VisualizerController get _controller => widget.controller;
 
   @override
   void initState() {
     super.initState();
-    _coverWallDisplay = context.read<CoverWallDisplayProvider>();
+    _scenes = context.read<VisualizerScenesProvider>();
     _controller.attach();
     WidgetsBinding.instance.addObserver(this);
     _syncVisible(WidgetsBinding.instance.lifecycleState);
@@ -65,33 +58,17 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   // The accent colour last sent to Rust, for scenes; null before the first
   // build.
   int? _accent;
-  // The scene name the corner label last announced.
-  String? _announced;
-
-  // A scene that just started gets its name shown, except the one the
-  // visualizer begins with; a problem shows until it is gone.
+  // A problem shows in the corner until it is gone; scenes that start are
+  // not announced.
   void _updateLabel(VisualizerStatusResponse status) {
     final error = status.lastError;
-    if (error != null) {
-      _announced = null;
-      _controller.label.value = VisualizerLabel(error, isError: true);
-      return;
-    }
-    if (!status.running) {
-      _announced = null;
-      _controller.label.value = null;
-      return;
-    }
-    if (status.presetName == _announced) return;
-    _announced = status.presetName;
-    _controller.label.value = _beganSeen
-        ? VisualizerLabel(status.presetName)
-        : null;
-    _beganSeen = true;
+    _controller.label.value = error == null
+        ? null
+        : VisualizerLabel(error, isError: true);
   }
 
   // Kept for dispose, where the context may no longer be used.
-  late final CoverWallDisplayProvider _coverWallDisplay;
+  late final VisualizerScenesProvider _scenes;
 
   void _syncAccent(Color accent) {
     final argb = accent.hexValue;
@@ -131,7 +108,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     _textureSubscription?.cancel();
     _controller.detach();
     // Not while the tree is being torn down: listeners rebuild.
-    scheduleMicrotask(() => _coverWallDisplay.presetsLoaded = false);
+    scheduleMicrotask(() => _scenes.sceneShowing = false);
 
     // Rust unregisters its textures when the visualizer stops.
     if (_textureId != null || _starting) {
@@ -151,18 +128,9 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       _textureSubscription ??= VisualizerTextureResponse.rustSignalStream
           .listen((signal) => _showTexture(signal.message.textureId));
 
-      // Bookmarks are resolved when the manager is created; wait for them
-      // before Rust reads the saved folders.
-      if (MacSecureManager.isApplePlatform()) {
-        await MacSecureManager().completed;
-      }
-      final dirs = await loadVisualizerPresetDirs();
-      if (_disposed) return;
-
-      if (dirs.isNotEmpty) {
-        SetVisualizerPresetDirsRequest(paths: dirs).sendSignalToRust();
-      }
-      sendVisualizerEffectLevel(await loadVisualizerEffectLevel());
+      // Tell Rust the order and the unchecked scenes before it picks the
+      // first one.
+      await _scenes.refresh();
       if (_disposed) return;
       StartVisualizerRequest(
         width: size.$1,
@@ -172,8 +140,6 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
 
       // The built-in scenes are always there.
       _controller.hasPresets = true;
-      // The context menu lists them: fetched now, so that it never waits.
-      unawaited(_controller.refreshPresets());
       setState(() => _renderedSize = size);
     } catch (e) {
       error$('Failed to start the visualizer: $e');
@@ -217,10 +183,6 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   Future<void> _pollStatus() async {
     if (_renderedSize == null || _disposed) return;
 
-    // About 1 Hz, but 4 Hz while waiting for the render thread to come up.
-    final waiting = _controller.status?.running != true;
-    if (!waiting && ++_pollTick % 4 != 0) return;
-
     VisualizerStatusRequest().sendSignalToRust();
     try {
       final signal = await VisualizerStatusResponse.rustSignalStream.first
@@ -230,11 +192,17 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
 
       _controller.status = status;
       _updateLabel(status);
+      _controller.scenePath.value = status.running ? status.presetPath : null;
       if (status.running) {
         _controller.hasPresets = status.presetCount > 0;
-        // Scenes draw on black; the cover wall darkens for them.
-        context.read<CoverWallDisplayProvider>().presetsLoaded = true;
+        // The scene to resume next time, also after a restart.
+        if (status.presetPath.isNotEmpty) {
+          _scenes.setLastScene(status.presetPath);
+        }
       }
+      // Scenes draw on black; the page darkens for them.
+      _scenes.sceneShowing =
+          status.running && status.presetPath != kCoverWallScenePath;
     } on TimeoutException {
       // The next tick asks again.
     }

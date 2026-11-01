@@ -156,23 +156,23 @@ const kLinuxCustomWindowControlsKey = 'linux_custom_window_controls';
 /// "light" (always use light icon), and "dark" (always use dark icon).
 const kTrayIconColorModeKey = 'tray_icon_color_mode';
 
-/// The folders with scenes (folders with a `scene.toml`) that the visualizer
-/// cycles through, a list of paths. On macOS their security-scoped bookmarks are
-/// kept by `MacSecureManager` so the folders stay readable after a restart.
-const kVisualizerPresetDirsKey = 'visualizer_preset_dirs';
+/// The paths of the visualizer scenes in the order the user arranged them,
+/// which "next" goes through, a list of strings. Scenes that are not in it
+/// yet are appended when they first show up.
+const kVisualizerScenesKey = 'visualizer_scenes';
 
-/// The single preset folder of earlier versions; `loadVisualizerPresetDirs`
-/// moves it into [kVisualizerPresetDirsKey].
-const kVisualizerPresetDirKey = 'visualizer_preset_dir';
+/// The paths of the visualizer scenes that are unchecked, a list of strings.
+/// The visualizer leaves them out when it picks a scene.
+const kVisualizerDisabledScenesKey = 'visualizer_disabled_scenes';
 
-/// 'covers' or 'visualizer': what the cover wall page shows behind the
-/// playing track, the wall of cover art or the visualizer. This
-/// defaults to 'covers' when the setting is missing.
-const kCoverWallDisplayKey = 'cover_wall_display';
+/// Whether the visualizer's diagnostics (its GPU, how frames reach the screen)
+/// are written to the Log page, for debugging; its errors always are. This
+/// defaults to false.
+const kVisualizerLogKey = 'visualizer_log';
 
-/// 'default' or 'more': how often the visualizer plays effects at the music's
-/// moments. This defaults to 'default' when the setting is missing.
-const kVisualizerEffectLevelKey = 'visualizer_effect_level';
+/// The path of the visualizer scene on screen (in the form of the scene list's
+/// paths), which the visualizer resumes after a restart.
+const kVisualizerLastSceneKey = 'visualizer_last_scene';
 
 /// Per-profile multiplier for the application's interface, as an integer percent.
 const kInterfaceScaleKey = 'interface_scale';

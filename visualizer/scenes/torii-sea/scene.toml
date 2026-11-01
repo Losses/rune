@@ -9,7 +9,7 @@ common = ["sea.wgsl"]
 # a flash that turns the hour, and every lens effect but the light leak (the others are all
 # declared).
 [effects]
-# Transitions: switching into this scene, and dressing a hard cut of the camera in it.
+# Transitions: dressing a hard cut of the camera.
 transitions = ["fade", "dissolve", "flash"]
 # Lens effects: over the picture, with no change of picture.
 lens = ["flare", "glitch", "mosaic"]

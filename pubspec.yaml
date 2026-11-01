@@ -195,6 +195,7 @@ msix_config:
   msix_version: 2.0.1015.0
   store: true
   capabilities: removableStorage
+  file_extension: .runescene
   logo_path: ./assets/source/microsoft_store/installer_icon.png
   debug: false
 
