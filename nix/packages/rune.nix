@@ -171,6 +171,7 @@ flutter.buildFlutterApplication {
     ln -s $out/share/icons/Papirus $out/share/icons/Papirus-Light
     ln -s $out/share/icons/breeze/apps/1024/rune.png $out/share/icons/rune.png
     install -Dm0644 assets/source/linux/rune.desktop $out/share/applications/rune.desktop
+    install -Dm0644 assets/source/linux/rune-scene.xml $out/share/mime/packages/rune-scene.xml
   '';
 
   meta = metaCommon // {

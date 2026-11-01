@@ -14,8 +14,6 @@ pub struct Loads<T> {
     receiver: Receiver<(u64, T)>,
     /// The number of the newest load started, counting from 1.
     newest: u64,
-    /// Whether the newest load has not been taken yet.
-    pending: bool,
 }
 
 impl<T: Send + 'static> Loads<T> {
@@ -25,7 +23,6 @@ impl<T: Send + 'static> Loads<T> {
             sender,
             receiver,
             newest: 0,
-            pending: false,
         }
     }
 
@@ -40,22 +37,7 @@ impl<T: Send + 'static> Loads<T> {
                 let _ = sender.send((number, work()));
             })?;
         self.newest = number;
-        self.pending = true;
         Ok(())
-    }
-
-    /// Whether the newest load is still running.
-    pub fn is_pending(&self) -> bool {
-        self.pending
-    }
-
-    /// Forget the load that is running, if any: its result is dropped when it comes in, as if a
-    /// newer load had replaced it.
-    pub fn discard(&mut self) {
-        if self.pending {
-            self.newest += 1;
-            self.pending = false;
-        }
     }
 
     /// The result of the newest load if it has finished, once. Results of older loads that came
@@ -66,9 +48,6 @@ impl<T: Send + 'static> Loads<T> {
             if number == self.newest {
                 found = Some(result);
             }
-        }
-        if found.is_some() {
-            self.pending = false;
         }
         found
     }
@@ -96,11 +75,8 @@ mod tests {
     #[test]
     fn a_finished_load_is_taken_once() {
         let mut loads = Loads::new();
-        assert!(!loads.is_pending());
         loads.start(|| 7).unwrap();
-        assert!(loads.is_pending());
         assert_eq!(wait(&mut loads), 7);
-        assert!(!loads.is_pending());
         assert_eq!(loads.take(), None);
     }
 
@@ -116,31 +92,10 @@ mod tests {
             .unwrap();
         loads.start(|| "new").unwrap();
         assert_eq!(wait(&mut loads), "new");
-        // The old load finishes now; its result is dropped and nothing is pending.
+        // The old load finishes now; its result is dropped.
         release.send(()).unwrap();
         thread::sleep(Duration::from_millis(50));
         assert_eq!(loads.take(), None);
-        assert!(!loads.is_pending());
-    }
-
-    #[test]
-    fn a_discarded_load_never_shows() {
-        let mut loads = Loads::new();
-        let (release, held) = sync_channel::<()>(0);
-        loads
-            .start(move || {
-                held.recv().unwrap();
-                "old"
-            })
-            .unwrap();
-        loads.discard();
-        assert!(!loads.is_pending());
-        release.send(()).unwrap();
-        thread::sleep(Duration::from_millis(50));
-        assert_eq!(loads.take(), None);
-        // A load started after it works as usual.
-        loads.start(|| "new").unwrap();
-        assert_eq!(wait(&mut loads), "new");
     }
 
     #[test]
@@ -156,7 +111,6 @@ mod tests {
             .unwrap();
         thread::sleep(Duration::from_millis(50));
         assert_eq!(loads.take(), None);
-        assert!(loads.is_pending());
         release.send(()).unwrap();
         assert_eq!(wait(&mut loads), "new");
     }

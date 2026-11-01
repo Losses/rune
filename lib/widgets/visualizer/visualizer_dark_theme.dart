@@ -1,7 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../providers/cover_wall_display.dart';
+import '../../providers/visualizer_scenes.dart';
 
 /// Scenes draw on black, so while the cover wall shows one, [child] uses the
 /// dark variant of the app theme even in light mode: dark overlays and light
@@ -20,11 +20,11 @@ class VisualizerDarkTheme extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final showVisualizer = context.select<CoverWallDisplayProvider, bool>(
-      (p) => p.showVisualizer && p.presetsLoaded,
+    final sceneShowing = context.select<VisualizerScenesProvider, bool>(
+      (p) => p.sceneShowing,
     );
     final theme = FluentTheme.of(context);
-    final dark = enabled && showVisualizer && !theme.brightness.isDark;
+    final dark = enabled && sceneShowing && !theme.brightness.isDark;
 
     // Always under a theme of its own, so that switching to the dark one does
     // not rebuild [child] from scratch (which would restart the visualizer).

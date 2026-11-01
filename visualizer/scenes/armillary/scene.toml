@@ -9,7 +9,7 @@ common = ["world.wgsl"]
 # instrument of the night sky: a flash like daybreak, a flare off its lit rings, and all of the lens
 # effects.
 [effects]
-# Transitions: switching into this scene, and dressing a hard cut of the camera in it.
+# Transitions: dressing a hard cut of the camera.
 transitions = ["fade", "dissolve", "flash"]
 # Lens effects: over the picture, with no change of picture.
 lens = ["flare", "leak", "glitch", "mosaic"]
