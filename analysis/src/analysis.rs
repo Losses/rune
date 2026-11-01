@@ -78,7 +78,7 @@ pub fn analyze_audio(
     cancel_token: Option<CancellationToken>,
 ) -> Result<Option<AnalysisResult>> {
     anyhow::ensure!(
-        window_size >= 2 && window_size % 2 == 0 && overlap_size < window_size,
+        window_size >= 2 && window_size.is_multiple_of(2) && overlap_size < window_size,
         "Invalid analysis window/overlap"
     );
     let mut analyzer = Analyzer::new(
