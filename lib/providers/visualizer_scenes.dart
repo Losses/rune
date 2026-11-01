@@ -91,6 +91,11 @@ class VisualizerScenesProvider extends ChangeNotifier {
   /// always do).
   bool get log => _log;
 
+  /// Whether the scene the visualizer resumes is one other than the cover
+  /// wall, as far as the app knows (the last one on screen).
+  bool get resumesScene =>
+      _lastScene != null && _lastScene != kCoverWallScenePath;
+
   /// The path of the scene on screen, kept so that the visualizer resumes it
   /// after a restart (within a run, Rust remembers it).
   void setLastScene(String path) {
