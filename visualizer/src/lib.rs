@@ -101,6 +101,9 @@ const FALLBACK_SAMPLE_RATE: u32 = 44_100;
 const FPS_WINDOW: Duration = Duration::from_millis(500);
 /// How often a paused render thread looks at whether the music plays again.
 const PAUSED_POLL: Duration = Duration::from_millis(50);
+/// How far the paused song's place must move to count as sought and be drawn again: less is a
+/// report of the same place.
+const SOUGHT: Duration = Duration::from_millis(10);
 
 /// The audio the visualizer listens to.
 pub struct PcmInput {
@@ -936,6 +939,9 @@ fn run(
     // While paused or out of sight one frame is drawn (the first one, or after a command such as
     // a resize) and then held.
     let mut still_drawn = false;
+    // Where the player said the song was when the last frame was drawn: a seek while paused draws
+    // the frame of the new place.
+    let mut drawn_position: Option<Duration> = None;
     // The folder of the scene on screen, reloaded when it is saved (live editing).
     let mut watched: Option<Watched> = None;
     let mut tracker = BeatTracker::new(sample_rate);
@@ -1049,6 +1055,13 @@ fn run(
                 }
                 Err(RecvTimeoutError::Timeout) => {}
             }
+            // The song was sought while paused (in sight): draw where it is now.
+            let position = lock(&shared.playback).position;
+            if shared.visible.load(Ordering::Relaxed)
+                && drawn_position.is_none_or(|drawn| position.abs_diff(drawn) > SOUGHT)
+            {
+                still_drawn = false;
+            }
             frozen += since.elapsed();
             deadline = Instant::now();
             window_start = deadline;
@@ -1056,6 +1069,7 @@ fn run(
             continue;
         }
         still_drawn = paused;
+        drawn_position = Some(lock(&shared.playback).position);
         if !pcm.is_empty() && !hidden {
             pipeline.push_pcm(&pcm, channels);
         }
