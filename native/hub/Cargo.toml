@@ -118,6 +118,7 @@ tracing-logcat = "0.1.0"
 swift-rs = { version = "1.0.7", features = ["build"] }
 
 [dev-dependencies]
+tokio = { version = "1.44.2", features = ["test-util"] }
 sync-orm = { path = "../../sync-orm" }
 hyper = "1.6.0"
 portpicker = "0.1.1"

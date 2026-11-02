@@ -63,6 +63,44 @@ use crate::{
     utils::{GlobalParams, ParamsExtractor, RinfRustSignal},
 };
 
+fn coalesce_worker_notify(
+    notify: Arc<dyn Fn() + Send + Sync>,
+    cancel: tokio_util::sync::CancellationToken,
+) -> Arc<dyn Fn() + Send + Sync> {
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    let worker_cancel = cancel.clone();
+    tokio::spawn(async move {
+        let mut pending = None;
+        loop {
+            let first = match pending.take() {
+                Some(first) => first,
+                None => tokio::select! {
+                    _ = worker_cancel.cancelled() => return,
+                    event = receiver.recv() => match event { Some(event) => event, None => return },
+                },
+            };
+            let deadline = first + Duration::from_millis(500);
+            tokio::select! {
+                biased;
+                _ = worker_cancel.cancelled() => return,
+                _ = tokio::time::sleep_until(deadline) => {},
+            }
+            while let Ok(event) = receiver.try_recv() {
+                if event >= deadline {
+                    pending = Some(event);
+                    break;
+                }
+            }
+            notify();
+        }
+    });
+    Arc::new(move || {
+        if !cancel.is_cancelled() {
+            let _ = sender.send(tokio::time::Instant::now());
+        }
+    })
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JwtClaims {
     /// Expiration time (UNIX timestamp)
@@ -410,7 +448,7 @@ impl ServerManager {
         let worker = super::sync_worker::run(
             self.global_params.clone(),
             super::sync::http::SharedLibrary(library),
-            notify,
+            coalesce_worker_notify(notify, cancel.clone()),
             fingerprint,
             self.private_key.clone(),
             cancel.clone(),
@@ -731,6 +769,38 @@ pub async fn update_root_password<P: AsRef<Path>>(config_path: P, password: &str
 
 #[cfg(test)]
 mod lifecycle_tests {
+    #[tokio::test(start_paused = true)]
+    async fn worker_notifications_are_coalesced() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        use std::time::Duration;
+        let count = Arc::new(AtomicUsize::new(0));
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let notify = super::coalesce_worker_notify(
+            Arc::new({
+                let count = count.clone();
+                move || {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+            }),
+            cancel.clone(),
+        );
+        for _ in 0..100 {
+            notify();
+            tokio::time::advance(Duration::from_millis(1)).await;
+        }
+        tokio::time::advance(Duration::from_millis(500)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        notify();
+        tokio::time::advance(Duration::from_millis(500)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+        cancel.cancel();
+    }
+
     use super::*;
     use crate::utils::{Broadcaster, GlobalParams, RinfRustSignal, RunningMode, TaskTokens};
     use database::sync::LibrarySyncStore;

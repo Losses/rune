@@ -220,82 +220,141 @@ async fn run_loop(
     metadata: bool,
     locks: ReplicaLocks,
 ) {
-    use futures::{StreamExt, stream};
+    let discover = || peer_endpoints(&global, &credentials.fingerprint);
+    let work = |hosts: Vec<PeerEndpoint>| {
+        let global = global.clone();
+        let library = library.clone();
+        let notify = notify.clone();
+        let credentials = credentials.clone();
+        let cancel = cancel.clone();
+        let locks = locks.clone();
+        async move {
+            let fingerprint = hosts[0].fingerprint.clone();
+            for endpoint in hosts {
+                let result = tokio::select! {
+                    _ = cancel.cancelled() => return (fingerprint, Duration::from_secs(30)),
+                    _ = wait_for_revocation(&global, &endpoint.fingerprint, &endpoint.trusted_host) => Err(anyhow::anyhow!("peer permission revoked")),
+                    result = async {
+                        let operation = sync_one(&global, &library, &notify, &credentials, &endpoint, metadata, &locks);
+                        if metadata {
+                            tokio::time::timeout(Duration::from_secs(60), operation).await.map_err(|_| anyhow::anyhow!("peer operation timed out"))?
+                        } else {
+                            operation.await
+                        }
+                    } => result,
+                };
+                match result {
+                    Ok(complete) => {
+                        return (
+                            fingerprint,
+                            if complete {
+                                Duration::from_secs(30)
+                            } else {
+                                Duration::from_millis(100)
+                            },
+                        );
+                    }
+                    Err(error) => log::warn!(
+                        "Background {} with paired device failed: {error:#}",
+                        if metadata {
+                            "metadata synchronization"
+                        } else {
+                            "audio download"
+                        }
+                    ),
+                }
+            }
+            (fingerprint, Duration::from_secs(30))
+        }
+    };
+    schedule_peers(
+        discover,
+        work,
+        |hosts| hosts[0].fingerprint.clone(),
+        if metadata { PEER_CONCURRENCY } else { 1 },
+        cancel.clone(),
+        || async {
+            if metadata {
+                locks.lock().await.retain(|_, entry| {
+                    Arc::strong_count(entry) > 1
+                        || entry.try_lock().map_or(true, |state| {
+                            state.last_used.elapsed() < Duration::from_secs(900)
+                        })
+                });
+            }
+        },
+    )
+    .await;
+}
+
+async fn schedule_peers<P, D, DF, W, WF, K, C, CF>(
+    discover: D,
+    work: W,
+    key: K,
+    limit: usize,
+    cancel: tokio_util::sync::CancellationToken,
+    cleanup: C,
+) where
+    D: Fn() -> DF,
+    DF: std::future::Future<Output = Vec<P>>,
+    W: Fn(P) -> WF,
+    WF: std::future::Future<Output = (String, Duration)>,
+    K: Fn(&P) -> String,
+    C: Fn() -> CF,
+    CF: std::future::Future<Output = ()>,
+{
+    use futures::{StreamExt, stream::FuturesUnordered};
     use std::collections::{HashMap, HashSet};
     use tokio::time::Instant;
     let mut due = HashMap::<String, Instant>::new();
-    let mut delay = Duration::ZERO;
+    let mut running = HashSet::new();
+    let mut tasks = FuturesUnordered::new();
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut next_due = None;
     loop {
         tokio::select! {
             _ = cancel.cancelled() => return,
-            _ = tokio::time::sleep(delay) => (),
+            _ = tick.tick() => {},
+            _ = async { match next_due { Some(deadline) => tokio::time::sleep_until(deadline).await, None => std::future::pending().await } } => {},
+            Some((fingerprint, wait)) = tasks.next(), if !tasks.is_empty() => {
+                running.remove(&fingerprint);
+                due.insert(fingerprint, Instant::now() + wait);
+            }
         }
-        let peers = peer_endpoints(&global, &credentials.fingerprint).await;
-        let eligible: HashSet<_> = peers
-            .iter()
-            .filter_map(|hosts| hosts.first().map(|host| host.fingerprint.clone()))
-            .collect();
+        let peers = tokio::select! {
+            _ = cancel.cancelled() => return,
+            peers = discover() => peers,
+        };
+        let eligible: HashSet<_> = peers.iter().map(&key).collect();
         due.retain(|fingerprint, _| eligible.contains(fingerprint));
-        let now = Instant::now();
-        let ready: Vec<_> = peers
-            .into_iter()
-            .filter(|hosts| {
-                hosts.first().is_some_and(|host| {
-                    due.get(&host.fingerprint)
-                        .is_none_or(|deadline| *deadline <= now)
+        for peer in peers {
+            if tasks.len() >= limit {
+                break;
+            }
+            let fingerprint = key(&peer);
+            if !running.contains(&fingerprint)
+                && due
+                    .get(&fingerprint)
+                    .is_none_or(|deadline| *deadline <= Instant::now())
+            {
+                running.insert(fingerprint);
+                tasks.push(work(peer));
+            }
+        }
+        next_due = if tasks.len() < limit {
+            due.iter()
+                .filter(|(fingerprint, deadline)| {
+                    eligible.contains(*fingerprint)
+                        && !running.contains(*fingerprint)
+                        && **deadline > Instant::now()
                 })
-            })
-            .collect();
-        let work = stream::iter(ready.into_iter().map(|hosts| {
-            let global = global.clone(); let library = library.clone(); let notify = notify.clone();
-            let credentials = credentials.clone(); let cancel = cancel.clone(); let locks = locks.clone();
-            async move {
-                let fingerprint = hosts[0].fingerprint.clone();
-                for endpoint in hosts {
-                    let result = tokio::select! {
-                        _ = cancel.cancelled() => return (fingerprint, Duration::from_secs(30)),
-                        _ = wait_for_revocation(&global, &endpoint.fingerprint, &endpoint.trusted_host) => Err(anyhow::anyhow!("peer permission revoked")),
-                        result = async {
-                            let operation = sync_one(&global, &library, &notify, &credentials, &endpoint, metadata, &locks);
-                            if metadata {
-                                tokio::time::timeout(Duration::from_secs(60), operation).await.map_err(|_| anyhow::anyhow!("peer operation timed out"))?
-                            } else {
-                                operation.await
-                            }
-                        } => result,
-                    };
-                    match result {
-                        Ok(complete) => return (fingerprint, if complete { Duration::from_secs(30) } else { Duration::from_millis(100) }),
-                        Err(error) => log::warn!("Background {} with paired device failed: {error:#}", if metadata { "metadata synchronization" } else { "audio download" }),
-                    }
-                }
-                (fingerprint, Duration::from_secs(30))
-            }
-        })).buffer_unordered(if metadata { PEER_CONCURRENCY } else { 1 });
-        tokio::pin!(work);
-        loop {
-            tokio::select! {
-                _ = cancel.cancelled() => return,
-                next = work.next() => match next {
-                    Some((fingerprint, wait)) => { due.insert(fingerprint,Instant::now()+wait); },
-                    None => break,
-                }
-            }
-        }
-        if metadata {
-            locks.lock().await.retain(|_, entry| {
-                Arc::strong_count(entry) > 1
-                    || entry.try_lock().map_or(true, |state| {
-                        state.last_used.elapsed() < Duration::from_secs(900)
-                    })
-            });
-        }
-        delay = due
-            .values()
-            .map(|deadline| deadline.saturating_duration_since(Instant::now()))
-            .min()
-            .unwrap_or(Duration::from_secs(1))
-            .min(Duration::from_secs(1));
+                .map(|(_, deadline)| *deadline)
+                .min()
+        } else {
+            None
+        };
+        cleanup().await;
     }
 }
 
@@ -724,6 +783,58 @@ impl playback::player::AudioRequest for RenewableAudio {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn newly_due_peer_runs_while_another_is_stalled() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let available = Arc::new(AtomicBool::new(false));
+        let started = Arc::new(tokio::sync::Notify::new());
+        let second = Arc::new(tokio::sync::Notify::new());
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let worker = tokio::spawn({
+            let available = available.clone();
+            let started = started.clone();
+            let second = second.clone();
+            let cancel = cancel.clone();
+            async move {
+                schedule_peers(
+                    || {
+                        let mut peers = vec![String::from("first")];
+                        if available.load(Ordering::SeqCst) {
+                            peers.push(String::from("second"));
+                        }
+                        async move { peers }
+                    },
+                    |peer| {
+                        let started = started.clone();
+                        let second = second.clone();
+                        async move {
+                            if peer == "first" {
+                                started.notify_one();
+                                std::future::pending::<()>().await;
+                            }
+                            second.notify_one();
+                            (peer, Duration::from_secs(30))
+                        }
+                    },
+                    |peer: &String| peer.clone(),
+                    4,
+                    cancel,
+                    || async {},
+                )
+                .await;
+            }
+        });
+        started.notified().await;
+        available.store(true, Ordering::SeqCst);
+        let result = tokio::time::timeout(Duration::from_secs(2), second.notified()).await;
+        cancel.cancel();
+        worker.await.unwrap();
+        assert!(
+            result.is_ok(),
+            "second peer did not start while first was stalled"
+        );
+    }
 
     #[tokio::test]
     async fn metadata_unauthorized_is_distinct_from_other_failures() {
