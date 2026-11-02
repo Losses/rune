@@ -1,14 +1,9 @@
 import '../../bindings/bindings.dart';
 
-Future<void> removeItemFromPlaylist(
-  int playlistId,
-  int mediaFileId,
-  int position,
-) async {
+Future<void> removeItemFromPlaylist(int playlistId, String occurrenceId) async {
   RemoveItemFromPlaylistRequest(
     playlistId: playlistId,
-    mediaFileId: mediaFileId,
-    position: position,
+    occurrenceId: occurrenceId,
   ).sendSignalToRust();
 
   final rustSignal =

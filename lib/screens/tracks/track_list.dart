@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../../bindings/bindings.dart';
 import '../../utils/query_list.dart';
 import '../../utils/api/fetch_media_files.dart';
 import '../../utils/api/get_media_files_count.dart';
@@ -31,17 +32,29 @@ class TrackListViewState extends State<TrackListView> {
   final Map<int, InternalMediaFile> _loadedItems = {};
   final Set<int> _loadingIndices = {};
   bool _isInitialized = false;
+  int _generation = 0;
+  StreamSubscription? _contentSubscription;
 
   @override
   void initState() {
     super.initState();
+    _contentSubscription = LibraryContentChanged.rustSignalStream.listen((_) {
+      _generation++;
+      _loadedItems.clear();
+      _loadingIndices.clear();
+      setState(() {
+        _isInitialized = false;
+      });
+      _initializeData();
+    });
     _initializeData();
   }
 
   Future<void> _initializeData() async {
+    final generation = _generation;
     try {
       final count = await getMediaFilesCount();
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
 
       setState(() {
         _totalCount = count;
@@ -51,7 +64,7 @@ class TrackListViewState extends State<TrackListView> {
       _loadPage(0);
     } catch (error) {
       // If getting count fails, fall back to dynamic loading
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
 
       setState(() {
         _totalCount = 10000; // Set a large number as fallback
@@ -62,6 +75,7 @@ class TrackListViewState extends State<TrackListView> {
   }
 
   Future<void> _loadPage(int cursor) async {
+    final generation = _generation;
     if (_loadingIndices.contains(cursor)) return;
 
     // Immediately mark as loading to prevent duplicate requests
@@ -69,16 +83,16 @@ class TrackListViewState extends State<TrackListView> {
 
     // Schedule setState for after the current build phase to update UI
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() {});
     });
 
     try {
       final newItems = await fetchMediaFiles(cursor, _pageSize);
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
 
       SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
+        if (!mounted || generation != _generation) return;
         setState(() {
           for (var i = 0; i < newItems.length; i++) {
             _loadedItems[cursor + i] = newItems[i];
@@ -92,10 +106,10 @@ class TrackListViewState extends State<TrackListView> {
         () => widget.layoutManager.playAnimations(),
       );
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
 
       SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
+        if (!mounted || generation != _generation) return;
         setState(() {
           _loadingIndices.remove(cursor);
         });
@@ -178,6 +192,7 @@ class TrackListViewState extends State<TrackListView> {
 
   @override
   void dispose() {
+    _contentSubscription?.cancel();
     super.dispose();
   }
 }

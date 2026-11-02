@@ -4,10 +4,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/router/navigation.dart';
 import '../screens/collection/utils/collection_data_provider.dart';
-import '../../bindings/bindings.dart';
+import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 import '../constants/settings_manager.dart';
-
 
 enum TaskStatus { working, finished, cancelled }
 
@@ -77,6 +76,7 @@ class LibraryManagerProvider with ChangeNotifier {
   final Map<String, ScanTaskProgress> _scanTasks = {};
   final Map<String, DeduplicateTaskProgress> _deduplicateTasks = {};
 
+  StreamSubscription? _libraryContentSubscription;
   StreamSubscription? _scanProgressSubscription;
   StreamSubscription? _scanResultSubscription;
   StreamSubscription? _analyzeProgressSubscription;
@@ -94,22 +94,28 @@ class LibraryManagerProvider with ChangeNotifier {
   }
 
   void initListeners() {
-    _scanProgressSubscription =
-        ScanAudioLibraryProgress.rustSignalStream.listen((event) {
-      final scanProgress = event.message;
-      _updateScanProgress(
-        scanProgress.path,
-        scanProgress.task,
-        scanProgress.progress,
-        scanProgress.total,
-        TaskStatus.working,
-        getScanTaskProgress(scanProgress.path)?.initialize ?? false,
-      );
-      CollectionCache().clearAll();
-    });
+    _libraryContentSubscription = LibraryContentChanged.rustSignalStream.listen(
+      (_) {
+        CollectionCache().clearAll();
+      },
+    );
+    _scanProgressSubscription = ScanAudioLibraryProgress.rustSignalStream
+        .listen((event) {
+          final scanProgress = event.message;
+          _updateScanProgress(
+            scanProgress.path,
+            scanProgress.task,
+            scanProgress.progress,
+            scanProgress.total,
+            TaskStatus.working,
+            getScanTaskProgress(scanProgress.path)?.initialize ?? false,
+          );
+          CollectionCache().clearAll();
+        });
 
-    _scanResultSubscription =
-        ScanAudioLibraryResponse.rustSignalStream.listen((event) {
+    _scanResultSubscription = ScanAudioLibraryResponse.rustSignalStream.listen((
+      event,
+    ) {
       final scanResult = event.message;
       final initialize =
           getScanTaskProgress(scanResult.path)?.initialize ?? false;
@@ -132,36 +138,39 @@ class LibraryManagerProvider with ChangeNotifier {
       CollectionCache().clearAll();
     });
 
-    _analyzeProgressSubscription =
-        AnalyzeAudioLibraryProgress.rustSignalStream.listen((event) {
-      final analyzeProgress = event.message;
-      _updateAnalyzeProgress(
-        analyzeProgress.path,
-        analyzeProgress.progress,
-        analyzeProgress.total,
-        TaskStatus.working,
-        getAnalyzeTaskProgress(analyzeProgress.path)?.isInitializeTask ?? false,
-      );
-    });
+    _analyzeProgressSubscription = AnalyzeAudioLibraryProgress.rustSignalStream
+        .listen((event) {
+          final analyzeProgress = event.message;
+          _updateAnalyzeProgress(
+            analyzeProgress.path,
+            analyzeProgress.progress,
+            analyzeProgress.total,
+            TaskStatus.working,
+            getAnalyzeTaskProgress(analyzeProgress.path)?.isInitializeTask ??
+                false,
+          );
+        });
 
-    _analyzeResultSubscription =
-        AnalyzeAudioLibraryResponse.rustSignalStream.listen((event) {
-      final analyzeResult = event.message;
-      _updateAnalyzeProgress(
-          analyzeResult.path,
-          analyzeResult.total,
-          analyzeResult.total,
-          TaskStatus.finished,
-          getAnalyzeTaskProgress(analyzeResult.path)?.isInitializeTask ??
-              false);
+    _analyzeResultSubscription = AnalyzeAudioLibraryResponse.rustSignalStream
+        .listen((event) {
+          final analyzeResult = event.message;
+          _updateAnalyzeProgress(
+            analyzeResult.path,
+            analyzeResult.total,
+            analyzeResult.total,
+            TaskStatus.finished,
+            getAnalyzeTaskProgress(analyzeResult.path)?.isInitializeTask ??
+                false,
+          );
 
-      // Complete the analyze task
-      _analyzeCompleters[analyzeResult.path]?.complete();
-      _analyzeCompleters.remove(analyzeResult.path);
-    });
+          // Complete the analyze task
+          _analyzeCompleters[analyzeResult.path]?.complete();
+          _analyzeCompleters.remove(analyzeResult.path);
+        });
 
-    _cancelTaskSubscription =
-        CancelTaskResponse.rustSignalStream.listen((event) {
+    _cancelTaskSubscription = CancelTaskResponse.rustSignalStream.listen((
+      event,
+    ) {
       final cancelResponse = event.message;
       if (cancelResponse.success) {
         if (cancelResponse.rType == CancelTaskType.scanAudioLibrary) {
@@ -193,31 +202,33 @@ class LibraryManagerProvider with ChangeNotifier {
       }
     });
 
-    _deduplicateProgressSubscription =
-        DeduplicateAudioLibraryProgress.rustSignalStream.listen((event) {
-      final deduplicateProgress = event.message;
-      _updateDeduplicateProgress(
-        deduplicateProgress.path,
-        deduplicateProgress.progress,
-        deduplicateProgress.total,
-        TaskStatus.working,
-      );
-    });
+    _deduplicateProgressSubscription = DeduplicateAudioLibraryProgress
+        .rustSignalStream
+        .listen((event) {
+          final deduplicateProgress = event.message;
+          _updateDeduplicateProgress(
+            deduplicateProgress.path,
+            deduplicateProgress.progress,
+            deduplicateProgress.total,
+            TaskStatus.working,
+          );
+        });
 
-    _deduplicateResultSubscription =
-        DeduplicateAudioLibraryResponse.rustSignalStream.listen((event) {
-      final deduplicateResult = event.message;
-      _updateDeduplicateProgress(
-        deduplicateResult.path,
-        100,
-        100,
-        TaskStatus.finished,
-      );
+    _deduplicateResultSubscription = DeduplicateAudioLibraryResponse
+        .rustSignalStream
+        .listen((event) {
+          final deduplicateResult = event.message;
+          _updateDeduplicateProgress(
+            deduplicateResult.path,
+            100,
+            100,
+            TaskStatus.finished,
+          );
 
-      // Complete deduplicate task
-      _deduplicateCompleters[deduplicateResult.path]?.complete();
-      _deduplicateCompleters.remove(deduplicateResult.path);
-    });
+          // Complete deduplicate task
+          _deduplicateCompleters[deduplicateResult.path]?.complete();
+          _deduplicateCompleters.remove(deduplicateResult.path);
+        });
   }
 
   void _updateScanProgress(
@@ -244,8 +255,13 @@ class LibraryManagerProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void _updateAnalyzeProgress(String path, int progress, int total,
-      TaskStatus status, bool initialize) {
+  void _updateAnalyzeProgress(
+    String path,
+    int progress,
+    int total,
+    TaskStatus status,
+    bool initialize,
+  ) {
     if (_analyzeTasks.containsKey(path)) {
       _analyzeTasks[path]!.progress = progress;
       _analyzeTasks[path]!.total = total;
@@ -263,7 +279,11 @@ class LibraryManagerProvider with ChangeNotifier {
   }
 
   void _updateDeduplicateProgress(
-      String path, int progress, int total, TaskStatus status) {
+    String path,
+    int progress,
+    int total,
+    TaskStatus status,
+  ) {
     if (_deduplicateTasks.containsKey(path)) {
       _deduplicateTasks[path]!.progress = progress;
       _deduplicateTasks[path]!.total = total;
@@ -302,10 +322,7 @@ class LibraryManagerProvider with ChangeNotifier {
       TaskStatus.working,
       isInitializeTask,
     );
-    ScanAudioLibraryRequest(
-      path: path,
-      force: force,
-    ).sendSignalToRust();
+    ScanAudioLibraryRequest(path: path, force: force).sendSignalToRust();
   }
 
   Future<void> analyzeLibrary(String path, [bool initialize = false]) async {
@@ -314,8 +331,9 @@ class LibraryManagerProvider with ChangeNotifier {
 
     double workloadFactor = 0.75;
 
-    String? performanceLevel =
-        await $settingsManager.getValue<String>(kAnalysisPerformanceLevelKey);
+    String? performanceLevel = await $settingsManager.getValue<String>(
+      kAnalysisPerformanceLevelKey,
+    );
 
     if (performanceLevel == "balance") {
       workloadFactor = 0.5;
@@ -327,8 +345,9 @@ class LibraryManagerProvider with ChangeNotifier {
 
     AnalyzeAudioLibraryRequest(
       path: path,
-      computingDevice:
-          computingDevice == 'gpu' ? ComputingDeviceRequest.gpu : ComputingDeviceRequest.cpu,
+      computingDevice: computingDevice == 'gpu'
+          ? ComputingDeviceRequest.gpu
+          : ComputingDeviceRequest.cpu,
       workloadFactor: workloadFactor,
     ).sendSignalToRust();
   }
@@ -339,7 +358,7 @@ class LibraryManagerProvider with ChangeNotifier {
     double workloadFactor = 0.75;
     String similarityLevel =
         await $settingsManager.getValue<String>(kDeduplicateThresholdKey) ??
-            "0.85";
+        "0.85";
     double similarityThreshold = double.tryParse(similarityLevel) ?? 0.85;
 
     DeduplicateAudioLibraryRequest(
@@ -406,6 +425,7 @@ class LibraryManagerProvider with ChangeNotifier {
 
   @override
   void dispose() {
+    _libraryContentSubscription?.cancel();
     _scanProgressSubscription?.cancel();
     _scanResultSubscription?.cancel();
     _analyzeProgressSubscription?.cancel();

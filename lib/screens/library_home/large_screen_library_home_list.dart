@@ -52,6 +52,15 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   Future<List<Group<dynamic>>>? summary;
 
   late LibraryHomeProvider libraryHome;
+  StreamSubscription? _contentSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _contentSubscription = LibraryContentChanged.rustSignalStream.listen((_) {
+      if (mounted) updateLibrary(libraryHome);
+    });
+  }
 
   @override
   void didChangeDependencies() {
@@ -65,16 +74,15 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
 
   @override
   dispose() {
-    super.dispose();
+    _contentSubscription?.cancel();
     contextController.dispose();
+    super.dispose();
   }
 
   final contextController = RouterAwareFlyoutController();
   final contextAttachKey = GlobalKey();
 
-  void openStartScreenContextMenu(
-    Offset localPosition,
-  ) async {
+  void openStartScreenContextMenu(Offset localPosition) async {
     if (!context.mounted) return;
     final targetContext = contextAttachKey.currentContext;
 
@@ -190,80 +198,83 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                   child: SmoothHorizontalScroll(
                     builder: (context, scrollController) =>
                         SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      controller: scrollController,
-                      padding: getScrollContainerPadding(context,
-                          top: widget.topPadding),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.start,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          StartGroup<
-                              (
-                                String Function(BuildContext),
-                                String,
-                                IconData,
-                                bool
-                              )>(
-                            groupIndex: 0,
-                            groupTitle: S.of(context).start,
-                            items: smallScreenFirstColumn
-                                .where((x) => !x.$4)
-                                .toList(),
-                            constraints: trueConstraints,
-                            groupLayoutVariation:
-                                StartGroupGroupLayoutVariation.stacked,
-                            gridLayoutVariation:
-                                StartGroupGridLayoutVariation.initial,
-                            dimensionCalculator: StartGroupImplementation
-                                .startLinkDimensionCalculator,
-                            gapSize: defaultGapSize,
-                            onTitleTap: null,
-                            itemBuilder: (context, item) {
-                              return LinkTile(
-                                title: item.$1(context),
-                                path: item.$2,
-                                icon: item.$3,
-                              );
-                            },
-                            direction: Axis.horizontal,
+                          scrollDirection: Axis.horizontal,
+                          controller: scrollController,
+                          padding: getScrollContainerPadding(
+                            context,
+                            top: widget.topPadding,
                           ),
-                          ...snapshot.data!
-                              .where((x) => x.items.isNotEmpty)
-                              .map(
-                            (item) {
-                              if (item is Group<InternalCollection>) {
-                                return StartGroup<InternalCollection>(
-                                  groupIndex: item.groupTitle.hashCode,
-                                  groupTitle: item.groupTitle,
-                                  groupLink: item.groupLink,
-                                  items: item.items,
-                                  constraints: trueConstraints,
-                                  groupLayoutVariation:
-                                      StartGroupGroupLayoutVariation.stacked,
-                                  gridLayoutVariation:
-                                      StartGroupGridLayoutVariation.square,
-                                  gapSize: defaultGapSize,
-                                  onTitleTap: item.groupLink != null
-                                      ? () => $push('/${item.groupLink}')
-                                      : null,
-                                  itemBuilder: (context, item) {
-                                    return CollectionItem(
-                                      collectionType: item.collectionType,
-                                      collection: item,
-                                      refreshList: () {},
-                                    );
-                                  },
-                                  direction: Axis.horizontal,
-                                );
-                              } else {
-                                return Container();
-                              }
-                            },
-                          )
-                        ],
-                      ),
-                    ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              StartGroup<
+                                (
+                                  String Function(BuildContext),
+                                  String,
+                                  IconData,
+                                  bool,
+                                )
+                              >(
+                                groupIndex: 0,
+                                groupTitle: S.of(context).start,
+                                items: smallScreenFirstColumn
+                                    .where((x) => !x.$4)
+                                    .toList(),
+                                constraints: trueConstraints,
+                                groupLayoutVariation:
+                                    StartGroupGroupLayoutVariation.stacked,
+                                gridLayoutVariation:
+                                    StartGroupGridLayoutVariation.initial,
+                                dimensionCalculator: StartGroupImplementation
+                                    .startLinkDimensionCalculator,
+                                gapSize: defaultGapSize,
+                                onTitleTap: null,
+                                itemBuilder: (context, item) {
+                                  return LinkTile(
+                                    title: item.$1(context),
+                                    path: item.$2,
+                                    icon: item.$3,
+                                  );
+                                },
+                                direction: Axis.horizontal,
+                              ),
+                              ...snapshot.data!
+                                  .where((x) => x.items.isNotEmpty)
+                                  .map((item) {
+                                    if (item is Group<InternalCollection>) {
+                                      return StartGroup<InternalCollection>(
+                                        groupIndex: item.groupTitle.hashCode,
+                                        groupTitle: item.groupTitle,
+                                        groupLink: item.groupLink,
+                                        items: item.items,
+                                        constraints: trueConstraints,
+                                        groupLayoutVariation:
+                                            StartGroupGroupLayoutVariation
+                                                .stacked,
+                                        gridLayoutVariation:
+                                            StartGroupGridLayoutVariation
+                                                .square,
+                                        gapSize: defaultGapSize,
+                                        onTitleTap: item.groupLink != null
+                                            ? () => $push('/${item.groupLink}')
+                                            : null,
+                                        itemBuilder: (context, item) {
+                                          return CollectionItem(
+                                            collectionType: item.collectionType,
+                                            collection: item,
+                                            refreshList: () {},
+                                          );
+                                        },
+                                        direction: Axis.horizontal,
+                                      );
+                                    } else {
+                                      return Container();
+                                    }
+                                  }),
+                            ],
+                          ),
+                        ),
                   ),
                 );
               },

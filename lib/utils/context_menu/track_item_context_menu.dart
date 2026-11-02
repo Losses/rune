@@ -20,13 +20,14 @@ import '../router/navigation.dart';
 import '../router/query_tracks_parameter.dart';
 import '../router/router_aware_flyout_controller.dart';
 import '../dialogs/playlist/create_edit_playlist.dart';
+import 'offline_selection.dart';
 
 void openTrackItemContextMenu(
   Offset localPosition,
   BuildContext context,
   GlobalKey contextAttachKey,
   RouterAwareFlyoutController contextController,
-  int? positionIndex,
+  String? occurrenceId,
   int fileId,
   int? playlistId,
   void Function()? refreshList,
@@ -39,6 +40,28 @@ void openTrackItemContextMenu(
     localPosition,
     ancestor: Navigator.of(context).context.findRenderObject(),
   );
+  if (fileId <= 0) {
+    contextController.showFlyout(
+      position: position,
+      builder: (context) => MenuFlyout(
+        items: [
+          MenuFlyoutItem(
+            text: Text(S.of(context).audioUnavailable),
+            onPressed: null,
+          ),
+          if (playlistId != null && occurrenceId != null)
+            MenuFlyoutItem(
+              text: Text(S.of(context).removeFromPlaylist),
+              onPressed: () async {
+                await removeItemFromPlaylist(playlistId, occurrenceId);
+                refreshList?.call();
+              },
+            ),
+        ],
+      ),
+    );
+    return;
+  }
   final analyzed = await ifAnalyzeExists(fileId);
 
   final playlists = await getAllPlaylists();
@@ -62,6 +85,9 @@ void openTrackItemContextMenu(
           context,
           parsedMediaFile,
           isBand,
+          playlistId: playlistId,
+          occurrenceId: occurrenceId,
+          refreshList: refreshList,
         );
       },
     );
@@ -77,7 +103,7 @@ void openTrackItemContextMenu(
       playlists,
       mixes,
       analyzed,
-      positionIndex,
+      occurrenceId,
       playlistId,
       refreshList,
     ),
@@ -90,7 +116,7 @@ Widget buildTrackItemContextMenu(
   List<Playlist> playlists,
   List<Mix> mixes,
   bool analyzed,
-  int? position,
+  String? occurrenceId,
   int? playlistId,
   void Function()? refreshList,
 ) {
@@ -106,17 +132,14 @@ Widget buildTrackItemContextMenu(
     );
   }).toList();
 
-  final List<MenuFlyoutItem> mixItems =
-      mixes.where((x) => !x.locked).map((mixes) {
+  final List<MenuFlyoutItem> mixItems = mixes.where((x) => !x.locked).map((
+    mixes,
+  ) {
     return MenuFlyoutItem(
       leading: const Icon(Symbols.magic_button),
       text: Text(mixes.name),
       onPressed: () {
-        addItemToMix(
-          mixes.id,
-          "lib::track",
-          item.file.id.toString(),
-        );
+        addItemToMix(mixes.id, "lib::track", item.file.id.toString());
 
         Flyout.of(context).close();
       },
@@ -125,6 +148,8 @@ Widget buildTrackItemContextMenu(
 
   return MenuFlyout(
     items: [
+      if (supportsOfflineSelection(context))
+        offlineSelectionMenu(context, CollectionType.track, item.file.id),
       MenuFlyoutItem(
         leading: const Icon(Symbols.play_circle),
         text: Text(S.of(context).startPlaying),
@@ -146,24 +171,23 @@ Widget buildTrackItemContextMenu(
           startRoaming(context, CollectionType.track, item.file.id, const []);
         },
       ),
-      if (playlistId != null) const MenuFlyoutSeparator(),
-      MenuFlyoutItem(
-        leading: const Icon(Symbols.delete),
-        text: Text(S.of(context).removeFromPlaylist),
-        onPressed: () async {
-          if (playlistId == null) return;
-          if (position == null) return;
-
-          try {
-            await removeItemFromPlaylist(playlistId, item.file.id, position);
-            if (refreshList != null) {
-              refreshList();
+      if (playlistId != null && occurrenceId != null)
+        const MenuFlyoutSeparator(),
+      if (playlistId != null && occurrenceId != null)
+        MenuFlyoutItem(
+          leading: const Icon(Symbols.delete),
+          text: Text(S.of(context).removeFromPlaylist),
+          onPressed: () async {
+            try {
+              await removeItemFromPlaylist(playlistId, occurrenceId);
+              if (refreshList != null) {
+                refreshList();
+              }
+            } catch (e) {
+              error$(e.toString());
             }
-          } catch (e) {
-            error$(e.toString());
-          }
-        },
-      ),
+          },
+        ),
       const MenuFlyoutSeparator(),
       if (item.artists.length == 1)
         MenuFlyoutItem(
@@ -176,25 +200,28 @@ Widget buildTrackItemContextMenu(
                 item.artists[0].id,
                 item.artists[0].name,
               ),
-            )
+            ),
           },
         ),
       if (item.artists.length > 1)
         MenuFlyoutSubItem(
-            leading: const Icon(Symbols.face),
-            text: Text(S.of(context).goToArtist),
-            items: (context) => item.artists
-                .map((x) => MenuFlyoutItem(
-                      leading: const Icon(Symbols.face),
-                      text: Text(x.name),
-                      onPressed: () => {
-                        $push(
-                          '/artists/detail',
-                          arguments: QueryTracksParameter(x.id, x.name),
-                        )
-                      },
-                    ))
-                .toList()),
+          leading: const Icon(Symbols.face),
+          text: Text(S.of(context).goToArtist),
+          items: (context) => item.artists
+              .map(
+                (x) => MenuFlyoutItem(
+                  leading: const Icon(Symbols.face),
+                  text: Text(x.name),
+                  onPressed: () => {
+                    $push(
+                      '/artists/detail',
+                      arguments: QueryTracksParameter(x.id, x.name),
+                    ),
+                  },
+                ),
+              )
+              .toList(),
+        ),
       MenuFlyoutItem(
         leading: const Icon(Symbols.album),
         text: Text(S.of(context).goToAlbum),
@@ -202,7 +229,7 @@ Widget buildTrackItemContextMenu(
           $push(
             '/albums/detail',
             arguments: QueryTracksParameter(item.album.id, item.album.name),
-          )
+          ),
         },
       ),
       const MenuFlyoutSeparator(),
@@ -228,7 +255,7 @@ Widget buildTrackItemContextMenu(
             },
           ),
           if (playlistItems.isNotEmpty) const MenuFlyoutSeparator(),
-          ...playlistItems
+          ...playlistItems,
         ],
       ),
       MenuFlyoutSubItem(
@@ -257,7 +284,7 @@ Widget buildTrackItemContextMenu(
             },
           ),
           if (mixItems.isNotEmpty) const MenuFlyoutSeparator(),
-          ...mixItems
+          ...mixItems,
         ],
       ),
     ],
@@ -267,8 +294,11 @@ Widget buildTrackItemContextMenu(
 FlyoutContent buildBandScreenTrackItemContextMenu(
   BuildContext context,
   FetchParsedMediaFileResponse item,
-  bool isBand,
-) {
+  bool isBand, {
+  int? playlistId,
+  String? occurrenceId,
+  void Function()? refreshList,
+}) {
   List<CommandBarButton> items = [
     CommandBarButton(
       icon: Tooltip(
@@ -297,6 +327,21 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         startRoaming(context, CollectionType.track, item.file.id, const []);
       },
     ),
+    if (playlistId != null && occurrenceId != null)
+      CommandBarButton(
+        icon: Tooltip(
+          message: S.of(context).removeFromPlaylist,
+          child: const Icon(Symbols.delete),
+        ),
+        onPressed: () async {
+          try {
+            await removeItemFromPlaylist(playlistId, occurrenceId);
+            refreshList?.call();
+          } catch (error) {
+            error$(error.toString());
+          }
+        },
+      ),
   ];
 
   return FlyoutContent(

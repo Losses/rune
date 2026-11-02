@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../widgets/start_screen/utils/group.dart';
@@ -17,6 +19,9 @@ class CollectionCache {
 
   CollectionCache._internal();
 
+  int _generation = 0;
+  int get generation => _generation;
+
   final _summaryCache = <CollectionType, List<Group<InternalCollection>>>{};
   final _pageCache =
       <CollectionType, Map<int, List<Group<InternalCollection>>>>{};
@@ -28,15 +33,21 @@ class CollectionCache {
   }
 
   void cachePage(
-      CollectionType type, int cursor, List<Group<InternalCollection>> data) {
+    CollectionType type,
+    int cursor,
+    List<Group<InternalCollection>> data,
+  ) {
     if (!_pageCache.containsKey(type)) {
       _pageCache[type] = {};
     }
     _pageCache[type]![cursor] = data;
   }
 
-  void cacheGroups(CollectionType type, String groupKey,
-      List<Group<InternalCollection>> data) {
+  void cacheGroups(
+    CollectionType type,
+    String groupKey,
+    List<Group<InternalCollection>> data,
+  ) {
     if (!_groupCache.containsKey(type)) {
       _groupCache[type] = {};
     }
@@ -52,17 +63,21 @@ class CollectionCache {
   }
 
   List<Group<InternalCollection>>? getGroups(
-      CollectionType type, String groupKey) {
+    CollectionType type,
+    String groupKey,
+  ) {
     return _groupCache[type]?[groupKey];
   }
 
   void clearType(CollectionType type) {
+    _generation++;
     _summaryCache.remove(type);
     _pageCache.remove(type);
     _groupCache.remove(type);
   }
 
   void clearAll() {
+    _generation++;
     _summaryCache.clear();
     _pageCache.clear();
     _groupCache.clear();
@@ -74,7 +89,23 @@ class CollectionDataProvider with ChangeNotifier {
   final CollectionType collectionType;
   final _cache = CollectionCache();
 
-  CollectionDataProvider({required this.collectionType});
+  late final StreamSubscription _contentSubscription;
+  int _generation = 0;
+  bool _disposed = false;
+
+  CollectionDataProvider({required this.collectionType}) {
+    _contentSubscription = LibraryContentChanged.rustSignalStream.listen((_) {
+      unawaited(reloadData());
+    });
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _generation++;
+    _contentSubscription.cancel();
+    super.dispose();
+  }
 
   late Future<List<Group<InternalCollection>>> summary =
       _fetchSummaryWithCache();
@@ -92,22 +123,35 @@ class CollectionDataProvider with ChangeNotifier {
       return cachedSummary;
     }
 
+    final generation = _generation;
+    final cacheGeneration = _cache.generation;
     final data = await fetchCollectionPageSummary(collectionType);
-    _cache.cacheSummary(collectionType, data);
+    if (generation == _generation &&
+        cacheGeneration == _cache.generation &&
+        !_disposed) {
+      _cache.cacheSummary(collectionType, data);
+    }
     return data;
   }
 
-  Future<(List<Group<InternalCollection>>, bool)> _fetchPage(
-    int cursor,
-  ) async {
+  Future<(List<Group<InternalCollection>>, bool)> _fetchPage(int cursor) async {
     final cachedPage = _cache.getPage(collectionType, cursor);
     if (cachedPage != null) {
       return (cachedPage, cachedPage.length < _pageSize);
     }
 
-    final (newItems, isLastPage) =
-        await fetchCollectionPagePage(collectionType, _pageSize, cursor);
-    _cache.cachePage(collectionType, cursor, newItems);
+    final generation = _generation;
+    final cacheGeneration = _cache.generation;
+    final (newItems, isLastPage) = await fetchCollectionPagePage(
+      collectionType,
+      _pageSize,
+      cursor,
+    );
+    if (generation == _generation &&
+        cacheGeneration == _cache.generation &&
+        !_disposed) {
+      _cache.cachePage(collectionType, cursor, newItems);
+    }
     return (newItems, isLastPage);
   }
 
@@ -121,8 +165,14 @@ class CollectionDataProvider with ChangeNotifier {
       return cachedGroups;
     }
 
+    final generation = _generation;
+    final cacheGeneration = _cache.generation;
     final data = await fetchCollectionPageGroups(collectionType, groupTitles);
-    _cache.cacheGroups(collectionType, groupKey, data);
+    if (generation == _generation &&
+        cacheGeneration == _cache.generation &&
+        !_disposed) {
+      _cache.cacheGroups(collectionType, groupKey, data);
+    }
     return data;
   }
 
@@ -132,10 +182,12 @@ class CollectionDataProvider with ChangeNotifier {
 
     notifyListeners();
 
+    final generation = _generation;
     final thisCursor = cursor;
     cursor += 1;
     final (newItems, newIsLastPage) = await _fetchPage(thisCursor);
 
+    if (_disposed || generation != _generation) return;
     isLoading = false;
     isLastPage = newIsLastPage;
     items.addAll(newItems);
@@ -144,12 +196,13 @@ class CollectionDataProvider with ChangeNotifier {
   }
 
   Future<void> reloadData() async {
+    _generation++;
     _cache.clearType(collectionType);
+    summary = _fetchSummaryWithCache();
     cursor = 0;
     items = [];
     notifyListeners();
     await fetchData();
-    notifyListeners();
   }
 
   static void clearAllCache() {

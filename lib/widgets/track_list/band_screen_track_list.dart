@@ -159,6 +159,7 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
               contextAttachKey: _contextAttachKey,
               contextController: _contextController,
               onMiddleClick: (_) {
+                if (!widget.item.canPlay) return;
                 executeMiddleClickAction(
                   context,
                   CollectionType.track,
@@ -166,38 +167,67 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
                 );
               },
               onContextMenu: (position) {
+                if (widget.item.audioAvailability ==
+                    AudioAvailability.importPending) {
+                  return;
+                }
                 final playlistId = getPlaylistIdFromQueryList(widget.queries);
                 openTrackItemContextMenu(
                   position,
                   context,
                   _contextAttachKey,
                   _contextController,
-                  widget.position,
+                  widget.item.playlistOccurrenceId,
                   widget.item.id,
                   playlistId,
                   () {},
                 );
               },
               child: Tile(
-                onPressed: () {
-                  safeOperatePlaybackWithMixQuery(
-                    context: context,
-                    queries: widget.queries,
-                    playbackMode: widget.mode,
-                    hintPosition: widget.index,
-                    initialPlaybackId: widget.item.id,
-                    operateMode: PlaylistOperateMode.replace,
-                    instantlyPlay: true,
-                    fallbackPlayingItems: const [],
-                  );
-                },
-                child: CoverArt(
-                  path: widget.item.coverArtPath,
-                  hint: (
-                    widget.item.album,
-                    widget.item.artist,
-                    'Total Time ${formatTime(widget.item.duration)}',
-                  ),
+                onPressed: widget.item.canPlay
+                    ? () {
+                        safeOperatePlaybackWithMixQuery(
+                          context: context,
+                          queries: widget.queries,
+                          playbackMode: widget.mode,
+                          hintPosition: widget.index,
+                          initialPlaybackId: widget.item.id,
+                          operateMode: PlaylistOperateMode.replace,
+                          instantlyPlay: true,
+                          fallbackPlayingItems: const [],
+                        );
+                      }
+                    : null,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CoverArt(
+                      path: widget.item.coverArtPath,
+                      hint: (
+                        widget.item.album,
+                        widget.item.artistWithAvailability(context),
+                        'Total Time ${formatTime(widget.item.duration)}',
+                      ),
+                    ),
+                    if (widget.item.availabilityLabel(context)
+                        case final label?)
+                      Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          color: Colors.black.withValues(alpha: 0.75),
+                          width: double.infinity,
+                          child: Text(
+                            label,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),

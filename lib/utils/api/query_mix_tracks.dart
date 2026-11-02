@@ -28,6 +28,7 @@ Future<List<InternalMediaFile>> queryMixTracks(
           duration: x.duration,
           coverArtPath: response.coverArtMap[x.id] ?? '',
           trackNumber: x.trackNumber,
+          audioAvailability: x.audioAvailability,
         ),
       )
       .toList();

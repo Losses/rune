@@ -1,12 +1,25 @@
 import '../../bindings/bindings.dart';
 
-Future<List<(String, String)>> fetchMixQueriesByMixId(int mixId) async {
-  final fetchMediaFiles = FetchMixQueriesRequest(mixId: mixId);
-  fetchMediaFiles.sendSignalToRust(); // GENERATED
+class UnavailableMixSelection implements Exception {
+  const UnavailableMixSelection();
 
-  // Listen for the response from Rust
-  final rustSignal = await FetchMixQueriesResponse.rustSignalStream.first;
-  final queries = rustSignal.message.result;
-
-  return queries.map((x) => (x.operator, x.parameter)).toList();
+  @override
+  String toString() =>
+      'Some selections in this mix are not available on this device.';
 }
+
+List<(String, String)> executableMixQueries(List<StoredMixQuery> queries) {
+  if (queries.any((query) => !query.available)) {
+    throw const UnavailableMixSelection();
+  }
+  return queries.map((query) => (query.operator, query.parameter)).toList();
+}
+
+Future<List<StoredMixQuery>> fetchStoredMixQueriesByMixId(int mixId) async {
+  final response = FetchMixQueriesResponse.rustSignalStream.first;
+  FetchMixQueriesRequest(mixId: mixId).sendSignalToRust();
+  return (await response).message.result;
+}
+
+Future<List<(String, String)>> fetchMixQueriesByMixId(int mixId) async =>
+    executableMixQueries(await fetchStoredMixQueriesByMixId(mixId));

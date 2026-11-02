@@ -8,10 +8,7 @@ Future<List<InternalMediaFile>> fetchMediaFileByIds(
   List<int> ids,
   bool bakeCoverArts,
 ) async {
-  final request = FetchMediaFileByIdsRequest(
-    ids: ids,
-    bakeCoverArts: true,
-  );
+  final request = FetchMediaFileByIdsRequest(ids: ids, bakeCoverArts: true);
   request.sendSignalToRust(); // GENERATED
 
   final response =
@@ -28,6 +25,7 @@ Future<List<InternalMediaFile>> fetchMediaFileByIds(
           duration: x.duration,
           coverArtPath: response.coverArtMap[x.id] ?? '',
           trackNumber: x.trackNumber,
+          audioAvailability: x.audioAvailability,
         ),
       )
       .toList();

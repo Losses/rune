@@ -65,7 +65,7 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
   }
 
   void onPressed() async {
-    if (!context.mounted) return;
+    if (!context.mounted || !widget.item.canPlay) return;
 
     await safeOperatePlaybackWithMixQuery(
       context: context,
@@ -75,8 +75,9 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
       initialPlaybackId: widget.item.id,
       operateMode: PlaylistOperateMode.replace,
       instantlyPlay: true,
-      fallbackPlayingItems:
-          widget.fallbackFileIds.map(PlayingItem.inLibrary).toList(),
+      fallbackPlayingItems: widget.fallbackFileIds
+          .map(PlayingItem.inLibrary)
+          .toList(),
     );
   }
 
@@ -95,33 +96,31 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
       contextAttachKey: _contextAttachKey,
       contextController: _contextController,
       onMiddleClick: (_) {
-        executeMiddleClickAction(
-          context,
-          CollectionType.track,
-          widget.item.id,
-        );
+        if (!widget.item.canPlay) return;
+        executeMiddleClickAction(context, CollectionType.track, widget.item.id);
       },
       onContextMenu: (position) {
+        if (widget.item.audioAvailability == AudioAvailability.importPending) {
+          return;
+        }
         final playlistId = getPlaylistIdFromQueryList(widget.queries);
         openTrackItemContextMenu(
           position,
           context,
           _contextAttachKey,
           _contextController,
-          widget.position,
+          widget.item.playlistOccurrenceId,
           widget.item.id,
           playlistId,
           widget.reloadData,
         );
       },
       child: GestureDetector(
-        onTap: onPressed,
+        onTap: widget.item.canPlay ? onPressed : null,
         child: FocusableActionDetector(
           onShowFocusHighlight: _handleFocusHighlight,
           onShowHoverHighlight: _handleHoverHighlight,
-          actions: {
-            ActivateIntent: ActivateLinkAction(context, onPressed),
-          },
+          actions: {ActivateIntent: ActivateLinkAction(context, onPressed)},
           child: TweenAnimationBuilder<double>(
             duration: theme.fastAnimationDuration,
             tween: Tween<double>(begin: 0, end: _isFocused ? 1 : 0),
@@ -145,17 +144,19 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
               return TweenAnimationBuilder<double>(
                 duration: theme.fastAnimationDuration,
                 tween: Tween<double>(
-                    begin: 0, end: _isHovered || _isFocused ? 1 : 0),
+                  begin: 0,
+                  end: _isHovered || _isFocused ? 1 : 0,
+                ),
                 builder: (context, hoverValue, child) {
                   final titleAlpha = lerpDouble(204, 255, hoverValue)!.toInt();
-                  final subtitleAlpha =
-                      lerpDouble(94, 117, hoverValue)!.toInt();
+                  final subtitleAlpha = lerpDouble(
+                    94,
+                    117,
+                    hoverValue,
+                  )!.toInt();
 
                   final List<Shadow> textShadows = [
-                    Shadow(
-                      color: shadowColor,
-                      blurRadius: focusValue * 8,
-                    ),
+                    Shadow(color: shadowColor, blurRadius: focusValue * 8),
                   ];
 
                   return Padding(
@@ -174,8 +175,9 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: theme.accentColor
-                                    .withValues(alpha: 0.5 * focusValue),
+                                color: theme.accentColor.withValues(
+                                  alpha: 0.5 * focusValue,
+                                ),
                                 blurRadius: focusValue * 4,
                                 spreadRadius: focusValue * 2,
                               ),
@@ -190,7 +192,7 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
                                 hint: (
                                   widget.item.album,
                                   widget.item.artist,
-                                  'Total Time ${formatTime(widget.item.duration)}'
+                                  'Total Time ${formatTime(widget.item.duration)}',
                                 ),
                               ),
                             ),
@@ -213,10 +215,11 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
                                 ),
                                 const SizedBox(height: 1),
                                 Text(
-                                  widget.item.artist,
+                                  widget.item.artistWithAvailability(context),
                                   style: typography.caption?.apply(
-                                    color:
-                                        contentColor.withAlpha(subtitleAlpha),
+                                    color: contentColor.withAlpha(
+                                      subtitleAlpha,
+                                    ),
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),

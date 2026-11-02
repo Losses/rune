@@ -1412,5 +1412,40 @@
   "interfaceScaleSaveError": "Could not save interface scale",
   "@interfaceScale": {"description": "Title of the application interface scale setting."},
   "@interfaceScaleSubtitle": {"description": "Explains interface scaling relative to system scaling."},
-  "@interfaceScaleSaveError": {"description": "Error title when saving interface scale fails."}
+  "@interfaceScaleSaveError": {"description": "Error title when saving interface scale fails."},
+  "offlineAvailability": "Offline availability",
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "Keep available offline",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
+  "stopKeepingOffline": "Stop keeping offline",
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
+  "offlineSelectionSaved": "Offline selection saved",
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
+  "offlineSelectionRemoved": "Automatic downloads stopped",
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
+  "offlineSelectionFailed": "Could not save offline selection",
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "Matching tracks will download when a paired device is available. You can stream them while it is online.",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
+  "offlineSelectionRetained": "Existing local files are kept.",
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
+  "audioRemoteReference": "Remote audio (connection unknown)",
+  "audioUnavailable": "Audio unavailable",
+  "audioImportPending": "Import in progress"
 }

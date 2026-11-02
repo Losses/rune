@@ -31,10 +31,11 @@ import 'search_chip_input_section.dart';
 
 class MixEditor extends StatefulWidget {
   final MixEditorController? controller;
+
   /// Optional suggestion data sources for isolated editor tests.
   @visibleForTesting
   final Future<List<AutoSuggestBoxItem<int>>> Function(CollectionType)?
-      initialSuggestions;
+  initialSuggestions;
   @visibleForTesting
   final Future<List<String>> Function()? groupSuggestions;
   const MixEditor({
@@ -96,76 +97,69 @@ class _MixEditorState extends State<MixEditor> {
               EditableComboBoxSection(
                 controller: _controller.groupController,
                 title: S.of(context).group,
-                getItems: widget.groupSuggestions ??
+                getItems:
+                    widget.groupSuggestions ??
                     () => fetchCollectionGroupSummaryTitle(CollectionType.mix),
               ),
               SearchChipInputSection(
                 controller: _controller.artistsController,
                 title: S.of(context).artists,
-                getInitResult: () => (widget.initialSuggestions ?? getInitResult)(
-                  CollectionType.artist,
-                ),
-                searchForItems: (query) => _searchItems(
-                  query,
-                  'artists',
-                  (x) async {
-                    return (await fetchCollectionByIds(
-                            CollectionType.artist, x))
-                        .map((x) => (x.id, x.name))
-                        .toList();
-                  },
-                ),
+                getInitResult: () =>
+                    (widget.initialSuggestions ?? getInitResult)(
+                      CollectionType.artist,
+                    ),
+                searchForItems: (query) =>
+                    _searchItems(query, 'artists', (x) async {
+                      return (await fetchCollectionByIds(
+                        CollectionType.artist,
+                        x,
+                      )).map((x) => (x.id, x.name)).toList();
+                    }),
               ),
               SearchChipInputSection(
                 controller: _controller.albumsController,
                 title: S.of(context).albums,
-                getInitResult: () => (widget.initialSuggestions ?? getInitResult)(
-                  CollectionType.album,
-                ),
-                searchForItems: (query) => _searchItems(
-                  query,
-                  'albums',
-                  (x) async {
-                    return (await fetchCollectionByIds(CollectionType.album, x))
-                        .map((x) => (x.id, x.name))
-                        .toList();
-                  },
-                ),
+                getInitResult: () =>
+                    (widget.initialSuggestions ?? getInitResult)(
+                      CollectionType.album,
+                    ),
+                searchForItems: (query) =>
+                    _searchItems(query, 'albums', (x) async {
+                      return (await fetchCollectionByIds(
+                        CollectionType.album,
+                        x,
+                      )).map((x) => (x.id, x.name)).toList();
+                    }),
               ),
               SearchChipInputSection(
                 controller: _controller.genresController,
                 title: S.of(context).genres,
-                getInitResult: () => (widget.initialSuggestions ?? getInitResult)(
-                  CollectionType.genre,
-                ),
-                searchForItems: (query) => _searchItems(
-                  query,
-                  'genres',
-                  (x) async {
-                    return (await fetchCollectionByIds(CollectionType.genre, x))
-                        .map((x) => (x.id, x.name))
-                        .toList();
-                  },
-                ),
+                getInitResult: () =>
+                    (widget.initialSuggestions ?? getInitResult)(
+                      CollectionType.genre,
+                    ),
+                searchForItems: (query) =>
+                    _searchItems(query, 'genres', (x) async {
+                      return (await fetchCollectionByIds(
+                        CollectionType.genre,
+                        x,
+                      )).map((x) => (x.id, x.name)).toList();
+                    }),
               ),
               SearchChipInputSection(
                 controller: _controller.playlistsController,
                 title: S.of(context).playlists,
-                getInitResult: () => (widget.initialSuggestions ?? getInitResult)(
-                  CollectionType.playlist,
-                ),
-                searchForItems: (query) => _searchItems(
-                  query,
-                  'playlists',
-                  (x) async {
-                    return (await fetchCollectionByIds(
+                getInitResult: () =>
+                    (widget.initialSuggestions ?? getInitResult)(
                       CollectionType.playlist,
-                      x,
-                    ))
-                        .map((x) => (x.id, x.name))
-                        .toList();
-                  },
-                ),
+                    ),
+                searchForItems: (query) =>
+                    _searchItems(query, 'playlists', (x) async {
+                      return (await fetchCollectionByIds(
+                        CollectionType.playlist,
+                        x,
+                      )).map((x) => (x.id, x.name)).toList();
+                    }),
               ),
               SearchChipInputSection(
                 controller: _controller.tracksController,
@@ -174,20 +168,25 @@ class _MixEditorState extends State<MixEditor> {
                   if (widget.initialSuggestions != null) {
                     return widget.initialSuggestions!(CollectionType.track);
                   }
-                  return (await fetchTrackSummary())
-                      .map((x) =>
-                          AutoSuggestBoxItem<int>(value: x.$1, label: x.$2))
+                  return (await fetchTrackSummary(context))
+                      .map(
+                        (x) =>
+                            AutoSuggestBoxItem<int>(value: x.$1, label: x.$2),
+                      )
                       .toList();
                 },
-                searchForItems: (query) => _searchItems(
-                  query,
-                  'tracks',
-                  (x) async {
-                    return (await fetchMediaFileByIds(x, false))
-                        .map((x) => (x.id, x.title))
-                        .toList();
-                  },
-                ),
+                searchForItems: (query) =>
+                    _searchItems(query, 'tracks', (x) async {
+                      final files = await fetchMediaFileByIds(x, false);
+                      if (!context.mounted) return <(int, String)>[];
+                      return files.map((x) {
+                        final label = x.availabilityLabel(context);
+                        return (
+                          x.id,
+                          label == null ? x.title : '${x.title} • $label',
+                        );
+                      }).toList();
+                    }),
               ),
               NumberSection(
                 controller: _controller.randomTrackController,
@@ -288,9 +287,10 @@ Future<List<AutoSuggestBoxItem<int>>> getInitResult(
 }
 
 Future<List<AutoSuggestBoxItem<int>>> _searchItems<T>(
-    String query,
-    String field,
-    Future<List<(int, String)>> Function(List<int>) fetchByIds) async {
+  String query,
+  String field,
+  Future<List<(int, String)>> Function(List<int>) fetchByIds,
+) async {
   final ids = (await searchFor(query, field))[field];
 
   if (ids == null) return [];

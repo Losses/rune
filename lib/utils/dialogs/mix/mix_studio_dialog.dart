@@ -31,11 +31,7 @@ class MixStudioDialog extends StatefulWidget {
   final int? mixId;
   final void Function(Mix?) $close;
 
-  const MixStudioDialog({
-    super.key,
-    required this.mixId,
-    required this.$close,
-  });
+  const MixStudioDialog({super.key, required this.mixId, required this.$close});
 
   @override
   State<MixStudioDialog> createState() => _MixStudioDialog();
@@ -74,6 +70,7 @@ class _MixStudioDialogImplementationState
   final _editorKey = GlobalKey();
 
   bool isLoading = false;
+  Object? _loadError;
   String _query = '';
   int _cursor = 0;
   bool _isLoadingMore = false;
@@ -164,7 +161,11 @@ class _MixStudioDialogImplementationState
 
     try {
       final query = mixEditorDataToQuery(_controller.getData());
-      final newTracks = await queryMixTracks(QueryList(query), _cursor, _pageSize);
+      final newTracks = await queryMixTracks(
+        QueryList(query),
+        _cursor,
+        _pageSize,
+      );
 
       setState(() {
         _allTracks.addAll(newTracks);
@@ -181,17 +182,22 @@ class _MixStudioDialogImplementationState
   }
 
   Future<void> loadMix(int mixId) async {
-    final mix = await getMixById(mixId);
-    final queries = await fetchMixQueriesByMixId(mixId);
-
-    final queryData = await queryToMixEditorData(mix.name, mix.group, queries);
-
-    _controller.setData(queryData);
-
-    // Load initial tracks after setting the controller data
-    await _resetAndLoadTracks();
-
-    setState(() {});
+    setState(() {
+      isLoading = true;
+      _loadError = null;
+    });
+    try {
+      final mix = await getMixById(mixId);
+      final queries = await fetchMixQueriesByMixId(mixId);
+      final data = await queryToMixEditorData(mix.name, mix.group, queries);
+      if (!mounted) return;
+      _controller.setData(data);
+      await _resetAndLoadTracks();
+    } catch (error) {
+      if (mounted) setState(() => _loadError = error);
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
   }
 
   @override
@@ -218,9 +224,7 @@ class _MixStudioDialogImplementationState
         _controller.titleController.text,
         _controller.groupController.text,
         false,
-        int.parse(
-          _controller.modeController.selectedValue ?? '99',
-        ),
+        int.parse(_controller.modeController.selectedValue ?? '99'),
         queries,
       );
     } else {
@@ -228,9 +232,7 @@ class _MixStudioDialogImplementationState
         _controller.titleController.text,
         _controller.groupController.text,
         false,
-        int.parse(
-          _controller.modeController.selectedValue ?? '99',
-        ),
+        int.parse(_controller.modeController.selectedValue ?? '99'),
         queries,
       );
     }
@@ -252,11 +254,14 @@ class _MixStudioDialogImplementationState
     final smallerThanTablet = r.smallerOrEqualTo(DeviceType.tablet);
     final smallerThanZune = r.smallerOrEqualTo(DeviceType.zune);
 
-    final editorHeight = (height.clamp(dialogMinimumViewportHeight, double.infinity) - reduce)
-        .clamp(120.0, double.infinity);
+    final editorHeight =
+        (height.clamp(dialogMinimumViewportHeight, double.infinity) - reduce)
+            .clamp(120.0, double.infinity);
     final editor = SizedBox(
       height: editorHeight,
-      child: MixEditor(key: _editorKey, controller: _controller),
+      child: _loadError == null
+          ? MixEditor(key: _editorKey, controller: _controller)
+          : Center(child: Text(_loadError.toString())),
     );
 
     return UnavailableDialogOnBand(
@@ -280,82 +285,79 @@ class _MixStudioDialogImplementationState
             ],
           ),
           content: Container(
-            constraints: BoxConstraints(
-              maxHeight: editorHeight,
-            ),
+            constraints: BoxConstraints(maxHeight: editorHeight),
             child: smallerThanTablet
                 ? editor
                 : Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(
-                        width: 380,
-                        child: editor,
-                      ),
+                      SizedBox(width: 380, child: editor),
                       const SizedBox(width: 6),
                       Expanded(
                         child: SizedBox(
                           height: editorHeight,
-                          child: ChangeNotifierProvider<
-                              StartScreenLayoutManager>.value(
-                            value: _layoutManager,
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                const double gapSize = 8;
-                                const double cellSize = 200;
+                          child:
+                              ChangeNotifierProvider<
+                                StartScreenLayoutManager
+                              >.value(
+                                value: _layoutManager,
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    const double gapSize = 8;
+                                    const double cellSize = 200;
 
-                                const ratio = 4 / 1;
+                                    const ratio = 4 / 1;
 
-                                final int rows = (constraints.maxWidth /
-                                        (cellSize + gapSize))
-                                    .floor();
+                                    final int rows =
+                                        (constraints.maxWidth /
+                                                (cellSize + gapSize))
+                                            .floor();
 
-                                final trackIds = _allTracks
-                                    .map((x) => x.id)
-                                    .toList();
+                                    final trackIds = _allTracks
+                                        .map((x) => x.id)
+                                        .toList();
 
-                                return GridView(
-                                  controller: _scrollController,
-                                  gridDelegate:
-                                      SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: rows,
-                                    mainAxisSpacing: gapSize,
-                                    crossAxisSpacing: gapSize,
-                                    childAspectRatio: ratio,
-                                  ),
-                                  children: _allTracks
-                                      .map(
-                                        (a) => TrackSearchItem(
-                                          index: 0,
-                                          item: a,
-                                          fallbackFileIds: trackIds,
-                                        ),
-                                      )
-                                      .toList()
-                                      .asMap()
-                                      .entries
-                                      .map(
-                                    (x) {
-                                      final index = x.key;
-                                      final int row = index % rows;
-                                      final int column = index ~/ rows;
+                                    return GridView(
+                                      controller: _scrollController,
+                                      gridDelegate:
+                                          SliverGridDelegateWithFixedCrossAxisCount(
+                                            crossAxisCount: rows,
+                                            mainAxisSpacing: gapSize,
+                                            crossAxisSpacing: gapSize,
+                                            childAspectRatio: ratio,
+                                          ),
+                                      children: _allTracks
+                                          .map(
+                                            (a) => TrackSearchItem(
+                                              index: 0,
+                                              item: a,
+                                              fallbackFileIds: trackIds,
+                                            ),
+                                          )
+                                          .toList()
+                                          .asMap()
+                                          .entries
+                                          .map((x) {
+                                            final index = x.key;
+                                            final int row = index % rows;
+                                            final int column = index ~/ rows;
 
-                                      return ManagedStartScreenItem(
-                                        key: Key('$row:$column'),
-                                        prefix: _query,
-                                        groupId: 0,
-                                        row: row,
-                                        column: column,
-                                        width: cellSize / ratio,
-                                        height: cellSize,
-                                        child: x.value,
-                                      );
-                                    },
-                                  ).toList(),
-                                );
-                              },
-                            ),
-                          ),
+                                            return ManagedStartScreenItem(
+                                              key: Key('$row:$column'),
+                                              prefix: _query,
+                                              groupId: 0,
+                                              row: row,
+                                              column: column,
+                                              width: cellSize / ratio,
+                                              height: cellSize,
+                                              child: x.value,
+                                            );
+                                          })
+                                          .toList(),
+                                    );
+                                  },
+                                ),
+                              ),
                         ),
                       ),
                     ],
@@ -364,7 +366,9 @@ class _MixStudioDialogImplementationState
           actions: [
             ResponsiveDialogActions(
               FilledButton(
-                onPressed: isLoading ? null : () => saveMix(context),
+                onPressed: isLoading || _loadError != null
+                    ? null
+                    : () => saveMix(context),
                 child: Text(
                   widget.mixId != null
                       ? S.of(context).save

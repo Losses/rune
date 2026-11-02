@@ -1,5 +1,12 @@
-import '../utils/context_menu/collection_item_context_menu.dart';
 import '../bindings/bindings.dart';
+
+const Map<CollectionType, String> typeToOperator = {
+  CollectionType.album: "lib::album",
+  CollectionType.artist: "lib::artist",
+  CollectionType.playlist: "lib::playlist",
+  CollectionType.track: "lib::track",
+  CollectionType.genre: "lib::genre",
+};
 
 List<(String, String)> buildCollectionQuery(
   CollectionType collectionType,

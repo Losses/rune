@@ -20,8 +20,15 @@ class CollectionPage extends StatefulWidget {
 }
 
 class _CollectionPageState extends State<CollectionPage> {
-  late CollectionDataProvider collectionData =
-      CollectionDataProvider(collectionType: widget.collectionType);
+  late CollectionDataProvider collectionData = CollectionDataProvider(
+    collectionType: widget.collectionType,
+  );
+
+  @override
+  void dispose() {
+    collectionData.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,13 +41,11 @@ class _CollectionPageState extends State<CollectionPage> {
             DeviceType.belt,
             DeviceType.dock,
             DeviceType.zune,
-            DeviceType.tv
+            DeviceType.tv,
           ],
           builder: (context, activeBreakpoint) {
             if (activeBreakpoint == DeviceType.belt) {
-              return const BeltContainer(
-                child: BandScreen(),
-              );
+              return const BeltContainer(child: BandScreen());
             }
 
             if (activeBreakpoint == DeviceType.dock ||

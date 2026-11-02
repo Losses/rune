@@ -1,7 +1,10 @@
 import '../../bindings/bindings.dart';
 
-Future<void> addItemToPlaylist(int playlistId, int itemId,
-    [int? position]) async {
+Future<String> addItemToPlaylist(
+  int playlistId,
+  int itemId, [
+  int? position,
+]) async {
   final request = AddItemToPlaylistRequest(
     playlistId: playlistId,
     mediaFileId: itemId,
@@ -9,5 +12,8 @@ Future<void> addItemToPlaylist(int playlistId, int itemId,
   );
   request.sendSignalToRust(); // GENERATED
 
-  await AddItemToPlaylistResponse.rustSignalStream.first;
+  final response =
+      (await AddItemToPlaylistResponse.rustSignalStream.first).message;
+  if (!response.success) throw StateError('Playlist insertion failed');
+  return response.occurrenceId;
 }

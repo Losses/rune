@@ -19,19 +19,13 @@ import '../../providers/responsive_providers.dart';
 import '../../utils/l10n.dart';
 
 import '../build_query.dart';
+import '../build_collection_query.dart';
 import '../execute_middle_click_action.dart';
 import '../dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
 
 import '../router/router_aware_flyout_controller.dart';
 import 'utils/build_m3u8.dart';
-
-final Map<CollectionType, String> typeToOperator = {
-  CollectionType.album: "lib::album",
-  CollectionType.artist: "lib::artist",
-  CollectionType.playlist: "lib::playlist",
-  CollectionType.track: "lib::track",
-  CollectionType.genre: "lib::genre",
-};
+import 'offline_selection.dart';
 
 final Map<
   CollectionType,
@@ -187,6 +181,8 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
   }).toList();
 
   List<MenuFlyoutItemBase> items = [
+    if (supportsOfflineSelection(context))
+      offlineSelectionMenu(context, type, id),
     MenuFlyoutItem(
       leading: const Icon(Symbols.play_circle),
       text: Text(S.of(context).startPlaying),

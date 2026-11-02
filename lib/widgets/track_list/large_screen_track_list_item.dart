@@ -58,29 +58,31 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
   @override
   Widget build(BuildContext context) {
     final Typography typography = FluentTheme.of(context).typography;
-    final int? trackNumber =
-        widget.item.trackNumber == 0 ? null : widget.item.trackNumber;
-    final int? diskNumber =
-        trackNumber == null ? trackNumber : trackNumber ~/ 1000;
+    final int? trackNumber = widget.item.trackNumber == 0
+        ? null
+        : widget.item.trackNumber;
+    final int? diskNumber = trackNumber == null
+        ? trackNumber
+        : trackNumber ~/ 1000;
 
     return ContextMenuWrapper(
       contextAttachKey: _contextAttachKey,
       contextController: _contextController,
       onMiddleClick: (_) {
-        executeMiddleClickAction(
-          context,
-          CollectionType.track,
-          widget.item.id,
-        );
+        if (!widget.item.canPlay) return;
+        executeMiddleClickAction(context, CollectionType.track, widget.item.id);
       },
       onContextMenu: (position) {
+        if (widget.item.audioAvailability == AudioAvailability.importPending) {
+          return;
+        }
         final playlistId = getPlaylistIdFromQueryList(widget.queries);
         openTrackItemContextMenu(
           position,
           context,
           _contextAttachKey,
           _contextController,
-          widget.position,
+          widget.item.playlistOccurrenceId,
           widget.item.id,
           playlistId,
           widget.reloadData,
@@ -90,21 +92,24 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
         style: const ButtonStyle(
           padding: WidgetStatePropertyAll(EdgeInsets.all(0)),
         ),
-        onPressed: () async {
-          if (context.mounted) {
-            await safeOperatePlaybackWithMixQuery(
-              context: context,
-              queries: widget.queries,
-              playbackMode: widget.mode,
-              hintPosition: widget.index,
-              initialPlaybackId: widget.item.id,
-              operateMode: PlaylistOperateMode.replace,
-              instantlyPlay: true,
-              fallbackPlayingItems:
-                  widget.fallbackFileIds.map(PlayingItem.inLibrary).toList(),
-            );
-          }
-        },
+        onPressed: widget.item.canPlay
+            ? () async {
+                if (context.mounted) {
+                  await safeOperatePlaybackWithMixQuery(
+                    context: context,
+                    queries: widget.queries,
+                    playbackMode: widget.mode,
+                    hintPosition: widget.index,
+                    initialPlaybackId: widget.item.id,
+                    operateMode: PlaylistOperateMode.replace,
+                    instantlyPlay: true,
+                    fallbackPlayingItems: widget.fallbackFileIds
+                        .map(PlayingItem.inLibrary)
+                        .toList(),
+                  );
+                }
+              }
+            : null,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(3),
           child: LayoutBuilder(
@@ -123,7 +128,7 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
                           hint: (
                             widget.item.album,
                             widget.item.artist,
-                            'Total Time ${formatTime(widget.item.duration)}'
+                            'Total Time ${formatTime(widget.item.duration)}',
                           ),
                         ),
                   Expanded(
@@ -139,7 +144,7 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            widget.item.artist,
+                            widget.item.artistWithAvailability(context),
                             style: typography.caption?.apply(
                               color: typography.caption?.color?.withAlpha(117),
                             ),
