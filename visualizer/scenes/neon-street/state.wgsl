@@ -17,9 +17,6 @@ struct State {
   // Gliding: speed and where it heads.
   vel: f32,
   vtarget: f32,
-  // The accents that shake the camera, and the shake itself.
-  accent: f32,
-  shake: f32,
   // When the music last had a hit that was heard (scene time), and the gap before it: the big
   // screen's ring starts from it.
   ring_time: f32,
