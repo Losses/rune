@@ -48,7 +48,16 @@ pub async fn descriptor_on<M: SyncModel>(
     id: Uuid,
     now_ms: i64,
 ) -> Result<(causal_leases::Lease, SnapshotDescriptor<M>)> {
-    let lease = causal_leases::ready_on(tx, namespace, id, now_ms).await?;
+    let lease = causal_leases::load_on(tx, namespace, id)
+        .await?
+        .ok_or(protocol::SyncError::SnapshotExpired)?;
+    if lease.status != 1
+        || lease.expires_at_ms <= now_ms
+        || lease.descriptor.is_none()
+        || lease.retained_root.is_none()
+    {
+        return Err(protocol::SyncError::SnapshotExpired.into());
+    }
     let descriptor: SnapshotDescriptor<M> = serde_json::from_slice(
         lease
             .descriptor

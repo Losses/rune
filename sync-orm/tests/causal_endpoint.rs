@@ -1445,3 +1445,349 @@ async fn sql_promotion_chunks_resume_and_are_idempotent() -> Result<()> {
     assert_eq!(snapshot.contexts, remote.contexts);
     Ok(())
 }
+
+async fn merge_sql_root(
+    source: &CausalEndpoint<Notes>,
+    target: &CausalEndpoint<Notes>,
+    session: Uuid,
+    remote: &p::SnapshotDescriptor<Notes>,
+) -> Result<()> {
+    let range = remote.roots[0].range.clone();
+    let mut after = None;
+    loop {
+        let page = p::SnapshotSource::leaf(
+            source,
+            remote.snapshot_id,
+            range.clone(),
+            after,
+            session_limits().pages,
+        )
+        .await?;
+        target.stage_leaf_page(session, page.clone()).await?;
+        if page.done {
+            break;
+        }
+        after = page.next;
+    }
+    target
+        .commit_complete_range(session, range, limits())
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn sql_live_writes_and_journal_arrivals_survive_promotion() -> Result<()> {
+    let ns = Uuid::new_v4();
+    let (_, a, _) = setup(ns).await?;
+    let (_, b, _) = setup(ns).await?;
+    let key = |id| p::ObjectKey {
+        collection: 1,
+        id: Uuid::from_u128(id),
+    };
+    a.write_local(key(42), Some(Note("original".into())))
+        .await?;
+    a.write_local(key(43), Some(Note("remove".into()))).await?;
+    synchronize(&a, &b).await?;
+    let remote = open_sql(&a).await?;
+    let local = open_sql(&b).await?;
+    let session = b
+        .begin_reconciliation(Uuid::new_v4(), remote.clone(), local)
+        .await?;
+    stage_sql_contexts(&a, &b, session, &remote).await?;
+    merge_sql_root(&a, &b, session, &remote).await?;
+    b.write_local(key(44), Some(Note("local new".into())))
+        .await?;
+    b.write_local(key(42), Some(Note("local update".into())))
+        .await?;
+    a.write_local(key(45), Some(Note("source new".into())))
+        .await?;
+    a.write_local(key(43), None).await?;
+    synchronize(&a, &b).await?;
+    while !b.promote_step(session, limits()).await?.done {}
+    assert!(matches!(
+        b.complete_reconciliation(session).await,
+        Err(p::SyncError::RetryAt(_))
+    ));
+    for (id, value) in [
+        (42, Some("local update")),
+        (43, None),
+        (44, Some("local new")),
+        (45, Some("source new")),
+    ] {
+        assert_eq!(
+            b.get(&key(id)).await?.and_then(|r| r.value).map(|v| v.0),
+            value.map(str::to_owned)
+        );
+    }
+    synchronize(&b, &a).await?;
+    let heads = (a.head().await?, b.head().await?);
+    synchronize(&a, &b).await?;
+    synchronize(&b, &a).await?;
+    assert_eq!((a.head().await?, b.head().await?), heads);
+    Ok(())
+}
+
+async fn causal_rows(db: &sea_orm::DatabaseConnection, table: &str) -> Result<Vec<Vec<String>>> {
+    let (columns, binary, nullable): (&[&str], &[usize], &[usize]) = match table {
+        "sync_observed" => (
+            &[
+                "namespace",
+                "collection",
+                "writer",
+                "first",
+                "last",
+                "added_seq",
+                "removed_seq",
+            ],
+            &[0, 1, 2],
+            &[6],
+        ),
+        "sync_candidates" => (
+            &[
+                "namespace",
+                "collection",
+                "writer",
+                "counter",
+                "object",
+                "author",
+                "revision",
+                "body",
+                "digest",
+                "retention_seq",
+                "live_from",
+                "live_until",
+            ],
+            &[0, 1, 2, 4, 5, 7, 8],
+            &[10, 11],
+        ),
+        _ => anyhow::bail!("unexpected table"),
+    };
+    let rows = db
+        .query_all(
+            &Query::select()
+                .columns(columns.iter().map(|name| Alias::new(*name)))
+                .from(Alias::new(table))
+                .to_owned(),
+        )
+        .await?;
+    let mut values = Vec::new();
+    for row in rows {
+        let mut fields = Vec::new();
+        for index in 0..columns.len() {
+            fields.push(if binary.contains(&index) {
+                format!("{:?}", row.try_get_by_index::<Vec<u8>>(index)?)
+            } else if nullable.contains(&index) {
+                format!("{:?}", row.try_get_by_index::<Option<i64>>(index)?)
+            } else {
+                format!("{:?}", row.try_get_by_index::<i64>(index)?)
+            });
+        }
+        values.push(fields);
+    }
+    values.sort();
+    Ok(values)
+}
+
+#[tokio::test]
+async fn sql_promotion_failure_rolls_back_and_reopens() -> Result<()> {
+    let ns = Uuid::new_v4();
+    let (_, a, _) = setup(ns).await?;
+    let (db, b, projection) = setup(ns).await?;
+    let (_, stale, _) = setup(ns).await?;
+    let keys: Vec<_> = (1..=8)
+        .map(|id| p::ObjectKey {
+            collection: 1,
+            id: Uuid::from_u128(id),
+        })
+        .collect();
+    for key in &keys {
+        a.write_local(key.clone(), Some(Note("old".into()))).await?;
+    }
+    synchronize(&a, &stale).await?;
+    for key in &keys {
+        a.write_local(key.clone(), None).await?;
+    }
+    let remote = open_sql(&a).await?;
+    let local = open_sql(&b).await?;
+    let session = b
+        .begin_reconciliation(Uuid::new_v4(), remote.clone(), local)
+        .await?;
+    stage_sql_contexts(&a, &b, session, &remote).await?;
+    b.accept_equal_range(session, remote.roots[0].clone())
+        .await?;
+    let mut apply = limits();
+    apply.max_mutations = 400;
+    let first = b.promote_step(session, apply).await?;
+    assert!(!first.done);
+    synchronize(&stale, &b).await?;
+    let head = b.head().await?;
+    let observed = causal_rows(&db, "sync_observed").await?;
+    let candidates = causal_rows(&db, "sync_candidates").await?;
+    projection.fail.store(true, Ordering::SeqCst);
+    let failure = b.promote_step(session, apply).await.unwrap_err();
+    assert!(
+        matches!(failure, p::SyncError::Storage(ref message) if message.contains("injected projection failure"))
+    );
+    assert_eq!(b.head().await?, head);
+    assert_eq!(causal_rows(&db, "sync_observed").await?, observed);
+    assert_eq!(causal_rows(&db, "sync_candidates").await?, candidates);
+    let author = b.store().author();
+    drop(b);
+    projection.fail.store(false, Ordering::SeqCst);
+    let b = CausalEndpoint::with_projection(CausalReplica::open(db, ns, author).await?, projection);
+    let fresh = open_sql(&a).await?;
+    let local = open_sql(&b).await?;
+    let session = b
+        .begin_reconciliation(Uuid::new_v4(), fresh.clone(), local)
+        .await?;
+    stage_sql_contexts(&a, &b, session, &fresh).await?;
+    merge_sql_root(&a, &b, session, &fresh).await?;
+    while !b.promote_step(session, apply).await?.done {}
+    assert_eq!(b.complete_reconciliation(session).await?, fresh.head);
+    for key in &keys {
+        assert_eq!(
+            a.get(key).await?.and_then(|r| r.value),
+            b.get(key).await?.and_then(|r| r.value)
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn expired_sql_snapshot_recovers_after_partial_reconciliation() -> Result<()> {
+    let ns = Uuid::new_v4();
+    let (db, source, _) = setup(ns).await?;
+    let (_, target, _) = setup(ns).await?;
+    let key = |id| p::ObjectKey {
+        collection: 1,
+        id: Uuid::from_u128(id),
+    };
+    for id in 1..=32 {
+        source
+            .write_local(key(id), Some(Note(format!("{id}"))))
+            .await?;
+    }
+    let remote = open_sql(&source).await?;
+    let local = open_sql(&target).await?;
+    let session = target
+        .begin_reconciliation(Uuid::new_v4(), remote.clone(), local)
+        .await?;
+    stage_sql_contexts(&source, &target, session, &remote).await?;
+    let range = remote.roots[0].range.clone();
+    let mut cursor = None;
+    let children = loop {
+        match p::SnapshotSource::split(
+            &source,
+            remote.snapshot_id,
+            range.clone(),
+            session_limits().work,
+            cursor,
+        )
+        .await?
+        {
+            p::WorkOutcome::Ready(children) => break children,
+            p::WorkOutcome::Incomplete { cursor: next } => cursor = Some(next),
+        }
+    };
+    assert_eq!(children.len(), 2);
+    let mut summaries = Vec::new();
+    for child in &children {
+        let mut cursor = None;
+        loop {
+            match p::SnapshotSource::summarize(
+                &source,
+                remote.snapshot_id,
+                child.clone(),
+                session_limits().work,
+                cursor,
+            )
+            .await?
+            {
+                p::WorkOutcome::Ready(summary) => {
+                    summaries.push(summary);
+                    break;
+                }
+                p::WorkOutcome::Incomplete { cursor: next } => cursor = Some(next),
+            }
+        }
+    }
+    target
+        .split_range(session, range.clone(), summaries)
+        .await?;
+    let mut after = None;
+    loop {
+        let page = p::SnapshotSource::leaf(
+            &source,
+            remote.snapshot_id,
+            children[0].clone(),
+            after,
+            session_limits().pages,
+        )
+        .await?;
+        target.stage_leaf_page(session, page.clone()).await?;
+        if page.done {
+            break;
+        }
+        after = page.next;
+    }
+    let mut apply = limits();
+    apply.max_projection_items = 64;
+    apply.max_mutations = 65536;
+    let (coverage, _) = target
+        .commit_complete_range(session, children[0].clone(), apply)
+        .await?;
+    assert!(!coverage.complete);
+    let now = chrono::Utc::now().timestamp_millis() + p::DEFAULT_SNAPSHOT_TTL_MS as i64 + 1;
+    let mut maintenance = sync_orm::maintenance::Maintenance::default();
+    for _ in 0..100 {
+        maintenance
+            .advance::<Notes>(&db, source.identity().await?, now)
+            .await?;
+    }
+    source.write_local(key(1), None).await?;
+    source
+        .write_local(key(33), Some(Note("new".into())))
+        .await?;
+    let expired = p::SnapshotSource::leaf(
+        &source,
+        remote.snapshot_id,
+        range,
+        None,
+        session_limits().pages,
+    )
+    .await;
+    assert!(
+        matches!(expired, Err(p::SyncError::SnapshotExpired)),
+        "{expired:?}"
+    );
+    synchronize(&source, &target).await?;
+    for id in 1..=33 {
+        assert_eq!(
+            source.get(&key(id)).await?.and_then(|r| r.value),
+            target.get(&key(id)).await?.and_then(|r| r.value)
+        );
+    }
+    for _ in 0..100 {
+        maintenance
+            .advance::<Notes>(&db, source.identity().await?, now)
+            .await?;
+    }
+    let rows = db
+        .query_all(
+            &Query::select()
+                .column(Alias::new("id"))
+                .from(Alias::new("sync_leases"))
+                .cond_where(
+                    sea_orm::sea_query::Condition::any()
+                        .add(Expr::col(Alias::new("id")).eq(remote.snapshot_id.as_bytes().to_vec()))
+                        .add(
+                            Expr::col(Alias::new("parent_lease"))
+                                .eq(remote.snapshot_id.as_bytes().to_vec()),
+                        ),
+                )
+                .to_owned(),
+        )
+        .await?;
+    assert!(rows.is_empty());
+    Ok(())
+}
