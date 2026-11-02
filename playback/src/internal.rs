@@ -10,7 +10,6 @@ use anyhow::{Context, Result, anyhow, bail};
 use fsio::{FileStream, FsIo};
 use log::{debug, error, info, warn};
 use rodio::{PlayError, Sink, Source, source::SeekError};
-use stream_download::{StreamDownload, storage::temp::TempStorageProvider};
 use tokio::{
     sync::mpsc,
     time::{Instant, interval, sleep_until},
@@ -21,7 +20,7 @@ use crate::buffered::{RuneBuffered, rune_buffered};
 use crate::decoder::RuneDecoder;
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::pcm_tap::PcmTap;
-use crate::player::PlayingItem;
+use crate::player::{PlaybackSource, PlaybackSourceResolver, PlayingItem};
 use crate::realtime_fft::RealTimeFFT;
 use crate::shared_source::SharedSource;
 use crate::strategies::{
@@ -31,7 +30,19 @@ use crate::strategies::{
 
 pub enum AnySource {
     Local(RuneBuffered<RuneDecoder<BufReader<Box<dyn FileStream>>>>),
-    Online(RuneBuffered<RuneDecoder<StreamDownload<TempStorageProvider>>>),
+    Online(RuneBuffered<RuneDecoder<crate::stream_utils::ManagedStream>>),
+}
+
+async fn open_library_stream(
+    resolver: &Arc<dyn PlaybackSourceResolver>,
+    id: i32,
+) -> Result<(AnySource, PathBuf)> {
+    let remote = resolver.resolve(id).await?;
+    let reader =
+        crate::stream_utils::create_stream_with_authorizer(remote.request, &remote.url).await?;
+    let reader = crate::stream_utils::ManagedStream::new(reader, remote.cancellation);
+    let decoder = RuneDecoder::new(reader, Some(&remote.extension))?;
+    Ok((AnySource::Online(rune_buffered(decoder)), PathBuf::new()))
 }
 
 impl Debug for AnySource {
@@ -139,7 +150,9 @@ pub enum PlayerCommand {
     LoadComplete {
         result: Box<Result<AnySource>>,
         item: PlayingItem,
+        original_item: PlayingItem,
         index: usize,
+        playlist_index: usize,
         path: PathBuf,
         play: bool,
     },
@@ -151,7 +164,7 @@ pub enum PlayerCommand {
     Switch(usize),
     Seek(f64),
     AddToPlaylist {
-        tracks: Vec<(PlayingItem, std::path::PathBuf)>,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
         mode: AddMode,
     },
     RemoveFromPlaylist {
@@ -222,7 +235,7 @@ pub enum PlayerEvent {
 #[derive(Debug, Clone)]
 pub struct PlaylistItem {
     pub item: PlayingItem,
-    pub path: PathBuf,
+    pub source: PlaybackSource,
 }
 
 #[derive(Debug, PartialEq)]
@@ -276,6 +289,7 @@ pub(crate) struct PlayerInternal {
     commands_sender: mpsc::UnboundedSender<PlayerCommand>,
     event_sender: mpsc::UnboundedSender<PlayerEvent>,
     fsio: Arc<FsIo>,
+    source_resolver: Arc<std::sync::RwLock<Option<Arc<dyn PlaybackSourceResolver>>>>,
     realtime_fft: Arc<Mutex<RealTimeFFT>>,
     fft_enabled: Arc<Mutex<bool>>,
     pcm_tap: Arc<PcmTap>,
@@ -305,6 +319,7 @@ impl PlayerInternal {
         commands_sender: mpsc::UnboundedSender<PlayerCommand>,
         fsio: Arc<FsIo>,
         pcm_tap: Arc<PcmTap>,
+        source_resolver: Arc<std::sync::RwLock<Option<Arc<dyn PlaybackSourceResolver>>>>,
     ) -> Self {
         let (stream_error_sender, stream_error_receiver) = mpsc::unbounded_channel();
         Self {
@@ -312,6 +327,7 @@ impl PlayerInternal {
             commands_sender,
             event_sender,
             fsio,
+            source_resolver,
             playlist: Vec::new(),
             current_item: None,
             current_track_index: None,
@@ -356,10 +372,16 @@ impl PlayerInternal {
                     debug!("Received command: {cmd:?}");
                     match cmd {
                         PlayerCommand::Load { index } => self.load(Some(index), false, true)?,
-                        PlayerCommand::LoadComplete { result, item, index, path, play } => {
+                        PlayerCommand::LoadComplete { result, item, original_item, index, playlist_index, path, play } => {
                             self.state = InternalPlaybackState::Stopped;
                             match *result {
                                 Ok(source) => {
+                                    if let Some(entry) = self.playlist.get_mut(playlist_index)
+                                        && entry.item == original_item && entry.item != item
+                                    {
+                                        entry.item = item.clone();
+                                        self.schedule_playlist_update();
+                                    }
                                     self.setup_sink(source, item, index, path, play)?;
                                 }
                                 Err(e) => {
@@ -468,39 +490,99 @@ impl PlayerInternal {
             let item = self.playlist[mapped_index].clone();
             let commands_sender = self.commands_sender.clone();
             let fsio = Arc::clone(&self.fsio);
+            let resolver = match self.source_resolver.read() {
+                Ok(slot) => slot.clone(),
+                Err(poisoned) => poisoned.into_inner().clone(),
+            };
+            let load_cancel = self.cancellation_token.clone();
 
             tokio::spawn(async move {
-                let source_result = async {
-                    match &item.item {
+                let original_item = item.item.clone();
+                let source_future = async {
+                    let resolved_item = if let (PlayingItem::InLibrary(id), Some(resolver)) =
+                        (&item.item, resolver.as_ref())
+                    {
+                        PlayingItem::InLibrary(
+                            resolver
+                                .resolve_id(*id)
+                                .await?
+                                .context("library track no longer exists")?,
+                        )
+                    } else {
+                        item.item.clone()
+                    };
+                    match &resolved_item {
                         PlayingItem::IndependentFile(_) | PlayingItem::InLibrary(_) => {
+                            let path = if let (PlayingItem::InLibrary(id), Some(resolver)) =
+                                (&resolved_item, resolver.as_ref())
+                            {
+                                if item
+                                    .source
+                                    .requires_stream_at_load(*id, resolver.as_ref())
+                                    .await?
+                                {
+                                    let (source, path) = open_library_stream(resolver, *id).await?;
+                                    return Ok((source, path, resolved_item.clone()));
+                                }
+                                resolver
+                                    .local_path(*id)
+                                    .await?
+                                    .context("current local audio is unavailable")?
+                            } else {
+                                match &item.source {
+                                    PlaybackSource::Local(path) => path.clone(),
+                                    PlaybackSource::LibraryStream => {
+                                        bail!("library stream resolver unavailable")
+                                    }
+                                }
+                            };
                             let stream = fsio
-                                .open(&item.path, "r")
-                                .with_context(|| format!("Failed to open file: {:?}", item.path))?;
-                            let ext = std::path::Path::new(&item.path)
-                                .extension()
-                                .and_then(|e| e.to_str());
+                                .open(&path, "r")
+                                .with_context(|| format!("Failed to open file: {path:?}"))?;
+                            let ext = path.extension().and_then(|e| e.to_str());
                             let decoder = RuneDecoder::new(BufReader::new(stream), ext)?;
-                            Ok(AnySource::Local(rune_buffered(decoder)))
+                            Ok((
+                                AnySource::Local(rune_buffered(decoder)),
+                                path,
+                                resolved_item.clone(),
+                            ))
                         }
                         PlayingItem::Online(url, _) => {
                             info!("Downloading from url: {url}");
                             let ext = url.split('?').next().and_then(|u| u.rsplit('.').next());
                             let reader = crate::stream_utils::create_stream_from_url(url).await?;
+                            let reader = crate::stream_utils::ManagedStream::new(
+                                reader,
+                                CancellationToken::new(),
+                            );
                             let decoder = RuneDecoder::new(reader, ext)?;
-                            Ok(AnySource::Online(rune_buffered(decoder)))
+                            Ok((
+                                AnySource::Online(rune_buffered(decoder)),
+                                PathBuf::new(),
+                                resolved_item.clone(),
+                            ))
                         }
                         PlayingItem::Unknown => {
                             bail!("Cannot load unknown item");
                         }
                     }
-                }
-                .await;
+                };
+                let source_result = tokio::select! {
+                    _ = load_cancel.cancelled() => Err(anyhow!("library closed")),
+                    result = source_future => result,
+                };
 
+                let (source_result, path, resolved_item) = match source_result {
+                    Ok((source, path, resolved_item)) => (Ok(source), path, resolved_item),
+                    Err(error) => (Err(error), PathBuf::new(), item.item),
+                };
                 let cmd = PlayerCommand::LoadComplete {
                     result: Box::new(source_result),
-                    item: item.item,
+                    item: resolved_item,
+                    original_item,
                     index,
-                    path: item.path,
+                    playlist_index: mapped_index,
+                    path,
                     play,
                 };
                 if commands_sender.send(cmd).is_err() {
@@ -787,7 +869,7 @@ impl PlayerInternal {
         Ok(())
     }
 
-    fn add_to_playlist(&mut self, tracks: Vec<(PlayingItem, std::path::PathBuf)>, mode: AddMode) {
+    fn add_to_playlist(&mut self, tracks: Vec<(PlayingItem, PlaybackSource)>, mode: AddMode) {
         debug!("Adding tracks to playlist with mode: {:?}", { mode });
         let insert_index = match mode {
             AddMode::PlayNext => {
@@ -806,7 +888,7 @@ impl PlayerInternal {
                     index + i,
                     PlaylistItem {
                         item: track.0,
-                        path: track.1,
+                        source: track.1,
                     },
                 );
             }
@@ -814,7 +896,7 @@ impl PlayerInternal {
             self.playlist
                 .extend(tracks.into_iter().map(|track| PlaylistItem {
                     item: track.0,
-                    path: track.1,
+                    source: track.1,
                 }));
         }
 

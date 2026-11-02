@@ -69,6 +69,62 @@ impl From<PlayingItem> for String {
 }
 
 #[derive(Debug, Clone)]
+pub enum PlaybackSource {
+    Local(PathBuf),
+    LibraryStream,
+}
+impl PlaybackSource {
+    /// Recheck a queued source before opening it, since its track may have changed.
+    pub async fn requires_stream_at_load(
+        &self,
+        id: i32,
+        resolver: &dyn PlaybackSourceResolver,
+    ) -> anyhow::Result<bool> {
+        resolver.requires_stream(id).await
+    }
+}
+
+/// Caller-owned capability for a fixed remote resource. Each request may renew
+/// authorization; byte-range ends are inclusive.
+pub trait AudioRequest: Send + Sync {
+    fn get(
+        &self,
+        range: Option<(u64, Option<u64>)>,
+    ) -> futures::future::BoxFuture<'static, anyhow::Result<reqwest::Response>>;
+}
+
+pub struct RemoteAudioSource {
+    pub request: std::sync::Arc<dyn AudioRequest>,
+    pub url: String,
+    pub extension: String,
+    pub cancellation: CancellationToken,
+}
+pub trait PlaybackSourceResolver: Send + Sync {
+    fn resolve_id(
+        &self,
+        id: i32,
+    ) -> futures::future::BoxFuture<'static, anyhow::Result<Option<i32>>> {
+        Box::pin(async move { Ok(Some(id)) })
+    }
+    fn local_path(
+        &self,
+        _id: i32,
+    ) -> futures::future::BoxFuture<'static, anyhow::Result<Option<PathBuf>>> {
+        Box::pin(async { Ok(None) })
+    }
+    fn requires_stream(
+        &self,
+        _id: i32,
+    ) -> futures::future::BoxFuture<'static, anyhow::Result<bool>> {
+        Box::pin(async { Ok(false) })
+    }
+    fn resolve(
+        &self,
+        id: i32,
+    ) -> futures::future::BoxFuture<'static, anyhow::Result<RemoteAudioSource>>;
+}
+
+#[derive(Debug, Clone)]
 pub struct PlaylistStatus {
     pub items: Vec<PlayingItem>,
 }
@@ -101,6 +157,23 @@ pub trait Playable: Send {
     fn switch(&self, index: usize);
     fn seek(&self, position_ms: f64);
     fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode);
+    fn add_to_playlist_with_sources(
+        &self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        mode: AddMode,
+    ) {
+        self.add_to_playlist(
+            tracks
+                .into_iter()
+                .filter_map(|(item, source)| match source {
+                    PlaybackSource::Local(path) => Some((item, path)),
+                    PlaybackSource::LibraryStream => None,
+                })
+                .collect(),
+            mode,
+        );
+    }
+    fn set_source_resolver(&self, _resolver: Arc<dyn PlaybackSourceResolver>) {}
     fn remove_from_playlist(&self, index: usize);
     fn clear_playlist(&self);
     fn move_playlist_item(&self, old_index: usize, new_index: usize);
@@ -124,6 +197,7 @@ pub trait Playable: Send {
 // Define the Player struct, which includes a channel sender for sending commands
 pub struct Player {
     commands: Arc<Mutex<mpsc::UnboundedSender<PlayerCommand>>>,
+    source_resolver: Arc<std::sync::RwLock<Option<Arc<dyn PlaybackSourceResolver>>>>,
     pub current_status: Arc<Mutex<PlayerStatus>>,
     status_sender: SimpleSender<PlayerStatus>,
     playlist_sender: SimpleSender<PlaylistStatus>,
@@ -180,7 +254,9 @@ impl Player {
 
         let commands = Arc::new(Mutex::new(cmd_tx.clone()));
         // Create the Player instance and wrap the command sender in Arc<Mutex>
+        let source_resolver = Arc::new(std::sync::RwLock::new(None));
         let player = Player {
+            source_resolver: source_resolver.clone(),
             commands: commands.clone(),
             current_status: current_status.clone(),
             status_sender: status_sender.clone(),
@@ -204,6 +280,7 @@ impl Player {
                 cmd_tx.clone(),
                 fsio,
                 pcm_tap,
+                source_resolver,
             );
             // Create a new Tokio runtime for asynchronous tasks
             let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
@@ -386,7 +463,28 @@ impl Playable for Player {
     }
 
     fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode) {
+        self.add_to_playlist_with_sources(
+            tracks
+                .into_iter()
+                .map(|(item, path)| (item, PlaybackSource::Local(path)))
+                .collect(),
+            mode,
+        );
+    }
+
+    fn add_to_playlist_with_sources(
+        &self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        mode: AddMode,
+    ) {
         self.command(PlayerCommand::AddToPlaylist { tracks, mode });
+    }
+    fn set_source_resolver(&self, resolver: Arc<dyn PlaybackSourceResolver>) {
+        let mut slot = self
+            .source_resolver
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *slot = Some(resolver);
     }
 
     fn remove_from_playlist(&self, index: usize) {
