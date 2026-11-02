@@ -53,7 +53,7 @@ fn every_delivery_order_and_duplicate_converges() -> Result<()> {
                     for index in order.into_iter().chain(order) {
                         merged.merge(&versions[index])?;
                     }
-                    assert_eq!(merged.export()?, state.export()?);
+                    assert!(merged.semantic_eq(&state)?);
                     checked += 1;
                 }
             }

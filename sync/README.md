@@ -49,11 +49,7 @@ A local command joins candidate/context changes, its original-author revision an
 
 For each collection, let `L` contain live `(key,dot,candidate)` entries and `C0` contain exact individually observed dots. Every live dot belongs to `C0`. A writer context consists of a contiguous prefix and sorted disjoint nonadjacent exception intervals above that prefix. For example, receiving counters 1 and 3 produces prefix 1 and exception interval [3,3]; counter 2 remains unobserved. Normalization and union preserve exact membership.
 
-Accepted range contexts form `Q`. Effective observation at key `k` is `K(k,d) = C0.contains(d) || any(q.range.contains(k) && q.context.contains(d))`. For two compatible complete states, union effective observation pointwise. Keep a candidate present on both sides; keep a candidate present only on one side exactly when the other side's effective context does not contain its dot at that key. This observed-remove join is commutative, associative and idempotent under unique immutable dots and complete range evidence. The [observed-remove set construction](https://arxiv.org/abs/1210.3368) motivates the exact-context representation; partial range publication also requires the snapshot and coverage requirements.
-
-To merge a complete source interval, evaluate the receiver's old effective context, perform that join only inside the interval, add every incoming live dot to `C0` even when suppressed, and retain the source context qualified by the interval. Merge against current receiver state, including edits since comparison started. Validate all input before committing. Context-only changes and hidden concurrent candidates are state changes that must be durable and relayable; an exact duplicate preserves the publication head.
-
-Normalize overlapping contexts by an ordered endpoint sweep into disjoint segments with pointwise union; coalesce adjacent equal contexts. Contexts stay key-qualified. Different segment contexts retain their individual key bounds even after full source coverage. A context may be promoted only when proven valid over the entire collection root.
+Each collection has one base context. A complete join retains shared candidates and retains a candidate present on only one side when the other side's base does not contain its dot. The join is commutative, associative and idempotent under unique immutable dots. Leaf reconciliation applies candidate additions and observed removals against current state; session promotion transfers remaining source observation knowledge after all leaves are covered. Context-only changes and hidden concurrent candidates are durable and relayable.
 
 ## Caller interfaces and read behavior
 
@@ -69,35 +65,32 @@ Atomic store methods accept explicit page, apply and staging limits. Concrete du
 
 Snapshot comparison is an optional source/sink capability. Its principal asynchronous methods are:
 
-```rust
-// Source: all expensive operations return Ready(value) or Incomplete(cursor).
-open_snapshot(request_id, scope, work_limits, resume) -> WorkOutcome<SnapshotDescriptor<M>>
-summarize(snapshot, range, work_limits, resume) -> WorkOutcome<RangeSummary<M>>
-split(snapshot, range, work_limits, resume) -> WorkOutcome<Vec<KeyRange<M>>>
-leaf(snapshot, range, after: Option<CandidateCursor<M>>, page_limits) -> LeafPage<M>
-context_page(snapshot, range, after: ContextCursor, page_limits) -> ContextPage<M>
-read_fragment(snapshot, manifest, ordinal, max_bytes) -> Fragment
-release_request(request_id) -> ()
-close_snapshot(snapshot) -> ()
-cancel_snapshot_build(cursor) -> ()
+Source operations return `Ready(value)` or `Incomplete(cursor)` where work is bounded:
 
-// Sink: only a complete validated logical range may mutate accepted state.
-begin_reconciliation(request_id, remote_descriptor, local_descriptor) -> SessionId
-cancel_reconciliation(session) -> ()
-discard_range(session, range) -> ()
-coverage(session, ledger_revision, after, page_limits) -> CoveragePage<M>
-split_range(session, parent, children: Vec<RangeSummary<M>>) -> CoverageProgress
-accept_equal_range(session, remote_summary) -> CoverageProgress
-context_progress(session, range) -> ContextProgress
-leaf_progress(session, range) -> LeafProgress<M>
-stage_context_page(session, page) -> ContextProgress
-stage_leaf_page(session, page) -> LeafProgress<M>
-commit_complete_range(session, range, apply_limits) -> (CoverageProgress, ProjectionBatch<M>)
-normalize_step(session, work_limits, resume) -> WorkOutcome<CoverageProgress>
-complete_reconciliation(session) -> ReceiveProgress
-```
+- `open_snapshot(request_id, scope, work_limits, resume) -> WorkOutcome<SnapshotDescriptor<M>>`
+- `summarize(snapshot, range, work_limits, resume) -> WorkOutcome<RangeSummary<M>>`
+- `split(snapshot, range, work_limits, resume) -> WorkOutcome<Vec<KeyRange<M>>>`
+- `leaf(snapshot, range, after: Option<CandidateCursor<M>>, page_limits) -> LeafPage<M>`
+- `read_fragment(snapshot, manifest, ordinal, max_bytes) -> Fragment`
+- `release_request(request_id) -> ()`
+- `close_snapshot(snapshot) -> ()`
+- `cancel_snapshot_build(cursor) -> ()`
 
-`CandidateCursor` contains `(key,dot)` in stable collection-tag, object-UUID, writer-UUID and unsigned counter order. A single key's concurrent candidates can span pages while retaining a unique continuation position. A context cursor contains a segment index and next boundary; an initial cursor and an unbounded endpoint are distinct states. A work cursor binds the operation, generation and strictly advancing position. Expired or incompatible cursors return `StaleWork`.
+Sink operations accept complete validated logical inputs:
+
+- `begin_reconciliation(request_id, remote_descriptor, local_descriptor) -> SessionId`
+- `cancel_reconciliation(session) -> ()`
+- `discard_range(session, range) -> ()`
+- `coverage(session, ledger_revision, after, page_limits) -> CoveragePage<M>`
+- `split_range(session, parent, children: Vec<RangeSummary<M>>) -> CoverageProgress`
+- `accept_equal_range(session, remote_summary) -> CoverageProgress`
+- `leaf_progress(session, range) -> LeafProgress<M>`
+- `stage_leaf_page(session, page) -> LeafProgress<M>`
+- `commit_complete_range(session, range, apply_limits) -> (CoverageProgress, ProjectionBatch<M>)`
+- `promote_step(session, apply_limits) -> PromoteProgress`
+- `complete_reconciliation(session) -> ReceiveProgress`
+
+`CandidateCursor` contains `(key,dot)` in stable collection-tag, object-UUID, writer-UUID and unsigned counter order. A single key's concurrent candidates can span pages while retaining a unique continuation position. A work cursor binds the operation, generation and strictly advancing position. Expired or incompatible cursors return `StaleWork`.
 
 `begin_reconciliation` binds both immutable descriptors. `split_range` replaces an outstanding interval with source child summaries after validating snapshot identity and complete disjoint coverage. The ledger retains each child commitment before staging. The coordinator obtains child commitments from the same trusted immutable source view and rejects replacements incompatible with staged or accepted work. `accept_equal_range` compares the remote summary with the sink's own pinned snapshot of that interval; a Boolean from a caller is insufficient. Coverage pages are bound to a ledger revision. If that revision changes, a page read must restart rather than skip intervals. Accepted causal knowledge survives source-view closure and expiry.
 
@@ -105,9 +98,7 @@ complete_reconciliation(session) -> ReceiveProgress
 
 Every state-changing merge gets a new local journal sequence. Sequence is independent of the record revision: a late low-revision record on another object must remain publishable through an intermediate replica.
 
-Journal state includes hidden concurrent candidates and context-only changes. A keyed delta includes exact removed dots and fresh immutable candidates. A complete-range event includes its interval, exact context and complete source-live evidence, or a retained immutable reference that supplies that evidence. Removal requires both exact observation context and complete source-live evidence, since an observed dot may still be live at the source. Every dependency needed to replay an acknowledged event must remain available through retained history or a complete recovery view. References are content-identified and subject to the same model, scope and range validation.
-
-Immutable history must reconstruct all live candidates and qualified contexts at head `S`. Selecting the latest scalar payload per key is insufficient. An adapter may journal complete post-merge live sets per changed key together with immutable context events, or use immutable dot-add/remove history with equivalent indexed reconstruction. It must verify that reconstruction equals replay, including range-only events. History layout is a storage-adapter responsibility.
+Journal state includes hidden concurrent candidates and context-only changes. A Key event carries a key, author, removed dots and added candidates. A Merge event carries a collection, added candidates and an exact observed context. Relays retain these events and their dependencies; immutable history reconstructs live candidates and the collection base at the selected head.
 
 A scope is a nonempty set of collection tags. Its identifier is BLAKE3 of a domain-separated encoding of model ID, schema, and sorted tags. The identifier is computed from the actual scope definition. Expanding or changing scope creates independent receive progress. Narrowing scope preserves stored objects. Arbitrary application query predicates are outside the initial scope capability.
 
@@ -140,13 +131,13 @@ An event or context exceeding a page uses a manifest with content digest, total 
 
 ## Immutable state snapshots
 
-A snapshot descriptor identifies namespace, model/schema, source replica/generation, scope definition, snapshot UUID, source head `S`, continuity anchor at `S`, root range summary, and expiry. It names immutable live candidates plus exact effective contexts. Every summary, context fragment, split and leaf page is bound to it. A partially reconciled source exports its durably accepted qualified contexts independently of the original peer's availability.
+A snapshot descriptor identifies namespace, model/schema, source replica/generation, scope definition, snapshot UUID, source head `S`, continuity anchor at `S`, root range summary, and expiry. It names immutable live candidates and one context reference per scoped collection. Every summary, context fragment, split and leaf page is bound to it.
 
 A leaf page identifies its snapshot, exact interval, exclusive input `(key,dot)` cursor, last scanned candidate cursor, completion flag and ordered complete candidates. Its next cursor is strictly greater than the input for a nonfinal page and remains inside the interval. The final page explicitly accounts for the remaining suffix, including an empty suffix. The sink validates descriptor, interval and cursor against its outstanding work before accepting coverage; a page from another interval cannot finish this one.
 
 A source may implement an immutable database view or materialize the scoped records under one consistent database transaction. Construction may scan the dataset using bounded buffers and short transactions committed before network exchange. Durable materialization publishes a descriptor only after construction commits; incomplete construction is not serviceable. Reuse an unchanged valid snapshot instead of rebuilding it for every idle session. Resource admission, cancellation, storage quota and expiry are explicit caller configuration.
 
-Expiration returns `SnapshotExpired`. Serving requires a valid descriptor and its captured rows and hashes. Accepted candidates and complete-range contexts remain committed, but incomplete coverage cannot advance a source checkpoint. Accepted range context survives transport-session and remote-snapshot expiry. A new snapshot starts new coverage and merges with existing effective context. A valid lease pins repeatable state and the required journal tail after `S`. Forced revocation persists expiry before releasing history; a missing tail requires a new snapshot.
+Expiration returns `SnapshotExpired`. Accepted candidates and observation knowledge remain committed, but incomplete coverage cannot advance a source checkpoint. A valid lease pins repeatable state and the required journal tail after `S`. Forced revocation persists expiry before releasing history; a missing tail requires a new snapshot.
 
 The memory implementation provides a pinned immutable copy for conformance testing. Durable adapters must survive a restart with either the same valid snapshot/coverage or an explicit expiry; neither behavior may be mistaken for completed reconciliation.
 
@@ -154,25 +145,25 @@ The memory implementation provides a pinned immutable copy for conformance testi
 
 State comparison is ordered by `(stable_collection_tag_bytes, object_uuid_bytes)`. Ranges are half-open `[lower, upper)` with explicit unbounded endpoints. A root range covers every key admitted by the scope. Cursor comparison uses the complete unique key order. Edits preserve the object key.
 
-A `RangeSummary` contains the exact interval, candidate count, canonical candidate/context byte totals, and an aggregate hash. Hash a domain tag, model/schema, scope ID, interval bounds, ordered candidate digests and the exact normalized effective-context partition. Context-only differences matter even when displayed values are identical. Equivalent context layouts must normalize to the same logical intervals and sets before hashing. Snapshot UUID, local paths, local SQL IDs and local publication head are excluded: equal logical states compare equal across storage layouts.
+A `RangeSummary` contains the interval, candidate count, canonical candidate byte total and an aggregate hash over ordered candidate digests. Context is excluded, so equal summaries identify equal live sets. Snapshot UUID, local paths, SQL IDs and publication head are excluded.
 
 Peers compare exactly the same intervals. A peer with more records/bytes in a differing interval proposes a split; the other peer summarizes those exact child intervals. Validate strictly increasing boundaries and a disjoint partition covering the complete parent interval. Empty child ranges remain explicit. Object absence is established from complete evidence for the same interval on both peers.
 
 The default leaf target is at most 128 records and 1 MiB canonical bytes on each side. Above it, choose a pivot near the median canonical-byte position of the larger snapshot interval, with a record-count median as fallback. The pivot must strictly advance. If no interior key exists, read the bounded leaf directly; a single large valid record is not recursively split into an invalid record fragment. Leaf reads may require multiple byte-bounded pages.
 
-Equal summaries skip transfer. Differing complete leaves exchange live candidates and effective context in both directions. Absence removes a local candidate only when complete source range evidence observes that exact dot and excludes it from source-live candidates. That evidence becomes available after complete range assembly. Context boundaries participate in splitting; a leaf spanning multiple contexts carries their complete exact partition. Count/byte targets can adapt within limits. Exact coverage, stable keys and observed dots determine completeness, identity and removal.
+Equal summaries skip transfer. For a differing leaf, the receiver uses the staged source collection context and complete leaf candidates to compute a `MergeDelta` of additions and observed removals. After coverage, promotion removes qualifying post-snapshot arrivals and applies bounded chunks of `C0_S \ C0_T`. Each accepted change is journaled as a Merge event.
 
 Each round permits at most 1,024 summary/split requests, 64 MiB of transferred data, and subdivision depth 64 by default. Reaching a budget returns `Incomplete` with a resumable cursor. Limits are explicit configurable work bounds. Requests are processed through a bounded work queue rather than an unbounded recursive call stack.
 
 ## Coverage, resumption, and transition to the journal
 
-The receiver maintains a bounded reconciliation ledger identified by both descriptors and scope. Its ledger starts with every scoped root outstanding. Splitting replaces an interval with a validated complete partition. A leaf becomes eligible only after all candidate pages, complete context partition, dependencies and the terminal boundary validate. Merge against the receiver's current state, join projection and relay history, then commit accepted state. Only after that commit mark the interval complete in the ledger. A crash between these steps causes safe replay.
+The receiver maintains a bounded reconciliation ledger identified by both descriptors and scope. Its ledger starts with every scoped root outstanding. Splitting replaces an interval with a validated complete partition. A leaf becomes eligible only after all candidate pages, the staged collection context, dependencies and the terminal boundary validate. Merge against the receiver's current state, join projection and relay history, then commit accepted state. Only after that commit mark the interval complete in the ledger. A crash between these steps causes safe replay.
 
 `ReceiverLedger<M>` supplies this staging and coverage validation to memory and durable stores. It contains uncommitted fragments, descriptors, page cursors, pending/completed ranges and bounded retry results; accepted candidates, contexts, history and checkpoints remain in the store. Preparing a complete input returns validated evidence and a ledger-revision admission token. The interval remains pending through preparation. Finalization follows the store's successful atomic apply; replay after an interrupted finalization must preserve accepted state and history.
 
 Receiver coverage and uncommitted buffers may expire on restart. Already accepted range state and observation knowledge remain durable and exportable. Source reconstruction leases must remain valid across every process sharing the storage, or be explicitly revoked before their retained history is reclaimed. Each database transaction finishes before a remote request begins.
 
-An equal-summary interval completes only against the receiver's own pinned comparison snapshot. The receiver retains that view or restarts comparison. `complete_reconciliation` takes the session lock and checks full scoped coverage with no outstanding leaf or incomplete logical input. It publishes equivalent context normalization and checkpoint `(S,anchor_at_S)` with successful completion metadata in one durable transaction. Prepared normalization cannot drop another session's contexts or promote heterogeneous intervals to collection-wide knowledge. A crash before commit has no completed checkpoint; after commit, losing the in-memory ledger does not invalidate the committed result.
+An equal-summary interval completes only against the receiver's pinned comparison snapshot. After full coverage, `promote_step` processes arrivals and context chunks. `complete_reconciliation` requires promotion to finish before committing checkpoint `(S,anchor_at_S)`. A crash before commit has no completed checkpoint; accepted merges remain durable.
 
 Progress advances monotonically. If another session has already advanced the same source/generation/scope beyond `S`, completion retains that newer checkpoint and validates its continuity. The caller serializes advancing sessions for a checkpoint key; concurrency races return `RetryAt`.
 
@@ -182,13 +173,13 @@ A resumable session can span multiple bounded caller passes. `Coordinator::start
 
 ## Retention and recovery
 
-Deletion requires explicit intent and exact observed-dot evidence. Contexts retain removed-operation knowledge as exact writer intervals. Storage cost includes live concurrency, writers, gaps, qualified range segments and retained history.
+Deletion requires explicit intent and exact observed-dot evidence. Contexts retain removed-operation knowledge as exact writer intervals. Storage cost includes live concurrency, writers, gaps, collection contexts and retained history.
 
 Consider A and B after an exchange with a high progress timestamp. C then delivers an older object to A that B has never observed. At the next A/B comparison, that object's age and B's current absence cannot distinguish this history from one where B previously observed and removed it. An age/intersection rule lacks the observation evidence needed to choose between insertion and removal. Exact dot membership and complete source-live evidence supply that distinction even when delivery contains gaps.
 
-Merging adjacent context intervals and coalescing equal neighboring key segments preserves information. Forgetting a writer's context is different and can resurrect stale candidates. Context retirement requires explicit authority over every replica allowed to return. With unrestricted offline return, retain necessary context. Actor retirement needs an explicit caller membership/fencing policy and a complete rebootstrap rule for excluded stale replicas. Retirement is an explicit caller operation.
+Merging adjacent writer intervals preserves information. Forgetting a writer's context is different and can resurrect stale candidates. Context retirement requires explicit authority over every replica allowed to return. With unrestricted offline return, retain necessary context. Actor retirement needs an explicit caller membership/fencing policy and a complete rebootstrap rule for excluded stale replicas. Retirement is an explicit caller operation.
 
-Journal compaction requires a declared history floor, its anchor and a serviceable complete recovery view containing all live candidates and effective range contexts. Pinned views protect reconstruction and tails. An unavailable fallback makes compaction ineligible. A design retaining its entire journal must report that growth separately from compact context sizes; small synthetic context measurements do not establish small database storage.
+Journal compaction requires a declared history floor, its anchor and a serviceable complete recovery view containing all live candidates and collection contexts. Pinned views protect reconstruction and tails. An unavailable fallback makes compaction ineligible. A design retaining its entire journal must report that growth separately from compact context sizes; small synthetic context measurements do not establish small database storage.
 
 A restored database enters caller-controlled recovery before new revisions are authored. The caller must establish a fresh publication generation where continuity is lost, reconcile with surviving state, observe the surviving clock, and preserve any queued user intentions. Rotating an actor or generation alone cannot reconstruct missing records or make obsolete counters win. A fully rolled-back image cannot detect its own rollback solely from fields in that image; an explicit restore workflow or external/peer continuity evidence is required.
 
@@ -208,21 +199,21 @@ Transport failure retains the current operation and request UUID for retry. `rel
 
 ## Convergence and acceptance
 
-For a fixed model, namespace and scope, convergence requires authoring eventually to stop, fair delivery of all accepted live/context state over permitted links, and sufficient admitted resources. Under unique immutable dots, exact context and complete stated coverage, observed-remove join is associative, commutative and idempotent; replicas receiving the same finite inputs reach equivalent live candidates and effective contexts. Deterministic projection then selects the same displayed candidates. Permanent partitions, omitted context-only relay events and incompatible scopes do not meet these assumptions. This algebra does not by itself prove fragments, history reconstruction or transactions. Replays stop growing journals and clocks. A previously unused pair may establish progress without changing state; its immediate repeat must be empty.
+For a fixed model, namespace and scope, convergence requires authoring eventually to stop, fair delivery of all accepted live/context state over permitted links, and sufficient admitted resources. Under unique immutable dots, exact context and complete stated coverage, observed-remove join is associative, commutative and idempotent; replicas receiving the same finite inputs reach equivalent live candidates and collection contexts. Deterministic projection then selects the same displayed candidates. Permanent partitions, omitted context-only relay events and incompatible scopes do not meet these assumptions. This algebra does not by itself prove fragments, history reconstruction or transactions. Replays stop growing journals and clocks. A previously unused pair may establish progress without changing state; its immediate repeat must be empty.
 
 The neutral conformance suite must prove:
 
 - Merge algebra, concurrent unseen update/removal, explicit re-add, maximum-counter behavior, unknown-field rejection, and exact codec/hash fixtures.
 - Atomic invalid-page rejection, committed-prefix restart, lost acknowledgement, filtered empty-page progress, byte limits, and no skipped late low-revision objects.
 - Stable key ordering and identical hashes despite different local representations, partition boundaries, and more tied timestamps than fit a page.
-- Empty, nested, overlapping and malformed range partitions; complete coverage; resource-budget interruption; snapshot expiry; and mutation between every comparison step.
+- Empty, nested, overlapping and malformed ranges; complete coverage; resource-budget interruption; snapshot expiry; and mutation between every comparison step.
 - Detection of divergent history after numeric head regrowth; recovery below a retained floor; scope changes; and retained causal knowledge after interrupted range exchange and source loss.
 - Read-only identity/head/page calls and no application callbacks during them.
 - Same-namespace multi-hop convergence and steady state over chain, ring, star and bridged clusters, followed by all-pairs progress catch-up.
 
-Exact interval operations are checked against an explicit-dot oracle, including gaps, boundary counters, overlapping range merges and atomic collision rejection. Multi-hop cases compare all surviving candidates and effective contexts as well as selected values. After graph convergence, obsolete incremental assignments delivered through a previously unused pair must not create new accepted state or history. Tests also cover two keys with an apply limit of one, multiple concurrent candidates at one key, repeated cancellation after lost initial replies, small pass budgets and coverage envelopes too small to fit.
+Exact interval operations are checked against an explicit-dot oracle, including gaps, boundary counters, leaf merges and atomic collision rejection. Multi-hop cases compare all surviving candidates and collection contexts as well as selected values. After graph convergence, obsolete incremental assignments delivered through a previously unused pair must not create new accepted state or history. Tests also cover two keys with an apply limit of one, multiple concurrent candidates at one key, repeated cancellation after lost initial replies, small pass budgets and coverage envelopes too small to fit.
 
-Retention measurements distinguish logical context bytes from database overhead and retained history. The workload specification includes at least 100,000 create/remove operations with 2, 8 and 32 writers, for both compact and deliberately gapped delivery. Reports identify writer churn, live candidates and range partitions; a compact prefix result is not a bound for arbitrary gaps. Storage-adapter measurements use the actual persistence implementation separately.
+Retention measurements distinguish logical context bytes from database overhead and retained history. The workload specification includes at least 100,000 create/remove operations with 2, 8 and 32 writers, for both compact and deliberately gapped delivery. Reports identify writer churn, live candidates and collection contexts; a compact prefix result is not a bound for arbitrary gaps. Storage-adapter measurements use the actual persistence implementation separately.
 
 Run the neutral engine tests with `cargo test -p sync --offline`. Application-level convergence, ORM transactions, content durability, runtime environments and measurements are specified in [Synchronization integration](../documents/sync-integration.md); core record equality alone does not establish them.
 
@@ -230,7 +221,7 @@ Run the neutral engine tests with `cargo test -p sync --offline`. Application-le
 
 The engine defines a fixed encoding. Candidate JSON has exactly `model`, `namespace`, `key`, `dot`, `revision` and `payload`. `key` contains stable `collection` and `id`; `dot` contains `writer_incarnation` and `counter`; `revision` contains `counter` and `actor`. UUIDs are lowercase hyphenated text. Integers use shortest unsigned decimal; optional fields are explicit null; binary digests use lowercase even-length hexadecimal. Reject duplicate JSON keys, nonfinite numbers, unsupported numeric forms and unknown envelope fields. Recursively sort object keys by UTF-8 bytes; preserve arrays. Model/schema/tags are nonempty and at most 128 bytes, with at most 256 collections in a scope.
 
-A keyed event contains `kind:"key"`, `key`, `author`, `removed` and `added`. Removed dots are unique and sorted; additions are unique, ordered by candidate cursor and match the event key. A range event contains `kind:"range"`, `scope`, `range`, `context_partition`, `source`, `range_summary` and `live_manifest`. Its original normalized source scope is preserved when relayed and is used to verify the range commitment; relays retain it even when their local journal scope differs. Its dependencies establish both complete live state and exact observation partition. A context contains sorted writers, each with a prefix and disjoint nonadjacent exception intervals. Validation rejects alternative noncanonical representations before hashing.
+A Key event contains `kind:"key"`, `key`, `author`, `removed` and `added`. A Merge event contains `kind:"merge"`, `collection`, `added` and `observed`. Added candidates are ordered by key and dot, and their dots cannot appear in observed. A context contains sorted writers, each with a prefix and disjoint nonadjacent exception intervals. Validation rejects noncanonical representations before hashing.
 
 Let `H` be BLAKE3, `LP(x)` a four-byte big-endian byte length followed by `x`, and `U64` an eight-byte unsigned big-endian number. Hash domains are exact UTF-8 strings:
 
@@ -241,10 +232,9 @@ Let `H` be BLAKE3, `LP(x)` a four-byte big-endian byte length followed by `x`, a
 - Manifest content: `H(LP("sync.manifest.content") || LP(complete_encoded_content))`.
 - Manifest: `H(LP("sync.manifest") || LP(kind) || U64(bytes) || U64(items) || U64(fragments) || content_digest)`.
 - Fragment: `H(LP("sync.fragment") || manifest_digest || U64(ordinal) || U64(offset) || LP(bytes))`.
-- Range context commitment: `H(LP("sync.range.context") || LP(model) || LP(schema) || LP(bounds) || U64(segment_count) || concat(LP(segment_bounds) || context_digest))`. This hashes normalized logical contexts and excludes fragment layout and manifest identities.
-- Range: `H(LP("sync.range") || LP(model) || LP(schema) || scope_digest || LP(bounds) || U64(candidate_count) || U64(candidate_bytes) || U64(segment_count) || concat(LP(segment_bounds) || context_digest) || concat(candidate_digest))`. Context segments and candidates are in canonical order. The snapshot identifier is checked in the envelope and excluded from this logical digest.
+- Range: `H(LP("sync.range") || LP(model) || LP(schema) || scope_digest || LP(bounds) || U64(candidate_count) || U64(candidate_bytes) || concat(candidate_digest))`. Candidates are in canonical order; the snapshot identifier is excluded.
 
-A manifest kind is `key_event`, `range_event`, `context`, `context_partition`, `context_root` or `leaf`. A context root contains the exact scope digest and one partition reference per scoped collection, sorted by stable tag. Its JSON is `{scope, partitions:[{collection,partition}]}`. Missing, duplicate, extra or wrong-kind children are invalid. A decoder receives the expected scope definition separately from the digest. Its serialized fields are kind, manifest digest, content digest, encoded bytes, item count and fragment count; the identity hash excludes its own digest field. Dependencies must be complete and bounded before accepted publication. Byte fixtures cover the complete encodings and hash inputs, including Unicode, escaping, empty roots and maximum supported counters.
+A manifest kind is `key_event`, `merge_event`, `context` or `context_root`. A context root contains the scope and one context reference per scoped collection, sorted by stable tag. Missing, duplicate, extra or wrong-kind children are invalid. Dependencies must be complete and bounded before accepted publication.
 
 The default logical event or context limit is 8 MiB, with a 64 MiB hard maximum. Count the root reference, transitive dependencies and decoded items. Logical item defaults are 65,536 with a 1,048,576 hard maximum. A manifest has at most 65,536 fragments. Staging defaults to 64 MiB and four stages per store; hard maxima are 512 MiB and sixteen stages. Page and fragment limits are defined in [bounded page exchange](#bounded-page-exchange-and-atomic-application).
 

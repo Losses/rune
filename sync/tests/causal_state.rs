@@ -1,8 +1,6 @@
 use anyhow::{Context as _, Result};
 use std::collections::BTreeSet;
-use sync::causal::{
-    Candidate, CausalMap, CompleteRange, Context, Dot, KeyRange, Limits, MAX_DOT_COUNTER,
-};
+use sync::causal::{Candidate, CausalMap, Context, Dot, KeyRange, Limits, MAX_DOT_COUNTER};
 use uuid::Uuid;
 type Map = CausalMap<u32, u32, u64>;
 fn dot(actor: u128, n: u64) -> Dot {
@@ -27,6 +25,25 @@ fn context(dots: &[Dot]) -> Context {
         c.insert(*d).unwrap();
     }
     c
+}
+type MapSnapshot = (Vec<(u32, Candidate<u32, u64>)>, Context);
+trait Snapshot {
+    fn snapshot(&self) -> MapSnapshot;
+}
+impl Snapshot for Map {
+    fn snapshot(&self) -> MapSnapshot {
+        (self.live_entries(), self.base().clone())
+    }
+}
+fn merge_leaf(target: &mut Map, source: &Map, range: KeyRange<u32>) -> Result<()> {
+    let incoming: Vec<_> = source
+        .live_entries()
+        .into_iter()
+        .filter(|(key, _)| range.contains(key))
+        .collect();
+    let (added, observed) = target.plan_leaf(&range, &incoming, source.base())?;
+    target.apply_merge(&added, &observed)?;
+    Ok(())
 }
 fn seed(s: &mut u64) -> u64 {
     *s = s
@@ -89,14 +106,16 @@ fn concurrent_remove_readd_and_immutable_collision() -> Result<()> {
     remove.remove(&1);
     remove.assign(1, cand(3, 1, 30))?;
     assert_eq!(remove.winner(&1).unwrap().value, 30);
-    let old = remove.export()?;
-    let bad = CompleteRange {
-        range: rg(None, None),
-        context: context(&[dot(3, 1), dot(4, 1)]),
-        candidates: vec![(2, cand(4, 1, 5)), (1, cand(3, 1, 999))],
-    };
-    assert!(remove.merge_range(&bad).is_err());
-    assert_eq!(old, remove.export()?);
+    let old = remove.snapshot();
+    assert!(
+        remove
+            .apply_merge(
+                &[(2, cand(4, 1, 5)), (1, cand(3, 1, 999))],
+                &Context::default()
+            )
+            .is_err()
+    );
+    assert_eq!(old, remove.snapshot());
     Ok(())
 }
 #[test]
@@ -156,16 +175,8 @@ fn algebra_for_seeded_reachable_states() -> Result<()> {
             "seed={INITIAL_SEED} trial={trial} trace_seed={trace_seed}"
         );
         covered[1] += 1;
-        let segment = CompleteRange {
-            range: rg(Some(0), Some(1)),
-            context: states[0].effective_context(&0)?,
-            candidates: states[0]
-                .candidates(&0)
-                .cloned()
-                .map(|candidate| (0, candidate))
-                .collect(),
-        };
-        states[2].merge_range(&segment)?;
+        let source = states[0].clone();
+        merge_leaf(&mut states[2], &source, rg(Some(0), Some(1)))?;
         covered[3] += 1;
         // Fixed four high-bit draws per step, independent of the chosen branch.
         for step in 0..48 {
@@ -192,27 +203,14 @@ fn algebra_for_seeded_reachable_states() -> Result<()> {
                 }
                 3 => {
                     let other = states[peer].clone();
-                    if !other
-                        .export()?
-                        .iter()
-                        .all(|part| part.candidates.is_empty())
-                    {
+                    if !other.live_entries().is_empty() {
                         covered[2] += 1;
                     }
                     states[writer].merge(&other).with_context(|| format!("merge seed={INITIAL_SEED} trial={trial} trace_seed={trace_seed} step={step}"))?;
                 }
                 _ => {
                     let other = states[peer].clone();
-                    let segment = CompleteRange {
-                        range: rg(Some(key), Some(key + 1)),
-                        context: other.effective_context(&key)?,
-                        candidates: other
-                            .candidates(&key)
-                            .cloned()
-                            .map(|candidate| (key, candidate))
-                            .collect(),
-                    };
-                    states[writer].merge_range(&segment).with_context(|| format!("range seed={INITIAL_SEED} trial={trial} trace_seed={trace_seed} step={step}"))?;
+                    merge_leaf(&mut states[writer], &other, rg(Some(key), Some(key + 1))).with_context(|| format!("range seed={INITIAL_SEED} trial={trial} trace_seed={trace_seed} step={step}"))?;
                     covered[3] += 1;
                 }
             }
@@ -223,18 +221,13 @@ fn algebra_for_seeded_reachable_states() -> Result<()> {
         victim.assign(1, cand(writer, 1, 10))?;
         let mut conflicting = map();
         conflicting.assign(8, cand(writer, 1, 80))?;
-        conflicting.merge_range(&CompleteRange {
-            range: rg(None, Some(5)),
-            context: context(&[dot(writer + 1000, 1)]),
-            candidates: vec![],
-        })?;
-        let before = victim.export()?;
+        let before = victim.snapshot();
         assert!(
             victim.merge(&conflicting).is_err(),
             "collision seed={INITIAL_SEED} trial={trial} trace_seed={trace_seed}"
         );
         assert_eq!(
-            victim.export()?,
+            victim.snapshot(),
             before,
             "collision atomicity seed={INITIAL_SEED} trial={trial} trace_seed={trace_seed}"
         );
@@ -251,8 +244,8 @@ fn algebra_for_seeded_reachable_states() -> Result<()> {
         let mut ba = states[1].clone();
         ba.merge(&states[0])?;
         assert_eq!(
-            ab.export()?,
-            ba.export()?,
+            ab.snapshot(),
+            ba.snapshot(),
             "commutative seed={INITIAL_SEED} trial={trial} trace_seed={trace_seed}"
         );
         let mut id = states[0].clone();
@@ -267,8 +260,8 @@ fn algebra_for_seeded_reachable_states() -> Result<()> {
         let mut rhs = states[0].clone();
         rhs.merge(&bc)?;
         assert_eq!(
-            lhs.export()?,
-            rhs.export()?,
+            lhs.snapshot(),
+            rhs.snapshot(),
             "associative seed={INITIAL_SEED} trial={trial} trace_seed={trace_seed}"
         );
     }
@@ -289,9 +282,9 @@ fn leaf_validation_and_resource_failure_are_atomic() -> Result<()> {
         ..Limits::default()
     })?;
     m.assign(1, cand(1, 1, 1))?;
-    let old = m.export()?;
+    let old = m.snapshot();
     assert!(m.assign(2, cand(2, 1, 2)).is_err());
-    assert_eq!(old, m.export()?);
+    assert_eq!(old, m.snapshot());
     assert!(
         m.plan_leaf(
             &rg(Some(2), Some(3)),
@@ -300,12 +293,12 @@ fn leaf_validation_and_resource_failure_are_atomic() -> Result<()> {
         )
         .is_err()
     );
-    assert_eq!(old, m.export()?);
+    assert_eq!(old, m.snapshot());
     assert!(
         m.apply_merge(&[(2, cand(4, 1, 1))], &Context::default())
             .is_err()
     );
-    assert_eq!(old, m.export()?);
+    assert_eq!(old, m.snapshot());
     Ok(())
 }
 #[test]
@@ -316,7 +309,7 @@ fn semantic_equal_merge_chunks_and_steady_state() -> Result<()> {
     a.apply_merge(&[], &context(&[dot(9, 1)]))?;
     a.apply_merge(&[], &context(&[dot(9, 3)]))?;
     b.apply_merge(&[], &ctx)?;
-    assert_eq!(a.export()?, b.export()?);
+    assert_eq!(a.snapshot(), b.snapshot());
     assert!(!a.merge(&b)?);
     assert!(!b.merge(&a)?);
     Ok(())
@@ -351,7 +344,7 @@ fn merge_chunks_reordered_and_late_stale_relay() -> Result<()> {
     let mut right = map();
     right.apply_merge(&[], &other)?;
     right.apply_merge(&[], &suppress)?;
-    assert_eq!(left.export()?, right.export()?);
+    assert_eq!(left.snapshot(), right.snapshot());
     assert!(!left.apply_merge(&[(2, cand(7, 1, 7))], &Context::default())?);
     assert!(left.winner(&2).is_none());
     assert!(left.base().contains(d));
@@ -387,20 +380,12 @@ fn full_merge_checks_all_dots_against_original_receiver_before_removal() -> Resu
     receiver.assign(1, cand(1, 1, 10))?;
     let mut source = map();
     source.assign(8, cand(1, 1, 80))?;
-    // Force the source to export the first interval without key 8. Its base
-    // context contains d, so a progressive merge would first remove key 1.
-    source.merge_range(&CompleteRange {
-        range: rg(None, Some(5)),
-        context: context(&[dot(2, 1)]),
-        candidates: vec![],
-    })?;
-    assert!(source.export()?.len() > 1);
-    let before = receiver.export()?;
+    let before = receiver.snapshot();
     // This type deliberately has no public persistent encoding; the debug
     // snapshot also checks internal state and limits beyond semantic export.
     let internal_before = format!("{receiver:?}").into_bytes();
     assert!(receiver.merge(&source).is_err());
-    assert_eq!(receiver.export()?, before);
+    assert_eq!(receiver.snapshot(), before);
     assert_eq!(format!("{receiver:?}").into_bytes(), internal_before);
     assert_eq!(receiver.winner(&1).unwrap().dot, d);
     Ok(())
@@ -424,10 +409,10 @@ fn full_merge_rejects_same_dot_conflicting_value_or_revision_atomically() -> Res
     ] {
         let mut source = map();
         source.assign(1, conflict)?;
-        let before = receiver.export()?;
+        let before = receiver.snapshot();
         let internal_before = format!("{receiver:?}").into_bytes();
         assert!(receiver.merge(&source).is_err());
-        assert_eq!(receiver.export()?, before);
+        assert_eq!(receiver.snapshot(), before);
         assert_eq!(format!("{receiver:?}").into_bytes(), internal_before);
     }
     Ok(())
@@ -443,12 +428,12 @@ fn explicit_observed_subset_preserves_unobserved_candidates_atomically() -> Resu
     a.assign_observed(1, cand(3, 1, 30), &selected)?;
     let dots: BTreeSet<_> = a.candidates(&1).map(|c| c.dot).collect();
     assert_eq!(dots, BTreeSet::from([dot(2, 1), dot(3, 1)]));
-    let before = a.export()?;
+    let before = a.snapshot();
     assert!(
         a.remove_observed(&1, &BTreeSet::from([dot(99, 1)]))
             .is_err()
     );
-    assert_eq!(a.export()?, before);
+    assert_eq!(a.snapshot(), before);
     Ok(())
 }
 #[test]
@@ -460,12 +445,12 @@ fn key_delta_context_only_relay_is_idempotent_and_suppresses_late_value() -> Res
     assert!(a.base().contains(d));
     assert!(!a.merge_key_delta(3, &[], &[cand(1, 1, 11)])?);
     assert!(a.winner(&3).is_none());
-    let before = a.export()?;
+    let before = a.snapshot();
     assert!(
         a.merge_key_delta(3, &[dot(9, 1)], &[cand(9, 1, 4)])
             .is_err()
     );
-    assert_eq!(a.export()?, before);
+    assert_eq!(a.snapshot(), before);
     Ok(())
 }
 
@@ -474,33 +459,8 @@ fn indexed_snapshot_scan_matches_complete_export() -> Result<()> {
     let mut state = map();
     state.assign(2, cand(1, 1, 10))?;
     state.assign(7, cand(1, 2, 20))?;
-    state.merge_range(&CompleteRange {
-        range: rg(None, Some(5)),
-        context: context(&[dot(2, 4)]),
-        candidates: vec![],
-    })?;
-    state.merge_range(&CompleteRange {
-        range: rg(Some(8), Some(12)),
-        context: context(&[dot(3, 3)]),
-        candidates: vec![],
-    })?;
-    // Both local assignments and relayed deltas grow the base after range
-    // knowledge has arrived. Indexed contexts must include the new live dots.
     state.assign(3, cand(4, 1, 30))?;
     state.merge_key_delta(9, &[], &[cand(5, 1, 40)])?;
-    let expected = state.normalized()?;
-    let mut actual = Vec::new();
-    let mut lower = None;
-    loop {
-        let segment = state.next_segment(lower);
-        let end = segment.range.end;
-        actual.push(segment);
-        if end.is_none() {
-            break;
-        }
-        lower = end;
-    }
-    assert_eq!(actual, expected);
     let mut cursor = None;
     let mut live = Vec::new();
     loop {
@@ -509,11 +469,7 @@ fn indexed_snapshot_scan_matches_complete_export() -> Result<()> {
         cursor = Some((key, candidate.dot));
         live.push((key, candidate));
     }
-    let expected_live: Vec<_> = state
-        .export()?
-        .into_iter()
-        .flat_map(|s| s.candidates)
-        .collect();
+    let expected_live = state.live_entries();
     assert_eq!(live, expected_live);
     Ok(())
 }
@@ -559,7 +515,7 @@ fn additive_context_algebra_and_merge_rejections() -> Result<()> {
     assert_eq!(diff, rebuilt);
     let mut state = map();
     state.assign(1, cand(1, 1, 10))?;
-    let before = state.export()?;
+    let before = state.snapshot();
     assert!(
         state
             .apply_merge(&[(2, cand(2, 1, 20))], &context(&[dot(2, 1)]))
@@ -578,7 +534,7 @@ fn additive_context_algebra_and_merge_rejections() -> Result<()> {
             .apply_merge(&[(2, cand(1, 1, 20))], &Context::default())
             .is_err()
     );
-    assert_eq!(before, state.export()?);
+    assert_eq!(before, state.snapshot());
     Ok(())
 }
 
