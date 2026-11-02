@@ -129,6 +129,7 @@ impl<M: p::SyncModel> p::SnapshotSource<M> for CausalEndpoint<M> {
         Box::pin(async move {
             let result: Result<()> = async {
                 let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 let ns = self.inner.store.namespace();
                 crate::causal_source::release_request_on(&tx, ns, request_id).await?;
                 tx.commit().await?;
@@ -142,6 +143,7 @@ impl<M: p::SyncModel> p::SnapshotSource<M> for CausalEndpoint<M> {
         Box::pin(async move {
             let result: Result<()> = async {
                 let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 let ns = self.inner.store.namespace();
                 crate::causal_source::release_request_on(&tx, ns, snapshot).await?;
                 tx.commit().await?;
@@ -155,6 +157,7 @@ impl<M: p::SyncModel> p::SnapshotSource<M> for CausalEndpoint<M> {
         Box::pin(async move {
             let result: Result<()> = async {
                 let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 let ns = self.inner.store.namespace();
                 crate::causal_source::cancel_snapshot_build_on::<M>(&tx, ns, cursor).await?;
                 tx.commit().await?;
@@ -196,6 +199,7 @@ impl<M: p::SyncModel> p::SnapshotSource<M> for CausalEndpoint<M> {
                             .ok_or_else(|| p::SyncError::WorkLimit.into());
                     }
                     let tx = self.inner.store.connection().begin().await?;
+                    crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                     let step = crate::causal_source::open_batch_step_on(
                         &tx,
                         self.inner.store.identity_on(&tx).await?,
@@ -240,6 +244,7 @@ impl<M: p::SyncModel> p::SnapshotSource<M> for CausalEndpoint<M> {
             let limits = source_work(limits)?;
             let result: Result<p::WorkOutcome<p::RangeSummary<M>>> = async {
                 let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 let ns = self.inner.store.namespace();
                 let value = crate::causal_source::summarize_on(
                     &tx,
@@ -269,6 +274,7 @@ impl<M: p::SyncModel> p::SnapshotSource<M> for CausalEndpoint<M> {
             let limits = source_work(limits)?;
             let result: Result<p::WorkOutcome<Vec<p::KeyRange<M>>>> = async {
                 let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 let ns = self.inner.store.namespace();
                 let value = crate::causal_source::split_on(
                     &tx,
@@ -278,34 +284,6 @@ impl<M: p::SyncModel> p::SnapshotSource<M> for CausalEndpoint<M> {
                     now() as i64,
                     limits,
                     resume,
-                )
-                .await?;
-                tx.commit().await?;
-                Ok(value)
-            }
-            .await;
-            result.map_err(error)
-        })
-    }
-    fn context_page(
-        &self,
-        snapshot: Uuid,
-        range: p::KeyRange<M>,
-        after: p::ContextCursor,
-        limits: p::PageLimits,
-    ) -> BoxFuture<'_, p::ContextPage<M>> {
-        Box::pin(async move {
-            let result: Result<p::ContextPage<M>> = async {
-                let tx = self.inner.store.connection().begin().await?;
-                let ns = self.inner.store.namespace();
-                let value = causal_snapshot::context_page_on(
-                    &tx,
-                    ns,
-                    snapshot,
-                    now() as i64,
-                    range,
-                    after,
-                    limits,
                 )
                 .await?;
                 tx.commit().await?;
@@ -609,8 +587,9 @@ impl<M: p::SyncModel> p::ReceiveStore<M> for CausalEndpoint<M> {
     ) -> BoxFuture<'a, p::ApplyResult<M>> {
         Box::pin(async move {
             async {
-                let mut ledger = self.ledger().await;
+                let ledger = self.ledger().await;
                 let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 let mutation_start = mutations_on(&tx).await?;
                 let key = p::CheckpointKey {
                     namespace: page.request.source.namespace,
@@ -618,57 +597,6 @@ impl<M: p::SyncModel> p::ReceiveStore<M> for CausalEndpoint<M> {
                     source_generation: page.request.source.generation,
                     scope_id: p::scope_id(&page.request.scope)?,
                 };
-                let current = causal_progress::checkpoint_on::<M, _>(&tx, &key).await?;
-                let mut prepared = Vec::new();
-                if current
-                    .as_ref()
-                    .is_some_and(|current| current.sequence < page.next.sequence)
-                {
-                    let mut anchor = page.request.after.anchor;
-                    for link in &page.links {
-                        let preceding = p::ReceiveProgress {
-                            sequence: link
-                                .sequence
-                                .checked_sub(1)
-                                .ok_or(p::SyncError::Invalid("zero journal sequence".into()))?,
-                            anchor,
-                        };
-                        anchor = p::next_anchor::<M>(
-                            anchor,
-                            link.sequence,
-                            &link.collection,
-                            link.event_digest,
-                        )?;
-                        if let Some(p::EventRef::Inline(event @ p::Event::Range(range))) =
-                            &link.event
-                        {
-                            let mut request = page.request.clone();
-                            request.after = preceding;
-                            let origin = p::StageOrigin::Journal {
-                                request,
-                                sequence: link.sequence,
-                                collection: link.collection.clone(),
-                                event_digest: link.event_digest,
-                            };
-                            let input = ledger.prepare_inline_event(&origin, event)?;
-                            publish_dependencies_on(
-                                &tx,
-                                self.inner.store.namespace(),
-                                &range.range,
-                                &input.dependencies,
-                                &input.dependency_fragments,
-                            )
-                            .await?;
-                            prepared.push((
-                                input,
-                                p::ReceiveProgress {
-                                    sequence: link.sequence,
-                                    anchor,
-                                },
-                            ));
-                        }
-                    }
-                }
                 let result = self.inner.store.apply_page_on(&tx, page, limits).await?;
                 self.project_with_budget_on(
                     &tx,
@@ -688,14 +616,6 @@ impl<M: p::SyncModel> p::ReceiveStore<M> for CausalEndpoint<M> {
                 }
                 check_mutations_on(&tx, mutation_start, limits.max_mutations).await?;
                 tx.commit().await?;
-                for (input, progress) in prepared {
-                    ledger.finalize_event(
-                        &input,
-                        key.clone(),
-                        progress,
-                        now() + p::DEFAULT_SNAPSHOT_TTL_MS,
-                    )?;
-                }
                 drop(ledger);
                 if !result.projection.changes.is_empty() {
                     (self.notify)();
@@ -715,7 +635,7 @@ impl<M: p::SyncModel> p::ReceiveStore<M> for CausalEndpoint<M> {
             let mut ledger = self.ledger().await;
             let namespace = match &descriptor.origin {
                 p::StageOrigin::Journal { request, .. } => request.source.namespace,
-                p::StageOrigin::Snapshot { session, .. } => {
+                p::StageOrigin::SnapshotContext { session, .. } => {
                     ledger.descriptors(*session)?.0.source.namespace
                 }
             };
@@ -784,17 +704,8 @@ impl<M: p::SyncModel> p::ReceiveStore<M> for CausalEndpoint<M> {
                     p::SyncError::Invalid("staged event origin mismatch".into())
                 );
                 let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 let mutation_start = mutations_on(&tx).await?;
-                if let p::Event::Range(range) = &input.event {
-                    publish_dependencies_on(
-                        &tx,
-                        self.inner.store.namespace(),
-                        &range.range,
-                        &input.dependencies,
-                        &input.dependency_fragments,
-                    )
-                    .await?;
-                }
                 let result = self
                     .inner
                     .store
@@ -842,6 +753,7 @@ impl<M: p::SyncModel> p::ReceiveStore<M> for CausalEndpoint<M> {
         Box::pin(async move {
             async {
                 let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 causal_progress::finish_session_on::<M>(
                     &tx,
                     self.inner.store.namespace(),
@@ -910,6 +822,7 @@ impl<M: p::SyncModel> p::SyncStore<M> for CausalEndpoint<M> {
         Box::pin(async move {
             async {
                 let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 let before = causal_progress::head_on(&tx, self.inner.store.namespace()).await?;
                 let command = self
                     .inner
@@ -945,92 +858,6 @@ impl<M: p::SyncModel> p::SyncStore<M> for CausalEndpoint<M> {
         p::SyncPeer::read_fragment(self, manifest, ordinal, max_bytes)
     }
 }
-
-async fn publish_dependencies_on<M: p::SyncModel>(
-    tx: &DatabaseTransaction,
-    namespace: Uuid,
-    range: &p::KeyRange<M>,
-    dependencies: &[(p::ManifestRef, Vec<u8>)],
-    retained_fragments: &[(p::Digest, Vec<p::Fragment>)],
-) -> Result<()> {
-    crate::causal_leases::lock_on(tx, namespace).await?;
-    let mut unique = std::collections::BTreeMap::new();
-    for (manifest, body) in dependencies {
-        if let Some((previous, bytes)) = unique.insert(manifest.manifest_digest, (manifest, body)) {
-            ensure!(
-                previous == manifest && bytes == body,
-                "conflicting prepared dependency"
-            );
-        }
-    }
-    // Children must exist before a parent can publish its dependency edges.
-    for kind in [
-        p::ManifestKind::Context,
-        p::ManifestKind::Leaf,
-        p::ManifestKind::ContextPartition,
-    ] {
-        for (manifest, body) in unique
-            .values()
-            .copied()
-            .filter(|(manifest, _)| manifest.kind == kind)
-        {
-            let generated;
-            let fragments = if let Some((_, fragments)) = retained_fragments
-                .iter()
-                .find(|(digest, _)| *digest == manifest.manifest_digest)
-            {
-                fragments.as_slice()
-            } else {
-                let (actual, fragments) = causal_manifests::fragment_body(
-                    manifest.kind,
-                    body,
-                    manifest.item_count,
-                    64 * 1024,
-                )?;
-                ensure!(&actual == manifest, "generated manifest layout mismatch");
-                generated = fragments;
-                generated.as_slice()
-            };
-            causal_manifests::publish_on(
-                tx,
-                namespace,
-                manifest,
-                fragments,
-                p::MAX_LOGICAL_BYTES,
-                |bytes| {
-                    ensure!(
-                        bytes == body.as_slice(),
-                        "prepared dependency body mismatch"
-                    );
-                    Ok(match kind {
-                        p::ManifestKind::Context => {
-                            p::decode_context(bytes)?;
-                            vec![]
-                        }
-                        p::ManifestKind::Leaf => {
-                            let values = p::decode_candidates::<M>(bytes)?;
-                            ensure!(
-                                values.iter().all(|value| value.namespace == namespace),
-                                "candidate namespace mismatch"
-                            );
-                            vec![]
-                        }
-                        p::ManifestKind::ContextPartition => {
-                            p::decode_context_partition::<M>(range, bytes)?
-                                .into_iter()
-                                .map(|segment| segment.context.manifest.manifest_digest)
-                                .collect()
-                        }
-                        _ => unreachable!(),
-                    })
-                },
-            )
-            .await?;
-        }
-    }
-    Ok(())
-}
-
 impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
     fn cancel_reconciliation(&self, session: Uuid) -> BoxFuture<'_, ()> {
         Box::pin(async move { self.ledger().await.cancel_reconciliation(session) })
@@ -1121,26 +948,12 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
             .map_err(error)
         })
     }
-    fn context_progress(
-        &self,
-        session: Uuid,
-        range: p::KeyRange<M>,
-    ) -> BoxFuture<'_, p::ContextProgress> {
-        Box::pin(async move { self.ledger().await.context_progress(session, &range) })
-    }
     fn leaf_progress(
         &self,
         session: Uuid,
         range: p::KeyRange<M>,
     ) -> BoxFuture<'_, p::LeafProgress<M>> {
         Box::pin(async move { self.ledger().await.leaf_progress(session, &range) })
-    }
-    fn stage_context_page(
-        &self,
-        session: Uuid,
-        page: p::ContextPage<M>,
-    ) -> BoxFuture<'_, p::ContextProgress> {
-        Box::pin(async move { self.ledger().await.stage_context_page(session, page) })
     }
     fn stage_leaf_page(
         &self,
@@ -1161,10 +974,11 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
                 if let Some(progress) = ledger.completed_range(session, &range)? {
                     return Ok((progress, empty_projection()));
                 }
+                validate_apply_limits(limits)?;
                 let input = ledger.prepare_range(session, &range)?;
-                let completion = ledger.prepare_completion_after_range(&input.token)?;
-                let (remote, local) = ledger.descriptors(session)?;
+                let (_, local) = ledger.descriptors(session)?;
                 let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 let mutation_start = mutations_on(&tx).await?;
                 causal_snapshot::descriptor_on::<M>(
                     &tx,
@@ -1173,46 +987,77 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
                     now() as i64,
                 )
                 .await?;
-                publish_dependencies_on(
+                let state = self.inner.store.state_seq_on(&tx).await?;
+                let raw = causal_candidates::page_on(
                     &tx,
-                    self.inner.store.namespace(),
-                    &range,
-                    &input.dependencies,
-                    &input.dependency_fragments,
+                    causal_candidates::CandidatePageRequest {
+                        namespace: self.inner.store.namespace(),
+                        collection: M::collection_tag(&range.collection).as_bytes(),
+                        state_seq: state,
+                        lower: range.lower,
+                        upper: range.upper,
+                        after: None,
+                        max_items: std::cmp::min(limits.max_mutations, 1024) as usize,
+                        max_bytes: 4 * 1024 * 1024,
+                    },
                 )
                 .await?;
-                let verified = crate::causal_range::validate_on(
-                    &tx,
-                    self.inner.store.namespace(),
-                    &input.event,
-                    p::MAX_LOGICAL_BYTES,
-                    p::MAX_LOGICAL_ITEMS,
-                    p::MAX_FRAGMENTS,
-                )
-                .await?;
-                let projection = self
-                    .inner
-                    .store
-                    .apply_range_on(&tx, &verified, limits)
-                    .await?;
+                ensure!(raw.done, p::SyncError::WorkLimit);
+                let current = raw
+                    .rows
+                    .iter()
+                    .map(|row| -> Result<_> {
+                        let candidate = p::decode_candidate::<M>(&row.body)?;
+                        ensure!(
+                            candidate.namespace == self.inner.store.namespace()
+                                && candidate.key.collection == range.collection
+                                && candidate.key.id.as_bytes() == row.object.as_slice()
+                                && candidate.dot.writer_incarnation.as_bytes()
+                                    == row.writer.as_slice()
+                                && i64::try_from(candidate.dot.counter)? == row.counter
+                                && candidate.revision.actor.as_bytes() == row.author.as_slice()
+                                && i64::try_from(candidate.revision.counter)? == row.revision
+                                && p::candidate_digest(&candidate)?.as_slice() == row.digest,
+                            "stored candidate identity mismatch"
+                        );
+                        Ok(candidate)
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let mut observed = std::collections::BTreeSet::new();
+                for c in &input.candidates {
+                    if crate::causal_observed::contains_on(
+                        &tx,
+                        self.inner.store.namespace(),
+                        M::collection_tag(&range.collection).as_bytes(),
+                        sync::causal::Dot::new(c.dot.writer_incarnation, c.dot.counter)?,
+                    )
+                    .await?
+                    {
+                        observed.insert(c.dot);
+                    }
+                }
+                let mut budget = limits.max_mutations;
+                let projection = match p::plan_leaf_merge(
+                    &range.collection,
+                    &current,
+                    &input.candidates,
+                    &input.source_context,
+                    &observed,
+                )? {
+                    Some(delta) => {
+                        self.inner
+                            .store
+                            .apply_merge_on(&tx, &delta, limits, &mut budget)
+                            .await?
+                            .1
+                    }
+                    None => empty_projection(),
+                };
                 self.project_with_budget_on(&tx, &projection, mutation_start, limits.max_mutations)
                     .await?;
-                if let Some(admission) = &completion {
-                    causal_progress::initialize_checkpoint_on(
-                        &tx,
-                        &self.inner.store.identity_on(&tx).await?,
-                        &admission.checkpoint,
-                        &remote.scope,
-                        &admission.through,
-                    )
-                    .await?;
-                }
                 check_mutations_on(&tx, mutation_start, limits.max_mutations).await?;
                 tx.commit().await?;
                 let coverage = ledger.finalize_range(&input.token)?;
-                if let Some(admission) = &completion {
-                    ledger.mark_completion_published(admission, admission.through.clone())?;
-                }
                 drop(ledger);
                 if !projection.changes.is_empty() {
                     (self.notify)();
@@ -1223,36 +1068,131 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
             .map_err(error)
         })
     }
-    fn normalize_step(
+    fn promote_step(
         &self,
         session: Uuid,
-        limits: p::WorkLimits,
-        resume: Option<p::WorkCursor>,
-    ) -> BoxFuture<'_, p::WorkOutcome<p::CoverageProgress>> {
+        limits: p::ApplyLimits,
+    ) -> BoxFuture<'_, p::PromoteProgress> {
         Box::pin(async move {
-            if resume.is_some() {
-                return Err(p::SyncError::StaleWork);
+            async {
+                validate_apply_limits(limits)?;
+                let mut ledger = self.ledger().await;
+                let Some(token) = ledger.prepare_promotion(
+                    session,
+                    (limits.max_mutations / 4).clamp(1, 1024) as usize,
+                )?
+                else {
+                    return Ok(p::PromoteProgress {
+                        done: true,
+                        causal_changes: 0,
+                    });
+                };
+                let (_, local) = ledger.descriptors(session)?;
+                let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
+                let mutation_start = mutations_on(&tx).await?;
+                let (lease, _) = causal_snapshot::descriptor_on::<M>(
+                    &tx,
+                    self.inner.store.namespace(),
+                    local.snapshot_id,
+                    now() as i64,
+                )
+                .await?;
+                let ns = self.inner.store.namespace();
+                let mut observed = sync::causal::Context::default();
+                let collection = match &token.step {
+                    p::PromotionStep::Arrivals {
+                        collection,
+                        source_context,
+                        source_live,
+                    } => {
+                        let q = Query::select()
+                            .columns(["writer", "counter"].map(Alias::new))
+                            .from(Alias::new("sync_candidates"))
+                            .and_where(
+                                Expr::col(Alias::new("namespace")).eq(ns.as_bytes().to_vec()),
+                            )
+                            .and_where(
+                                Expr::col(Alias::new("collection")).eq(M::collection_tag(
+                                    collection,
+                                )
+                                .as_bytes()
+                                .to_vec()),
+                            )
+                            .and_where(Expr::col(Alias::new("live_from")).gt(lease.state_seq))
+                            .and_where(Expr::col(Alias::new("live_until")).is_null())
+                            .limit(limits.max_mutations + 1)
+                            .to_owned();
+                        let rows = tx.query_all(&q).await?;
+                        ensure!(
+                            rows.len() as u64 <= limits.max_mutations,
+                            p::SyncError::WorkLimit
+                        );
+                        for row in rows {
+                            let dot = sync::causal::Dot::new(
+                                Uuid::from_slice(&row.try_get_by_index::<Vec<u8>>(0)?)?,
+                                u64::try_from(row.try_get_by_index::<i64>(1)?)?,
+                            )?;
+                            if source_context.contains(dot) && !source_live.contains(dot) {
+                                observed.insert(dot)?;
+                            }
+                        }
+                        collection.clone()
+                    }
+                    p::PromotionStep::Chunk { collection, chunk } => {
+                        for (writer, first, last) in chunk.intervals() {
+                            for (a, b) in crate::causal_observed::unobserved_on(
+                                &tx,
+                                ns,
+                                M::collection_tag(collection).as_bytes(),
+                                writer,
+                                first,
+                                last,
+                            )
+                            .await?
+                            {
+                                observed.insert_interval(writer, a, b)?;
+                            }
+                        }
+                        collection.clone()
+                    }
+                };
+                let mut budget = limits.max_mutations;
+                let projection = if observed.is_empty() {
+                    empty_projection()
+                } else {
+                    self.inner
+                        .store
+                        .apply_merge_on(
+                            &tx,
+                            &p::MergeDelta {
+                                collection,
+                                added: vec![],
+                                observed: p::exact_context(&observed),
+                            },
+                            limits,
+                            &mut budget,
+                        )
+                        .await?
+                        .1
+                };
+                self.project_with_budget_on(&tx, &projection, mutation_start, limits.max_mutations)
+                    .await?;
+                check_mutations_on(&tx, mutation_start, limits.max_mutations).await?;
+                tx.commit().await?;
+                ledger.finalize_promotion(&token)?;
+                let done = ledger.promotion_done(session)?;
+                drop(ledger);
+                if !projection.changes.is_empty() {
+                    (self.notify)();
+                }
+                Ok(p::PromoteProgress {
+                    done,
+                    causal_changes: projection.causal_changes,
+                })
             }
-            if limits.max_requests == 0
-                || limits.max_requests > p::MAX_ROUND_REQUESTS
-                || limits.max_rows_scanned == 0
-                || limits.max_rows_scanned > p::MAX_ROWS
-                || limits.max_bytes == 0
-                || limits.max_bytes > p::MAX_ROUND_BYTES
-                || limits.max_mutations == 0
-                || limits.max_mutations > p::MAX_MUTATIONS
-                || limits.max_depth == 0
-                || limits.max_depth > p::MAX_DEPTH
-            {
-                return Err(p::SyncError::Invalid("invalid normalization budget".into()));
-            }
-            // Accepted assertions already have exact set semantics. Physical
-            // baseline normalization is performed by bounded maintenance.
-            let progress = self.ledger().await.progress(session)?;
-            if !progress.complete {
-                return Err(p::SyncError::IncompleteCoverage);
-            }
-            Ok(p::WorkOutcome::Ready(progress))
+            .await
+            .map_err(error)
         })
     }
     fn complete_reconciliation(&self, session: Uuid) -> BoxFuture<'_, p::ReceiveProgress> {
@@ -1263,11 +1203,9 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
                     return Ok(progress);
                 }
                 let admission = ledger.prepare_completion(session)?;
-                if let Some(progress) = ledger.published_completion(session)? {
-                    return Ok(ledger.finalize_completion(&admission, progress)?);
-                }
                 let (remote, local) = ledger.descriptors(session)?;
                 let tx = self.inner.store.connection().begin().await?;
+                crate::causal_leases::lock_on(&tx, self.inner.store.namespace()).await?;
                 causal_snapshot::descriptor_on::<M>(
                     &tx,
                     self.inner.store.namespace(),
@@ -1378,6 +1316,19 @@ async fn read_fragment_on(
         "fragment integrity mismatch"
     );
     Ok(fragment)
+}
+
+fn validate_apply_limits(limits: p::ApplyLimits) -> Result<()> {
+    ensure!(
+        limits.max_projection_items > 0
+            && limits.max_projection_items <= p::MAX_PROJECTION_ITEMS
+            && limits.max_projection_bytes > 0
+            && limits.max_projection_bytes <= p::MAX_PROJECTION_BYTES
+            && limits.max_mutations > 0
+            && limits.max_mutations <= p::MAX_MUTATIONS,
+        p::SyncError::Invalid("invalid apply limits".into())
+    );
+    Ok(())
 }
 
 #[cfg(test)]

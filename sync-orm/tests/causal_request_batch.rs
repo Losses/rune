@@ -231,7 +231,7 @@ async fn storage_error_after_committed_prefix_is_reported_and_retryable() -> Res
             .try_get_by_index(0)?;
         db.execute_unprepared(&format!(
             "UPDATE request_batch_fault SET fail_at = {}",
-            before + 2
+            before + 1
         ))
         .await?;
         match endpoint
@@ -257,7 +257,7 @@ async fn storage_error_after_committed_prefix_is_reported_and_retryable() -> Res
                     .try_get_by_index(0)?;
                 assert_eq!(
                     after - before,
-                    2,
+                    1,
                     "the failed call must have committed a prefix"
                 );
                 faulted = true;

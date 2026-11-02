@@ -100,7 +100,7 @@ impl<M: SyncModel> CausalReplica<M> {
             generation: Uuid::new_v4(),
         };
         let anchor = protocol::initial_anchor(&identity)?;
-        let tx = db.begin().await?;
+        let tx = crate::causal_leases::begin_write(&db).await?;
         let q = Query::insert()
             .into_table(Alias::new("sync_meta"))
             .columns(
@@ -118,7 +118,6 @@ impl<M: SyncModel> CausalReplica<M> {
                     "history_floor",
                     "floor_anchor",
                     "floor_state_seq",
-                    "baseline_generation",
                     "retained_bytes",
                 ]
                 .map(Alias::new),
@@ -137,7 +136,6 @@ impl<M: SyncModel> CausalReplica<M> {
                 0_i64.into(),
                 anchor.to_vec().into(),
                 0_i64.into(),
-                Uuid::nil().as_bytes().to_vec().into(),
                 0_i64.into(),
             ])
             .to_owned();
@@ -168,6 +166,9 @@ impl<M: SyncModel> CausalReplica<M> {
         replica.meta_on(&tx).await?;
         tx.commit().await?;
         Ok(replica)
+    }
+    pub(crate) async fn state_seq_on(&self, tx: &DatabaseTransaction) -> Result<i64> {
+        Ok(self.meta_on(tx).await?.1.state_seq)
     }
     pub fn namespace(&self) -> Uuid {
         self.namespace
@@ -256,10 +257,7 @@ impl<M: SyncModel> CausalReplica<M> {
         value: Option<M::Payload>,
         observed: protocol::Observed,
     ) -> Result<CommandResult<M>> {
-        use protocol::{
-            Candidate, CounterInterval, Dot, Event, ExactContext, KeyDelta, ManifestKind,
-            ProjectionChange, Revision, WriterContext,
-        };
+        use protocol::{Candidate, Dot, Event, KeyDelta, ManifestKind, ProjectionChange, Revision};
         ensure!(!key.id.is_nil(), "nil object UUID");
         M::validate(&key, &value)?;
         crate::causal_leases::lock_on(tx, self.namespace).await?;
@@ -419,80 +417,21 @@ impl<M: SyncModel> CausalReplica<M> {
             digest,
         )?;
         if let Some(candidate) = added.first() {
-            let context = ExactContext {
-                writers: vec![WriterContext {
-                    writer_incarnation: candidate.dot.writer_incarnation,
-                    prefix: if candidate.dot.counter == 1 { 1 } else { 0 },
-                    exceptions: if candidate.dot.counter == 1 {
-                        vec![]
-                    } else {
-                        vec![CounterInterval {
-                            first: candidate.dot.counter,
-                            last_inclusive: candidate.dot.counter,
-                        }]
-                    },
-                }],
-            };
-            let body = protocol::canonical_context(&context)?;
-            let (manifest, fragments) = crate::causal_manifests::fragment_body(
-                ManifestKind::Context,
-                &body,
-                1,
-                1024 * 1024,
-            )?;
-            crate::causal_manifests::publish_on(
+            let mut context = sync::causal::Context::default();
+            context.insert(sync::causal::Dot::new(
+                candidate.dot.writer_incarnation,
+                candidate.dot.counter,
+            )?)?;
+            let mut budget = u64::MAX;
+            crate::causal_observed::insert_on(
                 tx,
                 self.namespace,
-                &manifest,
-                &fragments,
-                protocol::MAX_LOGICAL_BYTES,
-                |bytes| {
-                    protocol::decode_context(bytes)?;
-                    Ok(vec![])
-                },
+                tag.as_bytes(),
+                state,
+                &context,
+                &mut budget,
             )
             .await?;
-            let q = Query::insert()
-                .into_table(Alias::new("sync_context_intervals"))
-                .columns(
-                    ["namespace", "context_manifest", "writer", "first", "last"].map(Alias::new),
-                )
-                .values_panic([
-                    self.namespace.as_bytes().to_vec().into(),
-                    manifest.manifest_digest.to_vec().into(),
-                    candidate.dot.writer_incarnation.as_bytes().to_vec().into(),
-                    i64::try_from(candidate.dot.counter)?.into(),
-                    i64::try_from(candidate.dot.counter)?.into(),
-                ])
-                .to_owned();
-            tx.execute(&q).await?;
-            let q = Query::insert()
-                .into_table(Alias::new("sync_context_ranges"))
-                .columns(
-                    [
-                        "namespace",
-                        "collection",
-                        "basis_generation",
-                        "state_seq",
-                        "ordinal",
-                        "lower_bound",
-                        "upper_bound",
-                        "context_manifest",
-                    ]
-                    .map(Alias::new),
-                )
-                .values_panic([
-                    self.namespace.as_bytes().to_vec().into(),
-                    tag.as_bytes().to_vec().into(),
-                    Uuid::nil().as_bytes().to_vec().into(),
-                    state.into(),
-                    0_i64.into(),
-                    vec![0_u8].into(),
-                    vec![2_u8].into(),
-                    manifest.manifest_digest.to_vec().into(),
-                ])
-                .to_owned();
-            tx.execute(&q).await?;
             let bytes = protocol::canonical_candidate(candidate)?;
             let candidate_digest = protocol::candidate_digest(candidate)?;
             let q = Query::insert()
@@ -646,458 +585,79 @@ impl<M: SyncModel> CausalReplica<M> {
         tx: &DatabaseTransaction,
         delta: &protocol::KeyDelta<M>,
     ) -> Result<protocol::ProjectionChange<M>> {
-        use protocol::{Candidate, Dot, Event, ManifestKind, ProjectionChange};
-        let key = delta.key.clone();
-        ensure!(delta.removed.len() <= 64, protocol::SyncError::WorkLimit);
-        ensure!(
-            !delta
-                .added
-                .iter()
-                .any(|candidate| delta.removed.contains(&candidate.dot)),
-            "added and removed dots overlap"
-        );
-        let event = Event::Key(delta.clone());
-        let event_bytes = protocol::canonical_event(&event)?;
-        let event_digest = protocol::event_digest(&event)?;
-        if delta.added.is_empty() {
-            M::validate(&key, &None)?;
-            M::validate_revision(&key, &None, &delta.author)?;
-        }
-        for candidate in &delta.added {
-            ensure!(
-                candidate.namespace == self.namespace,
-                "candidate namespace mismatch"
-            );
-            protocol::validate_candidate(candidate)?;
-        }
         crate::causal_leases::lock_on(tx, self.namespace).await?;
-        let (identity, meta) = self.meta_on(tx).await?;
-        let tag = M::collection_tag(&key.collection);
-        ensure!(
-            M::collection_from_tag(tag) == Some(key.collection.clone()),
-            "invalid collection tag"
-        );
-        let page = crate::causal_candidates::page_on(
-            tx,
-            crate::causal_candidates::CandidatePageRequest {
-                namespace: self.namespace,
-                collection: tag.as_bytes(),
-                state_seq: meta.state_seq,
-                lower: Some(key.id),
-                upper: key.id.as_u128().checked_add(1).map(Uuid::from_u128),
-                after: None,
-                max_items: 1024,
-                max_bytes: 4 * 1024 * 1024,
-            },
-        )
-        .await?;
-        let mut current: Vec<Candidate<M>> = Vec::new();
-        for row in page.rows {
-            let candidate = protocol::decode_candidate::<M>(&row.body)?;
-            if candidate.key.id != key.id {
-                break;
-            }
-            ensure!(
-                candidate.namespace == self.namespace
-                    && candidate.key == key
-                    && candidate.dot.writer_incarnation.as_bytes() == row.writer.as_slice()
-                    && i64::try_from(candidate.dot.counter)? == row.counter
-                    && candidate.revision.actor.as_bytes() == row.author.as_slice()
-                    && i64::try_from(candidate.revision.counter)? == row.revision
-                    && protocol::candidate_digest(&candidate)?.as_slice() == row.digest.as_slice(),
-                "stored candidate identity mismatch"
-            );
-            current.push(candidate);
+        let event = protocol::Event::Key(delta.clone());
+        protocol::canonical_event(&event)?;
+        if delta.added.is_empty() {
+            M::validate(&delta.key, &None)?;
+            M::validate_revision(&delta.key, &None, &delta.author)?;
         }
-        if !page.done && page.next.as_ref().is_some_and(|c| c.object == key.id) {
-            return Err(protocol::SyncError::WorkLimit.into());
-        }
-        let before = winner(&current)?;
-        let current_dots: std::collections::BTreeSet<Dot> = current.iter().map(|c| c.dot).collect();
-        let mut context = sync::causal::Context::default();
-        let mut any_new_context = false;
-        let mut key_bound = vec![1_u8];
-        key_bound.extend_from_slice(key.id.as_bytes());
-        let dots = delta
-            .removed
-            .iter()
-            .copied()
-            .chain(delta.added.iter().map(|candidate| candidate.dot));
-        let mut is_observed = std::collections::BTreeMap::new();
-        let mut unretained = std::collections::BTreeSet::new();
-        for dot in dots {
-            // Retained evidence binds a dot to exactly one key within a collection.
-            let q = Query::select()
-                .columns(["object", "body"].map(Alias::new))
-                .from(Alias::new("sync_candidates"))
-                .and_where(
-                    Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()),
-                )
-                .and_where(Expr::col(Alias::new("collection")).eq(tag.as_bytes().to_vec()))
-                .and_where(
-                    Expr::col(Alias::new("writer")).eq(dot.writer_incarnation.as_bytes().to_vec()),
-                )
-                .and_where(Expr::col(Alias::new("counter")).eq(i64::try_from(dot.counter)?))
-                .to_owned();
-            let retained = tx.query_one(&q).await?;
-            if retained.is_none() {
-                unretained.insert(dot);
-            }
-            if let Some(row) = retained {
-                ensure!(
-                    row.try_get_by_index::<Vec<u8>>(0)? == key.id.as_bytes(),
-                    "dot belongs to another key"
-                );
-                if let Some(candidate) = delta.added.iter().find(|candidate| candidate.dot == dot) {
-                    ensure!(
-                        row.try_get_by_index::<Vec<u8>>(1)?
-                            == protocol::canonical_candidate(candidate)?,
-                        "conflicting dot content"
-                    );
-                }
-            }
-            let probe = crate::causal_context::ContextScan::new(
-                self.namespace,
-                tag.as_bytes().to_vec(),
-                key_bound.clone(),
-                dot.writer_incarnation,
-                i64::try_from(dot.counter)?,
-                meta.floor_state_seq,
-                meta.state_seq,
-            )?;
-            let observed = match crate::causal_context::scan_on(tx, probe, 1024).await? {
-                crate::causal_context::ScanResult::Observed => true,
-                crate::causal_context::ScanResult::Absent => false,
-                crate::causal_context::ScanResult::Incomplete(_) => {
-                    return Err(protocol::SyncError::WorkLimit.into());
-                }
-            };
-            let global = crate::causal_context::globally_observed_on(
-                tx,
-                crate::causal_context::GlobalObservation {
-                    namespace: self.namespace,
-                    collection: tag.as_bytes(),
-                    writer: dot.writer_incarnation,
-                    counter: i64::try_from(dot.counter)?,
-                    floor: meta.floor_state_seq,
-                    state_seq: meta.state_seq,
-                    max_assertions: 1024,
-                },
-            )
-            .await?;
-            if !global {
-                context.insert(sync::causal::Dot::new(dot.writer_incarnation, dot.counter)?)?;
-                any_new_context = true;
-            }
-            is_observed.insert(dot, observed);
-        }
-        let removed: std::collections::BTreeSet<Dot> = delta.removed.iter().copied().collect();
-        let mut after_candidates: Vec<_> = current
-            .into_iter()
-            .filter(|candidate| !removed.contains(&candidate.dot))
-            .collect();
-        for candidate in &delta.added {
-            if (current_dots.contains(&candidate.dot) || !is_observed[&candidate.dot])
-                && !after_candidates.iter().any(|c| c.dot == candidate.dot)
-            {
-                after_candidates.push(candidate.clone());
-            }
-        }
-        let after = winner(&after_candidates)?;
-        // This also validates an owner-protected candidate that was suppressed
-        // by earlier context and left no displayed record.
-        if after.is_none() {
-            M::validate(&key, &None)?;
-        }
-        let live_change = delta.removed.iter().any(|d| current_dots.contains(d))
-            || delta
-                .added
-                .iter()
-                .any(|c| !current_dots.contains(&c.dot) && !is_observed[&c.dot]);
-        let observed_revision =
-            std::cmp::max(meta.revision_counter, i64::try_from(delta.author.counter)?);
-        if !any_new_context && !live_change {
-            // Retain the validated binding until the floor permits reclamation,
-            // even when earlier context suppresses this late candidate.
-            for candidate in &delta.added {
-                if unretained.contains(&candidate.dot) {
-                    let bytes = protocol::canonical_candidate(candidate)?;
-                    let digest = protocol::candidate_digest(candidate)?;
-                    let q = Query::insert()
-                        .into_table(Alias::new("sync_candidates"))
-                        .columns(
-                            [
-                                "namespace",
-                                "collection",
-                                "writer",
-                                "counter",
-                                "object",
-                                "author",
-                                "revision",
-                                "body",
-                                "digest",
-                                "retention_seq",
-                                "live_from",
-                            ]
-                            .map(Alias::new),
-                        )
-                        .values_panic([
-                            self.namespace.as_bytes().to_vec().into(),
-                            tag.as_bytes().to_vec().into(),
-                            candidate.dot.writer_incarnation.as_bytes().to_vec().into(),
-                            i64::try_from(candidate.dot.counter)?.into(),
-                            key.id.as_bytes().to_vec().into(),
-                            candidate.revision.actor.as_bytes().to_vec().into(),
-                            i64::try_from(candidate.revision.counter)?.into(),
-                            bytes.into(),
-                            digest.to_vec().into(),
-                            meta.state_seq.into(),
-                            Option::<i64>::None.into(),
-                        ])
-                        .to_owned();
-                    tx.execute(&q).await?;
-                }
-            }
-            if observed_revision > meta.revision_counter {
-                let q = Query::update()
-                    .table(Alias::new("sync_meta"))
-                    .value(Alias::new("revision_counter"), observed_revision)
-                    .and_where(
-                        Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()),
-                    )
-                    .to_owned();
-                tx.execute(&q).await?;
-            }
-            return Ok(ProjectionChange { key, before, after });
-        }
-        let state = meta
-            .state_seq
-            .checked_add(1)
-            .ok_or_else(|| anyhow::Error::new(protocol::SyncError::ClockExhausted))?;
-        let sequence = meta
-            .head
-            .checked_add(1)
-            .ok_or_else(|| anyhow::Error::new(protocol::SyncError::ClockExhausted))?;
-        if any_new_context {
-            let exact = protocol::exact_context(&context);
-            let body = protocol::canonical_context(&exact)?;
-            let (manifest, fragments) = crate::causal_manifests::fragment_body(
-                ManifestKind::Context,
-                &body,
-                exact.writers.len() as u64,
-                1024 * 1024,
-            )?;
-            crate::causal_manifests::publish_on(
-                tx,
-                self.namespace,
-                &manifest,
-                &fragments,
-                protocol::MAX_LOGICAL_BYTES,
-                |bytes| {
-                    protocol::decode_context(bytes)?;
-                    Ok(vec![])
-                },
-            )
-            .await?;
-            // A validated dependency can exist before an accepted assertion
-            // uses it. Ensure its query index in the accepting transaction.
-            let mut remaining = context
-                .entries()
-                .map(|(_, prefix, intervals)| u64::from(prefix > 0) + intervals.len() as u64)
-                .sum();
-            crate::causal_range::index_context_on(
-                tx,
-                self.namespace,
-                manifest.manifest_digest,
-                &context,
-                &mut remaining,
-            )
-            .await?;
-            let q = Query::insert()
-                .into_table(Alias::new("sync_context_ranges"))
-                .columns(
-                    [
-                        "namespace",
-                        "collection",
-                        "basis_generation",
-                        "state_seq",
-                        "ordinal",
-                        "lower_bound",
-                        "upper_bound",
-                        "context_manifest",
-                    ]
-                    .map(Alias::new),
-                )
-                .values_panic([
-                    self.namespace.as_bytes().to_vec().into(),
-                    tag.as_bytes().to_vec().into(),
-                    Uuid::nil().as_bytes().to_vec().into(),
-                    state.into(),
-                    0_i64.into(),
-                    vec![0_u8].into(),
-                    vec![2_u8].into(),
-                    manifest.manifest_digest.to_vec().into(),
-                ])
-                .to_owned();
-            tx.execute(&q).await?;
-        }
+        ensure!(delta.removed.len() <= 64, protocol::SyncError::WorkLimit);
+        let tag = M::collection_tag(&delta.key.collection);
         for dot in &delta.removed {
-            if current_dots.contains(dot) {
-                let q = Query::update()
-                    .table(Alias::new("sync_candidates"))
-                    .value(Alias::new("live_until"), state)
-                    .and_where(
-                        Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()),
-                    )
-                    .and_where(Expr::col(Alias::new("collection")).eq(tag.as_bytes().to_vec()))
-                    .and_where(
-                        Expr::col(Alias::new("writer"))
-                            .eq(dot.writer_incarnation.as_bytes().to_vec()),
-                    )
-                    .and_where(Expr::col(Alias::new("counter")).eq(i64::try_from(dot.counter)?))
-                    .and_where(Expr::col(Alias::new("live_until")).is_null())
-                    .to_owned();
+            if let Some(row) = tx
+                .query_one(
+                    &Query::select()
+                        .column(Alias::new("object"))
+                        .from(Alias::new("sync_candidates"))
+                        .and_where(
+                            Expr::col(Alias::new("namespace"))
+                                .eq(self.namespace.as_bytes().to_vec()),
+                        )
+                        .and_where(Expr::col(Alias::new("collection")).eq(tag.as_bytes().to_vec()))
+                        .and_where(
+                            Expr::col(Alias::new("writer"))
+                                .eq(dot.writer_incarnation.as_bytes().to_vec()),
+                        )
+                        .and_where(Expr::col(Alias::new("counter")).eq(i64::try_from(dot.counter)?))
+                        .to_owned(),
+                )
+                .await?
+            {
                 ensure!(
-                    tx.execute(&q).await?.rows_affected() == 1,
-                    "current candidate changed"
+                    row.try_get_by_index::<Vec<u8>>(0)? == delta.key.id.as_bytes(),
+                    protocol::SyncError::ConflictingDot
                 );
             }
         }
-        for candidate in &delta.added {
-            let q = Query::select()
-                .expr(Expr::val(1))
-                .from(Alias::new("sync_candidates"))
-                .and_where(
-                    Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()),
-                )
-                .and_where(Expr::col(Alias::new("collection")).eq(tag.as_bytes().to_vec()))
-                .and_where(
-                    Expr::col(Alias::new("writer")).eq(candidate
-                        .dot
-                        .writer_incarnation
-                        .as_bytes()
-                        .to_vec()),
-                )
-                .and_where(
-                    Expr::col(Alias::new("counter")).eq(i64::try_from(candidate.dot.counter)?),
-                )
-                .limit(1)
-                .to_owned();
-            if tx.query_one(&q).await?.is_none() {
-                let live_from = if is_observed[&candidate.dot] {
-                    None
-                } else {
-                    Some(state)
-                };
-                let bytes = protocol::canonical_candidate(candidate)?;
-                let digest = protocol::candidate_digest(candidate)?;
-                let q = Query::insert()
-                    .into_table(Alias::new("sync_candidates"))
-                    .columns(
-                        [
-                            "namespace",
-                            "collection",
-                            "writer",
-                            "counter",
-                            "object",
-                            "author",
-                            "revision",
-                            "body",
-                            "digest",
-                            "retention_seq",
-                            "live_from",
-                        ]
-                        .map(Alias::new),
-                    )
-                    .values_panic([
-                        self.namespace.as_bytes().to_vec().into(),
-                        tag.as_bytes().to_vec().into(),
-                        candidate.dot.writer_incarnation.as_bytes().to_vec().into(),
-                        i64::try_from(candidate.dot.counter)?.into(),
-                        key.id.as_bytes().to_vec().into(),
-                        candidate.revision.actor.as_bytes().to_vec().into(),
-                        i64::try_from(candidate.revision.counter)?.into(),
-                        bytes.into(),
-                        digest.to_vec().into(),
-                        state.into(),
-                        live_from.into(),
-                    ])
-                    .to_owned();
-                tx.execute(&q).await?;
-            }
+        let before = winner(&self.key_candidates_on(tx, &delta.key).await?)?;
+        let mut observed = sync::causal::Context::default();
+        for dot in &delta.removed {
+            observed.insert(sync::causal::Dot::new(dot.writer_incarnation, dot.counter)?)?;
         }
-        let (manifest, fragments) = crate::causal_manifests::fragment_body(
-            ManifestKind::KeyEvent,
-            &event_bytes,
-            1,
-            1024 * 1024,
-        )?;
-        crate::causal_manifests::publish_on(
+        let merge = protocol::MergeDelta {
+            collection: delta.key.collection.clone(),
+            added: delta.added.clone(),
+            observed: protocol::exact_context(&observed),
+        };
+        let limits = protocol::ApplyLimits {
+            max_projection_items: protocol::MAX_PROJECTION_ITEMS,
+            max_projection_bytes: protocol::MAX_PROJECTION_BYTES,
+            max_mutations: protocol::MAX_MUTATIONS,
+        };
+        let mut budget = u64::MAX;
+        self.apply_delta_on(
             tx,
-            self.namespace,
-            &manifest,
-            &fragments,
-            protocol::MAX_LOGICAL_BYTES,
-            |bytes| {
-                protocol::decode_event::<M>(bytes)?;
-                Ok(vec![])
-            },
+            &merge,
+            &event,
+            delta.author.counter,
+            limits,
+            &mut budget,
         )
         .await?;
-        let old_anchor: [u8; 32] = meta
-            .head_anchor
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("invalid anchor"))?;
-        let anchor = protocol::next_anchor::<M>(
-            old_anchor,
-            u64::try_from(sequence)?,
-            &key.collection,
-            event_digest,
-        )?;
-        let q = Query::insert()
-            .into_table(Alias::new("sync_journal"))
-            .columns(
-                [
-                    "namespace",
-                    "generation",
-                    "sequence",
-                    "state_seq",
-                    "collection",
-                    "event_digest",
-                    "event_manifest",
-                    "anchor_after",
-                ]
-                .map(Alias::new),
-            )
-            .values_panic([
-                self.namespace.as_bytes().to_vec().into(),
-                identity.generation.as_bytes().to_vec().into(),
-                sequence.into(),
-                state.into(),
-                tag.as_bytes().to_vec().into(),
-                event_digest.to_vec().into(),
-                manifest.manifest_digest.to_vec().into(),
-                anchor.to_vec().into(),
-            ])
-            .to_owned();
-        tx.execute(&q).await?;
-        let q = Query::update()
-            .table(Alias::new("sync_meta"))
-            .value(Alias::new("head"), sequence)
-            .value(Alias::new("head_anchor"), anchor.to_vec())
-            .value(Alias::new("state_seq"), state)
-            .value(Alias::new("revision_counter"), observed_revision)
-            .and_where(Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()))
-            .to_owned();
-        ensure!(
-            tx.execute(&q).await?.rows_affected() == 1,
-            "missing causal namespace"
-        );
-        Ok(ProjectionChange { key, before, after })
+        let after = winner(&self.key_candidates_on(tx, &delta.key).await?)?;
+        if after.is_none() {
+            M::validate(&delta.key, &None)?;
+        }
+        Ok(protocol::ProjectionChange {
+            key: delta.key.clone(),
+            before,
+            after,
+        })
     }
     /// Apply an anchored inline keyed page within the caller transaction.
     /// Initial contact requires reconciliation, and fragmented events require
-    /// staging. Range dependencies must already be retained in this transaction.
+    /// staging. Each event is validated before its accepted-state join.
     pub async fn apply_page_on(
         &self,
         tx: &DatabaseTransaction,
@@ -1192,7 +752,7 @@ impl<M: SyncModel> CausalReplica<M> {
                         )
                         .ok_or_else(|| anyhow::anyhow!("mutation limit"))?;
                 }
-                Some(EventRef::Inline(Event::Range(_))) => {}
+                Some(EventRef::Inline(Event::Merge(_))) => {}
                 Some(EventRef::Fragmented(_)) => {
                     anyhow::bail!("fragmented event requires complete staging")
                 }
@@ -1290,22 +850,10 @@ impl<M: SyncModel> CausalReplica<M> {
                     changes.push(change);
                 }
             }
-            if let Some(EventRef::Inline(Event::Range(range))) = &link.event {
+            if let Some(EventRef::Inline(Event::Merge(range))) = &link.event {
                 ensure!(range_budget > 0, protocol::SyncError::WorkLimit);
-                let evidence = crate::causal_range::validate_on(
-                    tx,
-                    self.namespace,
-                    range,
-                    protocol::DEFAULT_LOGICAL_BYTES,
-                    std::cmp::min(protocol::MAX_LOGICAL_ITEMS, range_budget),
-                    u32::try_from(std::cmp::min(
-                        u64::from(protocol::MAX_FRAGMENTS),
-                        range_budget,
-                    ))?,
-                )
-                .await?;
-                let batch = self
-                    .apply_range_budget_on(tx, &evidence, limits, &mut range_budget)
+                let (_, batch) = self
+                    .apply_merge_on(tx, range, limits, &mut range_budget)
                     .await?;
                 causal_changes = causal_changes
                     .checked_add(batch.causal_changes)
@@ -1676,7 +1224,7 @@ impl<M: SyncModel> CausalReplica<M> {
                 ensure!(
                     matches!(
                         manifest.kind,
-                        protocol::ManifestKind::KeyEvent | protocol::ManifestKind::RangeEvent
+                        protocol::ManifestKind::KeyEvent | protocol::ManifestKind::MergeEvent
                     ),
                     "invalid event manifest kind"
                 );
@@ -1765,28 +1313,63 @@ impl<M: SyncModel> CausalReplica<M> {
 }
 
 impl<M: SyncModel> CausalReplica<M> {
-    /// Join a completely validated source range in the caller's transaction.
-    /// The caller must apply the returned projection in that transaction and
-    /// roll it back on every error. This bounded entry point rejects work that
-    /// exceeds its limits; it never publishes a partially joined range.
-    pub async fn apply_range_on(
+    pub(crate) async fn key_candidates_on(
         &self,
         tx: &DatabaseTransaction,
-        evidence: &crate::causal_range::ValidatedRange<'_, M>,
-        limits: protocol::ApplyLimits,
-    ) -> Result<protocol::ProjectionBatch<M>> {
-        let mut remaining = limits.max_mutations;
-        self.apply_range_budget_on(tx, evidence, limits, &mut remaining)
+        key: &protocol::ObjectKey<M>,
+    ) -> Result<Vec<protocol::Candidate<M>>> {
+        self.key_candidates_at_on(tx, key, self.meta_on(tx).await?.1.state_seq)
             .await
     }
-    async fn apply_range_budget_on(
+    async fn key_candidates_at_on(
         &self,
         tx: &DatabaseTransaction,
-        evidence: &crate::causal_range::ValidatedRange<'_, M>,
+        key: &protocol::ObjectKey<M>,
+        state: i64,
+    ) -> Result<Vec<protocol::Candidate<M>>> {
+        let page = crate::causal_candidates::page_on(
+            tx,
+            crate::causal_candidates::CandidatePageRequest {
+                namespace: self.namespace,
+                collection: M::collection_tag(&key.collection).as_bytes(),
+                state_seq: state,
+                lower: Some(key.id),
+                upper: key.id.as_u128().checked_add(1).map(Uuid::from_u128),
+                after: None,
+                max_items: 1024,
+                max_bytes: 4 * 1024 * 1024,
+            },
+        )
+        .await?;
+        ensure!(page.done, protocol::SyncError::WorkLimit);
+        page.rows
+            .into_iter()
+            .map(|row| {
+                let c = protocol::decode_candidate::<M>(&row.body)?;
+                ensure!(
+                    c.namespace == self.namespace
+                        && c.key == *key
+                        && c.dot.writer_incarnation.as_bytes() == row.writer.as_slice()
+                        && i64::try_from(c.dot.counter)? == row.counter
+                        && c.revision.actor.as_bytes() == row.author.as_slice()
+                        && i64::try_from(c.revision.counter)? == row.revision
+                        && protocol::candidate_digest(&c)?.as_slice() == row.digest,
+                    "stored candidate identity mismatch"
+                );
+                Ok(c)
+            })
+            .collect()
+    }
+
+    /// Apply a complete collection-wide delta and relay its original event.
+    /// The caller owns projection, commit, and rollback on any failure.
+    pub async fn apply_merge_on(
+        &self,
+        tx: &DatabaseTransaction,
+        delta: &protocol::MergeDelta<M>,
         limits: protocol::ApplyLimits,
         budget: &mut u64,
-    ) -> Result<protocol::ProjectionBatch<M>> {
-        use protocol::{Event, ManifestKind, ProjectionBatch};
+    ) -> Result<(bool, protocol::ProjectionBatch<M>)> {
         ensure!(
             limits.max_projection_items > 0
                 && limits.max_projection_items <= protocol::MAX_PROJECTION_ITEMS
@@ -1794,96 +1377,140 @@ impl<M: SyncModel> CausalReplica<M> {
                 && limits.max_projection_bytes <= protocol::MAX_PROJECTION_BYTES
                 && limits.max_mutations > 0
                 && limits.max_mutations <= protocol::MAX_MUTATIONS,
-            "invalid range apply limits"
+            protocol::SyncError::Invalid("invalid merge apply limits".into())
         );
-        ensure!(
-            evidence.event().source.source.namespace == self.namespace,
-            "namespace mismatch"
-        );
+        *budget = std::cmp::min(*budget, limits.max_mutations)
+            .checked_sub(1)
+            .ok_or(protocol::SyncError::WorkLimit)?;
         crate::causal_leases::lock_on(tx, self.namespace).await?;
+        let event = protocol::Event::Merge(Box::new(delta.clone()));
+        protocol::canonical_event(&event)?;
+        let revision = delta
+            .added
+            .iter()
+            .map(|c| c.revision.counter)
+            .max()
+            .unwrap_or(0);
+        self.apply_delta_on(tx, delta, &event, revision, limits, budget)
+            .await
+    }
+
+    async fn apply_delta_on(
+        &self,
+        tx: &DatabaseTransaction,
+        delta: &protocol::MergeDelta<M>,
+        event: &protocol::Event<M>,
+        revision: u64,
+        limits: protocol::ApplyLimits,
+        budget: &mut u64,
+    ) -> Result<(bool, protocol::ProjectionBatch<M>)> {
+        use std::collections::{BTreeMap, BTreeSet};
         let (identity, meta) = self.meta_on(tx).await?;
-        let join = crate::causal_range::candidate_join_on(
-            tx,
-            evidence,
-            meta.floor_state_seq,
-            meta.state_seq,
-            1024,
-            4 * 1024 * 1024,
-        )
-        .await?;
-        let context_changed = crate::causal_range::context_join_changed_on(
-            tx,
-            evidence,
-            meta.floor_state_seq,
-            meta.state_seq,
-            1024,
-            protocol::DEFAULT_LOGICAL_BYTES,
-        )
-        .await?;
-        ensure!(
-            join.changes.len() <= limits.max_projection_items as usize,
-            protocol::SyncError::WorkLimit
-        );
-        let mut projection_bytes = 0_u64;
-        for change in &join.changes {
-            for candidate in [&change.before, &change.after].into_iter().flatten() {
-                projection_bytes = projection_bytes
-                    .checked_add(protocol::canonical_candidate(candidate)?.len() as u64)
-                    .ok_or_else(|| anyhow::anyhow!("range projection byte overflow"))?;
-            }
-        }
-        ensure!(
-            projection_bytes <= limits.max_projection_bytes,
-            protocol::SyncError::WorkLimit
-        );
-        let state_changed = context_changed || !join.close.is_empty() || !join.open.is_empty();
-        let state = if state_changed {
-            meta.state_seq
-                .checked_add(1)
-                .ok_or_else(|| anyhow::Error::new(protocol::SyncError::ClockExhausted))?
-        } else {
-            meta.state_seq
-        };
-        let mut remaining = *budget;
-        let tag = M::collection_tag(&evidence.event().range.collection);
-        let open: std::collections::BTreeSet<_> = join.open.iter().map(|c| c.dot).collect();
-        let mut observed_revision = meta.revision_counter;
-        // Bind even suppressed candidates so a late reuse of a dot with a
-        // different key or payload cannot pass subsequent validation.
-        for candidate in evidence.candidates() {
-            remaining = remaining
-                .checked_sub(1)
-                .ok_or_else(|| anyhow::Error::new(protocol::SyncError::WorkLimit))?;
-            observed_revision = std::cmp::max(
-                observed_revision,
-                i64::try_from(candidate.revision.counter)?,
-            );
-            let query = Query::select()
-                .expr(Expr::val(1))
+        let tag = M::collection_tag(&delta.collection).as_bytes();
+        let observed = protocol::causal_context(&delta.observed)?;
+        let mut context = observed.clone();
+        let mut close = BTreeSet::new();
+        let mut keys = BTreeSet::new();
+        for (writer, a, b) in observed.intervals() {
+            let q = Query::select()
+                .columns(["object", "writer", "counter"].map(Alias::new))
                 .from(Alias::new("sync_candidates"))
                 .and_where(
                     Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()),
                 )
-                .and_where(Expr::col(Alias::new("collection")).eq(tag.as_bytes().to_vec()))
+                .and_where(Expr::col(Alias::new("collection")).eq(tag.to_vec()))
+                .and_where(Expr::col(Alias::new("writer")).eq(writer.as_bytes().to_vec()))
                 .and_where(
-                    Expr::col(Alias::new("writer")).eq(candidate
-                        .dot
-                        .writer_incarnation
-                        .as_bytes()
-                        .to_vec()),
+                    Expr::col(Alias::new("counter")).between(i64::try_from(a)?, i64::try_from(b)?),
                 )
-                .and_where(
-                    Expr::col(Alias::new("counter")).eq(i64::try_from(candidate.dot.counter)?),
-                )
-                .limit(1)
+                .and_where(Expr::col(Alias::new("live_from")).is_not_null())
+                .and_where(Expr::col(Alias::new("live_until")).is_null())
+                .limit(std::cmp::min(*budget, protocol::MAX_MUTATIONS).saturating_add(1))
                 .to_owned();
-            if tx.query_one(&query).await?.is_none() {
-                let live_from = if open.contains(&candidate.dot) {
-                    Some(state)
-                } else {
-                    None
-                };
-                let query = Query::insert()
+            for row in tx.query_all(&q).await? {
+                keys.insert(Uuid::from_slice(&row.try_get_by_index::<Vec<u8>>(0)?)?);
+                close.insert((
+                    row.try_get_by_index::<Vec<u8>>(1)?,
+                    row.try_get_by_index::<i64>(2)?,
+                ));
+                ensure!(
+                    close.len() as u64 <= *budget,
+                    protocol::SyncError::WorkLimit
+                );
+            }
+        }
+        let mut open = Vec::new();
+        for candidate in &delta.added {
+            ensure!(
+                candidate.namespace == self.namespace,
+                protocol::SyncError::Invalid("candidate namespace mismatch".into())
+            );
+            protocol::validate_candidate(candidate)?;
+            keys.insert(candidate.key.id);
+            let dot =
+                sync::causal::Dot::new(candidate.dot.writer_incarnation, candidate.dot.counter)?;
+            context.insert(dot)?;
+            let q = Query::select()
+                .columns(["object", "body"].map(Alias::new))
+                .from(Alias::new("sync_candidates"))
+                .and_where(
+                    Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()),
+                )
+                .and_where(Expr::col(Alias::new("collection")).eq(tag.to_vec()))
+                .and_where(Expr::col(Alias::new("writer")).eq(dot.writer.as_bytes().to_vec()))
+                .and_where(Expr::col(Alias::new("counter")).eq(i64::try_from(dot.counter)?))
+                .to_owned();
+            if let Some(row) = tx.query_one(&q).await? {
+                ensure!(
+                    row.try_get_by_index::<Vec<u8>>(0)? == candidate.key.id.as_bytes()
+                        && row.try_get_by_index::<Vec<u8>>(1)?
+                            == protocol::canonical_candidate(candidate)?,
+                    protocol::SyncError::ConflictingDot
+                );
+            } else if !crate::causal_observed::contains_on(tx, self.namespace, tag, dot).await? {
+                open.push(candidate);
+            }
+        }
+        let mut before = BTreeMap::new();
+        for id in &keys {
+            let key = protocol::ObjectKey {
+                collection: delta.collection.clone(),
+                id: *id,
+            };
+            before.insert(*id, winner(&self.key_candidates_on(tx, &key).await?)?);
+        }
+        let state = meta
+            .state_seq
+            .checked_add(1)
+            .ok_or(protocol::SyncError::ClockExhausted)?;
+        let context_changed =
+            crate::causal_observed::insert_on(tx, self.namespace, tag, state, &context, budget)
+                .await?;
+        let changed = context_changed || !close.is_empty() || !open.is_empty();
+        for (writer, counter) in close {
+            *budget = budget
+                .checked_sub(1)
+                .ok_or(protocol::SyncError::WorkLimit)?;
+            tx.execute(
+                &Query::update()
+                    .table(Alias::new("sync_candidates"))
+                    .value(Alias::new("live_until"), state)
+                    .and_where(
+                        Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()),
+                    )
+                    .and_where(Expr::col(Alias::new("collection")).eq(tag.to_vec()))
+                    .and_where(Expr::col(Alias::new("writer")).eq(writer))
+                    .and_where(Expr::col(Alias::new("counter")).eq(counter))
+                    .to_owned(),
+            )
+            .await?;
+        }
+        for c in open {
+            *budget = budget
+                .checked_sub(1)
+                .ok_or(protocol::SyncError::WorkLimit)?;
+            tx.execute(
+                &Query::insert()
                     .into_table(Alias::new("sync_candidates"))
                     .columns(
                         [
@@ -1903,278 +1530,147 @@ impl<M: SyncModel> CausalReplica<M> {
                     )
                     .values_panic([
                         self.namespace.as_bytes().to_vec().into(),
-                        tag.as_bytes().to_vec().into(),
-                        candidate.dot.writer_incarnation.as_bytes().to_vec().into(),
-                        i64::try_from(candidate.dot.counter)?.into(),
-                        candidate.key.id.as_bytes().to_vec().into(),
-                        candidate.revision.actor.as_bytes().to_vec().into(),
-                        i64::try_from(candidate.revision.counter)?.into(),
-                        protocol::canonical_candidate(candidate)?.into(),
-                        protocol::candidate_digest(candidate)?.to_vec().into(),
+                        tag.to_vec().into(),
+                        c.dot.writer_incarnation.as_bytes().to_vec().into(),
+                        i64::try_from(c.dot.counter)?.into(),
+                        c.key.id.as_bytes().to_vec().into(),
+                        c.revision.actor.as_bytes().to_vec().into(),
+                        i64::try_from(c.revision.counter)?.into(),
+                        protocol::canonical_candidate(c)?.into(),
+                        protocol::candidate_digest(c)?.to_vec().into(),
                         state.into(),
-                        live_from.into(),
+                        state.into(),
                     ])
-                    .to_owned();
-                tx.execute(&query).await?;
-            } else {
-                ensure!(
-                    !open.contains(&candidate.dot),
-                    "retained dot unexpectedly reopened"
-                );
+                    .to_owned(),
+            )
+            .await?;
+        }
+        let mut batch = protocol::ProjectionBatch {
+            changes: vec![],
+            causal_changes: u64::from(changed),
+            pending: 0,
+        };
+        let mut projection_bytes = 0u64;
+        for id in keys {
+            let key = protocol::ObjectKey {
+                collection: delta.collection.clone(),
+                id,
+            };
+            let after = winner(&self.key_candidates_at_on(tx, &key, state).await?)?;
+            if after.is_none() {
+                M::validate(&key, &None)?;
+            }
+            let previous = before.remove(&id).flatten();
+            if previous != after {
+                for c in [&previous, &after].into_iter().flatten() {
+                    projection_bytes = projection_bytes
+                        .checked_add(protocol::canonical_candidate(c)?.len() as u64)
+                        .ok_or(protocol::SyncError::WorkLimit)?;
+                }
+                batch.changes.push(protocol::ProjectionChange {
+                    key,
+                    before: previous,
+                    after,
+                });
             }
         }
-        if !state_changed {
-            if observed_revision > meta.revision_counter {
-                remaining = remaining
-                    .checked_sub(1)
-                    .ok_or_else(|| anyhow::Error::new(protocol::SyncError::WorkLimit))?;
-                let query = Query::update()
+        ensure!(
+            batch.changes.len() as u64 <= u64::from(limits.max_projection_items)
+                && projection_bytes <= limits.max_projection_bytes,
+            protocol::SyncError::WorkLimit
+        );
+        let observed_revision = std::cmp::max(meta.revision_counter, i64::try_from(revision)?);
+        if changed {
+            let body = protocol::canonical_event(event)?;
+            let kind = match event {
+                protocol::Event::Key(_) => protocol::ManifestKind::KeyEvent,
+                protocol::Event::Merge(_) => protocol::ManifestKind::MergeEvent,
+            };
+            let (manifest, fragments) =
+                crate::causal_manifests::fragment_body(kind, &body, 1, 1024 * 1024)?;
+            *budget = budget
+                .checked_sub(fragments.len() as u64 + 4)
+                .ok_or(protocol::SyncError::WorkLimit)?;
+            crate::causal_manifests::publish_on(
+                tx,
+                self.namespace,
+                &manifest,
+                &fragments,
+                protocol::MAX_LOGICAL_BYTES,
+                |body| {
+                    protocol::decode_event::<M>(body)?;
+                    Ok(vec![])
+                },
+            )
+            .await?;
+            let sequence = meta
+                .head
+                .checked_add(1)
+                .ok_or(protocol::SyncError::ClockExhausted)?;
+            let digest = protocol::event_digest(event)?;
+            let old_anchor = meta
+                .head_anchor
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("invalid journal anchor"))?;
+            let anchor =
+                protocol::next_anchor::<M>(old_anchor, sequence as u64, &delta.collection, digest)?;
+            tx.execute(
+                &Query::insert()
+                    .into_table(Alias::new("sync_journal"))
+                    .columns(
+                        [
+                            "namespace",
+                            "generation",
+                            "sequence",
+                            "state_seq",
+                            "collection",
+                            "event_digest",
+                            "event_manifest",
+                            "anchor_after",
+                        ]
+                        .map(Alias::new),
+                    )
+                    .values_panic([
+                        self.namespace.as_bytes().to_vec().into(),
+                        identity.generation.as_bytes().to_vec().into(),
+                        sequence.into(),
+                        state.into(),
+                        tag.to_vec().into(),
+                        digest.to_vec().into(),
+                        manifest.manifest_digest.to_vec().into(),
+                        anchor.to_vec().into(),
+                    ])
+                    .to_owned(),
+            )
+            .await?;
+            tx.execute(
+                &Query::update()
+                    .table(Alias::new("sync_meta"))
+                    .value(Alias::new("head"), sequence)
+                    .value(Alias::new("head_anchor"), anchor.to_vec())
+                    .value(Alias::new("state_seq"), state)
+                    .value(Alias::new("revision_counter"), observed_revision)
+                    .and_where(
+                        Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        } else if observed_revision > meta.revision_counter {
+            *budget = budget
+                .checked_sub(1)
+                .ok_or(protocol::SyncError::WorkLimit)?;
+            tx.execute(
+                &Query::update()
                     .table(Alias::new("sync_meta"))
                     .value(Alias::new("revision_counter"), observed_revision)
                     .and_where(
                         Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()),
                     )
-                    .to_owned();
-                tx.execute(&query).await?;
-            }
-            *budget = remaining;
-            return Ok(ProjectionBatch {
-                changes: Vec::new(),
-                causal_changes: 0,
-                pending: 0,
-            });
-        }
-        for dot in &join.close {
-            remaining = remaining
-                .checked_sub(1)
-                .ok_or_else(|| anyhow::Error::new(protocol::SyncError::WorkLimit))?;
-            let query = Query::update()
-                .table(Alias::new("sync_candidates"))
-                .value(Alias::new("live_until"), state)
-                .and_where(
-                    Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()),
-                )
-                .and_where(Expr::col(Alias::new("collection")).eq(tag.as_bytes().to_vec()))
-                .and_where(
-                    Expr::col(Alias::new("writer")).eq(dot.writer_incarnation.as_bytes().to_vec()),
-                )
-                .and_where(Expr::col(Alias::new("counter")).eq(i64::try_from(dot.counter)?))
-                .and_where(Expr::col(Alias::new("live_until")).is_null())
-                .to_owned();
-            ensure!(
-                tx.execute(&query).await?.rows_affected() == 1,
-                "current range candidate changed"
-            );
-        }
-        let mut ordinal = 0_i64;
-        for segment in evidence.segments() {
-            let context = evidence
-                .context(&segment.context.digest)
-                .ok_or_else(|| anyhow::anyhow!("missing range context"))?;
-            crate::causal_range::index_context_on(
-                tx,
-                self.namespace,
-                segment.context.manifest.manifest_digest,
-                context,
-                &mut remaining,
+                    .to_owned(),
             )
             .await?;
-            remaining = remaining
-                .checked_sub(1)
-                .ok_or_else(|| anyhow::Error::new(protocol::SyncError::WorkLimit))?;
-            let encode = |id: Option<Uuid>, lower: bool| match id {
-                None => vec![if lower { 0 } else { 2 }],
-                Some(id) => {
-                    let mut result = vec![1];
-                    result.extend_from_slice(id.as_bytes());
-                    result
-                }
-            };
-            let query = Query::insert()
-                .into_table(Alias::new("sync_context_ranges"))
-                .columns(
-                    [
-                        "namespace",
-                        "collection",
-                        "basis_generation",
-                        "state_seq",
-                        "ordinal",
-                        "lower_bound",
-                        "upper_bound",
-                        "context_manifest",
-                    ]
-                    .map(Alias::new),
-                )
-                .values_panic([
-                    self.namespace.as_bytes().to_vec().into(),
-                    tag.as_bytes().to_vec().into(),
-                    Uuid::nil().as_bytes().to_vec().into(),
-                    state.into(),
-                    ordinal.into(),
-                    encode(segment.range.lower, true).into(),
-                    encode(segment.range.upper, false).into(),
-                    segment.context.manifest.manifest_digest.to_vec().into(),
-                ])
-                .to_owned();
-            tx.execute(&query).await?;
-            ordinal += 1;
         }
-        // A key-bearing live candidate is globally observed, even when it was
-        // already observed only within a qualified range.
-        let mut promoted = sync::causal::Context::default();
-        for candidate in evidence.candidates() {
-            promoted.insert(sync::causal::Dot::new(
-                candidate.dot.writer_incarnation,
-                candidate.dot.counter,
-            )?)?;
-        }
-        let exact = protocol::exact_context(&promoted);
-        let body = protocol::canonical_context(&exact)?;
-        let (context, parts) = crate::causal_manifests::fragment_body(
-            ManifestKind::Context,
-            &body,
-            exact.writers.len() as u64,
-            1024 * 1024,
-        )?;
-        remaining = remaining
-            .checked_sub(1 + parts.len() as u64)
-            .ok_or_else(|| anyhow::Error::new(protocol::SyncError::WorkLimit))?;
-        crate::causal_manifests::publish_on(
-            tx,
-            self.namespace,
-            &context,
-            &parts,
-            protocol::MAX_LOGICAL_BYTES,
-            |bytes| {
-                protocol::decode_context(bytes)?;
-                Ok(vec![])
-            },
-        )
-        .await?;
-        crate::causal_range::index_context_on(
-            tx,
-            self.namespace,
-            context.manifest_digest,
-            &promoted,
-            &mut remaining,
-        )
-        .await?;
-        remaining = remaining
-            .checked_sub(1)
-            .ok_or_else(|| anyhow::Error::new(protocol::SyncError::WorkLimit))?;
-        let query = Query::insert()
-            .into_table(Alias::new("sync_context_ranges"))
-            .columns(
-                [
-                    "namespace",
-                    "collection",
-                    "basis_generation",
-                    "state_seq",
-                    "ordinal",
-                    "lower_bound",
-                    "upper_bound",
-                    "context_manifest",
-                ]
-                .map(Alias::new),
-            )
-            .values_panic([
-                self.namespace.as_bytes().to_vec().into(),
-                tag.as_bytes().to_vec().into(),
-                Uuid::nil().as_bytes().to_vec().into(),
-                state.into(),
-                ordinal.into(),
-                vec![0_u8].into(),
-                vec![2_u8].into(),
-                context.manifest_digest.to_vec().into(),
-            ])
-            .to_owned();
-        tx.execute(&query).await?;
-        let event = Event::Range(Box::new(evidence.event().clone()));
-        let body = protocol::canonical_event(&event)?;
-        let digest = protocol::event_digest(&event)?;
-        let (manifest, fragments) = crate::causal_manifests::fragment_body(
-            ManifestKind::RangeEvent,
-            &body,
-            1,
-            1024 * 1024,
-        )?;
-        // Manifest, fragments, up to two dependency edges, journal, and meta.
-        remaining = remaining
-            .checked_sub(5 + fragments.len() as u64)
-            .ok_or_else(|| anyhow::Error::new(protocol::SyncError::WorkLimit))?;
-        crate::causal_manifests::publish_on(
-            tx,
-            self.namespace,
-            &manifest,
-            &fragments,
-            protocol::MAX_LOGICAL_BYTES,
-            |bytes| match protocol::decode_event::<M>(bytes)? {
-                Event::Range(range) => Ok(vec![
-                    range.context_partition.manifest_digest,
-                    range.live_manifest.manifest_digest,
-                ]),
-                _ => anyhow::bail!("invalid range event manifest"),
-            },
-        )
-        .await?;
-        let sequence = meta
-            .head
-            .checked_add(1)
-            .ok_or_else(|| anyhow::Error::new(protocol::SyncError::ClockExhausted))?;
-        let previous: [u8; 32] = meta
-            .head_anchor
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("invalid anchor"))?;
-        let anchor = protocol::next_anchor::<M>(
-            previous,
-            u64::try_from(sequence)?,
-            &evidence.event().range.collection,
-            digest,
-        )?;
-        let query = Query::insert()
-            .into_table(Alias::new("sync_journal"))
-            .columns(
-                [
-                    "namespace",
-                    "generation",
-                    "sequence",
-                    "state_seq",
-                    "collection",
-                    "event_digest",
-                    "event_manifest",
-                    "anchor_after",
-                ]
-                .map(Alias::new),
-            )
-            .values_panic([
-                self.namespace.as_bytes().to_vec().into(),
-                identity.generation.as_bytes().to_vec().into(),
-                sequence.into(),
-                state.into(),
-                tag.as_bytes().to_vec().into(),
-                digest.to_vec().into(),
-                manifest.manifest_digest.to_vec().into(),
-                anchor.to_vec().into(),
-            ])
-            .to_owned();
-        tx.execute(&query).await?;
-        let query = Query::update()
-            .table(Alias::new("sync_meta"))
-            .value(Alias::new("head"), sequence)
-            .value(Alias::new("head_anchor"), anchor.to_vec())
-            .value(Alias::new("state_seq"), state)
-            .value(Alias::new("revision_counter"), observed_revision)
-            .and_where(Expr::col(Alias::new("namespace")).eq(self.namespace.as_bytes().to_vec()))
-            .to_owned();
-        ensure!(
-            tx.execute(&query).await?.rows_affected() == 1,
-            "missing causal namespace"
-        );
-        *budget = remaining;
-        Ok(ProjectionBatch {
-            changes: join.changes,
-            causal_changes: 1,
-            pending: 0,
-        })
+        Ok((changed, batch))
     }
 }

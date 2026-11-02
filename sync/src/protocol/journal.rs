@@ -54,7 +54,7 @@ pub fn validate_scanned_links<M: SyncModel>(page: &ChangePage<M>) -> Result<()> 
         if let Some(EventRef::Inline(event)) = &link.event {
             let collection = match event {
                 Event::Key(k) => &k.key.collection,
-                Event::Range(r) => &r.range.collection,
+                Event::Merge(m) => &m.collection,
             };
             if collection != &link.collection || event_digest(event)? != link.event_digest {
                 return Err(SyncError::Invalid("event commitment mismatch".into()));
@@ -64,10 +64,10 @@ pub fn validate_scanned_links<M: SyncModel>(page: &ChangePage<M>) -> Result<()> 
             {
                 return Err(SyncError::Invalid("candidate namespace mismatch".into()));
             }
-            if let Event::Range(r) = event
-                && r.source.source.namespace != req.source.namespace
+            if let Event::Merge(m) = event
+                && m.added.iter().any(|c| c.namespace != req.source.namespace)
             {
-                return Err(SyncError::Invalid("range namespace mismatch".into()));
+                return Err(SyncError::Invalid("candidate namespace mismatch".into()));
             }
         }
         previous = next_anchor::<M>(previous, sequence, &link.collection, link.event_digest)?;

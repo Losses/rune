@@ -33,7 +33,6 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
                 "history_floor",
                 "floor_anchor",
                 "floor_state_seq",
-                "baseline_manifest",
                 "retained_bytes",
             ]
             .map(Alias::new),
@@ -52,7 +51,6 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
             0_i64.into(),
             vec![0_u8; 32].into(),
             0_i64.into(),
-            parent.clone().into(),
             0_i64.into(),
         ])
         .to_owned();
@@ -96,15 +94,30 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
         ])
         .to_owned();
     db.execute(&edge).await?;
+    let root_lease = Uuid::new_v4();
+    let tx = db.begin().await?;
+    sync_orm::causal_leases::create_build_on(
+        &tx,
+        sync_orm::causal_leases::BuildLeaseRequest {
+            namespace: n,
+            id: root_lease,
+            scope: vec![1],
+            now_ms: 0,
+            expires_at_ms: 100,
+            max_active: 10,
+            max_ttl_ms: 1000,
+        },
+    )
+    .await?;
+    sync_orm::causal_leases::pin_root_on(&tx, n, root_lease, [1; 32], 1).await?;
+    tx.commit().await?;
     let tx = db.begin().await?;
     assert!(!collect_one_on(&tx, n, [1; 32], 10, 10).await?);
     assert!(!collect_one_on(&tx, n, [2; 32], 10, 10).await?);
     tx.commit().await?;
-    let clear = Query::update()
-        .table(Alias::new("sync_meta"))
-        .value(Alias::new("baseline_manifest"), Option::<Vec<u8>>::None)
-        .to_owned();
-    db.execute(&clear).await?;
+    let tx = db.begin().await?;
+    sync_orm::causal_leases::revoke_on(&tx, n, root_lease).await?;
+    tx.commit().await?;
     let tx = db.begin().await?;
     assert!(collect_one_on(&tx, n, [1; 32], 1, 10).await.is_err());
     tx.rollback().await?;
@@ -125,128 +138,6 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
         .from(Alias::new("sync_manifests"))
         .to_owned();
     assert!(db.query_one(&query).await?.is_none());
-    let active = Uuid::new_v4();
-    let newer_active = Uuid::new_v4();
-    let staged = Uuid::new_v4();
-    let obsolete = Uuid::new_v4();
-    let update = Query::update()
-        .table(Alias::new("sync_meta"))
-        .value(
-            Alias::new("baseline_generation"),
-            active.as_bytes().to_vec(),
-        )
-        .to_owned();
-    db.execute(&update).await?;
-    for generation in [active, newer_active, obsolete] {
-        let insert = Query::insert()
-            .into_table(Alias::new("sync_context_ranges"))
-            .columns(
-                [
-                    "namespace",
-                    "collection",
-                    "basis_generation",
-                    "state_seq",
-                    "ordinal",
-                    "lower_bound",
-                    "upper_bound",
-                    "context_manifest",
-                ]
-                .map(Alias::new),
-            )
-            .values_panic([
-                n.as_bytes().to_vec().into(),
-                b"notes".to_vec().into(),
-                generation.as_bytes().to_vec().into(),
-                1_i64.into(),
-                0_i64.into(),
-                vec![0_u8].into(),
-                vec![2_u8].into(),
-                vec![3_u8; 32].into(),
-            ])
-            .to_owned();
-        db.execute(&insert).await?;
-    }
-    let lease = Uuid::new_v4();
-    let tx = db.begin().await?;
-    sync_orm::causal_leases::create_build_on(
-        &tx,
-        sync_orm::causal_leases::BuildLeaseRequest {
-            namespace: n,
-            id: lease,
-            scope: vec![1],
-            now_ms: 0,
-            expires_at_ms: 100,
-            max_active: 10,
-            max_ttl_ms: 1000,
-        },
-    )
-    .await?;
-    sync_orm::causal_leases::claim_output_generation_on(&tx, n, lease, staged, 1).await?;
-    let staged_row = Query::insert()
-        .into_table(Alias::new("sync_context_ranges"))
-        .columns(
-            [
-                "namespace",
-                "collection",
-                "basis_generation",
-                "state_seq",
-                "ordinal",
-                "lower_bound",
-                "upper_bound",
-                "context_manifest",
-            ]
-            .map(Alias::new),
-        )
-        .values_panic([
-            n.as_bytes().to_vec().into(),
-            b"notes".to_vec().into(),
-            staged.as_bytes().to_vec().into(),
-            1_i64.into(),
-            0_i64.into(),
-            vec![0_u8].into(),
-            vec![2_u8].into(),
-            vec![3_u8; 32].into(),
-        ])
-        .to_owned();
-    tx.execute(&staged_row).await?;
-    tx.commit().await?;
-    let update = Query::update()
-        .table(Alias::new("sync_meta"))
-        .value(
-            Alias::new("baseline_generation"),
-            newer_active.as_bytes().to_vec(),
-        )
-        .to_owned();
-    db.execute(&update).await?;
-    let mut cursor = None;
-    let mut removed = 0;
-    loop {
-        let tx = db.begin().await?;
-        let step = sync_orm::causal_gc::reclaim_basis_step_on(&tx, n, cursor, 1).await?;
-        removed += step.removed;
-        cursor = step.next;
-        tx.commit().await?;
-        if cursor.is_none() {
-            break;
-        }
-    }
-    assert_eq!(removed, 1);
-    let tx = db.begin().await?;
-    sync_orm::causal_leases::revoke_on(&tx, n, lease).await?;
-    let step = sync_orm::causal_gc::reclaim_basis_step_on(&tx, n, None, 10).await?;
-    assert_eq!(step.removed, 2);
-    tx.commit().await?;
-    let count = Query::select()
-        .expr(sea_orm::sea_query::Func::count(Expr::val(1)))
-        .from(Alias::new("sync_context_ranges"))
-        .to_owned();
-    assert_eq!(
-        db.query_one(&count)
-            .await?
-            .unwrap()
-            .try_get_by_index::<i64>(0)?,
-        1
-    );
     // A partially reclaimed manifest remains marked across transactions; a
     // stale builder cannot reattach it, and each step removes at most one row.
     let reclaim_digest = [17_u8; 32];
@@ -298,18 +189,6 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
                 ordinal.into(),
                 vec![19_u8; 32].into(),
                 vec![1_u8].into(),
-            ])
-            .to_owned();
-        db.execute(&insert).await?;
-        let insert = Query::insert()
-            .into_table(Alias::new("sync_context_intervals"))
-            .columns(["namespace", "context_manifest", "writer", "first", "last"].map(Alias::new))
-            .values_panic([
-                n.as_bytes().to_vec().into(),
-                reclaim_digest.to_vec().into(),
-                Uuid::new_v4().as_bytes().to_vec().into(),
-                1_i64.into(),
-                1_i64.into(),
             ])
             .to_owned();
         db.execute(&insert).await?;
@@ -380,7 +259,7 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
         assert_eq!(result, sync_orm::causal_gc::IncrementalReclaim::More);
         assert!(steps < 20);
     }
-    assert_eq!(steps, 11);
+    assert_eq!(steps, 6);
     db.close().await?;
     other.close().await?;
     std::fs::remove_file(path)?;

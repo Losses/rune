@@ -252,7 +252,7 @@ async fn first_contact_and_fragmented_tail_retry_committed_http_operations() -> 
         &[
             "open_snapshot",
             "begin_reconciliation",
-            "stage_context_page",
+            "promote_step",
             "stage_leaf_page",
             "commit_complete_range",
             "complete_reconciliation",
@@ -428,6 +428,7 @@ async fn sqlite_sessions_resume_through_truncation_reset_timeout_and_slow_respon
     );
     let mut coordinator = p::Coordinator::new(scope(), limits(65536))?;
     let mut errors = 0;
+    let mut invalid_responses = 0;
     let mut suspended = false;
     let mut complete = false;
     for step in 0..4096 {
@@ -454,11 +455,17 @@ async fn sqlite_sessions_resume_through_truncation_reset_timeout_and_slow_respon
             Ok(p::SessionAdvance::Incomplete) => (),
             Ok(other) => anyhow::bail!("unexpected session state: {other:?}"),
             Err(p::SyncError::Transport(_)) => errors += 1,
+            Err(p::SyncError::Invalid(message))
+                if message.starts_with("invalid metadata response:") =>
+            {
+                invalid_responses += 1;
+            }
             Err(error) => return Err(error.into()),
         }
     }
     ensure!(complete && suspended, "session failed to resume");
-    assert_eq!(errors, 6);
+    assert_eq!(errors, 4);
+    assert_eq!(invalid_responses, 2);
     assert_eq!(source_http.faults.lock().await.exercised.len(), 4);
     assert_eq!(target_http.faults.lock().await.exercised.len(), 4);
     assert_eq!(

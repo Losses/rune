@@ -5,6 +5,7 @@ struct Notes;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Collection {
     Notes,
+    Other,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Note;
@@ -18,13 +19,20 @@ impl SyncModel for Notes {
         "s"
     }
     fn collections() -> Vec<Collection> {
-        vec![Collection::Notes]
+        vec![Collection::Notes, Collection::Other]
     }
-    fn collection_tag(_: &Collection) -> &'static str {
-        "notes"
+    fn collection_tag(c: &Collection) -> &'static str {
+        match c {
+            Collection::Notes => "notes",
+            Collection::Other => "other",
+        }
     }
     fn collection_from_tag(s: &str) -> Option<Collection> {
-        (s == "notes").then_some(Collection::Notes)
+        match s {
+            "notes" => Some(Collection::Notes),
+            "other" => Some(Collection::Other),
+            _ => None,
+        }
     }
     fn validate(_: &ObjectKey<Self>, _: &Option<Note>) -> Result<()> {
         Ok(())
@@ -32,7 +40,7 @@ impl SyncModel for Notes {
 }
 fn descriptor() -> StageDescriptor<Notes> {
     let mut m = ManifestRef {
-        kind: ManifestKind::Leaf,
+        kind: ManifestKind::Context,
         manifest_digest: [0; 32],
         content_digest: content_digest(b"abcdef").unwrap(),
         encoded_bytes: 6,
@@ -41,14 +49,10 @@ fn descriptor() -> StageDescriptor<Notes> {
     };
     m.manifest_digest = manifest_digest(&m).unwrap();
     StageDescriptor {
-        origin: StageOrigin::Snapshot {
+        origin: StageOrigin::SnapshotContext {
             session: Uuid::from_u128(1),
             snapshot_id: Uuid::from_u128(2),
-            range: KeyRange {
-                collection: Collection::Notes,
-                lower: None,
-                upper: None,
-            },
+            collection: Collection::Notes,
         },
         manifest: m,
     }
@@ -130,7 +134,7 @@ fn dependency_manifests_share_one_admission_and_one_graph_limit() {
         Err(SyncError::LogicalLimit)
     ));
     let mut other = original.clone();
-    if let StageOrigin::Snapshot { session, .. } = &mut other.origin {
+    if let StageOrigin::SnapshotContext { session, .. } = &mut other.origin {
         *session = Uuid::from_u128(99)
     }
     assert!(matches!(
@@ -153,4 +157,33 @@ fn manifest_layout_is_deterministic_and_rejects_empty_tail() {
     m.encoded_bytes = 10;
     m.fragment_count = 6;
     assert!(fragment_bounds(&m, 0).is_err());
+}
+
+#[test]
+fn snapshot_collections_share_session_admission_but_keep_individual_limits() {
+    let limits = StageLimits {
+        max_total_bytes: 100,
+        max_stages: 1,
+        max_event_bytes: 6,
+        max_event_items: 1,
+        max_fragment_bytes: 4,
+    };
+    let mut pool = FragmentStages::<Notes>::default();
+    let first = descriptor();
+    let mut second = first.clone();
+    if let StageOrigin::SnapshotContext { collection, .. } = &mut second.origin {
+        *collection = Collection::Other;
+    }
+    pool.begin(Uuid::from_u128(10), first.clone(), limits)
+        .unwrap();
+    pool.begin(Uuid::from_u128(11), second, limits).unwrap();
+    assert_eq!(pool.reserved_bytes(), 12);
+    let mut other = first;
+    if let StageOrigin::SnapshotContext { session, .. } = &mut other.origin {
+        *session = Uuid::from_u128(99);
+    }
+    assert!(matches!(
+        pool.begin(Uuid::from_u128(12), other, limits),
+        Err(SyncError::StageQuota)
+    ));
 }

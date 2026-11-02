@@ -1,6 +1,6 @@
 use anyhow::Result;
 use sea_orm::{
-    ConnectionTrait, Database, ExprTrait, TransactionTrait,
+    ConnectionTrait, Database, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
 use sync_orm::causal_schema;
@@ -14,8 +14,7 @@ async fn fresh_layout_is_complete_and_legacy_tables_are_never_replaced() -> Resu
         "sync_candidates",
         "sync_journal",
         "sync_checkpoints",
-        "sync_context_ranges",
-        "sync_context_intervals",
+        "sync_observed",
         "sync_manifests",
         "sync_chunks",
         "sync_manifest_edges",
@@ -98,8 +97,8 @@ async fn fresh_layout_is_complete_and_legacy_tables_are_never_replaced() -> Resu
 async fn durable_build_pin_is_visible_to_an_independent_connection() -> Result<()> {
     use sea_orm::sea_query::Query;
     use sync_orm::causal_leases::{
-        checkpoint_on, claim_output_generation_on, create_build_on, minimum_pins_on, pin_root_on,
-        publish_on, ready_on, revoke_expired_on,
+        checkpoint_on, create_build_on, minimum_pins_on, pin_root_on, publish_on, ready_on,
+        revoke_expired_on,
     };
     use uuid::Uuid;
     let path = std::env::temp_dir().join(format!("sync-orm-pin-{}.sqlite", Uuid::new_v4()));
@@ -166,101 +165,8 @@ async fn durable_build_pin_is_visible_to_an_independent_connection() -> Result<(
     assert_eq!((built.head, built.state_seq), (5, 8));
     tx.commit().await?;
     let tx = b.begin().await?;
-    assert_eq!(minimum_pins_on(&tx, namespace).await?, Some((0, 5)));
+    assert_eq!(minimum_pins_on(&tx, namespace).await?, Some((8, 5)));
     assert!(ready_on(&tx, namespace, id, 11).await.is_err());
-    let active = Uuid::new_v4();
-    tx.execute(
-        &Query::update()
-            .table(Alias::new("sync_meta"))
-            .value(
-                Alias::new("baseline_generation"),
-                active.as_bytes().to_vec(),
-            )
-            .and_where(
-                sea_orm::sea_query::Expr::col(Alias::new("namespace"))
-                    .eq(namespace.as_bytes().to_vec()),
-            )
-            .to_owned(),
-    )
-    .await?;
-    assert!(
-        claim_output_generation_on(&tx, namespace, id, active, 11)
-            .await
-            .is_err()
-    );
-    tx.execute(
-        &Query::update()
-            .table(Alias::new("sync_meta"))
-            .value(
-                Alias::new("baseline_generation"),
-                Uuid::nil().as_bytes().to_vec(),
-            )
-            .and_where(
-                sea_orm::sea_query::Expr::col(Alias::new("namespace"))
-                    .eq(namespace.as_bytes().to_vec()),
-            )
-            .to_owned(),
-    )
-    .await?;
-    let output = Uuid::new_v4();
-    claim_output_generation_on(&tx, namespace, id, output, 11).await?;
-    claim_output_generation_on(&tx, namespace, id, output, 11).await?;
-    let second = Uuid::new_v4();
-    create_build_on(
-        &tx,
-        sync_orm::causal_leases::BuildLeaseRequest {
-            namespace,
-            id: second,
-            scope: vec![1],
-            now_ms: 11,
-            expires_at_ms: 99,
-            max_active: 2,
-            max_ttl_ms: 1000,
-        },
-    )
-    .await?;
-    assert!(
-        claim_output_generation_on(&tx, namespace, second, output, 11)
-            .await
-            .is_err()
-    );
-    let occupied = Uuid::new_v4();
-    tx.execute(
-        &Query::insert()
-            .into_table(Alias::new("sync_context_ranges"))
-            .columns(
-                [
-                    "namespace",
-                    "collection",
-                    "basis_generation",
-                    "state_seq",
-                    "ordinal",
-                    "lower_bound",
-                    "upper_bound",
-                    "context_manifest",
-                ]
-                .map(Alias::new),
-            )
-            .values_panic([
-                namespace.as_bytes().to_vec().into(),
-                b"notes".to_vec().into(),
-                occupied.as_bytes().to_vec().into(),
-                8i64.into(),
-                0i64.into(),
-                vec![0u8].into(),
-                vec![2u8].into(),
-                vec![1u8; 32].into(),
-            ])
-            .to_owned(),
-    )
-    .await?;
-    assert!(
-        claim_output_generation_on(&tx, namespace, second, occupied, 11)
-            .await
-            .is_err()
-    );
-    sync_orm::causal_leases::revoke_on(&tx, namespace, second).await?;
-
     checkpoint_on(&tx, namespace, id, None, b"checkpoint-1".to_vec(), 11).await?;
     assert!(
         checkpoint_on(&tx, namespace, id, None, b"stale".to_vec(), 11)

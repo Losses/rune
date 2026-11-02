@@ -29,10 +29,8 @@ pub struct Coordinator<M: SyncModel> {
     child_ranges: Vec<KeyRange<M>>,
     child_summaries: Vec<RangeSummary<M>>,
     child_index: usize,
-    context_cursor: Option<ContextCursor>,
-    context_done: bool,
-    manifests: Vec<ManifestRef>,
-    staged_manifests: Vec<Digest>,
+    contexts: Vec<(M::Collection, ManifestRef)>,
+    restarts: u8,
     leaf_cursor: Option<CandidateCursor<M>>,
     stage: Option<Uuid>,
     graph_stage: Option<Uuid>,
@@ -61,8 +59,6 @@ enum Phase<M: SyncModel> {
     SummarizeChild(Option<WorkCursor>),
     BindSplit,
     Equal,
-    Context,
-    StageContext(ContextPage<M>),
     BeginObject,
     FetchObject,
     PutObject(Fragment),
@@ -70,7 +66,7 @@ enum Phase<M: SyncModel> {
     StageLeaf(LeafPage<M>),
     Commit,
     DiscardRange,
-    Normalize(Option<WorkCursor>),
+    Promote,
     CompleteSnapshot,
     CloseRemote,
     CloseLocal,
@@ -104,8 +100,7 @@ struct JournalTransfer<M: SyncModel> {
     sequence: u64,
     collection: M::Collection,
     digest: Digest,
-    page: Option<ChangePage<M>>,
-    event: Option<Event<M>>,
+    manifest: ManifestRef,
     event_stage: Option<Uuid>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,18 +116,25 @@ pub struct PassUsage {
     pub encoded_bytes: u64,
 }
 impl<M: SyncModel> Coordinator<M> {
-    fn start_leaf(&mut self) -> Result<()> {
-        let range = &self.queue.first().ok_or(SyncError::StaleWork)?.range;
-        self.context_cursor = Some(ContextCursor {
-            segment_index: 0,
-            next_lower: range.lower,
-        });
-        self.context_done = false;
+    fn start_leaf(&mut self) {
         self.leaf_cursor = None;
-        self.manifests.clear();
-        self.staged_manifests.clear();
-        self.phase = Phase::Context;
-        Ok(())
+        self.phase = Phase::Leaf;
+    }
+    fn after_contexts(&self) -> Phase<M> {
+        if self.queue.is_empty() {
+            Phase::Promote
+        } else {
+            Phase::Compare(None)
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn phase_label(&self) -> &'static str {
+        match self.phase {
+            Phase::Compare(_) => "compare",
+            Phase::Promote => "promote",
+            Phase::Finished => "finished",
+            _ => "other",
+        }
     }
     pub fn new(scope: Scope<M>, mut limits: SessionLimits) -> Result<Self> {
         scope_id(&scope)?;
@@ -210,10 +212,8 @@ impl<M: SyncModel> Coordinator<M> {
             child_ranges: Vec::new(),
             child_summaries: Vec::new(),
             child_index: 0,
-            context_cursor: None,
-            context_done: false,
-            manifests: Vec::new(),
-            staged_manifests: Vec::new(),
+            contexts: Vec::new(),
+            restarts: 0,
             leaf_cursor: None,
             stage: None,
             graph_stage: None,
@@ -275,24 +275,21 @@ impl<M: SyncModel> Coordinator<M> {
                 Ok(SessionAdvance::Incomplete)
             }
             Err(SyncError::WorkLimit)
-                if matches!(self.phase, Phase::Apply(_) | Phase::CommitJournalEvent) =>
+                if matches!(
+                    self.phase,
+                    Phase::Apply(_) | Phase::CommitJournalEvent | Phase::Promote
+                ) =>
             {
                 self.recovery = Recovery::Reconcile;
                 self.phase = Phase::CleanupStage;
                 Ok(SessionAdvance::Incomplete)
             }
             Err(SyncError::WorkLimit | SyncError::LogicalLimit)
-                if matches!(
-                    self.phase,
-                    Phase::StageContext(_)
-                        | Phase::BeginObject
-                        | Phase::PutObject(_)
-                        | Phase::StageLeaf(_)
-                        | Phase::Commit
-                ) && self
-                    .depths
-                    .first()
-                    .is_some_and(|depth| *depth < self.limits.work.max_depth) =>
+                if matches!(self.phase, Phase::StageLeaf(_) | Phase::Commit)
+                    && self
+                        .depths
+                        .first()
+                        .is_some_and(|depth| *depth < self.limits.work.max_depth) =>
             {
                 self.must_split = true;
                 self.phase = Phase::DiscardRange;
@@ -364,7 +361,9 @@ impl<M: SyncModel> Coordinator<M> {
             }
             Phase::Receiver => {
                 let receiver_id = endpoint!(("identity",), 4096, receiver.identity());
-                let source = self.source.as_ref().ok_or(SyncError::StaleWork)?;
+                let source = self.source.as_ref().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 if receiver_id.namespace != source.namespace
                     || receiver_id.model != source.model
                     || (receiver_id.replica == source.replica
@@ -381,12 +380,16 @@ impl<M: SyncModel> Coordinator<M> {
                 self.phase = Phase::Checkpoint;
             }
             Phase::Checkpoint => {
-                let key = self.key.clone().ok_or(SyncError::StaleWork)?;
+                let key = self.key.clone().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 self.progress = endpoint!(("checkpoint", &key), 4096, receiver.checkpoint(&key));
                 self.phase = Phase::History;
             }
             Phase::History => {
-                let key = self.key.clone().ok_or(SyncError::StaleWork)?;
+                let key = self.key.clone().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 let progress = self.progress.clone();
                 let status = endpoint!(
                     ("history", &key, &progress),
@@ -455,8 +458,12 @@ impl<M: SyncModel> Coordinator<M> {
                 WorkOutcome::Incomplete { cursor } => self.phase = Phase::OpenLocal(Some(cursor)),
             },
             Phase::Begin => {
-                let remote = self.remote_snapshot.clone().ok_or(SyncError::StaleWork)?;
-                let local = self.local_snapshot.clone().ok_or(SyncError::StaleWork)?;
+                let remote = self.remote_snapshot.clone().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
+                let local = self.local_snapshot.clone().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 let request_id = self.reconciliation_request_id;
                 self.reconciliation = Some(request_id);
                 let confirmed = endpoint!(
@@ -471,15 +478,24 @@ impl<M: SyncModel> Coordinator<M> {
                 }
                 self.queue = remote.roots;
                 self.depths = vec![0; self.queue.len()];
-                self.phase = if self.queue.is_empty() {
-                    Phase::Normalize(None)
+                self.contexts = remote
+                    .contexts
+                    .into_iter()
+                    .map(|c| (c.collection, c.context.manifest))
+                    .collect();
+                self.phase = if self.contexts.is_empty() {
+                    self.after_contexts()
                 } else {
-                    Phase::Compare(None)
+                    Phase::BeginObject
                 };
             }
             Phase::Compare(cursor) => {
-                let item = self.queue.first().ok_or(SyncError::StaleWork)?;
-                let local = self.local_snapshot.as_ref().ok_or(SyncError::StaleWork)?;
+                let item = self.queue.first().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
+                let local = self.local_snapshot.as_ref().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 match endpoint!(
                     (
                         "summarize",
@@ -499,16 +515,12 @@ impl<M: SyncModel> Coordinator<M> {
                     WorkOutcome::Incomplete { cursor } => self.phase = Phase::Compare(Some(cursor)),
                     WorkOutcome::Ready(summary) => {
                         if summary.aggregate == item.aggregate
-                            && summary.context_commitment == item.context_commitment
                             && summary.candidate_count == item.candidate_count
                             && summary.candidate_bytes == item.candidate_bytes
-                            && summary.context_segments == item.context_segments
                         {
                             self.phase = Phase::Equal;
-                        } else if (item.context_segments.max(summary.context_segments)
-                            > self.limits.apply.max_mutations
-                            || item.candidate_count.max(summary.candidate_count)
-                                > u64::from(self.limits.apply.max_projection_items.min(128))
+                        } else if (item.candidate_count.max(summary.candidate_count)
+                            > u64::from(self.limits.apply.max_projection_items.min(128))
                             || item.candidate_bytes.max(summary.candidate_bytes)
                                 > DEFAULT_PAGE_BYTES
                                     .min(self.limits.apply.max_projection_bytes / 2)
@@ -522,7 +534,7 @@ impl<M: SyncModel> Coordinator<M> {
                                 cursor: None,
                             };
                         } else {
-                            self.start_leaf()?;
+                            self.start_leaf();
                         }
                     }
                 }
@@ -531,7 +543,9 @@ impl<M: SyncModel> Coordinator<M> {
                 let range = self
                     .queue
                     .first()
-                    .ok_or(SyncError::StaleWork)?
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
                     .range
                     .clone();
                 let source = if remote { remote_source } else { local_source };
@@ -540,7 +554,7 @@ impl<M: SyncModel> Coordinator<M> {
                 } else {
                     self.local_snapshot.as_ref()
                 }
-                .ok_or(SyncError::StaleWork)?
+                .ok_or_else(|| SyncError::Invalid("coordinator invariant: missing state".into()))?
                 .snapshot_id;
                 match endpoint!(
                     ("split", id, &range, self.limits.work, &cursor),
@@ -564,7 +578,7 @@ impl<M: SyncModel> Coordinator<M> {
                             }
                             return Err(SyncError::LogicalLimit);
                         }
-                        self.start_leaf()?
+                        self.start_leaf()
                     }
                     WorkOutcome::Ready(children) => {
                         self.child_ranges = children;
@@ -578,12 +592,16 @@ impl<M: SyncModel> Coordinator<M> {
                 let range = self
                     .child_ranges
                     .get(self.child_index)
-                    .ok_or(SyncError::StaleWork)?
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
                     .clone();
                 let snapshot = self
                     .remote_snapshot
                     .as_ref()
-                    .ok_or(SyncError::StaleWork)?
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
                     .snapshot_id;
                 match endpoint!(
                     ("summarize", snapshot, &range, self.limits.work, &cursor),
@@ -613,10 +631,14 @@ impl<M: SyncModel> Coordinator<M> {
                 let parent = self
                     .queue
                     .first()
-                    .ok_or(SyncError::StaleWork)?
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
                     .range
                     .clone();
-                let session = self.reconciliation.ok_or(SyncError::StaleWork)?;
+                let session = self.reconciliation.ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 endpoint!(
                     ("split_range", session, &parent, &self.child_summaries),
                     4096,
@@ -635,8 +657,16 @@ impl<M: SyncModel> Coordinator<M> {
                 self.phase = Phase::Compare(None);
             }
             Phase::Equal => {
-                let session = self.reconciliation.ok_or(SyncError::StaleWork)?;
-                let summary = self.queue.first().ok_or(SyncError::StaleWork)?.clone();
+                let session = self.reconciliation.ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
+                let summary = self
+                    .queue
+                    .first()
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
+                    .clone();
                 endpoint!(
                     ("accept_equal", session, &summary),
                     4096,
@@ -644,83 +674,26 @@ impl<M: SyncModel> Coordinator<M> {
                 );
                 self.queue.remove(0);
                 self.depths.remove(0);
-                self.phase = if self.queue.is_empty() {
-                    Phase::Normalize(None)
-                } else {
-                    Phase::Compare(None)
-                };
-            }
-            Phase::Context => {
-                let remote = self.remote_snapshot.as_ref().ok_or(SyncError::StaleWork)?;
-                let range = self
-                    .queue
-                    .first()
-                    .ok_or(SyncError::StaleWork)?
-                    .range
-                    .clone();
-                let cursor = self.context_cursor.clone().ok_or(SyncError::StaleWork)?;
-                let page = endpoint!(
-                    (
-                        "context_page",
-                        remote.snapshot_id,
-                        &range,
-                        &cursor,
-                        self.limits.pages
-                    ),
-                    self.limits.pages.max_bytes.saturating_add(256),
-                    remote_source.context_page(
-                        remote.snapshot_id,
-                        range.clone(),
-                        cursor.clone(),
-                        self.limits.pages
-                    )
-                );
-                self.phase = Phase::StageContext(page);
-            }
-            Phase::StageContext(page) => {
-                let session = self.reconciliation.ok_or(SyncError::StaleWork)?;
-                endpoint!(
-                    ("stage_context", session, &page),
-                    4096,
-                    sink.stage_context_page(session, page.clone())
-                );
-                self.context_cursor = Some(page.next);
-                self.context_done = page.done;
-                for segment in page.segments {
-                    let manifest = segment.context.manifest;
-                    if !self.staged_manifests.contains(&manifest.manifest_digest)
-                        && !self
-                            .manifests
-                            .iter()
-                            .any(|m| m.manifest_digest == manifest.manifest_digest)
-                    {
-                        self.manifests.push(manifest)
-                    }
-                }
-                self.phase = if self.manifests.is_empty() {
-                    if self.context_done {
-                        Phase::Leaf
-                    } else {
-                        Phase::Context
-                    }
-                } else {
-                    Phase::BeginObject
-                };
+                self.phase = self.after_contexts();
             }
             Phase::BeginObject => {
-                let manifest = self.manifests.first().ok_or(SyncError::StaleWork)?.clone();
-                let remote = self.remote_snapshot.as_ref().ok_or(SyncError::StaleWork)?;
-                let range = self
-                    .queue
+                let (collection, manifest) = self
+                    .contexts
                     .first()
-                    .ok_or(SyncError::StaleWork)?
-                    .range
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
                     .clone();
+                let remote = self.remote_snapshot.as_ref().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 let descriptor = StageDescriptor {
-                    origin: StageOrigin::Snapshot {
-                        session: self.reconciliation.ok_or(SyncError::StaleWork)?,
+                    origin: StageOrigin::SnapshotContext {
+                        session: self.reconciliation.ok_or_else(|| {
+                            SyncError::Invalid("coordinator invariant: missing state".into())
+                        })?,
                         snapshot_id: remote.snapshot_id,
-                        range,
+                        collection,
                     },
                     manifest,
                 };
@@ -735,8 +708,17 @@ impl<M: SyncModel> Coordinator<M> {
                 self.phase = Phase::FetchObject;
             }
             Phase::FetchObject => {
-                let remote = self.remote_snapshot.as_ref().ok_or(SyncError::StaleWork)?;
-                let manifest = self.manifests.first().ok_or(SyncError::StaleWork)?.clone();
+                let remote = self.remote_snapshot.as_ref().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
+                let manifest = self
+                    .contexts
+                    .first()
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
+                    .1
+                    .clone();
                 let fragment = endpoint!(
                     (
                         "read_fragment",
@@ -756,22 +738,20 @@ impl<M: SyncModel> Coordinator<M> {
                 self.phase = Phase::PutObject(fragment);
             }
             Phase::PutObject(fragment) => {
-                let stage = self.stage.ok_or(SyncError::StaleWork)?;
+                let stage = self.stage.ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 let progress = endpoint!(
                     ("stage_fragment", stage, &fragment),
                     4096,
                     receiver.stage_fragment(stage, fragment.clone())
                 );
                 if progress.complete {
-                    let manifest = self.manifests.remove(0);
-                    self.staged_manifests.push(manifest.manifest_digest);
+                    self.contexts.remove(0);
                     self.stage = None;
-                    self.phase = if self.manifests.is_empty() {
-                        if self.context_done {
-                            Phase::Leaf
-                        } else {
-                            Phase::Context
-                        }
+                    self.graph_stage = None;
+                    self.phase = if self.contexts.is_empty() {
+                        self.after_contexts()
                     } else {
                         Phase::BeginObject
                     };
@@ -781,11 +761,15 @@ impl<M: SyncModel> Coordinator<M> {
                 }
             }
             Phase::Leaf => {
-                let remote = self.remote_snapshot.as_ref().ok_or(SyncError::StaleWork)?;
+                let remote = self.remote_snapshot.as_ref().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 let range = self
                     .queue
                     .first()
-                    .ok_or(SyncError::StaleWork)?
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
                     .range
                     .clone();
                 let cursor = self.leaf_cursor.clone();
@@ -808,7 +792,9 @@ impl<M: SyncModel> Coordinator<M> {
                 self.phase = Phase::StageLeaf(page);
             }
             Phase::StageLeaf(page) => {
-                let session = self.reconciliation.ok_or(SyncError::StaleWork)?;
+                let session = self.reconciliation.ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 endpoint!(
                     ("stage_leaf", session, &page),
                     4096,
@@ -825,10 +811,14 @@ impl<M: SyncModel> Coordinator<M> {
                 let range = self
                     .queue
                     .first()
-                    .ok_or(SyncError::StaleWork)?
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
                     .range
                     .clone();
-                let session = self.reconciliation.ok_or(SyncError::StaleWork)?;
+                let session = self.reconciliation.ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 let result = endpoint_result!(
                     ("commit_range", session, &range, self.limits.apply),
                     self.limits
@@ -850,22 +840,23 @@ impl<M: SyncModel> Coordinator<M> {
                     Err(e) => return Err(e),
                 }
                 self.graph_stage = None;
+                self.restarts = 0;
                 self.queue.remove(0);
                 self.depths.remove(0);
-                self.phase = if self.queue.is_empty() {
-                    Phase::Normalize(None)
-                } else {
-                    Phase::Compare(None)
-                };
+                self.phase = self.after_contexts();
             }
             Phase::DiscardRange => {
                 let range = self
                     .queue
                     .first()
-                    .ok_or(SyncError::StaleWork)?
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
                     .range
                     .clone();
-                let session = self.reconciliation.ok_or(SyncError::StaleWork)?;
+                let session = self.reconciliation.ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 endpoint!(
                     ("discard_range", session, &range),
                     4096,
@@ -877,20 +868,24 @@ impl<M: SyncModel> Coordinator<M> {
                     cursor: None,
                 };
             }
-            Phase::Normalize(cursor) => match endpoint!(
-                ("normalize", self.reconciliation, self.limits.work, &cursor),
-                4096,
-                sink.normalize_step(
-                    self.reconciliation.ok_or(SyncError::StaleWork)?,
-                    self.limits.work,
-                    cursor.clone()
-                )
-            ) {
-                WorkOutcome::Incomplete { cursor } => self.phase = Phase::Normalize(Some(cursor)),
-                WorkOutcome::Ready(_) => self.phase = Phase::CompleteSnapshot,
-            },
+            Phase::Promote => {
+                let session = self.reconciliation.ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
+                let result = endpoint!(
+                    ("promote", session, self.limits.apply),
+                    4096,
+                    sink.promote_step(session, self.limits.apply)
+                );
+                self.restarts = 0;
+                if result.done {
+                    self.phase = Phase::CompleteSnapshot;
+                }
+            }
             Phase::CompleteSnapshot => {
-                let session = self.reconciliation.ok_or(SyncError::StaleWork)?;
+                let session = self.reconciliation.ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 self.progress = Some(endpoint!(
                     ("complete", session),
                     4096,
@@ -902,7 +897,9 @@ impl<M: SyncModel> Coordinator<M> {
                 let snapshot = self
                     .remote_snapshot
                     .as_ref()
-                    .ok_or(SyncError::StaleWork)?
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
                     .snapshot_id;
                 match endpoint_result!(
                     ("close", snapshot),
@@ -918,7 +915,9 @@ impl<M: SyncModel> Coordinator<M> {
                 let snapshot = self
                     .local_snapshot
                     .as_ref()
-                    .ok_or(SyncError::StaleWork)?
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
                     .snapshot_id;
                 match endpoint_result!(
                     ("close", snapshot),
@@ -935,15 +934,21 @@ impl<M: SyncModel> Coordinator<M> {
                 self.phase = Phase::History;
             }
             Phase::Read => {
-                let after = self.progress.clone().ok_or(SyncError::StaleWork)?;
-                let through = self.through.clone().ok_or(SyncError::StaleWork)?;
+                let after = self.progress.clone().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
+                let through = self.through.clone().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 if after == through {
                     self.phase = Phase::Finish;
                 } else {
                     let mut limits = self.limits.pages;
                     limits.max_scanned = 1;
                     let request = PageRequest {
-                        source: self.source.clone().ok_or(SyncError::StaleWork)?,
+                        source: self.source.clone().ok_or_else(|| {
+                            SyncError::Invalid("coordinator invariant: missing state".into())
+                        })?,
                         scope: self.scope.clone(),
                         after,
                         through,
@@ -972,7 +977,7 @@ impl<M: SyncModel> Coordinator<M> {
                                 || !request.scope.collections.contains(&collection)
                                 || !matches!(
                                     manifest.kind,
-                                    ManifestKind::KeyEvent | ManifestKind::RangeEvent
+                                    ManifestKind::KeyEvent | ManifestKind::MergeEvent
                                 )
                             {
                                 return Err(SyncError::Invalid("fragment request mismatch".into()));
@@ -982,12 +987,9 @@ impl<M: SyncModel> Coordinator<M> {
                                 sequence,
                                 collection,
                                 digest: event_digest,
-                                page: None,
-                                event: None,
+                                manifest,
                                 event_stage: None,
                             });
-                            self.manifests = vec![manifest];
-                            self.staged_manifests.clear();
                             self.phase = Phase::BeginJournalObject;
                         }
                     }
@@ -1001,12 +1003,14 @@ impl<M: SyncModel> Coordinator<M> {
                     .find(|link| matches!(link.event, Some(EventRef::Fragmented(_))))
                 {
                     let Some(EventRef::Fragmented(manifest)) = &link.event else {
-                        return Err(SyncError::StaleWork);
+                        return Err(SyncError::Invalid(
+                            "coordinator invariant: unexpected state".into(),
+                        ));
                     };
                     if page.links.len() != 1
                         || !matches!(
                             manifest.kind,
-                            ManifestKind::KeyEvent | ManifestKind::RangeEvent
+                            ManifestKind::KeyEvent | ManifestKind::MergeEvent
                         )
                     {
                         return Err(SyncError::Invalid("invalid fragmented page".into()));
@@ -1016,41 +1020,19 @@ impl<M: SyncModel> Coordinator<M> {
                         sequence: link.sequence,
                         collection: link.collection.clone(),
                         digest: link.event_digest,
-                        page: Some(page.clone()),
-                        event: None,
+                        manifest: manifest.clone(),
                         event_stage: None,
                     });
-                    self.manifests = vec![manifest.clone()];
-                    self.staged_manifests.clear();
-                    self.phase = Phase::BeginJournalObject;
-                } else if let Some(link) = page
-                    .links
-                    .iter()
-                    .find(|link| matches!(link.event, Some(EventRef::Inline(Event::Range(_)))))
-                {
-                    let Some(EventRef::Inline(event @ Event::Range(range))) = &link.event else {
-                        return Err(SyncError::StaleWork);
-                    };
-                    self.journal = Some(JournalTransfer {
-                        request: page.request.clone(),
-                        sequence: link.sequence,
-                        collection: link.collection.clone(),
-                        digest: link.event_digest,
-                        page: Some(page.clone()),
-                        event: Some(event.clone()),
-                        event_stage: None,
-                    });
-                    self.manifests =
-                        vec![range.context_partition.clone(), range.live_manifest.clone()];
-                    self.staged_manifests.clear();
                     self.phase = Phase::BeginJournalObject;
                 } else {
                     self.phase = Phase::Apply(page);
                 }
             }
             Phase::BeginJournalObject => {
-                let transfer = self.journal.as_ref().ok_or(SyncError::StaleWork)?;
-                let manifest = self.manifests.first().ok_or(SyncError::StaleWork)?.clone();
+                let transfer = self.journal.as_ref().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
+                let manifest = transfer.manifest.clone();
                 let descriptor = StageDescriptor {
                     origin: StageOrigin::Journal {
                         request: transfer.request.clone(),
@@ -1072,7 +1054,14 @@ impl<M: SyncModel> Coordinator<M> {
                 self.phase = Phase::FetchJournalObject;
             }
             Phase::FetchJournalObject => {
-                let manifest = self.manifests.first().ok_or(SyncError::StaleWork)?.clone();
+                let manifest = self
+                    .journal
+                    .as_ref()
+                    .ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?
+                    .manifest
+                    .clone();
                 let fragment = endpoint!(
                     (
                         "read_fragment",
@@ -1089,7 +1078,7 @@ impl<M: SyncModel> Coordinator<M> {
                 );
                 if fragment.ordinal != self.ordinal
                     || fragment.offset != self.object_bytes.len() as u64
-                    || fragment.manifest != *self.manifests.first().ok_or(SyncError::StaleWork)?
+                    || fragment.manifest != manifest
                     || fragment_digest(&fragment)? != fragment.digest
                 {
                     return Err(SyncError::Invalid("invalid fragment response".into()));
@@ -1097,7 +1086,9 @@ impl<M: SyncModel> Coordinator<M> {
                 self.phase = Phase::PutJournalObject(fragment);
             }
             Phase::PutJournalObject(fragment) => {
-                let stage = self.stage.ok_or(SyncError::StaleWork)?;
+                let stage = self.stage.ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 let progress = endpoint!(
                     ("stage_fragment", stage, &fragment),
                     4096,
@@ -1108,68 +1099,40 @@ impl<M: SyncModel> Coordinator<M> {
                     self.ordinal = progress.next_ordinal;
                     self.phase = Phase::FetchJournalObject;
                 } else {
-                    let manifest = self.manifests.remove(0);
+                    let transfer = self.journal.as_mut().ok_or_else(|| {
+                        SyncError::Invalid("coordinator invariant: missing state".into())
+                    })?;
+                    let manifest = &transfer.manifest;
                     if self.object_bytes.len() as u64 != manifest.encoded_bytes
                         || content_digest(&self.object_bytes)? != manifest.content_digest
                     {
                         return Err(SyncError::Invalid("fragment content mismatch".into()));
                     }
-                    let transfer = self.journal.as_mut().ok_or(SyncError::StaleWork)?;
-                    match manifest.kind {
-                        ManifestKind::KeyEvent | ManifestKind::RangeEvent => {
-                            let event = decode_event::<M>(&self.object_bytes)?;
-                            if event_digest(&event)? != transfer.digest {
-                                return Err(SyncError::Invalid("fragmented event mismatch".into()));
-                            }
-                            transfer.event_stage = self.stage;
-                            if let Event::Range(range) = &event {
-                                self.manifests.push(range.context_partition.clone());
-                                self.manifests.push(range.live_manifest.clone());
-                            }
-                            transfer.event = Some(event);
-                        }
-                        ManifestKind::ContextPartition => {
-                            let Some(Event::Range(range)) = &transfer.event else {
-                                return Err(SyncError::Invalid(
-                                    "unexpected context partition".into(),
-                                ));
-                            };
-                            for item in
-                                decode_context_partition::<M>(&range.range, &self.object_bytes)?
-                            {
-                                let m = item.context.manifest;
-                                if !self.staged_manifests.contains(&m.manifest_digest)
-                                    && !self
-                                        .manifests
-                                        .iter()
-                                        .any(|x| x.manifest_digest == m.manifest_digest)
-                                {
-                                    self.manifests.push(m)
-                                }
-                            }
-                        }
-                        ManifestKind::Context | ManifestKind::Leaf => (),
-                        ManifestKind::ContextRoot => {
-                            return Err(SyncError::Invalid("unexpected context root".into()));
-                        }
+                    let event = decode_event_remote::<M>(&self.object_bytes)?;
+                    if event_digest(&event)? != transfer.digest
+                        || !matches!(
+                            (manifest.kind, &event),
+                            (ManifestKind::KeyEvent, Event::Key(_))
+                                | (ManifestKind::MergeEvent, Event::Merge(_))
+                        )
+                    {
+                        return Err(SyncError::Invalid("fragmented event mismatch".into()));
                     }
-                    self.staged_manifests.push(manifest.manifest_digest);
+                    transfer.event_stage = self.stage;
                     self.stage = None;
-                    self.phase = if self.manifests.is_empty() {
-                        if transfer.event_stage.is_some() {
-                            Phase::CommitJournalEvent
-                        } else {
-                            Phase::Apply(transfer.page.clone().ok_or(SyncError::StaleWork)?)
-                        }
-                    } else {
-                        Phase::BeginJournalObject
-                    };
+                    self.phase = Phase::CommitJournalEvent;
                 }
             }
             Phase::CommitJournalEvent => {
-                let transfer = self.journal.as_ref().ok_or(SyncError::StaleWork)?;
-                let key = self.key.clone().ok_or(SyncError::StaleWork)?;
-                let stage = transfer.event_stage.ok_or(SyncError::StaleWork)?;
+                let transfer = self.journal.as_ref().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
+                let key = self.key.clone().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
+                let stage = transfer.event_stage.ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 let result = endpoint!(
                     (
                         "commit_event",
@@ -1192,6 +1155,7 @@ impl<M: SyncModel> Coordinator<M> {
                         self.limits.apply
                     )
                 );
+                self.restarts = 0;
                 self.progress = Some(result.progress);
                 self.journal = None;
                 self.graph_stage = None;
@@ -1209,14 +1173,19 @@ impl<M: SyncModel> Coordinator<M> {
                         .saturating_add(4096),
                     receiver.apply_page(&page, self.limits.apply)
                 );
+                self.restarts = 0;
                 self.progress = Some(result.progress);
                 self.journal = None;
                 self.graph_stage = None;
                 self.phase = Phase::Read;
             }
             Phase::Finish => {
-                let key = self.key.clone().ok_or(SyncError::StaleWork)?;
-                let through = self.through.clone().ok_or(SyncError::StaleWork)?;
+                let key = self.key.clone().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
+                let through = self.through.clone().ok_or_else(|| {
+                    SyncError::Invalid("coordinator invariant: missing state".into())
+                })?;
                 endpoint!(
                     ("finish", &key, &through),
                     4096,
@@ -1225,9 +1194,9 @@ impl<M: SyncModel> Coordinator<M> {
                 self.phase = Phase::Finished;
             }
             Phase::Finished => {
-                return Ok(SessionAdvance::Complete(
-                    self.progress.clone().ok_or(SyncError::StaleWork)?,
-                ));
+                return Ok(SessionAdvance::Complete(self.progress.clone().ok_or_else(
+                    || SyncError::Invalid("coordinator invariant: missing state".into()),
+                )?));
             }
             Phase::CleanupStage => {
                 if let Some(journal) = &self.journal {
@@ -1286,14 +1255,21 @@ impl<M: SyncModel> Coordinator<M> {
                 self.phase = Phase::Restart;
             }
             Phase::Restart => {
+                if !matches!(self.recovery, Recovery::Abort) {
+                    self.restarts = self.restarts.saturating_add(1);
+                    if self.restarts >= 8 {
+                        return Err(SyncError::Invalid(
+                            "coordinator restart limit exceeded".into(),
+                        ));
+                    }
+                }
                 self.remote_snapshot = None;
                 self.local_snapshot = None;
                 self.queue.clear();
                 self.depths.clear();
                 self.child_ranges.clear();
                 self.child_summaries.clear();
-                self.manifests.clear();
-                self.staged_manifests.clear();
+                self.contexts.clear();
                 self.journal = None;
                 self.object_bytes.clear();
                 self.must_split = false;
@@ -1403,7 +1379,7 @@ mod tests {
         c.stage = Some(Uuid::from_u128(6));
         c.phase = Phase::PutObject(Fragment {
             manifest: ManifestRef {
-                kind: ManifestKind::Leaf,
+                kind: ManifestKind::Context,
                 manifest_digest: [0; 32],
                 content_digest: [0; 32],
                 encoded_bytes: 9000,

@@ -132,27 +132,12 @@ async fn removed_prefix_without_live_candidates_survives_relay() -> Result<()> {
         "prefix-only observation was discarded"
     );
     let tx = db.begin().await?;
-    let meta = tx
-        .query_one(
-            &Query::select()
-                .columns(["floor_state_seq", "state_seq"].map(Alias::new))
-                .from(Alias::new("sync_meta"))
-                .to_owned(),
-        )
-        .await?
-        .unwrap();
     assert!(
-        sync_orm::causal_context::globally_observed_on(
+        sync_orm::causal_observed::contains_on(
             &tx,
-            sync_orm::causal_context::GlobalObservation {
-                namespace,
-                collection: b"notes",
-                writer: source.store().writer_incarnation(),
-                counter: 1,
-                floor: meta.try_get_by_index(0)?,
-                state_seq: meta.try_get_by_index(1)?,
-                max_assertions: 1024
-            }
+            namespace,
+            b"notes",
+            sync::causal::Dot::new(source.store().writer_incarnation(), 1)?
         )
         .await?
     );
@@ -207,27 +192,12 @@ async fn preexisting_context_manifest_is_indexed_when_accepted() -> Result<()> {
     tx.commit().await?;
     synchronize(&source, &target).await?;
     let tx = db.begin().await?;
-    let meta = tx
-        .query_one(
-            &Query::select()
-                .columns(["floor_state_seq", "state_seq"].map(Alias::new))
-                .from(Alias::new("sync_meta"))
-                .to_owned(),
-        )
-        .await?
-        .unwrap();
     assert!(
-        sync_orm::causal_context::globally_observed_on(
+        sync_orm::causal_observed::contains_on(
             &tx,
-            sync_orm::causal_context::GlobalObservation {
-                namespace,
-                collection: b"notes",
-                writer,
-                counter: 1,
-                floor: meta.try_get_by_index(0)?,
-                state_seq: meta.try_get_by_index(1)?,
-                max_assertions: 1024
-            }
+            namespace,
+            b"notes",
+            sync::causal::Dot::new(writer, 1)?
         )
         .await?,
         "accepted observation is absent from the interval index"
@@ -373,28 +343,13 @@ async fn relay_graph_stability_survives_first_contact_between_leaves() -> Result
     let stable = heads(&peers).await?;
     for (index, db) in databases.iter().enumerate() {
         let tx = db.begin().await?;
-        let meta = tx
-            .query_one(
-                &Query::select()
-                    .columns(["floor_state_seq", "state_seq"].map(Alias::new))
-                    .from(Alias::new("sync_meta"))
-                    .to_owned(),
-            )
-            .await?
-            .unwrap();
         let mut missing = Vec::new();
         for (writer_index, peer) in peers.iter().take(7).enumerate() {
-            if !sync_orm::causal_context::globally_observed_on(
+            if !sync_orm::causal_observed::contains_on(
                 &tx,
-                sync_orm::causal_context::GlobalObservation {
-                    namespace,
-                    collection: b"notes",
-                    writer: peer.store().writer_incarnation(),
-                    counter: 1,
-                    floor: meta.try_get_by_index(0)?,
-                    state_seq: meta.try_get_by_index(1)?,
-                    max_assertions: 1024,
-                },
+                namespace,
+                b"notes",
+                sync::causal::Dot::new(peer.store().writer_incarnation(), 1)?,
             )
             .await?
             {
@@ -940,57 +895,32 @@ async fn committed_range_survives_receiver_restart_before_completion() -> Result
         max_scanned: 128,
         max_bytes: 65536,
     };
-    let mut after = p::ContextCursor {
-        segment_index: 0,
-        next_lower: range.lower,
-    };
-    loop {
-        let page = p::SnapshotSource::context_page(
-            &source,
-            remote.snapshot_id,
-            range.clone(),
-            after,
-            pages,
-        )
-        .await?;
-        endpoint.stage_context_page(session, page.clone()).await?;
-        for segment in &page.segments {
-            let manifest = segment.context.manifest.clone();
-            let stage = endpoint
-                .begin_stage(
-                    p::StageDescriptor {
-                        origin: p::StageOrigin::Snapshot {
-                            session,
-                            snapshot_id: remote.snapshot_id,
-                            range: range.clone(),
-                        },
-                        manifest: manifest.clone(),
+    for context in &remote.contexts {
+        let manifest = context.context.manifest.clone();
+        let stage = endpoint
+            .begin_stage(
+                p::StageDescriptor {
+                    origin: p::StageOrigin::SnapshotContext {
+                        session,
+                        snapshot_id: remote.snapshot_id,
+                        collection: context.collection,
                     },
-                    p::StageLimits {
-                        max_total_bytes: p::DEFAULT_STAGE_BYTES,
-                        max_stages: p::DEFAULT_STAGES,
-                        max_event_bytes: p::DEFAULT_LOGICAL_BYTES,
-                        max_event_items: p::DEFAULT_LOGICAL_ITEMS,
-                        max_fragment_bytes: p::DEFAULT_PAGE_BYTES,
-                    },
-                )
-                .await?;
-            for ordinal in stage.next_ordinal..manifest.fragment_count {
-                let fragment = p::SnapshotSource::read_fragment(
-                    &source,
-                    remote.snapshot_id,
-                    manifest.clone(),
-                    ordinal,
-                    65536,
-                )
-                .await?;
-                endpoint.stage_fragment(stage.stage, fragment).await?;
-            }
+                    manifest: manifest.clone(),
+                },
+                session_limits().stages,
+            )
+            .await?;
+        for ordinal in 0..manifest.fragment_count {
+            let fragment = p::SnapshotSource::read_fragment(
+                &source,
+                remote.snapshot_id,
+                manifest.clone(),
+                ordinal,
+                pages.max_bytes,
+            )
+            .await?;
+            endpoint.stage_fragment(stage.stage, fragment).await?;
         }
-        if page.done {
-            break;
-        }
-        after = page.next;
     }
     let mut after = None;
     loop {
@@ -1013,22 +943,18 @@ async fn committed_range_survives_receiver_restart_before_completion() -> Result
     assert!(endpoint.get(&key).await?.is_none());
     assert!(text(&db).await?.is_none());
     projection.fail.store(false, Ordering::SeqCst);
-    db.execute_unprepared("CREATE TRIGGER reject_completion BEFORE INSERT ON sync_checkpoints BEGIN SELECT RAISE(ABORT, 'completion fault'); END").await?;
-    assert!(
-        endpoint
-            .commit_complete_range(session, range.clone(), limits())
-            .await
-            .is_err()
-    );
-    assert!(endpoint.get(&key).await?.is_none());
-    assert!(text(&db).await?.is_none());
-    db.execute_unprepared("DROP TRIGGER reject_completion")
-        .await?;
     let (coverage, changed) = endpoint
         .commit_complete_range(session, range.clone(), limits())
         .await?;
     assert!(coverage.complete);
     assert_eq!(changed.changes.len(), 1);
+    db.execute_unprepared("CREATE TRIGGER reject_completion BEFORE INSERT ON sync_checkpoints BEGIN SELECT RAISE(ABORT, 'completion fault'); END").await?;
+    while !endpoint.promote_step(session, limits()).await?.done {}
+    assert!(endpoint.complete_reconciliation(session).await.is_err());
+    assert!(endpoint.get(&key).await?.is_some());
+    db.execute_unprepared("DROP TRIGGER reject_completion")
+        .await?;
+
     let committed_head = endpoint.head().await?;
     let retry = endpoint
         .commit_complete_range(session, range, limits())
@@ -1041,10 +967,7 @@ async fn committed_range_survives_receiver_restart_before_completion() -> Result
         source_generation: remote.source.generation,
         scope_id: p::scope_id(&scope)?,
     };
-    assert_eq!(
-        endpoint.checkpoint(&checkpoint).await?,
-        Some(remote.head.clone())
-    );
+    assert_eq!(endpoint.checkpoint(&checkpoint).await?, None);
     let author = endpoint.store().author();
     drop(endpoint);
     let reopened = CausalEndpoint::with_projection(
@@ -1057,10 +980,7 @@ async fn committed_range_survives_receiver_restart_before_completion() -> Result
     );
     assert_eq!(text(&db).await?.as_deref(), Some("accepted range"));
     assert_eq!(reopened.head().await?, committed_head);
-    assert_eq!(
-        reopened.checkpoint(&checkpoint).await?,
-        Some(remote.head.clone())
-    );
+    assert_eq!(reopened.checkpoint(&checkpoint).await?, None);
     assert_eq!(
         reopened.complete_reconciliation(session).await,
         Err(p::SyncError::StaleWork)
@@ -1069,155 +989,63 @@ async fn committed_range_survives_receiver_restart_before_completion() -> Result
 }
 
 #[tokio::test]
-async fn resumable_baseline_respects_pins_and_commits_floor_atomically() -> Result<()> {
-    use sync_orm::causal_compaction::{
-        BaselineAdvance, advance_baseline_on, prune_history_step_on,
-    };
-    let namespace = Uuid::new_v4();
-    let (db, source, _) = setup(namespace).await?;
-    let (_, stale, _) = setup(namespace).await?;
+async fn floor_respects_pins_and_commits_atomically() -> Result<()> {
+    use sync_orm::causal_compaction::{FloorStep, maintenance_step_on};
+    let ns = Uuid::new_v4();
+    let (db, source, _) = setup(ns).await?;
     let key = p::ObjectKey {
         collection: 1,
         id: Uuid::from_u128(1),
     };
     source
-        .write_local(key.clone(), Some(Note("remove me".into())))
+        .write_local(key.clone(), Some(Note("old".into())))
         .await?;
-    synchronize(&source, &stale).await?;
-    let scope = p::Scope {
-        collections: [1].into_iter().collect(),
-    };
-    let work = p::WorkLimits {
-        max_requests: 64,
-        max_bytes: 1024 * 1024,
-        max_depth: 32,
-        max_rows_scanned: 16,
-        max_mutations: 1024,
-    };
     let pin = Uuid::new_v4();
-    let mut cursor = None;
-    loop {
-        match p::SnapshotSource::open_snapshot(&source, pin, scope.clone(), work, cursor).await? {
-            p::WorkOutcome::Ready(_) => break,
-            p::WorkOutcome::Incomplete { cursor: next } => cursor = Some(next),
-        }
-    }
-    source.write_local(key.clone(), None).await?;
-    for id in 2..=16 {
-        source
-            .write_local(
-                p::ObjectKey {
-                    collection: 1,
-                    id: Uuid::from_u128(id),
-                },
-                Some(Note(format!("value {id}"))),
-            )
-            .await?;
-    }
-    let captured = source.head().await?;
-    let request = Uuid::new_v4();
-    let identity = source.identity().await?;
-    let mut cursor = None;
-    let mut pinned = false;
-    for step in 0..20000 {
-        let tx = db.begin().await?;
-        let result = advance_baseline_on::<Notes>(
-            &tx,
-            identity.clone(),
-            request,
-            chrono::Utc::now().timestamp_millis(),
-            work,
-            cursor.clone(),
-        )
-        .await?;
-        tx.commit().await?;
-        if step == 0 {
-            source
-                .write_local(
-                    p::ObjectKey {
-                        collection: 1,
-                        id: Uuid::from_u128(100),
-                    },
-                    Some(Note("after capture".into())),
-                )
-                .await?;
-        }
-        match result {
-            BaselineAdvance::Incomplete { cursor: next } => cursor = Some(next),
-            BaselineAdvance::Pinned { cursor: next } => {
-                cursor = Some(next);
-                pinned = true;
-                break;
-            }
-            BaselineAdvance::Advanced { .. } => {
-                anyhow::bail!("advanced through an older live snapshot")
-            }
-        }
-    }
-    ensure!(pinned, "baseline did not reach its protected floor");
-    p::SnapshotSource::close_snapshot(&source, pin).await?;
-    db.execute_unprepared("CREATE TRIGGER reject_floor BEFORE UPDATE OF baseline_generation ON sync_meta WHEN NEW.baseline_generation != OLD.baseline_generation BEGIN SELECT RAISE(ABORT, 'floor fault'); END").await?;
     let tx = db.begin().await?;
-    assert!(
-        advance_baseline_on::<Notes>(
-            &tx,
-            identity.clone(),
-            request,
-            chrono::Utc::now().timestamp_millis(),
-            work,
-            cursor.clone()
-        )
-        .await
-        .is_err()
-    );
-    tx.rollback().await?;
-    db.execute_unprepared("DROP TRIGGER reject_floor").await?;
-    let author = source.store().author();
-    drop(source);
-    let source = CausalEndpoint::with_projection(
-        CausalReplica::open(db.clone(), namespace, author).await?,
-        Arc::new(Projection {
-            fail: AtomicBool::new(false),
-        }),
-    );
-    let tx = db.begin().await?;
-    let result = advance_baseline_on::<Notes>(
+    sync_orm::causal_leases::create_build_on(
         &tx,
-        identity,
-        request,
-        chrono::Utc::now().timestamp_millis(),
-        work,
-        cursor,
+        sync_orm::causal_leases::BuildLeaseRequest {
+            namespace: ns,
+            id: pin,
+            scope: vec![1],
+            now_ms: 0,
+            expires_at_ms: 100,
+            max_active: 4,
+            max_ttl_ms: 1000,
+        },
     )
     .await?;
     tx.commit().await?;
-    assert!(matches!(result, BaselineAdvance::Advanced { .. }));
-    let checkpoint = p::CheckpointKey {
-        namespace,
-        source_replica: source.identity().await?.replica,
-        source_generation: source.identity().await?.generation,
-        scope_id: p::scope_id(&scope)?,
-    };
-    let status = source
-        .history_status(&checkpoint, Some(captured.clone()))
-        .await?;
-    assert!(
-        matches!(status, p::HistoryStatus::Continuous { floor, head } if floor == captured && head.sequence == captured.sequence + 1)
+    source.write_local(key, None).await?;
+    let tx = db.begin().await?;
+    assert_eq!(
+        maintenance_step_on::<Notes>(&tx, ns, 64, 64, 65536).await?,
+        FloorStep::Advanced { state_seq: 1 }
     );
-    for _ in 0..100 {
-        let tx = db.begin().await?;
-        let step = prune_history_step_on(&tx, namespace, 8).await?;
-        tx.commit().await?;
-        if !step.more {
-            break;
-        }
-    }
-    synchronize(&source, &stale).await?;
-    assert!(stale.get(&key).await?.is_none());
-    let before = source.head().await?;
-    synchronize(&stale, &source).await?;
-    assert!(source.get(&key).await?.is_none());
-    assert_eq!(source.head().await?, before);
+    tx.commit().await?;
+    let tx = db.begin().await?;
+    assert_eq!(
+        maintenance_step_on::<Notes>(&tx, ns, 64, 64, 65536).await?,
+        FloorStep::Pinned
+    );
+    sync_orm::causal_leases::revoke_on(&tx, ns, pin).await?;
+    tx.commit().await?;
+    db.execute_unprepared("CREATE TRIGGER reject_floor BEFORE UPDATE OF history_floor ON sync_meta WHEN NEW.history_floor != OLD.history_floor BEGIN SELECT RAISE(ABORT, 'floor fault'); END").await?;
+    let tx = db.begin().await?;
+    assert!(
+        maintenance_step_on::<Notes>(&tx, ns, 64, 64, 65536)
+            .await
+            .is_err()
+    );
+    tx.rollback().await?;
+    db.execute_unprepared("DROP TRIGGER reject_floor").await?;
+    let tx = db.begin().await?;
+    assert_eq!(
+        maintenance_step_on::<Notes>(&tx, ns, 64, 64, 65536).await?,
+        FloorStep::Advanced { state_seq: 2 }
+    );
+    tx.commit().await?;
+    assert_eq!(source.head().await?.sequence, 2);
     Ok(())
 }
 
@@ -1337,5 +1165,283 @@ async fn maintenance_recovers_abandoned_and_competing_builds_without_reviving_re
     let stable = source.head().await?;
     synchronize(&stale, &source).await?;
     assert_eq!(source.head().await?, stable);
+    Ok(())
+}
+
+struct CountingSource<'a> {
+    inner: &'a CausalEndpoint<Notes>,
+    calls: std::sync::atomic::AtomicUsize,
+    candidates: std::sync::atomic::AtomicUsize,
+}
+impl p::SnapshotSource<Notes> for CountingSource<'_> {
+    fn release_request(&self, id: Uuid) -> p::BoxFuture<'_, ()> {
+        p::SnapshotSource::release_request(self.inner, id)
+    }
+    fn close_snapshot(&self, id: Uuid) -> p::BoxFuture<'_, ()> {
+        p::SnapshotSource::close_snapshot(self.inner, id)
+    }
+    fn cancel_snapshot_build(&self, cursor: p::WorkCursor) -> p::BoxFuture<'_, ()> {
+        p::SnapshotSource::cancel_snapshot_build(self.inner, cursor)
+    }
+    fn open_snapshot(
+        &self,
+        request: Uuid,
+        scope: p::Scope<Notes>,
+        limits: p::WorkLimits,
+        resume: Option<p::WorkCursor>,
+    ) -> p::BoxFuture<'_, p::WorkOutcome<p::SnapshotDescriptor<Notes>>> {
+        p::SnapshotSource::open_snapshot(self.inner, request, scope, limits, resume)
+    }
+    fn summarize(
+        &self,
+        snapshot: Uuid,
+        range: p::KeyRange<Notes>,
+        limits: p::WorkLimits,
+        resume: Option<p::WorkCursor>,
+    ) -> p::BoxFuture<'_, p::WorkOutcome<p::RangeSummary<Notes>>> {
+        p::SnapshotSource::summarize(self.inner, snapshot, range, limits, resume)
+    }
+    fn split(
+        &self,
+        snapshot: Uuid,
+        range: p::KeyRange<Notes>,
+        limits: p::WorkLimits,
+        resume: Option<p::WorkCursor>,
+    ) -> p::BoxFuture<'_, p::WorkOutcome<Vec<p::KeyRange<Notes>>>> {
+        p::SnapshotSource::split(self.inner, snapshot, range, limits, resume)
+    }
+    fn leaf(
+        &self,
+        snapshot: Uuid,
+        range: p::KeyRange<Notes>,
+        after: Option<p::CandidateCursor<Notes>>,
+        limits: p::PageLimits,
+    ) -> p::BoxFuture<'_, p::LeafPage<Notes>> {
+        Box::pin(async move {
+            let page = p::SnapshotSource::leaf(self.inner, snapshot, range, after, limits).await?;
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.candidates
+                .fetch_add(page.candidates.len(), Ordering::SeqCst);
+            Ok(page)
+        })
+    }
+    fn read_fragment(
+        &self,
+        snapshot: Uuid,
+        manifest: p::ManifestRef,
+        ordinal: u32,
+        max_bytes: u64,
+    ) -> p::BoxFuture<'_, p::Fragment> {
+        p::SnapshotSource::read_fragment(self.inner, snapshot, manifest, ordinal, max_bytes)
+    }
+}
+
+#[tokio::test]
+async fn one_write_snapshot_transfers_only_changed_leaf() -> Result<()> {
+    let ns = Uuid::new_v4();
+    let (_, a, _) = setup(ns).await?;
+    let (_, b, _) = setup(ns).await?;
+    let (_, c, _) = setup(ns).await?;
+    let key = |n| p::ObjectKey {
+        collection: 1,
+        id: Uuid::from_u128(n),
+    };
+    for n in 1..=1024 {
+        a.write_local(key(n), Some(Note(n.to_string()))).await?;
+    }
+    let mut limits = session_limits();
+    limits.pages.max_scanned = 128;
+    limits.apply.max_projection_items = 128;
+    limits.apply.max_mutations = 4096;
+    limits.work.max_rows_scanned = 1024;
+    limits.work.max_mutations = 4096;
+    async fn run(
+        dst: &CausalEndpoint<Notes>,
+        src: &CausalEndpoint<Notes>,
+        source: &dyn p::SnapshotSource<Notes>,
+        limits: p::SessionLimits,
+    ) -> Result<()> {
+        let mut coordinator = p::Coordinator::new(
+            p::Scope {
+                collections: [1].into_iter().collect(),
+            },
+            limits,
+        )?;
+        for _ in 0..20000 {
+            match coordinator.advance(dst, dst, dst, src, source).await? {
+                p::SessionAdvance::Complete(_) => return Ok(()),
+                p::SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+                _ => (),
+            }
+        }
+        anyhow::bail!("snapshot session did not finish")
+    }
+    run(&c, &a, &a, limits).await?;
+    run(&b, &c, &c, limits).await?;
+    a.write_local(key(500), Some(Note("9999".into()))).await?;
+    let head = b.head().await?.sequence;
+    let counting = CountingSource {
+        inner: &a,
+        calls: 0.into(),
+        candidates: 0.into(),
+    };
+    run(&b, &a, &counting, limits).await?;
+    let calls = counting.calls.load(Ordering::SeqCst);
+    let candidates = counting.candidates.load(Ordering::SeqCst);
+    let growth = b.head().await?.sequence - head;
+    eprintln!("SQL leaf calls: {calls}, candidates: {candidates}, head growth: {growth}");
+    assert_eq!(
+        b.get(&key(500)).await?.unwrap().value,
+        Some(Note("9999".into()))
+    );
+    assert!(calls <= 4 && candidates <= 256 && growth <= 2);
+    Ok(())
+}
+
+async fn open_sql(endpoint: &CausalEndpoint<Notes>) -> Result<p::SnapshotDescriptor<Notes>> {
+    use p::SnapshotSource;
+    let request = Uuid::new_v4();
+    let mut resume = None;
+    loop {
+        match endpoint
+            .open_snapshot(
+                request,
+                p::Scope {
+                    collections: [1].into_iter().collect(),
+                },
+                session_limits().work,
+                resume,
+            )
+            .await?
+        {
+            p::WorkOutcome::Ready(descriptor) => return Ok(descriptor),
+            p::WorkOutcome::Incomplete { cursor } => resume = Some(cursor),
+        }
+    }
+}
+async fn stage_sql_contexts(
+    source: &CausalEndpoint<Notes>,
+    target: &CausalEndpoint<Notes>,
+    session: Uuid,
+    remote: &p::SnapshotDescriptor<Notes>,
+) -> Result<()> {
+    for context in &remote.contexts {
+        let manifest = context.context.manifest.clone();
+        let stage = target
+            .begin_stage(
+                p::StageDescriptor {
+                    origin: p::StageOrigin::SnapshotContext {
+                        session,
+                        snapshot_id: remote.snapshot_id,
+                        collection: context.collection,
+                    },
+                    manifest: manifest.clone(),
+                },
+                session_limits().stages,
+            )
+            .await?;
+        for ordinal in 0..manifest.fragment_count {
+            let fragment = p::SnapshotSource::read_fragment(
+                source,
+                remote.snapshot_id,
+                manifest.clone(),
+                ordinal,
+                p::DEFAULT_PAGE_BYTES,
+            )
+            .await?;
+            target.stage_fragment(stage.stage, fragment).await?;
+        }
+    }
+    Ok(())
+}
+#[tokio::test]
+async fn post_snapshot_arrival_is_removed_by_sql_promotion() -> Result<()> {
+    let ns = Uuid::new_v4();
+    let (_, a, _) = setup(ns).await?;
+    let (_, b, _) = setup(ns).await?;
+    let (_, stale, _) = setup(ns).await?;
+    let key = p::ObjectKey {
+        collection: 1,
+        id: Uuid::from_u128(42),
+    };
+    a.write_local(key.clone(), Some(Note("dead at source".into())))
+        .await?;
+    synchronize(&a, &stale).await?;
+    a.write_local(key.clone(), None).await?;
+    let remote = open_sql(&a).await?;
+    let local = open_sql(&b).await?;
+    let session = b
+        .begin_reconciliation(Uuid::new_v4(), remote.clone(), local)
+        .await?;
+    stage_sql_contexts(&a, &b, session, &remote).await?;
+    b.accept_equal_range(session, remote.roots[0].clone())
+        .await?;
+    synchronize(&stale, &b).await?;
+    assert!(b.get(&key).await?.is_some());
+    while !b.promote_step(session, limits()).await?.done {}
+    assert!(b.get(&key).await?.is_none());
+    assert_eq!(b.complete_reconciliation(session).await?, remote.head);
+    Ok(())
+}
+#[tokio::test]
+async fn sql_promotion_chunks_resume_and_are_idempotent() -> Result<()> {
+    let ns = Uuid::new_v4();
+    let (db, a, _) = setup(ns).await?;
+    let (_, b, _) = setup(ns).await?;
+    let writer = Uuid::new_v4();
+    let mut context = sync::causal::Context::default();
+    for n in 1..=3000 {
+        context.insert(sync::causal::Dot::new(writer, 2 * n)?)?;
+    }
+    let mut apply = limits();
+    apply.max_mutations = 16384;
+    let tx = db.begin().await?;
+    a.store()
+        .apply_merge_on(
+            &tx,
+            &p::MergeDelta {
+                collection: 1,
+                added: vec![],
+                observed: p::exact_context(&context),
+            },
+            apply,
+            &mut 16384,
+        )
+        .await?;
+    tx.commit().await?;
+    let remote = open_sql(&a).await?;
+    let local = open_sql(&b).await?;
+    let session = b
+        .begin_reconciliation(Uuid::new_v4(), remote.clone(), local)
+        .await?;
+    stage_sql_contexts(&a, &b, session, &remote).await?;
+    b.accept_equal_range(session, remote.roots[0].clone())
+        .await?;
+    apply.max_mutations = 400;
+    let mut steps = 0;
+    loop {
+        let progress = b.promote_step(session, apply).await?;
+        steps += 1;
+        if progress.done {
+            break;
+        }
+        assert!(matches!(
+            b.complete_reconciliation(session).await,
+            Err(p::SyncError::IncompleteCoverage)
+        ));
+    }
+    assert!(steps >= 31);
+    let head = b.head().await?;
+    assert_eq!(
+        b.promote_step(session, apply).await?,
+        p::PromoteProgress {
+            done: true,
+            causal_changes: 0
+        }
+    );
+    assert_eq!(b.head().await?, head);
+    assert_eq!(b.complete_reconciliation(session).await?, remote.head);
+    let snapshot = open_sql(&b).await?;
+    assert_eq!(snapshot.contexts, remote.contexts);
     Ok(())
 }

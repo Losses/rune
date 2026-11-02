@@ -485,8 +485,12 @@ async fn sync_one(
 
 fn metadata_unauthorized(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
-        cause.downcast_ref::<sync::protocol::SyncError>().is_some_and(|error| matches!(error, sync::protocol::SyncError::Transport(message) if message == "metadata HTTP status 401 Unauthorized"))
-            || cause.downcast_ref::<reqwest::Error>().is_some_and(|error| error.status() == Some(reqwest::StatusCode::UNAUTHORIZED))
+        cause
+            .downcast_ref::<sync::protocol::SyncError>()
+            .is_some_and(|error| matches!(error, sync::protocol::SyncError::Unauthorized))
+            || cause
+                .downcast_ref::<reqwest::Error>()
+                .is_some_and(|error| error.status() == Some(reqwest::StatusCode::UNAUTHORIZED))
     })
 }
 

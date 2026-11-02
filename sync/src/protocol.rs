@@ -4,7 +4,9 @@ mod coordinator;
 mod memory;
 #[allow(dead_code)]
 mod memory_core;
+mod merge;
 mod portable_hash;
+pub use merge::plan_leaf_merge;
 mod receiver;
 pub use codec::*;
 pub use coordinator::{Coordinator, PassUsage, SessionAdvance, SessionLimits};
@@ -12,8 +14,8 @@ pub use memory::MemorySyncStore;
 pub use portable_hash::PortableHasher;
 pub use receiver::{
     CompletionAdmission, MAX_RECEIVER_EXPANDED_BYTES, MAX_RECEIVER_METADATA_BYTES,
-    MAX_RECEIVER_METADATA_ITEMS, MAX_RECEIVER_RETRY_RECEIPTS, PreparedEvent, PreparedRange,
-    RangeAdmission, ReceiverLedger,
+    MAX_RECEIVER_METADATA_ITEMS, MAX_RECEIVER_RETRY_RECEIPTS, PreparedEvent, PreparedLeaf,
+    PromotionAdmission, PromotionStep, RangeAdmission, ReceiverLedger,
 };
 use std::{collections::BTreeSet, fmt::Debug, future::Future, pin::Pin, sync::Arc};
 pub use uuid::Uuid;
@@ -77,6 +79,7 @@ pub enum SyncError {
     IncompleteCoverage,
     StaleWork,
     Cancelled,
+    Unauthorized,
     Storage(String),
     Transport(String),
 }
@@ -378,21 +381,24 @@ impl<M: SyncModel> PartialOrd for CandidateCursor<M> {
 #[serde(rename_all = "snake_case")]
 pub enum ManifestKind {
     KeyEvent,
-    RangeEvent,
+    MergeEvent,
     Context,
-    ContextPartition,
     ContextRoot,
-    Leaf,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ContextPartitionRef<M: SyncModel> {
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields, bound(serialize = "", deserialize = ""))]
+pub struct CollectionContext<M: SyncModel> {
+    #[serde(
+        serialize_with = "serialize_collection::<M, _>",
+        deserialize_with = "deserialize_collection::<M, _>"
+    )]
     pub collection: M::Collection,
-    pub partition: ManifestRef,
+    pub context: ContextRef,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContextRoot<M: SyncModel> {
     pub scope: Scope<M>,
-    pub partitions: Vec<ContextPartitionRef<M>>,
+    pub contexts: Vec<CollectionContext<M>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -414,23 +420,15 @@ pub struct ContextRef {
     pub manifest: ManifestRef,
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SnapshotRef {
-    pub source: StoreIdentity,
-    pub snapshot_id: Uuid,
-    pub head: ReceiveProgress,
-}
-/// Context partition and complete source-live evidence, not context alone.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields, bound(serialize = "", deserialize = ""))]
-pub struct RangeEvent<M: SyncModel> {
-    pub range: KeyRange<M>,
-    pub scope: Scope<M>,
-    pub context_partition: ManifestRef,
-    pub source: SnapshotRef,
-    #[serde(with = "digest_serde")]
-    pub range_summary: Digest,
-    pub live_manifest: ManifestRef,
+pub struct MergeDelta<M: SyncModel> {
+    #[serde(
+        serialize_with = "serialize_collection::<M, _>",
+        deserialize_with = "deserialize_collection::<M, _>"
+    )]
+    pub collection: M::Collection,
+    pub added: Vec<Candidate<M>>,
+    pub observed: ExactContext,
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(
@@ -441,9 +439,8 @@ pub struct RangeEvent<M: SyncModel> {
 )]
 pub enum Event<M: SyncModel> {
     Key(KeyDelta<M>),
-    Range(Box<RangeEvent<M>>),
+    Merge(Box<MergeDelta<M>>),
 }
-pub(crate) type CausalSegment<M> = (KeyRange<M>, ExactContext, Vec<Candidate<M>>);
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields, bound(serialize = "", deserialize = ""))]
@@ -619,6 +616,8 @@ pub struct Fragment {
     deny_unknown_fields,
     bound(serialize = "", deserialize = "")
 )]
+// Keep the journal request inline in the public admission API.
+#[allow(clippy::large_enum_variant)]
 pub enum StageOrigin<M: SyncModel> {
     Journal {
         request: PageRequest<M>,
@@ -631,10 +630,14 @@ pub enum StageOrigin<M: SyncModel> {
         #[serde(with = "digest_serde")]
         event_digest: Digest,
     },
-    Snapshot {
+    SnapshotContext {
         session: Uuid,
         snapshot_id: Uuid,
-        range: KeyRange<M>,
+        #[serde(
+            serialize_with = "serialize_collection::<M, _>",
+            deserialize_with = "deserialize_collection::<M, _>"
+        )]
+        collection: M::Collection,
     },
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -775,9 +778,6 @@ pub struct RangeSummary<M: SyncModel> {
     pub range: KeyRange<M>,
     pub candidate_count: u64,
     pub candidate_bytes: u64,
-    pub context_segments: u64,
-    #[serde(with = "digest_serde")]
-    pub context_commitment: Digest,
     #[serde(with = "digest_serde")]
     pub aggregate: Digest,
 }
@@ -789,29 +789,8 @@ pub struct SnapshotDescriptor<M: SyncModel> {
     pub snapshot_id: Uuid,
     pub head: ReceiveProgress,
     pub roots: Vec<RangeSummary<M>>,
+    pub contexts: Vec<CollectionContext<M>>,
     pub expires_unix_ms: u64,
-}
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields, bound(serialize = "", deserialize = ""))]
-pub struct ContextSegment<M: SyncModel> {
-    pub range: KeyRange<M>,
-    pub context: ContextRef,
-}
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ContextCursor {
-    pub segment_index: u64,
-    pub next_lower: Option<Uuid>,
-}
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields, bound(serialize = "", deserialize = ""))]
-pub struct ContextPage<M: SyncModel> {
-    pub snapshot_id: Uuid,
-    pub range: KeyRange<M>,
-    pub after: ContextCursor,
-    pub next: ContextCursor,
-    pub done: bool,
-    pub segments: Vec<ContextSegment<M>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields, bound(serialize = "", deserialize = ""))]
@@ -866,9 +845,9 @@ pub struct LeafProgress<M: SyncModel> {
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ContextProgress {
-    pub next: ContextCursor,
-    pub complete: bool,
+pub struct PromoteProgress {
+    pub done: bool,
+    pub causal_changes: u64,
 }
 /// Source leases survive multiple processes; expensive construction/summary are resumable.
 pub trait SnapshotSource<M: SyncModel>: Send + Sync {
@@ -896,13 +875,6 @@ pub trait SnapshotSource<M: SyncModel>: Send + Sync {
         limits: WorkLimits,
         resume: Option<WorkCursor>,
     ) -> BoxFuture<'_, WorkOutcome<Vec<KeyRange<M>>>>;
-    fn context_page(
-        &self,
-        snapshot: Uuid,
-        range: KeyRange<M>,
-        after: ContextCursor,
-        limits: PageLimits,
-    ) -> BoxFuture<'_, ContextPage<M>>;
     fn leaf(
         &self,
         snapshot: Uuid,
@@ -946,14 +918,7 @@ pub trait SnapshotSink<M: SyncModel>: Send + Sync {
         session: Uuid,
         source: RangeSummary<M>,
     ) -> BoxFuture<'_, CoverageProgress>;
-    fn context_progress(&self, session: Uuid, range: KeyRange<M>)
-    -> BoxFuture<'_, ContextProgress>;
     fn leaf_progress(&self, session: Uuid, range: KeyRange<M>) -> BoxFuture<'_, LeafProgress<M>>;
-    fn stage_context_page(
-        &self,
-        session: Uuid,
-        page: ContextPage<M>,
-    ) -> BoxFuture<'_, ContextProgress>;
     fn stage_leaf_page(&self, session: Uuid, page: LeafPage<M>) -> BoxFuture<'_, LeafProgress<M>>;
     fn commit_complete_range(
         &self,
@@ -961,12 +926,7 @@ pub trait SnapshotSink<M: SyncModel>: Send + Sync {
         range: KeyRange<M>,
         limits: ApplyLimits,
     ) -> BoxFuture<'_, (CoverageProgress, ProjectionBatch<M>)>;
-    fn normalize_step(
-        &self,
-        session: Uuid,
-        limits: WorkLimits,
-        resume: Option<WorkCursor>,
-    ) -> BoxFuture<'_, WorkOutcome<CoverageProgress>>;
+    fn promote_step(&self, session: Uuid, limits: ApplyLimits) -> BoxFuture<'_, PromoteProgress>;
     fn complete_reconciliation(&self, session: Uuid) -> BoxFuture<'_, ReceiveProgress>;
 }
 impl std::fmt::Display for SyncError {

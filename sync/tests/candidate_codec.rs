@@ -162,7 +162,7 @@ fn transport_envelopes_use_tags_hex_and_reject_unknown_fields() {
     );
     let fragment = Fragment {
         manifest: ManifestRef {
-            kind: ManifestKind::Leaf,
+            kind: ManifestKind::Context,
             manifest_digest: [1; 32],
             content_digest: [2; 32],
             encoded_bytes: 2,
@@ -279,81 +279,12 @@ fn exact_context_rejects_gaps_being_filled_and_noncanonical_forms() {
     assert!(decode_context(tampered.as_bytes()).is_err());
 }
 #[test]
-fn context_partition_requires_exact_coverage() {
-    let parent = KeyRange::<Notes> {
-        collection: Collection::Alpha,
-        lower: None,
-        upper: None,
-    };
-    let empty = canonical_context(&ExactContext { writers: vec![] }).unwrap();
-    let mut m = ManifestRef {
-        kind: ManifestKind::Context,
-        manifest_digest: [0; 32],
-        content_digest: content_digest(&empty).unwrap(),
-        encoded_bytes: empty.len() as u64,
-        item_count: 0,
-        fragment_count: 1,
-    };
-    m.manifest_digest = manifest_digest(&m).unwrap();
-    let context = ContextRef {
-        digest: context_digest(&ExactContext { writers: vec![] }).unwrap(),
-        manifest: m,
-    };
-    let other_context = ExactContext {
-        writers: vec![WriterContext {
-            writer_incarnation: Uuid::from_u128(7),
-            prefix: 1,
-            exceptions: vec![],
-        }],
-    };
-    let other_bytes = canonical_context(&other_context).unwrap();
-    let mut other_manifest = ManifestRef {
-        kind: ManifestKind::Context,
-        manifest_digest: [0; 32],
-        content_digest: content_digest(&other_bytes).unwrap(),
-        encoded_bytes: other_bytes.len() as u64,
-        item_count: 1,
-        fragment_count: 1,
-    };
-    other_manifest.manifest_digest = manifest_digest(&other_manifest).unwrap();
-    let other_ref = ContextRef {
-        digest: context_digest(&other_context).unwrap(),
-        manifest: other_manifest,
-    };
-    let at = Uuid::from_u128(5);
-    let segments = vec![
-        ContextSegment {
-            range: KeyRange {
-                collection: Collection::Alpha,
-                lower: None,
-                upper: Some(at),
-            },
-            context: context.clone(),
-        },
-        ContextSegment {
-            range: KeyRange {
-                collection: Collection::Alpha,
-                lower: Some(at),
-                upper: None,
-            },
-            context: other_ref,
-        },
-    ];
-    let bytes = canonical_context_partition(&parent, &segments).unwrap();
-    assert_eq!(
-        decode_context_partition::<Notes>(&parent, &bytes).unwrap(),
-        segments
-    );
-    assert!(canonical_context_partition(&parent, &segments[..1]).is_err());
-}
-
-#[test]
 fn context_root_requires_exact_scope_and_canonical_manifest_order() {
     let scope = Scope::<Notes> {
         collections: [Collection::Alpha, Collection::Zebra].into_iter().collect(),
     };
     let mut manifest = ManifestRef {
-        kind: ManifestKind::ContextPartition,
+        kind: ManifestKind::Context,
         manifest_digest: [0; 32],
         content_digest: [7; 32],
         encoded_bytes: 5,
@@ -363,22 +294,28 @@ fn context_root_requires_exact_scope_and_canonical_manifest_order() {
     manifest.manifest_digest = manifest_digest(&manifest).unwrap();
     let root = ContextRoot {
         scope: scope.clone(),
-        partitions: vec![
-            ContextPartitionRef {
+        contexts: vec![
+            CollectionContext {
                 collection: Collection::Alpha,
-                partition: manifest.clone(),
+                context: ContextRef {
+                    digest: [3; 32],
+                    manifest: manifest.clone(),
+                },
             },
-            ContextPartitionRef {
+            CollectionContext {
                 collection: Collection::Zebra,
-                partition: manifest,
+                context: ContextRef {
+                    digest: [4; 32],
+                    manifest,
+                },
             },
         ],
     };
     let bytes = canonical_context_root(&root).unwrap();
     assert_eq!(decode_context_root::<Notes>(&scope, &bytes).unwrap(), root);
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(json["partitions"][0]["collection"], "alpha");
-    assert_eq!(json["partitions"][1]["collection"], "zebra");
+    assert_eq!(json["contexts"][0]["collection"], "alpha");
+    assert_eq!(json["contexts"][1]["collection"], "zebra");
     assert_eq!(
         json["scope"],
         scope_id(&scope)
@@ -388,13 +325,13 @@ fn context_root_requires_exact_scope_and_canonical_manifest_order() {
             .collect::<String>()
     );
     let mut wrong = root.clone();
-    wrong.partitions.reverse();
+    wrong.contexts.reverse();
     assert!(canonical_context_root(&wrong).is_err());
     wrong = root.clone();
-    wrong.partitions.pop();
+    wrong.contexts.pop();
     assert!(canonical_context_root(&wrong).is_err());
     wrong = root.clone();
-    wrong.partitions[0].partition.kind = ManifestKind::Context;
+    wrong.contexts[0].context.manifest.kind = ManifestKind::MergeEvent;
     assert!(canonical_context_root(&wrong).is_err());
     let other = Scope::<Notes> {
         collections: [Collection::Alpha].into_iter().collect(),
@@ -412,10 +349,8 @@ fn streaming_range_hash_validates_coverage_order_and_exact_preimage() {
         lower: None,
         upper: None,
     };
-    let context = [0x55; 32];
-    let mut hasher = RangeHasher::new(&scope, range.clone(), 0, 0, 1).unwrap();
-    hasher.push_segment(&range, context).unwrap();
-    let (actual, context_actual) = hasher.finish_with_context().unwrap();
+    let hasher = RangeHasher::new(&scope, range.clone(), 0, 0).unwrap();
+    let actual = hasher.finish().unwrap();
     let mut expected = blake3::Hasher::new();
     let mut part = |data: &[u8]| {
         expected.update(&(data.len() as u32).to_be_bytes());
@@ -430,102 +365,121 @@ fn streaming_range_hash_validates_coverage_order_and_exact_preimage() {
     expected.update(bounds);
     expected.update(&0u64.to_be_bytes());
     expected.update(&0u64.to_be_bytes());
-    expected.update(&1u64.to_be_bytes());
-    expected.update(&(bounds.len() as u32).to_be_bytes());
-    expected.update(bounds);
-    expected.update(&context);
     assert_eq!(actual, *expected.finalize().as_bytes());
-    let mut expected_context = blake3::Hasher::new();
-    for part in [b"sync.range.context".as_slice(), b"notes", b"one", bounds] {
-        expected_context.update(&(part.len() as u32).to_be_bytes());
-        expected_context.update(part);
-    }
-    expected_context.update(&1u64.to_be_bytes());
-    expected_context.update(&(bounds.len() as u32).to_be_bytes());
-    expected_context.update(bounds);
-    expected_context.update(&context);
-    assert_eq!(context_actual, *expected_context.finalize().as_bytes());
-    let unfinished = RangeHasher::new(&scope, range.clone(), 0, 0, 1).unwrap();
+    let unfinished = RangeHasher::new(&scope, range, 1, 1).unwrap();
     assert!(matches!(
         unfinished.finish(),
         Err(SyncError::IncompleteCoverage)
     ));
-    let mut invalid = RangeHasher::new(&scope, range.clone(), 0, 0, 1).unwrap();
-    assert!(
-        invalid
-            .push_segment(
-                &KeyRange {
-                    collection: Collection::Alpha,
-                    lower: Some(Uuid::from_u128(1)),
-                    upper: None
-                },
-                context
-            )
-            .is_err()
-    );
 }
 
-#[test]
-fn range_event_preserves_normalized_original_scope() {
-    let mut manifest = ManifestRef {
-        kind: ManifestKind::ContextPartition,
-        manifest_digest: [0; 32],
-        content_digest: [1; 32],
-        encoded_bytes: 1,
-        item_count: 1,
-        fragment_count: 1,
-    };
-    manifest.manifest_digest = manifest_digest(&manifest).unwrap();
-    let mut leaf = manifest.clone();
-    leaf.kind = ManifestKind::Leaf;
-    leaf.manifest_digest = manifest_digest(&leaf).unwrap();
-    let identity = StoreIdentity {
-        namespace: Uuid::from_u128(1),
+fn candidate() -> Candidate<Notes> {
+    Candidate {
         model: ModelId {
             model: "notes".into(),
             schema: "one".into(),
         },
-        replica: Uuid::from_u128(2),
-        generation: Uuid::from_u128(3),
-    };
-    let scope = Scope {
-        collections: [Collection::Zebra, Collection::Alpha].into_iter().collect(),
-    };
-    let event = Event::<Notes>::Range(Box::new(RangeEvent {
-        range: KeyRange {
+        namespace: Uuid::from_u128(1),
+        key: ObjectKey {
             collection: Collection::Alpha,
-            lower: None,
-            upper: None,
+            id: Uuid::from_u128(2),
         },
-        scope,
-        context_partition: manifest,
-        source: SnapshotRef {
-            source: identity.clone(),
-            snapshot_id: Uuid::from_u128(4),
-            head: ReceiveProgress {
-                sequence: 0,
-                anchor: initial_anchor(&identity).unwrap(),
-            },
+        dot: Dot {
+            writer_incarnation: Uuid::from_u128(3),
+            counter: 1,
         },
-        range_summary: [2; 32],
-        live_manifest: leaf,
-    }));
+        revision: Revision {
+            counter: 1,
+            actor: Uuid::from_u128(4),
+        },
+        payload: Note { text: "abc".into() },
+    }
+}
+#[test]
+fn merge_event_roundtrip_and_canonical() {
+    let delta = MergeDelta::<Notes> {
+        collection: Collection::Alpha,
+        added: vec![candidate()],
+        observed: ExactContext { writers: vec![] },
+    };
+    let event = Event::Merge(Box::new(delta.clone()));
     let bytes = canonical_event(&event).unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let expected = r#"{"added":[{"dot":{"counter":1,"writer_incarnation":"00000000-0000-0000-0000-000000000003"},"key":{"collection":"alpha","id":"00000000-0000-0000-0000-000000000002"},"model":{"model":"notes","schema":"one"},"namespace":"00000000-0000-0000-0000-000000000001","payload":{"text":"abc"},"revision":{"actor":"00000000-0000-0000-0000-000000000004","counter":1}}],"collection":"alpha","kind":"merge","observed":{"writers":[]}}"#;
+    assert_eq!(bytes, expected.as_bytes());
+    assert_eq!(decode_event_remote::<Notes>(&bytes).unwrap(), event);
+    let json = serde_json::to_value(&event).unwrap();
     assert_eq!(
-        json["scope"]["collections"],
-        serde_json::json!(["alpha", "zebra"])
+        json,
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()
     );
-    assert_eq!(decode_event::<Notes>(&bytes).unwrap(), event);
-    let mut value = serde_json::to_value(&event).unwrap();
-    assert_eq!(value, json);
-    assert_eq!(
-        serde_json::from_value::<Event<Notes>>(value.clone()).unwrap(),
-        event
-    );
-    value["scope"]["collections"] = serde_json::json!(["zebra"]);
-    let invalid: Event<Notes> = serde_json::from_value(value).unwrap();
-    assert!(canonical_event(&invalid).is_err());
+    assert_eq!(serde_json::from_value::<Event<Notes>>(json).unwrap(), event);
+    let mut wrong = delta.clone();
+    wrong.added.clear();
+    assert!(canonical_event(&Event::Merge(Box::new(wrong))).is_err());
+    let mut wrong = delta.clone();
+    wrong.collection = Collection::Zebra;
+    assert!(canonical_event(&Event::Merge(Box::new(wrong))).is_err());
+    let mut wrong = delta.clone();
+    let mut other = candidate();
+    other.key.id = Uuid::from_u128(1);
+    other.dot.counter = 2;
+    wrong.added.push(other);
+    assert!(canonical_event(&Event::Merge(Box::new(wrong))).is_err());
+    let mut wrong = delta;
+    wrong.observed.writers.push(WriterContext {
+        writer_incarnation: Uuid::from_u128(3),
+        prefix: 1,
+        exceptions: vec![],
+    });
+    assert!(canonical_event(&Event::Merge(Box::new(wrong))).is_err());
+    let unknown = expected.replacen("{", "{\"extra\":0,", 1);
+    assert!(decode_event_remote::<Notes>(unknown.as_bytes()).is_err());
+}
+#[test]
+fn peer_decode_errors_are_invalid_and_local_decode_errors_are_storage() {
+    assert!(matches!(
+        decode_candidate_remote::<Notes>(b"{"),
+        Err(SyncError::Invalid(_))
+    ));
+    assert!(matches!(
+        decode_candidate::<Notes>(b"{"),
+        Err(SyncError::Storage(_))
+    ));
+    assert!(matches!(
+        decode_event_remote::<Notes>(b"{"),
+        Err(SyncError::Invalid(_))
+    ));
+    assert!(matches!(
+        decode_event::<Notes>(b"{"),
+        Err(SyncError::Storage(_))
+    ));
+    assert!(matches!(
+        decode_context_remote(b"{"),
+        Err(SyncError::Invalid(_))
+    ));
+    assert!(matches!(decode_context(b"{"), Err(SyncError::Storage(_))));
+    let scope = Scope::<Notes> {
+        collections: [Collection::Alpha].into_iter().collect(),
+    };
+    assert!(matches!(
+        decode_context_root_remote(&scope, b"{"),
+        Err(SyncError::Invalid(_))
+    ));
+    assert!(matches!(
+        decode_context_root(&scope, b"{"),
+        Err(SyncError::Storage(_))
+    ));
+    let mut payload = serde_json::to_value(candidate()).unwrap();
+    payload["payload"]["text"] = 42.into();
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    assert!(matches!(
+        decode_candidate_remote::<Notes>(&bytes),
+        Err(SyncError::Invalid(_))
+    ));
+    assert!(matches!(
+        decode_candidate::<Notes>(&bytes),
+        Err(SyncError::Storage(_))
+    ));
 }
 
 #[test]
@@ -559,43 +513,24 @@ fn range_hash_checkpoint_resumes_every_feed_and_rejects_wrong_scope() {
         payload: Note { text: "abc".into() },
     };
     let byte_count = canonical_candidate(&candidate).unwrap().len() as u64;
-    let mut full = RangeHasher::new(&scope, parent.clone(), 1, byte_count, 2).unwrap();
+    let mut full = RangeHasher::new(&scope, parent.clone(), 1, byte_count).unwrap();
     let mut resumed =
         RangeHasher::from_checkpoint(&scope, &parent, &full.checkpoint().unwrap()).unwrap();
-    let left = KeyRange {
-        collection: Collection::Alpha,
-        lower: None,
-        upper: Some(Uuid::from_u128(10)),
-    };
-    let right = KeyRange {
-        collection: Collection::Alpha,
-        lower: Some(Uuid::from_u128(10)),
-        upper: None,
-    };
-    for (range, context) in [(&left, [1; 32]), (&right, [2; 32])] {
-        full.push_segment(range, context).unwrap();
-        resumed.push_segment(range, context).unwrap();
-        resumed =
-            RangeHasher::from_checkpoint(&scope, &parent, &resumed.checkpoint().unwrap()).unwrap();
-    }
     full.push_candidate(&candidate).unwrap();
     resumed.push_candidate(&candidate).unwrap();
     resumed =
         RangeHasher::from_checkpoint(&scope, &parent, &resumed.checkpoint().unwrap()).unwrap();
-    assert_eq!(
-        full.finish_with_context().unwrap(),
-        resumed.finish_with_context().unwrap()
-    );
+    assert_eq!(full.finish().unwrap(), resumed.finish().unwrap());
     let bad = Scope::<Notes> {
         collections: [Collection::Zebra].into_iter().collect(),
     };
-    let state = RangeHasher::new(&scope, parent.clone(), 0, 0, 1)
+    let state = RangeHasher::new(&scope, parent.clone(), 0, 0)
         .unwrap()
         .checkpoint()
         .unwrap();
     assert!(RangeHasher::<Notes>::from_checkpoint(&bad, &parent, &state).is_err());
     let mut json: serde_json::Value = serde_json::from_slice(&state).unwrap();
-    json["segments_seen"] = 3.into();
+    json["candidates_seen"] = 3.into();
     assert!(
         RangeHasher::<Notes>::from_checkpoint(&scope, &parent, &serde_json::to_vec(&json).unwrap())
             .is_err()

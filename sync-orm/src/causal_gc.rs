@@ -47,9 +47,7 @@ pub async fn collect_one_on(
     let ns = namespace.as_bytes().to_vec();
     let value = digest.to_vec();
     for (table, column) in [
-        ("sync_meta", "baseline_manifest"),
         ("sync_journal", "event_manifest"),
-        ("sync_context_ranges", "context_manifest"),
         ("sync_leases", "retained_root"),
         ("sync_manifest_edges", "child_manifest"),
     ] {
@@ -74,7 +72,6 @@ pub async fn collect_one_on(
     let mut total = 1_u64;
     for (table, column) in [
         ("sync_chunks", "manifest"),
-        ("sync_context_intervals", "context_manifest"),
         ("sync_manifest_edges", "parent_manifest"),
     ] {
         let count = Query::select()
@@ -97,7 +94,6 @@ pub async fn collect_one_on(
     }
     for (table, column) in [
         ("sync_chunks", "manifest"),
-        ("sync_context_intervals", "context_manifest"),
         ("sync_manifest_edges", "parent_manifest"),
         ("sync_manifests", "digest"),
     ] {
@@ -184,139 +180,6 @@ pub async fn step_on(
     })
 }
 
-/// A stable position in the bounded scan of obsolete baseline rows.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BasisCursor {
-    pub generation: Vec<u8>,
-    pub collection: Vec<u8>,
-    pub state_seq: i64,
-    pub ordinal: i64,
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BasisReclaimStep {
-    pub removed: u64,
-    pub next: Option<BasisCursor>,
-}
-/// Reclaim at most `limit` obsolete baseline rows. Every unrevoked lease pins
-/// both its captured input generation and any output generation it is building,
-/// even after expiry until explicit revocation. A completed scan may be restarted
-/// later to revisit generations that were pinned during this pass.
-pub async fn reclaim_basis_step_on(
-    tx: &DatabaseTransaction,
-    namespace: Uuid,
-    after: Option<BasisCursor>,
-    limit: u64,
-) -> anyhow::Result<BasisReclaimStep> {
-    use sea_orm::sea_query::{Condition, Order};
-    anyhow::ensure!(
-        !namespace.is_nil() && limit > 0 && limit <= 1024,
-        "invalid baseline reclaim budget"
-    );
-    crate::causal_leases::lock_on(tx, namespace).await?;
-    let meta = Query::select()
-        .column(Alias::new("baseline_generation"))
-        .from(Alias::new("sync_meta"))
-        .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
-        .to_owned();
-    let active: Vec<u8> = tx
-        .query_one(&meta)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("missing causal namespace"))?
-        .try_get_by_index(0)?;
-    anyhow::ensure!(active.len() == 16, "invalid active baseline generation");
-    let mut q = Query::select();
-    q.columns(["basis_generation", "collection", "state_seq", "ordinal"].map(Alias::new))
-        .from(Alias::new("sync_context_ranges"))
-        .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
-        .and_where(Expr::col(Alias::new("basis_generation")).ne(Uuid::nil().as_bytes().to_vec()))
-        .and_where(Expr::col(Alias::new("basis_generation")).ne(active));
-    if let Some(cursor) = after {
-        anyhow::ensure!(
-            cursor.generation.len() == 16
-                && !cursor.collection.is_empty()
-                && cursor.state_seq >= 0
-                && cursor.ordinal >= 0,
-            "invalid baseline reclaim cursor"
-        );
-        let generation = cursor.generation;
-        let tag = cursor.collection;
-        q.cond_where(
-            Condition::any()
-                .add(Expr::col(Alias::new("basis_generation")).gt(generation.clone()))
-                .add(
-                    Condition::all()
-                        .add(Expr::col(Alias::new("basis_generation")).eq(generation.clone()))
-                        .add(Expr::col(Alias::new("collection")).gt(tag.clone())),
-                )
-                .add(
-                    Condition::all()
-                        .add(Expr::col(Alias::new("basis_generation")).eq(generation.clone()))
-                        .add(Expr::col(Alias::new("collection")).eq(tag.clone()))
-                        .add(Expr::col(Alias::new("state_seq")).gt(cursor.state_seq)),
-                )
-                .add(
-                    Condition::all()
-                        .add(Expr::col(Alias::new("basis_generation")).eq(generation))
-                        .add(Expr::col(Alias::new("collection")).eq(tag))
-                        .add(Expr::col(Alias::new("state_seq")).eq(cursor.state_seq))
-                        .add(Expr::col(Alias::new("ordinal")).gt(cursor.ordinal)),
-                ),
-        );
-    }
-    q.order_by(Alias::new("basis_generation"), Order::Asc)
-        .order_by(Alias::new("collection"), Order::Asc)
-        .order_by(Alias::new("state_seq"), Order::Asc)
-        .order_by(Alias::new("ordinal"), Order::Asc)
-        .limit(limit + 1);
-    let rows = tx.query_all(&q.to_owned()).await?;
-    let more = rows.len() as u64 > limit;
-    let mut removed = 0;
-    let mut last = None;
-    for row in rows.into_iter().take(limit as usize) {
-        let cursor = BasisCursor {
-            generation: row.try_get_by_index(0)?,
-            collection: row.try_get_by_index(1)?,
-            state_seq: row.try_get_by_index(2)?,
-            ordinal: row.try_get_by_index(3)?,
-        };
-        anyhow::ensure!(
-            cursor.generation.len() == 16
-                && !cursor.collection.is_empty()
-                && cursor.state_seq >= 0
-                && cursor.ordinal >= 0,
-            "invalid retained baseline row"
-        );
-        let pin = Query::select()
-            .expr(Expr::val(1))
-            .from(Alias::new("sync_leases"))
-            .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
-            .and_where(Expr::col(Alias::new("status")).ne(2))
-            .cond_where(
-                Condition::any()
-                    .add(Expr::col(Alias::new("basis_generation")).eq(cursor.generation.clone()))
-                    .add(Expr::col(Alias::new("output_generation")).eq(cursor.generation.clone())),
-            )
-            .limit(1)
-            .to_owned();
-        if tx.query_one(&pin).await?.is_none() {
-            let delete = Query::delete()
-                .from_table(Alias::new("sync_context_ranges"))
-                .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
-                .and_where(Expr::col(Alias::new("collection")).eq(cursor.collection.clone()))
-                .and_where(Expr::col(Alias::new("basis_generation")).eq(cursor.generation.clone()))
-                .and_where(Expr::col(Alias::new("state_seq")).eq(cursor.state_seq))
-                .and_where(Expr::col(Alias::new("ordinal")).eq(cursor.ordinal))
-                .to_owned();
-            removed += tx.execute(&delete).await?.rows_affected();
-        }
-        last = Some(cursor);
-    }
-    Ok(BasisReclaimStep {
-        removed,
-        next: if more { last } else { None },
-    })
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IncrementalReclaim {
     LiveOrMissing,
@@ -354,9 +217,7 @@ pub async fn collect_incremental_on(
         return Err(err("invalid manifest kind"));
     }
     for (table, column) in [
-        ("sync_meta", "baseline_manifest"),
         ("sync_journal", "event_manifest"),
-        ("sync_context_ranges", "context_manifest"),
         ("sync_leases", "retained_root"),
         ("sync_manifest_edges", "child_manifest"),
     ] {
@@ -425,41 +286,6 @@ pub async fn collect_incremental_on(
             return Err(err("reclaim chunk changed"));
         }
         used_bytes += size;
-        remaining -= 1;
-        if remaining == 0 {
-            return Ok(IncrementalReclaim::More);
-        }
-    }
-    loop {
-        let q = Query::select()
-            .columns(["writer", "first"].map(Alias::new))
-            .from(Alias::new("sync_context_intervals"))
-            .and_where(Expr::col(Alias::new("namespace")).eq(ns.clone()))
-            .and_where(Expr::col(Alias::new("context_manifest")).eq(value.clone()))
-            .limit(1)
-            .to_owned();
-        let Some(row) = tx.query_one(&q).await? else {
-            break;
-        };
-        if used_bytes.checked_add(80).is_none_or(|n| n > max_bytes) {
-            if remaining == max_rows {
-                return Err(err("reclamation byte budget too small"));
-            }
-            return Ok(IncrementalReclaim::More);
-        }
-        let writer: Vec<u8> = row.try_get_by_index(0)?;
-        let first: i64 = row.try_get_by_index(1)?;
-        let q = Query::delete()
-            .from_table(Alias::new("sync_context_intervals"))
-            .and_where(Expr::col(Alias::new("namespace")).eq(ns.clone()))
-            .and_where(Expr::col(Alias::new("context_manifest")).eq(value.clone()))
-            .and_where(Expr::col(Alias::new("writer")).eq(writer))
-            .and_where(Expr::col(Alias::new("first")).eq(first))
-            .to_owned();
-        if tx.execute(&q).await?.rows_affected() != 1 {
-            return Err(err("reclaim interval changed"));
-        }
-        used_bytes += 80;
         remaining -= 1;
         if remaining == 0 {
             return Ok(IncrementalReclaim::More);

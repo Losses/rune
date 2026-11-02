@@ -3,7 +3,7 @@
 //! Existing scalar replica tables are deliberately refused: converting their
 //! history requires an explicit import and cannot manufacture causal knowledge.
 use sea_orm::{
-    ConnectionTrait, DatabaseConnection, DbBackend, DbErr, ExprTrait, TransactionTrait,
+    ConnectionTrait, DatabaseConnection, DbBackend, DbErr, ExprTrait,
     sea_query::{Alias, ColumnDef, Expr, Index, Query, Table},
 };
 
@@ -37,8 +37,6 @@ const TABLES: &[Layout] = &[
             Field("history_floor", I, false),
             Field("floor_anchor", B, false),
             Field("floor_state_seq", I, false),
-            Field("baseline_generation", B, false),
-            Field("baseline_manifest", B, true),
             Field("retained_bytes", I, false),
             Field("initialized_at", T, true),
         ],
@@ -96,36 +94,17 @@ const TABLES: &[Layout] = &[
         ],
     ),
     (
-        "sync_context_ranges",
+        "sync_observed",
         &[
             Field("namespace", B, false),
             Field("collection", B, false),
-            Field("basis_generation", B, false),
-            Field("state_seq", I, false),
-            Field("ordinal", I, false),
-            Field("lower_bound", B, false),
-            Field("upper_bound", B, false),
-            Field("context_manifest", B, false),
-            Field("context_digest", B, true),
-        ],
-        &[
-            "namespace",
-            "collection",
-            "basis_generation",
-            "state_seq",
-            "ordinal",
-        ],
-    ),
-    (
-        "sync_context_intervals",
-        &[
-            Field("namespace", B, false),
-            Field("context_manifest", B, false),
             Field("writer", B, false),
             Field("first", I, false),
             Field("last", I, false),
+            Field("added_seq", I, false),
+            Field("removed_seq", I, true),
         ],
-        &["namespace", "context_manifest", "writer", "first"],
+        &["namespace", "collection", "writer", "first", "added_seq"],
     ),
     (
         "sync_manifests",
@@ -171,9 +150,6 @@ const TABLES: &[Layout] = &[
             Field("head", I, false),
             Field("head_anchor", B, false),
             Field("state_seq", I, false),
-            Field("basis_state_seq", I, true),
-            Field("basis_generation", B, true),
-            Field("output_generation", B, true),
             Field("parent_lease", B, true),
             Field("scope", B, false),
             Field("expires_at_ms", I, false),
@@ -251,46 +227,15 @@ const INDEXES: &[(&str, &str, &[&str], bool)] = &[
         false,
     ),
     (
-        "sync_context_lookup",
-        "sync_context_ranges",
-        &[
-            "namespace",
-            "collection",
-            "basis_generation",
-            "lower_bound",
-            "state_seq",
-            "upper_bound",
-        ],
+        "sync_observed_current",
+        "sync_observed",
+        &["namespace", "collection", "removed_seq", "writer", "first"],
         false,
     ),
     (
-        "sync_context_manifest",
-        "sync_context_ranges",
-        &["namespace", "context_manifest"],
-        false,
-    ),
-    (
-        "sync_context_basis_scan",
-        "sync_context_ranges",
-        &[
-            "namespace",
-            "basis_generation",
-            "collection",
-            "state_seq",
-            "ordinal",
-        ],
-        false,
-    ),
-    (
-        "sync_context_floor",
-        "sync_context_ranges",
-        &["namespace", "basis_generation", "state_seq"],
-        false,
-    ),
-    (
-        "sync_interval_writer",
-        "sync_context_intervals",
-        &["namespace", "writer", "last", "first", "context_manifest"],
+        "sync_observed_retired",
+        "sync_observed",
+        &["namespace", "removed_seq"],
         false,
     ),
     (
@@ -303,18 +248,6 @@ const INDEXES: &[(&str, &str, &[&str], bool)] = &[
         "sync_lease_expiry",
         "sync_leases",
         &["namespace", "status", "expires_at_ms"],
-        false,
-    ),
-    (
-        "sync_lease_basis",
-        "sync_leases",
-        &["namespace", "basis_generation", "status"],
-        false,
-    ),
-    (
-        "sync_lease_output",
-        "sync_leases",
-        &["namespace", "output_generation", "status"],
         false,
     ),
     (
@@ -334,7 +267,7 @@ const INDEXES: &[(&str, &str, &[&str], bool)] = &[
 /// Create the complete layout in one transaction only when no replica table exists.
 /// This does not convert old history; callers must import source data separately.
 pub async fn install_fresh(db: &DatabaseConnection) -> Result<(), DbErr> {
-    let tx = db.begin().await?;
+    let tx = crate::causal_leases::begin_write(db).await?;
     install_on(&tx).await?;
     tx.commit().await
 }
@@ -383,11 +316,6 @@ pub async fn install_on<C: ConnectionTrait>(db: &C) -> Result<(), DbErr> {
             }
             if !nullable {
                 column.not_null();
-            }
-            if (*name == "sync_meta" && *field == "baseline_generation")
-                || (*name == "sync_context_ranges" && *field == "basis_generation")
-            {
-                column.default(vec![0_u8; 16]);
             }
             statement.col(column);
         }

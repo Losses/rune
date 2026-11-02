@@ -2,7 +2,7 @@
 //! These primitives do not implement snapshot construction or compaction.
 use sea_orm::{
     ConnectionTrait, DatabaseTransaction, DbErr, ExprTrait, FromQueryResult,
-    sea_query::{Alias, BinOper, Expr, Func, Query},
+    sea_query::{Alias, Expr, Func, Query},
 };
 use uuid::Uuid;
 
@@ -13,9 +13,6 @@ pub struct Lease {
     pub head: i64,
     pub head_anchor: Vec<u8>,
     pub state_seq: i64,
-    pub basis_state_seq: Option<i64>,
-    pub basis_generation: Option<Vec<u8>>,
-    pub output_generation: Option<Vec<u8>>,
     pub parent_lease: Option<Vec<u8>>,
     pub build_state: Option<Vec<u8>>,
     pub scope: Vec<u8>,
@@ -31,7 +28,6 @@ struct Position {
     head_anchor: Vec<u8>,
     state_seq: i64,
     floor_state_seq: i64,
-    baseline_generation: Vec<u8>,
 }
 fn err(message: &str) -> DbErr {
     DbErr::Custom(message.to_owned())
@@ -113,7 +109,6 @@ pub async fn create_build_on(
                 "head_anchor",
                 "state_seq",
                 "floor_state_seq",
-                "baseline_generation",
             ]
             .map(Alias::new),
         )
@@ -130,7 +125,6 @@ pub async fn create_build_on(
         || position.state_seq < 0
         || position.floor_state_seq < 0
         || position.floor_state_seq > position.state_seq
-        || position.baseline_generation.len() != 16
     {
         return Err(err("invalid stored publication position"));
     }
@@ -140,9 +134,6 @@ pub async fn create_build_on(
         head: position.head,
         head_anchor: position.head_anchor,
         state_seq: position.state_seq,
-        basis_state_seq: Some(position.floor_state_seq),
-        basis_generation: Some(position.baseline_generation),
-        output_generation: None,
         parent_lease: None,
         build_state: None,
         scope,
@@ -161,8 +152,6 @@ pub async fn create_build_on(
                 "head",
                 "head_anchor",
                 "state_seq",
-                "basis_state_seq",
-                "basis_generation",
                 "scope",
                 "expires_at_ms",
                 "status",
@@ -176,8 +165,6 @@ pub async fn create_build_on(
             lease.head.into(),
             lease.head_anchor.clone().into(),
             lease.state_seq.into(),
-            lease.basis_state_seq.into(),
-            lease.basis_generation.clone().into(),
             lease.scope.clone().into(),
             lease.expires_at_ms.into(),
             lease.status.into(),
@@ -200,9 +187,6 @@ pub(crate) async fn load_on(
                 "head",
                 "head_anchor",
                 "state_seq",
-                "basis_state_seq",
-                "basis_generation",
-                "output_generation",
                 "parent_lease",
                 "build_state",
                 "scope",
@@ -303,9 +287,6 @@ pub async fn publish_on(
     let update = Query::update()
         .table(Alias::new("sync_leases"))
         .value(Alias::new("status"), 1)
-        .value(Alias::new("basis_state_seq"), Option::<i64>::None)
-        .value(Alias::new("basis_generation"), Option::<Vec<u8>>::None)
-        .value(Alias::new("output_generation"), Option::<Vec<u8>>::None)
         .value(Alias::new("descriptor"), descriptor)
         .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
         .and_where(Expr::col(Alias::new("id")).eq(id.as_bytes().to_vec()))
@@ -321,9 +302,6 @@ pub async fn revoke_on(tx: &DatabaseTransaction, ns: Uuid, id: Uuid) -> Result<(
         .table(Alias::new("sync_leases"))
         .value(Alias::new("status"), 2)
         .value(Alias::new("retained_root"), Option::<Vec<u8>>::None)
-        .value(Alias::new("basis_state_seq"), Option::<i64>::None)
-        .value(Alias::new("basis_generation"), Option::<Vec<u8>>::None)
-        .value(Alias::new("output_generation"), Option::<Vec<u8>>::None)
         .value(Alias::new("build_state"), Option::<Vec<u8>>::None)
         .value(Alias::new("descriptor"), Option::<Vec<u8>>::None)
         .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
@@ -438,17 +416,9 @@ pub(crate) async fn minimum_pins_except_on(
     let mut q = Query::select()
         .expr(Func::min(Expr::col(Alias::new("state_seq"))))
         .expr(Func::min(Expr::col(Alias::new("head"))))
-        .expr(Func::min(Expr::col(Alias::new("basis_state_seq"))))
         .from(Alias::new("sync_leases"))
         .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
         .and_where(Expr::col(Alias::new("status")).ne(2))
-        // Ready snapshots and building source leases pin their own basis.
-        // Dependent summary work has no basis pin and relies on its live parent.
-        .cond_where(
-            sea_orm::sea_query::Condition::any()
-                .add(Expr::col(Alias::new("status")).eq(1))
-                .add(Expr::col(Alias::new("basis_state_seq")).is_not_null()),
-        )
         .to_owned();
     if let Some(id) = excluded {
         q.and_where(Expr::col(Alias::new("id")).ne(id.as_bytes().to_vec()));
@@ -459,15 +429,9 @@ pub(crate) async fn minimum_pins_except_on(
         .ok_or_else(|| err("missing lease aggregate"))?;
     let state: Option<i64> = row.try_get_by_index(0)?;
     let head: Option<i64> = row.try_get_by_index(1)?;
-    let basis: Option<i64> = row.try_get_by_index(2)?;
-    if basis.is_some_and(|value| value < 0) {
-        return Err(err("invalid lease basis"));
-    }
     match (state, head) {
         (None, None) => Ok(None),
-        (Some(s), Some(h)) if s >= 0 && h >= 0 => {
-            Ok(Some((basis.map_or(s, |f| std::cmp::min(f, s)), h)))
-        }
+        (Some(s), Some(h)) if s >= 0 && h >= 0 => Ok(Some((s, h))),
         _ => Err(err("invalid lease positions")),
     }
 }
@@ -505,9 +469,6 @@ pub async fn revoke_expired_on(
             .value(Alias::new("retained_root"), Option::<Vec<u8>>::None)
             .value(Alias::new("build_state"), Option::<Vec<u8>>::None)
             .value(Alias::new("descriptor"), Option::<Vec<u8>>::None)
-            .value(Alias::new("basis_state_seq"), Option::<i64>::None)
-            .value(Alias::new("basis_generation"), Option::<Vec<u8>>::None)
-            .value(Alias::new("output_generation"), Option::<Vec<u8>>::None)
             .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
             .and_where(Expr::col(Alias::new("id")).eq(id))
             .to_owned();
@@ -528,7 +489,24 @@ pub async fn checkpoint_on(
     next: Vec<u8>,
     now_ms: i64,
 ) -> Result<(), DbErr> {
-    if next.is_empty() || next.len() > 64 * 1024 {
+    checkpoint_bounded_on(tx, ns, id, expected, next, now_ms, 64 * 1024).await
+}
+
+/// Version 2 builds retain a context accumulator within their admitted byte budget.
+pub(crate) async fn checkpoint_bounded_on(
+    tx: &DatabaseTransaction,
+    ns: Uuid,
+    id: Uuid,
+    expected: Option<&[u8]>,
+    next: Vec<u8>,
+    now_ms: i64,
+    max_bytes: u64,
+) -> Result<(), DbErr> {
+    if max_bytes == 0
+        || max_bytes > sync::protocol::MAX_LOGICAL_BYTES
+        || next.is_empty()
+        || next.len() as u64 > max_bytes
+    {
         return Err(err("invalid source work checkpoint size"));
     }
     lock_on(tx, ns).await?;
@@ -554,76 +532,6 @@ pub async fn checkpoint_on(
     Ok(())
 }
 
-/// Reserve a staged baseline generation before any rows in it are written.
-pub async fn claim_output_generation_on(
-    tx: &DatabaseTransaction,
-    ns: Uuid,
-    id: Uuid,
-    output: Uuid,
-    now_ms: i64,
-) -> Result<(), DbErr> {
-    if output.is_nil() {
-        return Err(err("invalid output generation"));
-    }
-    lock_on(tx, ns).await?;
-    let lease = load_on(tx, ns, id)
-        .await?
-        .ok_or_else(|| err("snapshot expired"))?;
-    if lease.status != 0 || lease.expires_at_ms <= now_ms {
-        return Err(err("snapshot expired"));
-    }
-    let active_query = Query::select()
-        .column(Alias::new("baseline_generation"))
-        .from(Alias::new("sync_meta"))
-        .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
-        .to_owned();
-    let active: Vec<u8> = tx
-        .query_one(&active_query)
-        .await?
-        .ok_or_else(|| err("missing causal namespace"))?
-        .try_get_by_index(0)?;
-    if active.len() != 16 || active.as_slice() == output.as_bytes() {
-        return Err(err("output generation is already active"));
-    }
-    if let Some(existing) = &lease.output_generation {
-        if existing.as_slice() != output.as_bytes() {
-            return Err(err("conflicting output generation"));
-        }
-        return Ok(());
-    }
-    let used_by_lease = Query::select()
-        .expr(Expr::val(1))
-        .from(Alias::new("sync_leases"))
-        .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
-        .and_where(Expr::col(Alias::new("output_generation")).eq(output.as_bytes().to_vec()))
-        .and_where(Expr::col(Alias::new("status")).ne(2))
-        .limit(1)
-        .to_owned();
-    if tx.query_one(&used_by_lease).await?.is_some() {
-        return Err(err("output generation is claimed"));
-    }
-    let existing_rows = Query::select()
-        .expr(Expr::val(1))
-        .from(Alias::new("sync_context_ranges"))
-        .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
-        .and_where(Expr::col(Alias::new("basis_generation")).eq(output.as_bytes().to_vec()))
-        .limit(1)
-        .to_owned();
-    if tx.query_one(&existing_rows).await?.is_some() {
-        return Err(err("output generation already contains rows"));
-    }
-    let q = Query::update()
-        .table(Alias::new("sync_leases"))
-        .value(Alias::new("output_generation"), output.as_bytes().to_vec())
-        .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
-        .and_where(Expr::col(Alias::new("id")).eq(id.as_bytes().to_vec()))
-        .to_owned();
-    if tx.execute(&q).await?.rows_affected() != 1 {
-        return Err(err("snapshot expired"));
-    }
-    Ok(())
-}
-
 /// Read and validate an active build while holding the namespace serialization lock.
 pub async fn building_on(
     tx: &DatabaseTransaction,
@@ -635,96 +543,20 @@ pub async fn building_on(
     let lease = load_on(tx, ns, id)
         .await?
         .ok_or_else(|| err("snapshot expired"))?;
-    if lease.status != 0
-        || lease.expires_at_ms <= now_ms
-        || lease.state_seq < 0
-        || lease
-            .basis_state_seq
-            .is_none_or(|floor| floor < 0 || floor > lease.state_seq)
-        || lease
-            .basis_generation
-            .as_ref()
-            .is_none_or(|value| value.len() != 16)
-        || lease
-            .output_generation
-            .as_ref()
-            .is_some_and(|value| value.len() != 16 || value.as_slice() == Uuid::nil().as_bytes())
-    {
+    if lease.status != 0 || lease.expires_at_ms <= now_ms || lease.state_seq < 0 {
         return Err(err("invalid or expired build lease"));
     }
     Ok(lease)
 }
 
-/// Append one already-validated descriptor fragment while the lease remains
-/// unserviceable. The caller atomically checkpoints the corresponding cursor.
-pub(crate) async fn append_descriptor_on(
-    tx: &DatabaseTransaction,
-    ns: Uuid,
-    id: Uuid,
-    bytes: Vec<u8>,
-    now_ms: i64,
-) -> Result<(), DbErr> {
-    if bytes.is_empty() {
-        return Err(err("empty descriptor fragment"));
-    }
-    lock_on(tx, ns).await?;
-    let lease = load_on(tx, ns, id)
-        .await?
-        .ok_or_else(|| err("snapshot expired"))?;
-    if lease.status != 0 || lease.expires_at_ms <= now_ms {
-        return Err(err("snapshot expired"));
-    }
-    let query = Query::update()
-        .table(Alias::new("sync_leases"))
-        .value(
-            Alias::new("descriptor"),
-            // SeaQuery has no SQLite concatenation variant. Only the operator
-            // token is custom; columns, values and the cast use expressions.
-            Expr::col(Alias::new("descriptor"))
-                .if_null(Vec::<u8>::new())
-                .binary(BinOper::Custom("||"), Expr::val(bytes))
-                .cast_as("BLOB"),
-        )
-        .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
-        .and_where(Expr::col(Alias::new("id")).eq(id.as_bytes().to_vec()))
-        .and_where(Expr::col(Alias::new("status")).eq(0))
-        .to_owned();
-    if tx.execute(&query).await?.rows_affected() != 1 {
-        return Err(err("snapshot expired"));
-    }
-    Ok(())
-}
-
-/// Publish a complete descriptor already staged under a building lease. The
-/// caller is responsible for checking the sealed source completion cursor.
-pub(crate) async fn publish_staged_on(
-    tx: &DatabaseTransaction,
-    ns: Uuid,
-    id: Uuid,
-    now_ms: i64,
-) -> Result<(), DbErr> {
-    lock_on(tx, ns).await?;
-    let lease = load_on(tx, ns, id)
-        .await?
-        .ok_or_else(|| err("snapshot expired"))?;
-    if lease.status != 0
-        || lease.expires_at_ms <= now_ms
-        || lease.retained_root.is_none()
-        || lease.descriptor.as_ref().is_none_or(Vec::is_empty)
-    {
-        return Err(err("snapshot incomplete or expired"));
-    }
-    let query = Query::update()
-        .table(Alias::new("sync_leases"))
-        .value(Alias::new("status"), 1)
-        .value(Alias::new("basis_state_seq"), Option::<i64>::None)
-        .value(Alias::new("basis_generation"), Option::<Vec<u8>>::None)
-        .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
-        .and_where(Expr::col(Alias::new("id")).eq(id.as_bytes().to_vec()))
-        .and_where(Expr::col(Alias::new("status")).eq(0))
-        .to_owned();
-    if tx.execute(&query).await?.rows_affected() != 1 {
-        return Err(err("snapshot expired"));
-    }
-    Ok(())
+/// Acquire SQLite's writer reservation when a namespace row does not yet exist.
+pub(crate) async fn begin_write(
+    db: &sea_orm::DatabaseConnection,
+) -> Result<DatabaseTransaction, DbErr> {
+    use sea_orm::{SqliteTransactionMode, TransactionOptions, TransactionTrait};
+    db.begin_with_options(TransactionOptions {
+        sqlite_transaction_mode: Some(SqliteTransactionMode::Immediate),
+        ..TransactionOptions::default()
+    })
+    .await
 }

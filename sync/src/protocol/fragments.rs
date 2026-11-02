@@ -40,11 +40,9 @@ fn lp(v: &mut Vec<u8>, s: &[u8]) -> Result<()> {
 fn kind(k: ManifestKind) -> &'static str {
     match k {
         ManifestKind::KeyEvent => "key_event",
-        ManifestKind::RangeEvent => "range_event",
+        ManifestKind::MergeEvent => "merge_event",
         ManifestKind::Context => "context",
-        ManifestKind::ContextPartition => "context_partition",
         ManifestKind::ContextRoot => "context_root",
-        ManifestKind::Leaf => "leaf",
     }
 }
 pub fn content_digest(bytes: &[u8]) -> Result<Digest> {
@@ -71,6 +69,24 @@ pub fn fragment_digest(f: &Fragment) -> Result<Digest> {
     v.extend(f.offset.to_be_bytes());
     lp(&mut v, &f.bytes)?;
     Ok(*blake3::hash(&v).as_bytes())
+}
+// Collection contexts share a snapshot session slot; size limits remain per collection.
+fn same_admission<M: SyncModel>(a: &StageOrigin<M>, b: &StageOrigin<M>) -> bool {
+    match (a, b) {
+        (
+            StageOrigin::SnapshotContext {
+                session: a,
+                snapshot_id: x,
+                ..
+            },
+            StageOrigin::SnapshotContext {
+                session: b,
+                snapshot_id: y,
+                ..
+            },
+        ) => a == b && x == y,
+        _ => a == b,
+    }
 }
 #[derive(Clone)]
 struct Stage<M: SyncModel> {
@@ -193,7 +209,10 @@ impl<M: SyncModel> FragmentStages<M> {
         let mut event_items = m.item_count;
         let mut dependencies = 1u64;
         for stage in self.stages.values() {
-            if !origins.contains(&stage.descriptor.origin) {
+            if !origins
+                .iter()
+                .any(|origin| same_admission(origin, &stage.descriptor.origin))
+            {
                 origins.push(stage.descriptor.origin.clone());
             }
             if stage.descriptor.origin == descriptor.origin {
@@ -218,7 +237,9 @@ impl<M: SyncModel> FragmentStages<M> {
         {
             return Err(SyncError::LogicalLimit);
         }
-        let new_origin = !origins.contains(&descriptor.origin);
+        let new_origin = !origins
+            .iter()
+            .any(|origin| same_admission(origin, &descriptor.origin));
         if next > limits.max_total_bytes
             || (new_origin && origins.len() >= limits.max_stages as usize)
         {

@@ -100,7 +100,7 @@ fn concurrent_remove_readd_and_immutable_collision() -> Result<()> {
     Ok(())
 }
 #[test]
-fn receipt_relay_gaps_and_ranges() -> Result<()> {
+fn receipt_relay_gaps_and_leaf_merges() -> Result<()> {
     let stale = dot(1, 1);
     let unseen = dot(1, 2);
     let mut src = map();
@@ -108,33 +108,24 @@ fn receipt_relay_gaps_and_ranges() -> Result<()> {
     src.remove(&1);
     src.assign(8, cand(1, 2, 80))?;
     let mut mid = map();
-    let first = CompleteRange {
-        range: rg(None, Some(5)),
-        context: src.effective_context(&1)?,
-        candidates: vec![],
-    };
-    assert!(mid.merge_range(&first)?);
-    assert!(!mid.merge_range(&first)?);
+    // Only source-dead dots can travel without their live evidence.
+    let dead = src.base().difference(&src.live_dots())?;
+    assert!(mid.apply_merge(&[], &dead)?);
+    assert!(!mid.apply_merge(&[], &dead)?);
+    assert!(!mid.base().contains(unseen));
     let mut old = map();
     old.assign(1, cand(1, 1, 10))?;
-    for p in mid.export()? {
-        old.merge_range(&p)?;
-    }
+    old.apply_merge(&[], mid.base())?;
     assert!(old.winner(&1).is_none());
     let mut third = map();
     third.assign(1, cand(1, 1, 10))?;
-    for p in old.export()? {
-        third.merge_range(&p)?;
-    }
+    third.apply_merge(&[], old.base())?;
     assert!(third.winner(&1).is_none());
-    let part = CompleteRange {
-        range: rg(Some(5), None),
-        context: context(&[stale, unseen]),
-        candidates: vec![(8, cand(1, 2, 80))],
-    };
-    mid.merge_range(&part)?;
+    let (added, observed) =
+        mid.plan_leaf(&rg(Some(5), None), &[(8, cand(1, 2, 80))], src.base())?;
+    mid.apply_merge(&added, &observed)?;
     assert_eq!(mid.winner(&8).unwrap().value, 80);
-    assert!(mid.effective_context(&1)?.contains(stale));
+    assert!(mid.base().contains(stale));
     Ok(())
 }
 #[test]
@@ -291,7 +282,7 @@ fn algebra_for_seeded_reachable_states() -> Result<()> {
     Ok(())
 }
 #[test]
-fn range_validation_and_resource_failure_are_atomic() -> Result<()> {
+fn leaf_validation_and_resource_failure_are_atomic() -> Result<()> {
     assert!(KeyRange::new(Some(5u32), Some(5)).is_err());
     let mut m = Map::new(Limits {
         max_live: 1,
@@ -301,106 +292,71 @@ fn range_validation_and_resource_failure_are_atomic() -> Result<()> {
     let old = m.export()?;
     assert!(m.assign(2, cand(2, 1, 2)).is_err());
     assert_eq!(old, m.export()?);
-    let bad = CompleteRange {
-        range: rg(Some(2), Some(3)),
-        context: context(&[dot(4, 1)]),
-        candidates: vec![(9, cand(4, 1, 1))],
-    };
-    assert!(m.merge_range(&bad).is_err());
+    assert!(
+        m.plan_leaf(
+            &rg(Some(2), Some(3)),
+            &[(9, cand(4, 1, 1))],
+            &context(&[dot(4, 1)])
+        )
+        .is_err()
+    );
+    assert_eq!(old, m.export()?);
+    assert!(
+        m.apply_merge(&[(2, cand(4, 1, 1))], &Context::default())
+            .is_err()
+    );
     assert_eq!(old, m.export()?);
     Ok(())
 }
 #[test]
-fn semantic_equal_partitions_and_steady_state() -> Result<()> {
+fn semantic_equal_merge_chunks_and_steady_state() -> Result<()> {
     let ctx = context(&[dot(9, 1), dot(9, 3)]);
     let mut a = map();
     let mut b = map();
-    a.merge_range(&CompleteRange {
-        range: rg(None, Some(5)),
-        context: ctx.clone(),
-        candidates: vec![],
-    })?;
-    a.merge_range(&CompleteRange {
-        range: rg(Some(5), None),
-        context: ctx.clone(),
-        candidates: vec![],
-    })?;
-    b.merge_range(&CompleteRange {
-        range: rg(None, None),
-        context: ctx,
-        candidates: vec![],
-    })?;
+    a.apply_merge(&[], &context(&[dot(9, 1)]))?;
+    a.apply_merge(&[], &context(&[dot(9, 3)]))?;
+    b.apply_merge(&[], &ctx)?;
     assert_eq!(a.export()?, b.export()?);
     assert!(!a.merge(&b)?);
     assert!(!b.merge(&a)?);
     Ok(())
 }
 #[test]
-fn local_write_between_ranges_survives_and_receipt_is_qualified() -> Result<()> {
+fn local_write_between_leaves_survives_and_receipt_is_collection_wide() -> Result<()> {
     let mut s = map();
     let observed = dot(1, 1);
-    let part = CompleteRange {
-        range: rg(None, Some(5)),
-        context: context(&[observed]),
-        candidates: vec![],
-    };
-    s.merge_range(&part)?;
+    s.apply_merge(&[], &context(&[observed]))?;
     assert!(s.assign(1, cand(1, 1, 1)).is_err());
     assert!(s.assign(8, cand(1, 1, 1)).is_err());
-    // A relayed existing dot remains valid outside the qualified range.
-    s.merge_range(&CompleteRange {
-        range: rg(Some(8), Some(9)),
-        context: context(&[observed]),
-        candidates: vec![(8, cand(1, 1, 1))],
-    })?;
+    assert!(!s.apply_merge(&[(8, cand(1, 1, 1))], &Context::default())?);
     s.assign(1, cand(2, 1, 2))?;
-    let later = CompleteRange {
-        range: rg(Some(5), None),
-        context: context(&[observed]),
-        candidates: vec![(8, cand(1, 1, 1))],
-    };
-    s.merge_range(&later)?;
-    assert_eq!(s.winner(&8).unwrap().value, 1);
+    let (added, removed) = s.plan_leaf(
+        &rg(Some(5), None),
+        &[(8, cand(1, 1, 1))],
+        &context(&[observed]),
+    )?;
+    assert!(!s.apply_merge(&added, &removed)?);
+    assert!(s.winner(&8).is_none());
     assert_eq!(s.winner(&1).unwrap().value, 2);
     Ok(())
 }
 #[test]
-fn overlapping_ranges_reordered_and_late_stale_relay() -> Result<()> {
+fn merge_chunks_reordered_and_late_stale_relay() -> Result<()> {
     let d = dot(7, 1);
-    let c = Candidate {
-        dot: d,
-        revision: 1,
-        value: 7,
-    };
-    let suppress = CompleteRange {
-        range: rg(None, Some(7)),
-        context: context(&[d]),
-        candidates: vec![],
-    };
-    let other = CompleteRange {
-        range: rg(Some(3), None),
-        context: context(&[dot(8, 1)]),
-        candidates: vec![],
-    };
+    let suppress = context(&[d]);
+    let other = context(&[dot(8, 1)]);
     let mut left = map();
-    left.merge_range(&suppress)?;
-    left.merge_range(&other)?;
+    left.apply_merge(&[], &suppress)?;
+    left.apply_merge(&[], &other)?;
     let mut right = map();
-    right.merge_range(&other)?;
-    right.merge_range(&suppress)?;
+    right.apply_merge(&[], &other)?;
+    right.apply_merge(&[], &suppress)?;
     assert_eq!(left.export()?, right.export()?);
-    let stale = CompleteRange {
-        range: rg(Some(2), Some(3)),
-        context: context(&[d]),
-        candidates: vec![(2, c)],
-    };
-    left.merge_range(&stale)?;
+    assert!(!left.apply_merge(&[(2, cand(7, 1, 7))], &Context::default())?);
     assert!(left.winner(&2).is_none());
     assert!(left.base().contains(d));
     let mut relay = map();
-    for segment in left.export()? {
-        relay.merge_range(&segment)?;
-    }
+    relay.apply_merge(&[], left.base())?;
     let mut third = map();
     third.assign(2, cand(7, 1, 7))?;
     third.merge(&relay)?;

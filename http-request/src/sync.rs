@@ -109,12 +109,6 @@ enum MetadataOperation<M: SyncModel> {
         limits: p::WorkLimits,
         resume: Option<p::WorkCursor>,
     },
-    ContextPage {
-        snapshot: Uuid,
-        range: p::KeyRange<M>,
-        after: p::ContextCursor,
-        limits: p::PageLimits,
-    },
     Leaf {
         snapshot: Uuid,
         range: p::KeyRange<M>,
@@ -153,17 +147,9 @@ enum MetadataOperation<M: SyncModel> {
         session: Uuid,
         source: p::RangeSummary<M>,
     },
-    ContextProgress {
-        session: Uuid,
-        range: p::KeyRange<M>,
-    },
     LeafProgress {
         session: Uuid,
         range: p::KeyRange<M>,
-    },
-    StageContextPage {
-        session: Uuid,
-        page: p::ContextPage<M>,
     },
     StageLeafPage {
         session: Uuid,
@@ -174,10 +160,9 @@ enum MetadataOperation<M: SyncModel> {
         range: p::KeyRange<M>,
         limits: p::ApplyLimits,
     },
-    NormalizeStep {
+    PromoteStep {
         session: Uuid,
-        limits: p::WorkLimits,
-        resume: Option<p::WorkCursor>,
+        limits: p::ApplyLimits,
     },
     CompleteReconciliation {
         session: Uuid,
@@ -310,12 +295,6 @@ async fn dispatch<M: SyncModel>(
             limits,
             resume,
         } => reply(p::SnapshotSource::split(&*store, snapshot, range, limits, resume).await),
-        MetadataOperation::ContextPage {
-            snapshot,
-            range,
-            after,
-            limits,
-        } => reply(p::SnapshotSource::context_page(&*store, snapshot, range, after, limits).await),
         MetadataOperation::Leaf {
             snapshot,
             range,
@@ -357,14 +336,8 @@ async fn dispatch<M: SyncModel>(
         MetadataOperation::AcceptEqualRange { session, source } => {
             reply(p::SnapshotSink::accept_equal_range(&*store, session, source).await)
         }
-        MetadataOperation::ContextProgress { session, range } => {
-            reply(p::SnapshotSink::context_progress(&*store, session, range).await)
-        }
         MetadataOperation::LeafProgress { session, range } => {
             reply(p::SnapshotSink::leaf_progress(&*store, session, range).await)
-        }
-        MetadataOperation::StageContextPage { session, page } => {
-            reply(p::SnapshotSink::stage_context_page(&*store, session, page).await)
         }
         MetadataOperation::StageLeafPage { session, page } => {
             reply(p::SnapshotSink::stage_leaf_page(&*store, session, page).await)
@@ -374,11 +347,9 @@ async fn dispatch<M: SyncModel>(
             range,
             limits,
         } => reply(p::SnapshotSink::commit_complete_range(&*store, session, range, limits).await),
-        MetadataOperation::NormalizeStep {
-            session,
-            limits,
-            resume,
-        } => reply(p::SnapshotSink::normalize_step(&*store, session, limits, resume).await),
+        MetadataOperation::PromoteStep { session, limits } => {
+            reply(p::SnapshotSink::promote_step(&*store, session, limits).await)
+        }
         MetadataOperation::CompleteReconciliation { session } => {
             reply(p::SnapshotSink::complete_reconciliation(&*store, session).await)
         }
@@ -426,7 +397,7 @@ impl<M: SyncModel> MetadataPeer<M> {
                 .send()
                 .await
                 .map_err(|error| p::SyncError::Transport(error.to_string()))?;
-            // Auth/status errors are transport failures; valid engine errors retain their type.
+            // Valid engine errors retain their type.
             if response
                 .content_length()
                 .is_some_and(|n| n > RESPONSE_BYTES as u64)
@@ -435,9 +406,7 @@ impl<M: SyncModel> MetadataPeer<M> {
             }
             let status = response.status();
             if status == reqwest::StatusCode::UNAUTHORIZED {
-                return Err(p::SyncError::Transport(format!(
-                    "metadata HTTP status {status}"
-                )));
+                return Err(p::SyncError::Unauthorized);
             }
             let mut body = Vec::new();
             while let Some(bytes) = response
@@ -461,7 +430,7 @@ impl<M: SyncModel> MetadataPeer<M> {
                 )));
             }
             serde_json::from_slice::<p::Result<T>>(&body).map_err(|error| {
-                p::SyncError::Transport(format!("invalid metadata response: {error}"))
+                p::SyncError::Invalid(format!("invalid metadata response: {error}"))
             })?
         })
         .await
@@ -651,23 +620,6 @@ impl<M: SyncModel> p::SnapshotSource<M> for MetadataPeer<M> {
             .await
         })
     }
-    fn context_page(
-        &self,
-        snapshot: Uuid,
-        range: p::KeyRange<M>,
-        after: p::ContextCursor,
-        limits: p::PageLimits,
-    ) -> p::BoxFuture<'_, p::ContextPage<M>> {
-        Box::pin(async move {
-            self.request(MetadataOperation::ContextPage {
-                snapshot,
-                range,
-                after,
-                limits,
-            })
-            .await
-        })
-    }
     fn leaf(
         &self,
         snapshot: Uuid,
@@ -786,16 +738,6 @@ impl<M: SyncModel> p::SnapshotSink<M> for MetadataPeer<M> {
                 .await
         })
     }
-    fn context_progress(
-        &self,
-        session: Uuid,
-        range: p::KeyRange<M>,
-    ) -> p::BoxFuture<'_, p::ContextProgress> {
-        Box::pin(async move {
-            self.request(MetadataOperation::ContextProgress { session, range })
-                .await
-        })
-    }
     fn leaf_progress(
         &self,
         session: Uuid,
@@ -803,16 +745,6 @@ impl<M: SyncModel> p::SnapshotSink<M> for MetadataPeer<M> {
     ) -> p::BoxFuture<'_, p::LeafProgress<M>> {
         Box::pin(async move {
             self.request(MetadataOperation::LeafProgress { session, range })
-                .await
-        })
-    }
-    fn stage_context_page(
-        &self,
-        session: Uuid,
-        page: p::ContextPage<M>,
-    ) -> p::BoxFuture<'_, p::ContextProgress> {
-        Box::pin(async move {
-            self.request(MetadataOperation::StageContextPage { session, page })
                 .await
         })
     }
@@ -841,19 +773,14 @@ impl<M: SyncModel> p::SnapshotSink<M> for MetadataPeer<M> {
             .await
         })
     }
-    fn normalize_step(
+    fn promote_step(
         &self,
         session: Uuid,
-        limits: p::WorkLimits,
-        resume: Option<p::WorkCursor>,
-    ) -> p::BoxFuture<'_, p::WorkOutcome<p::CoverageProgress>> {
+        limits: p::ApplyLimits,
+    ) -> p::BoxFuture<'_, p::PromoteProgress> {
         Box::pin(async move {
-            self.request(MetadataOperation::NormalizeStep {
-                session,
-                limits,
-                resume,
-            })
-            .await
+            self.request(MetadataOperation::PromoteStep { session, limits })
+                .await
         })
     }
     fn complete_reconciliation(&self, session: Uuid) -> p::BoxFuture<'_, p::ReceiveProgress> {
@@ -1080,5 +1007,263 @@ mod traversal_tests {
         }
         assert_eq!(visited.load(Ordering::Relaxed), 130);
         assert_eq!(failures.load(Ordering::Relaxed), 1);
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+    use p::{ReceiveStore, SnapshotSource, SyncStore};
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct Model;
+    impl SyncModel for Model {
+        type Collection = u8;
+        type Payload = String;
+        fn model_id() -> &'static str {
+            "http-test"
+        }
+        fn schema_id() -> &'static str {
+            "one"
+        }
+        fn collections() -> Vec<u8> {
+            vec![1]
+        }
+        fn collection_tag(_: &u8) -> &'static str {
+            "notes"
+        }
+        fn collection_from_tag(tag: &str) -> Option<u8> {
+            (tag == "notes").then_some(1)
+        }
+        fn validate(_: &p::ObjectKey<Self>, _: &Option<String>) -> p::Result<()> {
+            Ok(())
+        }
+    }
+    fn store(replica: u128) -> Arc<p::MemorySyncStore<Model>> {
+        Arc::new(
+            p::MemorySyncStore::new(
+                p::StoreIdentity {
+                    namespace: Uuid::from_u128(1),
+                    model: p::ModelId {
+                        model: "http-test".into(),
+                        schema: "one".into(),
+                    },
+                    replica: Uuid::from_u128(replica),
+                    generation: Uuid::from_u128(10),
+                },
+                p::LocalAuthor {
+                    author: Uuid::from_u128(replica),
+                    writer_incarnation: Uuid::from_u128(replica + 100),
+                },
+            )
+            .unwrap(),
+        )
+    }
+    fn limits() -> p::SessionLimits {
+        p::SessionLimits {
+            pages: p::PageLimits {
+                max_scanned: 128,
+                max_bytes: p::DEFAULT_PAGE_BYTES,
+            },
+            stages: p::StageLimits {
+                max_total_bytes: p::DEFAULT_STAGE_BYTES,
+                max_stages: p::DEFAULT_STAGES,
+                max_event_bytes: p::DEFAULT_LOGICAL_BYTES,
+                max_event_items: p::DEFAULT_LOGICAL_ITEMS,
+                max_fragment_bytes: p::DEFAULT_PAGE_BYTES,
+            },
+            apply: p::ApplyLimits {
+                max_projection_items: 128,
+                max_projection_bytes: p::DEFAULT_PROJECTION_BYTES,
+                max_mutations: 1000,
+            },
+            work: p::WorkLimits {
+                max_requests: 1000,
+                max_bytes: p::DEFAULT_ROUND_BYTES,
+                max_depth: 10,
+                max_rows_scanned: 1000,
+                max_mutations: 1000,
+            },
+        }
+    }
+    async fn serve(router: Router) -> (MetadataPeer<Model>, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        (
+            MetadataPeer::new(format!("http://{address}"), reqwest::Client::new()),
+            task,
+        )
+    }
+    #[tokio::test]
+    async fn metadata_response_errors_preserve_origin_and_unauthorized_type() {
+        for (status, body, expected) in [
+            (
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                p::SyncError::Unauthorized,
+            ),
+            (StatusCode::OK, "{", p::SyncError::Invalid(String::new())),
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                p::SyncError::Transport(String::new()),
+            ),
+            (
+                StatusCode::OK,
+                r#"{"Err":{"kind":"storage","data":"local corruption"}}"#,
+                p::SyncError::Storage("local corruption".into()),
+            ),
+        ] {
+            let router = Router::new().route(
+                "/sync/metadata",
+                post(move || async move { (status, body) }),
+            );
+            let (peer, task) = serve(router).await;
+            let result = p::SyncPeer::identity(&peer).await.unwrap_err();
+            assert_eq!(
+                std::mem::discriminant(&result),
+                std::mem::discriminant(&expected)
+            );
+            task.abort();
+            let _ = task.await;
+        }
+    }
+    #[test]
+    fn promotion_wire_shape_replaces_context_page_operations() {
+        let operation = MetadataOperation::<Model>::PromoteStep {
+            session: Uuid::from_u128(1),
+            limits: limits().apply,
+        };
+        let value = serde_json::to_value(operation).unwrap();
+        assert_eq!(value["operation"], "promote_step");
+        assert!(value.get("resume").is_none());
+        assert!(value["limits"].get("max_projection_items").is_some());
+        for name in [
+            "context_page",
+            "context_progress",
+            "stage_context_page",
+            "normalize_step",
+        ] {
+            let value = serde_json::json!({"operation":name});
+            assert!(serde_json::from_value::<MetadataOperation<Model>>(value).is_err());
+        }
+    }
+    #[tokio::test]
+    async fn snapshot_context_and_promotion_roundtrip_over_http() {
+        let a = store(2);
+        let b = store(3);
+        let key = p::ObjectKey {
+            collection: 1,
+            id: Uuid::from_u128(42),
+        };
+        // This context-only source requires promotion even though every range is equal.
+        a.write_local(key.clone(), Some("deleted".into()))
+            .await
+            .unwrap();
+        a.write_local(key.clone(), None).await.unwrap();
+        let (remote, task) = serve(router(b.clone())).await;
+        let peer = p::StorePeer(a.clone());
+        let scope = p::Scope {
+            collections: [1].into_iter().collect(),
+        };
+        let mut coordinator = p::Coordinator::new(scope.clone(), limits()).unwrap();
+        let mut complete = false;
+        for _ in 0..100 {
+            coordinator.start_pass();
+            if matches!(
+                coordinator
+                    .advance(&remote, &remote, &remote, &peer, &*a)
+                    .await
+                    .unwrap(),
+                p::SessionAdvance::Complete(_)
+            ) {
+                complete = true;
+                break;
+            }
+        }
+        assert!(complete);
+        assert_eq!(b.head().await.unwrap().sequence, 1);
+        assert!(b.get(&key).await.unwrap().is_none());
+        let p::WorkOutcome::Ready(snapshot) = remote
+            .open_snapshot(Uuid::new_v4(), scope, limits().work, None)
+            .await
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(snapshot.contexts.len(), 1);
+        let fragment = SnapshotSource::read_fragment(
+            &remote,
+            snapshot.snapshot_id,
+            snapshot.contexts[0].context.manifest.clone(),
+            0,
+            p::DEFAULT_PAGE_BYTES,
+        )
+        .await
+        .unwrap();
+        let context =
+            p::causal_context(&p::decode_context_remote(&fragment.bytes).unwrap()).unwrap();
+        assert!(context.contains(sync::causal::Dot {
+            writer: Uuid::from_u128(102),
+            counter: 1
+        }));
+        remote.close_snapshot(snapshot.snapshot_id).await.unwrap();
+        // A stale live candidate is suppressed after that HTTP promotion.
+        let delta = p::MergeDelta::<Model> {
+            collection: 1,
+            added: vec![p::Candidate {
+                model: p::ModelId {
+                    model: "http-test".into(),
+                    schema: "one".into(),
+                },
+                namespace: Uuid::from_u128(1),
+                key: key.clone(),
+                dot: p::Dot {
+                    writer_incarnation: Uuid::from_u128(102),
+                    counter: 1,
+                },
+                revision: p::Revision {
+                    counter: 1,
+                    actor: Uuid::from_u128(2),
+                },
+                payload: "deleted".into(),
+            }],
+            observed: p::ExactContext { writers: vec![] },
+        };
+        let event = p::Event::Merge(Box::new(delta));
+        let identity = p::ReceiveStore::identity(&*a).await.unwrap();
+        let after = a.head().await.unwrap();
+        let digest = p::event_digest(&event).unwrap();
+        let next = p::ReceiveProgress {
+            sequence: after.sequence + 1,
+            anchor: p::next_anchor::<Model>(after.anchor, after.sequence + 1, &1, digest).unwrap(),
+        };
+        let page = p::ChangePage {
+            request: p::PageRequest {
+                source: identity,
+                scope: p::Scope {
+                    collections: [1].into_iter().collect(),
+                },
+                after,
+                through: next.clone(),
+                limits: limits().pages,
+            },
+            next,
+            done: true,
+            links: vec![p::ScanLink {
+                sequence: 3,
+                collection: 1,
+                event_digest: digest,
+                event: Some(p::EventRef::Inline(event)),
+            }],
+        };
+        remote.apply_page(&page, limits().apply).await.unwrap();
+        assert!(b.get(&key).await.unwrap().is_none());
+        assert_eq!(b.head().await.unwrap().sequence, 1);
+        task.abort();
+        let _ = task.await;
     }
 }

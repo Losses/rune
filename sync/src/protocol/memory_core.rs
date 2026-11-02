@@ -76,9 +76,9 @@ impl<M: SyncModel> MemoryCore<M> {
                 CausalMap::new(Limits::default()).map_err(error)?,
             );
         }
-        Ok(Arc::make_mut(&mut self.collections)
+        Arc::make_mut(&mut self.collections)
             .get_mut(collection)
-            .unwrap())
+            .ok_or(SyncError::Invalid("missing causal collection".into()))
     }
     pub fn head(&self) -> Result<ReceiveProgress> {
         if let Some(last) = self.journal.last() {
@@ -96,37 +96,30 @@ impl<M: SyncModel> MemoryCore<M> {
     pub fn journal(&self) -> &[JournalEntry<M>] {
         &self.journal
     }
-    pub fn export_collection(&self, collection: &M::Collection) -> Result<Vec<CausalSegment<M>>> {
-        let segments = match self.map(collection) {
-            Some(map) => map.export().map_err(error),
-            None => CausalMap::new(Limits::default())
-                .and_then(|map: Map<M>| map.export())
-                .map_err(error),
-        }?;
-        Ok(segments
-            .into_iter()
-            .map(|segment| {
-                let range = KeyRange {
+    pub fn base(&self, collection: &M::Collection) -> crate::causal::Context {
+        self.map(collection)
+            .map(|m| m.base().clone())
+            .unwrap_or_default()
+    }
+    pub fn live(&self, collection: &M::Collection) -> Vec<Candidate<M>> {
+        let Some(map) = self.map(collection) else {
+            return Vec::new();
+        };
+        let mut after = None;
+        let mut live = Vec::new();
+        while let Some((id, candidate)) =
+            map.next_live(after.as_ref().map(|(key, dot)| (key, *dot)), None, None)
+        {
+            after = Some((id, candidate.dot));
+            live.push(self.candidate_from(
+                &ObjectKey {
                     collection: collection.clone(),
-                    lower: segment.range.start,
-                    upper: segment.range.end,
-                };
-                let candidates = segment
-                    .candidates
-                    .iter()
-                    .map(|(id, candidate)| {
-                        self.candidate_from(
-                            &ObjectKey {
-                                collection: collection.clone(),
-                                id: *id,
-                            },
-                            candidate,
-                        )
-                    })
-                    .collect();
-                (range, exact_context(&segment.context), candidates)
-            })
-            .collect())
+                    id,
+                },
+                &candidate,
+            ));
+        }
+        live
     }
     pub fn next_candidate(
         &self,
@@ -151,30 +144,6 @@ impl<M: SyncModel> MemoryCore<M> {
                     &c,
                 )
             }))
-    }
-    pub fn next_context_segment(
-        &self,
-        range: &KeyRange<M>,
-        lower: Option<Uuid>,
-    ) -> Result<(KeyRange<M>, ExactContext)> {
-        let segment = match self.map(&range.collection) {
-            Some(map) => map.next_segment(lower),
-            None => CausalMap::<Uuid, M::Payload, Rank>::new(Limits::default())
-                .map_err(error)?
-                .next_segment(lower),
-        };
-        let upper = match (segment.range.end, range.upper) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, None) | (None, a) => a,
-        };
-        Ok((
-            KeyRange {
-                collection: range.collection.clone(),
-                lower,
-                upper,
-            },
-            exact_context(&segment.context),
-        ))
     }
     fn candidate_from(
         &self,
@@ -208,19 +177,9 @@ impl<M: SyncModel> MemoryCore<M> {
         let Some(map) = self.map(collection) else {
             return Ok(());
         };
-        // Reserve framing space for a complete single-key range and its manifests.
+        // Reserve framing space for a collection context and a complete single-key leaf.
         // Scope tags are escaped JSON strings and can each expand sixfold.
         const FRAMING_RESERVE: u64 = (MAX_COLLECTIONS * MAX_TAG_BYTES * 6 + 8192) as u64;
-        for segment in map.normalized().map_err(error)? {
-            let context = exact_context(&segment.context);
-            if (canonical_context(&context)?.len() as u64)
-                .checked_mul(8)
-                .and_then(|n| n.checked_add(FRAMING_RESERVE))
-                .is_none_or(|n| n > MAX_RECEIVER_EXPANDED_BYTES)
-            {
-                return Err(SyncError::LogicalLimit);
-            }
-        }
         for id in keys {
             let key = ObjectKey {
                 collection: collection.clone(),
@@ -230,9 +189,12 @@ impl<M: SyncModel> MemoryCore<M> {
             if candidates.len() as u64 > DEFAULT_LOGICAL_ITEMS {
                 return Err(SyncError::LogicalLimit);
             }
-            let context = exact_context(&map.effective_context(id).map_err(error)?);
+            let context = exact_context(map.base());
             let context_bytes = canonical_context(&context)?.len() as u64;
-            let candidate_bytes = canonical_candidates(&candidates)?.len() as u64;
+            let candidate_bytes = candidates.iter().try_fold(0u64, |n, c| {
+                n.checked_add(canonical_candidate(c)?.len() as u64)
+                    .ok_or(SyncError::LogicalLimit)
+            })?;
             if context_bytes
                 .checked_mul(8)
                 .and_then(|n| {
@@ -252,7 +214,7 @@ impl<M: SyncModel> MemoryCore<M> {
         let digest = event_digest(&event)?;
         let collection = match &event {
             Event::Key(k) => &k.key.collection,
-            Event::Range(r) => &r.range.collection,
+            Event::Merge(m) => &m.collection,
         };
         let old = self.head()?;
         let sequence = checked(old.sequence)?;
@@ -337,117 +299,105 @@ impl<M: SyncModel> MemoryCore<M> {
         *self = next;
         Ok(result)
     }
-    /// Apply already verified complete range dependencies against current state.
-    /// The caller verifies that the supplied segments match the event manifests.
-    pub fn apply_range(
+    /// Apply and relay a collection-wide merge atomically.
+    pub fn apply_merge(
         &mut self,
-        event: &RangeEvent<M>,
-        segments: &[CausalSegment<M>],
+        delta: &MergeDelta<M>,
     ) -> Result<(bool, Vec<ProjectionChange<M>>)> {
-        canonical_event(&Event::Range(Box::new(event.clone())))?;
-        if event.source.source.namespace != self.identity.namespace {
-            return Err(SyncError::Invalid("range namespace mismatch".into()));
-        }
-        if segments.is_empty() {
-            return Err(SyncError::IncompleteCoverage);
-        }
-        let mut expected_lower = event.range.lower;
-        let mut incoming =
-            CausalMap::<Uuid, M::Payload, Rank>::new(Limits::default()).map_err(error)?;
-        let mut keys = BTreeSet::new();
-        let mut logical = self.logical;
-        for (index, (bounds, context, candidates)) in segments.iter().enumerate() {
-            if bounds.collection != event.range.collection
-                || bounds.lower != expected_lower
-                || (bounds.upper.is_none() && index + 1 != segments.len())
-            {
-                return Err(SyncError::Invalid("incomplete range partition".into()));
-            }
-            let key_range =
-                crate::causal::KeyRange::new(bounds.lower, bounds.upper).map_err(error)?;
-            let mut values = Vec::new();
-            for candidate in candidates {
-                if candidate.namespace != self.identity.namespace
-                    || candidate.key.collection != bounds.collection
-                    || !key_range.contains(&candidate.key.id)
-                {
-                    return Err(SyncError::Invalid(
-                        "candidate outside range or namespace".into(),
-                    ));
-                }
-                validate_candidate(candidate)?;
-                let d = causal_dot(candidate.dot);
-                let (_, digest, _) = candidate_rank(candidate)?;
-                logical = logical.max(candidate.revision.counter);
+        canonical_event(&Event::Merge(Box::new(delta.clone())))?;
+        let observed = causal_context(&delta.observed)?;
+        let mut keys: BTreeSet<_> = delta.added.iter().map(|c| c.key.id).collect();
+        for candidate in self.live(&delta.collection) {
+            if observed.contains(causal_dot(candidate.dot)) {
                 keys.insert(candidate.key.id);
-                values.push((
-                    candidate.key.id,
-                    CausalCandidate {
-                        dot: d,
-                        revision: (candidate.revision, digest, d),
-                        value: candidate.payload.clone(),
-                    },
-                ));
             }
-            incoming
-                .merge_range(&crate::causal::CompleteRange {
-                    range: key_range,
-                    context: causal_context(context)?,
-                    candidates: values,
-                })
-                .map_err(error)?;
-            expected_lower = bounds.upper;
         }
-        if expected_lower != event.range.upper {
-            return Err(SyncError::IncompleteCoverage);
-        }
-        for (range, _, candidates) in self.export_collection(&event.range.collection)? {
-            for candidate in candidates {
-                if event.range.lower.is_none_or(|x| candidate.key.id >= x)
-                    && event.range.upper.is_none_or(|x| candidate.key.id < x)
-                {
-                    keys.insert(candidate.key.id);
-                }
+        let mut values = Vec::with_capacity(delta.added.len());
+        let mut logical = self.logical;
+        for c in &delta.added {
+            if c.namespace != self.identity.namespace {
+                return Err(SyncError::Invalid("candidate namespace mismatch".into()));
             }
-            let _ = range;
+            validate_candidate(c)?;
+            let (_, digest, _) = candidate_rank(c)?;
+            let dot = causal_dot(c.dot);
+            values.push((
+                c.key.id,
+                CausalCandidate {
+                    dot,
+                    revision: (c.revision, digest, dot),
+                    value: c.payload.clone(),
+                },
+            ));
+            logical = logical.max(c.revision.counter);
         }
-        let mut next = self.clone();
         let before: Vec<_> = keys
             .iter()
             .map(|id| {
                 let key = ObjectKey {
-                    collection: event.range.collection.clone(),
+                    collection: delta.collection.clone(),
                     id: *id,
                 };
                 let winner = self.winner(&key);
                 (key, winner)
             })
             .collect();
+        let mut next = self.clone();
         let changed = next
-            .map_mut(&event.range.collection)?
-            .merge(&incoming)
+            .map_mut(&delta.collection)?
+            .apply_merge(&values, &observed)
             .map_err(error)?;
-        next.validate_export(&event.range.collection, &keys)?;
-        next.logical = logical;
-        let mut projection = Vec::new();
-        for (key, previous) in before {
+        next.validate_export(&delta.collection, &keys)?;
+        let mut changes = Vec::new();
+        for (key, before) in before {
             let after = next.winner(&key);
             if after.is_none() {
                 M::validate(&key, &None)?;
             }
-            if previous != after {
-                projection.push(ProjectionChange {
-                    key,
-                    before: previous,
-                    after,
-                });
+            if before != after {
+                changes.push(ProjectionChange { key, before, after });
             }
         }
+        next.logical = logical;
         if changed {
-            next.append(Event::Range(Box::new(event.clone())))?;
+            next.append(Event::Merge(Box::new(delta.clone())))?;
         }
         *self = next;
-        Ok((changed, projection))
+        Ok((changed, changes))
+    }
+    pub fn merge_leaf(
+        &mut self,
+        range: &KeyRange<M>,
+        incoming: &[Candidate<M>],
+        source_context: &crate::causal::Context,
+    ) -> Result<(bool, Vec<ProjectionChange<M>>)> {
+        let mut current = Vec::new();
+        let mut after = None;
+        while let Some(candidate) = self.next_candidate(range, after.as_ref())? {
+            after = Some(CandidateCursor {
+                key: candidate.key.clone(),
+                dot: candidate.dot,
+            });
+            current.push(candidate);
+        }
+        let locally_observed = incoming
+            .iter()
+            .filter(|c| {
+                self.map(&range.collection)
+                    .is_some_and(|map| map.base().contains(causal_dot(c.dot)))
+            })
+            .map(|c| c.dot)
+            .collect();
+        match plan_leaf_merge(
+            &range.collection,
+            &current,
+            incoming,
+            source_context,
+            &locally_observed,
+        )? {
+            Some(delta) => self.apply_merge(&delta),
+            None => Ok((false, Vec::new())),
+        }
     }
     pub fn write(
         &mut self,

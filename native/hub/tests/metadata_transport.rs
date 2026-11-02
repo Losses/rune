@@ -50,7 +50,7 @@ async fn typed_recovery_errors_survive_http_and_unknown_operations_are_not_sent(
 }
 
 #[tokio::test]
-async fn unauthorized_http_is_transport_failure_without_a_successful_empty_head() -> Result<()> {
+async fn unauthorized_http_is_typed_without_a_successful_empty_head() -> Result<()> {
     let app = Router::new().route(
         "/sync/metadata",
         post(|| async {
@@ -70,6 +70,6 @@ async fn unauthorized_http_is_transport_failure_without_a_successful_empty_head(
     let result = p::SyncPeer::head(&peer).await;
     server.abort();
     let _ = server.await;
-    assert!(matches!(result, Err(p::SyncError::Transport(message)) if message.contains("401")));
+    assert_eq!(result, Err(p::SyncError::Unauthorized));
     Ok(())
 }

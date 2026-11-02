@@ -15,8 +15,6 @@ struct State<M: SyncModel> {
     receiver: ReceiverLedger<M>,
     snapshots: Vec<Snapshot<M>>,
     retired_requests: std::collections::BTreeMap<Uuid, u64>,
-    objects: Vec<(ManifestRef, Vec<u8>)>,
-    retained_fragments: Vec<(Digest, Vec<Fragment>)>,
     summaries: Vec<SummaryWork<M>>,
     builds: Vec<SnapshotBuild<M>>,
     splits: Vec<SplitWork<M>>,
@@ -67,9 +65,7 @@ struct SummaryWork<M: SyncModel> {
     range: KeyRange<M>,
     position: u64,
     phase: SummaryPhase,
-    lower: Option<Uuid>,
     candidate: Option<CandidateCursor<M>>,
-    segment_count: u64,
     candidate_count: u64,
     candidate_bytes: u64,
     hash: Option<RangeHasher<M>>,
@@ -77,9 +73,7 @@ struct SummaryWork<M: SyncModel> {
 }
 #[derive(Clone, Copy)]
 enum SummaryPhase {
-    CountContexts,
     CountCandidates,
-    HashContexts,
     HashCandidates,
 }
 #[derive(Clone)]
@@ -104,8 +98,6 @@ struct SplitWork<M: SyncModel> {
     selected: u64,
     total_bytes: u64,
     selected_bytes: u64,
-    lower: Option<Uuid>,
-    fallback: Option<Uuid>,
     last_input: Option<u64>,
 }
 #[derive(Clone)]
@@ -142,7 +134,6 @@ impl<M: SyncModel> CompletedWork<M> {
 #[derive(Clone, Copy)]
 enum SplitPhase {
     CountCandidates,
-    CountContexts,
     FindCandidate,
 }
 
@@ -161,8 +152,6 @@ impl<M: SyncModel> MemorySyncStore<M> {
                 receiver: ReceiverLedger::default(),
                 snapshots: Vec::new(),
                 retired_requests: Default::default(),
-                objects: Vec::new(),
-                retained_fragments: Vec::new(),
                 summaries: Vec::new(),
                 builds: Vec::new(),
                 splits: Vec::new(),
@@ -231,7 +220,7 @@ impl<M: SyncModel> MemorySyncStore<M> {
             .descriptors
             .iter()
             .filter_map(|(id, descriptor)| match &descriptor.origin {
-                StageOrigin::Snapshot { session, .. }
+                StageOrigin::SnapshotContext { session, .. }
                     if !state.sessions.iter().any(|active| active.id == *session) =>
                 {
                     Some(*id)
@@ -320,7 +309,7 @@ fn event_manifest<M: SyncModel>(
     let mut manifest = ManifestRef {
         kind: match event {
             Event::Key(_) => ManifestKind::KeyEvent,
-            Event::Range(_) => ManifestKind::RangeEvent,
+            Event::Merge(_) => ManifestKind::MergeEvent,
         },
         manifest_digest: [0; 32],
         content_digest: content_digest(&bytes)?,
@@ -356,39 +345,6 @@ fn check_limits(l: ApplyLimits, changes: &[ProjectionChange<impl SyncModel>]) ->
         return Err(SyncError::WorkLimit);
     }
     Ok(())
-}
-fn apply_range_event<M: SyncModel>(
-    state: &mut State<M>,
-    request: &PageRequest<M>,
-    sequence: u64,
-    digest: Digest,
-    event: &RangeEvent<M>,
-) -> Result<(bool, Vec<ProjectionChange<M>>)> {
-    let origin = StageOrigin::Journal {
-        request: request.clone(),
-        sequence,
-        collection: event.range.collection.clone(),
-        event_digest: digest,
-    };
-    let prepared = state
-        .receiver
-        .prepare_inline_event(&origin, &Event::Range(Box::new(event.clone())))?;
-    let result = state.core.apply_range(event, &prepared.segments)?;
-    for object in prepared.dependencies {
-        if !state.objects.iter().any(|(m, _)| *m == object.0) {
-            state.objects.push(object)
-        }
-    }
-    for fragments in prepared.dependency_fragments {
-        if !state
-            .retained_fragments
-            .iter()
-            .any(|(digest, _)| *digest == fragments.0)
-        {
-            state.retained_fragments.push(fragments)
-        }
-    }
-    Ok(result)
 }
 fn apply<M: SyncModel>(
     s: &mut State<M>,
@@ -450,7 +406,6 @@ fn apply<M: SyncModel>(
     }
     let mut changes = Vec::new();
     let mut causal_changes = 0;
-    let mut preceding = page.request.after.clone();
     for link in &page.links {
         match &link.event {
             Some(EventRef::Inline(Event::Key(delta))) => {
@@ -460,11 +415,8 @@ fn apply<M: SyncModel>(
                     changes.push(c)
                 }
             }
-            Some(EventRef::Inline(Event::Range(event))) => {
-                let mut request = page.request.clone();
-                request.after = preceding.clone();
-                let (changed, projection) =
-                    apply_range_event(s, &request, link.sequence, link.event_digest, event)?;
+            Some(EventRef::Inline(Event::Merge(delta))) => {
+                let (changed, projection) = s.core.apply_merge(delta)?;
                 causal_changes += u64::from(changed);
                 changes.extend(projection);
             }
@@ -473,15 +425,6 @@ fn apply<M: SyncModel>(
             }
             None => (),
         }
-        preceding = ReceiveProgress {
-            sequence: link.sequence,
-            anchor: next_anchor::<M>(
-                preceding.anchor,
-                link.sequence,
-                &link.collection,
-                link.event_digest,
-            )?,
-        };
     }
     let mut preceding = page.request.after.clone();
     for link in &page.links {
@@ -863,7 +806,7 @@ impl<M: SyncModel> SyncStore<M> for MemorySyncStore<M> {
                 }
                 let collection = match &e.event {
                     Event::Key(k) => k.key.collection.clone(),
-                    Event::Range(r) => r.range.collection.clone(),
+                    Event::Merge(m) => m.collection.clone(),
                 };
                 let event = if request.scope.collections.contains(&collection) {
                     Some(EventRef::Inline(e.event.clone()))
@@ -916,7 +859,11 @@ impl<M: SyncModel> SyncStore<M> for MemorySyncStore<M> {
                                     PageRead::FragmentNeeded { request, .. } => {
                                         request.limits.max_bytes
                                     }
-                                    _ => unreachable!(),
+                                    PageRead::Page(_) => {
+                                        return Err(SyncError::Invalid(
+                                            "unexpected fragment page".into(),
+                                        ));
+                                    }
                                 }
                             {
                                 return Err(SyncError::LimitTooSmall { required: size });
@@ -957,44 +904,11 @@ impl<M: SyncModel> SyncStore<M> for MemorySyncStore<M> {
                 return Err(SyncError::Invalid("invalid fragment limit".into()));
             }
             let s = self.lock()?;
-            if let Some((_, fragments)) = s
-                .retained_fragments
-                .iter()
-                .find(|(digest, _)| *digest == manifest.manifest_digest)
-            {
-                let fragment = fragments
-                    .iter()
-                    .find(|f| f.ordinal == ordinal && f.manifest == manifest)
-                    .ok_or(SyncError::StaleWork)?;
-                check_fragment_size(fragment, max_bytes)?;
-                return Ok(fragment.clone());
-            }
-            if let Some((_, bytes)) = s.objects.iter().find(|(m, _)| *m == manifest) {
-                if ordinal >= manifest.fragment_count {
-                    return Err(SyncError::Invalid("fragment ordinal".into()));
-                }
-                let (start, end) = memory_fragment_bounds(bytes, &manifest, ordinal)?;
-                if (end - start) as u64 > max_bytes {
-                    return Err(SyncError::LimitTooSmall {
-                        required: (end - start) as u64,
-                    });
-                }
-                let mut fragment = Fragment {
-                    manifest,
-                    ordinal,
-                    offset: start as u64,
-                    bytes: bytes[start..end].to_vec(),
-                    digest: [0; 32],
-                };
-                fragment.digest = fragment_digest(&fragment)?;
-                check_fragment_size(&fragment, max_bytes)?;
-                return Ok(fragment);
-            }
             for e in s.core.journal() {
                 let bytes = canonical_event(&e.event)?;
                 let kind = match &e.event {
                     Event::Key(_) => ManifestKind::KeyEvent,
-                    Event::Range(_) => ManifestKind::RangeEvent,
+                    Event::Merge(_) => ManifestKind::MergeEvent,
                 };
                 if manifest.kind != kind
                     || manifest.encoded_bytes != bytes.len() as u64
@@ -1253,6 +1167,7 @@ impl<M: SyncModel> SnapshotSource<M> for MemorySyncStore<M> {
                     snapshot_id: snapshot,
                     head: s.core.head()?,
                     roots: Vec::new(),
+                    contexts: Vec::new(),
                     expires_unix_ms: now
                         .checked_add(DEFAULT_SNAPSHOT_TTL_MS)
                         .ok_or(SyncError::ClockExhausted)?,
@@ -1330,6 +1245,18 @@ impl<M: SyncModel> SnapshotSource<M> for MemorySyncStore<M> {
                     .iter_mut()
                     .find(|v| v.descriptor.snapshot_id == build.snapshot)
                     .ok_or(SyncError::SnapshotExpired)?;
+                let context = exact_context(&view.core.base(&summary.range.collection));
+                let bytes = canonical_context(&context)?;
+                let manifest =
+                    manifest_for(ManifestKind::Context, &bytes, context.writers.len() as u64)?;
+                view.descriptor.contexts.push(CollectionContext {
+                    collection: summary.range.collection.clone(),
+                    context: ContextRef {
+                        digest: context_digest(&context)?,
+                        manifest: manifest.clone(),
+                    },
+                });
+                view.objects.push((manifest, bytes));
                 view.descriptor.roots.push(summary);
                 build.index += 1;
                 build.summary = None;
@@ -1532,7 +1459,6 @@ impl<M: SyncModel> SnapshotSource<M> for MemorySyncStore<M> {
                 s.splits.push(SplitWork {
                     id,
                     snapshot,
-                    lower: range.lower,
                     range: range.clone(),
                     position: 0,
                     phase: SplitPhase::CountCandidates,
@@ -1542,7 +1468,6 @@ impl<M: SyncModel> SnapshotSource<M> for MemorySyncStore<M> {
                     selected: 0,
                     total_bytes: 0,
                     selected_bytes: 0,
-                    fallback: None,
                     last_input: None,
                 });
                 (id, true)
@@ -1597,119 +1522,6 @@ impl<M: SyncModel> SnapshotSource<M> for MemorySyncStore<M> {
                     })
                 }
             }
-        })
-    }
-    fn context_page(
-        &self,
-        snapshot: Uuid,
-        range: KeyRange<M>,
-        after: ContextCursor,
-        limits: PageLimits,
-    ) -> BoxFuture<'_, ContextPage<M>> {
-        Box::pin(async move {
-            if limits.max_scanned == 0
-                || limits.max_scanned > MAX_PAGE_ITEMS
-                || limits.max_bytes == 0
-                || limits.max_bytes > MAX_PAGE_BYTES
-            {
-                return Err(SyncError::Invalid("invalid page limits".into()));
-            }
-            let mut s = self.lock()?;
-            let view = view_mut(&mut s, snapshot)?;
-            if !view
-                .descriptor
-                .scope
-                .collections
-                .contains(&range.collection)
-                || range.lower.zip(range.upper).is_some_and(|(a, b)| a >= b)
-                || (after.segment_index == 0 && after.next_lower != range.lower)
-                || (after.segment_index > 0 && after.next_lower.is_none())
-                || after
-                    .next_lower
-                    .zip(range.lower)
-                    .is_some_and(|(a, b)| a < b)
-                || after
-                    .next_lower
-                    .zip(range.upper)
-                    .is_some_and(|(a, b)| a >= b)
-            {
-                return Err(SyncError::StaleWork);
-            }
-            let mut segments = Vec::new();
-            let mut encoded_items = 0u64;
-            let mut next = after.clone();
-            let mut done = false;
-            loop {
-                let (bounds, context) = view.core.next_context_segment(&range, next.next_lower)?;
-                let bytes = canonical_context(&context)?;
-                let manifest =
-                    manifest_for(ManifestKind::Context, &bytes, context.writers.len() as u64)?;
-                let item = ContextSegment {
-                    range: bounds,
-                    context: ContextRef {
-                        digest: context_digest(&context)?,
-                        manifest: manifest.clone(),
-                    },
-                };
-                let item_size = serde_json::to_vec(&item)
-                    .map_err(|e| SyncError::Storage(e.to_string()))?
-                    .len() as u64;
-                let proposed = ContextCursor {
-                    segment_index: next
-                        .segment_index
-                        .checked_add(1)
-                        .ok_or(SyncError::LogicalLimit)?,
-                    next_lower: item.range.upper,
-                };
-                let finishes = item.range.upper == range.upper;
-                let envelope = ContextPage::<M> {
-                    snapshot_id: snapshot,
-                    range: range.clone(),
-                    after: after.clone(),
-                    next: proposed.clone(),
-                    done: finishes,
-                    segments: Vec::new(),
-                };
-                let base = serde_json::to_vec(&envelope)
-                    .map_err(|e| SyncError::Storage(e.to_string()))?
-                    .len() as u64;
-                let size = base
-                    .checked_add(encoded_items)
-                    .and_then(|n| n.checked_add(item_size))
-                    .and_then(|n| n.checked_add(segments.len() as u64))
-                    .ok_or(SyncError::LogicalLimit)?;
-                if segments.len() >= limits.max_scanned as usize || size > limits.max_bytes {
-                    if segments.is_empty() {
-                        return Err(SyncError::LimitTooSmall { required: size });
-                    }
-                    break;
-                }
-                if !view.objects.iter().any(|(m, _)| *m == manifest) {
-                    view.objects.push((manifest, bytes));
-                }
-                encoded_items += item_size;
-                next = proposed;
-                segments.push(item);
-                if finishes {
-                    done = true;
-                    break;
-                }
-            }
-            let page = ContextPage {
-                snapshot_id: snapshot,
-                range,
-                after,
-                next,
-                done,
-                segments,
-            };
-            let size = serde_json::to_vec(&page)
-                .map_err(|e| SyncError::Storage(e.to_string()))?
-                .len() as u64;
-            if size > limits.max_bytes {
-                return Err(SyncError::LimitTooSmall { required: size });
-            }
-            Ok(page)
         })
     }
     fn leaf(
@@ -1918,24 +1730,8 @@ impl<M: SyncModel> SnapshotSink<M> for MemorySyncStore<M> {
         })
     }
 
-    fn context_progress(
-        &self,
-        session: Uuid,
-        range: KeyRange<M>,
-    ) -> BoxFuture<'_, ContextProgress> {
-        Box::pin(async move { self.lock()?.receiver.context_progress(session, &range) })
-    }
-
     fn leaf_progress(&self, session: Uuid, range: KeyRange<M>) -> BoxFuture<'_, LeafProgress<M>> {
         Box::pin(async move { self.lock()?.receiver.leaf_progress(session, &range) })
-    }
-
-    fn stage_context_page(
-        &self,
-        session: Uuid,
-        page: ContextPage<M>,
-    ) -> BoxFuture<'_, ContextProgress> {
-        Box::pin(async move { self.lock()?.receiver.stage_context_page(session, page) })
     }
 
     fn stage_leaf_page(&self, session: Uuid, page: LeafPage<M>) -> BoxFuture<'_, LeafProgress<M>> {
@@ -1971,34 +1767,14 @@ impl<M: SyncModel> SnapshotSink<M> for MemorySyncStore<M> {
                 ));
             }
             let prepared = state.receiver.prepare_range(session, &range)?;
-            let mutations = prepared
-                .segments
-                .iter()
-                .try_fold(0u64, |n, (_, _, values)| {
-                    n.checked_add(values.len() as u64 + 1)
-                        .ok_or(SyncError::WorkLimit)
-                })?;
-            if mutations > limits.max_mutations {
+            if prepared.candidates.len() as u64 + 1 > limits.max_mutations {
                 return Err(SyncError::WorkLimit);
             }
-            let (changed, changes) = state
-                .core
-                .apply_range(&prepared.event, &prepared.segments)?;
+            let (changed, changes) =
+                state
+                    .core
+                    .merge_leaf(&range, &prepared.candidates, &prepared.source_context)?;
             check_limits(limits, &changes)?;
-            for object in prepared.dependencies {
-                if !state.objects.iter().any(|(m, _)| *m == object.0) {
-                    state.objects.push(object)
-                }
-            }
-            for fragments in prepared.dependency_fragments {
-                if !state
-                    .retained_fragments
-                    .iter()
-                    .any(|(digest, _)| *digest == fragments.0)
-                {
-                    state.retained_fragments.push(fragments)
-                }
-            }
             let progress = state.receiver.finalize_range(&prepared.token)?;
             *guard = state;
             Ok((
@@ -2011,22 +1787,74 @@ impl<M: SyncModel> SnapshotSink<M> for MemorySyncStore<M> {
             ))
         })
     }
-    fn normalize_step(
-        &self,
-        session: Uuid,
-        limits: WorkLimits,
-        resume: Option<WorkCursor>,
-    ) -> BoxFuture<'_, WorkOutcome<CoverageProgress>> {
+    fn promote_step(&self, session: Uuid, limits: ApplyLimits) -> BoxFuture<'_, PromoteProgress> {
         Box::pin(async move {
-            validate_work(limits)?;
-            if resume.is_some() {
-                return Err(SyncError::StaleWork);
+            check_limits(limits, &[] as &[ProjectionChange<M>])?;
+            let mut guard = self.lock()?;
+            let mut state = guard.clone();
+            let Some(token) = state
+                .receiver
+                .prepare_promotion(session, (limits.max_mutations / 4).clamp(1, 1024) as usize)?
+            else {
+                return Ok(PromoteProgress {
+                    done: true,
+                    causal_changes: 0,
+                });
+            };
+            let (collection, observed) = match &token.step {
+                PromotionStep::Arrivals {
+                    collection,
+                    source_context,
+                    source_live,
+                } => {
+                    let (_, local) = state.receiver.descriptors(session)?;
+                    let snapshot = view_mut(&mut state, local.snapshot_id)?;
+                    let mut observed = crate::causal::Context::default();
+                    let pinned = snapshot.core.clone();
+                    let mut arrivals = 0u64;
+                    for c in state.core.live(collection) {
+                        if !pinned.candidates(&c.key).iter().any(|v| v.dot == c.dot) {
+                            arrivals += 1;
+                            if arrivals > limits.max_mutations {
+                                return Err(SyncError::WorkLimit);
+                            }
+                            let dot = crate::causal::Dot {
+                                writer: c.dot.writer_incarnation,
+                                counter: c.dot.counter,
+                            };
+                            if source_context.contains(dot) && !source_live.contains(dot) {
+                                observed
+                                    .insert(dot)
+                                    .map_err(|e| SyncError::Invalid(e.to_string()))?;
+                            }
+                        }
+                    }
+                    (collection.clone(), observed)
+                }
+                PromotionStep::Chunk { collection, chunk } => (
+                    collection.clone(),
+                    chunk
+                        .difference(&state.core.base(collection))
+                        .map_err(|e| SyncError::Invalid(e.to_string()))?,
+                ),
+            };
+            let mut causal_changes = 0;
+            if !observed.is_empty() {
+                let (changed, changes) = state.core.apply_merge(&MergeDelta {
+                    collection,
+                    added: Vec::new(),
+                    observed: exact_context(&observed),
+                })?;
+                check_limits(limits, &changes)?;
+                causal_changes = u64::from(changed);
             }
-            let progress = self.lock()?.receiver.progress(session)?;
-            if !progress.complete {
-                return Err(SyncError::IncompleteCoverage);
-            }
-            Ok(WorkOutcome::Ready(progress))
+            state.receiver.finalize_promotion(&token)?;
+            let done = state.receiver.promotion_done(session)?;
+            *guard = state;
+            Ok(PromoteProgress {
+                done,
+                causal_changes,
+            })
         })
     }
 
@@ -2080,12 +1908,10 @@ fn create_summary<M: SyncModel>(snapshot: Uuid, range: KeyRange<M>) -> SummaryWo
     SummaryWork {
         id: Uuid::new_v4(),
         snapshot,
-        lower: range.lower,
         range,
         position: 0,
-        phase: SummaryPhase::CountContexts,
+        phase: SummaryPhase::CountCandidates,
         candidate: None,
-        segment_count: 0,
         candidate_count: 0,
         candidate_bytes: 0,
         hash: None,
@@ -2105,50 +1931,6 @@ fn advance_summary<M: SyncModel>(
             return Ok(None);
         }
         match work.phase {
-            SummaryPhase::CountContexts | SummaryPhase::HashContexts => {
-                let (bounds, context) = view.core.next_context_segment(&work.range, work.lower)?;
-                let encoded = canonical_context(&context)?;
-                let size = encoded.len() as u64;
-                if rows == limits.max_rows_scanned
-                    || bytes.checked_add(size).is_none_or(|n| n > limits.max_bytes)
-                {
-                    if rows == 0 {
-                        return Err(SyncError::LimitTooSmall { required: size });
-                    }
-                    return Ok(None);
-                }
-                rows += 1;
-                bytes += size;
-                work.position = work
-                    .position
-                    .checked_add(1)
-                    .ok_or(SyncError::ClockExhausted)?;
-                match work.phase {
-                    SummaryPhase::CountContexts => {
-                        work.segment_count = work
-                            .segment_count
-                            .checked_add(1)
-                            .ok_or(SyncError::LogicalLimit)?
-                    }
-                    SummaryPhase::HashContexts => {
-                        work.hash
-                            .as_mut()
-                            .ok_or(SyncError::StaleWork)?
-                            .push_segment(&bounds, context_digest(&context)?)?
-                    }
-                    _ => unreachable!(),
-                }
-                work.lower = bounds.upper;
-                if bounds.upper == work.range.upper {
-                    work.lower = work.range.lower;
-                    work.candidate = None;
-                    work.phase = match work.phase {
-                        SummaryPhase::CountContexts => SummaryPhase::CountCandidates,
-                        SummaryPhase::HashContexts => SummaryPhase::HashCandidates,
-                        _ => unreachable!(),
-                    };
-                }
-            }
             SummaryPhase::CountCandidates | SummaryPhase::HashCandidates => {
                 let candidate = view
                     .core
@@ -2161,30 +1943,22 @@ fn advance_summary<M: SyncModel>(
                                 work.range.clone(),
                                 work.candidate_count,
                                 work.candidate_bytes,
-                                work.segment_count,
                             )?);
-                            work.phase = SummaryPhase::HashContexts;
-                            work.lower = work.range.lower;
+                            work.phase = SummaryPhase::HashCandidates;
                             work.candidate = None;
                             continue;
                         }
                         SummaryPhase::HashCandidates => {
-                            let (aggregate, context_commitment) = work
-                                .hash
-                                .take()
-                                .ok_or(SyncError::StaleWork)?
-                                .finish_with_context()?;
+                            let aggregate =
+                                work.hash.take().ok_or(SyncError::StaleWork)?.finish()?;
                             return Ok(Some(RangeSummary {
                                 snapshot_id: work.snapshot,
                                 range: work.range.clone(),
                                 candidate_count: work.candidate_count,
                                 candidate_bytes: work.candidate_bytes,
-                                context_segments: work.segment_count,
-                                context_commitment,
                                 aggregate,
                             }));
                         }
-                        _ => unreachable!(),
                     }
                 };
                 let encoded = canonical_candidate(&candidate)?;
@@ -2219,7 +1993,6 @@ fn advance_summary<M: SyncModel>(
                         .as_mut()
                         .ok_or(SyncError::StaleWork)?
                         .push_candidate(&candidate)?,
-                    _ => unreachable!(),
                 }
                 work.candidate = Some(CandidateCursor {
                     key: candidate.key,
@@ -2301,14 +2074,19 @@ fn advance_split<M: SyncModel>(
                 let Some(candidate) = next else {
                     match work.phase {
                         SplitPhase::CountCandidates => {
-                            work.phase = SplitPhase::CountContexts;
-                            work.lower = work.range.lower;
+                            if work.distinct == 0 {
+                                return Ok(Some(vec![work.range.clone()]));
+                            }
+                            work.phase = SplitPhase::FindCandidate;
+                            work.candidate = None;
+                            work.last_key = None;
+                            work.selected = 0;
+                            work.selected_bytes = 0;
                             continue;
                         }
                         SplitPhase::FindCandidate => {
-                            return Ok(Some(split_result(&work.range, work.fallback)));
+                            return Ok(Some(split_result(&work.range, None)));
                         }
-                        _ => unreachable!(),
                     }
                 };
                 let size = canonical_candidate(&candidate)?.len() as u64;
@@ -2347,7 +2125,6 @@ fn advance_split<M: SyncModel>(
                             }
                             work.selected += 1;
                         }
-                        _ => unreachable!(),
                     }
                 }
                 if matches!(work.phase, SplitPhase::FindCandidate) {
@@ -2361,38 +2138,6 @@ fn advance_split<M: SyncModel>(
                     key: candidate.key,
                     dot: candidate.dot,
                 });
-            }
-            SplitPhase::CountContexts => {
-                let (segment, context) = view.core.next_context_segment(&work.range, work.lower)?;
-                let size = canonical_context(&context)?.len() as u64;
-                if rows == limits.max_rows_scanned
-                    || bytes.checked_add(size).is_none_or(|n| n > limits.max_bytes)
-                {
-                    if rows == 0 {
-                        return Err(SyncError::LimitTooSmall { required: size });
-                    }
-                    return Ok(None);
-                }
-                rows += 1;
-                bytes += size;
-                work.position = work
-                    .position
-                    .checked_add(1)
-                    .ok_or(SyncError::ClockExhausted)?;
-                if work.fallback.is_none() {
-                    work.fallback = segment.upper.filter(|end| Some(*end) != work.range.upper)
-                }
-                work.lower = segment.upper;
-                if segment.upper == work.range.upper {
-                    if work.distinct == 0 {
-                        return Ok(Some(split_result(&work.range, work.fallback)));
-                    }
-                    work.phase = SplitPhase::FindCandidate;
-                    work.candidate = None;
-                    work.last_key = None;
-                    work.selected = 0;
-                    work.selected_bytes = 0;
-                }
             }
         }
     }
@@ -2544,42 +2289,20 @@ mod tests {
         .unwrap();
         a.write_local(key.clone(), None).await.unwrap();
         let source = a.lock().unwrap().core.clone();
-        let segments = source.export_collection(&Collection::Notes).unwrap();
-        let manifest = |kind| {
-            let mut m = ManifestRef {
-                kind,
-                manifest_digest: [0; 32],
-                content_digest: [1; 32],
-                encoded_bytes: 1,
-                item_count: 1,
-                fragment_count: 1,
-            };
-            m.manifest_digest = manifest_digest(&m).unwrap();
-            m
-        };
-        let event = RangeEvent {
-            scope: Scope {
-                collections: [Collection::Notes].into_iter().collect(),
-            },
-            range: KeyRange {
-                collection: Collection::Notes,
-                lower: None,
-                upper: None,
-            },
-            context_partition: manifest(ManifestKind::ContextPartition),
-            source: SnapshotRef {
-                source: source.identity.clone(),
-                snapshot_id: Uuid::from_u128(99),
-                head: source.head().unwrap(),
-            },
-            range_summary: [0; 32],
-            live_manifest: manifest(ManifestKind::Leaf),
+        let range = KeyRange {
+            collection: Collection::Notes,
+            lower: None,
+            upper: None,
         };
         let (changed, changes) = b
             .lock()
             .unwrap()
             .core
-            .apply_range(&event, &segments)
+            .merge_leaf(
+                &range,
+                &source.live(&Collection::Notes),
+                &source.base(&Collection::Notes),
+            )
             .unwrap();
         assert!(changed);
         assert_eq!(
@@ -2591,42 +2314,29 @@ mod tests {
         assert!(!changed);
     }
     #[test]
-    fn page_rejects_range_from_another_namespace() {
+    fn page_rejects_merge_from_another_namespace() {
         let source = store(2).lock().unwrap().core.identity.clone();
-        let mut foreign = source.clone();
-        foreign.namespace = Uuid::from_u128(900);
-        let manifest = |kind| {
-            let mut m = ManifestRef {
-                kind,
-                manifest_digest: [0; 32],
-                content_digest: [1; 32],
-                encoded_bytes: 1,
-                item_count: 1,
-                fragment_count: 1,
-            };
-            m.manifest_digest = manifest_digest(&m).unwrap();
-            m
-        };
-        let event = Event::<Model>::Range(Box::new(RangeEvent {
-            scope: Scope {
-                collections: [Collection::Notes].into_iter().collect(),
-            },
-            range: KeyRange {
+        let foreign = Candidate::<Model> {
+            model: source.model.clone(),
+            namespace: Uuid::from_u128(900),
+            key: ObjectKey {
                 collection: Collection::Notes,
-                lower: None,
-                upper: None,
+                id: Uuid::from_u128(42),
             },
-            context_partition: manifest(ManifestKind::ContextPartition),
-            source: SnapshotRef {
-                source: foreign,
-                snapshot_id: Uuid::from_u128(40),
-                head: ReceiveProgress {
-                    sequence: 0,
-                    anchor: [0; 32],
-                },
+            dot: Dot {
+                writer_incarnation: Uuid::from_u128(3),
+                counter: 1,
             },
-            range_summary: [0; 32],
-            live_manifest: manifest(ManifestKind::Leaf),
+            revision: Revision {
+                actor: Uuid::from_u128(4),
+                counter: 1,
+            },
+            payload: Value { n: 1 },
+        };
+        let event = Event::Merge(Box::new(MergeDelta {
+            collection: Collection::Notes,
+            added: vec![foreign],
+            observed: ExactContext { writers: vec![] },
         }));
         let digest = event_digest(&event).unwrap();
         let encoded = canonical_event(&event).unwrap();
@@ -2719,23 +2429,7 @@ mod tests {
         assert!(page.done);
         assert_eq!(page.candidates.len(), 1);
         assert_eq!(page.candidates[0].payload, Value { n: 1 });
-        let contexts = store
-            .context_page(
-                snapshot.snapshot_id,
-                root.clone(),
-                ContextCursor {
-                    segment_index: 0,
-                    next_lower: None,
-                },
-                PageLimits {
-                    max_scanned: 10,
-                    max_bytes: 65536,
-                },
-            )
-            .await
-            .unwrap();
-        assert!(contexts.done);
-        let reference = &contexts.segments[0].context;
+        let reference = &snapshot.contexts[0].context;
         let fragment = SnapshotSource::read_fragment(
             &store,
             snapshot.snapshot_id,
@@ -2834,24 +2528,6 @@ mod tests {
             max_scanned: 10,
             max_bytes: 65536,
         };
-        let contexts = a
-            .context_page(
-                remote.snapshot_id,
-                range.clone(),
-                ContextCursor {
-                    segment_index: 0,
-                    next_lower: None,
-                },
-                pages,
-            )
-            .await
-            .unwrap();
-        b.stage_context_page(session, contexts.clone())
-            .await
-            .unwrap();
-        b.stage_context_page(session, contexts.clone())
-            .await
-            .unwrap();
         let stage_limits = StageLimits {
             max_total_bytes: DEFAULT_STAGE_BYTES,
             max_stages: DEFAULT_STAGES,
@@ -2859,14 +2535,14 @@ mod tests {
             max_event_items: DEFAULT_LOGICAL_ITEMS,
             max_fragment_bytes: DEFAULT_PAGE_BYTES,
         };
-        for segment in contexts.segments {
+        for context in remote.contexts.clone() {
             let descriptor = StageDescriptor {
-                origin: StageOrigin::Snapshot {
+                origin: StageOrigin::SnapshotContext {
                     session,
                     snapshot_id: remote.snapshot_id,
-                    range: range.clone(),
+                    collection: context.collection,
                 },
-                manifest: segment.context.manifest.clone(),
+                manifest: context.context.manifest.clone(),
             };
             let stage = b
                 .begin_stage(descriptor.clone(), stage_limits)
@@ -2876,11 +2552,11 @@ mod tests {
                 b.begin_stage(descriptor, stage_limits).await.unwrap().stage,
                 stage.stage
             );
-            for ordinal in 0..segment.context.manifest.fragment_count {
+            for ordinal in 0..context.context.manifest.fragment_count {
                 let fragment = SnapshotSource::read_fragment(
                     &a,
                     remote.snapshot_id,
-                    segment.context.manifest.clone(),
+                    context.context.manifest.clone(),
                     ordinal,
                     DEFAULT_PAGE_BYTES,
                 )
@@ -2927,6 +2603,11 @@ mod tests {
                 .changes
                 .is_empty()
         );
+        assert!(matches!(
+            b.complete_reconciliation(session).await,
+            Err(SyncError::IncompleteCoverage)
+        ));
+        while !b.promote_step(session, limits).await.unwrap().done {}
         let copy = MemorySyncStore {
             state: Mutex::new(b.lock().unwrap().clone()),
         };
@@ -2955,8 +2636,7 @@ mod tests {
             b.complete_reconciliation(session).await.unwrap(),
             remote.head
         );
-        // A later range link uses the immediately preceding anchor even when
-        // its dependencies are staged before the whole page is committed.
+        // Merge events can share an anchored page with an earlier key event.
         let multi_source = store(6);
         let multi_target = store(7);
         multi_source
@@ -2969,24 +2649,19 @@ mod tests {
             )
             .await
             .unwrap();
-        let (event, segments, objects, retained) = {
+        let event = {
             let state = b.lock().unwrap();
-            let Event::Range(event) = state.core.journal()[0].event.clone() else {
+            let Event::Merge(event) = state.core.journal()[0].event.clone() else {
                 panic!()
             };
-            (
-                event,
-                state.core.export_collection(&Collection::Notes).unwrap(),
-                state.objects.clone(),
-                state.retained_fragments.clone(),
-            )
+            event
         };
-        {
-            let mut state = multi_source.lock().unwrap();
-            state.core.apply_range(&event, &segments).unwrap();
-            state.objects = objects;
-            state.retained_fragments = retained;
-        }
+        multi_source
+            .lock()
+            .unwrap()
+            .core
+            .apply_merge(&event)
+            .unwrap();
         let multi_id = ReceiveStore::identity(&multi_source).await.unwrap();
         let multi_start = ReceiveProgress {
             sequence: 0,
@@ -3011,71 +2686,12 @@ mod tests {
             panic!()
         };
         assert_eq!(multi_page.links.len(), 2);
-        let first = &multi_page.links[0];
-        let mut later_request = multi_request.clone();
-        later_request.after = ReceiveProgress {
-            sequence: first.sequence,
-            anchor: next_anchor::<Model>(
-                multi_request.after.anchor,
-                first.sequence,
-                &first.collection,
-                first.event_digest,
-            )
-            .unwrap(),
-        };
-        let second = &multi_page.links[1];
-        let Some(EventRef::Inline(Event::Range(range_event))) = &second.event else {
-            panic!()
-        };
-        let partition = SyncStore::read_fragment(
-            &multi_source,
-            range_event.context_partition.clone(),
-            0,
-            DEFAULT_PAGE_BYTES,
-        )
-        .await
-        .unwrap();
-        let refs = decode_context_partition(&range_event.range, &partition.bytes).unwrap();
-        let objects = std::iter::once(range_event.context_partition.clone())
-            .chain(std::iter::once(range_event.live_manifest.clone()))
-            .chain(refs.into_iter().map(|r| r.context.manifest));
-        for manifest in objects {
-            let stage = multi_target
-                .begin_stage(
-                    StageDescriptor {
-                        origin: StageOrigin::Journal {
-                            request: later_request.clone(),
-                            sequence: second.sequence,
-                            collection: second.collection.clone(),
-                            event_digest: second.event_digest,
-                        },
-                        manifest: manifest.clone(),
-                    },
-                    stage_limits,
-                )
-                .await
-                .unwrap();
-            for ordinal in 0..manifest.fragment_count {
-                let fragment = SyncStore::read_fragment(
-                    &multi_source,
-                    manifest.clone(),
-                    ordinal,
-                    DEFAULT_PAGE_BYTES,
-                )
-                .await
-                .unwrap();
-                multi_target
-                    .stage_fragment(stage.stage, fragment)
-                    .await
-                    .unwrap();
-            }
-        }
         multi_target.apply_page(&multi_page, limits).await.unwrap();
         assert_eq!(
             multi_target.get(&key).await.unwrap().unwrap().value,
             Some(Value { n: 7 })
         );
-        // Relay the committed range event after the original snapshot is closed.
+        // Relay the committed merge after the original snapshot is closed.
         a.close_snapshot(remote.snapshot_id).await.unwrap();
         let c = store(4);
         let identity = ReceiveStore::identity(&b).await.unwrap();
@@ -3095,41 +2711,10 @@ mod tests {
         let PageRead::Page(page) = b.read_page(request.clone()).await.unwrap() else {
             panic!()
         };
-        let Some(EventRef::Inline(Event::Range(event))) = &page.links[0].event else {
-            panic!()
-        };
-        let part =
-            SyncStore::read_fragment(&b, event.context_partition.clone(), 0, DEFAULT_PAGE_BYTES)
-                .await
-                .unwrap();
-        let refs = decode_context_partition(&event.range, &part.bytes).unwrap();
-        let manifests = std::iter::once(event.context_partition.clone())
-            .chain(std::iter::once(event.live_manifest.clone()))
-            .chain(refs.into_iter().map(|x| x.context.manifest));
-        for manifest in manifests {
-            let stage = c
-                .begin_stage(
-                    StageDescriptor {
-                        origin: StageOrigin::Journal {
-                            request: request.clone(),
-                            sequence: 1,
-                            collection: Collection::Notes,
-                            event_digest: page.links[0].event_digest,
-                        },
-                        manifest: manifest.clone(),
-                    },
-                    stage_limits,
-                )
-                .await
-                .unwrap();
-            for ordinal in 0..manifest.fragment_count {
-                let fragment =
-                    SyncStore::read_fragment(&b, manifest.clone(), ordinal, DEFAULT_PAGE_BYTES)
-                        .await
-                        .unwrap();
-                c.stage_fragment(stage.stage, fragment).await.unwrap();
-            }
-        }
+        assert!(matches!(
+            &page.links[0].event,
+            Some(EventRef::Inline(Event::Merge(_)))
+        ));
         c.apply_page(&page, limits).await.unwrap();
         assert_eq!(
             c.get(&key).await.unwrap().unwrap().value,
@@ -3321,6 +2906,8 @@ mod tests {
         inner: Arc<MemorySyncStore<Model>>,
         calls: std::sync::atomic::AtomicUsize,
         candidates: std::sync::atomic::AtomicUsize,
+        stale_open: bool,
+        open_calls: std::sync::atomic::AtomicUsize,
     }
     impl SnapshotSource<Model> for CountingSource {
         fn release_request(&self, id: Uuid) -> BoxFuture<'_, ()> {
@@ -3339,6 +2926,11 @@ mod tests {
             limits: WorkLimits,
             resume: Option<WorkCursor>,
         ) -> BoxFuture<'_, WorkOutcome<SnapshotDescriptor<Model>>> {
+            self.open_calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if self.stale_open {
+                return Box::pin(async { Err(SyncError::StaleWork) });
+            }
             self.inner.open_snapshot(id, scope, limits, resume)
         }
         fn summarize(
@@ -3358,15 +2950,6 @@ mod tests {
             resume: Option<WorkCursor>,
         ) -> BoxFuture<'_, WorkOutcome<Vec<KeyRange<Model>>>> {
             self.inner.split(id, range, limits, resume)
-        }
-        fn context_page(
-            &self,
-            id: Uuid,
-            range: KeyRange<Model>,
-            after: ContextCursor,
-            limits: PageLimits,
-        ) -> BoxFuture<'_, ContextPage<Model>> {
-            self.inner.context_page(id, range, after, limits)
         }
         fn leaf(
             &self,
@@ -3395,7 +2978,6 @@ mod tests {
         }
     }
     #[tokio::test]
-    #[ignore = "fails until range reconciliation is candidate-only (D2)"]
     async fn one_write_snapshot_transfers_only_changed_leaf() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
         use std::sync::atomic::Ordering;
@@ -3478,11 +3060,7 @@ mod tests {
         .await
         .unwrap();
         let head = b.head().await.unwrap().sequence;
-        let counting = CountingSource {
-            inner: a.clone(),
-            calls: 0.into(),
-            candidates: 0.into(),
-        };
+        let counting = CountingSource::new(a.clone());
         run(&b, &a, &counting, limits).await;
         assert_eq!(
             b.get(&ObjectKey {
@@ -3497,6 +3075,10 @@ mod tests {
         );
         let calls = counting.calls.load(Ordering::Relaxed);
         let candidates = counting.candidates.load(Ordering::Relaxed);
+        eprintln!(
+            "leaf calls: {calls}, leaf candidates: {candidates}, head growth: {}",
+            b.head().await.unwrap().sequence - head
+        );
         assert!(
             calls <= 4 && candidates <= 256,
             "leaf calls: {calls}, leaf candidates: {candidates}"
@@ -4264,80 +3846,6 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn repeated_contexts_are_charged_before_resident_expansion() {
-        let a = store(2);
-        let b = store(3);
-        let scope = Scope {
-            collections: [Collection::Notes].into_iter().collect(),
-        };
-        let work = WorkLimits {
-            max_requests: 10,
-            max_bytes: 65536,
-            max_depth: 10,
-            max_rows_scanned: 10,
-            max_mutations: 10,
-        };
-        let WorkOutcome::Ready(remote) = a
-            .open_snapshot(Uuid::from_u128(61), scope.clone(), work, None)
-            .await
-            .unwrap()
-        else {
-            panic!()
-        };
-        let WorkOutcome::Ready(local) = b
-            .open_snapshot(Uuid::from_u128(62), scope, work, None)
-            .await
-            .unwrap()
-        else {
-            panic!()
-        };
-        let session = b
-            .begin_reconciliation(Uuid::from_u128(900), remote.clone(), local)
-            .await
-            .unwrap();
-        let mut manifest = ManifestRef {
-            kind: ManifestKind::Context,
-            manifest_digest: [0; 32],
-            content_digest: [3; 32],
-            encoded_bytes: 32768,
-            item_count: 1,
-            fragment_count: 1,
-        };
-        manifest.manifest_digest = manifest_digest(&manifest).unwrap();
-        let mut state = b.lock().unwrap();
-        let active = state.sessions.iter_mut().find(|s| s.id == session).unwrap();
-        let p = &mut active.pending[0];
-        p.context_done = true;
-        p.leaf_done = true;
-        for i in 0..33u128 {
-            p.contexts.push(ContextSegment {
-                range: KeyRange {
-                    collection: Collection::Notes,
-                    lower: if i == 0 {
-                        None
-                    } else {
-                        Some(Uuid::from_u128(i))
-                    },
-                    upper: if i == 32 {
-                        None
-                    } else {
-                        Some(Uuid::from_u128(i + 1))
-                    },
-                },
-                context: ContextRef {
-                    digest: if i % 2 == 0 { [1; 32] } else { [2; 32] },
-                    manifest: manifest.clone(),
-                },
-            });
-        }
-        assert!(matches!(
-            state
-                .receiver
-                .prepare_range(session, &remote.roots[0].range),
-            Err(SyncError::WorkLimit)
-        ));
-    }
-    #[tokio::test]
     async fn coverage_churn_is_rejected_before_metadata_growth() {
         let a = store(2);
         let b = store(3);
@@ -4423,6 +3931,36 @@ mod tests {
             ledger
                 .accept_equal_range(id, remote.roots[0].clone(), &local.roots[0])
                 .unwrap();
+            let context = remote.contexts[0].clone();
+            let stage_id = Uuid::new_v4();
+            let stage = ledger
+                .begin_stage(
+                    stage_id,
+                    StageDescriptor {
+                        origin: StageOrigin::SnapshotContext {
+                            session: id,
+                            snapshot_id: remote.snapshot_id,
+                            collection: context.collection.clone(),
+                        },
+                        manifest: context.context.manifest.clone(),
+                    },
+                    session_limits().stages,
+                    u64::MAX,
+                )
+                .unwrap();
+            let fragment = SnapshotSource::read_fragment(
+                &a,
+                remote.snapshot_id,
+                context.context.manifest.clone(),
+                0,
+                DEFAULT_PAGE_BYTES,
+            )
+            .await
+            .unwrap();
+            ledger.stage_fragment(stage.stage, fragment).unwrap();
+            while let Some(token) = ledger.prepare_promotion(id, 100).unwrap() {
+                ledger.finalize_promotion(&token).unwrap();
+            }
             let token = ledger.prepare_completion(id).unwrap();
             ledger
                 .finalize_completion(&token, remote.head.clone())
@@ -4495,120 +4033,6 @@ mod tests {
         assert!(cancelled);
         assert!(a.lock().unwrap().snapshots.is_empty());
         assert!(b.lock().unwrap().checkpoints.is_empty());
-    }
-    #[tokio::test]
-    async fn coordinator_splits_context_only_ranges_under_work_limit() {
-        use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = std::sync::Arc::new(store(2));
-        let b = std::sync::Arc::new(store(3));
-        let scope = Scope {
-            collections: [Collection::Notes].into_iter().collect(),
-        };
-        {
-            let mut guard = a.lock().unwrap();
-            let source = guard.core.identity.clone();
-            let head = guard.core.head().unwrap();
-            let make_manifest = |kind| {
-                let mut m = ManifestRef {
-                    kind,
-                    manifest_digest: [0; 32],
-                    content_digest: [1; 32],
-                    encoded_bytes: 1,
-                    item_count: 1,
-                    fragment_count: 1,
-                };
-                m.manifest_digest = manifest_digest(&m).unwrap();
-                m
-            };
-            for i in 0..3u128 {
-                let range = KeyRange {
-                    collection: Collection::Notes,
-                    lower: if i == 0 {
-                        None
-                    } else {
-                        Some(Uuid::from_u128(i * 10))
-                    },
-                    upper: if i == 2 {
-                        None
-                    } else {
-                        Some(Uuid::from_u128((i + 1) * 10))
-                    },
-                };
-                let context = ExactContext {
-                    writers: vec![WriterContext {
-                        writer_incarnation: Uuid::from_u128(100 + i),
-                        prefix: 1,
-                        exceptions: vec![],
-                    }],
-                };
-                let event = RangeEvent {
-                    range: range.clone(),
-                    scope: scope.clone(),
-                    context_partition: make_manifest(ManifestKind::ContextPartition),
-                    source: SnapshotRef {
-                        source: source.clone(),
-                        snapshot_id: Uuid::from_u128(88),
-                        head: head.clone(),
-                    },
-                    range_summary: [0; 32],
-                    live_manifest: make_manifest(ManifestKind::Leaf),
-                };
-                guard
-                    .core
-                    .apply_range(&event, &[(range, context, vec![])])
-                    .unwrap();
-            }
-        }
-        let peer = StorePeer(a.clone());
-        let limits = SessionLimits {
-            pages: PageLimits {
-                max_scanned: 10,
-                max_bytes: 32768,
-            },
-            stages: StageLimits {
-                max_total_bytes: DEFAULT_STAGE_BYTES,
-                max_stages: DEFAULT_STAGES,
-                max_event_bytes: DEFAULT_LOGICAL_BYTES,
-                max_event_items: DEFAULT_LOGICAL_ITEMS,
-                max_fragment_bytes: DEFAULT_PAGE_BYTES,
-            },
-            apply: ApplyLimits {
-                max_projection_items: 1,
-                max_projection_bytes: 8192,
-                max_mutations: 1,
-            },
-            work: WorkLimits {
-                max_requests: 100,
-                max_bytes: 65536,
-                max_depth: 10,
-                max_rows_scanned: 100,
-                max_mutations: 100,
-            },
-        };
-        let mut coordinator = Coordinator::new(scope, limits).unwrap();
-        let mut done = false;
-        for _ in 0..300 {
-            coordinator.start_pass();
-            if matches!(
-                coordinator
-                    .advance(&*b, &*b, &*b, &peer, &*a)
-                    .await
-                    .unwrap(),
-                SessionAdvance::Complete(_)
-            ) {
-                done = true;
-                break;
-            }
-        }
-        assert!(done);
-        let exported = b
-            .lock()
-            .unwrap()
-            .core
-            .export_collection(&Collection::Notes)
-            .unwrap();
-        assert!(exported.len() >= 3);
-        assert!(exported.iter().all(|(_, _, c)| c.is_empty()));
     }
     #[tokio::test]
     async fn concurrent_candidates_at_one_key_use_one_projection_item() {
@@ -4849,5 +4273,350 @@ mod tests {
         assert!(coordinator.pass_usage().encoded_bytes > 0);
         assert_eq!(b.checkpoint(&ck).await.unwrap(), Some(initial));
         assert!(a.lock().unwrap().snapshots.is_empty());
+    }
+    fn session_limits() -> SessionLimits {
+        SessionLimits {
+            pages: PageLimits {
+                max_scanned: 100,
+                max_bytes: DEFAULT_PAGE_BYTES,
+            },
+            stages: StageLimits {
+                max_total_bytes: DEFAULT_STAGE_BYTES,
+                max_stages: DEFAULT_STAGES,
+                max_event_bytes: DEFAULT_LOGICAL_BYTES,
+                max_event_items: DEFAULT_LOGICAL_ITEMS,
+                max_fragment_bytes: DEFAULT_PAGE_BYTES,
+            },
+            apply: ApplyLimits {
+                max_projection_items: 128,
+                max_projection_bytes: DEFAULT_PROJECTION_BYTES,
+                max_mutations: 1000,
+            },
+            work: WorkLimits {
+                max_requests: 1000,
+                max_bytes: DEFAULT_ROUND_BYTES,
+                max_depth: 10,
+                max_rows_scanned: 1000,
+                max_mutations: 1000,
+            },
+        }
+    }
+    fn scope() -> Scope<Model> {
+        Scope {
+            collections: [Collection::Notes].into_iter().collect(),
+        }
+    }
+    fn key(n: u128) -> ObjectKey<Model> {
+        ObjectKey {
+            collection: Collection::Notes,
+            id: Uuid::from_u128(n),
+        }
+    }
+    async fn run_session(
+        dst: &Arc<MemorySyncStore<Model>>,
+        src: &Arc<MemorySyncStore<Model>>,
+        source: &dyn SnapshotSource<Model>,
+        limits: SessionLimits,
+    ) {
+        let mut coordinator = Coordinator::new(scope(), limits).unwrap();
+        finish_coordinator(&mut coordinator, dst, src, source).await;
+    }
+    async fn finish_coordinator(
+        coordinator: &mut Coordinator<Model>,
+        dst: &Arc<MemorySyncStore<Model>>,
+        src: &Arc<MemorySyncStore<Model>>,
+        source: &dyn SnapshotSource<Model>,
+    ) {
+        let peer = StorePeer(src.clone());
+        for _ in 0..4000 {
+            coordinator.start_pass();
+            if matches!(
+                coordinator
+                    .advance(&**dst, &**dst, &**dst, &peer, source)
+                    .await
+                    .unwrap(),
+                SessionAdvance::Complete(_)
+            ) {
+                return;
+            }
+        }
+        panic!("session did not complete");
+    }
+    impl CountingSource {
+        fn new(inner: Arc<MemorySyncStore<Model>>) -> Self {
+            Self {
+                inner,
+                calls: 0.into(),
+                candidates: 0.into(),
+                stale_open: false,
+                open_calls: 0.into(),
+            }
+        }
+    }
+    async fn relay_setup() -> (
+        Arc<MemorySyncStore<Model>>,
+        Arc<MemorySyncStore<Model>>,
+        Arc<MemorySyncStore<Model>>,
+    ) {
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
+        let c = Arc::new(store(4));
+        let d = Arc::new(store(5));
+        for n in 1..=512 {
+            a.write_local(key(n), Some(Value { n: n as u32 }))
+                .await
+                .unwrap();
+        }
+        let limits = session_limits();
+        run_session(&c, &a, &*a, limits).await;
+        run_session(&b, &c, &*c, limits).await;
+        run_session(&d, &a, &*a, limits).await;
+        a.write_local(key(9000), Some(Value { n: 9000 }))
+            .await
+            .unwrap();
+        run_session(&d, &a, &*a, limits).await;
+        a.write_local(key(9000), None).await.unwrap();
+        (a, b, d)
+    }
+    #[tokio::test]
+    async fn create_delete_elsewhere_promotes_once_and_suppresses_stale() {
+        use std::sync::atomic::Ordering;
+        let (a, b, d) = relay_setup().await;
+        let source = CountingSource::new(a.clone());
+        let before = b.head().await.unwrap().sequence;
+        run_session(&b, &a, &source, session_limits()).await;
+        assert_eq!(source.calls.load(Ordering::Relaxed), 0);
+        assert_eq!(b.head().await.unwrap().sequence, before + 1);
+        assert!(
+            a.lock()
+                .unwrap()
+                .core
+                .base(&Collection::Notes)
+                .is_subset(&b.lock().unwrap().core.base(&Collection::Notes))
+        );
+        run_session(&b, &d, &*d, session_limits()).await;
+        assert!(b.get(&key(9000)).await.unwrap().is_none());
+    }
+    #[tokio::test]
+    async fn post_snapshot_arrival_is_removed_by_promotion() {
+        use std::sync::atomic::Ordering;
+        let (a, b, d) = relay_setup().await;
+        let source = CountingSource::new(a.clone());
+        let peer = StorePeer(a.clone());
+        let mut coordinator = Coordinator::new(scope(), session_limits()).unwrap();
+        for _ in 0..1000 {
+            coordinator.start_pass();
+            coordinator
+                .advance(&*b, &*b, &*b, &peer, &source)
+                .await
+                .unwrap();
+            if coordinator.phase_label() == "compare" {
+                break;
+            }
+        }
+        assert_eq!(coordinator.phase_label(), "compare");
+        run_session(&b, &d, &*d, session_limits()).await;
+        assert_eq!(
+            b.get(&key(9000)).await.unwrap().unwrap().value,
+            Some(Value { n: 9000 })
+        );
+        finish_coordinator(&mut coordinator, &b, &a, &source).await;
+        assert!(b.get(&key(9000)).await.unwrap().is_none());
+        assert_eq!(source.calls.load(Ordering::Relaxed), 0);
+    }
+    async fn open(store: &MemorySyncStore<Model>, limits: WorkLimits) -> SnapshotDescriptor<Model> {
+        let request = Uuid::new_v4();
+        let mut cursor = None;
+        loop {
+            match store
+                .open_snapshot(request, scope(), limits, cursor)
+                .await
+                .unwrap()
+            {
+                WorkOutcome::Ready(descriptor) => return descriptor,
+                WorkOutcome::Incomplete { cursor: next } => cursor = Some(next),
+            }
+        }
+    }
+    async fn stage_contexts(
+        dst: &MemorySyncStore<Model>,
+        src: &MemorySyncStore<Model>,
+        session: Uuid,
+        remote: &SnapshotDescriptor<Model>,
+    ) {
+        for context in &remote.contexts {
+            let stage = dst
+                .begin_stage(
+                    StageDescriptor {
+                        origin: StageOrigin::SnapshotContext {
+                            session,
+                            snapshot_id: remote.snapshot_id,
+                            collection: context.collection.clone(),
+                        },
+                        manifest: context.context.manifest.clone(),
+                    },
+                    session_limits().stages,
+                )
+                .await
+                .unwrap();
+            for ordinal in 0..context.context.manifest.fragment_count {
+                let fragment = SnapshotSource::read_fragment(
+                    src,
+                    remote.snapshot_id,
+                    context.context.manifest.clone(),
+                    ordinal,
+                    DEFAULT_PAGE_BYTES,
+                )
+                .await
+                .unwrap();
+                dst.stage_fragment(stage.stage, fragment).await.unwrap();
+            }
+        }
+    }
+    #[tokio::test]
+    async fn source_live_post_snapshot_arrival_survives_promotion() {
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
+        a.write_local(key(42), Some(Value { n: 42 })).await.unwrap();
+        let peer = StorePeer(a.clone());
+        let mut coordinator = Coordinator::new(scope(), session_limits()).unwrap();
+        for _ in 0..100 {
+            coordinator.start_pass();
+            coordinator
+                .advance(&*b, &*b, &*b, &peer, &*a)
+                .await
+                .unwrap();
+            if coordinator.phase_label() == "compare" {
+                break;
+            }
+        }
+        assert_eq!(coordinator.phase_label(), "compare");
+        let Event::Key(delta) = a.lock().unwrap().core.journal()[0].event.clone() else {
+            panic!()
+        };
+        b.lock().unwrap().core.apply_delta(&delta).unwrap();
+        let head = b.head().await.unwrap();
+        finish_coordinator(&mut coordinator, &b, &a, &*a).await;
+        assert_eq!(
+            b.get(&key(42)).await.unwrap().unwrap().value,
+            Some(Value { n: 42 })
+        );
+        assert_eq!(b.head().await.unwrap(), head);
+    }
+    #[tokio::test]
+    async fn promotion_chunks_resume_and_are_idempotent() {
+        let a = store(2);
+        let b = store(3);
+        let writer = Uuid::from_u128(999);
+        let mut context = crate::causal::Context::default();
+        for n in 1..=3000 {
+            context
+                .insert(crate::causal::Dot {
+                    writer,
+                    counter: 2 * n,
+                })
+                .unwrap();
+        }
+        a.lock()
+            .unwrap()
+            .core
+            .apply_merge(&MergeDelta {
+                collection: Collection::Notes,
+                added: vec![],
+                observed: exact_context(&context),
+            })
+            .unwrap();
+        let mut limits = session_limits();
+        limits.apply.max_mutations = 400;
+        let remote = open(&a, limits.work).await;
+        let local = open(&b, limits.work).await;
+        let session = b
+            .begin_reconciliation(Uuid::new_v4(), remote.clone(), local)
+            .await
+            .unwrap();
+        assert!(matches!(
+            b.lock().unwrap().receiver.prepare_promotion(session, 100),
+            Err(SyncError::IncompleteCoverage)
+        ));
+        stage_contexts(&b, &a, session, &remote).await;
+        b.accept_equal_range(session, remote.roots[0].clone())
+            .await
+            .unwrap();
+        let mut steps = 0;
+        loop {
+            let receiver = b.lock().unwrap().receiver.clone();
+            let first = receiver.prepare_promotion(session, 100).unwrap();
+            assert_eq!(first, receiver.prepare_promotion(session, 100).unwrap());
+            let token = first.unwrap();
+            let progress = b.promote_step(session, limits.apply).await.unwrap();
+            assert!(matches!(
+                b.lock().unwrap().receiver.finalize_promotion(&token),
+                Err(SyncError::StaleWork)
+            ));
+            steps += 1;
+            if progress.done {
+                break;
+            }
+            assert!(matches!(
+                b.complete_reconciliation(session).await,
+                Err(SyncError::IncompleteCoverage)
+            ));
+        }
+        assert!(steps >= 31);
+        assert!(context.is_subset(&b.lock().unwrap().core.base(&Collection::Notes)));
+        let head = b.head().await.unwrap();
+        assert_eq!(
+            b.promote_step(session, limits.apply).await.unwrap(),
+            PromoteProgress {
+                done: true,
+                causal_changes: 0
+            }
+        );
+        assert_eq!(b.head().await.unwrap(), head);
+        b.complete_reconciliation(session).await.unwrap();
+        assert!(b.lock().unwrap().descriptors.is_empty());
+    }
+    #[tokio::test]
+    async fn converged_pair_first_contact_is_empty() {
+        use std::sync::atomic::Ordering;
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
+        let c = Arc::new(store(4));
+        for n in 1..=256 {
+            a.write_local(key(n), Some(Value { n: n as u32 }))
+                .await
+                .unwrap();
+        }
+        run_session(&c, &a, &*a, session_limits()).await;
+        run_session(&b, &c, &*c, session_limits()).await;
+        let before = b.head().await.unwrap();
+        let source = CountingSource::new(a.clone());
+        run_session(&b, &a, &source, session_limits()).await;
+        assert_eq!(source.calls.load(Ordering::Relaxed), 0);
+        assert_eq!(b.head().await.unwrap(), before);
+    }
+    #[tokio::test]
+    async fn coordinator_stops_after_eight_stale_restarts() {
+        use std::sync::atomic::Ordering;
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
+        let mut source = CountingSource::new(a.clone());
+        source.stale_open = true;
+        let peer = StorePeer(a.clone());
+        let mut coordinator = Coordinator::new(scope(), session_limits()).unwrap();
+        for _ in 0..300 {
+            coordinator.start_pass();
+            match coordinator.advance(&*b, &*b, &*b, &peer, &source).await {
+                Err(SyncError::Invalid(message)) => {
+                    assert_eq!(message, "coordinator restart limit exceeded");
+                    assert_eq!(source.open_calls.load(Ordering::Relaxed), 8);
+                    assert!(b.lock().unwrap().checkpoints.is_empty());
+                    return;
+                }
+                Ok(SessionAdvance::Incomplete) => (),
+                other => panic!("unexpected result: {other:?}"),
+            }
+        }
+        panic!("coordinator kept restarting");
     }
 }

@@ -140,11 +140,9 @@ pub fn candidate_rank<M: SyncModel>(c: &Candidate<M>) -> Result<(Revision, Diges
 fn kind(k: ManifestKind) -> &'static str {
     match k {
         ManifestKind::KeyEvent => "key_event",
-        ManifestKind::RangeEvent => "range_event",
+        ManifestKind::MergeEvent => "merge_event",
         ManifestKind::Context => "context",
-        ManifestKind::ContextPartition => "context_partition",
         ManifestKind::ContextRoot => "context_root",
-        ManifestKind::Leaf => "leaf",
     }
 }
 fn manifest(m: &ManifestRef) -> Value {
@@ -158,12 +156,6 @@ fn range<M: SyncModel>(r: &KeyRange<M>) -> Result<Value> {
         return Err(SyncError::Invalid("invalid range".into()));
     }
     Ok(json!({"collection":M::collection_tag(&r.collection),"lower":r.lower,"upper":r.upper}))
-}
-fn identity(i: &StoreIdentity) -> Value {
-    json!({"namespace":i.namespace,"model":{"model":i.model.model,"schema":i.model.schema},"replica":i.replica,"generation":i.generation})
-}
-fn progress(p: &ReceiveProgress) -> Value {
-    json!({"sequence":p.sequence,"anchor":hex(&p.anchor)})
 }
 pub fn canonical_event<M: SyncModel>(e: &Event<M>) -> Result<Vec<u8>> {
     let value = match e {
@@ -209,37 +201,47 @@ pub fn canonical_event<M: SyncModel>(e: &Event<M>) -> Result<Vec<u8>> {
             let removed: Vec<_> = k.removed.iter().copied().map(dot_value).collect();
             json!({"kind":"key","key":key_value(&k.key),"author":revision_value(k.author),"removed":removed,"added":added})
         }
-        Event::Range(r) => {
+        Event::Merge(m) => {
             validate_model::<M>()?;
-            initial_anchor(&r.source.source)?;
-            scope_id(&r.scope)?;
-            if !r.scope.collections.contains(&r.range.collection) {
-                return Err(SyncError::Invalid("range outside scope".into()));
+            valid_tag(M::collection_tag(&m.collection))?;
+            if !M::collections().contains(&m.collection) {
+                return Err(SyncError::Invalid("unknown collection".into()));
             }
-            if r.source.source.model.model != M::model_id()
-                || r.source.source.model.schema != M::schema_id()
-                || r.source.snapshot_id.is_nil()
-                || r.source.head.sequence > MAX_NUMBER
+            canonical_context(&m.observed)?;
+            let observed = causal_context(&m.observed)?;
+            if m.added.is_empty() && observed.is_empty() {
+                return Err(SyncError::Invalid("empty merge event".into()));
+            }
+            if m.added
+                .len()
+                .checked_add(observed.intervals().count())
+                .is_none_or(|n| n as u64 > MAX_LOGICAL_ITEMS)
             {
-                return Err(SyncError::Invalid("invalid range source".into()));
+                return Err(SyncError::LogicalLimit);
             }
-            if r.context_partition.kind != ManifestKind::ContextPartition
-                || r.live_manifest.kind != ManifestKind::Leaf
-            {
-                return Err(SyncError::Invalid("invalid range manifest kind".into()));
-            }
-            for manifest in [&r.context_partition, &r.live_manifest] {
-                if manifest.encoded_bytes == 0
-                    || manifest.encoded_bytes > MAX_LOGICAL_BYTES
-                    || manifest.item_count > MAX_LOGICAL_ITEMS
-                    || manifest.fragment_count == 0
-                    || manifest.fragment_count > MAX_FRAGMENTS
-                    || manifest_digest(manifest)? != manifest.manifest_digest
+            let mut previous = None;
+            let mut dots = BTreeSet::new();
+            let mut added = Vec::with_capacity(m.added.len());
+            for c in &m.added {
+                let cursor = CandidateCursor {
+                    key: c.key.clone(),
+                    dot: c.dot,
+                };
+                if c.key.collection != m.collection
+                    || previous.as_ref().is_some_and(|p| p >= &cursor)
+                    || !dots.insert(c.dot)
+                    || observed.contains(crate::causal::Dot {
+                        writer: c.dot.writer_incarnation,
+                        counter: c.dot.counter,
+                    })
                 {
-                    return Err(SyncError::Invalid("invalid range manifest".into()));
+                    return Err(SyncError::Invalid("invalid merge additions".into()));
                 }
+                canonical_candidate(c)?;
+                added.push(candidate_value(c)?);
+                previous = Some(cursor);
             }
-            json!({"kind":"range","range":range(&r.range)?,"scope":serde_json::to_value(&r.scope).map_err(err)?,"context_partition":manifest(&r.context_partition),"source":{"source":identity(&r.source.source),"snapshot_id":r.source.snapshot_id,"head":progress(&r.source.head)},"range_summary":hex(&r.range_summary),"live_manifest":manifest(&r.live_manifest)})
+            json!({"kind":"merge","collection":M::collection_tag(&m.collection),"added":added,"observed":serde_json::from_slice::<Value>(&canonical_context(&m.observed)?).map_err(err)?})
         }
     };
     let bytes = encode(value)?;
@@ -431,11 +433,9 @@ fn decode_manifest(v: &Value) -> Result<ManifestRef> {
     )?;
     let kind = match m["kind"].as_str() {
         Some("key_event") => ManifestKind::KeyEvent,
-        Some("range_event") => ManifestKind::RangeEvent,
+        Some("merge_event") => ManifestKind::MergeEvent,
         Some("context") => ManifestKind::Context,
-        Some("context_partition") => ManifestKind::ContextPartition,
         Some("context_root") => ManifestKind::ContextRoot,
-        Some("leaf") => ManifestKind::Leaf,
         _ => return Err(SyncError::Invalid("invalid manifest kind".into())),
     };
     Ok(ManifestRef {
@@ -472,32 +472,6 @@ fn decode_range<M: SyncModel>(v: &Value) -> Result<KeyRange<M>> {
     range(&value)?;
     Ok(value)
 }
-fn decode_identity(v: &Value) -> Result<StoreIdentity> {
-    let m = fields(v, &["namespace", "model", "replica", "generation"])?;
-    let model = fields(&m["model"], &["model", "schema"])?;
-    Ok(StoreIdentity {
-        namespace: parse_uuid(&m["namespace"])?,
-        model: ModelId {
-            model: model["model"]
-                .as_str()
-                .ok_or(SyncError::Invalid("invalid model".into()))?
-                .into(),
-            schema: model["schema"]
-                .as_str()
-                .ok_or(SyncError::Invalid("invalid schema".into()))?
-                .into(),
-        },
-        replica: parse_uuid(&m["replica"])?,
-        generation: parse_uuid(&m["generation"])?,
-    })
-}
-fn decode_progress(v: &Value) -> Result<ReceiveProgress> {
-    let m = fields(v, &["sequence", "anchor"])?;
-    Ok(ReceiveProgress {
-        sequence: number(&m["sequence"])?,
-        anchor: parse_digest(&m["anchor"])?,
-    })
-}
 /// Decode an exact canonical logical event; unknown, duplicate or noncanonical fields fail.
 pub fn decode_event<M: SyncModel>(bytes: &[u8]) -> Result<Event<M>> {
     if bytes.len() as u64 > MAX_LOGICAL_BYTES {
@@ -530,31 +504,25 @@ pub fn decode_event<M: SyncModel>(bytes: &[u8]) -> Result<Event<M>> {
                 added,
             })
         }
-        "range" => {
-            let m = fields(
-                &v,
-                &[
-                    "kind",
-                    "range",
-                    "scope",
-                    "context_partition",
-                    "source",
-                    "range_summary",
-                    "live_manifest",
-                ],
-            )?;
-            let source = fields(&m["source"], &["source", "snapshot_id", "head"])?;
-            Event::Range(Box::new(RangeEvent {
-                range: decode_range(&m["range"])?,
-                scope: serde_json::from_value(m["scope"].clone()).map_err(err)?,
-                context_partition: decode_manifest(&m["context_partition"])?,
-                source: SnapshotRef {
-                    source: decode_identity(&source["source"])?,
-                    snapshot_id: parse_uuid(&source["snapshot_id"])?,
-                    head: decode_progress(&source["head"])?,
-                },
-                range_summary: parse_digest(&m["range_summary"])?,
-                live_manifest: decode_manifest(&m["live_manifest"])?,
+        "merge" => {
+            let m = fields(&v, &["kind", "collection", "added", "observed"])?;
+            let tag = m["collection"]
+                .as_str()
+                .ok_or(SyncError::Invalid("invalid collection".into()))?;
+            let collection = M::collection_from_tag(tag)
+                .filter(|c| M::collection_tag(c) == tag)
+                .ok_or(SyncError::Invalid("unknown collection".into()))?;
+            let added = m["added"]
+                .as_array()
+                .ok_or(SyncError::Invalid("invalid additions".into()))?
+                .iter()
+                .map(candidate_from_value)
+                .collect::<Result<Vec<_>>>()?;
+            let observed = decode_context(&encode(m["observed"].clone())?)?;
+            Event::Merge(Box::new(MergeDelta {
+                collection,
+                added,
+                observed,
             }))
         }
         _ => return Err(SyncError::Invalid("unknown event kind".into())),
@@ -642,128 +610,6 @@ pub fn decode_context(bytes: &[u8]) -> Result<ExactContext> {
     }
     Ok(context)
 }
-/// Complete context partition; entries must exactly cover the supplied range.
-pub fn canonical_context_partition<M: SyncModel>(
-    parent: &KeyRange<M>,
-    segments: &[ContextSegment<M>],
-) -> Result<Vec<u8>> {
-    range(parent)?;
-    if segments.is_empty() || segments.len() as u64 > MAX_LOGICAL_ITEMS {
-        return Err(SyncError::Invalid("invalid context partition size".into()));
-    }
-    let mut previous = parent.lower;
-    let mut previous_context = None;
-    let mut out = Vec::with_capacity(segments.len());
-    for (index, segment) in segments.iter().enumerate() {
-        if previous_context == Some(segment.context.digest) {
-            return Err(SyncError::Invalid("uncoalesced context partition".into()));
-        }
-        previous_context = Some(segment.context.digest);
-        if segment.range.collection != parent.collection || segment.range.lower != previous {
-            return Err(SyncError::Invalid(
-                "context partition gap or overlap".into(),
-            ));
-        }
-        range(&segment.range)?;
-        if index + 1 < segments.len() && segment.range.upper.is_none() {
-            return Err(SyncError::Invalid(
-                "unbounded intermediate context segment".into(),
-            ));
-        }
-        if segment.context.manifest.kind != ManifestKind::Context
-            || segment.context.manifest.encoded_bytes == 0
-            || segment.context.manifest.encoded_bytes > MAX_LOGICAL_BYTES
-            || segment.context.manifest.item_count > MAX_LOGICAL_ITEMS
-            || segment.context.manifest.fragment_count == 0
-            || segment.context.manifest.fragment_count > MAX_FRAGMENTS
-            || manifest_digest(&segment.context.manifest)?
-                != segment.context.manifest.manifest_digest
-        {
-            return Err(SyncError::Invalid("invalid context manifest".into()));
-        }
-        previous = segment.range.upper;
-        out.push(json!({"range":range(&segment.range)?,"context":{"digest":hex(&segment.context.digest),"manifest":manifest(&segment.context.manifest)}}));
-    }
-    if previous != parent.upper {
-        return Err(SyncError::Invalid("incomplete context partition".into()));
-    }
-    let bytes = encode(json!({"segments":out}))?;
-    if bytes.len() as u64 > MAX_LOGICAL_BYTES {
-        return Err(SyncError::LogicalLimit);
-    }
-    Ok(bytes)
-}
-pub fn decode_context_partition<M: SyncModel>(
-    parent: &KeyRange<M>,
-    bytes: &[u8],
-) -> Result<Vec<ContextSegment<M>>> {
-    if bytes.len() as u64 > MAX_LOGICAL_BYTES {
-        return Err(SyncError::LogicalLimit);
-    }
-    let v: Value = serde_json::from_slice(bytes).map_err(err)?;
-    let m = fields(&v, &["segments"])?;
-    let mut segments = Vec::new();
-    for value in m["segments"]
-        .as_array()
-        .ok_or(SyncError::Invalid("invalid context partition".into()))?
-    {
-        let item = fields(value, &["range", "context"])?;
-        let context = fields(&item["context"], &["digest", "manifest"])?;
-        segments.push(ContextSegment {
-            range: decode_range(&item["range"])?,
-            context: ContextRef {
-                digest: parse_digest(&context["digest"])?,
-                manifest: decode_manifest(&context["manifest"])?,
-            },
-        });
-    }
-    if canonical_context_partition(parent, &segments)? != bytes {
-        return Err(SyncError::Invalid("noncanonical partition encoding".into()));
-    }
-    Ok(segments)
-}
-/// Complete candidate list ordered by stable `(collection,key,dot)`.
-pub fn canonical_candidates<M: SyncModel>(values: &[Candidate<M>]) -> Result<Vec<u8>> {
-    if values.len() as u64 > MAX_LOGICAL_ITEMS {
-        return Err(SyncError::LogicalLimit);
-    }
-    let mut previous: Option<CandidateCursor<M>> = None;
-    let mut out = Vec::with_capacity(values.len());
-    for candidate in values {
-        canonical_candidate(candidate)?;
-        let cursor = CandidateCursor {
-            key: candidate.key.clone(),
-            dot: candidate.dot,
-        };
-        if previous.as_ref().is_some_and(|p| p >= &cursor) {
-            return Err(SyncError::Invalid("unordered candidate list".into()));
-        }
-        previous = Some(cursor);
-        out.push(candidate_value(candidate)?);
-    }
-    let bytes = encode(json!({"candidates":out}))?;
-    if bytes.len() as u64 > MAX_LOGICAL_BYTES {
-        return Err(SyncError::LogicalLimit);
-    }
-    Ok(bytes)
-}
-pub fn decode_candidates<M: SyncModel>(bytes: &[u8]) -> Result<Vec<Candidate<M>>> {
-    if bytes.len() as u64 > MAX_LOGICAL_BYTES {
-        return Err(SyncError::LogicalLimit);
-    }
-    let value: Value = serde_json::from_slice(bytes).map_err(err)?;
-    let m = fields(&value, &["candidates"])?;
-    let candidates = m["candidates"]
-        .as_array()
-        .ok_or(SyncError::Invalid("invalid candidate list".into()))?
-        .iter()
-        .map(candidate_from_value)
-        .collect::<Result<Vec<_>>>()?;
-    if canonical_candidates(&candidates)? != bytes {
-        return Err(SyncError::Invalid("noncanonical candidate list".into()));
-    }
-    Ok(candidates)
-}
 /// Convert verified protocol context to the exact causal primitive.
 pub fn causal_context(context: &ExactContext) -> Result<crate::causal::Context> {
     canonical_context(context)?;
@@ -804,15 +650,15 @@ pub fn exact_context(context: &crate::causal::Context) -> ExactContext {
     }
 }
 
-/// Encode the exact scoped root of the baseline context dependency tree.
+/// Encode the exact scoped collection contexts.
 pub fn canonical_context_root<M: SyncModel>(root: &ContextRoot<M>) -> Result<Vec<u8>> {
     let digest = scope_id(&root.scope)?;
-    if root.partitions.len() != root.scope.collections.len() {
+    if root.contexts.len() != root.scope.collections.len() {
         return Err(SyncError::Invalid("context root coverage mismatch".into()));
     }
     let mut previous: Option<&str> = None;
-    let mut refs = Vec::with_capacity(root.partitions.len());
-    for item in &root.partitions {
+    let mut refs = Vec::with_capacity(root.contexts.len());
+    for item in &root.contexts {
         let tag = M::collection_tag(&item.collection);
         if !root.scope.collections.contains(&item.collection) || previous.is_some_and(|p| p >= tag)
         {
@@ -821,8 +667,8 @@ pub fn canonical_context_root<M: SyncModel>(root: &ContextRoot<M>) -> Result<Vec
             ));
         }
         previous = Some(tag);
-        let m = &item.partition;
-        if m.kind != ManifestKind::ContextPartition
+        let m = &item.context.manifest;
+        if m.kind != ManifestKind::Context
             || m.encoded_bytes == 0
             || m.encoded_bytes > MAX_LOGICAL_BYTES
             || m.item_count > MAX_LOGICAL_ITEMS
@@ -830,11 +676,11 @@ pub fn canonical_context_root<M: SyncModel>(root: &ContextRoot<M>) -> Result<Vec
             || m.fragment_count > MAX_FRAGMENTS
             || manifest_digest(m)? != m.manifest_digest
         {
-            return Err(SyncError::Invalid("invalid partition manifest".into()));
+            return Err(SyncError::Invalid("invalid context manifest".into()));
         }
-        refs.push(json!({"collection":tag,"partition":manifest(m)}));
+        refs.push(json!({"collection":tag,"context":{"digest":hex(&item.context.digest),"manifest":manifest(m)}}));
     }
-    let bytes = encode(json!({"scope":hex(&digest),"partitions":refs}))?;
+    let bytes = encode(json!({"scope":hex(&digest),"contexts":refs}))?;
     if bytes.len() as u64 > MAX_LOGICAL_BYTES {
         return Err(SyncError::LogicalLimit);
     }
@@ -846,29 +692,33 @@ pub fn decode_context_root<M: SyncModel>(scope: &Scope<M>, bytes: &[u8]) -> Resu
         return Err(SyncError::LogicalLimit);
     }
     let v: Value = serde_json::from_slice(bytes).map_err(err)?;
-    let fields = fields(&v, &["scope", "partitions"])?;
+    let fields = fields(&v, &["scope", "contexts"])?;
     if parse_digest(&fields["scope"])? != scope_id(scope)? {
         return Err(SyncError::Invalid("context root scope mismatch".into()));
     }
-    let mut partitions = Vec::new();
-    for entry in fields["partitions"]
+    let mut contexts = Vec::new();
+    for entry in fields["contexts"]
         .as_array()
-        .ok_or(SyncError::Invalid("invalid context root partitions".into()))?
+        .ok_or(SyncError::Invalid("invalid context root contexts".into()))?
     {
-        let entry = self::fields(entry, &["collection", "partition"])?;
+        let entry = self::fields(entry, &["collection", "context"])?;
         let tag = entry["collection"]
             .as_str()
             .ok_or(SyncError::Invalid("invalid collection tag".into()))?;
         let collection = M::collection_from_tag(tag)
             .ok_or(SyncError::Invalid("unknown collection tag".into()))?;
-        partitions.push(ContextPartitionRef {
+        let context = self::fields(&entry["context"], &["digest", "manifest"])?;
+        contexts.push(CollectionContext {
             collection,
-            partition: decode_manifest(&entry["partition"])?,
+            context: ContextRef {
+                digest: parse_digest(&context["digest"])?,
+                manifest: decode_manifest(&context["manifest"])?,
+            },
         });
     }
     let root = ContextRoot {
         scope: scope.clone(),
-        partitions,
+        contexts,
     };
     if canonical_context_root(&root)? != bytes {
         return Err(SyncError::Invalid(
@@ -878,18 +728,12 @@ pub fn decode_context_root<M: SyncModel>(scope: &Scope<M>, bytes: &[u8]) -> Resu
     Ok(root)
 }
 
-/// Incremental C12 range hash. Feed every complete context segment first, then
-/// every candidate in cursor order. The caller obtains counts from its pinned view.
+/// Incremental candidate-only range hash, fed in cursor order.
 #[derive(Clone)]
 pub struct RangeHasher<M: SyncModel> {
     hash: PortableHasher,
-    context_hash: PortableHasher,
     scope_digest: Digest,
     parent: KeyRange<M>,
-    segments_expected: u64,
-    segments_seen: u64,
-    next_lower: Option<Uuid>,
-    last_context: Option<Digest>,
     candidates_expected: u64,
     candidate_bytes_expected: u64,
     candidates_seen: u64,
@@ -908,11 +752,8 @@ impl<M: SyncModel> RangeHasher<M> {
         parent: KeyRange<M>,
         candidate_count: u64,
         candidate_bytes: u64,
-        segment_count: u64,
     ) -> Result<Self> {
         if !scope.collections.contains(&parent.collection)
-            || segment_count == 0
-            || segment_count > MAX_NUMBER
             || candidate_count > MAX_NUMBER
             || candidate_bytes > MAX_NUMBER
         {
@@ -928,22 +769,10 @@ impl<M: SyncModel> RangeHasher<M> {
         hash_lp(&mut hash, &bounds)?;
         hash.update(&candidate_count.to_be_bytes())?;
         hash.update(&candidate_bytes.to_be_bytes())?;
-        hash.update(&segment_count.to_be_bytes())?;
-        let mut context_hash = PortableHasher::new();
-        hash_lp(&mut context_hash, b"sync.range.context")?;
-        hash_lp(&mut context_hash, M::model_id().as_bytes())?;
-        hash_lp(&mut context_hash, M::schema_id().as_bytes())?;
-        hash_lp(&mut context_hash, &bounds)?;
-        context_hash.update(&segment_count.to_be_bytes())?;
         Ok(Self {
             hash,
-            context_hash,
             scope_digest,
-            next_lower: parent.lower,
             parent,
-            segments_expected: segment_count,
-            segments_seen: 0,
-            last_context: None,
             candidates_expected: candidate_count,
             candidate_bytes_expected: candidate_bytes,
             candidates_seen: 0,
@@ -951,38 +780,8 @@ impl<M: SyncModel> RangeHasher<M> {
             last_candidate: None,
         })
     }
-    pub fn push_segment(&mut self, bounds: &KeyRange<M>, context: Digest) -> Result<()> {
-        if self.candidates_seen != 0
-            || self.segments_seen >= self.segments_expected
-            || bounds.collection != self.parent.collection
-            || bounds.lower != self.next_lower
-            || self.last_context == Some(context)
-            || (bounds.upper.is_none() && self.segments_seen + 1 != self.segments_expected)
-        {
-            return Err(SyncError::Invalid("invalid range context segment".into()));
-        }
-        let encoded = encode(range(bounds)?)?;
-        if self.segments_seen + 1 == self.segments_expected && bounds.upper != self.parent.upper {
-            return Err(SyncError::Invalid(
-                "incomplete range context coverage".into(),
-            ));
-        }
-        let mut hash = self.hash.clone();
-        let mut context_hash = self.context_hash.clone();
-        hash_lp(&mut hash, &encoded)?;
-        hash.update(&context)?;
-        hash_lp(&mut context_hash, &encoded)?;
-        context_hash.update(&context)?;
-        self.hash = hash;
-        self.context_hash = context_hash;
-        self.next_lower = bounds.upper;
-        self.last_context = Some(context);
-        self.segments_seen += 1;
-        Ok(())
-    }
     pub fn push_candidate(&mut self, candidate: &Candidate<M>) -> Result<()> {
-        if self.segments_seen != self.segments_expected
-            || self.candidates_seen >= self.candidates_expected
+        if self.candidates_seen >= self.candidates_expected
             || candidate.key.collection != self.parent.collection
             || self.parent.lower.is_some_and(|x| candidate.key.id < x)
             || self.parent.upper.is_some_and(|x| candidate.key.id >= x)
@@ -1026,14 +825,8 @@ impl<M: SyncModel> RangeHasher<M> {
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
-        let context_hash: String = self
-            .context_hash
-            .checkpoint()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
         encode(
-            json!({"version":1,"model":M::model_id(),"schema":M::schema_id(),"scope":hex(&self.scope_digest),"parent":range(&self.parent)?,"segments_expected":self.segments_expected,"segments_seen":self.segments_seen,"next_lower":self.next_lower,"last_context":self.last_context.map(|d|hex(&d)),"candidates_expected":self.candidates_expected,"candidate_bytes_expected":self.candidate_bytes_expected,"candidates_seen":self.candidates_seen,"candidate_bytes_seen":self.candidate_bytes_seen,"last_candidate":self.last_candidate,"hash":hash,"context_hash":context_hash}),
+            json!({"version":2,"model":M::model_id(),"schema":M::schema_id(),"scope":hex(&self.scope_digest),"parent":range(&self.parent)?,"candidates_expected":self.candidates_expected,"candidate_bytes_expected":self.candidate_bytes_expected,"candidates_seen":self.candidates_seen,"candidate_bytes_seen":self.candidate_bytes_seen,"last_candidate":self.last_candidate,"hash":hash}),
         )
     }
     /// Restore only for the caller's pinned scope/range; invalid state is rejected.
@@ -1050,20 +843,15 @@ impl<M: SyncModel> RangeHasher<M> {
                 "schema",
                 "scope",
                 "parent",
-                "segments_expected",
-                "segments_seen",
-                "next_lower",
-                "last_context",
                 "candidates_expected",
                 "candidate_bytes_expected",
                 "candidates_seen",
                 "candidate_bytes_seen",
                 "last_candidate",
                 "hash",
-                "context_hash",
             ],
         )?;
-        if number(&m["version"])? != 1
+        if number(&m["version"])? != 2
             || m["model"].as_str() != Some(M::model_id())
             || m["schema"].as_str() != Some(M::schema_id())
             || parse_digest(&m["scope"])? != scope_id(scope)?
@@ -1075,41 +863,14 @@ impl<M: SyncModel> RangeHasher<M> {
                 "invalid range checkpoint identity".into(),
             ));
         }
-        let next_lower = if m["next_lower"].is_null() {
-            None
-        } else {
-            Some(parse_uuid(&m["next_lower"])?)
-        };
-        let last_context = if m["last_context"].is_null() {
-            None
-        } else {
-            Some(parse_digest(&m["last_context"])?)
-        };
         let last_candidate: Option<CandidateCursor<M>> =
             serde_json::from_value(m["last_candidate"].clone()).map_err(err)?;
-        let segments_expected = number(&m["segments_expected"])?;
-        let segments_seen = number(&m["segments_seen"])?;
         let candidates_expected = number(&m["candidates_expected"])?;
         let candidate_bytes_expected = number(&m["candidate_bytes_expected"])?;
         let candidates_seen = number(&m["candidates_seen"])?;
         let candidate_bytes_seen = number(&m["candidate_bytes_seen"])?;
-        if segments_expected == 0
-            || segments_seen > segments_expected
-            || candidates_seen > candidates_expected
+        if candidates_seen > candidates_expected
             || candidate_bytes_seen > candidate_bytes_expected
-            || (segments_seen == 0 && (next_lower != parent.lower || last_context.is_some()))
-            || (segments_seen > 0 && last_context.is_none())
-            || (segments_seen > 0 && segments_seen < segments_expected && next_lower.is_none())
-            || (segments_seen > 0
-                && next_lower
-                    .zip(parent.lower)
-                    .is_some_and(|(n, lower)| n <= lower))
-            || (segments_seen < segments_expected
-                && next_lower
-                    .zip(parent.upper)
-                    .is_some_and(|(n, upper)| n >= upper))
-            || (segments_seen == segments_expected && next_lower != parent.upper)
-            || (candidates_seen > 0 && segments_seen != segments_expected)
             || (candidates_seen == 0 && (last_candidate.is_some() || candidate_bytes_seen != 0))
             || (candidates_seen > 0 && last_candidate.is_none())
         {
@@ -1148,48 +909,27 @@ impl<M: SyncModel> RangeHasher<M> {
             PortableHasher::from_checkpoint(&bytes)
         }
         let hash = read_hash(&m["hash"])?;
-        let context_hash = read_hash(&m["context_hash"])?;
         let base = Self::new(
             scope,
             parent.clone(),
             candidates_expected,
             candidate_bytes_expected,
-            segments_expected,
         )?;
         let main_delta = hash
             .len()
             .checked_sub(base.hash.len())
             .ok_or(SyncError::Invalid("range checkpoint hash length".into()))?;
-        let context_delta = context_hash
-            .len()
-            .checked_sub(base.context_hash.len())
-            .ok_or(SyncError::Invalid("range checkpoint context length".into()))?;
         if main_delta
-            != context_delta
-                .checked_add(
-                    candidates_seen
-                        .checked_mul(32)
-                        .ok_or(SyncError::LogicalLimit)?,
-                )
+            != candidates_seen
+                .checked_mul(32)
                 .ok_or(SyncError::LogicalLimit)?
-            || (segments_seen == 0 && context_delta != 0)
-            || (segments_seen > 0
-                && context_delta
-                    < segments_seen
-                        .checked_mul(36)
-                        .ok_or(SyncError::LogicalLimit)?)
         {
             return Err(SyncError::Invalid("range checkpoint hash progress".into()));
         }
         Ok(Self {
             hash,
-            context_hash,
             scope_digest: scope_id(scope)?,
             parent: parent.clone(),
-            segments_expected,
-            segments_seen,
-            next_lower,
-            last_context,
             candidates_expected,
             candidate_bytes_expected,
             candidates_seen,
@@ -1198,16 +938,34 @@ impl<M: SyncModel> RangeHasher<M> {
         })
     }
     pub fn finish(self) -> Result<Digest> {
-        Ok(self.finish_with_context()?.0)
-    }
-    pub fn finish_with_context(self) -> Result<(Digest, Digest)> {
-        if self.segments_seen != self.segments_expected
-            || self.next_lower != self.parent.upper
-            || self.candidates_seen != self.candidates_expected
+        if self.candidates_seen != self.candidates_expected
             || self.candidate_bytes_seen != self.candidate_bytes_expected
         {
             return Err(SyncError::IncompleteCoverage);
         }
-        Ok((self.hash.finish(), self.context_hash.finish()))
+        Ok(self.hash.finish())
+    }
+}
+
+/// Decode peer bytes, classifying serialization failures as invalid peer input.
+pub fn decode_candidate_remote<M: SyncModel>(bytes: &[u8]) -> Result<Candidate<M>> {
+    decode_candidate(bytes).map_err(remote_decode_error)
+}
+pub fn decode_event_remote<M: SyncModel>(bytes: &[u8]) -> Result<Event<M>> {
+    decode_event(bytes).map_err(remote_decode_error)
+}
+pub fn decode_context_remote(bytes: &[u8]) -> Result<ExactContext> {
+    decode_context(bytes).map_err(remote_decode_error)
+}
+pub fn decode_context_root_remote<M: SyncModel>(
+    scope: &Scope<M>,
+    bytes: &[u8],
+) -> Result<ContextRoot<M>> {
+    decode_context_root(scope, bytes).map_err(remote_decode_error)
+}
+fn remote_decode_error(error: SyncError) -> SyncError {
+    match error {
+        SyncError::Storage(message) => SyncError::Invalid(message),
+        other => other,
     }
 }

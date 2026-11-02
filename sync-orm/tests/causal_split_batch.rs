@@ -168,7 +168,7 @@ async fn split_reuses_exact_summaries_and_preserves_the_pinned_view() -> Result<
         &db,
         cached.snapshot_id,
         root.clone(),
-        "ContextFallback",
+        "FindCandidate",
     )
     .await?;
     ensure!(root_split.len() == 2, "root did not split");
@@ -192,7 +192,7 @@ async fn split_reuses_exact_summaries_and_preserves_the_pinned_view() -> Result<
         &db,
         cached.snapshot_id,
         subrange.clone(),
-        "ContextFallback",
+        "FindCandidate",
     )
     .await?;
     let fallback_result = split(
@@ -235,7 +235,7 @@ async fn split_reuses_exact_summaries_and_preserves_the_pinned_view() -> Result<
             &db,
             cached.snapshot_id,
             range.clone(),
-            "ContextFallback",
+            "FindCandidate",
         )
         .await?;
         let right = split(

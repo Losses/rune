@@ -350,12 +350,18 @@ impl<K: Ord + Clone, V: Clone + Eq, R: Clone + Ord + Eq> CausalMap<K, V, R> {
             }
         }
         let mut observed = Context::default();
-        for (key, values) in &self.live {
-            if range.contains(key) {
-                for dot in values.keys() {
-                    if !seen.contains(dot) && source_base.contains(*dot) {
-                        observed.insert(*dot)?;
-                    }
+        let start = range
+            .start
+            .as_ref()
+            .map_or(std::ops::Bound::Unbounded, std::ops::Bound::Included);
+        let end = range
+            .end
+            .as_ref()
+            .map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
+        for values in self.live.range((start, end)).map(|(_, values)| values) {
+            for dot in values.keys() {
+                if !seen.contains(dot) && source_base.contains(*dot) {
+                    observed.insert(*dot)?;
                 }
             }
         }
