@@ -59,6 +59,9 @@ pub struct DiscoveredDevice {
     pub last_seen: DateTime<Utc>,
     /// List of IP addresses from which the device's announcements have been observed.
     pub ips: Vec<IpAddr>,
+    /// Advertised application port, absent in older saved observations.
+    #[serde(default)]
+    pub api_port: Option<u16>,
 }
 
 /// Multicast group address for device discovery.
@@ -588,6 +591,11 @@ impl DiscoveryService {
             device_type: serde_json::from_value(announcement["deviceType"].clone())?, // Deserialize device type
             ips: vec![addr.ip()],  // Record sender IP address
             last_seen: Utc::now(), // Update last seen timestamp to now
+            api_port: announcement
+                .get("api_port")
+                .and_then(|value| value.as_u64())
+                .and_then(|port| u16::try_from(port).ok())
+                .filter(|port| *port != 0),
         };
 
         // Update device state or insert new device if not already known
@@ -596,6 +604,9 @@ impl DiscoveryService {
                 existing.ips.push(addr.ip()); // Add new IP if not already listed
             }
             existing.last_seen = Utc::now(); // Update last seen timestamp
+            if device.api_port.is_some() {
+                existing.api_port = device.api_port;
+            }
         } else {
             devices.insert(fingerprint, device); // Insert new device into device states
         }
@@ -615,6 +626,24 @@ impl DiscoveryService {
         }
 
         Ok(())
+    }
+
+    /// Process a received discovery announcement from a caller-owned listener.
+    /// The announcement is advisory; callers must authenticate the peer separately.
+    pub async fn observe_announcement(
+        &self,
+        data: &[u8],
+        source: SocketAddr,
+        self_fingerprint: Option<String>,
+    ) -> Result<()> {
+        Self::handle_datagram(
+            &self_fingerprint,
+            data,
+            source,
+            &self.store,
+            &self.device_states,
+        )
+        .await
     }
 
     /// Stops the device listening service.
@@ -731,5 +760,36 @@ impl DiscoveryService {
     /// `bool` - A boolean flags indicating the listening status.
     pub async fn is_listening(&self) -> bool {
         self.listening_cancel_token.lock().await.is_some()
+    }
+}
+
+#[cfg(test)]
+mod endpoint_tests {
+    use super::*;
+
+    #[test]
+    fn old_saved_device_without_port_still_loads() {
+        let json = r#"{"alias":"old","device_model":"x","device_type":"desktop","fingerprint":"fp","last_seen":0,"ips":["127.0.0.1"]}"#;
+        let device: DiscoveredDevice = serde_json::from_str(json).unwrap();
+        assert_eq!(device.api_port, None);
+    }
+
+    #[tokio::test]
+    async fn announcements_record_and_refresh_advertised_port() {
+        let devices = Arc::new(DashMap::new());
+        let addr: SocketAddr = "127.0.0.1:1234".parse().unwrap();
+        for port in [4567, 7654] {
+            let data = serde_json::json!({"fingerprint":"fp","alias":"peer","deviceModel":"x","deviceType":"desktop","api_port":port});
+            DiscoveryService::handle_datagram(
+                &None,
+                &serde_json::to_vec(&data).unwrap(),
+                addr,
+                &None,
+                &devices,
+            )
+            .await
+            .unwrap();
+            assert_eq!(devices.get("fp").unwrap().api_port, Some(port));
+        }
     }
 }
