@@ -1,3 +1,5 @@
+pub mod sync;
+
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
