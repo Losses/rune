@@ -274,14 +274,14 @@ async fn supervise_scan(
         _ = supervisor_token.cancelled() => None,
     };
     let mut tokens = supervisor_tokens.lock().await;
-    let (status, progress, error) = if supervisor_token.is_cancelled() || result.is_none() {
-        ("cancelled", 0, String::new())
-    } else {
-        match result.expect("worker result exists") {
+    let (status, progress, error) = match result {
+        None => ("cancelled", 0, String::new()),
+        Some(_) if supervisor_token.is_cancelled() => ("cancelled", 0, String::new()),
+        Some(result) => match result {
             Ok(Ok(count)) => ("success", count as i32, String::new()),
             Ok(Err(error)) => ("failed", 0, format!("{error:#}")),
             Err(error) => ("failed", 0, format!("Scan worker failed: {error}")),
-        }
+        },
     };
     if status == "failed" {
         warn!("Scan failed for {supervisor_path}: {error}");
@@ -700,9 +700,11 @@ mod scan_supervisor_tests {
                 tokens.clone(),
             )
             .await;
-            let events = capture.0.lock().unwrap();
-            assert_eq!(events.len(), 1);
-            let response: ScanAudioLibraryResponse = rinf::deserialize(&events[0]).unwrap();
+            let response: ScanAudioLibraryResponse = {
+                let events = capture.0.lock().unwrap();
+                assert_eq!(events.len(), 1);
+                rinf::deserialize(&events[0]).unwrap()
+            };
             let expected = match outcome {
                 "failed" | "panic" => "failed",
                 "replacement" => "cancelled",

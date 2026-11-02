@@ -124,7 +124,7 @@ fn write_tagged_wav(path: &std::path::Path, title: &str) -> Result<()> {
         output.extend(id);
         output.extend((value.len() as u32).to_le_bytes());
         output.extend(value);
-        if value.len() % 2 != 0 {
+        if !value.len().is_multiple_of(2) {
             output.push(0);
         }
     }
