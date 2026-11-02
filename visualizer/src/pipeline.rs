@@ -672,6 +672,11 @@ impl Pipeline {
         self.scene.looks_view()
     }
 
+    /// Whether a scene switch is under way: its transition runs, or a scene waits for it.
+    pub fn switching(&self) -> bool {
+        self.transitions.running.is_some()
+    }
+
     /// The transition under way at `time` (the render loop's) and how far it is, 0 to 1 over
     /// the whole of it (a fade's out and in together).
     pub fn transition_progress(&self, time: f64) -> Option<(Transition, f32)> {
@@ -1120,7 +1125,8 @@ impl Pipeline {
     /// A switch while another transition runs: if the scene of that one is still waiting (a fade
     /// that is fading out, a dissolve that has not started), the newer scene takes its place and
     /// the transition goes on (so the picture does not jump); if it is already in, the transition
-    /// ends and the newer scene is cut in.
+    /// ends and the newer scene is cut in. A switch that shows nothing (a cut, as while paused)
+    /// ends a running transition and is in at once either way.
     pub fn switch_to(
         &mut self,
         mut scene: Scene,
@@ -1132,14 +1138,14 @@ impl Pipeline {
             scene.resize(&self.device, &self.queue, width, height)?;
         }
         scene.set_runtime(&self.runtime);
+        if durations.is_instant(transition) {
+            return self.install(scene);
+        }
         if let Some(running) = &mut self.transitions.running {
             if running.pending.is_some() {
                 running.pending = Some(scene);
                 return Ok(());
             }
-            return self.install(scene);
-        }
-        if durations.is_instant(transition) {
             return self.install(scene);
         }
         self.transitions.running = Some(Running {
@@ -2974,6 +2980,30 @@ mod tests {
         let c = load_plain(&mut pipeline, "during-c", 0.5);
         pipeline.switch_to(c, Transition::Fade, durations).unwrap();
         assert_eq!(pipeline.scene.name, "during-c");
+        assert!(pipeline.transitions.running.is_none());
+    }
+
+    /// A cut while a fade still waits to show its scene is in at once, and the fade is over.
+    #[test]
+    fn a_cut_during_a_transition_is_in_at_once() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let fade = Durations {
+            out: 1.0,
+            into: 1.0,
+        };
+        let a = load_plain(&mut pipeline, "cut-during-a", 1.0);
+        pipeline.switch_to(a, Transition::Fade, fade).unwrap();
+        pipeline.render(0.0).unwrap();
+        let b = load_plain(&mut pipeline, "cut-during-b", 0.2);
+        let at_once = Durations {
+            out: 0.0,
+            into: 0.0,
+        };
+        pipeline.switch_to(b, Transition::Cut, at_once).unwrap();
+        assert_eq!(pipeline.scene.name, "cut-during-b");
         assert!(pipeline.transitions.running.is_none());
     }
 
