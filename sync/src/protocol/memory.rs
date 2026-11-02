@@ -3317,6 +3317,192 @@ mod tests {
             Some(Value { n: 8 })
         );
     }
+    struct CountingSource {
+        inner: Arc<MemorySyncStore<Model>>,
+        calls: std::sync::atomic::AtomicUsize,
+        candidates: std::sync::atomic::AtomicUsize,
+    }
+    impl SnapshotSource<Model> for CountingSource {
+        fn release_request(&self, id: Uuid) -> BoxFuture<'_, ()> {
+            self.inner.release_request(id)
+        }
+        fn close_snapshot(&self, id: Uuid) -> BoxFuture<'_, ()> {
+            self.inner.close_snapshot(id)
+        }
+        fn cancel_snapshot_build(&self, c: WorkCursor) -> BoxFuture<'_, ()> {
+            self.inner.cancel_snapshot_build(c)
+        }
+        fn open_snapshot(
+            &self,
+            id: Uuid,
+            scope: Scope<Model>,
+            limits: WorkLimits,
+            resume: Option<WorkCursor>,
+        ) -> BoxFuture<'_, WorkOutcome<SnapshotDescriptor<Model>>> {
+            self.inner.open_snapshot(id, scope, limits, resume)
+        }
+        fn summarize(
+            &self,
+            id: Uuid,
+            range: KeyRange<Model>,
+            limits: WorkLimits,
+            resume: Option<WorkCursor>,
+        ) -> BoxFuture<'_, WorkOutcome<RangeSummary<Model>>> {
+            self.inner.summarize(id, range, limits, resume)
+        }
+        fn split(
+            &self,
+            id: Uuid,
+            range: KeyRange<Model>,
+            limits: WorkLimits,
+            resume: Option<WorkCursor>,
+        ) -> BoxFuture<'_, WorkOutcome<Vec<KeyRange<Model>>>> {
+            self.inner.split(id, range, limits, resume)
+        }
+        fn context_page(
+            &self,
+            id: Uuid,
+            range: KeyRange<Model>,
+            after: ContextCursor,
+            limits: PageLimits,
+        ) -> BoxFuture<'_, ContextPage<Model>> {
+            self.inner.context_page(id, range, after, limits)
+        }
+        fn leaf(
+            &self,
+            id: Uuid,
+            range: KeyRange<Model>,
+            after: Option<CandidateCursor<Model>>,
+            limits: PageLimits,
+        ) -> BoxFuture<'_, LeafPage<Model>> {
+            Box::pin(async move {
+                let page = self.inner.leaf(id, range, after, limits).await?;
+                self.calls
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.candidates
+                    .fetch_add(page.candidates.len(), std::sync::atomic::Ordering::Relaxed);
+                Ok(page)
+            })
+        }
+        fn read_fragment(
+            &self,
+            id: Uuid,
+            manifest: ManifestRef,
+            ordinal: u32,
+            max: u64,
+        ) -> BoxFuture<'_, Fragment> {
+            SnapshotSource::read_fragment(&*self.inner, id, manifest, ordinal, max)
+        }
+    }
+    #[tokio::test]
+    #[ignore = "fails until range reconciliation is candidate-only (D2)"]
+    async fn one_write_snapshot_transfers_only_changed_leaf() {
+        use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
+        use std::sync::atomic::Ordering;
+        let a = Arc::new(store(2));
+        let b = Arc::new(store(3));
+        let c = Arc::new(store(4));
+        for n in 1..=1024 {
+            a.write_local(
+                ObjectKey {
+                    collection: Collection::Notes,
+                    id: Uuid::from_u128(n),
+                },
+                Some(Value { n: n as u32 }),
+            )
+            .await
+            .unwrap();
+        }
+        let limits = SessionLimits {
+            pages: PageLimits {
+                max_scanned: 100,
+                max_bytes: 1024 * 1024,
+            },
+            stages: StageLimits {
+                max_total_bytes: DEFAULT_STAGE_BYTES,
+                max_stages: DEFAULT_STAGES,
+                max_event_bytes: DEFAULT_LOGICAL_BYTES,
+                max_event_items: DEFAULT_LOGICAL_ITEMS,
+                max_fragment_bytes: DEFAULT_PAGE_BYTES,
+            },
+            apply: ApplyLimits {
+                max_projection_items: 128,
+                max_projection_bytes: DEFAULT_PROJECTION_BYTES,
+                max_mutations: 1000,
+            },
+            work: WorkLimits {
+                max_requests: 1000,
+                max_bytes: DEFAULT_ROUND_BYTES,
+                max_depth: 10,
+                max_rows_scanned: 1000,
+                max_mutations: 1000,
+            },
+        };
+        async fn run(
+            dst: &Arc<MemorySyncStore<Model>>,
+            src: &Arc<MemorySyncStore<Model>>,
+            source: &dyn SnapshotSource<Model>,
+            limits: SessionLimits,
+        ) {
+            let peer = StorePeer(src.clone());
+            let mut coordinator = Coordinator::new(
+                Scope {
+                    collections: [Collection::Notes].into_iter().collect(),
+                },
+                limits,
+            )
+            .unwrap();
+            for _ in 0..3000 {
+                coordinator.start_pass();
+                if matches!(
+                    coordinator
+                        .advance(&**dst, &**dst, &**dst, &peer, source)
+                        .await
+                        .unwrap(),
+                    SessionAdvance::Complete(_)
+                ) {
+                    return;
+                }
+            }
+            panic!("session did not complete");
+        }
+        run(&c, &a, &*a, limits).await;
+        run(&b, &c, &*c, limits).await;
+        a.write_local(
+            ObjectKey {
+                collection: Collection::Notes,
+                id: Uuid::from_u128(500),
+            },
+            Some(Value { n: 9999 }),
+        )
+        .await
+        .unwrap();
+        let head = b.head().await.unwrap().sequence;
+        let counting = CountingSource {
+            inner: a.clone(),
+            calls: 0.into(),
+            candidates: 0.into(),
+        };
+        run(&b, &a, &counting, limits).await;
+        assert_eq!(
+            b.get(&ObjectKey {
+                collection: Collection::Notes,
+                id: Uuid::from_u128(500)
+            })
+            .await
+            .unwrap()
+            .unwrap()
+            .value,
+            Some(Value { n: 9999 })
+        );
+        let calls = counting.calls.load(Ordering::Relaxed);
+        let candidates = counting.candidates.load(Ordering::Relaxed);
+        assert!(
+            calls <= 4 && candidates <= 256,
+            "leaf calls: {calls}, leaf candidates: {candidates}"
+        );
+        assert!(b.head().await.unwrap().sequence <= head + 2);
+    }
     #[tokio::test]
     async fn coordinator_subdivides_large_differing_root() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};

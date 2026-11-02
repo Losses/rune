@@ -22,21 +22,11 @@ pub struct MemoryCore<M: SyncModel> {
     journal: Arc<Vec<JournalEntry<M>>>,
 }
 fn error(e: anyhow::Error) -> SyncError {
-    let message = e.to_string();
-    match message.as_str() {
-        "conflicting live dot"
-        | "conflicting source dot"
-        | "removed dot belongs to another live key" => SyncError::ConflictingDot,
-        "dot counter exhausted" => SyncError::ClockExhausted,
-        "live limit"
-        | "range limit"
-        | "writer limit"
-        | "interval limit"
-        | "delta item limit"
-        | "source live limit"
-        | "source writer limit"
-        | "source interval limit" => SyncError::LogicalLimit,
-        _ => SyncError::Invalid(message),
+    match e.downcast_ref::<crate::causal::CausalError>() {
+        Some(crate::causal::CausalError::ConflictingDot) => SyncError::ConflictingDot,
+        Some(crate::causal::CausalError::ClockExhausted) => SyncError::ClockExhausted,
+        Some(crate::causal::CausalError::LogicalLimit(_)) => SyncError::LogicalLimit,
+        _ => SyncError::Invalid(e.to_string()),
     }
 }
 fn causal_dot(d: Dot) -> CausalDot {
@@ -514,5 +504,30 @@ impl<M: SyncModel> MemoryCore<M> {
             value,
             revision,
         })
+    }
+}
+
+#[cfg(test)]
+mod causal_error_tests {
+    use super::*;
+    use crate::causal::CausalError;
+    #[test]
+    fn causal_errors_are_classified_by_type() {
+        assert!(matches!(
+            error(anyhow::Error::new(CausalError::ConflictingDot).context("different message")),
+            SyncError::ConflictingDot
+        ));
+        assert!(matches!(
+            error(CausalError::ClockExhausted.into()),
+            SyncError::ClockExhausted
+        ));
+        assert!(matches!(
+            error(CausalError::LogicalLimit("live limit").into()),
+            SyncError::LogicalLimit
+        ));
+        assert!(matches!(
+            error(anyhow::anyhow!("live limit")),
+            SyncError::Invalid(_)
+        ));
     }
 }

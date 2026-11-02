@@ -6,6 +6,26 @@ use anyhow::{Result, bail, ensure};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
+/// Typed failures from causal state operations.
+#[derive(Debug)]
+pub enum CausalError {
+    ConflictingDot,
+    ClockExhausted,
+    LogicalLimit(&'static str),
+    Invalid(String),
+}
+impl std::fmt::Display for CausalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ConflictingDot => f.write_str("conflicting live dot"),
+            Self::ClockExhausted => f.write_str("dot counter exhausted"),
+            Self::LogicalLimit(message) => f.write_str(message),
+            Self::Invalid(message) => f.write_str(message),
+        }
+    }
+}
+impl std::error::Error for CausalError {}
+
 /// Counters are limited to the signed database-compatible range.
 pub const MAX_DOT_COUNTER: u64 = i64::MAX as u64;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -17,7 +37,7 @@ impl Dot {
     pub fn new(writer: Uuid, counter: u64) -> Result<Self> {
         ensure!(
             !writer.is_nil() && (1..=MAX_DOT_COUNTER).contains(&counter),
-            "invalid dot"
+            CausalError::Invalid("invalid dot".into())
         );
         Ok(Self { writer, counter })
     }
@@ -27,7 +47,8 @@ impl Dot {
             self.writer,
             self.counter
                 .checked_add(1)
-                .ok_or_else(|| anyhow::anyhow!("dot counter exhausted"))?,
+                .filter(|n| *n <= MAX_DOT_COUNTER)
+                .ok_or(CausalError::ClockExhausted)?,
         )
     }
 }
@@ -42,6 +63,77 @@ pub struct Context {
     clocks: BTreeMap<Uuid, Clock>,
 }
 impl Context {
+    pub fn is_empty(&self) -> bool {
+        self.clocks.is_empty()
+    }
+    pub fn intervals(&self) -> impl Iterator<Item = (Uuid, u64, u64)> + '_ {
+        self.clocks.iter().flat_map(|(&writer, clock)| {
+            (clock.prefix > 0)
+                .then_some((writer, 1, clock.prefix))
+                .into_iter()
+                .chain(clock.intervals.iter().map(move |&(a, b)| (writer, a, b)))
+        })
+    }
+    pub fn difference(&self, other: &Self) -> Result<Self> {
+        let mut result = Self::default();
+        let mut rhs = other.intervals().peekable();
+        for (writer, start, end) in self.intervals() {
+            while rhs
+                .peek()
+                .is_some_and(|&(w, _, b)| w < writer || (w == writer && b < start))
+            {
+                rhs.next();
+            }
+            let mut cursor = start;
+            while let Some(&(w, a, b)) = rhs.peek() {
+                if w != writer || a > end {
+                    break;
+                }
+                if a > cursor {
+                    result.insert_interval(writer, cursor, a - 1)?;
+                }
+                cursor = cursor.max(b.saturating_add(1));
+                if b > end {
+                    break;
+                }
+                rhs.next();
+            }
+            if cursor <= end {
+                result.insert_interval(writer, cursor, end)?;
+            }
+        }
+        Ok(result)
+    }
+    pub fn is_subset(&self, other: &Self) -> bool {
+        let mut rhs = other.intervals().peekable();
+        self.intervals().all(|(w, a, b)| {
+            while rhs
+                .peek()
+                .is_some_and(|&(x, _, y)| x < w || (x == w && y < a))
+            {
+                rhs.next();
+            }
+            rhs.peek()
+                .is_some_and(|&(x, y, z)| x == w && y <= a && z >= b)
+        })
+    }
+    pub fn chunk(&self, after: Option<(Uuid, u64)>, max: usize) -> (Self, Option<(Uuid, u64)>) {
+        let mut out = Self::default();
+        let mut iter = self
+            .intervals()
+            .filter(|&(w, a, _)| after.is_none_or(|v| (w, a) > v))
+            .peekable();
+        let mut last = None;
+        for _ in 0..max {
+            let Some((w, a, b)) = iter.next() else { break };
+            // The intervals are already validated by Context.
+            if out.insert_interval(w, a, b).is_err() {
+                unreachable!()
+            }
+            last = Some((w, a));
+        }
+        (out, if iter.peek().is_some() { last } else { None })
+    }
     pub fn contains(&self, d: Dot) -> bool {
         self.clocks.get(&d.writer).is_some_and(|c| {
             d.counter > 0
@@ -61,7 +153,7 @@ impl Context {
     fn insert_range(&mut self, writer: Uuid, lo: u64, hi: u64) -> Result<bool> {
         ensure!(
             !writer.is_nil() && lo > 0 && lo <= hi && hi <= MAX_DOT_COUNTER,
-            "invalid interval"
+            CausalError::Invalid("invalid interval".into())
         );
         let clock = self.clocks.entry(writer).or_default();
         if hi <= clock.prefix {
@@ -130,7 +222,10 @@ pub struct KeyRange<K> {
 impl<K: Ord> KeyRange<K> {
     pub fn new(start: Option<K>, end: Option<K>) -> Result<Self> {
         if let (Some(a), Some(b)) = (&start, &end) {
-            ensure!(a < b, "invalid empty or reversed range");
+            ensure!(
+                a < b,
+                CausalError::Invalid("invalid empty or reversed range".into())
+            );
         }
         Ok(Self { start, end })
     }
@@ -185,6 +280,8 @@ impl Default for Limits {
         }
     }
 }
+/// Planned candidate additions and observed removals for a complete leaf.
+pub type LeafPlan<K, V, R> = (Vec<(K, Candidate<V, R>)>, Context);
 /// One collection's accepted causal state. Qualified contexts are durable state.
 #[derive(Clone, Debug)]
 pub struct CausalMap<K, V, R> {
@@ -208,6 +305,102 @@ impl<K: Ord + Clone, V: Clone + Eq, R: Clone + Ord + Eq> CausalMap<K, V, R> {
             ranges: Vec::new(),
             limits,
         })
+    }
+    pub fn live_entries(&self) -> Vec<(K, Candidate<V, R>)> {
+        self.live
+            .iter()
+            .flat_map(|(key, values)| values.values().map(move |c| (key.clone(), c.clone())))
+            .collect()
+    }
+    pub fn live_dots(&self) -> Context {
+        let mut context = Context::default();
+        for values in self.live.values() {
+            for c in values.values() {
+                if context.insert(c.dot).is_err() {
+                    unreachable!()
+                }
+            }
+        }
+        context
+    }
+    pub fn plan_leaf(
+        &self,
+        range: &KeyRange<K>,
+        incoming: &[(K, Candidate<V, R>)],
+        source_base: &Context,
+    ) -> Result<LeafPlan<K, V, R>> {
+        KeyRange::new(range.start.clone(), range.end.clone())?;
+        let mut seen = BTreeSet::new();
+        let mut added = Vec::new();
+        for (key, candidate) in incoming {
+            if !range.contains(key)
+                || !source_base.contains(candidate.dot)
+                || !seen.insert(candidate.dot)
+            {
+                return Err(CausalError::Invalid("invalid leaf candidate".into()).into());
+            }
+            self.check_dot(key, candidate)?;
+            if !self
+                .live
+                .get(key)
+                .is_some_and(|v| v.contains_key(&candidate.dot))
+                && !self.effective_context(key)?.contains(candidate.dot)
+            {
+                added.push((key.clone(), candidate.clone()));
+            }
+        }
+        let mut observed = Context::default();
+        for (key, values) in &self.live {
+            if range.contains(key) {
+                for dot in values.keys() {
+                    if !seen.contains(dot) && source_base.contains(*dot) {
+                        observed.insert(*dot)?;
+                    }
+                }
+            }
+        }
+        Ok((added, observed))
+    }
+    pub fn apply_merge(
+        &mut self,
+        added: &[(K, Candidate<V, R>)],
+        observed: &Context,
+    ) -> Result<bool> {
+        let mut seen = BTreeSet::new();
+        for (key, c) in added {
+            self.check_dot(key, c)?;
+            if !seen.insert(c.dot) || observed.contains(c.dot) {
+                return Err(CausalError::Invalid("duplicate or observed added dot".into()).into());
+            }
+        }
+        let before = self.normalized()?;
+        let mut next = self.clone();
+        for values in next.live.values_mut() {
+            values.retain(|dot, _| !observed.contains(*dot));
+        }
+        next.live.retain(|_, values| !values.is_empty());
+        for (key, c) in added {
+            let live = self.live.get(key).is_some_and(|v| v.contains_key(&c.dot));
+            if live || !self.effective_context(key)?.contains(c.dot) {
+                next.live
+                    .entry(key.clone())
+                    .or_default()
+                    .insert(c.dot, c.clone());
+            }
+            next.base.insert(c.dot)?;
+        }
+        next.base = next.base.union(observed)?;
+        let after = next.normalized()?;
+        let changed = self.live != next.live || self.base != next.base || before != after;
+        if changed {
+            next.ranges = after
+                .into_iter()
+                .filter(|part| part.context != next.base)
+                .collect();
+            next.validate_limits()?;
+            *self = next;
+        }
+        Ok(changed)
     }
     pub fn base(&self) -> &Context {
         &self.base
@@ -293,14 +486,20 @@ impl<K: Ord + Clone, V: Clone + Eq, R: Clone + Ord + Eq> CausalMap<K, V, R> {
     fn validate_limits(&self) -> Result<()> {
         ensure!(
             self.live.values().map(|m| m.len()).sum::<usize>() <= self.limits.max_live,
-            "live limit"
+            CausalError::LogicalLimit("live limit")
         );
-        ensure!(self.ranges.len() <= self.limits.max_ranges, "range limit");
+        ensure!(
+            self.ranges.len() <= self.limits.max_ranges,
+            CausalError::LogicalLimit("range limit")
+        );
         let mut all = self.base.clone();
         for r in &self.ranges {
             all = all.union(&r.context)?;
         }
-        ensure!(all.clocks.len() <= self.limits.max_writers, "writer limit");
+        ensure!(
+            all.clocks.len() <= self.limits.max_writers,
+            CausalError::LogicalLimit("writer limit")
+        );
         let intervals = self
             .ranges
             .iter()
@@ -308,14 +507,17 @@ impl<K: Ord + Clone, V: Clone + Eq, R: Clone + Ord + Eq> CausalMap<K, V, R> {
                 n.checked_add(r.context.interval_count())
             })
             .ok_or_else(|| anyhow::anyhow!("interval count overflow"))?;
-        ensure!(intervals <= self.limits.max_intervals, "interval limit");
+        ensure!(
+            intervals <= self.limits.max_intervals,
+            CausalError::LogicalLimit("interval limit")
+        );
         Ok(())
     }
     fn check_dot(&self, key: &K, c: &Candidate<V, R>) -> Result<()> {
         Dot::new(c.dot.writer, c.dot.counter)?;
         for (k, items) in &self.live {
             if let Some(old) = items.get(&c.dot) {
-                ensure!(k == key && old == c, "conflicting live dot");
+                ensure!(k == key && old == c, CausalError::ConflictingDot);
             }
         }
         Ok(())
@@ -395,17 +597,17 @@ impl<K: Ord + Clone, V: Clone + Eq, R: Clone + Ord + Eq> CausalMap<K, V, R> {
                 .len()
                 .checked_add(added.len())
                 .is_some_and(|n| n <= self.limits.max_live),
-            "delta item limit"
+            CausalError::LogicalLimit("delta item limit")
         );
         let mut seen = BTreeSet::new();
         for dot in removed {
             Dot::new(dot.writer, dot.counter)?;
             ensure!(seen.insert(*dot), "duplicate removed dot");
             for (live_key, values) in &self.live {
-                ensure!(
-                    live_key == &key || !values.contains_key(dot),
-                    "removed dot belongs to another live key"
-                );
+                if live_key != &key && values.contains_key(dot) {
+                    return Err(anyhow::Error::new(CausalError::ConflictingDot)
+                        .context("removed dot belongs to another live key"));
+                }
             }
         }
         for candidate in added {
@@ -453,15 +655,15 @@ impl<K: Ord + Clone, V: Clone + Eq, R: Clone + Ord + Eq> CausalMap<K, V, R> {
         KeyRange::new(source.range.start.clone(), source.range.end.clone())?;
         ensure!(
             source.candidates.len() <= self.limits.max_live,
-            "source live limit"
+            CausalError::LogicalLimit("source live limit")
         );
         ensure!(
             source.context.clocks.len() <= self.limits.max_writers,
-            "source writer limit"
+            CausalError::LogicalLimit("source writer limit")
         );
         ensure!(
             source.context.interval_count() <= self.limits.max_intervals,
-            "source interval limit"
+            CausalError::LogicalLimit("source interval limit")
         );
         let mut incoming = BTreeMap::<(K, Dot), Candidate<V, R>>::new();
         let mut dots = BTreeMap::<Dot, (K, Candidate<V, R>)>::new();
@@ -473,7 +675,10 @@ impl<K: Ord + Clone, V: Clone + Eq, R: Clone + Ord + Eq> CausalMap<K, V, R> {
             );
             self.check_dot(key, c)?;
             if let Some((old_key, old)) = dots.insert(c.dot, (key.clone(), c.clone())) {
-                ensure!(old_key == *key && old == *c, "conflicting source dot");
+                if old_key != *key || old != *c {
+                    return Err(anyhow::Error::new(CausalError::ConflictingDot)
+                        .context("conflicting source dot"));
+                }
                 bail!("duplicate source dot");
             }
             incoming.insert((key.clone(), c.dot), c.clone());

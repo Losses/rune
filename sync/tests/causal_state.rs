@@ -561,3 +561,164 @@ fn indexed_snapshot_scan_matches_complete_export() -> Result<()> {
     assert_eq!(live, expected_live);
     Ok(())
 }
+
+#[test]
+fn additive_context_algebra_and_merge_rejections() -> Result<()> {
+    let mut a = Context::default();
+    let mut b = Context::default();
+    let mut oracle_a = BTreeSet::new();
+    let mut oracle_b = BTreeSet::new();
+    for actor in 1..=3 {
+        for n in 1..=100 {
+            let d = dot(actor, n);
+            if n % 3 != 0 {
+                a.insert(d)?;
+                oracle_a.insert(d);
+            }
+            if n % 4 != 0 {
+                b.insert(d)?;
+                oracle_b.insert(d);
+            }
+        }
+    }
+    a.insert(dot(1, MAX_DOT_COUNTER))?;
+    oracle_a.insert(dot(1, MAX_DOT_COUNTER));
+    let diff = a.difference(&b)?;
+    let expected: BTreeSet<_> = oracle_a.difference(&oracle_b).copied().collect();
+    for d in &oracle_a {
+        assert_eq!(diff.contains(*d), expected.contains(d));
+    }
+    assert!(diff.is_subset(&a));
+    assert!(Context::default().is_empty());
+    let mut cursor = None;
+    let mut rebuilt = Context::default();
+    loop {
+        let (piece, next) = diff.chunk(cursor, 2);
+        rebuilt = rebuilt.union(&piece)?;
+        if next.is_none() {
+            break;
+        }
+        cursor = next;
+    }
+    assert_eq!(diff, rebuilt);
+    let mut state = map();
+    state.assign(1, cand(1, 1, 10))?;
+    let before = state.export()?;
+    assert!(
+        state
+            .apply_merge(&[(2, cand(2, 1, 20))], &context(&[dot(2, 1)]))
+            .is_err()
+    );
+    assert!(
+        state
+            .apply_merge(
+                &[(2, cand(2, 1, 20)), (2, cand(2, 1, 20))],
+                &Context::default()
+            )
+            .is_err()
+    );
+    assert!(
+        state
+            .apply_merge(&[(2, cand(1, 1, 20))], &Context::default())
+            .is_err()
+    );
+    assert_eq!(before, state.export()?);
+    Ok(())
+}
+
+#[test]
+fn session_decomposition_equals_full_join() -> Result<()> {
+    let mut random = 991u64;
+    let mut skipped = 0usize;
+    for trial in 0..120 {
+        let mut states = [map(), map(), map()];
+        let mut counters = [0u64; 3];
+        for _ in 0..48 {
+            let i = (seed(&mut random) >> 32) as usize % 3;
+            let key = ((seed(&mut random) >> 32) % 8) as u32;
+            let op = (seed(&mut random) >> 32) % 4;
+            let j = (seed(&mut random) >> 32) as usize % 3;
+            match op {
+                0 | 1 => {
+                    counters[i] += 1;
+                    states[i].assign(key, cand(i as u128 + 1, counters[i], key))?;
+                }
+                2 => {
+                    states[i].remove(&key);
+                }
+                _ => {
+                    let other = states[j].clone();
+                    states[i].merge(&other)?;
+                }
+            }
+        }
+        let source = states[0].clone();
+        let snapshot = states[1].clone();
+        let third = states[2].clone();
+        let mut result = snapshot.clone();
+        let mut intermediates = Vec::new();
+        let mut source_live = Context::default();
+        let interleave = (seed(&mut random) % 5) as usize;
+        for i in 0..4 {
+            if i == interleave {
+                result.merge(&third)?;
+            }
+            let range = rg(Some(i as u32 * 2), Some(i as u32 * 2 + 2));
+            let incoming: Vec<_> = source
+                .live_entries()
+                .into_iter()
+                .filter(|(k, _)| range.contains(k))
+                .collect();
+            let snapshot_live: Vec<_> = snapshot
+                .live_entries()
+                .into_iter()
+                .filter(|(k, _)| range.contains(k))
+                .collect();
+            // Equal candidate summaries skip the leaf; its dots never enter D.
+            if incoming == snapshot_live {
+                skipped += 1;
+                intermediates.push(result.clone());
+                continue;
+            }
+            for (_, c) in &incoming {
+                source_live.insert(c.dot)?;
+            }
+            let (added, observed) = result.plan_leaf(&range, &incoming, source.base())?;
+            result.apply_merge(&added, &observed)?;
+            intermediates.push(result.clone());
+        }
+        if interleave == 4 {
+            result.merge(&third)?;
+        }
+        let mut arrivals = Context::default();
+        for (key, c) in result.live_entries() {
+            if !snapshot.candidates(&key).any(|old| old.dot == c.dot)
+                && source.base().contains(c.dot)
+                && !source_live.contains(c.dot)
+            {
+                arrivals.insert(c.dot)?;
+            }
+        }
+        result.apply_merge(&[], &arrivals)?;
+        let mut after = None;
+        loop {
+            let (chunk, next) = source.base().chunk(after, 2);
+            let observed = chunk.difference(result.base())?;
+            result.apply_merge(&[], &observed)?;
+            if next.is_none() {
+                break;
+            }
+            after = next;
+        }
+        let mut expected = snapshot;
+        expected.merge(&third)?;
+        expected.merge(&source)?;
+        assert!(result.semantic_eq(&expected)?, "trial {trial}");
+        assert!(!result.clone().merge(&source)?, "trial {trial}");
+        for state in intermediates {
+            assert!(!expected.clone().merge(&state)?, "trial {trial}");
+        }
+    }
+    assert!(skipped > 0, "no equal range was skipped");
+    Ok(())
+}
