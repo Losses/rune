@@ -3,7 +3,6 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use image::{GenericImageView, ImageBuffer, Pixel};
 use lofty::file::TaggedFileExt;
-use log::{error, info};
 use palette_extract::{Color, get_palette_rgb};
 
 use ::fsio::FsIo;
@@ -72,54 +71,39 @@ pub fn extract_cover_art_binary<P: AsRef<Path>>(
     lib_path: Option<&Path>,
     file_path: &P,
 ) -> Option<CoverArt> {
-    if let Some(cover_art) = extract_from_tagged_file(fsio, file_path) {
-        return Some(cover_art);
-    }
-
-    if let Some(lib_path) = lib_path {
-        info!("Falling back to external cover art");
-        return fallback_to_external_cover(fsio, file_path.as_ref(), lib_path);
-    }
-
-    None
+    extract_cover_art_binary_checked(fsio, lib_path, file_path)
+        .ok()
+        .flatten()
 }
 
-fn extract_from_tagged_file<P: AsRef<Path>>(fsio: &FsIo, file_path: &P) -> Option<CoverArt> {
-    let file_path = match fsio.canonicalize_path(file_path.as_ref()) {
-        Ok(x) => x,
-        Err(_) => return None,
-    };
-
-    let tagged_file = lofty::read_from_path(file_path).ok()?;
-
-    let tag = tagged_file
+/// Inspect embedded and external artwork, keeping inspection errors distinct from absence.
+pub fn extract_cover_art_binary_checked<P: AsRef<Path>>(
+    fsio: &FsIo,
+    lib_path: Option<&Path>,
+    file_path: &P,
+) -> Result<Option<CoverArt>> {
+    let canonical = fsio.canonicalize_path(file_path.as_ref())?;
+    let tagged = lofty::read_from_path(canonical)?;
+    if let Some(picture) = tagged
         .primary_tag()
-        .or_else(|| tagged_file.first_tag())?;
-
-    let picture = tag.pictures().first()?;
-    let cover_data = picture.data().to_vec();
-
-    if cover_data.is_empty() {
-        return None;
+        .or_else(|| tagged.first_tag())
+        .and_then(|tag| tag.pictures().first())
+    {
+        let data = picture.data().to_vec();
+        anyhow::ensure!(!data.is_empty(), "empty embedded artwork");
+        let rgb = decode_image(&data)?;
+        let crc = media_crc32(&rgb, 0, 0, rgb.len());
+        anyhow::ensure!(crc != 0, "invalid embedded artwork CRC");
+        return Ok(Some(CoverArt {
+            crc: format!("{crc:08x}"),
+            data,
+            primary_color: color_to_int(&get_palette_rgb(&rgb)[0]),
+        }));
     }
-
-    let rgb_sequence = decode_image(&cover_data).ok()?;
-
-    // Calculate the CRC
-    let crc = media_crc32(&rgb_sequence, 0, 0, rgb_sequence.len());
-    let primary_color = get_palette_rgb(&rgb_sequence)[0];
-
-    if crc == 0 {
-        return None;
+    match lib_path {
+        Some(root) => fallback_to_external_cover(fsio, file_path.as_ref(), root),
+        None => Ok(None),
     }
-
-    let crc_string = format!("{crc:08x}");
-
-    Some(CoverArt {
-        crc: crc_string,
-        data: cover_data,
-        primary_color: color_to_int(&primary_color),
-    })
 }
 
 pub async fn extract_cover_art_from_stream(
@@ -167,11 +151,15 @@ pub async fn extract_cover_art_from_stream(
     Err(anyhow::anyhow!("No cover art found in stream"))
 }
 
-fn fallback_to_external_cover(fsio: &FsIo, lib_path: &Path, file_path: &Path) -> Option<CoverArt> {
-    if !file_path.starts_with(lib_path) {
-        error!("File path is not within the library path");
-        return None;
-    }
+fn fallback_to_external_cover(
+    fsio: &FsIo,
+    file_path: &Path,
+    lib_path: &Path,
+) -> Result<Option<CoverArt>> {
+    anyhow::ensure!(
+        file_path.starts_with(lib_path),
+        "file path is not within library"
+    );
 
     let cover_names = [
         "cover.png",
@@ -212,48 +200,48 @@ fn fallback_to_external_cover(fsio: &FsIo, lib_path: &Path, file_path: &Path) ->
         "Coverart.jpeg",
     ];
 
-    let mut current_dir = file_path.parent()?;
+    let mut current_dir = file_path.parent().context("file has no parent directory")?;
 
     while current_dir.starts_with(lib_path) {
         for cover_name in &cover_names {
             let cover_path = current_dir.join(cover_name);
-            let exists = match fsio.exists(&cover_path) {
-                Ok(x) => x,
-                Err(_) => return None,
-            };
-
-            if exists && let Some(cover_art) = process_external_cover(fsio, &cover_path) {
-                return Some(cover_art);
+            if fsio.exists(&cover_path)? {
+                return Ok(Some(process_external_cover(fsio, &cover_path)?));
             }
         }
-        current_dir = current_dir.parent()?;
+        let Some(parent) = current_dir.parent() else {
+            break;
+        };
+        current_dir = parent;
     }
-
-    None
+    Ok(None)
 }
 
-fn process_external_cover(fsio: &FsIo, cover_path: &Path) -> Option<CoverArt> {
-    let cover_data = fsio.read(cover_path).ok()?;
-
-    if cover_data.is_empty() {
-        return None;
-    }
-
-    let rgb_sequence = decode_image(&cover_data).ok()?;
+fn process_external_cover(fsio: &FsIo, cover_path: &Path) -> Result<CoverArt> {
+    let cover_data = fsio.read(cover_path)?;
+    anyhow::ensure!(!cover_data.is_empty(), "empty external artwork");
+    let rgb_sequence = decode_image(&cover_data)?;
 
     // Calculate the CRC
     let crc = media_crc32(&rgb_sequence, 0, 0, rgb_sequence.len());
     let primary_color = get_palette_rgb(&rgb_sequence)[0];
 
-    if crc == 0 {
-        return None;
-    }
-
+    anyhow::ensure!(crc != 0, "invalid external artwork CRC");
     let crc_string = format!("{crc:08x}");
-
-    Some(CoverArt {
+    Ok(CoverArt {
         crc: crc_string,
         data: cover_data,
         primary_color: color_to_int(&primary_color),
     })
+}
+
+#[cfg(test)]
+mod inspection_tests {
+    use super::*;
+    #[test]
+    fn missing_or_unreadable_audio_is_an_error_not_confirmed_absence() {
+        let fs = FsIo::new();
+        let missing = std::env::temp_dir().join(format!("rune-missing-art-{}", std::process::id()));
+        assert!(extract_cover_art_binary_checked(&fs, missing.parent(), &missing).is_err());
+    }
 }
