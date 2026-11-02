@@ -434,28 +434,41 @@ impl ServerManager {
             return Err(anyhow::anyhow!("Server not running"));
         }
 
+        let mut first_error = None;
         if let Some(cancel) = self.watch_cancel.lock().await.take() {
             cancel.cancel();
         }
-        if let Some(handle) = self.watch_handle.lock().await.take() {
-            handle.await?;
+        if let Some(handle) = self.watch_handle.lock().await.take()
+            && let Err(error) = handle.await
+        {
+            log::error!("Watch task failed during shutdown: {error}");
+            first_error = Some(anyhow::Error::from(error));
         }
         if let Some(cancel) = self.sync_cancel.lock().await.take() {
             cancel.cancel();
         }
-        if let Some(handle) = self.sync_handle.lock().await.take() {
-            handle.await?;
+        if let Some(handle) = self.sync_handle.lock().await.take()
+            && let Err(error) = handle.await
+        {
+            log::error!("Sync task failed during shutdown: {error}");
+            first_error.get_or_insert_with(|| error.into());
         }
         let streams = std::mem::take(&mut *self.stream_handles.lock().await);
         for handle in streams {
-            handle.await?;
+            if let Err(error) = handle.await {
+                log::error!("Stream task failed during shutdown: {error}");
+                first_error.get_or_insert_with(|| error.into());
+            }
         }
         if let Some(handle) = self.shutdown_handle.lock().await.as_ref() {
             handle.shutdown();
         }
 
-        if let Some(handle) = self.server_handle.lock().await.take() {
-            handle.await?;
+        if let Some(handle) = self.server_handle.lock().await.take()
+            && let Err(error) = handle.await
+        {
+            log::error!("Server task failed during shutdown: {error}");
+            first_error.get_or_insert_with(|| error.into());
         }
 
         self.global_params.device_scanner.stop_announcements().await;
@@ -464,7 +477,10 @@ impl ServerManager {
         *self.shutdown_handle.lock().await = None;
         self.is_running.store(false, Ordering::SeqCst);
 
-        Ok(())
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     /// Locate an online paired replica and prepare a pinned authenticated audio stream.

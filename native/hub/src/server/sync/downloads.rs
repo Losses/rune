@@ -85,18 +85,41 @@ pub async fn download_requested_audio(
                 break;
             }
             for file in files {
-                if attempted.contains(&file.id)
-                    || is_materialized(&db, &fsio, &root, file.id).await?
-                {
+                if attempted.contains(&file.id) {
                     continue;
                 }
-                let Some((track_id, blob, extension)) = catalog_track(&db, file.id).await? else {
-                    continue;
+                let materialized = match is_materialized(&db, &fsio, &root, file.id).await {
+                    Ok(value) => value,
+                    Err(error) => {
+                        log::warn!("Could not inspect file {}: {error:#}", file.id);
+                        report.failed += 1;
+                        attempted.insert(file.id);
+                        continue;
+                    }
                 };
-                if download_job(&db, track_id, &blob.digest)
-                    .await?
-                    .is_some_and(|job| !retry_is_due(&job, server))
-                {
+                if materialized {
+                    continue;
+                }
+                let (track_id, blob, extension) = match catalog_track(&db, file.id).await {
+                    Ok(Some(track)) => track,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        log::warn!("Could not look up file {}: {error:#}", file.id);
+                        report.failed += 1;
+                        attempted.insert(file.id);
+                        continue;
+                    }
+                };
+                let job = match download_job(&db, track_id, &blob.digest).await {
+                    Ok(job) => job,
+                    Err(error) => {
+                        log::warn!("Could not look up download for file {}: {error:#}", file.id);
+                        report.failed += 1;
+                        attempted.insert(file.id);
+                        continue;
+                    }
+                };
+                if job.is_some_and(|job| !retry_is_due(&job, server)) {
                     report.pending += 1;
                     continue;
                 }
@@ -136,7 +159,16 @@ pub async fn download_requested_audio(
                         notify();
                     }
                     Err(error) => {
-                        record_download_failure(&db, track_id, &blob, server, &error).await?;
+                        log::warn!("Download failed for file {}: {error:#}", file.id);
+                        if let Err(record_error) =
+                            record_download_failure(&db, track_id, &blob, server, &error).await
+                        {
+                            log::warn!(
+                                "Could not record failure for file {}: {record_error:#}",
+                                file.id
+                            );
+                        }
+                        report.failed += 1;
                         report.pending += 1;
                     }
                 }

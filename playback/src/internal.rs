@@ -38,9 +38,11 @@ async fn open_library_stream(
     id: i32,
 ) -> Result<(AnySource, PathBuf)> {
     let remote = resolver.resolve(id).await?;
+    let guard = remote.cancellation.clone().drop_guard();
     let reader =
         crate::stream_utils::create_stream_with_authorizer(remote.request, &remote.url).await?;
     let reader = crate::stream_utils::ManagedStream::new(reader, remote.cancellation);
+    guard.disarm();
     let decoder = RuneDecoder::new(reader, Some(&remote.extension))?;
     Ok((AnySource::Online(rune_buffered(decoder)), PathBuf::new()))
 }
@@ -1098,5 +1100,43 @@ impl PlayerInternal {
         info!("Adaptive switching status changed: {:#?}", { x });
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod stream_open_tests {
+    use super::*;
+    use crate::player::{AudioRequest, RemoteAudioSource};
+    use futures::future::BoxFuture;
+
+    struct FailingRequest;
+    impl AudioRequest for FailingRequest {
+        fn get(
+            &self,
+            _: Option<(u64, Option<u64>)>,
+        ) -> BoxFuture<'static, Result<reqwest::Response>> {
+            Box::pin(async { anyhow::bail!("request failed") })
+        }
+    }
+    struct Resolver(CancellationToken);
+    impl PlaybackSourceResolver for Resolver {
+        fn resolve(&self, _: i32) -> BoxFuture<'static, Result<RemoteAudioSource>> {
+            let cancellation = self.0.clone();
+            Box::pin(async move {
+                Ok(RemoteAudioSource {
+                    request: Arc::new(FailingRequest),
+                    url: "http://localhost/audio".into(),
+                    extension: "mp3".into(),
+                    cancellation,
+                })
+            })
+        }
+    }
+    #[tokio::test]
+    async fn failed_stream_creation_cancels_watcher() {
+        let token = CancellationToken::new();
+        let resolver: Arc<dyn PlaybackSourceResolver> = Arc::new(Resolver(token.clone()));
+        assert!(open_library_stream(&resolver, 1).await.is_err());
+        assert!(token.is_cancelled());
     }
 }

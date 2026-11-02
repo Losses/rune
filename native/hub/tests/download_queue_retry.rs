@@ -500,3 +500,29 @@ async fn stale_managed_verification_cannot_invalidate_changed_source() -> Result
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn invalid_local_path_does_not_block_following_file() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    fixture.fail.store(false, Ordering::SeqCst);
+    media_files::Entity::update_many()
+        .col_expr(
+            media_files::Column::Directory,
+            sea_orm::sea_query::Expr::value("../invalid"),
+        )
+        .col_expr(
+            media_files::Column::FileName,
+            sea_orm::sea_query::Expr::value("track.ogg"),
+        )
+        .col_expr(
+            media_files::Column::LocalAvailable,
+            sea_orm::sea_query::Expr::value(true),
+        )
+        .filter(media_files::Column::HlcUuid.eq(fixture.tracks[0].0.to_string()))
+        .exec(&fixture.db)
+        .await?;
+    let report = fixture.run(&fixture.base).await?;
+    assert_eq!(report.downloaded, 1);
+    assert_eq!(fixture.gets.load(Ordering::SeqCst), 1);
+    Ok(())
+}

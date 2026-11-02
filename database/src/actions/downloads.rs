@@ -192,6 +192,7 @@ pub struct DownloadReport {
     pub downloaded: usize,
     pub pending: usize,
     pub failed_rules: usize,
+    pub failed: usize,
 }
 
 pub async fn rule_queries(

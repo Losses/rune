@@ -83,8 +83,9 @@ impl Signal for CloseLibraryRequest {
         drop(tokens);
         if let Some(server) = server_manager
             && server.is_running()
+            && let Err(error) = server.stop().await
         {
-            server.stop().await?;
+            log::error!("Server shutdown failed: {error}");
         }
         main_token.cancel();
 
