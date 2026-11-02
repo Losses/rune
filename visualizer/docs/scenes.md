@@ -236,16 +236,18 @@ The shaders are checked with naga when the scene loads. A mistake in WGSL is rep
 
 | Field | Type | Meaning |
 |---|---|---|
-| `time` | f32 | Seconds since the scene's first frame, on the visualizer's clock (it stops while paused). |
+| `time` | f32 | Seconds since the scene's first frame, on the visualizer's clock (it stops while paused). It only grows, so it is the clock to time something from an event by (keep the event's `time` in the state); for motion, use `song`. |
 | `dt` | f32 | Seconds since the last frame, at most 0.1; 1/60 on the first frame. Use `rv_dt()`, which caps it at 0.05. |
 | `index` | u32 | The frame's number, from 0. |
 | `first` | u32 | 1 on the scene's first frame, and after a reload that did not keep the state; else 0. Start the state from it. |
 | `resolution` | vec2f | The internal resolution, in pixels. It changes with the runtime's quality steps: work sizes out from it each frame. |
 | `aspect` | f32 | `resolution.x / resolution.y`. |
-| `seed` | u32 | A new random number each frame (the same in tests that fix it). Not a per-run constant: two frames give two seeds. |
+| `seed` | u32 | A new random number each step of 1/60 s of song (the same in tests that fix it). With a song it follows the song time, so the same moment of the same song gives the same seed; without one it is drawn at random. Not a per-run constant: two steps give two seeds. |
 | `accent` | vec4f | The app's accent colour, linear. `rgb` is the colour and `a` is 1 once the app has told it, else 0 (a scene then falls back to a tint of its own). |
 | `covers` | u32 | How many cells of the covers atlas are valid: 0 when there are none. Cell 0 counts even when the playing track has no cover. |
 | `quality` | f32 | 1 at full quality, down to 0 in steps of 0.25 when the frame rate cannot be held at the lowest resolution. A scene takes fewer steps or samples at a lower one. See [Performance](music.md#performance). |
+| `song` | f32 | Where the song is, in seconds: it stands still while paused, jumps with a seek and starts from 0 with each song. Motion that runs on by itself (a twinkle, a sway, a drift of clouds) goes by it, so that the scene opened again at the same moment of the song shows it where it was. |
+| `song_seed` | u32 | A number fixed for the song that plays, the same each time it plays; without a song, one fixed for the scene's run. Draw what the scene starts with (`frame.first`) from it, and place what has moved on by `song`, so that the scene opened at the same moment of the same song starts the same. |
 
 ### `params` and `input`
 
@@ -365,7 +367,8 @@ and returns linear colour. In `out` and in `rgba16float` buffers, values above 1
 - **A built-in scene never writes `music.`** (see "`music`"), and never reads a raw field that has a semantic replacement.
 - **`from` and `target` are reserved words in WGSL.** Do not use them as names, and use another word for what they would name (`prev` and `to`, as `struct Look` does).
 - **`a && b || c` needs parentheses** in WGSL: `(a && b) || c`.
-- **`frame.seed` changes every frame.** A random number drawn from it alone (`rv_unit(frame.seed * K + n)`) is a different number every frame, so it is no way to decide something once; draw it at the moment of the decision (a cut, a bar, `frame.first`) and keep the result in the state. Mix a counter or the bar into the draw when two decisions are made in one frame.
+- **`frame.seed` changes every step.** A random number drawn from it alone (`rv_unit(frame.seed * K + n)`) is a different number every step of song, so it is no way to decide something once; draw it at the moment of the decision (a cut, a bar) and keep the result in the state. Mix a counter or the bar into the draw when two decisions are made in one frame. What the scene starts with on `frame.first` is drawn from `frame.song_seed` instead.
+- **Motion goes by `frame.song`, the time since an event by `frame.time`.** `song` jumps back with a seek and to 0 with a new song, so an event's time kept in the state is a `frame.time`; a phase that runs on by itself is a function of `song`.
 - **Only `update()` writes `state` and `post`.** A pass that writes them is refused by the shader check.
 - **The update is one thread.** Bound its loops and keep its work small.
 - **Do not cache a size in pixels.** Take it from `frame.resolution` or `px.size` every frame.

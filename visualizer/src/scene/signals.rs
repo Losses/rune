@@ -52,7 +52,7 @@ pub struct HitInput<'a> {
 /// the leading stream (the harmonic one when none leads) and phrase starts; else the live
 /// tracker's onsets. Onsets weaker than a threshold are left out and two are never closer than
 /// [`HIT_GAP`]. A seek or a stall, and the chart arriving, fire nothing.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct HitCounter {
     /// The song time of the last frame, if any.
     time: Option<f64>,
@@ -274,7 +274,7 @@ fn tempo_from_feel(feel: f64) -> f64 {
 
 /// Makes the signals of [`MusicValues`] from the raw values. Tick it once per frame, after the
 /// raw values and the hits are filled in.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Signals {
     /// The song time of the last frame, and whether it had a chart.
     time: Option<f64>,
@@ -1619,10 +1619,18 @@ mod tests {
             Levels::default(),
             (1.0, true),
             &mut events,
+            0.0,
         );
         assert_eq!((m.tempo, m.meter, m.cue_in), (90.0, 4.0, -1.0));
         let rhythm = beating(128.0, 9.5);
-        let m = music(&rhythm, None, Levels::default(), (1.1, true), &mut events);
+        let m = music(
+            &rhythm,
+            None,
+            Levels::default(),
+            (1.1, true),
+            &mut events,
+            0.001,
+        );
         assert!(m.tempo >= 90.0 && m.tempo < 128.0);
         assert!((m.clock.fract() - 0.5).abs() < 1e-3);
     }
