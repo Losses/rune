@@ -961,7 +961,7 @@ impl<M: SyncModel> CausalReplica<M> {
         )
         .all(db)
         .await?;
-        ensure!(rows.len() <= 1024, "candidate work limit exceeded");
+        ensure!(rows.len() <= 1024, protocol::SyncError::WorkLimit);
         let mut candidates = Vec::with_capacity(rows.len());
         let mut bytes = 0_usize;
         for row in rows {
@@ -971,7 +971,7 @@ impl<M: SyncModel> CausalReplica<M> {
             ensure!(
                 row.body.len() <= protocol::MAX_CANDIDATE_BYTES as usize
                     && bytes <= protocol::MAX_PROJECTION_BYTES as usize,
-                "candidate work limit exceeded"
+                protocol::SyncError::WorkLimit
             );
             let candidate = protocol::decode_candidate::<M>(&row.body)?;
             ensure!(
@@ -1184,7 +1184,7 @@ impl<M: SyncModel> CausalReplica<M> {
         let base = initial_size - digit_count(page.next.sequence) - if page.done { 4 } else { 5 };
         ensure!(
             initial_size as u64 <= request.limits.max_bytes,
-            "page header exceeds limit"
+            protocol::SyncError::WorkLimit
         );
         let mut link_bytes = 0_usize;
         let mut previous = request.after.anchor;
@@ -1277,7 +1277,7 @@ impl<M: SyncModel> CausalReplica<M> {
                             .await?
                         }
                     };
-                    ensure!(scoped, "page limit cannot fit filtered link");
+                    ensure!(scoped, protocol::SyncError::WorkLimit);
                     tx.commit().await?;
                     return Ok(PageRead::FragmentNeeded {
                         request,

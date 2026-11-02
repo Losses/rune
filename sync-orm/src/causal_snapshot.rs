@@ -164,7 +164,9 @@ pub async fn leaf_on<M: SyncModel>(
     let base = serde_json::to_vec(&page)?.len();
     ensure!(
         base as u64 <= limits.max_bytes,
-        "leaf header exceeds byte limit"
+        protocol::SyncError::LimitTooSmall {
+            required: base as u64
+        }
     );
     let cursor = after
         .map(|c| -> Result<causal_candidates::Cursor> {
@@ -231,7 +233,9 @@ pub async fn leaf_on<M: SyncModel>(
         if total as u64 > limits.max_bytes {
             ensure!(
                 !page.candidates.is_empty(),
-                "candidate does not fit leaf byte limit"
+                protocol::SyncError::LimitTooSmall {
+                    required: total as u64
+                }
             );
             page.done = false;
             break;
@@ -247,7 +251,7 @@ pub async fn leaf_on<M: SyncModel>(
     );
     ensure!(
         serde_json::to_vec(&page)?.len() as u64 <= limits.max_bytes,
-        "leaf exceeds byte limit"
+        protocol::SyncError::WorkLimit
     );
     Ok(page)
 }

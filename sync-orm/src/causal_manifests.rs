@@ -254,7 +254,10 @@ pub fn fragment_body(
         "invalid manifest body limits"
     );
     let count = body.len().div_ceil(fragment_bytes);
-    ensure!(count <= MAX_FRAGMENTS as usize, "too many fragments");
+    ensure!(
+        count <= MAX_FRAGMENTS as usize,
+        sync::protocol::SyncError::LogicalLimit
+    );
     let mut manifest = ManifestRef {
         kind,
         manifest_digest: [0; 32],
@@ -363,7 +366,7 @@ pub async fn read_on(
     let manifest = reference_on(tx, namespace, digest).await?;
     ensure!(
         manifest.encoded_bytes <= max_bytes && manifest.fragment_count <= max_fragments,
-        "manifest read limit exceeded"
+        sync::protocol::SyncError::WorkLimit
     );
     let mut body = Vec::with_capacity(usize::try_from(manifest.encoded_bytes)?);
     if manifest.fragment_count == 1 {

@@ -1791,3 +1791,106 @@ async fn expired_sql_snapshot_recovers_after_partial_reconciliation() -> Result<
     assert!(rows.is_empty());
     Ok(())
 }
+
+#[tokio::test]
+async fn oversize_leaf_reports_work_limit_and_splits_when_allowed() -> Result<()> {
+    let ns = Uuid::new_v4();
+    let (_, source, _) = setup(ns).await?;
+    let (_, limited, _) = setup(ns).await?;
+    let (_, split, _) = setup(ns).await?;
+    let key = |n| p::ObjectKey {
+        collection: 1,
+        id: Uuid::from_u128(n),
+    };
+    let (db, crowded, _) = setup(ns).await?;
+    let tx = db.begin().await?;
+    let writer = Uuid::new_v4();
+    for counter in 1..=1025_i64 {
+        tx.execute(
+            &Query::insert()
+                .into_table(Alias::new("sync_candidates"))
+                .columns(
+                    [
+                        "namespace",
+                        "collection",
+                        "writer",
+                        "counter",
+                        "object",
+                        "author",
+                        "revision",
+                        "body",
+                        "digest",
+                        "retention_seq",
+                        "live_from",
+                    ]
+                    .map(Alias::new),
+                )
+                .values_panic([
+                    ns.as_bytes().to_vec().into(),
+                    b"notes".to_vec().into(),
+                    writer.as_bytes().to_vec().into(),
+                    counter.into(),
+                    key(1).id.as_bytes().to_vec().into(),
+                    writer.as_bytes().to_vec().into(),
+                    counter.into(),
+                    vec![1_u8].into(),
+                    vec![0_u8; 32].into(),
+                    1_i64.into(),
+                    1_i64.into(),
+                ])
+                .to_owned(),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    assert_eq!(crowded.get(&key(1)).await, Err(p::SyncError::WorkLimit));
+    for n in 1..=3000 {
+        source
+            .write_local(key(n), Some(Note(n.to_string())))
+            .await?;
+    }
+    let mut limits = session_limits();
+    limits.pages.max_scanned = 128;
+    limits.apply.max_projection_items = 128;
+    limits.apply.max_mutations = 4096;
+    limits.work.max_rows_scanned = 1024;
+    limits.work.max_mutations = 4096;
+    limits.work.max_depth = 1;
+    async fn run(
+        src: &CausalEndpoint<Notes>,
+        dst: &CausalEndpoint<Notes>,
+        limits: p::SessionLimits,
+    ) -> p::Result<()> {
+        let mut coordinator = p::Coordinator::new(
+            p::Scope {
+                collections: [1].into_iter().collect(),
+            },
+            limits,
+        )?;
+        for _ in 0..100000 {
+            match coordinator.advance(dst, dst, dst, src, src).await? {
+                p::SessionAdvance::Complete(_) => return Ok(()),
+                p::SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+                p::SessionAdvance::Incomplete => (),
+                p::SessionAdvance::Cancelled => {
+                    return Err(p::SyncError::Invalid("cancelled".into()));
+                }
+            }
+        }
+        Err(p::SyncError::Invalid("session did not finish".into()))
+    }
+    assert_eq!(
+        run(&source, &limited, limits).await,
+        Err(p::SyncError::WorkLimit)
+    );
+    limits.work.max_depth = 32;
+    run(&source, &split, limits).await?;
+    for n in 1..=3000 {
+        assert_eq!(
+            source.get(&key(n)).await?,
+            split.get(&key(n)).await?,
+            "key {n}"
+        );
+    }
+    Ok(())
+}
