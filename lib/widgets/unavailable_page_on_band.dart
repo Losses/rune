@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../providers/responsive_providers.dart';
+import '../providers/responsive_providers.dart';
 
 class UnavailablePageOnBand extends StatelessWidget {
   const UnavailablePageOnBand({super.key, required this.child});

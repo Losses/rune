@@ -266,7 +266,9 @@ mod tests {
         let got: Vec<f32> = std::iter::from_fn(|| consumer.pop().ok()).collect();
         assert!(!got.is_empty() && got.len().is_multiple_of(2));
         assert!(
-            got.chunks_exact(2)
+            got.as_chunks::<2>()
+                .0
+                .iter()
                 .all(|frame| frame[0] > 0.0 && frame[1] < 0.0)
         );
     }
@@ -282,7 +284,9 @@ mod tests {
         let got: Vec<f32> = std::iter::from_fn(|| consumer.pop().ok()).collect();
         assert!(got.len().is_multiple_of(3));
         assert!(
-            got.chunks_exact(3)
+            got.as_chunks::<3>()
+                .0
+                .iter()
                 .all(|f| f[0] == 0.0 && f[1] > 0.0 && f[2] > f[1])
         );
     }
@@ -300,7 +304,9 @@ mod tests {
         assert_eq!(consumer.slots(), 1024);
         let got: Vec<f32> = std::iter::from_fn(|| consumer.pop().ok()).collect();
         assert!(
-            got.chunks_exact(2)
+            got.as_chunks::<2>()
+                .0
+                .iter()
                 .all(|frame| frame[0] > 0.0 && frame[1] < 0.0)
         );
     }

@@ -16,7 +16,7 @@ fn parse_pcm_to_samples(pcm_data: Vec<u8>) -> Result<Vec<f64>> {
 
     let mut samples = Vec::new();
 
-    for chunk in pcm_data.chunks_exact(2) {
+    for chunk in pcm_data.as_chunks::<2>().0 {
         let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
 
         samples.push(sample as f64 / 32768.0);
