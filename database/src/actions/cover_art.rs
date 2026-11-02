@@ -220,8 +220,10 @@ where
         .filter(media_files::Column::LocalAvailable.eq(true))
         .count(db)
         .await? as usize;
+    use futures::{StreamExt, stream};
     let mut cursor = 0;
     let mut processed = 0;
+    progress(0, total);
     loop {
         let rows = media_files::Entity::find()
             .filter(media_files::Column::Id.gt(cursor))
@@ -233,71 +235,111 @@ where
         if rows.is_empty() {
             break;
         }
-        for file in rows {
-            cursor = file.id;
+        cursor = rows.last().unwrap().id;
+        let mut work = stream::iter(rows.into_iter().map(|file| {
+            let fs = fsio.clone();
+            let root = root.to_path_buf();
+            let token = cancel.clone();
+            async move {
+                if token.as_ref().is_some_and(|c| c.is_cancelled()) {
+                    return Ok((file, None));
+                }
+                if artwork_inspection_is_current(&file) {
+                    return Ok((file, None));
+                }
+                let path = root.join(&file.directory).join(&file.file_name);
+                let expected = match (&file.content_hash, file.content_size) {
+                    (Some(hash), Some(size)) if size >= 0 => Some(crate::sync::model::BlobRef {
+                        digest: hash.clone(),
+                        size: size as u64,
+                    }),
+                    _ => None,
+                };
+                let inspected = tokio::task::spawn_blocking(move || {
+                    if let Some(expected) = &expected
+                        && crate::actions::file::hash_file(&fs, &path).ok().as_ref()
+                            != Some(expected)
+                    {
+                        return None;
+                    }
+                    let art = metadata::cover_art::extract_cover_art_binary_checked(
+                        &fs,
+                        Some(&root),
+                        &path,
+                    );
+                    if let Some(expected) = &expected
+                        && crate::actions::file::hash_file(&fs, &path).ok().as_ref()
+                            != Some(expected)
+                    {
+                        return None;
+                    }
+                    Some(art)
+                })
+                .await?;
+                Ok::<_, anyhow::Error>((file, inspected))
+            }
+        }))
+        .buffer_unordered(batch_size.min(4));
+        while let Some(result) = work.next().await {
+            let (file, inspection) = result?;
             if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
                 return Ok(processed);
             }
-            if let Some(checked) = &file.cover_art_checked_at
-                && let (Ok(modified), Ok(checked)) = (
-                    chrono::DateTime::parse_from_rfc3339(&file.last_modified),
-                    chrono::DateTime::parse_from_rfc3339(checked),
-                )
-                && modified <= checked
-            {
-                processed += 1;
-                progress(processed, total);
-                continue;
-            }
-            let path = root.join(&file.directory).join(&file.file_name);
-            let expected = match (&file.content_hash, file.content_size) {
-                (Some(hash), Some(size)) if size >= 0 => Some(crate::sync::model::BlobRef {
-                    digest: hash.clone(),
-                    size: size as u64,
-                }),
-                _ => None,
-            };
-            if let Some(expected) = &expected
-                && crate::actions::file::hash_file(&fsio, &path).ok().as_ref() != Some(expected)
-            {
-                log::warn!("artwork source changed before inspection: {}", file.id);
-                processed += 1;
-                progress(processed, total);
-                continue;
-            }
-            let recheck_path = path.clone();
-            let root = root.to_path_buf();
-            let fs = fsio.clone();
-            let inspection = tokio::task::spawn_blocking(move || {
-                metadata::cover_art::extract_cover_art_binary_checked(
-                    fs.as_ref(),
-                    Some(&root),
-                    &path,
-                )
-            })
-            .await?;
-            if let Some(expected) = &expected
-                && crate::actions::file::hash_file(&fsio, &recheck_path)
-                    .ok()
-                    .as_ref()
-                    != Some(expected)
-            {
-                log::warn!("artwork source changed during inspection: {}", file.id);
-                processed += 1;
-                progress(processed, total);
-                continue;
-            }
             match inspection {
-                Ok(art) => assign_inspected(db, store, &file, art).await?,
-                Err(error) => {
-                    log::warn!("artwork inspection for file {} failed: {error:#}", file.id)
+                Some(Ok(art)) => {
+                    if let Err(error) = assign_inspected(db, store, &file, art).await {
+                        if super::metadata::is_fatal_scan_error(&error) {
+                            return Err(error);
+                        }
+                        log::warn!("artwork assignment for {} failed: {error:#}", file.id);
+                    }
                 }
+                Some(Err(error)) => {
+                    log::warn!("artwork inspection for {} failed: {error:#}", file.id)
+                }
+                None => {}
             }
             processed += 1;
             progress(processed, total);
         }
     }
     Ok(processed)
+}
+
+fn artwork_inspection_is_current(file: &media_files::Model) -> bool {
+    inspection_timestamp_is_current(&file.last_modified, file.cover_art_checked_at.as_deref())
+}
+
+fn inspection_timestamp_is_current(modified: &str, checked: Option<&str>) -> bool {
+    let Some(checked) = checked.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()) else {
+        return false;
+    };
+    let modified = modified
+        .parse::<i64>()
+        .ok()
+        .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0))
+        .or_else(|| {
+            chrono::DateTime::parse_from_rfc3339(modified)
+                .ok()
+                .map(|v| v.to_utc())
+        });
+    modified.is_some_and(|modified| modified <= checked.to_utc())
+}
+
+#[cfg(test)]
+mod inspection_timestamp_tests {
+    use super::inspection_timestamp_is_current as current;
+    #[test]
+    fn accepts_current_unix_and_legacy_timestamps_only() {
+        let checked = Some("2024-01-01T00:00:00+00:00");
+        assert!(current("1704067200", checked));
+        assert!(current("2023-12-31T23:59:59Z", checked));
+        assert!(!current("1704067201", checked));
+        assert!(!current("invalid", checked));
+        assert!(!current("9223372036854775807", checked));
+        assert!(!current("1704067200", None));
+        assert!(!current("1704067200", Some("invalid")));
+    }
 }
 
 /// Returns a map of file_id -> (file_last_modified, cover_art_updated_at)
