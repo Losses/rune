@@ -13,6 +13,7 @@ pub struct CloseLibraryResponse {
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ScanAudioLibraryRequest {
+    pub scan_id: String,
     pub path: String,
     pub force: bool,
 }
@@ -25,6 +26,7 @@ pub enum ScanTaskType {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ScanAudioLibraryProgress {
+    pub scan_id: String,
     pub path: String,
     pub progress: i32,
     pub total: i32,
@@ -33,6 +35,9 @@ pub struct ScanAudioLibraryProgress {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct ScanAudioLibraryResponse {
+    pub scan_id: String,
+    pub status: String,
+    pub error: String,
     pub path: String,
     pub progress: i32,
 }
@@ -91,6 +96,7 @@ pub enum CancelTaskType {
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct CancelTaskRequest {
+    pub scan_id: Option<String>,
     pub path: String,
     pub r#type: CancelTaskType,
 }

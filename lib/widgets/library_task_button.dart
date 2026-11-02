@@ -62,13 +62,16 @@ class LibraryTaskButton extends StatelessWidget {
       return Container();
     }
 
-    final libraryManager =
-        Provider.of<LibraryManagerProvider>(context, listen: true);
+    final libraryManager = Provider.of<LibraryManagerProvider>(
+      context,
+      listen: true,
+    );
 
     final scanProgress = libraryManager.getScanTaskProgress(itemPath);
     final analyzeProgress = libraryManager.getAnalyzeTaskProgress(itemPath);
-    final deduplicateProgress =
-        libraryManager.getDeduplicateTaskProgress(itemPath);
+    final deduplicateProgress = libraryManager.getDeduplicateTaskProgress(
+      itemPath,
+    );
 
     final scanWorking = scanProgress?.status == TaskStatus.working;
     final analyzeWorking = analyzeProgress?.status == TaskStatus.working;
@@ -114,11 +117,7 @@ class ScanLibraryButton extends StatelessWidget {
   final String? title;
   final void Function()? onFinished;
 
-  const ScanLibraryButton({
-    super.key,
-    this.title,
-    this.onFinished,
-  });
+  const ScanLibraryButton({super.key, this.title, this.onFinished});
 
   @override
   Widget build(BuildContext context) {
@@ -134,13 +133,29 @@ class ScanLibraryButton extends StatelessWidget {
         }
       },
       onPressedStart: (libraryManager, itemPath) async {
-        libraryManager.scanLibrary(
-          itemPath,
-          isInitializeTask: false,
-        );
-        await libraryManager.waitForScanToComplete(itemPath);
-
-        if (onFinished != null) {
+        libraryManager.scanLibrary(itemPath, isInitializeTask: false);
+        final status = await libraryManager.waitForScanToComplete(itemPath);
+        if (status == TaskStatus.failed && context.mounted) {
+          await $showModal<void>(
+            context,
+            (context, close) => ContentDialog(
+              title: Text(
+                S
+                    .of(context)
+                    .error(
+                      libraryManager.getScanTaskProgress(itemPath)?.error ?? '',
+                    ),
+              ),
+              actions: [
+                Button(
+                  onPressed: () => close(null),
+                  child: Text(S.of(context).back),
+                ),
+              ],
+            ),
+          );
+        }
+        if (status == TaskStatus.finished && onFinished != null) {
           onFinished!();
         }
       },
@@ -150,9 +165,28 @@ class ScanLibraryButton extends StatelessWidget {
           isInitializeTask: false,
           force: true,
         );
-        await libraryManager.waitForScanToComplete(itemPath);
-
-        if (onFinished != null) {
+        final status = await libraryManager.waitForScanToComplete(itemPath);
+        if (status == TaskStatus.failed && context.mounted) {
+          await $showModal<void>(
+            context,
+            (context, close) => ContentDialog(
+              title: Text(
+                S
+                    .of(context)
+                    .error(
+                      libraryManager.getScanTaskProgress(itemPath)?.error ?? '',
+                    ),
+              ),
+              actions: [
+                Button(
+                  onPressed: () => close(null),
+                  child: Text(S.of(context).back),
+                ),
+              ],
+            ),
+          );
+        }
+        if (status == TaskStatus.finished && onFinished != null) {
           onFinished!();
         }
       },
@@ -166,11 +200,7 @@ class AnalyzeLibraryButton extends StatelessWidget {
   final String? title;
   final void Function()? onFinished;
 
-  const AnalyzeLibraryButton({
-    super.key,
-    this.title,
-    this.onFinished,
-  });
+  const AnalyzeLibraryButton({super.key, this.title, this.onFinished});
 
   @override
   Widget build(BuildContext context) {
@@ -179,8 +209,10 @@ class AnalyzeLibraryButton extends StatelessWidget {
 
     if (itemPath == null) return Container();
 
-    final libraryManager =
-        Provider.of<LibraryManagerProvider>(context, listen: true);
+    final libraryManager = Provider.of<LibraryManagerProvider>(
+      context,
+      listen: true,
+    );
 
     final analyzeProgress = libraryManager.getAnalyzeTaskProgress(itemPath);
 
@@ -220,11 +252,7 @@ class DeduplicateLibraryButton extends StatelessWidget {
   final String? title;
   final void Function()? onFinished;
 
-  const DeduplicateLibraryButton({
-    super.key,
-    this.title,
-    this.onFinished,
-  });
+  const DeduplicateLibraryButton({super.key, this.title, this.onFinished});
 
   @override
   Widget build(BuildContext context) {
@@ -233,11 +261,14 @@ class DeduplicateLibraryButton extends StatelessWidget {
 
     if (itemPath == null) return Container();
 
-    final libraryManager =
-        Provider.of<LibraryManagerProvider>(context, listen: true);
+    final libraryManager = Provider.of<LibraryManagerProvider>(
+      context,
+      listen: true,
+    );
 
-    final deduplicateProgress =
-        libraryManager.getDeduplicateTaskProgress(itemPath);
+    final deduplicateProgress = libraryManager.getDeduplicateTaskProgress(
+      itemPath,
+    );
 
     final progress = deduplicateProgress == null
         ? null

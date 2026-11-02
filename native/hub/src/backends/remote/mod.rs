@@ -282,6 +282,7 @@ impl WebSocketDartBridge {
                     main_token: Arc::clone(&cancel_token),
                     task_tokens: Arc::new(Mutex::new(TaskTokens {
                         scan_token: None,
+                        scan_id: None,
                         analyze_token: None,
                         deduplicate_token: None,
                     })),
