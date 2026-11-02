@@ -77,6 +77,13 @@ class AppTheme extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Applies the native window effect asynchronously for the current theme.
+  ///
+  /// Completes after applying the effect and macOS brightness override, or after
+  /// logging a native failure, switching to [WindowEffect.solid], and notifying
+  /// listeners so Flutter can paint the fallback background. Native failures are
+  /// not rethrown. Solid backgrounds and unsupported platforms complete without
+  /// calling native APIs.
   Future<void> setEffect() async {
     // Solid backgrounds are painted by Flutter and need no native effect.
     if (windowEffect == WindowEffect.solid ||
