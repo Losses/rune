@@ -576,7 +576,7 @@ They are `look.change` in `runtime.toml` (`when`: `strength` 0.5, `gap` 8 s, `st
 3. **At least `gap` seconds between two changes.** The scene's start counts as one, so a scene keeps the look it opened in for that long.
 4. **Without a chart** there are no labels. A cue of `strength_unlabelled` or more (any cue) changes the look to the next that suits the music's energy in an order made from the scene's seed, at least `gap_unlabelled` seconds after the last change: reproducible, not random.
 5. **The fade** lasts `fade` beats with a followed beat, else `fade_seconds`, eased.
-6. **The first look** is picked among the looks that `opens`, by weight, from the seed of the scene's first frame.
+6. **The first look** is picked among the looks that `opens`, by weight, from the seed of the scene's first frame: with a chart that is the song's seed, so a song opens in the same look each time (and a scene opened during a song shows the look the song has there; see "The same moment, the same picture").
 
 7. **A look the song is promised (`at_least_once`).** A look that says the key is picked by chance by rules 1 to 3 as any other. The runtime remembers which looks have been on in this song (the scene's first look, and every change) and forgets them when the song time goes back (a new song, or a seek) or the chart's list of sections is replaced; the look on then counts. If a look that says the key has not been on, the last section start that suits it changes to it, in place of the label's pick, as long as the gap allows. The last chance is found as for a shot, from the same list of sections the director has (`ChartState::song`, handed to `Looks::set_song`): the last section that suits the look by its `tiers`, or where none does the song's highest (the last of equals). A section start counts only where `gap` allows a change: the first section, or one that starts at least `gap` after the section before it (a look changes only at section starts, so the change before it is then far enough). If none that suits counts, the song's highest section that does. Without a chart nothing is promised, and a look of the key is only picked by chance.
 
@@ -606,6 +606,24 @@ fn shade(px: Pixel) -> vec4f {
 ```
 
 The scene never decides a change: it draws `prev`, `to` and `mix`, and reacts to `look.changes` only for what it must restart.
+
+## The same moment, the same picture
+
+With a chart, what the runtime decides (the director's cuts, the looks, the moments and the effects they play, the lens effects' course) depends on the song and the place in it, not on when the visualizer was opened, how fast it draws, a pause or a seek (`src/scene/stepper.rs`, `src/scene/decider.rs`).
+
+- **Stepped by song time.** The decisions are taken in steps of 1/60 s of song time (`STEP`), each heard from the chart alone (the live audio decides nothing then) with the song's seed (a hash of its file). A frame takes the steps whose time has come: none at a high frame rate, a few after a slow frame.
+- **A jump.** Where the song time jumps (the scene's first frame, a scene switch, a seek back of more than a third of a second or forward of more than 1 s), the decisions are put where playing the song from its start would have them, silently: from the latest snapshot before that time (one every 10 s of song, kept from such replays and from playing on untouched), else from the start. What was skipped is not played: in that frame there is no cut to dress and no effect, but `shot.cuts` grows by one and `shot.hard` is 1 until the next cut, so the scene jumps to the shot on. `shot.cuts` only grows, whatever the decisions are put back to.
+- **A chart that comes during the song** (its analysis finished) does not jump: the song's decisions are stepped next to the ones on screen, and take over on their own next cut. A scene without shots, or with a shot a lab holds, has no cut to wait for: there they take over at once.
+- **The chart is kept** while the visualizer is closed, for the song that played: opened again on it, the scene has the chart from its first frame.
+- **The signals start settled.** On a scene's first frame with a chart, the music's signals have heard the 8 s of chart before it, so drive and the like do not start from nothing.
+- **What a scene draws** follows the same rules where it can: motion that runs on by itself goes by `frame.song`, what the scene starts with is drawn from `frame.song_seed` and placed by `frame.song`, and `frame.seed` follows the song time (see `docs/scenes.md`, `struct Frame`). What the scene builds up from the music over time (a distance flown at the music's speed, a phase that slows with a fade) is only about the same.
+
+The exceptions, where the picture does depend on how it got there:
+
+- **No chart** (a song not yet analysed, one that is not a file, a lab holding the music at a lower level): the decisions are taken frame by frame from the live audio as before, and `frame.seed` is random.
+- **A scene lab's commands** (a cut, a burst, an effect played by hand, a hold, an override, a chance): they change the decisions on screen from then on, and no snapshot is taken from them; the next jump puts the decisions back where the song alone has them.
+- **A switch of scenes the user asks for**, with its fade: the new scene starts where the song is, but the fade is drawn as it comes.
+- **The adaptive quality** changes what is drawn, never what is decided.
 
 ## Parameters for tuning
 

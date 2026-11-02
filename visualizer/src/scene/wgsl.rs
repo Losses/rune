@@ -32,8 +32,8 @@ pub const BIND_INPUT: u32 = 17;
 pub const BIND_LOOK: u32 = 18;
 
 /// `struct Frame` is 64 bytes: time, dt, index, first, resolution (vec2f), aspect, seed, the
-/// app's accent colour (vec4f) at 32, how many covers the atlas holds (u32) at 48 and the quality
-/// (f32) at 52, padded.
+/// app's accent colour (vec4f) at 32, how many covers the atlas holds (u32) at 48, the quality
+/// (f32) at 52, the song time (f32) at 56 and the song's seed (u32) at 60.
 pub const FRAME_SIZE: u64 = 64;
 /// `struct Post` is 64 bytes: eight f32, the tint (vec4f) at 32, contrast and saturation, padding.
 pub const POST_SIZE: u64 = 64;
@@ -55,6 +55,10 @@ pub const FRAME: &str = "struct Frame {
   // 1 at full quality; lower (in steps, down to 0) when the frame rate cannot be held even at
   // the lowest internal resolution. A scene may take fewer steps or samples then.
   quality: f32,
+  // Where the song is, in seconds: it stands still while paused and jumps with a seek.
+  song: f32,
+  // A number fixed for the song that plays: the same each time it plays.
+  song_seed: u32,
 }
 ";
 
@@ -570,8 +574,8 @@ inputs = ["prev:trail"]
 
     #[test]
     fn frame_is_laid_out_as_wgsl_wants() {
-        // time, dt, index, first, resolution (2), aspect, seed, accent (4), covers, quality,
-        // padding.
+        // time, dt, index, first, resolution (2), aspect, seed, accent (4), covers, quality, song,
+        // song_seed.
         assert_eq!(FRAME_SIZE, 64);
         let frame = format!(
             "{FRAME}@group(0) @binding(0) var<uniform> frame: Frame;\n@fragment fn f() -> @location(0) vec4f {{ return vec4f(f32(frame.covers)); }}\n"
@@ -596,8 +600,14 @@ inputs = ["prev:trail"]
                 .offset
         };
         assert_eq!(
-            (offset("accent"), offset("covers"), offset("quality")),
-            (32, 48, 52)
+            (
+                offset("accent"),
+                offset("covers"),
+                offset("quality"),
+                offset("song"),
+                offset("song_seed")
+            ),
+            (32, 48, 52, 56, 60)
         );
     }
 

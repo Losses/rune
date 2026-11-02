@@ -150,17 +150,26 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
               ),
               // The wall is the scene named by the cover wall path; Rust
               // draws nothing then, and the wall fades in over the texture.
-              // It also stays until a scene runs, so a visualizer that cannot
-              // start leaves the covers on screen instead of a black page.
+              // Until a scene runs the page waits in the dark for the scene it
+              // resumes (see `VisualizerController.waiting`); otherwise, and
+              // when that fails or is slow, the wall shows, so a visualizer
+              // that cannot start leaves the covers on screen instead of a
+              // black page.
               Positioned.fill(
-                child: ValueListenableBuilder<String?>(
-                  valueListenable: _visualizer.scenePath,
-                  builder: (context, path, child) => AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    child: path == null || path == kCoverWallScenePath
-                        ? child
-                        : const SizedBox.shrink(),
-                  ),
+                child: ListenableBuilder(
+                  listenable: Listenable.merge([
+                    _visualizer.scenePath,
+                    _visualizer.waiting,
+                  ]),
+                  builder: (context, child) {
+                    final path = _visualizer.scenePath.value;
+                    final wall = path == kCoverWallScenePath ||
+                        (path == null && !_visualizer.waiting.value);
+                    return AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: wall ? child : const SizedBox.shrink(),
+                    );
+                  },
                   child: coverArtWall,
                 ),
               ),

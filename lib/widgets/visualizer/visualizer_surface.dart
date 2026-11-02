@@ -46,7 +46,11 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   void initState() {
     super.initState();
     _scenes = context.read<VisualizerScenesProvider>();
-    _controller.attach();
+    _controller.attach(resumesScene: _scenes.resumesScene);
+    // The page darkens at once for the scene it waits for (not in the build).
+    scheduleMicrotask(() {
+      if (!_disposed) _scenes.sceneShowing = _controller.waiting.value;
+    });
     WidgetsBinding.instance.addObserver(this);
     _syncVisible(WidgetsBinding.instance.lifecycleState);
     _statusTimer = Timer.periodic(
@@ -63,6 +67,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   void _updateLabel(VisualizerStatusResponse status) {
     final error = status.lastError;
     _controller.problem.value = error;
+    if (error != null) _controller.stopWaiting();
   }
 
   // Kept for dispose, where the context may no longer be used.
@@ -142,6 +147,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       // Leave `_starting` set so the next frames don't retry in a loop; showing
       // the surface again retries.
       _controller.problem.value = e.toString();
+      _controller.stopWaiting();
     }
   }
 
@@ -193,9 +199,13 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       if (path.isNotEmpty) {
         // The scene to resume next time, also after a restart.
         _scenes.setLastScene(path);
+        _controller.stopWaiting();
       }
-      // Scenes draw on black; the page darkens for them.
-      _scenes.sceneShowing = path.isNotEmpty && path != kCoverWallScenePath;
+      // Scenes draw on black; the page darkens for them, and while it waits
+      // for one.
+      _scenes.sceneShowing = path.isEmpty
+          ? _controller.waiting.value
+          : path != kCoverWallScenePath;
     } on TimeoutException {
       // The next tick asks again.
     }

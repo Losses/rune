@@ -101,6 +101,9 @@ const FALLBACK_SAMPLE_RATE: u32 = 44_100;
 const FPS_WINDOW: Duration = Duration::from_millis(500);
 /// How often a paused render thread looks at whether the music plays again.
 const PAUSED_POLL: Duration = Duration::from_millis(50);
+/// How far the paused song's place must move to count as sought and be drawn again: less is a
+/// report of the same place.
+const SOUGHT: Duration = Duration::from_millis(10);
 
 /// The audio the visualizer listens to.
 pub struct PcmInput {
@@ -298,6 +301,8 @@ struct Shared {
     playback: Mutex<Playback>,
     /// Where the player's files are opened from, set once; without it files are not analysed.
     fsio: OnceLock<Arc<FsIo>>,
+    /// The chart of the song while the visualizer is stopped, for when it starts again.
+    kept_chart: chart::KeptChart,
     /// Whether the scene on screen reads the atlas of album covers.
     wants_covers: AtomicBool,
     /// The latest atlas of covers and its version, which the render thread uploads.
@@ -417,6 +422,7 @@ impl Visualizer {
                 lab_chance: AtomicU8::new(NO_LAB_CHANCE),
                 playback: Mutex::new(Playback::default()),
                 fsio: OnceLock::new(),
+                kept_chart: chart::KeptChart::default(),
                 wants_covers: AtomicBool::new(false),
                 covers: Mutex::new(CoverAtlas::default()),
                 covers_job: AtomicU64::new(0),
@@ -936,10 +942,13 @@ fn run(
     // While paused or out of sight one frame is drawn (the first one, or after a command such as
     // a resize) and then held.
     let mut still_drawn = false;
+    // Where the player said the song was when the last frame was drawn: a seek while paused draws
+    // the frame of the new place.
+    let mut drawn_position: Option<Duration> = None;
     // The folder of the scene on screen, reloaded when it is saved (live editing).
     let mut watched: Option<Watched> = None;
     let mut tracker = BeatTracker::new(sample_rate);
-    let mut charts = ChartFollower::new(shared.fsio.get().cloned());
+    let mut charts = ChartFollower::new(shared.fsio.get().cloned(), Arc::clone(&shared.kept_chart));
     // The version of the atlas of covers the pipeline has.
     let mut covers_seen: Option<u64> = None;
     // The same for the cell of the track playing.
@@ -989,9 +998,20 @@ fn run(
         tracker.push(&pcm, channels);
         keep_recent(&mut pcm, channels, sample_rate);
 
-        // A scene that finished building replaces the one on screen, also while paused.
+        // A scene that finished building replaces the one on screen, also while paused: then at
+        // once, without a transition.
         if let Some(loaded) = loads.take() {
-            install(shared, &mut pipeline, &mut watched, &mut hidden, loaded);
+            let paused = bench.is_none()
+                && (!shared.playing.load(Ordering::Relaxed)
+                    || !shared.visible.load(Ordering::Relaxed));
+            install(
+                shared,
+                &mut pipeline,
+                &mut watched,
+                &mut hidden,
+                loaded,
+                paused,
+            );
             still_drawn = false;
         }
 
@@ -1023,7 +1043,9 @@ fn run(
         // The benchmark draws with the music paused or the window out of sight too.
         let paused = bench.is_none()
             && (!shared.playing.load(Ordering::Relaxed) || !shared.visible.load(Ordering::Relaxed));
-        if paused && still_drawn {
+        // A scene switch that began while the music played runs its transition to the end first,
+        // so that the new scene does not wait for the music to play again.
+        if paused && still_drawn && !pipeline.switching() {
             // Keep the last frame on screen and wait, for commands, the music or the window.
             let since = Instant::now();
             // The frame drawn last may still be on its way.
@@ -1036,6 +1058,13 @@ fn run(
                 }
                 Err(RecvTimeoutError::Timeout) => {}
             }
+            // The song was sought while paused (in sight): draw where it is now.
+            let position = lock(&shared.playback).position;
+            if shared.visible.load(Ordering::Relaxed)
+                && drawn_position.is_none_or(|drawn| position.abs_diff(drawn) > SOUGHT)
+            {
+                still_drawn = false;
+            }
             frozen += since.elapsed();
             deadline = Instant::now();
             window_start = deadline;
@@ -1043,6 +1072,7 @@ fn run(
             continue;
         }
         still_drawn = paused;
+        drawn_position = Some(lock(&shared.playback).position);
         if !pcm.is_empty() && !hidden {
             pipeline.push_pcm(&pcm, channels);
         }
@@ -1072,6 +1102,19 @@ fn run(
         let rhythm = chart::trusted_rhythm(tracker.rhythm(), chart.as_ref());
         pipeline.set_rhythm(&rhythm);
         pipeline.set_chart(chart.as_ref());
+        // With the song's chart (and no lab holding the music at a level), scenes decide by song
+        // time, with the song's seed.
+        let song_seed = charts
+            .path()
+            .filter(|path| !path.as_os_str().is_empty())
+            .map(|path| scene::song_seed(&path.display().to_string()));
+        let song_chart = charts
+            .chart()
+            .filter(|_| pipeline.lab().level.is_none())
+            .zip(song_seed)
+            .map(|(chart, seed)| scene::SongChart { chart, seed });
+        pipeline.set_song_chart(song_chart);
+        pipeline.set_song_seed(song_seed);
         pipeline.set_song(charts.song_time(), shared.playing.load(Ordering::Relaxed));
         pipeline.set_accent(match shared.accent.load(Ordering::Relaxed) {
             0 => None,
@@ -1208,20 +1251,26 @@ fn start_load(
 }
 
 /// Show a scene that finished building, or its error (the scene on screen stays then). The cover
-/// wall hides the scene on screen; the scene after it shows at once.
+/// wall hides the scene on screen; the scene after it shows at once, and so does a scene while the
+/// music is `paused`.
 fn install(
     shared: &Shared,
     pipeline: &mut Pipeline,
     watched: &mut Option<Watched>,
     hidden: &mut bool,
     loaded: Loaded,
+    paused: bool,
 ) {
     let switched = loaded.scene.and_then(|scene| {
         let Some(scene) = scene else {
             *hidden = true;
             return Ok(());
         };
-        let Switch(transition, durations) = if *hidden { AT_ONCE } else { loaded.switch };
+        let Switch(transition, durations) = if *hidden || paused {
+            AT_ONCE
+        } else {
+            loaded.switch
+        };
         pipeline.switch_to(scene, transition, durations)?;
         *hidden = false;
         Ok(())

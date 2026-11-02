@@ -199,7 +199,7 @@ impl MusicValues {
 /// Counts how many whole beats, bars and sections went by between frames, and the hits. A jump
 /// backwards (a seek, a new song) counts nothing and starts over from there; so does a jump of
 /// more than [`EventCounter::MAX_JUMP`] (a seek forwards), which would otherwise fire a burst.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct EventCounter {
     last: Option<(f64, f64, f64)>,
     /// Whether the last frame had a chart: the beat, bar and section of a chart and of the live
@@ -209,29 +209,52 @@ pub struct EventCounter {
     hits: HitCounter,
     /// The signals made of the raw values.
     signals: Signals,
-    /// When the last frame was, for fading `hit` by wall time (a paused song still fades it).
-    wall: Option<Instant>,
+}
+
+/// The wall seconds between frames, which `hit` and the music's signals move on by (see
+/// [`music`]): a paused song still fades them.
+#[derive(Debug, Default)]
+pub struct WallClock {
+    /// When the last frame was.
+    last: Option<Instant>,
     /// A test that draws a timeline as fast as the GPU goes: the wall seconds every frame after
-    /// the first counts as (see [`EventCounter::with_wall_dt`]).
+    /// the first counts as. The signals (the tempo's glide, the clock, the drive, the envelopes)
+    /// would otherwise move by something different on every run, and a slow first frame (a shader
+    /// compiled cold) would change them too.
     #[cfg(test)]
-    fixed_wall_dt: Option<f64>,
+    fixed: Option<f64>,
+}
+
+impl WallClock {
+    /// A clock that counts every frame after the first as `dt` wall seconds, however long it took
+    /// to draw.
+    #[cfg(test)]
+    pub(crate) fn fixed(dt: f64) -> Self {
+        Self {
+            fixed: Some(dt),
+            ..Self::default()
+        }
+    }
+
+    /// Wall seconds since the last call (0 on the first), at most [`MAX_WALL_DT`]. The time is
+    /// taken once per frame: asking again would give the time since this very call.
+    pub fn tick(&mut self) -> f64 {
+        let now = Instant::now();
+        let dt = self.last.map_or(0.0, |before| {
+            now.saturating_duration_since(before).as_secs_f64()
+        });
+        #[cfg(test)]
+        let dt = match self.fixed {
+            Some(fixed) if self.last.is_some() => fixed,
+            _ => dt,
+        };
+        self.last = Some(now);
+        dt.min(MAX_WALL_DT)
+    }
 }
 
 impl EventCounter {
     const MAX_JUMP: f64 = 8.0;
-
-    /// A counter that starts from nothing and counts every frame after the first as `dt` wall
-    /// seconds, however long it took to draw. The music's signals (the tempo's glide, the clock,
-    /// the drive, the envelopes) move on by wall time, so a timeline drawn as fast as the GPU
-    /// goes, and a slow first frame (a shader compiled cold), would otherwise move them by
-    /// something different on every run.
-    #[cfg(test)]
-    pub(crate) fn with_wall_dt(dt: f64) -> Self {
-        Self {
-            fixed_wall_dt: Some(dt),
-            ..Self::default()
-        }
-    }
 
     /// The crossings since the last call, for the beat, bar and section counters now.
     pub fn tick(&mut self, beat: f64, bar: f64, section: f64) -> (u32, u32, u32) {
@@ -258,21 +281,6 @@ impl EventCounter {
         }
         self.chart = Some(chart);
     }
-
-    /// Wall seconds since the last frame (0 on the first), at most [`MAX_WALL_DT`].
-    fn wall_dt(&mut self) -> f64 {
-        let now = Instant::now();
-        let dt = self.wall.map_or(0.0, |before| {
-            now.saturating_duration_since(before).as_secs_f64()
-        });
-        #[cfg(test)]
-        let dt = match self.fixed_wall_dt {
-            Some(fixed) if self.wall.is_some() => fixed,
-            _ => dt,
-        };
-        self.wall = Some(now);
-        dt.min(MAX_WALL_DT)
-    }
 }
 
 /// Whether the beats of `rhythm` (as [`trusted_rhythm`] left it) are to be told to scenes: those
@@ -281,13 +289,16 @@ pub fn beat_trusted(rhythm: &Rhythm, has_chart: bool) -> bool {
     rhythm.bpm > 0.0 && (has_chart || rhythm.confidence >= PULSE_CONFIDENCE)
 }
 
-/// `struct Music` for this frame. `song` is the song time and whether it plays.
+/// `struct Music` for this frame. `song` is the song time and whether it plays; `wall_dt` the
+/// wall seconds since the last frame, which the signals move on by (the caller's clock, or a fixed
+/// step for a song played ahead of time).
 pub fn music(
     rhythm: &Rhythm,
     chart: Option<&ChartState>,
     levels: Levels,
     song: (f64, bool),
     events: &mut EventCounter,
+    wall_dt: f64,
 ) -> MusicValues {
     events.follow(chart.is_some());
     let mut m = MusicValues {
@@ -364,8 +375,6 @@ pub fn music(
     if !trusted {
         (m.beats, m.bars, m.bpm) = (0, 0, 0.0);
     }
-    // The wall time is taken once: asking again would give the time since this very call.
-    let wall_dt = events.wall_dt();
     let input = HitInput {
         beats: m.beats,
         trusted,
@@ -456,7 +465,14 @@ mod tests {
             ..Default::default()
         };
         let mut events = EventCounter::default();
-        let m = music(&rhythm, None, Levels::default(), (3.0, true), &mut events);
+        let m = music(
+            &rhythm,
+            None,
+            Levels::default(),
+            (3.0, true),
+            &mut events,
+            0.0,
+        );
         assert_eq!(m.has_chart, 0);
         assert_eq!(m.lead, -1.0);
         assert_eq!(m.low, 0.5);
@@ -495,6 +511,7 @@ mod tests {
             Levels::default(),
             (1.0, true),
             &mut events,
+            0.0,
         );
         let m = music(
             &rhythm(0.05, 10.1),
@@ -502,6 +519,7 @@ mod tests {
             Levels::default(),
             (1.1, true),
             &mut events,
+            0.0,
         );
         assert_eq!((m.beats, m.bars), (0, 0));
         // Its tempo is not shown either: scenes take their speeds from `feel` then.
@@ -513,6 +531,7 @@ mod tests {
             Levels::default(),
             (1.5, true),
             &mut events,
+            0.0,
         );
         assert_eq!(m.beats, 0);
         let m = music(
@@ -521,6 +540,7 @@ mod tests {
             Levels::default(),
             (1.6, true),
             &mut events,
+            0.0,
         );
         assert_eq!(m.beats, 1);
         assert_eq!(m.bpm, 120.0);
@@ -547,6 +567,7 @@ mod tests {
                 Levels::default(),
                 (chart.beat / 2.0, true),
                 &mut events,
+                0.0,
             );
             (m.beats, m.bars, m.bpm, m.hits)
         };
@@ -588,6 +609,7 @@ mod tests {
                 Levels::default(),
                 (f64::from(i), true),
                 &mut events,
+                0.0,
             );
             assert_eq!(
                 (m.beats, m.bars, m.bpm, m.beat_confidence),
@@ -605,8 +627,22 @@ mod tests {
             ..Default::default()
         };
         let mut events = EventCounter::default();
-        music(&live, None, Levels::default(), (10.0, true), &mut events);
-        let m = music(&live, None, Levels::default(), (10.1, true), &mut events);
+        music(
+            &live,
+            None,
+            Levels::default(),
+            (10.0, true),
+            &mut events,
+            0.0,
+        );
+        let m = music(
+            &live,
+            None,
+            Levels::default(),
+            (10.1, true),
+            &mut events,
+            0.0,
+        );
         assert_eq!(m.beats, 0);
         // The chart arrives with its beat count a few ahead of the tracker's, as a number
         // unrelated to it: no burst.
@@ -628,6 +664,7 @@ mod tests {
             Levels::default(),
             (10.2, true),
             &mut events,
+            0.0,
         );
         assert_eq!((m.beats, m.hits), (0, 0));
         let chart = ChartState {
@@ -642,6 +679,7 @@ mod tests {
             Levels::default(),
             (10.3, true),
             &mut events,
+            0.0,
         );
         assert_eq!((m.beats, m.hits), (1, 1));
     }

@@ -283,7 +283,7 @@ fn pole_on(n: f32) -> bool {
 fn stream(k: f32) -> vec2f {
   var pace = array<f32, 3>(1.25, -1.15, 0.95);
   let v = pace[u32(k)];
-  return vec2f(v * frame.time, v);
+  return vec2f(v * frame.song, v);
 }
 
 // Person m of stream k: x, z, height and the phase of their stride; height 0 for nobody.

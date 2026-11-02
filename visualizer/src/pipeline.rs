@@ -27,7 +27,7 @@ use crate::inspect::{LabLens, LabOverrides, LabPace, LabTransition};
 use crate::moments::Chances;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
-use crate::scene::{DirectorView, FrameInput, LooksView, MusicValues, Scene, Source};
+use crate::scene::{DirectorView, FrameInput, LooksView, MusicValues, Scene, SongChart, Source};
 #[cfg(target_os = "windows")]
 use crate::shared_dx12::{SharedTargets, SharedTexture};
 #[cfg(target_os = "linux")]
@@ -63,6 +63,10 @@ pub struct Pipeline {
     rhythm: Rhythm,
     chart: Option<ChartState>,
     song: (f64, bool),
+    /// The song's whole chart and seed, while it has one (see [`Pipeline::set_song_chart`]).
+    song_chart: Option<SongChart>,
+    /// The seed of the song that plays, while one does.
+    song_seed: Option<u32>,
     /// The app's accent colour (linear), once the app has told it.
     accent: Option<[f32; 3]>,
     /// The chances the music's moments play an effect with (see [`crate::moments`]).
@@ -494,6 +498,8 @@ impl Pipeline {
             rhythm: Rhythm::default(),
             chart: None,
             song: (0.0, false),
+            song_chart: None,
+            song_seed: None,
             accent: None,
             chances: Chances::default(),
             runtime: RuntimeBindings::embedded(),
@@ -664,6 +670,11 @@ impl Pipeline {
     /// What a readout shows of the looks of the scene being drawn.
     pub fn looks_view(&self) -> Option<LooksView> {
         self.scene.looks_view()
+    }
+
+    /// Whether a scene switch is under way: its transition runs, or a scene waits for it.
+    pub fn switching(&self) -> bool {
+        self.transitions.running.is_some()
     }
 
     /// The transition under way at `time` (the render loop's) and how far it is, 0 to 1 over
@@ -945,6 +956,19 @@ impl Pipeline {
         self.song = (time, playing);
     }
 
+    /// The song's whole chart and the seed its decisions are made with, while it has a chart and
+    /// no lab holds the music without one: scenes then decide by song time (see
+    /// [`crate::scene::SongChart`]).
+    pub fn set_song_chart(&mut self, song_chart: Option<SongChart>) {
+        self.song_chart = song_chart;
+    }
+
+    /// The seed of the song that plays (see [`crate::scene::song_seed`]), none without a song: scenes
+    /// draw what they start with from it, and their `frame.seed` follows the song time with it.
+    pub fn set_song_seed(&mut self, seed: Option<u32>) {
+        self.song_seed = seed;
+    }
+
     /// The chances the music's moments play an effect with, in the scene on screen, the one
     /// waiting for a transition and every scene that comes.
     pub fn set_effect_chances(&mut self, chances: Chances) {
@@ -1101,7 +1125,8 @@ impl Pipeline {
     /// A switch while another transition runs: if the scene of that one is still waiting (a fade
     /// that is fading out, a dissolve that has not started), the newer scene takes its place and
     /// the transition goes on (so the picture does not jump); if it is already in, the transition
-    /// ends and the newer scene is cut in.
+    /// ends and the newer scene is cut in. A switch that shows nothing (a cut, as while paused)
+    /// ends a running transition and is in at once either way.
     pub fn switch_to(
         &mut self,
         mut scene: Scene,
@@ -1113,14 +1138,14 @@ impl Pipeline {
             scene.resize(&self.device, &self.queue, width, height)?;
         }
         scene.set_runtime(&self.runtime);
+        if durations.is_instant(transition) {
+            return self.install(scene);
+        }
         if let Some(running) = &mut self.transitions.running {
             if running.pending.is_some() {
                 running.pending = Some(scene);
                 return Ok(());
             }
-            return self.install(scene);
-        }
-        if durations.is_instant(transition) {
             return self.install(scene);
         }
         self.transitions.running = Some(Running {
@@ -1461,7 +1486,14 @@ impl Pipeline {
         if let Output::Surface(surface) = &mut self.output {
             let scene = &mut self.scene;
             let (device, queue) = (&self.device, &self.queue);
-            let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+            let heard = (
+                &self.rhythm,
+                self.chart.as_ref(),
+                self.song,
+                self.song_chart.as_ref(),
+                self.song_seed,
+                self.accent,
+            );
             let timer = &mut self.timer;
             let fx = (&mut self.transitions, plan);
             let presented = surface.present(device, queue, |encoder, view| {
@@ -1487,7 +1519,14 @@ impl Pipeline {
             match surfaces.next(&self.device) {
                 Ok(Some((buffer, view))) => {
                     let scene = &mut self.scene;
-                    let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+                    let heard = (
+                        &self.rhythm,
+                        self.chart.as_ref(),
+                        self.song,
+                        self.song_chart.as_ref(),
+                        self.song_seed,
+                        self.accent,
+                    );
                     let timer = &mut self.timer;
                     let fx = (&mut self.transitions, plan);
                     render_and_submit(&self.device, &self.queue, |encoder| {
@@ -1522,7 +1561,14 @@ impl Pipeline {
             match targets.next(&self.device) {
                 Ok(Some((texture, view))) => {
                     let scene = &mut self.scene;
-                    let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+                    let heard = (
+                        &self.rhythm,
+                        self.chart.as_ref(),
+                        self.song,
+                        self.song_chart.as_ref(),
+                        self.song_seed,
+                        self.accent,
+                    );
                     let timer = &mut self.timer;
                     let fx = (&mut self.transitions, plan);
                     render_and_submit(&self.device, &self.queue, |encoder| {
@@ -1558,7 +1604,14 @@ impl Pipeline {
                 Ok(Some(next)) => {
                     let scene = &mut self.scene;
                     let (device, queue) = (&self.device, &self.queue);
-                    let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+                    let heard = (
+                        &self.rhythm,
+                        self.chart.as_ref(),
+                        self.song,
+                        self.song_chart.as_ref(),
+                        self.song_seed,
+                        self.accent,
+                    );
                     let timer = &mut self.timer;
                     let fx = (&mut self.transitions, plan);
                     let frame = targets.render(device, queue, next, |encoder, view| {
@@ -1594,7 +1647,14 @@ impl Pipeline {
         };
         let scene = &mut self.scene;
         let (device, queue) = (&self.device, &self.queue);
-        let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+        let heard = (
+            &self.rhythm,
+            self.chart.as_ref(),
+            self.song,
+            self.song_chart.as_ref(),
+            self.song_seed,
+            self.accent,
+        );
         let timer = &mut self.timer;
         let fx = (&mut self.transitions, plan);
         let frame = target.render(device, queue, |encoder, view| {
@@ -1620,11 +1680,13 @@ impl Drop for Pipeline {
 }
 
 /// What a scene hears and sees of the player: the rhythm, the chart, the song time and whether
-/// it plays, and the app's accent colour.
+/// it plays, the song's whole chart and seed, the song's seed, and the app's accent colour.
 type Heard<'a> = (
     &'a Rhythm,
     Option<&'a ChartState>,
     (f64, bool),
+    Option<&'a SongChart>,
+    Option<u32>,
     Option<[f32; 3]>,
 );
 
@@ -1640,7 +1702,7 @@ fn draw(
     encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
     time: f64,
-    (rhythm, chart, song, accent): Heard,
+    (rhythm, chart, song, song_chart, song_seed, accent): Heard,
 ) {
     let timestamps = timer.begin();
     scene.render_timed(
@@ -1653,6 +1715,8 @@ fn draw(
             rhythm,
             chart,
             song,
+            song_chart,
+            song_seed,
             accent,
         },
         timestamps,
@@ -2919,6 +2983,30 @@ mod tests {
         assert!(pipeline.transitions.running.is_none());
     }
 
+    /// A cut while a fade still waits to show its scene is in at once, and the fade is over.
+    #[test]
+    fn a_cut_during_a_transition_is_in_at_once() {
+        let _turn = serial();
+        let Some(mut pipeline) = test_pipeline() else {
+            return;
+        };
+        let fade = Durations {
+            out: 1.0,
+            into: 1.0,
+        };
+        let a = load_plain(&mut pipeline, "cut-during-a", 1.0);
+        pipeline.switch_to(a, Transition::Fade, fade).unwrap();
+        pipeline.render(0.0).unwrap();
+        let b = load_plain(&mut pipeline, "cut-during-b", 0.2);
+        let at_once = Durations {
+            out: 0.0,
+            into: 0.0,
+        };
+        pipeline.switch_to(b, Transition::Cut, at_once).unwrap();
+        assert_eq!(pipeline.scene.name, "cut-during-b");
+        assert!(pipeline.transitions.running.is_none());
+    }
+
     /// A resize ends a transition with the new scene installed, at the new size.
     #[test]
     fn a_resize_ends_a_transition() {
@@ -3041,7 +3129,7 @@ mod tests {
 /// Every probe draws at the phone's size on the same timeline: 60 frames a second, a steady
 /// 120 bpm in bars of four (so a scene grows, changes its view and its colours as it would with
 /// music), and each frame's seed fixed, so a scene draws the same frames on every run.
-/// The music's signals move on by wall time, not by the timeline's (`EventCounter::wall_dt`), and
+/// The music's signals move on by wall time, not by the timeline's (`inputs::WallClock`), and
 /// a scene takes the music over from the one before it (`Scene::take_music_from`). Left alone,
 /// that made the first frames differ between runs, and between two draws of the same scene in one
 /// run (the second started from where the first ended): a mean difference of 1 to 3.5 in the first
