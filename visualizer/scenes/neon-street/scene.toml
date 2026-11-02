@@ -157,9 +157,8 @@ saturation = 1.05
 # ---- What the music drives ----
 # The scene says what it wants from the music and the runtime works it out (see "Bindings" in the
 # runtime's docs/music.md); the shaders read the values as `input.<id>`, never `music.*`. The
-# events the scene only needs to know of arrive as one-frame pulses (release 0); the envelopes
-# whose time the scene sets (`shake_decay`) are made by the runtime. What the scene needs mapped
-# (the pace, the bloom, the shake's gain, the brightness) is mapped here; only what its shaders
+# events the scene only needs to know of arrive as one-frame pulses (release 0). What the scene
+# needs mapped (the pace, the bloom, the brightness) is mapped here; only what its shaders
 # need as it is comes through raw (an unclamped `follow`): `tempo` and `meter` for a bar's length
 # in the build-up, `drive` for the share of dark signs (a power the bind cannot say), `next_energy`
 # to compare with it, `label` and `section` (a kind and a number of section), `cue_in`.
@@ -181,12 +180,9 @@ id = "signal"
 label = "The traffic lights, changing every four bars"
 
 [[input]]
-id = "lift_env"
-label = "The shake of a lift, dying away as `shake_decay` says"
-
-[[input]]
-id = "impact_env"
-label = "The shake of an impact, dying away as `shake_decay` says"
+id = "rewrites"
+label = "How many hard hits there have been (every word sign shows another word after each)"
+range = [0.0, 100000.0]
 
 [[input]]
 id = "label"
@@ -227,12 +223,6 @@ id = "bloom"
 label = "The bloom's strength, by the slow energy"
 range = [0.0, 6.0]
 rest = 0.55
-
-[[input]]
-id = "gain"
-label = "How much a shake is scaled by the loudness (more when loud)"
-range = [0.0, 3.0]
-rest = 1.0
 
 [[input]]
 id = "energy"
@@ -285,17 +275,14 @@ how = "step"
 ease = "none"
 when = { every = 4, unit = "bar", wrap = 2 }
 
+# A hard hit in the middle of a section (an impact: the runtime keeps them at least 6 s apart)
+# rewrites the street: every word sign, banner and chalk board changes its word at once, at the
+# same brightness (a shop front keeps to its own kind's words, and the street's name stays).
 [[bind]]
-target = "lift_env"
-source = "cues"
-how = "trigger"
-when = { strength = 0.95, scale = false, decay = "exp", release = { param = "shake_decay" }, per = "second", decay_from = "event" }
-
-[[bind]]
-target = "impact_env"
+target = "rewrites"
 source = "impacts"
-how = "trigger"
-when = { decay = "exp", release = { param = "shake_decay" }, per = "second", decay_from = "event" }
+how = "accumulate"
+when = { per = "event", rate = 1.0 }
 
 [[bind]]
 target = "label"
@@ -349,15 +336,6 @@ source = "drive"
 how = "follow"
 when = { to = [{ param = "glow", mul = 0.7 }, { param = "glow", mul = 1.3 }] }
 
-# What scales a shake by the loudness: `shake_energy` of the way from the same shake at every
-# loudness (1) to a quiet one at nothing and a loud one at 1.25 times (the intensity squared, as
-# the source times itself).
-[[bind]]
-target = "gain"
-source = "intensity"
-how = "follow"
-when = { mul = "intensity", to = [{ param = "shake_energy", mul = -1.0, add = 1.0 }, { param = "shake_energy", mul = 0.25, add = 1.0 }] }
-
 # The energy of the moment, its usual span spread over the whole range (as Torii Sea's): the glide
 # is slow in a quiet passage. And how much is heard, smoothed over half a beat: a fade slows the
 # glide and silence nearly stills it.
@@ -398,36 +376,6 @@ target = "bass_swell"
 source = "band_low"
 how = "follow"
 when = { from = [0.0, 2.0], smooth = 0.15, per = "second", to = [{ param = "bass_glow", mul = -0.3 }, { param = "bass_glow", mul = 0.3 }] }
-
-# ---- Beat ----
-
-[[param]]
-id = "shake"
-group = "Beat"
-label = "Shake"
-default = 1.0
-min = 0.0
-max = 3.0
-step = 0.05
-
-[[param]]
-id = "shake_energy"
-group = "Beat"
-label = "Shake follows loudness"
-default = 1.0
-min = 0.0
-max = 1.5
-step = 0.05
-
-[[param]]
-id = "shake_decay"
-group = "Beat"
-label = "How long a shake lasts"
-unit = "s"
-default = 0.35
-min = 0.05
-max = 1.5
-step = 0.05
 
 # ---- Camera ----
 
@@ -591,7 +539,7 @@ step = 0.01
 [[param]]
 id = "switch_share"
 group = "Signs"
-label = "Share of signs changing text on a beat"
+label = "How often the dot-matrix boards jump to another pattern (a share of the hits)"
 default = 0.5
 min = 0.0
 max = 1.0

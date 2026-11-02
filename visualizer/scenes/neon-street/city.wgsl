@@ -523,23 +523,34 @@ fn face_of(id: vec2f) -> f32 {
 }
 
 // The word sign `id` shows, one of the shops' words (glyphs.wgsl) that fits in `room` characters.
+// Every sign draws another at each hard hit (`rewrites`), all of them at once.
 fn word_for(id: vec2f, room: f32) -> f32 {
+  let at = id + input.rewrites * vec2f(17.13, 3.71);
   for (var k = 0.0; k < 4.0; k += 1.0) {
-    let i = floor(h21(id + vec2f(k * 5.1, 2.2)) * (SIGN_WORDS + MORE_WORDS));
+    let i = floor(h21(at + vec2f(k * 5.1, 2.2)) * (SIGN_WORDS + MORE_WORDS));
     let w = select(i, MORE_FIRST + i - SIGN_WORDS, i >= SIGN_WORDS);
     if (word_length(w) <= room) {
       return w;
     }
   }
   // The one-character words: the characters for medicine, book and pawn.
-  let r = h21(id + 9.4);
+  let r = h21(at + 9.4);
   return select(select(5.0, 23.0, r < 0.6), 27.0, r < 0.25);
 }
 
-// The big characters on sign `id`: one, or with `pair` two.
+// Option `base` of the `n` sign `id` picks from, stepped on round them at each hard hit
+// (`rewrites`) by a stride of the sign's own (1 to n - 1), so that it always shows another than
+// before.
+fn rewritten(base: f32, n: f32, id: vec2f) -> f32 {
+  let stride = 1.0 + floor(h21(id + 31.7) * (n - 1.0));
+  return (base + input.rewrites * stride) % n;
+}
+
+// The big characters on sign `id`: one, or with `pair` two (others at each hard hit).
 fn big_word(id: vec2f, pair: bool) -> f32 {
-  let r = h21(id + 25.3);
-  return BIG_FIRST + select(floor(r * BIG_SINGLE), BIG_SINGLE + floor(r * (BIG_WORDS - BIG_SINGLE)), pair);
+  let n = select(BIG_SINGLE, BIG_WORDS - BIG_SINGLE, pair);
+  let i = rewritten(floor(h21(id + 25.3) * n), n, id);
+  return BIG_FIRST + select(0.0, BIG_SINGLE, pair) + i;
 }
 
 // Coverage of word w written down a strip `width` wide; x, v in metres from its top left, the
@@ -863,13 +874,14 @@ fn shop_front(n: f32, s: f32, u: f32, along: f32, y: f32, light: vec3f, aa: f32)
       return mix(vec3f(1.0, 0.8, 0.05), vec3f(0.9, 0.05, 0.04), ink) * glow;
     }
     if (kind == IZAKAYA) {
-      // Its word in white on dark wood, under a small lamp.
+      // Its word in white on dark wood, under a small lamp (another of the four at a hard hit).
       var words = array<f32, 4>(2.0, 8.0, 7.0, 3.0);
-      let w = words[u32(h21(id + 3.3) * 3.99)];
+      let w = words[u32(rewritten(floor(h21(id + 3.3) * 3.99), 4.0, id))];
       return board(id, w, FACE_ANTIQUE, 2.0, fx, fy, UNIT - 0.3, 0.55, light + shop * 0.08 * exp(-abs(along - 0.5 * UNIT)), aa);
     }
     if (kind == CAFE) {
-      let w = select(6.0, 20.0, h21(id + 3.3) < 0.5);
+      // One of its two words, the other at a hard hit.
+      let w = select(6.0, 20.0, rewritten(select(0.0, 1.0, h21(id + 3.3) < 0.5), 2.0, id) > 0.5);
       return board(id, w, FACE_MAGIC, 2.0, fx, fy, UNIT - 0.3, 0.55, light + shop * 0.05, aa);
     }
     if (kind == BAR) {
@@ -1919,7 +1931,7 @@ fn banner_face(n: f32, s: f32, j: f32, a: f32, p: vec3f, aa: f32, pole: bool) ->
   let cloth = cloths[pick];
   let ink = select(vec3f(0.95, 0.93, 0.88), vec3f(0.05, 0.03, 0.03), pick == 1u || pick == 2u);
   var words = array<f32, 5>(11.0, 37.0, 38.0, 39.0, 40.0);
-  let w = words[u32(h21(id + 5.7) * 5.0)];
+  let w = words[u32(rewritten(floor(h21(id + 5.7) * 5.0), 5.0, id))];
   // (Read from the street: on the right side the cloth reaches leftwards from its pole.)
   let x = select(a - 0.05, 0.43 - a, s > 0.0);
   let letters = vertical_word(FACE_NOTO, w, x, 1.95 - p.y, 0.38, 1.3, aa, 0.0);
@@ -2134,7 +2146,7 @@ fn board_face(n: f32, s: f32, p: vec3f, aa: f32) -> vec3f {
     }
     let frame_band = 1.0 - rv_band(x, 0.04, 0.44, aa) * rv_band(p.y, 0.1, b.w - 0.04, aa);
     var words = array<f32, 6>(9.0, 37.0, 38.0, 20.0, 6.0, 30.0);
-    let w = words[u32(h21(id + 94.3) * 6.0)];
+    let w = words[u32(rewritten(floor(h21(id + 94.3) * 6.0), 6.0, id))];
     let chalk = vertical_word(FACE_MAGIC, w, x - 0.08, b.w - 0.08 - p.y, 0.32, 0.5, aa, 0.0);
     let menu = rv_band(p.y, 0.16, 0.34, aa) * rv_band(fract((p.y - 0.16) / 0.06), 0.4, 0.6, aa / 0.06) * rv_band(x, 0.1, 0.38, aa);
     var c = mix(vec3f(0.03, 0.05, 0.04), vec3f(0.85, 0.85, 0.8), max(chalk, menu * 0.6) * 0.9);

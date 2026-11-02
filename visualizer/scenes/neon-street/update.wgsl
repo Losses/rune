@@ -1,5 +1,4 @@
-// Once per frame: glide down the street at the music's tempo, follow the director's cuts, shake
-// only at the big moments.
+// Once per frame: glide down the street at the music's tempo and follow the director's cuts.
 
 const DEG: f32 = 0.0174533;
 
@@ -272,11 +271,6 @@ fn update() {
     rising = ramp * ramp;
   }
 
-  // Accents shake the camera, and seldom: a cue that lifts the energy (strength 1), or a hard hit
-  // in the middle of a section (the runtime keeps those at least 6 s apart).
-  state.accent = max(input.lift_env, 0.7 * input.impact_env) * input.gain;
-  state.shake = 0.012 * state.accent * params.shake;
-
   // The director cuts: take its shot as the view. The trail is cleared across the cut.
   if (shot.cuts != state.cuts) {
     state.cuts = shot.cuts;
@@ -305,14 +299,13 @@ fn update() {
     state.pos.z -= 3000.0;
   }
 
-  let wobble = vec2f(sin(frame.song * 23.1), sin(frame.song * 19.3 + 0.7));
+  // The camera never shakes: it drifts a little, slowly, and never rolls of its own accord (the
+  // director's dutch angle is all there is).
   state.pos.x = state.lat;
   state.pos.y = state.eye;
-  state.yaw = state.yaw_base + 0.01 * sin(frame.song * 0.17) + state.shake * wobble.x;
-  state.pitch = state.pitch_base + 0.008 * sin(frame.song * 0.13) + state.shake * wobble.y;
-  // The camera never rolls of its own accord: the director's dutch angle (only in a burst) and
-  // the shake at an accent are all there is.
-  state.roll = shot.roll + state.shake * 0.5 * wobble.y;
+  state.yaw = state.yaw_base + 0.01 * sin(frame.song * 0.17);
+  state.pitch = state.pitch_base + 0.008 * sin(frame.song * 0.13);
+  state.roll = shot.roll;
   state.lens = 1.0 - 0.25 * params.build * rising;
 
   set_theme();
@@ -322,7 +315,7 @@ fn update() {
   state.colour = select(0.0, 1.0 - look.mix, look.prev == 1u) + select(0.0, look.mix, look.to == 1u);
   // The look follows too: more glow when it is loud (`bloom`), and a dimmer one in grey.
   post.bloom_intensity = input.bloom * mix(0.7, 1.0, state.colour);
-  // The accent shakes the camera and nothing else: the chromatic aberration stays as it is.
+  // The chromatic aberration stays as it is (no widening on the beat).
   post.chromatic = 0.0012 * params.chroma;
   post.exposure = params.exposure;
 }

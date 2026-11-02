@@ -679,14 +679,20 @@ fn swell_normal(xz: vec2f, e: f32) -> vec3f {
 // ---- Light ----
 
 struct Light {
+  // Where the light on things comes from, and its colour.
   sun: vec3f,
   sun_colour: vec3f,
   zenith: vec3f,
   horizon: vec3f,
   ambient: vec3f,
   clouds: f32,
-  // How much it is night (the lanterns lit, the stars out), and whether the sun or moon shows.
+  // How much it is night (the lanterns lit, the stars out).
   night: f32,
+  // The sun (or the moon) drawn in the sky: where it is, its light (its glow, its halo and the
+  // clouds it lights), and whether its disc shows. As the look changes the light on things turns
+  // from the one sun to the other, but the sun in the sky does not travel (see light_now).
+  sky_sun: vec3f,
+  sky_colour: vec3f,
   disc: f32,
 }
 
@@ -749,11 +755,22 @@ fn looks_now() -> vec3f {
 }
 
 // The light now: the look before fading into the look now (the runtime's mix is eased already).
+// The light on things turns from the one sun to the other, but the sun in the sky does not travel
+// across it: it fades out where it was over the first half of the fade, and in where it goes over
+// the second.
 fn light_now() -> Light {
   let now = looks_now();
   var l = light_of(now.y);
-  if (now.z < 1.0) {
+  l.sky_sun = l.sun;
+  l.sky_colour = l.sun_colour;
+  if (now.z < 1.0 && now.x != now.y) {
     let a = light_of(now.x);
+    if (now.z < 0.5) {
+      l.sky_sun = a.sun;
+      l.sky_colour = a.sun_colour;
+      l.disc = a.disc;
+    }
+    l.sky_colour *= abs(2.0 * now.z - 1.0);
     l.sun = normalize(mix(a.sun, l.sun, now.z));
     l.sun_colour = mix(a.sun_colour, l.sun_colour, now.z);
     l.zenith = mix(a.zenith, l.zenith, now.z);
@@ -761,7 +778,6 @@ fn light_now() -> Light {
     l.ambient = mix(a.ambient, l.ambient, now.z);
     l.clouds = mix(a.clouds, l.clouds, now.z);
     l.night = mix(a.night, l.night, now.z);
-    l.disc = mix(a.disc, l.disc, now.z);
   }
   return l;
 }
@@ -771,16 +787,16 @@ fn sky(d: vec3f, l: Light) -> vec3f {
   var c = mix(l.horizon, l.zenith, pow(up, 0.55));
   // Below the horizon (seen past the far sea) the haze.
   c = mix(c, l.horizon * 0.8, smoothstep(0.0, -0.05, d.y));
-  let s = max(dot(d, l.sun), 0.0);
+  let s = max(dot(d, l.sky_sun), 0.0);
   // The sun (or the moon), its glow and a wide warm halo.
-  c += l.sun_colour * (smoothstep(0.9993, 0.9997, s) * 6.0 * l.disc + pow(s, 64.0) * 0.35 + pow(s, 6.0) * 0.08);
+  c += l.sky_colour * (smoothstep(0.9993, 0.9997, s) * 6.0 * l.disc + pow(s, 64.0) * 0.35 + pow(s, 6.0) * 0.08);
   // Clouds on a layer far above.
   if (d.y > 0.01) {
     let uv = d.xz / (d.y + 0.08) * 0.7 + vec2f(frame.song * 0.004, 0.0);
     // Below full quality the finest of the clouds' detail goes, an octave a step (to two).
     let n = rv_fbm(uv * 1.3, 5 - i32(clamp(round((1.0 - frame.quality) * 4.0), 0.0, 3.0)));
     let cover = smoothstep(0.35 - 0.55 * l.clouds, 0.6, n + 0.25);
-    let lit = mix(l.horizon * 0.9, l.sun_colour * 0.35 + l.horizon * 0.5, pow(s, 3.0));
+    let lit = mix(l.horizon * 0.9, l.sky_colour * 0.35 + l.horizon * 0.5, pow(s, 3.0));
     c = mix(c, lit * (0.75 + 0.35 * n), cover * smoothstep(0.01, 0.15, d.y) * min(l.clouds + 0.3, 1.0));
   }
   // Stars at night.
