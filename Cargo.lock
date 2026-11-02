@@ -1913,7 +1913,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "async-trait",
- "axum",
+ "blake3",
  "chrono",
  "deunicode",
  "discovery",
@@ -1932,7 +1932,6 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "regex",
- "reqwest",
  "rust_decimal",
  "rust_decimal_macros",
  "sea-orm",
@@ -1941,6 +1940,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sync",
+ "sync-orm",
  "tag-editor",
  "tempfile",
  "thiserror 2.0.21",
@@ -2178,7 +2178,7 @@ dependencies = [
  "tower 0.5.2",
  "tower-http",
  "uuid",
- "webpki-roots",
+ "webpki-roots 0.26.8",
  "x509-parser",
 ]
 
@@ -2677,6 +2677,7 @@ dependencies = [
  "async-trait",
  "dunce",
  "futures",
+ "jni",
  "log",
  "ndk-saf",
  "rusqlite",
@@ -2854,8 +2855,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4567c8db10ae91089c99af84c68c38da3ec2f087c3f82960bcdbf3656b6f4d7"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2865,8 +2868,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43a49c392881ce6d5c3b8cb70f98717b7c07aabbdff06687b9030dbfbe2725f8"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi 0.13.3+wasi-0.2.2",
+ "wasm-bindgen",
  "windows-targets 0.52.6",
 ]
 
@@ -3232,13 +3237,19 @@ name = "http-request"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "http-body",
  "http-body-util",
  "hyper",
  "hyper-util",
+ "reqwest",
  "rustls",
+ "serde",
+ "serde_json",
+ "sync",
  "tokio",
  "tokio-rustls",
+ "uuid",
 ]
 
 [[package]]
@@ -3265,6 +3276,7 @@ dependencies = [
  "base64 0.22.1",
  "bcrypt",
  "bincode 2.0.1",
+ "blake3",
  "chrono",
  "clap",
  "clean-path",
@@ -3272,6 +3284,7 @@ dependencies = [
  "database",
  "directories",
  "discovery",
+ "env_logger",
  "flutter-texture",
  "fsio",
  "futures",
@@ -3279,21 +3292,29 @@ dependencies = [
  "futures-util",
  "http-request",
  "humantime",
+ "hyper",
  "jsonwebtoken",
  "lazy_static",
  "log",
  "lyric",
  "metadata",
+ "migration",
  "mimetype-detector",
  "num_cpus",
  "paste",
+ "pem",
  "playback",
+ "portpicker",
  "radix_trie",
  "rand 0.8.5",
  "regex",
  "requests",
+ "reqwest",
  "rinf",
  "rpassword",
+ "rsa",
+ "rust_decimal",
+ "rust_decimal_macros",
  "rustls",
  "rustyline",
  "rustyline-derive",
@@ -3307,7 +3328,9 @@ dependencies = [
  "strum_macros",
  "swift-rs",
  "sync",
+ "sync-orm",
  "sysinfo 0.31.4",
+ "tempfile",
  "term_size",
  "tokio",
  "tokio-tungstenite",
@@ -3326,6 +3349,7 @@ dependencies = [
  "vergen",
  "visualizer",
  "windows 0.58.0",
+ "x509-parser",
 ]
 
 [[package]]
@@ -3379,6 +3403,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
+ "webpki-roots 0.26.8",
 ]
 
 [[package]]
@@ -4137,6 +4162,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "lru-slab"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
 name = "lyric"
 version = "0.1.0"
 dependencies = [
@@ -4314,9 +4345,11 @@ dependencies = [
 name = "migration"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "chrono",
  "once_cell",
  "sea-orm-migration",
+ "sync-orm",
  "tokio",
  "uuid",
 ]
@@ -5369,6 +5402,7 @@ dependencies = [
  "once_cell",
  "rand 0.8.5",
  "raw-window-handle 0.5.2",
+ "reqwest",
  "rodio",
  "rtrb",
  "rustfft",
@@ -5735,6 +5769,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "quinn"
+version = "0.11.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9e20a958963c291dc322d98411f541009df2ced7b5a4f2bd52337638cfccf20"
+dependencies = [
+ "bytes",
+ "cfg_aliases 0.2.2",
+ "pin-project-lite",
+ "quinn-proto",
+ "quinn-udp",
+ "rustc-hash 2.1.3",
+ "rustls",
+ "socket2 0.6.0",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "web-time",
+]
+
+[[package]]
+name = "quinn-proto"
+version = "0.11.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1906b49b0c3bc04b5fe5d86a77925ae6524a19b816ae38ce1e426255f1d8a31"
+dependencies = [
+ "bytes",
+ "getrandom 0.3.1",
+ "lru-slab",
+ "rand 0.9.0",
+ "ring",
+ "rustc-hash 2.1.3",
+ "rustls",
+ "rustls-pki-types",
+ "slab",
+ "thiserror 2.0.21",
+ "tinyvec",
+ "tracing",
+ "web-time",
+]
+
+[[package]]
+name = "quinn-udp"
+version = "0.5.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "addec6a0dcad8a8d96a771f815f0eaf55f9d1805756410b39f5fa81332574cbd"
+dependencies = [
+ "cfg_aliases 0.2.2",
+ "libc",
+ "once_cell",
+ "socket2 0.6.0",
+ "tracing",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6093,6 +6182,8 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
+ "quinn",
+ "rustls",
  "rustls-pki-types",
  "serde",
  "serde_json",
@@ -6100,6 +6191,7 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-native-tls",
+ "tokio-rustls",
  "tokio-socks",
  "tokio-util",
  "tower 0.5.2",
@@ -6110,6 +6202,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
+ "webpki-roots 1.0.9",
 ]
 
 [[package]]
@@ -6266,21 +6359,26 @@ name = "rune-cli"
 version = "0.1.0"
 dependencies = [
  "analysis",
+ "anyhow",
  "clap",
  "database",
  "directories",
  "dunce",
  "fsio",
  "futures",
+ "http-request",
  "log",
  "metadata",
  "pathdiff",
  "playback",
  "prettytable",
+ "reqwest",
  "rodio",
  "rust_decimal",
+ "sea-orm",
  "serde",
  "serde_json",
+ "sync",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -6447,6 +6545,9 @@ name = "rustls-pki-types"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16f1201b3c9a7ee8039bcadc17b7e605e2945b27eee7631788c1bd2b0643674b"
+dependencies = [
+ "web-time",
+]
 
 [[package]]
 name = "rustls-webpki"
@@ -7689,14 +7790,24 @@ dependencies = [
  "async-trait",
  "blake3",
  "chrono",
- "lazy_static",
- "log",
- "once_cell",
- "rust_decimal",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "sync-orm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "blake3",
+ "chrono",
  "sea-orm",
  "serde",
  "serde_json",
- "thiserror 2.0.21",
+ "sync",
  "tokio",
  "uuid",
 ]
@@ -8103,7 +8214,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tungstenite",
- "webpki-roots",
+ "webpki-roots 0.26.8",
 ]
 
 [[package]]
@@ -8761,6 +8872,15 @@ name = "webpki-roots"
 version = "0.26.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2210b291f7ea53617fbafcc4939f10914214ec15aace5ba62293a668f322c5c9"
+dependencies = [
+ "rustls-pki-types",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
 dependencies = [
  "rustls-pki-types",
 ]
