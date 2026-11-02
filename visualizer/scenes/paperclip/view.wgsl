@@ -82,7 +82,7 @@ fn face_ink(face: u32, e: u32, g0: vec2f, look: vec2f) -> vec2f {
     case 3u: {
       // @ @ : a dizzy spiral of one and a half turns, turning slowly: one line the same width all
       // along, with round ends, from just off the centre out to 0.75.
-      let q = rv_rotate(g, frame.time * 2.0 * mirror);
+      let q = rv_rotate(g, frame.song * 2.0 * mirror);
       let pitch = 0.375;
       let a = atan2(q.y, q.x) / 6.28318;
       let k = length(q) / pitch - a;

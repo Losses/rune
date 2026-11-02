@@ -74,6 +74,11 @@ fn random(n: u32) -> f32 {
   return rv_unit(frame.seed * 2654435761u + n);
 }
 
+// A draw that is the same each time the song plays: what the scene starts with.
+fn song_random(n: u32) -> f32 {
+  return rv_unit(frame.song_seed * 2654435761u + n);
+}
+
 // Take the view the director cut to, at once: a cut is a cut, never a slide. The views, in the
 // order of scene.toml's shots: 0 steep, 1 near and 2 far look up the tower from below (so what
 // is under the camera never needs drawing); 3 looks down on the tip from not far above. Then
@@ -182,7 +187,10 @@ fn update() {
     for (var i = 0; i < FILL_LAYERS / 4; i += 1) {
       state.fills[i] = vec4f(0.65);
     }
-    state.azimuth = random(4u) * 6.283;
+    // The camera starts round from a place drawn from the song's seed, plus what it has circled
+    // by this moment of the song at a usual speed, so the same moment shows the same side. The
+    // view then takes it from there (a view from above turns to a corner).
+    state.azimuth = song_random(4u) * 6.283 + frame.song * 0.024;
     choose_view();
     state.cam_top = state.top;
     state.cam_rise = 0.0;

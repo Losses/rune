@@ -398,7 +398,10 @@ fn choose_hero(fill: u32) {
     state.hero_used = array<f32, 4>(-1.0, -1.0, -1.0, -1.0);
   }
   let here = floor(state.s / SLOT_LEN);
-  let start = u32(30.0 * random(300u + 7u * shot.cuts + fill));
+  // From the shot's seed, so that the same moment of a song picks the same however it was
+  // reached.
+  let shot_n = u32(shot.seed * 9973.0);
+  let start = u32(30.0 * random(300u + 7u * shot_n + fill));
   var found = false;
   var id = vec2f(0.0);
   for (var n = 0u; n < 60u && !found; n++) {
@@ -421,7 +424,7 @@ fn choose_hero(fill: u32) {
   state.hero_q = select(0.0, id.y / 17.0, found);
   if (!found) {
     for (var m = 0u; m < 200u; m++) {
-      let c = vec2f(5000.0 + 37.0 * f32(m + 11u * shot.cuts), 0.0);
+      let c = vec2f(5000.0 + 37.0 * f32(m + 11u * shot_n), 0.0);
       let p = picture_of(c, main);
       var fresh = true;
       for (var k = 0u; k + 1u < fill; k++) {
@@ -477,7 +480,10 @@ fn update() {
   let dt = rv_dt();
   let t = frame.time;
   if (frame.first == 1u) {
-    state.s = 0.0;
+    // Opening at the same moment of the song gives the same place: the distance a nominal flight
+    // has covered by then, and the scene time that much of the song has run.
+    state.s = input.flight * frame.song;
+    state.phase = frame.song;
     state.speed = input.flight;
     // No hit has been counted yet.
     state.step_age = 1000.0;

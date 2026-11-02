@@ -19,7 +19,7 @@ struct State {
   // The beats the scene counts (see update): how many, and the seconds since the last. And the
   // scene's own time for everything that moves of itself (the shapes' turn in their planes): it
   // advances by `dt` times how much is heard (`input.audible`), so it slows with a fade and stands
-  // still in silence. (`frame.time` stays only in the stars' twinkle, which is light, not motion.)
+  // still in silence. (`frame.song` stays only in the stars' twinkle, which is light, not motion.)
   count: f32,
   beat_age: f32,
   phase: f32,

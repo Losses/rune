@@ -622,7 +622,7 @@ fn lettered(id: vec2f, w: f32, face: f32, vertical: bool, x: f32, y: f32, width:
 // A few tubes are failing: they flicker.
 fn flicker(id: vec2f) -> f32 {
   let failing = step(0.94, h21(id + 7.3));
-  return mix(1.0, 0.15 + 0.85 * step(0.35, rv_value_noise(vec2f(frame.time * 9.0, id.x * 7.0 + id.y))), failing);
+  return mix(1.0, 0.15 + 0.85 * step(0.35, rv_value_noise(vec2f(frame.song * 9.0, id.x * 7.0 + id.y))), failing);
 }
 
 fn sign_face(n: f32, s: f32, p: vec3f, aa: f32) -> vec3f {
@@ -852,7 +852,7 @@ fn shop_front(n: f32, s: f32, u: f32, along: f32, y: f32, light: vec3f, aa: f32)
       // The katakana word for "game" in white between rows of chasing bulbs.
       let k = floor(along / 0.15);
       let f = vec2f(fract(along / 0.15) - 0.5, (fract(t * 2.0) - 0.5) * 2.0);
-      let on = step(0.6, fract((k + floor(frame.time * 10.0)) / 3.0));
+      let on = step(0.6, fract((k + floor(frame.song * 10.0)) / 3.0));
       let bulb = smoothstep(0.35, 0.15, length(f)) * (1.0 - rv_band(t, 0.2, 0.8, 0.0));
       let ink = horizontal_word(FACE_DELA, 10.0, fx, fy - 0.12, UNIT - 0.3, 0.32, aa, 0.0);
       return neon(h21(id + 4.7)) * 0.2 * glow + vec3f(3.0, 2.6, 1.8) * bulb * (0.15 + 0.85 * on) * glow + vec3f(1.6) * ink * glow;
@@ -917,13 +917,13 @@ fn shop_front(n: f32, s: f32, u: f32, along: f32, y: f32, light: vec3f, aa: f32)
     // Wide open, rows of machines flickering inside, a frame of chasing bulbs.
     let open = rv_band(u, 0.3, UNIT - 0.3, aa) * rv_band(y, 0.0, 2.3, aa);
     let ci = floor(u / 0.45);
-    let flicker = 0.6 + 0.4 * sin(frame.time * (6.0 + 7.0 * h21(vec2f(ci, n))) + ci);
+    let flicker = 0.6 + 0.4 * sin(frame.song * (6.0 + 7.0 * h21(vec2f(ci, n))) + ci);
     let machine = rv_band(fract(u / 0.45), 0.12, 0.88, aa / 0.45) * rv_band(y, 0.4, 1.7, aa);
     var c = mix(wall, shop * 0.3 + neon(h21(vec2f(ci, n) + 2.0)) * 1.4 * machine * flicker, open);
     let top = vec2f(fract(u / 0.15) - 0.5, (y - 2.38) / 0.15);
     let side = vec2f(min(abs(u - 0.18), abs(u - (UNIT - 0.18))) / 0.15, fract(y / 0.15) - 0.5);
     let bulb = max(smoothstep(0.3, 0.1, length(top)) * rv_band(u, 0.15, UNIT - 0.15, 0.0), smoothstep(0.3, 0.1, length(side)) * step(y, 2.38));
-    let on = step(0.6, fract((floor(u / 0.15) + floor(y / 0.15) + floor(frame.time * 10.0)) / 3.0));
+    let on = step(0.6, fract((floor(u / 0.15) + floor(y / 0.15) + floor(frame.song * 10.0)) / 3.0));
     return c + vec3f(3.0, 2.5, 1.6) * bulb * (0.15 + 0.85 * on) * glow;
   }
   if (kind == BOUTIQUE) {
@@ -1165,7 +1165,7 @@ fn roof(i: i32, n: f32, xz: vec2f, size: vec2f, aa: f32) -> vec3f {
   // not with the music (no light pulses on the beat).
   let beacon = step(h21(id + 4.4), 0.3) * smoothstep(0.25 + aa, 0.0, length(xz - vec2f(0.4)));
   let period = 0.9 + 0.3 * h21(id + 6.6);
-  let rise = 0.5 - 0.5 * cos(6.2832 * fract(frame.time / period + h21(id + 5.5)));
+  let rise = 0.5 - 0.5 * cos(6.2832 * fract(frame.song / period + h21(id + 5.5)));
   c += vec3f(5.0, 0.4, 0.25) * beacon * (0.3 + 1.7 * rise * rise);
   return c;
 }
@@ -1924,7 +1924,7 @@ fn banner_face(n: f32, s: f32, j: f32, a: f32, p: vec3f, aa: f32, pole: bool) ->
   let x = select(a - 0.05, 0.43 - a, s > 0.0);
   let letters = vertical_word(FACE_NOTO, w, x, 1.95 - p.y, 0.38, 1.3, aa, 0.0);
   // Ripples running across it as it flaps.
-  let flap = 0.85 + 0.15 * sin(a * 18.0 - frame.time * 4.0 + j * 2.0) * (0.3 + 2.0 * abs(state.sway));
+  let flap = 0.85 + 0.15 * sin(a * 18.0 - frame.song * 4.0 + j * 2.0) * (0.3 + 2.0 * abs(state.sway));
   return mix(cloth, ink, letters) * light * flap;
 }
 
@@ -2384,7 +2384,7 @@ fn hit_street(o: vec3f, d: vec3f, best: f32, steps: f32, pix: f32, dither: f32) 
           // person_in_row(n, k, j), without stream()'s table (an array indexed per pixel lives in
           // slow memory).
           let pace = select(select(0.95, -1.15, k == 1u), 1.25, k == 0u);
-          let m = floor((n * UNIT - pace * frame.time) / UNIT) + f32(j);
+          let m = floor((n * UNIT - pace * frame.song) / UNIT) + f32(j);
           let tq = hit_person(o, d, who, m, f32(k), pix);
           if (tq < r.x) {
             r = vec4f(tq, 10.0, m, f32(k));
@@ -2462,7 +2462,7 @@ fn sky(d: vec3f) -> vec3f {
   let q = d.xz / max(up, 0.05);
   // Their finest detail goes first as the quality drops.
   let octaves = select(select(4, 3, frame.quality < 0.75), 2, frame.quality < 0.25);
-  let cloud = smoothstep(-0.1, 0.5, rv_fbm(q * 0.25 + vec2f(frame.time * 0.01, 0.0), octaves));
+  let cloud = smoothstep(-0.1, 0.5, rv_fbm(q * 0.25 + vec2f(frame.song * 0.01, 0.0), octaves));
   c += vec3f(0.05, 0.04, 0.032) * cloud * smoothstep(0.6, 0.05, up) * step(0.0, up);
   return c;
 }
@@ -2753,7 +2753,7 @@ fn ground(p: vec3f, aa: f32) -> mat2x3f {
   var puddle = 0.0;
   if (params.puddles > 0.0) {
     puddle = smoothstep(0.08, 0.2, rv_fbm(p.xz * 0.3 + vec2f(3.1, 7.7), 4) + params.puddles * 0.25 - 0.2);
-    tilt = mix(tilt, vec2f(rv_noise(p.xz * 6.0 + frame.time * 0.7), rv_noise(p.zx * 6.0 - frame.time * 0.6)) * 0.008, puddle);
+    tilt = mix(tilt, vec2f(rv_noise(p.xz * 6.0 + frame.song * 0.7), rv_noise(p.zx * 6.0 - frame.song * 0.6)) * 0.008, puddle);
   }
   albedo *= 1.0 - 0.6 * puddle;
   let wet = mix(0.35 * params.wet, 0.8, puddle);
