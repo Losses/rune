@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
@@ -74,13 +73,6 @@ where
 
     let lib_path = Arc::new(lib_path.to_path_buf());
     let node_id = Arc::new(node_id.to_owned());
-    // In analysis we don't strictly need HLC context yet, but macro requires it.
-    // Creating a dummy context or using real one if available.
-    // Ideally we should pass real node_id UUID to create proper context.
-    // For now, let's try to parse node_id string to UUID.
-    let node_uuid = Uuid::from_str(&node_id).unwrap_or_default();
-    let hlc_context = Arc::new(sync::hlc::SyncTaskContext::new(node_uuid));
-
     parallel_media_files_processing!(
         main_db,
         batch_size,
@@ -90,14 +82,12 @@ where
         lib_path,
         fsio,
         node_id,
-        hlc_context,
         move |fsio, file, lib_path, cancel_token| {
             analysis_file(fsio, file, lib_path, computing_device, cancel_token)
         },
         |db,
          file: media_files::Model,
          node_id: Arc<String>,
-         _hlc_context: Arc<sync::hlc::SyncTaskContext>,
          analysis_result: Result<Option<NormalizedAnalysisResult>>| async move {
             match analysis_result {
                 Ok(analysis_result) => {

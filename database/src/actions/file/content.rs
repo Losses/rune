@@ -240,19 +240,18 @@ pub async fn attach_download(
     path: &Path,
 ) -> Result<()> {
     #[cfg(not(target_os = "android"))]
-    {
-        let canonical_root = fsio.canonicalize_path(root)?;
-        let canonical = fsio.canonicalize_path(path)?;
-        ensure!(
-            canonical.starts_with(&canonical_root),
-            "download escapes library root"
-        );
-    }
+    let (canonical_root, canonical) =
+        (fsio.canonicalize_path(root)?, fsio.canonicalize_path(path)?);
+    #[cfg(not(target_os = "android"))]
+    let relative = canonical
+        .strip_prefix(&canonical_root)
+        .context("download escapes library root")?;
+    #[cfg(target_os = "android")]
+    let relative = path.strip_prefix(root)?;
     ensure!(
         &hash_file(fsio, path)? == blob,
         "download digest or size mismatch"
     );
-    let relative = path.strip_prefix(root)?;
     ensure!(
         relative
             .components()

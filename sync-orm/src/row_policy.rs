@@ -678,6 +678,7 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
             if let Some(row) = &existing {
                 M::project_children_on(db, row, None).await?;
                 E::delete_many()
+                    .filter(M::source_filter())
                     .filter(M::uuid_column().eq(id.to_string()))
                     .exec(db)
                     .await?;
@@ -715,7 +716,9 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
             columns.push(column);
         }
         if existing.is_some() {
-            let mut update = E::update_many().filter(M::uuid_column().eq(id.to_string()));
+            let mut update = E::update_many()
+                .filter(M::source_filter())
+                .filter(M::uuid_column().eq(id.to_string()));
             for column in columns {
                 update = update.col_expr(column, Expr::value(active.get(column).unwrap()));
             }

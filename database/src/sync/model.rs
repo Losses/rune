@@ -355,7 +355,7 @@ sync_orm::row_policies! {
                         media_files::Column::LocalAvailable => false,
                         media_files::Column::CoverArtCheckedAt => None::<String>,
                     },
-                    local_reads: [media_files::Column::LocalAvailable],
+                    local_reads: [media_files::Column::LocalAvailable, media_files::Column::FileName],
                     lists: {
                         metadata: MetadataTag => {
                             entity: media_metadata::Entity,
@@ -372,7 +372,11 @@ sync_orm::row_policies! {
                             owner: |row: &RowView<media_files::Entity>| -> Result<Vec<Value>, DbErr> {
                                 Ok(vec![Some(row.read::<i32>(media_files::Column::Id)?.to_string()).into(), Some("track".to_owned()).into()])
                             },
-                            derive: |_: &RowView<media_files::Entity>, value: Option<&Track>| search_documents(value.and_then(|value| value.metadata.iter().find(|tag| tag.key == "track_title").map(|tag| tag.value.as_str()))),
+                            derive: |row: &RowView<media_files::Entity>, value: Option<&Track>| {
+                                let Some(value) = value else { return search_documents(None); };
+                                let filename = row.read::<String>(media_files::Column::FileName)?;
+                                search_documents(value.metadata.iter().find(|tag| tag.key == "track_title").map(|tag| tag.value.as_str()).or_else(|| (!filename.is_empty()).then_some(filename.as_str())))
+                            },
                         }
                     },
                     local_updates: |before: Option<&RowView<media_files::Entity>>,

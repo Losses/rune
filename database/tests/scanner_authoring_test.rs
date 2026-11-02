@@ -277,3 +277,56 @@ async fn index_reads_metadata_after_acquiring_replica_lock() -> Result<()> {
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn untitled_track_is_searchable_after_authoring() -> Result<()> {
+    use database::actions::collection::CollectionQueryType;
+    use database::{
+        actions::{metadata::scan_audio_file, search::search_for},
+        entities::media_metadata,
+    };
+    use sea_orm::{ColumnTrait, QueryFilter, TransactionTrait};
+    let node = Uuid::new_v4();
+    let _ = migration::initialize_node_id(node.to_string());
+    let db = Database::connect("sqlite::memory:").await?;
+    Migrator::up(&db, None).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("unusualfallback.ogg");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/startup_0.ogg"),
+        &path,
+    )?;
+    let id = scan_audio_file(
+        &FsIo::new(),
+        &db,
+        &node.to_string(),
+        dir.path(),
+        &path,
+        &store,
+    )
+    .await?;
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    media_metadata::Entity::delete_many()
+        .filter(media_metadata::Column::FileId.eq(id))
+        .filter(media_metadata::Column::MetaKey.eq("track_title"))
+        .exec(&tx)
+        .await?;
+    let file = media_files::Entity::find_by_id(id).one(&tx).await?.unwrap();
+    database::actions::metadata::author_indexed_track_row(&tx, &store, file).await?;
+    tx.commit().await?;
+    let found = search_for(
+        &db,
+        "unusualfallback",
+        Some(vec![CollectionQueryType::Track]),
+        30,
+    )
+    .await?;
+    assert!(
+        found
+            .get(&CollectionQueryType::Track)
+            .is_some_and(|ids| ids.contains(&i64::from(id)))
+    );
+    Ok(())
+}

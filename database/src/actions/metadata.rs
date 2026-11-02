@@ -24,11 +24,9 @@ use ::metadata::{
 };
 
 use crate::actions::{
-    collection::CollectionQueryType,
     file::get_file_ids_by_descriptions,
     index::index_media_files,
     logging::{LogLevel, insert_log},
-    search::add_term,
 };
 use crate::entities::{
     albums, artists, media_file_albums, media_file_artists, media_files, media_metadata,
@@ -322,13 +320,6 @@ async fn sync_file_descriptions_inner(
                         update_file_metadata(fsio, &txn, node_id, file, description, metadata)
                             .await?;
                         unlink_cover_art(&txn, file).await?;
-                        let title = metadata
-                            .metadata
-                            .iter()
-                            .find(|(key, _)| key == "track_title")
-                            .map(|(_, value)| value.as_str())
-                            .unwrap_or(&description.file_name);
-                        add_term(&txn, CollectionQueryType::Track, file.id, title).await?;
                     }
                     (Some(file), None) => update_last_modified(&txn, file, description).await?,
                     (None, Some(metadata)) => {
@@ -616,28 +607,6 @@ async fn insert_new_file(
         ..Default::default()
     };
     let inserted_file = media_files::Entity::insert(new_file).exec(main_db).await?;
-
-    if let Some((_, value)) = metadata
-        .metadata
-        .iter()
-        .find(|(key, _)| key == "track_title")
-    {
-        add_term(
-            main_db,
-            CollectionQueryType::Track,
-            inserted_file.last_insert_id,
-            value,
-        )
-        .await?;
-    } else if let Some(file_name) = metadata.path.file_name() {
-        add_term(
-            main_db,
-            CollectionQueryType::Track,
-            inserted_file.last_insert_id,
-            &file_name.to_string_lossy(),
-        )
-        .await?;
-    }
 
     let file_id = inserted_file.last_insert_id;
 

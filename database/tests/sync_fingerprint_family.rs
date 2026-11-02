@@ -391,3 +391,51 @@ async fn duplicate_filter_uses_supported_current_identity_once() -> Result<()> {
     assert_eq!(files.into_iter().map(|f| f.id).collect::<Vec<_>>(), vec![2]);
     Ok(())
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn attach_download_accepts_symlinked_root() -> Result<()> {
+    use database::actions::{downloads::prepare_download, file::attach_download};
+    use database::sync::model::BlobRef;
+    use fsio::FsIo;
+    use std::os::unix::fs::symlink;
+    let node = Uuid::new_v4();
+    let _ = migration::initialize_node_id(node.to_string());
+    let db = Database::connect("sqlite::memory:").await?;
+    Migrator::up(&db, None).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let id = Uuid::new_v4();
+    support::local_file(&db, 1, id, "file").await?;
+    let data = b"downloaded audio";
+    let blob = BlobRef {
+        digest: blake3::hash(data).to_hex().to_string(),
+        size: data.len() as u64,
+    };
+    media_files::Entity::update_many()
+        .filter(media_files::Column::Id.eq(1))
+        .col_expr(
+            media_files::Column::ContentHash,
+            Expr::value(Some(blob.digest.clone())),
+        )
+        .col_expr(
+            media_files::Column::ContentSize,
+            Expr::value(Some(blob.size as i64)),
+        )
+        .col_expr(media_files::Column::LocalAvailable, Expr::value(false))
+        .exec(&db)
+        .await?;
+    let dir = tempfile::tempdir()?;
+    let actual = dir.path().join("actual");
+    std::fs::create_dir(&actual)?;
+    let root = dir.path().join("link");
+    symlink(&actual, &root)?;
+    let fs = FsIo::new();
+    let path = prepare_download(&db, &fs, &root, id, &blob, "ogg").await?;
+    std::fs::write(&path, data)?;
+    attach_download(&db, &store, &fs, &root, id, &blob, &path).await?;
+    let row = media_files::Entity::find_by_id(1).one(&db).await?.unwrap();
+    assert!(row.local_available);
+    assert!(!std::path::Path::new(&row.directory).is_absolute());
+    assert_eq!(actual.join(&row.directory).join(&row.file_name), path);
+    Ok(())
+}
