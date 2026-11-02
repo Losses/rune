@@ -479,9 +479,11 @@ pub struct SongClock {
 }
 
 impl SongClock {
-    /// The song time at `now`. Within [`SEEK_THRESHOLD`] of the reported time it runs at the
-    /// wall clock's pace and closes [`CLOCK_PULL`] of the gap per frame; beyond it (a seek, a
-    /// new track) it jumps.
+    /// The song time at `now`. While the music plays, within [`SEEK_THRESHOLD`] of the reported
+    /// time and looked at less than that long ago, it runs at the wall clock's pace and closes
+    /// [`CLOCK_PULL`] of the gap per frame. Otherwise it is the reported time: a seek or a new
+    /// track, while paused (a seek then shows where it went), and on playing again after a pause,
+    /// in which the clock was not looked at (it would have run on through the pause).
     pub fn tick(&mut self, playback: &Playback, now: Instant) -> f64 {
         let Some(at) = playback.at else {
             return 0.0;
@@ -491,13 +493,12 @@ impl SongClock {
             reported += now.saturating_duration_since(at).as_secs_f64();
         }
         let shown = match (self.shown, self.last) {
-            (Some(shown), Some(last)) if (reported - shown).abs() <= SEEK_THRESHOLD => {
-                let run = if playback.playing {
-                    now.saturating_duration_since(last).as_secs_f64()
-                } else {
-                    0.0
-                };
-                let ahead = shown + run;
+            (Some(shown), Some(last))
+                if playback.playing
+                    && now.saturating_duration_since(last).as_secs_f64() <= SEEK_THRESHOLD
+                    && (reported - shown).abs() <= SEEK_THRESHOLD =>
+            {
+                let ahead = shown + now.saturating_duration_since(last).as_secs_f64();
                 ahead + (reported - ahead) * CLOCK_PULL
             }
             _ => reported,
@@ -835,6 +836,33 @@ mod tests {
         let t1 = clock.tick(&playback, frame + Duration::from_millis(40));
         let t2 = clock.tick(&playback, frame + Duration::from_millis(400));
         assert_eq!(t1, t2);
+    }
+
+    #[test]
+    fn the_song_clock_shows_a_seek_while_paused_and_does_not_run_on_through_a_pause() {
+        let start = Instant::now();
+        let mut clock = SongClock::default();
+        let mut playback = Playback {
+            path: None,
+            position: Duration::from_secs(10),
+            playing: false,
+            at: Some(start),
+        };
+        assert_eq!(clock.tick(&playback, start), 10.0);
+        // A small seek while paused is shown where it went, not a part of the way.
+        playback.position = Duration::from_millis(10_200);
+        assert_eq!(
+            clock.tick(&playback, start + Duration::from_millis(50)),
+            10.2
+        );
+        // Playing again 20 s later (nothing looked at the clock meanwhile): the clock is where
+        // the music is, not 18 s on.
+        let resume = start + Duration::from_secs(20);
+        playback.playing = true;
+        playback.at = Some(resume);
+        assert_eq!(clock.tick(&playback, resume), 10.2);
+        let t = clock.tick(&playback, resume + Duration::from_millis(16));
+        assert!((t - 10.216).abs() < 1e-9, "{t}");
     }
 
     /// Clicks with a low thump under each, at 120 beats per minute, as a mono 16-bit WAV of
