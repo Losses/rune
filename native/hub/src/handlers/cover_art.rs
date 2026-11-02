@@ -50,8 +50,23 @@ impl Signal for GetCoverArtIdsByMixQueriesRequest {
 
                 match query {
                     Ok(files) => {
+                        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
+                        let uuids: std::collections::BTreeSet<_> = files
+                            .iter()
+                            .filter_map(|file| file.cover_art_uuid.as_deref())
+                            .collect();
                         let mut cover_art_ids: Vec<i32> =
-                            files.iter().filter_map(|file| file.cover_art_id).collect();
+                            database::entities::media_cover_art::Entity::find()
+                                .select_only()
+                                .column(database::entities::media_cover_art::Column::Id)
+                                .filter(
+                                    database::entities::media_cover_art::Column::HlcUuid
+                                        .is_in(uuids),
+                                )
+                                .into_tuple()
+                                .all(&*main_db)
+                                .await
+                                .unwrap_or_default();
 
                         cover_art_ids.dedup();
 

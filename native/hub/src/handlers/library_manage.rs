@@ -28,24 +28,35 @@ use crate::{
 };
 
 impl ParamsExtractor for CloseLibraryRequest {
-    type Params = (Arc<String>, Arc<CancellationToken>, Arc<Mutex<TaskTokens>>);
+    type Params = (
+        Arc<String>,
+        Arc<CancellationToken>,
+        Arc<Mutex<TaskTokens>>,
+        Option<Arc<crate::server::ServerManager>>,
+    );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.lib_path),
             Arc::clone(&all_params.main_token),
             Arc::clone(&all_params.task_tokens),
+            all_params.server_manager.get().cloned(),
         )
     }
 }
 
 impl Signal for CloseLibraryRequest {
-    type Params = (Arc<String>, Arc<CancellationToken>, Arc<Mutex<TaskTokens>>);
+    type Params = (
+        Arc<String>,
+        Arc<CancellationToken>,
+        Arc<Mutex<TaskTokens>>,
+        Option<Arc<crate::server::ServerManager>>,
+    );
     type Response = CloseLibraryResponse;
 
     async fn handle(
         &self,
-        (lib_path, main_token, task_tokens): Self::Params,
+        (lib_path, main_token, task_tokens, server_manager): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -69,6 +80,12 @@ impl Signal for CloseLibraryRequest {
             token.cancel();
         }
 
+        drop(tokens);
+        if let Some(server) = server_manager
+            && server.is_running()
+        {
+            server.stop().await?;
+        }
         main_token.cancel();
 
         Ok(Some(CloseLibraryResponse {
@@ -84,6 +101,7 @@ impl ParamsExtractor for ScanAudioLibraryRequest {
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
+        Option<database::sync::SeaOrmSyncStore>,
     );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
@@ -93,6 +111,10 @@ impl ParamsExtractor for ScanAudioLibraryRequest {
             Arc::clone(&all_params.node_id),
             Arc::clone(&all_params.task_tokens),
             Arc::clone(&all_params.broadcaster),
+            all_params
+                .library_sync
+                .as_ref()
+                .map(|library| library.record_store()),
         )
     }
 }
@@ -104,12 +126,13 @@ impl Signal for ScanAudioLibraryRequest {
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
+        Option<database::sync::SeaOrmSyncStore>,
     );
     type Response = ();
 
     async fn handle(
         &self,
-        (fsio, main_db, node_id, task_tokens, broadcaster): Self::Params,
+        (fsio, main_db, node_id, task_tokens, broadcaster, record_store): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<()>> {
@@ -139,7 +162,6 @@ impl Signal for ScanAudioLibraryRequest {
         let scan_path = request_path.clone();
         let request_force = dart_signal.force;
         let main_db_clone = Arc::clone(&main_db);
-        let node_id_clone = Arc::clone(&node_id);
         let broadcaster_clone = Arc::clone(&broadcaster);
 
         task::spawn_blocking(move || {
@@ -172,6 +194,9 @@ impl Signal for ScanAudioLibraryRequest {
                             });
                         },
                         Some(new_token.clone()),
+                        record_store
+                            .as_ref()
+                            .context("library sync store unavailable")?,
                     )
                     .await?;
 
@@ -194,7 +219,6 @@ impl Signal for ScanAudioLibraryRequest {
                         fsio,
                         &main_db_clone,
                         Path::new(&scan_path),
-                        &node_id_clone,
                         batch_size,
                         move |now, total| {
                             cloned_broadcaster.broadcast(&ScanAudioLibraryProgress {
@@ -205,6 +229,9 @@ impl Signal for ScanAudioLibraryRequest {
                             });
                         },
                         Some(new_token.clone()),
+                        record_store
+                            .as_ref()
+                            .context("library sync store unavailable")?,
                     )
                     .await?;
 
@@ -356,6 +383,7 @@ impl ParamsExtractor for DeduplicateAudioLibraryRequest {
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
+        Option<database::sync::SeaOrmSyncStore>,
     );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
@@ -365,6 +393,10 @@ impl ParamsExtractor for DeduplicateAudioLibraryRequest {
             Arc::clone(&all_params.node_id),
             Arc::clone(&all_params.task_tokens),
             Arc::clone(&all_params.broadcaster),
+            all_params
+                .library_sync
+                .as_ref()
+                .map(|library| library.record_store()),
         )
     }
 }
@@ -376,12 +408,13 @@ impl Signal for DeduplicateAudioLibraryRequest {
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
+        Option<database::sync::SeaOrmSyncStore>,
     );
     type Response = ();
 
     async fn handle(
         &self,
-        (fsio, main_db, node_id, task_tokens, broadcaster): Self::Params,
+        (fsio, main_db, node_id, task_tokens, broadcaster, record_store): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -419,8 +452,11 @@ impl Signal for DeduplicateAudioLibraryRequest {
                         return Ok(());
                     }
                 };
-                let node_id = uuid_node_id.to_string();
+                let _ = uuid_node_id;
 
+                let record_store = record_store
+                    .as_ref()
+                    .context("library sync store unavailable")?;
                 // Stage 1: Compute fingerprints (0% - 33%)
                 let broadcaster_clone = Arc::clone(&broadcaster);
                 let progress_path = request_path_clone.to_string();
@@ -430,7 +466,6 @@ impl Signal for DeduplicateAudioLibraryRequest {
                     fsio,
                     &main_db,
                     Path::new(&request_path_clone),
-                    &node_id,
                     batch_size,
                     move |cur, total| {
                         let progress = cur as f32 / total as f32 * 0.33;
@@ -442,6 +477,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                         })
                     },
                     Some(new_token.clone()),
+                    record_store,
                 )
                 .await?;
 
@@ -453,8 +489,6 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
                 compare_all_pairs(
                     &main_db,
-                    &node_id,
-                    batch_size,
                     move |cur, total| {
                         let progress = 0.33 + cur as f32 / total as f32 * 0.33;
 
@@ -466,7 +500,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                     },
                     &config,
                     Some(Arc::new(new_token.clone())),
-                    1000,
+                    record_store,
                 )
                 .await?;
 
@@ -477,15 +511,20 @@ impl Signal for DeduplicateAudioLibraryRequest {
                     let broadcaster_clone = Arc::clone(&broadcaster);
                     let progress_path = request_path_clone.to_string();
 
-                    mark_duplicate_files(&main_db, similarity_threshold, move |cur, total| {
-                        let progress = 0.66 + cur as f32 / total as f32 * 0.34;
+                    mark_duplicate_files(
+                        &main_db,
+                        similarity_threshold,
+                        move |cur, total| {
+                            let progress = 0.66 + cur as f32 / total as f32 * 0.34;
 
-                        broadcaster_clone.broadcast(&DeduplicateAudioLibraryProgress {
-                            path: progress_path.clone(),
-                            progress: (progress * 100.0) as i32,
-                            total: 100,
-                        });
-                    })
+                            broadcaster_clone.broadcast(&DeduplicateAudioLibraryProgress {
+                                path: progress_path.clone(),
+                                progress: (progress * 100.0) as i32,
+                                total: 100,
+                            });
+                        },
+                        record_store,
+                    )
                     .await?;
                 }
 

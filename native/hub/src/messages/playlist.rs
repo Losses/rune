@@ -66,12 +66,13 @@ pub struct AddItemToPlaylistRequest {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct AddItemToPlaylistResponse {
     pub success: bool,
+    pub occurrence_id: String,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ReorderPlaylistItemPositionRequest {
     pub playlist_id: i32,
-    pub media_file_id: i32,
+    pub occurrence_id: String,
     pub new_position: i32,
 }
 
@@ -115,12 +116,42 @@ pub struct CreateM3u8PlaylistResponse {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct RemoveItemFromPlaylistRequest {
     pub playlist_id: i32,
-    pub media_file_id: i32,
-    pub position: i32,
+    pub occurrence_id: String,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemoveItemFromPlaylistResponse {
     pub success: bool,
     pub error: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+pub struct PlaylistOccurrenceCursor {
+    pub position: i32,
+    pub occurrence_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+pub struct PlaylistOccurrence {
+    pub occurrence_id: String,
+    pub position: i32,
+    pub track_uuid: String,
+    pub file: Option<super::MediaFile>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct FetchPlaylistOccurrencesRequest {
+    pub request_id: String,
+    pub playlist_id: i32,
+    pub after: Option<PlaylistOccurrenceCursor>,
+    pub page_size: u32,
+    pub bake_cover_arts: bool,
+}
+
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct FetchPlaylistOccurrencesResponse {
+    pub request_id: String,
+    pub entries: Vec<PlaylistOccurrence>,
+    pub next: Option<PlaylistOccurrenceCursor>,
+    pub cover_art_map: std::collections::HashMap<i32, String>,
 }

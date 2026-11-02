@@ -17,7 +17,18 @@ pub async fn fetch_mix_queries_by_mix_id(
     let response: FetchMixQueriesResponse = connection
         .request("FetchMixQueriesRequest", request)
         .await?;
-    Ok(response.result)
+    anyhow::ensure!(
+        response.result.iter().all(|query| query.available),
+        "mix has unavailable references"
+    );
+    Ok(response
+        .result
+        .into_iter()
+        .map(|query| MixQuery {
+            operator: query.operator,
+            parameter: query.parameter,
+        })
+        .collect())
 }
 
 pub async fn build_query(

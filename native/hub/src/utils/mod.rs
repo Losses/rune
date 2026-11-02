@@ -33,7 +33,7 @@ use ::database::{
 };
 use ::discovery::{client::CertValidator, protocol::DiscoveryService, server::PermissionManager};
 use ::playback::{
-    player::{Playable, PlayingItem},
+    player::{Playable, PlaybackSource, PlayingItem},
     sfx_player::SfxPlayer,
 };
 use ::scrobbling::manager::ScrobblingManager;
@@ -95,6 +95,7 @@ pub struct GlobalParams {
     pub config_path: Arc<String>,
     pub node_id: Arc<String>,
     pub main_db: Arc<MainDbConnection>,
+    pub library_sync: Option<database::sync::LibrarySyncStore>,
     pub recommend_db: Arc<RecommendationDbConnection>,
     pub main_token: Arc<CancellationToken>,
     pub task_tokens: Arc<Mutex<TaskTokens>>,
@@ -107,6 +108,20 @@ pub struct GlobalParams {
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
     pub running_mode: RunningMode,
+}
+
+/// The application owns the replicated catalog scope. Pairing authorization
+/// determines which devices may exchange it; this UUID is not an access token.
+pub async fn initialize_library_replica(
+    db: &MainDbConnection,
+    device_id: &str,
+) -> Result<database::sync::LibrarySyncStore> {
+    let device_id = uuid::Uuid::parse_str(device_id)?;
+    let namespace = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, b"https://rune.audio/catalog");
+    let library =
+        database::sync::LibrarySyncStore::open(db.clone(), device_id, Some(namespace)).await?;
+    library.import_existing(device_id).await?;
+    Ok(library)
 }
 
 impl Debug for GlobalParams {
@@ -458,9 +473,15 @@ pub fn process_cover_art_path(
 
 pub async fn parse_media_files(
     fsio: &FsIo,
+    db: &MainDbConnection,
+    _node_id: &str,
     media_summaries: Vec<MetadataSummary>,
     lib_path: Arc<String>,
 ) -> Result<Vec<MediaFile>> {
+    let ids: Vec<_> = media_summaries.iter().map(|file| file.id).collect();
+    let availability =
+        database::actions::file::audio_availability(db, fsio, Path::new(&*lib_path), &ids).await?;
+    let remote_content = database::actions::file::remote_content_ids(db, &ids).await?;
     let mut media_files = Vec::with_capacity(media_summaries.len());
 
     for file in media_summaries {
@@ -480,76 +501,110 @@ pub async fn parse_media_files(
                 .join(&file.file_name),
         );
 
-        match media_path {
-            Ok(media_path) => {
-                let media_file = MediaFile {
-                    id: file.id,
-                    path: media_path
-                        .to_str()
-                        .ok_or_else(|| anyhow::anyhow!("Media path is None"))?
-                        .to_string(),
-                    artist: if file.artist.is_empty() {
-                        "Unknown Artist".to_owned()
-                    } else {
-                        file.artist
-                    },
-                    album: if file.album.is_empty() {
-                        "Unknown Album".to_owned()
-                    } else {
-                        file.album
-                    },
-                    title: if file.title.is_empty() {
-                        file.file_name
-                    } else {
-                        file.title
-                    },
-                    duration: file.duration,
-                    cover_art_id: file.cover_art_id.unwrap_or(-1),
-                    track_number: file.track_number,
-                };
+        use crate::messages::AudioAvailability as ApiState;
+        use database::actions::file::AudioAvailability as LocalState;
+        let state = availability
+            .get(&file.id)
+            .copied()
+            .unwrap_or(LocalState::Unavailable);
+        let (media_path, state) = if state == LocalState::Local {
+            match media_path {
+                Ok(path) => (path, ApiState::Local),
+                Err(_) => (PathBuf::new(), ApiState::Unavailable),
+            }
+        } else {
+            let state = ApiState::from_local(state, remote_content.contains(&file.id));
+            (PathBuf::new(), state)
+        };
+        let media_file = MediaFile {
+            id: file.id,
+            path: media_path
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Media path is None"))?
+                .to_string(),
+            artist: if file.artist.is_empty() {
+                "Unknown Artist".to_owned()
+            } else {
+                file.artist
+            },
+            album: if file.album.is_empty() {
+                "Unknown Album".to_owned()
+            } else {
+                file.album
+            },
+            title: if file.title.is_empty() {
+                file.file_name
+            } else {
+                file.title
+            },
+            duration: file.duration,
+            cover_art_id: file.cover_art_id.unwrap_or(-1),
+            track_number: file.track_number,
+            audio_availability: state,
+        };
 
-                media_files.push(media_file);
-            }
-            Err(e) => {
-                error!("{e:?}");
-            }
-        }
+        media_files.push(media_file);
     }
 
     Ok(media_files)
 }
 
-pub fn files_to_playback_request<P: AsRef<Path>>(
+pub async fn files_to_playback_request<P: AsRef<Path>>(
     fsio: &FsIo,
+    db: &MainDbConnection,
+    _node_id: &str,
     lib_path: &P,
     files: &[MediaFileHandle],
-) -> Vec<(PlayingItem, PathBuf)> {
-    files
+) -> Result<Vec<(PlayingItem, PlaybackSource)>> {
+    let ids: Vec<i32> = files
+        .iter()
+        .filter_map(|file| match file.item {
+            PlayingItem::InLibrary(id) => Some(id),
+            _ => None,
+        })
+        .collect();
+    let availability =
+        database::actions::file::audio_availability(db, fsio, lib_path.as_ref(), &ids).await?;
+    let remote_content = database::actions::file::remote_content_ids(db, &ids).await?;
+    Ok(files
         .iter()
         .filter_map(|file| {
-            let path_buf = match &file.item {
+            let source = match &file.item {
+                PlayingItem::InLibrary(id)
+                    if matches!(
+                        availability.get(id),
+                        Some(database::actions::file::AudioAvailability::RemoteOnly)
+                            | Some(database::actions::file::AudioAvailability::ImportPending)
+                    ) && remote_content.contains(id) =>
+                {
+                    PlaybackSource::LibraryStream
+                }
+                PlayingItem::InLibrary(id)
+                    if !matches!(
+                        availability.get(id),
+                        Some(database::actions::file::AudioAvailability::Local)
+                    ) =>
+                {
+                    return None;
+                }
                 PlayingItem::InLibrary(_) => match fsio.canonicalize_path(
                     &lib_path
                         .as_ref()
                         .join(&file.directory)
                         .join(&file.file_name),
                 ) {
-                    Ok(x) => x,
+                    Ok(path) => PlaybackSource::Local(path),
                     Err(_) => return None,
                 },
-                PlayingItem::IndependentFile(raw_path) => {
-                    match fsio.canonicalize_path_str(raw_path) {
-                        Ok(x) => x,
-                        Err(_) => return None,
-                    }
+                PlayingItem::IndependentFile(path) => {
+                    PlaybackSource::Local(fsio.canonicalize_path_str(path).ok()?)
                 }
-                PlayingItem::Online(_, _) => PathBuf::new(),
+                PlayingItem::Online(_, _) => PlaybackSource::Local(PathBuf::new()),
                 PlayingItem::Unknown => return None,
             };
-
-            Some((file.item.clone(), path_buf))
+            Some((file.item.clone(), source))
         })
-        .collect()
+        .collect())
 }
 
 pub fn find_nearest_index<T, F>(vec: &[T], hint_position: usize, predicate: F) -> Option<usize>

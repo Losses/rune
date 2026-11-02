@@ -12,6 +12,32 @@ pub struct FetchMediaFilesRequest {
     pub bake_cover_arts: bool,
 }
 
+/// Local state only: RemoteOnly records a blob reference, not a reachable peer.
+#[derive(Clone, Copy, Serialize, Deserialize, SignalPiece, Debug, PartialEq, Eq)]
+pub enum AudioAvailability {
+    Local,
+    RemoteOnly,
+    Unavailable,
+    ImportPending,
+}
+
+impl AudioAvailability {
+    /// A pending persistent download does not remove an existing remote content reference.
+    pub fn from_local(
+        value: database::actions::file::AudioAvailability,
+        has_remote_content: bool,
+    ) -> Self {
+        use database::actions::file::AudioAvailability as State;
+        match value {
+            State::Local => Self::Local,
+            State::RemoteOnly => Self::RemoteOnly,
+            State::Unavailable => Self::Unavailable,
+            State::ImportPending if has_remote_content => Self::RemoteOnly,
+            State::ImportPending => Self::ImportPending,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, SignalPiece, Debug)]
 pub struct MediaFile {
     pub id: i32,
@@ -22,6 +48,7 @@ pub struct MediaFile {
     pub duration: f64,
     pub cover_art_id: i32,
     pub track_number: i32,
+    pub audio_availability: AudioAvailability,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -59,6 +86,7 @@ pub struct MediaFileSummary {
     pub id: i32,
     pub name: String,
     pub cover_art_id: i32,
+    pub audio_availability: AudioAvailability,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]

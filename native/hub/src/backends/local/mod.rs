@@ -60,6 +60,14 @@ pub async fn local_player_loop(
         );
 
         let main_cancel_token = CancellationToken::new();
+        let library_sync = match crate::utils::initialize_library_replica(&main_db, &node_id).await
+        {
+            Ok(replica) => replica,
+            Err(error) => {
+                log::error!("Failed to initialize library replica: {error:#}");
+                return;
+            }
+        };
         let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
 
         info!("Initializing player");
@@ -83,6 +91,8 @@ pub async fn local_player_loop(
             fsio.clone(),
             lib_path.clone(),
             main_db.clone(),
+            library_sync.record_store(),
+            library_sync.record_store().author(),
             player.clone(),
             scrobbler.clone(),
             broadcaster.clone(),
@@ -97,6 +107,7 @@ pub async fn local_player_loop(
             config_path,
             node_id,
             main_db,
+            library_sync: Some(library_sync),
             recommend_db,
             main_token: Arc::clone(&main_cancel_token),
             task_tokens,
@@ -119,6 +130,23 @@ pub async fn local_player_loop(
             .set(server_manager.clone())
             .expect("Failed to set server manager in global params");
 
+        match crate::server::utils::device::load_device_info(std::path::Path::new(
+            &*global_params.config_path,
+        ))
+        .await
+        {
+            Ok(info) => {
+                let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 7863));
+                if let Err(error) = server_manager
+                    .clone()
+                    .start_sync(addr, discovery::DiscoveryParams { device_info: info })
+                    .await
+                {
+                    log::warn!("Could not start paired sync server: {error}");
+                }
+            }
+            Err(error) => log::warn!("Could not initialize paired sync identity: {error}"),
+        }
         for_all_request_pairs2!(listen_local_gui_event, global_params, main_cancel_token);
     });
 }

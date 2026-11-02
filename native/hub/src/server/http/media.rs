@@ -44,6 +44,8 @@ pub async fn get_media_metadata_handler(
 
     let parsed_files = parse_media_files(
         &server_state.fsio,
+        &server_manager.global_params.main_db,
+        &server_manager.global_params.node_id,
         vec![media_file],
         Arc::new(lib_path_string),
     )

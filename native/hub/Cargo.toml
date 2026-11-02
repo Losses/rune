@@ -20,6 +20,9 @@ path = "src/server/main.rs"
 name = "rune-client"
 path = "src/server/client/main.rs"
 
+[features]
+sync-crash-probe = ["database/sync-crash-probe"]
+
 [dependencies]
 rinf = "8.11.0"
 tokio = { version = "1.44.2", features = ["sync", "time", "rt-multi-thread"] }
@@ -42,6 +45,7 @@ tokio-util = "0.7.11"
 num_cpus = "1.16.0"
 anyhow = { version = "1.0.98", features = ["backtrace"] }
 futures = "0.3.30"
+blake3 = "1"
 async-trait = "0.1.83"
 tracing-appender = "0.2.3"
 chrono = { version = "0.4.38", features = ["serde"] }
@@ -57,7 +61,7 @@ strum_macros = "0.26.4"
 requests = { path = "../requests" }
 clap = "4.5.26"
 axum = { version = "0.8.1", features = ["ws", "macros"] }
-tower = "0.5.2"
+tower = { version = "0.5.2", features = ["util"] }
 tower-http = { version = "0.6.2", features = ["fs"] }
 axum-server = { version = "0.7.1", features = ["tls-rustls-no-provider"] }
 uuid = "1.11.1"
@@ -75,6 +79,10 @@ serde = "1.0.219"
 tower_governor = "0.6.0"
 rand = "0.8.0"
 sha2 = "0.10.8"
+rsa = "0.9.10"
+pem = "3.0.4"
+x509-parser = "0.17.0"
+reqwest = { version = "0.12.18", features = ["json", "rustls-tls", "stream"] }
 toml = "0.8.20"
 directories = "6.0.0"
 humantime = "2.1.0"
@@ -108,3 +116,13 @@ tracing-logcat = "0.1.0"
 
 [target.'cfg(target_os = "macos")'.build-dependencies]
 swift-rs = { version = "1.0.7", features = ["build"] }
+
+[dev-dependencies]
+sync-orm = { path = "../../sync-orm" }
+hyper = "1.6.0"
+portpicker = "0.1.1"
+env_logger = "0.11.8"
+rust_decimal = "1.36.0"
+rust_decimal_macros = "1.36.0"
+migration = { path = "../../migration" }
+tempfile = "3.17.1"

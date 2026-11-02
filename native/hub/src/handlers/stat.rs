@@ -15,20 +15,32 @@ use crate::{
 };
 
 impl ParamsExtractor for SetLikedRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (
+        Arc<MainDbConnection>,
+        Option<database::sync::SeaOrmSyncStore>,
+    );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            all_params.main_db.clone(),
+            all_params
+                .library_sync
+                .as_ref()
+                .map(|library| library.record_store()),
+        )
     }
 }
 
 impl Signal for SetLikedRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (
+        Arc<MainDbConnection>,
+        Option<database::sync::SeaOrmSyncStore>,
+    );
     type Response = SetLikedResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (main_db, store): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -39,14 +51,19 @@ impl Signal for SetLikedRequest {
 
             let response = match parsed_item {
                 PlayingItem::InLibrary(file_id) => {
-                    set_liked(&main_db, file_id, request.liked)
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "Failed to set liked: file_id={}, liked={}",
-                                file_id, request.liked
-                            )
-                        })?;
+                    set_liked(
+                        &main_db,
+                        store.as_ref().context("library replica unavailable")?,
+                        file_id,
+                        request.liked,
+                    )
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to set liked: file_id={}, liked={}",
+                            file_id, request.liked
+                        )
+                    })?;
 
                     SetLikedResponse {
                         item: item.clone(),
@@ -99,7 +116,7 @@ impl Signal for GetLikedRequest {
 
             let response = match parsed_item {
                 PlayingItem::InLibrary(file_id) => {
-                    let liked = get_liked(&main_db, file_id)
+                    let liked = get_liked(&*main_db, file_id)
                         .await
                         .with_context(|| format!("Failed to get liked: file_id={file_id}"))?;
 

@@ -126,6 +126,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let config_path: Arc<String> = Arc::new(config_path.to_string());
 
     let main_cancel_token = CancellationToken::new();
+    let library_sync = hub::utils::initialize_library_replica(&main_db, &node_id).await?;
     let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
 
     info!("Initializing player");
@@ -151,6 +152,8 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         fsio.clone(),
         lib_path.clone(),
         main_db.clone(),
+        library_sync.record_store(),
+        library_sync.record_store().author(),
         player.clone(),
         scrobbler.clone(),
         broadcaster.clone(),
@@ -164,6 +167,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         config_path,
         node_id,
         main_db,
+        library_sync: Some(library_sync),
         recommend_db,
         main_token: main_cancel_token,
         task_tokens,

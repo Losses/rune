@@ -20,6 +20,7 @@ mod scrobble;
 mod search;
 mod sfx;
 mod stat;
+mod sync;
 mod system;
 mod visualizer;
 
@@ -45,5 +46,6 @@ pub use scrobble::*;
 pub use search::*;
 pub use sfx::*;
 pub use stat::*;
+pub use sync::*;
 pub use system::*;
 pub use visualizer::*;

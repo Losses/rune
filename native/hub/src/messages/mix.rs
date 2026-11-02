@@ -108,7 +108,16 @@ pub struct FetchMixQueriesRequest {
     pub mix_id: i32,
 }
 
+#[derive(Clone, Deserialize, Serialize, SignalPiece)]
+pub struct StoredMixQuery {
+    pub clause_id: String,
+    pub operator: String,
+    pub parameter: String,
+    pub target_uuid: Option<String>,
+    pub available: bool,
+}
+
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct FetchMixQueriesResponse {
-    pub result: Vec<MixQuery>,
+    pub result: Vec<StoredMixQuery>,
 }

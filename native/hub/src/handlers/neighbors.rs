@@ -278,7 +278,23 @@ impl Signal for StopServerRequest {
         _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
-        match server_manager.stop().await {
+        let address = server_manager.get_address().await;
+        let result = async {
+            server_manager.stop().await?;
+            if let Some(address) = address {
+                let info = crate::server::utils::device::load_device_info(Path::new(
+                    &*server_manager.global_params.config_path,
+                ))
+                .await?;
+                server_manager
+                    .clone()
+                    .start_sync(address, DiscoveryParams { device_info: info })
+                    .await?;
+            }
+            anyhow::Ok(())
+        }
+        .await;
+        match result {
             Ok(_) => Ok(Some(StopServerResponse {
                 success: true,
                 error: "".into(),

@@ -101,3 +101,9 @@ pub struct CancelTaskResponse {
     pub r#type: CancelTaskType,
     pub success: bool,
 }
+
+/// Library records changed after a sync transaction or audio import.
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct LibraryContentChanged {
+    pub path: String,
+}

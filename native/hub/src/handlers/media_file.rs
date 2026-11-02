@@ -21,24 +21,25 @@ use crate::{
 };
 
 impl ParamsExtractor for FetchMediaFilesRequest {
-    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.lib_path),
+            Arc::clone(&all_params.node_id),
         )
     }
 }
 
 impl Signal for FetchMediaFilesRequest {
-    type Params = (Arc<FsIo>, Arc<DatabaseConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<DatabaseConnection>, Arc<String>, Arc<String>);
     type Response = FetchMediaFilesResponse;
 
     async fn handle(
         &self,
-        (fsio, main_db, lib_path): Self::Params,
+        (fsio, main_db, lib_path, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -55,13 +56,14 @@ impl Signal for FetchMediaFilesRequest {
             HashMap::new()
         };
 
-        let media_summaries = get_metadata_summary_by_files(&main_db, media_entries)
+        let media_summaries = get_metadata_summary_by_files(main_db.as_ref(), media_entries)
             .await
             .with_context(|| {
                 format!("Failed to fetch media list, page: {cursor}, size: {page_size}")
             })?;
 
-        let media_files = parse_media_files(&fsio, media_summaries, lib_path).await?;
+        let media_files =
+            parse_media_files(&fsio, &main_db, &node_id, media_summaries, lib_path).await?;
         Ok(Some(FetchMediaFilesResponse {
             media_files,
             cover_art_map,
@@ -70,24 +72,25 @@ impl Signal for FetchMediaFilesRequest {
 }
 
 impl ParamsExtractor for FetchMediaFileByIdsRequest {
-    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.lib_path),
+            Arc::clone(&all_params.node_id),
         )
     }
 }
 
 impl Signal for FetchMediaFileByIdsRequest {
-    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>, Arc<String>);
     type Response = FetchMediaFileByIdsResponse;
 
     async fn handle(
         &self,
-        (fsio, main_db, lib_path): Self::Params,
+        (fsio, main_db, lib_path, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -97,11 +100,11 @@ impl Signal for FetchMediaFileByIdsRequest {
             .await
             .with_context(|| format!("Failed to get media summaries for id: {:?}", request.ids))?;
 
-        let media_summaries = get_metadata_summary_by_files(&main_db, media_entries)
+        let media_summaries = get_metadata_summary_by_files(main_db.as_ref(), media_entries)
             .await
             .with_context(|| "Unable to get media summaries")?;
 
-        let items = parse_media_files(&fsio, media_summaries, lib_path)
+        let items = parse_media_files(&fsio, &main_db, &node_id, media_summaries, lib_path)
             .await
             .with_context(|| "Failed to parse media summaries")?;
 
@@ -119,24 +122,25 @@ impl Signal for FetchMediaFileByIdsRequest {
 }
 
 impl ParamsExtractor for FetchParsedMediaFileRequest {
-    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<MainDbConnection>, Arc<String>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.fsio),
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.lib_path),
+            Arc::clone(&all_params.node_id),
         )
     }
 }
 
 impl Signal for FetchParsedMediaFileRequest {
-    type Params = (Arc<FsIo>, Arc<DatabaseConnection>, Arc<String>);
+    type Params = (Arc<FsIo>, Arc<DatabaseConnection>, Arc<String>, Arc<String>);
     type Response = FetchParsedMediaFileResponse;
 
     async fn handle(
         &self,
-        (fsio, db, lib_path): Self::Params,
+        (fsio, db, lib_path, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -146,9 +150,10 @@ impl Signal for FetchParsedMediaFileRequest {
             .await
             .with_context(|| "Failed to get media summaries")?;
 
-        let parsed_files = parse_media_files(&fsio, vec![media_file], lib_path.clone())
-            .await
-            .with_context(|| "Failed to parse media files")?;
+        let parsed_files =
+            parse_media_files(&fsio, &db, &node_id, vec![media_file], lib_path.clone())
+                .await
+                .with_context(|| "Failed to parse media files")?;
 
         let media_file = parsed_files
             .first()
@@ -177,19 +182,24 @@ impl Signal for FetchParsedMediaFileRequest {
 }
 
 impl ParamsExtractor for SearchMediaFileSummaryRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<FsIo>, Arc<String>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.fsio),
+            Arc::clone(&all_params.lib_path),
+            Arc::clone(&all_params.node_id),
+        )
     }
 }
 
 impl Signal for SearchMediaFileSummaryRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<FsIo>, Arc<String>, Arc<String>);
     type Response = SearchMediaFileSummaryResponse;
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (main_db, fsio, lib_path, _node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -199,10 +209,22 @@ impl Signal for SearchMediaFileSummaryRequest {
             .await
             .with_context(|| "Failed to search media file summary")?;
 
-        let media_summaries = get_metadata_summary_by_files(&main_db, items)
+        let media_summaries = get_metadata_summary_by_files(main_db.as_ref(), items)
             .await
             .with_context(|| "Failed to get media summaries")?;
 
+        let states = database::actions::file::audio_availability(
+            &*main_db,
+            &fsio,
+            std::path::Path::new(&*lib_path),
+            &media_summaries.iter().map(|row| row.id).collect::<Vec<_>>(),
+        )
+        .await?;
+        let remote_content = database::actions::file::remote_content_ids(
+            &main_db,
+            &media_summaries.iter().map(|row| row.id).collect::<Vec<_>>(),
+        )
+        .await?;
         Ok(Some(SearchMediaFileSummaryResponse {
             result: media_summaries
                 .into_iter()
@@ -214,6 +236,13 @@ impl Signal for SearchMediaFileSummaryRequest {
                         x.title
                     },
                     cover_art_id: x.cover_art_id.unwrap_or(-1),
+                    audio_availability: crate::messages::AudioAvailability::from_local(
+                        states
+                            .get(&x.id)
+                            .copied()
+                            .unwrap_or(database::actions::file::AudioAvailability::Unavailable),
+                        remote_content.contains(&x.id),
+                    ),
                 })
                 .collect(),
         }))

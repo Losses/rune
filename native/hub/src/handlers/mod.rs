@@ -17,5 +17,6 @@ mod scrobble;
 mod search;
 mod sfx;
 mod stat;
+mod sync;
 mod system;
 mod visualizer;

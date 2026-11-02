@@ -277,6 +277,7 @@ impl WebSocketDartBridge {
                     config_path: Arc::new(config_path.to_string()),
                     node_id: Arc::new(node_id),
                     main_db: Arc::new(connect_fake_main_db().await?),
+                    library_sync: None,
                     recommend_db: Arc::new(connect_fake_recommendation_db()?),
                     main_token: Arc::clone(&cancel_token),
                     task_tokens: Arc::new(Mutex::new(TaskTokens {
@@ -370,7 +371,8 @@ pub async fn server_player_loop(
             ScrobbleServiceStatusUpdated,
             CrashResponse,
             RealtimeFFT,
-            PlaylistUpdate
+            PlaylistUpdate,
+            LibraryContentChanged
         );
 
         bridge

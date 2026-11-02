@@ -12,6 +12,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let types = vec![
         // Library
         RequestResponse {
+            request: "SetDownloadRuleRequest".to_string(),
+            response: Some("SetDownloadRuleResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
             request: "TestLibraryInitializedRequest".to_string(),
             response: Some("TestLibraryInitializedResponse".to_string()),
             local_only: true,
@@ -321,6 +326,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: false,
         },
         RequestResponse {
+            request: "FetchPlaylistOccurrencesRequest".to_string(),
+            response: Some("FetchPlaylistOccurrencesResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
             request: "GetPlaylistByIdRequest".to_string(),
             response: Some("GetPlaylistByIdResponse".to_string()),
             local_only: false,
@@ -552,7 +562,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "RemoveItemFromPlaylistRequest".to_string(),
             response: Some("RemoveItemFromPlaylistResponse".to_string()),
-            local_only: true,
+            local_only: false,
         },
     ];
 

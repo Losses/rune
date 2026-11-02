@@ -59,6 +59,8 @@ pub async fn initialize_local_player(
     fsio: Arc<FsIo>,
     lib_path: Arc<String>,
     main_db: Arc<MainDbConnection>,
+    store: database::sync::SeaOrmSyncStore,
+    device_id: uuid::Uuid,
     player: Arc<Mutex<dyn Playable>>,
     scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>>,
     broadcaster: Arc<dyn Broadcaster>,
@@ -276,7 +278,7 @@ pub async fn initialize_local_player(
         while let Ok(item) = played_through_receiver.recv().await {
             match &item {
                 PlayingItem::InLibrary(id) => {
-                    if let Err(e) = increase_played_through(&main_db, *id)
+                    if let Err(e) = increase_played_through(&main_db, &store, *id, device_id)
                         .await
                         .with_context(|| "Unable to update played through count")
                     {
@@ -284,9 +286,10 @@ pub async fn initialize_local_player(
                     }
                 }
                 PlayingItem::Online(_, Some(online_file)) => {
-                    if let Err(e) = increase_played_through(&main_db, online_file.id)
-                        .await
-                        .with_context(|| "Unable to update played through count")
+                    if let Err(e) =
+                        increase_played_through(&main_db, &store, online_file.id, device_id)
+                            .await
+                            .with_context(|| "Unable to update played through count")
                     {
                         error!("{e:?}");
                     }
@@ -540,6 +543,36 @@ fn macos_cover_file_url(path: &std::path::Path) -> Option<String> {
     url::Url::from_file_path(path).ok().map(Into::into)
 }
 
+async fn update_media_controls_progress(
+    manager: Arc<Mutex<MediaControlManager>>,
+    status: &PlaybackStatus,
+) -> Result<()> {
+    let mut manager = manager.lock().await;
+
+    let playback = match status.state.as_str() {
+        "Playing" => MediaPlayback::Playing {
+            progress: Some(MediaPosition(std::time::Duration::from_secs_f32(
+                status.progress_seconds,
+            ))),
+        },
+        "Paused" => MediaPlayback::Paused {
+            progress: Some(MediaPosition(std::time::Duration::from_secs_f32(
+                status.progress_seconds,
+            ))),
+        },
+        _ => MediaPlayback::Stopped,
+    };
+
+    match manager.controls.set_playback(playback) {
+        Ok(x) => x,
+        Err(e) => bail!(Error::msg(format!(
+            "Failed to set media playback status: {e:?}"
+        ))),
+    };
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod cover_file_url_tests {
     use super::macos_cover_file_url;
@@ -573,34 +606,4 @@ mod cover_file_url_tests {
         assert!(macos_cover_file_url(&dir.join("rune-cover-url-nonexistent-53a246.png")).is_none());
         assert!(macos_cover_file_url(&dir).is_none());
     }
-}
-
-async fn update_media_controls_progress(
-    manager: Arc<Mutex<MediaControlManager>>,
-    status: &PlaybackStatus,
-) -> Result<()> {
-    let mut manager = manager.lock().await;
-
-    let playback = match status.state.as_str() {
-        "Playing" => MediaPlayback::Playing {
-            progress: Some(MediaPosition(std::time::Duration::from_secs_f32(
-                status.progress_seconds,
-            ))),
-        },
-        "Paused" => MediaPlayback::Paused {
-            progress: Some(MediaPosition(std::time::Duration::from_secs_f32(
-                status.progress_seconds,
-            ))),
-        },
-        _ => MediaPlayback::Stopped,
-    };
-
-    match manager.controls.set_playback(playback) {
-        Ok(x) => x,
-        Err(e) => bail!(Error::msg(format!(
-            "Failed to set media playback status: {e:?}"
-        ))),
-    };
-
-    Ok(())
 }
