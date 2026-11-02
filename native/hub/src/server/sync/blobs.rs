@@ -73,7 +73,13 @@ async fn download_to_path(
                 .is_symlink(),
             "invalid existing blob path"
         );
-        if hash_file(fsio, &final_path)? == *blob {
+        let hash_fsio = fsio.clone();
+        let hash_path = final_path.clone();
+        if tokio::task::spawn_blocking(move || hash_file(&hash_fsio, &hash_path))
+            .await
+            .context("existing blob verification task failed")??
+            == *blob
+        {
             return Ok(final_path);
         }
     }
@@ -119,6 +125,7 @@ async fn download_to_path(
             }
         }
         output.flush()?;
+        output.sync_all()?;
         drop(output);
         ensure!(
             size == blob.size && hash.finalize().to_hex().as_str() == blob.digest,

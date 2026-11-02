@@ -61,6 +61,12 @@ impl Seek for NoOpStream {
     }
 }
 
+impl FileStream for NoOpStream {
+    fn sync_all(&mut self) -> Result<(), FileIoError> {
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl FileIo for NoOpFsIo {
     fn name(&self) -> &'static str {

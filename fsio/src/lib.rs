@@ -38,8 +38,16 @@ pub struct FsNode {
     pub size: u64,
 }
 
-pub trait FileStream: Read + Write + Seek + Send + Sync {}
-impl<T: Read + Write + Seek + Send + Sync> FileStream for T {}
+pub trait FileStream: Read + Write + Seek + Send + Sync {
+    /// Persist file contents and metadata before publication.
+    fn sync_all(&mut self) -> Result<(), FileIoError>;
+}
+
+impl FileStream for std::fs::File {
+    fn sync_all(&mut self) -> Result<(), FileIoError> {
+        std::fs::File::sync_all(self).map_err(FileIoError::Io)
+    }
+}
 
 #[async_trait]
 pub trait FileIo: Send + Sync {

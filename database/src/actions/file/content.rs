@@ -173,6 +173,8 @@ pub async fn remote_content_ids(
     Ok(found)
 }
 
+// Managed copies are reverified by the verifier and user files by the scanner;
+// downloaders also verify the full digest before attaching received bytes.
 pub async fn local_audio_path(
     db: &DatabaseConnection,
     fsio: &FsIo,
@@ -196,7 +198,10 @@ pub async fn local_audio_path(
     let Some(path) = materialized_path(db, fsio, root, file.id).await? else {
         return Ok(None);
     };
-    if hash_file(fsio, &path).ok().as_ref() == Some(blob) {
+    if fsio
+        .canonicalize(&path)
+        .is_ok_and(|node| node.is_file && node.size == blob.size)
+    {
         Ok(Some(path))
     } else {
         Ok(None)
@@ -248,10 +253,12 @@ pub async fn attach_download(
         .context("download escapes library root")?;
     #[cfg(target_os = "android")]
     let relative = path.strip_prefix(root)?;
-    ensure!(
-        &hash_file(fsio, path)? == blob,
-        "download digest or size mismatch"
-    );
+    let hash_fsio = fsio.clone();
+    let hash_path = path.to_owned();
+    let actual = tokio::task::spawn_blocking(move || hash_file(&hash_fsio, &hash_path))
+        .await
+        .context("download verification task failed")??;
+    ensure!(&actual == blob, "download digest or size mismatch");
     ensure!(
         relative
             .components()

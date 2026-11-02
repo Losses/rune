@@ -6,7 +6,7 @@ use database::sync::{
     LibrarySyncStore,
     model::{BlobRef, Collection, ObjectKey},
 };
-use hub::server::sync::downloads::download_requested_audio;
+use hub::server::sync::downloads::{download_requested_audio, download_requested_audio_until};
 #[path = "support/causal_library.rs"]
 mod support;
 use anyhow::Result;
@@ -16,6 +16,7 @@ use database::{
     entities::{media_files, sync_download_jobs, sync_download_rules},
 };
 use fsio::FsIo;
+use futures::StreamExt;
 use sea_orm::{
     ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
 };
@@ -33,6 +34,7 @@ struct Fixture {
     node: Uuid,
     tracks: Vec<(Uuid, BlobRef)>,
     fail: Arc<AtomicBool>,
+    slow: Arc<AtomicBool>,
     replace_during_download: Arc<AtomicBool>,
     gets: Arc<AtomicUsize>,
     base: String,
@@ -90,6 +92,8 @@ impl Fixture {
         .await?;
         let metadata = support::memory(store.identity().await?.namespace, Uuid::new_v4())?;
         let fail = Arc::new(AtomicBool::new(true));
+        let slow = Arc::new(AtomicBool::new(false));
+        let request_slow = slow.clone();
         let replace_during_download = Arc::new(AtomicBool::new(false));
         let gets = Arc::new(AtomicUsize::new(0));
         let rejected = tracks[0].1.digest.clone();
@@ -103,6 +107,7 @@ impl Fixture {
             "/sync/blobs/{digest}",
             get(move |Path(digest): Path<String>| {
                 let bytes = bytes.clone();
+                let slow = request_slow.clone();
                 let fail = request_fail.clone();
                 let gets = request_gets.clone();
                 let rejected = rejected.clone();
@@ -130,10 +135,24 @@ impl Fixture {
                             .unwrap();
                     }
                     if digest == rejected && fail.load(Ordering::SeqCst) {
-                        (StatusCode::SERVICE_UNAVAILABLE, Vec::new())
-                    } else {
-                        (StatusCode::OK, bytes[&digest].clone())
+                        return axum::http::Response::builder()
+                            .status(StatusCode::SERVICE_UNAVAILABLE)
+                            .body(axum::body::Body::empty())
+                            .unwrap();
                     }
+                    let body = bytes[&digest].clone();
+                    let split = body.len() / 2;
+                    let (first, second) = (body[..split].to_vec(), body[split..].to_vec());
+                    let stream = futures::stream::once(
+                        async move { Ok::<_, std::io::Error>(first) },
+                    )
+                    .chain(futures::stream::once(async move {
+                        if slow.load(Ordering::SeqCst) {
+                            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        }
+                        Ok::<_, std::io::Error>(second)
+                    }));
+                    axum::http::Response::new(axum::body::Body::from_stream(stream))
                 }
             }),
         );
@@ -151,6 +170,7 @@ impl Fixture {
             node,
             tracks,
             fail,
+            slow,
             replace_during_download,
             gets,
             base,
@@ -524,5 +544,76 @@ async fn invalid_local_path_does_not_block_following_file() -> Result<()> {
     let report = fixture.run(&fixture.base).await?;
     assert_eq!(report.downloaded, 1);
     assert_eq!(fixture.gets.load(Ordering::SeqCst), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn transfer_finishes_after_pass_deadline_without_starting_next_file() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    fixture.fail.store(false, Ordering::SeqCst);
+    fixture.slow.store(true, Ordering::SeqCst);
+    let report = download_requested_audio_until(
+        fixture.db.clone(),
+        &RecommendationDbConnection::new(),
+        fixture.fs.clone(),
+        fixture.root.path().into(),
+        fixture.node,
+        &http_request::sync::MetadataPeer::new(&fixture.base, reqwest::Client::new()),
+        Arc::new(|| {}),
+        tokio::time::Instant::now() + std::time::Duration::from_millis(200),
+    )
+    .await?;
+    assert_eq!(report.downloaded, 1);
+    assert_eq!(fixture.gets.load(Ordering::SeqCst), 1);
+    let files = media_files::Entity::find().all(&fixture.db).await?;
+    assert_eq!(files.iter().filter(|file| file.local_available).count(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn head_and_get_blob_do_not_rehash() -> Result<()> {
+    use hub::server::sync::http::{BlobContext, blob_router};
+    let fixture = Fixture::new().await?;
+    fixture.fail.store(false, Ordering::SeqCst);
+    fixture.run(&fixture.base).await?;
+    let (track, blob) = &fixture.tracks[0];
+    let row = media_files::Entity::find()
+        .filter(media_files::Column::HlcUuid.eq(track.to_string()))
+        .one(&fixture.db)
+        .await?
+        .unwrap();
+    let path = fixture.root.path().join(row.directory).join(row.file_name);
+    let app = blob_router(BlobContext {
+        store: Arc::new(tokio::sync::RwLock::new(fixture.store.clone())),
+        db: fixture.db.clone(),
+        fsio: fixture.fs.clone(),
+        root: fixture.root.path().into(),
+        node_id: fixture.node,
+        upload_lock: Arc::new(tokio::sync::Mutex::new(())),
+        notify: Arc::new(|| {}),
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let base = format!("http://{}", listener.local_addr()?);
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+    let url = format!("{base}/sync/blobs/{}", blob.digest);
+    let head = format!("{url}?track_id={track}");
+    assert_eq!(client.head(&head).send().await?.status(), StatusCode::OK);
+    let mut bytes = std::fs::read(&path)?;
+    bytes[0] ^= 1;
+    std::fs::write(&path, &bytes)?;
+    assert_eq!(client.head(&head).send().await?.status(), StatusCode::OK);
+    assert_eq!(client.get(&url).send().await?.status(), StatusCode::OK);
+    bytes.pop();
+    std::fs::write(&path, &bytes)?;
+    assert_eq!(
+        client.head(&head).send().await?.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        client.get(&url).send().await?.status(),
+        StatusCode::NOT_FOUND
+    );
+    server.abort();
     Ok(())
 }

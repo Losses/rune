@@ -256,7 +256,14 @@ async fn run_loop(
                     let result = tokio::select! {
                         _ = cancel.cancelled() => return (fingerprint, Duration::from_secs(30)),
                         _ = wait_for_revocation(&global, &endpoint.fingerprint, &endpoint.trusted_host) => Err(anyhow::anyhow!("peer permission revoked")),
-                        result = tokio::time::timeout(Duration::from_secs(60), sync_one(&global, &library, &notify, &credentials, &endpoint, metadata, &locks)) => match result { Ok(result) => result, Err(_) => Err(anyhow::anyhow!("peer operation timed out")) },
+                        result = async {
+                            let operation = sync_one(&global, &library, &notify, &credentials, &endpoint, metadata, &locks);
+                            if metadata {
+                                tokio::time::timeout(Duration::from_secs(60), operation).await.map_err(|_| anyhow::anyhow!("peer operation timed out"))?
+                            } else {
+                                operation.await
+                            }
+                        } => result,
                     };
                     match result {
                         Ok(complete) => return (fingerprint, if complete { Duration::from_secs(30) } else { Duration::from_millis(100) }),
@@ -396,7 +403,7 @@ async fn sync_one(
         }
         Ok(false)
     } else {
-        super::sync::downloads::download_requested_audio(
+        super::sync::downloads::download_requested_audio_until(
             (*global.main_db).clone(),
             &global.recommend_db,
             global.fsio.clone(),
@@ -404,6 +411,7 @@ async fn sync_one(
             global.node_id.parse()?,
             &peer,
             notify.clone(),
+            tokio::time::Instant::now() + Duration::from_secs(60),
         )
         .await?;
         Ok(true)

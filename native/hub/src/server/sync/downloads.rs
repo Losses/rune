@@ -30,6 +30,31 @@ pub async fn download_requested_audio(
     remote: &MetadataPeer<RuneModel>,
     notify: Arc<dyn Fn() + Send + Sync>,
 ) -> Result<DownloadReport> {
+    download_requested_audio_until(
+        db,
+        recommend_db,
+        fsio,
+        root,
+        node_id,
+        remote,
+        notify,
+        tokio::time::Instant::now() + std::time::Duration::from_secs(60),
+    )
+    .await
+}
+
+/// Run a pass until the deadline, allowing an in-flight transfer to finish.
+#[allow(clippy::too_many_arguments)]
+pub async fn download_requested_audio_until(
+    db: DatabaseConnection,
+    recommend_db: &RecommendationDbConnection,
+    fsio: Arc<FsIo>,
+    root: PathBuf,
+    node_id: Uuid,
+    remote: &MetadataPeer<RuneModel>,
+    notify: Arc<dyn Fn() + Send + Sync>,
+    deadline: tokio::time::Instant,
+) -> Result<DownloadReport> {
     release_obsolete_reservations(&db).await?;
     let rules = sync_download_rules::Entity::find()
         .filter(sync_download_rules::Column::Enabled.eq(true))
@@ -124,6 +149,9 @@ pub async fn download_requested_audio(
                     continue;
                 }
                 if attempted.len() == MAX_ATTEMPTS {
+                    return Ok(report);
+                }
+                if tokio::time::Instant::now() >= deadline {
                     return Ok(report);
                 }
                 attempted.insert(file.id);
