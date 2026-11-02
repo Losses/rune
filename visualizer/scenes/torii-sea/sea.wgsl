@@ -219,7 +219,7 @@ fn gate_hit(o: vec3f, d: vec3f, g: Gate, i: f32, slot: f32) -> Hit {
       if (!meets_ball(rk, dk, vec3f(3.1 * k, 5.66, 0.0), 1.15)) {
         continue;
       }
-      let sw = params.lantern_swing * sin(frame.time * (0.5 + 0.25 * hash(vec2f(i, k + 3.0))) + i * 1.3 + k * 0.9);
+      let sw = params.lantern_swing * sin(frame.song * (0.5 + 0.25 * hash(vec2f(i, k + 3.0))) + i * 1.3 + k * 0.9);
       let cs = cos(sw);
       let sn = sin(sw);
       // Into the frame of the lantern swinging from its cord under the kasagi.
@@ -776,7 +776,7 @@ fn sky(d: vec3f, l: Light) -> vec3f {
   c += l.sun_colour * (smoothstep(0.9993, 0.9997, s) * 6.0 * l.disc + pow(s, 64.0) * 0.35 + pow(s, 6.0) * 0.08);
   // Clouds on a layer far above.
   if (d.y > 0.01) {
-    let uv = d.xz / (d.y + 0.08) * 0.7 + vec2f(frame.time * 0.004, 0.0);
+    let uv = d.xz / (d.y + 0.08) * 0.7 + vec2f(frame.song * 0.004, 0.0);
     // Below full quality the finest of the clouds' detail goes, an octave a step (to two).
     let n = rv_fbm(uv * 1.3, 5 - i32(clamp(round((1.0 - frame.quality) * 4.0), 0.0, 3.0)));
     let cover = smoothstep(0.35 - 0.55 * l.clouds, 0.6, n + 0.25);

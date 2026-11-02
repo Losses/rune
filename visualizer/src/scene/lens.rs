@@ -203,6 +203,7 @@ fn flare_angle(music: &MusicValues, count: u32) -> f32 {
 }
 
 /// The lens effects of one scene.
+#[derive(Clone)]
 pub struct Lens {
     /// The effects that start at a moment: those the scene listed and those a lab forced.
     flare_listed: bool,
@@ -378,17 +379,20 @@ impl Lens {
 
     /// Start the effect a moment that `played` picks among those listed (see
     /// [`moments::lens_effect`]), at full strength for a strong moment; nothing if the scene
-    /// lists none that suits the moment.
-    pub fn start_at(&mut self, played: Played) {
+    /// lists none that suits the moment. It tells which one started.
+    pub fn start_at(&mut self, played: Played) -> Option<moments::Lens> {
         let lens = moments::lens_effect(&self.listed(), played);
         self.start_lens(played, lens);
+        lens
     }
 
     /// Start the effect a moment that `played` picks over a cut the scene glides to: a light one
-    /// only (see [`moments::lens_over_glide`]), at the moment's strength.
-    pub fn start_over_glide(&mut self, played: Played) {
+    /// only (see [`moments::lens_over_glide`]), at the moment's strength. It tells which one
+    /// started.
+    pub fn start_over_glide(&mut self, played: Played) -> Option<moments::Lens> {
         let lens = moments::lens_over_glide(&self.listed(), played);
         self.start_lens(played, lens);
+        lens
     }
 
     fn start_lens(&mut self, played: Played, lens: Option<moments::Lens>) {

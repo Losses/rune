@@ -27,7 +27,7 @@ use crate::inspect::{LabLens, LabOverrides, LabPace, LabTransition};
 use crate::moments::Chances;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
-use crate::scene::{DirectorView, FrameInput, LooksView, MusicValues, Scene, Source};
+use crate::scene::{DirectorView, FrameInput, LooksView, MusicValues, Scene, SongChart, Source};
 #[cfg(target_os = "windows")]
 use crate::shared_dx12::{SharedTargets, SharedTexture};
 #[cfg(target_os = "linux")]
@@ -63,6 +63,10 @@ pub struct Pipeline {
     rhythm: Rhythm,
     chart: Option<ChartState>,
     song: (f64, bool),
+    /// The song's whole chart and seed, while it has one (see [`Pipeline::set_song_chart`]).
+    song_chart: Option<SongChart>,
+    /// The seed of the song that plays, while one does.
+    song_seed: Option<u32>,
     /// The app's accent colour (linear), once the app has told it.
     accent: Option<[f32; 3]>,
     /// The chances the music's moments play an effect with (see [`crate::moments`]).
@@ -494,6 +498,8 @@ impl Pipeline {
             rhythm: Rhythm::default(),
             chart: None,
             song: (0.0, false),
+            song_chart: None,
+            song_seed: None,
             accent: None,
             chances: Chances::default(),
             runtime: RuntimeBindings::embedded(),
@@ -943,6 +949,19 @@ impl Pipeline {
     /// The song time and whether it plays, for scenes.
     pub fn set_song(&mut self, time: f64, playing: bool) {
         self.song = (time, playing);
+    }
+
+    /// The song's whole chart and the seed its decisions are made with, while it has a chart and
+    /// no lab holds the music without one: scenes then decide by song time (see
+    /// [`crate::scene::SongChart`]).
+    pub fn set_song_chart(&mut self, song_chart: Option<SongChart>) {
+        self.song_chart = song_chart;
+    }
+
+    /// The seed of the song that plays (see [`crate::scene::song_seed`]), none without a song: scenes
+    /// draw what they start with from it, and their `frame.seed` follows the song time with it.
+    pub fn set_song_seed(&mut self, seed: Option<u32>) {
+        self.song_seed = seed;
     }
 
     /// The chances the music's moments play an effect with, in the scene on screen, the one
@@ -1461,7 +1480,14 @@ impl Pipeline {
         if let Output::Surface(surface) = &mut self.output {
             let scene = &mut self.scene;
             let (device, queue) = (&self.device, &self.queue);
-            let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+            let heard = (
+                &self.rhythm,
+                self.chart.as_ref(),
+                self.song,
+                self.song_chart.as_ref(),
+                self.song_seed,
+                self.accent,
+            );
             let timer = &mut self.timer;
             let fx = (&mut self.transitions, plan);
             let presented = surface.present(device, queue, |encoder, view| {
@@ -1487,7 +1513,14 @@ impl Pipeline {
             match surfaces.next(&self.device) {
                 Ok(Some((buffer, view))) => {
                     let scene = &mut self.scene;
-                    let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+                    let heard = (
+                        &self.rhythm,
+                        self.chart.as_ref(),
+                        self.song,
+                        self.song_chart.as_ref(),
+                        self.song_seed,
+                        self.accent,
+                    );
                     let timer = &mut self.timer;
                     let fx = (&mut self.transitions, plan);
                     render_and_submit(&self.device, &self.queue, |encoder| {
@@ -1522,7 +1555,14 @@ impl Pipeline {
             match targets.next(&self.device) {
                 Ok(Some((texture, view))) => {
                     let scene = &mut self.scene;
-                    let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+                    let heard = (
+                        &self.rhythm,
+                        self.chart.as_ref(),
+                        self.song,
+                        self.song_chart.as_ref(),
+                        self.song_seed,
+                        self.accent,
+                    );
                     let timer = &mut self.timer;
                     let fx = (&mut self.transitions, plan);
                     render_and_submit(&self.device, &self.queue, |encoder| {
@@ -1558,7 +1598,14 @@ impl Pipeline {
                 Ok(Some(next)) => {
                     let scene = &mut self.scene;
                     let (device, queue) = (&self.device, &self.queue);
-                    let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+                    let heard = (
+                        &self.rhythm,
+                        self.chart.as_ref(),
+                        self.song,
+                        self.song_chart.as_ref(),
+                        self.song_seed,
+                        self.accent,
+                    );
                     let timer = &mut self.timer;
                     let fx = (&mut self.transitions, plan);
                     let frame = targets.render(device, queue, next, |encoder, view| {
@@ -1594,7 +1641,14 @@ impl Pipeline {
         };
         let scene = &mut self.scene;
         let (device, queue) = (&self.device, &self.queue);
-        let heard = (&self.rhythm, self.chart.as_ref(), self.song, self.accent);
+        let heard = (
+            &self.rhythm,
+            self.chart.as_ref(),
+            self.song,
+            self.song_chart.as_ref(),
+            self.song_seed,
+            self.accent,
+        );
         let timer = &mut self.timer;
         let fx = (&mut self.transitions, plan);
         let frame = target.render(device, queue, |encoder, view| {
@@ -1620,11 +1674,13 @@ impl Drop for Pipeline {
 }
 
 /// What a scene hears and sees of the player: the rhythm, the chart, the song time and whether
-/// it plays, and the app's accent colour.
+/// it plays, the song's whole chart and seed, the song's seed, and the app's accent colour.
 type Heard<'a> = (
     &'a Rhythm,
     Option<&'a ChartState>,
     (f64, bool),
+    Option<&'a SongChart>,
+    Option<u32>,
     Option<[f32; 3]>,
 );
 
@@ -1640,7 +1696,7 @@ fn draw(
     encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
     time: f64,
-    (rhythm, chart, song, accent): Heard,
+    (rhythm, chart, song, song_chart, song_seed, accent): Heard,
 ) {
     let timestamps = timer.begin();
     scene.render_timed(
@@ -1653,6 +1709,8 @@ fn draw(
             rhythm,
             chart,
             song,
+            song_chart,
+            song_seed,
             accent,
         },
         timestamps,
@@ -3041,7 +3099,7 @@ mod tests {
 /// Every probe draws at the phone's size on the same timeline: 60 frames a second, a steady
 /// 120 bpm in bars of four (so a scene grows, changes its view and its colours as it would with
 /// music), and each frame's seed fixed, so a scene draws the same frames on every run.
-/// The music's signals move on by wall time, not by the timeline's (`EventCounter::wall_dt`), and
+/// The music's signals move on by wall time, not by the timeline's (`inputs::WallClock`), and
 /// a scene takes the music over from the one before it (`Scene::take_music_from`). Left alone,
 /// that made the first frames differ between runs, and between two draws of the same scene in one
 /// run (the second started from where the first ended): a mean difference of 1 to 3.5 in the first

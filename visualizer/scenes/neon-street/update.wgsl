@@ -12,6 +12,12 @@ fn random(n: u32) -> f32 {
   return rv_unit(u32(shot.seed * 16777215.0) * 2654435761u + n);
 }
 
+// The same, for what the scene starts with: fixed for the song, so opened again at the same moment
+// it starts the same.
+fn song_random(n: u32) -> f32 {
+  return rv_unit(frame.song_seed * 2654435761u + n);
+}
+
 // Look from `eye` at `at`: the yaw and pitch (a positive yaw looks towards -x, a positive pitch
 // up).
 fn aim(eye: vec3f, at: vec3f) -> vec2f {
@@ -197,10 +203,16 @@ fn update() {
     state.vtarget = params.cruise;
     state.lens = 1.0;
     state.ring_gap = 0.5;
-    state.district = random(7u);
+    state.district = song_random(7u);
     state.cuts = shot.cuts;
     cut();
     state.clear = 0.0;
+    // Opened part-way into a shot: the camera has glided on from where the cut put it, at the
+    // nominal speed (close on a burst's subject it only creeps).
+    state.pos.z += params.cruise * shot.age * select(1.0, 0.2, state.hero.w > 0.5);
+    if (state.pos.z > 4000.0) {
+      state.pos.z -= 3000.0;
+    }
   }
 
   // Without a beat the hits of the music stand in for it. A hit counts for the things below only
@@ -293,11 +305,11 @@ fn update() {
     state.pos.z -= 3000.0;
   }
 
-  let wobble = vec2f(sin(t * 23.1), sin(t * 19.3 + 0.7));
+  let wobble = vec2f(sin(frame.song * 23.1), sin(frame.song * 19.3 + 0.7));
   state.pos.x = state.lat;
   state.pos.y = state.eye;
-  state.yaw = state.yaw_base + 0.01 * sin(t * 0.17) + state.shake * wobble.x;
-  state.pitch = state.pitch_base + 0.008 * sin(t * 0.13) + state.shake * wobble.y;
+  state.yaw = state.yaw_base + 0.01 * sin(frame.song * 0.17) + state.shake * wobble.x;
+  state.pitch = state.pitch_base + 0.008 * sin(frame.song * 0.13) + state.shake * wobble.y;
   // The camera never rolls of its own accord: the director's dutch angle (only in a burst) and
   // the shake at an accent are all there is.
   state.roll = shot.roll + state.shake * 0.5 * wobble.y;

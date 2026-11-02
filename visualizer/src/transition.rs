@@ -66,6 +66,19 @@ impl Transition {
         })
     }
 
+    /// The name `from_name` takes for it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Cut => "cut",
+            Self::Fade => "fade",
+            Self::Dissolve => "dissolve",
+            Self::Flash => "flash",
+            Self::Glitch => "glitch",
+            Self::Mosaic => "mosaic",
+            Self::CutIn(_) => "cutin",
+        }
+    }
+
     /// Whether it goes out and in with the old scene still drawing live (a fade, a flash), as
     /// against holding the old picture and playing over the new scene (a dissolve, a glitch, a
     /// mosaic) or drawing over the old scene live until it tears to the new one (a cut-in).

@@ -8,6 +8,11 @@ fn random(n: u32) -> f32 {
   return rv_unit(frame.seed * 2654435761u + n);
 }
 
+// A draw that is the same each time the song plays: what the scene starts with.
+fn song_random(n: u32) -> f32 {
+  return rv_unit(frame.song_seed * 2654435761u + n);
+}
+
 // Take up the director's shot: its index is the view (0 high behind, looking down the line; 1
 // low behind to one side, looking on to the light; 2 close beside the spirits, flying with them;
 // 3 ahead of them to one side, watching them come on; then the burst's four: 4 above and behind to one side,
@@ -50,7 +55,9 @@ fn update() {
   let dt = rv_dt();
   let t = frame.time;
   if (frame.first == 1u) {
-    state.s = random(4u) * 3000.0;
+    // The flight starts from a place drawn from the song's seed, plus what the cruise has flown
+    // by this moment of the song, so opening the scene at the same moment shows the same place.
+    state.s = song_random(4u) * 3000.0 + params.cruise * frame.song;
     state.vel = params.cruise;
     state.vtarget = params.cruise;
     state.lens = 1.0;
@@ -59,7 +66,7 @@ fn update() {
     // The first pattern is drawn from the scene's seed. The first light is the runtime's (a look
     // that opens: never day). The first kind of section the music says (`pattern`, -1 while it
     // says none) is seen as a change.
-    choose_mode(floor(random(31u) * 5.0), random(32u));
+    choose_mode(floor(song_random(31u) * 5.0), song_random(32u));
     state.pattern_seen = -2.0;
   }
 

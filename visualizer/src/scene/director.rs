@@ -282,6 +282,7 @@ struct Pickable {
 }
 
 /// Decides the camera cuts of one scene from the music.
+#[derive(Clone)]
 pub struct Director {
     camera: Camera,
     /// The scene's shots in the order of its `[[shot]]`s, then the shots of its `[[burst]]`s in
@@ -1138,6 +1139,7 @@ impl Director {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scene::fixtures::chart_json;
 
     fn shot(size: ShotSize, motion: ShotMove) -> Shot {
         Shot {
@@ -3325,7 +3327,7 @@ mod tests {
         use crate::scene::inputs::{EventCounter, Levels, music};
         let chart = crate::chart::Chart::from_analysis(serde_json::from_str(chart).unwrap());
         let dt = 1.0 / 60.0;
-        let mut events = EventCounter::with_wall_dt(dt);
+        let mut events = EventCounter::default();
         let mut cuts = Vec::new();
         for frame in 0..(until / dt) as u32 {
             let t = f64::from(frame) * dt;
@@ -3337,6 +3339,7 @@ mod tests {
                 Levels::default(),
                 (t, true),
                 &mut events,
+                dt,
             );
             director.set_song_ahead(Some(state.later_rise as f32));
             director.set_song(state.song.as_ref());
@@ -3345,48 +3348,6 @@ mod tests {
             }
         }
         cuts
-    }
-
-    /// A chart at 120 bpm in 4/4 (a beat every 0.5 s from 0, a bar every 2 s) with these
-    /// sections (start, end, energy), labelled from A, heard throughout.
-    fn chart_json(sections: &[(f64, f64, f64)]) -> String {
-        let end = sections.last().map_or(0.0, |s| s.1);
-        let beats: Vec<String> = (0..(end * 2.0) as u32)
-            .map(|i| {
-                format!(
-                    r#"{{"t": {}, "bar": {}, "pos": {}, "strength": 1, "confidence": 0.9}}"#,
-                    f64::from(i) * 0.5,
-                    i / 4,
-                    i % 4
-                )
-            })
-            .collect();
-        let sections: Vec<String> = sections
-            .iter()
-            .enumerate()
-            .map(|(i, (start, end, energy))| {
-                format!(
-                    r#"{{"start": {start}, "end": {end}, "label": "{}", "energy": {energy}, "repeat": 0, "confidence": 1}}"#,
-                    char::from(b'A' + i as u8)
-                )
-            })
-            .collect();
-        format!(
-            r#"{{"version": 1, "title": "t", "audio": "/a.wav", "duration": {end},
-            "analysis_seconds": 1, "analyzer": "test",
-            "tempo": {{"bpm": 120, "confidence": 0.9, "feel": 5.0}},
-            "beats": [{}],
-            "meter": {{"beats_per_bar": 4, "confidence": 0.9}},
-            "sections": [{}],
-            "streams": {{"low": {{"name": "x", "events": []}}, "mid": {{"name": "x", "events": []}},
-                "high": {{"name": "x", "events": []}}, "harmonic": {{"name": "x", "events": []}},
-                "phrase": {{"name": "x", "events": []}}}},
-            "lead": [],
-            "curves": {{"hop": 0.5, "loudness": [0.5], "brightness": [0], "percussive": [0],
-                "beat_conf": [0.9], "feel": [5]}}}}"#,
-            beats.join(","),
-            sections.join(",")
-        )
     }
 
     #[test]

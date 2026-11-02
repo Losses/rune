@@ -354,7 +354,7 @@ fn phosphor(v: f32) -> vec3f {
 // Snow: the noise of no station (it hisses in silence too), a bright bar slowly rolling up on a
 // phase of its own that stops in silence (state.bar).
 fn snow(s: vec2f, asp: f32, seed: f32, fade: f32) -> f32 {
-  let t = frame.time;
+  let t = frame.song;
   let g = floor(vec2f(s.x * asp * LINES * 2.0, s.y * LINES));
   let n = hash(g + vec2f(floor(t * 30.0) * 13.17, seed * 7.3));
   let bar = 0.18 * smoothstep(0.82, 1.0, sin(s.y * 3.0 - state.bar * 1.7 + seed));
@@ -537,7 +537,7 @@ fn collapse(sc: Screen, s: vec2f, asp: f32, foot: f32) -> Pic {
 // brightness), never a sum.
 fn tune(sc: Screen, s: vec2f, asp: f32, foot: f32) -> Pic {
   let cell = floor(vec2f(s.x * asp * LINES * 2.0, s.y * LINES));
-  let n = hash(cell + vec2f(floor(frame.time * 30.0) * 5.3, sc.seed * 3.1));
+  let n = hash(cell + vec2f(floor(frame.song * 30.0) * 5.3, sc.seed * 3.1));
   let snowy = picture(0u, sc.seed + 7.0, s, asp, foot);
   let off = vec2f(0.04, 0.0);
   if (sc.roll < 0.5) {

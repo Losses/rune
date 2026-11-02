@@ -172,6 +172,8 @@ fn frame(
             rhythm: &rhythm,
             chart: None,
             song: (time, true),
+            song_chart: None,
+            song_seed: None,
             accent: None,
         },
         None,
@@ -433,6 +435,8 @@ fn a_scene_sees_the_accent_colour() {
             rhythm: &rhythm,
             chart: None,
             song: (0.0, true),
+            song_chart: None,
+            song_seed: None,
             accent: Some(argb_to_linear(0xff0080ff)),
         },
         None,
@@ -470,6 +474,8 @@ fn a_scene_reads_the_covers_atlas() {
                 rhythm: &rhythm,
                 chart: None,
                 song: (0.0, true),
+                song_chart: None,
+                song_seed: None,
                 accent: None,
             },
             None,
@@ -622,7 +628,7 @@ fn a_scene_cut_is_reported_for_the_frame_it_happens_in() {
     let mut scene = Scene::load(&device, &queue, &dir, FORMAT, SIZE, 48_000).unwrap();
     // The section start cuts to the other shot that opens one. Cuts come from the music's values, which a test cannot choose here, so tick the
     // director the way the frame does and see that what it said reaches the scene's report.
-    let director = scene.director.as_mut().unwrap();
+    let director = scene.decider.director_mut().unwrap();
     let music = MusicValues {
         cues: 1,
         cue: 1.0,

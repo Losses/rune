@@ -207,7 +207,7 @@ fn pose_at(late: f32, scale: f32) -> Pose {
   // Dizzy, the music forgotten: the head wanders round in slow circles, the clip unsteady on its
   // foot (and, a dance like the rest, stilled in silence).
   if (dizzy(n)) {
-    let t = (frame.time - late * beat_len()) * 4.4;
+    let t = (frame.song - late * beat_len()) * 4.4;
     let fade = smoothstep(0.0, 0.1, u) * (1.0 - smoothstep(0.85, 1.0, u));
     p.squash = -0.06 * fade * (0.5 + 0.5 * sin(t * 1.3)) * input.audible;
     p.sway = mix(p.sway, 0.38 * sin(t) * input.audible, fade);
@@ -292,7 +292,7 @@ fn face_at(late: f32, seed: f32) -> vec2f {
     return vec2f(4.0, 0.0);
   }
   // Otherwise the mood; open eyes blink about every seven seconds, the gaps uneven.
-  let blink = frame.time / 7.0 + seed;
+  let blink = frame.song / 7.0 + seed;
   if (mood == 0.0 && fract(blink) < 0.02 && hash(vec2f(floor(blink), seed)) < 0.8) {
     return vec2f(7.0, 0.0);
   }
@@ -364,7 +364,7 @@ fn write_group(g: u32, pose: Pose, late: f32) -> f32 {
   }
   // The eyes sit in front of the wire near the top, looking about a little; the brows above them,
   // lifted on an impact or a lift of the energy.
-  let t = frame.time + f32(g) * 0.7;
+  let t = frame.song + f32(g) * 0.7;
   let look = vec2f(0.35 * sin(t * 0.43) * sin(t * 0.19), 0.15 * sin(t * 0.31));
   let face = show_face(g, face_at(late, f32(g) * 0.13));
   // Which way the head faces and which way is up on it, for the face drawn on the eyes.

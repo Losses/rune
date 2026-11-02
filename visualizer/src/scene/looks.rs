@@ -85,6 +85,7 @@ fn ease(t: f32) -> f32 {
 }
 
 /// Decides the look changes of one scene from the music.
+#[derive(Clone)]
 pub struct Looks {
     /// The `name` of each `[[look]]`, in order.
     names: Vec<String>,
@@ -266,9 +267,9 @@ impl Looks {
     /// Take over what is under way in `old`, the looks of the scene this one replaces when its
     /// files were saved: the look on, the fade and a hold stay, if the scene still has as many
     /// looks.
-    pub fn inherit(&mut self, old: &Looks) {
+    pub fn inherit(&mut self, old: &Looks) -> bool {
         if old.names.len() != self.names.len() {
-            return;
+            return false;
         }
         self.state = old.state;
         self.started = old.started;
@@ -280,6 +281,7 @@ impl Looks {
         self.held_first = old.held_first;
         self.shown = old.shown.clone();
         self.last_song_time = old.last_song_time;
+        true
     }
 
     /// The first look, picked among the looks that open by `seed`, each by its weight.
@@ -730,12 +732,12 @@ mod tests {
         started(&mut old, 10.0);
         old.hold(3, &MusicValues::default());
         let mut new = four();
-        new.inherit(&old);
+        assert!(new.inherit(&old));
         assert_eq!(new.state(), old.state());
         assert!(new.view().held);
         // A scene with another number of looks starts over.
         let mut other = Looks::new(&[look("a", true, 1.0), look("b", true, 1.0)]);
-        other.inherit(&old);
+        assert!(!other.inherit(&old));
         assert!(!other.view().held && other.state().changes == 0);
     }
 

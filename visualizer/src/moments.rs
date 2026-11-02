@@ -124,7 +124,7 @@ pub fn rolls(key: u32, chance: f32) -> bool {
 }
 
 /// Follows the moments of one scene's music and says which play.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Scheduler {
     /// What a moment is and how far apart they are (`moments.*` of `runtime.toml`).
     binds: Arc<MomentBinds>,

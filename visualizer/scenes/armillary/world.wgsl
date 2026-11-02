@@ -53,8 +53,9 @@ fn stars(d: vec3f, pixel: f32, cells: f32, share: f32, bright: f32) -> vec3f {
   }
   let glow = exp(-off * off / (size * size)) * 0.3 * pixel * pixel / (size * size);
   let tint = mix(state.palette[6].rgb, state.palette[7].rgb, hash(key + 0.4));
-  // (The twinkle stays on the clock: it is light, not motion, so it goes on in silence.)
-  let twinkle = 0.92 + 0.08 * sin(frame.time * mix(0.3, 0.8, hash(key + 0.5)) + hash(key + 0.6) * 6.28);
+  // (The twinkle stays on the song's clock: it is light, not motion, so it goes on in silence,
+  // and the same moment of a song twinkles the same.)
+  let twinkle = 0.92 + 0.08 * sin(frame.song * mix(0.3, 0.8, hash(key + 0.5)) + hash(key + 0.6) * 6.28);
   return tint * glow * bright * mix(0.25, 1.0, pow(hash(key + 0.7), 4.0)) * twinkle;
 }
 

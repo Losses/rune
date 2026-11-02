@@ -6,10 +6,10 @@
 //! ([`ChartFollower`]); until the chart is ready the live beat tracker drives the scenes. With a
 //! chart the scenes know what is coming: the next section, the next downbeat.
 
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -479,9 +479,11 @@ pub struct SongClock {
 }
 
 impl SongClock {
-    /// The song time at `now`. Within [`SEEK_THRESHOLD`] of the reported time it runs at the
-    /// wall clock's pace and closes [`CLOCK_PULL`] of the gap per frame; beyond it (a seek, a
-    /// new track) it jumps.
+    /// The song time at `now`. While the music plays, within [`SEEK_THRESHOLD`] of the reported
+    /// time and looked at less than that long ago, it runs at the wall clock's pace and closes
+    /// [`CLOCK_PULL`] of the gap per frame. Otherwise it is the reported time: a seek or a new
+    /// track, while paused (a seek then shows where it went), and on playing again after a pause,
+    /// in which the clock was not looked at (it would have run on through the pause).
     pub fn tick(&mut self, playback: &Playback, now: Instant) -> f64 {
         let Some(at) = playback.at else {
             return 0.0;
@@ -491,13 +493,12 @@ impl SongClock {
             reported += now.saturating_duration_since(at).as_secs_f64();
         }
         let shown = match (self.shown, self.last) {
-            (Some(shown), Some(last)) if (reported - shown).abs() <= SEEK_THRESHOLD => {
-                let run = if playback.playing {
-                    now.saturating_duration_since(last).as_secs_f64()
-                } else {
-                    0.0
-                };
-                let ahead = shown + run;
+            (Some(shown), Some(last))
+                if playback.playing
+                    && now.saturating_duration_since(last).as_secs_f64() <= SEEK_THRESHOLD
+                    && (reported - shown).abs() <= SEEK_THRESHOLD =>
+            {
+                let ahead = shown + now.saturating_duration_since(last).as_secs_f64();
                 ahead + (reported - ahead) * CLOCK_PULL
             }
             _ => reported,
@@ -512,6 +513,10 @@ impl SongClock {
     }
 }
 
+/// The chart of the file followed last, kept by a follower that goes for the next one: the
+/// visualizer stops (it is closed) and starts again on the same song, which is not analysed again.
+pub type KeptChart = Arc<Mutex<Option<(PathBuf, Arc<Chart>)>>>;
+
 /// The chart of the file that plays, made off the render thread, and the song time.
 ///
 /// On a new file it starts analysing it in a thread of its own and drops the analysis of the
@@ -521,17 +526,19 @@ pub struct ChartFollower {
     /// Where files are opened from; without it nothing is analysed.
     fsio: Option<Arc<FsIo>>,
     path: Option<PathBuf>,
-    chart: Option<Chart>,
+    chart: Option<Arc<Chart>>,
     loading: Option<Receiver<Option<Chart>>>,
     /// Stops the running analysis, if any.
     cancel: Option<Arc<AtomicBool>>,
     clock: SongClock,
     /// The song time of the last tick.
     time: f64,
+    /// Where the chart is kept when the follower goes, and found by the next one.
+    kept: KeptChart,
 }
 
 impl ChartFollower {
-    pub fn new(fsio: Option<Arc<FsIo>>) -> Self {
+    pub fn new(fsio: Option<Arc<FsIo>>, kept: KeptChart) -> Self {
         Self {
             fsio,
             path: None,
@@ -540,6 +547,7 @@ impl ChartFollower {
             cancel: None,
             clock: SongClock::default(),
             time: 0.0,
+            kept,
         }
     }
 
@@ -550,7 +558,16 @@ impl ChartFollower {
             self.chart = None;
             self.clock.reset();
             self.cancel_analysis();
-            if let (Some(fsio), Some(path)) = (&self.fsio, &self.path)
+            let kept = self
+                .kept
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take()
+                .filter(|(path, _)| self.path.as_ref() == Some(path));
+            if let Some((path, chart)) = kept {
+                info!("The chart of {} was kept", path.display());
+                self.chart = Some(chart);
+            } else if let (Some(fsio), Some(path)) = (&self.fsio, &self.path)
                 && !path.as_os_str().is_empty()
             {
                 self.loading = Some(self.analyse(Arc::clone(fsio), path.clone()));
@@ -561,7 +578,7 @@ impl ChartFollower {
             match receiver.try_recv() {
                 Ok(chart) => {
                     arrived = chart.is_some();
-                    self.chart = chart;
+                    self.chart = chart.map(Arc::new);
                     self.loading = None;
                 }
                 Err(TryRecvError::Disconnected) => self.loading = None,
@@ -579,7 +596,20 @@ impl ChartFollower {
 
     /// The sections of the chart, once there is one (else none).
     pub fn sections(&self) -> Vec<crate::InspectSection> {
-        self.chart.as_ref().map(Chart::sections).unwrap_or_default()
+        self.chart
+            .as_ref()
+            .map(|chart| chart.sections())
+            .unwrap_or_default()
+    }
+
+    /// The chart of the file that plays, once there is one.
+    pub fn chart(&self) -> Option<Arc<Chart>> {
+        self.chart.clone()
+    }
+
+    /// The file followed, once there is one (it may be empty: a song that is not a file).
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 
     /// The song time of the last [`Self::tick`], with or without a chart.
@@ -629,10 +659,14 @@ impl ChartFollower {
 }
 
 impl Drop for ChartFollower {
-    /// The visualizer stops: so does the analysis.
+    /// The visualizer stops: so does the analysis, and the chart is kept for the next follower.
     fn drop(&mut self) {
         info!("The visualizer stopped following the song");
         self.cancel_analysis();
+        if let (Some(path), Some(chart)) = (&self.path, &self.chart) {
+            *self.kept.lock().unwrap_or_else(PoisonError::into_inner) =
+                Some((path.clone(), Arc::clone(chart)));
+        }
     }
 }
 
@@ -837,6 +871,33 @@ mod tests {
         assert_eq!(t1, t2);
     }
 
+    #[test]
+    fn the_song_clock_shows_a_seek_while_paused_and_does_not_run_on_through_a_pause() {
+        let start = Instant::now();
+        let mut clock = SongClock::default();
+        let mut playback = Playback {
+            path: None,
+            position: Duration::from_secs(10),
+            playing: false,
+            at: Some(start),
+        };
+        assert_eq!(clock.tick(&playback, start), 10.0);
+        // A small seek while paused is shown where it went, not a part of the way.
+        playback.position = Duration::from_millis(10_200);
+        assert_eq!(
+            clock.tick(&playback, start + Duration::from_millis(50)),
+            10.2
+        );
+        // Playing again 20 s later (nothing looked at the clock meanwhile): the clock is where
+        // the music is, not 18 s on.
+        let resume = start + Duration::from_secs(20);
+        playback.playing = true;
+        playback.at = Some(resume);
+        assert_eq!(clock.tick(&playback, resume), 10.2);
+        let t = clock.tick(&playback, resume + Duration::from_millis(16));
+        assert!((t - 10.216).abs() < 1e-9, "{t}");
+    }
+
     /// Clicks with a low thump under each, at 120 beats per minute, as a mono 16-bit WAV of
     /// `seconds` in a folder of its own.
     fn write_clicks(name: &str, seconds: usize) -> PathBuf {
@@ -896,7 +957,7 @@ mod tests {
     #[test]
     fn the_follower_analyses_the_playing_file() {
         let path = write_clicks("follows", 20);
-        let mut follower = ChartFollower::new(Some(Arc::new(FsIo::new())));
+        let mut follower = ChartFollower::new(Some(Arc::new(FsIo::new())), KeptChart::default());
         let playback = playing(&path, 10.0);
         // The live tracker has the say until the analysis is done.
         assert!(follower.tick(&playback, Instant::now()).is_none());
@@ -910,14 +971,14 @@ mod tests {
     #[test]
     fn no_file_system_or_no_path_means_no_analysis() {
         let path = write_clicks("none", 5);
-        let mut follower = ChartFollower::new(None);
+        let mut follower = ChartFollower::new(None, KeptChart::default());
         assert!(
             follower
                 .tick(&playing(&path, 1.0), Instant::now())
                 .is_none()
         );
         assert!(follower.loading.is_none());
-        let mut follower = ChartFollower::new(Some(Arc::new(FsIo::new())));
+        let mut follower = ChartFollower::new(Some(Arc::new(FsIo::new())), KeptChart::default());
         let online = Playback {
             path: Some(PathBuf::new()),
             ..playing(&path, 1.0)
@@ -932,7 +993,7 @@ mod tests {
         // Ten minutes take several seconds to analyse.
         let long = write_clicks("long", 600);
         let short = write_clicks("short", 5);
-        let mut follower = ChartFollower::new(Some(Arc::new(FsIo::new())));
+        let mut follower = ChartFollower::new(Some(Arc::new(FsIo::new())), KeptChart::default());
         follower.tick(&playing(&long, 0.0), Instant::now());
         let first = follower.cancel.clone().expect("analysing");
         assert!(!first.load(Ordering::Relaxed));
@@ -945,5 +1006,24 @@ mod tests {
         for path in [long, short] {
             std::fs::remove_dir_all(path.parent().unwrap()).ok();
         }
+    }
+
+    #[test]
+    fn a_chart_is_kept_for_the_next_follower_of_the_same_file() {
+        let kept = KeptChart::default();
+        let (a, b) = (Path::new("/music/a.flac"), Path::new("/music/b.flac"));
+        let mut follower = ChartFollower::new(None, Arc::clone(&kept));
+        follower.tick(&playing(a, 1.0), Instant::now());
+        follower.chart = Some(Arc::new(chart()));
+        drop(follower);
+        // The visualizer starts again on the same song: the chart is there at once.
+        let mut follower = ChartFollower::new(None, Arc::clone(&kept));
+        assert!(follower.tick(&playing(a, 2.0), Instant::now()).is_some());
+        assert!(follower.chart().is_some());
+        drop(follower);
+        // On another song it is not, and it is gone.
+        let mut follower = ChartFollower::new(None, Arc::clone(&kept));
+        assert!(follower.tick(&playing(b, 2.0), Instant::now()).is_none());
+        assert!(kept.lock().unwrap().is_none());
     }
 }
