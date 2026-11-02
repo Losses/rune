@@ -166,6 +166,13 @@ pub async fn fetch_missing(
                         attached.fetch_add(1, Ordering::Relaxed);
                     }
                     Err(error) => {
+                        if error.chain().any(|cause| {
+                            cause.downcast_ref::<reqwest::Error>().is_some_and(|error| {
+                                error.status() == Some(reqwest::StatusCode::UNAUTHORIZED)
+                            })
+                        }) {
+                            return Err(error);
+                        }
                         pending.fetch_add(1, Ordering::Relaxed);
                         log::warn!("artwork {id} remains pending: {error:#}");
                     }

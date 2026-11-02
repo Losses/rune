@@ -148,10 +148,8 @@ pub async fn download_requested_audio_until(
                     report.pending += 1;
                     continue;
                 }
-                if attempted.len() == MAX_ATTEMPTS {
-                    return Ok(report);
-                }
-                if tokio::time::Instant::now() >= deadline {
+                if attempted.len() == MAX_ATTEMPTS || tokio::time::Instant::now() >= deadline {
+                    report.deadline_reached = true;
                     return Ok(report);
                 }
                 attempted.insert(file.id);

@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     http::{StatusCode, header},
     middleware::Next,
     response::Response,
@@ -14,10 +14,14 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, RwLock};
+use tower_governor::{
+    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor,
+};
 
 const CAP: usize = 1024;
 const CHALLENGE_TTL: Duration = Duration::from_secs(60);
@@ -25,7 +29,7 @@ const TOKEN_TTL: Duration = Duration::from_secs(300);
 const DOMAIN: &str = "rune-sync-auth-1";
 #[derive(Default)]
 struct Entries {
-    nonces: HashMap<String, Instant>,
+    nonces: HashMap<String, (std::net::IpAddr, Instant)>,
     tokens: HashMap<String, (String, Instant)>,
 }
 #[derive(Clone)]
@@ -79,9 +83,20 @@ impl SyncAuth {
         }
     }
     pub fn router(&self) -> Router {
+        let Some(config) = GovernorConfigBuilder::default()
+            .per_millisecond(500)
+            .burst_size(10)
+            .key_extractor(PeerIpKeyExtractor)
+            .finish()
+        else {
+            unreachable!("valid sync rate limit")
+        };
         Router::new()
             .route("/sync/challenge", get(challenge))
             .route("/sync/authorize", post(authorize))
+            .layer(GovernorLayer {
+                config: config.into(),
+            })
             .layer(axum::extract::DefaultBodyLimit::max(8192))
             .with_state(self.clone())
     }
@@ -108,15 +123,26 @@ impl SyncAuth {
         approved
     }
 }
-async fn challenge(State(auth): State<SyncAuth>) -> Result<Json<Challenge>, StatusCode> {
+async fn challenge(
+    State(auth): State<SyncAuth>,
+    ConnectInfo(address): ConnectInfo<SocketAddr>,
+) -> Result<Json<Challenge>, StatusCode> {
     let mut e = auth.entries.lock().await;
-    e.nonces.retain(|_, t| *t > Instant::now());
-    if e.nonces.len() >= CAP {
+    e.nonces.retain(|_, (_, t)| *t > Instant::now());
+    if e.nonces.len() >= CAP
+        || e.nonces
+            .values()
+            .filter(|(ip, _)| *ip == address.ip())
+            .count()
+            >= 16
+    {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
     let nonce = random();
-    e.nonces
-        .insert(nonce.clone(), Instant::now() + CHALLENGE_TTL);
+    e.nonces.insert(
+        nonce.clone(),
+        (address.ip(), Instant::now() + CHALLENGE_TTL),
+    );
     Ok(Json(Challenge {
         nonce,
         server_fingerprint: auth.fingerprint,
@@ -132,7 +158,7 @@ async fn authorize(
         .await
         .nonces
         .remove(&request.nonce)
-        .is_some_and(|t| t > Instant::now());
+        .is_some_and(|(_, t)| t > Instant::now());
     if !valid_nonce {
         return Err(StatusCode::UNAUTHORIZED);
     }
@@ -171,6 +197,21 @@ async fn authorize(
     .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let mut e = auth.entries.lock().await;
     e.tokens.retain(|_, (_, t)| *t > Instant::now());
+    let oldest = e
+        .tokens
+        .iter()
+        .filter(|(_, (fingerprint, _))| fingerprint == &request.fingerprint)
+        .min_by_key(|(_, (_, deadline))| *deadline)
+        .map(|(token, _)| token.clone());
+    if e.tokens
+        .values()
+        .filter(|(fingerprint, _)| fingerprint == &request.fingerprint)
+        .count()
+        >= 8
+        && let Some(oldest) = oldest
+    {
+        e.tokens.remove(&oldest);
+    }
     if e.tokens.len() >= CAP {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
@@ -208,11 +249,34 @@ mod tests {
     use rsa::{RsaPrivateKey, pkcs8::DecodePrivateKey};
     use tower::ServiceExt;
 
+    #[tokio::test]
+    async fn nonce_cap_is_per_ip() {
+        let dir = tempfile::tempdir().unwrap();
+        let auth = SyncAuth::new(
+            Arc::new(RwLock::new(PermissionManager::new(dir.path()).unwrap())),
+            "server".into(),
+        );
+        let a = ConnectInfo("127.0.0.1:1".parse().unwrap());
+        for _ in 0..16 {
+            assert!(challenge(State(auth.clone()), a).await.is_ok());
+        }
+        assert!(matches!(
+            challenge(State(auth.clone()), a).await,
+            Err(StatusCode::TOO_MANY_REQUESTS)
+        ));
+        assert!(
+            challenge(State(auth), ConnectInfo("127.0.0.2:1".parse().unwrap()))
+                .await
+                .is_ok()
+        );
+    }
+
     async fn post(app: &Router, path: &str, value: &impl Serialize) -> (StatusCode, Vec<u8>) {
         let response = app
             .clone()
             .oneshot(
                 Request::post(path)
+                    .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()))
                     .header("content-type", "application/json")
                     .body(Body::from(serde_json::to_vec(value).unwrap()))
                     .unwrap(),
@@ -228,7 +292,12 @@ mod tests {
     async fn get_challenge(app: &Router) -> Challenge {
         let response = app
             .clone()
-            .oneshot(Request::get("/sync/challenge").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::get("/sync/challenge")
+                    .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap()
@@ -289,6 +358,46 @@ mod tests {
             .change_user_status(&fingerprint, UserStatus::Approved)
             .await
             .unwrap();
+        let mut issued = Vec::new();
+        for _ in 0..20 {
+            let challenge = challenge(
+                State(auth.clone()),
+                ConnectInfo("127.0.0.1:1".parse().unwrap()),
+            )
+            .await
+            .unwrap()
+            .0;
+            issued.push(
+                authorize(State(auth.clone()), Json(sign(&challenge)))
+                    .await
+                    .unwrap()
+                    .0
+                    .token,
+            );
+        }
+        let protected = Router::new()
+            .route("/protected", get(|| async { StatusCode::OK }))
+            .layer(axum::middleware::from_fn_with_state(
+                auth.clone(),
+                require_auth,
+            ));
+        for (token, status) in [
+            (&issued[0], StatusCode::UNAUTHORIZED),
+            (&issued[19], StatusCode::OK),
+        ] {
+            let response = protected
+                .clone()
+                .oneshot(
+                    Request::get("/protected")
+                        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), status);
+        }
+        assert_eq!(auth.entries.lock().await.tokens.len(), 8);
         let mut bad = sign(&get_challenge(&app).await);
         bad.signature = URL_SAFE_NO_PAD.encode([0u8; 256]);
         assert_eq!(

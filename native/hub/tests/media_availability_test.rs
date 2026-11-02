@@ -248,3 +248,49 @@ async fn queued_downloads_with_content_remain_streamable() -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn scanned_symlinked_folder_is_playable() -> Result<()> {
+    use database::actions::metadata::scan_audio_library;
+    use std::os::unix::fs::symlink;
+    let root = tempfile::tempdir()?;
+    let outside = tempfile::tempdir()?;
+    std::fs::copy(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/startup_0.ogg"),
+        outside.path().join("track.ogg"),
+    )?;
+    symlink(outside.path(), root.path().join("linked"))?;
+    let db = Database::connect("sqlite::memory:").await?;
+    let node = Uuid::new_v4();
+    let _ = migration::initialize_node_id(node.to_string());
+    migration::up_with_actor(&db, Some(&node.to_string()), None).await?;
+    let fs = Arc::new(FsIo::new());
+    let store = database::sync::LibrarySyncStore::open(db.clone(), node, None).await?;
+    scan_audio_library(
+        &fs,
+        &db,
+        &node.to_string(),
+        root.path(),
+        false,
+        false,
+        |_| {},
+        None,
+        &store.record_store(),
+    )
+    .await?;
+    let rows = media_files::Entity::find().all(&db).await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        database::actions::file::materialized_path(&db, &fs, root.path(), rows[0].id).await?,
+        Some(root.path().join("linked/track.ogg"))
+    );
+    let handles = rows.into_iter().map(Into::into).collect::<Vec<_>>();
+    assert_eq!(
+        files_to_playback_request(&fs, &db, &node.to_string(), &root.path(), &handles)
+            .await?
+            .len(),
+        1
+    );
+    Ok(())
+}

@@ -27,15 +27,16 @@ fn row_path(fsio: &FsIo, root: &Path, row: &media_files::Model) -> Result<Option
             .all(|c| matches!(c, std::path::Component::Normal(_))),
         "invalid local path"
     );
+    #[cfg(not(target_os = "android"))]
+    let managed = relative.starts_with(super::content::MANAGED_AUDIO_DIRECTORY);
     let path = root.join(relative);
     #[cfg(not(target_os = "android"))]
     {
-        let root = fsio.canonicalize_path(root)?;
         let Ok(canonical) = fsio.canonicalize_path(&path) else {
             return Ok(None);
         };
         ensure!(
-            canonical.starts_with(root),
+            !managed || canonical.starts_with(fsio.canonicalize_path(root)?),
             "local path escapes library root"
         );
     }

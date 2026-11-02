@@ -434,6 +434,11 @@ impl<M: SyncModel> MetadataPeer<M> {
                 return Err(p::SyncError::LogicalLimit);
             }
             let status = response.status();
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                return Err(p::SyncError::Transport(format!(
+                    "metadata HTTP status {status}"
+                )));
+            }
             let mut body = Vec::new();
             while let Some(bytes) = response
                 .chunk()

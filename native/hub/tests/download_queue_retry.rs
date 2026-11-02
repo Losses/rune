@@ -564,9 +564,12 @@ async fn transfer_finishes_after_pass_deadline_without_starting_next_file() -> R
     )
     .await?;
     assert_eq!(report.downloaded, 1);
+    assert!(report.deadline_reached);
     assert_eq!(fixture.gets.load(Ordering::SeqCst), 1);
+    let complete = fixture.run(&fixture.base).await?;
+    assert!(!complete.deadline_reached);
     let files = media_files::Entity::find().all(&fixture.db).await?;
-    assert_eq!(files.iter().filter(|file| file.local_available).count(), 1);
+    assert_eq!(files.iter().filter(|file| file.local_available).count(), 2);
     Ok(())
 }
 

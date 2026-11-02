@@ -86,16 +86,13 @@ pub(super) async fn peer_endpoints(global: &GlobalParams, own: &str) -> Vec<Vec<
 }
 
 type ReplicaLocks = Arc<
-    tokio::sync::Mutex<
-        std::collections::HashMap<
-            (uuid::Uuid, uuid::Uuid, uuid::Uuid),
-            Arc<tokio::sync::Mutex<PeerSession>>,
-        >,
-    >,
+    tokio::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<PeerSession>>>>,
 >;
 
 struct PeerSession {
     session: Option<super::sync::client::LibrarySession>,
+    client: Option<(String, reqwest::Client)>,
+    identity: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid)>,
     artwork_cursor: http_request::sync::PageCursor,
     last_used: std::time::Instant,
 }
@@ -109,6 +106,8 @@ impl Default for PeerSession {
     fn default() -> Self {
         Self {
             session: None,
+            client: None,
+            identity: None,
             artwork_cursor: http_request::sync::PageCursor::default(),
             last_used: std::time::Instant::now(),
         }
@@ -336,74 +335,81 @@ async fn sync_one(
     metadata: bool,
     locks: &ReplicaLocks,
 ) -> Result<bool> {
-    let (base, client) = authenticated_client(
-        global,
-        &credentials.fingerprint,
-        &credentials.private_key,
-        &endpoint.fingerprint,
-        &endpoint.host,
-        endpoint.port,
-    )
-    .await?;
-    let peer = http_request::sync::MetadataPeer::<database::sync::model::RuneModel>::new(
-        &base,
-        client.clone(),
-    );
-    let remote = peer.identity().await?;
-    let local = library.0.read().await.identity().await?;
-    ensure!(
-        local.namespace == remote.namespace,
-        "paired catalog namespace mismatch"
-    );
     if metadata {
         let lock = {
             let mut locks = locks.lock().await;
             ensure!(
-                locks.len() < 64
-                    || locks.contains_key(&(remote.namespace, remote.replica, remote.generation)),
+                locks.len() < 64 || locks.contains_key(&endpoint.fingerprint),
                 "paired session capacity reached"
             );
             locks
-                .entry((remote.namespace, remote.replica, remote.generation))
+                .entry(endpoint.fingerprint.clone())
                 .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(PeerSession::default())))
                 .clone()
         };
         let mut state = lock.lock().await;
         state.last_used = std::time::Instant::now();
-        if state.session.is_none() {
-            state.session = Some(super::sync::client::LibrarySession::new(
-                library.0.read().await.clone(),
-            )?);
+        let expected_base = if endpoint.host.contains(':') {
+            format!("https://[{}]:{}", endpoint.host, endpoint.port)
+        } else {
+            format!("https://{}:{}", endpoint.host, endpoint.port)
+        };
+        if state
+            .client
+            .as_ref()
+            .is_some_and(|(base, _)| *base != expected_base)
+        {
+            state.client = None;
         }
-        let complete = state
-            .session
-            .as_mut()
-            .unwrap()
-            .advance(&peer, notify.clone())
-            .await?;
-        if complete {
-            state.session = None;
-            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
-            let (attached, _) = super::sync::client::fetch_missing(
-                &global.main_db,
-                &library.0.read().await.record_store(),
-                &base,
-                &client,
-                &mut state.artwork_cursor,
-                deadline,
-            )
-            .await?;
-            if attached > 0 {
-                notify();
+        for attempt in 0..2 {
+            if state.client.is_none() {
+                state.client = Some(
+                    authenticated_client(
+                        global,
+                        &credentials.fingerprint,
+                        &credentials.private_key,
+                        &endpoint.fingerprint,
+                        &endpoint.host,
+                        endpoint.port,
+                    )
+                    .await?,
+                );
             }
-            if state.artwork_cursor.is_complete() {
-                state.artwork_cursor = http_request::sync::PageCursor::default();
-                return Ok(true);
+            let (base, client) = state
+                .client
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("missing authenticated client"))?
+                .clone();
+            let result = metadata_pass(global, library, notify, &mut state, &base, &client).await;
+            if result.as_ref().err().is_some_and(metadata_unauthorized) {
+                state.client = None;
+                if attempt == 0 {
+                    continue;
+                }
             }
+            return result;
         }
-        Ok(false)
+        unreachable!()
     } else {
-        super::sync::downloads::download_requested_audio_until(
+        let (base, client) = authenticated_client(
+            global,
+            &credentials.fingerprint,
+            &credentials.private_key,
+            &endpoint.fingerprint,
+            &endpoint.host,
+            endpoint.port,
+        )
+        .await?;
+        let peer = http_request::sync::MetadataPeer::<database::sync::model::RuneModel>::new(
+            &base, client,
+        );
+        let remote = peer.identity().await?;
+        let local = library.0.read().await.identity().await?;
+        ensure!(
+            local.namespace == remote.namespace,
+            "paired catalog namespace mismatch"
+        );
+        let report = super::sync::downloads::download_requested_audio_until(
             (*global.main_db).clone(),
             &global.recommend_db,
             global.fsio.clone(),
@@ -414,8 +420,73 @@ async fn sync_one(
             tokio::time::Instant::now() + Duration::from_secs(60),
         )
         .await?;
-        Ok(true)
+        Ok(!report.deadline_reached)
     }
+}
+
+fn metadata_unauthorized(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause.downcast_ref::<sync::protocol::SyncError>().is_some_and(|error| matches!(error, sync::protocol::SyncError::Transport(message) if message == "metadata HTTP status 401 Unauthorized"))
+            || cause.downcast_ref::<reqwest::Error>().is_some_and(|error| error.status() == Some(reqwest::StatusCode::UNAUTHORIZED))
+    })
+}
+
+async fn metadata_pass(
+    global: &Arc<GlobalParams>,
+    library: &SharedLibrary,
+    notify: &Arc<dyn Fn() + Send + Sync>,
+    state: &mut PeerSession,
+    base: &str,
+    client: &reqwest::Client,
+) -> Result<bool> {
+    let peer = http_request::sync::MetadataPeer::<database::sync::model::RuneModel>::new(
+        base,
+        client.clone(),
+    );
+    let remote = peer.identity().await?;
+    let local = library.0.read().await.identity().await?;
+    ensure!(
+        local.namespace == remote.namespace,
+        "paired catalog namespace mismatch"
+    );
+    let identity = (remote.namespace, remote.replica, remote.generation);
+    if state.identity != Some(identity) {
+        state.session = None;
+        state.artwork_cursor = http_request::sync::PageCursor::default();
+        state.identity = Some(identity);
+    }
+    if state.session.is_none() {
+        state.session = Some(super::sync::client::LibrarySession::new(
+            library.0.read().await.clone(),
+        )?);
+    }
+    let complete = state
+        .session
+        .as_mut()
+        .ok_or_else(|| anyhow::anyhow!("missing metadata session"))?
+        .advance(&peer, notify.clone())
+        .await?;
+    if complete {
+        state.session = None;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let (attached, _) = super::sync::client::fetch_missing(
+            &global.main_db,
+            &library.0.read().await.record_store(),
+            base,
+            client,
+            &mut state.artwork_cursor,
+            deadline,
+        )
+        .await?;
+        if attached > 0 {
+            notify();
+        }
+        if state.artwork_cursor.is_complete() {
+            state.artwork_cursor = http_request::sync::PageCursor::default();
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub(super) async fn authenticated_client(
@@ -653,6 +724,26 @@ impl playback::player::AudioRequest for RenewableAudio {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn metadata_unauthorized_is_distinct_from_other_failures() {
+        let app = axum::Router::new().route(
+            "/sync/metadata",
+            axum::routing::post(|| async { axum::http::StatusCode::UNAUTHORIZED }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let peer = http_request::sync::MetadataPeer::<database::sync::model::RuneModel>::new(
+            &base,
+            reqwest::Client::new(),
+        );
+        let error = anyhow::Error::new(peer.identity().await.unwrap_err());
+        assert!(metadata_unauthorized(&error));
+        assert!(!metadata_unauthorized(&anyhow::anyhow!("network failure")));
+        server.abort();
+    }
+
     #[test]
     fn explicit_and_advertised_endpoint_hosts_preserve_ports() {
         assert_eq!(
