@@ -439,3 +439,135 @@ async fn attach_download_accepts_symlinked_root() -> Result<()> {
     assert_eq!(actual.join(&row.directory).join(&row.file_name), path);
     Ok(())
 }
+
+#[tokio::test]
+async fn oversized_fingerprint_is_local_only() -> Result<()> {
+    use database::sync::model::{Collection, ObjectKey};
+    use sea_orm::TransactionTrait;
+    let node = Uuid::new_v4();
+    let _ = migration::initialize_node_id(node.to_string());
+    let db = Database::connect("sqlite::memory:").await?;
+    Migrator::up(&db, None).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let file_id = Uuid::new_v4();
+    support::local_file(&db, 1, file_id, "file").await?;
+    let file = media_files::Entity::find_by_id(1).one(&db).await?.unwrap();
+    assign_computed_fingerprint(
+        &db,
+        &store,
+        &file,
+        ComputedFingerprint {
+            algorithm: "chromaprint".into(),
+            configuration: "default".into(),
+            format_version: 1,
+            bytes: vec![1; 40000],
+            is_duplicated: 0,
+        },
+    )
+    .await?;
+    assert_eq!(
+        media_file_fingerprint::Entity::find()
+            .one(&db)
+            .await?
+            .unwrap()
+            .fingerprint
+            .len(),
+        40000
+    );
+    let tx = db.begin().await?;
+    let key = ObjectKey {
+        collection: Collection::Fingerprints,
+        id: migration::catalog_identity::fingerprint(
+            file_id,
+            Some("chromaprint"),
+            Some("default"),
+            Some(1),
+        ),
+    };
+    assert!(store.get_on(&tx, &key).await?.is_none());
+    tx.rollback().await?;
+    assign_computed_fingerprint(
+        &db,
+        &store,
+        &file,
+        ComputedFingerprint {
+            algorithm: "chromaprint".into(),
+            configuration: "default".into(),
+            format_version: 1,
+            bytes: vec![1; 4],
+            is_duplicated: 0,
+        },
+    )
+    .await?;
+    assign_computed_fingerprint(
+        &db,
+        &store,
+        &file,
+        ComputedFingerprint {
+            algorithm: "chromaprint".into(),
+            configuration: "default".into(),
+            format_version: 1,
+            bytes: vec![1; 40000],
+            is_duplicated: 0,
+        },
+    )
+    .await?;
+    let tx = db.begin().await?;
+    assert!(
+        store
+            .get_on(&tx, &key)
+            .await?
+            .is_none_or(|record| record.value.is_none())
+    );
+    tx.rollback().await?;
+    assert_eq!(
+        media_file_fingerprint::Entity::find()
+            .one(&db)
+            .await?
+            .unwrap()
+            .fingerprint
+            .len(),
+        40000
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn import_existing_skips_oversized_fingerprint() -> Result<()> {
+    use database::sync::{
+        LibrarySyncStore,
+        model::{Collection, ObjectKey},
+    };
+    use sea_orm::TransactionTrait;
+    let node = Uuid::new_v4();
+    let _ = migration::initialize_node_id(node.to_string());
+    let db = Database::connect("sqlite::memory:").await?;
+    Migrator::up(&db, None).await?;
+    let library = LibrarySyncStore::open(db.clone(), node, Some(Uuid::new_v4())).await?;
+    let mut keys = Vec::new();
+    for (n, size) in [(1, 40000), (2, 4)] {
+        let id = Uuid::new_v4();
+        support::local_file(&db, n, id, "file").await?;
+        let key = ObjectKey {
+            collection: Collection::Fingerprints,
+            id: migration::catalog_identity::fingerprint(id, None, None, None),
+        };
+        media_file_fingerprint::Entity::insert(media_file_fingerprint::ActiveModel {
+            track_uuid: Set(id.to_string()),
+            fingerprint: Set(vec![1; size]),
+            is_duplicated: Set(0),
+            hlc_uuid: Set(key.id.to_string()),
+            ..Default::default()
+        })
+        .exec(&db)
+        .await?;
+        keys.push(key);
+    }
+    library.import_existing(node).await?;
+    let tx = db.begin().await?;
+    let store = library.record_store();
+    assert!(store.get_on(&tx, &keys[0]).await?.is_none());
+    assert!(store.get_on(&tx, &keys[1]).await?.is_some());
+    tx.rollback().await?;
+    Ok(())
+}

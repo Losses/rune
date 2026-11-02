@@ -1,10 +1,13 @@
 //! Rune source-row declarations and pure portable value conversions.
 use crate::entities::*;
 use migration::catalog_identity::{self, ParentKind};
-use sea_orm::{ColumnTrait, Condition, DbErr, Value};
+use sea_orm::{ColumnTrait, Condition, DbErr, Value, sea_query::Expr};
 use serde::{Deserialize, Serialize};
 use sync_orm::row_policy::{FieldCodec, RowView};
 use uuid::Uuid;
+
+/// Maximum fingerprint size included in synchronization.
+pub const MAX_PORTABLE_FINGERPRINT_BYTES: usize = 32768;
 
 /// Metadata describing a blob; the sync engine does not transfer its bytes.
 /// The digest is an opaque, nonempty string of at most 256 UTF-8 bytes.
@@ -638,11 +641,12 @@ sync_orm::row_policies! {
                         format_version: Option<i32> => media_file_fingerprint::Column::FormatVersion
                     },
                     defaults: {},
+                    source_filter: Condition::all().add(Expr::cust_with_values("length(fingerprint) <= ?", [MAX_PORTABLE_FINGERPRINT_BYTES as i64])),
                     references: {
                         file_id => "tracks"
                     },
                     limits: {
-                        bytes => (0, 32768),
+                        bytes => (0, MAX_PORTABLE_FINGERPRINT_BYTES as i128),
                         source_hash => (64, 64),
                         source_size => (0, i64::MAX as i128),
                         algorithm => (1, 256),

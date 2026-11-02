@@ -2,7 +2,7 @@
 use crate::entities::{media_file_fingerprint, media_file_similarity, media_files};
 use crate::sync::model::{Collection, Payload};
 use anyhow::{Result, ensure};
-use sea_orm::{ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter, Set};
 
 /// A computed fingerprint and the provenance used to derive its identity.
 pub struct ComputedFingerprint {
@@ -49,6 +49,48 @@ pub async fn assign_computed_fingerprint(
         Some(&configuration),
         Some(format_version),
     );
+    if bytes.len() > crate::sync::model::MAX_PORTABLE_FINGERPRINT_BYTES {
+        let key = ObjectKey {
+            collection: Collection::Fingerprints,
+            id,
+        };
+        if store
+            .get_on(&tx, &key)
+            .await?
+            .is_some_and(|record| record.value.is_some())
+        {
+            store.author_on(&tx, key, None).await?;
+        }
+        let existing = media_file_fingerprint::Entity::find()
+            .filter(media_file_fingerprint::Column::HlcUuid.eq(id.to_string()))
+            .one(&tx)
+            .await?;
+        let mut row: media_file_fingerprint::ActiveModel =
+            existing.map(Into::into).unwrap_or_default();
+        row.hlc_uuid = Set(id.to_string());
+        row.track_uuid = Set(file_id.to_string());
+        row.fingerprint = Set(bytes);
+        row.is_duplicated = Set(is_duplicated);
+        row.source_hash = Set(file.content_hash);
+        row.source_size = Set(file.content_size);
+        row.algorithm = Set(Some(algorithm));
+        row.configuration = Set(Some(configuration));
+        row.format_version = Set(Some(format_version));
+        row.save(&tx).await?;
+        log::debug!("keeping oversized fingerprint local for {}", file.id);
+        tx.commit().await?;
+        return Ok(());
+    }
+    if let Some(existing) = media_file_fingerprint::Entity::find()
+        .filter(media_file_fingerprint::Column::HlcUuid.eq(id.to_string()))
+        .one(&tx)
+        .await?
+        && existing.fingerprint.len() > crate::sync::model::MAX_PORTABLE_FINGERPRINT_BYTES
+    {
+        let mut update: media_file_fingerprint::ActiveModel = existing.into();
+        update.fingerprint = Set(bytes.clone());
+        update.update(&tx).await?;
+    }
     let value = Some(Payload::Fingerprint(crate::sync::model::Fingerprint {
         file_id,
         source_hash: file.content_hash,
@@ -264,6 +306,14 @@ pub async fn assign_duplicate_mark(
         row.hlc_uuid == id.to_string(),
         "fingerprint source identity requires correction"
     );
+    if row.fingerprint.len() > crate::sync::model::MAX_PORTABLE_FINGERPRINT_BYTES {
+        let mut update: media_file_fingerprint::ActiveModel = row.into();
+        update.is_duplicated = Set(mark);
+        update.update(&tx).await?;
+        log::debug!("keeping oversized fingerprint local for {file_id}");
+        tx.commit().await?;
+        return Ok(());
+    }
     let value = Some(Payload::Fingerprint(crate::sync::model::Fingerprint {
         file_id: uuid,
         source_hash: row.source_hash,

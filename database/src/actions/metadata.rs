@@ -129,7 +129,7 @@ pub fn filter_modified_files(
 
 // SQLite constraint failures and explicit row validation reject one record. Connection,
 // query, and I/O failures are fatal even if they occur inside a savepoint.
-pub(super) fn is_fatal_scan_error(error: &anyhow::Error) -> bool {
+pub(crate) fn is_fatal_scan_error(error: &anyhow::Error) -> bool {
     use std::ops::Deref;
     error
         .chain()

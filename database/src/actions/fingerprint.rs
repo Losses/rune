@@ -258,7 +258,19 @@ where
                     token,
                 )
             })
-            .await?;
+            .await;
+            let result = match result {
+                Ok(result) => result,
+                Err(error) => {
+                    log::warn!(
+                        "Fingerprint computation failed for {}: {error}",
+                        file.file_name
+                    );
+                    processed += 1;
+                    progress(processed, total);
+                    continue;
+                }
+            };
             match result {
                 Ok((fingerprint, _)) => {
                     if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
@@ -279,7 +291,7 @@ where
                     }
                     let bytes: Vec<u8> =
                         fingerprint.into_iter().flat_map(u32::to_le_bytes).collect();
-                    crate::actions::fingerprint::assign_computed_fingerprint(
+                    if let Err(error) = crate::actions::fingerprint::assign_computed_fingerprint(
                         db,
                         store,
                         &file,
@@ -291,7 +303,16 @@ where
                             is_duplicated: 0,
                         },
                     )
-                    .await?;
+                    .await
+                    {
+                        if crate::actions::metadata::is_fatal_scan_error(&error) {
+                            return Err(error);
+                        }
+                        log::warn!(
+                            "Fingerprint assignment failed for {}: {error:#}",
+                            file.file_name
+                        );
+                    }
                 }
                 Err(error) => {
                     log::warn!("Fingerprint computation failed for {}: {error:#}", file.id)
@@ -517,6 +538,10 @@ where
             let mut update: media_file_fingerprint::ActiveModel = row.clone().into();
             update.is_duplicated = ActiveValue::Set(0);
             update.update(&tx).await?;
+            if row.fingerprint.len() > crate::sync::model::MAX_PORTABLE_FINGERPRINT_BYTES {
+                log::debug!("keeping oversized fingerprint local for {}", row.track_uuid);
+                continue;
+            }
             author_source_on(
                 &tx,
                 store,
