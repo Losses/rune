@@ -7,7 +7,10 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub mix_id: i32,
+    pub mix_uuid: String,
+    pub position: i32,
+    pub target_uuid: Option<String>,
+    pub local_directory: Option<String>,
     #[sea_orm(column_type = "Text")]
     pub operator: String,
     #[sea_orm(column_type = "Text")]
@@ -30,10 +33,8 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::mixes::Entity",
-        from = "Column::MixId",
-        to = "super::mixes::Column::Id",
-        on_update = "Cascade",
-        on_delete = "Cascade"
+        from = "Column::MixUuid",
+        to = "super::mixes::Column::HlcUuid"
     )]
     Mixes,
 }

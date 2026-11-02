@@ -8,10 +8,15 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub media_file_id: i32,
+    pub track_uuid: String,
     #[sea_orm(column_type = "Blob")]
     pub fingerprint: Vec<u8>,
     pub is_duplicated: i32,
+    pub source_hash: Option<String>,
+    pub source_size: Option<i64>,
+    pub algorithm: Option<String>,
+    pub configuration: Option<String>,
+    pub format_version: Option<i32>,
     pub hlc_uuid: String,
     #[sea_orm(column_type = "Text")]
     pub created_at_hlc_ts: String,
@@ -29,10 +34,8 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::media_files::Entity",
-        from = "Column::MediaFileId",
-        to = "super::media_files::Column::Id",
-        on_update = "Cascade",
-        on_delete = "Cascade"
+        from = "Column::TrackUuid",
+        to = "super::media_files::Column::HlcUuid"
     )]
     MediaFiles,
 }

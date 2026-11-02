@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
-use sea_orm::{DatabaseConnection, EntityTrait, QuerySelect};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect};
 
 use crate::entities::media_files;
 
@@ -76,6 +76,7 @@ pub async fn get_directory_tree(db: &DatabaseConnection) -> Result<DirectoryTree
         let unique_directories: Vec<String> = media_files::Entity::find()
             .select_only()
             .column(media_files::Column::Directory)
+            .filter(media_files::Column::LocalAvailable.eq(true))
             .distinct()
             .into_tuple::<String>()
             .all(db)

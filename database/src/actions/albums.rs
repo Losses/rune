@@ -27,5 +27,5 @@ collection_query!(
     CollectionQueryType::Album,
     "lib::album".to_owned(),
     media_file_albums,
-    AlbumId
+    AlbumUuid
 );

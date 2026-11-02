@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use log::warn;
@@ -9,23 +9,28 @@ use migration::Func;
 use migration::IntoCondition;
 use migration::SimpleExpr;
 use sea_orm::entity::prelude::*;
-use sea_orm::sea_query::{Condition, Expr};
+use sea_orm::sea_query::{Condition, Expr, Query};
 use sea_orm::{
-    ActiveValue, ColumnTrait, EntityTrait, JoinType, Order, QueryFilter, QueryOrder, QuerySelect,
-    QueryTrait, TransactionTrait,
+    ColumnTrait, EntityTrait, JoinType, Order, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
+    TransactionTrait,
 };
 
 use crate::actions::analysis::get_analyze_count;
 use crate::actions::analysis::get_percentile_analysis_result;
-use crate::actions::cover_art::get_magic_cover_art_id;
 use crate::actions::playback_queue::list_playback_queue;
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
 use crate::entities::media_file_fingerprint;
 use crate::entities::media_file_genres;
 use crate::entities::{
-    media_analysis, media_file_albums, media_file_artists, media_file_playlists, media_file_stats,
-    media_files, mix_queries, mixes,
+    albums, artists, genres, media_analysis, media_file_albums, media_file_artists,
+    media_file_likes, media_file_playlists, media_file_stats, media_files, mix_queries, mixes,
+    playlists,
 };
+use crate::sync::{
+    SeaOrmSyncStore,
+    model::{Collection, ObjectKey},
+};
+use sea_orm::{DatabaseTransaction, Set};
 
 use super::analysis::get_centralized_analysis_result;
 use super::collection::CollectionQuery;
@@ -85,11 +90,7 @@ impl CollectionQuery for mixes::Model {
     }
 
     async fn query_builder(main_db: &MainDbConnection, id: i32) -> Result<Vec<(String, String)>> {
-        Ok(get_mix_queries_by_mix_id(main_db, id)
-            .await?
-            .into_iter()
-            .map(|x| (x.operator, x.parameter))
-            .collect())
+        executable_mix_queries(main_db, id).await
     }
 
     async fn count_by_first_letter(main_db: &MainDbConnection) -> Result<Vec<(String, i32)>> {
@@ -183,63 +184,75 @@ impl CollectionQuery for mixes::Model {
     }
 }
 
+async fn author_mix(
+    tx: &DatabaseTransaction,
+    store: &SeaOrmSyncStore,
+    mix: &mixes::Model,
+) -> Result<()> {
+    crate::sync::model::author_source_on(
+        tx,
+        store,
+        ObjectKey {
+            collection: Collection::Mixes,
+            id: mix.hlc_uuid.parse()?,
+        },
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
 pub async fn create_mix(
     db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
     node_id: &str,
     name: String,
     group: String,
     scriptlet_mode: bool,
     mode: i32,
     locked: bool,
+    queries: Vec<(String, String)>,
 ) -> Result<mixes::Model> {
-    use mixes::ActiveModel;
-
-    let new_mix = ActiveModel {
-        name: ActiveValue::Set(name.clone()),
-        group: ActiveValue::Set(group),
-        scriptlet_mode: ActiveValue::Set(scriptlet_mode),
-        mode: ActiveValue::Set(Some(mode)),
-        locked: ActiveValue::Set(locked),
-        hlc_uuid: ActiveValue::Set(
-            Uuid::new_v5(
-                &Uuid::NAMESPACE_URL,
-                format!("RUNE_PLAYLIST::{}::{}", name, Utc::now().to_rfc3339()).as_bytes(),
-            )
-            .to_string(),
-        ),
-        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-        created_at_hlc_ver: ActiveValue::Set(0),
-        updated_at_hlc_ver: ActiveValue::Set(0),
-        created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-        updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let now = Utc::now().to_rfc3339();
+    let row = mixes::ActiveModel {
+        name: Set(name),
+        group: Set(group),
+        scriptlet_mode: Set(scriptlet_mode),
+        mode: Set(Some(mode)),
+        locked: Set(locked),
+        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        created_at_hlc_ts: Set(now.clone()),
+        updated_at_hlc_ts: Set(now),
+        created_at_hlc_ver: Set(0),
+        updated_at_hlc_ver: Set(0),
+        created_at_hlc_nid: Set(node_id.to_owned()),
+        updated_at_hlc_nid: Set(node_id.to_owned()),
         ..Default::default()
-    };
-
-    let inserted_mix = new_mix.insert(db).await?;
-    Ok(inserted_mix)
-}
-
-pub async fn get_all_mixes(main_db: &DatabaseConnection) -> Result<Vec<mixes::Model>> {
-    use mixes::Entity as MixEntity;
-
-    let mixes = MixEntity::find().all(main_db).await?;
-    Ok(mixes)
-}
-
-pub async fn get_mix_by_id(main_db: &DatabaseConnection, id: i32) -> Result<mixes::Model> {
-    use mixes::Entity as MixEntity;
-
-    let mix = MixEntity::find_by_id(id).one(main_db).await?;
-    match mix {
-        Some(m) => Ok(m),
-        None => bail!("Mix not found"),
     }
+    .insert(&tx)
+    .await?;
+    crate::actions::search::add_term(&tx, CollectionQueryType::Mix, row.id, &row.name).await?;
+    replace_queries_on(&tx, &row.hlc_uuid, queries, 0).await?;
+    author_mix(&tx, store, &row).await?;
+    tx.commit().await?;
+    Ok(row)
+}
+
+pub async fn get_all_mixes(db: &DatabaseConnection) -> Result<Vec<mixes::Model>> {
+    Ok(mixes::Entity::find().all(db).await?)
+}
+pub async fn get_mix_by_id(db: &DatabaseConnection, id: i32) -> Result<mixes::Model> {
+    mixes::Entity::find_by_id(id)
+        .one(db)
+        .await?
+        .context("Mix not found")
 }
 
 #[allow(clippy::too_many_arguments)]
 pub async fn update_mix(
     db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
     node_id: &str,
     id: i32,
     name: Option<String>,
@@ -247,170 +260,141 @@ pub async fn update_mix(
     scriptlet_mode: Option<bool>,
     mode: Option<i32>,
     locked: Option<bool>,
+    queries: Option<Vec<(String, String)>>,
 ) -> Result<mixes::Model> {
-    use mixes::Entity as MixEntity;
-
-    let mix = MixEntity::find_by_id(id).one(db).await?;
-
-    if let Some(mix) = mix {
-        let ver = mix.created_at_hlc_ver;
-        let mut active_model: mixes::ActiveModel = mix.into();
-
-        if let Some(name) = name {
-            active_model.name = ActiveValue::Set(name);
-        }
-        if let Some(group) = group {
-            active_model.group = ActiveValue::Set(group);
-        }
-        if let Some(scriptlet_mode) = scriptlet_mode {
-            active_model.scriptlet_mode = ActiveValue::Set(scriptlet_mode);
-        }
-        if let Some(mode) = mode {
-            active_model.mode = ActiveValue::Set(Some(mode));
-        }
-        if let Some(locked) = locked {
-            active_model.locked = ActiveValue::Set(locked);
-        }
-
-        active_model.updated_at_hlc_ts = ActiveValue::Set(Utc::now().to_rfc3339());
-        active_model.updated_at_hlc_ver = ActiveValue::Set(ver + 1);
-        active_model.updated_at_hlc_nid = ActiveValue::Set(node_id.to_owned());
-        let updated_mix = active_model.update(db).await?;
-
-        Ok(updated_mix)
-    } else {
-        bail!("Mix not found");
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let row = mixes::Entity::find_by_id(id)
+        .one(&tx)
+        .await?
+        .context("Mix not found")?;
+    let ver = row.updated_at_hlc_ver;
+    let mut model: mixes::ActiveModel = row.into();
+    if let Some(v) = name {
+        model.name = Set(v);
     }
+    if let Some(v) = group {
+        model.group = Set(v);
+    }
+    if let Some(v) = scriptlet_mode {
+        model.scriptlet_mode = Set(v);
+    }
+    if let Some(v) = mode {
+        model.mode = Set(Some(v));
+    }
+    if let Some(v) = locked {
+        model.locked = Set(v);
+    }
+    model.updated_at_hlc_ts = Set(Utc::now().to_rfc3339());
+    model.updated_at_hlc_ver = Set(ver.checked_add(1).context("mix version exhausted")?);
+    model.updated_at_hlc_nid = Set(node_id.to_owned());
+    let row = model.update(&tx).await?;
+    if let Some(queries) = queries {
+        replace_queries_on(&tx, &row.hlc_uuid, queries, 0).await?;
+    }
+    crate::actions::search::add_term(&tx, CollectionQueryType::Mix, row.id, &row.name).await?;
+    author_mix(&tx, store, &row).await?;
+    tx.commit().await?;
+    Ok(row)
 }
 
-pub async fn remove_mix(main_db: &DatabaseConnection, id: i32) -> Result<()> {
-    use mixes::Entity as MixEntity;
-
-    let mix = MixEntity::find_by_id(id).one(main_db).await?;
-    if let Some(m) = mix {
-        m.delete(main_db).await?;
-        Ok(())
-    } else {
-        bail!("Mix not found")
-    }
-}
-
-pub async fn replace_mix_queries(
-    main_db: &DatabaseConnection,
-    node_id: &str,
-    mix_id: i32,
-    mix_hlc_uuid: &str,
-    operator_parameters: Vec<(String, String)>,
-    group: Option<i32>,
-) -> Result<()> {
-    use mix_queries::Entity as MixQueryEntity;
-
-    let txn = main_db.begin().await?;
-
-    // Get all existing records for the current mix_id
-    let existing_queries = MixQueryEntity::find()
-        .filter(mix_queries::Column::MixId.eq(mix_id))
-        .all(&txn)
-        .await
-        .with_context(|| format!("Failed to query existing queries for mix_id {mix_id}"))?;
-
-    // Create a mapping of existing records: (operator, parameter) -> existing record
-    // Note: Using (operator, parameter) as key to support multiple queries with same operator
-    let mut existing_by_key: HashMap<(String, String), mix_queries::Model> = HashMap::new();
-    for query in existing_queries {
-        existing_by_key.insert((query.operator.clone(), query.parameter.clone()), query);
-    }
-
-    // Create a set of new query keys for easy lookup
-    let new_query_keys: HashSet<(String, String)> = operator_parameters
-        .iter()
-        .map(|(op, param)| (op.clone(), param.clone()))
-        .collect();
-
-    let current_time = Utc::now().to_rfc3339();
-
-    // Process each new operator-parameter pair
-    for (operator, parameter) in &operator_parameters {
-        let key = (operator.clone(), parameter.clone());
-
-        if existing_by_key.contains_key(&key) {
-            // Query already exists with same operator and parameter, no action needed
-        } else {
-            // Query doesn't exist, create new record
-
-            let new_query = mix_queries::ActiveModel {
-                mix_id: ActiveValue::Set(mix_id),
-                operator: ActiveValue::Set(operator.clone()),
-                parameter: ActiveValue::Set(parameter.clone()),
-                group: ActiveValue::Set(group.unwrap_or_default()),
-                hlc_uuid: ActiveValue::Set(
-                    Uuid::new_v5(
-                        &Uuid::NAMESPACE_OID,
-                        format!("{mix_hlc_uuid}{operator}{parameter}").as_bytes(),
-                    )
-                    .to_string(),
-                ),
-                created_at_hlc_ts: ActiveValue::Set(current_time.clone()),
-                updated_at_hlc_ts: ActiveValue::Set(current_time.clone()),
-                created_at_hlc_ver: ActiveValue::Set(0),
-                updated_at_hlc_ver: ActiveValue::Set(0),
-                created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-                updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-                ..Default::default()
-            };
-
-            MixQueryEntity::insert(new_query)
-                .exec(&txn)
-                .await
-                .with_context(|| {
-                    format!("Failed to insert new query with `{operator}({parameter})`")
-                })?;
-        }
-    }
-
-    // Handle records that need to be deleted (queries in existing records but not in new queries)
-    for (existing_key, existing_query) in existing_by_key {
-        if !new_query_keys.contains(&existing_key) {
-            // This query doesn't exist in new parameters, needs to be deleted
-
-            MixQueryEntity::delete_by_id(existing_query.id)
-                .exec(&txn)
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to delete query with `{}({})`",
-                        existing_key.0, existing_key.1
-                    )
-                })?;
-        }
-    }
-
-    txn.commit().await?;
+pub async fn remove_mix(db: &DatabaseConnection, store: &SeaOrmSyncStore, id: i32) -> Result<()> {
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let row = mixes::Entity::find_by_id(id)
+        .one(&tx)
+        .await?
+        .context("mix not found")?;
+    let key = ObjectKey {
+        collection: Collection::Mixes,
+        id: row.hlc_uuid.parse()?,
+    };
+    crate::actions::search::remove_term(&tx, CollectionQueryType::Mix, id).await?;
+    crate::sync::bindings::apply(&tx, &key, None).await?;
+    store.author_on(&tx, key, None).await?;
+    tx.commit().await?;
     Ok(())
 }
 
-pub async fn get_mix_queries_by_mix_id(
-    main_db: &DatabaseConnection,
+pub async fn replace_mix_queries(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
     mix_id: i32,
-) -> Result<Vec<mix_queries::Model>> {
-    use mix_queries::Entity as MixQueryEntity;
-
-    Ok(MixQueryEntity::find()
-        .filter(mix_queries::Column::MixId.eq(mix_id))
-        .all(main_db)
-        .await?)
+    mix_hlc_uuid: &str,
+    queries: Vec<(String, String)>,
+    group: Option<i32>,
+) -> Result<()> {
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let mix = mixes::Entity::find_by_id(mix_id)
+        .one(&tx)
+        .await?
+        .context("mix not found")?;
+    anyhow::ensure!(mix.hlc_uuid == mix_hlc_uuid, "mix identity changed");
+    replace_queries_on(&tx, &mix.hlc_uuid, queries, group.unwrap_or_default()).await?;
+    author_mix(&tx, store, &mix).await?;
+    tx.commit().await?;
+    Ok(())
 }
-
-pub async fn remove_mix_query(main_db: &DatabaseConnection, id: i32) -> Result<()> {
-    use mix_queries::Entity as MixQueryEntity;
-
-    let mix_query = MixQueryEntity::find_by_id(id).one(main_db).await?;
-    if let Some(mq) = mix_query {
-        mq.delete(main_db).await?;
-        Ok(())
-    } else {
-        bail!("Mix query not found");
+pub async fn get_mix_queries_by_mix_id(
+    db: &DatabaseConnection,
+    mix_id: i32,
+) -> Result<Vec<MixQueryView>> {
+    let mix = mixes::Entity::find_by_id(mix_id)
+        .one(db)
+        .await?
+        .context("mix not found")?;
+    query_views_on(db, &mix.hlc_uuid).await
+}
+pub async fn executable_mix_queries(
+    db: &DatabaseConnection,
+    mix_id: i32,
+) -> Result<Vec<(String, String)>> {
+    let mix = mixes::Entity::find_by_id(mix_id)
+        .one(db)
+        .await?
+        .context("mix not found")?;
+    executable_queries_on(db, &mix.hlc_uuid).await
+}
+pub async fn remove_mix_query(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    id: i32,
+) -> Result<()> {
+    use sync_orm::owned_list::{ListBudget, OwnedListPolicy};
+    type Clauses = OwnedListPolicy<mix_queries::Entity, crate::sync::model::MixClauseMap>;
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let row = mix_queries::Entity::find_by_id(id)
+        .one(&tx)
+        .await?
+        .context("mix clause not found")?;
+    let mix = mixes::Entity::find()
+        .filter(mixes::Column::HlcUuid.eq(&row.mix_uuid))
+        .one(&tx)
+        .await?
+        .context("mix not found")?;
+    let owner = [row.mix_uuid.into()];
+    let mut items = Clauses::read_on(&tx, &owner, Clauses::read_ceiling()).await?;
+    items.retain(|item| item.id.to_string() != row.hlc_uuid);
+    for (index, item) in items.iter_mut().enumerate() {
+        item.position = index as i32;
     }
+    Clauses::prepare_on(
+        &tx,
+        &owner,
+        &items,
+        ListBudget {
+            max_reads: 129,
+            max_mutations: 384,
+        },
+    )
+    .await?
+    .apply_on(&tx)
+    .await?;
+    author_mix(&tx, store, &mix).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -453,50 +437,34 @@ where
 }
 
 pub async fn add_item_to_mix(
-    main_db: &DatabaseConnection,
-    node_id: &str,
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
     mix_id: i32,
     operator: String,
     parameter: String,
 ) -> Result<mix_queries::Model> {
-    use mix_queries::ActiveModel;
-    use mix_queries::Entity as MixQueryEntity;
-
-    // Check for duplicates: check if there is already an entry with the same mix_id, operator, and parameter in the mix_queries table
-    let existing_item = MixQueryEntity::find()
-        .filter(mix_queries::Column::MixId.eq(mix_id))
-        .filter(mix_queries::Column::Operator.eq(operator.clone()))
-        .filter(mix_queries::Column::Parameter.eq(parameter.clone()))
-        .one(main_db)
-        .await?;
-
-    if let Some(existing_item) = existing_item {
-        // If the entry already exists, return the existing entry directly
-        Ok(existing_item)
-    } else {
-        // If the entry does not exist, insert a new entry
-        let new_mix_query = ActiveModel {
-            mix_id: ActiveValue::Set(mix_id),
-            operator: ActiveValue::Set(operator),
-            parameter: ActiveValue::Set(parameter),
-            group: ActiveValue::Set(0),
-            hlc_uuid: ActiveValue::Set(node_id.to_owned()),
-            created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-            updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-            created_at_hlc_ver: ActiveValue::Set(0),
-            updated_at_hlc_ver: ActiveValue::Set(0),
-            created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-            updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-            ..Default::default()
-        };
-
-        let inserted_mix_query = new_mix_query.insert(main_db).await?;
-        Ok(inserted_mix_query)
-    }
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let mix = mixes::Entity::find_by_id(mix_id)
+        .one(&tx)
+        .await?
+        .context("mix not found")?;
+    let row = add_query_on(&tx, &mix.hlc_uuid, operator, parameter).await?;
+    author_mix(&tx, store, &mix).await?;
+    tx.commit().await?;
+    Ok(row)
 }
 
-pub async fn initialize_mix_queries(main_db: &DatabaseConnection, node_id: &str) -> Result<()> {
-    let all_mixes: Vec<mixes::Model> = mixes::Entity::find()
+/// Initialize built-in clauses only before a replication namespace exists.
+pub async fn initialize_mix_queries_before_replication(db: &DatabaseConnection) -> Result<()> {
+    let tx = db.begin().await?;
+    anyhow::ensure!(
+        sync_orm::causal_store::list_namespace_ids_on(&tx, 1)
+            .await?
+            .is_empty(),
+        "replica already initialized"
+    );
+    let all = mixes::Entity::find()
         .filter(
             Condition::all()
                 .add(mixes::Column::Name.starts_with("\u{200B}"))
@@ -504,50 +472,28 @@ pub async fn initialize_mix_queries(main_db: &DatabaseConnection, node_id: &str)
                 .add(mixes::Column::Locked.eq(true))
                 .add(mixes::Column::ScriptletMode.eq(false)),
         )
-        .all(main_db)
+        .all(&tx)
         .await?;
-
-    for mix in all_mixes {
-        let mix_id = mix.id;
-
-        let n = mix_queries::Entity::find()
-            .filter(mix_queries::Column::MixId.eq(mix_id))
-            .count(main_db)
-            .await?;
-
-        if n == 0 {
-            let mut new_queries = vec![("lib::all", "true")];
-
+    for mix in all {
+        if mix_queries::Entity::find()
+            .filter(mix_queries::Column::MixUuid.eq(&mix.hlc_uuid))
+            .count(&tx)
+            .await?
+            == 0
+        {
+            let mut queries = vec![("lib::all".to_owned(), "true".to_owned())];
             if mix.name == "\u{200B}Liked" {
-                new_queries.push(("filter::liked", "true"));
+                queries.push(("filter::liked".into(), "true".into()));
             } else if mix.name.starts_with("\u{200B}Mix ")
                 && let Some(n) = mix.name.split_whitespace().last()
             {
-                new_queries.push(("pipe::limit", "50"));
-                new_queries.push(("pipe::recommend", n));
+                queries.push(("pipe::limit".into(), "50".into()));
+                queries.push(("pipe::recommend".into(), n.into()));
             }
-
-            for (operator, parameter) in new_queries {
-                let new_mix_query = mix_queries::ActiveModel {
-                    mix_id: ActiveValue::Set(mix_id),
-                    operator: ActiveValue::Set(operator.to_string()),
-                    parameter: ActiveValue::Set(parameter.to_string()),
-                    group: ActiveValue::Set(0),
-                    hlc_uuid: ActiveValue::Set(node_id.to_owned()),
-                    created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-                    updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-                    created_at_hlc_ver: ActiveValue::Set(0),
-                    updated_at_hlc_ver: ActiveValue::Set(0),
-                    created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-                    updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-                    ..Default::default()
-                };
-
-                new_mix_query.insert(main_db).await?;
-            }
+            replace_queries_on(&tx, &mix.hlc_uuid, queries, 0).await?;
         }
     }
-
+    tx.commit().await?;
     Ok(())
 }
 
@@ -616,23 +562,13 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
 
 fn apply_join_filter(
     query: Select<media_files::Entity>,
-    filter_liked: Option<bool>,
+    _filter_liked: Option<bool>,
     _filter_analyzed: Option<bool>,
     sort_track_number: Option<bool>,
-    sort_playedthrough_asc: Option<bool>,
-    sort_skipped_asc: Option<bool>,
+    _sort_playedthrough_asc: Option<bool>,
+    _sort_skipped_asc: Option<bool>,
 ) -> Select<media_files::Entity> {
     let mut _query = query;
-    if filter_liked.is_some() || sort_playedthrough_asc.is_some() || sort_skipped_asc.is_some() {
-        _query = _query
-            .join(
-                JoinType::LeftJoin,
-                media_file_stats::Relation::MediaFiles.def().rev(),
-            )
-            .column(media_file_stats::Column::Liked)
-            .column(media_file_stats::Column::PlayedThrough)
-            .column(media_file_stats::Column::Skipped);
-    }
 
     if sort_track_number.is_some() {
         _query = _query
@@ -657,18 +593,40 @@ macro_rules! apply_sorting_macro {
 
 // Macro to handle subquery filters
 macro_rules! add_subquery_filter {
-    ($or_condition:expr, $ids:expr, $entity:ty, $column:expr, $file_column:expr) => {
+    ($or_condition:expr, $ids:expr, $parent:ident, $entity:ty, $column:expr, $file_column:expr) => {
         if !$ids.is_empty() {
+            let parents = $parent::Entity::find()
+                .select_only()
+                .column($parent::Column::HlcUuid)
+                .filter($parent::Column::Id.is_in($ids))
+                .into_query();
             let subquery = <$entity>::find()
                 .select_only()
-                .filter($column.is_in($ids))
+                .filter($column.in_subquery(parents))
                 .column($file_column)
                 .into_query();
 
-            $or_condition =
-                $or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
+            $or_condition = $or_condition.add(
+                Expr::col((media_files::Entity, media_files::Column::HlcUuid))
+                    .in_subquery(subquery),
+            );
         }
     };
+}
+
+fn statistics_sum(column: media_file_stats::Column) -> SimpleExpr {
+    let sum = Query::select()
+        .expr(Func::sum(Expr::col((media_file_stats::Entity, column))))
+        .from(media_file_stats::Entity)
+        .and_where(
+            Expr::col((
+                media_file_stats::Entity,
+                media_file_stats::Column::TrackUuid,
+            ))
+            .equals((media_files::Entity, media_files::Column::HlcUuid)),
+        )
+        .to_owned();
+    Func::coalesce([Expr::from(sum), Expr::val(0)]).into()
 }
 
 fn sort_media_files(
@@ -780,17 +738,63 @@ pub async fn query_mix_media_files(
         -1
     };
 
-    // Base query for media_files
-    let mut query = media_files::Entity::find()
-        .join(
-            JoinType::LeftJoin,
-            media_file_fingerprint::Relation::MediaFiles.def().rev(),
+    // Exclude a duplicate only when its fingerprint matches the algorithm,
+    // configuration, format, and file content checked below. NOT EXISTS avoids
+    // repeating a file for each matching fingerprint row.
+    let duplicates = Query::select()
+        .expr(Expr::val(1))
+        .from(media_file_fingerprint::Entity)
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::TrackUuid,
+            ))
+            .equals((media_files::Entity, media_files::Column::HlcUuid)),
         )
-        .filter(
-            Condition::any()
-                .add(media_file_fingerprint::Column::IsDuplicated.is_null())
-                .add(media_file_fingerprint::Column::IsDuplicated.ne(1)),
-        );
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::IsDuplicated,
+            ))
+            .eq(1),
+        )
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::Algorithm,
+            ))
+            .eq("chromaprint"),
+        )
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::Configuration,
+            ))
+            .eq("rusty-chromaprint-0.3.0/default"),
+        )
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::FormatVersion,
+            ))
+            .eq(1),
+        )
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::SourceHash,
+            ))
+            .equals((media_files::Entity, media_files::Column::ContentHash)),
+        )
+        .and_where(
+            Expr::col((
+                media_file_fingerprint::Entity,
+                media_file_fingerprint::Column::SourceSize,
+            ))
+            .equals((media_files::Entity, media_files::Column::ContentSize)),
+        )
+        .to_owned();
+    let mut query = media_files::Entity::find().filter(Expr::not_exists(duplicates));
 
     // Create an OR condition to hold all the subconditions
     let mut or_condition = Condition::any();
@@ -799,36 +803,40 @@ pub async fn query_mix_media_files(
     add_subquery_filter!(
         or_condition,
         artist_ids,
+        artists,
         media_file_artists::Entity,
-        media_file_artists::Column::ArtistId,
-        media_file_artists::Column::MediaFileId
+        media_file_artists::Column::ArtistUuid,
+        media_file_artists::Column::TrackUuid
     );
 
     // Filter by album_ids if provided
     add_subquery_filter!(
         or_condition,
         album_ids,
+        albums,
         media_file_albums::Entity,
-        media_file_albums::Column::AlbumId,
-        media_file_albums::Column::MediaFileId
+        media_file_albums::Column::AlbumUuid,
+        media_file_albums::Column::TrackUuid
     );
 
     // Filter by genres_ids if provided
     add_subquery_filter!(
         or_condition,
         genre_ids,
+        genres,
         media_file_genres::Entity,
-        media_file_genres::Column::GenreId,
-        media_file_genres::Column::MediaFileId
+        media_file_genres::Column::GenreUuid,
+        media_file_genres::Column::TrackUuid
     );
 
     // Filter by playlist_ids if provided
     add_subquery_filter!(
         or_condition,
         playlist_ids.clone(),
+        playlists,
         media_file_playlists::Entity,
-        media_file_playlists::Column::PlaylistId,
-        media_file_playlists::Column::MediaFileId
+        media_file_playlists::Column::PlaylistUuid,
+        media_file_playlists::Column::TrackUuid
     );
 
     // Filter by track_ids if provided
@@ -839,7 +847,8 @@ pub async fn query_mix_media_files(
             .column(media_files::Column::Id)
             .into_query();
 
-        or_condition = or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
+        or_condition = or_condition
+            .add(Expr::col((media_files::Entity, media_files::Column::Id)).in_subquery(subquery));
     }
 
     // Filter by directories if provided
@@ -877,7 +886,8 @@ pub async fn query_mix_media_files(
             .column(media_files::Column::Id)
             .into_query();
 
-        or_condition = or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
+        or_condition = or_condition
+            .add(Expr::col((media_files::Entity, media_files::Column::Id)).in_subquery(subquery));
     }
 
     if let Some(queue_enabled) = playback_queue
@@ -891,7 +901,8 @@ pub async fn query_mix_media_files(
             .column(media_files::Column::Id)
             .into_query();
 
-        or_condition = or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
+        or_condition = or_condition
+            .add(Expr::col((media_files::Entity, media_files::Column::Id)).in_subquery(subquery));
     }
 
     let has_liked = filter_liked.is_some();
@@ -906,7 +917,25 @@ pub async fn query_mix_media_files(
         }
 
         if let Some(liked) = filter_liked {
-            filter = filter.add(media_file_stats::Column::Liked.eq(liked));
+            let likes = Query::select()
+                .expr(Expr::val(1))
+                .from(media_file_likes::Entity)
+                .and_where(
+                    Expr::col((
+                        media_file_likes::Entity,
+                        media_file_likes::Column::TrackUuid,
+                    ))
+                    .equals((media_files::Entity, media_files::Column::HlcUuid)),
+                )
+                .and_where(
+                    Expr::col((media_file_likes::Entity, media_file_likes::Column::Liked)).eq(true),
+                )
+                .to_owned();
+            filter = filter.add(if liked {
+                Expr::exists(likes)
+            } else {
+                Expr::not_exists(likes)
+            });
         }
 
         if let Some(analyzed) = filter_analyzed {
@@ -925,27 +954,11 @@ pub async fn query_mix_media_files(
         }
 
         if let Some(cover_art) = filter_cover_art {
-            let magic_cover_art_id = get_magic_cover_art_id(main_db).await;
-
-            if cover_art {
-                let mut condition = Condition::all();
-                condition = condition.add(media_files::Column::CoverArtId.is_not_null());
-
-                if let Some(magic_cover_art_id) = magic_cover_art_id {
-                    condition =
-                        condition.add(media_files::Column::CoverArtId.ne(magic_cover_art_id));
-                }
-                filter = filter.add(condition);
+            filter = filter.add(if cover_art {
+                media_files::Column::CoverArtUuid.is_not_null()
             } else {
-                let mut condition = Condition::any();
-                condition = condition.add(media_files::Column::CoverArtId.is_null());
-
-                if let Some(magic_cover_art_id) = magic_cover_art_id {
-                    condition =
-                        condition.add(media_files::Column::CoverArtId.eq(magic_cover_art_id));
-                }
-                filter = filter.add(condition);
-            }
+                media_files::Column::CoverArtUuid.is_null()
+            });
         }
 
         query = query.filter(filter);
@@ -971,8 +984,14 @@ pub async fn query_mix_media_files(
                     .def()
                     .rev()
                     .on_condition(move |_left, right| {
-                        Expr::col((right, media_file_playlists::Column::PlaylistId))
-                            .eq(only_playlist)
+                        Expr::col((right, media_file_playlists::Column::PlaylistUuid))
+                            .in_subquery(
+                                playlists::Entity::find()
+                                    .select_only()
+                                    .column(playlists::Column::HlcUuid)
+                                    .filter(playlists::Column::Id.eq(only_playlist))
+                                    .into_query(),
+                            )
                             .into_condition()
                     }),
             )
@@ -996,14 +1015,14 @@ pub async fn query_mix_media_files(
 
         if let Some(asc) = sort_playedthrough_asc {
             query = query.order_by(
-                media_file_stats::Column::PlayedThrough,
+                statistics_sum(media_file_stats::Column::PlayedThrough),
                 if asc { Order::Asc } else { Order::Desc },
             );
         }
 
         if let Some(asc) = sort_skipped_asc {
             query = query.order_by(
-                media_file_stats::Column::Skipped,
+                statistics_sum(media_file_stats::Column::Skipped),
                 if asc { Order::Asc } else { Order::Desc },
             );
         }
@@ -1099,14 +1118,14 @@ pub async fn query_mix_media_files(
 
     if let Some(asc) = sort_playedthrough_asc {
         query = query.order_by(
-            media_file_stats::Column::PlayedThrough,
+            statistics_sum(media_file_stats::Column::PlayedThrough),
             if asc { Order::Asc } else { Order::Desc },
         );
     }
 
     if let Some(asc) = sort_skipped_asc {
         query = query.order_by(
-            media_file_stats::Column::Skipped,
+            statistics_sum(media_file_stats::Column::Skipped),
             if asc { Order::Asc } else { Order::Desc },
         );
     }
@@ -1127,8 +1146,7 @@ pub async fn query_mix_media_files(
         .offset(Some(cursor as u64))
         .limit(final_page_size)
         .all(main_db)
-        .await
-        .unwrap();
+        .await?;
 
     log::debug!(
         "query_mix_media_files: returning {} media files",
@@ -1138,4 +1156,246 @@ pub async fn query_mix_media_files(
     let sorted_files = sort_media_files(media_files, &track_ids);
 
     Ok(sorted_files)
+}
+
+/// Query parameters resolved for this device. Missing targets remain identifiable.
+#[derive(Clone, Debug)]
+pub struct MixQueryView {
+    pub clause_id: Uuid,
+    pub operator: String,
+    pub parameter: String,
+    pub target_uuid: Option<Uuid>,
+    pub available: bool,
+}
+pub async fn query_views_on<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    mix_uuid: &str,
+) -> Result<Vec<MixQueryView>> {
+    use crate::sync::model::{RuneModel, mix_target_collection};
+    use sea_orm::{QueryOrder, QuerySelect};
+    use sync::protocol::SyncModel;
+    let rows = mix_queries::Entity::find()
+        .filter(mix_queries::Column::MixUuid.eq(mix_uuid))
+        .order_by_asc(mix_queries::Column::Position)
+        .limit(129)
+        .all(db)
+        .await?;
+    anyhow::ensure!(rows.len() <= 128, "mix exceeds clause limit");
+    let mut result = Vec::with_capacity(rows.len());
+    for row in rows {
+        let target = row
+            .target_uuid
+            .as_deref()
+            .map(str::parse::<Uuid>)
+            .transpose()?;
+        let (parameter, available) = if let Some(tag) = mix_target_collection(&row.operator) {
+            let id = target.context("mix reference missing UUID")?;
+            let collection =
+                RuneModel::collection_from_tag(tag).context("unregistered mix reference")?;
+            let local =
+                RuneModel::local_id_on(db, &sync::protocol::ObjectKey { collection, id }).await?;
+            (
+                local.map_or_else(|| id.to_string(), |id| id.to_string()),
+                local.is_some(),
+            )
+        } else if row.operator.starts_with("lib::directory.") {
+            (
+                row.local_directory.clone().unwrap_or_default(),
+                row.local_directory.is_some(),
+            )
+        } else {
+            (row.parameter, true)
+        };
+        result.push(MixQueryView {
+            clause_id: row.hlc_uuid.parse()?,
+            operator: row.operator,
+            parameter,
+            target_uuid: target,
+            available,
+        });
+    }
+    Ok(result)
+}
+pub async fn executable_queries_on<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    mix_uuid: &str,
+) -> Result<Vec<(String, String)>> {
+    let views = query_views_on(db, mix_uuid).await?;
+    anyhow::ensure!(
+        views.iter().all(|view| view.available),
+        "mix has unresolved references or unbound directories"
+    );
+    Ok(views
+        .into_iter()
+        .map(|view| (view.operator, view.parameter))
+        .collect())
+}
+
+/// Resolve API row numbers once, then reconcile the complete ordered UUID list.
+async fn replace_queries_on(
+    tx: &DatabaseTransaction,
+    mix_uuid: &str,
+    queries: Vec<(String, String)>,
+    group: i32,
+) -> Result<()> {
+    use crate::sync::model::{MixClause, MixClauseMap};
+    use sync_orm::owned_list::{ListBudget, OwnedListPolicy};
+    type Clauses = OwnedListPolicy<mix_queries::Entity, MixClauseMap>;
+    anyhow::ensure!(queries.len() <= 128, "mix exceeds clause limit");
+    let owner = [mix_uuid.to_owned().into()];
+    let previous = Clauses::read_on(tx, &owner, Clauses::read_ceiling()).await?;
+    let views = query_views_on(tx, mix_uuid).await?;
+    let mut used = std::collections::HashSet::new();
+    let mut incoming = Vec::with_capacity(queries.len());
+    let mut directories = Vec::new();
+    for (position, (operator, parameter)) in queries.into_iter().enumerate() {
+        let target = resolve_target_on(tx, &operator, &parameter).await?;
+        let directory = operator.starts_with("lib::directory.");
+        let portable = if target.is_some() || directory {
+            String::new()
+        } else {
+            parameter.clone()
+        };
+        let retained = previous
+            .iter()
+            .find(|clause| {
+                !used.contains(&clause.id)
+                    && clause.operator == operator
+                    && clause.parameter == portable
+                    && clause.target_uuid == target
+                    && (!directory
+                        || views
+                            .iter()
+                            .any(|view| view.clause_id == clause.id && view.parameter == parameter))
+            })
+            .or_else(|| {
+                previous.get(position).filter(|clause| {
+                    directory && clause.operator == operator && !used.contains(&clause.id)
+                })
+            });
+        let id = retained.map_or_else(Uuid::new_v4, |clause| clause.id);
+        used.insert(id);
+        if directory {
+            directories.push((id, parameter));
+        }
+        incoming.push(MixClause {
+            id,
+            position: i32::try_from(position)?,
+            operator,
+            parameter: portable,
+            target_uuid: target,
+            group,
+        });
+    }
+    Clauses::prepare_on(
+        tx,
+        &owner,
+        &incoming,
+        ListBudget {
+            max_reads: 129,
+            max_mutations: 384,
+        },
+    )
+    .await?
+    .apply_on(tx)
+    .await?;
+    for (id, directory) in directories {
+        mix_queries::Entity::update_many()
+            .col_expr(
+                mix_queries::Column::LocalDirectory,
+                Expr::value(Some(directory)),
+            )
+            .filter(mix_queries::Column::HlcUuid.eq(id.to_string()))
+            .filter(mix_queries::Column::MixUuid.eq(mix_uuid))
+            .exec(tx)
+            .await?;
+    }
+    Ok(())
+}
+async fn resolve_target_on(
+    tx: &DatabaseTransaction,
+    operator: &str,
+    parameter: &str,
+) -> Result<Option<Uuid>> {
+    use crate::sync::model::{RuneModel, mix_target_collection};
+    use sync::SyncModel;
+    let Some(tag) = mix_target_collection(operator) else {
+        return Ok(None);
+    };
+    if let Ok(id) = parameter.parse::<Uuid>() {
+        return Ok(Some(id));
+    }
+    let local = parameter.parse::<i64>().context("invalid mix reference")?;
+    let collection = RuneModel::collection_from_tag(tag).context("unregistered mix reference")?;
+    Ok(Some(
+        RuneModel::source_uuid_on(tx, &collection, local)
+            .await?
+            .context("mix reference not found")?,
+    ))
+}
+async fn add_query_on(
+    tx: &DatabaseTransaction,
+    mix_uuid: &str,
+    operator: String,
+    parameter: String,
+) -> Result<mix_queries::Model> {
+    use crate::sync::model::{MixClause, MixClauseMap};
+    use sync_orm::owned_list::{ListBudget, OwnedListPolicy};
+    type Clauses = OwnedListPolicy<mix_queries::Entity, MixClauseMap>;
+    let views = query_views_on(tx, mix_uuid).await?;
+    let directory = operator.starts_with("lib::directory.");
+    let existing = views.iter().find(|view| {
+        view.operator == operator && view.parameter == parameter && (!directory || view.available)
+    });
+    let id = if let Some(existing) = existing {
+        existing.clause_id
+    } else {
+        let owner = [mix_uuid.to_owned().into()];
+        let mut clauses = Clauses::read_on(tx, &owner, Clauses::read_ceiling()).await?;
+        anyhow::ensure!(clauses.len() < 128, "mix exceeds clause limit");
+        let id = Uuid::new_v4();
+        let target = resolve_target_on(tx, &operator, &parameter).await?;
+        clauses.push(MixClause {
+            id,
+            position: i32::try_from(clauses.len())?,
+            operator,
+            parameter: if target.is_some() || directory {
+                String::new()
+            } else {
+                parameter.clone()
+            },
+            target_uuid: target,
+            group: 0,
+        });
+        Clauses::prepare_on(
+            tx,
+            &owner,
+            &clauses,
+            ListBudget {
+                max_reads: 129,
+                max_mutations: 384,
+            },
+        )
+        .await?
+        .apply_on(tx)
+        .await?;
+        if directory {
+            mix_queries::Entity::update_many()
+                .col_expr(
+                    mix_queries::Column::LocalDirectory,
+                    Expr::value(Some(parameter)),
+                )
+                .filter(mix_queries::Column::HlcUuid.eq(id.to_string()))
+                .filter(mix_queries::Column::MixUuid.eq(mix_uuid))
+                .exec(tx)
+                .await?;
+        }
+        id
+    };
+    mix_queries::Entity::find()
+        .filter(mix_queries::Column::HlcUuid.eq(id.to_string()))
+        .filter(mix_queries::Column::MixUuid.eq(mix_uuid))
+        .one(tx)
+        .await?
+        .context("mix clause disappeared")
 }

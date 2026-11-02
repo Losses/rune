@@ -1,4 +1,5 @@
 use once_cell::sync::OnceCell;
+pub mod catalog_identity;
 pub use sea_orm_migration::prelude::*;
 
 static NODE_ID: OnceCell<String> = OnceCell::new();
@@ -42,6 +43,33 @@ mod m20261031_000029_add_library_lookup_indexes;
 
 mod m20261031_000030_add_analysis_version;
 
+mod m20261101_000031_create_sync_store;
+mod m20261101_000032_create_sync_library;
+mod m20261101_000034_create_download_rules;
+
+tokio::task_local! {
+    static MIGRATION_ACTOR: Option<String>;
+}
+
+/// Run a migration invocation with the actor that owns legacy statistics.
+pub async fn up_with_actor(
+    db: &sea_orm_migration::sea_orm::DatabaseConnection,
+    actor: Option<&str>,
+    steps: Option<u32>,
+) -> Result<(), sea_orm_migration::sea_orm::DbErr> {
+    with_migration_actor(actor, Migrator::up(db, steps)).await
+}
+
+async fn with_migration_actor<F: std::future::Future>(actor: Option<&str>, future: F) -> F::Output {
+    MIGRATION_ACTOR
+        .scope(actor.map(str::to_owned), future)
+        .await
+}
+
+fn migration_actor() -> Option<String> {
+    MIGRATION_ACTOR.try_with(Clone::clone).ok().flatten()
+}
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -76,6 +104,9 @@ impl MigratorTrait for Migrator {
             Box::new(m20251010_000028_add_index_media_files_cover_art_id::Migration),
             Box::new(m20261031_000029_add_library_lookup_indexes::Migration),
             Box::new(m20261031_000030_add_analysis_version::Migration),
+            Box::new(m20261101_000031_create_sync_store::Migration),
+            Box::new(m20261101_000032_create_sync_library::Migration),
+            Box::new(m20261101_000034_create_download_rules::Migration),
         ]
     }
 }

@@ -62,21 +62,49 @@ async fn a_mix_with_genre_and_directory_queries_reads_back() -> Result<()> {
     let db = Database::connect("sqlite::memory:").await?;
     initialize_db(&db, NODE_ID).await?;
 
+    let actor = uuid::Uuid::new_v4();
+    let library = database::sync::LibrarySyncStore::open(db.clone(), actor, None).await?;
+    let genre =
+        migration::catalog_identity::parent(migration::catalog_identity::ParentKind::Genre, "Rock");
+    database::sync::model::RuneModel::project(
+        &db,
+        &database::sync::model::ObjectKey {
+            collection: database::sync::model::Collection::Genres,
+            id: genre,
+        },
+        Some(&database::sync::model::Payload::Genre(
+            database::sync::model::Genre {
+                name: "Rock".into(),
+                group: "R".into(),
+            },
+        )),
+    )
+    .await?;
     let mix = create_mix(
         &db,
+        &library.record_store(),
         NODE_ID,
         "Genres and folders".to_owned(),
         "Mine".to_owned(),
         false,
         99,
         false,
+        vec![],
     )
     .await?;
     let queries = vec![
         ("lib::genre".to_owned(), "1".to_owned()),
         ("lib::directory.deep".to_owned(), "Music/Rock".to_owned()),
     ];
-    replace_mix_queries(&db, NODE_ID, mix.id, &mix.hlc_uuid, queries.clone(), None).await?;
+    replace_mix_queries(
+        &db,
+        &library.record_store(),
+        mix.id,
+        &mix.hlc_uuid,
+        queries.clone(),
+        None,
+    )
+    .await?;
 
     let summary = mixes::Model::count_by_first_letter(&db).await?;
     assert!(summary.contains(&("Mine".to_owned(), 1)), "{summary:?}");

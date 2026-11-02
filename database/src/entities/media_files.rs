@@ -18,9 +18,13 @@ pub struct Model {
     pub file_hash: String,
     #[sea_orm(column_type = "Text")]
     pub last_modified: String,
-    pub cover_art_id: Option<i32>,
+    pub cover_art_uuid: Option<String>,
+    pub cover_art_checked_at: Option<String>,
     pub sample_rate: i32,
     pub duration: Decimal,
+    pub local_available: bool,
+    pub content_hash: Option<String>,
+    pub content_size: Option<i64>,
     pub hlc_uuid: String,
     #[sea_orm(column_type = "Text")]
     pub created_at_hlc_ts: String,
@@ -40,10 +44,8 @@ pub enum Relation {
     MediaAnalysis,
     #[sea_orm(
         belongs_to = "super::media_cover_art::Entity",
-        from = "Column::CoverArtId",
-        to = "super::media_cover_art::Column::Id",
-        on_update = "Cascade",
-        on_delete = "Cascade"
+        from = "Column::CoverArtUuid",
+        to = "super::media_cover_art::Column::HlcUuid"
     )]
     MediaCoverArt,
     #[sea_orm(has_one = "super::media_file_albums::Entity")]

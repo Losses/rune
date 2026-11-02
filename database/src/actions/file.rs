@@ -1,3 +1,18 @@
+mod access;
+mod content;
+mod integrity;
+
+pub use access::{
+    AudioAvailability, audio_availability, is_materialized, materialized_path, remote_required_ids,
+    resolve_local_id,
+};
+pub use content::{
+    MANAGED_AUDIO_DIRECTORY, MAX_BLOB_BYTES, attach_download, blob_path, blob_path_for_track,
+    cached_blob_path, catalog_track, hash_file, local_audio_path, remote_content_ids,
+    validate_digest, validate_extension,
+};
+pub use integrity::{ManagedAudioVerifier, VerificationStep};
+
 use sea_orm::ExprTrait;
 use std::collections::HashMap;
 use std::path::Path;
@@ -14,11 +29,25 @@ use sea_orm::{
 use migration::{Func, SimpleExpr};
 
 use crate::entities::media_files;
-use crate::{get_by_id, get_by_ids, get_first_n};
 
-get_by_ids!(get_files_by_ids, media_files);
-get_by_id!(get_file_by_id, media_files);
-get_first_n!(list_files, media_files);
+pub async fn get_files_by_ids(
+    db: &DatabaseConnection,
+    ids: &[i32],
+) -> Result<Vec<media_files::Model>, DbErr> {
+    media_files::Entity::find()
+        .filter(media_files::Column::Id.is_in(ids.to_vec()))
+        .all(db)
+        .await
+}
+pub async fn get_file_by_id(
+    db: &DatabaseConnection,
+    id: i32,
+) -> Result<Option<media_files::Model>, DbErr> {
+    media_files::Entity::find_by_id(id).one(db).await
+}
+pub async fn list_files(db: &DatabaseConnection, n: u64) -> Result<Vec<media_files::Model>, DbErr> {
+    media_files::Entity::find().limit(n).all(db).await
+}
 
 pub async fn get_ordered_files_by_ids(
     main_db: &DatabaseConnection,

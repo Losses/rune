@@ -8,7 +8,10 @@ use anyhow::{Context, Result};
 use log::{info, warn};
 use sea_orm::{
     Database, SqlxSqliteConnector,
-    sqlx::{SqlitePool, sqlite::SqliteConnectOptions},
+    sqlx::{
+        SqlitePool,
+        sqlite::{SqliteConnectOptions, SqliteSynchronous},
+    },
 };
 use uuid::Uuid;
 #[cfg(windows)]
@@ -17,9 +20,8 @@ use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, SetFileAttribut
 use windows::core::PWSTR;
 
 use ::fsio::FsIo;
-use ::migration::{Migrator, MigratorTrait};
 
-use crate::actions::mixes::initialize_mix_queries;
+use crate::actions::mixes::initialize_mix_queries_before_replication;
 use crate::actions::recommendation::load_recommendation_vectors;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -207,7 +209,8 @@ pub async fn connect_main_db(
     // would otherwise be cut at its `?`.
     let connection_options = SqliteConnectOptions::new()
         .filename(&db_path)
-        .create_if_missing(true);
+        .create_if_missing(true)
+        .synchronous(SqliteSynchronous::Extra);
 
     let pool = SqlitePool::connect_with(connection_options).await?;
 
@@ -225,8 +228,13 @@ pub async fn initialize_db(conn: &sea_orm::DatabaseConnection, node_id: &str) ->
     // We ignore the result because it might have been initialized already, which is fine.
     let _ = migration::initialize_node_id(node_id.to_string());
 
-    Migrator::up(conn, None).await?;
-    initialize_mix_queries(conn, node_id).await?;
+    migration::up_with_actor(conn, Some(node_id), None).await?;
+    if sync_orm::causal_store::list_namespace_ids_on(conn, 1)
+        .await?
+        .is_empty()
+    {
+        initialize_mix_queries_before_replication(conn).await?;
+    }
     Ok(())
 }
 

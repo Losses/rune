@@ -25,17 +25,15 @@ use ::metadata::{
 
 use crate::actions::{
     collection::CollectionQueryType,
-    cover_art::remove_cover_art_by_file_id,
     file::get_file_ids_by_descriptions,
-    index::{index_media_files, perform_library_maintenance},
+    index::index_media_files,
     logging::{LogLevel, insert_log},
-    search::{add_term, remove_term},
+    search::add_term,
 };
 use crate::entities::{
     albums, artists, media_file_albums, media_file_artists, media_files, media_metadata,
 };
 
-use super::cover_art::get_magic_cover_art_id;
 use super::utils::DatabaseExecutor;
 
 #[derive(Debug, Clone)]
@@ -82,6 +80,9 @@ pub async fn get_existing_files_modified(
         }
 
         let existing_files = media_files::Entity::find()
+            .filter(media_files::Column::LocalAvailable.eq(true))
+            .filter(media_files::Column::ContentHash.is_not_null())
+            .filter(media_files::Column::ContentSize.is_not_null())
             .filter(conditions)
             .all(main_db)
             .await
@@ -134,6 +135,7 @@ pub async fn sync_file_descriptions(
     node_id: &str,
     descriptions: &mut [Option<FileDescription>],
     force: bool,
+    store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<()> {
     // Bound both prepared metadata memory and write-lock duration. File I/O is
     // finished before opening each batch transaction; savepoints isolate bad files.
@@ -142,50 +144,126 @@ pub async fn sync_file_descriptions(
     for batch in descriptions.chunks_mut(WRITE_BATCH_SIZE) {
         let mut ready = Vec::new();
         for description in batch.iter_mut().flatten() {
+            // Managed copies are verified by file actions and attached after download.
+            // Unreferenced old versions must never become newly authored files.
+            if std::path::Path::new(&description.directory)
+                .starts_with(crate::actions::file::MANAGED_AUDIO_DIRECTORY)
+            {
+                continue;
+            }
+            // The download queue reserves destinations until attachment completes.
+            if crate::entities::sync_download_jobs::Entity::find()
+                .filter(
+                    crate::entities::sync_download_jobs::Column::Directory
+                        .eq(&description.directory),
+                )
+                .filter(
+                    crate::entities::sync_download_jobs::Column::FileName
+                        .eq(&description.file_name),
+                )
+                .one(main_db)
+                .await?
+                .is_some()
+            {
+                continue;
+            }
             let existing = media_files::Entity::find()
                 .filter(media_files::Column::Directory.eq(&description.directory))
                 .filter(media_files::Column::FileName.eq(&description.file_name))
                 .one(main_db)
                 .await?;
             if !force
-                && existing
-                    .as_ref()
-                    .is_some_and(|file| file.last_modified == description.last_modified)
+                && existing.as_ref().is_some_and(|file| {
+                    file.local_available
+                        && file.content_hash.is_some()
+                        && file.content_size.is_some()
+                        && file.last_modified == description.last_modified
+                })
             {
                 continue;
             }
 
             let fs = fsio.clone();
             let mut prepared = description.clone();
-            let old_hash = existing.as_ref().map(|file| file.file_hash.clone());
+            let old_hash = existing.as_ref().and_then(|file| file.content_hash.clone());
             let prepared = tokio::task::spawn_blocking(move || -> Result<_> {
-                let hash = prepared.get_crc(&fs)?;
-                let metadata = if !force && old_hash.as_ref() == Some(&hash) {
+                prepared.get_crc(&fs)?;
+                let mut stream = fs.open(&prepared.raw_node.path, "r")?;
+                let mut hasher = blake3::Hasher::new();
+                let size = std::io::copy(&mut stream, &mut hasher)?;
+                let size = i64::try_from(size).context("File size exceeds supported range")?;
+                let digest = hasher.finalize().to_hex().to_string();
+                let metadata = if !force && old_hash.as_ref() == Some(&digest) {
                     None
                 } else {
                     prepared.get_codec_information(&fs)?;
                     Some(read_metadata(&fs, &prepared.raw_node)?)
                 };
-                Ok((prepared, metadata))
+                Ok((prepared, metadata, digest, size))
             })
             .await
             .context("Metadata worker failed")?;
-            let (prepared, metadata) = match prepared {
+            let (prepared, metadata, digest, size) = match prepared {
                 Ok(value) => value,
                 Err(e) => {
                     error!("Failed to prepare {}: {e:#}", description.file_name);
                     continue;
                 }
             };
+            if existing.as_ref().is_some_and(|file| {
+                !file.local_available
+                    && file
+                        .content_hash
+                        .as_ref()
+                        .is_some_and(|expected| expected != &digest)
+            }) {
+                if first_error.is_none() {
+                    first_error = Some(anyhow::anyhow!(
+                        "Local content does not match the catalog reference: {}",
+                        description.file_name
+                    ));
+                }
+                continue;
+            }
             *description = prepared;
 
-            ready.push((description, existing, metadata));
+            ready.push((description, existing, metadata, digest, size));
         }
         if ready.is_empty() {
             continue;
         }
         let batch_txn = main_db.begin().await?;
-        for (description, existing, metadata) in ready {
+        store.lock(&batch_txn).await?;
+        for (description, existing, metadata, digest, size) in ready {
+            if crate::entities::sync_download_jobs::Entity::find()
+                .filter(
+                    crate::entities::sync_download_jobs::Column::Directory
+                        .eq(&description.directory),
+                )
+                .filter(
+                    crate::entities::sync_download_jobs::Column::FileName
+                        .eq(&description.file_name),
+                )
+                .one(&batch_txn)
+                .await?
+                .is_some()
+            {
+                continue;
+            }
+            let current = media_files::Entity::find()
+                .filter(media_files::Column::Directory.eq(&description.directory))
+                .filter(media_files::Column::FileName.eq(&description.file_name))
+                .one(&batch_txn)
+                .await?;
+            if current != existing {
+                if first_error.is_none() {
+                    first_error = Some(anyhow::anyhow!(
+                        "File changed during metadata scan: {}",
+                        description.file_name
+                    ));
+                }
+                continue;
+            }
             let txn = batch_txn.begin().await?;
             let result: Result<()> = async {
                 match (&existing, &metadata) {
@@ -208,6 +286,17 @@ pub async fn sync_file_descriptions(
                     }
                     (None, None) => unreachable!("New files always have metadata"),
                 }
+                media_files::Entity::update_many()
+                    .col_expr(media_files::Column::LocalAvailable, Expr::value(true))
+                    .col_expr(media_files::Column::ContentHash, Expr::value(Some(digest)))
+                    .col_expr(media_files::Column::ContentSize, Expr::value(Some(size)))
+                    .filter(media_files::Column::Directory.eq(&description.directory))
+                    .filter(media_files::Column::FileName.eq(&description.file_name))
+                    .exec(&txn)
+                    .await?;
+
+                author_track(&txn, store, &description.directory, &description.file_name).await?;
+
                 Ok(())
             }
             .await;
@@ -233,179 +322,68 @@ pub async fn sync_file_descriptions(
     }
 }
 
+async fn author_track(
+    txn: &sea_orm::DatabaseTransaction,
+    store: &crate::sync::SeaOrmSyncStore,
+    directory: &str,
+    file_name: &str,
+) -> Result<()> {
+    let file = media_files::Entity::find()
+        .filter(media_files::Column::Directory.eq(directory))
+        .filter(media_files::Column::FileName.eq(file_name))
+        .one(txn)
+        .await?
+        .context("scanned file missing")?;
+    author_track_row(txn, store, file).await
+}
+
+pub async fn author_track_row(
+    txn: &sea_orm::DatabaseTransaction,
+    store: &crate::sync::SeaOrmSyncStore,
+    file: media_files::Model,
+) -> Result<()> {
+    use crate::sync::model::{Collection, ObjectKey, author_source_on};
+    author_source_on(
+        txn,
+        store,
+        ObjectKey {
+            collection: Collection::Tracks,
+            id: file.hlc_uuid.parse()?,
+        },
+    )
+    .await
+}
+
+pub async fn author_indexed_track_row(
+    txn: &sea_orm::DatabaseTransaction,
+    store: &crate::sync::SeaOrmSyncStore,
+    file: media_files::Model,
+) -> Result<()> {
+    author_track_row(txn, store, file).await
+}
+
 pub async fn process_files(
     fsio: &FsIo,
     main_db: &DatabaseConnection,
     node_id: &str,
     descriptions: &mut [Option<FileDescription>],
+    store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<()> {
-    debug!("Starting to process multiple files");
-
-    // Start a transaction
-    let txn = main_db.begin().await?;
-
-    for description in descriptions.iter_mut() {
-        match description {
-            None => continue,
-            Some(description) => {
-                debug!("Processing file: {}", description.file_name.clone());
-
-                // Check if the file already exists in the database
-                let existing_file = media_files::Entity::find()
-                    .filter(media_files::Column::Directory.eq(description.directory.clone()))
-                    .filter(media_files::Column::FileName.eq(description.file_name.clone()))
-                    .one(&txn)
-                    .await?;
-
-                if let Some(existing_file) = existing_file {
-                    debug!(
-                        "File exists in the database: {}",
-                        description.file_name.clone()
-                    );
-
-                    // File exists in the database
-                    if existing_file.last_modified == description.last_modified {
-                        // If the file's last modified date hasn't changed, skip it
-                        debug!(
-                            "File's last modified date hasn't changed, skipping: {}",
-                            description.file_name.clone()
-                        );
-                        continue;
-                    } else {
-                        // If the file's last modified date has changed, check the hash
-                        debug!(
-                            "File's last modified date has changed, checking hash: {}",
-                            description.file_name.clone()
-                        );
-                        let new_hash = description.get_crc(fsio)?;
-                        if existing_file.file_hash == new_hash {
-                            // If the hash is the same, update the last modified date
-                            debug!(
-                                "File hash is the same, updating last modified date: {}",
-                                description.file_name.clone()
-                            );
-                            update_last_modified(&txn, &existing_file, description)
-                                .await
-                                .with_context(|| {
-                                    format!(
-                                        "Failed to update last modified: {}",
-                                        description.file_name.clone(),
-                                    )
-                                })?;
-                            unlink_cover_art(&txn, &existing_file)
-                                .await
-                                .with_context(|| {
-                                    format!(
-                                        "Failed to unlink cover art modified: {}",
-                                        description.file_name.clone(),
-                                    )
-                                })?;
-                        } else {
-                            // If the hash is different, update the metadata
-                            debug!(
-                                "File hash is different, updating metadata: {}",
-                                description.file_name.clone()
-                            );
-
-                            update_file_codec_information(fsio, &txn, &existing_file, description)
-                                .await?;
-
-                            remove_cover_art_by_file_id(&txn, existing_file.id).await?;
-
-                            let file_metadata = read_metadata(fsio, &description.raw_node)
-                                .with_context(|| {
-                                    format!(
-                                        "Unable to parse file metadata: {:?}",
-                                        description.rel_path
-                                    )
-                                });
-
-                            match file_metadata {
-                                Ok(x) => {
-                                    update_file_metadata(
-                                        fsio,
-                                        &txn,
-                                        node_id,
-                                        &existing_file,
-                                        description,
-                                        &x,
-                                    )
-                                    .await?;
-                                }
-                                Err(e) => {
-                                    error!("{:?}", description.rel_path);
-                                    insert_log(
-                                        &txn,
-                                        LogLevel::Error,
-                                        "actions::metadata::sync_file_descriptions".to_string(),
-                                        format!("{e:#?}"),
-                                    )
-                                    .await?;
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // If the file is new, insert a new record
-                    debug!(
-                        "File is new, inserting new record: {}",
-                        description.file_name.clone()
-                    );
-
-                    let file_metadata =
-                        read_metadata(fsio, &description.raw_node).with_context(|| {
-                            format!("Unable to parse file metadata: {:?}", description.rel_path)
-                        });
-
-                    match file_metadata {
-                        Ok(x) => {
-                            match insert_new_file(fsio, &txn, node_id, &x, description)
-                                .await
-                                .with_context(|| {
-                                    format!(
-                                        "Failed to insert new file, metadata: {}",
-                                        description.file_name.clone(),
-                                    )
-                                }) {
-                                Ok(_) => {}
-                                Err(e) => error!("{e:?}"),
-                            };
-                        }
-                        Err(e) => {
-                            error!("{e:?}");
-                            insert_log(
-                                &txn,
-                                LogLevel::Error,
-                                "actions::metadata::sync_file_descriptions".to_string(),
-                                format!("{e:#?}"),
-                            )
-                            .await?;
-                        }
-                    }
-                }
-            }
-        };
-    }
-
-    // Commit the transaction
-    txn.commit().await?;
-
-    info!("Finished processing multiple files");
-
-    Ok(())
+    sync_file_descriptions(fsio, main_db, node_id, descriptions, false, store).await
 }
 
-pub async fn unlink_cover_art<E>(db: &E, existing_file: &media_files::Model) -> Result<()>
+async fn unlink_cover_art<E>(db: &E, existing_file: &media_files::Model) -> Result<()>
 where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {
     let mut active_model: media_files::ActiveModel = existing_file.clone().into();
-    active_model.cover_art_id = ActiveValue::Set(None);
+    active_model.cover_art_uuid = ActiveValue::Set(None);
+    active_model.cover_art_checked_at = ActiveValue::Set(None);
     active_model.update(db).await?;
     Ok(())
 }
 
-pub async fn update_last_modified<E>(
+async fn update_last_modified<E>(
     db: &E,
     existing_file: &media_files::Model,
     description: &FileDescription,
@@ -415,25 +393,24 @@ where
 {
     let mut active_model: media_files::ActiveModel = existing_file.clone().into();
     active_model.last_modified = ActiveValue::Set(description.last_modified.clone());
+    active_model.local_available = ActiveValue::Set(true);
     active_model.update(db).await?;
     Ok(())
 }
 
-pub async fn update_file_metadata<E>(
+async fn update_file_metadata(
     fsio: &FsIo,
-    db: &E,
-    node_id: &str,
+    db: &sea_orm::DatabaseTransaction,
+    _node_id: &str,
     existing_file: &media_files::Model,
     description: &mut FileDescription,
     metadata: &FileMetadata,
-) -> Result<()>
-where
-    E: DatabaseExecutor + sea_orm::ConnectionTrait,
-{
+) -> Result<()> {
     let mut active_model: media_files::ActiveModel = existing_file.clone().into();
 
     // Update last modified and file hash
     active_model.last_modified = ActiveValue::Set(description.last_modified.clone());
+    active_model.local_available = ActiveValue::Set(true);
 
     match description
         .get_crc(fsio)
@@ -469,71 +446,11 @@ where
         return Err(e);
     }
 
-    // Delete existing metadata
-    if let Err(e) = media_metadata::Entity::delete_many()
-        .filter(media_metadata::Column::FileId.eq(existing_file.id))
-        .exec(db)
-        .await
-        .with_context(|| "Failed to delete existing metadata")
-    {
-        error!("{e:#?}");
-        insert_log(
-            db,
-            LogLevel::Error,
-            "actions::metadata::update_file_metadata".to_string(),
-            format!("Failed to delete existing metadata: {e:?}"),
-        )
-        .await?;
-        return Err(e);
-    }
-
-    // Insert new metadata
-    let new_metadata: Vec<media_metadata::ActiveModel> = metadata
-        .metadata
-        .clone()
-        .into_iter()
-        .map(|(key, value)| media_metadata::ActiveModel {
-            file_id: ActiveValue::Set(existing_file.id),
-            meta_key: ActiveValue::Set(key.clone()),
-            meta_value: ActiveValue::Set(value),
-            hlc_uuid: ActiveValue::Set(
-                Uuid::new_v5(
-                    &Uuid::NAMESPACE_OID,
-                    format!("RUNE_METADATA::{}::{}", existing_file.file_hash, key).as_bytes(),
-                )
-                .to_string(),
-            ),
-            created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-            updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-            created_at_hlc_ver: ActiveValue::Set(0),
-            updated_at_hlc_ver: ActiveValue::Set(0),
-            created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-            updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-            ..Default::default()
-        })
-        .collect();
-
-    if !new_metadata.is_empty()
-        && let Err(e) = media_metadata::Entity::insert_many(new_metadata.clone())
-            .exec(db)
-            .await
-            .with_context(|| "Failed to insert new metadata while executing updating")
-    {
-        error!("{e:?}");
-        insert_log(
-            db,
-            LogLevel::Error,
-            "actions::metadata::update_file_metadata".to_string(),
-            format!("{e:#?}"),
-        )
-        .await?;
-        return Err(e);
-    }
-
+    replace_metadata_on(db, existing_file.id, &metadata.metadata).await?;
     Ok(())
 }
 
-pub async fn update_file_codec_information<E>(
+async fn update_file_codec_information<E>(
     fsio: &FsIo,
     db: &E,
     existing_file: &media_files::Model,
@@ -603,16 +520,13 @@ where
     Ok(())
 }
 
-pub async fn insert_new_file<E>(
+async fn insert_new_file(
     fsio: &FsIo,
-    main_db: &E,
+    main_db: &sea_orm::DatabaseTransaction,
     node_id: &str,
     metadata: &FileMetadata,
     description: &mut FileDescription,
-) -> Result<()>
-where
-    E: DatabaseExecutor + sea_orm::ConnectionTrait,
-{
+) -> Result<()> {
     let (sample_rate, duration_in_seconds) = description.get_codec_information(fsio)?;
 
     description
@@ -634,9 +548,8 @@ where
             Decimal::from_f64(duration_in_seconds).expect("Unable to convert track duration"),
         ),
         last_modified: ActiveValue::Set(description.last_modified.clone()),
-        hlc_uuid: ActiveValue::Set(
-            Uuid::new_v5(&Uuid::NAMESPACE_OID, new_hash.as_bytes()).to_string(),
-        ),
+        hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+        local_available: ActiveValue::Set(true),
         created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         created_at_hlc_ver: ActiveValue::Set(0),
@@ -672,25 +585,56 @@ where
     let file_id = inserted_file.last_insert_id;
 
     // Insert metadata
-    let new_metadata: Vec<media_metadata::ActiveModel> = metadata
-        .metadata
-        .clone()
-        .into_iter()
-        .map(|(key, value)| media_metadata::ActiveModel {
-            file_id: ActiveValue::Set(file_id),
-            meta_key: ActiveValue::Set(key),
-            meta_value: ActiveValue::Set(value),
-            ..Default::default()
+    replace_metadata_on(main_db, file_id, &metadata.metadata).await?;
+
+    Ok(())
+}
+
+async fn replace_metadata_on(
+    tx: &sea_orm::DatabaseTransaction,
+    file_id: i32,
+    tags: &[(String, String)],
+) -> Result<()> {
+    use crate::sync::model::{MetadataMap, MetadataTag};
+    use sync_orm::owned_list::{ListBudget, OwnedListPolicy};
+    type Tags = OwnedListPolicy<media_metadata::Entity, MetadataMap>;
+    let owner = [file_id.into()];
+    let previous = Tags::read_on(tx, &owner, Tags::read_ceiling()).await?;
+    let mut used = std::collections::HashSet::new();
+    let incoming = tags
+        .iter()
+        .enumerate()
+        .map(|(position, (key, value))| {
+            let retained = previous
+                .iter()
+                .find(|tag| !used.contains(&tag.id) && tag.key == *key && tag.value == *value)
+                .or_else(|| {
+                    previous
+                        .iter()
+                        .find(|tag| !used.contains(&tag.id) && tag.key == *key)
+                });
+            let id = retained.map_or_else(Uuid::new_v4, |tag| tag.id);
+            used.insert(id);
+            Ok(MetadataTag {
+                id,
+                position: i32::try_from(position)?,
+                key: key.clone(),
+                value: value.clone(),
+            })
         })
-        .collect();
-
-    if !new_metadata.is_empty() {
-        media_metadata::Entity::insert_many(new_metadata)
-            .exec(main_db)
-            .await
-            .with_context(|| format!("Failed to insert new metadata: {}", description.file_name))?;
-    }
-
+        .collect::<Result<Vec<_>>>()?;
+    Tags::prepare_on(
+        tx,
+        &owner,
+        &incoming,
+        ListBudget {
+            max_reads: 129,
+            max_mutations: 384,
+        },
+    )
+    .await?
+    .apply_on(tx)
+    .await?;
     Ok(())
 }
 
@@ -699,21 +643,22 @@ async fn clean_up_database(
     main_db: &DatabaseConnection,
     root_path: &Path,
 ) -> Result<()> {
-    let db_files = media_files::Entity::find().all(main_db).await?;
-
+    let db_files = media_files::Entity::find()
+        .filter(media_files::Column::LocalAvailable.eq(true))
+        .all(main_db)
+        .await?;
     for db_file in db_files {
-        let full_path = root_path
-            .join(PathBuf::from(&db_file.directory))
-            .join(PathBuf::from(&db_file.file_name));
-        let exists = fsio.exists(&full_path).unwrap_or(false);
-        if !exists {
-            info!("Cleaning {}", full_path.to_str().unwrap_or_default());
-            // Delete the file record
-            media_files::Entity::delete_by_id(db_file.id)
+        let full_path = root_path.join(&db_file.directory).join(&db_file.file_name);
+        // An I/O error is not proof of absence.
+        if matches!(fsio.exists(&full_path), Ok(false)) {
+            media_files::Entity::update_many()
+                .col_expr(media_files::Column::LocalAvailable, Expr::value(false))
+                .filter(media_files::Column::Id.eq(db_file.id))
+                .filter(media_files::Column::Directory.eq(db_file.directory))
+                .filter(media_files::Column::FileName.eq(db_file.file_name))
+                .filter(media_files::Column::LocalAvailable.eq(true))
                 .exec(main_db)
                 .await?;
-
-            remove_term(main_db, CollectionQueryType::Track, db_file.id).await?
         }
     }
 
@@ -721,6 +666,25 @@ async fn clean_up_database(
 }
 
 pub fn empty_progress_callback(_processed: usize) {}
+
+/// Index one verified audio file without walking unrelated library directories.
+pub async fn scan_audio_file(
+    fsio: &FsIo,
+    main_db: &DatabaseConnection,
+    node_id: &str,
+    lib_path: &Path,
+    path: &Path,
+    store: &crate::sync::SeaOrmSyncStore,
+) -> Result<i32> {
+    let node = fsio.canonicalize(path)?;
+    let description = describe_file(fsio, &node, &Some(lib_path.to_path_buf()))?;
+    let mut descriptions = vec![Some(description)];
+    sync_file_descriptions(fsio, main_db, node_id, &mut descriptions, false, store).await?;
+    let ids = get_file_ids_by_descriptions(main_db, &descriptions).await?;
+    let id = *ids.first().context("Audio file was not indexed")?;
+    index_media_files(main_db, node_id, ids, None, store).await?;
+    Ok(id)
+}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn scan_audio_library<F>(
@@ -732,6 +696,7 @@ pub async fn scan_audio_library<F>(
     force: bool,
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
+    store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<usize>
 where
     F: Fn(usize) + Send + Sync,
@@ -811,7 +776,7 @@ where
             continue;
         }
 
-        match sync_file_descriptions(fsio, main_db, node_id, &mut descriptions, force)
+        match sync_file_descriptions(fsio, main_db, node_id, &mut descriptions, force, store)
             .await
             .with_context(|| "Unable to describe files")
         {
@@ -821,19 +786,17 @@ where
                     descriptions.iter().filter(|d| d.is_some()).count()
                 );
             }
-            Err(e) => {
-                error!("{e:#?}");
-            }
+            Err(e) => return Err(e),
         };
 
         let file_ids = get_file_ids_by_descriptions(main_db, &descriptions).await?;
 
-        match index_media_files(main_db, node_id, file_ids, cancel_token.as_ref())
+        match index_media_files(main_db, node_id, file_ids, cancel_token.as_ref(), store)
             .await
             .with_context(|| "Unable to index files")
         {
             Ok(_) => {}
-            Err(e) => error!("{e:#?}"),
+            Err(e) => return Err(e),
         };
 
         // Update the number of processed files
@@ -856,11 +819,6 @@ where
             Ok(_) => info!("Cleanup completed successfully."),
             Err(e) => error!("{e:#?}"),
         }
-        // Perform library maintenance after indexing is completed.
-        match perform_library_maintenance(main_db, cancel_token.as_ref()).await {
-            Ok(_) => info!("Library maintainence successfully."),
-            Err(e) => error!("{e:#?}"),
-        };
     }
 
     info!("Audio library scan completed.");
@@ -887,15 +845,33 @@ pub struct MetadataSummary {
     pub duration: f64,
     pub cover_art_id: Option<i32>,
     pub file_hash: String,
+    pub file_uuid: String,
 }
 
-pub async fn get_metadata_summary_by_files(
-    db: &DatabaseConnection,
+pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
+    db: &C,
     files: Vec<media_files::Model>,
 ) -> Result<Vec<MetadataSummary>> {
     // Extract file IDs from the provided file entries
     let file_ids: Vec<i32> = files.iter().map(|file| file.id).collect();
-    let magic_cover_art_id = get_magic_cover_art_id(db).await;
+    use crate::entities::media_cover_art;
+    use sea_orm::QuerySelect;
+    let artwork_uuids: Vec<_> = files
+        .iter()
+        .filter_map(|file| file.cover_art_uuid.clone())
+        .collect();
+    let artwork_ids: HashMap<String, i32> = media_cover_art::Entity::find()
+        .select_only()
+        .columns([
+            media_cover_art::Column::HlcUuid,
+            media_cover_art::Column::Id,
+        ])
+        .filter(media_cover_art::Column::HlcUuid.is_in(artwork_uuids))
+        .into_tuple::<(String, i32)>()
+        .all(db)
+        .await?
+        .into_iter()
+        .collect();
 
     // Fetch all metadata entries for the given file IDs
     let metadata_entries: Vec<media_metadata::Model> = media_metadata::Entity::find()
@@ -929,7 +905,11 @@ pub async fn get_metadata_summary_by_files(
         let metadata = metadata_map.get(&file_id).unwrap_or(&_metadata);
         let duration = file.duration;
 
-        let cover_art_id = file.cover_art_id;
+        let cover_art_id = file
+            .cover_art_uuid
+            .as_ref()
+            .and_then(|id| artwork_ids.get(id))
+            .copied();
 
         let parsed_disk_number = metadata
             .get("disc_number")
@@ -960,12 +940,9 @@ pub async fn get_metadata_summary_by_files(
                 .unwrap_or(file.file_name.clone()),
             track_number,
             duration: duration.to_f64().expect("Unable to convert track duration"),
-            cover_art_id: if cover_art_id == magic_cover_art_id {
-                None
-            } else {
-                cover_art_id
-            },
+            cover_art_id,
             file_hash: file.file_hash.clone(),
+            file_uuid: file.hlc_uuid.clone(),
         };
 
         results.push(summary);
@@ -974,8 +951,8 @@ pub async fn get_metadata_summary_by_files(
     Ok(results)
 }
 
-pub async fn get_metadata_summary_by_file_ids(
-    db: &DatabaseConnection,
+pub async fn get_metadata_summary_by_file_ids<C: sea_orm::ConnectionTrait>(
+    db: &C,
     file_ids: Vec<i32>,
 ) -> Result<Vec<MetadataSummary>> {
     // Fetch all file entries for the given file IDs
@@ -996,8 +973,8 @@ pub async fn get_metadata_summary_by_file_ids(
     get_metadata_summary_by_files(db, file_entries).await
 }
 
-pub async fn get_metadata_summary_by_file_id(
-    db: &DatabaseConnection,
+pub async fn get_metadata_summary_by_file_id<C: sea_orm::ConnectionTrait>(
+    db: &C,
     file_id: i32,
 ) -> anyhow::Result<MetadataSummary> {
     let results = get_metadata_summary_by_file_ids(db, vec![file_id])
@@ -1017,24 +994,24 @@ pub async fn get_parsed_file_by_id(
     let file = get_metadata_summary_by_file_id(db, file_id).await?;
 
     let artist_ids = media_file_artists::Entity::find()
-        .filter(media_file_artists::Column::MediaFileId.eq(file_id))
+        .filter(media_file_artists::Column::TrackUuid.eq(&file.file_uuid))
         .all(db)
         .await?;
 
     let artists = artists::Entity::find()
-        .filter(artists::Column::Id.is_in(artist_ids.into_iter().map(|x| x.artist_id)))
+        .filter(artists::Column::HlcUuid.is_in(artist_ids.into_iter().map(|x| x.artist_uuid)))
         .all(db)
         .await?;
 
     let album_id = media_file_albums::Entity::find()
-        .filter(media_file_albums::Column::MediaFileId.eq(file_id))
+        .filter(media_file_albums::Column::TrackUuid.eq(&file.file_uuid))
         .one(db)
         .await?;
 
     let album = match album_id {
         Some(album_id) => {
             albums::Entity::find()
-                .filter(albums::Column::Id.eq(album_id.album_id))
+                .filter(albums::Column::HlcUuid.eq(album_id.album_uuid))
                 .one(db)
                 .await?
         }

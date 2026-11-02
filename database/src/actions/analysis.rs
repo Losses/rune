@@ -57,17 +57,20 @@ where
 
     info!("Starting audio library analysis with batch size: {batch_size}");
 
-    let cursor_query = media_files::Entity::find().filter(
-        media_files::Column::Id.not_in_subquery(
-            media_analysis::Entity::find()
-                .filter(
-                    media_analysis::Column::AnalysisVersion.eq(analysis::CURRENT_ANALYSIS_VERSION),
-                )
-                .select_only()
-                .column(media_analysis::Column::FileId)
-                .into_query(),
-        ),
-    );
+    let cursor_query = media_files::Entity::find()
+        .filter(media_files::Column::LocalAvailable.eq(true))
+        .filter(
+            media_files::Column::Id.not_in_subquery(
+                media_analysis::Entity::find()
+                    .filter(
+                        media_analysis::Column::AnalysisVersion
+                            .eq(analysis::CURRENT_ANALYSIS_VERSION),
+                    )
+                    .select_only()
+                    .column(media_analysis::Column::FileId)
+                    .into_query(),
+            ),
+        );
 
     let lib_path = Arc::new(lib_path.to_path_buf());
     let node_id = Arc::new(node_id.to_owned());

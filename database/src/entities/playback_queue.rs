@@ -15,9 +15,7 @@ pub enum Relation {
     #[sea_orm(
         belongs_to = "super::media_files::Entity",
         from = "Column::MediaFileId",
-        to = "super::media_files::Column::Id",
-        on_update = "Cascade",
-        on_delete = "Cascade"
+        to = "super::media_files::Column::Id"
     )]
     MediaFiles,
 }

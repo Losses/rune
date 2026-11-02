@@ -8,10 +8,17 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub file_id1: i32,
-    pub file_id2: i32,
+    pub first_track_uuid: String,
+    pub second_track_uuid: String,
     #[sea_orm(column_type = "Float")]
     pub similarity: f32,
+    pub first_source_hash: Option<String>,
+    pub first_source_size: Option<i64>,
+    pub second_source_hash: Option<String>,
+    pub second_source_size: Option<i64>,
+    pub algorithm: Option<String>,
+    pub configuration: Option<String>,
+    pub format_version: Option<i32>,
     pub hlc_uuid: String,
     #[sea_orm(column_type = "Text")]
     pub created_at_hlc_ts: String,
@@ -29,18 +36,14 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::media_files::Entity",
-        from = "Column::FileId2",
-        to = "super::media_files::Column::Id",
-        on_update = "Cascade",
-        on_delete = "Cascade"
+        from = "Column::SecondTrackUuid",
+        to = "super::media_files::Column::HlcUuid"
     )]
     MediaFiles2,
     #[sea_orm(
         belongs_to = "super::media_files::Entity",
-        from = "Column::FileId1",
-        to = "super::media_files::Column::Id",
-        on_update = "Cascade",
-        on_delete = "Cascade"
+        from = "Column::FirstTrackUuid",
+        to = "super::media_files::Column::HlcUuid"
     )]
     MediaFiles1,
 }

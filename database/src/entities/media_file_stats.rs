@@ -7,8 +7,9 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub media_file_id: i32,
-    pub liked: bool,
+    pub track_uuid: String,
+    pub device_id: String,
+    pub hlc_uuid: String,
     pub skipped: i32,
     pub played_through: i32,
     #[sea_orm(column_type = "Text")]
@@ -19,10 +20,8 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::media_files::Entity",
-        from = "Column::MediaFileId",
-        to = "super::media_files::Column::Id",
-        on_update = "Cascade",
-        on_delete = "Cascade"
+        from = "Column::TrackUuid",
+        to = "super::media_files::Column::HlcUuid"
     )]
     MediaFiles,
 }

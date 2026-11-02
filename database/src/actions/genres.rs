@@ -26,5 +26,5 @@ collection_query!(
     CollectionQueryType::Genre,
     "lib::genre".to_owned(),
     media_file_genres,
-    GenreId
+    GenreUuid
 );

@@ -1,19 +1,18 @@
-use sea_orm::ExprTrait;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
-use log::info;
 use sea_orm::ActiveValue;
-use sea_orm::QueryOrder;
+use sea_orm::{QueryOrder, QuerySelect};
 use sea_orm::{TransactionTrait, prelude::*};
 use tokio::fs::read_to_string;
 
 use crate::actions::collection::CollectionQuery;
 use crate::actions::search::{add_term, remove_term};
 use crate::connection::MainDbConnection;
+use crate::entities::media_file_playlists as entries;
 use crate::entities::{media_file_playlists, media_files, playlists};
 use crate::{collection_query, get_by_id};
 
@@ -37,64 +36,15 @@ collection_query!(
     CollectionQueryType::Playlist,
     "lib::playlist".to_owned(),
     media_file_playlists,
-    PlaylistId
+    PlaylistUuid
 );
 
-/// Create a new playlist.
-///
-/// # Arguments
-/// * `db` - A reference to the database connection.
-/// * `node_id` - The id of the client that triggers the operation.
-/// * `name` - The name of the new playlist.
-/// * `group` - The group to which the playlist belongs.
-///
-/// # Returns
-/// * `Result<Model>` - The created playlist model or an error.
-pub async fn create_playlist<E>(
-    main_db: &E,
-    node_id: &str,
-    name: String,
-    group: String,
-) -> Result<playlists::Model>
-where
-    E: DatabaseExecutor + sea_orm::ConnectionTrait,
-{
-    use playlists::ActiveModel;
-
-    // Create a new playlist active model
-    let new_playlist = ActiveModel {
-        name: ActiveValue::Set(name.clone()),
-        group: ActiveValue::Set(group),
-        hlc_uuid: ActiveValue::Set(
-            Uuid::new_v5(
-                &Uuid::NAMESPACE_URL,
-                format!("RUNE_PLAYLIST::{name}::{}", Utc::now().to_rfc3339()).as_bytes(),
-            )
-            .to_string(),
-        ),
-        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-        created_at_hlc_ver: ActiveValue::Set(0),
-        updated_at_hlc_ver: ActiveValue::Set(0),
-        created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-        updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-        ..Default::default()
-    };
-
-    // Insert the new playlist into the database
-    let inserted_playlist = new_playlist.insert(main_db).await?;
-
-    add_term(
-        main_db,
-        CollectionQueryType::Playlist,
-        inserted_playlist.id,
-        &name.clone(),
-    )
-    .await?;
-
-    Ok(inserted_playlist)
-}
-
+use crate::sync::{
+    SeaOrmSyncStore,
+    model::{Collection, ObjectKey, author_source_on},
+};
+use anyhow::{Context, ensure};
+use sea_orm::{Condition, DatabaseTransaction, Set};
 /// Get all playlists.
 ///
 /// # Arguments
@@ -114,209 +64,96 @@ pub async fn get_all_playlists(db: &DatabaseConnection) -> Result<Vec<playlists:
     Ok(playlist)
 }
 
-/// Update an existing playlist.
-///
-/// # Arguments
-/// * `db` - A reference to the database connection.
-/// * `node_id` - The id of the client that triggers the operation.
-/// * `playlist_id` - The ID of the playlist to update.
-/// * `name` - The new name for the playlist.
-/// * `group` - The new group for the playlist.
-///
-/// # Returns
-/// * `Result<Model>` - The updated playlist model or an error.
-pub async fn update_playlist(
-    main_db: &DatabaseConnection,
-    node_id: &str,
+/// Stable continuation over source occurrences, including repeated files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OccurrenceCursor {
+    pub position: i32,
+    pub occurrence_id: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct Occurrence {
+    pub occurrence_id: String,
+    pub position: i32,
+    pub track_id: Uuid,
+    pub file: Option<media_files::Model>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OccurrencePage {
+    pub entries: Vec<Occurrence>,
+    pub next: Option<OccurrenceCursor>,
+}
+
+/// Read materialized membership without filtering on local audio availability.
+pub async fn list_occurrences(
+    db: &DatabaseConnection,
     playlist_id: i32,
-    name: Option<String>,
-    group: Option<String>,
-) -> Result<playlists::Model> {
-    use playlists::Entity as PlaylistEntity;
-
-    // Find the playlist by ID
-    let playlist = PlaylistEntity::find_by_id(playlist_id).one(main_db).await?;
-
-    if let Some(playlist) = playlist {
-        let ver = playlist.updated_at_hlc_ver;
-        let mut active_model: playlists::ActiveModel = playlist.into();
-
-        // Update the fields if provided
-        if let Some(name) = name {
-            active_model.name = ActiveValue::Set(name);
-        }
-        if let Some(group) = group {
-            active_model.group = ActiveValue::Set(group);
-        }
-
-        active_model.updated_at_hlc_ts = ActiveValue::Set(Utc::now().to_rfc3339());
-        active_model.updated_at_hlc_ver = ActiveValue::Set(ver + 1);
-        active_model.updated_at_hlc_nid = ActiveValue::Set(node_id.to_owned());
-
-        // Update the playlist in the database
-        let updated_playlist = active_model.update(main_db).await?;
-
-        add_term(
-            main_db,
-            CollectionQueryType::Playlist,
-            updated_playlist.id,
-            &updated_playlist.name.clone(),
-        )
+    after: Option<OccurrenceCursor>,
+    limit: u32,
+) -> Result<OccurrencePage> {
+    ensure!(
+        (1..=128).contains(&limit),
+        "playlist page size must be 1..=128"
+    );
+    let parent = playlists::Entity::find_by_id(playlist_id)
+        .one(db)
+        .await?
+        .context("playlist not found")?;
+    let mut query =
+        entries::Entity::find().filter(entries::Column::PlaylistUuid.eq(parent.hlc_uuid));
+    if let Some(after) = after {
+        let id: Uuid = after
+            .occurrence_id
+            .parse()
+            .context("invalid occurrence cursor")?;
+        ensure!(!id.is_nil(), "invalid occurrence cursor");
+        query = query.filter(
+            Condition::any()
+                .add(entries::Column::Position.gt(after.position))
+                .add(
+                    Condition::all()
+                        .add(entries::Column::Position.eq(after.position))
+                        .add(entries::Column::HlcUuid.gt(after.occurrence_id)),
+                ),
+        );
+    }
+    let mut rows = query
+        .order_by_asc(entries::Column::Position)
+        .order_by_asc(entries::Column::HlcUuid)
+        .limit(u64::from(limit) + 1)
+        .find_also_related(media_files::Entity)
+        .all(db)
         .await?;
-
-        Ok(updated_playlist)
+    let more = rows.len() > limit as usize;
+    rows.truncate(limit as usize);
+    let next = if more {
+        rows.last().map(|(row, _)| OccurrenceCursor {
+            position: row.position,
+            occurrence_id: row.hlc_uuid.clone(),
+        })
     } else {
-        bail!("Playlist not found");
-    }
-}
-
-/// Remove a playlist by its ID.
-///
-/// # Arguments
-/// * `main_db` - A reference to the main database connection.
-/// * `search_db` - A mutable reference to the search database connection.
-/// * `playlist_id` - The ID of the playlist to delete.
-///
-/// # Returns
-/// * `Result<()>` - An empty result or an error.
-pub async fn remove_playlist(main_db: &DatabaseConnection, playlist_id: i32) -> Result<()> {
-    use media_file_playlists::Entity as MediaFilePlaylistEntity;
-    use playlists::Entity as PlaylistEntity;
-
-    // Check if the playlist exists
-    let playlist = PlaylistEntity::find_by_id(playlist_id).one(main_db).await?;
-    if playlist.is_none() {
-        bail!("Playlist not found");
-    }
-
-    // Delete all media file associations with this playlist
-    MediaFilePlaylistEntity::delete_many()
-        .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
-        .exec(main_db)
-        .await?;
-
-    // Delete the playlist itself
-    PlaylistEntity::delete_by_id(playlist_id)
-        .exec(main_db)
-        .await?;
-
-    // Remove the playlist term from the search database
-    remove_term(main_db, CollectionQueryType::Playlist, playlist_id).await?;
-
-    Ok(())
-}
-
-/// Add a media file to a playlist.
-///
-/// # Arguments
-/// * `main_db` - A reference to the database connection.
-/// * `node_id` - The id of the client that triggers the operation.
-/// * `playlist_id` - The ID of the playlist to add the item to.
-/// * `media_file_id` - The ID of the media file to add.
-/// * `position` - The optional position of the media file in the playlist.
-///
-/// # Returns
-/// * `Result<Model>` - The created media file playlist model or an error.
-pub async fn add_item_to_playlist(
-    main_db: &DatabaseConnection,
-    node_id: &str,
-    playlist_id: i32,
-    media_file_id: i32,
-    position: Option<i32>,
-) -> Result<media_file_playlists::Model> {
-    use media_file_playlists::Entity as MediaFilePlaylistEntity;
-    use playlists::Entity as PlaylistEntity;
-
-    // Determine the position to insert the item
-    let position = match position {
-        Some(pos) => pos,
-        _none => {
-            // If no position is provided, find the current maximum position and insert at the end
-            MediaFilePlaylistEntity::find()
-                .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
-                .order_by_desc(media_file_playlists::Column::Position)
-                .one(main_db)
-                .await?
-                .map_or(0, |item| item.position + 1)
-        }
+        None
     };
-
-    // Create a new media file playlist active model
-    let new_media_file_playlist = media_file_playlists::ActiveModel {
-        playlist_id: ActiveValue::Set(playlist_id),
-        media_file_id: ActiveValue::Set(media_file_id),
-        position: ActiveValue::Set(position),
-        ..Default::default()
-    };
-
-    // Insert the new media file playlist into the database
-    let media_file_playlist = new_media_file_playlist.insert(main_db).await?;
-
-    // Find the playlist by ID
-    let playlist = PlaylistEntity::find_by_id(playlist_id).one(main_db).await?;
-
-    if let Some(playlist) = playlist {
-        let ver = playlist.updated_at_hlc_ver;
-        let mut active_model: playlists::ActiveModel = playlist.into();
-        active_model.updated_at_hlc_ts = ActiveValue::Set(Utc::now().to_rfc3339());
-        active_model.created_at_hlc_ver = ActiveValue::Set(ver + 1);
-        active_model.updated_at_hlc_nid = ActiveValue::Set(node_id.to_owned());
-        let _ = active_model.update(main_db).await?;
-    } else {
-        bail!("Playlist not found")
-    }
-
-    Ok(media_file_playlist)
-}
-
-/// Reorder a media file in a playlist.
-///
-/// # Arguments
-/// * `main_db` - A reference to the database connection.
-/// * `playlist_id` - The ID of the playlist containing the item to reorder.
-/// * `media_file_id` - The ID of the media file to reorder.
-/// * `new_position` - The new position for the media file.
-///
-/// # Returns
-/// * `Result<()>` - An empty result or an error.
-pub async fn reorder_playlist_item_position(
-    main_db: &DatabaseConnection,
-    node_id: &str,
-    playlist_id: i32,
-    media_file_id: i32,
-    new_position: i32,
-) -> Result<()> {
-    use media_file_playlists::Entity as MediaFilePlaylistEntity;
-
-    // Find the media file playlist item
-    let item = MediaFilePlaylistEntity::find()
-        .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
-        .filter(media_file_playlists::Column::MediaFileId.eq(media_file_id))
-        .one(main_db)
-        .await?;
-
-    if let Some(item) = item {
-        let ver = item.updated_at_hlc_ver;
-        // Update the position
-        let mut active_model: media_file_playlists::ActiveModel = item.into();
-        active_model.position = ActiveValue::Set(new_position);
-        active_model.updated_at_hlc_ts = ActiveValue::Set(Utc::now().to_rfc3339());
-        active_model.updated_at_hlc_ver = ActiveValue::Set(ver + 1);
-        active_model.updated_at_hlc_nid = ActiveValue::Set(node_id.to_owned());
-
-        // Update the media file playlist item in the database
-        let _ = active_model.update(main_db).await?;
-
-        Ok(())
-    } else {
-        bail!("Media file not found in playlist")
-    }
+    let entries = rows
+        .into_iter()
+        .map(|(row, file)| {
+            Ok(Occurrence {
+                occurrence_id: row.hlc_uuid,
+                position: row.position,
+                track_id: row.track_uuid.parse()?,
+                file,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(OccurrencePage { entries, next })
 }
 
 #[derive(Debug)]
 pub struct PlaylistImportResult {
     pub matched_ids: Vec<i32>,
     pub unmatched_paths: Vec<String>,
+    pub ambiguous_paths: Vec<String>,
 }
 
 pub async fn parse_m3u8_playlist<E>(
@@ -326,23 +163,27 @@ pub async fn parse_m3u8_playlist<E>(
 where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {
-    // Read the content of the M3U8 file asynchronously into a string
     let content = read_to_string(playlist_path).await?;
-    // Initialize vectors to store matched file IDs and unmatched paths
+    resolve_m3u8(main_db, &parse_m3u8_lines(&content)).await
+}
+
+fn parse_m3u8_lines(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+        .collect()
+}
+
+async fn resolve_m3u8<E>(main_db: &E, lines: &[String]) -> Result<PlaylistImportResult>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
     let mut matched_ids = Vec::new();
     let mut unmatched_paths = Vec::new();
-
-    // Iterate over each line in the content, filtering out empty lines
-    for line in content.lines().filter_map(|l| {
-        // Trim whitespace from the line
-        let trimmed = l.trim();
-        // If the line is empty after trimming, return None; otherwise, return the trimmed line
-        if trimmed.is_empty() || trimmed.starts_with("#") {
-            None
-        } else {
-            Some(trimmed)
-        }
-    }) {
+    let mut ambiguous_paths = Vec::new();
+    for line in lines {
         // Convert the line into a PathBuf object
         let path = PathBuf::from(line);
         // Extract the file name from the path, if possible
@@ -421,6 +262,9 @@ where
 
                     // If still multiple matches exist, select the one with the highest ID
                     if !matched {
+                        if matches_with_paths.len() > 1 {
+                            ambiguous_paths.push(line.to_string());
+                        }
                         if let Some((file, _)) =
                             matches_with_paths.into_iter().max_by_key(|(f, _)| f.id)
                         {
@@ -441,150 +285,352 @@ where
     Ok(PlaylistImportResult {
         matched_ids,
         unmatched_paths,
+        ambiguous_paths,
     })
 }
 
-pub async fn import_m3u8_to_playlist<E>(
-    main_db: &E,
-    node_id: &str,
-    playlist_id: i32,
-    playlist_path: &Path,
-) -> Result<PlaylistImportResult>
-where
-    E: DatabaseExecutor + sea_orm::ConnectionTrait,
-{
-    let import_result = parse_m3u8_playlist(main_db, playlist_path).await?;
+async fn create_on(
+    tx: &DatabaseTransaction,
+    actor: Uuid,
+    name: String,
+    group: String,
+) -> Result<playlists::Model> {
+    use playlists::ActiveModel;
 
-    let models: Vec<media_file_playlists::ActiveModel> = import_result
-        .matched_ids
-        .iter()
-        .enumerate()
-        .map(
-            |(index, &media_file_id)| media_file_playlists::ActiveModel {
-                playlist_id: ActiveValue::Set(playlist_id),
-                media_file_id: ActiveValue::Set(media_file_id),
-                position: ActiveValue::Set(index as i32),
-                hlc_uuid: ActiveValue::Set(
-                    Uuid::new_v5(
-                        &Uuid::NAMESPACE_URL,
-                        format!("RUNE_PLAYLIST::{playlist_id}::{media_file_id}").as_bytes(),
-                    )
-                    .to_string(),
-                ),
-                created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-                updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-                created_at_hlc_ver: ActiveValue::Set(0),
-                updated_at_hlc_ver: ActiveValue::Set(0),
-                created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-                updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-                ..Default::default()
-            },
-        )
-        .collect();
+    // Create a new playlist active model
+    let new_playlist = ActiveModel {
+        name: ActiveValue::Set(name.clone()),
+        group: ActiveValue::Set(group),
+        hlc_uuid: ActiveValue::Set(
+            Uuid::new_v5(
+                &Uuid::NAMESPACE_URL,
+                format!("RUNE_PLAYLIST::{name}::{}", Utc::now().to_rfc3339()).as_bytes(),
+            )
+            .to_string(),
+        ),
+        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(0),
+        updated_at_hlc_ver: ActiveValue::Set(0),
+        created_at_hlc_nid: ActiveValue::Set(actor.to_string()),
+        updated_at_hlc_nid: ActiveValue::Set(actor.to_string()),
+        ..Default::default()
+    };
 
-    if !models.is_empty() {
-        media_file_playlists::Entity::insert_many(models)
-            .exec(main_db)
-            .await?;
+    // Insert the new playlist into the database
+    let inserted_playlist = new_playlist.insert(tx).await?;
+
+    add_term(
+        tx,
+        CollectionQueryType::Playlist,
+        inserted_playlist.id,
+        &name.clone(),
+    )
+    .await?;
+
+    Ok(inserted_playlist)
+}
+async fn author(
+    tx: &DatabaseTransaction,
+    store: &SeaOrmSyncStore,
+    collection: Collection,
+    id: &str,
+) -> Result<()> {
+    author_source_on(
+        tx,
+        store,
+        ObjectKey {
+            collection,
+            id: id.parse()?,
+        },
+    )
+    .await
+}
+
+pub async fn create_playlist(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    actor: Uuid,
+    name: String,
+    group: String,
+) -> Result<playlists::Model> {
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let row = create_on(&tx, actor, name, group).await?;
+    author(&tx, store, Collection::Playlists, &row.hlc_uuid).await?;
+    tx.commit().await?;
+    Ok(row)
+}
+
+pub async fn update_playlist(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    actor: Uuid,
+    id: i32,
+    name: Option<String>,
+    group: Option<String>,
+) -> Result<playlists::Model> {
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let old = playlists::Entity::find_by_id(id)
+        .one(&tx)
+        .await?
+        .context("playlist not found")?;
+    let ver = old.updated_at_hlc_ver;
+    let mut active: playlists::ActiveModel = old.into();
+    if let Some(v) = name {
+        active.name = Set(v);
     }
+    if let Some(v) = group {
+        active.group = Set(v);
+    }
+    active.updated_at_hlc_ts = Set(Utc::now().to_rfc3339());
+    active.updated_at_hlc_ver = Set(ver.checked_add(1).context("playlist version exhausted")?);
+    active.updated_at_hlc_nid = Set(actor.to_string());
+    let row = active.update(&tx).await?;
+    add_term(&tx, CollectionQueryType::Playlist, id, &row.name).await?;
+    author(&tx, store, Collection::Playlists, &row.hlc_uuid).await?;
+    tx.commit().await?;
+    Ok(row)
+}
 
-    Ok(import_result)
+pub async fn remove_playlist(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    id: i32,
+) -> Result<()> {
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let row = playlists::Entity::find_by_id(id)
+        .one(&tx)
+        .await?
+        .context("playlist not found")?;
+    playlists::Entity::delete_by_id(id).exec(&tx).await?;
+    remove_term(&tx, CollectionQueryType::Playlist, id).await?;
+    store
+        .author_on(
+            &tx,
+            ObjectKey {
+                collection: Collection::Playlists,
+                id: row.hlc_uuid.parse()?,
+            },
+            None,
+        )
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn add_on(
+    tx: &DatabaseTransaction,
+    store: &SeaOrmSyncStore,
+    actor: Option<Uuid>,
+    parent: &playlists::Model,
+    file: &media_files::Model,
+    position: i32,
+) -> Result<media_file_playlists::Model> {
+    let mut entry = media_file_playlists::ActiveModel {
+        playlist_uuid: Set(parent.hlc_uuid.clone()),
+        track_uuid: Set(file.hlc_uuid.clone()),
+        position: Set(position),
+        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        ..Default::default()
+    };
+    if let Some(actor) = actor {
+        entry.created_at_hlc_nid = Set(actor.to_string());
+        entry.updated_at_hlc_nid = Set(actor.to_string());
+    }
+    let row = media_file_playlists::Entity::insert(entry)
+        .exec_with_returning(tx)
+        .await?;
+    author(tx, store, Collection::PlaylistEntries, &row.hlc_uuid).await?;
+    Ok(row)
+}
+
+pub async fn add_item_to_playlist(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    actor: Uuid,
+    playlist_id: i32,
+    file_id: i32,
+    position: Option<i32>,
+) -> Result<media_file_playlists::Model> {
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let parent = playlists::Entity::find_by_id(playlist_id)
+        .one(&tx)
+        .await?
+        .context("playlist not found")?;
+    let file = media_files::Entity::find_by_id(file_id)
+        .one(&tx)
+        .await?
+        .context("file not found")?;
+    let position = match position {
+        Some(p) => p,
+        None => media_file_playlists::Entity::find()
+            .filter(media_file_playlists::Column::PlaylistUuid.eq(&parent.hlc_uuid))
+            .order_by_desc(media_file_playlists::Column::Position)
+            .one(&tx)
+            .await?
+            .map(|r| {
+                r.position
+                    .checked_add(1)
+                    .context("playlist position exhausted")
+            })
+            .transpose()?
+            .unwrap_or(0),
+    };
+    let row = add_on(&tx, store, None, &parent, &file, position).await?;
+    let ver = parent.updated_at_hlc_ver;
+    let mut active: playlists::ActiveModel = parent.into();
+    active.updated_at_hlc_ts = Set(Utc::now().to_rfc3339());
+    active.updated_at_hlc_ver = Set(ver.checked_add(1).context("playlist version exhausted")?);
+    active.updated_at_hlc_nid = Set(actor.to_string());
+    active.update(&tx).await?;
+    tx.commit().await?;
+    Ok(row)
+}
+
+async fn find_occurrence(
+    tx: &DatabaseTransaction,
+    playlist_id: i32,
+    occurrence_id: Uuid,
+) -> Result<media_file_playlists::Model> {
+    ensure!(!occurrence_id.is_nil(), "invalid playlist occurrence");
+    let parent = playlists::Entity::find_by_id(playlist_id)
+        .one(tx)
+        .await?
+        .context("playlist not found")?;
+    media_file_playlists::Entity::find()
+        .filter(media_file_playlists::Column::PlaylistUuid.eq(parent.hlc_uuid))
+        .filter(media_file_playlists::Column::HlcUuid.eq(occurrence_id.to_string()))
+        .one(tx)
+        .await?
+        .context("playlist occurrence not found")
+}
+
+pub async fn remove_item_from_playlist(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    actor: Uuid,
+    playlist_id: i32,
+    occurrence_id: Uuid,
+) -> Result<()> {
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let row = find_occurrence(&tx, playlist_id, occurrence_id).await?;
+    media_file_playlists::Entity::delete_by_id(row.id)
+        .exec(&tx)
+        .await?;
+    store
+        .author_on(
+            &tx,
+            ObjectKey {
+                collection: Collection::PlaylistEntries,
+                id: occurrence_id,
+            },
+            None,
+        )
+        .await?;
+    let parent = playlists::Entity::find_by_id(playlist_id)
+        .one(&tx)
+        .await?
+        .context("playlist not found")?;
+    let ver = parent.updated_at_hlc_ver;
+    let mut active: playlists::ActiveModel = parent.into();
+    active.updated_at_hlc_ts = Set(Utc::now().to_rfc3339());
+    active.updated_at_hlc_ver = Set(ver.checked_add(1).context("playlist version exhausted")?);
+    active.updated_at_hlc_nid = Set(actor.to_string());
+    active.update(&tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn reorder_playlist_item_position(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    actor: Uuid,
+    playlist_id: i32,
+    occurrence_id: Uuid,
+    position: i32,
+) -> Result<()> {
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let row = find_occurrence(&tx, playlist_id, occurrence_id).await?;
+    if row.position != position {
+        let ver = row.updated_at_hlc_ver;
+        let mut active: media_file_playlists::ActiveModel = row.into();
+        active.position = Set(position);
+        active.updated_at_hlc_ts = Set(Utc::now().to_rfc3339());
+        active.updated_at_hlc_ver =
+            Set(ver.checked_add(1).context("occurrence version exhausted")?);
+        active.updated_at_hlc_nid = Set(actor.to_string());
+        let row = active.update(&tx).await?;
+        author(&tx, store, Collection::PlaylistEntries, &row.hlc_uuid).await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn import_on(
+    tx: &DatabaseTransaction,
+    store: &SeaOrmSyncStore,
+    actor: Uuid,
+    parent: &playlists::Model,
+    lines: &[String],
+) -> Result<PlaylistImportResult> {
+    let result = resolve_m3u8(tx, lines).await?;
+    for (position, id) in result.matched_ids.iter().enumerate() {
+        let file = media_files::Entity::find_by_id(*id)
+            .one(tx)
+            .await?
+            .context("file not found")?;
+        add_on(
+            tx,
+            store,
+            Some(actor),
+            parent,
+            &file,
+            i32::try_from(position)?,
+        )
+        .await?;
+    }
+    Ok(result)
+}
+
+pub async fn import_m3u8_to_playlist(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    actor: Uuid,
+    playlist_id: i32,
+    path: &Path,
+) -> Result<PlaylistImportResult> {
+    let lines = parse_m3u8_lines(&read_to_string(path).await?);
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let parent = playlists::Entity::find_by_id(playlist_id)
+        .one(&tx)
+        .await?
+        .context("playlist not found")?;
+    let result = import_on(&tx, store, actor, &parent, &lines).await?;
+    tx.commit().await?;
+    Ok(result)
 }
 
 pub async fn create_m3u8_playlist(
-    main_db: &MainDbConnection,
-    node_id: &str,
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    actor: Uuid,
     name: String,
     group: String,
-    m3u8_path: &Path,
+    path: &Path,
 ) -> Result<(playlists::Model, PlaylistImportResult)> {
-    let txn = main_db.begin().await?;
-
-    // Create the playlist
-    let playlist: playlists::Model =
-        create_playlist(&txn, node_id, name.clone(), group.clone()).await?;
-
-    // Import the M3U8 file contents into the playlist
-    let import_result = import_m3u8_to_playlist(&txn, node_id, playlist.id, m3u8_path).await;
-
-    // Check if the import was successful
-    match import_result {
-        Ok(result) => {
-            // Commit the transaction if successful
-            txn.commit().await?;
-            Ok((playlist, result))
-        }
-        Err(e) => {
-            // Rollback the transaction if there was an error
-            txn.rollback().await?;
-            Err(e)
-        }
-    }
-}
-
-/// Remove a specific item from a playlist by position.
-///
-/// # Arguments
-/// * `main_db` - A reference to the database connection.
-/// * `node_id` - The id of the client that triggers the operation.
-/// * `playlist_id` - The ID of the playlist containing the item.
-/// * `media_file_id` - The ID of the media file to remove.
-/// * `position` - The exact position of the item in the playlist.
-///
-/// # Returns
-/// * `Result<()>` - An empty result or an error.
-pub async fn remove_item_from_playlist(
-    main_db: &DatabaseConnection,
-    node_id: &str,
-    playlist_id: i32,
-    media_file_id: i32,
-    position: i32,
-) -> Result<()> {
-    use media_file_playlists::Entity as MediaFilePlaylistEntity;
-    use playlists::Entity as PlaylistEntity;
-
-    let txn = main_db.begin().await?;
-
-    info!("Removing item {media_file_id}(pos: {position}) from playlist {playlist_id}");
-    let delete_result = MediaFilePlaylistEntity::delete_many()
-        .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
-        .filter(media_file_playlists::Column::MediaFileId.eq(media_file_id))
-        .filter(media_file_playlists::Column::Position.eq(position))
-        .exec(&txn)
-        .await?;
-
-    if delete_result.rows_affected == 0 {
-        bail!("Playlist item not found at specified position");
-    }
-
-    MediaFilePlaylistEntity::update_many()
-        .col_expr(
-            media_file_playlists::Column::Position,
-            Expr::col(media_file_playlists::Column::Position).sub(1),
-        )
-        .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
-        .filter(media_file_playlists::Column::Position.gt(position))
-        .exec(&txn)
-        .await?;
-
-    PlaylistEntity::update_many()
-        .col_expr(
-            playlists::Column::UpdatedAtHlcTs,
-            Expr::value(Utc::now().to_rfc3339()),
-        )
-        .col_expr(
-            playlists::Column::UpdatedAtHlcNid,
-            Expr::value(node_id.to_owned()),
-        )
-        .col_expr(
-            playlists::Column::UpdatedAtHlcVer,
-            Expr::add(Expr::col(playlists::Column::UpdatedAtHlcVer), 1),
-        )
-        .filter(playlists::Column::Id.eq(playlist_id))
-        .exec(&txn)
-        .await?;
-
-    txn.commit().await?;
-
-    Ok(())
+    let lines = parse_m3u8_lines(&read_to_string(path).await?);
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let row = create_on(&tx, actor, name, group).await?;
+    author(&tx, store, Collection::Playlists, &row.hlc_uuid).await?;
+    let result = import_on(&tx, store, actor, &row, &lines).await?;
+    tx.commit().await?;
+    Ok((row, result))
 }

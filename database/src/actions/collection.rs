@@ -194,6 +194,7 @@ macro_rules! collection_query {
             let entity_to_cover_ids = get_entity_to_cover_ids!(
                 db,
                 entity_ids,
+                $item_entity,
                 $related_entity,
                 $relation_column_name,
                 magic_cover_art_id

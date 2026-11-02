@@ -1,19 +1,23 @@
+mod source;
+pub use source::{
+    ComputedFingerprint, ComputedSimilarity, SourceStatus, assign_computed_fingerprint,
+    assign_computed_similarity, assign_duplicate_mark, current_fingerprint,
+    default_similarity_configuration, fingerprint_status, similarity_status,
+    unavailable_fingerprints, unavailable_similarities,
+};
+
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use fsio::FsIo;
-use log::{debug, info};
+use log::info;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, JoinType,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, SelectExt,
+    ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
 };
-use sync::hlc::SyncTaskContext;
-use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -24,107 +28,6 @@ use tag_editor::music_brainz::fingerprint::{
 
 use crate::entities::prelude::{MediaFileFingerprint, MediaFileSimilarity, MediaFiles};
 use crate::entities::{media_file_fingerprint, media_file_similarity, media_files};
-use crate::parallel_media_files_processing;
-
-pub async fn compute_file_fingerprints<F>(
-    fsio: Arc<FsIo>,
-    main_db: &DatabaseConnection,
-    lib_path: &Path,
-    node_id: &str,
-    batch_size: usize,
-    progress_callback: F,
-    cancel_token: Option<CancellationToken>,
-) -> Result<usize>
-where
-    F: Fn(usize, usize) + Send + Sync + 'static,
-{
-    let progress_callback = Arc::new(progress_callback);
-
-    info!("Starting audio fingerprint computation with batch size: {batch_size}");
-
-    let existed_ids: Vec<i32> = media_file_fingerprint::Entity::find()
-        .select_only()
-        .column(media_file_fingerprint::Column::MediaFileId)
-        .distinct()
-        .into_tuple::<i32>()
-        .all(main_db)
-        .await
-        .context("Failed to query existing fingerprints")?;
-
-    let cursor_query =
-        media_files::Entity::find().filter(media_files::Column::Id.is_not_in(existed_ids));
-
-    let lib_path = Arc::new(lib_path.to_path_buf());
-
-    // Create HLC context
-    let node_uuid = Uuid::from_str(node_id).context("Invalid node_id UUID")?;
-    let hlc_context = Arc::new(SyncTaskContext::new(node_uuid));
-    let node_id = Arc::new(node_id.to_owned());
-
-    parallel_media_files_processing!(
-        main_db,
-        batch_size,
-        progress_callback,
-        cancel_token,
-        cursor_query,
-        lib_path,
-        fsio,
-        node_id,
-        hlc_context,
-        move |fsio, file, lib_path, cancel_token| {
-            compute_single_fingerprint(
-                fsio,
-                lib_path,
-                file,
-                &Configuration::default(),
-                cancel_token,
-            )
-        },
-        |db,
-         file: media_files::Model,
-         node_id: Arc<String>,
-         hlc_context: Arc<SyncTaskContext>,
-         fingerprint_result: Result<(Vec<u32>, _)>| async move {
-            match fingerprint_result {
-                Ok((fingerprint, _duration)) => {
-                    let fingerprint_bytes = fingerprint
-                        .into_iter()
-                        .flat_map(|x| x.to_le_bytes())
-                        .collect::<Vec<u8>>();
-
-                    let hlc = hlc_context.generate_hlc();
-                    let hlc_ts = hlc.to_rfc3339().unwrap_or_default();
-
-                    let model = media_file_fingerprint::ActiveModel {
-                        media_file_id: ActiveValue::Set(file.id),
-                        fingerprint: ActiveValue::Set(fingerprint_bytes),
-                        is_duplicated: ActiveValue::Set(0),
-                        hlc_uuid: ActiveValue::Set(
-                            Uuid::new_v5(
-                                &Uuid::NAMESPACE_OID,
-                                format!("RUNE_FINGERPRINT::{}", file.id).as_bytes(),
-                            )
-                            .to_string(),
-                        ),
-                        created_at_hlc_ts: ActiveValue::Set(hlc_ts.clone()),
-                        updated_at_hlc_ts: ActiveValue::Set(hlc_ts),
-                        created_at_hlc_ver: ActiveValue::Set(hlc.version as i32),
-                        updated_at_hlc_ver: ActiveValue::Set(hlc.version as i32),
-                        created_at_hlc_nid: ActiveValue::Set(node_id.to_string()),
-                        updated_at_hlc_nid: ActiveValue::Set(node_id.to_string()),
-                        ..Default::default()
-                    };
-
-                    match media_file_fingerprint::Entity::insert(model).exec(db).await {
-                        Ok(_) => debug!("Inserted fingerprint for file: {}", file.id),
-                        Err(e) => error!("Failed to insert fingerprint: {e}"),
-                    }
-                }
-                Err(e) => error!("Failed to compute fingerprint: {e:#?}"),
-            }
-        }
-    )
-}
 
 fn compute_single_fingerprint(
     fsio: &FsIo,
@@ -143,15 +46,36 @@ fn compute_single_fingerprint(
         return Err(anyhow!("Operation cancelled"));
     }
 
+    anyhow::ensure!(
+        file.local_available,
+        "fingerprint source is not locally available"
+    );
+    let expected = match (&file.content_hash, file.content_size) {
+        (Some(hash), Some(size)) if size >= 0 => crate::sync::model::BlobRef {
+            digest: hash.clone(),
+            size: size as u64,
+        },
+        _ => bail!("fingerprint source has no verified content identity"),
+    };
+    anyhow::ensure!(
+        crate::actions::file::hash_file(fsio, &file_path)? == expected,
+        "fingerprint source changed before computation"
+    );
     let result = calc_fingerprint(fsio, &file_path, config)
         .with_context(|| format!("compute fingerprint for: {}", file_path.display()))?;
-
+    anyhow::ensure!(
+        crate::actions::file::hash_file(fsio, &file_path)? == expected,
+        "fingerprint source changed during computation"
+    );
     Ok(result)
 }
 
 pub async fn has_fingerprint(main_db: &DatabaseConnection, file_id: i32) -> Result<bool> {
+    let Some(file) = MediaFiles::find_by_id(file_id).one(main_db).await? else {
+        return Ok(false);
+    };
     Ok(media_file_fingerprint::Entity::find()
-        .filter(media_file_fingerprint::Column::MediaFileId.eq(file_id))
+        .filter(media_file_fingerprint::Column::TrackUuid.eq(file.hlc_uuid))
         .exists(main_db)
         .await?)
 }
@@ -160,263 +84,6 @@ pub async fn get_fingerprint_count(main_db: &DatabaseConnection) -> Result<u64> 
     Ok(media_file_fingerprint::Entity::find()
         .count(main_db)
         .await?)
-}
-
-pub async fn compare_all_pairs<F>(
-    db: &DatabaseConnection,
-    node_id: &str,
-    batch_size: usize,
-    progress_callback: F,
-    config: &Configuration,
-    cancel_token: Option<Arc<CancellationToken>>,
-    page_size: u64,
-) -> Result<()>
-where
-    F: Fn(usize, usize) + Send + Sync + 'static,
-{
-    let progress_callback = Arc::new(progress_callback);
-    let mut last_id = 0;
-
-    info!("Start comparing all tracks");
-
-    loop {
-        info!("Comparing fingerprints after: {last_id}");
-
-        if let Some(token) = &cancel_token
-            && token.is_cancelled()
-        {
-            return Ok(());
-        }
-
-        let files_page = MediaFiles::find()
-            .filter(media_files::Column::Id.gt(last_id))
-            .order_by_asc(media_files::Column::Id)
-            .limit(page_size)
-            .all(db)
-            .await?;
-
-        if files_page.is_empty() {
-            info!("No more files to compare.");
-            break;
-        }
-
-        // Create HLC context for processing page combinations
-        let node_uuid = Uuid::from_str(node_id).context("Invalid node_id UUID")?;
-        let hlc_context = Arc::new(SyncTaskContext::new(node_uuid));
-
-        process_page_combinations(
-            PageCombinationParams {
-                db,
-                node_id,
-                hlc_context,
-                batch_size,
-                config,
-                cancel_token: cancel_token.clone(),
-                progress_callback: Arc::clone(&progress_callback),
-            },
-            &files_page,
-        )
-        .await?;
-
-        last_id = files_page.last().map(|f| f.id).unwrap_or(last_id);
-    }
-
-    Ok(())
-}
-
-struct PageCombinationParams<'a, F> {
-    db: &'a DatabaseConnection,
-    node_id: &'a str,
-    hlc_context: Arc<SyncTaskContext>,
-    batch_size: usize,
-    config: &'a Configuration,
-    cancel_token: Option<Arc<CancellationToken>>,
-    progress_callback: Arc<F>,
-}
-
-async fn process_page_combinations<F>(
-    params: PageCombinationParams<'_, F>,
-    current_page: &[media_files::Model],
-) -> Result<()>
-where
-    F: Fn(usize, usize) + Send + Sync + 'static,
-{
-    let PageCombinationParams {
-        db,
-        node_id,
-        hlc_context,
-        batch_size,
-        config,
-        cancel_token,
-        progress_callback,
-    } = params;
-
-    if let Some(token) = &cancel_token
-        && token.is_cancelled()
-    {
-        return Ok(());
-    }
-
-    info!("Processing page with {} files", current_page.len());
-
-    let mut total_tasks = 0;
-    let mut history_files_per_file = Vec::with_capacity(current_page.len());
-    for (i, file1) in current_page.iter().enumerate() {
-        if let Some(token) = &cancel_token
-            && token.is_cancelled()
-        {
-            return Ok(());
-        }
-
-        let current_combinations = current_page.len() - i - 1;
-        let history_files = load_history_files(db, file1.id).await?;
-        let history_combinations = history_files.len();
-        total_tasks += current_combinations + history_combinations;
-        history_files_per_file.push(history_files);
-    }
-
-    if total_tasks == 0 {
-        return Ok(());
-    }
-
-    progress_callback(0, total_tasks);
-
-    let (tx, rx) = async_channel::bounded(1000);
-    let semaphore = Arc::new(Semaphore::new(batch_size));
-    let progress_counter = Arc::new(AtomicUsize::new(0));
-
-    let producer = tokio::spawn({
-        let current_page = current_page.to_vec();
-        let cancel_token = cancel_token.clone();
-        let history_files_per_file = history_files_per_file.clone();
-        async move {
-            for (i, file1) in current_page.iter().enumerate() {
-                if let Some(token) = &cancel_token
-                    && token.is_cancelled()
-                {
-                    return Ok(());
-                }
-
-                for file2 in &current_page[i + 1..] {
-                    if let Some(token) = &cancel_token
-                        && token.is_cancelled()
-                    {
-                        return Ok(());
-                    }
-                    tx.send((file1.id, file2.id)).await?;
-                }
-
-                let history_files = &history_files_per_file[i];
-                for file2_id in history_files {
-                    if let Some(token) = &cancel_token
-                        && token.is_cancelled()
-                    {
-                        return Ok(());
-                    }
-                    tx.send((file1.id, *file2_id)).await?;
-                }
-            }
-            Ok::<(), anyhow::Error>(())
-        }
-    });
-
-    let consumer = tokio::spawn({
-        let db = db.clone();
-        let config = config.clone();
-        let node_id = node_id.to_owned();
-        let cancel_token = cancel_token.clone();
-        let progress_callback = Arc::clone(&progress_callback);
-        let progress_counter = Arc::clone(&progress_counter);
-        let hlc_context = hlc_context.clone();
-        async move {
-            while let Ok((id1, id2)) = rx.recv().await {
-                if let Some(token) = &cancel_token
-                    && token.is_cancelled()
-                {
-                    return Ok(());
-                }
-
-                let _permit = semaphore.acquire().await?;
-
-                let fp1 = load_fingerprint(db.clone(), id1).await?;
-                let fp2 = load_fingerprint(db.clone(), id2).await?;
-
-                let segments = match_fingerprints(&fp1, &fp2, &config)?;
-                let similarity = calculate_similarity_score(
-                    &segments,
-                    get_track_duration_in_secs(&fp1, &config)
-                        .max(get_track_duration_in_secs(&fp2, &config)),
-                    &config,
-                );
-
-                let hlc = hlc_context.generate_hlc();
-                let hlc_ts = hlc.to_rfc3339().unwrap_or_default();
-
-                MediaFileSimilarity::insert(media_file_similarity::ActiveModel {
-                    file_id1: ActiveValue::Set(id1),
-                    file_id2: ActiveValue::Set(id2),
-                    similarity: ActiveValue::Set(similarity),
-                    hlc_uuid: ActiveValue::Set(
-                        Uuid::new_v5(
-                            &Uuid::NAMESPACE_OID,
-                            format!("RUNE_SIMILARITY::{id1}+{id2}").as_bytes(),
-                        )
-                        .to_string(),
-                    ),
-                    created_at_hlc_ts: ActiveValue::Set(hlc_ts.clone()),
-                    updated_at_hlc_ts: ActiveValue::Set(hlc_ts),
-                    created_at_hlc_ver: ActiveValue::Set(hlc.version as i32),
-                    updated_at_hlc_ver: ActiveValue::Set(hlc.version as i32),
-                    created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-                    updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-                    ..Default::default()
-                })
-                .exec(&db)
-                .await?;
-
-                let current = progress_counter.fetch_add(1, Ordering::Relaxed) + 1;
-                progress_callback(current, total_tasks);
-            }
-            Ok::<(), anyhow::Error>(())
-        }
-    });
-
-    let (p, c) = tokio::join!(producer, consumer);
-
-    match (p, c) {
-        (Ok(Ok(())), Ok(Ok(()))) => Ok(()),
-        (Ok(Err(e)), _) | (_, Ok(Err(e))) => Err(e),
-        (Err(e), _) => Err(anyhow::Error::from(e)),
-        (_, Err(e)) => Err(anyhow::Error::from(e)),
-    }
-}
-
-async fn load_fingerprint(db: DatabaseConnection, id: i32) -> Result<Vec<u32>> {
-    let fingerprint = MediaFileFingerprint::find()
-        .filter(media_file_fingerprint::Column::MediaFileId.eq(id))
-        .one(&db)
-        .await?
-        .context("Fingerprint not found")?
-        .fingerprint;
-
-    bytes_to_u32s(fingerprint)
-}
-
-async fn load_history_files(db: &DatabaseConnection, current_id: i32) -> Result<Vec<i32>> {
-    info!("Loading history files: {current_id}");
-
-    let history_ids = media_files::Entity::find()
-        .select_only()
-        .column(media_files::Column::Id)
-        .filter(media_files::Column::Id.lt(current_id))
-        .order_by_asc(media_files::Column::Id)
-        .into_tuple::<i32>()
-        .all(db)
-        .await?;
-
-    info!("Got {} history files", history_ids.len());
-
-    Ok(history_ids)
 }
 
 pub fn bytes_to_u32s(bytes: Vec<u8>) -> Result<Vec<u32>> {
@@ -443,75 +110,19 @@ pub fn bytes_to_u32s(bytes: Vec<u8>) -> Result<Vec<u32>> {
     Ok(u32s)
 }
 
-pub async fn mark_duplicate_files<F>(
-    db: &DatabaseConnection,
-    similarity_threshold: f32,
-    progress_callback: F,
-) -> Result<usize>
-where
-    F: Fn(usize, usize) + Send + Sync + 'static,
-{
-    let progress_callback = Arc::new(progress_callback);
-
-    info!("Starting duplicate detection with similarity threshold: {similarity_threshold}");
-
-    // Step 1: Get all file similarity pairs above the threshold
-    progress_callback(0, 3); // 3 main stages: getting data, grouping, marking
-
-    let similarities = MediaFileSimilarity::find()
-        .filter(media_file_similarity::Column::Similarity.gte(similarity_threshold))
-        .all(db)
-        .await
-        .context("Failed to retrieve file similarities")?;
-
-    if similarities.is_empty() {
-        info!("No similar files found above threshold {similarity_threshold}");
-        progress_callback(3, 3); // Complete all stages
-        return Ok(0);
-    }
-
-    info!(
-        "Found {} similar file pairs above threshold",
-        similarities.len()
-    );
-    progress_callback(1, 3); // Completed first stage
-
-    // Step 2: Group files into clusters of similar content
-    let file_groups = group_similar_files(&similarities);
-    info!("Created {} groups of similar files", file_groups.len());
-    progress_callback(2, 3); // Completed second stage
-
-    // Step 3: For each group, keep the highest sample rate file and mark others as duplicates
-    let total_groups = file_groups.len();
-    let progress_callback_for_marking = {
-        let progress_callback = Arc::clone(&progress_callback);
-        move |current: usize, _: usize| {
-            // Map group progress to overall progress (from 2 to 3)
-            let overall_progress = 2.0 + (current as f32 / total_groups as f32);
-            progress_callback(overall_progress.floor() as usize, 3);
-        }
-    };
-
-    let marked_count = mark_duplicates(db, file_groups, progress_callback_for_marking).await?;
-    info!("Marked {marked_count} files as duplicates");
-    progress_callback(3, 3); // Completed all stages
-
-    Ok(marked_count)
-}
-
-fn group_similar_files(similarities: &[media_file_similarity::Model]) -> Vec<Vec<i32>> {
-    let mut adjacency_list: HashMap<i32, Vec<i32>> = HashMap::new();
+fn group_similar_files(similarities: &[media_file_similarity::Model]) -> Vec<Vec<String>> {
+    let mut adjacency_list: HashMap<String, Vec<String>> = HashMap::new();
 
     // Build an adjacency list for our similarity graph
     for similarity in similarities {
         adjacency_list
-            .entry(similarity.file_id1)
+            .entry(similarity.first_track_uuid.clone())
             .or_default()
-            .push(similarity.file_id2);
+            .push(similarity.second_track_uuid.clone());
         adjacency_list
-            .entry(similarity.file_id2)
+            .entry(similarity.second_track_uuid.clone())
             .or_default()
-            .push(similarity.file_id1);
+            .push(similarity.first_track_uuid.clone());
     }
 
     // Use a set to track visited nodes during our search
@@ -519,22 +130,22 @@ fn group_similar_files(similarities: &[media_file_similarity::Model]) -> Vec<Vec
     let mut groups = Vec::new();
 
     // Perform a depth-first search to find connected components (groups)
-    for &file_id in adjacency_list.keys() {
+    for file_id in adjacency_list.keys().cloned() {
         if visited.contains(&file_id) {
             continue;
         }
 
         let mut group = Vec::new();
-        let mut stack = vec![file_id];
+        let mut stack = vec![file_id.clone()];
         visited.insert(file_id);
 
         while let Some(current_id) = stack.pop() {
-            group.push(current_id);
+            group.push(current_id.clone());
 
             if let Some(neighbors) = adjacency_list.get(&current_id) {
-                for &neighbor in neighbors {
+                for neighbor in neighbors.iter().cloned() {
                     if !visited.contains(&neighbor) {
-                        visited.insert(neighbor);
+                        visited.insert(neighbor.clone());
                         stack.push(neighbor);
                     }
                 }
@@ -549,117 +160,378 @@ fn group_similar_files(similarities: &[media_file_similarity::Model]) -> Vec<Vec
     groups
 }
 
-async fn mark_duplicates<F>(
-    db: &DatabaseConnection,
-    file_groups: Vec<Vec<i32>>,
-    progress_callback: F,
-) -> Result<usize>
-where
-    F: Fn(usize, usize) + Send + Sync + 'static,
-{
-    let mut total_marked = 0;
-    let total_groups = file_groups.len();
-
-    for (group_index, group) in file_groups.into_iter().enumerate() {
-        if group.len() <= 1 {
-            progress_callback(group_index + 1, total_groups);
-            continue;
-        }
-
-        // Get file details for all files in this group
-        let files = MediaFiles::find()
-            .filter(media_files::Column::Id.is_in(group.clone()))
-            .all(db)
-            .await
-            .context("Failed to retrieve file details")?;
-
-        // Find the file with highest sample rate
-        let keep_file = files
-            .iter()
-            .max_by_key(|file| file.sample_rate)
-            .context("Failed to find highest sample rate file")?;
-
-        debug!(
-            "Keeping file {} with sample rate {}",
-            keep_file.id, keep_file.sample_rate
-        );
-
-        // Mark all other files in the group as duplicates
-        for file in files.iter().filter(|f| f.id != keep_file.id) {
-            let fingerprint = MediaFileFingerprint::find()
-                .filter(media_file_fingerprint::Column::MediaFileId.eq(file.id))
-                .one(db)
-                .await
-                .context("Failed to retrieve fingerprint")?;
-
-            if let Some(fp) = fingerprint {
-                let mut fp_active: media_file_fingerprint::ActiveModel = fp.into();
-                fp_active.is_duplicated = ActiveValue::Set(1); // Mark as duplicated
-                fp_active
-                    .update(db)
-                    .await
-                    .context(format!("Failed to mark file {} as duplicate", file.id))?;
-
-                total_marked += 1;
-                debug!(
-                    "Marked file {} as duplicate (sample rate {})",
-                    file.id, file.sample_rate
-                );
-            }
-        }
-
-        progress_callback(group_index + 1, total_groups);
-    }
-
-    Ok(total_marked)
-}
-
 // Function to get all duplicated files
 pub async fn get_duplicate_files(db: &DatabaseConnection) -> Result<Vec<media_files::Model>> {
-    let files = MediaFiles::find()
-        .join(
-            JoinType::InnerJoin,
-            media_file_fingerprint::Relation::MediaFiles.def(),
-        )
-        .filter(media_file_fingerprint::Column::IsDuplicated.eq(1))
-        .all(db)
-        .await
-        .context("Failed to retrieve duplicate files")?;
-
-    Ok(files)
+    let mut duplicates = Vec::new();
+    for file in MediaFiles::find().all(db).await? {
+        if let Some(row) = crate::actions::fingerprint::current_fingerprint(db, &file).await?
+            && row.is_duplicated == 1
+            && crate::actions::fingerprint::fingerprint_status(&row, &file)
+                == crate::actions::fingerprint::SourceStatus::Verified
+        {
+            duplicates.push(file);
+        }
+    }
+    Ok(duplicates)
 }
 
 // Function to reset duplicate marks
-pub async fn reset_duplicate_marks<F>(
+/// Compute new fingerprints and commit their source rows with assignments.
+pub async fn compute_file_fingerprints<F>(
+    fsio: Arc<FsIo>,
     db: &DatabaseConnection,
-    progress_callback: F,
+    root: &Path,
+    batch_size: usize,
+    progress: F,
+    cancel: Option<CancellationToken>,
+    store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<usize>
 where
     F: Fn(usize, usize) + Send + Sync + 'static,
 {
-    let fingerprints = MediaFileFingerprint::find()
-        .filter(media_file_fingerprint::Column::IsDuplicated.eq(1))
-        .all(db)
-        .await
-        .context("Failed to retrieve marked fingerprints")?;
-
-    let total_fingerprints = fingerprints.len();
-    progress_callback(0, total_fingerprints);
-
-    let mut updated_count = 0;
-
-    for (index, fp) in fingerprints.into_iter().enumerate() {
-        let mut fp_active: media_file_fingerprint::ActiveModel = fp.into();
-        fp_active.is_duplicated = ActiveValue::Set(0); // Reset duplicate mark
-        fp_active
-            .update(db)
-            .await
-            .context("Failed to reset duplicate mark")?;
-        updated_count += 1;
-
-        progress_callback(index + 1, total_fingerprints);
+    anyhow::ensure!(batch_size > 0, "batch size must be positive");
+    let query = MediaFiles::find().filter(media_files::Column::LocalAvailable.eq(true));
+    let total = query.clone().count(db).await? as usize;
+    let mut cursor = 0;
+    let mut processed = 0;
+    loop {
+        let rows = query
+            .clone()
+            .filter(media_files::Column::Id.gt(cursor))
+            .order_by_asc(media_files::Column::Id)
+            .limit(batch_size as u64)
+            .all(db)
+            .await?;
+        if rows.is_empty() {
+            break;
+        }
+        for file in rows {
+            cursor = file.id;
+            if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+                return Ok(processed);
+            }
+            if let Some(current) =
+                crate::actions::fingerprint::current_fingerprint(db, &file).await?
+                && crate::actions::fingerprint::fingerprint_status(&current, &file)
+                    == crate::actions::fingerprint::SourceStatus::Verified
+            {
+                processed += 1;
+                progress(processed, total);
+                continue;
+            }
+            let path_for_hash = root.join(&file.directory).join(&file.file_name);
+            let expected = match (&file.content_hash, file.content_size) {
+                (Some(hash), Some(size)) if size >= 0 => crate::sync::model::BlobRef {
+                    digest: hash.clone(),
+                    size: size as u64,
+                },
+                _ => {
+                    log::warn!("fingerprint source identity unavailable: {}", file.id);
+                    processed += 1;
+                    progress(processed, total);
+                    continue;
+                }
+            };
+            if crate::actions::file::hash_file(&fsio, &path_for_hash)
+                .ok()
+                .as_ref()
+                != Some(&expected)
+            {
+                log::warn!(
+                    "fingerprint source content changed before computation: {}",
+                    file.id
+                );
+                processed += 1;
+                progress(processed, total);
+                continue;
+            }
+            let fs = fsio.clone();
+            let path = root.to_path_buf();
+            let observed = file.clone();
+            let token = cancel.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                compute_single_fingerprint(
+                    fs.as_ref(),
+                    &path,
+                    &observed,
+                    &Configuration::default(),
+                    token,
+                )
+            })
+            .await?;
+            match result {
+                Ok((fingerprint, _)) => {
+                    if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+                        return Ok(processed);
+                    }
+                    if crate::actions::file::hash_file(&fsio, &path_for_hash)
+                        .ok()
+                        .as_ref()
+                        != Some(&expected)
+                    {
+                        log::warn!(
+                            "fingerprint source content changed during computation: {}",
+                            file.id
+                        );
+                        processed += 1;
+                        progress(processed, total);
+                        continue;
+                    }
+                    let bytes: Vec<u8> =
+                        fingerprint.into_iter().flat_map(u32::to_le_bytes).collect();
+                    crate::actions::fingerprint::assign_computed_fingerprint(
+                        db,
+                        store,
+                        &file,
+                        ComputedFingerprint {
+                            algorithm: "chromaprint".into(),
+                            configuration: "rusty-chromaprint-0.3.0/default".into(),
+                            format_version: 1,
+                            bytes,
+                            is_duplicated: 0,
+                        },
+                    )
+                    .await?;
+                }
+                Err(error) => {
+                    log::warn!("Fingerprint computation failed for {}: {error:#}", file.id)
+                }
+            }
+            processed += 1;
+            progress(processed, total);
+        }
     }
-
-    info!("Reset duplicate marks for {updated_count} files");
-    Ok(updated_count)
+    Ok(processed)
 }
+
+/// Compare verified fingerprints and author ordered similarity assignments.
+pub async fn compare_all_pairs<F>(
+    db: &DatabaseConnection,
+    progress: F,
+    config: &Configuration,
+    cancel: Option<Arc<CancellationToken>>,
+    store: &crate::sync::SeaOrmSyncStore,
+) -> Result<()>
+where
+    F: Fn(usize, usize) + Send + Sync + 'static,
+{
+    use crate::actions::fingerprint::{SourceStatus, fingerprint_status};
+    let files = MediaFiles::find()
+        .filter(media_files::Column::LocalAvailable.eq(true))
+        .all(db)
+        .await?;
+    let mut eligible = Vec::new();
+    for file in files {
+        let Some(row) = crate::actions::fingerprint::current_fingerprint(db, &file).await? else {
+            continue;
+        };
+        if fingerprint_status(&row, &file) == SourceStatus::Verified {
+            eligible.push((file, bytes_to_u32s(row.fingerprint)?));
+        }
+    }
+    eligible.sort_by_key(|(file, _)| file.hlc_uuid.clone());
+    let total = eligible
+        .len()
+        .saturating_mul(eligible.len().saturating_sub(1))
+        / 2;
+    let mut done = 0;
+    let configuration = format!(
+        "rusty-chromaprint-0.3.0/{}",
+        blake3::hash(format!("{config:?}").as_bytes()).to_hex()
+    );
+    for first in 0..eligible.len() {
+        for second in first + 1..eligible.len() {
+            if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+                return Ok(());
+            }
+            let (file1, fp1) = &eligible[first];
+            let (file2, fp2) = &eligible[second];
+            let segments = match_fingerprints(fp1, fp2, config)?;
+            let score = calculate_similarity_score(
+                &segments,
+                get_track_duration_in_secs(fp1, config)
+                    .max(get_track_duration_in_secs(fp2, config)),
+                config,
+            );
+            crate::actions::fingerprint::assign_computed_similarity(
+                db,
+                store,
+                file1,
+                file2,
+                ComputedSimilarity {
+                    first_fingerprint: &fp1
+                        .iter()
+                        .flat_map(|v| v.to_le_bytes())
+                        .collect::<Vec<_>>(),
+                    second_fingerprint: &fp2
+                        .iter()
+                        .flat_map(|v| v.to_le_bytes())
+                        .collect::<Vec<_>>(),
+                    algorithm: "chromaprint-match".into(),
+                    configuration: configuration.clone(),
+                    format_version: 1,
+                    score,
+                },
+            )
+            .await?;
+            done += 1;
+            progress(done, total);
+        }
+    }
+    Ok(())
+}
+
+/// Recompute shared duplicate marks from similarity rows with verified source observations.
+pub async fn mark_duplicate_files<F>(
+    db: &DatabaseConnection,
+    threshold: f32,
+    progress: F,
+    store: &crate::sync::SeaOrmSyncStore,
+) -> Result<usize>
+where
+    F: Fn(usize, usize) + Send + Sync + 'static,
+{
+    let rows = MediaFileSimilarity::find()
+        .filter(media_file_similarity::Column::Similarity.gte(threshold))
+        .all(db)
+        .await?;
+    let mut verified = Vec::new();
+    for row in rows {
+        let Some(first) = MediaFiles::find()
+            .filter(media_files::Column::HlcUuid.eq(row.first_track_uuid.clone()))
+            .one(db)
+            .await?
+        else {
+            continue;
+        };
+        let Some(second) = MediaFiles::find()
+            .filter(media_files::Column::HlcUuid.eq(row.second_track_uuid.clone()))
+            .one(db)
+            .await?
+        else {
+            continue;
+        };
+        if crate::actions::fingerprint::similarity_status(&row, &first, &second)
+            != crate::actions::fingerprint::SourceStatus::Verified
+        {
+            continue;
+        }
+        let first_fingerprint =
+            crate::actions::fingerprint::current_fingerprint(db, &first).await?;
+        let second_fingerprint =
+            crate::actions::fingerprint::current_fingerprint(db, &second).await?;
+        let (Some(first_fingerprint), Some(second_fingerprint)) =
+            (first_fingerprint, second_fingerprint)
+        else {
+            continue;
+        };
+        if crate::actions::fingerprint::fingerprint_status(&first_fingerprint, &first)
+            != crate::actions::fingerprint::SourceStatus::Verified
+            || crate::actions::fingerprint::fingerprint_status(&second_fingerprint, &second)
+                != crate::actions::fingerprint::SourceStatus::Verified
+        {
+            continue;
+        }
+        verified.push(row);
+    }
+    let groups = group_similar_files(&verified);
+    let total = groups.len();
+    let mut marked = 0;
+    for (index, group) in groups.into_iter().enumerate() {
+        let files = MediaFiles::find()
+            .filter(media_files::Column::HlcUuid.is_in(group))
+            .all(db)
+            .await?;
+        let mut identities = HashSet::new();
+        for file in &files {
+            let id = Uuid::parse_str(&file.hlc_uuid)?;
+            anyhow::ensure!(
+                !id.is_nil() && identities.insert(id),
+                "ambiguous source identities in duplicate group"
+            );
+        }
+        let keep = files
+            .iter()
+            .max_by(|a, b| {
+                a.sample_rate
+                    .cmp(&b.sample_rate)
+                    .then_with(|| b.hlc_uuid.cmp(&a.hlc_uuid))
+            })
+            .context("empty duplicate group")?
+            .id;
+        for file in files {
+            let mark = i32::from(file.id != keep);
+            crate::actions::fingerprint::assign_duplicate_mark(db, store, file.id, mark).await?;
+            marked += mark as usize;
+        }
+        progress(index + 1, total);
+    }
+    Ok(marked)
+}
+
+/// Reset shared duplicate marks using source-row assignments.
+pub async fn reset_duplicate_marks<F>(
+    db: &DatabaseConnection,
+    progress: F,
+    store: &crate::sync::SeaOrmSyncStore,
+) -> Result<usize>
+where
+    F: Fn(usize, usize) + Send + Sync + 'static,
+{
+    use crate::sync::model::{Collection, ObjectKey, author_source_on};
+    use sea_orm::TransactionTrait;
+    const BATCH_SIZE: u64 = 64;
+    let total = MediaFileFingerprint::find()
+        .filter(media_file_fingerprint::Column::IsDuplicated.eq(1))
+        .count(db)
+        .await? as usize;
+    progress(0, total);
+    let mut reset = 0;
+    let mut cursor = 0;
+    loop {
+        let tx = db.begin().await?;
+        store.lock(&tx).await?;
+        let rows = MediaFileFingerprint::find()
+            .filter(media_file_fingerprint::Column::IsDuplicated.eq(1))
+            .filter(media_file_fingerprint::Column::Id.gt(cursor))
+            .order_by_asc(media_file_fingerprint::Column::Id)
+            .limit(BATCH_SIZE)
+            .all(&tx)
+            .await?;
+        if rows.is_empty() {
+            tx.commit().await?;
+            break;
+        }
+        for row in &rows {
+            let file_id = Uuid::parse_str(&row.track_uuid)?;
+            let id = Uuid::parse_str(&row.hlc_uuid)?;
+            anyhow::ensure!(
+                id == migration::catalog_identity::fingerprint(
+                    file_id,
+                    row.algorithm.as_deref(),
+                    row.configuration.as_deref(),
+                    row.format_version
+                ),
+                "fingerprint source identity requires correction"
+            );
+            let mut update: media_file_fingerprint::ActiveModel = row.clone().into();
+            update.is_duplicated = ActiveValue::Set(0);
+            update.update(&tx).await?;
+            author_source_on(
+                &tx,
+                store,
+                ObjectKey {
+                    collection: Collection::Fingerprints,
+                    id,
+                },
+            )
+            .await?;
+        }
+        cursor = rows.last().unwrap().id;
+        tx.commit().await?;
+        reset += rows.len();
+        progress(reset, total);
+    }
+    Ok(reset)
+}
+use sea_orm::SelectExt;

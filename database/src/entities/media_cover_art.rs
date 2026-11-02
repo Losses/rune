@@ -13,6 +13,9 @@ pub struct Model {
     #[sea_orm(column_type = "Blob")]
     pub binary: Vec<u8>,
     pub primary_color: Option<i32>,
+    pub content_hash: Option<String>,
+    pub content_size: Option<i64>,
+    pub local_available: bool,
     pub hlc_uuid: String,
     #[sea_orm(column_type = "Text")]
     pub created_at_hlc_ts: String,

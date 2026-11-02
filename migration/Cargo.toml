@@ -9,7 +9,9 @@ name = "migration"
 path = "src/lib.rs"
 
 [dependencies]
+sync-orm = { path = "../sync-orm" }
 chrono = "0.4.38"
+blake3 = "1.7.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 once_cell = "1.21.3"
 uuid = { version = "1", features = ["v4", "v5"] }

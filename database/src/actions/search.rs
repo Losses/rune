@@ -4,8 +4,10 @@ use anyhow::Result;
 use deunicode::deunicode;
 use log::warn;
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult, QueryFilter,
-    Statement,
+    ActiveValue::Set,
+    ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect,
+    sea_query::{Alias, BinOper, Expr, ExprTrait, Order},
 };
 
 use crate::entities::search_index;
@@ -74,18 +76,16 @@ where
 {
     remove_term(main_db, entry_type.clone(), id).await?;
 
-    search_index::Entity::find().from_raw_sql(Statement::from_sql_and_values(
-        DbBackend::Sqlite,
-        r#"INSERT INTO search_index (id, key, entry_type, doc) VALUES ('', ?, ?, ?), ('', ?, ?, ?);"#,
-        [
-            id.to_string().into(),
-            entry_type.to_string().into(),
-            name.to_string().into(),
-            id.to_string().into(),
-            entry_type.to_string().into(),
-            deunicode(name).into(),
-        ],
-    )).all(main_db).await?;
+    search_index::Entity::insert_many([name.to_owned(), deunicode(name)].map(|doc| {
+        search_index::ActiveModel {
+            id: Set(String::new()),
+            key: Set(Some(id.to_string())),
+            entry_type: Set(Some(entry_type.to_string())),
+            doc: Set(Some(doc)),
+        }
+    }))
+    .exec_without_returning(main_db)
+    .await?;
 
     Ok(())
 }
@@ -141,11 +141,23 @@ pub async fn search_for(
             continue;
         }
 
-        let top_docs = SearchResult::find_by_statement(Statement::from_sql_and_values(
-            DbBackend::Sqlite,
-            r#"SELECT * FROM search_index WHERE doc MATCH ? AND entry_type = ? ORDER BY rank LIMIT ?;"#,
-            [ expression.clone().into(), collection_type.to_string().into(), (n * 2).to_string().into() ],
-        )).all(main_db).await?;
+        let top_docs = search_index::Entity::find()
+            .select_only()
+            .columns([
+                search_index::Column::Key,
+                search_index::Column::EntryType,
+                search_index::Column::Doc,
+            ])
+            .filter(
+                Expr::col(search_index::Column::Doc)
+                    .binary(BinOper::Custom("MATCH"), expression.clone()),
+            )
+            .filter(search_index::Column::EntryType.eq(collection_type.to_string()))
+            .order_by(Expr::col(Alias::new("rank")), Order::Asc)
+            .limit(n.saturating_mul(2) as u64)
+            .into_model::<SearchResult>()
+            .all(main_db)
+            .await?;
 
         for item in top_docs {
             let id = item.key.parse::<i64>();

@@ -8,7 +8,11 @@ publish = false
 name = "database"
 path = "src/lib.rs"
 
+[features]
+sync-crash-probe = []
+
 [dependencies]
+sync-orm = { path = "../sync-orm" }
 log = { version = "0.4.22" }
 sea-orm = { version = "2.0.4", features = [
     "sqlx-sqlite",
@@ -46,8 +50,7 @@ async-trait = "0.1.83"
 thiserror = "2.0.3"
 uuid = { version = "1.11.0", features = ["v5", "v4"] }
 regex = "1.11.1"
-axum = { version = "0.8.2", features = ["tokio"] }
-reqwest = "0.12.18"
+blake3 = "1.7.0"
 fsio = { version = "0.1.0", path = "../fsio" }
 http-request = { version = "0.1.0", path = "../http-request" }
 discovery = { version = "0.1.0", path = "../discovery" }

@@ -10,6 +10,7 @@ pub use super::media_file_albums::Entity as MediaFileAlbums;
 pub use super::media_file_artists::Entity as MediaFileArtists;
 pub use super::media_file_fingerprint::Entity as MediaFileFingerprint;
 pub use super::media_file_genres::Entity as MediaFileGenres;
+pub use super::media_file_likes::Entity as MediaFileLikes;
 pub use super::media_file_playlists::Entity as MediaFilePlaylists;
 pub use super::media_file_similarity::Entity as MediaFileSimilarity;
 pub use super::media_file_stats::Entity as MediaFileStats;

@@ -8,6 +8,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub file_id: i32,
+    pub position: i32,
     #[sea_orm(column_type = "Text")]
     pub meta_key: String,
     #[sea_orm(column_type = "Text")]
@@ -30,9 +31,7 @@ pub enum Relation {
     #[sea_orm(
         belongs_to = "super::media_files::Entity",
         from = "Column::FileId",
-        to = "super::media_files::Column::Id",
-        on_update = "Cascade",
-        on_delete = "Cascade"
+        to = "super::media_files::Column::Id"
     )]
     MediaFiles,
 }

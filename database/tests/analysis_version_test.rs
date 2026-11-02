@@ -10,7 +10,7 @@ use database::{
         mixes::query_mix_media_files,
         recommendation::{get_recommendation_by_file_id, sync_recommendation},
     },
-    connection::{RecommendationDbConnection, initialize_db},
+    connection::RecommendationDbConnection,
     entities::media_analysis,
 };
 use fsio::FsIo;
@@ -22,18 +22,32 @@ use std::{path::Path, sync::Arc};
 #[tokio::test]
 async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()> {
     let db = Database::connect("sqlite::memory:").await?;
-    initialize_db(&db, "analysis-version-test").await?;
+    let actor = uuid::Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")?;
+    let _ = migration::initialize_node_id(actor.to_string());
+    let prior_count = Migrator::migrations()
+        .iter()
+        .position(|migration| migration.name() == "m20261031_000030_add_analysis_version")
+        .expect("analysis version migration must be registered");
+    Migrator::up(&db, Some(prior_count as u32)).await?;
+    db.execute_unprepared("INSERT INTO media_files(id,file_name,directory,extension,file_hash,last_modified,sample_rate,duration,hlc_uuid) VALUES(1,'startup_0.ogg','','ogg','legacy','2020',44100,1,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')").await?;
+    db.execute_unprepared("INSERT INTO media_analysis (file_id,rms,hlc_uuid,created_at_hlc_ts,created_at_hlc_ver,created_at_hlc_nid,updated_at_hlc_ts,updated_at_hlc_ver,updated_at_hlc_nid) VALUES (1,999,'legacy','',0,'','',0,'')").await?;
+    Migrator::up(&db, None).await?;
     let fs = Arc::new(FsIo::new());
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../assets")
         .canonicalize()?;
+    let store = database::sync::LibrarySyncStore::open(db.clone(), actor, None).await?;
     let node = fs.canonicalize(&root.join("startup_0.ogg"))?;
     let mut descriptions = vec![Some(describe_file(&fs, &node, &Some(root.clone()))?)];
-    sync_file_descriptions(&fs, &db, "analysis-version-test", &mut descriptions, false).await?;
-    // Recreate a pre-versioning database and migrate a real legacy row.
-    Migrator::down(&db, Some(1)).await?;
-    db.execute_unprepared("INSERT INTO media_analysis (file_id,rms,hlc_uuid,created_at_hlc_ts,created_at_hlc_ver,created_at_hlc_nid,updated_at_hlc_ts,updated_at_hlc_ver,updated_at_hlc_nid) VALUES (1,999,'legacy','',0,'','',0,'')").await?;
-    Migrator::up(&db, None).await?;
+    sync_file_descriptions(
+        &fs,
+        &db,
+        &actor.to_string(),
+        &mut descriptions,
+        false,
+        &store.record_store(),
+    )
+    .await?;
     let old = media_analysis::Entity::find().one(&db).await?.unwrap();
     assert_eq!(old.analysis_version, 1);
     assert_eq!(get_analyze_count(&db).await?, 0);
@@ -68,7 +82,7 @@ async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()>
         fs.clone(),
         &db,
         &root,
-        "analysis-version-test",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         1,
         ComputingDevice::Cpu,
         |_, _| {},
@@ -83,7 +97,7 @@ async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()>
         fs.clone(),
         &db,
         &root,
-        "analysis-version-test",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         1,
         ComputingDevice::Cpu,
         |_, _| {},
@@ -106,7 +120,7 @@ async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()>
             fs,
             &db,
             &root,
-            "analysis-version-test",
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
             1,
             ComputingDevice::Cpu,
             |_, _| {},

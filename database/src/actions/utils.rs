@@ -32,45 +32,57 @@ pub trait CollectionDefinition: EntityTrait {
 
 #[macro_export]
 macro_rules! get_entity_to_cover_ids {
-    ($db:expr, $entity_ids:expr, $related_entity:ident, $relation_column_name:ident, $magic_cover_art_id:expr) => {
-        paste::paste! {{
-            use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-            use std::collections::{HashMap, HashSet};
-            use $crate::entities::media_files;
+    ($db:expr, $entity_ids:expr, $item_entity:ident, $related_entity:ident, $relation_column_name:ident, $magic_cover_art_id:expr) => {{
+        use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect};
+        use std::collections::{HashMap, HashSet};
+        use $crate::entities::{media_cover_art, media_files};
 
-            // Fetch related media files for these entities
-            let media_file_relations = <$related_entity::Entity>::find()
-                .filter(<$related_entity::Column>::$relation_column_name.is_in($entity_ids.clone()))
-                .all($db)
-                .await?;
-
-            let mut entity_to_media_file_ids: HashMap<i32, Vec<i32>> = HashMap::new();
-            for relation in media_file_relations {
-                entity_to_media_file_ids
-                    .entry(relation.[<$relation_column_name:snake:lower>])
-                    .or_default()
-                    .push(relation.media_file_id);
-            }
-
-            let mut entity_to_cover_ids: HashMap<i32, HashSet<i32>> = HashMap::new();
-            for (entity_id, media_file_ids) in entity_to_media_file_ids {
-                let media_files = media_files::Entity::find()
-                    .filter(media_files::Column::Id.is_in(media_file_ids))
-                    .filter(media_files::Column::CoverArtId.ne($magic_cover_art_id))
-                    .all($db)
-                    .await?;
-
-                let cover_ids = media_files
-                    .into_iter()
-                    .filter_map(|media_file| media_file.cover_art_id)
-                    .collect::<HashSet<i32>>();
-
-                entity_to_cover_ids.insert(entity_id, cover_ids);
-            }
-
-            Ok::<HashMap<i32, HashSet<i32>>, sea_orm::DbErr>(entity_to_cover_ids)
-        }}
-    };
+        let rows = <$item_entity::Entity>::find()
+            .select_only()
+            .column_as(<$item_entity::Column>::Id, "owner_id")
+            .column_as(
+                sea_orm::sea_query::Expr::col((
+                    media_cover_art::Entity,
+                    media_cover_art::Column::Id,
+                )),
+                "artwork_id",
+            )
+            .join(
+                JoinType::InnerJoin,
+                <$item_entity::Entity>::has_many($related_entity::Entity)
+                    .from(<$item_entity::Column>::HlcUuid)
+                    .to(<$related_entity::Column>::$relation_column_name)
+                    .into(),
+            )
+            .join(
+                JoinType::InnerJoin,
+                <$related_entity::Entity>::belongs_to(media_files::Entity)
+                    .from(<$related_entity::Column>::TrackUuid)
+                    .to(media_files::Column::HlcUuid)
+                    .into(),
+            )
+            .join(
+                JoinType::InnerJoin,
+                media_files::Entity::belongs_to(media_cover_art::Entity)
+                    .from(media_files::Column::CoverArtUuid)
+                    .to(media_cover_art::Column::HlcUuid)
+                    .into(),
+            )
+            .filter(<$item_entity::Column>::Id.is_in($entity_ids.clone()))
+            .filter(media_cover_art::Column::Id.ne($magic_cover_art_id))
+            .distinct()
+            .into_tuple::<(i32, i32)>()
+            .all($db)
+            .await?;
+        let mut entity_to_cover_ids: HashMap<i32, HashSet<i32>> = HashMap::new();
+        for (entity_id, cover_id) in rows {
+            entity_to_cover_ids
+                .entry(entity_id)
+                .or_default()
+                .insert(cover_id);
+        }
+        Ok::<HashMap<i32, HashSet<i32>>, sea_orm::DbErr>(entity_to_cover_ids)
+    }};
 }
 
 #[macro_export]
@@ -88,6 +100,7 @@ macro_rules! get_cover_ids {
             get_entity_to_cover_ids!(
                 db,
                 entity_ids,
+                $item_entity,
                 $related_entity,
                 $relation_column_name,
                 magic_cover_art_id

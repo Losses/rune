@@ -26,5 +26,5 @@ collection_query!(
     CollectionQueryType::Artist,
     "lib::artist".to_owned(),
     media_file_artists,
-    ArtistId
+    ArtistUuid
 );

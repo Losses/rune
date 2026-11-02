@@ -1,176 +1,168 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use chrono::Utc;
-use sea_orm::ActiveValue;
-use sea_orm::prelude::*;
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
+};
+use uuid::Uuid;
 
-use crate::entities::media_file_stats;
-use crate::entities::media_files;
+use crate::entities::{media_file_likes as likes, media_file_stats as stats, media_files};
 
-/// Set the liked status of a media file.
-///
-/// # Arguments
-/// * `main_db` - A reference to the database connection.
-/// * `media_file_id` - The ID of the media file to update.
-/// * `liked` - The new liked status.
-///
-/// # Returns
-/// * `Result<Model>` - The updated media file stats model or an error.
-pub async fn set_liked(
-    main_db: &DatabaseConnection,
-    media_file_id: i32,
+/// Apply a like assignment. This method does not author replication records.
+async fn assign_liked<C: ConnectionTrait>(
+    db: &C,
+    file_id: i32,
     liked: bool,
-) -> Result<Option<media_file_stats::Model>> {
-    let media_file = media_files::Entity::find_by_id(media_file_id)
-        .one(main_db)
+    updated_at: &str,
+) -> Result<likes::Model> {
+    let file = media_files::Entity::find_by_id(file_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| anyhow!("media file not found"))?;
+    let existing = likes::Entity::find()
+        .filter(likes::Column::TrackUuid.eq(&file.hlc_uuid))
+        .one(db)
         .await?;
+    let is_existing = existing.is_some();
+    let mut row = existing
+        .map(Into::into)
+        .unwrap_or_else(|| likes::ActiveModel {
+            track_uuid: Set(file.hlc_uuid.clone()),
+            hlc_uuid: Set(file.hlc_uuid),
+            ..Default::default()
+        });
+    row.liked = Set(liked);
+    row.updated_at = Set(updated_at.to_owned());
+    if is_existing {
+        Ok(row.update(db).await?)
+    } else {
+        Ok(row.insert(db).await?)
+    }
+}
 
-    if media_file.is_none() {
+pub async fn get_liked<C: ConnectionTrait>(db: &C, file_id: i32) -> Result<bool> {
+    use sea_orm::{JoinType, QuerySelect, RelationTrait};
+    Ok(likes::Entity::find()
+        .join(JoinType::InnerJoin, likes::Relation::MediaFiles.def())
+        .filter(media_files::Column::Id.eq(file_id))
+        .one(db)
+        .await?
+        .is_some_and(|row| row.liked))
+}
+
+pub async fn set_liked(
+    db: &sea_orm::DatabaseConnection,
+    store: &crate::sync::SeaOrmSyncStore,
+    file_id: i32,
+    liked: bool,
+) -> Result<Option<likes::Model>> {
+    use crate::sync::model::{ObjectKey, RuneObjectKey, author_source_on};
+    use sea_orm::TransactionTrait;
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let Some(file) = media_files::Entity::find_by_id(file_id).one(&tx).await? else {
         return Ok(None);
-    }
-
-    // Find the media file stats by media file ID
-    let stats = media_file_stats::Entity::find()
-        .filter(media_file_stats::Column::MediaFileId.eq(media_file_id))
-        .one(main_db)
-        .await?;
-
-    let updated_stats = if let Some(stats) = stats {
-        let mut active_model: media_file_stats::ActiveModel = stats.into();
-
-        // Update the liked status
-        active_model.liked = ActiveValue::Set(liked);
-        active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
-
-        // Update the media file stats in the database
-        active_model.update(main_db).await?
-    } else {
-        // Create a new media file stats record
-        let new_stats = media_file_stats::ActiveModel {
-            media_file_id: ActiveValue::Set(media_file_id),
-            liked: ActiveValue::Set(liked),
-            skipped: ActiveValue::Set(0),
-            played_through: ActiveValue::Set(0),
-            updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-            ..Default::default()
-        };
-
-        new_stats.insert(main_db).await?
     };
-
-    Ok(Some(updated_stats))
-}
-
-/// Get the liked status of a media file.
-///
-/// # Arguments
-/// * `main_db` - A reference to the database connection.
-/// * `media_file_id` - The ID of the media file to update.
-///
-/// # Returns
-/// * `Result<Model>` - The updated media file stats model or an error.
-pub async fn get_liked(main_db: &DatabaseConnection, media_file_id: i32) -> Result<bool> {
-    use media_file_stats::Entity as MediaFileStatsEntity;
-
-    // Find the media file stats by media file ID
-    let stats = MediaFileStatsEntity::find()
-        .filter(media_file_stats::Column::MediaFileId.eq(media_file_id))
-        .one(main_db)
-        .await?;
-
-    match stats {
-        Some(stats) => Ok(stats.liked),
-        None => Ok(false),
+    let track_id = Uuid::parse_str(&file.hlc_uuid)?;
+    if let Some(existing) = likes::Entity::find()
+        .filter(likes::Column::TrackUuid.eq(&file.hlc_uuid))
+        .one(&tx)
+        .await?
+        && existing.liked == liked
+    {
+        return Ok(Some(existing));
     }
+    let row = assign_liked(&tx, file_id, liked, &Utc::now().to_rfc3339()).await?;
+    author_source_on(&tx, store, ObjectKey::liked(track_id)).await?;
+    tx.commit().await?;
+    Ok(Some(row))
 }
 
-/// Increase the skipped count of a media file.
-///
-/// # Arguments
-/// * `main_db` - A reference to the database connection.
-/// * `media_file_id` - The ID of the media file to update.
-///
-/// # Returns
-/// * `Result<Model>` - The updated media file stats model or an error.
 pub async fn increase_skipped(
-    main_db: &DatabaseConnection,
-    media_file_id: i32,
-) -> Result<media_file_stats::Model> {
-    use media_file_stats::Entity as MediaFileStatsEntity;
-
-    // Find the media file stats by media file ID
-    let stats = MediaFileStatsEntity::find()
-        .filter(media_file_stats::Column::MediaFileId.eq(media_file_id))
-        .one(main_db)
-        .await?;
-
-    let updated_stats = if let Some(stats) = stats {
-        let mut active_model: media_file_stats::ActiveModel = stats.clone().into();
-
-        // Increase the skipped count
-        active_model.skipped = ActiveValue::Set(stats.skipped + 1);
-        active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
-
-        // Update the media file stats in the database
-        active_model.update(main_db).await?
-    } else {
-        // Create a new media file stats record
-        let new_stats = media_file_stats::ActiveModel {
-            media_file_id: ActiveValue::Set(media_file_id),
-            liked: ActiveValue::Set(false),
-            skipped: ActiveValue::Set(1),
-            played_through: ActiveValue::Set(0),
-            updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-            ..Default::default()
-        };
-
-        new_stats.insert(main_db).await?
+    db: &sea_orm::DatabaseConnection,
+    store: &crate::sync::SeaOrmSyncStore,
+    file_id: i32,
+    device_id: Uuid,
+) -> Result<stats::Model> {
+    author_increment(db, store, file_id, device_id, false).await
+}
+pub async fn increase_played_through(
+    db: &sea_orm::DatabaseConnection,
+    store: &crate::sync::SeaOrmSyncStore,
+    file_id: i32,
+    device_id: Uuid,
+) -> Result<stats::Model> {
+    author_increment(db, store, file_id, device_id, true).await
+}
+async fn author_increment(
+    db: &sea_orm::DatabaseConnection,
+    store: &crate::sync::SeaOrmSyncStore,
+    file_id: i32,
+    device_id: Uuid,
+    played: bool,
+) -> Result<stats::Model> {
+    use crate::sync::model::{Collection, ObjectKey, author_source_on};
+    use sea_orm::TransactionTrait;
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let row = increment_statistics(&tx, file_id, device_id, played).await?;
+    let file = media_files::Entity::find_by_id(file_id)
+        .one(&tx)
+        .await?
+        .ok_or_else(|| anyhow!("media file not found"))?;
+    let track_id = Uuid::parse_str(&file.hlc_uuid)?;
+    let key = ObjectKey {
+        collection: Collection::PlaybackStatistics,
+        id: Uuid::new_v5(&track_id, device_id.as_bytes()),
     };
-
-    Ok(updated_stats)
+    author_source_on(&tx, store, key).await?;
+    tx.commit().await?;
+    Ok(row)
 }
 
-/// Increase the played through count of a media file.
-///
-/// # Arguments
-/// * `main_db` - A reference to the database connection.
-/// * `media_file_id` - The ID of the media file to update.
-///
-/// # Returns
-/// * `Result<Model>` - The updated media file stats model or an error.
-pub async fn increase_played_through(
-    main_db: &DatabaseConnection,
-    media_file_id: i32,
-) -> Result<media_file_stats::Model> {
-    use media_file_stats::Entity as MediaFileStatsEntity;
-
-    // Find the media file stats by media file ID
-    let stats = MediaFileStatsEntity::find()
-        .filter(media_file_stats::Column::MediaFileId.eq(media_file_id))
-        .one(main_db)
-        .await?;
-
-    let updated_stats = if let Some(stats) = stats {
-        let mut active_model: media_file_stats::ActiveModel = stats.clone().into();
-
-        // Increase the played through count
-        active_model.played_through = ActiveValue::Set(stats.played_through + 1);
-        active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
-
-        // Update the media file stats in the database
-        active_model.update(main_db).await?
+/// Increment only the supplied device's row within the caller's transaction.
+async fn increment_statistics<C: ConnectionTrait>(
+    db: &C,
+    file_id: i32,
+    device_id: Uuid,
+    played: bool,
+) -> Result<stats::Model> {
+    use sea_orm::sea_query::{Expr, ExprTrait, OnConflict};
+    let file = media_files::Entity::find_by_id(file_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| anyhow!("media file not found"))?;
+    let file_uuid = Uuid::parse_str(&file.hlc_uuid)?;
+    let device = device_id.to_string();
+    let now = Utc::now().to_rfc3339();
+    let mut conflict = OnConflict::columns([stats::Column::TrackUuid, stats::Column::DeviceId]);
+    conflict.value(stats::Column::UpdatedAt, Expr::value(now.clone()));
+    if played {
+        conflict.value(
+            stats::Column::PlayedThrough,
+            Expr::col(stats::Column::PlayedThrough).add(1),
+        );
     } else {
-        // Create a new media file stats record
-        let new_stats = media_file_stats::ActiveModel {
-            media_file_id: ActiveValue::Set(media_file_id),
-            liked: ActiveValue::Set(false),
-            skipped: ActiveValue::Set(0),
-            played_through: ActiveValue::Set(1),
-            updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-            ..Default::default()
-        };
-
-        new_stats.insert(main_db).await?
-    };
-
-    Ok(updated_stats)
+        conflict.value(
+            stats::Column::Skipped,
+            Expr::col(stats::Column::Skipped).add(1),
+        );
+    }
+    stats::Entity::insert(stats::ActiveModel {
+        track_uuid: Set(file.hlc_uuid.clone()),
+        device_id: Set(device.clone()),
+        hlc_uuid: Set(Uuid::new_v5(&file_uuid, device_id.as_bytes()).to_string()),
+        skipped: Set(i32::from(!played)),
+        played_through: Set(i32::from(played)),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .on_conflict(conflict.to_owned())
+    .exec_without_returning(db)
+    .await?;
+    stats::Entity::find()
+        .filter(stats::Column::TrackUuid.eq(&file.hlc_uuid))
+        .filter(stats::Column::DeviceId.eq(device))
+        .one(db)
+        .await?
+        .ok_or_else(|| anyhow!("statistics row missing after increment"))
 }

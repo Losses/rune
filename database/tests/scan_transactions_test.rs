@@ -9,7 +9,13 @@ use sea_orm::{ConnectionTrait, Database, DbBackend, EntityTrait, PaginatorTrait,
 #[tokio::test]
 async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
     let db = Database::connect("sqlite::memory:").await?;
-    initialize_db(&db, "scan-test").await?;
+    initialize_db(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
+    let store = database::sync::SeaOrmSyncStore::create_empty(
+        db.clone(),
+        uuid::Uuid::from_u128(2),
+        uuid::Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")?,
+    )
+    .await?;
     db.execute_raw(Statement::from_string(DbBackend::Sqlite,
         "CREATE TRIGGER reject_metadata BEFORE INSERT ON media_metadata BEGIN SELECT RAISE(ABORT, 'test failure'); END;".to_owned())).await?;
     let fs = FsIo::new();
@@ -19,9 +25,16 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
     let node = fs.canonicalize(&root.join("startup_0.ogg"))?;
     let mut descriptions = vec![Some(describe_file(&fs, &node, &Some(root))?)];
     assert!(
-        sync_file_descriptions(&fs, &db, "scan-test", &mut descriptions, false)
-            .await
-            .is_err()
+        sync_file_descriptions(
+            &fs,
+            &db,
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            &mut descriptions,
+            false,
+            &store
+        )
+        .await
+        .is_err()
     );
     assert_eq!(media_files::Entity::find().count(&db).await?, 0);
     db.execute_raw(Statement::from_string(
@@ -29,7 +42,15 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
         "DROP TRIGGER reject_metadata".to_owned(),
     ))
     .await?;
-    sync_file_descriptions(&fs, &db, "scan-test", &mut descriptions, false).await?;
+    sync_file_descriptions(
+        &fs,
+        &db,
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        &mut descriptions,
+        false,
+        &store,
+    )
+    .await?;
     assert_eq!(media_files::Entity::find().count(&db).await?, 1);
     let cancelled = tokio_util::sync::CancellationToken::new();
     cancelled.cancel();
@@ -37,7 +58,7 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
         std::sync::Arc::new(fs),
         &db,
         std::path::Path::new("."),
-        "scan-test",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         1,
         analysis::utils::computing_device::ComputingDevice::Cpu,
         |_, _| {},
@@ -54,7 +75,13 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
 #[tokio::test]
 async fn failed_file_does_not_rollback_neighbors_or_stop_the_batch() -> Result<()> {
     let db = Database::connect("sqlite::memory:").await?;
-    initialize_db(&db, "scan-test").await?;
+    initialize_db(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
+    let store = database::sync::SeaOrmSyncStore::create_empty(
+        db.clone(),
+        uuid::Uuid::from_u128(2),
+        uuid::Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")?,
+    )
+    .await?;
     db.execute_raw(Statement::from_string(DbBackend::Sqlite,
         "CREATE TRIGGER reject_one BEFORE INSERT ON media_metadata WHEN (SELECT file_name FROM media_files WHERE id=NEW.file_id)='bad.ogg' BEGIN SELECT RAISE(ABORT, 'test failure'); END;".to_owned())).await?;
     let dir = tempfile::tempdir()?;
@@ -71,9 +98,16 @@ async fn failed_file_does_not_rollback_neighbors_or_stop_the_batch() -> Result<(
         )?));
     }
     assert!(
-        sync_file_descriptions(&fs, &db, "scan-test", &mut descriptions, false)
-            .await
-            .is_err()
+        sync_file_descriptions(
+            &fs,
+            &db,
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            &mut descriptions,
+            false,
+            &store
+        )
+        .await
+        .is_err()
     );
     let mut names: Vec<_> = media_files::Entity::find()
         .all(&db)
@@ -92,27 +126,24 @@ async fn failed_file_does_not_rollback_neighbors_or_stop_the_batch() -> Result<(
 #[tokio::test]
 async fn lookup_indexes_upgrade_existing_database_and_survive_reopen() -> Result<()> {
     use migration::{Migrator, MigratorTrait};
+    use sea_orm::ExprTrait;
     let dir = tempfile::tempdir()?;
     let url = format!(
         "sqlite://{}?mode=rwc",
         dir.path().join("library.db").display()
     );
     let db = Database::connect(&url).await?;
-    initialize_db(&db, "scan-test").await?;
-    // Return to the previous release's schema, then exercise the upgrade path.
-    let pending = Migrator::get_applied_migrations(&db)
-        .await?
+    // Construct the previous schema directly; UUID conversion cannot be reversed.
+    let _ = migration::initialize_node_id("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_owned());
+    let before_lookup_indexes = Migrator::migrations()
         .iter()
-        .filter(|m| m.name() >= "m20261031_000029_add_library_lookup_indexes")
-        .count() as u32;
-    Migrator::down(&db, Some(pending)).await?;
+        .position(|m| m.name() == "m20261031_000029_add_library_lookup_indexes")
+        .expect("lookup index migration exists");
+    Migrator::up(&db, Some(before_lookup_indexes as u32)).await?;
     db.execute_raw(Statement::from_string(DbBackend::Sqlite,
         "INSERT INTO media_files (file_name,directory,extension,file_hash,last_modified,sample_rate,duration) VALUES ('track.ogg','','ogg','abc','1',44100,10)".to_owned())).await?;
-    initialize_db(&db, "scan-test").await?;
-    db.close().await?;
-    let db = Database::connect(&url).await?;
-    initialize_db(&db, "scan-test").await?;
-    assert_eq!(media_files::Entity::find().count(&db).await?, 1);
+    // Verify the original lookup indexes immediately after their upgrade.
+    Migrator::up(&db, Some(1)).await?;
     for (sql, index) in [
         (
             "SELECT id FROM media_files WHERE directory='' AND file_name='track.ogg'",
@@ -122,6 +153,54 @@ async fn lookup_indexes_upgrade_existing_database_and_survive_reopen() -> Result
             "SELECT id FROM media_metadata WHERE file_id=1",
             "idx_media_metadata_file_id",
         ),
+        (
+            "SELECT id FROM media_analysis WHERE file_id=1",
+            "idx_media_analysis_file_id",
+        ),
+    ] {
+        let plan = db
+            .query_all_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                format!("EXPLAIN QUERY PLAN {sql}"),
+            ))
+            .await?;
+        assert!(
+            plan.iter()
+                .any(|row| row.try_get::<String>("", "detail").unwrap().contains(index)),
+            "Missing index in upgrade query plan: {index}"
+        );
+    }
+    initialize_db(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
+    db.close().await?;
+    let db = Database::connect(&url).await?;
+    initialize_db(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
+    assert_eq!(media_files::Entity::find().count(&db).await?, 1);
+    for name in [
+        "idx_media_files_path",
+        "idx_media_metadata_file_id",
+        "idx_media_analysis_file_id",
+    ] {
+        let q = sea_orm::sea_query::Query::select()
+            .expr(sea_orm::sea_query::Expr::val(1))
+            .from(sea_orm::sea_query::Alias::new("sqlite_master"))
+            .and_where(
+                sea_orm::sea_query::Expr::col(sea_orm::sea_query::Alias::new("type")).eq("index"),
+            )
+            .and_where(
+                sea_orm::sea_query::Expr::col(sea_orm::sea_query::Alias::new("name")).eq(name),
+            )
+            .to_owned();
+        assert!(
+            db.query_one(&q).await?.is_some(),
+            "Index lost during conversion: {name}"
+        );
+    }
+    for (sql, index) in [
+        (
+            "SELECT id FROM media_files WHERE directory='' AND file_name='track.ogg'",
+            "idx_media_files_path",
+        ),
+        ("SELECT id FROM media_metadata WHERE file_id=1", "file_id=?"),
         (
             "SELECT id FROM media_analysis WHERE file_id=1",
             "idx_media_analysis_file_id",
@@ -148,12 +227,16 @@ async fn cover_timestamps_preserve_shared_and_absent_cover_behavior_across_chunk
         ensure_magic_cover_art, get_files_with_cover_art_timestamps,
     };
     let db = Database::connect("sqlite::memory:").await?;
-    initialize_db(&db, "scan-test").await?;
-    let cover = ensure_magic_cover_art(&db, "scan-test").await?;
-    for (id, cover_id) in [(1, Some(cover.id)), (2, Some(cover.id)), (3, None)] {
+    initialize_db(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
+    let cover = ensure_magic_cover_art(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
+    for (id, cover_id) in [
+        (1, Some(cover.hlc_uuid.clone())),
+        (2, Some(cover.hlc_uuid.clone())),
+        (3, None),
+    ] {
         db.execute_raw(Statement::from_sql_and_values(DbBackend::Sqlite,
-            "INSERT INTO media_files (id,file_name,directory,extension,file_hash,last_modified,sample_rate,duration,cover_art_id) VALUES (?,?,'','ogg','abc','123',44100,10,?)",
-            [id.into(), format!("{id}.ogg").into(), cover_id.into()])).await?;
+            "INSERT INTO media_files (id,file_name,directory,extension,file_hash,last_modified,sample_rate,duration,cover_art_uuid,hlc_uuid,cover_art_checked_at) VALUES (?,?,'','ogg','abc','123',44100,10,?,?,?)",
+            [id.into(), format!("{id}.ogg").into(), cover_id.clone().into(), uuid::Uuid::from_u128(id as u128).to_string().into(), cover_id.map(|_| cover.updated_at_hlc_ts.clone()).into()])).await?;
     }
     let mut ids = vec![1; 500];
     ids.extend([2, 3, 999]);
