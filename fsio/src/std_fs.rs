@@ -102,6 +102,13 @@ impl FileIo for StdFsIo {
         fs::remove_file(path).await.map_err(FileIoError::Io)
     }
 
+    async fn rename_file(&self, from: &Path, to: &Path) -> Result<(), FileIoError> {
+        if from.parent() != to.parent() || !fs::metadata(from).await?.is_file() {
+            return Err(FileIoError::InvalidPath);
+        }
+        fs::rename(from, to).await.map_err(FileIoError::Io)
+    }
+
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
         fs::remove_dir_all(path).await.map_err(FileIoError::Io)
     }

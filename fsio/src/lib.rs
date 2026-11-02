@@ -58,6 +58,11 @@ pub trait FileIo: Send + Sync {
     fn create_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
     async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError>;
     async fn remove_file(&self, path: &Path) -> Result<(), FileIoError>;
+    /// Rename a file within its current directory. Backends must finish the
+    /// rename before reporting success; callers can then register a verified file.
+    async fn rename_file(&self, _from: &Path, _to: &Path) -> Result<(), FileIoError> {
+        Err(FileIoError::NotSupported("file rename".into()))
+    }
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError>;
     fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<Vec<FsNode>, FileIoError>;
     fn exists(&self, path: &Path) -> Result<bool, FileIoError>;

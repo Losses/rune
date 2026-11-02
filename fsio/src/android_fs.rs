@@ -452,6 +452,84 @@ impl FileIo for AndroidFsIo {
         Ok(())
     }
 
+    async fn rename_file(&self, from: &Path, to: &Path) -> Result<(), FileIoError> {
+        if from.parent() != to.parent() || from == to {
+            return Err(FileIoError::InvalidPath);
+        }
+        let file = self.get_android_file(from)?;
+        if file.is_dir || self.exists(to)? {
+            return Err(FileIoError::InvalidPath);
+        }
+        let name = to
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or(FileIoError::InvalidPath)?;
+        let rename = || -> anyhow::Result<String> {
+            use jni::objects::{JString, JValue};
+            let mut env = ndk_saf::get_env()?;
+            let application = env
+                .call_static_method(
+                    "android/app/ActivityThread",
+                    "currentApplication",
+                    "()Landroid/app/Application;",
+                    &[],
+                )?
+                .l()?;
+            let resolver = env
+                .call_method(
+                    application,
+                    "getContentResolver",
+                    "()Landroid/content/ContentResolver;",
+                    &[],
+                )?
+                .l()?;
+            let url = env.new_string(&file.url)?;
+            let uri = env
+                .call_static_method(
+                    "android/net/Uri",
+                    "parse",
+                    "(Ljava/lang/String;)Landroid/net/Uri;",
+                    &[JValue::Object(&url)],
+                )?
+                .l()?;
+            let name = env.new_string(name)?;
+            let renamed = env.call_static_method(
+                "android/provider/DocumentsContract", "renameDocument",
+                "(Landroid/content/ContentResolver;Landroid/net/Uri;Ljava/lang/String;)Landroid/net/Uri;",
+                &[JValue::Object(&resolver), JValue::Object(&uri), JValue::Object(&name)],
+            )?.l()?;
+            anyhow::ensure!(!renamed.is_null(), "document provider refused rename");
+            let result = JString::from(
+                env.call_method(renamed, "toString", "()Ljava/lang/String;", &[])?
+                    .l()?,
+            );
+            let result: String = env.get_string(&result)?.into();
+            Ok(result)
+        };
+        let uri = rename().map_err(|e| {
+            if let Ok(mut env) = ndk_saf::get_env() {
+                ndk_saf::clear_pending_exception(&mut env);
+            }
+            FileIoError::Saf(e.to_string())
+        })?;
+        let mut conn = self.db.lock().unwrap();
+        let tx = conn
+            .transaction()
+            .map_err(|e| FileIoError::Database(e.to_string()))?;
+        tx.execute(
+            "DELETE FROM fs_cache WHERE path=?1",
+            params![from.to_str().ok_or(FileIoError::InvalidPath)?],
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))?;
+        tx.execute(
+            "INSERT OR REPLACE INTO fs_cache(path,content_url,parent,filename,is_dir,size) VALUES(?1,?2,?3,?4,0,?5)",
+            params![to.to_str().ok_or(FileIoError::InvalidPath)?, uri, to.parent().and_then(|p| p.to_str()).ok_or(FileIoError::InvalidPath)?, name, file.size as i64],
+        ).map_err(|e| FileIoError::Database(e.to_string()))?;
+        tx.commit()
+            .map_err(|e| FileIoError::Database(e.to_string()))?;
+        Ok(())
+    }
+
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
         let file = self.get_android_file(path)?;
         file.remove_file()
