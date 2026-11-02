@@ -167,22 +167,10 @@ async fn copied_library_with_distinct_actors_is_rejected_as_same_replica() -> Re
     increase_skipped(&b_db, &b.record_store(), file, actor_b).await?;
     increase_skipped(&b_db, &b.record_store(), file, actor_b).await?;
     set_liked(&a_db, &a.record_store(), file, false).await?;
-    let a_list = create_playlist(
-        &a_db,
-        &a.record_store(),
-        actor_a,
-        "A playlist".into(),
-        "test".into(),
-    )
-    .await?;
-    let b_list = create_playlist(
-        &b_db,
-        &b.record_store(),
-        actor_b,
-        "B playlist".into(),
-        "test".into(),
-    )
-    .await?;
+    let a_list =
+        create_playlist(&a_db, &a.record_store(), "A playlist".into(), "test".into()).await?;
+    let b_list =
+        create_playlist(&b_db, &b.record_store(), "B playlist".into(), "test".into()).await?;
     let c_path = root.path().join("c.db");
     let c_db = Database::connect(format!("sqlite://{}?mode=rwc", c_path.display())).await?;
     Migrator::up(&c_db, None).await?;

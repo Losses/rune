@@ -2,7 +2,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
-use chrono::Utc;
 use fsio::FsIo;
 use futures::future::join_all;
 use log::info;
@@ -43,7 +42,6 @@ pub async fn analysis_audio_library<F>(
     fsio: Arc<FsIo>,
     main_db: &DatabaseConnection,
     lib_path: &Path,
-    node_id: &str,
     batch_size: usize,
     computing_device: ComputingDevice,
     progress_callback: F,
@@ -72,7 +70,6 @@ where
         );
 
     let lib_path = Arc::new(lib_path.to_path_buf());
-    let node_id = Arc::new(node_id.to_owned());
     parallel_media_files_processing!(
         main_db,
         batch_size,
@@ -81,20 +78,16 @@ where
         cursor_query,
         lib_path,
         fsio,
-        node_id,
         move |fsio, file, lib_path, cancel_token| {
             analysis_file(fsio, file, lib_path, computing_device, cancel_token)
         },
         |db,
          file: media_files::Model,
-         node_id: Arc<String>,
          analysis_result: Result<Option<NormalizedAnalysisResult>>| async move {
             match analysis_result {
                 Ok(analysis_result) => {
                     if let Some(x) = analysis_result {
-                        match insert_analysis_result(db, &node_id, file.id, &file.file_hash, x)
-                            .await
-                        {
+                        match insert_analysis_result(db, file.id, &file.file_hash, x).await {
                             Ok(_) => debug!("Finished analysis: {}", file.id),
                             Err(e) => error!("Failed to insert analysis result: {e}"),
                         }
@@ -152,7 +145,6 @@ fn analysis_file(
 /// * `result` - The normalized analysis result.
 async fn insert_analysis_result(
     main_db: &DatabaseConnection,
-    node_id: &str,
     file_id: i32,
     file_hash: &str,
     result: NormalizedAnalysisResult,
@@ -183,12 +175,6 @@ async fn insert_analysis_result(
             )
             .to_string(),
         ),
-        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-        created_at_hlc_ver: ActiveValue::Set(0),
-        updated_at_hlc_ver: ActiveValue::Set(0),
-        created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-        updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
         ..Default::default()
     };
 

@@ -79,7 +79,7 @@ impl Signal for CreateMixRequest {
 
     async fn handle(
         &self,
-        (db, store, node_id): Self::Params,
+        (db, store, _node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -89,7 +89,6 @@ impl Signal for CreateMixRequest {
         let mix = database::actions::mixes::create_mix(
             &db,
             &store,
-            &node_id,
             request.name.clone(),
             request.group.clone(),
             request.scriptlet_mode,
@@ -131,7 +130,7 @@ impl Signal for UpdateMixRequest {
 
     async fn handle(
         &self,
-        (db, store, node_id): Self::Params,
+        (db, store, _node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -141,7 +140,6 @@ impl Signal for UpdateMixRequest {
         let mix = database::actions::mixes::update_mix(
             &db,
             &store,
-            &node_id,
             request.mix_id,
             Some(request.name.clone()),
             Some(request.group.clone()),

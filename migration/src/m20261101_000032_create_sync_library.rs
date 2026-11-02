@@ -409,29 +409,25 @@ async fn relax_similarity_pair_uniqueness(
                     .not_null()
                     .default(""),
             );
-        for name in ["created_at_hlc_ts", "updated_at_hlc_ts"] {
-            create.col(
-                ColumnDef::new(Alias::new(name))
-                    .timestamp()
-                    .not_null()
-                    .default("1970-01-01 00:00:00.000"),
-            );
-        }
-        for name in ["created_at_hlc_ver", "updated_at_hlc_ver"] {
-            create.col(
-                ColumnDef::new(Alias::new(name))
-                    .integer()
-                    .not_null()
-                    .default(0),
-            );
-        }
-        for name in ["created_at_hlc_nid", "updated_at_hlc_nid"] {
-            create.col(
-                ColumnDef::new(Alias::new(name))
-                    .text()
-                    .not_null()
-                    .default(""),
-            );
+        let mut legacy_columns = Vec::new();
+        for prefix in ["created_at", "updated_at"] {
+            for (suffix, kind, default) in [
+                ("ts", "text", "1970-01-01T00:00:00Z"),
+                ("ver", "integer", "0"),
+                ("nid", "text", ""),
+            ] {
+                let name = format!("{prefix}_hlc_{suffix}");
+                if schema.has_column("media_file_similarity", &name).await? {
+                    let mut column = ColumnDef::new(Alias::new(&name));
+                    if kind == "integer" {
+                        column.integer().not_null().default(0);
+                    } else {
+                        column.text().not_null().default(default);
+                    }
+                    create.col(&mut column);
+                    legacy_columns.push(name);
+                }
+            }
         }
         for column in ["file_id1", "file_id2"] {
             create.foreign_key(
@@ -443,26 +439,18 @@ async fn relax_similarity_pair_uniqueness(
             );
         }
         schema.create_table(create.to_owned()).await?;
-        let columns = [
-            "id",
-            "file_id1",
-            "file_id2",
-            "similarity",
-            "hlc_uuid",
-            "created_at_hlc_ts",
-            "updated_at_hlc_ts",
-            "created_at_hlc_ver",
-            "updated_at_hlc_ver",
-            "created_at_hlc_nid",
-            "updated_at_hlc_nid",
-        ];
+        let mut columns: Vec<String> = ["id", "file_id1", "file_id2", "similarity", "hlc_uuid"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        columns.extend(legacy_columns);
         let select = Query::select()
-            .columns(columns.map(Alias::new))
+            .columns(columns.iter().map(Alias::new))
             .from(Alias::new("media_file_similarity"))
             .to_owned();
         let insert = Query::insert()
             .into_table(temp.clone())
-            .columns(columns.map(Alias::new))
+            .columns(columns.iter().map(Alias::new))
             .select_from(select)
             .map_err(|e| DbErr::Custom(e.to_string()))?
             .to_owned();
@@ -1380,7 +1368,7 @@ mod tests {
     #[tokio::test]
     async fn artwork_uses_body_digest_and_preserves_crc_collisions() {
         let db = setup().await;
-        db.execute_unprepared("CREATE TABLE media_cover_art (id INTEGER PRIMARY KEY, file_hash TEXT NOT NULL, binary BLOB NOT NULL, hlc_uuid TEXT NOT NULL, updated_at_hlc_ts TEXT NOT NULL DEFAULT '')").await.unwrap();
+        db.execute_unprepared("CREATE TABLE media_cover_art (id INTEGER PRIMARY KEY, file_hash TEXT NOT NULL, binary BLOB NOT NULL, hlc_uuid TEXT NOT NULL)").await.unwrap();
         db.execute_unprepared("INSERT INTO media_cover_art(id,file_hash,binary,hlc_uuid) VALUES (1,'same',x'010203','old-a'), (2,'same',x'040506','old-b'), (3,'',x'','00000000-0000-0000-0000-000000000000')").await.unwrap();
         Migration.up(&SchemaManager::new(&db)).await.unwrap();
         let rows = db

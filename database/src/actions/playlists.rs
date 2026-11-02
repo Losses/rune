@@ -291,7 +291,6 @@ where
 
 async fn create_on(
     tx: &DatabaseTransaction,
-    actor: Uuid,
     name: String,
     group: String,
 ) -> Result<playlists::Model> {
@@ -308,12 +307,6 @@ async fn create_on(
             )
             .to_string(),
         ),
-        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-        created_at_hlc_ver: ActiveValue::Set(0),
-        updated_at_hlc_ver: ActiveValue::Set(0),
-        created_at_hlc_nid: ActiveValue::Set(actor.to_string()),
-        updated_at_hlc_nid: ActiveValue::Set(actor.to_string()),
         ..Default::default()
     };
 
@@ -350,13 +343,12 @@ async fn author(
 pub async fn create_playlist(
     db: &DatabaseConnection,
     store: &SeaOrmSyncStore,
-    actor: Uuid,
     name: String,
     group: String,
 ) -> Result<playlists::Model> {
     let tx = db.begin().await?;
     store.lock(&tx).await?;
-    let row = create_on(&tx, actor, name, group).await?;
+    let row = create_on(&tx, name, group).await?;
     author(&tx, store, Collection::Playlists, &row.hlc_uuid).await?;
     tx.commit().await?;
     Ok(row)
@@ -365,7 +357,6 @@ pub async fn create_playlist(
 pub async fn update_playlist(
     db: &DatabaseConnection,
     store: &SeaOrmSyncStore,
-    actor: Uuid,
     id: i32,
     name: Option<String>,
     group: Option<String>,
@@ -376,7 +367,6 @@ pub async fn update_playlist(
         .one(&tx)
         .await?
         .context("playlist not found")?;
-    let ver = old.updated_at_hlc_ver;
     let mut active: playlists::ActiveModel = old.into();
     if let Some(v) = name {
         active.name = Set(v);
@@ -384,9 +374,6 @@ pub async fn update_playlist(
     if let Some(v) = group {
         active.group = Set(v);
     }
-    active.updated_at_hlc_ts = Set(Utc::now().to_rfc3339());
-    active.updated_at_hlc_ver = Set(ver.checked_add(1).context("playlist version exhausted")?);
-    active.updated_at_hlc_nid = Set(actor.to_string());
     let row = active.update(&tx).await?;
     add_term(&tx, CollectionQueryType::Playlist, id, &row.name).await?;
     author(&tx, store, Collection::Playlists, &row.hlc_uuid).await?;
@@ -424,22 +411,17 @@ pub async fn remove_playlist(
 async fn add_on(
     tx: &DatabaseTransaction,
     store: &SeaOrmSyncStore,
-    actor: Option<Uuid>,
     parent: &playlists::Model,
     file: &media_files::Model,
     position: i32,
 ) -> Result<media_file_playlists::Model> {
-    let mut entry = media_file_playlists::ActiveModel {
+    let entry = media_file_playlists::ActiveModel {
         playlist_uuid: Set(parent.hlc_uuid.clone()),
         track_uuid: Set(file.hlc_uuid.clone()),
         position: Set(position),
         hlc_uuid: Set(Uuid::new_v4().to_string()),
         ..Default::default()
     };
-    if let Some(actor) = actor {
-        entry.created_at_hlc_nid = Set(actor.to_string());
-        entry.updated_at_hlc_nid = Set(actor.to_string());
-    }
     let row = media_file_playlists::Entity::insert(entry)
         .exec_with_returning(tx)
         .await?;
@@ -450,7 +432,6 @@ async fn add_on(
 pub async fn add_item_to_playlist(
     db: &DatabaseConnection,
     store: &SeaOrmSyncStore,
-    actor: Uuid,
     playlist_id: i32,
     file_id: i32,
     position: Option<i32>,
@@ -480,13 +461,7 @@ pub async fn add_item_to_playlist(
             .transpose()?
             .unwrap_or(0),
     };
-    let row = add_on(&tx, store, None, &parent, &file, position).await?;
-    let ver = parent.updated_at_hlc_ver;
-    let mut active: playlists::ActiveModel = parent.into();
-    active.updated_at_hlc_ts = Set(Utc::now().to_rfc3339());
-    active.updated_at_hlc_ver = Set(ver.checked_add(1).context("playlist version exhausted")?);
-    active.updated_at_hlc_nid = Set(actor.to_string());
-    active.update(&tx).await?;
+    let row = add_on(&tx, store, &parent, &file, position).await?;
     tx.commit().await?;
     Ok(row)
 }
@@ -512,7 +487,6 @@ async fn find_occurrence(
 pub async fn remove_item_from_playlist(
     db: &DatabaseConnection,
     store: &SeaOrmSyncStore,
-    actor: Uuid,
     playlist_id: i32,
     occurrence_id: Uuid,
 ) -> Result<()> {
@@ -532,16 +506,6 @@ pub async fn remove_item_from_playlist(
             None,
         )
         .await?;
-    let parent = playlists::Entity::find_by_id(playlist_id)
-        .one(&tx)
-        .await?
-        .context("playlist not found")?;
-    let ver = parent.updated_at_hlc_ver;
-    let mut active: playlists::ActiveModel = parent.into();
-    active.updated_at_hlc_ts = Set(Utc::now().to_rfc3339());
-    active.updated_at_hlc_ver = Set(ver.checked_add(1).context("playlist version exhausted")?);
-    active.updated_at_hlc_nid = Set(actor.to_string());
-    active.update(&tx).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -549,7 +513,6 @@ pub async fn remove_item_from_playlist(
 pub async fn reorder_playlist_item_position(
     db: &DatabaseConnection,
     store: &SeaOrmSyncStore,
-    actor: Uuid,
     playlist_id: i32,
     occurrence_id: Uuid,
     position: i32,
@@ -558,13 +521,8 @@ pub async fn reorder_playlist_item_position(
     store.lock(&tx).await?;
     let row = find_occurrence(&tx, playlist_id, occurrence_id).await?;
     if row.position != position {
-        let ver = row.updated_at_hlc_ver;
         let mut active: media_file_playlists::ActiveModel = row.into();
         active.position = Set(position);
-        active.updated_at_hlc_ts = Set(Utc::now().to_rfc3339());
-        active.updated_at_hlc_ver =
-            Set(ver.checked_add(1).context("occurrence version exhausted")?);
-        active.updated_at_hlc_nid = Set(actor.to_string());
         let row = active.update(&tx).await?;
         author(&tx, store, Collection::PlaylistEntries, &row.hlc_uuid).await?;
     }
@@ -575,7 +533,6 @@ pub async fn reorder_playlist_item_position(
 async fn import_on(
     tx: &DatabaseTransaction,
     store: &SeaOrmSyncStore,
-    actor: Uuid,
     parent: &playlists::Model,
     lines: &[String],
 ) -> Result<PlaylistImportResult> {
@@ -585,15 +542,7 @@ async fn import_on(
             .one(tx)
             .await?
             .context("file not found")?;
-        add_on(
-            tx,
-            store,
-            Some(actor),
-            parent,
-            &file,
-            i32::try_from(position)?,
-        )
-        .await?;
+        add_on(tx, store, parent, &file, i32::try_from(position)?).await?;
     }
     Ok(result)
 }
@@ -601,7 +550,6 @@ async fn import_on(
 pub async fn import_m3u8_to_playlist(
     db: &DatabaseConnection,
     store: &SeaOrmSyncStore,
-    actor: Uuid,
     playlist_id: i32,
     path: &Path,
 ) -> Result<PlaylistImportResult> {
@@ -612,7 +560,7 @@ pub async fn import_m3u8_to_playlist(
         .one(&tx)
         .await?
         .context("playlist not found")?;
-    let result = import_on(&tx, store, actor, &parent, &lines).await?;
+    let result = import_on(&tx, store, &parent, &lines).await?;
     tx.commit().await?;
     Ok(result)
 }
@@ -620,7 +568,6 @@ pub async fn import_m3u8_to_playlist(
 pub async fn create_m3u8_playlist(
     db: &DatabaseConnection,
     store: &SeaOrmSyncStore,
-    actor: Uuid,
     name: String,
     group: String,
     path: &Path,
@@ -628,9 +575,9 @@ pub async fn create_m3u8_playlist(
     let lines = parse_m3u8_lines(&read_to_string(path).await?);
     let tx = db.begin().await?;
     store.lock(&tx).await?;
-    let row = create_on(&tx, actor, name, group).await?;
+    let row = create_on(&tx, name, group).await?;
     author(&tx, store, Collection::Playlists, &row.hlc_uuid).await?;
-    let result = import_on(&tx, store, actor, &row, &lines).await?;
+    let result = import_on(&tx, store, &row, &lines).await?;
     tx.commit().await?;
     Ok((row, result))
 }

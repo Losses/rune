@@ -92,7 +92,6 @@ async fn parent(
                 name: Set(name.into()),
                 group: Set(group.into()),
                 hlc_uuid: Set(uuid.clone()),
-                ..Default::default()
             })
             .exec(db)
             .await?;
@@ -237,15 +236,9 @@ async fn business_actions_replicate_with_distinct_local_keys_and_deletions() -> 
     b.head().await?;
     set_liked(&db1, &a.record_store(), 10, true).await?;
 
-    let playlist = create_playlist(
-        &db1,
-        &a.record_store(),
-        node,
-        "Likes list".into(),
-        "group".into(),
-    )
-    .await?;
-    add_item_to_playlist(&db1, &a.record_store(), node, playlist.id, 10, None).await?;
+    let playlist =
+        create_playlist(&db1, &a.record_store(), "Likes list".into(), "group".into()).await?;
+    add_item_to_playlist(&db1, &a.record_store(), playlist.id, 10, None).await?;
     transfer(&a, &b).await?;
     assert!(get_liked(&db2, 77).await?);
     let projected = get_all_playlists(&db2).await?;
@@ -274,15 +267,9 @@ async fn pending_track_dependencies_project_after_scanning() -> Result<()> {
     a.import_existing(a.record_store().author()).await?;
     set_liked(&db1, &a.record_store(), 10, true).await?;
 
-    let playlist = create_playlist(
-        &db1,
-        &a.record_store(),
-        node,
-        "Pending".into(),
-        "group".into(),
-    )
-    .await?;
-    add_item_to_playlist(&db1, &a.record_store(), node, playlist.id, 10, None).await?;
+    let playlist =
+        create_playlist(&db1, &a.record_store(), "Pending".into(), "group".into()).await?;
+    add_item_to_playlist(&db1, &a.record_store(), playlist.id, 10, None).await?;
     transfer(&a, &b).await?;
     assert_eq!(get_all_playlists(&db2).await?.len(), 1);
     let marker = marker(&db2).await?;
@@ -366,15 +353,9 @@ async fn cache_eviction_preserves_replicated_likes_and_entries() -> Result<()> {
     let node = Uuid::new_v4();
     let store = LibrarySyncStore::open(db.clone(), node, None).await?;
     set_liked(&db, &store.record_store(), 10, true).await?;
-    let playlist = create_playlist(
-        &db,
-        &store.record_store(),
-        node,
-        "Keep".into(),
-        "group".into(),
-    )
-    .await?;
-    add_item_to_playlist(&db, &store.record_store(), node, playlist.id, 10, None).await?;
+    let playlist =
+        create_playlist(&db, &store.record_store(), "Keep".into(), "group".into()).await?;
+    add_item_to_playlist(&db, &store.record_store(), playlist.id, 10, None).await?;
     store.head().await?;
     let head = store.head().await?;
     media_files::Entity::update_many()
@@ -578,15 +559,9 @@ async fn attaching_changed_content_keeps_playlist_and_identity() -> Result<()> {
     let store = LibrarySyncStore::open(db.clone(), node, None).await?;
     store.import_existing(node).await?;
 
-    let list = create_playlist(
-        &db,
-        &store.record_store(),
-        node,
-        "Changed".into(),
-        "group".into(),
-    )
-    .await?;
-    add_item_to_playlist(&db, &store.record_store(), node, list.id, 10, None).await?;
+    let list =
+        create_playlist(&db, &store.record_store(), "Changed".into(), "group".into()).await?;
+    add_item_to_playlist(&db, &store.record_store(), list.id, 10, None).await?;
     let file = database::entities::media_files::Entity::find_by_id(10)
         .one(&db)
         .await?
@@ -675,15 +650,8 @@ async fn changed_content_sync_preserves_track_identity_and_playlist() -> Result<
     let b = LibrarySyncStore::open(db2.clone(), node2, Some(namespace)).await?;
     a.import_existing(node1).await?;
 
-    let list = create_playlist(
-        &db1,
-        &a.record_store(),
-        node1,
-        "Changes".into(),
-        "group".into(),
-    )
-    .await?;
-    add_item_to_playlist(&db1, &a.record_store(), node1, list.id, 10, None).await?;
+    let list = create_playlist(&db1, &a.record_store(), "Changes".into(), "group".into()).await?;
+    add_item_to_playlist(&db1, &a.record_store(), list.id, 10, None).await?;
     transfer(&a, &b).await?;
     let updated = root1.path().join("updated.ogg");
     std::fs::write(&updated, b"new changed bytes")?;
@@ -790,12 +758,11 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
     let playlist = create_playlist(
         &db,
         &store.record_store(),
-        node,
         "Playback".into(),
         "group".into(),
     )
     .await?;
-    add_item_to_playlist(&db, &store.record_store(), node, playlist.id, old.id, None).await?;
+    add_item_to_playlist(&db, &store.record_store(), playlist.id, old.id, None).await?;
     database::actions::search::add_term(
         &db,
         database::actions::collection::CollectionQueryType::Track,
@@ -1112,12 +1079,11 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
     let playlist = create_playlist(
         &db,
         &store.record_store(),
-        node,
         "Eviction".into(),
         "group".into(),
     )
     .await?;
-    add_item_to_playlist(&db, &store.record_store(), node, playlist.id, 10, None).await?;
+    add_item_to_playlist(&db, &store.record_store(), playlist.id, 10, None).await?;
     replace_playback_queue(&db, vec![10]).await?;
     store.head().await?;
     std::fs::remove_file(root.path().join("song.ogg"))?;
@@ -1196,12 +1162,11 @@ async fn saved_mix_uses_stable_references_across_local_ids() -> Result<()> {
     let playlist = create_playlist(
         &db1,
         &a.record_store(),
-        node,
         "Shared playlist".into(),
         "S".into(),
     )
     .await?;
-    add_item_to_playlist(&db1, &a.record_store(), node, playlist.id, 10, None).await?;
+    add_item_to_playlist(&db1, &a.record_store(), playlist.id, 10, None).await?;
     let clauses: Vec<(String, String)> = vec![
         ("lib::track".into(), "10".into()),
         ("lib::album".into(), "13".into()),
@@ -1213,7 +1178,6 @@ async fn saved_mix_uses_stable_references_across_local_ids() -> Result<()> {
     let mix = database::actions::mixes::create_mix(
         &db1,
         &a.record_store(),
-        &node.to_string(),
         "Portable mix".into(),
         "S".into(),
         false,
@@ -1334,7 +1298,6 @@ async fn mix_waits_for_dependencies_and_directory_paths_stay_local() -> Result<(
     database::actions::mixes::create_mix(
         &db,
         &target.record_store(),
-        &target.record_store().author().to_string(),
         "Private directory".into(),
         "Group".into(),
         false,

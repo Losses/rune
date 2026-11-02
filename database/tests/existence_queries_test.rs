@@ -41,10 +41,10 @@ async fn existence_queries_preserve_filters_duplicates_and_errors() -> Result<()
 
     for n in 0..2 {
         db.execute_unprepared(&format!(
-            "INSERT INTO media_file_fingerprint (track_uuid,fingerprint,is_duplicated,hlc_uuid,created_at_hlc_ts,created_at_hlc_ver,created_at_hlc_nid,updated_at_hlc_ts,updated_at_hlc_ver,updated_at_hlc_nid) VALUES ('{track_uuid}',X'0102',0,'fingerprint-{n}','',0,'','',0,'')"
+            "INSERT INTO media_file_fingerprint (track_uuid,fingerprint,is_duplicated,hlc_uuid) VALUES ('{track_uuid}',X'0102',0,'fingerprint-{n}')"
         )).await?;
         db.execute_unprepared(&format!(
-            "INSERT INTO media_analysis (file_id,analysis_version,hlc_uuid,created_at_hlc_ts,created_at_hlc_ver,created_at_hlc_nid,updated_at_hlc_ts,updated_at_hlc_ver,updated_at_hlc_nid) VALUES ({id},1,'analysis-{n}','',0,'','',0,'')"
+            "INSERT INTO media_analysis (file_id,analysis_version,hlc_uuid) VALUES ({id},1,'analysis-{n}')"
         )).await?;
     }
     assert!(has_fingerprint(&db, id).await?);

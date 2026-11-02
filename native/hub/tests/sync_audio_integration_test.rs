@@ -190,7 +190,6 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
     let playlist = create_playlist(
         &source_db,
         &store.record_store(),
-        source_node,
         "Selected music".into(),
         "S".into(),
     )
@@ -199,7 +198,6 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         add_item_to_playlist(
             &source_db,
             &store.record_store(),
-            source_node,
             playlist.id,
             first.id,
             None,
@@ -324,7 +322,6 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
                 let mix = database::actions::mixes::create_mix(
                     &db,
                     &local.record_store(),
-                    &node.to_string(),
                     "Offline mix".into(),
                     "O".into(),
                     false,
@@ -403,7 +400,6 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
             database::actions::mixes::update_mix(
                 &db,
                 &local.record_store(),
-                &node.to_string(),
                 mix.id,
                 Some(mix.name.clone()),
                 Some(mix.group.clone()),

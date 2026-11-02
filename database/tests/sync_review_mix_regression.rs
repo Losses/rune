@@ -17,7 +17,6 @@ async fn deleting_referenced_playlist_does_not_block_unrelated_sync() -> Result<
     let playlist = database::actions::playlists::create_playlist(
         &local.db,
         &store,
-        node,
         "Referenced".into(),
         "Test".into(),
     )
@@ -25,7 +24,6 @@ async fn deleting_referenced_playlist_does_not_block_unrelated_sync() -> Result<
     let mix = create_mix(
         &local.db,
         &store,
-        &node.to_string(),
         "Uses playlist".into(),
         "Test".into(),
         false,

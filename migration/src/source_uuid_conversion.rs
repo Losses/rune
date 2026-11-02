@@ -441,17 +441,22 @@ pub async fn convert(tx: &DatabaseTransaction, initial_sequence: Option<i64>) ->
             )
             .await?;
         }
-        for row in rows(
-            tx,
-            "media_cover_art",
-            &["id", "hlc_uuid", "file_hash", "binary", "updated_at_hlc_ts"],
-        )
-        .await?
-        {
+        let has_checked_at = schema
+            .has_column("media_cover_art", "updated_at_hlc_ts")
+            .await?;
+        let mut columns = vec!["id", "hlc_uuid", "file_hash", "binary"];
+        if has_checked_at {
+            columns.push("updated_at_hlc_ts");
+        }
+        for row in rows(tx, "media_cover_art", &columns).await? {
             let id: i32 = row.try_get("", "id")?;
             let uuid: String = row.try_get("", "hlc_uuid")?;
             let old_hash: String = row.try_get("", "file_hash")?;
-            let checked_at: String = row.try_get("", "updated_at_hlc_ts")?;
+            let checked_at: Option<String> = if has_checked_at {
+                Some(row.try_get("", "updated_at_hlc_ts")?)
+            } else {
+                None
+            };
             let body: Vec<u8> = row.try_get("", "binary")?;
             let placeholder = body.is_empty()
                 && old_hash.is_empty()
@@ -1093,7 +1098,7 @@ mod tests {
         let db = before_conversion().await;
         for statement in [
             "INSERT INTO media_cover_art(id,file_hash,binary,primary_color,hlc_uuid) VALUES(11,'old',x'010203',17,'')",
-            "INSERT INTO media_cover_art(id,file_hash,binary,primary_color,hlc_uuid,updated_at_hlc_ts) VALUES(12,'',x'',0,'00000000-0000-0000-0000-000000000000','2023-01-02 03:04:05')",
+            "INSERT INTO media_cover_art(id,file_hash,binary,primary_color,hlc_uuid) VALUES(12,'',x'',0,'00000000-0000-0000-0000-000000000000')",
             "INSERT INTO media_files(id,file_name,directory,extension,file_hash,last_modified,cover_art_id,sample_rate,duration,hlc_uuid) VALUES(8,'empty','/music','ogg','other','2020',12,44100,12,'33333333-3333-4333-8333-333333333333')",
             "INSERT INTO media_files(id,file_name,directory,extension,file_hash,last_modified,cover_art_id,sample_rate,duration,hlc_uuid) VALUES(7,'a','/music','ogg','crc','2020',11,44100,12,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')",
             "INSERT INTO media_files(id,file_name,directory,extension,file_hash,last_modified,sample_rate,duration,hlc_uuid) VALUES(600,'removed','/music','ogg','gone','2020',44100,1,'44444444-4444-4444-8444-444444444444')",
@@ -1160,7 +1165,7 @@ mod tests {
                 .try_get::<Option<String>>("", "cover_art_checked_at")
                 .unwrap()
                 .as_deref(),
-            Some("2023-01-02 03:04:05")
+            None
         );
         let rows = db
             .query_all_raw(Statement::from_string(

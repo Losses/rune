@@ -345,7 +345,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
 
     async fn handle(
         &self,
-        (fsio, main_db, node_id, recommend_db, task_tokens, broadcaster): Self::Params,
+        (fsio, main_db, _node_id, recommend_db, task_tokens, broadcaster): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -386,7 +386,6 @@ impl Signal for AnalyzeAudioLibraryRequest {
                         fsio,
                         &main_db,
                         Path::new(&analysis_path),
-                        &node_id,
                         batch_size,
                         computing_device.into(),
                         move |progress, total| {

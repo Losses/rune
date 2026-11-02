@@ -83,7 +83,6 @@ async fn a_mix_with_genre_and_directory_queries_reads_back() -> Result<()> {
     let mix = create_mix(
         &db,
         &library.record_store(),
-        NODE_ID,
         "Genres and folders".to_owned(),
         "Mine".to_owned(),
         false,

@@ -5,7 +5,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use chrono::Utc;
 use log::{debug, error, info};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -323,7 +322,7 @@ async fn sync_file_descriptions_inner(
                     }
                     (Some(file), None) => update_last_modified(&txn, file, description).await?,
                     (None, Some(metadata)) => {
-                        insert_new_file(fsio, &txn, node_id, metadata, description).await?
+                        insert_new_file(fsio, &txn, metadata, description).await?
                     }
                     (None, None) => unreachable!("New files always have metadata"),
                 }
@@ -571,7 +570,6 @@ where
 async fn insert_new_file(
     fsio: &FsIo,
     main_db: &sea_orm::DatabaseTransaction,
-    node_id: &str,
     metadata: &FileMetadata,
     description: &mut FileDescription,
 ) -> Result<()> {
@@ -598,12 +596,6 @@ async fn insert_new_file(
         last_modified: ActiveValue::Set(description.last_modified.clone()),
         hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
         local_available: ActiveValue::Set(true),
-        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-        created_at_hlc_ver: ActiveValue::Set(0),
-        updated_at_hlc_ver: ActiveValue::Set(0),
-        created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-        updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
         ..Default::default()
     };
     let inserted_file = media_files::Entity::insert(new_file).exec(main_db).await?;

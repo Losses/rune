@@ -58,7 +58,6 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
         std::sync::Arc::new(fs),
         &db,
         std::path::Path::new("."),
-        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         1,
         analysis::utils::computing_device::ComputingDevice::Cpu,
         |_, _| {},
@@ -228,7 +227,7 @@ async fn cover_timestamps_preserve_shared_and_absent_cover_behavior_across_chunk
     };
     let db = Database::connect("sqlite::memory:").await?;
     initialize_db(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
-    let cover = ensure_magic_cover_art(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
+    let cover = ensure_magic_cover_art(&db).await?;
     for (id, cover_id) in [
         (1, Some(cover.hlc_uuid.clone())),
         (2, Some(cover.hlc_uuid.clone())),
@@ -236,7 +235,7 @@ async fn cover_timestamps_preserve_shared_and_absent_cover_behavior_across_chunk
     ] {
         db.execute_raw(Statement::from_sql_and_values(DbBackend::Sqlite,
             "INSERT INTO media_files (id,file_name,directory,extension,file_hash,last_modified,sample_rate,duration,cover_art_uuid,hlc_uuid,cover_art_checked_at) VALUES (?,?,'','ogg','abc','123',44100,10,?,?,?)",
-            [id.into(), format!("{id}.ogg").into(), cover_id.clone().into(), uuid::Uuid::from_u128(id as u128).to_string().into(), cover_id.map(|_| cover.updated_at_hlc_ts.clone()).into()])).await?;
+            [id.into(), format!("{id}.ogg").into(), cover_id.clone().into(), uuid::Uuid::from_u128(id as u128).to_string().into(), cover_id.map(|_| "2020-01-01T00:00:00Z".to_owned()).into()])).await?;
     }
     let mut ids = vec![1; 500];
     ids.extend([2, 3, 999]);
@@ -245,7 +244,7 @@ async fn cover_timestamps_preserve_shared_and_absent_cover_behavior_across_chunk
     for id in [1, 2] {
         assert_eq!(
             timestamps[&id],
-            ("123".to_owned(), cover.updated_at_hlc_ts.clone())
+            ("123".to_owned(), "2020-01-01T00:00:00Z".to_owned())
         );
     }
     assert!(

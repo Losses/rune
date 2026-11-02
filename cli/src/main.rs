@@ -373,7 +373,6 @@ async fn main() {
                 &main_db,
                 &analysis_db,
                 &path,
-                "",
             )
             .await;
         }

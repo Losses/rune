@@ -6,7 +6,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, ensure};
-use chrono::Utc;
 use once_cell::sync::Lazy;
 use sea_orm::{
     ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
@@ -37,7 +36,6 @@ pub async fn get_magic_cover_art_id(main_db: &DatabaseConnection) -> Option<i32>
 
 pub async fn ensure_magic_cover_art(
     main_db: &DatabaseConnection,
-    node_id: &str,
 ) -> Result<media_cover_art::Model> {
     if let Some(magic_cover_art) = get_magic_cover_art(main_db).await? {
         Ok(magic_cover_art)
@@ -52,12 +50,6 @@ pub async fn ensure_magic_cover_art(
             content_size: ActiveValue::Set(None),
             local_available: ActiveValue::Set(false),
             hlc_uuid: ActiveValue::Set("00000000-0000-0000-0000-000000000000".to_owned()),
-            created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-            updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
-            created_at_hlc_ver: ActiveValue::Set(0),
-            updated_at_hlc_ver: ActiveValue::Set(0),
-            created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
-            updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
         };
 
         let insert_result = media_cover_art::Entity::insert(new_magic_cover_art)
@@ -75,8 +67,8 @@ pub async fn ensure_magic_cover_art(
     }
 }
 
-pub async fn ensure_magic_cover_art_id(main_db: &DatabaseConnection, node_id: &str) -> Result<i32> {
-    let magic_cover_art = ensure_magic_cover_art(main_db, node_id).await?;
+pub async fn ensure_magic_cover_art_id(main_db: &DatabaseConnection) -> Result<i32> {
+    let magic_cover_art = ensure_magic_cover_art(main_db).await?;
     Ok(magic_cover_art.id)
 }
 

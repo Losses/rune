@@ -66,7 +66,6 @@ async fn main() {
         Arc::clone(&fsio),
         &main_db,
         &root_path,
-        "",
         10,
         ComputingDevice::Gpu,
         empty_analysis_progress_callback,

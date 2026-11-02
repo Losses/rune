@@ -82,7 +82,7 @@ impl Signal for CreatePlaylistRequest {
     type Response = CreatePlaylistResponse;
     async fn handle(
         &self,
-        ((db, store, actor), broadcaster, path): Self::Params,
+        ((db, store, _actor), broadcaster, path): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -94,7 +94,6 @@ impl Signal for CreatePlaylistRequest {
         let playlist = database::actions::playlists::create_playlist(
             &db,
             &store.context("playlist store unavailable")?,
-            actor.parse()?,
             name.clone(),
             group.clone(),
         )
@@ -139,7 +138,7 @@ impl Signal for UpdatePlaylistRequest {
     type Response = UpdatePlaylistResponse;
     async fn handle(
         &self,
-        ((db, store, actor), broadcaster, path): Self::Params,
+        ((db, store, _actor), broadcaster, path): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -151,7 +150,6 @@ impl Signal for UpdatePlaylistRequest {
         let playlist = database::actions::playlists::update_playlist(
             &db,
             &store.context("playlist store unavailable")?,
-            actor.parse()?,
             request.playlist_id,
             Some(name.clone()),
             Some(group.clone()),
@@ -251,7 +249,7 @@ impl Signal for AddItemToPlaylistRequest {
     type Response = AddItemToPlaylistResponse;
     async fn handle(
         &self,
-        ((db, store, actor), broadcaster, path): Self::Params,
+        ((db, store, _actor), broadcaster, path): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -260,7 +258,6 @@ impl Signal for AddItemToPlaylistRequest {
         let entry = database::actions::playlists::add_item_to_playlist(
             &db,
             &store.context("playlist store unavailable")?,
-            actor.parse()?,
             request.playlist_id,
             request.media_file_id,
             request.position,
@@ -308,14 +305,14 @@ impl Signal for ReorderPlaylistItemPositionRequest {
     type Response = ReorderPlaylistItemPositionResponse;
     async fn handle(
         &self,
-        ((db, store, actor), broadcaster, path): Self::Params,
+        ((db, store, _actor), broadcaster, path): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
 
         database::actions::playlists::reorder_playlist_item_position(
-            &db, &store.context("playlist store unavailable")?, actor.parse()?, request.playlist_id,
+            &db, &store.context("playlist store unavailable")?, request.playlist_id,
             request.occurrence_id.parse().context("invalid occurrence UUID")?,
             request.new_position,
         )
@@ -396,7 +393,7 @@ impl Signal for CreateM3u8PlaylistRequest {
     type Response = CreateM3u8PlaylistResponse;
     async fn handle(
         &self,
-        ((db, store, actor), broadcaster, library_path): Self::Params,
+        ((db, store, _actor), broadcaster, library_path): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -409,7 +406,6 @@ impl Signal for CreateM3u8PlaylistRequest {
         match database::actions::playlists::create_m3u8_playlist(
             &db,
             &store.context("playlist store unavailable")?,
-            actor.parse()?,
             name.clone(),
             group.clone(),
             Path::new(&path),
@@ -469,7 +465,7 @@ impl Signal for RemoveItemFromPlaylistRequest {
 
     async fn handle(
         &self,
-        ((db, store, actor), broadcaster, path): Self::Params,
+        ((db, store, _actor), broadcaster, path): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -478,7 +474,6 @@ impl Signal for RemoveItemFromPlaylistRequest {
         match database::actions::playlists::remove_item_from_playlist(
             &db,
             &store.context("playlist store unavailable")?,
-            actor.parse()?,
             request.playlist_id,
             request
                 .occurrence_id

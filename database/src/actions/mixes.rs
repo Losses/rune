@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use chrono::Utc;
 use log::warn;
 use migration::ExprTrait;
 use migration::Func;
@@ -204,7 +203,6 @@ async fn author_mix(
 pub async fn create_mix(
     db: &DatabaseConnection,
     store: &SeaOrmSyncStore,
-    node_id: &str,
     name: String,
     group: String,
     scriptlet_mode: bool,
@@ -214,7 +212,6 @@ pub async fn create_mix(
 ) -> Result<mixes::Model> {
     let tx = db.begin().await?;
     store.lock(&tx).await?;
-    let now = Utc::now().to_rfc3339();
     let row = mixes::ActiveModel {
         name: Set(name),
         group: Set(group),
@@ -222,12 +219,6 @@ pub async fn create_mix(
         mode: Set(Some(mode)),
         locked: Set(locked),
         hlc_uuid: Set(Uuid::new_v4().to_string()),
-        created_at_hlc_ts: Set(now.clone()),
-        updated_at_hlc_ts: Set(now),
-        created_at_hlc_ver: Set(0),
-        updated_at_hlc_ver: Set(0),
-        created_at_hlc_nid: Set(node_id.to_owned()),
-        updated_at_hlc_nid: Set(node_id.to_owned()),
         ..Default::default()
     }
     .insert(&tx)
@@ -253,7 +244,6 @@ pub async fn get_mix_by_id(db: &DatabaseConnection, id: i32) -> Result<mixes::Mo
 pub async fn update_mix(
     db: &DatabaseConnection,
     store: &SeaOrmSyncStore,
-    node_id: &str,
     id: i32,
     name: Option<String>,
     group: Option<String>,
@@ -268,7 +258,6 @@ pub async fn update_mix(
         .one(&tx)
         .await?
         .context("Mix not found")?;
-    let ver = row.updated_at_hlc_ver;
     let mut model: mixes::ActiveModel = row.into();
     if let Some(v) = name {
         model.name = Set(v);
@@ -285,9 +274,6 @@ pub async fn update_mix(
     if let Some(v) = locked {
         model.locked = Set(v);
     }
-    model.updated_at_hlc_ts = Set(Utc::now().to_rfc3339());
-    model.updated_at_hlc_ver = Set(ver.checked_add(1).context("mix version exhausted")?);
-    model.updated_at_hlc_nid = Set(node_id.to_owned());
     let row = model.update(&tx).await?;
     if let Some(queries) = queries {
         replace_queries_on(&tx, &row.hlc_uuid, queries, 0).await?;

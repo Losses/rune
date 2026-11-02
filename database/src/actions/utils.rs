@@ -169,7 +169,6 @@ macro_rules! parallel_media_files_processing {
         $cursor_query:expr,
         $lib_path:expr,
         $fsio:expr,
-        $node_id: expr,
         $process_fn:expr,
         $result_handler:expr
     ) => {{
@@ -298,7 +297,6 @@ macro_rules! parallel_media_files_processing {
                             let fsio = $fsio.clone();
                             let processed_count = Arc::clone(&processed_count);
                             let progress_callback = Arc::clone(&progress_callback);
-                            let node_id_clone = $node_id.clone();
                             let process_cancel_token = consumer_cancel_token.clone();
 
                             let result_lock = Arc::clone(&result_lock);
@@ -326,13 +324,7 @@ macro_rules! parallel_media_files_processing {
                                 {
                                     Ok(analysis_result) => {
                                         let _writer = result_lock.lock().await;
-                                        $result_handler(
-                                            &main_db,
-                                            file,
-                                            node_id_clone,
-                                            analysis_result,
-                                        )
-                                        .await;
+                                        $result_handler(&main_db, file, analysis_result).await;
                                     }
                                     Err(e) => error!("{e:?}"),
                                 }

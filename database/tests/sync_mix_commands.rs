@@ -29,7 +29,6 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
         create_mix(
             &db,
             &store,
-            &actor.to_string(),
             "invalid".into(),
             "m".into(),
             false,
@@ -59,7 +58,6 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
     let mix = create_mix(
         &db,
         &store,
-        &actor.to_string(),
         "mix".into(),
         "m".into(),
         false,
@@ -81,7 +79,6 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
         update_mix(
             &db,
             &store,
-            &actor.to_string(),
             mix.id,
             Some("bad".into()),
             Some("m".into()),
@@ -144,7 +141,6 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
     update_mix(
         &db,
         &store,
-        &actor.to_string(),
         mix.id,
         Some("renamed".into()),
         None,
@@ -155,14 +151,9 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
     )
     .await?;
     assert!(library.head().await?.sequence > before.sequence);
-    let before_update = database::entities::mixes::Entity::find_by_id(mix.id)
-        .one(&db)
-        .await?
-        .unwrap();
-    let after_update = update_mix(
+    update_mix(
         &db,
         &store,
-        &actor.to_string(),
         mix.id,
         Some("renamed again".into()),
         None,
@@ -172,22 +163,6 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
         None,
     )
     .await?;
-    assert_eq!(
-        after_update.created_at_hlc_ts,
-        before_update.created_at_hlc_ts
-    );
-    assert_eq!(
-        after_update.created_at_hlc_ver,
-        before_update.created_at_hlc_ver
-    );
-    assert_eq!(
-        after_update.created_at_hlc_nid,
-        before_update.created_at_hlc_nid
-    );
-    assert_eq!(
-        after_update.updated_at_hlc_ver,
-        before_update.updated_at_hlc_ver + 1
-    );
     remove_mix(&db, &store, mix.id).await?;
     assert!(library.get(&key).await?.is_none());
     Ok(())
@@ -204,11 +179,9 @@ async fn each_mix_command_replicates_its_result() -> Result<()> {
     let source = support::SqlLibrary::new(namespace, actor).await?;
     let target = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let store = source.library.record_store();
-    let node = actor.to_string();
     let mix = create_mix(
         &source.db,
         &store,
-        &node,
         "Original".into(),
         "Group".into(),
         false,
@@ -237,7 +210,6 @@ async fn each_mix_command_replicates_its_result() -> Result<()> {
     update_mix(
         &source.db,
         &store,
-        &node,
         mix.id,
         Some("Updated".into()),
         None,
@@ -306,7 +278,6 @@ async fn directory_binding_stays_local_and_clause_identity_survives_reordering()
     let mix = create_mix(
         &source.db,
         &store,
-        &actor.to_string(),
         "Directories".into(),
         "Test".into(),
         false,

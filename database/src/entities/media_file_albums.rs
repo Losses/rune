@@ -14,16 +14,6 @@ pub struct Model {
     pub album_uuid: String,
     #[sea_orm(column_type = "Text")]
     pub hlc_uuid: String,
-    #[sea_orm(column_type = "Text")]
-    pub created_at_hlc_ts: String,
-    pub created_at_hlc_ver: i32,
-    #[sea_orm(column_type = "Text")]
-    pub created_at_hlc_nid: String,
-    #[sea_orm(column_type = "Text")]
-    pub updated_at_hlc_ts: String,
-    pub updated_at_hlc_ver: i32,
-    #[sea_orm(column_type = "Text")]
-    pub updated_at_hlc_nid: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
