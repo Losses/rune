@@ -7,6 +7,7 @@ import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
 import 'utils/color_brightness.dart';
+import 'utils/rune_log.dart';
 
 enum NavigationIndicators { sticky, end }
 
@@ -57,7 +58,8 @@ class AppTheme extends ChangeNotifier {
 
   final PaneDisplayMode displayMode = PaneDisplayMode.top;
 
-  WindowEffect windowEffect = (Platform.isLinux || Platform.isAndroid || Platform.isIOS)
+  WindowEffect windowEffect =
+      (Platform.isLinux || Platform.isAndroid || Platform.isIOS)
       ? WindowEffect.solid
       : WindowEffect.mica;
 
@@ -75,7 +77,13 @@ class AppTheme extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setEffect() {
+  Future<void> setEffect() async {
+    // Solid backgrounds are painted by Flutter and need no native effect.
+    if (windowEffect == WindowEffect.solid ||
+        !(Platform.isWindows || Platform.isMacOS)) {
+      return;
+    }
+
     Brightness brightness =
         WidgetsBinding.instance.platformDispatcher.platformBrightness;
 
@@ -85,22 +93,34 @@ class AppTheme extends ChangeNotifier {
       brightness = Brightness.light;
     }
 
-    Window.setEffect(
-      effect: windowEffect,
-      color: windowEffect != WindowEffect.mica
-          ? brightness == Brightness.light
-              ? const Color(0xFFF6F6F6)
-              : const Color(0xFF1F1F1F)
-          : brightness == Brightness.light
-              ? const Color(0xFFF3F3F3).withValues(alpha: 0.05)
-              : const Color(0xFF202020).withValues(alpha: 0.05),
-      dark: brightness == Brightness.dark,
-    );
+    // Mica provides its own backdrop; other effects need an opaque tint.
+    final background = brightness == Brightness.light
+        ? const Color(0xFFF3F3F3)
+        : const Color(0xFF202020);
+    final effectColor = windowEffect == WindowEffect.mica
+        ? background.withValues(alpha: 0.05)
+        : brightness == Brightness.light
+        ? const Color(0xFFF6F6F6)
+        : const Color(0xFF1F1F1F);
 
-    if (Platform.isMacOS) {
-      Window.overrideMacOSBrightness(
+    // Finish applying the native backdrop before startup can show the window.
+    try {
+      await Window.setEffect(
+        effect: windowEffect,
+        color: effectColor,
         dark: brightness == Brightness.dark,
       );
+
+      if (Platform.isMacOS) {
+        await Window.overrideMacOSBrightness(
+          dark: brightness == Brightness.dark,
+        );
+      }
+    } catch (error) {
+      // Keep the current light/dark theme visible if the backdrop fails.
+      warn$('Window effect failed, using a solid background: $error');
+      windowEffect = WindowEffect.solid;
+      notifyListeners();
     }
   }
 }

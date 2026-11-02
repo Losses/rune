@@ -75,7 +75,7 @@ import 'theme.dart';
 
 late bool disableBrandingAnimation;
 late String? initialPath;
-late bool isWindows11;
+bool isWindows11 = false;
 late bool cafeMode;
 
 void main(List<String> arguments) async {
@@ -121,18 +121,19 @@ void main(List<String> arguments) async {
 
   await FullScreen.ensureInitialized();
 
-  try {
-    final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-    final windowsInfo = await deviceInfo.windowsInfo;
-    final isWindows10 = windowsInfo.productName.startsWith('Windows 10');
-    isWindows11 = windowsInfo.productName.startsWith('Windows 11');
+  // Product names can still report Windows 10 on Windows 11.
+  if (Platform.isWindows) {
+    try {
+      final windowsInfo = await DeviceInfoPlugin().windowsInfo;
+      isWindows11 = windowsInfo.buildNumber >= 22000;
+    } catch (error) {
+      warn$('Could not detect Windows backdrop support: $error');
+    }
 
-    if ((isWindows10 && appTheme.windowEffect == WindowEffect.mica) ||
-        Platform.isIOS) {
+    // Use a painted background when Mica support cannot be established.
+    if (!isWindows11) {
       appTheme.windowEffect = WindowEffect.solid;
     }
-  } catch (e) {
-    info$('Device is not Windows 10, skip the patch');
   }
 
   final String? colorMode = await settingsManager.getValue<String>(
@@ -169,24 +170,26 @@ void main(List<String> arguments) async {
     linuxCustomWindowControls = false;
   }
 
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // if it's not on the web, windows or android, load the accent color
+  // Resolve the system accent before building the first theme.
   if (!kIsWeb &&
       [
         TargetPlatform.windows,
         TargetPlatform.android,
       ].contains(defaultTargetPlatform)) {
-    SystemTheme.accentColor.load();
+    await SystemTheme.accentColor.load();
   }
 
   if (isDesktop && !Platform.isLinux) {
-    await Window.initialize();
-  }
+    try {
+      await Window.initialize();
+      await appTheme.setEffect();
+    } catch (error) {
+      warn$('Window effect initialization failed: $error');
+      appTheme.windowEffect = WindowEffect.solid;
+    }
 
-  if (!Platform.isLinux && !Platform.isAndroid) {
+    // Later theme changes must not depend on another frame being scheduled.
     appTheme.addListener(updateTheme);
-    updateTheme();
   }
 
   WidgetsBinding.instance.platformDispatcher.onPlatformBrightnessChanged = () {
