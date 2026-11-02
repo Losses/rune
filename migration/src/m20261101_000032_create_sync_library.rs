@@ -201,7 +201,14 @@ async fn correct_catalog_identities(
             {
                 continue;
             }
-            if row.binary.is_empty() || row.binary.len() > 8 * 1024 * 1024 {
+            if row.binary.len() > 8 * 1024 * 1024 {
+                eprintln!(
+                    "Artwork row {} is too large and will be unavailable",
+                    row.id
+                );
+                continue;
+            }
+            if row.binary.is_empty() {
                 return Err(DbErr::Custom(format!(
                     "artwork row {} has unsupported body size {}",
                     row.id,
@@ -481,9 +488,13 @@ async fn relax_similarity_pair_uniqueness(
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
+    fn use_transaction(&self) -> Option<bool> {
+        Some(true)
+    }
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let db = manager.get_connection();
         let txn = db.begin().await?;
+        source_uuid_conversion::identities(&txn, "media_files").await?;
         let select = Query::select()
             .from_as(Alias::new("media_file_stats"), Alias::new("s"))
             .columns(
@@ -763,17 +774,19 @@ impl MigrationTrait for Migration {
                 ])
                 .to_owned();
             txn.execute(&stats_insert).await?;
-            let like_insert = Query::insert()
-                .into_table(Alias::new("media_file_likes"))
-                .columns(["media_file_id", "hlc_uuid", "liked", "updated_at"].map(Alias::new))
-                .values_panic([
-                    row.media_file_id.into(),
-                    file_uuid_text.into(),
-                    row.liked.into(),
-                    row.updated_at.into(),
-                ])
-                .to_owned();
-            txn.execute(&like_insert).await?;
+            if row.liked {
+                let like_insert = Query::insert()
+                    .into_table(Alias::new("media_file_likes"))
+                    .columns(["media_file_id", "hlc_uuid", "liked", "updated_at"].map(Alias::new))
+                    .values_panic([
+                        row.media_file_id.into(),
+                        file_uuid_text.into(),
+                        row.liked.into(),
+                        row.updated_at.into(),
+                    ])
+                    .to_owned();
+                txn.execute(&like_insert).await?;
+            }
         }
         schema
             .drop_table(
@@ -1036,6 +1049,57 @@ mod tests {
         .unwrap();
         db.execute_unprepared("CREATE TABLE media_file_stats (id INTEGER PRIMARY KEY, media_file_id INTEGER NOT NULL, liked BOOLEAN NOT NULL, skipped INTEGER NOT NULL, played_through INTEGER NOT NULL, updated_at TEXT NOT NULL)").await.unwrap();
         db
+    }
+    #[tokio::test]
+    async fn sync_migrations_run_in_transactions() {
+        let _ = crate::initialize_node_id("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_owned());
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        let position = crate::Migrator::migrations()
+            .iter()
+            .position(|m| m.name() == "m20261101_000034_create_download_rules")
+            .unwrap();
+        crate::Migrator::up(&db, Some(position as u32))
+            .await
+            .unwrap();
+        db.execute_unprepared("CREATE TABLE sync_download_jobs (id TEXT)")
+            .await
+            .unwrap();
+        assert!(crate::Migrator::up(&db, None).await.is_err());
+        assert!(
+            !SchemaManager::new(&db)
+                .has_table("sync_download_rules")
+                .await
+                .unwrap()
+        );
+        let record = db.query_one_raw(Statement::from_string(db.get_database_backend(), "SELECT version FROM seaql_migrations WHERE version='m20261101_000034_create_download_rules'".to_owned())).await.unwrap();
+        assert!(record.is_none());
+    }
+    #[tokio::test]
+    async fn legacy_unliked_rows_do_not_create_favorites() {
+        let db = setup().await;
+        db.execute_unprepared(
+            "INSERT INTO media_files VALUES (7, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')",
+        )
+        .await
+        .unwrap();
+        db.execute_unprepared("INSERT INTO media_file_stats VALUES (4, 7, 0, 3, 9, '2020-01-01')")
+            .await
+            .unwrap();
+        crate::with_migration_actor(
+            Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+            Migration.up(&SchemaManager::new(&db)),
+        )
+        .await
+        .unwrap();
+        let row = db
+            .query_one_raw(Statement::from_string(
+                db.get_database_backend(),
+                "SELECT COUNT(*) AS n FROM media_file_likes".to_owned(),
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.try_get::<i64>("", "n").unwrap(), 0);
     }
     #[tokio::test]
     async fn fresh_database_migrates() {

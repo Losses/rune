@@ -29,7 +29,10 @@ async fn rows(
         .to_owned();
     tx.query_all(&q).await
 }
-async fn identities(tx: &DatabaseTransaction, table: &str) -> Result<HashMap<i32, String>, DbErr> {
+pub(super) async fn identities(
+    tx: &DatabaseTransaction,
+    table: &str,
+) -> Result<HashMap<i32, String>, DbErr> {
     let schema = SchemaManager::new(tx);
     if !schema.has_table(table).await? {
         return Ok(HashMap::new());
@@ -39,17 +42,22 @@ async fn identities(tx: &DatabaseTransaction, table: &str) -> Result<HashMap<i32
     for row in rows(tx, table, &["id", "hlc_uuid"]).await? {
         let id: i32 = row.try_get("", "id")?;
         let old: String = row.try_get("", "hlc_uuid")?;
-        let uuid = if old.is_empty() {
-            Uuid::new_v4()
-        } else {
-            Uuid::parse_str(&old)
-                .map_err(|_| invalid(format!("{table} row {id} has invalid UUID")))?
+        let parsed = Uuid::parse_str(&old)
+            .ok()
+            .filter(|uuid| !uuid.is_nil() && !seen.contains(uuid));
+        let uuid = match parsed {
+            Some(uuid) => uuid,
+            None => {
+                ensure_unpublished(tx, table, id).await?;
+                loop {
+                    let uuid = Uuid::new_v4();
+                    if !seen.contains(&uuid) {
+                        break uuid;
+                    }
+                }
+            }
         };
-        if uuid.is_nil() || !seen.insert(uuid) {
-            return Err(invalid(format!(
-                "{table} row {id} has nil or duplicate UUID"
-            )));
-        }
+        seen.insert(uuid);
         let canonical = uuid.to_string();
         if old != canonical {
             let q = Query::update()
@@ -448,7 +456,7 @@ pub async fn convert(tx: &DatabaseTransaction, initial_sequence: Option<i64>) ->
             let placeholder = body.is_empty()
                 && old_hash.is_empty()
                 && (uuid.is_empty() || Uuid::parse_str(&uuid).is_ok_and(|v| v.is_nil()));
-            if placeholder {
+            if placeholder || body.len() > 8 * 1024 * 1024 {
                 update(
                     tx,
                     "media_cover_art",
@@ -604,11 +612,6 @@ pub async fn convert(tx: &DatabaseTransaction, initial_sequence: Option<i64>) ->
                 .and_then(|m| m.get(&mix))
                 .ok_or_else(|| invalid(format!("mix_queries row {id}: missing mix {mix}")))?
                 .clone();
-            let pos = order.entry(mix).or_insert(0);
-            let position = *pos;
-            *pos = pos
-                .checked_add(1)
-                .ok_or_else(|| invalid("mix clause overflow"))?;
             let family = match operator.as_str() {
                 "lib::artist" => Some("artists"),
                 "lib::genre" => Some("genres"),
@@ -617,19 +620,23 @@ pub async fn convert(tx: &DatabaseTransaction, initial_sequence: Option<i64>) ->
                 "lib::track" => Some("media_files"),
                 _ => None,
             };
-            let mut values = vec![("mix_uuid", owner.into()), ("position", position.into())];
+            let mut values = vec![("mix_uuid", owner.into())];
             if let Some(family) = family {
-                let old_id: i32 = parameter.parse().map_err(|_| {
-                    invalid(format!(
-                        "mix_queries row {id}: invalid {operator} reference"
-                    ))
-                })?;
-                let target = parents
-                    .get(family)
-                    .and_then(|p| p.get(&old_id))
-                    .ok_or_else(|| {
-                        invalid(format!("mix_queries row {id}: missing {family} {old_id}"))
-                    })?;
+                let target = parameter
+                    .parse::<i32>()
+                    .ok()
+                    .and_then(|old_id| parents.get(family).and_then(|p| p.get(&old_id)));
+                let Some(target) = target else {
+                    eprintln!("Dropping mix {mix} clause {id}: {operator} {parameter}");
+                    tx.execute(
+                        &Query::delete()
+                            .from_table(Alias::new("mix_queries"))
+                            .and_where(Expr::col(Alias::new("id")).eq(id))
+                            .to_owned(),
+                    )
+                    .await?;
+                    continue;
+                };
                 values.push(("target_uuid", target.clone().into()));
                 values.push(("parameter", String::new().into()));
             } else if matches!(
@@ -655,11 +662,22 @@ pub async fn convert(tx: &DatabaseTransaction, initial_sequence: Option<i64>) ->
                     _ => false,
                 };
                 if !valid {
-                    return Err(invalid(format!(
-                        "mix_queries row {id}: unsupported or invalid {operator}"
-                    )));
+                    eprintln!("Dropping mix {mix} clause {id}: {operator} {parameter}");
+                    tx.execute(
+                        &Query::delete()
+                            .from_table(Alias::new("mix_queries"))
+                            .and_where(Expr::col(Alias::new("id")).eq(id))
+                            .to_owned(),
+                    )
+                    .await?;
+                    continue;
                 }
             }
+            let pos = order.entry(mix).or_insert(0);
+            values.push(("position", (*pos).into()));
+            *pos = pos
+                .checked_add(1)
+                .ok_or_else(|| invalid("mix clause overflow"))?;
             update(tx, "mix_queries", id, values).await?;
         }
     }
@@ -948,6 +966,127 @@ mod tests {
             .await
             .unwrap();
         db
+    }
+    #[tokio::test]
+    async fn legacy_duplicate_identities_are_regenerated() {
+        let _ = crate::initialize_node_id("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_owned());
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        db.execute_unprepared("PRAGMA foreign_keys=ON")
+            .await
+            .unwrap();
+        let position = crate::Migrator::migrations()
+            .iter()
+            .position(|m| m.name() == "m20261101_000031_create_sync_store")
+            .unwrap();
+        crate::Migrator::up(&db, Some(position as u32))
+            .await
+            .unwrap();
+        for sql in [
+            "INSERT INTO media_files(id,file_name,directory,extension,file_hash,last_modified,sample_rate,duration,hlc_uuid) VALUES(7,'a','','ogg','crc','2020',44100,1,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),(8,'b','','ogg','crc','2020',44100,1,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')",
+            "INSERT INTO media_file_stats(id,media_file_id,liked,skipped,played_through,updated_at) VALUES(17,7,1,3,9,'2020'),(18,8,0,4,10,'2020')",
+            "INSERT INTO artists(id,name,\"group\") VALUES(3,'Artist','g')",
+            "INSERT INTO media_file_artists(id,media_file_id,artist_id) VALUES(10,7,3),(11,8,3)",
+            "INSERT INTO playlists(id,name,\"group\",hlc_uuid) VALUES(6,'Playlist','g','cccccccc-cccc-4ccc-8ccc-cccccccccccc')",
+            "INSERT INTO media_file_playlists(id,playlist_id,media_file_id,position,hlc_uuid) VALUES(14,6,7,0,'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),(15,6,7,1,'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')",
+            "INSERT INTO mixes(id,name,\"group\",locked,scriptlet_mode,hlc_uuid) VALUES(999,'Mix','g',0,0,'dddddddd-dddd-4ddd-8ddd-dddddddddddd')",
+            "INSERT INTO mix_queries(id,mix_id,operator,parameter,\"group\",hlc_uuid) VALUES(1001,999,'lib::all','true',0,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),(1002,999,'lib::all','true',0,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),(1003,999,'lib::all','true',0,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')",
+        ] {
+            db.execute_unprepared(sql).await.unwrap();
+        }
+        crate::up_with_actor(&db, Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), None)
+            .await
+            .unwrap();
+        for (table, ids, original) in [
+            ("media_files", "7,8", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+            (
+                "media_file_playlists",
+                "14,15",
+                "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            ),
+            (
+                "mix_queries",
+                "1001,1002,1003",
+                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            ),
+        ] {
+            let rows = db
+                .query_all_raw(Statement::from_string(
+                    db.get_database_backend(),
+                    format!("SELECT hlc_uuid FROM {table} WHERE id IN ({ids}) ORDER BY id"),
+                ))
+                .await
+                .unwrap();
+            let mut seen = HashSet::new();
+            for (i, row) in rows.iter().enumerate() {
+                let value: String = row.try_get("", "hlc_uuid").unwrap();
+                let uuid = Uuid::parse_str(&value).unwrap();
+                assert!(!uuid.is_nil() && value == uuid.to_string() && seen.insert(uuid));
+                if i == 0 {
+                    assert_eq!(value, original);
+                }
+            }
+        }
+        let rows = db.query_all_raw(Statement::from_string(db.get_database_backend(), "SELECT f.hlc_uuid AS file_uuid,s.hlc_uuid AS stat_uuid,s.track_uuid,s.device_id,s.skipped,s.played_through,l.track_uuid AS liked_track FROM media_file_stats s JOIN media_files f ON f.hlc_uuid=s.track_uuid LEFT JOIN media_file_likes l ON l.track_uuid=f.hlc_uuid ORDER BY f.id".to_owned())).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        for (i, row) in rows.iter().enumerate() {
+            let file: String = row.try_get("", "file_uuid").unwrap();
+            let device: String = row.try_get("", "device_id").unwrap();
+            assert_eq!(
+                row.try_get::<String>("", "stat_uuid").unwrap(),
+                Uuid::new_v5(
+                    &Uuid::parse_str(&file).unwrap(),
+                    Uuid::parse_str(&device).unwrap().as_bytes()
+                )
+                .to_string()
+            );
+            assert_eq!(
+                row.try_get::<Option<String>>("", "liked_track").unwrap(),
+                if i == 0 { Some(file) } else { None }
+            );
+            assert_eq!(
+                row.try_get::<i32>("", "played_through").unwrap(),
+                9 + i as i32
+            );
+            assert_eq!(row.try_get::<i32>("", "skipped").unwrap(), 3 + i as i32);
+        }
+    }
+    #[tokio::test]
+    async fn legacy_broken_mix_clauses_are_dropped_per_clause() {
+        let db = before_conversion().await;
+        for sql in [
+            "INSERT INTO artists(id,name,\"group\") VALUES(3,'Artist','g')",
+            "INSERT INTO mixes(id,name,\"group\",locked,scriptlet_mode,hlc_uuid) VALUES(999,'Mix','g',0,0,'dddddddd-dddd-4ddd-8ddd-dddddddddddd'),(998,'Other','g',0,0,'cccccccc-cccc-4ccc-8ccc-cccccccccccc')",
+            "INSERT INTO mix_queries(id,mix_id,operator,parameter,\"group\",hlc_uuid) VALUES(1001,999,'lib::artist','3',0,'11111111-1111-4111-8111-111111111111'),(1002,999,'lib::track','9999',0,'22222222-2222-4222-8222-222222222222'),(1003,999,'lib::unknown','x',0,'33333333-3333-4333-8333-333333333333'),(1004,999,'pipe::limit','abc',0,'44444444-4444-4444-8444-444444444444'),(1005,998,'lib::all','true',0,'55555555-5555-4555-8555-555555555555')",
+        ] {
+            db.execute_unprepared(sql).await.unwrap();
+        }
+        crate::up_with_actor(&db, None, None).await.unwrap();
+        let rows = db
+            .query_all_raw(Statement::from_string(
+                db.get_database_backend(),
+                "SELECT id,position FROM mix_queries WHERE id BETWEEN 1001 AND 1005 ORDER BY id"
+                    .to_owned(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].try_get::<i32>("", "id").unwrap(), 1001);
+        assert_eq!(rows[0].try_get::<i32>("", "position").unwrap(), 0);
+        assert_eq!(rows[1].try_get::<i32>("", "id").unwrap(), 1005);
+    }
+    #[tokio::test]
+    async fn oversized_legacy_artwork_is_kept_unavailable() {
+        let db = before_conversion().await;
+        db.execute_unprepared("INSERT INTO media_cover_art(id,file_hash,binary,primary_color,hlc_uuid) VALUES(11,'old',zeroblob(8388609),17,'')").await.unwrap();
+        db.execute_unprepared("INSERT INTO media_files(id,file_name,directory,extension,file_hash,last_modified,cover_art_id,sample_rate,duration,hlc_uuid) VALUES(7,'a','','ogg','crc','2020',11,44100,1,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')").await.unwrap();
+        crate::up_with_actor(&db, None, None).await.unwrap();
+        let row = db.query_one_raw(Statement::from_string(db.get_database_backend(), "SELECT a.local_available,length(a.binary) AS size,f.cover_art_uuid FROM media_cover_art a JOIN media_files f ON f.id=7 WHERE a.id=11".to_owned())).await.unwrap().unwrap();
+        assert!(!row.try_get::<bool>("", "local_available").unwrap());
+        assert_eq!(row.try_get::<i32>("", "size").unwrap(), 8388609);
+        assert_eq!(
+            row.try_get::<Option<String>>("", "cover_art_uuid").unwrap(),
+            None
+        );
     }
     #[tokio::test]
     async fn populated_conversion_preserves_rows_and_removes_fanout() {
