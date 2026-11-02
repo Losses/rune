@@ -281,8 +281,11 @@ static void my_application_init(MyApplication* self) {
 }
 
 MyApplication* my_application_new() {
-  return MY_APPLICATION(g_object_new(my_application_get_type(),
-                                     "application-id", APPLICATION_ID,
-                                     "flags", G_APPLICATION_HANDLES_OPEN,
-                                     nullptr));
+  const gchar* flatpak_application_id = g_getenv("FLATPAK_ID");
+
+  return MY_APPLICATION(g_object_new(
+      my_application_get_type(), "application-id",
+      g_strcmp0(flatpak_application_id, "") > 0 ? flatpak_application_id
+                                                : APPLICATION_ID,
+      "flags", G_APPLICATION_HANDLES_OPEN, nullptr));
 }
