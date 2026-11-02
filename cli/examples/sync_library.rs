@@ -10,8 +10,10 @@ use fsio::FsIo;
 async fn main() {
     let path = ".";
     let fsio = FsIo::new();
-    let main_db = connect_main_db(&fsio, path, None, "").await.unwrap();
-    let node_id = "RUNE_EXAMPLE";
+    let node_id = uuid::Uuid::new_v4();
+    let main_db = connect_main_db(&fsio, path, None, &node_id.to_string())
+        .await
+        .unwrap();
 
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
@@ -20,15 +22,20 @@ async fn main() {
     let root_path = PathBuf::from(&path);
     let fsio = Arc::new(FsIo::new());
 
+    let library = database::sync::LibrarySyncStore::open(main_db.clone(), node_id, None)
+        .await
+        .unwrap();
+    library.import_existing(node_id).await.unwrap();
     let _ = scan_audio_library(
         &fsio,
         &main_db,
-        node_id,
+        &node_id.to_string(),
         &root_path,
         true,
         false,
         empty_progress_callback,
         None,
+        &library.record_store(),
     )
     .await;
 

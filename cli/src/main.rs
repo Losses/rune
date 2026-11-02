@@ -41,6 +41,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Synchronize a library with a paired server
+    Sync {
+        #[arg(long)]
+        server: String,
+        /// PEM certificate for the paired server
+        #[arg(long)]
+        ca: Option<PathBuf>,
+        /// File containing a bearer token; RUNE_SYNC_TOKEN also supported
+        #[arg(long)]
+        token_file: Option<PathBuf>,
+    },
     /// Scan the audio library
     Scan,
 
@@ -158,7 +169,7 @@ async fn main() {
         Ok(path) => path,
         Err(e) => {
             error!("Failed to canonicalize path: {e}");
-            return;
+            std::process::exit(1);
         }
     };
 
@@ -166,7 +177,7 @@ async fn main() {
         Some(path) => path,
         _ => {
             error!("Invalid path, could not convert to string");
-            return;
+            std::process::exit(1);
         }
     };
     let fsio = Arc::new(FsIo::new());
@@ -210,9 +221,72 @@ async fn main() {
         Ok(db) => db,
         Err(e) => {
             error!("Failed to connect to main database: {e}");
-            return;
+            std::process::exit(1);
         }
     };
+
+    if let Commands::Sync {
+        server,
+        ca,
+        token_file,
+    } = &cli.command
+    {
+        let result: Result<(), Box<dyn std::error::Error>> = async {
+            let mut builder = reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(30))
+                .read_timeout(std::time::Duration::from_secs(30));
+            if let Some(path) = ca {
+                builder =
+                    builder.add_root_certificate(reqwest::Certificate::from_pem(&fs::read(path)?)?);
+            }
+            let token = match token_file {
+                Some(path) => Some(fs::read_to_string(path)?),
+                None => std::env::var("RUNE_SYNC_TOKEN").ok(),
+            };
+            if let Some(token) = token {
+                if !server.starts_with("https://") {
+                    return Err("credentials require an HTTPS server".into());
+                }
+                let mut headers = reqwest::header::HeaderMap::new();
+                let mut value =
+                    reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token.trim()))?;
+                value.set_sensitive(true);
+                headers.insert(reqwest::header::AUTHORIZATION, value);
+                builder = builder.default_headers(headers);
+            }
+            let library = database::sync::LibrarySyncStore::open(
+                main_db.clone(),
+                Uuid::parse_str(&node_id)?,
+                Some(Uuid::new_v5(
+                    &Uuid::NAMESPACE_URL,
+                    b"https://rune.audio/catalog",
+                )),
+            )
+            .await?;
+            library.import_existing(Uuid::parse_str(&node_id)?).await?;
+            let report = rune::sync::sync_library(
+                main_db.clone(),
+                Uuid::parse_str(&node_id)?,
+                server,
+                builder.build()?,
+            )
+            .await?;
+            if !report.artwork_complete {
+                log::warn!("Artwork scan incomplete; some artwork was not checked");
+            }
+            info!(
+                "Metadata sync complete: received through {}, sent through {}",
+                report.pulled.sequence, report.pushed.sequence
+            );
+            Ok(())
+        }
+        .await;
+        if let Err(error) = result {
+            error!("Sync failed: {error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
 
     let analysis_db = match connect_recommendation_db(&fsio, lib_path, None, &main_db).await {
         Ok(db) => db,
@@ -223,8 +297,25 @@ async fn main() {
     };
 
     match &cli.command {
+        Commands::Sync { .. } => unreachable!(),
         Commands::Scan => {
-            let _ = scan_audio_library(
+            let library = match database::sync::LibrarySyncStore::open(
+                main_db.clone(),
+                Uuid::parse_str(&node_id).expect("validated device UUID"),
+                Some(Uuid::new_v5(
+                    &Uuid::NAMESPACE_URL,
+                    b"https://rune.audio/catalog",
+                )),
+            )
+            .await
+            {
+                Ok(library) => library,
+                Err(error) => {
+                    error!("Failed to open metadata replica: {error:#}");
+                    return;
+                }
+            };
+            if let Err(error) = scan_audio_library(
                 &fsio,
                 &main_db,
                 &node_id,
@@ -233,14 +324,47 @@ async fn main() {
                 false,
                 empty_progress_callback,
                 None,
+                &library.record_store(),
             )
-            .await;
-            let _ =
-                scan_cover_arts(fsio, &main_db, &path, &node_id, 10, |_now, _total| {}, None).await;
+            .await
+            {
+                error!("Library scan failed: {error:#}");
+                return;
+            }
+            if let Err(error) = scan_cover_arts(
+                fsio,
+                &main_db,
+                &path,
+                10,
+                |_now, _total| {},
+                None,
+                &library.record_store(),
+            )
+            .await
+            {
+                error!("Artwork scan failed: {error:#}");
+                return;
+            }
             info!("Library scanned successfully.");
         }
         Commands::Index => {
-            index_audio_library(&main_db, &node_id).await;
+            let result = async {
+                let library = database::sync::LibrarySyncStore::open(
+                    main_db.clone(),
+                    Uuid::parse_str(&node_id)?,
+                    Some(Uuid::new_v5(
+                        &Uuid::NAMESPACE_URL,
+                        b"https://rune.audio/catalog",
+                    )),
+                )
+                .await?;
+                index_audio_library(&main_db, &node_id, &library.record_store()).await
+            }
+            .await;
+            if let Err(error) = result {
+                error!("Audio indexing failed: {error:#}");
+                std::process::exit(1);
+            }
         }
         Commands::Analyze { computing_device } => {
             analyze_audio_library(

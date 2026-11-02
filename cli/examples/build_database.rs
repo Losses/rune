@@ -30,25 +30,33 @@ async fn main() {
         .init();
 
     let path = ".";
-    let main_db = connect_main_db(&fsio, path, None, "").await.unwrap();
+    let node_id = uuid::Uuid::new_v4();
+    let main_db = connect_main_db(&fsio, path, None, &node_id.to_string())
+        .await
+        .unwrap();
 
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).cloned().expect("Audio data path not provided");
 
     let root_path = PathBuf::from(&path);
-    let node_id = "RUNE_EXAMPLE";
+
+    let library = database::sync::LibrarySyncStore::open(main_db.clone(), node_id, None)
+        .await
+        .unwrap();
+    library.import_existing(node_id).await.unwrap();
 
     // Scan the audio library
     let _ = scan_audio_library(
         &fsio,
         &main_db,
-        node_id,
+        &node_id.to_string(),
         &root_path,
         true,
         false,
         empty_scan_progress_callback,
         None,
+        &library.record_store(),
     )
     .await;
 
