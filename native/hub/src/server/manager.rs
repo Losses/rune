@@ -1000,25 +1000,15 @@ mod lifecycle_tests {
         manager.global_params.main_token.cancel();
         Ok(())
     }
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn paired_background_sync_and_listener_lifecycle() -> Result<()> {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(LevelFilter::WARN)
-            .with_test_writer()
-            .try_init();
-        let first = tempfile::tempdir()?;
-        let second = tempfile::tempdir()?;
-        let a = fixture(first.path()).await?;
-        let b = fixture(second.path()).await?;
-        let a_info = info(&a).await?;
-        let b_info = info(&b).await?;
-        let certificate = b.certificate.clone();
+    async fn pair(a: &ServerManager, b: &ServerManager) -> Result<()> {
+        let a_info = info(a).await?;
+        let b_info = info(b).await?;
         a.global_params
             .permission_manager
             .write()
             .await
             .add_user(
-                certificate,
+                b.certificate.clone(),
                 b_info.fingerprint.clone(),
                 "paired".into(),
                 "test".into(),
@@ -1032,18 +1022,145 @@ mod lifecycle_tests {
             .await
             .change_user_status(&b_info.fingerprint, UserStatus::Approved)
             .await?;
-        let a_reserve = TcpListener::bind("127.0.0.1:0")?;
-        let b_reserve = TcpListener::bind("127.0.0.1:0")?;
-        let a_addr = a_reserve.local_addr()?;
-        let b_addr = SocketAddr::from(([127, 0, 0, 2], b_reserve.local_addr()?.port()));
-        assert_ne!(a_addr.port(), b_addr.port());
-        drop((a_reserve, b_reserve));
         b.global_params
             .cert_validator
             .read()
             .await
             .add_trusted_domains(["127.0.0.1"], &a_info.fingerprint)
             .await?;
+        Ok(())
+    }
+
+    async fn paired_full(a: &Arc<ServerManager>, b: &Arc<ServerManager>) -> Result<SocketAddr> {
+        pair(a, b).await?;
+        a.clone()
+            .start(
+                ([127, 0, 0, 1], 0).into(),
+                DiscoveryParams {
+                    device_info: info(a).await?,
+                },
+            )
+            .await?;
+        a.get_address().await.context("missing listener address")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn remote_control_and_file_fetch_end_to_end() -> Result<()> {
+        use crate::backends::remote::{connect_remote, decode_message, encode_message};
+        use crate::handlers::neighbors::authorized_get;
+        use futures::{SinkExt, StreamExt};
+        use tokio::net::TcpStream;
+        use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
+        use url::Url;
+
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a = fixture(first.path()).await?;
+        let b = fixture(second.path()).await?;
+        let addr = paired_full(&a, &b).await?;
+        let validator = b.global_params.cert_validator.read().await.clone();
+        let config = &b.global_params.config_path;
+        let mut socket =
+            connect_remote("127.0.0.1", addr.port(), config, validator.clone()).await?;
+        async fn count(socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>) -> Result<()> {
+            let id = Uuid::new_v4();
+            let payload = rinf::serialize(&GetMediaFilesCountRequest {})?;
+            socket
+                .send(Message::Binary(
+                    encode_message("GetMediaFilesCountRequest", &payload, Some(id)).into(),
+                ))
+                .await?;
+            let message = tokio::time::timeout(Duration::from_secs(2), socket.next())
+                .await?
+                .context("socket closed")??;
+            let (name, payload, response_id) =
+                decode_message(&message.into_data()).context("invalid frame")?;
+            assert_eq!(response_id, id);
+            assert_eq!(name, "GetMediaFilesCountResponse");
+            let response: GetMediaFilesCountResponse = rinf::deserialize(&payload)?;
+            assert_eq!(response.count, 0);
+            Ok(())
+        }
+        count(&mut socket).await?;
+        let request = FetchRemoteFileRequest {
+            url: "http://example.invalid/file".into(),
+        };
+        socket
+            .send(Message::Binary(
+                encode_message(
+                    "FetchRemoteFileRequest",
+                    &rinf::serialize(&request)?,
+                    Some(Uuid::new_v4()),
+                )
+                .into(),
+            ))
+            .await?;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(500), socket.next())
+                .await
+                .is_err()
+        );
+        count(&mut socket).await?;
+
+        let name = format!("{}.txt", Uuid::new_v4());
+        let bytes = b"remote file contents";
+        std::fs::write(first.path().join(&name), bytes)?;
+        let url = Url::parse(&format!(
+            "https://127.0.0.1:{}/files/library/{name}",
+            addr.port()
+        ))?;
+        let response =
+            authorized_get(config, validator.clone(), "127.0.0.1", addr.port(), url).await?;
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.bytes().await?.as_ref(), bytes);
+        for url in [
+            format!("http://127.0.0.1:{}/files/library/{name}", addr.port()),
+            format!("https://untrusted.invalid/files/library/{name}"),
+        ] {
+            let request = FetchRemoteFileRequest { url };
+            let response = request
+                .handle(request.extract_params(&b.global_params), None, &request)
+                .await?
+                .context("missing response")?;
+            assert!(!response.success, "unexpected success for {}", request.url);
+        }
+        a.global_params
+            .permission_manager
+            .write()
+            .await
+            .change_user_status(&info(&b).await?.fingerprint, UserStatus::Blocked)
+            .await?;
+        assert!(
+            connect_remote("127.0.0.1", addr.port(), config, validator)
+                .await
+                .is_err()
+        );
+        socket.close(None).await?;
+        a.stop().await?;
+        a.global_params.main_token.cancel();
+        b.global_params.main_token.cancel();
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn paired_background_sync_and_listener_lifecycle() -> Result<()> {
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(LevelFilter::WARN)
+            .with_test_writer()
+            .try_init();
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a = fixture(first.path()).await?;
+        let b = fixture(second.path()).await?;
+        let a_info = info(&a).await?;
+        let b_info = info(&b).await?;
+        pair(&a, &b).await?;
+        let a_reserve = TcpListener::bind("127.0.0.1:0")?;
+        let b_reserve = TcpListener::bind("127.0.0.1:0")?;
+        let a_addr = a_reserve.local_addr()?;
+        let b_addr = SocketAddr::from(([127, 0, 0, 2], b_reserve.local_addr()?.port()));
+        assert_ne!(a_addr.port(), b_addr.port());
+        drop((a_reserve, b_reserve));
         std::fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
             second.path().join("source.ogg"),

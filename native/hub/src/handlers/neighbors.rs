@@ -858,7 +858,7 @@ impl ParamsExtractor for FetchRemoteFileRequest {
 }
 
 /// Fetches `url` from a trusted peer with a proof-of-key bearer token.
-async fn authorized_get(
+pub(crate) async fn authorized_get(
     config_path: &str,
     validator: CertValidator,
     host: &str,

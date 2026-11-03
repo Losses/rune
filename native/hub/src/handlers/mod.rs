@@ -10,7 +10,7 @@ mod logging;
 mod lyric;
 mod media_file;
 mod mix;
-mod neighbors;
+pub(crate) mod neighbors;
 mod playback;
 mod playlist;
 mod scrobble;
