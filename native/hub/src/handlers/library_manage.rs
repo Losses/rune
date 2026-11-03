@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use crate::utils::sync_settings::SyncSettings;
 use database::actions::metadata::ScanOptions;
 use std::time::Instant;
@@ -237,7 +238,9 @@ impl Signal for ScanAudioLibraryRequest {
                         },
                         record_store
                             .as_ref()
-                            .context("library sync store unavailable")?,
+                            .ok_or(ExpectedRequestError::Unavailable {
+                                what: "library sync store",
+                            })?,
                     )
                     .await?;
 
@@ -269,7 +272,9 @@ impl Signal for ScanAudioLibraryRequest {
                         Some(new_token.clone()),
                         record_store
                             .as_ref()
-                            .context("library sync store unavailable")?,
+                            .ok_or(ExpectedRequestError::Unavailable {
+                                what: "library sync store",
+                            })?,
                     )
                     .await?;
 
@@ -533,9 +538,12 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 };
                 let _ = uuid_node_id;
 
-                let record_store = record_store
-                    .as_ref()
-                    .context("library sync store unavailable")?;
+                let record_store =
+                    record_store
+                        .as_ref()
+                        .ok_or(ExpectedRequestError::Unavailable {
+                            what: "library sync store",
+                        })?;
                 // Stage 1: Compute fingerprints (0% - 33%)
                 let broadcaster_clone = Arc::clone(&broadcaster);
                 let progress_path = request_path_clone.to_string();

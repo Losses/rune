@@ -9,6 +9,7 @@ use crate::entities::{
     albums, artists, media_file_albums, media_file_artists, media_files, media_metadata,
     sync_download_jobs, sync_download_jobs::Column,
 };
+use crate::error::ExpectedError;
 use sea_orm::ExprTrait;
 use sea_orm::sqlx::Error;
 use std::collections::HashSet;
@@ -1083,7 +1084,10 @@ pub async fn get_metadata_summary_by_file_id<C: sea_orm::ConnectionTrait>(
     results
         .into_iter()
         .next()
-        .ok_or_else(|| anyhow::anyhow!("Metadata summary not found for file ID: {}", file_id))
+        .ok_or(ExpectedError::NotFound {
+            what: "metadata summary",
+        })
+        .with_context(|| format!("Metadata summary not found for file ID: {file_id}"))
 }
 
 pub async fn get_parsed_file_by_id(

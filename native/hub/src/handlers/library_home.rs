@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use std::{marker::PhantomData, str::FromStr, sync::Arc};
 
 use anyhow::{Error, Result};
@@ -164,29 +165,34 @@ impl ComplexQuery for MixTrackComplexQuery {
 }
 
 fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> {
+    let parse_mode = || {
+        CollectionQueryListMode::from_str(parameter).map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("Invalid collection list mode: {error}"))
+        })
+    };
     match domain {
         "artists" => Ok(Box::new(CollectionComplexQuery::<artists::Model>::new(
             25,
-            CollectionQueryListMode::from_str(parameter)?,
+            parse_mode()?,
         ))),
         "albums" => Ok(Box::new(CollectionComplexQuery::<albums::Model>::new(
             25,
-            CollectionQueryListMode::from_str(parameter)?,
+            parse_mode()?,
         ))),
         "genres" => Ok(Box::new(CollectionComplexQuery::<genres::Model>::new(
             25,
-            CollectionQueryListMode::from_str(parameter)?,
+            parse_mode()?,
         ))),
         "playlists" => Ok(Box::new(CollectionComplexQuery::<playlists::Model>::new(
             25,
-            CollectionQueryListMode::from_str(parameter)?,
+            parse_mode()?,
         ))),
         "mixes" => Ok(Box::new(CollectionComplexQuery::<mixes::Model>::new(
             25,
-            CollectionQueryListMode::from_str(parameter)?,
+            parse_mode()?,
         ))),
         "tracks" => Ok(Box::new(NaiveTrackComplexQuery {
-            mode: CollectionQueryListMode::from_str(parameter)?,
+            mode: parse_mode()?,
         })),
         "liked" => Ok(Box::new(MixTrackComplexQuery {
             query: vec![

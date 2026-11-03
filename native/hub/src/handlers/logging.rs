@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -35,8 +36,12 @@ impl Signal for ListLogRequest {
 
         let result = list_log(
             &main_db,
-            request.cursor.try_into()?,
-            request.page_size.try_into()?,
+            request.cursor.try_into().map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid cursor: {error}"))
+            })?,
+            request.page_size.try_into().map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid page size: {error}"))
+            })?,
         )
         .await
         .with_context(|| {

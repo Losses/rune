@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -166,11 +167,15 @@ impl Signal for NextRequest {
         if let Some(PlayingItem::InLibrary(file_id)) = item {
             increase_skipped(
                 &main_db,
-                store.as_ref().context("library replica unavailable")?,
+                store.as_ref().ok_or(ExpectedRequestError::Unavailable {
+                    what: "library replica",
+                })?,
                 file_id,
                 store
                     .as_ref()
-                    .context("library replica unavailable")?
+                    .ok_or(ExpectedRequestError::Unavailable {
+                        what: "library replica",
+                    })?
                     .author(),
             )
             .await
@@ -220,11 +225,15 @@ impl Signal for PreviousRequest {
         if let Some(PlayingItem::InLibrary(file_id)) = item {
             increase_skipped(
                 &main_db,
-                store.as_ref().context("library replica unavailable")?,
+                store.as_ref().ok_or(ExpectedRequestError::Unavailable {
+                    what: "library replica",
+                })?,
                 file_id,
                 store
                     .as_ref()
-                    .context("library replica unavailable")?
+                    .ok_or(ExpectedRequestError::Unavailable {
+                        what: "library replica",
+                    })?
                     .author(),
             )
             .await
@@ -296,11 +305,15 @@ impl Signal for SwitchRequest {
         if let Some(PlayingItem::InLibrary(file_id)) = player.lock().await.get_status().item {
             increase_skipped(
                 &main_db,
-                store.as_ref().context("library replica unavailable")?,
+                store.as_ref().ok_or(ExpectedRequestError::Unavailable {
+                    what: "library replica",
+                })?,
                 file_id,
                 store
                     .as_ref()
-                    .context("library replica unavailable")?
+                    .ok_or(ExpectedRequestError::Unavailable {
+                        what: "library replica",
+                    })?
                     .author(),
             )
             .await
@@ -411,10 +424,14 @@ impl Signal for MovePlaylistItemRequest {
         let old_index = request.old_index;
         let new_index = request.new_index;
 
-        player
-            .lock()
-            .await
-            .move_playlist_item(old_index.try_into()?, new_index.try_into()?);
+        player.lock().await.move_playlist_item(
+            old_index.try_into().map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid old index: {error}"))
+            })?,
+            new_index.try_into().map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid new index: {error}"))
+            })?,
+        );
         Ok(Some(()))
     }
 }

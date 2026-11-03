@@ -17,6 +17,7 @@ use crate::{
     Session,
     backends::remote::{decode_message, encode_message},
     messages::RemoteRequestFailed,
+    request_error::classify,
     server::{ServerState, sync_auth::AuthenticatedFingerprint},
 };
 use discovery::server::{User, UserStatus};
@@ -104,6 +105,7 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: Use
                         Err(e) => {
                             error!("[{incoming_alias}] Failed to handle {msg_type}: {e:#}");
                             let failure = RemoteRequestFailed {
+                                kind: classify(&e),
                                 request: msg_type,
                                 detail: format!("{e:#}"),
                             };

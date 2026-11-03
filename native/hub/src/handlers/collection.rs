@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
@@ -76,7 +77,7 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
         main_db,
         params
             .group_titles
-            .ok_or_else(|| anyhow::anyhow!("Group title is None"))?,
+            .ok_or_else(|| ExpectedRequestError::invalid_input("Group title is None"))?,
     )
     .await?;
     let collection_groups: Vec<CollectionGroup> = join_all(entry.into_iter().map(|x| async {
@@ -127,7 +128,7 @@ async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
         main_db,
         &params
             .ids
-            .ok_or_else(|| anyhow::anyhow!("ID parameter is None"))?,
+            .ok_or_else(|| ExpectedRequestError::invalid_input("ID parameter is None"))?,
     )
     .await?;
     let futures = items.into_iter().map(|item| async move {
@@ -162,7 +163,7 @@ async fn handle_search<T: CollectionQuery>(
         main_db,
         params
             .n
-            .ok_or_else(|| anyhow::anyhow!("Parameter N is None"))?
+            .ok_or_else(|| ExpectedRequestError::invalid_input("Parameter N is None"))?
             .into(),
         CollectionQueryListMode::Forward,
     )
@@ -312,7 +313,7 @@ impl Signal for FetchCollectionGroupSummaryRequest {
             }
             CollectionType::Mix => handle_fetch_group_summary::<mixes::Model>(&main_db).await,
             CollectionType::Genre => handle_fetch_group_summary::<genres::Model>(&main_db).await,
-            _ => Err(anyhow::anyhow!("Invalid collection type")),
+            _ => Err(ExpectedRequestError::invalid_input("Invalid collection type").into()),
         }
     }
 }
@@ -417,7 +418,7 @@ impl Signal for FetchCollectionGroupsRequest {
                 )
                 .await
             }
-            _ => Err(anyhow::anyhow!("Invalid collection type")),
+            _ => Err(ExpectedRequestError::invalid_input("Invalid collection type").into()),
         }
     }
 }
@@ -521,7 +522,7 @@ impl Signal for FetchCollectionByIdsRequest {
                 )
                 .await
             }
-            _ => Err(anyhow::anyhow!("Invalid collection type")),
+            _ => Err(ExpectedRequestError::invalid_input("Invalid collection type").into()),
         }
     }
 }
@@ -545,7 +546,9 @@ impl Signal for SearchCollectionSummaryRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let params = CollectionActionParams {
-            n: Some(dart_signal.n.try_into()?),
+            n: Some(dart_signal.n.try_into().map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid N: {error}"))
+            })?),
             ..Default::default()
         };
 
@@ -557,10 +560,11 @@ impl Signal for SearchCollectionSummaryRequest {
             }
             Some(CollectionType::Mix) => handle_search::<mixes::Model>(&main_db, params).await,
             Some(CollectionType::Genre) => handle_search::<genres::Model>(&main_db, params).await,
-            _ => Err(anyhow::anyhow!(
+            _ => Err(ExpectedRequestError::invalid_input(format!(
                 "Invalid collection type: {:?}",
                 dart_signal.collection_type
-            )),
+            ))
+            .into()),
         }
     }
 }

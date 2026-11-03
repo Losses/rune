@@ -1,3 +1,4 @@
+use crate::error::ExpectedError;
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use sea_orm::{
@@ -17,7 +18,7 @@ async fn assign_liked<C: ConnectionTrait>(
     let file = media_files::Entity::find_by_id(file_id)
         .one(db)
         .await?
-        .ok_or_else(|| anyhow!("media file not found"))?;
+        .ok_or(ExpectedError::NotFound { what: "media file" })?;
     let existing = likes::Entity::find()
         .filter(likes::Column::TrackUuid.eq(&file.hlc_uuid))
         .one(db)
@@ -108,7 +109,7 @@ async fn author_increment(
     let file = media_files::Entity::find_by_id(file_id)
         .one(&tx)
         .await?
-        .ok_or_else(|| anyhow!("media file not found"))?;
+        .ok_or(ExpectedError::NotFound { what: "media file" })?;
     let track_id = Uuid::parse_str(&file.hlc_uuid)?;
     let key = ObjectKey {
         collection: Collection::PlaybackStatistics,
@@ -130,7 +131,7 @@ async fn increment_statistics<C: ConnectionTrait>(
     let file = media_files::Entity::find_by_id(file_id)
         .one(db)
         .await?
-        .ok_or_else(|| anyhow!("media file not found"))?;
+        .ok_or(ExpectedError::NotFound { what: "media file" })?;
     let file_uuid = Uuid::parse_str(&file.hlc_uuid)?;
     let device = device_id.to_string();
     let now = Utc::now().to_rfc3339();

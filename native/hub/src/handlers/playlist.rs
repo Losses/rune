@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use database::actions::cover_art::bake_cover_art_by_media_files;
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::playlists::{
@@ -5,11 +6,13 @@ use database::actions::playlists::{
     list_occurrences, remove_item_from_playlist, remove_playlist, reorder_playlist_item_position,
     update_playlist,
 };
+use database::error::ExpectedError;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use uuid::Uuid;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 
 use ::database::actions::playlists::{get_all_playlists, get_playlist_by_id};
 use ::database::connection::MainDbConnection;
@@ -101,7 +104,9 @@ impl Signal for CreatePlaylistRequest {
 
         let playlist = create_playlist(
             &db,
-            &store.context("playlist store unavailable")?,
+            &store.ok_or(ExpectedRequestError::Unavailable {
+                what: "playlist store",
+            })?,
             name.clone(),
             group.clone(),
         )
@@ -157,7 +162,9 @@ impl Signal for UpdatePlaylistRequest {
 
         let playlist = update_playlist(
             &db,
-            &store.context("playlist store unavailable")?,
+            &store.ok_or(ExpectedRequestError::Unavailable {
+                what: "playlist store",
+            })?,
             request.playlist_id,
             Some(name.clone()),
             Some(group.clone()),
@@ -216,7 +223,9 @@ impl Signal for RemovePlaylistRequest {
 
         remove_playlist(
             &db,
-            &store.context("playlist store unavailable")?,
+            &store.ok_or(ExpectedRequestError::Unavailable {
+                what: "playlist store",
+            })?,
             request.playlist_id,
         )
         .await
@@ -265,7 +274,9 @@ impl Signal for AddItemToPlaylistRequest {
 
         let entry = add_item_to_playlist(
             &db,
-            &store.context("playlist store unavailable")?,
+            &store.ok_or(ExpectedRequestError::Unavailable {
+                what: "playlist store",
+            })?,
             request.playlist_id,
             request.media_file_id,
             request.position,
@@ -320,8 +331,8 @@ impl Signal for ReorderPlaylistItemPositionRequest {
         let request = dart_signal;
 
         reorder_playlist_item_position(
-            &db, &store.context("playlist store unavailable")?, request.playlist_id,
-            request.occurrence_id.parse().context("invalid occurrence UUID")?,
+            &db, &store.ok_or(ExpectedRequestError::Unavailable { what: "playlist store" })?, request.playlist_id,
+            parse_occurrence_id(&request.occurrence_id)?,
             request.new_position,
         )
         .await
@@ -361,10 +372,8 @@ impl Signal for GetPlaylistByIdRequest {
         let playlist = get_playlist_by_id(&main_db, request.playlist_id)
             .await
             .with_context(|| format!("Failed to get playlist by id: {}", request.playlist_id))?
-            .ok_or(anyhow!(
-                "Playlist not found with id: {}",
-                request.playlist_id
-            ))?;
+            .ok_or(ExpectedError::NotFound { what: "playlist" })
+            .with_context(|| format!("Playlist not found with id: {}", request.playlist_id))?;
 
         Ok(Some(GetPlaylistByIdResponse {
             playlist: Playlist {
@@ -413,7 +422,9 @@ impl Signal for CreateM3u8PlaylistRequest {
 
         match create_m3u8_playlist(
             &db,
-            &store.context("playlist store unavailable")?,
+            &store.ok_or(ExpectedRequestError::Unavailable {
+                what: "playlist store",
+            })?,
             name.clone(),
             group.clone(),
             Path::new(&path),
@@ -481,12 +492,11 @@ impl Signal for RemoveItemFromPlaylistRequest {
 
         match remove_item_from_playlist(
             &db,
-            &store.context("playlist store unavailable")?,
+            &store.ok_or(ExpectedRequestError::Unavailable {
+                what: "playlist store",
+            })?,
             request.playlist_id,
-            request
-                .occurrence_id
-                .parse()
-                .context("invalid occurrence UUID")?,
+            parse_occurrence_id(&request.occurrence_id)?,
         )
         .await
         {
@@ -580,5 +590,27 @@ impl Signal for FetchPlaylistOccurrencesRequest {
             }),
             cover_art_map,
         }))
+    }
+}
+
+fn parse_occurrence_id(value: &str) -> Result<Uuid> {
+    value
+        .parse()
+        .map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("invalid occurrence UUID: {error}"))
+        })
+        .map_err(Into::into)
+}
+
+#[cfg(test)]
+mod request_error_tests {
+    use super::parse_occurrence_id;
+    use crate::{messages::RequestErrorKind, request_error::classify};
+
+    #[test]
+    fn invalid_occurrence_uuid_is_invalid_input() {
+        let error = parse_occurrence_id("not-a-uuid").unwrap_err();
+        assert!(format!("{error:#}").contains("invalid occurrence UUID"));
+        assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
     }
 }

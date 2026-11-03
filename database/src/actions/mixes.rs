@@ -1,4 +1,5 @@
 use crate::actions::search::{add_term, remove_term};
+use crate::error::ExpectedError;
 use crate::sync::{
     SeaOrmSyncStore,
     bindings::apply,
@@ -231,7 +232,8 @@ pub async fn get_mix_by_id(db: &DatabaseConnection, id: i32) -> Result<mixes::Mo
     mixes::Entity::find_by_id(id)
         .one(db)
         .await?
-        .context("Mix not found")
+        .ok_or(ExpectedError::NotFound { what: "mix" })
+        .map_err(Into::into)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -251,7 +253,7 @@ pub async fn update_mix(
     let row = mixes::Entity::find_by_id(id)
         .one(&tx)
         .await?
-        .context("Mix not found")?;
+        .ok_or(ExpectedError::NotFound { what: "mix" })?;
     let mut model: mixes::ActiveModel = row.into();
     if let Some(v) = name {
         model.name = Set(v);
@@ -284,7 +286,7 @@ pub async fn remove_mix(db: &DatabaseConnection, store: &SeaOrmSyncStore, id: i3
     let row = mixes::Entity::find_by_id(id)
         .one(&tx)
         .await?
-        .context("mix not found")?;
+        .ok_or(ExpectedError::NotFound { what: "mix" })?;
     let key = ObjectKey {
         collection: Collection::Mixes,
         id: row.hlc_uuid.parse()?,
@@ -309,7 +311,7 @@ pub async fn replace_mix_queries(
     let mix = mixes::Entity::find_by_id(mix_id)
         .one(&tx)
         .await?
-        .context("mix not found")?;
+        .ok_or(ExpectedError::NotFound { what: "mix" })?;
     anyhow::ensure!(mix.hlc_uuid == mix_hlc_uuid, "mix identity changed");
     replace_queries_on(&tx, &mix.hlc_uuid, queries, group.unwrap_or_default()).await?;
     author_mix(&tx, store, &mix).await?;
@@ -323,7 +325,7 @@ pub async fn get_mix_queries_by_mix_id(
     let mix = mixes::Entity::find_by_id(mix_id)
         .one(db)
         .await?
-        .context("mix not found")?;
+        .ok_or(ExpectedError::NotFound { what: "mix" })?;
     query_views_on(db, &mix.hlc_uuid).await
 }
 pub async fn executable_mix_queries(
@@ -333,7 +335,7 @@ pub async fn executable_mix_queries(
     let mix = mixes::Entity::find_by_id(mix_id)
         .one(db)
         .await?
-        .context("mix not found")?;
+        .ok_or(ExpectedError::NotFound { what: "mix" })?;
     executable_queries_on(db, &mix.hlc_uuid).await
 }
 pub async fn remove_mix_query(
@@ -348,12 +350,12 @@ pub async fn remove_mix_query(
     let row = mix_queries::Entity::find_by_id(id)
         .one(&tx)
         .await?
-        .context("mix clause not found")?;
+        .ok_or(ExpectedError::NotFound { what: "mix clause" })?;
     let mix = mixes::Entity::find()
         .filter(mixes::Column::HlcUuid.eq(&row.mix_uuid))
         .one(&tx)
         .await?
-        .context("mix not found")?;
+        .ok_or(ExpectedError::NotFound { what: "mix" })?;
     let owner = [row.mix_uuid.into()];
     let mut items = Clauses::read_on(&tx, &owner, Clauses::read_ceiling()).await?;
     items.retain(|item| item.id.to_string() != row.hlc_uuid);
@@ -428,7 +430,7 @@ pub async fn add_item_to_mix(
     let mix = mixes::Entity::find_by_id(mix_id)
         .one(&tx)
         .await?
-        .context("mix not found")?;
+        .ok_or(ExpectedError::NotFound { what: "mix" })?;
     let row = add_query_on(&tx, &mix.hlc_uuid, operator, parameter).await?;
     author_mix(&tx, store, &mix).await?;
     tx.commit().await?;
@@ -1310,7 +1312,9 @@ async fn resolve_target_on(
     Ok(Some(
         RuneModel::source_uuid_on(tx, &collection, local)
             .await?
-            .context("mix reference not found")?,
+            .ok_or(ExpectedError::NotFound {
+                what: "mix reference",
+            })?,
     ))
 }
 async fn add_query_on(

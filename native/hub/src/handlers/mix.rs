@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use database::actions::mixes::{add_item_to_mix, create_mix, remove_mix, update_mix};
 use std::{collections::HashMap, sync::Arc};
 
@@ -86,7 +87,9 @@ impl Signal for CreateMixRequest {
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
 
-        let store = store.context("mix synchronization unavailable")?;
+        let store = store.ok_or(ExpectedRequestError::Unavailable {
+            what: "mix synchronization",
+        })?;
         let mix = create_mix(
             &db,
             &store,
@@ -137,7 +140,9 @@ impl Signal for UpdateMixRequest {
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
 
-        let store = store.context("mix synchronization unavailable")?;
+        let store = store.ok_or(ExpectedRequestError::Unavailable {
+            what: "mix synchronization",
+        })?;
         let mix = update_mix(
             &db,
             &store,
@@ -191,7 +196,9 @@ impl Signal for RemoveMixRequest {
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
 
-        let store = store.context("mix synchronization unavailable")?;
+        let store = store.ok_or(ExpectedRequestError::Unavailable {
+            what: "mix synchronization",
+        })?;
         remove_mix(&db, &store, request.mix_id)
             .await
             .with_context(|| format!("Failed to remove mix with id: {}", request.mix_id))?;
@@ -227,7 +234,9 @@ impl Signal for AddItemToMixRequest {
         let operator = &request.operator;
         let parameter = &request.parameter;
 
-        let store = store.context("mix synchronization unavailable")?;
+        let store = store.ok_or(ExpectedRequestError::Unavailable {
+            what: "mix synchronization",
+        })?;
         add_item_to_mix(
             &db, &store, mix_id,
             operator.clone(),

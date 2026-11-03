@@ -810,6 +810,8 @@ mod lifecycle_tests {
     use super::super::sync_worker;
     use super::super::sync_worker::{PeerEndpoint, PeerPass, authenticated_client, test_peer_pass};
     use super::super::utils::device::load_device_info;
+    use crate::Signal;
+    use crate::request_error::classify;
     use database::connection::RecommendationDbConnection;
     use migration::catalog_identity::ParentKind;
     use playback::decoder::RuneDecoder;
@@ -1251,6 +1253,36 @@ mod lifecycle_tests {
         Ok((response_name, payload))
     }
 
+    #[tokio::test]
+    async fn missing_playlist_handler_is_not_found() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let manager = fixture(dir.path()).await?;
+        let request = GetPlaylistByIdRequest { playlist_id: -1 };
+        let result = request
+            .handle((manager.global_params.main_db.clone(),), None, &request)
+            .await;
+        manager.global_params.main_token.cancel();
+        let error = result
+            .err()
+            .context("missing playlist unexpectedly succeeded")?;
+        assert_eq!(classify(&error), RequestErrorKind::NotFound);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn missing_mix_handler_is_not_found() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let manager = fixture(dir.path()).await?;
+        let request = GetMixByIdRequest { mix_id: -1 };
+        let result = request
+            .handle((manager.global_params.main_db.clone(),), None, &request)
+            .await;
+        manager.global_params.main_token.cancel();
+        let error = result.err().context("missing mix unexpectedly succeeded")?;
+        assert_eq!(classify(&error), RequestErrorKind::NotFound);
+        Ok(())
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn remote_request_failures_end_to_end() -> Result<()> {
         use crate::backends::remote::connect_remote;
@@ -1289,8 +1321,10 @@ mod lifecycle_tests {
                 let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
                 assert_eq!(failure.request, name);
                 if name == "GetPlaylistByIdRequest" {
+                    assert_eq!(failure.kind, RequestErrorKind::NotFound);
                     assert!(failure.detail.contains("Playlist not found with id: -1"));
                 } else {
+                    assert_eq!(failure.kind, RequestErrorKind::Internal);
                     assert!(failure.detail.contains("Failed to deserialize request"));
                 }
             }

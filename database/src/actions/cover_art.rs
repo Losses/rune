@@ -1,4 +1,5 @@
 use crate::actions::file::hash_file;
+use crate::error::ExpectedError;
 use crate::sync::SeaOrmSyncStore;
 use crate::sync::accepted as crate_sync_accepted;
 use crate::sync::model::{Artwork, BlobRef, Collection, ObjectKey, RuneModel, author_source_on};
@@ -437,7 +438,7 @@ pub async fn get_primary_color_by_cover_art_id(
     let cover_art = media_cover_art::Entity::find_by_id(cover_art_id)
         .one(main_db)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("Cover art not found"))?;
+        .ok_or(ExpectedError::NotFound { what: "cover art" })?;
 
     // Step 2: Check if the primary color is null
     if let Some(primary_color) = cover_art.primary_color {

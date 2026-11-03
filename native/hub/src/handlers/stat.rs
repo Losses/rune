@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -53,7 +54,9 @@ impl Signal for SetLikedRequest {
                 PlayingItem::InLibrary(file_id) => {
                     set_liked(
                         &main_db,
-                        store.as_ref().context("library replica unavailable")?,
+                        store.as_ref().ok_or(ExpectedRequestError::Unavailable {
+                            what: "library replica",
+                        })?,
                         file_id,
                         request.liked,
                     )

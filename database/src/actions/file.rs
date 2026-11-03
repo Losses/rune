@@ -1,3 +1,4 @@
+use crate::error::ExpectedError;
 use std::ffi::OsStr;
 mod access;
 mod content;
@@ -25,7 +26,7 @@ use crate::entities::{
 };
 use crate::sync::SeaOrmSyncStore;
 use crate::sync::model::{Collection, ObjectKey};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use metadata::describe::FileDescription;
 use rust_decimal::prelude::ToPrimitive;
 use sea_orm::entity::prelude::*;
@@ -217,10 +218,7 @@ pub async fn get_file_ids_by_descriptions(
     Ok(file_ids)
 }
 
-pub async fn get_duration_by_file_id(
-    db: &DatabaseConnection,
-    file_id: i32,
-) -> Result<f64, sea_orm::DbErr> {
+pub async fn get_duration_by_file_id(db: &DatabaseConnection, file_id: i32) -> Result<f64> {
     let analysis_entry: Option<media_files::Model> = media_files::Entity::find()
         .filter(media_files::Column::Id.eq(file_id))
         .one(db)
@@ -229,9 +227,10 @@ pub async fn get_duration_by_file_id(
     if let Some(entry) = analysis_entry {
         Ok(entry.duration.to_f64().unwrap())
     } else {
-        Err(sea_orm::DbErr::RecordNotFound(
-            "Analysis record not found".to_string(),
-        ))
+        Err(ExpectedError::NotFound {
+            what: "analysis record",
+        }
+        .into())
     }
 }
 
@@ -248,7 +247,7 @@ pub async fn remove_track(
     let file = media_files::Entity::find_by_id(file_id)
         .one(tx)
         .await?
-        .context("track not found")?;
+        .ok_or(ExpectedError::NotFound { what: "track" })?;
     let track = file.hlc_uuid.as_str();
     remove_track_links::<media_file_albums::Entity>(
         tx,

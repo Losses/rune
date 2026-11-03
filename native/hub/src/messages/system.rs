@@ -1,4 +1,4 @@
-use rinf::{DartSignal, RustSignal};
+use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -19,5 +19,21 @@ pub struct SystemInfoResponse {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct CrashResponse {
+    pub detail: String,
+}
+
+/// The category of a failed request, shared by local and remote dispatch.
+#[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestErrorKind {
+    NotFound,
+    InvalidInput,
+    Unavailable,
+    Internal,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct RequestFailedResponse {
+    pub request: String,
+    pub kind: RequestErrorKind,
     pub detail: String,
 }

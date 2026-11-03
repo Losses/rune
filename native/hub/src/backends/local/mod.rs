@@ -14,7 +14,8 @@ mod gui_request;
 
 use std::sync::{Arc, OnceLock};
 
-use log::{error, info};
+use crate::request_error::classify;
+use log::{error, info, warn};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 

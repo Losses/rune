@@ -2,6 +2,7 @@
 mod remote_request;
 
 use crate::library_pool::LibraryPool;
+use crate::request_error::classify;
 use crate::utils::sync_settings::SyncSettings;
 use std::path::Path;
 use std::{
@@ -12,7 +13,7 @@ use std::{
 
 use anyhow::Result;
 use futures::{SinkExt, StreamExt};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use reqwest::redirect::Policy;
 use rinf::{DartSignal, RustSignal};
 use serde::Deserialize;
@@ -488,8 +489,19 @@ pub async fn server_player_loop(
                 |payload| match rinf::deserialize::<RemoteRequestFailed>(&payload) {
                     Ok(failure) => {
                         let detail = remote_failure_detail(&failure);
-                        error!("{detail}");
-                        CrashResponse { detail }.send_signal_to_dart();
+                        let kind = failure.kind;
+                        RequestFailedResponse {
+                            request: failure.request,
+                            kind,
+                            detail: failure.detail,
+                        }
+                        .send_signal_to_dart();
+                        if kind == RequestErrorKind::Internal {
+                            error!("{detail}");
+                            CrashResponse { detail }.send_signal_to_dart();
+                        } else {
+                            warn!("{detail}");
+                        }
                     }
                     Err(e) => {
                         error!("Failed to decode message: {e}");
@@ -530,6 +542,7 @@ mod loss_tests {
     #[test]
     fn remote_failure_formats_crash_detail() {
         let failure = RemoteRequestFailed {
+            kind: RequestErrorKind::Internal,
             request: "ExampleRequest".into(),
             detail: "outer: inner".into(),
         };

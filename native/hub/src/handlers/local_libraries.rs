@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
@@ -72,7 +73,9 @@ impl Signal for SetLibraryBackgroundSyncRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         let result = async {
-            let library_id = Uuid::parse_str(&request.library_id)?;
+            let library_id = Uuid::parse_str(&request.library_id).map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("invalid library UUID: {error}"))
+            })?;
             LibraryRegistry::set_background_sync(Path::new(&*config), library_id, request.enabled)
                 .await
         }

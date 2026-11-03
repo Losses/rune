@@ -10,6 +10,7 @@ mod handlers;
 pub mod backends;
 pub mod library_pool;
 pub mod messages;
+pub mod request_error;
 #[macro_use]
 pub mod server;
 pub mod utils;

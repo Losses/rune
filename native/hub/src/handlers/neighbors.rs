@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use crate::server::{
     ServerManager,
     api::{check_fingerprint, register_device},
@@ -222,7 +223,10 @@ impl Signal for StartServerRequest {
     ) -> impl Future<Output = Result<Option<Self::Response>>> + Send {
         async move {
             let ip: std::net::IpAddr = request.interface.parse().map_err(|e| {
-                anyhow::anyhow!("Invalid interface address '{}': {}", request.interface, e)
+                ExpectedRequestError::invalid_input(format!(
+                    "Invalid interface address '{}': {}",
+                    request.interface, e
+                ))
             })?;
             let addr = SocketAddr::new(ip, 7863);
 

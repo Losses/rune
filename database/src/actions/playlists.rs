@@ -1,3 +1,4 @@
+use crate::error::ExpectedError;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -99,7 +100,7 @@ pub async fn list_occurrences(
     let parent = playlists::Entity::find_by_id(playlist_id)
         .one(db)
         .await?
-        .context("playlist not found")?;
+        .ok_or(ExpectedError::NotFound { what: "playlist" })?;
     let mut query =
         entries::Entity::find().filter(entries::Column::PlaylistUuid.eq(parent.hlc_uuid));
     if let Some(after) = after {
@@ -366,7 +367,7 @@ pub async fn update_playlist(
     let old = playlists::Entity::find_by_id(id)
         .one(&tx)
         .await?
-        .context("playlist not found")?;
+        .ok_or(ExpectedError::NotFound { what: "playlist" })?;
     let mut active: playlists::ActiveModel = old.into();
     if let Some(v) = name {
         active.name = Set(v);
@@ -391,7 +392,7 @@ pub async fn remove_playlist(
     let row = playlists::Entity::find_by_id(id)
         .one(&tx)
         .await?
-        .context("playlist not found")?;
+        .ok_or(ExpectedError::NotFound { what: "playlist" })?;
     playlists::Entity::delete_by_id(id).exec(&tx).await?;
     remove_term(&tx, CollectionQueryType::Playlist, id).await?;
     store
@@ -441,11 +442,11 @@ pub async fn add_item_to_playlist(
     let parent = playlists::Entity::find_by_id(playlist_id)
         .one(&tx)
         .await?
-        .context("playlist not found")?;
+        .ok_or(ExpectedError::NotFound { what: "playlist" })?;
     let file = media_files::Entity::find_by_id(file_id)
         .one(&tx)
         .await?
-        .context("file not found")?;
+        .ok_or(ExpectedError::NotFound { what: "file" })?;
     let position = match position {
         Some(p) => p,
         None => media_file_playlists::Entity::find()
@@ -475,13 +476,16 @@ async fn find_occurrence(
     let parent = playlists::Entity::find_by_id(playlist_id)
         .one(tx)
         .await?
-        .context("playlist not found")?;
+        .ok_or(ExpectedError::NotFound { what: "playlist" })?;
     media_file_playlists::Entity::find()
         .filter(media_file_playlists::Column::PlaylistUuid.eq(parent.hlc_uuid))
         .filter(media_file_playlists::Column::HlcUuid.eq(occurrence_id.to_string()))
         .one(tx)
         .await?
-        .context("playlist occurrence not found")
+        .ok_or(ExpectedError::NotFound {
+            what: "playlist occurrence",
+        })
+        .map_err(Into::into)
 }
 
 pub async fn remove_item_from_playlist(
@@ -541,7 +545,7 @@ async fn import_on(
         let file = media_files::Entity::find_by_id(*id)
             .one(tx)
             .await?
-            .context("file not found")?;
+            .ok_or(ExpectedError::NotFound { what: "file" })?;
         add_on(tx, store, parent, &file, i32::try_from(position)?).await?;
     }
     Ok(result)
@@ -559,7 +563,7 @@ pub async fn import_m3u8_to_playlist(
     let parent = playlists::Entity::find_by_id(playlist_id)
         .one(&tx)
         .await?
-        .context("playlist not found")?;
+        .ok_or(ExpectedError::NotFound { what: "playlist" })?;
     let result = import_on(&tx, store, &parent, &lines).await?;
     tx.commit().await?;
     Ok(result)

@@ -1,3 +1,4 @@
+use crate::request_error::ExpectedRequestError;
 use crate::{
     Session, Signal,
     messages::{
@@ -43,7 +44,9 @@ impl DownloadParams {
         let store = self
             .store
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("library sync store unavailable"))?;
+            .ok_or(ExpectedRequestError::Unavailable {
+                what: "library sync store",
+            })?;
         let result = cleanup_unselected_downloads(
             &self.db,
             &self.recommend,
@@ -194,8 +197,9 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
             next.save(Path::new(&**config))?;
             *current = next;
             if changed {
-                let manager =
-                    manager.ok_or_else(|| anyhow::anyhow!("server manager unavailable"))?;
+                let manager = manager.ok_or(ExpectedRequestError::Unavailable {
+                    what: "server manager",
+                })?;
                 if request.listen {
                     if !manager.is_running() {
                         let info = load_device_info(Path::new(&**config)).await?;

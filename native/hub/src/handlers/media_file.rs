@@ -1,4 +1,5 @@
 use crate::messages as crate_messages;
+use crate::request_error::ExpectedRequestError;
 use database::actions::file::{AudioAvailability, audio_availability, remote_content_ids};
 use std::collections::HashMap;
 use std::path::Path;
@@ -50,8 +51,16 @@ impl Signal for FetchMediaFilesRequest {
         let cursor = request.cursor;
         let page_size = request.page_size;
 
-        let media_entries =
-            get_media_files(&main_db, cursor.try_into()?, page_size.try_into()?).await?;
+        let media_entries = get_media_files(
+            &main_db,
+            cursor.try_into().map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid cursor: {error}"))
+            })?,
+            page_size.try_into().map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid page size: {error}"))
+            })?,
+        )
+        .await?;
 
         let cover_art_map = if request.bake_cover_arts {
             bake_cover_art_by_media_files(&fsio, &main_db, media_entries.clone()).await?
@@ -208,9 +217,14 @@ impl Signal for SearchMediaFileSummaryRequest {
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
 
-        let items = list_files(&main_db, request.n.try_into()?)
-            .await
-            .with_context(|| "Failed to search media file summary")?;
+        let items = list_files(
+            &main_db,
+            request.n.try_into().map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid N: {error}"))
+            })?,
+        )
+        .await
+        .with_context(|| "Failed to search media file summary")?;
 
         let media_summaries = get_metadata_summary_by_files(main_db.as_ref(), items)
             .await

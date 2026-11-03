@@ -1,3 +1,4 @@
+use super::system::RequestErrorKind;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -69,6 +70,7 @@ pub struct RemoteConnectionLost {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemoteRequestFailed {
+    pub kind: RequestErrorKind,
     pub request: String,
     pub detail: String,
 }
