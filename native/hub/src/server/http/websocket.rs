@@ -4,7 +4,7 @@ use axum::{
     Extension,
     extract::{
         ConnectInfo, Query, State,
-        ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
+        ws::{CloseFrame, Message as WsMessage, WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -52,6 +52,10 @@ pub async fn websocket_handler(
 }
 
 pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: User, host: String) {
+    let mut changes = state.permission_manager.read().await.changes();
+    let permission_manager = state.permission_manager.clone();
+    let session_cancel = state.session_cancel.clone();
+    let session_fingerprint = user.fingerprint.clone();
     let (mut sender, mut receiver) = socket.split();
     let mut broadcast_rx = state.websocket_service.broadcast_tx.subscribe();
     let (tx, mut rx) = mpsc::channel(32);
@@ -131,14 +135,37 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: Use
         drop(broadcast_tx);
     };
 
-    // Drop the original tx as we've cloned it for both tasks
-    drop(tx);
-
-    // Run tasks concurrently
-    tokio::select! {
-        _ = incoming => {},
-        _ = outgoing => {},
+    let revoked = async {
+        loop {
+            let approved = permission_manager
+                .read()
+                .await
+                .verify_by_fingerprint(&session_fingerprint)
+                .await
+                .is_some_and(|user| user.status == UserStatus::Approved);
+            if !approved {
+                break;
+            }
+            if changes.changed().await.is_err() {
+                break;
+            }
+        }
     };
+    let close = tokio::select! {
+        _ = incoming => None,
+        _ = outgoing => None,
+        _ = revoked => Some((4403, "revoked")),
+        _ = session_cancel.cancelled() => Some((1001, "server stopping")),
+    };
+    if let Some((code, reason)) = close {
+        let _ = tx
+            .send(WsMessage::Close(Some(CloseFrame {
+                code,
+                reason: reason.into(),
+            })))
+            .await;
+    }
+    drop(tx);
 
     // Wait for the send task to complete
     let _ = send_task.await;

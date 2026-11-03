@@ -38,7 +38,7 @@ pub(super) struct PeerEndpoint {
     pub port: u16,
 }
 
-fn endpoint_host_port(value: &str) -> Option<(String, Option<u16>)> {
+pub(crate) fn endpoint_host_port(value: &str) -> Option<(String, Option<u16>)> {
     if let Ok(addr) = value.parse::<std::net::SocketAddr>() {
         return (addr.port() != 0).then(|| (addr.ip().to_string(), Some(addr.port())));
     }

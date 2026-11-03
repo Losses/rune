@@ -44,6 +44,7 @@ pub struct AppState {
 pub struct ServerState {
     pub app_state: Arc<AppState>,
     pub websocket_service: Arc<WebSocketService>,
+    pub session_cancel: tokio_util::sync::CancellationToken,
     pub discovery_device_info: Arc<RwLock<DeviceInfo>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub device_scanner: Arc<DiscoveryService>,

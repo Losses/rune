@@ -5,7 +5,7 @@ use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{RwLock, broadcast, watch};
 
 use crate::persistent::{PersistenceError, PersistentDataManager};
 use crate::utils::DeviceType;
@@ -118,6 +118,7 @@ pub struct PermissionManager {
     /// Used for tracking recent applications from specific IPs, possibly for rate limiting or security.
     ip_applications: Arc<RwLock<HashMap<String, VecDeque<String>>>>,
     request_sender: broadcast::Sender<User>,
+    change_sender: watch::Sender<u64>,
 }
 
 impl PermissionManager {
@@ -148,7 +149,13 @@ impl PermissionManager {
             storage,
             ip_applications: Arc::new(RwLock::new(HashMap::new())),
             request_sender,
+            change_sender: watch::channel(0).0,
         })
+    }
+
+    /// Subscribe to permission changes.
+    pub fn changes(&self) -> watch::Receiver<u64> {
+        self.change_sender.subscribe()
     }
 
     /// Lists all users with summary information.
@@ -241,10 +248,12 @@ impl PermissionManager {
                         add_time: SystemTime::now(), // Set current time when adding user
                     },
                 );
-                Ok((permissions, ())) // Return updated permissions and success result
+                Ok::<_, PermissionError>((permissions, ())) // Return updated permissions and success result
             })
             .await?;
 
+        self.change_sender
+            .send_modify(|generation| *generation = generation.wrapping_add(1));
         if let Some(user) = self.verify_by_fingerprint(&fingerprint_clone).await
             && user.status != UserStatus::Blocked
             && user.status != UserStatus::Approved
@@ -313,9 +322,12 @@ impl PermissionManager {
                     .get_mut(fingerprint) // Get mutable reference to user by fingerprint
                     .ok_or(PermissionError::UserNotFound)?; // Return error if user not found
                 user.status = new_status.clone(); // Update user status
-                Ok((permissions, ())) // Return updated permissions and success result
+                Ok::<_, PermissionError>((permissions, ())) // Return updated permissions and success result
             })
-            .await
+            .await?;
+        self.change_sender
+            .send_modify(|generation| *generation = generation.wrapping_add(1));
+        Ok(())
     }
 
     /// Removes a user from the permission system.
@@ -339,10 +351,13 @@ impl PermissionManager {
                     // Try to remove user by fingerprint
                     Err(PermissionError::UserNotFound) // Return error if user was not found (remove returned None)
                 } else {
-                    Ok((permissions, ())) // Return updated permissions and success result
+                    Ok::<_, PermissionError>((permissions, ())) // Return updated permissions and success result
                 }
             })
-            .await
+            .await?;
+        self.change_sender
+            .send_modify(|generation| *generation = generation.wrapping_add(1));
+        Ok(())
     }
 
     /// Finds users by their device type.
@@ -402,5 +417,41 @@ impl PermissionManager {
 
     pub fn subscribe_new_user(&self) -> broadcast::Receiver<User> {
         self.request_sender.subscribe()
+    }
+}
+
+#[cfg(test)]
+mod change_tests {
+    use super::{PermissionManager, UserStatus};
+    use crate::utils::DeviceType;
+
+    #[tokio::test]
+    async fn generation_tracks_mutations_not_reads() -> Result<(), Box<dyn std::error::Error>> {
+        let dir =
+            std::env::temp_dir().join(format!("permission-generation-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let manager = PermissionManager::new(&dir)?;
+        manager
+            .add_user(
+                "key".into(),
+                "fingerprint".into(),
+                "alias".into(),
+                "model".into(),
+                DeviceType::Desktop,
+                "ip".into(),
+            )
+            .await?;
+        let mut changes = manager.changes();
+        let initial = *changes.borrow_and_update();
+        manager.verify_by_fingerprint("fingerprint").await;
+        assert!(!changes.has_changed()?);
+        manager
+            .change_user_status("fingerprint", UserStatus::Approved)
+            .await?;
+        assert_eq!(*changes.borrow_and_update(), initial + 1);
+        manager.remove_user("fingerprint").await?;
+        assert_eq!(*changes.borrow_and_update(), initial + 2);
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
     }
 }

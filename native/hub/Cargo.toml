@@ -43,6 +43,7 @@ tracing-subscriber = { version = "0.3.20", features = ["chrono", "registry"] }
 paste = "1.0.15"
 tokio-util = "0.7.11"
 num_cpus = "1.16.0"
+thiserror = "2"
 anyhow = { version = "1.0.98", features = ["backtrace"] }
 futures = "0.3.30"
 blake3 = "1"

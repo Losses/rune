@@ -37,8 +37,17 @@ pub struct SetMediaLibraryPathRequest {
     pub hosted_on: OperationDestination,
 }
 
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LibraryOpenErrorKind {
+    RemoteUntrusted,
+    RemoteNotAuthorized,
+    RemoteUnreachable,
+    RemoteProtocol,
+}
+
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct SetMediaLibraryPathResponse {
+    pub error_kind: Option<LibraryOpenErrorKind>,
     pub path: String,
     pub success: bool,
     pub error: Option<String>,

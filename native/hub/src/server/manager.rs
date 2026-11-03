@@ -283,7 +283,9 @@ impl ServerManager {
             cover_temp_dir: COVER_TEMP_DIR.clone(),
         });
 
+        let watch_cancel = tokio_util_sync::CancellationToken::new();
         let server_state = Arc::new(ServerState {
+            session_cancel: watch_cancel.clone(),
             app_state: app_state.clone(),
             websocket_service: websocket_service.clone(),
             discovery_device_info: Arc::new(RwLock::new(discovery_params.device_info)),
@@ -426,15 +428,16 @@ impl ServerManager {
             }
         });
 
-        let watch_cancel = tokio_util_sync::CancellationToken::new();
         let watch_stop = watch_cancel.clone();
         let lifetime_handle = shutdown_handle.clone();
+        let session_stop = watch_cancel.clone();
         let lifetime_token = self.global_params.main_token.clone();
         let lifetime_scanner = self.global_params.device_scanner.clone();
         *self.watch_handle.lock().await = Some(tokio::spawn(async move {
             tokio::select! {
                 _ = watch_stop.cancelled() => {},
                 _ = lifetime_token.cancelled() => {
+                    session_stop.cancel();
                     lifetime_handle.shutdown();
                     lifetime_scanner.stop_announcements().await;
                     lifetime_scanner.stop_listening().await;
@@ -1042,6 +1045,75 @@ mod lifecycle_tests {
             )
             .await?;
         a.get_address().await.context("missing listener address")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn remote_connection_classification_and_revocation() -> Result<()> {
+        use crate::backends::remote::{RemoteConnectError, connect_remote};
+        use futures::StreamExt;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a = fixture(first.path()).await?;
+        let b = fixture(second.path()).await?;
+        let validator = b.global_params.cert_validator.read().await.clone();
+        let config = &b.global_params.config_path;
+        assert!(matches!(
+            connect_remote("127.0.0.1", 1, config, validator.clone()).await,
+            Err(RemoteConnectError::UntrustedEndpoint)
+        ));
+        let addr = paired_full(&a, &b).await?;
+        let validator = b.global_params.cert_validator.read().await.clone();
+        let fingerprint = info(&b).await?.fingerprint;
+        for remove in [false, true] {
+            let mut socket =
+                connect_remote("127.0.0.1", addr.port(), config, validator.clone()).await?;
+            let manager = a.global_params.permission_manager.read().await;
+            if remove {
+                manager.remove_user(&fingerprint).await?;
+            } else {
+                manager
+                    .change_user_status(&fingerprint, UserStatus::Blocked)
+                    .await?;
+            }
+            drop(manager);
+            let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
+                .await?
+                .context("socket closed without frame")??;
+            assert!(
+                matches!(frame, Message::Close(Some(frame)) if u16::from(frame.code) == 4403 && frame.reason == "revoked")
+            );
+            if !remove {
+                assert!(matches!(
+                    connect_remote("127.0.0.1", addr.port(), config, validator.clone()).await,
+                    Err(RemoteConnectError::NotAuthorized)
+                ));
+                a.global_params
+                    .permission_manager
+                    .read()
+                    .await
+                    .change_user_status(&fingerprint, UserStatus::Approved)
+                    .await?;
+            }
+        }
+        pair(&a, &b).await?;
+        let mut socket =
+            connect_remote("127.0.0.1", addr.port(), config, validator.clone()).await?;
+        a.stop().await?;
+        let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
+            .await?
+            .context("socket closed without frame")??;
+        assert!(
+            matches!(frame, Message::Close(Some(frame)) if u16::from(frame.code) == 1001 && frame.reason == "server stopping")
+        );
+        assert!(matches!(
+            connect_remote("127.0.0.1", addr.port(), config, validator).await,
+            Err(RemoteConnectError::Unreachable)
+        ));
+        a.global_params.main_token.cancel();
+        b.global_params.main_token.cancel();
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

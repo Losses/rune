@@ -46,7 +46,10 @@ use ::playback::{
 };
 use ::scrobbling::manager::ScrobblingManager;
 
-use crate::backends::{local::local_player_loop, remote::server_player_loop};
+use crate::backends::{
+    local::local_player_loop,
+    remote::{RemoteConnectError, server_player_loop},
+};
 use crate::messages::*;
 use crate::server::ServerManager;
 
@@ -189,6 +192,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
             if let Err(panic) = futures::FutureExt::catch_unwind(handling).await {
                 error!("Panicked while handling media library path {path}: {panic:?}");
                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                    error_kind: None,
                     path,
                     success: false,
                     error: Some(
@@ -225,6 +229,7 @@ async fn handle_media_library_path(
             Err(e) => {
                 error!("Failed to initialize Android SAF filesystem: {e:#?}");
                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                    error_kind: None,
                     path: media_library_path.to_string(),
                     success: false,
                     error: Some(format!("Failed to access the selected directory: {e:#?}")),
@@ -238,6 +243,7 @@ async fn handle_media_library_path(
             Err(e) => {
                 error!("Failed to get or create node id: {e:#?}");
                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                    error_kind: None,
                     path: media_library_path.to_string(),
                     success: false,
                     error: Some(format!("Failed to initialize library config: {e:#?}")),
@@ -258,6 +264,7 @@ async fn handle_media_library_path(
                     Err(e) => {
                         error!("Failed to check library state: {e:#?}");
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            error_kind: None,
                             path: media_library_path.to_string(),
                             success: false,
                             error: Some(format!("{e:#?}")),
@@ -271,6 +278,7 @@ async fn handle_media_library_path(
                     match &library_test {
                         LibraryState::Uninitialized => {
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                                error_kind: None,
                                 path: media_library_path.to_string(),
                                 success: true,
                                 error: None,
@@ -287,6 +295,7 @@ async fn handle_media_library_path(
                     && let Err(e) = create_redirect(&fsio, media_library_path).await
                 {
                     broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                        error_kind: None,
                         path: media_library_path.to_string(),
                         success: false,
                         error: Some(format!("{e:#?}")),
@@ -317,6 +326,7 @@ async fn handle_media_library_path(
                             Err(e) => {
                                 error!("Failed to resolve library identity: {e:#}");
                                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                                    error_kind: None,
                                     path: media_library_path.to_string(),
                                     success: false,
                                     error: Some(format!(
@@ -330,6 +340,7 @@ async fn handle_media_library_path(
                         info!("Resolved library id: {}", descriptor.library_id);
                         // Send success response to Dart
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            error_kind: None,
                             path: media_library_path.to_string(),
                             success: true,
                             error: None,
@@ -354,6 +365,7 @@ async fn handle_media_library_path(
                         error!("Database initialization failed: {e:#?}");
                         // Send error response to Dart
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            error_kind: None,
                             path: media_library_path.to_string(),
                             success: false,
                             error: Some(format!("{e:#?}")),
@@ -367,6 +379,7 @@ async fn handle_media_library_path(
                 match server_player_loop(fsio, media_library_path, config_path, alias).await {
                     Ok(_) => {
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            error_kind: None,
                             path: media_library_path.to_string(),
                             success: true,
                             error: None,
@@ -376,6 +389,12 @@ async fn handle_media_library_path(
                     Err(e) => {
                         error!("Failed to server player loop: {e:#?}");
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            error_kind: Some(
+                                e.downcast_ref::<RemoteConnectError>()
+                                    .map_or(LibraryOpenErrorKind::RemoteProtocol, |error| {
+                                        error.kind()
+                                    }),
+                            ),
                             path: media_library_path.to_string(),
                             success: false,
                             error: Some(format!("{e:#?}")),

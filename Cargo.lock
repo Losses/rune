@@ -3331,6 +3331,7 @@ dependencies = [
  "sysinfo 0.31.4",
  "tempfile",
  "term_size",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
