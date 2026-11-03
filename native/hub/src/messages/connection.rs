@@ -66,3 +66,9 @@ pub struct RemoteConnectionLost {
     pub kind: RemoteLossKind,
     pub detail: String,
 }
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct RemoteRequestFailed {
+    pub request: String,
+    pub detail: String,
+}

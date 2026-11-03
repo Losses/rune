@@ -213,6 +213,13 @@ pub(crate) async fn connect_remote(
     .map_err(|_| RemoteConnectError::Unreachable)?
 }
 
+fn remote_failure_detail(failure: &RemoteRequestFailed) -> String {
+    format!(
+        "Remote request {} failed: {}",
+        failure.request, failure.detail
+    )
+}
+
 fn classify_remote_loss(close_code: Option<u16>) -> RemoteLossKind {
     match close_code {
         Some(4403) => RemoteLossKind::Revoked,
@@ -252,7 +259,8 @@ impl WebSocketDartBridge {
                         error!("Failed to decode message: {e}");
                         CrashResponse {
                             detail: format!("Failed to decode message: {e}"),
-                        };
+                        }
+                        .send_signal_to_dart();
                     }
                 },
             );
@@ -466,6 +474,25 @@ pub async fn server_player_loop(
         let mut bridge = WebSocketDartBridge::new();
 
         info!("Registering remote handlers");
+        bridge.handlers.lock().await.insert(
+            "RemoteRequestFailed".to_owned(),
+            Box::new(
+                |payload| match rinf::deserialize::<RemoteRequestFailed>(&payload) {
+                    Ok(failure) => {
+                        let detail = remote_failure_detail(&failure);
+                        error!("{detail}");
+                        CrashResponse { detail }.send_signal_to_dart();
+                    }
+                    Err(e) => {
+                        error!("Failed to decode message: {e}");
+                        CrashResponse {
+                            detail: format!("Failed to decode message: {e}"),
+                        }
+                        .send_signal_to_dart();
+                    }
+                },
+            ),
+        );
         for_all_responses!(register_remote_handlers, bridge);
         register_remote_handlers!(
             bridge,
@@ -491,6 +518,18 @@ pub async fn server_player_loop(
 #[cfg(test)]
 mod loss_tests {
     use super::*;
+
+    #[test]
+    fn remote_failure_formats_crash_detail() {
+        let failure = RemoteRequestFailed {
+            request: "ExampleRequest".into(),
+            detail: "outer: inner".into(),
+        };
+        assert_eq!(
+            remote_failure_detail(&failure),
+            "Remote request ExampleRequest failed: outer: inner"
+        );
+    }
 
     #[test]
     fn classifies_remote_losses() {

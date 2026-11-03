@@ -30,13 +30,7 @@ macro_rules! register_single_handler {
                     let request = match rinf::deserialize::<$request>(buf) {
                         Ok(req) => req,
                         Err(e) => {
-                            error!("Failed to deserialize request: {e:?}");
-                            return (
-                                "CrashResponse".to_owned(),
-                                rinf::serialize(&CrashResponse {
-                                    detail: format!("Failed to deserialize request: {e}")
-                                }).map_err(|e| anyhow::Error::new(e))
-                            );
+                            return (String::new(), Err(anyhow::Error::new(e).context("Failed to deserialize request")));
                         }
                     };
 
@@ -46,13 +40,7 @@ macro_rules! register_single_handler {
                             handle_server_response!(_response, $with_response)
                         }
                         Err(e) => {
-                            error!("Error handling request: {e:?}");
-                            (
-                                "CrashResponse".to_owned(),
-                                rinf::serialize(&CrashResponse {
-                                    detail: e.to_string()
-                                }).map_err(|e| anyhow::Error::new(e))
-                            )
+                            (String::new(), Err(e))
                         }
                     }
                 }

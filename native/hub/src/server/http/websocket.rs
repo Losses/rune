@@ -16,6 +16,7 @@ use tokio::sync::mpsc;
 use crate::{
     Session,
     backends::remote::{decode_message, encode_message},
+    messages::RemoteRequestFailed,
     server::{ServerState, sync_auth::AuthenticatedFingerprint},
 };
 use discovery::server::{User, UserStatus};
@@ -98,15 +99,27 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: Use
                     )
                     .await
                 {
-                    let response = match response {
-                        Ok(response) => response,
+                    let (response_type, response) = match response {
+                        Ok(response) => (resp_type, response),
                         Err(e) => {
-                            error!("[{incoming_alias}] Failed to handle message: {e}");
-                            continue;
+                            error!("[{incoming_alias}] Failed to handle {msg_type}: {e:#}");
+                            let failure = RemoteRequestFailed {
+                                request: msg_type,
+                                detail: format!("{e:#}"),
+                            };
+                            match rinf::serialize(&failure) {
+                                Ok(payload) => ("RemoteRequestFailed".to_owned(), payload),
+                                Err(error) => {
+                                    error!(
+                                        "[{incoming_alias}] Failed to encode request failure: {error}"
+                                    );
+                                    continue;
+                                }
+                            }
                         }
                     };
 
-                    let response_payload = encode_message(&resp_type, &response, Some(uuid));
+                    let response_payload = encode_message(&response_type, &response, Some(uuid));
                     if let Err(e) = incoming_tx
                         .send(WsMessage::Binary(response_payload.into()))
                         .await

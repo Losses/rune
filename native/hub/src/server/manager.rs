@@ -887,6 +887,8 @@ mod lifecycle_tests {
     use playback::{player::MockPlayer, sfx_player::SfxPlayer};
     use scrobbling::manager::MockScrobblingManager;
     use std::sync::OnceLock;
+    use tokio::net::TcpStream;
+    use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
     use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
 
@@ -1116,13 +1118,87 @@ mod lifecycle_tests {
         Ok(())
     }
 
+    async fn socket_request(
+        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        name: &str,
+        payload: &[u8],
+    ) -> Result<(String, Vec<u8>)> {
+        use crate::backends::remote::{decode_message, encode_message};
+        use futures::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message;
+
+        let id = Uuid::new_v4();
+        socket
+            .send(Message::Binary(
+                encode_message(name, payload, Some(id)).into(),
+            ))
+            .await?;
+        let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
+            .await?
+            .context("socket closed")??;
+        let (response_name, payload, response_id) =
+            decode_message(&frame.into_data()).context("invalid frame")?;
+        assert_eq!(response_id, id);
+        Ok((response_name, payload))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn remote_request_failures_end_to_end() -> Result<()> {
+        use crate::backends::remote::connect_remote;
+
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a = fixture(first.path()).await?;
+        let b = fixture(second.path()).await?;
+        let addr = paired_full(&a, &b).await?;
+        let validator = b.global_params.cert_validator.read().await.clone();
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &b.global_params.config_path,
+            validator,
+        )
+        .await?;
+        for (name, payload) in [
+            ("FetchParsedMediaFileRequest", vec![]),
+            (
+                "GetPlaylistByIdRequest",
+                rinf::serialize(&GetPlaylistByIdRequest { playlist_id: -1 })?,
+            ),
+            (
+                "GetMediaFilesCountRequest",
+                rinf::serialize(&GetMediaFilesCountRequest {})?,
+            ),
+        ] {
+            let (response_name, payload) = socket_request(&mut socket, name, &payload).await?;
+            if name == "GetMediaFilesCountRequest" {
+                assert_eq!(response_name, "GetMediaFilesCountResponse");
+                let response: GetMediaFilesCountResponse = rinf::deserialize(&payload)?;
+                assert_eq!(response.count, 0);
+            } else {
+                assert_eq!(response_name, "RemoteRequestFailed");
+                let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
+                assert_eq!(failure.request, name);
+                if name == "GetPlaylistByIdRequest" {
+                    assert!(failure.detail.contains("Playlist not found with id: -1"));
+                } else {
+                    assert!(failure.detail.contains("Failed to deserialize request"));
+                }
+            }
+        }
+        socket.close(None).await?;
+        a.stop().await?;
+        a.global_params.main_token.cancel();
+        b.global_params.main_token.cancel();
+        Ok(())
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn remote_control_and_file_fetch_end_to_end() -> Result<()> {
-        use crate::backends::remote::{connect_remote, decode_message, encode_message};
+        use crate::backends::remote::{connect_remote, encode_message};
         use crate::handlers::neighbors::authorized_get;
         use futures::{SinkExt, StreamExt};
-        use tokio::net::TcpStream;
-        use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
+        use tokio_tungstenite::tungstenite::Message;
         use url::Url;
 
         let first = tempfile::tempdir()?;
@@ -1135,19 +1211,9 @@ mod lifecycle_tests {
         let mut socket =
             connect_remote("127.0.0.1", addr.port(), config, validator.clone()).await?;
         async fn count(socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>) -> Result<()> {
-            let id = Uuid::new_v4();
             let payload = rinf::serialize(&GetMediaFilesCountRequest {})?;
-            socket
-                .send(Message::Binary(
-                    encode_message("GetMediaFilesCountRequest", &payload, Some(id)).into(),
-                ))
-                .await?;
-            let message = tokio::time::timeout(Duration::from_secs(2), socket.next())
-                .await?
-                .context("socket closed")??;
-            let (name, payload, response_id) =
-                decode_message(&message.into_data()).context("invalid frame")?;
-            assert_eq!(response_id, id);
+            let (name, payload) =
+                socket_request(socket, "GetMediaFilesCountRequest", &payload).await?;
             assert_eq!(name, "GetMediaFilesCountResponse");
             let response: GetMediaFilesCountResponse = rinf::deserialize(&payload)?;
             assert_eq!(response.count, 0);
