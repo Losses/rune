@@ -1393,5 +1393,9 @@
   "noSharedLibraries": "このデバイスに共有できるライブラリはありません",
   "libraryFromDevice": "{device} から",
   "backgroundLibrarySync": "バックグラウンドで同期を維持",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "requestItemMissing": "この項目はもう存在しません",
+  "requestInvalid": "リクエストが無効でした",
+  "requestUnavailable": "現在利用できません",
+  "mixNoLongerExists": "このミックスはもう存在しません"
 }

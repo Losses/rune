@@ -1,11 +1,15 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
 Future<(bool, bool, String?)> testLibraryInitialized(String path) async {
-  TestLibraryInitializedRequest(path: path).sendSignalToRust();
-
   while (true) {
-    final rustSignal =
-        await TestLibraryInitializedResponse.rustSignalStream.first;
+    final rustSignal = await awaitResponse(
+      'TestLibraryInitializedRequest',
+      TestLibraryInitializedResponse.rustSignalStream.where(
+        (event) => event.message.path == path,
+      ),
+      send: () => TestLibraryInitializedRequest(path: path).sendSignalToRust(),
+    );
     final response = rustSignal.message;
 
     if (response.path == path) {

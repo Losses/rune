@@ -1,3 +1,5 @@
+import '../../api/request_failure.dart';
+import '../../../bindings/bindings.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/router/navigation.dart';
@@ -9,13 +11,13 @@ import '../../api/remove_playlist.dart';
 import '../remove_dialog_on_band.dart';
 
 Future<bool?> showRemovePlaylistDialog(
-    BuildContext context, int playlistId) async {
+  BuildContext context,
+  int playlistId,
+) async {
   final result = await $showModal<bool>(
     context,
-    (context, $close) => RemovePlaylistDialog(
-      playlistId: playlistId,
-      $close: $close,
-    ),
+    (context, $close) =>
+        RemovePlaylistDialog(playlistId: playlistId, $close: $close),
     dismissWithEsc: true,
     barrierDismissible: true,
   );
@@ -39,12 +41,25 @@ class RemovePlaylistDialog extends StatefulWidget {
 
 class _RemovePlaylistDialogState extends State<RemovePlaylistDialog> {
   bool isLoading = false;
+  RequestFailure? failure;
 
   void _onConfirm() async {
     setState(() {
       isLoading = true;
     });
-    await removePlaylist(widget.playlistId);
+    try {
+      await removePlaylist(widget.playlistId);
+    } on RequestFailure catch (error) {
+      if (error.kind != RequestErrorKind.notFound) {
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+            failure = error;
+          });
+        }
+        return;
+      }
+    }
 
     if (!mounted) return;
 
@@ -63,7 +78,11 @@ class _RemovePlaylistDialogState extends State<RemovePlaylistDialog> {
             Text(S.of(context).removePlaylistTitle),
           ],
         ),
-        content: Text(S.of(context).removePlaylistSubtitle),
+        content: Text(
+          failure == null
+              ? S.of(context).removePlaylistSubtitle
+              : requestFailureMessage(S.of(context), failure!),
+        ),
         actions: [
           ResponsiveDialogActions(
             Button(

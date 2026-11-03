@@ -1,3 +1,4 @@
+import '../../utils/api/request_failure.dart';
 import 'dart:async';
 
 import 'package:provider/provider.dart';
@@ -235,7 +236,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Container();
           } else if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
+            return Center(child: Text(requestErrorText(S.of(context), snapshot.error!)));
           } else {
             return ContextMenuWrapper(
               contextAttachKey: _contextAttachKey,

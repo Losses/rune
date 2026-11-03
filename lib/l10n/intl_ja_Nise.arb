@@ -1356,5 +1356,9 @@
   "noSharedLibraries": "このでばいすにきょうゆうできるらいぶらりはありません",
   "libraryFromDevice": "{device} から",
   "backgroundLibrarySync": "ばっくぐらうんどでどうきをいじ",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "requestItemMissing": "此項目既不存在",
+  "requestInvalid": "要求無効",
+  "requestUnavailable": "現在利用不可",
+  "mixNoLongerExists": "此混合既不存在"
 }

@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import 'dart:async';
 
 import '../../bindings/bindings.dart';
@@ -12,10 +13,12 @@ Future<List<Collection>> fetchCollectionByIds(
     collectionType: collectionType,
     bakeCoverArts: true,
   );
-  request.sendSignalToRust(); // GENERATED
 
-  final response =
-      (await FetchCollectionByIdsResponse.rustSignalStream.first).message;
+  final response = (await awaitResponse(
+    'FetchCollectionByIdsRequest',
+    FetchCollectionByIdsResponse.rustSignalStream,
+    send: () => request.sendSignalToRust(),
+  )).message;
 
   return orderByIds(ids, response.result, (x) => x.id);
 }

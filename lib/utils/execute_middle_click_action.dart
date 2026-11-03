@@ -4,6 +4,9 @@ import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 
 import 'api/operate_playback_with_mix_query.dart';
+import 'api/request_failure.dart';
+import 'dialogs/information/error.dart';
+import 'l10n.dart';
 
 import 'query_list.dart';
 import 'build_query.dart';
@@ -18,22 +21,32 @@ Future<void> executeMiddleClickAction(
 ) async {
   String middleClickAction =
       await SettingsManager().getValue<String>(kMiddleClickActionKey) ??
-          "StartPlaying";
+      "StartPlaying";
 
   if (!context.mounted) return;
 
-  switch (middleClickAction) {
-    case "StartPlaying":
-      await startPlaying(collectionType, id);
-      break;
-    case "AddToQueue":
-      await addToQueue(collectionType, id);
-      break;
-    case "StartRoaming":
-      await startRoaming(context, collectionType, id);
-      break;
-    default:
-      await startPlaying(collectionType, id);
+  try {
+    switch (middleClickAction) {
+      case "StartPlaying":
+        await startPlaying(collectionType, id);
+        break;
+      case "AddToQueue":
+        await addToQueue(collectionType, id);
+        break;
+      case "StartRoaming":
+        await startRoaming(context, collectionType, id);
+        break;
+      default:
+        await startPlaying(collectionType, id);
+    }
+  } on RequestFailure catch (error) {
+    if (context.mounted) {
+      await showErrorDialog(
+        context: context,
+        title: S.of(context).unknownError,
+        errorMessage: requestFailureMessage(S.of(context), error),
+      );
+    }
   }
 }
 
@@ -78,12 +91,7 @@ Future<void> startRoaming(
   List<int> fallbackFileIds = const [],
 ]) async {
   final queries = QueryList(
-    withRecommend(
-      await buildQuery(
-        collectionType,
-        id,
-      ),
-    ),
+    withRecommend(await buildQuery(collectionType, id)),
   );
 
   if (!context.mounted) return;

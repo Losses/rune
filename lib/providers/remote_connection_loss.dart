@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../bindings/bindings.dart';
 import '../utils/rune_log.dart';
+import '../utils/api/request_failure.dart';
 
 class RemoteConnectionLossHandler {
   final Future<void> Function() closeLibrary;
@@ -21,9 +22,16 @@ class RemoteConnectionLossHandler {
     if (_handling) return;
     _handling = true;
     error$('Remote connection lost: ${loss.detail}');
-    await closeLibrary();
-    showLoss(loss.kind);
-    _handling = false;
+    try {
+      try {
+        await closeLibrary();
+      } on RequestFailure {
+        // The connection is already lost; continue to the loss screen.
+      }
+      showLoss(loss.kind);
+    } finally {
+      _handling = false;
+    }
   }
 
   void dispose() => _subscription.cancel();

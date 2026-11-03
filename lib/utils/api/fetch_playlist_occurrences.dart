@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../bindings/bindings.dart';
@@ -15,16 +16,19 @@ Future<PlaylistOccurrencePage> fetchPlaylistOccurrences(
   int pageSize,
 ) async {
   final requestId = const Uuid().v4();
-  final response = FetchPlaylistOccurrencesResponse.rustSignalStream.firstWhere(
-    (signal) => signal.message.requestId == requestId,
+  final response = awaitResponse(
+    'FetchPlaylistOccurrencesRequest',
+    FetchPlaylistOccurrencesResponse.rustSignalStream.where(
+      (event) => event.message.requestId == requestId,
+    ),
+    send: () => FetchPlaylistOccurrencesRequest(
+      requestId: requestId,
+      playlistId: playlistId,
+      after: after,
+      pageSize: pageSize,
+      bakeCoverArts: true,
+    ).sendSignalToRust(),
   );
-  FetchPlaylistOccurrencesRequest(
-    requestId: requestId,
-    playlistId: playlistId,
-    after: after,
-    pageSize: pageSize,
-    bakeCoverArts: true,
-  ).sendSignalToRust();
   final page = (await response).message;
   return PlaylistOccurrencePage(
     page.entries.map((entry) {

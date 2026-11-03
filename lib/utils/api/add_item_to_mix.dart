@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
 Future<void> addItemToMix(int mixId, String operator, String parameter) async {
@@ -6,7 +7,10 @@ Future<void> addItemToMix(int mixId, String operator, String parameter) async {
     operator: operator,
     parameter: parameter,
   );
-  request.sendSignalToRust(); // GENERATED
 
-  await AddItemToMixResponse.rustSignalStream.first;
+  await awaitResponse(
+    'AddItemToMixRequest',
+    AddItemToMixResponse.rustSignalStream,
+    send: () => request.sendSignalToRust(),
+  );
 }

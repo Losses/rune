@@ -1356,5 +1356,9 @@
   "noSharedLibraries": "コノデバイスニキョウユウデキルライブラリハアリマセン",
   "libraryFromDevice": "{device} カラ",
   "backgroundLibrarySync": "バックグラウンドデドウキヲイジ",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "requestItemMissing": "このアイテムはもうありません",
+  "requestInvalid": "リクエストがインバリッドです",
+  "requestUnavailable": "いまはアベイラブルではありません",
+  "mixNoLongerExists": "このミックスはもうありません"
 }

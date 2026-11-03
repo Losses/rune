@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import '../../utils/query_list.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../bindings/bindings.dart';
@@ -13,9 +14,12 @@ Future<List<InternalMediaFile>> queryMixTracks(
     cursor: cursor ?? 0,
     bakeCoverArts: true,
   );
-  request.sendSignalToRust();
 
-  final response = (await MixQueryResponse.rustSignalStream.first).message;
+  final response = (await awaitResponse(
+    'MixQueryRequest',
+    MixQueryResponse.rustSignalStream,
+    send: () => request.sendSignalToRust(),
+  )).message;
 
   return response.files
       .map(

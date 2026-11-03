@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
 Future<Playlist> updatePlaylist(
@@ -10,10 +11,13 @@ Future<Playlist> updatePlaylist(
     name: name,
     group: group,
   );
-  updateRequest.sendSignalToRust(); // GENERATED
 
   // Listen for the response from Rust
-  final rustSignal = await UpdatePlaylistResponse.rustSignalStream.first;
+  final rustSignal = await awaitResponse(
+    'UpdatePlaylistRequest',
+    UpdatePlaylistResponse.rustSignalStream,
+    send: () => updateRequest.sendSignalToRust(),
+  );
   final response = rustSignal.message;
 
   return response.playlist;

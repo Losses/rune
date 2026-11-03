@@ -1,3 +1,4 @@
+import '../../api/request_failure.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
@@ -40,6 +41,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   final titleController = TextEditingController();
   final groupController = TextEditingController();
   bool isLoading = false;
+  RequestFailure? failure;
   List<String> groupList = ['Favorite'];
 
   Playlist? playlist;
@@ -68,20 +70,34 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   }
 
   Future<void> fetchGroupList() async {
-    final groups =
-        await fetchCollectionGroupSummaryTitle(CollectionType.playlist);
-
-    if (!mounted) return;
-
-    setState(() {
-      groupList = cleanGroupTitles(['Favorite', ...groups]);
-    });
+    try {
+      final groups = await fetchCollectionGroupSummaryTitle(
+        CollectionType.playlist,
+      );
+      if (!mounted) return;
+      setState(() {
+        groupList = cleanGroupTitles(['Favorite', ...groups]);
+      });
+    } on RequestFailure catch (error) {
+      if (mounted) setState(() => failure = error);
+    }
   }
 
   Future<void> loadPlaylist(int playlistId) async {
-    playlist = await getPlaylistById(playlistId);
-
+    setState(() => isLoading = true);
+    try {
+      playlist = await getPlaylistById(playlistId);
+    } on RequestFailure catch (error) {
+      if (mounted) {
+        setState(() {
+          failure = error;
+          isLoading = false;
+        });
+      }
+      return;
+    }
     if (!mounted) return;
+    isLoading = false;
     if (playlist != null) {
       titleController.text = playlist!.name;
       groupController.text = playlist!.group;
@@ -108,6 +124,8 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (failure != null)
+                Text(requestFailureMessage(S.of(context), failure!)),
               const SizedBox(height: 16),
               InfoLabel(
                 label: S.of(context).title,
@@ -122,10 +140,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                 child: AutoSuggestBox<String>(
                   controller: groupController,
                   items: groupList.map<AutoSuggestBoxItem<String>>((e) {
-                    return AutoSuggestBoxItem<String>(
-                      value: e,
-                      label: e,
-                    );
+                    return AutoSuggestBoxItem<String>(value: e, label: e);
                   }).toList(),
                   placeholder: S.of(context).selectAGroup,
                 ),
@@ -143,59 +158,57 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                           isLoading = true;
                         });
 
-                        Playlist? response;
-
-                        if (widget.m3u8Path != null) {
-                          final response = await createM3u8Playlist(
-                            titleController.text,
-                            groupController.text,
-                            widget.m3u8Path!,
-                          );
-
-                          if (!context.mounted) return;
-
-                          widget.$close(response.playlist);
-                          if (response.success) {
-                            CollectionCache()
-                                .clearType(CollectionType.playlist);
-
-                            if (response.notFoundPaths.isNotEmpty) {
-                              showCreateImportM3u8SuccessDialog(
-                                context,
-                                response.notFoundPaths,
+                        try {
+                          Playlist? response;
+                          if (widget.m3u8Path != null) {
+                            final result = await createM3u8Playlist(
+                              titleController.text,
+                              groupController.text,
+                              widget.m3u8Path!,
+                            );
+                            if (!context.mounted) return;
+                            widget.$close(result.playlist);
+                            if (result.success) {
+                              CollectionCache().clearType(
+                                CollectionType.playlist,
                               );
-                            }
-                          } else {
-                            if (response.notFoundPaths.isNotEmpty) {
+                              if (result.notFoundPaths.isNotEmpty) {
+                                showCreateImportM3u8SuccessDialog(
+                                  context,
+                                  result.notFoundPaths,
+                                );
+                              }
+                            } else if (result.notFoundPaths.isNotEmpty) {
                               showCreateImportM3u8FailedDialog(
                                 context,
-                                response.error,
+                                result.error,
                               );
                             }
+                            return;
+                          } else if (widget.playlistId != null) {
+                            response = await updatePlaylist(
+                              widget.playlistId!,
+                              titleController.text,
+                              groupController.text,
+                            );
+                          } else {
+                            response = await createPlaylist(
+                              titleController.text,
+                              groupController.text,
+                            );
                           }
-
-                          return;
-                        } else if (widget.playlistId != null) {
-                          response = await updatePlaylist(
-                            widget.playlistId!,
-                            titleController.text,
-                            groupController.text,
-                          );
-                        } else {
-                          response = await createPlaylist(
-                            titleController.text,
-                            groupController.text,
-                          );
+                          CollectionCache().clearType(CollectionType.playlist);
+                          if (!mounted) return;
+                          setState(() => isLoading = false);
+                          widget.$close(response);
+                        } on RequestFailure catch (error) {
+                          if (mounted) {
+                            setState(() {
+                              failure = error;
+                              isLoading = false;
+                            });
+                          }
                         }
-
-                        CollectionCache().clearType(CollectionType.playlist);
-
-                        setState(() {
-                          isLoading = false;
-                        });
-
-                        if (!context.mounted) return;
-                        widget.$close(response);
                       },
                 child: Text(
                   widget.playlistId != null

@@ -40,7 +40,7 @@ class TrackSearchItemState extends SearchCardState<TrackSearchItem> {
       hint: (
         widget.item.album,
         widget.item.artist,
-        'Total Time ${formatTime(widget.item.duration)}'
+        'Total Time ${formatTime(widget.item.duration)}',
       ),
       size: size,
     );
@@ -48,15 +48,17 @@ class TrackSearchItemState extends SearchCardState<TrackSearchItem> {
 
   @override
   void onPressed(BuildContext context) {
-    operatePlaybackWithMixQuery(
+    safeOperatePlaybackWithMixQuery(
+      context: context,
       queries: const QueryList([]),
       playbackMode: 99,
       hintPosition: 0,
       initialPlaybackId: widget.item.id,
       operateMode: PlaylistOperateMode.replace,
       instantlyPlay: true,
-      fallbackPlayingItems:
-          widget.fallbackFileIds.map(PlayingItem.inLibrary).toList(),
+      fallbackPlayingItems: widget.fallbackFileIds
+          .map(PlayingItem.inLibrary)
+          .toList(),
     );
   }
 
@@ -76,10 +78,6 @@ class TrackSearchItemState extends SearchCardState<TrackSearchItem> {
 
   @override
   void onMiddleClick(BuildContext context, Offset position) {
-    executeMiddleClickAction(
-      context,
-      CollectionType.track,
-      widget.item.id,
-    );
+    executeMiddleClickAction(context, CollectionType.track, widget.item.id);
   }
 }

@@ -1,3 +1,4 @@
+import '../../../utils/api/request_failure.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
@@ -59,7 +60,7 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
             }
             if (snapshot.hasError) {
               return Text(
-                'Error: ${snapshot.error}',
+                requestErrorText(S.of(context), snapshot.error!),
                 style: TextStyle(height: 1.4),
               );
             }

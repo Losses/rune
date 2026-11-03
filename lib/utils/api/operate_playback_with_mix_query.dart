@@ -1,3 +1,6 @@
+import 'request_failure.dart';
+import '../dialogs/information/error.dart';
+import '../l10n.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/query_list.dart';
@@ -15,19 +18,21 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
   required PlaylistOperateMode operateMode,
   required List<PlayingItem> fallbackPlayingItems,
 }) async {
-  OperatePlaybackWithMixQueryRequest(
-    queries: queries.toQueryList(),
-    playbackMode: playbackMode,
-    hintPosition: hintPosition,
-    initialPlaybackItem: PlayingItem.inLibrary(initialPlaybackId).toRequest(),
-    instantlyPlay: instantlyPlay,
-    operateMode: operateMode,
-    fallbackPlayingItems:
-        fallbackPlayingItems.map((x) => x.toRequest()).toList(),
-  ).sendSignalToRust();
-
-  final rustSignal =
-      await OperatePlaybackWithMixQueryResponse.rustSignalStream.first;
+  final rustSignal = await awaitResponse(
+    'OperatePlaybackWithMixQueryRequest',
+    OperatePlaybackWithMixQueryResponse.rustSignalStream,
+    send: () => OperatePlaybackWithMixQueryRequest(
+      queries: queries.toQueryList(),
+      playbackMode: playbackMode,
+      hintPosition: hintPosition,
+      initialPlaybackItem: PlayingItem.inLibrary(initialPlaybackId).toRequest(),
+      instantlyPlay: instantlyPlay,
+      operateMode: operateMode,
+      fallbackPlayingItems: fallbackPlayingItems
+          .map((x) => x.toRequest())
+          .toList(),
+    ).sendSignalToRust(),
+  );
   final response = rustSignal.message;
 
   return response.playingItems.map(PlayingItem.fromRequest).toList();
@@ -45,15 +50,27 @@ Future<List<PlayingItem>> safeOperatePlaybackWithMixQuery({
 }) async {
   final hasRecommendation = queriesHasRecommendation(queries);
 
-  final result = await operatePlaybackWithMixQuery(
-    queries: queries,
-    playbackMode: playbackMode,
-    hintPosition: hintPosition,
-    initialPlaybackId: initialPlaybackId,
-    instantlyPlay: instantlyPlay,
-    operateMode: operateMode,
-    fallbackPlayingItems: fallbackPlayingItems,
-  );
+  late final List<PlayingItem> result;
+  try {
+    result = await operatePlaybackWithMixQuery(
+      queries: queries,
+      playbackMode: playbackMode,
+      hintPosition: hintPosition,
+      initialPlaybackId: initialPlaybackId,
+      instantlyPlay: instantlyPlay,
+      operateMode: operateMode,
+      fallbackPlayingItems: fallbackPlayingItems,
+    );
+  } on RequestFailure catch (error) {
+    if (context.mounted) {
+      await showErrorDialog(
+        context: context,
+        title: S.of(context).unknownError,
+        errorMessage: requestFailureMessage(S.of(context), error),
+      );
+    }
+    return [];
+  }
 
   if (result.isEmpty && hasRecommendation && context.mounted) {
     await showNoAnalysisDialog(context, true);

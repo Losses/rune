@@ -1,3 +1,4 @@
+import '../../api/request_failure.dart';
 import 'dart:async';
 
 import 'package:provider/provider.dart';
@@ -142,7 +143,9 @@ class _MixStudioDialogImplementationState
 
       _layoutManager.playAnimations();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
+        if (e is RequestFailure) _loadError = e;
         _query = newQuery;
         _cursor = 0;
         _hasMore = false;
@@ -174,7 +177,9 @@ class _MixStudioDialogImplementationState
         _isLoadingMore = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
+        if (e is RequestFailure) _loadError = e;
         _isLoadingMore = false;
         _hasMore = false;
       });
@@ -217,32 +222,41 @@ class _MixStudioDialogImplementationState
     final editorData = _controller.getData();
     final queries = mixEditorDataToQuery(editorData);
 
-    Mix? response;
-    if (widget.mixId != null) {
-      response = await updateMix(
-        widget.mixId!,
-        _controller.titleController.text,
-        _controller.groupController.text,
-        false,
-        int.parse(_controller.modeController.selectedValue ?? '99'),
-        queries,
-      );
-    } else {
-      response = await createMix(
-        _controller.titleController.text,
-        _controller.groupController.text,
-        false,
-        int.parse(_controller.modeController.selectedValue ?? '99'),
-        queries,
-      );
+    try {
+      Mix? response;
+      if (widget.mixId != null) {
+        response = await updateMix(
+          widget.mixId!,
+          _controller.titleController.text,
+          _controller.groupController.text,
+          false,
+          int.parse(_controller.modeController.selectedValue ?? '99'),
+          queries,
+        );
+      } else {
+        response = await createMix(
+          _controller.titleController.text,
+          _controller.groupController.text,
+          false,
+          int.parse(_controller.modeController.selectedValue ?? '99'),
+          queries,
+        );
+      }
+
+      setState(() {
+        isLoading = false;
+      });
+
+      if (!context.mounted) return;
+      widget.$close(response);
+    } on RequestFailure catch (error) {
+      if (mounted) {
+        setState(() {
+          _loadError = error;
+          isLoading = false;
+        });
+      }
     }
-
-    setState(() {
-      isLoading = false;
-    });
-
-    if (!context.mounted) return;
-    widget.$close(response);
   }
 
   @override
@@ -261,7 +275,16 @@ class _MixStudioDialogImplementationState
       height: editorHeight,
       child: _loadError == null
           ? MixEditor(key: _editorKey, controller: _controller)
-          : Center(child: Text(_loadError.toString())),
+          : Center(
+              child: Text(
+                _loadError is RequestFailure
+                    ? requestFailureMessage(
+                        S.of(context),
+                        _loadError as RequestFailure,
+                      )
+                    : _loadError.toString(),
+              ),
+            ),
     );
 
     return UnavailableDialogOnBand(

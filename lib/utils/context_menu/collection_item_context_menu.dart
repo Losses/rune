@@ -19,6 +19,8 @@ import '../../providers/responsive_providers.dart';
 import '../../utils/l10n.dart';
 
 import '../build_query.dart';
+import '../api/request_failure.dart';
+import '../dialogs/information/error.dart';
 import '../build_collection_query.dart';
 import '../execute_middle_click_action.dart';
 import '../dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
@@ -26,6 +28,22 @@ import '../dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
 import '../router/router_aware_flyout_controller.dart';
 import 'utils/build_m3u8.dart';
 import 'offline_selection.dart';
+
+Future<void> _handleCollectionRequest(
+  BuildContext context,
+  Future<void> Function() action,
+) async {
+  try {
+    await action();
+  } on RequestFailure catch (error) {
+    if (!context.mounted) return;
+    await showErrorDialog(
+      context: context,
+      title: S.of(context).unknownError,
+      errorMessage: requestFailureMessage(S.of(context), error),
+    );
+  }
+}
 
 final Map<
   CollectionType,
@@ -136,7 +154,20 @@ void openCollectionItemContextMenu(
     return;
   }
 
-  final mixes = await getAllMixes();
+  late final List<Mix> mixes;
+  try {
+    mixes = await getAllMixes();
+  } on RequestFailure catch (error) {
+    if (context.mounted) {
+      await showErrorDialog(
+        context: context,
+        title: S.of(context).unknownError,
+        errorMessage: requestFailureMessage(S.of(context), error),
+      );
+    }
+    return;
+  }
+  if (!context.mounted) return;
 
   contextController.showFlyout(
     position: position,
@@ -173,9 +204,12 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
       leading: const Icon(Symbols.magic_button),
       text: Text(mix.name),
       onPressed: () {
-        addItemToMix(mix.id, operator ?? "lib::unknown", id.toString());
-
+        final host = Navigator.of(context).context;
         Flyout.of(context).close();
+        _handleCollectionRequest(
+          host,
+          () => addItemToMix(mix.id, operator ?? "lib::unknown", id.toString()),
+        );
       },
     );
   }).toList();
@@ -187,21 +221,30 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
       leading: const Icon(Symbols.play_circle),
       text: Text(S.of(context).startPlaying),
       onPressed: () async {
-        startPlaying(type, id, fallbackFileIds);
+        await _handleCollectionRequest(
+          context,
+          () => startPlaying(type, id, fallbackFileIds),
+        );
       },
     ),
     MenuFlyoutItem(
       leading: const Icon(Symbols.playlist_add),
       text: Text(S.of(context).addToQueue),
       onPressed: () async {
-        addToQueue(type, id, fallbackFileIds);
+        await _handleCollectionRequest(
+          context,
+          () => addToQueue(type, id, fallbackFileIds),
+        );
       },
     ),
     MenuFlyoutItem(
       leading: const Icon(Symbols.rocket),
       text: Text(S.of(context).startRoaming),
       onPressed: () async {
-        startRoaming(context, type, id, fallbackFileIds);
+        await _handleCollectionRequest(
+          context,
+          () => startRoaming(context, type, id, fallbackFileIds),
+        );
       },
     ),
   ];
@@ -274,6 +317,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
             leading: const Icon(Symbols.list_alt),
             text: Text(S.of(context).exportM3u8),
             onPressed: () async {
+              final host = Navigator.of(context).context;
               Flyout.of(context).close();
 
               final Directory appDocumentsDir =
@@ -289,20 +333,25 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
 
               if (path == null) return;
 
-              final playlist = await buildM3u8(type, id);
-
-              final file = File(path);
-              await file.writeAsString(playlist);
+              if (!host.mounted) return;
+              await _handleCollectionRequest(host, () async {
+                final playlist = await buildM3u8(type, id);
+                final file = File(path);
+                await file.writeAsString(playlist);
+              });
             },
           ),
           MenuFlyoutItem(
             leading: const Icon(Symbols.wall_art),
             text: Text(S.of(context).exportCoverWall),
             onPressed: () async {
+              final host = Navigator.of(context).context;
               Flyout.of(context).close();
-              final queries = await buildQuery(type, id);
-              if (!context.mounted) return;
-              showExportCoverWallDialog(context, queries, title);
+              await _handleCollectionRequest(host, () async {
+                final queries = await buildQuery(type, id);
+                if (!host.mounted) return;
+                showExportCoverWallDialog(host, queries, title);
+              });
             },
           ),
         ],
@@ -327,7 +376,10 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
         child: const Icon(Symbols.play_circle),
       ),
       onPressed: () async {
-        startPlaying(type, id, fallbackFileIds);
+        await _handleCollectionRequest(
+          context,
+          () => startPlaying(type, id, fallbackFileIds),
+        );
       },
     ),
     CommandBarButton(
@@ -336,7 +388,10 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
         child: const Icon(Symbols.playlist_add),
       ),
       onPressed: () async {
-        addToQueue(type, id, fallbackFileIds);
+        await _handleCollectionRequest(
+          context,
+          () => addToQueue(type, id, fallbackFileIds),
+        );
       },
     ),
     CommandBarButton(
@@ -345,7 +400,10 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
         child: const Icon(Symbols.rocket),
       ),
       onPressed: () async {
-        startRoaming(context, type, id, fallbackFileIds);
+        await _handleCollectionRequest(
+          context,
+          () => startRoaming(context, type, id, fallbackFileIds),
+        );
       },
     ),
   ];

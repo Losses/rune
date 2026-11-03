@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
 Future<bool> addTrustedServer(
@@ -10,9 +11,12 @@ Future<bool> addTrustedServer(
       hosts: hosts,
     ),
   );
-  removeTrustRequest.sendSignalToRust();
 
-  final rustSignal = await AddTrustedServerResponse.rustSignalStream.first;
+  final rustSignal = await awaitResponse(
+    'AddTrustedServerRequest',
+    AddTrustedServerResponse.rustSignalStream,
+    send: () => removeTrustRequest.sendSignalToRust(),
+  );
   final response = rustSignal.message;
 
   if (!response.success) {
