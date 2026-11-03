@@ -68,18 +68,13 @@ impl LibraryState {
     }
 }
 
-/// On Android `lib_path` is a content:// tree URI and FsIo is already rooted
-/// at that tree, so the rune dir is addressed relative to the tree root.
-/// Everywhere else it is a plain filesystem path joined with `.rune`.
+/// Android SAF roots address `.rune` relative to the granted tree.
+/// Native folders, including replicas in app storage, use the full path.
 fn rune_dir_path(lib_path: &str) -> PathBuf {
-    #[cfg(target_os = "android")]
-    {
-        let _ = lib_path;
+    if cfg!(target_os = "android") && lib_path.starts_with("content://") {
         PathBuf::from(".rune")
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        [lib_path, ".rune"].iter().collect()
+    } else {
+        Path::new(lib_path).join(".rune")
     }
 }
 

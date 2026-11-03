@@ -3,6 +3,7 @@ use super::sync::http::BlobContext;
 use super::sync::http::SharedLibrary;
 use super::sync::http::blob_router;
 use super::sync_auth::SyncAuth;
+use crate::backends::remote::RemoteConnectError;
 use database::actions::file::catalog_track;
 use database::sync::model::RuneModel;
 use std::net::TcpListener;
@@ -163,6 +164,15 @@ pub struct ServerManager {
 }
 
 impl ServerManager {
+    /// Fetch the owned libraries advertised by a trusted paired device.
+    pub async fn list_peer_libraries(
+        &self,
+        fingerprint: &str,
+    ) -> Result<Vec<PeerLibrary>, RemoteConnectError> {
+        super::libraries::list_peer_libraries(&self.global_params, &self.private_key, fingerprint)
+            .await
+    }
+
     pub async fn new(global_params: Arc<GlobalParams>) -> Result<Self> {
         let config_path = Path::new(&*global_params.config_path);
 
@@ -366,6 +376,7 @@ impl ServerManager {
                 ));
         let sync_routes = Router::new()
             .nest("/libraries/{library_id}", sync_routes)
+            .route("/libraries", get(super::libraries::list_libraries))
             .layer(middleware::from_fn_with_state(
                 auth.clone(),
                 super::sync_auth::require_auth,
@@ -874,12 +885,18 @@ mod lifecycle_tests {
         Broadcaster, GlobalParams, RinfRustSignal, RunningMode, TaskTokens,
         sync_settings::SyncSettings,
     };
+    use crate::utils::{initialize_databases, nid::get_or_create_node_id};
     use database::actions::downloads::prepare_download;
     use database::actions::file::{attach_download, catalog_track, hash_file, is_materialized};
     use database::actions::metadata::{
         MissingHostFilePolicy, ScanOptions, scan_audio_file, scan_audio_library,
     };
+    use database::connection::{MainDbConnection, StorageMode};
     use database::entities::{media_files, media_files::Column};
+    use database::library_registry::{
+        DbPlacement, LibraryAuthority, LibraryDescriptor, LibraryRegistry, LibraryStorage,
+        create_replica, resolve_library,
+    };
     use database::sync::{
         LibrarySyncStore,
         model::{Album, Collection, MetadataTag, ObjectKey, Payload, Track},
@@ -893,7 +910,7 @@ mod lifecycle_tests {
     use migration::{Migrator, MigratorTrait};
     use playback::{player::MockPlayer, sfx_player::SfxPlayer};
     use scrobbling::manager::MockScrobblingManager;
-    use sea_orm::{EntityTrait, PaginatorTrait};
+    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::sync::OnceLock;
     use tokio::net::TcpStream;
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -910,16 +927,66 @@ mod lifecycle_tests {
     }
 
     async fn fixture_with_library(dir: &Path, library_id: Uuid) -> Result<Arc<ServerManager>> {
-        let fsio = Arc::new(FsIo::new());
         let mut options = sea_orm::ConnectOptions::new(format!(
             "sqlite://{}?mode=rwc",
             dir.join("catalog.sqlite").display(),
         ));
         options.max_connections(1).min_connections(1);
         let db = sea_orm::Database::connect(options).await?;
-        let node = Uuid::new_v4();
+        let node = get_or_create_node_id(dir.to_str().context("config path")?).await?;
         let _ = migration::initialize_node_id(node.to_string());
         Migrator::up(&db, None).await?;
+        let mut registry = LibraryRegistry::load(dir)?;
+        registry.libraries.push(LibraryDescriptor {
+            library_id,
+            alias: "Owned".into(),
+            authority: LibraryAuthority::Owned,
+            storage: LibraryStorage::Local {
+                path: dir.to_string_lossy().into_owned(),
+            },
+            db_placement: DbPlacement::Portable,
+        });
+        registry.save()?;
+        fixture_with_db(dir, dir, library_id, node, db).await
+    }
+
+    async fn fixture_open_replica(config: &Path, root: &Path) -> Result<Arc<ServerManager>> {
+        let fsio = FsIo::new();
+        let mut registry = LibraryRegistry::load(config)?;
+        let descriptor = resolve_library(
+            &fsio,
+            &mut registry,
+            root.to_str().context("replica path")?,
+            "",
+            StorageMode::Portable,
+        )
+        .await?;
+        let node = get_or_create_node_id(config.to_str().context("config path")?).await?;
+        let connections = initialize_databases(
+            &fsio,
+            root.to_str().context("replica path")?,
+            None,
+            &node.to_string(),
+        )
+        .await?;
+        fixture_with_db(
+            root,
+            config,
+            descriptor.library_id,
+            node,
+            (*connections.main_db).clone(),
+        )
+        .await
+    }
+
+    async fn fixture_with_db(
+        dir: &Path,
+        config: &Path,
+        library_id: Uuid,
+        node: Uuid,
+        db: MainDbConnection,
+    ) -> Result<Arc<ServerManager>> {
+        let fsio = Arc::new(FsIo::new());
         let token = Arc::new(CancellationToken::new());
         let library_sync =
             crate::utils::initialize_library_replica(&db, &node.to_string(), library_id).await?;
@@ -928,7 +995,7 @@ mod lifecycle_tests {
             sync_settings: Arc::new(RwLock::new(SyncSettings::default())),
             fsio,
             lib_path: Arc::new(dir.to_string_lossy().into_owned()),
-            config_path: Arc::new(dir.to_string_lossy().into_owned()),
+            config_path: Arc::new(config.to_string_lossy().into_owned()),
             node_id: Arc::new(node.to_string()),
             main_db: Arc::new(db.clone()),
             library_sync: Some(library_sync),
@@ -940,8 +1007,8 @@ mod lifecycle_tests {
             scrobbler: Arc::new(Mutex::new(MockScrobblingManager::new())),
             broadcaster: Arc::new(Quiet),
             device_scanner: Arc::new(DiscoveryService::without_store()),
-            cert_validator: Arc::new(RwLock::new(CertValidator::new(dir).await?)),
-            permission_manager: Arc::new(RwLock::new(PermissionManager::new(dir)?)),
+            cert_validator: Arc::new(RwLock::new(CertValidator::new(config).await?)),
+            permission_manager: Arc::new(RwLock::new(PermissionManager::new(config)?)),
             server_manager: OnceLock::new(),
             running_mode: RunningMode::Client,
         });
@@ -987,6 +1054,8 @@ mod lifecycle_tests {
         let mut names = Vec::new();
         for_all_remote_request_pairs2!(collect_names, names, ());
         for name in [
+            "ListPeerLibrariesRequest",
+            "AddRemoteLibraryRequest",
             "UpdateClientStatusRequest",
             "AuthenticateSingleServiceRequest",
             "AuthenticateMultipleServiceRequest",
@@ -1431,6 +1500,235 @@ mod lifecycle_tests {
         b.stop().await?;
         a.global_params.main_token.cancel();
         b.global_params.main_token.cancel();
+        Ok(())
+    }
+
+    async fn request_peer_libraries(
+        manager: &ServerManager,
+        fingerprint: &str,
+    ) -> Result<ListPeerLibrariesResponse> {
+        // Forced passes and listings share the challenge endpoint's rate limit.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let request = ListPeerLibrariesRequest {
+            fingerprint: fingerprint.to_owned(),
+        };
+        request
+            .handle(
+                request.extract_params(&manager.global_params),
+                None,
+                &request,
+            )
+            .await?
+            .context("list response")
+    }
+
+    async fn request_add_library(
+        manager: &ServerManager,
+        fingerprint: &str,
+        library: &PeerLibrary,
+    ) -> Result<String> {
+        let request = AddRemoteLibraryRequest {
+            fingerprint: fingerprint.to_owned(),
+            library_id: library.library_id.clone(),
+            alias: library.alias.clone(),
+        };
+        let response = request
+            .handle(
+                request.extract_params(&manager.global_params),
+                None,
+                &request,
+            )
+            .await?
+            .context("add response")?;
+        anyhow::ensure!(response.error.is_none(), "add failed: {:?}", response.error);
+        Ok(response.path)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn peer_library_replica_lifecycle() -> Result<()> {
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let library_id = Uuid::new_v4();
+        let a = fixture_with_library(first.path(), library_id).await?;
+        let b = fixture(second.path()).await?;
+        let fingerprint = info(&a).await?.fingerprint;
+        // A also holds somebody else's library, which must never be advertised.
+        let mut registry = LibraryRegistry::load(first.path())?;
+        create_replica(
+            first.path(),
+            &mut registry,
+            Uuid::new_v4(),
+            "Third party",
+            "third",
+        )?;
+        let source = first.path().join("source.ogg");
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
+            &source,
+        )?;
+        scan_audio_file(
+            &a.global_params.fsio,
+            &a.global_params.main_db,
+            &a.global_params.node_id,
+            first.path(),
+            &source,
+            &a.global_params
+                .library_sync
+                .as_ref()
+                .unwrap()
+                .record_store(),
+        )
+        .await?;
+        let original = media_files::Entity::find()
+            .one(&*a.global_params.main_db)
+            .await?
+            .context("owner track")?;
+        let addr = paired_full(&a, &b).await?;
+        a.stop_worker().await?;
+        b.global_params
+            .cert_validator
+            .read()
+            .await
+            .replace_hosts_for_fingerprint(&fingerprint, vec![format!("127.0.0.1:{}", addr.port())])
+            .await?;
+        let unknown = request_peer_libraries(&b, "unknown").await?;
+        assert_eq!(
+            unknown.error_kind,
+            Some(LibraryOpenErrorKind::RemoteUntrusted)
+        );
+        let unauthed = reqwest::Client::builder()
+            .use_preconfigured_tls(sync_worker::tls_config(
+                b.global_params.cert_validator.read().await.clone(),
+                &fingerprint,
+            ))
+            .build()?;
+        assert_eq!(
+            unauthed
+                .get(format!("https://127.0.0.1:{}/libraries", addr.port()))
+                .send()
+                .await?
+                .status(),
+            reqwest::StatusCode::UNAUTHORIZED
+        );
+        let listed = request_peer_libraries(&b, &fingerprint).await?;
+        assert_eq!(listed.error_kind, None);
+        let libraries = listed.libraries;
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(libraries[0].library_id, library_id.to_string());
+        assert_eq!(libraries[0].alias, "Owned");
+        assert!(!libraries[0].added);
+        assert_ne!(b.global_params.library_id, Some(library_id));
+        let path = request_add_library(&b, &fingerprint, &libraries[0]).await?;
+        assert_eq!(
+            path,
+            request_add_library(&b, &fingerprint, &libraries[0]).await?
+        );
+        let replica = fixture_open_replica(second.path(), Path::new(&path)).await?;
+        assert_eq!(replica.global_params.library_id, Some(library_id));
+        let endpoint = PeerEndpoint {
+            fingerprint: fingerprint.clone(),
+            trusted_host: format!("127.0.0.1:{}", addr.port()),
+            host: "127.0.0.1".into(),
+            port: addr.port(),
+        };
+        for _ in 0..3 {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            if test_peer_pass(
+                replica.global_params.clone(),
+                &replica.private_key,
+                endpoint.clone(),
+                true,
+            )
+            .await?
+                == PeerPass::Complete
+            {
+                break;
+            }
+        }
+        let remote = media_files::Entity::find()
+            .filter(Column::HlcUuid.eq(&original.hlc_uuid))
+            .one(&*replica.global_params.main_db)
+            .await?
+            .context("replicated track")?;
+        assert!(!remote.local_available);
+        scan_audio_library(
+            &replica.global_params.fsio,
+            &replica.global_params.main_db,
+            &replica.global_params.node_id,
+            Path::new(&path),
+            ScanOptions {
+                cleanup: true,
+                force: false,
+                missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                cancel_token: None,
+            },
+            |_| {},
+            &replica
+                .global_params
+                .library_sync
+                .as_ref()
+                .unwrap()
+                .record_store(),
+        )
+        .await?;
+        assert_eq!(
+            media_files::Entity::find_by_id(remote.id)
+                .one(&*replica.global_params.main_db)
+                .await?,
+            Some(remote)
+        );
+        let listed = request_peer_libraries(&replica, &fingerprint).await?;
+        assert_eq!(listed.error_kind, None);
+        let libraries = listed.libraries;
+        assert_eq!(libraries.len(), 1);
+        assert!(libraries[0].added);
+        assert_eq!(
+            path,
+            request_add_library(&replica, &fingerprint, &libraries[0]).await?
+        );
+        let registry = LibraryRegistry::load(second.path())?;
+        assert_eq!(registry.libraries.len(), 2);
+        assert_eq!(
+            registry
+                .libraries
+                .iter()
+                .find(|entry| entry.library_id == library_id)
+                .unwrap()
+                .authority,
+            LibraryAuthority::Hosted {
+                fingerprint: fingerprint.clone()
+            }
+        );
+        let registry_path = first.path().join("libraries.json");
+        let saved = std::fs::read(&registry_path)?;
+        std::fs::write(&registry_path, b"invalid registry")?;
+        let malformed = request_peer_libraries(&replica, &fingerprint).await?;
+        std::fs::write(&registry_path, saved)?;
+        assert_eq!(
+            malformed.error_kind,
+            Some(LibraryOpenErrorKind::RemoteProtocol)
+        );
+        a.global_params
+            .permission_manager
+            .write()
+            .await
+            .change_user_status(&info(&b).await?.fingerprint, UserStatus::Pending)
+            .await?;
+        let denied = request_peer_libraries(&replica, &fingerprint).await?;
+        assert_eq!(
+            denied.error_kind,
+            Some(LibraryOpenErrorKind::RemoteNotAuthorized)
+        );
+        a.stop().await?;
+        let offline = request_peer_libraries(&replica, &fingerprint).await?;
+        assert_eq!(
+            offline.error_kind,
+            Some(LibraryOpenErrorKind::RemoteUnreachable)
+        );
+        for manager in [&a, &b, &replica] {
+            manager.stop_worker().await?;
+            manager.global_params.main_token.cancel();
+        }
         Ok(())
     }
 

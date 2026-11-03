@@ -26,6 +26,7 @@ pub struct LibraryDescriptor {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LibraryAuthority {
     Owned,
+    Hosted { fingerprint: String },
 }
 /// The library's media storage.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -51,6 +52,8 @@ struct PortableFile {
     version: u32,
     library_id: Uuid,
     alias: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    authority: Option<LibraryAuthority>,
 }
 #[derive(Deserialize)]
 struct Version {
@@ -123,10 +126,11 @@ pub async fn resolve_library(
     alias: &str,
     mode: StorageMode,
 ) -> Result<LibraryDescriptor> {
-    #[cfg(target_os = "android")]
-    let rune_dir = PathBuf::from(".rune");
-    #[cfg(not(target_os = "android"))]
-    let rune_dir = Path::new(root).join(".rune");
+    let rune_dir = if cfg!(target_os = "android") && root.starts_with("content://") {
+        PathBuf::from(".rune")
+    } else {
+        Path::new(root).join(".rune")
+    };
     let descriptor_path = rune_dir.join("library.json");
     let mut portable = None;
     let (id, placement) = match mode {
@@ -143,6 +147,7 @@ pub async fn resolve_library(
                     version: 1,
                     library_id: Uuid::new_v4(),
                     alias: String::new(),
+                    authority: None,
                 }
             };
             let id = file.library_id;
@@ -159,6 +164,17 @@ pub async fn resolve_library(
             (id, DbPlacement::Redirected { storage_key: key })
         }
     };
+    let authority = portable
+        .as_ref()
+        .map(|file| file.authority.clone().unwrap_or(LibraryAuthority::Owned))
+        .or_else(|| {
+            registry
+                .libraries
+                .iter()
+                .find(|entry| entry.library_id == id)
+                .map(|entry| entry.authority.clone())
+        })
+        .unwrap_or(LibraryAuthority::Owned);
     let stored_alias = registry
         .libraries
         .iter()
@@ -183,7 +199,7 @@ pub async fn resolve_library(
     let descriptor = LibraryDescriptor {
         library_id: id,
         alias,
-        authority: LibraryAuthority::Owned,
+        authority,
         storage: LibraryStorage::Local {
             path: root.to_owned(),
         },
@@ -201,6 +217,81 @@ pub async fn resolve_library(
     });
     registry.libraries.push(descriptor.clone());
     registry.save()?;
+    Ok(descriptor)
+}
+
+/// Register a remote library in a single Portable folder in this node's config directory.
+pub fn create_replica(
+    config_dir: &Path,
+    registry: &mut LibraryRegistry,
+    library_id: Uuid,
+    alias: &str,
+    authority_fingerprint: &str,
+) -> Result<LibraryDescriptor> {
+    if let Some(existing) = registry
+        .libraries
+        .iter()
+        .find(|entry| entry.library_id == library_id)
+    {
+        if existing.authority == LibraryAuthority::Owned {
+            bail!("Cannot create a replica of a library this node owns");
+        }
+        if existing.authority
+            != (LibraryAuthority::Hosted {
+                fingerprint: authority_fingerprint.to_owned(),
+            })
+        {
+            bail!("Library already has a different authority");
+        }
+        return Ok(existing.clone());
+    }
+    let root = config_dir.join("replicas").join(library_id.to_string());
+    let rune_dir = root.join(".rune");
+    let path = rune_dir.join("library.json");
+    let authority = LibraryAuthority::Hosted {
+        fingerprint: authority_fingerprint.to_owned(),
+    };
+    let file = match fs::read(&path) {
+        Ok(data) => {
+            check_version(&data)?;
+            let file: PortableFile =
+                serde_json::from_slice(&data).context("Invalid replica descriptor")?;
+            if file.library_id != library_id || file.authority.as_ref() != Some(&authority) {
+                bail!("Replica folder has a different identity or authority");
+            }
+            file
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            fs::create_dir_all(&rune_dir).context("Failed to create replica directory")?;
+            let file = PortableFile {
+                version: 1,
+                library_id,
+                alias: alias.to_owned(),
+                authority: Some(authority.clone()),
+            };
+            fs::write(&path, serde_json::to_vec_pretty(&file)?)
+                .context("Failed to write replica descriptor")?;
+            file
+        }
+        Err(error) => return Err(error).context("Failed to read replica descriptor"),
+    };
+    let descriptor = LibraryDescriptor {
+        library_id,
+        alias: file.alias,
+        authority,
+        storage: LibraryStorage::Local {
+            path: root
+                .to_str()
+                .context("Replica path is not UTF-8")?
+                .to_owned(),
+        },
+        db_placement: DbPlacement::Portable,
+    };
+    registry.libraries.push(descriptor.clone());
+    if let Err(error) = registry.save() {
+        registry.libraries.pop();
+        return Err(error);
+    }
     Ok(descriptor)
 }
 
@@ -241,6 +332,84 @@ mod tests {
                 .unwrap()
         }
     }
+    #[tokio::test]
+    async fn replica_authority_reopen_and_idempotency() {
+        let mut f = Fixture::new();
+        let id = Uuid::new_v4();
+        let first = create_replica(f.dir.path(), &mut f.registry, id, "Remote", "owner").unwrap();
+        assert_eq!(
+            first.authority,
+            LibraryAuthority::Hosted {
+                fingerprint: "owner".into()
+            }
+        );
+        assert_eq!(first.db_placement, DbPlacement::Portable);
+        let LibraryStorage::Local { path } = &first.storage;
+        assert_eq!(
+            Path::new(path),
+            f.dir.path().join("replicas").join(id.to_string())
+        );
+        let data = fs::read(Path::new(path).join(".rune/library.json")).unwrap();
+        let file: PortableFile = serde_json::from_slice(&data).unwrap();
+        assert_eq!(file.version, 1);
+        assert_eq!(file.authority, Some(first.authority.clone()));
+        f.registry = LibraryRegistry::load(f.dir.path()).unwrap();
+        let second = create_replica(f.dir.path(), &mut f.registry, id, "Changed", "owner").unwrap();
+        assert_eq!(first, second);
+        assert_eq!(f.registry.libraries.len(), 1);
+        assert_eq!(
+            fs::read_dir(f.dir.path().join("replicas")).unwrap().count(),
+            1
+        );
+        let reopened = f.resolve(path, "", StorageMode::Portable).await;
+        assert_eq!(reopened, first);
+        // A descriptor survives a registry loss or a crash before registration.
+        f.registry.libraries.clear();
+        f.registry.save().unwrap();
+        let recovered =
+            create_replica(f.dir.path(), &mut f.registry, id, "Changed", "owner").unwrap();
+        assert_eq!(recovered, first);
+        assert!(create_replica(f.dir.path(), &mut f.registry, id, "", "other").is_err());
+    }
+
+    #[tokio::test]
+    async fn replica_refuses_owned_library() {
+        let mut f = Fixture::new();
+        let root = f.root("owned");
+        let owned = f.resolve(&root, "Owned", StorageMode::Portable).await;
+        assert_eq!(owned.authority, LibraryAuthority::Owned);
+        assert!(
+            create_replica(f.dir.path(), &mut f.registry, owned.library_id, "", "peer").is_err()
+        );
+        assert_eq!(f.registry.libraries, vec![owned]);
+        assert!(!f.dir.path().join("replicas").exists());
+    }
+
+    #[tokio::test]
+    async fn authority_defaults_owned_and_redirected_preserves_registry() {
+        let mut f = Fixture::new();
+        let root = f.root("old");
+        let id = Uuid::new_v4();
+        fs::write(
+            Path::new(&root).join(".rune/library.json"),
+            format!(r#"{{"version":1,"library_id":"{id}","alias":"Old"}}"#),
+        )
+        .unwrap();
+        let owned = f.resolve(&root, "", StorageMode::Portable).await;
+        assert_eq!(owned.authority, LibraryAuthority::Owned);
+        assert_eq!(owned.library_id, id);
+        let key = Uuid::new_v4();
+        f.resolve(&root, "", StorageMode::Redirected(key)).await;
+        let authority = LibraryAuthority::Hosted {
+            fingerprint: "owner".into(),
+        };
+        f.registry.libraries[0].authority = authority.clone();
+        f.registry.save().unwrap();
+        f.registry = LibraryRegistry::load(f.dir.path()).unwrap();
+        let reopened = f.resolve(&root, "", StorageMode::Redirected(key)).await;
+        assert_eq!(reopened.authority, authority);
+    }
+
     #[tokio::test]
     async fn portable_reopen_move_and_distinct() {
         let mut f = Fixture::new();

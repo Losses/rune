@@ -10,6 +10,16 @@ struct RequestResponse {
 #[proc_macro]
 pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let types = vec![
+        RequestResponse {
+            request: "ListPeerLibrariesRequest".to_string(),
+            response: Some("ListPeerLibrariesResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "AddRemoteLibraryRequest".to_string(),
+            response: Some("AddRemoteLibraryResponse".to_string()),
+            local_only: true,
+        },
         // Library
         RequestResponse {
             request: "GetSyncSettingsRequest".to_string(),

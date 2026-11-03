@@ -101,6 +101,11 @@ pub struct FsIo {
 impl FsIo {
     #[cfg(target_os = "android")]
     pub fn new(db_path: &Path, root_uri: &str) -> Result<Self, FileIoError> {
+        if !root_uri.starts_with("content://") {
+            return Ok(Self {
+                inner: Arc::new(StdFsIo::new()),
+            });
+        }
         let inner = AndroidFsIo::new(db_path, root_uri)?;
         Ok(Self {
             inner: Arc::new(inner),
@@ -144,9 +149,7 @@ impl std::ops::Deref for FsIo {
     }
 }
 
-#[cfg(not(target_os = "android"))]
 mod std_fs;
-#[cfg(not(target_os = "android"))]
 use std_fs::StdFsIo;
 
 #[cfg(target_os = "android")]

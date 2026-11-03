@@ -16,6 +16,7 @@ mod mix;
 mod neighbors;
 mod playback;
 mod playlist;
+mod replicas;
 mod scrobble;
 mod search;
 mod sfx;
@@ -49,3 +50,5 @@ pub use stat::*;
 pub use sync::*;
 pub use system::*;
 pub use visualizer::*;
+
+pub use replicas::*;

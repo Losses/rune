@@ -2,6 +2,7 @@
 mod server_request;
 pub mod api;
 pub mod http;
+pub(crate) mod libraries;
 mod manager;
 pub mod sync;
 mod sync_auth;

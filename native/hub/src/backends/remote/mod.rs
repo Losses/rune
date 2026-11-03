@@ -123,7 +123,7 @@ fn protocol(error: impl std::fmt::Display) -> RemoteConnectError {
     RemoteConnectError::Protocol(error.to_string())
 }
 
-fn token_error(error: anyhow::Error) -> RemoteConnectError {
+pub(crate) fn token_error(error: anyhow::Error) -> RemoteConnectError {
     error!("Remote authentication failed: {error:#}");
     if let Some(error) = error.downcast_ref::<reqwest::Error>() {
         if matches!(
