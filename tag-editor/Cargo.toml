@@ -33,3 +33,6 @@ fsio_media_source = { version = "0.1.0", path = "../fsio-media-source" }
 
 [dev-dependencies]
 clap = { version = "4.5.9", features = ["derive"] }
+
+[lints]
+workspace = true

@@ -13,6 +13,7 @@
 //! `crate::transition::Overlay`): this only says that one starts ([`Lens::take_overlay`]).
 
 use super::inputs::MusicValues;
+use std::f32::consts::TAU;
 use std::sync::Arc;
 
 use crate::bind::{CourseBinds, MomentBinds, RuntimeBindings};
@@ -486,7 +487,7 @@ impl Lens {
                 let along = leak.origin + leak.way * LEAK_TRAVEL * travelled;
                 frame.leak_at = edge_point(along, outside);
                 frame.leak_size = LEAK_SIZE;
-                frame.leak_phase = travelled * std::f32::consts::TAU;
+                frame.leak_phase = travelled * TAU;
                 leak.run.course.tick(dt, music);
                 leak.travelled += (leak.run.course.progress() - course.progress()).max(0.0);
             }

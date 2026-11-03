@@ -1,3 +1,4 @@
+use hyper::{Uri, body::Bytes, client::conn::http1, http::Error as HttpError};
 use std::{
     collections::HashMap,
     io::Error as IoError,
@@ -8,7 +9,6 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 use futures::{FutureExt, future::select_all};
 use http_body_util::Empty;
-use hyper::{Uri, body::Bytes, http::Error as HttpError};
 use hyper_util::rt::TokioIo;
 use log::warn;
 use pem::Pem;
@@ -32,8 +32,11 @@ use tokio_rustls::TlsConnector;
 use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
 
-use crate::persistent::{PersistenceError, PersistentDataManager};
-use crate::{ssl::calculate_base85_fingerprint, utils::server_name_to_string};
+use crate::{
+    persistent::{PersistenceError, PersistentDataManager},
+    ssl::calculate_base85_fingerprint,
+    utils::server_name_to_string,
+};
 
 /// Type alias for certificate information, represented as an optional tuple.
 ///
@@ -572,7 +575,7 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
 
     let io = TokioIo::new(tls_stream); // Convert TLS stream to TokioIo for Hyper
 
-    let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
+    let (mut sender, connection) = http1::handshake(io)
         .await
         .map_err(|e| CertValidatorError::TlsError(RustlsError::General(e.to_string())))?; // Perform HTTP/1 handshake
 

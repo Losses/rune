@@ -1,4 +1,8 @@
 mod source;
+
+use crate::actions::file::hash_file;
+use crate::actions::metadata::is_fatal_scan_error;
+use crate::sync::model::{BlobRef, MAX_PORTABLE_FINGERPRINT_BYTES};
 pub use source::{
     ComputedFingerprint, ComputedSimilarity, SourceStatus, assign_computed_fingerprint,
     assign_computed_similarity, assign_duplicate_mark, current_fingerprint,
@@ -16,7 +20,7 @@ use fsio::FsIo;
 use log::info;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect,
+    QueryFilter, QueryOrder, QuerySelect, SelectExt,
 };
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -26,8 +30,10 @@ use tag_editor::music_brainz::fingerprint::{
     calc_fingerprint, calculate_similarity_score, get_track_duration_in_secs, match_fingerprints,
 };
 
-use crate::entities::prelude::{MediaFileFingerprint, MediaFileSimilarity, MediaFiles};
-use crate::entities::{media_file_fingerprint, media_file_similarity, media_files};
+use crate::entities::{
+    media_file_fingerprint, media_file_similarity, media_files,
+    prelude::{MediaFileFingerprint, MediaFileSimilarity, MediaFiles},
+};
 
 fn compute_single_fingerprint(
     fsio: &FsIo,
@@ -51,20 +57,20 @@ fn compute_single_fingerprint(
         "fingerprint source is not locally available"
     );
     let expected = match (&file.content_hash, file.content_size) {
-        (Some(hash), Some(size)) if size >= 0 => crate::sync::model::BlobRef {
+        (Some(hash), Some(size)) if size >= 0 => BlobRef {
             digest: hash.clone(),
             size: size as u64,
         },
         _ => bail!("fingerprint source has no verified content identity"),
     };
     anyhow::ensure!(
-        crate::actions::file::hash_file(fsio, &file_path)? == expected,
+        hash_file(fsio, &file_path)? == expected,
         "fingerprint source changed before computation"
     );
     let result = calc_fingerprint(fsio, &file_path, config)
         .with_context(|| format!("compute fingerprint for: {}", file_path.display()))?;
     anyhow::ensure!(
-        crate::actions::file::hash_file(fsio, &file_path)? == expected,
+        hash_file(fsio, &file_path)? == expected,
         "fingerprint source changed during computation"
     );
     Ok(result)
@@ -164,10 +170,9 @@ fn group_similar_files(similarities: &[media_file_similarity::Model]) -> Vec<Vec
 pub async fn get_duplicate_files(db: &DatabaseConnection) -> Result<Vec<media_files::Model>> {
     let mut duplicates = Vec::new();
     for file in MediaFiles::find().all(db).await? {
-        if let Some(row) = crate::actions::fingerprint::current_fingerprint(db, &file).await?
+        if let Some(row) = current_fingerprint(db, &file).await?
             && row.is_duplicated == 1
-            && crate::actions::fingerprint::fingerprint_status(&row, &file)
-                == crate::actions::fingerprint::SourceStatus::Verified
+            && fingerprint_status(&row, &file) == SourceStatus::Verified
         {
             duplicates.push(file);
         }
@@ -210,10 +215,8 @@ where
             if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
                 return Ok(processed);
             }
-            if let Some(current) =
-                crate::actions::fingerprint::current_fingerprint(db, &file).await?
-                && crate::actions::fingerprint::fingerprint_status(&current, &file)
-                    == crate::actions::fingerprint::SourceStatus::Verified
+            if let Some(current) = current_fingerprint(db, &file).await?
+                && fingerprint_status(&current, &file) == SourceStatus::Verified
             {
                 processed += 1;
                 progress(processed, total);
@@ -221,7 +224,7 @@ where
             }
             let path_for_hash = root.join(&file.directory).join(&file.file_name);
             let expected = match (&file.content_hash, file.content_size) {
-                (Some(hash), Some(size)) if size >= 0 => crate::sync::model::BlobRef {
+                (Some(hash), Some(size)) if size >= 0 => BlobRef {
                     digest: hash.clone(),
                     size: size as u64,
                 },
@@ -232,11 +235,7 @@ where
                     continue;
                 }
             };
-            if crate::actions::file::hash_file(&fsio, &path_for_hash)
-                .ok()
-                .as_ref()
-                != Some(&expected)
-            {
+            if hash_file(&fsio, &path_for_hash).ok().as_ref() != Some(&expected) {
                 log::warn!(
                     "fingerprint source content changed before computation: {}",
                     file.id
@@ -276,11 +275,7 @@ where
                     if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
                         return Ok(processed);
                     }
-                    if crate::actions::file::hash_file(&fsio, &path_for_hash)
-                        .ok()
-                        .as_ref()
-                        != Some(&expected)
-                    {
+                    if hash_file(&fsio, &path_for_hash).ok().as_ref() != Some(&expected) {
                         log::warn!(
                             "fingerprint source content changed during computation: {}",
                             file.id
@@ -291,7 +286,7 @@ where
                     }
                     let bytes: Vec<u8> =
                         fingerprint.into_iter().flat_map(u32::to_le_bytes).collect();
-                    if let Err(error) = crate::actions::fingerprint::assign_computed_fingerprint(
+                    if let Err(error) = assign_computed_fingerprint(
                         db,
                         store,
                         &file,
@@ -305,7 +300,7 @@ where
                     )
                     .await
                     {
-                        if crate::actions::metadata::is_fatal_scan_error(&error) {
+                        if is_fatal_scan_error(&error) {
                             return Err(error);
                         }
                         log::warn!(
@@ -343,7 +338,7 @@ where
         .await?;
     let mut eligible = Vec::new();
     for file in files {
-        let Some(row) = crate::actions::fingerprint::current_fingerprint(db, &file).await? else {
+        let Some(row) = current_fingerprint(db, &file).await? else {
             continue;
         };
         if fingerprint_status(&row, &file) == SourceStatus::Verified {
@@ -374,7 +369,7 @@ where
                     .max(get_track_duration_in_secs(fp2, config)),
                 config,
             );
-            crate::actions::fingerprint::assign_computed_similarity(
+            assign_computed_similarity(
                 db,
                 store,
                 file1,
@@ -432,24 +427,18 @@ where
         else {
             continue;
         };
-        if crate::actions::fingerprint::similarity_status(&row, &first, &second)
-            != crate::actions::fingerprint::SourceStatus::Verified
-        {
+        if similarity_status(&row, &first, &second) != SourceStatus::Verified {
             continue;
         }
-        let first_fingerprint =
-            crate::actions::fingerprint::current_fingerprint(db, &first).await?;
-        let second_fingerprint =
-            crate::actions::fingerprint::current_fingerprint(db, &second).await?;
+        let first_fingerprint = current_fingerprint(db, &first).await?;
+        let second_fingerprint = current_fingerprint(db, &second).await?;
         let (Some(first_fingerprint), Some(second_fingerprint)) =
             (first_fingerprint, second_fingerprint)
         else {
             continue;
         };
-        if crate::actions::fingerprint::fingerprint_status(&first_fingerprint, &first)
-            != crate::actions::fingerprint::SourceStatus::Verified
-            || crate::actions::fingerprint::fingerprint_status(&second_fingerprint, &second)
-                != crate::actions::fingerprint::SourceStatus::Verified
+        if fingerprint_status(&first_fingerprint, &first) != SourceStatus::Verified
+            || fingerprint_status(&second_fingerprint, &second) != SourceStatus::Verified
         {
             continue;
         }
@@ -482,7 +471,7 @@ where
             .id;
         for file in files {
             let mark = i32::from(file.id != keep);
-            crate::actions::fingerprint::assign_duplicate_mark(db, store, file.id, mark).await?;
+            assign_duplicate_mark(db, store, file.id, mark).await?;
             marked += mark as usize;
         }
         progress(index + 1, total);
@@ -538,7 +527,7 @@ where
             let mut update: media_file_fingerprint::ActiveModel = row.clone().into();
             update.is_duplicated = ActiveValue::Set(0);
             update.update(&tx).await?;
-            if row.fingerprint.len() > crate::sync::model::MAX_PORTABLE_FINGERPRINT_BYTES {
+            if row.fingerprint.len() > MAX_PORTABLE_FINGERPRINT_BYTES {
                 log::debug!("keeping oversized fingerprint local for {}", row.track_uuid);
                 continue;
             }
@@ -559,4 +548,3 @@ where
     }
     Ok(reset)
 }
-use sea_orm::SelectExt;

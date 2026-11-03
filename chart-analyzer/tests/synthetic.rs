@@ -5,11 +5,12 @@
 use chart_analyzer::analyze;
 use chart_analyzer::chart::Chart;
 use chart_analyzer::front::{SR, front};
+use std::f64::consts::TAU;
 
 /// 24 s at 120 bpm: a 70 Hz plus 2.5 kHz burst on the beat (from 0.25 s), a 6 kHz tick on the offbeat.
 fn song() -> Vec<f32> {
     let mut x = vec![0.0f64; SR * 24];
-    let tau = std::f64::consts::TAU;
+    let tau = TAU;
     for k in 0..48 {
         let beat = 0.25 + 0.5 * k as f64;
         for (start, weight, decay, hz, second) in [
@@ -83,7 +84,7 @@ fn noisy(seconds: usize) -> Vec<f32> {
             state = state.wrapping_mul(1664525).wrapping_add(1013904223);
             let noise = (state >> 8) as f32 / (1u32 << 24) as f32 - 0.5;
             let t = i as f64 / SR as f64;
-            let tone = (std::f64::consts::TAU * 440.0 * t).sin() * (t * 3.0).sin().abs();
+            let tone = (TAU * 440.0 * t).sin() * (t * 3.0).sin().abs();
             let click = if i % 5000 < 40 { 0.8 } else { 0.0 };
             (0.2 * tone) as f32 + 0.05 * noise + click
         })

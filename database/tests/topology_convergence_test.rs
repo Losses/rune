@@ -1,7 +1,9 @@
 //! Eight replicas converge using only the scheduled graph before arbitrary-pair checks.
 #[path = "support/causal_library.rs"]
 mod support;
+
 use anyhow::{Context, Result, ensure};
+use database::actions::mixes::executable_queries_on;
 use database::{entities::*, sync::model::*};
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
 use std::collections::{BTreeMap, BTreeSet};
@@ -392,8 +394,7 @@ async fn sqlite_scenario(shape: usize, seed: u64) -> Result<()> {
         assert_eq!(album.track_uuid, id(88).to_string());
         assert_eq!(album.track_number, Some(4));
         assert!(local.library.pending_references().await?.is_empty());
-        let queries =
-            database::actions::mixes::executable_queries_on(&local.db, &id(95).to_string()).await?;
+        let queries = executable_queries_on(&local.db, &id(95).to_string()).await?;
         assert_eq!(queries, vec![("lib::track".into(), track.id.to_string())]);
         assert_eq!(
             playlists::Entity::find()

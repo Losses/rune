@@ -7,6 +7,12 @@
 members = ["native/hub", "native/requests", "cli", "tag-editor", "discovery", "sync", "sync-orm", "fsio", "fsio-media-source", "playback", "http-request", "visualizer", "flutter-texture", "chart-analyzer"]
 resolver = "2"
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tarpaulin)'] }
+
+[workspace.lints.clippy]
+absolute_paths = "warn"
+
 [patch.crates-io]
 core-graphics = { path = "./core-graphics" }
 # Patched fork to fix MSVC ARM64 (aarch64-pc-windows-msvc): FDK_archdef.h does not

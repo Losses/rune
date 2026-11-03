@@ -1,5 +1,20 @@
-use database::actions::downloads::set_download_rule;
 use database::sync::{LibrarySyncStore, model::*};
+use database::{
+    actions::{
+        cover_art::assign_inspected,
+        downloads::set_download_rule,
+        file::is_materialized,
+        metadata::{MissingHostFilePolicy, ScanOptions, get_parsed_file_by_id, scan_audio_library},
+        mixes::{create_mix, update_mix},
+        playlists::{add_item_to_playlist, create_playlist, get_all_playlists},
+        stats::{get_liked, set_liked},
+    },
+    connection::{RecommendationDbConnection, initialize_db},
+    entities::{
+        albums, artists, media_cover_art, media_file_artists, media_file_playlists, media_files,
+    },
+    sync::model::author_source_on,
+};
 use hub::server::sync::{
     client::sync_library,
     downloads::download_requested_audio,
@@ -15,17 +30,6 @@ use std::{
 };
 
 use anyhow::Result;
-use database::{
-    actions::{
-        metadata::{get_parsed_file_by_id, scan_audio_library},
-        playlists::{add_item_to_playlist, create_playlist, get_all_playlists},
-        stats::{get_liked, set_liked},
-    },
-    connection::{RecommendationDbConnection, initialize_db},
-    entities::{
-        albums, artists, media_cover_art, media_file_artists, media_file_playlists, media_files,
-    },
-};
 use fsio::FsIo;
 use sea_orm::{ColumnTrait, Database, EntityTrait, QueryFilter};
 use uuid::Uuid;
@@ -51,12 +55,14 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         &source_db,
         &source_node.to_string(),
         source_root.path(),
-        false,
-        false,
+        ScanOptions {
+            cleanup: false,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         |_| {},
-        None,
         &store.record_store(),
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let source_files = media_files::Entity::find().all(&source_db).await?;
@@ -164,7 +170,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
                 id: file_id,
             },
         ] {
-            database::sync::model::author_source_on(&tx, &store.record_store(), key).await?;
+            author_source_on(&tx, &store.record_store(), key).await?;
         }
         tx.commit().await?;
     }
@@ -176,7 +182,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
     let art_body = b"verified artwork body";
     let digest = blake3::hash(art_body).to_hex().to_string();
     let art_id = migration::catalog_identity::artwork(&digest);
-    database::actions::cover_art::assign_inspected(
+    assign_inspected(
         &source_db,
         &store.record_store(),
         first,
@@ -268,7 +274,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
                 "corrupt artwork must not block metadata"
             );
             assert!(
-                database::entities::media_cover_art::Entity::find()
+                media_cover_art::Entity::find()
                     .filter(media_cover_art::Column::LocalAvailable.eq(true))
                     .all(&db)
                     .await?
@@ -311,7 +317,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         assert_eq!(received_art.binary, art_body);
 
         let other = catalog.iter().find(|f| f.id != id).unwrap().id;
-        assert!(!database::actions::file::is_materialized(&db, &fsio, root.path(), id).await?);
+        assert!(!is_materialized(&db, &fsio, root.path(), id).await?);
         assert!(get_liked(&db, id).await?);
         assert_eq!(get_all_playlists(&db).await?.len(), 1);
         assert_eq!(
@@ -320,7 +326,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         );
         let (queries, mix) = match kind {
             "mix" => {
-                let mix = database::actions::mixes::create_mix(
+                let mix = create_mix(
                     &db,
                     &local.record_store(),
                     "Offline mix".into(),
@@ -359,8 +365,8 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
             fetched.downloaded, 1,
             "{kind} should fetch exactly one selected file"
         );
-        assert!(database::actions::file::is_materialized(&db, &fsio, root.path(), id).await?);
-        assert!(!database::actions::file::is_materialized(&db, &fsio, root.path(), other).await?);
+        assert!(is_materialized(&db, &fsio, root.path(), id).await?);
+        assert!(!is_materialized(&db, &fsio, root.path(), other).await?);
         let materialized = media_files::Entity::find_by_id(id).one(&db).await?.unwrap();
         let expected = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
         assert_eq!(
@@ -398,7 +404,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
             "materialization must not create metadata feedback"
         );
         if let Some(mix) = &mix {
-            database::actions::mixes::update_mix(
+            update_mix(
                 &db,
                 &local.record_store(),
                 mix.id,
@@ -424,9 +430,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
                 changed.downloaded, 1,
                 "a saved mix rule follows edits to its definition"
             );
-            assert!(
-                database::actions::file::is_materialized(&db, &fsio, root.path(), other).await?
-            );
+            assert!(is_materialized(&db, &fsio, root.path(), other).await?);
         }
         set_download_rule(&db, queries, mix.as_ref().map(|m| m.id), false).await?;
         let disabled = download_requested_audio(
@@ -441,7 +445,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         .await?;
         assert_eq!(disabled.requested, 0);
         assert!(
-            database::actions::file::is_materialized(&db, &fsio, root.path(), id).await?,
+            is_materialized(&db, &fsio, root.path(), id).await?,
             "disabling retention does not delete audio"
         );
     }

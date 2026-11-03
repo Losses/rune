@@ -1,3 +1,4 @@
+use database::actions::file::{AudioAvailability, audio_availability, remote_content_ids};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -213,14 +214,14 @@ impl Signal for SearchMediaFileSummaryRequest {
             .await
             .with_context(|| "Failed to get media summaries")?;
 
-        let states = database::actions::file::audio_availability(
+        let states = audio_availability(
             &*main_db,
             &fsio,
             std::path::Path::new(&*lib_path),
             &media_summaries.iter().map(|row| row.id).collect::<Vec<_>>(),
         )
         .await?;
-        let remote_content = database::actions::file::remote_content_ids(
+        let remote_content = remote_content_ids(
             &main_db,
             &media_summaries.iter().map(|row| row.id).collect::<Vec<_>>(),
         )
@@ -240,7 +241,7 @@ impl Signal for SearchMediaFileSummaryRequest {
                         states
                             .get(&x.id)
                             .copied()
-                            .unwrap_or(database::actions::file::AudioAvailability::Unavailable),
+                            .unwrap_or(AudioAvailability::Unavailable),
                         remote_content.contains(&x.id),
                     ),
                 })

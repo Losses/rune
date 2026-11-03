@@ -1,3 +1,4 @@
+use crate::actions::metadata::author_indexed_track_row;
 use std::collections::HashMap;
 
 use anyhow::{Error, Result};
@@ -106,9 +107,7 @@ pub async fn index_media_files(
                     .one(&txn)
                     .await?
                     .ok_or_else(|| Error::msg("indexed file missing"))?;
-                if let Err(error) =
-                    crate::actions::metadata::author_indexed_track_row(&txn, store, file).await
-                {
+                if let Err(error) = author_indexed_track_row(&txn, store, file).await {
                     txn.rollback().await?;
                     return Err(error);
                 }

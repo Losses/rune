@@ -1,8 +1,13 @@
 #[path = "support/causal_library.rs"]
 mod support;
+
 use anyhow::Result;
 use database::{
-    actions::playlists,
+    actions::{mixes::create_mix, playlists},
+    entities::{
+        media_file_playlists, media_files, mix_queries, mix_queries::Column,
+        playlists as playlist_rows, playlists::Column as PlaylistsColumn,
+    },
     sync::{
         LibrarySyncStore,
         model::{Collection, Scope},
@@ -25,19 +30,17 @@ async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
     let b = LibrarySyncStore::open(peer_db.clone(), Uuid::new_v4(), Some(ns)).await?;
     let file = Uuid::new_v4();
     for conn in [&db, &peer_db] {
-        database::entities::media_files::Entity::insert(
-            database::entities::media_files::ActiveModel {
-                file_name: Set("song".into()),
-                directory: Set(String::new()),
-                extension: Set("ogg".into()),
-                file_hash: Set(String::new()),
-                last_modified: Set(String::new()),
-                sample_rate: Set(1),
-                duration: Set(1.into()),
-                hlc_uuid: Set(file.to_string()),
-                ..Default::default()
-            },
-        )
+        media_files::Entity::insert(media_files::ActiveModel {
+            file_name: Set("song".into()),
+            directory: Set(String::new()),
+            extension: Set("ogg".into()),
+            file_hash: Set(String::new()),
+            last_modified: Set(String::new()),
+            sample_rate: Set(1),
+            duration: Set(1.into()),
+            hlc_uuid: Set(file.to_string()),
+            ..Default::default()
+        })
         .exec(conn)
         .await?;
     }
@@ -72,14 +75,9 @@ async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
     )
     .await?;
     assert_eq!(b.pending_references().await?.len(), 0);
-    let remote_playlist = database::entities::playlists::Entity::find()
-        .one(&peer_db)
-        .await?
-        .unwrap();
+    let remote_playlist = playlist_rows::Entity::find().one(&peer_db).await?.unwrap();
     assert_eq!(remote_playlist.name, "renamed");
-    let remote_entries = database::entities::media_file_playlists::Entity::find()
-        .all(&peer_db)
-        .await?;
+    let remote_entries = media_file_playlists::Entity::find().all(&peer_db).await?;
     assert_eq!(remote_entries.len(), 2);
     assert!(
         remote_entries
@@ -95,12 +93,10 @@ async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
     )
     .await?;
     assert_eq!(
-        database::entities::media_file_playlists::Entity::find()
-            .count(&peer_db)
-            .await?,
+        media_file_playlists::Entity::find().count(&peer_db).await?,
         1
     );
-    let mix = database::actions::mixes::create_mix(
+    let mix = create_mix(
         &db,
         &record_store,
         "dependent".into(),
@@ -118,22 +114,15 @@ async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
         scope,
     )
     .await?;
+    assert_eq!(playlist_rows::Entity::find().count(&peer_db).await?, 0);
     assert_eq!(
-        database::entities::playlists::Entity::find()
-            .count(&peer_db)
-            .await?,
-        0
-    );
-    assert_eq!(
-        database::entities::media_file_playlists::Entity::find()
-            .count(&peer_db)
-            .await?,
+        media_file_playlists::Entity::find().count(&peer_db).await?,
         1
     );
     use sea_orm::ColumnTrait;
     assert!(
-        database::entities::mix_queries::Entity::find()
-            .filter(database::entities::mix_queries::Column::MixUuid.eq(mix.hlc_uuid.clone()))
+        mix_queries::Entity::find()
+            .filter(Column::MixUuid.eq(mix.hlc_uuid.clone()))
             .all(&db)
             .await?
             .len()
@@ -298,8 +287,8 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
         },
     )
     .await?;
-    let remote_import = database::entities::playlists::Entity::find()
-        .filter(database::entities::playlists::Column::HlcUuid.eq(imported.hlc_uuid.clone()))
+    let remote_import = playlist_rows::Entity::find()
+        .filter(PlaylistsColumn::HlcUuid.eq(imported.hlc_uuid.clone()))
         .one(&peer_db)
         .await?
         .unwrap();
@@ -334,9 +323,7 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
     )
     .await?;
     let history_before = store.head().await?;
-    let count_before = database::entities::playlists::Entity::find()
-        .count(&db)
-        .await?;
+    let count_before = playlist_rows::Entity::find().count(&db).await?;
     assert!(
         playlists::create_m3u8_playlist(
             &db,
@@ -349,9 +336,7 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
         .is_err()
     );
     assert_eq!(
-        database::entities::playlists::Entity::find()
-            .count(&db)
-            .await?,
+        playlist_rows::Entity::find().count(&db).await?,
         count_before
     );
     assert_eq!(store.head().await?, history_before);

@@ -49,6 +49,8 @@ use android as platform;
 use darwin as platform;
 #[cfg(target_os = "linux")]
 use linux as platform;
+#[cfg(target_os = "linux")]
+use std::os::fd::OwnedFd;
 #[cfg(not(any(
     target_vendor = "apple",
     windows,
@@ -57,10 +59,14 @@ use linux as platform;
 )))]
 use unsupported as platform;
 
-use std::any::Any;
-use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::{
+    any::Any,
+    fmt,
+    sync::{
+        Arc, Mutex, MutexGuard,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use log::info;
 
@@ -310,11 +316,11 @@ pub struct VulkanImage {
 #[cfg(target_os = "linux")]
 pub trait VulkanFds {
     /// The image's memory (`VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT`).
-    fn export_memory(&self) -> Result<std::os::fd::OwnedFd, String>;
+    fn export_memory(&self) -> Result<OwnedFd, String>;
     /// The semaphore the frame's submission signals
     /// (`VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT`). It is signalled once, so it is waited
     /// for at most once.
-    fn export_semaphore(&self) -> Result<std::os::fd::OwnedFd, String>;
+    fn export_semaphore(&self) -> Result<OwnedFd, String>;
 }
 
 /// The latest frame of a [`FrameSource`].

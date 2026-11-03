@@ -10,6 +10,7 @@ use crate::front::{
 use crate::ndimage::{maximum_filter1d, median_filter1d};
 use crate::np::{geomspace, hanning, pairwise_sum, round_half_even};
 use realfft::RealFftPlanner;
+use std::f64::consts::PI;
 
 /// A magnitude spectrogram, `frames` rows of `bins` values.
 pub struct Spectrogram {
@@ -193,7 +194,7 @@ pub fn chroma_timbre(c: &Spectrogram) -> ChromaTimbre {
     let dct: Vec<Vec<f64>> = (1..=TIMBRE_COEFFS)
         .map(|j| {
             (0..TIMBRE_BANDS)
-                .map(|k| (std::f64::consts::PI / 24.0 * (k as f64 + 0.5) * j as f64).cos())
+                .map(|k| (PI / 24.0 * (k as f64 + 0.5) * j as f64).cos())
                 .collect()
         })
         .collect();

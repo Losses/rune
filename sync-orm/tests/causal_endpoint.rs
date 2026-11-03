@@ -1,4 +1,8 @@
 use anyhow::{Context, Result, ensure};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 
 fn session_limits() -> p::SessionLimits {
     p::SessionLimits {
@@ -548,10 +552,6 @@ use sea_orm::{
     sea_query::{Alias, ColumnDef, Expr, OnConflict, Query, Table},
 };
 use serde::{Deserialize, Serialize};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
 use sync::protocol::{self as p, ReceiveStore, SnapshotSink, SyncStore};
 use sync_orm::{
     causal_capabilities::{CausalEndpoint, TransactionProjection},
@@ -1170,8 +1170,8 @@ async fn maintenance_recovers_abandoned_and_competing_builds_without_reviving_re
 
 struct CountingSource<'a> {
     inner: &'a CausalEndpoint<Notes>,
-    calls: std::sync::atomic::AtomicUsize,
-    candidates: std::sync::atomic::AtomicUsize,
+    calls: AtomicUsize,
+    candidates: AtomicUsize,
 }
 impl p::SnapshotSource<Notes> for CountingSource<'_> {
     fn release_request(&self, id: Uuid) -> p::BoxFuture<'_, ()> {

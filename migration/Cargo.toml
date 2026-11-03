@@ -22,3 +22,6 @@ features = [
   "runtime-tokio-native-tls",
   "sqlx-sqlite",
 ]
+
+[lints]
+workspace = true

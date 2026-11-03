@@ -1,11 +1,11 @@
+use database::entities::media_files;
 use prettytable::{Table, format, row};
 use serde_json::json;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use database::actions::file::get_file_id_from_path;
-use database::actions::file::get_files_by_ids;
+use database::actions::file::{get_file_id_from_path, get_files_by_ids};
 use database::actions::recommendation::get_recommendation_by_file_id;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 
@@ -129,7 +129,7 @@ pub async fn save_recommendations_as_m3u8(
     canonicalized_path: &Path,
     output: Option<&PathBuf>,
     path: &Path,
-    files: &Vec<database::entities::media_files::Model>,
+    files: &Vec<media_files::Model>,
 ) {
     let output_path = match output {
         Some(path) => path,
@@ -190,7 +190,7 @@ pub async fn save_recommendations_as_m3u8(
 pub fn display_recommendations_in_table(
     path: &Path,
     recommendations: &Vec<(u32, f32)>,
-    files: &[database::entities::media_files::Model],
+    files: &[media_files::Model],
 ) {
     let mut table = Table::new();
     table.add_row(row!["ID", "Distance", "File Path"]);

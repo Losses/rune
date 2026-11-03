@@ -17,7 +17,7 @@ use fsio::FsIo;
 use metadata::describe::describe_file;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{ConnectionTrait, Database, EntityTrait, PaginatorTrait};
-use std::{path::Path, sync::Arc};
+use std::{f64::consts::PI, path::Path, sync::Arc};
 
 #[tokio::test]
 async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()> {
@@ -159,17 +159,14 @@ fn silence_short_clips_and_sample_rates_produce_finite_features() -> Result<()> 
                         // Taper the one-second frequency fixture to exclude onset/EOF
                         // broadband transients from its centroid expectation.
                         let envelope = if frames == rate as usize {
-                            (std::f64::consts::PI * i as f64 / (frames - 1) as f64)
-                                .sin()
-                                .powi(2)
+                            (PI * i as f64 / (frames - 1) as f64).sin().powi(2)
                         } else {
                             1.0
                         };
                         (16000.0
                             * envelope
-                            * (2.0 * std::f64::consts::PI * 1100.0 * (i as f64 + 0.5)
-                                / rate as f64)
-                                .sin()) as i16
+                            * (2.0 * PI * 1100.0 * (i as f64 + 0.5) / rate as f64).sin())
+                            as i16
                     };
                     wav.extend(x.to_le_bytes());
                 }

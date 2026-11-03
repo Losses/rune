@@ -1,5 +1,7 @@
 #![allow(dead_code)]
+
 use anyhow::Result;
+use database::entities::media_files;
 use database::sync::{LibrarySyncStore, model::*};
 use http_request::sync::MetadataStore;
 use migration::{Migrator, MigratorTrait};
@@ -185,7 +187,7 @@ pub async fn local_file(
     id: i32,
     uuid: Uuid,
     name: &str,
-) -> Result<database::entities::media_files::Model> {
+) -> Result<media_files::Model> {
     use database::entities::media_files;
     use sea_orm::{EntityTrait, Set};
     Ok(media_files::Entity::insert(media_files::ActiveModel {
@@ -215,7 +217,7 @@ pub async fn fixture_statistics(
     updated_at: &str,
 ) -> Result<()> {
     use sea_orm::EntityTrait;
-    let file = database::entities::media_files::Entity::find_by_id(file_id)
+    let file = media_files::Entity::find_by_id(file_id)
         .one(db)
         .await?
         .ok_or_else(|| anyhow::anyhow!("fixture track missing"))?;
@@ -243,7 +245,7 @@ pub async fn fixture_like(
     updated_at: &str,
 ) -> Result<()> {
     use sea_orm::EntityTrait;
-    let file = database::entities::media_files::Entity::find_by_id(file_id)
+    let file = media_files::Entity::find_by_id(file_id)
         .one(db)
         .await?
         .ok_or_else(|| anyhow::anyhow!("fixture track missing"))?;

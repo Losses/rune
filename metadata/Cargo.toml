@@ -27,3 +27,6 @@ futures = "0.3.30"
 
 
 media-compute = { path = "../media-compute" }
+
+[lints]
+workspace = true

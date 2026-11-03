@@ -1,8 +1,15 @@
+use crate::{
+    Signal,
+    server::{ServerManager, utils::device::load_device_info},
+    utils::{
+        Broadcaster, DatabaseConnections, GlobalParams, ParamsExtractor, TaskTokens,
+        nid::get_or_create_node_id, player::initialize_local_player, sync_settings::SyncSettings,
+    },
+};
 #[macro_use]
 mod gui_request;
 
-use std::sync::Arc;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use fsio::FsIo;
 use log::{error, info};
@@ -21,16 +28,7 @@ use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
 
-use crate::Signal;
 use crate::messages::*;
-use crate::server::ServerManager;
-use crate::utils::Broadcaster;
-use crate::utils::DatabaseConnections;
-use crate::utils::GlobalParams;
-use crate::utils::ParamsExtractor;
-use crate::utils::TaskTokens;
-use crate::utils::nid::get_or_create_node_id;
-use crate::utils::player::initialize_local_player;
 
 pub async fn local_player_loop(
     fsio: Arc<FsIo>,
@@ -102,11 +100,9 @@ pub async fn local_player_loop(
 
         info!("Initializing UI events");
         let global_params = GlobalParams {
-            sync_settings: Arc::new(RwLock::new(
-                crate::utils::sync_settings::SyncSettings::load(std::path::Path::new(
-                    &**config_path,
-                )),
-            )),
+            sync_settings: Arc::new(RwLock::new(SyncSettings::load(std::path::Path::new(
+                &**config_path,
+            )))),
             fsio,
             lib_path,
             config_path,
@@ -139,11 +135,7 @@ pub async fn local_player_loop(
             log::warn!("Could not start paired sync worker: {error:#}");
         }
         if global_params.sync_settings.read().await.listen {
-            match crate::server::utils::device::load_device_info(std::path::Path::new(
-                &*global_params.config_path,
-            ))
-            .await
-            {
+            match load_device_info(std::path::Path::new(&*global_params.config_path)).await {
                 Ok(info) => {
                     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 7863));
                     if let Err(error) = server_manager

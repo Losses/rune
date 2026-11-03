@@ -1,7 +1,7 @@
 //! Headless GPU tests. They skip (and say so) when the machine has no GPU adapter.
 
-use std::sync::atomic::AtomicU32;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::f32::consts::TAU;
+use std::sync::{Arc, Mutex, MutexGuard, atomic::AtomicU32};
 use std::time::{Duration, Instant};
 
 use rtrb::{Producer, RingBuffer};
@@ -56,7 +56,7 @@ impl Feeder {
                 .wrapping_add(1_013_904_223);
             let noise = (self.noise >> 16) as f32 / 65_536.0 - 0.5;
             let beat = (-(t * 4.0).fract() * 6.0).exp();
-            let value = 0.8 * beat * (t * 110.0 * std::f32::consts::TAU).sin() + 0.05 * noise;
+            let value = 0.8 * beat * (t * 110.0 * TAU).sin() + 0.05 * noise;
             let _ = self.producer.push(value);
             let _ = self.producer.push(value);
             self.samples_sent += 1;

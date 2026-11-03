@@ -1,9 +1,11 @@
-use std::{path::PathBuf, sync::Arc};
-
 use database::{
-    actions::metadata::{empty_progress_callback, scan_audio_library},
+    actions::metadata::{
+        MissingHostFilePolicy, ScanOptions, empty_progress_callback, scan_audio_library,
+    },
     connection::connect_main_db,
 };
+use std::{path::PathBuf, sync::Arc};
+
 use fsio::FsIo;
 
 #[tokio::main]
@@ -31,12 +33,14 @@ async fn main() {
         &main_db,
         &node_id.to_string(),
         &root_path,
-        true,
-        false,
+        ScanOptions {
+            cleanup: true,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         empty_progress_callback,
-        None,
         &library.record_store(),
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await;
 

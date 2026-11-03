@@ -180,7 +180,10 @@ fn unpack(
 
 #[cfg(test)]
 mod tests {
+
     use std::io::Write;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
 
     use super::*;
 
@@ -319,7 +322,7 @@ mod tests {
         #[cfg(unix)]
         {
             let link = scenes.join("Link");
-            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            symlink(&outside, &link).unwrap();
             refused.push(link);
         }
         for refused in refused {

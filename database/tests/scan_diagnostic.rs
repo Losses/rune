@@ -3,15 +3,20 @@
 //! RUNE_SCAN_NORMALIZE_MTIME=1 converts only the temporary database's timestamps
 //! before the second cover pass to demonstrate the timestamp mismatch.
 //! Self-contained regressions run normally; the real-library probe is opt-in.
-use std::{path::PathBuf, sync::Arc, time::Instant};
 
-use anyhow::{Context, Result};
+use database::actions::metadata::MissingHostFilePolicy;
 use database::{
-    actions::{cover_art::scan_cover_arts, metadata::scan_audio_library},
+    actions::{
+        cover_art::scan_cover_arts,
+        metadata::{ScanOptions, scan_audio_library},
+    },
     connection::connect_main_db,
     entities::media_files,
     sync::LibrarySyncStore,
 };
+use std::{path::PathBuf, sync::Arc, time::Instant};
+
+use anyhow::{Context, Result};
 use fsio::FsIo;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
@@ -48,17 +53,19 @@ async fn scan_real_library() -> Result<()> {
             &db,
             &node.to_string(),
             &root,
-            true,
-            false,
+            ScanOptions {
+                cleanup: true,
+                force: false,
+                missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                cancel_token: None,
+            },
             |count| {
                 eprintln!(
                     "DIAG metadata pass={pass} count={count} elapsed={:.3}s",
                     stage.elapsed().as_secs_f64()
                 )
             },
-            None,
             &library.record_store(),
-            database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
         )
         .await;
         eprintln!(
@@ -173,12 +180,14 @@ async fn unchanged_cover_scan_does_not_reinspect() -> Result<()> {
         &db,
         &node.to_string(),
         root,
-        true,
-        false,
+        ScanOptions {
+            cleanup: true,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         |_| {},
-        None,
         &store,
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     scan_cover_arts(fs.clone(), &db, root, 16, |_, _| {}, None, &store).await?;
@@ -242,12 +251,14 @@ async fn rejected_artwork_assignment_does_not_stop_other_files_and_retries() -> 
             &db,
             &node.to_string(),
             root,
-            true,
-            false,
+            ScanOptions {
+                cleanup: true,
+                force: false,
+                missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                cancel_token: None
+            },
             |_| {},
-            None,
             &store,
-            database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere
         )
         .await?,
         2
@@ -325,14 +336,16 @@ async fn oversized_tag_does_not_abort_library_scan() -> Result<()> {
         &db,
         &node.to_string(),
         root,
-        true,
-        false,
+        ScanOptions {
+            cleanup: true,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         |n| {
             progress.store(n, Ordering::Relaxed);
         },
-        None,
         &library.record_store(),
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await;
     let saved = media_files::Entity::find().count(&db).await?;

@@ -1,3 +1,4 @@
+use database::actions::mixes::{add_item_to_mix, create_mix, remove_mix, update_mix};
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
@@ -86,7 +87,7 @@ impl Signal for CreateMixRequest {
         let request = dart_signal;
 
         let store = store.context("mix synchronization unavailable")?;
-        let mix = database::actions::mixes::create_mix(
+        let mix = create_mix(
             &db,
             &store,
             request.name.clone(),
@@ -137,7 +138,7 @@ impl Signal for UpdateMixRequest {
         let request = dart_signal;
 
         let store = store.context("mix synchronization unavailable")?;
-        let mix = database::actions::mixes::update_mix(
+        let mix = update_mix(
             &db,
             &store,
             request.mix_id,
@@ -191,7 +192,7 @@ impl Signal for RemoveMixRequest {
         let request = dart_signal;
 
         let store = store.context("mix synchronization unavailable")?;
-        database::actions::mixes::remove_mix(&db, &store, request.mix_id)
+        remove_mix(&db, &store, request.mix_id)
             .await
             .with_context(|| format!("Failed to remove mix with id: {}", request.mix_id))?;
 
@@ -227,7 +228,7 @@ impl Signal for AddItemToMixRequest {
         let parameter = &request.parameter;
 
         let store = store.context("mix synchronization unavailable")?;
-        database::actions::mixes::add_item_to_mix(
+        add_item_to_mix(
             &db, &store, mix_id,
             operator.clone(),
             parameter.clone(),

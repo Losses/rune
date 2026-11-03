@@ -1,6 +1,7 @@
 //! `scene.toml`: what a scene is made of. See `docs/scenes.md` for every key.
 
 use std::collections::{BTreeMap, HashSet};
+use std::f32::consts::FRAC_PI_2;
 use std::path::{Component, Path};
 
 use anyhow::{Context, Result, bail, ensure};
@@ -903,10 +904,9 @@ impl Manifest {
             check_path(file)?;
         }
         ensure!(
-            self.camera.dutch.is_finite()
-                && (0.0..=std::f32::consts::FRAC_PI_2).contains(&self.camera.dutch),
+            self.camera.dutch.is_finite() && (0.0..=FRAC_PI_2).contains(&self.camera.dutch),
             "camera.dutch must be from 0 to {:.4} radians",
-            std::f32::consts::FRAC_PI_2
+            FRAC_PI_2
         );
         for asset in &self.assets {
             check_path(&asset.file)?;

@@ -3,9 +3,13 @@ use super::sync_auth::{Authorization, Challenge, Token, message};
 use crate::utils::GlobalParams;
 use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use database::actions::file::{ManagedAudioVerifier, materialized_path, resolve_local_id};
+use database::actions::library::clean_local_orphans;
+use database::sync::model::RuneModel;
 use discovery::server::UserStatus;
 use rand::rngs::OsRng;
 use rsa::{Pss, RsaPrivateKey, pkcs8::DecodePrivateKey};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Duration};
 use sync::SyncPeer;
@@ -172,7 +176,7 @@ async fn maintain_metadata(
                 log::warn!("Metadata maintenance failed: {error:#}");
                 break;
             }
-            if let Err(error) = database::actions::library::clean_local_orphans(&db).await {
+            if let Err(error) = clean_local_orphans(&db).await {
                 log::warn!("Local metadata cleanup failed: {error:#}");
                 break;
             }
@@ -186,7 +190,7 @@ async fn verify_managed_audio(
     notify: Arc<dyn Fn() + Send + Sync>,
     cancel: tokio_util::sync::CancellationToken,
 ) {
-    let mut verifier = database::actions::file::ManagedAudioVerifier::default();
+    let mut verifier = ManagedAudioVerifier::default();
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -459,9 +463,7 @@ async fn sync_one(
             endpoint.port,
         )
         .await?;
-        let peer = http_request::sync::MetadataPeer::<database::sync::model::RuneModel>::new(
-            &base, client,
-        );
+        let peer = http_request::sync::MetadataPeer::<RuneModel>::new(&base, client);
         let remote = peer.identity().await?;
         let local = library.0.read().await.identity().await?;
         ensure!(
@@ -502,10 +504,7 @@ async fn metadata_pass(
     base: &str,
     client: &reqwest::Client,
 ) -> Result<bool> {
-    let peer = http_request::sync::MetadataPeer::<database::sync::model::RuneModel>::new(
-        base,
-        client.clone(),
-    );
+    let peer = http_request::sync::MetadataPeer::<RuneModel>::new(base, client.clone());
     let remote = peer.identity().await?;
     let local = library.0.read().await.identity().await?;
     ensure!(
@@ -786,7 +785,10 @@ impl playback::player::AudioRequest for RenewableAudio {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+    use database::sync::model::RuneModel;
+    use tokio::sync::oneshot;
 
     #[tokio::test]
     async fn newly_due_peer_runs_while_another_is_stalled() {
@@ -849,10 +851,8 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let peer = http_request::sync::MetadataPeer::<database::sync::model::RuneModel>::new(
-            &base,
-            reqwest::Client::new(),
-        );
+        let peer =
+            http_request::sync::MetadataPeer::<RuneModel>::new(&base, reqwest::Client::new());
         let error = anyhow::Error::new(peer.identity().await.unwrap_err());
         assert!(metadata_unauthorized(&error));
         assert!(!metadata_unauthorized(&anyhow::anyhow!("network failure")));
@@ -929,7 +929,7 @@ mod tests {
             let (mut stream, _) = metadata_listener.accept().await.unwrap();
             stream.write_all(b"ok").await.unwrap();
         });
-        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let (done_tx, done_rx) = oneshot::channel();
         let audio = {
             let cancel = cancel.clone();
             let audio_started = audio_started.clone();
@@ -994,7 +994,7 @@ struct PinnedPeer {
     validator: Arc<discovery::client::CertValidator>,
     fingerprint: String,
 }
-impl rustls::client::danger::ServerCertVerifier for PinnedPeer {
+impl ServerCertVerifier for PinnedPeer {
     fn verify_server_cert(
         &self,
         cert: &rustls::pki_types::CertificateDer<'_>,
@@ -1002,7 +1002,7 @@ impl rustls::client::danger::ServerCertVerifier for PinnedPeer {
         name: &rustls::pki_types::ServerName<'_>,
         ocsp: &[u8],
         now: rustls::pki_types::UnixTime,
-    ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+    ) -> std::result::Result<ServerCertVerified, rustls::Error> {
         let (_, parsed) = x509_parser::parse_x509_certificate(cert.as_ref())
             .map_err(|_| rustls::Error::General("invalid peer certificate".into()))?;
         let actual = discovery::ssl::calculate_base85_fingerprint(parsed.public_key().raw)
@@ -1011,14 +1011,14 @@ impl rustls::client::danger::ServerCertVerifier for PinnedPeer {
             return Err(rustls::Error::General("peer fingerprint mismatch".into()));
         }
         let _ = (intermediates, name, ocsp, now);
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
+        Ok(ServerCertVerified::assertion())
     }
     fn verify_tls12_signature(
         &self,
         message: &[u8],
         cert: &rustls::pki_types::CertificateDer<'_>,
         signature: &rustls::DigitallySignedStruct,
-    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
         self.validator
             .verify_tls12_signature(message, cert, signature)
     }
@@ -1027,7 +1027,7 @@ impl rustls::client::danger::ServerCertVerifier for PinnedPeer {
         message: &[u8],
         cert: &rustls::pki_types::CertificateDer<'_>,
         signature: &rustls::DigitallySignedStruct,
-    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
         self.validator
             .verify_tls13_signature(message, cert, signature)
     }
@@ -1058,7 +1058,7 @@ impl playback::player::PlaybackSourceResolver for PairedAudioResolver {
                 .upgrade()
                 .ok_or_else(|| anyhow::anyhow!("library closed"))?;
             let params = &manager.global_params;
-            database::actions::file::resolve_local_id(params.main_db.as_ref(), id).await
+            resolve_local_id(params.main_db.as_ref(), id).await
         })
     }
     fn local_path(
@@ -1093,7 +1093,7 @@ async fn resolve_materialized_path(
         .upgrade()
         .ok_or_else(|| anyhow::anyhow!("library closed"))?;
     let params = &manager.global_params;
-    database::actions::file::materialized_path(
+    materialized_path(
         params.main_db.as_ref(),
         &params.fsio,
         std::path::Path::new(params.lib_path.as_str()),

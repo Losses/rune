@@ -1,5 +1,6 @@
 #[path = "support/causal_library.rs"]
 mod support;
+
 use anyhow::{Context, Result};
 use database::sync::{LibrarySyncStore, model::*};
 use sea_orm::{
@@ -8,6 +9,7 @@ use sea_orm::{
 };
 use std::{
     collections::BTreeMap,
+    env::consts::{ARCH, OS},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -135,8 +137,8 @@ async fn source_build_measurement() -> Result<()> {
             WorkOutcome::Ready(_) => {
                 eprintln!(
                     "environment={} {} profile={} store=sqlite::memory: collections={} records={} elapsed_ms={}",
-                    std::env::consts::OS,
-                    std::env::consts::ARCH,
+                    OS,
+                    ARCH,
                     if cfg!(debug_assertions) {
                         "debug"
                     } else {

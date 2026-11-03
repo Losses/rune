@@ -1,8 +1,14 @@
 use anyhow::Result;
 use database::{
-    actions::metadata::{empty_progress_callback, scan_audio_file, scan_audio_library},
+    actions::metadata::{
+        MissingHostFilePolicy, ScanOptions, empty_progress_callback, scan_audio_file,
+        scan_audio_library,
+    },
     entities::media_files,
-    sync::SeaOrmSyncStore,
+    sync::{
+        SeaOrmSyncStore,
+        model::{Collection, ObjectKey},
+    },
 };
 use fsio::FsIo;
 use sea_orm::{Database, EntityTrait};
@@ -26,8 +32,8 @@ async fn missing_host_file_remove_everywhere_authors_removal() -> Result<()> {
     use sea_orm::Set;
     let row = media_files::Entity::find_by_id(id).one(&db).await?.unwrap();
     let track_uuid = row.hlc_uuid;
-    let key = database::sync::model::ObjectKey {
-        collection: database::sync::model::Collection::Tracks,
+    let key = ObjectKey {
+        collection: Collection::Tracks,
         id: track_uuid.parse()?,
     };
     media_file_likes::Entity::insert(media_file_likes::ActiveModel {
@@ -56,12 +62,14 @@ async fn missing_host_file_remove_everywhere_authors_removal() -> Result<()> {
         &db,
         &node.to_string(),
         root.path(),
-        true,
-        false,
+        ScanOptions {
+            cleanup: true,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         empty_progress_callback,
-        None,
         &store,
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     assert!(
@@ -81,10 +89,7 @@ async fn missing_host_file_remove_everywhere_authors_removal() -> Result<()> {
     Ok(())
 }
 
-async fn unavailable_case(
-    managed: bool,
-    policy: database::actions::metadata::MissingHostFilePolicy,
-) -> Result<()> {
+async fn unavailable_case(managed: bool, policy: MissingHostFilePolicy) -> Result<()> {
     let node = Uuid::new_v4();
     let db = Database::connect("sqlite::memory:").await?;
     migration::up_with_actor(&db, Some(&node.to_string()), None).await?;
@@ -106,8 +111,8 @@ async fn unavailable_case(
             .await?;
     }
     let row = media_files::Entity::find_by_id(id).one(&db).await?.unwrap();
-    let key = database::sync::model::ObjectKey {
-        collection: database::sync::model::Collection::Tracks,
+    let key = ObjectKey {
+        collection: Collection::Tracks,
         id: row.hlc_uuid.parse()?,
     };
     let before = store.get_on(&db, &key).await?;
@@ -117,12 +122,14 @@ async fn unavailable_case(
         &db,
         &node.to_string(),
         root.path(),
-        true,
-        false,
+        ScanOptions {
+            cleanup: true,
+            force: false,
+            missing_host_file: policy,
+            cancel_token: None,
+        },
         empty_progress_callback,
-        None,
         &store,
-        policy,
     )
     .await?;
     assert!(
@@ -138,19 +145,11 @@ async fn unavailable_case(
 
 #[tokio::test]
 async fn missing_managed_file_is_only_unavailable() -> Result<()> {
-    unavailable_case(
-        true,
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
-    )
-    .await
+    unavailable_case(true, MissingHostFilePolicy::RemoveEverywhere).await
 }
 #[tokio::test]
 async fn missing_host_file_keep_as_remote_marks_unavailable() -> Result<()> {
-    unavailable_case(
-        false,
-        database::actions::metadata::MissingHostFilePolicy::KeepAsRemote,
-    )
-    .await
+    unavailable_case(false, MissingHostFilePolicy::KeepAsRemote).await
 }
 #[tokio::test]
 async fn mass_missing_host_files_are_not_removed() -> Result<()> {
@@ -177,12 +176,14 @@ async fn mass_missing_host_files_are_not_removed() -> Result<()> {
         &db,
         &node.to_string(),
         root.path(),
-        true,
-        false,
+        ScanOptions {
+            cleanup: true,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         empty_progress_callback,
-        None,
         &store,
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     for (i, id) in ids.into_iter().enumerate() {
@@ -234,12 +235,14 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
         &a.db,
         &node.to_string(),
         a.root.path(),
-        true,
-        false,
+        ScanOptions {
+            cleanup: true,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         empty_progress_callback,
-        None,
         &store,
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     support::exchange(&a.peer, &b.peer).await?;

@@ -1,3 +1,10 @@
+use database::actions::cover_art::bake_cover_art_by_media_files;
+use database::actions::metadata::get_metadata_summary_by_files;
+use database::actions::playlists::{
+    OccurrenceCursor, add_item_to_playlist, create_m3u8_playlist, create_playlist,
+    list_occurrences, remove_item_from_playlist, remove_playlist, reorder_playlist_item_position,
+    update_playlist,
+};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -91,7 +98,7 @@ impl Signal for CreatePlaylistRequest {
         let name = &request.name;
         let group = &request.group;
 
-        let playlist = database::actions::playlists::create_playlist(
+        let playlist = create_playlist(
             &db,
             &store.context("playlist store unavailable")?,
             name.clone(),
@@ -147,7 +154,7 @@ impl Signal for UpdatePlaylistRequest {
         let name = &request.name;
         let group = &request.group;
 
-        let playlist = database::actions::playlists::update_playlist(
+        let playlist = update_playlist(
             &db,
             &store.context("playlist store unavailable")?,
             request.playlist_id,
@@ -206,7 +213,7 @@ impl Signal for RemovePlaylistRequest {
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
 
-        database::actions::playlists::remove_playlist(
+        remove_playlist(
             &db,
             &store.context("playlist store unavailable")?,
             request.playlist_id,
@@ -255,7 +262,7 @@ impl Signal for AddItemToPlaylistRequest {
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
 
-        let entry = database::actions::playlists::add_item_to_playlist(
+        let entry = add_item_to_playlist(
             &db,
             &store.context("playlist store unavailable")?,
             request.playlist_id,
@@ -311,7 +318,7 @@ impl Signal for ReorderPlaylistItemPositionRequest {
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
 
-        database::actions::playlists::reorder_playlist_item_position(
+        reorder_playlist_item_position(
             &db, &store.context("playlist store unavailable")?, request.playlist_id,
             request.occurrence_id.parse().context("invalid occurrence UUID")?,
             request.new_position,
@@ -403,7 +410,7 @@ impl Signal for CreateM3u8PlaylistRequest {
         let group = &request.group;
         let path = &request.path;
 
-        match database::actions::playlists::create_m3u8_playlist(
+        match create_m3u8_playlist(
             &db,
             &store.context("playlist store unavailable")?,
             name.clone(),
@@ -471,7 +478,7 @@ impl Signal for RemoveItemFromPlaylistRequest {
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
 
-        match database::actions::playlists::remove_item_from_playlist(
+        match remove_item_from_playlist(
             &db,
             &store.context("playlist store unavailable")?,
             request.playlist_id,
@@ -530,16 +537,13 @@ impl Signal for FetchPlaylistOccurrencesRequest {
         _session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let page = database::actions::playlists::list_occurrences(
+        let page = list_occurrences(
             &db,
             request.playlist_id,
-            request
-                .after
-                .as_ref()
-                .map(|cursor| database::actions::playlists::OccurrenceCursor {
-                    position: cursor.position,
-                    occurrence_id: cursor.occurrence_id.clone(),
-                }),
+            request.after.as_ref().map(|cursor| OccurrenceCursor {
+                position: cursor.position,
+                occurrence_id: cursor.occurrence_id.clone(),
+            }),
             request.page_size,
         )
         .await?;
@@ -548,17 +552,12 @@ impl Signal for FetchPlaylistOccurrencesRequest {
             .iter()
             .filter_map(|entry| entry.file.clone())
             .collect::<Vec<_>>();
-        let summaries = database::actions::metadata::get_metadata_summary_by_files(
-            db.as_ref(),
-            source_files.clone(),
-        )
-        .await?;
+        let summaries = get_metadata_summary_by_files(db.as_ref(), source_files.clone()).await?;
         let files = crate::utils::parse_media_files(&fsio, &db, &node, summaries, root).await?;
         let files: std::collections::HashMap<_, _> =
             files.into_iter().map(|file| (file.id, file)).collect();
         let cover_art_map = if request.bake_cover_arts {
-            database::actions::cover_art::bake_cover_art_by_media_files(&fsio, &db, source_files)
-                .await?
+            bake_cover_art_by_media_files(&fsio, &db, source_files).await?
         } else {
             std::collections::HashMap::new()
         };

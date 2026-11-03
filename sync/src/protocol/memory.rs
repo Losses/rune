@@ -2145,8 +2145,10 @@ fn advance_split<M: SyncModel>(
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use serde::{Deserialize, Serialize};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct Model;
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -2904,10 +2906,10 @@ mod tests {
     }
     struct CountingSource {
         inner: Arc<MemorySyncStore<Model>>,
-        calls: std::sync::atomic::AtomicUsize,
-        candidates: std::sync::atomic::AtomicUsize,
+        calls: AtomicUsize,
+        candidates: AtomicUsize,
         stale_open: bool,
-        open_calls: std::sync::atomic::AtomicUsize,
+        open_calls: AtomicUsize,
     }
     impl SnapshotSource<Model> for CountingSource {
         fn release_request(&self, id: Uuid) -> BoxFuture<'_, ()> {
@@ -2926,8 +2928,7 @@ mod tests {
             limits: WorkLimits,
             resume: Option<WorkCursor>,
         ) -> BoxFuture<'_, WorkOutcome<SnapshotDescriptor<Model>>> {
-            self.open_calls
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.open_calls.fetch_add(1, Ordering::Relaxed);
             if self.stale_open {
                 return Box::pin(async { Err(SyncError::StaleWork) });
             }
@@ -2960,10 +2961,9 @@ mod tests {
         ) -> BoxFuture<'_, LeafPage<Model>> {
             Box::pin(async move {
                 let page = self.inner.leaf(id, range, after, limits).await?;
-                self.calls
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.calls.fetch_add(1, Ordering::Relaxed);
                 self.candidates
-                    .fetch_add(page.candidates.len(), std::sync::atomic::Ordering::Relaxed);
+                    .fetch_add(page.candidates.len(), Ordering::Relaxed);
                 Ok(page)
             })
         }

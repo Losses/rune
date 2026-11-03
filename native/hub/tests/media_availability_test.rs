@@ -1,11 +1,15 @@
 use anyhow::Result;
-use database::entities::media_files;
 use database::{
-    actions::file::AudioAvailability as LocalState,
     actions::{
-        file::{get_media_files, get_media_files_count},
-        metadata::get_metadata_summary_by_files,
+        downloads::prepare_download,
+        file::{
+            AudioAvailability as LocalState, audio_availability, get_media_files,
+            get_media_files_count, materialized_path, resolve_local_id,
+        },
+        metadata::{MissingHostFilePolicy, ScanOptions, get_metadata_summary_by_files},
     },
+    entities::media_files,
+    sync::model::BlobRef,
 };
 use fsio::FsIo;
 use hub::{
@@ -49,12 +53,12 @@ async fn pending_rows_are_returned_and_reported_without_becoming_playable() -> R
         .exec(&db)
         .await?;
     }
-    database::actions::downloads::prepare_download(
+    prepare_download(
         &db,
         &FsIo::new(),
         dir.path(),
         track,
-        &database::sync::model::BlobRef {
+        &BlobRef {
             digest: "a".repeat(64),
             size: 1,
         },
@@ -131,19 +135,13 @@ async fn pending_rows_are_returned_and_reported_without_becoming_playable() -> R
     );
     let _store = database::sync::LibrarySyncStore::open(db.clone(), node, None).await?;
     assert_eq!(
-        database::actions::file::audio_availability(&db, &fsio, dir.path(), &[20])
+        audio_availability(&db, &fsio, dir.path(), &[20])
             .await?
             .get(&20),
         Some(&LocalState::ImportPending)
     );
-    assert_eq!(
-        database::actions::file::materialized_path(&db, &fsio, dir.path(), 20).await?,
-        None
-    );
-    assert_eq!(
-        database::actions::file::resolve_local_id(&db, 20).await?,
-        Some(20)
-    );
+    assert_eq!(materialized_path(&db, &fsio, dir.path(), 20).await?, None);
+    assert_eq!(resolve_local_id(&db, 20).await?, Some(20));
     Ok(())
 }
 
@@ -158,7 +156,7 @@ async fn queued_downloads_with_content_remain_streamable() -> Result<()> {
     let actor = Uuid::new_v4();
     migration::up_with_actor(&db, Some(&actor.to_string()), None).await?;
     let track = Uuid::new_v4();
-    let blob = database::sync::model::BlobRef {
+    let blob = BlobRef {
         digest: "a".repeat(64),
         size: 128,
     };
@@ -198,8 +196,7 @@ async fn queued_downloads_with_content_remain_streamable() -> Result<()> {
                 .exec(&db)
                 .await?;
         }
-        let state =
-            database::actions::file::audio_availability(&db, &fsio, root.path(), &[id]).await?;
+        let state = audio_availability(&db, &fsio, root.path(), &[id]).await?;
         assert_eq!(state[&id], State::ImportPending);
         let summaries =
             get_metadata_summary_by_files(&db, get_media_files(&db, 0, 10).await?).await?;
@@ -241,7 +238,7 @@ async fn queued_downloads_with_content_remain_streamable() -> Result<()> {
         assert_eq!(queue.len(), 1);
         assert!(matches!(queue[0].1, PlaybackSource::LibraryStream));
         assert!(
-            database::actions::file::materialized_path(&db, &fsio, root.path(), id)
+            materialized_path(&db, &fsio, root.path(), id)
                 .await?
                 .is_none()
         );
@@ -272,18 +269,20 @@ async fn scanned_symlinked_folder_is_playable() -> Result<()> {
         &db,
         &node.to_string(),
         root.path(),
-        false,
-        false,
+        ScanOptions {
+            cleanup: false,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         |_| {},
-        None,
         &store.record_store(),
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let rows = media_files::Entity::find().all(&db).await?;
     assert_eq!(rows.len(), 1);
     assert_eq!(
-        database::actions::file::materialized_path(&db, &fs, root.path(), rows[0].id).await?,
+        materialized_path(&db, &fs, root.path(), rows[0].id).await?,
         Some(root.path().join("linked/track.ogg"))
     );
     let handles = rows.into_iter().map(Into::into).collect::<Vec<_>>();

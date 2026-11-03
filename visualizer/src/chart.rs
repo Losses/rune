@@ -7,11 +7,16 @@
 //! chart the scenes know what is coming: the next section, the next downbeat.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::{
+    sync::{
+        Arc, Mutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+        mpsc::{Receiver, TryRecvError},
+    },
+    thread,
+    time::{Duration, Instant},
+};
 
 use chart_analyzer::chart::{Beat, Curves};
 use chart_analyzer::decode::Cancelled;
@@ -672,7 +677,9 @@ impl Drop for ChartFollower {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+    use std::f64::consts::PI;
     use std::path::{Path, PathBuf};
 
     const CHART: &str = r#"{
@@ -909,7 +916,7 @@ mod tests {
         for start in (0..samples.len()).step_by(RATE as usize / 2) {
             for i in 0..2000.min(samples.len() - start) {
                 let t = i as f64 / f64::from(RATE);
-                let thump = (2.0 * std::f64::consts::PI * 60.0 * t).sin() * (-t * 30.0).exp();
+                let thump = (2.0 * PI * 60.0 * t).sin() * (-t * 30.0).exp();
                 let click = if i < 40 { 0.5 } else { 0.0 };
                 samples[start + i] = ((thump * 0.8 + click) * 30000.0) as i16;
             }

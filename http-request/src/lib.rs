@@ -1,10 +1,14 @@
 pub mod sync;
 
+use hyper::{
+    Response,
+    body::Incoming,
+    client::conn::{http1, http1::SendRequest},
+};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use http_body_util::combinators::UnsyncBoxBody;
-use hyper::{Response, body::Incoming};
 use hyper_util::rt::TokioIo;
 use rustls::pki_types::ServerName;
 use tokio::net::TcpStream;
@@ -18,7 +22,7 @@ pub async fn create_https_client(
     host: String,
     port: u16,
     config: Arc<ClientConfig>,
-) -> Result<hyper::client::conn::http1::SendRequest<UnsyncBoxBody<Bytes, anyhow::Error>>> {
+) -> Result<SendRequest<UnsyncBoxBody<Bytes, anyhow::Error>>> {
     let host = host.to_string();
     let tcp_stream = TcpStream::connect((host.clone(), port))
         .await
@@ -33,7 +37,7 @@ pub async fn create_https_client(
         .await
         .with_context(|| format!("TLS handshake failed for {host}:{port}"))?;
 
-    let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tls_stream))
+    let (sender, connection) = http1::handshake(TokioIo::new(tls_stream))
         .await
         .with_context(|| format!("HTTP handshake failed for {host}:{port}"))?;
 
@@ -47,7 +51,7 @@ pub async fn create_https_client(
 }
 
 pub async fn send_http_request<B>(
-    sender: &mut hyper::client::conn::http1::SendRequest<UnsyncBoxBody<Bytes, anyhow::Error>>,
+    sender: &mut SendRequest<UnsyncBoxBody<Bytes, anyhow::Error>>,
     req: Request<B>,
 ) -> Result<Response<Incoming>>
 where

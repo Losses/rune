@@ -8,8 +8,8 @@ pub use access::{
 };
 pub use content::{
     MANAGED_AUDIO_DIRECTORY, MAX_BLOB_BYTES, attach_download, blob_path, blob_path_for_track,
-    cached_blob_path, catalog_track, hash_file, local_audio_path, remote_content_ids,
-    validate_digest, validate_extension,
+    cached_blob_path, catalog_track, hash_file, is_managed_directory, local_audio_path,
+    remote_content_ids, validate_digest, validate_extension,
 };
 pub use integrity::{ManagedAudioVerifier, VerificationStep};
 
@@ -17,13 +17,20 @@ use sea_orm::ExprTrait;
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::Result;
+use crate::actions::{collection::CollectionQueryType, search::remove_term};
+use crate::entities::{
+    media_file_albums, media_file_artists, media_file_fingerprint, media_file_genres,
+    media_metadata,
+};
+use crate::sync::SeaOrmSyncStore;
+use crate::sync::model::{Collection, ObjectKey};
+use anyhow::{Context, Result};
 use metadata::describe::FileDescription;
 use rust_decimal::prelude::ToPrimitive;
 use sea_orm::entity::prelude::*;
 use sea_orm::{
-    ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryOrder, QuerySelect,
-    QueryTrait,
+    ColumnTrait, DatabaseTransaction, EntityTrait, FromQueryResult, Order, QueryFilter, QueryOrder,
+    QuerySelect, QueryTrait,
 };
 
 use migration::{Func, SimpleExpr};
@@ -233,62 +240,96 @@ pub async fn get_media_files_count(db: &DatabaseConnection) -> Result<u64, sea_o
 
 /// Remove a locally hosted track and its scanner-owned catalog records.
 pub async fn remove_track(
-    tx: &sea_orm::DatabaseTransaction,
-    store: &crate::sync::SeaOrmSyncStore,
+    tx: &DatabaseTransaction,
+    store: &SeaOrmSyncStore,
     file_id: i32,
 ) -> Result<()> {
-    use crate::actions::{collection::CollectionQueryType, search::remove_term};
-    use crate::entities::{
-        media_file_albums, media_file_artists, media_file_fingerprint, media_file_genres,
-        media_metadata,
-    };
-    use crate::sync::model::{Collection, ObjectKey};
-    use anyhow::Context;
-
     let file = media_files::Entity::find_by_id(file_id)
         .one(tx)
         .await?
         .context("track not found")?;
-    macro_rules! remove_owned {
-        ($entity:ident, $collection:ident) => {{
-            let rows = $entity::Entity::find()
-                .filter($entity::Column::TrackUuid.eq(&file.hlc_uuid))
-                .all(tx)
-                .await?;
-            for row in rows {
-                store
-                    .author_on(
-                        tx,
-                        ObjectKey {
-                            collection: Collection::$collection,
-                            id: row.hlc_uuid.parse()?,
-                        },
-                        None,
-                    )
-                    .await?;
-                $entity::Entity::delete_by_id(row.id).exec(tx).await?;
-            }
-        }};
-    }
-    remove_owned!(media_file_albums, TrackAlbums);
-    remove_owned!(media_file_artists, FileArtists);
-    remove_owned!(media_file_genres, FileGenres);
-    remove_owned!(media_file_fingerprint, Fingerprints);
+    let track = file.hlc_uuid.as_str();
+    remove_track_links::<media_file_albums::Entity>(
+        tx,
+        store,
+        Collection::TrackAlbums,
+        media_file_albums::Column::TrackUuid,
+        media_file_albums::Column::HlcUuid,
+        track,
+    )
+    .await?;
+    remove_track_links::<media_file_artists::Entity>(
+        tx,
+        store,
+        Collection::FileArtists,
+        media_file_artists::Column::TrackUuid,
+        media_file_artists::Column::HlcUuid,
+        track,
+    )
+    .await?;
+    remove_track_links::<media_file_genres::Entity>(
+        tx,
+        store,
+        Collection::FileGenres,
+        media_file_genres::Column::TrackUuid,
+        media_file_genres::Column::HlcUuid,
+        track,
+    )
+    .await?;
+    remove_track_links::<media_file_fingerprint::Entity>(
+        tx,
+        store,
+        Collection::Fingerprints,
+        media_file_fingerprint::Column::TrackUuid,
+        media_file_fingerprint::Column::HlcUuid,
+        track,
+    )
+    .await?;
     media_metadata::Entity::delete_many()
         .filter(media_metadata::Column::FileId.eq(file_id))
         .exec(tx)
         .await?;
     media_files::Entity::delete_by_id(file_id).exec(tx).await?;
     remove_term(tx, CollectionQueryType::Track, file_id).await?;
-    store
-        .author_on(
-            tx,
-            ObjectKey {
-                collection: Collection::Tracks,
-                id: file.hlc_uuid.parse()?,
-            },
-            None,
-        )
+    author_removal(tx, store, Collection::Tracks, track).await
+}
+
+/// Delete the rows of `E` that belong to `track` and author their removal.
+async fn remove_track_links<E: EntityTrait>(
+    tx: &DatabaseTransaction,
+    store: &SeaOrmSyncStore,
+    collection: Collection,
+    track_column: E::Column,
+    uuid_column: E::Column,
+    track: &str,
+) -> Result<()> {
+    let ids: Vec<String> = E::find()
+        .select_only()
+        .column(uuid_column)
+        .filter(track_column.eq(track))
+        .into_tuple()
+        .all(tx)
         .await?;
+    E::delete_many()
+        .filter(track_column.eq(track))
+        .exec(tx)
+        .await?;
+    for id in ids {
+        author_removal(tx, store, collection, &id).await?;
+    }
+    Ok(())
+}
+
+async fn author_removal(
+    tx: &DatabaseTransaction,
+    store: &SeaOrmSyncStore,
+    collection: Collection,
+    id: &str,
+) -> Result<()> {
+    let key = ObjectKey {
+        collection,
+        id: id.parse()?,
+    };
+    store.author_on(tx, key, None).await?;
     Ok(())
 }

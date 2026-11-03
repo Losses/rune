@@ -1,7 +1,14 @@
 use anyhow::Result;
-use database::sync::model::{Collection, ObjectKey};
 use database::{
-    actions::metadata::sync_file_descriptions, entities::media_files, sync::SeaOrmSyncStore,
+    actions::{
+        index::{index_audio_library, index_media_files},
+        metadata::{author_indexed_track_row, sync_file_descriptions},
+    },
+    entities::{albums, media_file_albums, media_file_artists, media_file_genres, media_files},
+    sync::{
+        SeaOrmSyncStore,
+        model::{Collection, ObjectKey},
+    },
 };
 use fsio::FsIo;
 use metadata::describe::describe_file;
@@ -56,25 +63,15 @@ async fn journal_failure_rolls_back_scanned_file() -> Result<()> {
     let file = media_files::Entity::find().one(&db).await?.unwrap();
     db.execute_unprepared("CREATE TRIGGER reject_album_journal BEFORE INSERT ON sync_journal BEGIN SELECT RAISE(ABORT, 'test failure'); END").await?;
     assert!(
-        database::actions::index::index_audio_library(&db, &node.to_string(), 50, None, &store)
+        index_audio_library(&db, &node.to_string(), 50, None, &store)
             .await
             .is_err()
     );
-    assert_eq!(
-        database::entities::albums::Entity::find()
-            .count(&db)
-            .await?,
-        0
-    );
-    assert_eq!(
-        database::entities::media_file_albums::Entity::find()
-            .count(&db)
-            .await?,
-        0
-    );
+    assert_eq!(albums::Entity::find().count(&db).await?, 0);
+    assert_eq!(media_file_albums::Entity::find().count(&db).await?, 0);
     db.execute_unprepared("DROP TRIGGER reject_album_journal")
         .await?;
-    database::actions::index::index_audio_library(&db, &node.to_string(), 50, None, &store).await?;
+    index_audio_library(&db, &node.to_string(), 50, None, &store).await?;
     let indexed_count = sync_orm::causal_progress::head_on(&db, store.namespace())
         .await?
         .sequence;
@@ -91,31 +88,16 @@ async fn journal_failure_rolls_back_scanned_file() -> Result<()> {
             .await?
             .is_some()
     );
-    let artists_before = database::entities::media_file_artists::Entity::find()
-        .all(&db)
-        .await?;
-    let genres_before = database::entities::media_file_genres::Entity::find()
-        .all(&db)
-        .await?;
+    let artists_before = media_file_artists::Entity::find().all(&db).await?;
+    let genres_before = media_file_genres::Entity::find().all(&db).await?;
     sync_file_descriptions(&fs, &db, &node.to_string(), &mut descriptions, true, &store).await?;
-    database::actions::index::index_media_files(
-        &db,
-        &node.to_string(),
-        vec![file.id],
-        None,
-        &store,
-    )
-    .await?;
+    index_media_files(&db, &node.to_string(), vec![file.id], None, &store).await?;
     assert_eq!(
-        database::entities::media_file_artists::Entity::find()
-            .all(&db)
-            .await?,
+        media_file_artists::Entity::find().all(&db).await?,
         artists_before
     );
     assert_eq!(
-        database::entities::media_file_genres::Entity::find()
-            .all(&db)
-            .await?,
+        media_file_genres::Entity::find().all(&db).await?,
         genres_before
     );
     assert_eq!(
@@ -314,7 +296,7 @@ async fn untitled_track_is_searchable_after_authoring() -> Result<()> {
         .exec(&tx)
         .await?;
     let file = media_files::Entity::find_by_id(id).one(&tx).await?.unwrap();
-    database::actions::metadata::author_indexed_track_row(&tx, &store, file).await?;
+    author_indexed_track_row(&tx, &store, file).await?;
     tx.commit().await?;
     let found = search_for(
         &db,

@@ -21,6 +21,8 @@
 //!   new window ([`resize_visualizer`]). Frames read back would show nowhere, so there is no
 //!   fallback: a window the visualizer cannot present into shows up in its status.
 
+#[cfg(target_os = "linux")]
+use std::os::fd::OwnedFd;
 use std::sync::{Arc, LazyLock};
 
 use log::{error, info, warn};
@@ -288,8 +290,8 @@ struct SharedImage(Arc<::visualizer::Frame>);
 impl SharedImage {
     fn export(
         &self,
-        export: impl FnOnce(&::visualizer::SharedFrame) -> anyhow::Result<std::os::fd::OwnedFd>,
-    ) -> Result<std::os::fd::OwnedFd, String> {
+        export: impl FnOnce(&::visualizer::SharedFrame) -> anyhow::Result<OwnedFd>,
+    ) -> Result<OwnedFd, String> {
         let image = self
             .0
             .shared_image()
@@ -300,11 +302,11 @@ impl SharedImage {
 
 #[cfg(target_os = "linux")]
 impl flutter_texture::VulkanFds for SharedImage {
-    fn export_memory(&self) -> Result<std::os::fd::OwnedFd, String> {
+    fn export_memory(&self) -> Result<OwnedFd, String> {
         self.export(::visualizer::SharedFrame::export_memory)
     }
 
-    fn export_semaphore(&self) -> Result<std::os::fd::OwnedFd, String> {
+    fn export_semaphore(&self) -> Result<OwnedFd, String> {
         self.export(::visualizer::SharedFrame::export_semaphore)
     }
 }

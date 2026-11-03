@@ -1,12 +1,21 @@
-use database::actions::{downloads::set_download_rule, file::hash_file};
 use database::sync::{LibrarySyncStore, model::*};
+use database::{
+    actions::{
+        downloads::set_download_rule,
+        file::{blob_path_for_track, catalog_track, hash_file, is_materialized},
+        metadata::{MissingHostFilePolicy, ScanOptions, scan_audio_library},
+    },
+    connection::{RecommendationDbConnection, initialize_db},
+    entities::{albums, media_files, sync_download_jobs, sync_download_jobs::Column},
+    sync::model::RuneModel,
+};
 use hub::server::sync::{
     client::sync_library,
     downloads::download_requested_audio,
     http::{BlobContext, SharedLibrary, blob_router},
     library_router,
 };
-type MetadataPeer = http_request::sync::MetadataPeer<database::sync::model::RuneModel>;
+type MetadataPeer = http_request::sync::MetadataPeer<RuneModel>;
 #[path = "support/causal_library.rs"]
 mod support;
 use anyhow::{Context, Result};
@@ -16,11 +25,6 @@ use axum::{
     http::header,
     middleware::Next,
     response::Response,
-};
-use database::{
-    actions::metadata::scan_audio_library,
-    connection::{RecommendationDbConnection, initialize_db},
-    entities::{albums, media_files, sync_download_jobs},
 };
 use fsio::FsIo;
 use futures::stream;
@@ -458,12 +462,14 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
         &source.db,
         &source.node.to_string(),
         &source.root(),
-        false,
-        false,
+        ScanOptions {
+            cleanup: false,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         |_| {},
-        None,
         &source.store.record_store(),
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let source_files = media_files::Entity::find().all(&source.db).await?;
@@ -544,10 +550,10 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
         .await?
         .context("no other catalog")?
         .id;
-    let (track_id, blob, extension) = database::actions::file::catalog_track(&target.db, selected)
+    let (track_id, blob, extension) = catalog_track(&target.db, selected)
         .await?
         .context("missing blob")?;
-    let final_path = database::actions::file::blob_path_for_track(
+    let final_path = blob_path_for_track(
         &target.fsio,
         &target.root(),
         track_id,
@@ -565,9 +571,9 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
     assert_eq!(counter, 0);
     for mode in [AUDIO_RESET, AUDIO_STALL] {
         // Advance the persisted retry deadline between independently injected faults.
-        database::entities::sync_download_jobs::Entity::update_many()
+        sync_download_jobs::Entity::update_many()
             .col_expr(
-                database::entities::sync_download_jobs::Column::RetryAt,
+                Column::RetryAt,
                 sea_orm::sea_query::Expr::value("2000-01-01T00:00:00Z"),
             )
             .exec(&target.db)
@@ -603,33 +609,17 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
             !final_path.exists(),
             "incomplete audio must not be published"
         );
-        assert!(
-            !database::actions::file::is_materialized(
-                &target.db,
-                &target.fsio,
-                target._root.path(),
-                selected
-            )
-            .await?
-        );
-        assert!(
-            !database::actions::file::is_materialized(
-                &target.db,
-                &target.fsio,
-                target._root.path(),
-                other
-            )
-            .await?
-        );
+        assert!(!is_materialized(&target.db, &target.fsio, target._root.path(), selected).await?);
+        assert!(!is_materialized(&target.db, &target.fsio, target._root.path(), other).await?);
         assert_eq!(
             sync_download_jobs::Entity::find().count(&target.db).await?,
             1
         );
     }
     faults.set(FRAGMENT);
-    database::entities::sync_download_jobs::Entity::update_many()
+    sync_download_jobs::Entity::update_many()
         .col_expr(
-            database::entities::sync_download_jobs::Column::RetryAt,
+            Column::RetryAt,
             sea_orm::sea_query::Expr::value("2000-01-01T00:00:00Z"),
         )
         .exec(&target.db)
@@ -645,24 +635,8 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
     )
     .await?;
     assert_eq!(report.downloaded, 1);
-    assert!(
-        database::actions::file::is_materialized(
-            &target.db,
-            &target.fsio,
-            target._root.path(),
-            selected
-        )
-        .await?
-    );
-    assert!(
-        !database::actions::file::is_materialized(
-            &target.db,
-            &target.fsio,
-            target._root.path(),
-            other
-        )
-        .await?
-    );
+    assert!(is_materialized(&target.db, &target.fsio, target._root.path(), selected).await?);
+    assert!(!is_materialized(&target.db, &target.fsio, target._root.path(), other).await?);
     assert_eq!(
         sync_download_jobs::Entity::find().count(&target.db).await?,
         0

@@ -1,40 +1,33 @@
+use crate::actions::search::{add_term, remove_term};
+use crate::sync::{
+    SeaOrmSyncStore,
+    bindings::apply,
+    model::{Collection, MixClauseMap, ObjectKey, author_source_on},
+};
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use log::warn;
-use migration::ExprTrait;
-use migration::Func;
-use migration::IntoCondition;
-use migration::SimpleExpr;
+use migration::{ExprTrait, Func, IntoCondition, SimpleExpr};
 use sea_orm::entity::prelude::*;
-use sea_orm::sea_query::{Condition, Expr, Query};
 use sea_orm::{
-    ColumnTrait, EntityTrait, JoinType, Order, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
-    TransactionTrait,
+    ColumnTrait, DatabaseTransaction, EntityTrait, JoinType, Order, QueryFilter, QueryOrder,
+    QuerySelect, QueryTrait, Set, TransactionTrait,
+    sea_query::{Condition, Expr, Query},
 };
 
-use crate::actions::analysis::get_analyze_count;
-use crate::actions::analysis::get_percentile_analysis_result;
+use crate::actions::analysis::{get_analyze_count, get_percentile_analysis_result};
 use crate::actions::playback_queue::list_playback_queue;
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
-use crate::entities::media_file_fingerprint;
-use crate::entities::media_file_genres;
 use crate::entities::{
     albums, artists, genres, media_analysis, media_file_albums, media_file_artists,
-    media_file_likes, media_file_playlists, media_file_stats, media_files, mix_queries, mixes,
-    playlists,
+    media_file_fingerprint, media_file_genres, media_file_likes, media_file_playlists,
+    media_file_stats, media_files, mix_queries, mixes, playlists,
 };
-use crate::sync::{
-    SeaOrmSyncStore,
-    model::{Collection, ObjectKey},
-};
-use sea_orm::{DatabaseTransaction, Set};
 
 use super::analysis::get_centralized_analysis_result;
-use super::collection::CollectionQuery;
-use super::collection::CollectionQueryListMode;
-use super::collection::CollectionQueryType;
+use super::collection::{CollectionQuery, CollectionQueryListMode, CollectionQueryType};
 use super::file::get_files_by_ids;
 use super::recommendation::get_recommendation_by_parameter;
 use super::utils::CollectionDefinition;
@@ -188,7 +181,7 @@ async fn author_mix(
     store: &SeaOrmSyncStore,
     mix: &mixes::Model,
 ) -> Result<()> {
-    crate::sync::model::author_source_on(
+    author_source_on(
         tx,
         store,
         ObjectKey {
@@ -223,7 +216,7 @@ pub async fn create_mix(
     }
     .insert(&tx)
     .await?;
-    crate::actions::search::add_term(&tx, CollectionQueryType::Mix, row.id, &row.name).await?;
+    add_term(&tx, CollectionQueryType::Mix, row.id, &row.name).await?;
     replace_queries_on(&tx, &row.hlc_uuid, queries, 0).await?;
     author_mix(&tx, store, &row).await?;
     tx.commit().await?;
@@ -278,7 +271,7 @@ pub async fn update_mix(
     if let Some(queries) = queries {
         replace_queries_on(&tx, &row.hlc_uuid, queries, 0).await?;
     }
-    crate::actions::search::add_term(&tx, CollectionQueryType::Mix, row.id, &row.name).await?;
+    add_term(&tx, CollectionQueryType::Mix, row.id, &row.name).await?;
     author_mix(&tx, store, &row).await?;
     tx.commit().await?;
     Ok(row)
@@ -295,8 +288,8 @@ pub async fn remove_mix(db: &DatabaseConnection, store: &SeaOrmSyncStore, id: i3
         collection: Collection::Mixes,
         id: row.hlc_uuid.parse()?,
     };
-    crate::actions::search::remove_term(&tx, CollectionQueryType::Mix, id).await?;
-    crate::sync::bindings::apply(&tx, &key, None).await?;
+    remove_term(&tx, CollectionQueryType::Mix, id).await?;
+    apply(&tx, &key, None).await?;
     store.author_on(&tx, key, None).await?;
     tx.commit().await?;
     Ok(())
@@ -348,7 +341,7 @@ pub async fn remove_mix_query(
     id: i32,
 ) -> Result<()> {
     use sync_orm::owned_list::{ListBudget, OwnedListPolicy};
-    type Clauses = OwnedListPolicy<mix_queries::Entity, crate::sync::model::MixClauseMap>;
+    type Clauses = OwnedListPolicy<mix_queries::Entity, MixClauseMap>;
     let tx = db.begin().await?;
     store.lock(&tx).await?;
     let row = mix_queries::Entity::find_by_id(id)

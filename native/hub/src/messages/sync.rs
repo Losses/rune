@@ -1,3 +1,4 @@
+use database::actions::metadata::MissingHostFilePolicy as MetadataMissingHostFilePolicy;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -25,17 +26,15 @@ pub enum MissingHostFilePolicy {
     KeepAsRemote,
 }
 
-impl From<database::actions::metadata::MissingHostFilePolicy> for MissingHostFilePolicy {
-    fn from(value: database::actions::metadata::MissingHostFilePolicy) -> Self {
+impl From<MetadataMissingHostFilePolicy> for MissingHostFilePolicy {
+    fn from(value: MetadataMissingHostFilePolicy) -> Self {
         match value {
-            database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere => {
-                Self::RemoveEverywhere
-            }
-            database::actions::metadata::MissingHostFilePolicy::KeepAsRemote => Self::KeepAsRemote,
+            MetadataMissingHostFilePolicy::RemoveEverywhere => Self::RemoveEverywhere,
+            MetadataMissingHostFilePolicy::KeepAsRemote => Self::KeepAsRemote,
         }
     }
 }
-impl From<MissingHostFilePolicy> for database::actions::metadata::MissingHostFilePolicy {
+impl From<MissingHostFilePolicy> for MetadataMissingHostFilePolicy {
     fn from(value: MissingHostFilePolicy) -> Self {
         match value {
             MissingHostFilePolicy::RemoveEverywhere => Self::RemoveEverywhere,

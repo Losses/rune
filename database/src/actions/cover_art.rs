@@ -1,3 +1,5 @@
+use crate::actions::file::hash_file;
+use crate::sync::model::{Artwork, BlobRef, Collection, ObjectKey, RuneModel, author_source_on};
 use std::{
     collections::HashMap,
     env, fs,
@@ -241,7 +243,7 @@ where
                 }
                 let path = root.join(&file.directory).join(&file.file_name);
                 let expected = match (&file.content_hash, file.content_size) {
-                    (Some(hash), Some(size)) if size >= 0 => Some(crate::sync::model::BlobRef {
+                    (Some(hash), Some(size)) if size >= 0 => Some(BlobRef {
                         digest: hash.clone(),
                         size: size as u64,
                     }),
@@ -249,8 +251,7 @@ where
                 };
                 let inspected = tokio::task::spawn_blocking(move || {
                     if let Some(expected) = &expected
-                        && crate::actions::file::hash_file(&fs, &path).ok().as_ref()
-                            != Some(expected)
+                        && hash_file(&fs, &path).ok().as_ref() != Some(expected)
                     {
                         return None;
                     }
@@ -260,8 +261,7 @@ where
                         &path,
                     );
                     if let Some(expected) = &expected
-                        && crate::actions::file::hash_file(&fs, &path).ok().as_ref()
-                            != Some(expected)
+                        && hash_file(&fs, &path).ok().as_ref() != Some(expected)
                     {
                         return None;
                     }
@@ -376,11 +376,11 @@ pub async fn remove_cover_art_by_file_id(
         active.cover_art_uuid = ActiveValue::Set(None);
         active.cover_art_checked_at = ActiveValue::Set(None);
         media_files::Entity::update(active).exec(&tx).await?;
-        crate::sync::model::author_source_on(
+        author_source_on(
             &tx,
             store,
-            crate::sync::model::ObjectKey {
-                collection: crate::sync::model::Collection::Tracks,
+            ObjectKey {
+                collection: Collection::Tracks,
                 id,
             },
         )
@@ -643,7 +643,7 @@ async fn attach_body(
 pub async fn assign_inspected(
     db: &sea_orm::DatabaseConnection,
     store: &crate::sync::SeaOrmSyncStore,
-    observed: &crate::entities::media_files::Model,
+    observed: &media_files::Model,
     art: Option<metadata::cover_art::CoverArt>,
 ) -> Result<()> {
     use crate::entities::media_files;
@@ -709,7 +709,7 @@ pub async fn assign_inspected(
 pub async fn artwork_body_needed(
     db: &DatabaseConnection,
     id: Uuid,
-    expected: &crate::sync::model::Artwork,
+    expected: &Artwork,
 ) -> Result<bool> {
     let body = expected.body()?;
     let local = media_cover_art::Entity::find()
@@ -730,7 +730,7 @@ pub async fn attach_received_body(
     db: &DatabaseConnection,
     store: &crate::sync::SeaOrmSyncStore,
     id: Uuid,
-    expected: &crate::sync::model::Artwork,
+    expected: &Artwork,
     bytes: Vec<u8>,
 ) -> Result<()> {
     use crate::sync::{
@@ -772,12 +772,12 @@ pub async fn artwork_candidates(
     db: &DatabaseConnection,
     store: &crate::sync::SeaOrmSyncStore,
     cursor: Option<Uuid>,
-) -> Result<sync_orm::causal_store::ProjectedPage<crate::sync::model::RuneModel>> {
+) -> Result<sync_orm::causal_store::ProjectedPage<RuneModel>> {
     use sea_orm::TransactionTrait;
     let tx = db.begin().await?;
     let page = crate::sync::accepted::AcceptedState::new(&tx, store)
         .page(
-            crate::sync::model::Collection::Artworks,
+            Collection::Artworks,
             cursor,
             sync::PageLimits {
                 max_scanned: 128,

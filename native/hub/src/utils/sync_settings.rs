@@ -31,7 +31,9 @@ impl SyncSettings {
                 }
             },
             Err(error) => {
-                log::warn!("Could not read sync settings: {error}");
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    log::warn!("Could not read sync settings: {error}");
+                }
                 Self::default()
             }
         }

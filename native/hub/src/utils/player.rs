@@ -1,3 +1,4 @@
+use database::actions::logging::LogLevel;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -352,7 +353,7 @@ pub async fn initialize_local_player(
                 Ok(txn) => {
                     if let Err(e) = insert_log(
                         &txn,
-                        database::actions::logging::LogLevel::Error,
+                        LogLevel::Error,
                         format!("scrobbler::{:?}::{:?}", error.action, error.service),
                         format!("{error:#?}"),
                     )
@@ -381,7 +382,7 @@ pub async fn initialize_local_player(
                 Ok(txn) => {
                     if let Err(e) = insert_log(
                         &txn,
-                        database::actions::logging::LogLevel::Error,
+                        LogLevel::Error,
                         error.domain.clone(),
                         format!("{error:#?}"),
                     )

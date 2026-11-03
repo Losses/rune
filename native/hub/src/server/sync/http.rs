@@ -1,9 +1,23 @@
 //! Audio content endpoints mounted by an authenticated caller.
+
 use anyhow::Result;
-use axum::{Router, extract::State, http::StatusCode, routing::get};
-use database::sync::LibrarySyncStore;
-use database::sync::model::{Collection, ObjectKey, Payload};
-use database::{actions::file, entities};
+use axum::{
+    Router,
+    extract::State,
+    http::{
+        StatusCode,
+        header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, RANGE},
+    },
+    routing::get,
+};
+use database::{
+    actions::{cover_art::verify_body, file},
+    entities,
+    sync::{
+        LibrarySyncStore,
+        model::{Collection, ObjectKey, Payload},
+    },
+};
 use std::sync::Arc;
 
 /// The application replaces a library only while its background workers are stopped.
@@ -58,11 +72,10 @@ async fn get_artwork(
         return Err(StatusCode::NOT_FOUND);
     }
     let bytes = rows.into_iter().next().unwrap().binary;
-    database::actions::cover_art::verify_body(id, &body.digest, body.size, &bytes)
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+    verify_body(id, &body.digest, body.size, &bytes).map_err(|_| StatusCode::NOT_FOUND)?;
     axum::http::Response::builder()
         .status(StatusCode::OK)
-        .header(axum::http::header::CONTENT_LENGTH, bytes.len())
+        .header(CONTENT_LENGTH, bytes.len())
         .body(axum::body::Body::from(bytes))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
@@ -129,7 +142,7 @@ async fn get_blob(
         .seek(SeekFrom::End(0))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let requested = headers
-        .get(axum::http::header::RANGE)
+        .get(RANGE)
         .map(|h| h.to_str().ok().and_then(|r| parse_range(r, size)));
     let (start, length, partial) = match requested {
         None => (0, size, false),
@@ -137,8 +150,8 @@ async fn get_blob(
         Some(None) => {
             return axum::http::Response::builder()
                 .status(StatusCode::RANGE_NOT_SATISFIABLE)
-                .header(axum::http::header::CONTENT_RANGE, format!("bytes */{size}"))
-                .header(axum::http::header::ACCEPT_RANGES, "bytes")
+                .header(CONTENT_RANGE, format!("bytes */{size}"))
+                .header(ACCEPT_RANGES, "bytes")
                 .body(axum::body::Body::empty())
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
         }
@@ -166,11 +179,11 @@ async fn get_blob(
         } else {
             StatusCode::OK
         })
-        .header(axum::http::header::CONTENT_LENGTH, length)
-        .header(axum::http::header::ACCEPT_RANGES, "bytes");
+        .header(CONTENT_LENGTH, length)
+        .header(ACCEPT_RANGES, "bytes");
     if partial {
         response = response.header(
-            axum::http::header::CONTENT_RANGE,
+            CONTENT_RANGE,
             format!("bytes {start}-{}/{size}", start + length - 1),
         );
     }

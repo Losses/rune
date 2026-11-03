@@ -1,3 +1,4 @@
+use crate::utils::mixing::append_mixed;
 use std::sync::{Arc, Mutex};
 
 use log::debug;
@@ -179,7 +180,7 @@ impl Analyzer {
     {
         let frames = buf.frames();
         let mut samples = std::mem::take(&mut self.sample_buffer);
-        crate::utils::mixing::append_mixed(buf, &mut samples);
+        append_mixed(buf, &mut samples);
         self.consume_mixed_samples(samples, frames);
     }
 
@@ -408,7 +409,9 @@ mod regression_tests {
 
 #[cfg(test)]
 mod streaming_tests {
+
     use super::*;
+    use std::f32::consts::PI;
 
     fn run(samples: &[f32], rate: u32, packet: usize) -> Analyzer {
         let mut a = Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None);
@@ -453,7 +456,7 @@ mod streaming_tests {
     fn opposite_phase_frames_do_not_cancel_power() {
         let mut a = Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None);
         let frame: Vec<f32> = (0..1024)
-            .map(|i| (2.0 * std::f32::consts::PI * 21.0 * i as f32 / 1024.0).sin())
+            .map(|i| (2.0 * PI * 21.0 * i as f32 / 1024.0).sin())
             .collect();
         a.process_audio_chunk(&frame, false);
         let power = a.avg_spectrum[21].re;

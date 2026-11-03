@@ -1,11 +1,11 @@
 //! `analyze_file` on a file on disk: it finds the pulse of a WAV, and stops early when told to.
 
+use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use chart_analyzer::analyze_file;
-use chart_analyzer::decode::Cancelled;
+use chart_analyzer::{analyze_file, decode::Cancelled};
 use fsio::FsIo;
 
 const RATE: u32 = 22050;
@@ -18,7 +18,7 @@ fn clicks(seconds: usize) -> Vec<i16> {
     for start in (0..x.len()).step_by(step) {
         for i in 0..2000.min(x.len() - start) {
             let t = i as f64 / f64::from(RATE);
-            let thump = (2.0 * std::f64::consts::PI * 60.0 * t).sin() * (-t * 30.0).exp();
+            let thump = (2.0 * PI * 60.0 * t).sin() * (-t * 30.0).exp();
             let click = if i < 40 { 0.5 } else { 0.0 };
             x[start + i] = ((thump * 0.8 + click) * 30000.0) as i16;
         }

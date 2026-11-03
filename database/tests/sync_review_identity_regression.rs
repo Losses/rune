@@ -1,8 +1,10 @@
 #[path = "support/causal_library.rs"]
 mod support;
+
 use anyhow::Result;
 use database::{
     actions::{metadata::scan_audio_file, stats::set_liked},
+    entities::media_files,
     sync::{
         LibrarySyncStore,
         model::{Collection, Liked, ObjectKey, Payload, RuneObjectKey, Scope},
@@ -42,7 +44,7 @@ async fn new_node_opening_portable_library_can_publish_existing_state() -> Resul
     )
     .await?;
     let track_id = Uuid::parse_str(
-        &database::entities::media_files::Entity::find_by_id(file)
+        &media_files::Entity::find_by_id(file)
             .one(&db)
             .await?
             .unwrap()

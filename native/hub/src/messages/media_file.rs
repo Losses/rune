@@ -1,3 +1,4 @@
+use database::actions::file::AudioAvailability as FileAudioAvailability;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,10 +24,7 @@ pub enum AudioAvailability {
 
 impl AudioAvailability {
     /// A pending persistent download does not remove an existing remote content reference.
-    pub fn from_local(
-        value: database::actions::file::AudioAvailability,
-        has_remote_content: bool,
-    ) -> Self {
+    pub fn from_local(value: FileAudioAvailability, has_remote_content: bool) -> Self {
         use database::actions::file::AudioAvailability as State;
         match value {
             State::Local => Self::Local,

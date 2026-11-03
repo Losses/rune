@@ -1,19 +1,22 @@
+use database::{
+    actions::{
+        analysis::{
+            analysis_audio_library, empty_progress_callback as empty_analysis_progress_callback,
+        },
+        metadata::{
+            MissingHostFilePolicy, ScanOptions,
+            empty_progress_callback as empty_scan_progress_callback, scan_audio_library,
+        },
+        recommendation::sync_recommendation,
+    },
+    connection::{connect_main_db, connect_recommendation_db},
+};
 use std::{path::PathBuf, sync::Arc};
 
 use log::{error, info};
 use tracing_subscriber::filter::EnvFilter;
 
 use analysis::utils::computing_device::ComputingDevice;
-use database::{
-    actions::{
-        analysis::{
-            analysis_audio_library, empty_progress_callback as empty_analysis_progress_callback,
-        },
-        metadata::{empty_progress_callback as empty_scan_progress_callback, scan_audio_library},
-        recommendation::sync_recommendation,
-    },
-    connection::{connect_main_db, connect_recommendation_db},
-};
 use fsio::FsIo;
 
 #[tokio::main]
@@ -52,12 +55,14 @@ async fn main() {
         &main_db,
         &node_id.to_string(),
         &root_path,
-        true,
-        false,
+        ScanOptions {
+            cleanup: true,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         empty_scan_progress_callback,
-        None,
         &library.record_store(),
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await;
 

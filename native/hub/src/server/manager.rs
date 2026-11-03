@@ -1,3 +1,5 @@
+use database::actions::file::catalog_track;
+use database::sync::model::RuneModel;
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -6,6 +8,11 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use tokio::{
+    fs::{read_to_string, write},
+    sync::{Mutex, RwLock, mpsc::unbounded_channel},
+    task::JoinHandle,
 };
 
 use anyhow::{Context, Result};
@@ -24,11 +31,6 @@ use rand::{
     thread_rng,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{
-    fs::{read_to_string, write},
-    sync::{Mutex, RwLock},
-    task::JoinHandle,
-};
 use tower_governor::{
     GovernorLayer, governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor,
 };
@@ -67,7 +69,7 @@ fn coalesce_worker_notify(
     notify: Arc<dyn Fn() + Send + Sync>,
     cancel: tokio_util::sync::CancellationToken,
 ) -> Arc<dyn Fn() + Send + Sync> {
-    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    let (sender, mut receiver) = unbounded_channel();
     let worker_cancel = cancel.clone();
     tokio::spawn(async move {
         let mut pending = None;
@@ -129,7 +131,7 @@ pub struct ServerManager {
     server_handle: Mutex<Option<JoinHandle<()>>>,
     start_lock: Mutex<()>,
     addr: Mutex<Option<SocketAddr>>,
-    is_running: std::sync::atomic::AtomicBool,
+    is_running: AtomicBool,
     sync_only: AtomicBool,
     shutdown_handle: Mutex<Option<Handle>>,
     sync_cancel: Mutex<Option<tokio_util::sync::CancellationToken>>,
@@ -565,10 +567,9 @@ impl ServerManager {
             .library_sync
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("local metadata replica is unavailable"))?;
-        let (track_id, blob, extension) =
-            database::actions::file::catalog_track(&params.main_db, id)
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("track is not available for remote streaming"))?;
+        let (track_id, blob, extension) = catalog_track(&params.main_db, id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("track is not available for remote streaming"))?;
         let library_id = library.identity().await?.namespace;
         let (_, own) = parse_certificate(&self.certificate)?;
         let entries = super::sync_worker::peer_endpoints(params, &own).await;
@@ -589,7 +590,7 @@ impl ServerManager {
                     )
                     .await?;
                     let peer =
-                        http_request::sync::MetadataPeer::<database::sync::model::RuneModel>::new(&base, client.clone());
+                        http_request::sync::MetadataPeer::<RuneModel>::new(&base, client.clone());
                     use sync::SyncPeer;
                     anyhow::ensure!(
                         peer.identity().await?.namespace == library_id,
@@ -836,9 +837,20 @@ mod lifecycle_tests {
     }
 
     use super::*;
-    use crate::utils::{Broadcaster, GlobalParams, RinfRustSignal, RunningMode, TaskTokens};
-    use database::sync::LibrarySyncStore;
-    use database::sync::model::{Collection, ObjectKey, Payload};
+    use crate::utils::{
+        Broadcaster, GlobalParams, RinfRustSignal, RunningMode, TaskTokens,
+        sync_settings::SyncSettings,
+    };
+    use database::actions::downloads::prepare_download;
+    use database::actions::file::{attach_download, catalog_track, hash_file, is_materialized};
+    use database::actions::metadata::{
+        MissingHostFilePolicy, ScanOptions, scan_audio_file, scan_audio_library,
+    };
+    use database::entities::{media_files, media_files::Column};
+    use database::sync::{
+        LibrarySyncStore,
+        model::{Album, Collection, MetadataTag, ObjectKey, Payload, Track},
+    };
     use discovery::{
         client::CertValidator,
         protocol::DiscoveryService,
@@ -866,9 +878,7 @@ mod lifecycle_tests {
         let token = Arc::new(CancellationToken::new());
         let library_sync = crate::utils::initialize_library_replica(&db, &node.to_string()).await?;
         let params = Arc::new(GlobalParams {
-            sync_settings: Arc::new(RwLock::new(
-                crate::utils::sync_settings::SyncSettings::default(),
-            )),
+            sync_settings: Arc::new(RwLock::new(SyncSettings::default())),
             fsio,
             lib_path: Arc::new(dir.to_string_lossy().into_owned()),
             config_path: Arc::new(dir.to_string_lossy().into_owned()),
@@ -973,26 +983,28 @@ mod lifecycle_tests {
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
             second.path().join("source.ogg"),
         )?;
-        database::actions::metadata::scan_audio_library(
+        scan_audio_library(
             &b.global_params.fsio,
             &b.global_params.main_db,
             &b.global_params.node_id,
             second.path(),
-            false,
-            false,
+            ScanOptions {
+                cleanup: false,
+                force: false,
+                missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                cancel_token: None,
+            },
             |_| {},
-            None,
             &b.global_params
                 .library_sync
                 .as_ref()
                 .unwrap()
                 .record_store(),
-            database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
         )
         .await?;
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-        let source_track = database::entities::media_files::Entity::find()
-            .filter(database::entities::media_files::Column::LocalAvailable.eq(true))
+        let source_track = media_files::Entity::find()
+            .filter(Column::LocalAvailable.eq(true))
             .one(&*b.global_params.main_db)
             .await?
             .context("fixture scanner did not create the source audio row")?;
@@ -1029,7 +1041,7 @@ mod lifecycle_tests {
         store
             .write_local(
                 key.clone(),
-                Some(Payload::Album(database::sync::model::Album {
+                Some(Payload::Album(Album {
                     name: "background album".into(),
                     group: "test".into(),
                 })),
@@ -1119,8 +1131,8 @@ mod lifecycle_tests {
             let receiver = a.global_params.library_sync.as_ref().unwrap();
             loop {
                 if receiver.get(&key).await.unwrap().is_some()
-                    && let Some(track) = database::entities::media_files::Entity::find()
-                        .filter(database::entities::media_files::Column::LocalAvailable.eq(false))
+                    && let Some(track) = media_files::Entity::find()
+                        .filter(Column::LocalAvailable.eq(false))
                         .one(&*a.global_params.main_db)
                         .await
                         .unwrap()
@@ -1254,7 +1266,7 @@ mod lifecycle_tests {
             .change_user_status(&a_info.fingerprint, UserStatus::Approved)
             .await?;
         assert!(
-            !database::actions::file::is_materialized(
+            !is_materialized(
                 a.global_params.main_db.as_ref(),
                 &a.global_params.fsio,
                 first.path(),
@@ -1351,12 +1363,14 @@ mod lifecycle_tests {
             &params.main_db,
             &params.node_id,
             root.path(),
-            false,
-            false,
+            ScanOptions {
+                cleanup: false,
+                force: false,
+                missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                cancel_token: None,
+            },
             |_| {},
-            None,
             &params.library_sync.as_ref().unwrap().record_store(),
-            database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
         )
         .await?;
         let store =
@@ -1375,22 +1389,21 @@ mod lifecycle_tests {
                 .requires_stream_at_load(file.id, &resolver)
                 .await?
         );
-        let blob =
-            database::actions::file::hash_file(&params.fsio, &fixture_dir.join("startup_1.ogg"))?;
+        let blob = hash_file(&params.fsio, &fixture_dir.join("startup_1.ogg"))?;
         store
             .write_local(
                 ObjectKey {
                     collection: Collection::Tracks,
                     id: track_id,
                 },
-                Some(Payload::Track(database::sync::model::Track {
+                Some(Payload::Track(Track {
                     extension: "ogg".into(),
                     content_hash: Some(blob.digest.clone()),
                     content_size: Some(blob.size.try_into()?),
                     duration: "0".to_owned().try_into().unwrap(),
                     sample_rate: 0,
                     cover_art_id: None,
-                    metadata: vec![database::sync::model::MetadataTag {
+                    metadata: vec![MetadataTag {
                         id: Uuid::new_v4(),
                         position: 0,
                         key: "track_title".into(),
@@ -1430,12 +1443,12 @@ mod lifecycle_tests {
         assert_eq!(parsed.len(), 1);
         assert!(parsed[0].path.is_empty());
         assert_eq!(
-            database::actions::file::catalog_track(&params.main_db, file.id).await?,
+            catalog_track(&params.main_db, file.id).await?,
             Some((track_id, blob.clone(), "ogg".into()))
         );
         use playback::player::PlaybackSourceResolver;
         let queued_remote = PlaybackSource::LibraryStream;
-        let updated_path = database::actions::downloads::prepare_download(
+        let updated_path = prepare_download(
             &params.main_db,
             &params.fsio,
             root.path(),
@@ -1445,7 +1458,7 @@ mod lifecycle_tests {
         )
         .await?;
         std::fs::copy(fixture_dir.join("startup_1.ogg"), &updated_path)?;
-        let scan_error = database::actions::metadata::scan_audio_file(
+        let scan_error = scan_audio_file(
             &params.fsio,
             &params.main_db,
             &params.node_id,
@@ -1460,7 +1473,7 @@ mod lifecycle_tests {
                 .to_string()
                 .contains("Audio file was not indexed")
         );
-        database::actions::file::attach_download(
+        attach_download(
             &params.main_db,
             &store.record_store(),
             &params.fsio,

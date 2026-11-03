@@ -324,7 +324,9 @@ impl Course {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+    use crate::bind::tests::embedded_with;
 
     fn music(intensity: f32) -> MusicValues {
         MusicValues {
@@ -587,15 +589,12 @@ mod tests {
         let m = music(1.0);
         let embedded = crate::bind::RuntimeBindings::embedded().course;
         assert_eq!(Phrase::default().beats_left_with(&embedded, &m), 16.0);
-        let phrase = crate::bind::tests::embedded_with("phrase = 4", "phrase = 2").course;
+        let phrase = embedded_with("phrase = 4", "phrase = 2").course;
         assert_eq!(Phrase::default().beats_left_with(&phrase, &m), 8.0);
         // Without a followed beat, the fallback's seconds.
         let unfollowed = MusicValues { locked: 0.0, ..m };
-        let seconds = crate::bind::tests::embedded_with(
-            "fallback = { value = 4.0 }",
-            "fallback = { value = 6.0 }",
-        )
-        .course;
+        let seconds =
+            embedded_with("fallback = { value = 4.0 }", "fallback = { value = 6.0 }").course;
         assert_eq!(
             Phrase::default().beats_left_with(&seconds, &unfollowed),
             12.0
@@ -607,9 +606,7 @@ mod tests {
                 .amount()
         };
         assert!((peak(embedded) - LEAST).abs() < 1e-4);
-        let none =
-            crate::bind::tests::embedded_with("when = { least = 0.35 }", "when = { least = 0.0 }")
-                .course;
+        let none = embedded_with("when = { least = 0.35 }", "when = { least = 0.0 }").course;
         assert!(peak(none).abs() < 1e-4);
     }
 
@@ -629,7 +626,7 @@ mod tests {
         let embedded = crate::bind::RuntimeBindings::embedded().course;
         assert!(moved(embedded) > 0.0);
         // Cues push it instead: a hit does not.
-        let custom = crate::bind::tests::embedded_with(
+        let custom = embedded_with(
             "beat_seconds = 0.5 }\nfallback = \"hits\"",
             "beat_seconds = 0.5 }\nfallback = \"cues\"",
         )

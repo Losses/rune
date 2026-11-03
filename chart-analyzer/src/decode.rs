@@ -285,11 +285,13 @@ impl Resampler {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+    use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
     fn sine(hz: f64, rate: u32, seconds: f64) -> Vec<f32> {
         (0..(rate as f64 * seconds) as usize)
-            .map(|i| (2.0 * std::f64::consts::PI * hz * i as f64 / f64::from(rate)).sin() as f32)
+            .map(|i| (2.0 * PI * hz * i as f64 / f64::from(rate)).sin() as f32)
             .collect()
     }
 
@@ -302,7 +304,7 @@ mod tests {
         let out = resample(sine(1000.0, 44100, 3.0), 44100, 22050).unwrap();
         assert_eq!(out.len(), 66150);
         // A 1 kHz sine keeps its level (rms 1/sqrt 2) away from the edges.
-        assert!((rms(&out[2000..64000]) - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.005);
+        assert!((rms(&out[2000..64000]) - FRAC_1_SQRT_2).abs() < 0.005);
         // And is in phase with the sine, sampled half an output sample later (see below).
         let want = sine(1000.0, 44100, 3.0);
         let want: Vec<f32> = want.iter().skip(1).step_by(2).copied().collect();

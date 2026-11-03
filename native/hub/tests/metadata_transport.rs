@@ -1,11 +1,13 @@
 //! Actual HTTP transport preserves recovery errors without exposing local commands.
+
 use anyhow::Result;
 use axum::{
     Json, Router,
     http::{StatusCode, header},
     routing::post,
 };
-type MetadataPeer = http_request::sync::MetadataPeer<database::sync::model::RuneModel>;
+use database::sync::model::RuneModel;
+type MetadataPeer = http_request::sync::MetadataPeer<RuneModel>;
 use sync::protocol as p;
 use uuid::Uuid;
 

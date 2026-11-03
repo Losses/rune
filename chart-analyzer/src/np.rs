@@ -2,6 +2,8 @@
 //! are not the obvious ones (the Hann window's formula, percentile's interpolation, `interp`'s
 //! clamping, Python's banker's rounding). Each has a test against values numpy computed.
 
+use std::f64::consts::PI;
+
 /// `np.hanning(n)`: the symmetric Hann window of `n` points (zero at both ends), as numpy writes
 /// it, so that the values are bit for bit numpy's.
 pub fn hanning(n: usize) -> Vec<f64> {
@@ -12,7 +14,7 @@ pub fn hanning(n: usize) -> Vec<f64> {
     (0..n)
         .map(|i| {
             let k = (2 * i) as f64 - m;
-            0.5 + 0.5 * (std::f64::consts::PI * k / m).cos()
+            0.5 + 0.5 * (PI * k / m).cos()
         })
         .collect()
 }

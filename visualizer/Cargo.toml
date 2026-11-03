@@ -57,3 +57,6 @@ ash = { version = "0.38", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 serde_json = "1.0.140"
+
+[lints]
+workspace = true

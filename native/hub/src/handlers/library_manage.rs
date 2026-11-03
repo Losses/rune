@@ -1,3 +1,5 @@
+use crate::utils::sync_settings::SyncSettings;
+use database::actions::metadata::ScanOptions;
 use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
@@ -110,7 +112,7 @@ impl ParamsExtractor for ScanAudioLibraryRequest {
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
         Option<database::sync::SeaOrmSyncStore>,
-        Arc<RwLock<crate::utils::sync_settings::SyncSettings>>,
+        Arc<RwLock<SyncSettings>>,
     );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
@@ -137,7 +139,7 @@ impl Signal for ScanAudioLibraryRequest {
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
         Option<database::sync::SeaOrmSyncStore>,
-        Arc<RwLock<crate::utils::sync_settings::SyncSettings>>,
+        Arc<RwLock<SyncSettings>>,
     );
     type Response = ();
 
@@ -202,8 +204,12 @@ impl Signal for ScanAudioLibraryRequest {
                         &main_db_clone,
                         &node_id,
                         Path::new(&scan_path),
-                        true,
-                        request_force,
+                        ScanOptions {
+                            cleanup: true,
+                            force: request_force,
+                            missing_host_file,
+                            cancel_token: Some(new_token.clone()),
+                        },
                         |progress| {
                             broadcaster_clone.broadcast(&ScanAudioLibraryProgress {
                                 scan_id: worker_id.clone(),
@@ -213,11 +219,9 @@ impl Signal for ScanAudioLibraryRequest {
                                 total: 0,
                             });
                         },
-                        Some(new_token.clone()),
                         record_store
                             .as_ref()
                             .context("library sync store unavailable")?,
-                        missing_host_file,
                     )
                     .await?;
 
@@ -655,8 +659,10 @@ impl Signal for CancelTaskRequest {
 
 #[cfg(test)]
 mod scan_supervisor_tests {
+
     use super::*;
     use crate::utils::RinfRustSignal;
+    use tokio::sync::oneshot;
 
     #[derive(Default)]
     struct Capture(std::sync::Mutex<Vec<Vec<u8>>>);
@@ -744,7 +750,7 @@ mod scan_supervisor_tests {
             scan_token: Some(token.clone()),
             ..Default::default()
         }));
-        let (release, blocked) = tokio::sync::oneshot::channel::<()>();
+        let (release, blocked) = oneshot::channel::<()>();
         let worker = task::spawn(async move {
             let _ = blocked.await;
             Ok(1)
@@ -810,9 +816,7 @@ mod scan_supervisor_tests {
                     tokens,
                     capture.clone(),
                     None,
-                    Arc::new(RwLock::new(
-                        crate::utils::sync_settings::SyncSettings::default(),
-                    )),
+                    Arc::new(RwLock::new(SyncSettings::default())),
                 ),
                 None,
                 &request,

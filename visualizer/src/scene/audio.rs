@@ -1,6 +1,7 @@
 //! The spectrum, waveform and live levels a scene reads, from the PCM that plays.
 
 use std::collections::VecDeque;
+use std::f32::consts::TAU;
 use std::sync::Arc;
 
 use realfft::{RealFftPlanner, RealToComplex};
@@ -134,7 +135,7 @@ impl FeelMeter {
         }
         self.input.iter_mut().for_each(|x| *x = 0.0);
         for (i, v) in samples.iter().enumerate() {
-            let hann = 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / n as f32).cos();
+            let hann = 0.5 - 0.5 * (TAU * i as f32 / n as f32).cos();
             self.input[i] = (v - mean) * hann;
         }
         // How much the music moves in this window: the weight of its measure in the song's.
@@ -181,7 +182,7 @@ impl Analyzer {
     pub fn new(sample_rate: u32) -> Self {
         let fft = RealFftPlanner::<f32>::new().plan_fft_forward(FFT_SIZE);
         let window = (0..FFT_SIZE)
-            .map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / FFT_SIZE as f32).cos())
+            .map(|i| 0.5 - 0.5 * (TAU * i as f32 / FFT_SIZE as f32).cos())
             .collect();
         Self {
             sample_rate: sample_rate.max(1) as f32,
@@ -314,12 +315,14 @@ impl Analyzer {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+    use std::f32::consts::TAU;
 
     fn sine(hz: f32, rate: f32, n: usize) -> Vec<f32> {
         (0..n)
             .flat_map(|i| {
-                let s = (std::f32::consts::TAU * hz * i as f32 / rate).sin() * 0.5;
+                let s = (TAU * hz * i as f32 / rate).sin() * 0.5;
                 [s, s]
             })
             .collect()

@@ -1,6 +1,8 @@
 #[path = "support/causal_library.rs"]
 mod support;
+
 use anyhow::Result;
+use database::actions::mixes::{executable_queries_on, query_views_on};
 use database::{
     entities::{albums, playlists},
     sync::model::*,
@@ -92,11 +94,11 @@ async fn importing_an_unresolved_mix_preserves_its_target_uuid() -> Result<()> {
     RuneModel::project(&local.db, &key, Some(&value)).await?;
     local.library.import_basic().await?;
     assert_eq!(local.peer.get(&key).await?.unwrap().value, Some(value));
-    let views = database::actions::mixes::query_views_on(&local.db, &mix.to_string()).await?;
+    let views = query_views_on(&local.db, &mix.to_string()).await?;
     assert!(!views[0].available);
     assert_eq!(views[0].target_uuid, Some(missing_playlist));
     assert!(
-        database::actions::mixes::executable_queries_on(&local.db, &mix.to_string())
+        executable_queries_on(&local.db, &mix.to_string())
             .await
             .is_err()
     );

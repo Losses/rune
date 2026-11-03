@@ -586,7 +586,9 @@ fn mel_to_freq(mel: f32) -> f32 {
 
 #[cfg(test)]
 mod version_two_tests {
+
     use super::*;
+    use std::f64::consts::PI as ConstsPI;
 
     #[test]
     fn dct_matches_independent_double_precision_reference() {
@@ -598,8 +600,7 @@ mod version_two_tests {
                     .iter()
                     .enumerate()
                     .map(|(i, &x)| {
-                        2.0 * x as f64
-                            * (std::f64::consts::PI / n as f64 * (i as f64 + 0.5) * k as f64).cos()
+                        2.0 * x as f64 * (ConstsPI / n as f64 * (i as f64 + 0.5) * k as f64).cos()
                     })
                     .sum();
                 assert!((value as f64 - expected).abs() < 0.0001);

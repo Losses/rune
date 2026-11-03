@@ -1,11 +1,14 @@
 use std::path::Path;
+use symphonia::core::{
+    errors::Error,
+    formats::{FormatOptions, FormatReader, Track},
+    io::MediaSourceStream,
+    meta::MetadataOptions,
+    probe::Hint,
+    units::TimeBase,
+};
 
 use anyhow::{Context, Result};
-
-use symphonia::core::{
-    formats::{FormatOptions, FormatReader, Track},
-    {io::MediaSourceStream, meta::MetadataOptions, probe::Hint},
-};
 
 use ::fsio::FsIo;
 use ::fsio_media_source::FsioMediaSource;
@@ -40,26 +43,20 @@ pub fn get_format(fsio: &FsIo, file_path: &str) -> Result<Box<dyn FormatReader>>
     Ok(format)
 }
 
-pub fn get_codec_information(track: &Track) -> Result<(u32, f64), symphonia::core::errors::Error> {
-    let sample_rate =
-        track
-            .codec_params
-            .sample_rate
-            .ok_or(symphonia::core::errors::Error::Unsupported(
-                "No sample rate found",
-            ))?;
-    let duration =
-        track
-            .codec_params
-            .n_frames
-            .ok_or(symphonia::core::errors::Error::Unsupported(
-                "No duration found",
-            ))?;
+pub fn get_codec_information(track: &Track) -> Result<(u32, f64), Error> {
+    let sample_rate = track
+        .codec_params
+        .sample_rate
+        .ok_or(Error::Unsupported("No sample rate found"))?;
+    let duration = track
+        .codec_params
+        .n_frames
+        .ok_or(Error::Unsupported("No duration found"))?;
 
     let time_base = track
         .codec_params
         .time_base
-        .unwrap_or_else(|| symphonia::core::units::TimeBase::new(1, sample_rate));
+        .unwrap_or_else(|| TimeBase::new(1, sample_rate));
     let duration_in_seconds =
         time_base.calc_time(duration).seconds as f64 + time_base.calc_time(duration).frac;
 

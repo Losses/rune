@@ -1,3 +1,14 @@
+use database::{
+    actions::{
+        cover_art::scan_cover_arts,
+        metadata::{
+            MissingHostFilePolicy, ScanOptions, empty_progress_callback,
+            get_metadata_summary_by_file_ids, scan_audio_library,
+        },
+        search::search_for,
+    },
+    connection::{connect_main_db, connect_recommendation_db},
+};
 use std::{fs, path::PathBuf, sync::Arc};
 
 use clap::{Parser, Subcommand};
@@ -7,14 +18,6 @@ use log::{error, info};
 use prettytable::{Table, row};
 use tracing_subscriber::filter::EnvFilter;
 
-use database::{
-    actions::{
-        cover_art::scan_cover_arts,
-        metadata::{empty_progress_callback, get_metadata_summary_by_file_ids, scan_audio_library},
-        search::search_for,
-    },
-    connection::{connect_main_db, connect_recommendation_db},
-};
 use fsio::FsIo;
 
 use rune::{
@@ -320,12 +323,14 @@ async fn main() {
                 &main_db,
                 &node_id,
                 &path,
-                true,
-                false,
+                ScanOptions {
+                    cleanup: true,
+                    force: false,
+                    missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                    cancel_token: None,
+                },
                 empty_progress_callback,
-                None,
                 &library.record_store(),
-                database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
             )
             .await
             {

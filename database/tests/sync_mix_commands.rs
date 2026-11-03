@@ -1,9 +1,11 @@
 use anyhow::Result;
 use database::{
     actions::mixes::{
-        add_item_to_mix, create_mix, get_mix_queries_by_mix_id, remove_mix, remove_mix_query,
+        add_item_to_mix, create_mix, get_mix_queries_by_mix_id,
+        initialize_mix_queries_before_replication, remove_mix, remove_mix_query,
         replace_mix_queries, update_mix,
     },
+    entities::{mixes, mixes::Column, search_index},
     sync::{
         LibrarySyncStore,
         model::{Collection, ObjectKey, Payload},
@@ -21,10 +23,8 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
     let library = LibrarySyncStore::open(db.clone(), actor, Some(Uuid::new_v4())).await?;
     let store = library.record_store();
     let head = library.head().await?;
-    let mix_count = database::entities::mixes::Entity::find().count(&db).await?;
-    let search_count = database::entities::search_index::Entity::find()
-        .count(&db)
-        .await?;
+    let mix_count = mixes::Entity::find().count(&db).await?;
+    let search_count = search_index::Entity::find().count(&db).await?;
     assert!(
         create_mix(
             &db,
@@ -40,18 +40,10 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
         .is_err()
     );
     assert_eq!(library.head().await?, head);
-    assert_eq!(
-        database::entities::mixes::Entity::find().count(&db).await?,
-        mix_count
-    );
-    assert_eq!(
-        database::entities::search_index::Entity::find()
-            .count(&db)
-            .await?,
-        search_count
-    );
+    assert_eq!(mixes::Entity::find().count(&db).await?, mix_count);
+    assert_eq!(search_index::Entity::find().count(&db).await?, search_count);
     assert!(
-        database::actions::mixes::initialize_mix_queries_before_replication(&db)
+        initialize_mix_queries_before_replication(&db)
             .await
             .is_err()
     );
@@ -92,7 +84,7 @@ async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
     );
     assert_eq!(library.head().await?, head);
     assert_eq!(
-        database::entities::mixes::Entity::find_by_id(mix.id)
+        mixes::Entity::find_by_id(mix.id)
             .one(&db)
             .await?
             .unwrap()
@@ -251,8 +243,8 @@ async fn bootstrap_initializes_builtins_before_replication() -> Result<()> {
     Migrator::up(&db, None).await?;
     initialize_mix_queries_before_replication(&db).await?;
     initialize_mix_queries_before_replication(&db).await?;
-    let liked = database::entities::mixes::Entity::find()
-        .filter(database::entities::mixes::Column::Name.eq("\u{200B}Liked"))
+    let liked = mixes::Entity::find()
+        .filter(Column::Name.eq("\u{200B}Liked"))
         .one(&db)
         .await?
         .unwrap();

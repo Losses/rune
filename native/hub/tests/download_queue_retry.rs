@@ -1,20 +1,21 @@
-use database::actions::{
-    downloads::{DownloadReport, set_download_rule},
-    file::{blob_path_for_track, hash_file},
-};
-use database::sync::{
-    LibrarySyncStore,
-    model::{BlobRef, Collection, ObjectKey},
+use database::{
+    actions::{
+        downloads::{DownloadReport, set_download_rule},
+        file::{blob_path_for_track, hash_file, is_materialized},
+        metadata::{MissingHostFilePolicy, ScanOptions},
+    },
+    connection::{RecommendationDbConnection, initialize_db},
+    entities::{media_files, sync_download_jobs, sync_download_rules},
+    sync::{
+        LibrarySyncStore,
+        model::{BlobRef, Collection, ObjectKey},
+    },
 };
 use hub::server::sync::downloads::{download_requested_audio, download_requested_audio_until};
 #[path = "support/causal_library.rs"]
 mod support;
 use anyhow::Result;
 use axum::{Router, extract::Path, http::StatusCode, routing::get};
-use database::{
-    connection::{RecommendationDbConnection, initialize_db},
-    entities::{media_files, sync_download_jobs, sync_download_rules},
-};
 use fsio::FsIo;
 use futures::StreamExt;
 use sea_orm::{
@@ -291,15 +292,7 @@ async fn preparation_failure_isolated_to_its_file() -> Result<()> {
     assert_eq!(fixture.run(&fixture.base).await?.downloaded, 1);
     let files = media_files::Entity::find().all(&fixture.db).await?;
     for file in files {
-        assert!(
-            database::actions::file::is_materialized(
-                &fixture.db,
-                &fixture.fs,
-                fixture.root.path(),
-                file.id
-            )
-            .await?
-        );
+        assert!(is_materialized(&fixture.db, &fixture.fs, fixture.root.path(), file.id).await?);
     }
     Ok(())
 }
@@ -324,13 +317,7 @@ async fn obsolete_attachment_does_not_block_the_following_file() -> Result<()> {
     assert_eq!(files.len(), 2);
     for file in files {
         assert_eq!(
-            database::actions::file::is_materialized(
-                &fixture.db,
-                &fixture.fs,
-                fixture.root.path(),
-                file.id
-            )
-            .await?,
+            is_materialized(&fixture.db, &fixture.fs, fixture.root.path(), file.id).await?,
             file.hlc_uuid == fixture.tracks[1].0.to_string()
         );
     }
@@ -394,12 +381,14 @@ async fn obsolete_reservation_is_released_without_reimporting_managed_bytes() ->
         &fixture.db,
         &fixture.node.to_string(),
         fixture.root.path(),
-        true,
-        false,
+        ScanOptions {
+            cleanup: true,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         |_| {},
-        None,
         &records,
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     assert_eq!(

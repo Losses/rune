@@ -1,11 +1,17 @@
 #[path = "support/causal_library.rs"]
 mod support;
+
 use anyhow::Result;
+use database::entities::{
+    albums, artists, genres, media_file_albums, media_file_artists, media_file_genres,
+    media_file_playlists, media_files, playlists,
+};
 use database::sync::{LibrarySyncStore, model::*};
 use migration::catalog_identity::{self, ParentKind};
 use sea_orm::{EntityTrait, PaginatorTrait};
 use std::{
     collections::BTreeMap,
+    env::consts::{ARCH, OS},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU8, Ordering},
@@ -270,8 +276,8 @@ async fn catalog_scale() -> Result<()> {
     let source_records = source.head().await?.sequence;
     eprintln!(
         "environment={} {} profile={} storage=sqlite::memory: source_preparation_ms={} tracks={count} source_records={source_records}",
-        std::env::consts::OS,
-        std::env::consts::ARCH,
+        OS,
+        ARCH,
         if cfg!(debug_assertions) {
             "debug"
         } else {
@@ -283,58 +289,25 @@ async fn catalog_scale() -> Result<()> {
     let start = Instant::now();
     let steps = exchange(&source, &target, scope.clone(), &source_sql.db, &db).await?;
     phase.store(0, Ordering::Relaxed);
+    assert_eq!(media_files::Entity::find().count(&db).await?, count as u64);
+    assert_eq!(albums::Entity::find().count(&db).await?, 20);
+    assert_eq!(artists::Entity::find().count(&db).await?, 40);
+    assert_eq!(genres::Entity::find().count(&db).await?, 8);
     assert_eq!(
-        database::entities::media_files::Entity::find()
-            .count(&db)
-            .await?,
+        media_file_artists::Entity::find().count(&db).await?,
         count as u64
     );
     assert_eq!(
-        database::entities::albums::Entity::find()
-            .count(&db)
-            .await?,
-        20
-    );
-    assert_eq!(
-        database::entities::artists::Entity::find()
-            .count(&db)
-            .await?,
-        40
-    );
-    assert_eq!(
-        database::entities::genres::Entity::find()
-            .count(&db)
-            .await?,
-        8
-    );
-    assert_eq!(
-        database::entities::media_file_artists::Entity::find()
-            .count(&db)
-            .await?,
+        media_file_genres::Entity::find().count(&db).await?,
         count as u64
     );
     assert_eq!(
-        database::entities::media_file_genres::Entity::find()
-            .count(&db)
-            .await?,
+        media_file_albums::Entity::find().count(&db).await?,
         count as u64
     );
+    assert_eq!(playlists::Entity::find().count(&db).await?, 10);
     assert_eq!(
-        database::entities::media_file_albums::Entity::find()
-            .count(&db)
-            .await?,
-        count as u64
-    );
-    assert_eq!(
-        database::entities::playlists::Entity::find()
-            .count(&db)
-            .await?,
-        10
-    );
-    assert_eq!(
-        database::entities::media_file_playlists::Entity::find()
-            .count(&db)
-            .await?,
+        media_file_playlists::Entity::find().count(&db).await?,
         count.div_ceil(10) as u64
     );
     println!(

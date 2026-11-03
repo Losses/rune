@@ -1,4 +1,5 @@
 use anyhow::Result;
+use database::actions::mixes::{add_item_to_mix, executable_queries_on};
 use database::{entities::*, sync::model::*};
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{
@@ -361,7 +362,7 @@ async fn adding_a_mix_selection_preserves_unbound_directories_and_clause_groups(
     let local_id = RuneModel::local_id_on(&db, &key(Collection::Mixes, id))
         .await?
         .unwrap() as i32;
-    database::actions::mixes::add_item_to_mix(
+    add_item_to_mix(
         &db,
         &store.record_store(),
         local_id,
@@ -379,10 +380,6 @@ async fn adding_a_mix_selection_preserves_unbound_directories_and_clause_groups(
         "adding a clause rewrote existing selections"
     );
     assert!(after[0].local_directory.is_none());
-    assert!(
-        database::actions::mixes::executable_queries_on(&db, &id.to_string())
-            .await
-            .is_err()
-    );
+    assert!(executable_queries_on(&db, &id.to_string()).await.is_err());
     Ok(())
 }

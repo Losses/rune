@@ -1,7 +1,7 @@
 use anyhow::Result;
 use database::{
     actions::{
-        metadata::scan_audio_library,
+        metadata::{MissingHostFilePolicy, ScanOptions, scan_audio_library},
         stats::{get_liked, increase_played_through, increase_skipped, set_liked},
     },
     entities::media_files,
@@ -28,12 +28,14 @@ async fn exercise_duplicate(played: bool) -> Result<()> {
         &db,
         &node.to_string(),
         root.path(),
-        false,
-        false,
+        ScanOptions {
+            cleanup: false,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         |_| {},
-        None,
         &store.record_store(),
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let first = media_files::Entity::find().all(&db).await?.pop().unwrap();
@@ -47,12 +49,14 @@ async fn exercise_duplicate(played: bool) -> Result<()> {
         &db,
         &node.to_string(),
         root.path(),
-        false,
-        false,
+        ScanOptions {
+            cleanup: false,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         |_| {},
-        None,
         &store.record_store(),
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let second = media_files::Entity::find()

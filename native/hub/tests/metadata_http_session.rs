@@ -1,12 +1,14 @@
 //! Real TCP metadata sessions with acknowledged writes whose replies are lost.
 #[path = "support/causal_library.rs"]
 mod support;
+
 use anyhow::{Context, Result, ensure};
 use axum::{
     body::{Body, to_bytes},
     extract::{Request, State},
-    http::StatusCode,
-    middleware::{self, Next},
+    http::{StatusCode, header::CONTENT_LENGTH},
+    middleware,
+    middleware::Next,
     response::{IntoResponse, Response},
 };
 use database::sync::model::{Collection, Payload, Playlist, RuneModel};
@@ -78,7 +80,7 @@ async fn lose_reply(
         return response;
     };
     let (mut parts, body) = response.into_parts();
-    parts.headers.remove(axum::http::header::CONTENT_LENGTH);
+    parts.headers.remove(CONTENT_LENGTH);
     let bytes = to_bytes(body, 32 * 1024 * 1024).await.unwrap();
     let body = match disturbance {
         Disturbance::Truncate => Body::from(bytes.slice(..bytes.len() / 2)),

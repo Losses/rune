@@ -1,9 +1,11 @@
 #[path = "support/causal_library.rs"]
 mod support;
+
 use anyhow::Result;
+use database::sync::model::RuneModel;
 use database::sync::model::*;
 use http_request::sync::router;
-type MetadataPeer = http_request::sync::MetadataPeer<database::sync::model::RuneModel>;
+type MetadataPeer = http_request::sync::MetadataPeer<RuneModel>;
 use support::{SqlLibrary, key};
 use sync::{self as p, SyncPeer};
 use uuid::Uuid;

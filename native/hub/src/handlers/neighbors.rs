@@ -1,3 +1,9 @@
+use crate::server::{
+    ServerManager,
+    api::{check_fingerprint, register_device},
+    generate_or_load_certificates, get_or_generate_alias,
+    utils::device::load_device_info,
+};
 use std::{fs, future::Future, path::Path, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
@@ -16,11 +22,6 @@ use ::discovery::{
 };
 use ::http_request::{BodyExt, Bytes, Empty, Request, Uri, create_https_client, send_http_request};
 
-use crate::server::{
-    ServerManager,
-    api::{check_fingerprint, register_device},
-    generate_or_load_certificates, get_or_generate_alias,
-};
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Session, Signal, messages::*};
 
@@ -289,10 +290,8 @@ impl Signal for StopServerRequest {
                 .listen
                 && let Some(address) = address
             {
-                let info = crate::server::utils::device::load_device_info(Path::new(
-                    &*server_manager.global_params.config_path,
-                ))
-                .await?;
+                let info =
+                    load_device_info(Path::new(&*server_manager.global_params.config_path)).await?;
                 server_manager
                     .clone()
                     .start_sync(address, DiscoveryParams { device_info: info })

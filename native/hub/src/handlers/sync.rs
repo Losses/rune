@@ -1,13 +1,14 @@
+use crate::{
+    Session, Signal,
+    messages::{SetDownloadRuleRequest, SetDownloadRuleResponse},
+    server::utils::device::load_device_info,
+    utils::{GlobalParams, ParamsExtractor, sync_settings::SyncSettings},
+};
+use database::actions::downloads::set_download_rule;
 use std::sync::Arc;
 
 use anyhow::Result;
 use database::connection::MainDbConnection;
-
-use crate::{
-    Session, Signal,
-    messages::{SetDownloadRuleRequest, SetDownloadRuleResponse},
-    utils::{GlobalParams, ParamsExtractor},
-};
 
 impl ParamsExtractor for SetDownloadRuleRequest {
     type Params = Arc<MainDbConnection>;
@@ -27,7 +28,7 @@ impl Signal for SetDownloadRuleRequest {
         _session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let result = database::actions::downloads::set_download_rule(
+        let result = set_download_rule(
             &db,
             request
                 .queries
@@ -51,13 +52,13 @@ impl Signal for SetDownloadRuleRequest {
 }
 
 impl ParamsExtractor for crate::messages::GetSyncSettingsRequest {
-    type Params = Arc<tokio::sync::RwLock<crate::utils::sync_settings::SyncSettings>>;
+    type Params = Arc<tokio::sync::RwLock<SyncSettings>>;
     fn extract_params(&self, params: &GlobalParams) -> Self::Params {
         params.sync_settings.clone()
     }
 }
 impl Signal for crate::messages::GetSyncSettingsRequest {
-    type Params = Arc<tokio::sync::RwLock<crate::utils::sync_settings::SyncSettings>>;
+    type Params = Arc<tokio::sync::RwLock<SyncSettings>>;
     type Response = crate::messages::GetSyncSettingsResponse;
     async fn handle(
         &self,
@@ -76,7 +77,7 @@ impl Signal for crate::messages::GetSyncSettingsRequest {
 }
 impl ParamsExtractor for crate::messages::SetSyncSettingsRequest {
     type Params = (
-        Arc<tokio::sync::RwLock<crate::utils::sync_settings::SyncSettings>>,
+        Arc<tokio::sync::RwLock<SyncSettings>>,
         Arc<String>,
         Option<Arc<crate::server::ServerManager>>,
     );
@@ -90,7 +91,7 @@ impl ParamsExtractor for crate::messages::SetSyncSettingsRequest {
 }
 impl Signal for crate::messages::SetSyncSettingsRequest {
     type Params = (
-        Arc<tokio::sync::RwLock<crate::utils::sync_settings::SyncSettings>>,
+        Arc<tokio::sync::RwLock<SyncSettings>>,
         Arc<String>,
         Option<Arc<crate::server::ServerManager>>,
     );
@@ -105,7 +106,7 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
             let policy = request.missing_host_file.into();
             let mut current = settings.write().await;
             let changed = current.listen != request.listen;
-            let next = crate::utils::sync_settings::SyncSettings {
+            let next = SyncSettings {
                 listen: request.listen,
                 missing_host_file: policy,
             };
@@ -116,10 +117,7 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
                     manager.ok_or_else(|| anyhow::anyhow!("server manager unavailable"))?;
                 if request.listen {
                     if !manager.is_running() {
-                        let info = crate::server::utils::device::load_device_info(
-                            std::path::Path::new(&**config),
-                        )
-                        .await?;
+                        let info = load_device_info(std::path::Path::new(&**config)).await?;
                         manager
                             .start_sync(
                                 ([0, 0, 0, 0], 7863).into(),

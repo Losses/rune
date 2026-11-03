@@ -1,4 +1,5 @@
 //! Deterministic business commands interleaved with bounded metadata sessions.
+
 use anyhow::{Context, Result, ensure};
 use axum::{
     body::{Body, to_bytes},
@@ -8,7 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use database::{
-    actions::{mixes, playlists, stats},
+    actions::{file::get_media_files, mixes, playlists, stats},
     entities::{media_file_stats, media_files, playlists as playlist_rows},
     sync::{LibrarySyncStore, model::RuneModel},
 };
@@ -236,7 +237,7 @@ async fn check_reads(replica: &Replica) -> Result<()> {
             previous = Some(current);
         }
     }
-    for file in database::actions::file::get_media_files(&replica.db, 0, 128).await? {
+    for file in get_media_files(&replica.db, 0, 128).await? {
         let _ = stats::get_liked(&replica.db, file.id).await?;
     }
     for mix in mixes::get_all_mixes(&replica.db).await? {

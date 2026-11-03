@@ -13,6 +13,12 @@ pub const MAX_BLOB_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 /// Reserved application-managed content; ordinary library scans do not author it.
 pub const MANAGED_AUDIO_DIRECTORY: &str = "Rune Sync";
 
+pub fn is_managed_directory(directory: &str) -> bool {
+    directory == MANAGED_AUDIO_DIRECTORY
+        || directory.starts_with(&format!("{MANAGED_AUDIO_DIRECTORY}/"))
+        || directory.starts_with(&format!("{MANAGED_AUDIO_DIRECTORY}\\"))
+}
+
 /// Validate the full lowercase BLAKE3 digest used to identify audio.
 pub fn validate_digest(digest: &str) -> Result<()> {
     ensure!(

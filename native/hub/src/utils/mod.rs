@@ -4,6 +4,7 @@ pub mod nid;
 pub mod player;
 pub mod sync_settings;
 
+use database::actions::file::{AudioAvailability, audio_availability, remote_content_ids};
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -482,9 +483,8 @@ pub async fn parse_media_files(
     lib_path: Arc<String>,
 ) -> Result<Vec<MediaFile>> {
     let ids: Vec<_> = media_summaries.iter().map(|file| file.id).collect();
-    let availability =
-        database::actions::file::audio_availability(db, fsio, Path::new(&*lib_path), &ids).await?;
-    let remote_content = database::actions::file::remote_content_ids(db, &ids).await?;
+    let availability = audio_availability(db, fsio, Path::new(&*lib_path), &ids).await?;
+    let remote_content = remote_content_ids(db, &ids).await?;
     let mut media_files = Vec::with_capacity(media_summaries.len());
 
     for file in media_summaries {
@@ -566,9 +566,8 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
             _ => None,
         })
         .collect();
-    let availability =
-        database::actions::file::audio_availability(db, fsio, lib_path.as_ref(), &ids).await?;
-    let remote_content = database::actions::file::remote_content_ids(db, &ids).await?;
+    let availability = audio_availability(db, fsio, lib_path.as_ref(), &ids).await?;
+    let remote_content = remote_content_ids(db, &ids).await?;
     Ok(files
         .iter()
         .filter_map(|file| {
@@ -576,17 +575,14 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
                 PlayingItem::InLibrary(id)
                     if matches!(
                         availability.get(id),
-                        Some(database::actions::file::AudioAvailability::RemoteOnly)
-                            | Some(database::actions::file::AudioAvailability::ImportPending)
+                        Some(AudioAvailability::RemoteOnly)
+                            | Some(AudioAvailability::ImportPending)
                     ) && remote_content.contains(id) =>
                 {
                     PlaybackSource::LibraryStream
                 }
                 PlayingItem::InLibrary(id)
-                    if !matches!(
-                        availability.get(id),
-                        Some(database::actions::file::AudioAvailability::Local)
-                    ) =>
+                    if !matches!(availability.get(id), Some(AudioAvailability::Local)) =>
                 {
                     return None;
                 }

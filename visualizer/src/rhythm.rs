@@ -26,10 +26,10 @@
 //! Everything is driven by the samples pushed, not the wall clock, so it pauses with the music
 //! and runs the same in tests.
 
+use std::f32::consts::TAU;
 use std::sync::Arc;
 
-use realfft::num_complex::Complex;
-use realfft::{RealFftPlanner, RealToComplex};
+use realfft::{RealFftPlanner, RealToComplex, num_complex::Complex};
 
 /// What the tracker knows at the last sample pushed.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -197,7 +197,7 @@ impl BeatTracker {
         let fft = RealFftPlanner::<f32>::new().plan_fft_forward(size);
         let window = (0..size)
             .map(|i| {
-                let x = std::f32::consts::TAU * i as f32 / size as f32;
+                let x = TAU * i as f32 / size as f32;
                 0.5 - 0.5 * x.cos()
             })
             .collect::<Vec<_>>();
@@ -619,7 +619,9 @@ impl BeatTracker {
 
 #[cfg(test)]
 mod tests_support {
+
     use super::*;
+    use std::f64::consts::TAU;
 
     pub const RATE: u32 = 44_100;
     /// Samples per push, a frame of video at 60 fps.
@@ -646,7 +648,7 @@ mod tests_support {
                 }
                 let s = i as f64 / f64::from(RATE);
                 let freq = 50.0 + 100.0 * (-s * 30.0).exp();
-                let body = (std::f64::consts::TAU * freq * s).sin() * (-s * 12.0).exp();
+                let body = (TAU * freq * s).sin() * (-s * 12.0).exp();
                 let click = f64::from(noise()) * (-s * 400.0).exp() * 0.3;
                 out[start + i] += (0.6 * (body + click)) as f32;
             }

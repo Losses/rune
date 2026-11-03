@@ -10,3 +10,6 @@ path = "src/lib.rs"
 
 [dependencies]
 tokio = { version = "1.42.0" }
+
+[lints]
+workspace = true

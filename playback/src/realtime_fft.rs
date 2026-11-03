@@ -1,5 +1,8 @@
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::{
+    f32::consts::PI,
+    sync::{Arc, Mutex},
+    thread,
+};
 
 use rustfft::{FftPlanner, num_complex::Complex};
 
@@ -20,7 +23,7 @@ pub fn build_nuttall_window(window_size: usize) -> Vec<f32> {
 
     (0..window_size)
         .map(|n| {
-            let factor = 2.0 * std::f32::consts::PI * n as f32 / (window_size as f32 - 1.0);
+            let factor = 2.0 * PI * n as f32 / (window_size as f32 - 1.0);
             a0 - a1 * factor.cos() + a2 * (2.0 * factor).cos() - a3 * (3.0 * factor).cos()
         })
         .collect()

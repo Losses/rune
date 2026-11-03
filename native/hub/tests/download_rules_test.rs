@@ -1,7 +1,14 @@
 use anyhow::Result;
-use database::entities::{media_files, sync_download_jobs, sync_download_rules};
-use database::sync::model::{Collection, MetadataTag, ObjectKey, Payload, Track};
-use database::{actions::downloads::set_download_rule, connection::RecommendationDbConnection};
+use database::{
+    actions::{
+        downloads::set_download_rule,
+        file::attach_download,
+        metadata::{MissingHostFilePolicy, ScanOptions},
+    },
+    connection::RecommendationDbConnection,
+    entities::{media_files, sync_download_jobs, sync_download_rules},
+    sync::model::{Collection, MetadataTag, ObjectKey, Payload, Track},
+};
 use fsio::FsIo;
 use hub::server::sync::downloads::download_requested_audio;
 use migration::{Migrator, MigratorTrait};
@@ -101,12 +108,14 @@ async fn interrupted_import_resumes_without_new_track_identity() -> Result<()> {
         &db,
         &node.to_string(),
         dir.path(),
-        false,
-        false,
+        ScanOptions {
+            cleanup: false,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         |_| {},
-        None,
         &store.record_store(),
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     store.head().await?;
@@ -115,7 +124,7 @@ async fn interrupted_import_resumes_without_new_track_identity() -> Result<()> {
     let db = Database::connect(&url).await?;
     assert_eq!(media_files::Entity::find().count(&db).await?, 1);
     let store = LibrarySyncStore::open(db.clone(), node, Some(library)).await?;
-    database::actions::file::attach_download(
+    attach_download(
         &db,
         &store.record_store(),
         &fs,
@@ -166,15 +175,17 @@ async fn interrupted_import_resumes_without_new_track_identity() -> Result<()> {
         &db,
         &node.to_string(),
         dir.path(),
-        false,
-        false,
+        ScanOptions {
+            cleanup: false,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
         |_| {},
-        None,
         &store.record_store(),
-        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
-    database::actions::file::attach_download(
+    attach_download(
         &db,
         &store.record_store(),
         &fs,

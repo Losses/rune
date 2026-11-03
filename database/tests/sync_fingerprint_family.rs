@@ -1,11 +1,16 @@
 #[path = "support/causal_library.rs"]
 mod support;
+
 use anyhow::Result;
-use database::sync::model::{Fingerprint, ScoreValue, Similarity};
 use database::{
-    actions::fingerprint::{ComputedFingerprint, assign_computed_fingerprint},
-    entities::{media_file_fingerprint, media_files},
-    sync::SeaOrmSyncStore,
+    actions::fingerprint::{
+        ComputedFingerprint, assign_computed_fingerprint, reset_duplicate_marks,
+    },
+    entities::{media_file_fingerprint, media_file_similarity, media_files},
+    sync::{
+        SeaOrmSyncStore,
+        model::{Fingerprint, ScoreValue, Similarity},
+    },
 };
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{
@@ -196,17 +201,11 @@ async fn independent_configurations_coexist_in_primary_rows() -> Result<()> {
         tx.commit().await?;
     }
     assert_eq!(
-        database::entities::media_file_fingerprint::Entity::find()
-            .all(&db)
-            .await?
-            .len(),
+        media_file_fingerprint::Entity::find().all(&db).await?.len(),
         2
     );
     assert_eq!(
-        database::entities::media_file_similarity::Entity::find()
-            .all(&db)
-            .await?
-            .len(),
+        media_file_similarity::Entity::find().all(&db).await?.len(),
         2
     );
     assert_eq!(
@@ -216,11 +215,7 @@ async fn independent_configurations_coexist_in_primary_rows() -> Result<()> {
         4
     );
     db.execute_unprepared("CREATE TRIGGER reject_reset BEFORE INSERT ON sync_journal BEGIN SELECT RAISE(ABORT, 'test'); END").await?;
-    assert!(
-        database::actions::fingerprint::reset_duplicate_marks(&db, |_, _| {}, &store)
-            .await
-            .is_err()
-    );
+    assert!(reset_duplicate_marks(&db, |_, _| {}, &store).await.is_err());
     assert!(
         media_file_fingerprint::Entity::find()
             .all(&db)
@@ -229,10 +224,7 @@ async fn independent_configurations_coexist_in_primary_rows() -> Result<()> {
             .all(|row| row.is_duplicated == 1)
     );
     db.execute_unprepared("DROP TRIGGER reject_reset").await?;
-    assert_eq!(
-        database::actions::fingerprint::reset_duplicate_marks(&db, |_, _| {}, &store).await?,
-        2
-    );
+    assert_eq!(reset_duplicate_marks(&db, |_, _| {}, &store).await?, 2);
     for row in media_file_fingerprint::Entity::find().all(&db).await? {
         assert_eq!(row.is_duplicated, 0);
         let record = store

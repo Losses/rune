@@ -17,10 +17,10 @@
 //! The spectra are `f32`, as in numpy; the curves made from them are stored as `f64` holding
 //! the `f32` values the Python has, and everything after is `f64`.
 
+use std::f64::consts::PI;
 use std::sync::Arc;
 
-use realfft::num_complex::Complex;
-use realfft::{RealFftPlanner, RealToComplex};
+use realfft::{RealFftPlanner, RealToComplex, num_complex::Complex};
 
 use crate::ndimage::{maximum_filter1d, median_filter1d};
 use crate::np::{geomspace, hanning, pairwise_sum, round_half_even};
@@ -560,7 +560,7 @@ impl ChromaTimbreStage {
         let dct = (1..=TIMBRE_COEFFS)
             .map(|j| {
                 (0..TIMBRE_BANDS)
-                    .map(|k| (std::f64::consts::PI / 24.0 * (k as f64 + 0.5) * j as f64).cos())
+                    .map(|k| (PI / 24.0 * (k as f64 + 0.5) * j as f64).cos())
                     .collect()
             })
             .collect();
@@ -690,8 +690,10 @@ pub fn front(x: &[f32]) -> Front {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::front_whole::front_whole;
+    use std::f64::consts::TAU;
 
     /// A noisy signal with a few kinds of events, `seconds` long: a deterministic LCG for the
     /// noise, a tone that comes and goes and clicks, so every curve has something in it.
@@ -703,7 +705,7 @@ mod tests {
                 state = state.wrapping_mul(1664525).wrapping_add(1013904223);
                 let noise = (state >> 8) as f32 / (1u32 << 24) as f32 - 0.5;
                 let t = i as f64 / SR as f64;
-                let tone = (std::f64::consts::TAU * 440.0 * t).sin() * (t * 3.0).sin().abs();
+                let tone = (TAU * 440.0 * t).sin() * (t * 3.0).sin().abs();
                 let click = if i % 5000 < 40 { 0.8 } else { 0.0 };
                 (0.2 * tone) as f32 + 0.05 * noise + click
             })

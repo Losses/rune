@@ -37,3 +37,6 @@ libc = "0.2"
 jni = "0.21.1"
 libc = "0.2"
 raw-window-handle = "0.6"
+
+[lints]
+workspace = true

@@ -8,3 +8,6 @@ publish = false
 [dependencies]
 fearless_simd = "1.2.0"
 crc-fast = { version = "1.10.0", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

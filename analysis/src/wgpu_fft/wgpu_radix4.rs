@@ -1,4 +1,5 @@
 use bytemuck::{Pod, Zeroable};
+use futures::channel::oneshot;
 use num_complex::{Complex, Complex32};
 use rustfft::FftNum;
 use wgpu::{ComputePipeline, Device, Queue};
@@ -127,7 +128,7 @@ impl FFTCompute {
         self.queue.submit(Some(encoder.finish()));
 
         let buffer_slice = self.result_buffer.slice(..);
-        let (tx, rx) = futures::channel::oneshot::channel();
+        let (tx, rx) = oneshot::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });

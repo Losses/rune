@@ -1,3 +1,8 @@
+use database::{
+    actions::file::{get_file_by_id, get_random_files},
+    connection::MainDbConnection,
+    entities::media_files,
+};
 use std::{
     path::Path,
     sync::{Arc, Mutex},
@@ -10,10 +15,6 @@ use futures::future::join_all;
 use log::{debug, error, info};
 use tokio::task;
 
-use database::{
-    actions::file::{get_file_by_id, get_random_files},
-    connection::MainDbConnection,
-};
 use playback::{
     player::{Playable, Player, PlayingItem},
     strategies::AddMode,
@@ -34,7 +35,7 @@ async fn play_files(main_db: &MainDbConnection, canonicalized_path: &Path, file_
         }
     });
 
-    let files: Vec<database::entities::media_files::Model> = join_all(file_futures)
+    let files: Vec<media_files::Model> = join_all(file_futures)
         .await
         .into_iter()
         .filter_map(|file| file.flatten())

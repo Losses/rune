@@ -1,6 +1,9 @@
+use analysis::utils::computing_device::ComputingDevice;
 use anyhow::Result;
 use database::{
-    actions::metadata::sync_file_descriptions, connection::initialize_db, entities::media_files,
+    actions::{analysis::analysis_audio_library, metadata::sync_file_descriptions},
+    connection::initialize_db,
+    entities::media_files,
 };
 use fsio::FsIo;
 use metadata::describe::describe_file;
@@ -54,12 +57,12 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
     assert_eq!(media_files::Entity::find().count(&db).await?, 1);
     let cancelled = tokio_util::sync::CancellationToken::new();
     cancelled.cancel();
-    let processed = database::actions::analysis::analysis_audio_library(
+    let processed = analysis_audio_library(
         std::sync::Arc::new(fs),
         &db,
         std::path::Path::new("."),
         1,
-        analysis::utils::computing_device::ComputingDevice::Cpu,
+        ComputingDevice::Cpu,
         |_, _| {},
         Some(cancelled),
     )

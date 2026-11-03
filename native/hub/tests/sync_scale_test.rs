@@ -1,5 +1,6 @@
 #[path = "support/causal_library.rs"]
 mod support;
+
 use anyhow::Result;
 use axum::{
     body::{Body, to_bytes},
@@ -8,10 +9,12 @@ use axum::{
     response::Response,
 };
 use database::entities::{media_files, media_metadata};
+use database::sync::model::{Collection, ObjectKey, Payload};
 use http_request::sync::router;
 use hub::server::sync::client::sync_library;
 use sea_orm::{EntityTrait, PaginatorTrait, Set, TransactionTrait};
 use std::{
+    env::consts::{ARCH, OS},
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -85,8 +88,8 @@ async fn metadata_initial_incremental_and_idle_rounds() -> Result<()> {
     source.library.import_basic().await?;
     eprintln!(
         "environment={} {} profile={} storage=sqlite::memory: tracks={count} metadata_tags={count} preparation_ms={}",
-        std::env::consts::OS,
-        std::env::consts::ARCH,
+        OS,
+        ARCH,
         if cfg!(debug_assertions) {
             "debug"
         } else {
@@ -171,27 +174,22 @@ async fn metadata_initial_incremental_and_idle_rounds() -> Result<()> {
     assert!(stable, "initial exchange did not settle");
     traffic.reset();
     let incremental = Instant::now();
-    let key = database::sync::model::ObjectKey {
-        collection: database::sync::model::Collection::Tracks,
+    let key = ObjectKey {
+        collection: Collection::Tracks,
         id: Uuid::from_u128(1),
     };
-    let database::sync::model::Payload::Track(mut value) =
-        source.library.get(&key).await?.unwrap().value.unwrap()
-    else {
+    let Payload::Track(mut value) = source.library.get(&key).await?.unwrap().value.unwrap() else {
         unreachable!()
     };
     value.metadata[0].value = "Edited track".into();
     source
         .library
-        .write_local(
-            key.clone(),
-            Some(database::sync::model::Payload::Track(value.clone())),
-        )
+        .write_local(key.clone(), Some(Payload::Track(value.clone())))
         .await?;
     synchronize().await?;
     assert_eq!(
         target.library.get(&key).await?.unwrap().value,
-        Some(database::sync::model::Payload::Track(value))
+        Some(Payload::Track(value))
     );
     eprintln!(
         "phase=incremental edits=1 elapsed_ms={} requests={} body_bytes={} page_operations={} peak_rss_kib={:?}",

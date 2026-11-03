@@ -1,6 +1,8 @@
 //! The shader sources of a scene: the runtime's prelude in front of the author's files, checked
 //! with naga so that errors name the author's file and line.
 
+use naga::front::wgsl::ParseError;
+use naga::front::wgsl::parse_str;
 use std::fmt::Write;
 
 use anyhow::{Result, anyhow};
@@ -380,7 +382,7 @@ impl Source {
 
     /// Parse and validate, with errors in the author's terms.
     pub fn check(&self) -> Result<naga::Module> {
-        let module = naga::front::wgsl::parse_str(&self.text)
+        let module = parse_str(&self.text)
             .map_err(|e| anyhow!(self.at(e.location(&self.text), &parse_message(&e))))?;
         let mut validator = naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
@@ -402,7 +404,7 @@ impl Source {
 }
 
 /// naga's message with the labels of its spans ("expected ...").
-fn parse_message(e: &naga::front::wgsl::ParseError) -> String {
+fn parse_message(e: &ParseError) -> String {
     let mut message = e.message().to_string();
     for (_, label) in e.labels() {
         if !label.is_empty() {
@@ -503,7 +505,10 @@ fn rv_fragment(v: RvVaryings) -> @location(0) vec4f {{
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+    use crate::scene::director::ShotState;
+    use naga::front::wgsl::parse_str;
 
     fn manifest() -> Manifest {
         Manifest::parse(
@@ -542,7 +547,7 @@ inputs = ["prev:trail"]
         let words = SHOT.matches(": u32,").count() + SHOT.matches(": f32,").count();
         assert_eq!(words as u64 * 4, SHOT_SIZE);
         assert_eq!(
-            crate::scene::director::ShotState {
+            ShotState {
                 index: 0,
                 cuts: 0,
                 size: 0,
@@ -580,7 +585,7 @@ inputs = ["prev:trail"]
         let frame = format!(
             "{FRAME}@group(0) @binding(0) var<uniform> frame: Frame;\n@fragment fn f() -> @location(0) vec4f {{ return vec4f(f32(frame.covers)); }}\n"
         );
-        let module = naga::front::wgsl::parse_str(&frame).unwrap();
+        let module = parse_str(&frame).unwrap();
         let mut layouter = naga::proc::Layouter::default();
         layouter.update(module.to_ctx()).unwrap();
         let (handle, _) = module

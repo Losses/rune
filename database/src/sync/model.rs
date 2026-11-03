@@ -1,4 +1,6 @@
 //! Rune source-row declarations and pure portable value conversions.
+
+use crate::actions::file::validate_digest;
 use crate::entities::*;
 use migration::catalog_identity::{self, ParentKind};
 use sea_orm::{ColumnTrait, Condition, DbErr, Value, sea_query::Expr};
@@ -86,8 +88,9 @@ impl FieldCodec for ScoreValue {
 fn validate_blob(hash: Option<&str>, size: Option<i64>) -> Result<(), DbErr> {
     match (hash, size) {
         (None, None) => Ok(()),
-        (Some(hash), Some(size)) if size >= 0 => crate::actions::file::validate_digest(hash)
-            .map_err(|error| DbErr::Custom(error.to_string())),
+        (Some(hash), Some(size)) if size >= 0 => {
+            validate_digest(hash).map_err(|error| DbErr::Custom(error.to_string()))
+        }
         _ => Err(DbErr::Custom(
             "content digest and nonnegative length must be present together".into(),
         )),

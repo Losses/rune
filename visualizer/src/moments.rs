@@ -245,7 +245,9 @@ pub fn lens_effect(names: &[String], played: Played) -> Option<Lens> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+    use crate::bind::tests::embedded_with;
 
     #[test]
     fn a_cut_the_scene_glides_to_is_not_dressed_and_a_hard_one_is() {
@@ -457,7 +459,7 @@ mod tests {
                 .map(|p| p.strength)
         };
         assert_eq!(play(&RuntimeBindings::embedded()), Some(Strength::Medium));
-        let custom = crate::bind::tests::embedded_with(
+        let custom = embedded_with(
             "target = \"moments.strong\"\nsource = \"cues\"\nhow = \"trigger\"\nwhen = { strength = 0.8 }",
             "target = \"moments.strong\"\nsource = \"impacts\"\nhow = \"trigger\"\nwhen = { strength = 0.0 }",
         );
@@ -485,8 +487,7 @@ mod tests {
             scheduler.tick(&at(10.0), Chances::every(1.0)).is_some()
         };
         assert!(!second(&RuntimeBindings::embedded()));
-        let custom =
-            crate::bind::tests::embedded_with("when = { every = 8 }", "when = { every = 1 }");
+        let custom = embedded_with("when = { every = 8 }", "when = { every = 1 }");
         assert!(second(&custom));
     }
 }

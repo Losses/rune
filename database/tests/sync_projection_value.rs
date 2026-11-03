@@ -1,6 +1,8 @@
 #[path = "support/causal_library.rs"]
 mod support;
+
 use anyhow::Result;
+use database::actions::stats::get_liked;
 use database::{
     entities::{media_file_likes, media_files},
     sync::{bindings, model::*},
@@ -30,15 +32,15 @@ async fn projection_can_restore_lower_value_and_remove_without_authored_revision
     let higher = local.peer.write_local(key.clone(), like(false)).await?;
     let tx = local.db.begin().await?;
     bindings::apply(&tx, &higher.key, higher.value.as_ref()).await?;
-    assert!(!database::actions::stats::get_liked(&tx, file.id).await?);
+    assert!(!get_liked(&tx, file.id).await?);
     bindings::apply(&tx, &lower.key, lower.value.as_ref()).await?;
-    assert!(database::actions::stats::get_liked(&tx, file.id).await?);
+    assert!(get_liked(&tx, file.id).await?);
     tx.commit().await?;
     local.db.execute_unprepared("CREATE TRIGGER reject_projection BEFORE DELETE ON media_file_likes BEGIN SELECT RAISE(ABORT, 'test'); END").await?;
     let tx = local.db.begin().await?;
     assert!(bindings::apply(&tx, &key, None).await.is_err());
     tx.rollback().await?;
-    assert!(database::actions::stats::get_liked(&local.db, file.id).await?);
+    assert!(get_liked(&local.db, file.id).await?);
     assert_eq!(local.peer.head().await?.sequence, 3);
     local
         .db

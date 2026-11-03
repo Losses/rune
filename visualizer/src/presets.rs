@@ -424,8 +424,10 @@ impl PresetList {
 
 #[cfg(test)]
 mod tests {
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
+
+    use rand::{SeedableRng, rngs::StdRng};
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
 
     use super::*;
 
@@ -519,8 +521,8 @@ mod tests {
         let mut list = PresetList::default();
         #[cfg(unix)]
         {
-            std::os::unix::fs::symlink(&dir, dir.join("loop")).unwrap();
-            std::os::unix::fs::symlink(dir.join("Fractal"), dir.join("link")).unwrap();
+            symlink(&dir, dir.join("loop")).unwrap();
+            symlink(dir.join("Fractal"), dir.join("link")).unwrap();
         }
         // `inner` is inside a scene: it is not scanned.
         assert_eq!(list.scan_all(std::slice::from_ref(&dir)).0, 3);

@@ -144,15 +144,18 @@ impl Drop for ManagedStream {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use std::io::Read;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::sync::oneshot;
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn authenticated_client_reads_before_full_response_arrives() -> Result<()> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
-        let (release, waiting) = tokio::sync::oneshot::channel::<()>();
-        let forced = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (release, waiting) = oneshot::channel::<()>();
+        let forced = std::sync::Arc::new(AtomicBool::new(false));
         let forced_server = forced.clone();
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
@@ -174,7 +177,7 @@ mod tests {
                 .await
                 .is_err()
             {
-                forced_server.store(true, std::sync::atomic::Ordering::SeqCst);
+                forced_server.store(true, Ordering::SeqCst);
             }
             let _ = socket.write_all(&vec![9; 1024 * 1024 - 300 * 1024]).await;
         });
@@ -200,7 +203,7 @@ mod tests {
         .await??;
         assert_eq!(first, [7; 4]);
         assert!(
-            !forced.load(std::sync::atomic::Ordering::SeqCst),
+            !forced.load(Ordering::SeqCst),
             "stream waited for full response"
         );
         release.send(()).unwrap();

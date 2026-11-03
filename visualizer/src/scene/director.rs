@@ -1138,8 +1138,11 @@ impl Director {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+    use crate::bind::tests::embedded_with;
     use crate::scene::fixtures::chart_json;
+    use crate::scene::wgsl::SHOT_SIZE;
 
     fn shot(size: ShotSize, motion: ShotMove) -> Shot {
         Shot {
@@ -1298,7 +1301,7 @@ mod tests {
             hard: 1,
         };
         let bytes = state.bytes();
-        assert_eq!(bytes.len() as u64, crate::scene::wgsl::SHOT_SIZE);
+        assert_eq!(bytes.len() as u64, SHOT_SIZE);
         let word = |i: usize| <[u8; 4]>::try_from(&bytes[i * 4..i * 4 + 4]).unwrap();
         assert_eq!(u32::from_le_bytes(word(1)), 2);
         assert_eq!(f32::from_le_bytes(word(3)), 0.5);
@@ -2665,7 +2668,7 @@ mod tests {
         assert_eq!(first_cut_by(&embedded), Some(52));
         // The drive, 0.8: a high one, after 10 s.
         let when = "when = { below = 0.35, above = 0.71, seconds = [24.0, 16.0, 10.0], gap = 6.0, lead = 4.0 }";
-        let custom = crate::bind::tests::embedded_with(
+        let custom = embedded_with(
             &format!("source = \"section_level\"\nhow = \"follow\"\n{when}"),
             &format!("source = \"drive\"\nhow = \"follow\"\n{when}"),
         );
@@ -2678,7 +2681,7 @@ mod tests {
         // bars at the next downbeat.
         let embedded = crate::bind::RuntimeBindings::embedded();
         assert_eq!(first_cut_by(&embedded), Some(52));
-        let custom = crate::bind::tests::embedded_with(
+        let custom = embedded_with(
             "target = \"director.cut\"\nsource = \"bars\"",
             "target = \"director.cut\"\nsource = \"beats\"",
         );
@@ -2690,7 +2693,7 @@ mod tests {
         // A quiet section whose cadence is 3 s: held back to the gap's 6 s (the downbeat of beat
         // 16), or with no gap cutting at 3 s (beat 8).
         let with_gap = |gap: &str| {
-            crate::bind::tests::embedded_with(
+            embedded_with(
                 "seconds = [24.0, 16.0, 10.0], gap = 6.0",
                 &format!("seconds = [3.0, 3.0, 3.0], gap = {gap}"),
             )
@@ -2892,7 +2895,7 @@ mod tests {
     /// The embedded runtime with `director.burst`'s chance replaced (none: left out of the file).
     fn with_chance(director: &mut Director, chance: Option<f32>) {
         let to = chance.map_or(String::new(), |c| format!(", chance = {c:?}"));
-        let runtime = crate::bind::tests::embedded_with(", chance = 0.5", &to);
+        let runtime = embedded_with(", chance = 0.5", &to);
         director.set_binds(runtime.director.clone(), runtime.moments.clone());
     }
 
@@ -3082,7 +3085,7 @@ mod tests {
         let embedded = crate::bind::RuntimeBindings::embedded();
         // The lift of the song is 0.7, and a burst of 4 cuts comes before it.
         assert!(run(&embedded) >= 5);
-        let custom = crate::bind::tests::embedded_with("lift = 0.1,", "lift = 0.9,");
+        let custom = embedded_with("lift = 0.1,", "lift = 0.9,");
         assert_eq!(run(&custom), 2);
     }
 

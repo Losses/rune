@@ -1,3 +1,4 @@
+use database::sync::model::{Collection, Genre, ObjectKey, Payload, RuneModel};
 use std::collections::HashSet;
 
 use anyhow::Result;
@@ -66,18 +67,16 @@ async fn a_mix_with_genre_and_directory_queries_reads_back() -> Result<()> {
     let library = database::sync::LibrarySyncStore::open(db.clone(), actor, None).await?;
     let genre =
         migration::catalog_identity::parent(migration::catalog_identity::ParentKind::Genre, "Rock");
-    database::sync::model::RuneModel::project(
+    RuneModel::project(
         &db,
-        &database::sync::model::ObjectKey {
-            collection: database::sync::model::Collection::Genres,
+        &ObjectKey {
+            collection: Collection::Genres,
             id: genre,
         },
-        Some(&database::sync::model::Payload::Genre(
-            database::sync::model::Genre {
-                name: "Rock".into(),
-                group: "R".into(),
-            },
-        )),
+        Some(&Payload::Genre(Genre {
+            name: "Rock".into(),
+            group: "R".into(),
+        })),
     )
     .await?;
     let mix = create_mix(

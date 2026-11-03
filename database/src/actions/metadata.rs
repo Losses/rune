@@ -1,3 +1,14 @@
+use crate::actions::{
+    file::{
+        MANAGED_AUDIO_DIRECTORY, get_file_ids_by_descriptions, is_managed_directory, remove_track,
+    },
+    index::index_media_files,
+    logging::{LogLevel, insert_log},
+};
+use crate::entities::{
+    albums, artists, media_file_albums, media_file_artists, media_files, media_metadata,
+    sync_download_jobs, sync_download_jobs::Column,
+};
 use sea_orm::ExprTrait;
 use std::{
     collections::HashMap,
@@ -20,15 +31,6 @@ use ::metadata::{
     describe::{FileDescription, describe_file},
     reader::get_metadata,
     scanner::AudioScanner,
-};
-
-use crate::actions::{
-    file::get_file_ids_by_descriptions,
-    index::index_media_files,
-    logging::{LogLevel, insert_log},
-};
-use crate::entities::{
-    albums, artists, media_file_albums, media_file_artists, media_files, media_metadata,
 };
 
 use super::utils::DatabaseExecutor;
@@ -187,22 +189,14 @@ async fn sync_file_descriptions_inner(
         for description in batch.iter_mut().flatten() {
             // Managed copies are verified by file actions and attached after download.
             // Unreferenced old versions must never become newly authored files.
-            if std::path::Path::new(&description.directory)
-                .starts_with(crate::actions::file::MANAGED_AUDIO_DIRECTORY)
-            {
+            if std::path::Path::new(&description.directory).starts_with(MANAGED_AUDIO_DIRECTORY) {
                 rejected.insert((description.directory.clone(), description.file_name.clone()));
                 continue;
             }
             // The download queue reserves destinations until attachment completes.
-            if crate::entities::sync_download_jobs::Entity::find()
-                .filter(
-                    crate::entities::sync_download_jobs::Column::Directory
-                        .eq(&description.directory),
-                )
-                .filter(
-                    crate::entities::sync_download_jobs::Column::FileName
-                        .eq(&description.file_name),
-                )
+            if sync_download_jobs::Entity::find()
+                .filter(Column::Directory.eq(&description.directory))
+                .filter(Column::FileName.eq(&description.file_name))
                 .one(main_db)
                 .await?
                 .is_some()
@@ -281,15 +275,9 @@ async fn sync_file_descriptions_inner(
         let batch_txn = main_db.begin().await?;
         store.lock(&batch_txn).await?;
         for (description, existing, metadata, digest, size) in ready {
-            if crate::entities::sync_download_jobs::Entity::find()
-                .filter(
-                    crate::entities::sync_download_jobs::Column::Directory
-                        .eq(&description.directory),
-                )
-                .filter(
-                    crate::entities::sync_download_jobs::Column::FileName
-                        .eq(&description.file_name),
-                )
+            if sync_download_jobs::Entity::find()
+                .filter(Column::Directory.eq(&description.directory))
+                .filter(Column::FileName.eq(&description.file_name))
                 .one(&batch_txn)
                 .await?
                 .is_some()
@@ -674,15 +662,9 @@ async fn clean_up_database(
         .filter(media_files::Column::LocalAvailable.eq(true))
         .all(main_db)
         .await?;
-    let managed = |directory: &str| {
-        let name = crate::actions::file::MANAGED_AUDIO_DIRECTORY;
-        directory == name
-            || directory.starts_with(&format!("{name}/"))
-            || directory.starts_with(&format!("{name}\\"))
-    };
     let host_total = files
         .iter()
-        .filter(|file| !managed(&file.directory))
+        .filter(|file| !is_managed_directory(&file.directory))
         .count();
     let missing: Vec<_> = files
         .into_iter()
@@ -695,7 +677,7 @@ async fn clean_up_database(
         .collect();
     let host_missing = missing
         .iter()
-        .filter(|file| !managed(&file.directory))
+        .filter(|file| !is_managed_directory(&file.directory))
         .count();
     let mass_missing = host_missing > 5 && host_missing * 2 > host_total;
     if mass_missing {
@@ -704,7 +686,7 @@ async fn clean_up_database(
     let root_listable = fsio.read_dir(root_path).await.is_ok();
     for file in missing {
         let result: Result<()> = async {
-            if !managed(&file.directory)
+            if !is_managed_directory(&file.directory)
                 && policy == MissingHostFilePolicy::RemoveEverywhere
                 && root_listable
                 && !mass_missing
@@ -717,7 +699,7 @@ async fn clean_up_database(
                         && row.directory == file.directory
                         && row.file_name == file.file_name
                 }) {
-                    crate::actions::file::remove_track(&tx, store, file.id).await?;
+                    remove_track(&tx, store, file.id).await?;
                 }
                 tx.commit().await?;
             } else {
@@ -761,22 +743,31 @@ pub async fn scan_audio_file(
     Ok(id)
 }
 
-#[allow(clippy::too_many_arguments)]
+pub struct ScanOptions {
+    pub cleanup: bool,
+    pub force: bool,
+    pub missing_host_file: MissingHostFilePolicy,
+    pub cancel_token: Option<CancellationToken>,
+}
+
 pub async fn scan_audio_library<F>(
     fsio: &FsIo,
     main_db: &DatabaseConnection,
     node_id: &str,
     lib_path: &Path,
-    cleanup: bool,
-    force: bool,
+    options: ScanOptions,
     progress_callback: F,
-    cancel_token: Option<CancellationToken>,
     store: &crate::sync::SeaOrmSyncStore,
-    policy: MissingHostFilePolicy,
 ) -> Result<usize>
 where
     F: Fn(usize) + Send + Sync,
 {
+    let ScanOptions {
+        cleanup,
+        force,
+        missing_host_file: policy,
+        cancel_token,
+    } = options;
     let root_path_str = lib_path.to_str().expect("Invalid UTF-8 sequence in path");
     let mut scanner = match AudioScanner::new(fsio, &root_path_str) {
         Ok(scanner) => scanner,
