@@ -1358,5 +1358,9 @@
   "noSharedLibraries": "Ĉi tiu aparato ne havas bibliotekojn por dividi",
   "libraryFromDevice": "De {device}",
   "backgroundLibrarySync": "Sinkronigi en la fono",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "requestItemMissing": "Ĉi tiu ero ne plu ekzistas",
+  "requestInvalid": "La peto ne estis valida",
+  "requestUnavailable": "Ĉi tio nun ne disponeblas",
+  "mixNoLongerExists": "Ĉi tiu miksaĵo ne plu ekzistas"
 }

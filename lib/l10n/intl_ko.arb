@@ -1395,5 +1395,9 @@
   "noSharedLibraries": "이 기기에 공유할 라이브러리가 없습니다",
   "libraryFromDevice": "{device}에서",
   "backgroundLibrarySync": "백그라운드에서 동기화 유지",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "requestItemMissing": "이 항목이 더 이상 존재하지 않습니다",
+  "requestInvalid": "요청이 유효하지 않습니다",
+  "requestUnavailable": "지금은 사용할 수 없습니다",
+  "mixNoLongerExists": "이 믹스가 더 이상 존재하지 않습니다"
 }

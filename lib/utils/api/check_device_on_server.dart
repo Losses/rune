@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 import '../../constants/configurations.dart';
 
@@ -11,9 +12,12 @@ Future<CheckDeviceOnServerResponse> checkDeviceOnServer(
     alias: await settingsManager.getValue(kDeviceAliasKey),
     hosts: hosts,
   );
-  registerRequest.sendSignalToRust();
 
-  final rustSignal = await CheckDeviceOnServerResponse.rustSignalStream.first;
+  final rustSignal = await awaitResponse(
+    'CheckDeviceOnServerRequest',
+    CheckDeviceOnServerResponse.rustSignalStream,
+    send: () => registerRequest.sendSignalToRust(),
+  );
   final response = rustSignal.message;
 
   return response;

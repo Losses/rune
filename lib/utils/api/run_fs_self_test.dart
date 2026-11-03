@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -46,10 +47,12 @@ Future<FsSelfTestResult> runFsSelfTest(
   });
 
   try {
-    RunFsSelfTestRequest(path: path).sendSignalToRust(); // GENERATED
-
-    final rustSignal = await RunFsSelfTestResponse.rustSignalStream.first
-        .timeout(const Duration(seconds: 120));
+    final rustSignal = await awaitResponse(
+      'RunFsSelfTestRequest',
+      RunFsSelfTestResponse.rustSignalStream,
+      send: () => RunFsSelfTestRequest(path: path).sendSignalToRust(),
+      timeout: const Duration(seconds: 120),
+    );
     final response = rustSignal.message;
 
     List<FsSelfTestLayerResult> layers = [];

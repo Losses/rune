@@ -1,3 +1,5 @@
+import '../../bindings/bindings.dart';
+import '../../utils/api/request_failure.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
@@ -39,11 +41,15 @@ class _LikeButtonState extends State<LikeButton> {
   Future<void> _fetchLikedStatus() async {
     if (item == null) return;
 
-    final isLiked = await getLiked(item!);
-    if (mounted) {
-      setState(() {
-        liked = isLiked;
-      });
+    try {
+      final isLiked = await getLiked(item!);
+      if (mounted) {
+        setState(() {
+          liked = isLiked;
+        });
+      }
+    } on RequestFailure catch (error) {
+      if (error.kind != RequestErrorKind.notFound) rethrow;
     }
   }
 
@@ -51,11 +57,15 @@ class _LikeButtonState extends State<LikeButton> {
     if (item == null) return;
 
     final newLikedStatus = !liked;
-    final success = await setLiked(item!, newLikedStatus);
-    if (success != null && mounted) {
-      setState(() {
-        liked = newLikedStatus;
-      });
+    try {
+      final success = await setLiked(item!, newLikedStatus);
+      if (success != null && mounted) {
+        setState(() {
+          liked = newLikedStatus;
+        });
+      }
+    } on RequestFailure catch (error) {
+      if (error.kind != RequestErrorKind.notFound) rethrow;
     }
   }
 

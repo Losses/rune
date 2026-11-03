@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
 Future<Mix> updateMix(
@@ -17,10 +18,13 @@ Future<Mix> updateMix(
     queries:
         queries.map((x) => MixQuery(operator: x.$1, parameter: x.$2)).toList(),
   );
-  updateRequest.sendSignalToRust(); // GENERATED
 
   // Listen for the response from Rust
-  final rustSignal = await UpdateMixResponse.rustSignalStream.first;
+  final rustSignal = await awaitResponse(
+    'UpdateMixRequest',
+    UpdateMixResponse.rustSignalStream,
+    send: () => updateRequest.sendSignalToRust(),
+  );
   final response = rustSignal.message;
 
   return response.mix;

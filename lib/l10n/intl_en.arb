@@ -1490,5 +1490,9 @@
   "noSharedLibraries": "This device has no libraries to share",
   "libraryFromDevice": "From {device}",
   "backgroundLibrarySync": "Keep in sync in the background",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "requestItemMissing": "This item no longer exists",
+  "requestInvalid": "The request was not valid",
+  "requestUnavailable": "This isn't available right now",
+  "mixNoLongerExists": "This mix no longer exists"
 }

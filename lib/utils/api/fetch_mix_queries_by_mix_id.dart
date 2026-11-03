@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
 class UnavailableMixSelection implements Exception {
@@ -16,8 +17,11 @@ List<(String, String)> executableMixQueries(List<StoredMixQuery> queries) {
 }
 
 Future<List<StoredMixQuery>> fetchStoredMixQueriesByMixId(int mixId) async {
-  final response = FetchMixQueriesResponse.rustSignalStream.first;
-  FetchMixQueriesRequest(mixId: mixId).sendSignalToRust();
+  final response = awaitResponse(
+    'FetchMixQueriesRequest',
+    FetchMixQueriesResponse.rustSignalStream,
+    send: () => FetchMixQueriesRequest(mixId: mixId).sendSignalToRust(),
+  );
   return (await response).message.result;
 }
 

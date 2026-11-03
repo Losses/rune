@@ -7,6 +7,7 @@ import 'package:fast_file_picker/fast_file_picker.dart';
 import 'package:file_selector/file_selector.dart' show XTypeGroup;
 
 import '../../../utils/l10n.dart';
+import '../../api/request_failure.dart';
 import '../../../utils/dialogs/unavailable_dialog_on_band.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
@@ -41,12 +42,14 @@ class ExportCoverWallDialog extends StatefulWidget {
 class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
   bool isLoading = false;
   double progress = 0;
+  RequestFailure? failure;
 
   Playlist? playlist;
 
   final SelectInputController ratioController = SelectInputController('16 9');
-  final SelectInputController backgroundController =
-      SelectInputController('dark');
+  final SelectInputController backgroundController = SelectInputController(
+    'dark',
+  );
   final SelectInputController frameController = SelectInputController('enable');
 
   @override
@@ -70,6 +73,8 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (failure != null)
+                Text(requestFailureMessage(S.of(context), failure!)),
               SelectButtonsSection(
                 controller: ratioController,
                 title: S.of(context).ratio,
@@ -128,10 +133,7 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
       suggestedName: '${widget.title}.png',
       initialDirectory: appDocumentsDir.path,
       acceptedTypeGroups: const [
-        XTypeGroup(
-          label: 'images',
-          extensions: <String>['png'],
-        )
+        XTypeGroup(label: 'images', extensions: <String>['png']),
       ],
     );
 
@@ -139,33 +141,39 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
 
     setState(() {
       isLoading = true;
+      failure = null;
     });
 
-    final image = await renderCoverWall(
-      widget.queries,
-      parseSize(ratioController.selectedValue ?? '16 9'),
-      backgroundController.selectedValue == 'light'
-          ? Colors.white
-          : Colors.black,
-      frameController.selectedValue == 'enable',
-      backgroundController.selectedValue == 'light'
-          ? Colors.black
-          : Colors.white,
-      onProgress,
-    );
+    try {
+      final image = await renderCoverWall(
+        widget.queries,
+        parseSize(ratioController.selectedValue ?? '16 9'),
+        backgroundController.selectedValue == 'light'
+            ? Colors.white
+            : Colors.black,
+        frameController.selectedValue == 'enable',
+        backgroundController.selectedValue == 'light'
+            ? Colors.black
+            : Colors.white,
+        onProgress,
+      );
 
-    final pngBytes = await image.toByteData(
-      format: ui.ImageByteFormat.png,
-    );
+      final pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
 
-    File(path).writeAsBytesSync(
-      pngBytes!.buffer.asInt8List(),
-    );
+      File(path).writeAsBytesSync(pngBytes!.buffer.asInt8List());
 
-    setState(() {
-      isLoading = false;
-    });
+      setState(() {
+        isLoading = false;
+      });
 
-    widget.$close(null);
+      widget.$close(null);
+    } on RequestFailure catch (error) {
+      if (mounted) {
+        setState(() {
+          failure = error;
+          isLoading = false;
+        });
+      }
+    }
   }
 }

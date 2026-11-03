@@ -96,10 +96,11 @@ class SettingsLogPageState extends State<SettingsLogPage> {
     setState(() {
       _isRemoving = true;
     });
-    await removeLog(id);
-    setState(() {
-      _isRemoving = false;
-    });
+    try {
+      await removeLog(id);
+    } finally {
+      if (mounted) setState(() => _isRemoving = false);
+    }
   }
 
   void _removeLog(int index) async {

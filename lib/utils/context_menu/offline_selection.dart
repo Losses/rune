@@ -8,6 +8,7 @@ import '../../constants/settings_manager.dart';
 import '../router/navigation.dart';
 import '../../providers/library_path.dart';
 import '../api/set_download_rule.dart';
+import '../api/request_failure.dart';
 import '../l10n.dart';
 
 bool supportsOfflineSelection(BuildContext context) {
@@ -69,6 +70,8 @@ Future<void> _saveSelection(
       enabled,
       deleteUnselectedFiles: deleteFiles,
     );
+  } on RequestFailure catch (error) {
+    failure = requestFailureMessage(s, error);
   } catch (error) {
     failure = error.toString();
   }

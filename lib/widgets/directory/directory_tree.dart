@@ -1,3 +1,5 @@
+import '../../utils/l10n.dart';
+import '../../utils/api/request_failure.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/directory/utils/convertion.dart';
@@ -59,7 +61,7 @@ class _DirectoryTreeState extends State<DirectoryTree> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Container();
           } else if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
+            return Center(child: Text(requestErrorText(S.of(context), snapshot.error!)));
           } else if (!snapshot.hasData) {
             return const Center(child: Text('No data available'));
           } else {

@@ -1,3 +1,4 @@
+import '../../utils/api/request_failure.dart';
 import 'dart:async';
 
 import 'package:provider/provider.dart';
@@ -60,7 +61,7 @@ class BandScreenState extends State<BandScreen> {
               child: ProgressRing(),
             );
           } else if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
+            return Center(child: Text(requestErrorText(S.of(context), snapshot.error!)));
           } else {
             final List<InternalCollection> flattenItems =
                 data.items.expand((x) => x.items).toList();

@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import 'dart:async';
 
 import '../../constants/configurations.dart';
@@ -34,7 +35,7 @@ Future<(bool, bool, String?, LibraryOpenErrorKind?)> setMediaLibraryPath(
 
   final settingsManager = SettingsManager();
 
-  SetMediaLibraryPathRequest(
+  final request = SetMediaLibraryPathRequest(
     path: cleanPath,
     dbPath: await getSettingsPath(),
     configPath: await getSettingsPath(),
@@ -42,12 +43,17 @@ Future<(bool, bool, String?, LibraryOpenErrorKind?)> setMediaLibraryPath(
     mode: mode,
     playsOn: playsOn,
     hostedOn: hostedOn,
-  ).sendSignalToRust();
+  );
 
   try {
     while (true) {
-      final rustSignal = await SetMediaLibraryPathResponse.rustSignalStream.first
-          .timeout(const Duration(seconds: 30));
+      final rustSignal = await awaitResponse(
+        'SetMediaLibraryPathRequest',
+        SetMediaLibraryPathResponse.rustSignalStream.where(
+          (event) => event.message.path == cleanPath,
+        ),
+        send: () => request.sendSignalToRust(),
+      );
       final response = rustSignal.message;
 
       if (response.path == cleanPath) {

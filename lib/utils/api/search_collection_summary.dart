@@ -1,15 +1,15 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
 Future<List<(int, String)>> fetchCollectionSummary(
-    CollectionType collectionType) async {
-  SearchCollectionSummaryRequest(
-    collectionType: collectionType,
-    n: 50,
-  ).sendSignalToRust();
-
-  return (await SearchCollectionSummaryResponse.rustSignalStream.first)
-      .message
-      .result
-      .map((x) => (x.id, x.name))
-      .toList();
+  CollectionType collectionType,
+) async {
+  return (await awaitResponse(
+    'SearchCollectionSummaryRequest',
+    SearchCollectionSummaryResponse.rustSignalStream,
+    send: () => SearchCollectionSummaryRequest(
+      collectionType: collectionType,
+      n: 50,
+    ).sendSignalToRust(),
+  )).message.result.map((x) => (x.id, x.name)).toList();
 }

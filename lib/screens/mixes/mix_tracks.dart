@@ -1,3 +1,5 @@
+import '../../utils/api/request_failure.dart';
+import '../../utils/l10n.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/query_list.dart';
@@ -17,26 +19,39 @@ class MixTrackesPage extends StatefulWidget {
 }
 
 class _MixTrackesPageState extends State<MixTrackesPage> {
-  late Future<List<(String, String)>> queries;
-  late Future<Mix> mix;
+  late Future<(List<(String, String)>, Mix)> mixData;
 
   @override
   void initState() {
     super.initState();
 
-    queries = fetchMixQueriesByMixId(widget.mixId);
-    mix = getMixById(widget.mixId);
+    mixData = _loadMix();
+  }
+
+  Future<(List<(String, String)>, Mix)> _loadMix() async {
+    final mix = await getMixById(widget.mixId);
+    final queries = await fetchMixQueriesByMixId(widget.mixId);
+    return (queries, mix);
   }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<(List<(String, String)>, Mix)>(
-      future: (queries, mix).wait,
+      future: mixData,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Container();
         } else if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
+          final error = snapshot.error;
+          return Center(
+            child: Text(
+              error is RequestFailure
+                  ? (error.kind == RequestErrorKind.notFound
+                        ? S.of(context).mixNoLongerExists
+                        : requestFailureMessage(S.of(context), error))
+                  : 'Error: $error',
+            ),
+          );
         } else {
           return QueryTracksPage(
             queries: QueryList(snapshot.data!.$1),

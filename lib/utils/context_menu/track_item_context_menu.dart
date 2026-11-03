@@ -1,3 +1,5 @@
+import '../api/request_failure.dart';
+import '../dialogs/information/error.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -21,6 +23,58 @@ import '../router/query_tracks_parameter.dart';
 import '../router/router_aware_flyout_controller.dart';
 import '../dialogs/playlist/create_edit_playlist.dart';
 import 'offline_selection.dart';
+
+Future<void> _showRequestFailure(
+  BuildContext context,
+  RequestFailure error,
+) async {
+  if (!context.mounted) return;
+  await showErrorDialog(
+    context: context,
+    title: S.of(context).unknownError,
+    errorMessage: requestFailureMessage(S.of(context), error),
+  );
+}
+
+Future<void> _runTrackAction(
+  BuildContext context,
+  Future<void> Function() action,
+) async {
+  final host = Navigator.of(context).context;
+  try {
+    await action();
+  } on RequestFailure catch (error) {
+    if (host.mounted) await _showRequestFailure(host, error);
+  }
+}
+
+Future<void> _addToPlaylist(
+  BuildContext context,
+  int playlistId,
+  int fileId,
+) async {
+  final host = Navigator.of(context).context;
+  try {
+    await addItemToPlaylist(playlistId, fileId);
+  } on RequestFailure catch (error) {
+    if (host.mounted) await _showRequestFailure(host, error);
+  }
+}
+
+Future<void> _removeFromPlaylist(
+  BuildContext context,
+  int playlistId,
+  String occurrenceId,
+  void Function()? refreshList,
+) async {
+  final host = Navigator.of(context).context;
+  try {
+    await removeItemFromPlaylist(playlistId, occurrenceId);
+    refreshList?.call();
+  } on RequestFailure catch (error) {
+    if (host.mounted) await _showRequestFailure(host, error);
+  }
+}
 
 void openTrackItemContextMenu(
   Offset localPosition,
@@ -53,8 +107,12 @@ void openTrackItemContextMenu(
             MenuFlyoutItem(
               text: Text(S.of(context).removeFromPlaylist),
               onPressed: () async {
-                await removeItemFromPlaylist(playlistId, occurrenceId);
-                refreshList?.call();
+                await _removeFromPlaylist(
+                  context,
+                  playlistId,
+                  occurrenceId,
+                  refreshList,
+                );
               },
             ),
         ],
@@ -62,11 +120,19 @@ void openTrackItemContextMenu(
     );
     return;
   }
-  final analyzed = await ifAnalyzeExists(fileId);
-
-  final playlists = await getAllPlaylists();
-  final mixes = await getAllMixes();
-  final parsedMediaFile = await getParsedMediaFile(fileId);
+  late final bool analyzed;
+  late final List<Playlist> playlists;
+  late final List<Mix> mixes;
+  late final FetchParsedMediaFileResponse parsedMediaFile;
+  try {
+    analyzed = await ifAnalyzeExists(fileId);
+    playlists = await getAllPlaylists();
+    mixes = await getAllMixes();
+    parsedMediaFile = await getParsedMediaFile(fileId);
+  } on RequestFailure catch (error) {
+    if (context.mounted) await _showRequestFailure(context, error);
+    return;
+  }
 
   if (!context.mounted) return;
 
@@ -125,7 +191,7 @@ Widget buildTrackItemContextMenu(
       leading: const Icon(Symbols.list_alt),
       text: Text(playlist.name),
       onPressed: () {
-        addItemToPlaylist(playlist.id, item.file.id);
+        _addToPlaylist(context, playlist.id, item.file.id);
 
         Flyout.of(context).close();
       },
@@ -139,9 +205,15 @@ Widget buildTrackItemContextMenu(
       leading: const Icon(Symbols.magic_button),
       text: Text(mixes.name),
       onPressed: () {
-        addItemToMix(mixes.id, "lib::track", item.file.id.toString());
-
+        final host = Navigator.of(context).context;
         Flyout.of(context).close();
+        () async {
+          try {
+            await addItemToMix(mixes.id, "lib::track", item.file.id.toString());
+          } on RequestFailure catch (error) {
+            if (host.mounted) await _showRequestFailure(host, error);
+          }
+        }();
       },
     );
   }).toList();
@@ -154,21 +226,35 @@ Widget buildTrackItemContextMenu(
         leading: const Icon(Symbols.play_circle),
         text: Text(S.of(context).startPlaying),
         onPressed: () async {
-          startPlaying(CollectionType.track, item.file.id, const []);
+          await _runTrackAction(
+            context,
+            () => startPlaying(CollectionType.track, item.file.id, const []),
+          );
         },
       ),
       MenuFlyoutItem(
         leading: const Icon(Symbols.playlist_add),
         text: Text(S.of(context).addToQueue),
         onPressed: () async {
-          addToQueue(CollectionType.track, item.file.id, const []);
+          await _runTrackAction(
+            context,
+            () => addToQueue(CollectionType.track, item.file.id, const []),
+          );
         },
       ),
       MenuFlyoutItem(
         leading: const Icon(Symbols.rocket),
         text: Text(S.of(context).startRoaming),
         onPressed: () async {
-          startRoaming(context, CollectionType.track, item.file.id, const []);
+          await _runTrackAction(
+            context,
+            () => startRoaming(
+              context,
+              CollectionType.track,
+              item.file.id,
+              const [],
+            ),
+          );
         },
       ),
       if (playlistId != null && occurrenceId != null)
@@ -179,10 +265,12 @@ Widget buildTrackItemContextMenu(
           text: Text(S.of(context).removeFromPlaylist),
           onPressed: () async {
             try {
-              await removeItemFromPlaylist(playlistId, occurrenceId);
-              if (refreshList != null) {
-                refreshList();
-              }
+              await _removeFromPlaylist(
+                context,
+                playlistId,
+                occurrenceId,
+                refreshList,
+              );
             } catch (e) {
               error$(e.toString());
             }
@@ -241,17 +329,20 @@ Widget buildTrackItemContextMenu(
             leading: const Icon(Symbols.add),
             text: Text(S.of(context).newPlaylist),
             onPressed: () async {
+              final host = Navigator.of(context).context;
               Flyout.of(context).close();
 
               final playlist = await showCreateEditPlaylistDialog(
-                context,
+                host,
                 item.file.title,
                 playlistId: null,
               );
 
               if (playlist == null) return;
 
-              await addItemToPlaylist(playlist.id, item.file.id);
+              if (host.mounted) {
+                await _addToPlaylist(host, playlist.id, item.file.id);
+              }
             },
           ),
           if (playlistItems.isNotEmpty) const MenuFlyoutSeparator(),
@@ -266,20 +357,25 @@ Widget buildTrackItemContextMenu(
             leading: const Icon(Symbols.add),
             text: Text(S.of(context).newMix),
             onPressed: () async {
+              final host = Navigator.of(context).context;
               Flyout.of(context).close();
 
               final playlist = await showCreateEditMixDialog(
-                context,
+                host,
                 item.file.title,
                 mixId: null,
               );
 
               if (playlist == null) return;
 
-              await addItemToMix(
-                playlist.id,
-                "lib::track",
-                item.file.id.toString(),
+              if (!host.mounted) return;
+              await _runTrackAction(
+                host,
+                () => addItemToMix(
+                  playlist.id,
+                  "lib::track",
+                  item.file.id.toString(),
+                ),
               );
             },
           ),
@@ -306,7 +402,10 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         child: const Icon(Symbols.play_circle),
       ),
       onPressed: () async {
-        startPlaying(CollectionType.track, item.file.id, const []);
+        await _runTrackAction(
+          context,
+          () => startPlaying(CollectionType.track, item.file.id, const []),
+        );
       },
     ),
     CommandBarButton(
@@ -315,7 +414,10 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         child: const Icon(Symbols.playlist_add),
       ),
       onPressed: () async {
-        addToQueue(CollectionType.track, item.file.id, const []);
+        await _runTrackAction(
+          context,
+          () => addToQueue(CollectionType.track, item.file.id, const []),
+        );
       },
     ),
     CommandBarButton(
@@ -324,7 +426,15 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         child: const Icon(Symbols.rocket),
       ),
       onPressed: () async {
-        startRoaming(context, CollectionType.track, item.file.id, const []);
+        await _runTrackAction(
+          context,
+          () => startRoaming(
+            context,
+            CollectionType.track,
+            item.file.id,
+            const [],
+          ),
+        );
       },
     ),
     if (playlistId != null && occurrenceId != null)
@@ -335,8 +445,12 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         ),
         onPressed: () async {
           try {
-            await removeItemFromPlaylist(playlistId, occurrenceId);
-            refreshList?.call();
+            await _removeFromPlaylist(
+              context,
+              playlistId,
+              occurrenceId,
+              refreshList,
+            );
           } catch (error) {
             error$(error.toString());
           }

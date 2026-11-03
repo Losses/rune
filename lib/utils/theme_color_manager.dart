@@ -1,3 +1,5 @@
+import '../bindings/bindings.dart';
+import 'api/request_failure.dart';
 import 'package:flutter/material.dart';
 
 import '../config/theme.dart';
@@ -21,8 +23,9 @@ class ThemeColorManager {
     final settingsManager = SettingsManager();
 
     // 1. Read dynamic color settings
-    final bool? enableDynamicColors =
-        await settingsManager.getValue<bool>(kEnableDynamicColorsKey);
+    final bool? enableDynamicColors = await settingsManager.getValue<bool>(
+      kEnableDynamicColorsKey,
+    );
     _isDynamicColorEnabled = enableDynamicColors ?? false;
 
     // 2. Read the user's selected theme color
@@ -71,7 +74,12 @@ class ThemeColorManager {
 
     if (!_isDynamicColorEnabled) return;
 
-    final primaryColor = await getPrimaryColor(item);
+    int? primaryColor;
+    try {
+      primaryColor = await getPrimaryColor(item);
+    } on RequestFailure catch (error) {
+      if (error.kind != RequestErrorKind.notFound) rethrow;
+    }
     if (primaryColor != null) {
       appTheme.updateThemeColor(Color(primaryColor));
     } else {

@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 import '../../constants/configurations.dart';
 
@@ -10,10 +11,12 @@ registerDeviceOnServer(List<String> hosts) async {
     alias: await settingsManager.getValue(kDeviceAliasKey),
     hosts: hosts,
   );
-  registerRequest.sendSignalToRust();
 
-  final rustSignal =
-      await RegisterDeviceOnServerResponse.rustSignalStream.first;
+  final rustSignal = await awaitResponse(
+    'RegisterDeviceOnServerRequest',
+    RegisterDeviceOnServerResponse.rustSignalStream,
+    send: () => registerRequest.sendSignalToRust(),
+  );
   final response = rustSignal.message;
 
   if (!response.success) {

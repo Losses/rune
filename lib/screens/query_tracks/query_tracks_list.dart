@@ -1,3 +1,5 @@
+import '../../utils/api/request_failure.dart';
+import '../../utils/l10n.dart';
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -43,6 +45,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   final Set<int> _loadingIndices = {};
   final Map<int, PlaylistOccurrenceCursor?> _playlistCursors = {0: null};
   bool _isInitialized = false;
+  RequestFailure? _failure;
   bool _reachedEnd = false;
   int _generation = 0;
   StreamSubscription? _contentSubscription;
@@ -61,6 +64,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
       _totalCount = 0;
       setState(() {
         _isInitialized = false;
+        _failure = null;
       });
       _initializeData();
     });
@@ -80,6 +84,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     _reachedEnd = false;
     _totalCount = 0;
     _isInitialized = false;
+    _failure = null;
     _initializeData();
   }
 
@@ -147,6 +152,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     } catch (error) {
       if (!mounted || generation != _generation) return;
       _loadingIndices.remove(cursor);
+      if (error is RequestFailure) _failure = error;
     }
   }
 
@@ -202,6 +208,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         if (!mounted || generation != _generation) return;
         setState(() {
           _loadingIndices.remove(cursor);
+          if (error is RequestFailure) _failure = error;
         });
       });
     }
@@ -227,6 +234,11 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   @override
   Widget build(BuildContext context) {
+    if (_failure != null) {
+      return Center(
+        child: Text(requestFailureMessage(S.of(context), _failure!)),
+      );
+    }
     if (!_isInitialized) {
       return const Center(child: ProgressRing());
     }

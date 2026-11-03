@@ -1,10 +1,12 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
 Future<String> getSSLCertificateFingerprint() async {
-  GetSslCertificateFingerprintRequest().sendSignalToRust();
-
-  final rustSignal =
-      await GetSslCertificateFingerprintResponse.rustSignalStream.first;
+  final rustSignal = await awaitResponse(
+    'GetSslCertificateFingerprintRequest',
+    GetSslCertificateFingerprintResponse.rustSignalStream,
+    send: () => GetSslCertificateFingerprintRequest().sendSignalToRust(),
+  );
 
   return rustSignal.message.fingerprint;
 }

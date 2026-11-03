@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import 'dart:async';
 
 import '../../widgets/track_list/utils/internal_media_file.dart';
@@ -9,10 +10,12 @@ Future<List<InternalMediaFile>> fetchMediaFileByIds(
   bool bakeCoverArts,
 ) async {
   final request = FetchMediaFileByIdsRequest(ids: ids, bakeCoverArts: true);
-  request.sendSignalToRust(); // GENERATED
 
-  final response =
-      (await FetchMediaFileByIdsResponse.rustSignalStream.first).message;
+  final response = (await awaitResponse(
+    'FetchMediaFileByIdsRequest',
+    FetchMediaFileByIdsResponse.rustSignalStream,
+    send: () => request.sendSignalToRust(),
+  )).message;
 
   return orderByIds(ids, response.mediaFiles, (x) => x.id)
       .map(

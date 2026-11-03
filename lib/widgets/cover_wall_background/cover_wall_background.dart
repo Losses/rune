@@ -1,3 +1,4 @@
+import '../../utils/api/request_failure.dart';
 import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -73,21 +74,27 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
 
   loadCoverList() async {
     final List<String> coverPaths;
-    if (widget.loadPaths != null) {
-      coverPaths = await widget.loadPaths!();
-    } else {
-      final String count =
-          await SettingsManager().getValue<String?>(kRandomCoverWallCountKey) ??
-          coverCount;
-      final queryResult = await queryMixTracks(
-        QueryList([
-          ("lib::random", count.toString()),
-          ("filter::with_cover_art", "true"),
-        ]),
-        0,
-        int.parse(count),
-      );
-      coverPaths = queryResult.map((x) => x.coverArtPath).toList();
+    try {
+      if (widget.loadPaths != null) {
+        coverPaths = await widget.loadPaths!();
+      } else {
+        final String count =
+            await SettingsManager().getValue<String?>(
+              kRandomCoverWallCountKey,
+            ) ??
+            coverCount;
+        final queryResult = await queryMixTracks(
+          QueryList([
+            ("lib::random", count.toString()),
+            ("filter::with_cover_art", "true"),
+          ]),
+          0,
+          int.parse(count),
+        );
+        coverPaths = queryResult.map((x) => x.coverArtPath).toList();
+      }
+    } on RequestFailure {
+      return;
     }
     if (!mounted) return;
 

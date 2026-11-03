@@ -11,11 +11,11 @@ import '../api/operate_playback_with_mix_query.dart';
 
 import 'open_intent.dart';
 
-class OpenAction extends Action<OpenIntent> {
+class OpenAction extends ContextAction<OpenIntent> {
   OpenAction();
 
   @override
-  void invoke(covariant OpenIntent intent) async {
+  void invoke(covariant OpenIntent intent, [BuildContext? context]) async {
     const XTypeGroup typeGroup = XTypeGroup(
       label: 'audio files',
       extensions: audioExtensions,
@@ -38,7 +38,9 @@ class OpenAction extends Action<OpenIntent> {
       return;
     }
 
-    operatePlaybackWithMixQuery(
+    if (context == null || !context.mounted) return;
+    await safeOperatePlaybackWithMixQuery(
+      context: context,
       queries: QueryList(),
       playbackMode: 99,
       hintPosition: -1,

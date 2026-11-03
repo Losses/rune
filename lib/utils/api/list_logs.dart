@@ -1,13 +1,13 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
 Future<List<LogDetail>> listLogs(int cursor, int pageSize) async {
-  final listRequest = ListLogRequest(
-    cursor: cursor,
-    pageSize: pageSize,
+  final listRequest = ListLogRequest(cursor: cursor, pageSize: pageSize);
+  final rustSignal = await awaitResponse(
+    'ListLogRequest',
+    ListLogResponse.rustSignalStream,
+    send: () => listRequest.sendSignalToRust(),
   );
-  listRequest.sendSignalToRust();
-
-  final rustSignal = await ListLogResponse.rustSignalStream.first;
   final response = rustSignal.message;
 
   return response.result;

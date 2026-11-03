@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../utils/query_list.dart';
 import '../utils/rune_log.dart';
 import '../utils/api/load_request.dart';
+import '../utils/api/request_failure.dart';
 import '../utils/api/set_media_library_path.dart';
 import '../utils/api/operate_playback_with_mix_query.dart';
 import '../utils/settings_manager.dart';
@@ -148,8 +149,14 @@ class LibraryPathProvider with ChangeNotifier {
     _currentPath = filePath;
     notifyListeners();
 
-    var (success, notReady, error, errorKind) =
-        await setMediaLibraryPath(filePath, selectedMode);
+    (bool, bool, String?, LibraryOpenErrorKind?) result;
+    try {
+      result = await setMediaLibraryPath(filePath, selectedMode);
+    } on RequestFailure {
+      removeCurrentPath();
+      rethrow;
+    }
+    var (success, notReady, error, errorKind) = result;
 
     if (!success) {
       if (error != null) error$(error);
@@ -162,6 +169,7 @@ class LibraryPathProvider with ChangeNotifier {
     }
 
     if (notReady && context != null) {
+      if (!context.mounted) return (false, true, null, null);
       // Databases cannot live inside a SAF tree (SQLite WAL needs real
       // file paths), so Android is always redirected to app-local storage.
       if (Platform.isAndroid) {
@@ -176,8 +184,13 @@ class LibraryPathProvider with ChangeNotifier {
         return (false, true, null, null);
       }
 
-      (success, notReady, error, errorKind) =
-          await setMediaLibraryPath(filePath, selectedMode);
+      try {
+        (success, notReady, error, errorKind) =
+            await setMediaLibraryPath(filePath, selectedMode);
+      } on RequestFailure {
+        removeCurrentPath();
+        rethrow;
+      }
     }
 
     if (success) {
@@ -188,20 +201,24 @@ class LibraryPathProvider with ChangeNotifier {
       CollectionCache().clearAll();
       _fileStorageService.storeFilePath(filePath);
 
-      await operatePlaybackWithMixQuery(
-        queries: const QueryList([("lib::queue", "true")]),
-        playbackMode:
-            await SettingsManager().getValue<int>(kPlaybackModeKey) ?? 99,
-        hintPosition: -1,
-        initialPlaybackId: 0,
-        instantlyPlay: false,
-        operateMode: PlaylistOperateMode.replace,
-        fallbackPlayingItems: [],
-      );
+      try {
+        await operatePlaybackWithMixQuery(
+          queries: const QueryList([("lib::queue", "true")]),
+          playbackMode:
+              await SettingsManager().getValue<int>(kPlaybackModeKey) ?? 99,
+          hintPosition: -1,
+          initialPlaybackId: 0,
+          instantlyPlay: false,
+          operateMode: PlaylistOperateMode.replace,
+          fallbackPlayingItems: [],
+        );
 
-      final lastQueueIndex =
-          await (SettingsManager().getValue(kLastQueueIndexKey));
-      load(lastQueueIndex ?? 0);
+        final lastQueueIndex =
+            await (SettingsManager().getValue(kLastQueueIndexKey));
+        load(lastQueueIndex ?? 0);
+      } on RequestFailure {
+        // Opening the library does not depend on restoring its queue.
+      }
     } else {
       removeCurrentPath();
     }

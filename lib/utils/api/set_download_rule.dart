@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 import '../build_collection_query.dart';
 
@@ -24,16 +25,20 @@ Future<void> setDownloadRule(
   final (queries, mixId) = offlineSelectionFor(type, id);
   final requestId =
       '${DateTime.now().microsecondsSinceEpoch}-${_requestSequence++}';
-  final response = SetDownloadRuleResponse.rustSignalStream
-      .firstWhere((event) => event.message.requestId == requestId)
-      .timeout(const Duration(seconds: 15));
-  SetDownloadRuleRequest(
-    requestId: requestId,
-    queries: queries,
-    mixId: mixId,
-    enabled: enabled,
-    deleteUnselectedFiles: deleteUnselectedFiles,
-  ).sendSignalToRust();
+  final response = awaitResponse(
+    'SetDownloadRuleRequest',
+    SetDownloadRuleResponse.rustSignalStream.where(
+      (event) => event.message.requestId == requestId,
+    ),
+    send: () => SetDownloadRuleRequest(
+      requestId: requestId,
+      queries: queries,
+      mixId: mixId,
+      enabled: enabled,
+      deleteUnselectedFiles: deleteUnselectedFiles,
+    ).sendSignalToRust(),
+    timeout: const Duration(seconds: 15),
+  );
   final error = (await response).message.error;
   if (error != null) throw StateError(error);
 }

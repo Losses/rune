@@ -1,4 +1,5 @@
 import 'api/fetch_remote_file.dart';
+import 'api/request_failure.dart';
 
 /// Processes a cover art path that may come from a remote server
 /// This function will use the Rust API to fetch the file and save it locally if needed
@@ -14,6 +15,8 @@ Future<String> processCoverArtPath(String path) async {
       final localPath = await fetchRemoteFile(path);
 
       path = localPath;
+    } on RequestFailure {
+      rethrow;
     } catch (e) {
       throw Exception('Failed to process remote path: $e');
     }

@@ -1393,5 +1393,9 @@
   "noSharedLibraries": "На цьому пристрої немає медіатек для спільного доступу",
   "libraryFromDevice": "Від {device}",
   "backgroundLibrarySync": "Синхронізувати у фоновому режимі",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "requestItemMissing": "Цього елемента більше не існує",
+  "requestInvalid": "Запит був недійсним",
+  "requestUnavailable": "Зараз це недоступно",
+  "mixNoLongerExists": "Цього міксу більше не існує"
 }

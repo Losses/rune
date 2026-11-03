@@ -1395,5 +1395,9 @@
   "noSharedLibraries": "Cet appareil ne possède aucune bibliothèque à partager",
   "libraryFromDevice": "De {device}",
   "backgroundLibrarySync": "Synchroniser en arrière-plan",
-  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
+  "requestItemMissing": "Cet élément n’existe plus",
+  "requestInvalid": "La demande était invalide",
+  "requestUnavailable": "Ceci n’est pas disponible pour le moment",
+  "mixNoLongerExists": "Ce mix n’existe plus"
 }

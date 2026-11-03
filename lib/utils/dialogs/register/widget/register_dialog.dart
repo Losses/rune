@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../../bindings/bindings.dart';
 import '../../../../widgets/no_shortcuts.dart';
 import '../../../../widgets/responsive_dialog_actions.dart';
 import '../../../../providers/license.dart';
@@ -139,7 +140,12 @@ class _RegisterDialogState extends State<RegisterDialog> {
                         _loading = true;
                       });
 
-                      final license = await registerLicense(path);
+                      final RegisterLicenseResponse license;
+                      try {
+                        license = await registerLicense(path);
+                      } finally {
+                        if (mounted) setState(() => _loading = false);
+                      }
 
                       widget.$close(null);
 

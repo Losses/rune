@@ -1,3 +1,4 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
 Future<String> addItemToPlaylist(
@@ -10,10 +11,12 @@ Future<String> addItemToPlaylist(
     mediaFileId: itemId,
     position: position,
   );
-  request.sendSignalToRust(); // GENERATED
 
-  final response =
-      (await AddItemToPlaylistResponse.rustSignalStream.first).message;
+  final response = (await awaitResponse(
+    'AddItemToPlaylistRequest',
+    AddItemToPlaylistResponse.rustSignalStream,
+    send: () => request.sendSignalToRust(),
+  )).message;
   if (!response.success) throw StateError('Playlist insertion failed');
   return response.occurrenceId;
 }

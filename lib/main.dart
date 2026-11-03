@@ -18,6 +18,7 @@ import 'package:system_tray/system_tray.dart';
 import 'l10n/app_localizations.dart';
 import 'utils/l10n.dart';
 import 'utils/api/close_library.dart';
+import 'utils/api/request_failure.dart';
 import 'utils/dialogs/failed_to_initialize_library.dart';
 import 'utils/remote_connection_messages.dart';
 import 'utils/router/navigation.dart';
@@ -85,6 +86,26 @@ late bool cafeMode;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
+  PlatformDispatcher.instance.onError = (error, stack) {
+    if (error is! RequestFailure) return false;
+    if (error.kind != RequestErrorKind.internal) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final context = rootNavigatorKey.currentState?.overlay?.context;
+        if (context != null && context.mounted) {
+          displayInfoBar(
+            context,
+            builder: (_, close) => InfoBar(
+              title: Text(requestFailureMessage(S.of(context), error)),
+              severity: InfoBarSeverity.error,
+              onClose: close,
+            ),
+          );
+        }
+      });
+      WidgetsBinding.instance.ensureVisualUpdate();
+    }
+    return true;
+  };
   if (Platform.isLinux) {
     try {
       await AcrylicShaderWarmUp(

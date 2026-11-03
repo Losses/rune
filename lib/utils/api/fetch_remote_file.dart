@@ -1,9 +1,12 @@
+import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
 Future<String> fetchRemoteFile(String url) async {
-  FetchRemoteFileRequest(url: url).sendSignalToRust();
-
-  final rustSignal = await FetchRemoteFileResponse.rustSignalStream.first;
+  final rustSignal = await awaitResponse(
+    'FetchRemoteFileRequest',
+    FetchRemoteFileResponse.rustSignalStream,
+    send: () => FetchRemoteFileRequest(url: url).sendSignalToRust(),
+  );
   final response = rustSignal.message;
 
   if (!response.success) {

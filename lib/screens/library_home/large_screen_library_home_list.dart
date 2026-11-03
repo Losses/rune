@@ -1,3 +1,4 @@
+import '../../utils/api/request_failure.dart';
 import 'dart:async';
 
 import 'package:provider/provider.dart';
@@ -173,7 +174,14 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Container();
         } else if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
+          final error = snapshot.error;
+          return Center(
+            child: Text(
+              error is RequestFailure
+                  ? requestFailureMessage(S.of(context), error)
+                  : 'Error: $error',
+            ),
+          );
         } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return Center(child: Text(S.of(context).noDataAvailable));
         } else {
