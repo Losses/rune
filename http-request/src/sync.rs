@@ -169,6 +169,46 @@ enum MetadataOperation<M: SyncModel> {
     },
 }
 
+/// Classify the actual metadata operation, including snapshot source reads sent via POST.
+pub fn metadata_requires_write<M: SyncModel>(bytes: &[u8]) -> Result<bool, serde_json::Error> {
+    let operation: MetadataOperation<M> = serde_json::from_slice(bytes)?;
+    Ok(match operation {
+        MetadataOperation::Identity
+        | MetadataOperation::Head
+        | MetadataOperation::History { .. }
+        | MetadataOperation::Checkpoint { .. }
+        | MetadataOperation::ReadPage { .. }
+        | MetadataOperation::ReadFragment { .. }
+        | MetadataOperation::OpenSnapshot { .. }
+        | MetadataOperation::Summarize { .. }
+        | MetadataOperation::Split { .. }
+        | MetadataOperation::Leaf { .. }
+        | MetadataOperation::SnapshotFragment { .. }
+        | MetadataOperation::CloseSnapshot { .. }
+        | MetadataOperation::CancelSnapshotBuild { .. }
+        | MetadataOperation::ReleaseRequest { .. }
+        | MetadataOperation::StageStatus { .. }
+        | MetadataOperation::Coverage { .. }
+        | MetadataOperation::LeafProgress { .. } => false,
+        MetadataOperation::ApplyPage { .. }
+        | MetadataOperation::BeginStage { .. }
+        | MetadataOperation::StageFragment { .. }
+        | MetadataOperation::AbandonStage { .. }
+        | MetadataOperation::AbandonOrigin { .. }
+        | MetadataOperation::CommitFragmentedEvent { .. }
+        | MetadataOperation::FinishSession { .. }
+        | MetadataOperation::BeginReconciliation { .. }
+        | MetadataOperation::SplitRange { .. }
+        | MetadataOperation::AcceptEqualRange { .. }
+        | MetadataOperation::StageLeafPage { .. }
+        | MetadataOperation::CommitCompleteRange { .. }
+        | MetadataOperation::PromoteStep { .. }
+        | MetadataOperation::CompleteReconciliation { .. }
+        | MetadataOperation::CancelReconciliation { .. }
+        | MetadataOperation::DiscardRange { .. } => true,
+    })
+}
+
 /// The caller supplies a fresh authorized endpoint for each request.
 pub type EndpointProvider<M> =
     Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Arc<dyn MetadataStore<M>>> + Send>> + Send + Sync>;
@@ -407,6 +447,9 @@ impl<M: SyncModel> MetadataPeer<M> {
             let status = response.status();
             if status == reqwest::StatusCode::UNAUTHORIZED {
                 return Err(p::SyncError::Unauthorized);
+            }
+            if status == reqwest::StatusCode::FORBIDDEN {
+                return Err(p::SyncError::Forbidden);
             }
             let mut body = Vec::new();
             while let Some(bytes) = response
@@ -797,6 +840,13 @@ impl<M: SyncModel> p::SnapshotSink<M> for MetadataPeer<M> {
     }
 }
 
+#[derive(PartialEq)]
+enum Direction {
+    Both,
+    Pull,
+    Push,
+}
+
 /// Continuation for a bounded pull followed by a bounded push.
 pub struct BidirectionalSession<M: SyncModel> {
     pull: sync::Coordinator<M>,
@@ -819,9 +869,37 @@ impl<M: SyncModel> BidirectionalSession<M> {
     where
         L: p::ReceiveStore<M> + p::SnapshotSink<M> + p::SnapshotSource<M> + p::SyncPeer<M>,
     {
+        self.advance_direction(local, remote, Direction::Both).await
+    }
+
+    /// Receive remote changes without submitting any local changes.
+    pub async fn pull_only<L>(&mut self, local: &L, remote: &MetadataPeer<M>) -> p::Result<bool>
+    where
+        L: p::ReceiveStore<M> + p::SnapshotSink<M> + p::SnapshotSource<M> + p::SyncPeer<M>,
+    {
+        self.advance_direction(local, remote, Direction::Pull).await
+    }
+
+    /// Send changes without accepting changes from this peer.
+    pub async fn push_only<L>(&mut self, local: &L, remote: &MetadataPeer<M>) -> p::Result<bool>
+    where
+        L: p::ReceiveStore<M> + p::SnapshotSink<M> + p::SnapshotSource<M> + p::SyncPeer<M>,
+    {
+        self.advance_direction(local, remote, Direction::Push).await
+    }
+
+    async fn advance_direction<L>(
+        &mut self,
+        local: &L,
+        remote: &MetadataPeer<M>,
+        direction: Direction,
+    ) -> p::Result<bool>
+    where
+        L: p::ReceiveStore<M> + p::SnapshotSink<M> + p::SnapshotSource<M> + p::SyncPeer<M>,
+    {
         self.pull.start_pass();
         self.push.start_pass();
-        while self.pulled.is_none() {
+        while direction != Direction::Push && self.pulled.is_none() {
             match self
                 .pull
                 .advance(local, local, local, remote, remote)
@@ -835,7 +913,7 @@ impl<M: SyncModel> BidirectionalSession<M> {
                 }
             }
         }
-        while self.pushed.is_none() {
+        while direction != Direction::Pull && self.pushed.is_none() {
             match self
                 .push
                 .advance(remote, remote, remote, local, local)

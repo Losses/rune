@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 
 use fmt::time::ChronoLocal;
+pub mod access_policy;
 mod apple_bridge;
 pub mod flutter_bridge;
 #[macro_use]
@@ -35,6 +36,7 @@ use utils::{TaskTokens, diagnostics::receive_fs_self_test, receive_media_library
 use crate::utils::init_logging;
 
 pub struct Session {
+    pub public_key: String,
     pub fingerprint: String,
     pub host: String,
 }

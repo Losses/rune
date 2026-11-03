@@ -119,6 +119,7 @@ pub struct RemoveTrustedClientResponse {
 pub struct UpdateClientStatusRequest {
     pub fingerprint: String,
     pub status: ClientStatus,
+    pub preset: Option<super::DevicePreset>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

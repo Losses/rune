@@ -1,3 +1,4 @@
+use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
 use crate::server::{
     ServerManager,
@@ -465,15 +466,15 @@ impl Signal for ServerAvailabilityTestRequest {
 }
 
 impl ParamsExtractor for UpdateClientStatusRequest {
-    type Params = Arc<RwLock<PermissionManager>>;
+    type Params = Arc<NodeContext>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        Arc::clone(&all_params.permission_manager)
+        all_params.node.clone()
     }
 }
 
 impl Signal for UpdateClientStatusRequest {
-    type Params = Arc<RwLock<PermissionManager>>;
+    type Params = Arc<NodeContext>;
     type Response = UpdateClientStatusResponse;
 
     async fn handle(
@@ -482,19 +483,34 @@ impl Signal for UpdateClientStatusRequest {
         _session: Option<Session>,
         message: &Self,
     ) -> Result<Option<Self::Response>> {
-        match permission_manager
-            .write()
-            .await
-            .change_user_status(
-                &message.fingerprint,
-                match message.status {
-                    ClientStatus::Approved => UserStatus::Approved,
-                    ClientStatus::Pending => UserStatus::Pending,
-                    ClientStatus::Blocked => UserStatus::Blocked,
-                },
-            )
-            .await
-        {
+        let result = async {
+            let permissions = permission_manager.permission_manager.write().await;
+            // Install a chosen preset before approval becomes visible to transports.
+            if matches!(message.status, ClientStatus::Approved)
+                && let Some(preset) = message.preset
+            {
+                permissions
+                    .verify_by_fingerprint(&message.fingerprint)
+                    .await
+                    .context("Device not found")?;
+                permission_manager
+                    .access_policy
+                    .set(&message.fingerprint, preset.grants())?;
+            }
+            permissions
+                .change_user_status(
+                    &message.fingerprint,
+                    match message.status {
+                        ClientStatus::Approved => UserStatus::Approved,
+                        ClientStatus::Pending => UserStatus::Pending,
+                        ClientStatus::Blocked => UserStatus::Blocked,
+                    },
+                )
+                .await?;
+            Ok::<(), anyhow::Error>(())
+        }
+        .await;
+        match result {
             Ok(_) => Ok(Some(UpdateClientStatusResponse {
                 success: true,
                 error: String::new(),

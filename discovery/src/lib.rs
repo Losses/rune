@@ -1,5 +1,6 @@
 use utils::DeviceInfo;
 
+pub mod access_policy;
 pub mod client;
 pub mod config;
 pub mod endpoint;

@@ -18,6 +18,9 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
+use crate::Session;
+use crate::access_policy::{Action, Denial, RuneAccessPolicy};
+use crate::macros::{RequestClass, request_class};
 use crate::request_error::ExpectedRequestError;
 use crate::{
     library_pool::LibraryPool,
@@ -33,6 +36,7 @@ use crate::{
     },
 };
 use discovery::DiscoveryParams;
+use discovery::access_policy::{AccessPolicy, PeerIdentity};
 
 static NODE: NodeSlot = NodeSlot::new();
 
@@ -41,6 +45,7 @@ pub struct NodeContext {
     pub config_path: Arc<String>,
     pub node_id: Arc<String>,
     pub library_pool: Arc<LibraryPool>,
+    pub access_policy: Arc<RuneAccessPolicy>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub cert_validator: Arc<RwLock<CertValidator>>,
     pub device_scanner: Arc<DiscoveryService>,
@@ -99,11 +104,23 @@ impl NodeContext {
         fs::create_dir_all(config_path).context("Create node configuration directory")?;
         let node_id = Arc::new(get_or_create_node_id(config_path).await?.to_string());
         let websocket_service = Arc::new(WebSocketService::new());
+        let mut permission_manager = PermissionManager::new(config_path)?;
+        let access_policy = Arc::new(RuneAccessPolicy::load(
+            Path::new(config_path),
+            &permission_manager.list_users().await,
+        )?);
+        let policy = access_policy.clone();
+        permission_manager.set_trust_change_hook(Arc::new(move |fingerprint, status| {
+            policy
+                .trust_changed(fingerprint, status)
+                .map_err(|error| format!("{error:#}"))
+        }));
         let node = Arc::new(Self {
             config_path: Arc::new(config_path.to_owned()),
             library_pool: LibraryPool::new(Path::new(config_path), Path::new(db_path), &node_id)?,
             node_id,
-            permission_manager: Arc::new(RwLock::new(PermissionManager::new(config_path)?)),
+            permission_manager: Arc::new(RwLock::new(permission_manager)),
+            access_policy,
             cert_validator: Arc::new(RwLock::new(CertValidator::new(config_path).await?)),
             device_scanner: Arc::new(DiscoveryService::without_store()),
             sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(config_path)))),
@@ -211,6 +228,49 @@ impl NodeContext {
             .get()
             .cloned()
             .context("Node server is not initialized")
+    }
+
+    /// Authorize against the exact UI library captured for this dispatch.
+    pub(crate) async fn authorize_request(
+        &self,
+        session: &Session,
+        name: &str,
+        params: &GlobalParams,
+    ) -> Result<()> {
+        let user = self
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&session.fingerprint)
+            .await
+            .filter(|user| {
+                user.status == UserStatus::Approved && user.public_key == session.public_key
+            })
+            .ok_or(Denial::Untrusted)?;
+        let action = match request_class(name) {
+            Some(RequestClass::Control) => Action::Control,
+            Some(RequestClass::Administer) => Action::Administer,
+            Some(class @ (RequestClass::LibraryRead | RequestClass::LibraryWrite)) => {
+                let library_id = params.library_id.ok_or(ExpectedRequestError::Unavailable {
+                    what: "UI library identity",
+                })?;
+                if class == RequestClass::LibraryRead {
+                    // The WebSocket is a control attachment: reads there browse.
+                    Action::Browse { library_id }
+                } else {
+                    Action::LibraryWrite { library_id }
+                }
+            }
+            _ => return Err(Denial::NodeLocal.into()),
+        };
+        self.access_policy.check(
+            &PeerIdentity {
+                fingerprint: user.fingerprint,
+                public_key: user.public_key,
+            },
+            &action,
+        )?;
+        Ok(())
     }
 
     pub async fn current_ui(&self) -> Result<Arc<GlobalParams>> {

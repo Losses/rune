@@ -1,10 +1,13 @@
+use super::libraries::ListedLibrary;
 use super::sync::client::LibrarySession;
+use super::sync::client::SessionDirection;
 use super::sync::client::fetch_missing;
 use super::sync::downloads::download_requested_audio_until;
 use super::sync::{library_base, library_notification};
 use super::sync_auth::{Authorization, Challenge, Token, message};
 #[cfg(test)]
 use super::utils::device::load_device_info;
+use crate::access_policy::{Action, LibraryLevel};
 use crate::{library_pool::LibraryHandle, node::NodeContext, utils::GlobalParams};
 use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -12,6 +15,7 @@ use database::actions::file::{ManagedAudioVerifier, materialized_path, resolve_l
 use database::actions::library::clean_local_orphans;
 use database::sync::Maintenance;
 use database::sync::model::RuneModel;
+use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use discovery::server::UserStatus;
 use futures::{
     StreamExt,
@@ -153,6 +157,10 @@ struct PeerSession {
     identity: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid)>,
     artwork_cursor: http_request::sync::PageCursor,
     last_used: std::time::Instant,
+    advertised_level: Option<LibraryLevel>,
+    push_forbidden: bool,
+    direction: SessionDirection,
+    read_only_logged: bool,
 }
 
 #[derive(Clone)]
@@ -169,6 +177,10 @@ impl Default for PeerSession {
             identity: None,
             artwork_cursor: PageCursor::default(),
             last_used: std_time::Instant::now(),
+            advertised_level: None,
+            push_forbidden: false,
+            direction: SessionDirection::Both,
+            read_only_logged: false,
         }
     }
 }
@@ -549,38 +561,59 @@ fn classify_peer_pass(result: Result<bool>) -> Result<PeerPass> {
 }
 
 #[cfg(test)]
+#[derive(Default)]
+pub(super) struct TestPeerSession {
+    locks: ReplicaLocks,
+}
+
+#[cfg(test)]
+impl TestPeerSession {
+    pub(super) async fn pass(
+        &self,
+        params: Arc<GlobalParams>,
+        private_key: &str,
+        endpoint: PeerEndpoint,
+        metadata: bool,
+    ) -> Result<PeerPass> {
+        let global = params.node.clone();
+        let credentials = LocalCredentials {
+            fingerprint: load_device_info(Path::new(&*global.config_path))
+                .await?
+                .fingerprint,
+            private_key: private_key.into(),
+        };
+        let library = global
+            .library_pool
+            .acquire(params.library_id.unwrap())
+            .await?;
+        let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+        classify_peer_pass(
+            sync_one(
+                &global,
+                &library,
+                &notify,
+                &endpoint,
+                PassOptions {
+                    credentials: &credentials,
+                    metadata,
+                    locks: &self.locks,
+                },
+            )
+            .await,
+        )
+    }
+}
+
+#[cfg(test)]
 pub(super) async fn test_peer_pass(
     params: Arc<GlobalParams>,
     private_key: &str,
     endpoint: PeerEndpoint,
     metadata: bool,
 ) -> Result<PeerPass> {
-    let global = params.node.clone();
-    let credentials = LocalCredentials {
-        fingerprint: load_device_info(Path::new(&*global.config_path))
-            .await?
-            .fingerprint,
-        private_key: private_key.into(),
-    };
-    let library = global
-        .library_pool
-        .acquire(params.library_id.unwrap())
-        .await?;
-    let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
-    classify_peer_pass(
-        sync_one(
-            &global,
-            &library,
-            &notify,
-            &endpoint,
-            PassOptions {
-                credentials: &credentials,
-                metadata,
-                locks: &Arc::default(),
-            },
-        )
-        .await,
-    )
+    TestPeerSession::default()
+        .pass(params, private_key, endpoint, metadata)
+        .await
 }
 
 struct PassOptions<'a> {
@@ -642,7 +675,49 @@ async fn sync_one(
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("missing authenticated client"))?
                 .clone();
-            let result = metadata_pass(library, notify, &mut state, &base, &client).await;
+            let mut grant_changes = global.access_policy.changes();
+            let may_receive = if let Some(user) = global
+                .permission_manager
+                .read()
+                .await
+                .verify_by_fingerprint(&endpoint.fingerprint)
+                .await
+            {
+                let peer = PeerIdentity {
+                    fingerprint: user.fingerprint,
+                    public_key: user.public_key,
+                };
+                if user.status != UserStatus::Approved
+                    || global
+                        .access_policy
+                        .check(
+                            &peer,
+                            &Action::LibraryRead {
+                                library_id: library.descriptor.library_id,
+                            },
+                        )
+                        .is_err()
+                {
+                    return Ok(true);
+                }
+                global
+                    .access_policy
+                    .check(
+                        &peer,
+                        &Action::LibraryWrite {
+                            library_id: library.descriptor.library_id,
+                        },
+                    )
+                    .is_ok()
+            } else {
+                true
+            }; // A pinned authoritative server need not be paired as a client here.
+            let operation = metadata_pass(library, notify, &mut state, &base, &client, may_receive);
+            let result = tokio::select! {
+                biased;
+                _ = grant_changes.changed() => { state.session = None; state.library = None; return Ok(false); },
+                result = operation => result,
+            };
             if result.as_ref().err().is_some_and(metadata_unauthorized) {
                 state.client = None;
                 if attempt == 0 {
@@ -702,8 +777,60 @@ async fn metadata_pass(
     state: &mut PeerSession,
     base: &str,
     client: &reqwest::Client,
+    may_receive: bool,
 ) -> Result<bool> {
     let local = library.library_sync.identity().await?;
+    let listings: Vec<ListedLibrary> = client
+        .get(format!("{base}/libraries"))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let level = listings
+        .iter()
+        .find(|entry| entry.library_id == local.namespace)
+        .map(|entry| entry.level)
+        // Hosted replicas are not advertised. Probe their authenticated routes;
+        // a push denial below switches this peer to pull-only.
+        .unwrap_or(LibraryLevel::ReadWrite);
+    if state.advertised_level != Some(level) {
+        state.push_forbidden = false;
+        state.advertised_level = Some(level);
+    }
+    if level == LibraryLevel::NotShared {
+        state.session = None;
+        state.library = None;
+        return Err(SyncError::NamespaceNotServed.into());
+    }
+    let read_only = level == LibraryLevel::Read || state.push_forbidden;
+    if read_only && !state.read_only_logged {
+        log::info!(
+            "Library {} is read-only on peer; synchronization is pull-only",
+            local.namespace
+        );
+        state.read_only_logged = true;
+    }
+    if !read_only {
+        state.read_only_logged = false;
+    }
+    if read_only && !may_receive {
+        state.session = None;
+        state.library = None;
+        return Ok(true);
+    }
+    let direction = if read_only {
+        SessionDirection::Pull
+    } else if !may_receive {
+        SessionDirection::Push
+    } else {
+        SessionDirection::Both
+    };
+    if direction != state.direction {
+        state.session = None;
+        state.direction = direction;
+    }
+
     let base = library_base(base, local.namespace);
     let peer = http_request::sync::MetadataPeer::<RuneModel>::new(&base, client.clone());
     let remote = peer.identity().await?;
@@ -718,15 +845,39 @@ async fn metadata_pass(
         state.identity = Some(identity);
     }
     if state.session.is_none() {
-        state.session = Some(LibrarySession::new(library.library_sync.clone())?);
+        let mut session = LibrarySession::new(library.library_sync.clone())?;
+        session.set_direction(direction);
+        state.session = Some(session);
         state.library = Some(library.clone());
     }
-    let complete = state
+    let result = state
         .session
         .as_mut()
         .ok_or_else(|| anyhow::anyhow!("missing metadata session"))?
         .advance(&peer, notify.clone())
-        .await?;
+        .await;
+    let complete = match result {
+        Ok(complete) => complete,
+        Err(error)
+            if error
+                .downcast_ref::<SyncError>()
+                .is_some_and(|error| matches!(error, SyncError::Forbidden))
+                && direction != SessionDirection::Pull =>
+        {
+            state.push_forbidden = true;
+            state.session = None;
+            state.library = None;
+            if !state.read_only_logged {
+                log::info!(
+                    "Library {} refused push; synchronization is pull-only",
+                    local.namespace
+                );
+                state.read_only_logged = true;
+            }
+            return Ok(false);
+        }
+        Err(error) => return Err(error),
+    };
     if complete {
         state.session = None;
         state.library = None;

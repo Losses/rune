@@ -61,6 +61,8 @@ String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
       RequestErrorKind.notFound => s.requestItemMissing,
       RequestErrorKind.invalidInput => s.requestInvalid,
       RequestErrorKind.unavailable => s.requestUnavailable,
+      // TODO: Add dedicated permission-denied text in the settings UI package.
+      RequestErrorKind.permissionDenied => s.requestUnavailable,
       RequestErrorKind.internal => s.unknownError,
     };
 

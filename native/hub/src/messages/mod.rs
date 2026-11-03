@@ -4,6 +4,7 @@ mod artist;
 mod collection;
 mod connection;
 mod cover_art;
+mod device_grants;
 mod diagnostics;
 mod directory;
 mod library_home;
@@ -54,3 +55,5 @@ pub use system::*;
 pub use visualizer::*;
 
 pub use replicas::*;
+
+pub use device_grants::*;

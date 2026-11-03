@@ -1,3 +1,5 @@
+use crate::access_policy::Action;
+use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use axum::{
@@ -42,6 +44,18 @@ pub async fn websocket_handler(
         .filter(|user| user.status == UserStatus::Approved);
     match user {
         Some(user) => {
+            let peer = PeerIdentity {
+                fingerprint: user.fingerprint.clone(),
+                public_key: user.public_key.clone(),
+            };
+            if state
+                .node
+                .access_policy
+                .check(&peer, &Action::Control)
+                .is_err()
+            {
+                return StatusCode::FORBIDDEN.into_response();
+            }
             info!("Connection authorized for {} @ {}", user.alias, addr);
             let host = format!("https://{host}:7863");
             ws.on_upgrade(move |socket| handle_socket(socket, state, user, host))
@@ -55,6 +69,13 @@ pub async fn websocket_handler(
 
 pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: User, host: String) {
     let mut changes = state.permission_manager.read().await.changes();
+    let policy = state.node.access_policy.clone();
+    let mut grant_changes = policy.changes();
+    let peer = PeerIdentity {
+        fingerprint: user.fingerprint.clone(),
+        public_key: user.public_key.clone(),
+    };
+    let session_peer = peer.clone();
     let permission_manager = state.permission_manager.clone();
     let session_cancel = state.session_cancel.clone();
     let session_fingerprint = user.fingerprint.clone();
@@ -88,18 +109,19 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: Use
             {
                 debug!("[{incoming_alias}] Received: {msg_type}");
 
-                if let Some((resp_type, response)) = state
+                let result = state
                     .websocket_service
                     .handle_message(
                         &msg_type,
                         msg_payload,
                         Some(Session {
                             fingerprint: fingerprint.to_owned(),
+                            public_key: peer.public_key.clone(),
                             host: host.to_owned(),
                         }),
                     )
-                    .await
-                {
+                    .await;
+                if let Some((resp_type, response)) = result {
                     let (response_type, response) = match response {
                         Ok(response) => (resp_type, response),
                         Err(e) => {
@@ -158,11 +180,12 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: Use
                 .verify_by_fingerprint(&session_fingerprint)
                 .await
                 .is_some_and(|user| user.status == UserStatus::Approved);
-            if !approved {
+            if !approved || policy.check(&session_peer, &Action::Control).is_err() {
                 break;
             }
-            if changes.changed().await.is_err() {
-                break;
+            tokio::select! {
+                result = changes.changed() => if result.is_err() { break; },
+                result = grant_changes.changed() => if result.is_err() { break; },
             }
         }
     };

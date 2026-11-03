@@ -82,6 +82,7 @@ pub enum SyncError {
     StaleWork,
     Cancelled,
     Unauthorized,
+    Forbidden,
     NamespaceNotServed,
     Storage(String),
     Transport(String),

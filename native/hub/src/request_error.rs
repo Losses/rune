@@ -2,6 +2,7 @@ use anyhow::Error;
 use database::error::ExpectedError;
 use thiserror::Error as ThisError;
 
+use crate::access_policy::Denial;
 use crate::messages::RequestErrorKind;
 
 /// Expected failures at the request boundary.
@@ -25,6 +26,9 @@ impl ExpectedRequestError {
 /// Classify a request failure without relying on its diagnostic text.
 pub fn classify(error: &Error) -> RequestErrorKind {
     for cause in error.chain() {
+        if cause.is::<Denial>() {
+            return RequestErrorKind::PermissionDenied;
+        }
         if let Some(expected) = cause.downcast_ref::<ExpectedError>() {
             return match expected {
                 ExpectedError::NotFound { .. } => RequestErrorKind::NotFound,

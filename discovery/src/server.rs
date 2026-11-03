@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -102,7 +103,12 @@ pub enum PermissionError {
     /// Error indicating that a provided path is invalid or cannot be used.
     #[error("Path is invalid")]
     InvalidPath,
+    /// Application grant persistence failed.
+    #[error("Device grants: {0}")]
+    Grants(String),
 }
+
+type TrustChangeHook = Arc<dyn Fn(&str, Option<&UserStatus>) -> Result<(), String> + Send + Sync>;
 
 /// Manages user permissions, including adding, removing, and verifying users.
 ///
@@ -110,7 +116,6 @@ pub enum PermissionError {
 /// to manage a list of users, their statuses, and associated device information. It uses
 /// `PersistentDataManager` for storing and retrieving permission data from disk. It also maintains
 /// an in-memory cache of IP addresses to application fingerprints for rate limiting or tracking purposes.
-#[derive(Debug)]
 pub struct PermissionManager {
     /// Manages the persistent storage of the permission list.
     storage: PersistentDataManager<PermissionList>,
@@ -119,9 +124,21 @@ pub struct PermissionManager {
     ip_applications: Arc<RwLock<HashMap<String, VecDeque<String>>>>,
     request_sender: broadcast::Sender<User>,
     change_sender: watch::Sender<u64>,
+    trust_change_hook: Option<TrustChangeHook>,
+}
+
+impl Debug for PermissionManager {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_struct("PermissionManager").finish_non_exhaustive()
+    }
 }
 
 impl PermissionManager {
+    /// Attach the application's durable grant lifecycle to trust edits.
+    pub fn set_trust_change_hook(&mut self, hook: TrustChangeHook) {
+        self.trust_change_hook = Some(hook);
+    }
+
     /// Creates a new `PermissionManager` instance, initializing persistent storage.
     ///
     /// This constructor sets up a `PermissionManager` by initializing its `PersistentDataManager`.
@@ -150,6 +167,7 @@ impl PermissionManager {
             ip_applications: Arc::new(RwLock::new(HashMap::new())),
             request_sender,
             change_sender: watch::channel(0).0,
+            trust_change_hook: None,
         })
     }
 
@@ -230,6 +248,9 @@ impl PermissionManager {
                     // Check if queue is full (max 5 entries)
                     if let Some(old_key) = queue.pop_front() {
                         // Remove oldest entry if queue is full
+                        if let Some(hook) = &self.trust_change_hook {
+                            hook(&old_key, None).map_err(PermissionError::Grants)?;
+                        }
                         permissions.users.remove(&old_key); // Optionally remove user associated with the oldest key
                     }
                 }
@@ -321,6 +342,9 @@ impl PermissionManager {
                     .users
                     .get_mut(fingerprint) // Get mutable reference to user by fingerprint
                     .ok_or(PermissionError::UserNotFound)?; // Return error if user not found
+                if let Some(hook) = &self.trust_change_hook {
+                    hook(fingerprint, Some(&new_status)).map_err(PermissionError::Grants)?;
+                }
                 user.status = new_status.clone(); // Update user status
                 Ok::<_, PermissionError>((permissions, ())) // Return updated permissions and success result
             })
@@ -347,6 +371,11 @@ impl PermissionManager {
         self.storage
             .update(|mut permissions| async move {
                 // Update operation on persistent storage
+                if permissions.users.contains_key(fingerprint)
+                    && let Some(hook) = &self.trust_change_hook
+                {
+                    hook(fingerprint, None).map_err(PermissionError::Grants)?;
+                }
                 if permissions.users.remove(fingerprint).is_none() {
                     // Try to remove user by fingerprint
                     Err(PermissionError::UserNotFound) // Return error if user was not found (remove returned None)

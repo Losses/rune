@@ -1,603 +1,622 @@
 use proc_macro::TokenStream;
 use quote::quote;
 
+#[derive(Clone, Copy, PartialEq)]
+enum RequestClass {
+    NodeLocal,
+    Control,
+    LibraryRead,
+    LibraryWrite,
+    Administer,
+}
+
 struct RequestResponse {
     request: String,
     response: Option<String>,
-    local_only: bool,
+    class: RequestClass,
 }
 
 #[proc_macro]
 pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let types = vec![
         RequestResponse {
+            request: "GetDeviceGrantsRequest".to_string(),
+            response: Some("GetDeviceGrantsResponse".to_string()),
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
+            request: "SetDeviceGrantsRequest".to_string(),
+            response: Some("SetDeviceGrantsResponse".to_string()),
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
             request: "ListLocalLibrariesRequest".to_string(),
             response: Some("ListLocalLibrariesResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "SetLibraryBackgroundSyncRequest".to_string(),
             response: Some("SetLibraryBackgroundSyncResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "ListPeerLibrariesRequest".to_string(),
             response: Some("ListPeerLibrariesResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "AddRemoteLibraryRequest".to_string(),
             response: Some("AddRemoteLibraryResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         // Library
         RequestResponse {
             request: "GetSyncSettingsRequest".to_string(),
             response: Some("GetSyncSettingsResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "SetSyncSettingsRequest".to_string(),
             response: Some("SetSyncSettingsResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "SetDownloadRuleRequest".to_string(),
             response: Some("SetDownloadRuleResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "RemoveDownloadRuleRequest".to_string(),
             response: Some("RemoveDownloadRuleResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "TestLibraryInitializedRequest".to_string(),
             response: Some("TestLibraryInitializedResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "CloseLibraryRequest".to_string(),
             response: Some("CloseLibraryResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "CancelTaskRequest".to_string(),
             response: Some("CancelTaskResponse".to_string()),
-            local_only: false,
+            class: RequestClass::Administer,
         },
         RequestResponse {
             request: "ScanAudioLibraryRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Administer,
         },
         RequestResponse {
             request: "AnalyzeAudioLibraryRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Administer,
         },
         RequestResponse {
             request: "DeduplicateAudioLibraryRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Administer,
         },
         // Playback
         RequestResponse {
             request: "VolumeRequest".to_string(),
             response: Some("VolumeResponse".to_string()),
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "LoadRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "PlayRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "PauseRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "NextRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "PreviousRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "SwitchRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "SeekRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "RemoveRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "SetPlaybackModeRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "MovePlaylistItemRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "SetRealtimeFFTEnabledRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         RequestResponse {
             request: "SetAdaptiveSwitchingEnabledRequest".to_string(),
             response: None,
-            local_only: false,
+            class: RequestClass::Control,
         },
         // Visualizer (the GPU and the frame buffer live in this process)
         RequestResponse {
             request: "StartVisualizerRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "StopVisualizerRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "ResizeVisualizerRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "SetVisualizerPresetDirsRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "SetVisualizerAccentRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "SetVisualizerVisibleRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "LoadVisualizerPresetRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "NextVisualizerPresetRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "PreviousVisualizerPresetRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "RandomVisualizerPresetRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "ImportVisualizerSceneRequest".to_string(),
             response: Some("ImportVisualizerSceneResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "RemoveVisualizerSceneRequest".to_string(),
             response: Some("RemoveVisualizerSceneResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "SetVisualizerScenesRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "SetVisualizerLogRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "VisualizerSupportRequest".to_string(),
             response: Some("VisualizerSupportResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "VisualizerStatusRequest".to_string(),
             response: Some("VisualizerStatusResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "ListVisualizerPresetsRequest".to_string(),
             response: Some("ListVisualizerPresetsResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "ListVisualizerCreditsRequest".to_string(),
             response: Some("ListVisualizerCreditsResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "VisualizerTextureShownRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         // SFX
         RequestResponse {
             request: "SfxPlayRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         // Analyze
         RequestResponse {
             request: "IfAnalyzeExistsRequest".to_string(),
             response: Some("IfAnalyzeExistsResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "GetAnalyzeCountRequest".to_string(),
             response: Some("GetAnalyzeCountResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         // Media File
         RequestResponse {
             request: "FetchMediaFilesRequest".to_string(),
             response: Some("FetchMediaFilesResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "FetchMediaFileByIdsRequest".to_string(),
             response: Some("FetchMediaFileByIdsResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "FetchParsedMediaFileRequest".to_string(),
             response: Some("FetchParsedMediaFileResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "SearchMediaFileSummaryRequest".to_string(),
             response: Some("SearchMediaFileSummaryResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         // Lyric
         RequestResponse {
             request: "GetMediaFilesCountRequest".to_string(),
             response: Some("GetMediaFilesCountResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "GetLyricByTrackIdRequest".to_string(),
             response: Some("GetLyricByTrackIdResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         // Collection
         RequestResponse {
             request: "FetchCollectionGroupSummaryRequest".to_string(),
             response: Some("CollectionGroupSummaryResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "FetchCollectionGroupsRequest".to_string(),
             response: Some("FetchCollectionGroupsResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "FetchCollectionByIdsRequest".to_string(),
             response: Some("FetchCollectionByIdsResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "SearchCollectionSummaryRequest".to_string(),
             response: Some("SearchCollectionSummaryResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         // Cover Art
         RequestResponse {
             request: "GetCoverArtIdsByMixQueriesRequest".to_string(),
             response: Some("GetCoverArtIdsByMixQueriesResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "GetPrimaryColorByTrackIdRequest".to_string(),
             response: Some("GetPrimaryColorByTrackIdResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         // Playlist
         RequestResponse {
             request: "FetchAllPlaylistsRequest".to_string(),
             response: Some("FetchAllPlaylistsResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "CreatePlaylistRequest".to_string(),
             response: Some("CreatePlaylistResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
         RequestResponse {
             request: "CreateM3u8PlaylistRequest".to_string(),
             response: Some("CreateM3u8PlaylistResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
         RequestResponse {
             request: "UpdatePlaylistRequest".to_string(),
             response: Some("UpdatePlaylistResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
         RequestResponse {
             request: "RemovePlaylistRequest".to_string(),
             response: Some("RemovePlaylistResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
         RequestResponse {
             request: "AddItemToPlaylistRequest".to_string(),
             response: Some("AddItemToPlaylistResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
         RequestResponse {
             request: "ReorderPlaylistItemPositionRequest".to_string(),
             response: Some("ReorderPlaylistItemPositionResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
         RequestResponse {
             request: "FetchPlaylistOccurrencesRequest".to_string(),
             response: Some("FetchPlaylistOccurrencesResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "GetPlaylistByIdRequest".to_string(),
             response: Some("GetPlaylistByIdResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         // Mix
         RequestResponse {
             request: "FetchAllMixesRequest".to_string(),
             response: Some("FetchAllMixesResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "CreateMixRequest".to_string(),
             response: Some("CreateMixResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
         RequestResponse {
             request: "UpdateMixRequest".to_string(),
             response: Some("UpdateMixResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
         RequestResponse {
             request: "RemoveMixRequest".to_string(),
             response: Some("RemoveMixResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
         RequestResponse {
             request: "AddItemToMixRequest".to_string(),
             response: Some("AddItemToMixResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
         RequestResponse {
             request: "GetMixByIdRequest".to_string(),
             response: Some("GetMixByIdResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "MixQueryRequest".to_string(),
             response: Some("MixQueryResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "FetchMixQueriesRequest".to_string(),
             response: Some("FetchMixQueriesResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "OperatePlaybackWithMixQueryRequest".to_string(),
             response: Some("OperatePlaybackWithMixQueryResponse".to_string()),
-            local_only: false,
+            class: RequestClass::Control,
         },
         // Like
         RequestResponse {
             request: "SetLikedRequest".to_string(),
             response: Some("SetLikedResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
         RequestResponse {
             request: "GetLikedRequest".to_string(),
             response: Some("GetLikedResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         // Query and Search
         RequestResponse {
             request: "ComplexQueryRequest".to_string(),
             response: Some("ComplexQueryResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         RequestResponse {
             request: "SearchForRequest".to_string(),
             response: Some("SearchForResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         // Directory
         RequestResponse {
             request: "FetchDirectoryTreeRequest".to_string(),
             response: Some("FetchDirectoryTreeResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryRead,
         },
         // Scrobbler
         RequestResponse {
             request: "AuthenticateSingleServiceRequest".to_string(),
             response: Some("AuthenticateSingleServiceResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "AuthenticateMultipleServiceRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "LogoutSingleServiceRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         // Log
         RequestResponse {
             request: "ListLogRequest".to_string(),
             response: Some("ListLogResponse".to_string()),
-            local_only: false,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "ClearLogRequest".to_string(),
             response: Some("ClearLogResponse".to_string()),
-            local_only: false,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "RemoveLogRequest".to_string(),
             response: Some("RemoveLogResponse".to_string()),
-            local_only: false,
+            class: RequestClass::NodeLocal,
         },
         // System
         RequestResponse {
             request: "SystemInfoRequest".to_string(),
             response: Some("SystemInfoResponse".to_string()),
-            local_only: false,
+            class: RequestClass::NodeLocal,
         },
         // License
         RequestResponse {
             request: "RegisterLicenseRequest".to_string(),
             response: Some("RegisterLicenseResponse".to_string()),
-            local_only: false,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "ValidateLicenseRequest".to_string(),
             response: Some("ValidateLicenseResponse".to_string()),
-            local_only: false,
+            class: RequestClass::NodeLocal,
         },
         // Neighbors
         RequestResponse {
             request: "StartBroadcastRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "StopBroadcastRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "StartListeningRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "StopListeningRequest".to_string(),
             response: None,
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "GetDiscoveredDeviceRequest".to_string(),
             response: Some("GetDiscoveredDeviceResponse".to_string()),
-            local_only: false,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "StartServerRequest".to_string(),
             response: Some("StartServerResponse".to_string()),
-            local_only: false,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "StopServerRequest".to_string(),
             response: Some("StopServerResponse".to_string()),
-            local_only: false,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "ListClientsRequest".to_string(),
             response: Some("ListClientsResponse".to_string()),
-            local_only: false,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "GetSslCertificateFingerprintRequest".to_string(),
             response: Some("GetSslCertificateFingerprintResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "AddTrustedServerRequest".to_string(),
             response: Some("AddTrustedServerResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "RemoveTrustedClientRequest".to_string(),
             response: Some("RemoveTrustedClientResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "UpdateClientStatusRequest".to_string(),
             response: Some("UpdateClientStatusResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "EditHostsRequest".to_string(),
             response: Some("EditHostsResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "RemoveTrustedServerRequest".to_string(),
             response: Some("RemoveTrustedServerResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "ServerAvailabilityTestRequest".to_string(),
             response: Some("ServerAvailabilityTestResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "RegisterDeviceOnServerRequest".to_string(),
             response: Some("RegisterDeviceOnServerResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "CheckDeviceOnServerRequest".to_string(),
             response: Some("CheckDeviceOnServerResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "ConnectRequest".to_string(),
             response: Some("ConnectResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "FetchServerCertificateRequest".to_string(),
             response: Some("FetchServerCertificateResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "FetchRemoteFileRequest".to_string(),
             response: Some("FetchRemoteFileResponse".to_string()),
-            local_only: true,
+            class: RequestClass::NodeLocal,
         },
         RequestResponse {
             request: "RemoveItemFromPlaylistRequest".to_string(),
             response: Some("RemoveItemFromPlaylistResponse".to_string()),
-            local_only: false,
+            class: RequestClass::LibraryWrite,
         },
     ];
 
@@ -638,13 +657,13 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
 
     let non_local_requests: Vec<_> = types
         .iter()
-        .filter(|t| !t.local_only)
+        .filter(|t| t.class != RequestClass::NodeLocal)
         .map(|t| syn::parse_str::<syn::Ident>(&t.request).unwrap())
         .collect();
 
     let local_response_pairs: Vec<_> = with_response
         .iter()
-        .filter(|t| t.local_only)
+        .filter(|t| t.class == RequestClass::NodeLocal)
         .map(|t| {
             let req_ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
             let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
@@ -654,7 +673,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
 
     let local_request_only: Vec<_> = without_response
         .iter()
-        .filter(|t| t.local_only)
+        .filter(|t| t.class == RequestClass::NodeLocal)
         .map(|t| {
             let ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
             quote! { #ident }
@@ -663,7 +682,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
 
     let remote_response_pairs: Vec<_> = with_response
         .iter()
-        .filter(|t| !t.local_only)
+        .filter(|t| t.class != RequestClass::NodeLocal)
         .map(|t| {
             let req_ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
             let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
@@ -673,14 +692,34 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
 
     let remote_request_only: Vec<_> = without_response
         .iter()
-        .filter(|t| !t.local_only)
+        .filter(|t| t.class != RequestClass::NodeLocal)
         .map(|t| {
             let ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
             quote! { #ident }
         })
         .collect();
 
+    let classifications: Vec<_> = types
+        .iter()
+        .map(|t| {
+            let request = &t.request;
+            let class = match t.class {
+                RequestClass::NodeLocal => quote! { RequestClass::NodeLocal },
+                RequestClass::Control => quote! { RequestClass::Control },
+                RequestClass::LibraryRead => quote! { RequestClass::LibraryRead },
+                RequestClass::LibraryWrite => quote! { RequestClass::LibraryWrite },
+                RequestClass::Administer => quote! { RequestClass::Administer },
+            };
+            quote! { #request => Some(#class), }
+        })
+        .collect();
     let expanded = quote! {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum RequestClass { NodeLocal, Control, LibraryRead, LibraryWrite, Administer }
+        pub fn request_class(name: &str) -> Option<RequestClass> {
+            match name { #(#classifications)* _ => None }
+        }
+
         #[macro_export]
         macro_rules! for_all_request_pairs {
             ($m:tt, $params:expr) => {

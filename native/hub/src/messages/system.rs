@@ -29,6 +29,7 @@ pub enum RequestErrorKind {
     InvalidInput,
     Unavailable,
     Internal,
+    PermissionDenied,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

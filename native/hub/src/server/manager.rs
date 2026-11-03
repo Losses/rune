@@ -276,6 +276,7 @@ impl ServerManager {
 
         let watch_cancel = tokio_util_sync::CancellationToken::new();
         let server_state = Arc::new(ServerState {
+            node: node.clone(),
             session_cancel: watch_cancel.clone(),
             app_state: app_state.clone(),
             websocket_service: websocket_service.clone(),
@@ -342,6 +343,10 @@ impl ServerManager {
             .route("/files/{*file_path}", get(file_handler))
             .route("/media/metadata/{id}", get(get_media_metadata_handler))
             .route("/media/cover/{id}", get(get_cover_art_handler))
+            .layer(middleware::from_fn_with_state(
+                self.clone(),
+                super::access::require_library_read,
+            ))
             .layer(middleware::from_fn_with_state(
                 auth.clone(),
                 super::sync_auth::require_auth,
@@ -856,7 +861,7 @@ mod lifecycle_tests {
     use playback::{player::MockPlayer, sfx_player::SfxPlayer};
     use scrobbling::manager::MockScrobblingManager;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
-    use std::{ops::Deref, sync::OnceLock};
+    use std::{fs, ops::Deref, sync::OnceLock};
     use tokio::net::TcpStream;
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
     use tokio_util::sync::CancellationToken;
@@ -864,6 +869,8 @@ mod lifecycle_tests {
 
     use crate::library_pool::{LibraryHandle, LibraryPool, LibraryResources};
     use crate::node::NodeSlot;
+
+    include!("access_policy_tests.rs");
 
     struct Quiet;
     impl Broadcaster for Quiet {
@@ -979,6 +986,17 @@ mod lifecycle_tests {
         )
         .await?;
         fixture_from_library(node_context, library).await
+    }
+
+    async fn reopen_fixture(original: &Fixture) -> Result<Fixture> {
+        original.global_params.node.shutdown().await?;
+        let config = &original.global_params.config_path;
+        let node = NodeContext::new(config, config, Arc::new(Quiet)).await?;
+        let library = node
+            .library_pool
+            .acquire_ui(original.global_params.library_id.context("library")?)
+            .await?;
+        fixture_from_library(node, library).await
     }
 
     async fn fixture_from_library(
@@ -1478,6 +1496,79 @@ mod lifecycle_tests {
             decode_message(&frame.into_data()).context("invalid frame")?;
         assert_eq!(response_id, id);
         Ok((response_name, payload))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn access_policy_guest_websocket() -> Result<()> {
+        use crate::backends::remote::connect_remote;
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let original = fixture(first.path()).await?;
+        let b = fixture(second.path()).await?;
+        pair(&original, &b).await?;
+        let fingerprint = info(&b).await?.fingerprint;
+        fs::write(
+            first.path().join("grants.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1, "devices": {fingerprint: {
+                    "control": true, "all_libraries": null, "libraries": {}, "administer": false
+                }}
+            }))?,
+        )?;
+        let a = reopen_fixture(&original).await?;
+        let addr = paired_full(&a, &b).await?;
+        let validator = b.global_params.cert_validator.read().await.clone();
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &b.global_params.config_path,
+            validator,
+        )
+        .await?;
+        let (name, _) = socket_request(
+            &mut socket,
+            "GetMediaFilesCountRequest",
+            &rinf::serialize(&GetMediaFilesCountRequest {})?,
+        )
+        .await?;
+        assert_eq!(name, "GetMediaFilesCountResponse");
+        let (name, _) = socket_request(
+            &mut socket,
+            "PauseRequest",
+            &rinf::serialize(&PauseRequest {})?,
+        )
+        .await?;
+        assert_eq!(name, "");
+        for (request, payload) in [
+            (
+                "CreatePlaylistRequest",
+                rinf::serialize(&CreatePlaylistRequest {
+                    name: "forbidden".into(),
+                    group: "test".into(),
+                })?,
+            ),
+            (
+                "ScanAudioLibraryRequest",
+                rinf::serialize(&ScanAudioLibraryRequest {
+                    scan_id: "forbidden".into(),
+                    path: first.path().to_string_lossy().into_owned(),
+                    force: false,
+                })?,
+            ),
+        ] {
+            let (name, payload) = socket_request(&mut socket, request, &payload).await?;
+            assert_eq!(name, "RemoteRequestFailed");
+            let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
+            assert_eq!(
+                failure.kind,
+                RequestErrorKind::PermissionDenied,
+                "{request}"
+            );
+        }
+        socket.close(None).await?;
+        a.global_params.node.shutdown().await?;
+        b.global_params.node.shutdown().await?;
+        Ok(())
     }
 
     #[tokio::test]

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     Json,
-    extract::{Extension, Path as AxumPath, Query},
+    extract::{Extension, Path as AxumPath},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -11,10 +11,7 @@ use serde::Serialize;
 
 use crate::{
     messages::{Album, Artist, MediaFile},
-    server::{
-        ServerManager,
-        libraries::{LibraryQuery, request_library},
-    },
+    server::{ServerManager, access::AuthorizedLibrary},
     utils::parse_media_files,
 };
 use database::actions::{cover_art::bake_cover_art_by_file_ids, metadata::get_parsed_file_by_id};
@@ -27,13 +24,10 @@ pub struct MediaMetadataResponse {
 }
 
 pub async fn get_media_metadata_handler(
-    Query(query): Query<LibraryQuery>,
+    Extension(AuthorizedLibrary(library)): Extension<AuthorizedLibrary>,
     Extension(server_manager): Extension<Arc<ServerManager>>,
     AxumPath(file_id): AxumPath<i64>,
 ) -> Result<Json<MediaMetadataResponse>, (StatusCode, String)> {
-    let library = request_library(&server_manager, query)
-        .await
-        .map_err(|status| (status, "Library unavailable".to_owned()))?;
     let file_id_i32 = file_id
         .try_into()
         .map_err(|_| (StatusCode::BAD_REQUEST, "File ID out of range".to_string()))?;
@@ -84,13 +78,9 @@ pub async fn get_media_metadata_handler(
 }
 
 pub async fn get_cover_art_handler(
-    Query(query): Query<LibraryQuery>,
-    Extension(server_manager): Extension<Arc<ServerManager>>,
+    Extension(AuthorizedLibrary(library)): Extension<AuthorizedLibrary>,
     AxumPath(file_id): AxumPath<i64>,
 ) -> Result<Response, (StatusCode, String)> {
-    let library = request_library(&server_manager, query)
-        .await
-        .map_err(|status| (status, "Library unavailable".to_owned()))?;
     let file_id_i32 = file_id
         .try_into()
         .map_err(|_| (StatusCode::BAD_REQUEST, "File ID out of range".to_string()))?;

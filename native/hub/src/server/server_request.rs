@@ -26,6 +26,15 @@ macro_rules! register_single_handler {
             $server.register_handler(stringify!($request), move |payload, session| {
                 let global_params = global_params.clone();
                 async move {
+                    let ui_params = match global_params.current_ui().await {
+                        Ok(params) => params,
+                        Err(error) => return (String::new(), Err(error)),
+                    };
+                    if let Some(session) = &session
+                        && let Err(error) = global_params.authorize_request(session, stringify!($request), &ui_params).await
+                    {
+                        return (String::new(), Err(error));
+                    }
                     let buf = payload.as_slice();
                     let request = match rinf::deserialize::<$request>(buf) {
                         Ok(req) => req,
@@ -34,11 +43,7 @@ macro_rules! register_single_handler {
                         }
                     };
 
-                    let global_params = match global_params.current_ui().await {
-                        Ok(params) => params,
-                        Err(error) => return (String::new(), Err(error)),
-                    };
-                    let params = request.extract_params(&global_params);
+                    let params = request.extract_params(&ui_params);
                     match request.handle(params, session, &request).await {
                         Ok(_response) => {
                             handle_server_response!(_response, $with_response)

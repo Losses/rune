@@ -1,3 +1,5 @@
+use crate::access_policy::{Action, LibraryLevel};
+use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -11,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::ServerManager;
-use super::sync_auth::AuthenticatedFingerprint;
 use super::sync_worker::{authenticated_client, peer_endpoints};
 use super::utils::device::load_device_info;
 use crate::backends::remote::{RemoteConnectError, token_error};
@@ -21,35 +22,50 @@ use crate::node::NodeContext;
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct ListedLibrary {
-    library_id: Uuid,
-    alias: String,
+    pub(super) library_id: Uuid,
+    pub(super) alias: String,
+    pub(super) level: LibraryLevel,
 }
 
-// Per-library permissions hook: Approved paired devices may currently read every owned library.
-fn library_visible_to_peer(_fingerprint: &str, _library: &LibraryDescriptor) -> bool {
-    true
+// Pairing was checked by the transport; grants decide library visibility.
+fn library_visible_to_peer(
+    node: &NodeContext,
+    peer: &PeerIdentity,
+    library: &LibraryDescriptor,
+) -> bool {
+    node.access_policy
+        .check(
+            peer,
+            &Action::LibraryRead {
+                library_id: library.library_id,
+            },
+        )
+        .is_ok()
 }
 
 pub(super) async fn list_libraries(
     Extension(manager): Extension<Arc<ServerManager>>,
-    Extension(peer): Extension<AuthenticatedFingerprint>,
+    Extension(peer): Extension<PeerIdentity>,
 ) -> Result<Json<Vec<ListedLibrary>>, StatusCode> {
-    let registry = LibraryRegistry::load(Path::new(
-        &*manager
-            .node()
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-            .config_path,
-    ))
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let node = manager
+        .node()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let grants = node
+        .access_policy
+        .grants(&peer.fingerprint)
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(
         registry
             .libraries
             .into_iter()
             .filter(|library| library.authority == LibraryAuthority::Owned)
-            .filter(|library| library_visible_to_peer(&peer.0, library))
+            .filter(|library| library_visible_to_peer(&node, &peer, library))
             .map(|library| ListedLibrary {
                 library_id: library.library_id,
                 alias: library.alias,
+                level: grants.level(library.library_id),
             })
             .collect(),
     ))

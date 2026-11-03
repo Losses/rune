@@ -8,6 +8,7 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use discovery::access_policy::PeerIdentity;
 use discovery::server::{PermissionManager, UserStatus};
 use rand::{RngCore, rngs::OsRng};
 use rsa::{Pss, RsaPublicKey, pkcs8::DecodePublicKey};
@@ -241,6 +242,18 @@ pub async fn require_auth(
         .resolve_token(token)
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
+    let user = auth
+        .permissions
+        .read()
+        .await
+        .verify_by_fingerprint(&fingerprint)
+        .await
+        .filter(|user| user.status == UserStatus::Approved)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    request.extensions_mut().insert(PeerIdentity {
+        fingerprint: fingerprint.clone(),
+        public_key: user.public_key,
+    });
     request
         .extensions_mut()
         .insert(AuthenticatedFingerprint(fingerprint));

@@ -2,6 +2,7 @@ mod analyze;
 mod collection;
 mod connection;
 mod cover_art;
+mod device_grants;
 mod directory;
 mod library_home;
 mod library_manage;

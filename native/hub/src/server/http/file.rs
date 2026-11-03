@@ -2,24 +2,20 @@ use std::{path::Path as FilePath, sync::Arc};
 
 use axum::{
     body::Body,
-    extract::{Extension, Path, Query, State},
+    extract::{Extension, Path, State},
     http::{Request, StatusCode},
     response::{IntoResponse, Response},
 };
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
-use crate::server::{
-    ServerManager, ServerState,
-    libraries::{LibraryQuery, request_library},
-};
+use crate::server::{ServerState, access::AuthorizedLibrary};
 use futures::StreamExt;
 
 pub async fn file_handler(
     Path(file_path): Path<String>,
     State(state): State<Arc<ServerState>>,
-    Extension(manager): Extension<Arc<ServerManager>>,
-    Query(query): Query<LibraryQuery>,
+    Extension(AuthorizedLibrary(authorized_library)): Extension<AuthorizedLibrary>,
 ) -> impl IntoResponse {
     let cover_temp_dir = &state.app_state.cover_temp_dir;
 
@@ -33,10 +29,7 @@ pub async fn file_handler(
 
     // Determine the actual root directory based on the prefix
     let library = if prefix == "library" {
-        match request_library(&manager, query).await {
-            Ok(library) => Some(library),
-            Err(status) => return status.into_response(),
-        }
+        Some(authorized_library)
     } else {
         None
     };

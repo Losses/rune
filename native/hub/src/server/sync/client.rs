@@ -22,10 +22,19 @@ pub struct LibrarySyncReport {
 }
 use database::sync::session_limits;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum SessionDirection {
+    #[default]
+    Both,
+    Pull,
+    Push,
+}
+
 /// Keep this value between background passes and network retries.
 pub struct LibrarySession {
     local: LibrarySyncStore,
     session: BidirectionalSession<RuneModel>,
+    direction: SessionDirection,
 }
 impl LibrarySession {
     pub fn new(local: LibrarySyncStore) -> Result<Self> {
@@ -34,8 +43,12 @@ impl LibrarySession {
         };
         Ok(Self {
             local,
+            direction: SessionDirection::Both,
             session: BidirectionalSession::new(scope, session_limits())?,
         })
+    }
+    pub(crate) fn set_direction(&mut self, direction: SessionDirection) {
+        self.direction = direction;
     }
     /// One bounded pass; a failed request leaves its continuation available for retry.
     pub async fn advance(
@@ -44,7 +57,11 @@ impl LibrarySession {
         notify: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<bool> {
         let endpoint = self.local.endpoint().with_notification(notify);
-        Ok(self.session.advance(&endpoint, remote).await?)
+        Ok(match self.direction {
+            SessionDirection::Both => self.session.advance(&endpoint, remote).await?,
+            SessionDirection::Pull => self.session.pull_only(&endpoint, remote).await?,
+            SessionDirection::Push => self.session.push_only(&endpoint, remote).await?,
+        })
     }
     pub fn report(&self) -> Result<LibrarySyncReport> {
         let (pulled, pushed) = self
