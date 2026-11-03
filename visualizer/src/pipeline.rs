@@ -3259,7 +3259,8 @@ mod probe {
         pipeline
     }
 
-    /// Start `scene` from its beginning at `level`, with its seeds fixed (`PROBE_SEED`).
+    /// Start `scene` from its beginning at `level`, with its seeds fixed (`PROBE_SEED`): the
+    /// director's and the song's, which would otherwise be drawn anew at every load.
     fn load(pipeline: &mut Pipeline, scene: &str, level: Level) {
         if scene.starts_with('/') {
             pipeline.load_scene(Path::new(scene)).unwrap();
@@ -3272,6 +3273,7 @@ mod probe {
             .set_level(&pipeline.device, &pipeline.queue, level);
         let seed = env_or("PROBE_SEED", "1").parse().expect("a seed");
         pipeline.scene.fix_seed(Some(seed));
+        pipeline.set_song_seed(Some(seed));
         pipeline.scene.fix_wall_dt(1.0 / FPS);
         pipeline.take_frame_times();
     }
