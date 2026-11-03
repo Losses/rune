@@ -1,6 +1,7 @@
 //! Portable, versioned checkpoints for unkeyed BLAKE3's public chunk tree.
 //! The on-disk representation is independent of the crate's in-memory structs.
 use super::{Digest, MAX_NUMBER, Result, SyncError};
+use serde::de::Error;
 const CHUNK: usize = 1024;
 const MAGIC: &[u8; 4] = b"B3P1";
 #[derive(Clone, Debug, Default)]
@@ -22,7 +23,7 @@ impl<'de> serde::Deserialize<'de> for PortableHasher {
         deserializer: D,
     ) -> std::result::Result<Self, D::Error> {
         let bytes = super::bytes_serde::deserialize(deserializer)?;
-        Self::from_checkpoint(&bytes).map_err(serde::de::Error::custom)
+        Self::from_checkpoint(&bytes).map_err(Error::custom)
     }
 }
 impl PortableHasher {

@@ -14,6 +14,7 @@
 //! without a barrier. wgpu imports them as uninitialized, which on DirectX 12 is the `COMMON`
 //! state they are created in.
 
+use hal::dx12::Device;
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::sync::Arc;
@@ -214,7 +215,7 @@ impl SharedTargets {
         // `UNINITIALIZED` maps to), matching the descriptor below; wgpu owns this reference to
         // it from here on.
         let texture = unsafe {
-            let hal_texture = hal::dx12::Device::texture_from_raw(
+            let hal_texture = Device::texture_from_raw(
                 resource,
                 crate::pipeline::FORMAT,
                 wgpu::TextureDimension::D2,

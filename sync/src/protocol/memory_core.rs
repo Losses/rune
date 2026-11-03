@@ -1,5 +1,6 @@
 //! In-memory causal state used by the protocol memory store.
 use super::*;
+use crate::causal;
 use crate::causal::{Candidate as CausalCandidate, CausalMap, Dot as CausalDot, Limits};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -23,9 +24,9 @@ pub struct MemoryCore<M: SyncModel> {
 }
 fn error(e: anyhow::Error) -> SyncError {
     match e.downcast_ref::<crate::causal::CausalError>() {
-        Some(crate::causal::CausalError::ConflictingDot) => SyncError::ConflictingDot,
-        Some(crate::causal::CausalError::ClockExhausted) => SyncError::ClockExhausted,
-        Some(crate::causal::CausalError::LogicalLimit(_)) => SyncError::LogicalLimit,
+        Some(causal::CausalError::ConflictingDot) => SyncError::ConflictingDot,
+        Some(causal::CausalError::ClockExhausted) => SyncError::ClockExhausted,
+        Some(causal::CausalError::LogicalLimit(_)) => SyncError::LogicalLimit,
         _ => SyncError::Invalid(e.to_string()),
     }
 }

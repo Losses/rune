@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 mod access;
 mod content;
 mod integrity;
@@ -105,7 +106,7 @@ pub async fn get_file_by_path(
         .to_string();
     let file_name = relative_path
         .file_name()
-        .unwrap_or_else(|| std::ffi::OsStr::new(""))
+        .unwrap_or_else(|| OsStr::new(""))
         .to_str()
         .unwrap_or("")
         .to_string();

@@ -1,3 +1,4 @@
+use fmt::time::ChronoLocal;
 mod apple_bridge;
 pub mod flutter_bridge;
 #[macro_use]
@@ -68,7 +69,7 @@ async fn main() {
         tracing_subscriber::fmt()
             .with_env_filter(file_filter)
             .with_writer(non_blocking)
-            .with_timer(fmt::time::ChronoLocal::rfc_3339())
+            .with_timer(ChronoLocal::rfc_3339())
             .init();
 
         info!("Logging is enabled");

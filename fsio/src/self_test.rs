@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -217,7 +218,7 @@ async fn layer_direct_read(fsio: &FsIo, root: &Path) -> LayerOutput {
         canonical.display()
     );
 
-    match std::fs::File::open(&canonical) {
+    match File::open(&canonical) {
         Ok(mut file) => {
             use std::io::Read;
             let mut buffer = [0u8; 4096];

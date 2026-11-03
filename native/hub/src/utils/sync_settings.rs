@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use database::actions::metadata::MissingHostFilePolicy;
 use serde::{Deserialize, Serialize};
+use std::io::ErrorKind;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +32,7 @@ impl SyncSettings {
                 }
             },
             Err(error) => {
-                if error.kind() != std::io::ErrorKind::NotFound {
+                if error.kind() != ErrorKind::NotFound {
                     log::warn!("Could not read sync settings: {error}");
                 }
                 Self::default()

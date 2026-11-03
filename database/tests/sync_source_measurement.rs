@@ -1,8 +1,9 @@
+use support::fixtures;
+
 #[path = "support/causal_library.rs"]
 mod support;
-
 use anyhow::{Context, Result};
-use database::sync::{LibrarySyncStore, model::*};
+use database::sync::model::*;
 use sea_orm::{
     ConnectionTrait, ExprTrait,
     sea_query::{Alias, Expr, Query},
@@ -98,7 +99,7 @@ async fn source_build_measurement() -> Result<()> {
             entry.failed += usize::from(info.failed);
         }
     });
-    let measured = LibrarySyncStore::open(measured_db, actor, Some(namespace)).await?;
+    let measured = fixtures::open_library(measured_db, actor, Some(namespace)).await?;
     let source = measured.endpoint();
     let request = Uuid::new_v4();
     let mut cursor = None;

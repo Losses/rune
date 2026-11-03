@@ -1,4 +1,5 @@
 use crate::actions::file::hash_file;
+use crate::sync::accepted as crate_sync_accepted;
 use crate::sync::model::{Artwork, BlobRef, Collection, ObjectKey, RuneModel, author_source_on};
 use std::{
     collections::HashMap,
@@ -448,6 +449,7 @@ pub async fn get_primary_color_by_cover_art_id(
 #[cfg(test)]
 mod identity_tests {
     use super::*;
+    use crate::sync::SeaOrmSyncStore;
     use migration::{Migrator, MigratorTrait};
     use sea_orm::{Database, EntityTrait, Set};
 
@@ -477,8 +479,7 @@ mod identity_tests {
             .exec(&db)
             .await?;
         }
-        let store =
-            crate::sync::SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+        let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
         for (id, data) in [(1, vec![1, 2, 3]), (2, vec![4, 5, 6])] {
             let file = media_files::Entity::find_by_id(id).one(&db).await?.unwrap();
             assign_inspected(
@@ -775,7 +776,7 @@ pub async fn artwork_candidates(
 ) -> Result<sync_orm::causal_store::ProjectedPage<RuneModel>> {
     use sea_orm::TransactionTrait;
     let tx = db.begin().await?;
-    let page = crate::sync::accepted::AcceptedState::new(&tx, store)
+    let page = crate_sync_accepted::AcceptedState::new(&tx, store)
         .page(
             Collection::Artworks,
             cursor,

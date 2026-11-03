@@ -1,3 +1,5 @@
+use database::sync::LibrarySyncStore;
+use tokio::time::Duration;
 pub mod broadcastable;
 pub mod diagnostics;
 pub mod nid;
@@ -122,8 +124,7 @@ pub async fn initialize_library_replica(
 ) -> Result<database::sync::LibrarySyncStore> {
     let device_id = uuid::Uuid::parse_str(device_id)?;
     let namespace = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, b"https://rune.audio/catalog");
-    let library =
-        database::sync::LibrarySyncStore::open(db.clone(), device_id, Some(namespace)).await?;
+    let library = LibrarySyncStore::open(db.clone(), device_id, Some(namespace)).await?;
     library.import_existing(device_id).await?;
     Ok(library)
 }
@@ -194,7 +195,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
             }
         }
 
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 

@@ -10,6 +10,7 @@
 //! handler marks the registry as gone; after that, calls into the engine are skipped, and what
 //! textures hold is released without waiting for the engine.
 
+use std::sync::OnceLock;
 mod api;
 mod raster;
 
@@ -32,7 +33,7 @@ use api::{
 
 /// The engine's functions, looked up once they are found.
 fn api() -> Result<&'static Api> {
-    static API: std::sync::OnceLock<Api> = std::sync::OnceLock::new();
+    static API: std::sync::OnceLock<Api> = OnceLock::new();
     if let Some(api) = API.get() {
         return Ok(api);
     }

@@ -1,9 +1,12 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
+
 use anyhow::Result;
-use sea_orm::Database;
+
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use sync::protocol::{self as p, ReceiveStore, SyncStore};
-use sync_orm::{causal_capabilities::CausalEndpoint, causal_schema, causal_store::CausalReplica};
+use sync_orm::{causal_capabilities::CausalEndpoint, causal_store::CausalReplica};
 use uuid::Uuid;
 
 fn session_limits() -> p::SessionLimits {
@@ -112,8 +115,7 @@ async fn seeded_memory_and_sql_match_after_syncs() -> Result<()> {
         let mut sql = Vec::new();
         let mut memory = Vec::new();
         for _ in 0..3 {
-            let db = Database::connect("sqlite::memory:").await?;
-            causal_schema::install_fresh(&db).await?;
+            let db = fixtures::fresh_database().await?;
             let endpoint = CausalEndpoint::<Notes>::new(
                 CausalReplica::create_empty(db, ns, Uuid::new_v4()).await?,
             );

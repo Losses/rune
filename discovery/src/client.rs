@@ -1,4 +1,6 @@
+use futures::future::Either;
 use hyper::{Uri, body::Bytes, client::conn::http1, http::Error as HttpError};
+use std::time::Instant;
 use std::{
     collections::HashMap,
     io::Error as IoError,
@@ -563,7 +565,7 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
 
     let connector = TlsConnector::from(Arc::new(config)); // Create TLS connector with custom config
 
-    let tcp_stream = tokio::net::TcpStream::connect((host.clone(), port)).await?; // Connect to server via TCP
+    let tcp_stream = TcpStream::connect((host.clone(), port)).await?; // Connect to server via TCP
 
     let server_name =
         ServerName::try_from(host).map_err(|_| CertValidatorError::InvalidServerName)?; // Create ServerName from host
@@ -825,8 +827,8 @@ pub async fn select_best_host(hosts: Vec<String>, config: Arc<ClientConfig>) -> 
 
             // Race the connection future against the cancellation signal
             match futures::future::select(connection_future.boxed(), cancel_clone).await {
-                futures::future::Either::Left((result, _)) => result,
-                futures::future::Either::Right((_, _)) => {
+                Either::Left((result, _)) => result,
+                Either::Right((_, _)) => {
                     // Connection was cancelled, return a dummy error
                     Err(anyhow!("Connection to {} was cancelled", host))
                 }
@@ -889,7 +891,7 @@ pub async fn measure_host_response_times(
     for host in hosts {
         let config_clone = config.clone();
         let task = async move {
-            let start = std::time::Instant::now();
+            let start = Instant::now();
             let result = try_connect(&host, (*config_clone).clone()).await;
             let duration = start.elapsed();
 

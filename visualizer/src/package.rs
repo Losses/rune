@@ -184,6 +184,7 @@ mod tests {
     use std::io::Write;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
+    use zip::write::SimpleFileOptions;
 
     use super::*;
 
@@ -199,7 +200,7 @@ mod tests {
         let mut writer = zip::ZipWriter::new(File::create(path).unwrap());
         for (name, contents) in entries {
             writer
-                .start_file(*name, zip::write::SimpleFileOptions::default())
+                .start_file(*name, SimpleFileOptions::default())
                 .unwrap();
             writer.write_all(contents.as_bytes()).unwrap();
         }
@@ -360,7 +361,7 @@ mod tests {
         let scenes = base.join("scenes");
         let path = base.join("Many.runescene");
         let mut writer = zip::ZipWriter::new(File::create(&path).unwrap());
-        let options = zip::write::SimpleFileOptions::default();
+        let options = SimpleFileOptions::default();
         writer.start_file("scene.toml", options).unwrap();
         for i in 0..MAX_ENTRIES {
             writer.start_file(format!("f{i}"), options).unwrap();

@@ -1,4 +1,5 @@
 use std::time::Duration;
+use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 pub struct RateLimiter {
@@ -10,7 +11,7 @@ impl RateLimiter {
     pub fn new(interval: Duration) -> Self {
         Self {
             interval,
-            last_request: tokio::sync::Mutex::new(Instant::now()),
+            last_request: Mutex::new(Instant::now()),
         }
     }
 

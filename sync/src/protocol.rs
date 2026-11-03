@@ -1,4 +1,6 @@
 //! Neutral synchronization core.
+use serde::de;
+use serde::ser::Error;
 mod codec;
 mod coordinator;
 mod memory;
@@ -93,7 +95,7 @@ fn serialize_collection<M: SyncModel, S: serde::Serializer>(
         || !M::collections().contains(value)
         || M::collection_from_tag(tag).as_ref() != Some(value)
     {
-        return Err(serde::ser::Error::custom("invalid collection tag"));
+        return Err(Error::custom("invalid collection tag"));
     }
     serializer.serialize_str(tag)
 }
@@ -102,12 +104,12 @@ fn deserialize_collection<'de, M: SyncModel, D: serde::Deserializer<'de>>(
 ) -> std::result::Result<M::Collection, D::Error> {
     let tag = <String as serde::Deserialize>::deserialize(deserializer)?;
     if tag.is_empty() || tag.len() > MAX_TAG_BYTES {
-        return Err(serde::de::Error::custom("invalid collection tag"));
+        return Err(de::Error::custom("invalid collection tag"));
     }
-    let collection = M::collection_from_tag(&tag)
-        .ok_or_else(|| serde::de::Error::custom("unknown collection tag"))?;
+    let collection =
+        M::collection_from_tag(&tag).ok_or_else(|| de::Error::custom("unknown collection tag"))?;
     if M::collection_tag(&collection) != tag || !M::collections().contains(&collection) {
-        return Err(serde::de::Error::custom("unregistered collection tag"));
+        return Err(de::Error::custom("unregistered collection tag"));
     }
     Ok(collection)
 }
@@ -116,7 +118,7 @@ fn serialize_collections<M: SyncModel, S: serde::Serializer>(
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error> {
     if values.is_empty() || values.len() > MAX_COLLECTIONS {
-        return Err(serde::ser::Error::custom("invalid collection scope"));
+        return Err(Error::custom("invalid collection scope"));
     }
     let mut tags: Vec<_> = values.iter().map(M::collection_tag).collect();
     tags.sort_unstable();
@@ -126,7 +128,7 @@ fn serialize_collections<M: SyncModel, S: serde::Serializer>(
                 || M::collection_from_tag(M::collection_tag(v)).as_ref() != Some(v)
         })
     {
-        return Err(serde::ser::Error::custom("invalid collection registry"));
+        return Err(Error::custom("invalid collection registry"));
     }
     serde::Serialize::serialize(&tags, serializer)
 }
@@ -135,24 +137,26 @@ fn deserialize_collections<'de, M: SyncModel, D: serde::Deserializer<'de>>(
 ) -> std::result::Result<BTreeSet<M::Collection>, D::Error> {
     let tags = <Vec<String> as serde::Deserialize>::deserialize(deserializer)?;
     if tags.is_empty() || tags.len() > MAX_COLLECTIONS || tags.windows(2).any(|p| p[0] >= p[1]) {
-        return Err(serde::de::Error::custom("invalid collection scope order"));
+        return Err(de::Error::custom("invalid collection scope order"));
     }
     let mut values = BTreeSet::new();
     for tag in tags {
         let value = M::collection_from_tag(&tag)
-            .ok_or_else(|| serde::de::Error::custom("unknown collection tag"))?;
+            .ok_or_else(|| de::Error::custom("unknown collection tag"))?;
         if tag.is_empty()
             || tag.len() > MAX_TAG_BYTES
             || M::collection_tag(&value) != tag
             || !M::collections().contains(&value)
             || !values.insert(value)
         {
-            return Err(serde::de::Error::custom("invalid collection tag"));
+            return Err(de::Error::custom("invalid collection tag"));
         }
     }
     Ok(values)
 }
 mod bytes_serde {
+    use serde::de;
+    use serde::ser::Error;
     pub fn serialize<S: serde::Serializer>(
         bytes: &[u8],
         serializer: S,
@@ -160,7 +164,7 @@ mod bytes_serde {
         let mut out = String::with_capacity(bytes.len().saturating_mul(2));
         use std::fmt::Write;
         for b in bytes {
-            write!(&mut out, "{b:02x}").map_err(serde::ser::Error::custom)?;
+            write!(&mut out, "{b:02x}").map_err(Error::custom)?;
         }
         serializer.serialize_str(&out)
     }
@@ -173,15 +177,16 @@ mod bytes_serde {
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         {
-            return Err(serde::de::Error::custom("invalid canonical hex"));
+            return Err(de::Error::custom("invalid canonical hex"));
         }
         (0..s.len())
             .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(serde::de::Error::custom))
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(de::Error::custom))
             .collect()
     }
 }
 mod digest_serde {
+    use serde::de::Error;
     pub fn serialize<S: serde::Serializer>(
         value: &super::Digest,
         serializer: S,
@@ -194,7 +199,7 @@ mod digest_serde {
         let value = super::bytes_serde::deserialize(deserializer)?;
         value
             .try_into()
-            .map_err(|_| serde::de::Error::custom("invalid digest length"))
+            .map_err(|_| Error::custom("invalid digest length"))
     }
 }
 

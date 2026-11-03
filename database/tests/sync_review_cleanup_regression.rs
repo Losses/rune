@@ -1,4 +1,5 @@
-use database::actions::metadata::{MissingHostFilePolicy, ScanOptions, scan_audio_library};
+use database::actions::metadata::MissingHostFilePolicy;
+use support::fixtures;
 #[path = "support/causal_library.rs"]
 mod support;
 use anyhow::Result;
@@ -85,19 +86,13 @@ async fn cleanup_during_partial_sync_does_not_delete_source_album() -> Result<()
     );
     let head = target.peer.head().await?;
     let actor = target.library.record_store().author().to_string();
-    scan_audio_library(
+    fixtures::cleanup_scan(
         &fsio::FsIo::new(),
         &target.db,
         &actor,
         target.root.path(),
-        ScanOptions {
-            cleanup: true,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-            cancel_token: None,
-        },
-        |_| {},
         &target.library.record_store(),
+        MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     index_audio_library(&target.db, &actor, 16, None, &target.library.record_store()).await?;

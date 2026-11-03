@@ -1,4 +1,6 @@
 use anyhow::{Result, anyhow};
+use std::io;
+use stream_download::http::HttpStream;
 use stream_download::{Settings, StreamDownload, storage::temp::TempStorageProvider};
 use symphonia::core::io::{MediaSource, ReadOnlySource};
 
@@ -23,7 +25,7 @@ pub async fn create_stream_with_client(
     client: reqwest::Client,
     url: &str,
 ) -> Result<StreamDownload<TempStorageProvider>> {
-    let stream = stream_download::http::HttpStream::new(client, url.parse()?)
+    let stream = HttpStream::new(client, url.parse()?)
         .await
         .map_err(|e| anyhow!(e.to_string()))?;
     StreamDownload::from_stream(
@@ -51,8 +53,8 @@ impl stream_download::http::Client for RenewableClient {
         let capability = self
             .0
             .as_ref()
-            .ok_or_else(|| std::io::Error::other("missing audio request capability"))?;
-        capability.get(None).await.map_err(std::io::Error::other)
+            .ok_or_else(|| io::Error::other("missing audio request capability"))?;
+        capability.get(None).await.map_err(io::Error::other)
     }
     async fn get_range(
         &self,
@@ -63,11 +65,11 @@ impl stream_download::http::Client for RenewableClient {
         let capability = self
             .0
             .as_ref()
-            .ok_or_else(|| std::io::Error::other("missing audio request capability"))?;
+            .ok_or_else(|| io::Error::other("missing audio request capability"))?;
         capability
             .get(Some((start, end)))
             .await
-            .map_err(std::io::Error::other)
+            .map_err(io::Error::other)
     }
 }
 
@@ -75,10 +77,9 @@ pub async fn create_stream_with_authorizer(
     request: std::sync::Arc<dyn crate::player::AudioRequest>,
     url: &str,
 ) -> Result<StreamDownload<TempStorageProvider>> {
-    let stream =
-        stream_download::http::HttpStream::new(RenewableClient(Some(request)), url.parse()?)
-            .await
-            .map_err(|e| anyhow!(e.to_string()))?;
+    let stream = HttpStream::new(RenewableClient(Some(request)), url.parse()?)
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
     StreamDownload::from_stream(
         stream,
         TempStorageProvider::new(),
@@ -113,8 +114,8 @@ impl ManagedStream {
     }
     fn ensure_active(&self) -> std::io::Result<()> {
         if self.cancel.is_cancelled() {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
                 "audio access revoked",
             ))
         } else {
@@ -146,16 +147,22 @@ impl Drop for ManagedStream {
 mod tests {
 
     use super::*;
+    use reqwest::header::HeaderMap;
+    use std::io::ErrorKind;
     use std::io::Read;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
     use tokio::sync::oneshot;
+    use tokio_util::sync::CancellationToken;
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn authenticated_client_reads_before_full_response_arrives() -> Result<()> {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let (release, waiting) = oneshot::channel::<()>();
-        let forced = std::sync::Arc::new(AtomicBool::new(false));
+        let forced = Arc::new(AtomicBool::new(false));
         let forced_server = forced.clone();
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
@@ -173,7 +180,7 @@ mod tests {
                 .await
                 .unwrap();
             socket.write_all(&vec![7; 300 * 1024]).await.unwrap();
-            if tokio::time::timeout(std::time::Duration::from_secs(3), waiting)
+            if tokio::time::timeout(Duration::from_secs(3), waiting)
                 .await
                 .is_err()
             {
@@ -181,19 +188,19 @@ mod tests {
             }
             let _ = socket.write_all(&vec![9; 1024 * 1024 - 300 * 1024]).await;
         });
-        let mut headers = reqwest::header::HeaderMap::new();
+        let mut headers = HeaderMap::new();
         headers.insert(reqwest::header::AUTHORIZATION, "Bearer test".parse()?);
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .no_proxy()
             .build()?;
         let mut stream = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
+            Duration::from_secs(5),
             create_stream_with_client(client, &format!("http://{address}/audio")),
         )
         .await??;
         let (first, stream) = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
+            Duration::from_secs(5),
             tokio::task::spawn_blocking(move || {
                 let mut bytes = [0; 4];
                 stream.read_exact(&mut bytes).unwrap();
@@ -207,12 +214,12 @@ mod tests {
             "stream waited for full response"
         );
         release.send(()).unwrap();
-        let cancel = tokio_util::sync::CancellationToken::new();
+        let cancel = CancellationToken::new();
         let mut managed = ManagedStream::new(stream, cancel.clone());
         cancel.cancel();
         assert_eq!(
             managed.read(&mut [0; 1]).unwrap_err().kind(),
-            std::io::ErrorKind::PermissionDenied
+            ErrorKind::PermissionDenied
         );
         drop(managed);
         server.await?;

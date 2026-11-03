@@ -1,6 +1,5 @@
 mod cli;
 
-#[cfg(target_os = "android")]
 use std::path::Path;
 use std::{
     sync::{Arc, OnceLock},
@@ -162,9 +161,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     ));
 
     let global_params = Arc::new(GlobalParams {
-        sync_settings: Arc::new(RwLock::new(SyncSettings::load(std::path::Path::new(
-            &**config_path,
-        )))),
+        sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(&**config_path)))),
         fsio,
         lib_path,
         config_path,

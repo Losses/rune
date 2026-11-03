@@ -1,3 +1,5 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
 use anyhow::Result;
 use database::{
     actions::{
@@ -6,7 +8,7 @@ use database::{
             AudioAvailability as LocalState, audio_availability, get_media_files,
             get_media_files_count, materialized_path, resolve_local_id,
         },
-        metadata::{MissingHostFilePolicy, ScanOptions, get_metadata_summary_by_files},
+        metadata::get_metadata_summary_by_files,
     },
     entities::media_files,
     sync::model::BlobRef,
@@ -17,7 +19,7 @@ use hub::{
     messages::{AudioAvailability, SearchMediaFileSummaryRequest},
     utils::{files_to_playback_request, parse_media_files},
 };
-use migration::{Migrator, MigratorTrait};
+use sea_orm::sea_query;
 use sea_orm::{ConnectionTrait, Database, EntityTrait, ExprTrait, Set};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -29,8 +31,7 @@ async fn pending_rows_are_returned_and_reported_without_becoming_playable() -> R
     std::fs::write(dir.path().join("staged.ogg"), b"uncommitted")?;
     let db = Database::connect("sqlite::memory:").await?;
     let node = Uuid::new_v4();
-    let _ = migration::initialize_node_id(node.to_string());
-    Migrator::up(&db, None).await?;
+    fixtures::migrate(&db, node).await?;
     let track = Uuid::new_v4();
     for (id, name, available) in [
         (10, "local.ogg", true),
@@ -133,7 +134,7 @@ async fn pending_rows_are_returned_and_reported_without_becoming_playable() -> R
         0,
         "catalog reads must not initialize a replication store"
     );
-    let _store = database::sync::LibrarySyncStore::open(db.clone(), node, None).await?;
+    let _store = fixtures::open_library(db.clone(), node, None).await?;
     assert_eq!(
         audio_availability(&db, &fsio, dir.path(), &[20])
             .await?
@@ -186,11 +187,11 @@ async fn queued_downloads_with_content_remain_streamable() -> Result<()> {
             sync_download_jobs::Entity::update_many()
                 .col_expr(
                     sync_download_jobs::Column::Attempts,
-                    sea_orm::sea_query::Expr::value(3),
+                    sea_query::Expr::value(3),
                 )
                 .col_expr(
                     sync_download_jobs::Column::RetryAt,
-                    sea_orm::sea_query::Expr::value("2999-01-01T00:00:00Z"),
+                    sea_query::Expr::value("2999-01-01T00:00:00Z"),
                 )
                 .filter(sync_download_jobs::Column::FileUuid.eq(track.to_string()))
                 .exec(&db)
@@ -249,33 +250,22 @@ async fn queued_downloads_with_content_remain_streamable() -> Result<()> {
 #[cfg(unix)]
 #[tokio::test]
 async fn scanned_symlinked_folder_is_playable() -> Result<()> {
-    use database::actions::metadata::scan_audio_library;
     use std::os::unix::fs::symlink;
     let root = tempfile::tempdir()?;
     let outside = tempfile::tempdir()?;
-    std::fs::copy(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/startup_0.ogg"),
-        outside.path().join("track.ogg"),
-    )?;
+    std::fs::copy(fixtures::audio_fixture(), outside.path().join("track.ogg"))?;
     symlink(outside.path(), root.path().join("linked"))?;
     let db = Database::connect("sqlite::memory:").await?;
     let node = Uuid::new_v4();
     let _ = migration::initialize_node_id(node.to_string());
     migration::up_with_actor(&db, Some(&node.to_string()), None).await?;
     let fs = Arc::new(FsIo::new());
-    let store = database::sync::LibrarySyncStore::open(db.clone(), node, None).await?;
-    scan_audio_library(
+    let store = fixtures::open_library(db.clone(), node, None).await?;
+    fixtures::scan_library(
         &fs,
         &db,
         &node.to_string(),
         root.path(),
-        ScanOptions {
-            cleanup: false,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-            cancel_token: None,
-        },
-        |_| {},
         &store.record_store(),
     )
     .await?;

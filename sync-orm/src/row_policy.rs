@@ -6,6 +6,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
     QuerySelect, QueryTrait, Value, sea_query::Expr,
 };
+use std::collections::HashSet;
 use std::marker::PhantomData;
 use uuid::Uuid;
 
@@ -314,7 +315,7 @@ pub struct RowPolicy<E: EntityTrait, M: RowMapping<E>>(PhantomData<(E, M)>);
 impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
     fn select() -> sea_orm::Select<E> {
         use sea_orm::{IdenStatic, Iterable, PrimaryKeyToColumn};
-        let mut selected = std::collections::HashSet::new();
+        let mut selected = HashSet::new();
         let mut query = E::find().select_only().filter(M::source_filter());
         for column in <E::PrimaryKey as Iterable>::iter()
             .map(|key| key.into_column())
@@ -384,7 +385,7 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
     pub fn validate_mapping() -> Result<(), DbErr> {
         use sea_orm::{IdenStatic, Iterable, PrimaryKeyToColumn};
         M::validate_declaration()?;
-        let mut names = std::collections::HashSet::new();
+        let mut names = HashSet::new();
         names.insert(M::uuid_column().as_str());
         for key in <E::PrimaryKey as Iterable>::iter() {
             if !names.insert(key.into_column().as_str()) {

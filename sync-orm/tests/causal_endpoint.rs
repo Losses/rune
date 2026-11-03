@@ -1,8 +1,16 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
+
 use anyhow::{Context, Result, ensure};
+use sea_orm::sea_query::Condition;
+use sea_orm::sea_query::Func;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+use sync::causal;
+use sync::causal::Dot;
+use sync_orm::maintenance::Maintenance;
 
 fn session_limits() -> p::SessionLimits {
     p::SessionLimits {
@@ -141,7 +149,7 @@ async fn removed_prefix_without_live_candidates_survives_relay() -> Result<()> {
             &tx,
             namespace,
             b"notes",
-            sync::causal::Dot::new(source.store().writer_incarnation(), 1)?
+            Dot::new(source.store().writer_incarnation(), 1)?
         )
         .await?
     );
@@ -197,13 +205,8 @@ async fn preexisting_context_manifest_is_indexed_when_accepted() -> Result<()> {
     synchronize(&source, &target).await?;
     let tx = db.begin().await?;
     assert!(
-        sync_orm::causal_observed::contains_on(
-            &tx,
-            namespace,
-            b"notes",
-            sync::causal::Dot::new(writer, 1)?
-        )
-        .await?,
+        sync_orm::causal_observed::contains_on(&tx, namespace, b"notes", Dot::new(writer, 1)?)
+            .await?,
         "accepted observation is absent from the interval index"
     );
     tx.commit().await?;
@@ -353,7 +356,7 @@ async fn relay_graph_stability_survives_first_contact_between_leaves() -> Result
                 &tx,
                 namespace,
                 b"notes",
-                sync::causal::Dot::new(peer.store().writer_incarnation(), 1)?,
+                Dot::new(peer.store().writer_incarnation(), 1)?,
             )
             .await?
             {
@@ -443,7 +446,7 @@ async fn sql_coordinator_reconciles_split_ranges_then_journal_and_reaches_stabil
     let count = target_db
         .query_one(
             &Query::select()
-                .expr(sea_orm::sea_query::Func::count(Expr::val(1)))
+                .expr(Func::count(Expr::val(1)))
                 .from(Alias::new("notes"))
                 .to_owned(),
         )
@@ -548,14 +551,14 @@ async fn sql_snapshot_build_resumes_after_restart_and_cancels_after_lost_reply()
 }
 use async_trait::async_trait;
 use sea_orm::{
-    ConnectionTrait, Database, DatabaseTransaction, ExprTrait, TransactionTrait,
+    ConnectionTrait, DatabaseTransaction, ExprTrait, TransactionTrait,
     sea_query::{Alias, ColumnDef, Expr, OnConflict, Query, Table},
 };
 use serde::{Deserialize, Serialize};
 use sync::protocol::{self as p, ReceiveStore, SnapshotSink, SyncStore};
 use sync_orm::{
     causal_capabilities::{CausalEndpoint, TransactionProjection},
-    causal_progress, causal_schema,
+    causal_progress,
     causal_store::CausalReplica,
 };
 use uuid::Uuid;
@@ -644,8 +647,7 @@ async fn setup(
     CausalEndpoint<Notes>,
     Arc<Projection>,
 )> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     db.execute(
         &Table::create()
             .table(Alias::new("notes"))
@@ -1078,13 +1080,13 @@ async fn maintenance_recovers_abandoned_and_competing_builds_without_reviving_re
     let expected_head = source.head().await?;
     let identity = source.identity().await?;
     let mut now = chrono::Utc::now().timestamp_millis();
-    let mut first = sync_orm::maintenance::Maintenance::default();
+    let mut first = Maintenance::default();
     first.advance::<Notes>(&db, identity.clone(), now).await?;
     first.advance::<Notes>(&db, identity.clone(), now).await?;
     // A process restart loses the RAM cursor; its persisted build expires.
-    first = sync_orm::maintenance::Maintenance::default();
+    first = Maintenance::default();
     now += p::DEFAULT_SNAPSHOT_TTL_MS as i64 + 1;
-    let mut second = sync_orm::maintenance::Maintenance::default();
+    let mut second = Maintenance::default();
     let mut complete = false;
     for _ in 0..2000 {
         first.advance::<Notes>(&db, identity.clone(), now).await?;
@@ -1102,7 +1104,7 @@ async fn maintenance_recovers_abandoned_and_competing_builds_without_reviving_re
         let count = db
             .query_one(
                 &Query::select()
-                    .expr(sea_orm::sea_query::Func::count(Expr::val(1)))
+                    .expr(Func::count(Expr::val(1)))
                     .from(Alias::new("sync_journal"))
                     .to_owned(),
             )
@@ -1389,9 +1391,9 @@ async fn sql_promotion_chunks_resume_and_are_idempotent() -> Result<()> {
     let (db, a, _) = setup(ns).await?;
     let (_, b, _) = setup(ns).await?;
     let writer = Uuid::new_v4();
-    let mut context = sync::causal::Context::default();
+    let mut context = causal::Context::default();
     for n in 1..=3000 {
-        context.insert(sync::causal::Dot::new(writer, 2 * n)?)?;
+        context.insert(Dot::new(writer, 2 * n)?)?;
     }
     let mut apply = limits();
     apply.max_mutations = 16384;
@@ -1738,7 +1740,7 @@ async fn expired_sql_snapshot_recovers_after_partial_reconciliation() -> Result<
         .await?;
     assert!(!coverage.complete);
     let now = chrono::Utc::now().timestamp_millis() + p::DEFAULT_SNAPSHOT_TTL_MS as i64 + 1;
-    let mut maintenance = sync_orm::maintenance::Maintenance::default();
+    let mut maintenance = Maintenance::default();
     for _ in 0..100 {
         maintenance
             .advance::<Notes>(&db, source.identity().await?, now)
@@ -1778,7 +1780,7 @@ async fn expired_sql_snapshot_recovers_after_partial_reconciliation() -> Result<
                 .column(Alias::new("id"))
                 .from(Alias::new("sync_leases"))
                 .cond_where(
-                    sea_orm::sea_query::Condition::any()
+                    Condition::any()
                         .add(Expr::col(Alias::new("id")).eq(remote.snapshot_id.as_bytes().to_vec()))
                         .add(
                             Expr::col(Alias::new("parent_lease"))

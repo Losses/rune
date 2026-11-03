@@ -6,6 +6,7 @@
 //! it any more, so a frame that Flutter (or the latest-frame slot) still has, or that the GPU is
 //! still drawing (`crate::in_flight`), is never drawn over.
 
+use hal::metal::Device;
 use std::collections::{HashMap, VecDeque};
 use std::ptr::NonNull;
 
@@ -245,7 +246,7 @@ impl SurfaceTargets {
         // SAFETY: `raw` is a 2D BGRA8Unorm texture of `size` with one layer and one mip level,
         // matching the descriptor below; wgpu owns the reference from here on.
         let texture = unsafe {
-            let hal_texture = hal::metal::Device::texture_from_raw(
+            let hal_texture = Device::texture_from_raw(
                 raw,
                 crate::pipeline::FORMAT,
                 MTLTextureType::Type2D,

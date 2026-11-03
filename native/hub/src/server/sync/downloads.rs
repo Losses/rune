@@ -17,8 +17,10 @@ use database::{
 use fsio::FsIo;
 use http_request::sync::MetadataPeer;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
+use std::time::Duration;
 use std::{collections::HashSet, path::PathBuf, sync::Arc};
 use sync::SyncPeer;
+use tokio::time::Instant;
 use uuid::Uuid;
 /// Evaluate enabled rules and fetch only missing matching audio from this peer.
 pub async fn download_requested_audio(
@@ -38,7 +40,7 @@ pub async fn download_requested_audio(
         node_id,
         remote,
         notify,
-        tokio::time::Instant::now() + std::time::Duration::from_secs(60),
+        Instant::now() + Duration::from_secs(60),
     )
     .await
 }
@@ -148,7 +150,7 @@ pub async fn download_requested_audio_until(
                     report.pending += 1;
                     continue;
                 }
-                if attempted.len() == MAX_ATTEMPTS || tokio::time::Instant::now() >= deadline {
+                if attempted.len() == MAX_ATTEMPTS || Instant::now() >= deadline {
                     report.deadline_reached = true;
                     return Ok(report);
                 }

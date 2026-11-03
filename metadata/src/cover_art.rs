@@ -1,3 +1,4 @@
+use image::imageops::FilterType;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -26,7 +27,7 @@ fn decode_image(image_data: &[u8]) -> Result<Vec<u8>> {
     let img = image::load_from_memory(image_data)?;
 
     // Resize the image to 16x16 pixels
-    let resized = img.resize_exact(16, 16, image::imageops::FilterType::Lanczos3);
+    let resized = img.resize_exact(16, 16, FilterType::Lanczos3);
 
     // Create a new RGB image buffer
     let mut rgb_image = ImageBuffer::new(16, 16);

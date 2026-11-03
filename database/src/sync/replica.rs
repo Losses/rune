@@ -1,5 +1,6 @@
 //! Rune library composition and transactional receive.
 use super::SeaOrmSyncStore;
+use super::model::Collection;
 use super::model::{ObjectKey, Payload, Record, RuneModel};
 use crate::sync::import;
 use anyhow::{Result, ensure};
@@ -132,7 +133,7 @@ impl LibrarySyncStore {
     }
     pub async fn pending_mixes(&self) -> Result<Vec<(Uuid, String)>> {
         Ok(
-            super::references::collect(&self.db, &self.inner, [super::model::Collection::Mixes])
+            super::references::collect(&self.db, &self.inner, [Collection::Mixes])
                 .await?
                 .into_iter()
                 .map(|(key, reason)| (key.id, reason))

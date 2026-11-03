@@ -3,6 +3,7 @@ use sea_orm::{
     ConnectionTrait, Database, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
+use sync_orm::causal_gc::IncrementalReclaim;
 use sync_orm::{causal_gc::collect_one_on, causal_schema};
 use uuid::Uuid;
 
@@ -213,7 +214,7 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
     let tx = db.begin().await?;
     assert_eq!(
         sync_orm::causal_gc::collect_incremental_on(&tx, n, reclaim_digest, 1, 256).await?,
-        sync_orm::causal_gc::IncrementalReclaim::LiveOrMissing
+        IncrementalReclaim::LiveOrMissing
     );
     tx.commit().await?;
     let tx = other.begin().await?;
@@ -222,7 +223,7 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
     let tx = db.begin().await?;
     assert_eq!(
         sync_orm::causal_gc::collect_incremental_on(&tx, n, reclaim_digest, 1, 256).await?,
-        sync_orm::causal_gc::IncrementalReclaim::More
+        IncrementalReclaim::More
     );
     tx.commit().await?;
     let tx = other.begin().await?;
@@ -253,10 +254,10 @@ async fn graph_reclamation_respects_roots_edges_and_budgets() -> Result<()> {
             sync_orm::causal_gc::collect_incremental_on(&tx, n, reclaim_digest, 1, 256).await?;
         tx.commit().await?;
         steps += 1;
-        if result == sync_orm::causal_gc::IncrementalReclaim::Deleted {
+        if result == IncrementalReclaim::Deleted {
             break;
         }
-        assert_eq!(result, sync_orm::causal_gc::IncrementalReclaim::More);
+        assert_eq!(result, IncrementalReclaim::More);
         assert!(steps < 20);
     }
     assert_eq!(steps, 6);

@@ -1,6 +1,7 @@
 //! Bounded single-manifest DAG reclamation primitives.
 //! Floor construction and publication must be implemented before invoking GC.
 use crate::causal_leases::lock_on;
+use sea_orm::sea_query::Order;
 use sea_orm::{
     ConnectionTrait, DatabaseTransaction, DbErr, ExprTrait,
     sea_query::{Alias, Expr, Func, Query},
@@ -137,7 +138,7 @@ pub async fn step_on(
     if let Some(after) = after {
         q.and_where(Expr::col(Alias::new("digest")).gt(after.to_vec()));
     }
-    q.order_by(Alias::new("digest"), sea_orm::sea_query::Order::Asc)
+    q.order_by(Alias::new("digest"), Order::Asc)
         .limit(scan_limit + 1);
     let rows = tx.query_all(&q.to_owned()).await?;
     let mut last = after;

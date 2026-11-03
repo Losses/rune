@@ -1,3 +1,4 @@
+use once_cell::sync::Lazy;
 use std::io::{Read, Seek, SeekFrom};
 use symphonia::core::codecs::CodecRegistry;
 use symphonia::default::codecs::{
@@ -89,7 +90,7 @@ impl<T: Read + Seek + Send + Sync> Seek for ReadSeekSource<T> {
     }
 }
 
-static REGISTRY: once_cell::sync::Lazy<CodecRegistry> = once_cell::sync::Lazy::new(|| {
+static REGISTRY: once_cell::sync::Lazy<CodecRegistry> = Lazy::new(|| {
     let mut registry = CodecRegistry::new();
     register_enabled_codecs(&mut registry);
     registry
@@ -128,6 +129,7 @@ pub fn register_adapters(registry: &mut CodecRegistry) {
 mod tests {
     use super::*;
     use std::fs::File;
+    use std::path::Path;
     use symphonia::core::codecs::{
         CODEC_TYPE_AAC, CODEC_TYPE_NULL, CODEC_TYPE_OPUS, DecoderOptions,
     };
@@ -186,7 +188,7 @@ mod tests {
     #[test]
     fn test_decode_opus_file() {
         let file_path = "/tmp/test_startup.opus";
-        if !std::path::Path::new(file_path).exists() {
+        if !Path::new(file_path).exists() {
             eprintln!("Skipping test_decode_opus_file because {file_path} doesn't exist");
             return;
         }
@@ -237,7 +239,7 @@ mod tests {
     #[test]
     fn test_decode_aac_file() {
         let file_path = "/tmp/test_startup.m4a";
-        if !std::path::Path::new(file_path).exists() {
+        if !Path::new(file_path).exists() {
             eprintln!("Skipping test_decode_aac_file because {file_path} doesn't exist");
             return;
         }

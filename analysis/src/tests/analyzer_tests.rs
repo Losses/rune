@@ -2,6 +2,7 @@
 mod tests {
     use fsio::FsIo;
     use log::info;
+    use std::path::Path;
 
     use crate::{
         analyzer::core_analyzer::Analyzer, measure_time, utils::computing_device::ComputingDevice,
@@ -88,7 +89,7 @@ mod tests {
     fn test_analyze_opus() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
         let file_path = "/tmp/test_startup.opus";
-        if !std::path::Path::new(file_path).exists() {
+        if !Path::new(file_path).exists() {
             return;
         }
         let fsio = FsIo::new();
@@ -108,7 +109,7 @@ mod tests {
     fn test_analyze_aac() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
         let file_path = "/tmp/test_startup.m4a";
-        if !std::path::Path::new(file_path).exists() {
+        if !Path::new(file_path).exists() {
             return;
         }
         let fsio = FsIo::new();

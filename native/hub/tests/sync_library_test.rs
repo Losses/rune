@@ -8,9 +8,7 @@ use database::{
             catalog_track, get_file_by_id, hash_file, is_materialized, materialized_path,
             remote_required_ids, resolve_local_id,
         },
-        metadata::{
-            MissingHostFilePolicy, ScanOptions, author_indexed_track_row, scan_audio_library,
-        },
+        metadata::{MissingHostFilePolicy, ScanOptions, author_indexed_track_row},
         mixes::{create_mix, replace_mix_queries},
         playlists::{add_item_to_playlist, create_playlist, get_all_playlists, remove_playlist},
         search::{add_term, search_for},
@@ -20,18 +18,18 @@ use database::{
     sync::{
         LibrarySyncStore,
         model::{
-            BlobRef, Collection, MetadataTag, Mix, MixClause, ObjectKey, PageRequest, Payload,
-            Scope, Track, author_source_on,
+            BlobRef, Collection, Mix, MixClause, ObjectKey, PageRequest, Payload, Scope,
+            author_source_on,
         },
     },
 };
 use fsio::FsIo;
-use migration::{Migrator, MigratorTrait};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, EntityTrait, IntoActiveModel,
     ModelTrait, QueryFilter, Set, TransactionTrait, sea_query::Expr,
 };
 use std::sync::Arc;
+use support::fixtures;
 use sync::{CheckpointKey, ReceiveStore, SyncStore};
 #[path = "support/causal_library.rs"]
 mod support;
@@ -41,15 +39,9 @@ use uuid::Uuid;
 async fn setup() -> Result<(sea_orm::DatabaseConnection, tempfile::TempDir)> {
     let root = tempfile::tempdir()?;
     std::fs::write(root.path().join("song.ogg"), b"shared bytes")?;
-    let mut options = sea_orm::ConnectOptions::new("sqlite::memory:");
-    options
-        .max_connections(1)
-        .min_connections(1)
-        .idle_timeout(None)
-        .max_lifetime(None);
+    let options = fixtures::single_connection_options();
     let db = Database::connect(options).await?;
-    let _ = migration::initialize_node_id(Uuid::new_v4().to_string());
-    Migrator::up(&db, None).await?;
+    fixtures::migrate(&db, Uuid::new_v4()).await?;
     Ok((db, root))
 }
 async fn file(db: &sea_orm::DatabaseConnection, id: i32) -> Result<()> {
@@ -213,20 +205,7 @@ async fn transfer(a: &LibrarySyncStore, b: &LibrarySyncStore) -> Result<()> {
     Ok(())
 }
 fn audio(title: impl Into<String>, blob: Option<BlobRef>) -> Payload {
-    Payload::Track(Track {
-        extension: "ogg".into(),
-        content_hash: blob.as_ref().map(|b| b.digest.clone()),
-        content_size: blob.map(|b| b.size.try_into().unwrap()),
-        duration: "0".to_owned().try_into().unwrap(),
-        sample_rate: 0,
-        cover_art_id: None,
-        metadata: vec![MetadataTag {
-            id: Uuid::new_v4(),
-            position: 0,
-            key: "track_title".into(),
-            value: title.into(),
-        }],
-    })
+    support::optional_audio(title, blob.as_ref())
 }
 #[tokio::test]
 async fn business_actions_replicate_with_distinct_local_keys_and_deletions() -> Result<()> {
@@ -247,8 +226,8 @@ async fn business_actions_replicate_with_distinct_local_keys_and_deletions() -> 
     }
     let lib = Uuid::new_v4();
     let node = Uuid::new_v4();
-    let a = LibrarySyncStore::open(db1.clone(), node, Some(lib)).await?;
-    let b = LibrarySyncStore::open(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let a = fixtures::open_library(db1.clone(), node, Some(lib)).await?;
+    let b = fixtures::open_library(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
     a.import_existing(a.record_store().author()).await?;
     b.head().await?;
     set_liked(&db1, &a.record_store(), 10, true).await?;
@@ -279,8 +258,8 @@ async fn pending_track_dependencies_project_after_scanning() -> Result<()> {
     file(&db1, 10).await?;
     let lib = Uuid::new_v4();
     let node = Uuid::new_v4();
-    let a = LibrarySyncStore::open(db1.clone(), node, Some(lib)).await?;
-    let b = LibrarySyncStore::open(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let a = fixtures::open_library(db1.clone(), node, Some(lib)).await?;
+    let b = fixtures::open_library(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
     a.import_existing(a.record_store().author()).await?;
     set_liked(&db1, &a.record_store(), 10, true).await?;
 
@@ -317,8 +296,8 @@ async fn albums_and_relationships_project_after_track_arrival() -> Result<()> {
     parent(&db1, Collection::Albums, 42, "Album", "Artist").await?;
     member(&db1, Collection::Albums, 10, 42, Some(3)).await?;
     let lib = Uuid::new_v4();
-    let a = LibrarySyncStore::open(db1.clone(), Uuid::new_v4(), Some(lib)).await?;
-    let b = LibrarySyncStore::open(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let a = fixtures::open_library(db1.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let b = fixtures::open_library(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
     a.import_existing(a.record_store().author()).await?;
     transfer(&a, &b).await?;
     let marker = marker(&db2).await?;
@@ -348,7 +327,7 @@ async fn cache_eviction_preserves_replicated_likes_and_entries() -> Result<()> {
     let (db, _root) = setup().await?;
     file(&db, 10).await?;
     let node = Uuid::new_v4();
-    let store = LibrarySyncStore::open(db.clone(), node, None).await?;
+    let store = fixtures::open_library(db.clone(), node, None).await?;
     set_liked(&db, &store.record_store(), 10, true).await?;
     let playlist =
         create_playlist(&db, &store.record_store(), "Keep".into(), "group".into()).await?;
@@ -372,7 +351,7 @@ async fn library_namespace_persists_and_mismatch_preserves_state() -> Result<()>
     let _fs = Arc::new(FsIo::new());
     let node = Uuid::new_v4();
     let namespace = Uuid::new_v4();
-    let store = LibrarySyncStore::open(db.clone(), node, Some(namespace)).await?;
+    let store = fixtures::open_library(db.clone(), node, Some(namespace)).await?;
     let track_id = Uuid::new_v4();
     store
         .write_local(
@@ -385,11 +364,11 @@ async fn library_namespace_persists_and_mismatch_preserves_state() -> Result<()>
         .await?;
     let head = store.head().await?;
     assert!(
-        LibrarySyncStore::open(db.clone(), node, Some(Uuid::new_v4()))
+        fixtures::open_library(db.clone(), node, Some(Uuid::new_v4()))
             .await
             .is_err()
     );
-    let reopened = LibrarySyncStore::open(db, node, None).await?;
+    let reopened = fixtures::open_library(db, node, None).await?;
     assert_eq!(reopened.identity().await?.namespace, namespace);
     assert_eq!(reopened.head().await?, head);
     assert!(
@@ -409,8 +388,8 @@ async fn unrelated_namespace_is_rejected_without_erasure() -> Result<()> {
     let (db1, _root1) = setup().await?;
     let (db2, _root2) = setup().await?;
     let _fs = Arc::new(FsIo::new());
-    let a = LibrarySyncStore::open(db1, Uuid::new_v4(), Some(Uuid::new_v4())).await?;
-    let b = LibrarySyncStore::open(db2, Uuid::new_v4(), Some(Uuid::new_v4())).await?;
+    let a = fixtures::open_library(db1, Uuid::new_v4(), Some(Uuid::new_v4())).await?;
+    let b = fixtures::open_library(db2, Uuid::new_v4(), Some(Uuid::new_v4())).await?;
     let track_id = Uuid::new_v4();
     a.write_local(
         ObjectKey {
@@ -454,8 +433,8 @@ async fn failed_business_projection_rolls_back_records_and_progress() -> Result<
     }
     let _fs = Arc::new(FsIo::new());
     let lib = Uuid::new_v4();
-    let a = LibrarySyncStore::open(db1.clone(), Uuid::new_v4(), Some(lib)).await?;
-    let b = LibrarySyncStore::open(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let a = fixtures::open_library(db1.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let b = fixtures::open_library(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
     a.import_existing(a.record_store().author()).await?;
     b.head().await?;
     set_liked(&db1, &a.record_store(), 10, true).await?;
@@ -486,7 +465,7 @@ async fn separate_identical_files_keep_independent_likes() -> Result<()> {
     parent(&db, Collection::Albums, 42, "Second", "Artist").await?;
     member(&db, Collection::Albums, 10, 41, Some(1)).await?;
     member(&db, Collection::Albums, 20, 42, Some(2)).await?;
-    let store = LibrarySyncStore::open(db.clone(), Uuid::new_v4(), None).await?;
+    let store = fixtures::open_library(db.clone(), Uuid::new_v4(), None).await?;
     set_liked(&db, &store.record_store(), 10, true).await?;
     store.head().await?;
     assert!(!get_liked(&db, 20).await?);
@@ -512,7 +491,7 @@ async fn stale_download_does_not_replace_current_track_mapping() -> Result<()> {
     let (db, root) = setup().await?;
     file(&db, 10).await?;
     let fs = Arc::new(FsIo::new());
-    let store = LibrarySyncStore::open(db.clone(), Uuid::new_v4(), None).await?;
+    let store = fixtures::open_library(db.clone(), Uuid::new_v4(), None).await?;
     store.head().await?;
     let track = Uuid::new_v4();
     let old = hash_file(&fs, &root.path().join("song.ogg"))?;
@@ -553,7 +532,7 @@ async fn attaching_changed_content_keeps_playlist_and_identity() -> Result<()> {
     file(&db, 10).await?;
     let fs = Arc::new(FsIo::new());
     let node = Uuid::new_v4();
-    let store = LibrarySyncStore::open(db.clone(), node, None).await?;
+    let store = fixtures::open_library(db.clone(), node, None).await?;
     store.import_existing(node).await?;
 
     let list =
@@ -635,8 +614,8 @@ async fn changed_content_sync_preserves_track_identity_and_playlist() -> Result<
     let node1 = Uuid::new_v4();
     let node2 = Uuid::new_v4();
     let fs = Arc::new(FsIo::new());
-    let a = LibrarySyncStore::open(db1.clone(), node1, Some(namespace)).await?;
-    let b = LibrarySyncStore::open(db2.clone(), node2, Some(namespace)).await?;
+    let a = fixtures::open_library(db1.clone(), node1, Some(namespace)).await?;
+    let b = fixtures::open_library(db2.clone(), node2, Some(namespace)).await?;
     a.import_existing(node1).await?;
 
     let list = create_playlist(&db1, &a.record_store(), "Changes".into(), "group".into()).await?;
@@ -698,33 +677,20 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
         playback_queue::{list_playback_queue, replace_playback_queue},
     };
     let root = tempfile::tempdir()?;
-    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
+    let fixtures = fixtures::asset_directory();
     let original = std::fs::read(fixtures.join("startup_0.ogg"))?;
     std::fs::write(root.path().join("original.ogg"), &original)?;
-    let mut options = sea_orm::ConnectOptions::new("sqlite::memory:");
-    options
-        .max_connections(1)
-        .min_connections(1)
-        .idle_timeout(None)
-        .max_lifetime(None);
+    let options = fixtures::single_connection_options();
     let db = Database::connect(options).await?;
     let node = Uuid::new_v4();
-    let _ = migration::initialize_node_id(node.to_string());
-    Migrator::up(&db, None).await?;
+    fixtures::migrate(&db, node).await?;
     let fs = Arc::new(FsIo::new());
-    let store = LibrarySyncStore::open(db.clone(), node, None).await?;
-    scan_audio_library(
+    let store = fixtures::open_library(db.clone(), node, None).await?;
+    fixtures::scan_library(
         &fs,
         &db,
         &node.to_string(),
         root.path(),
-        ScanOptions {
-            cleanup: false,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-            cancel_token: None,
-        },
-        |_| {},
         &store.record_store(),
     )
     .await?;
@@ -839,8 +805,8 @@ async fn metadata_only_tracks_are_browsable_and_materialize_in_place() -> Result
     title(&db1, 10, "Catalog Title").await?;
     let lib = Uuid::new_v4();
     let fs = Arc::new(FsIo::new());
-    let a = LibrarySyncStore::open(db1, Uuid::new_v4(), Some(lib)).await?;
-    let b = LibrarySyncStore::open(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let a = fixtures::open_library(db1, Uuid::new_v4(), Some(lib)).await?;
+    let b = fixtures::open_library(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
     a.import_existing(a.record_store().author()).await?;
     transfer(&a, &b).await?;
     let id = marker(&db2).await?;
@@ -865,19 +831,13 @@ async fn metadata_only_tracks_are_browsable_and_materialize_in_place() -> Result
         .await?;
         assert_eq!(found.iter().map(|f| f.id).collect::<Vec<_>>(), vec![id]);
     }
-    scan_audio_library(
+    fixtures::cleanup_scan(
         &fs,
         &db2,
         &b.record_store().author().to_string(),
         root2.path(),
-        ScanOptions {
-            cleanup: true,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-            cancel_token: None,
-        },
-        |_| {},
         &b.record_store(),
+        MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     assert!(catalog_track(&db2, id).await?.is_some());
@@ -920,8 +880,8 @@ async fn remote_metadata_edits_project_onto_existing_audio_without_feedback() ->
     }
     let _fs = Arc::new(FsIo::new());
     let lib = Uuid::new_v4();
-    let a = LibrarySyncStore::open(db1.clone(), Uuid::new_v4(), Some(lib)).await?;
-    let b = LibrarySyncStore::open(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let a = fixtures::open_library(db1.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let b = fixtures::open_library(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
     a.import_existing(a.record_store().author()).await?;
     b.head().await?;
     title(&db1, 10, "Edited title").await?;
@@ -1015,7 +975,6 @@ async fn remote_metadata_edits_project_onto_existing_audio_without_feedback() ->
 async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()> {
     use database::actions::{
         file::get_media_files_count,
-        metadata::scan_audio_library,
         playback_queue::{list_playback_queue, replace_playback_queue},
     };
     let (db, root) = setup().await?;
@@ -1024,7 +983,7 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
     support::local_file(&db, 20, Uuid::new_v4(), "second.ogg").await?;
     let fs = Arc::new(FsIo::new());
     let node = Uuid::new_v4();
-    let store = LibrarySyncStore::open(db.clone(), node, None).await?;
+    let store = fixtures::open_library(db.clone(), node, None).await?;
     let playlist = create_playlist(
         &db,
         &store.record_store(),
@@ -1036,38 +995,26 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
     replace_playback_queue(&db, vec![10]).await?;
     store.head().await?;
     std::fs::remove_file(root.path().join("song.ogg"))?;
-    scan_audio_library(
+    fixtures::cleanup_scan(
         &fs,
         &db,
         &node.to_string(),
         root.path(),
-        ScanOptions {
-            cleanup: true,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::KeepAsRemote,
-            cancel_token: None,
-        },
-        |_| {},
         &store.record_store(),
+        MissingHostFilePolicy::KeepAsRemote,
     )
     .await?;
     assert_eq!(get_media_files_count(&db).await?, 2);
     assert_eq!(list_playback_queue(&db).await?, vec![10]);
     assert_eq!(i64::from(entry_file(&db).await?), i64::from(10));
     std::fs::remove_file(root.path().join("second.ogg"))?;
-    scan_audio_library(
+    fixtures::cleanup_scan(
         &fs,
         &db,
         &node.to_string(),
         root.path(),
-        ScanOptions {
-            cleanup: true,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::KeepAsRemote,
-            cancel_token: None,
-        },
-        |_| {},
         &store.record_store(),
+        MissingHostFilePolicy::KeepAsRemote,
     )
     .await?;
     assert_eq!(get_media_files_count(&db).await?, 2);
@@ -1107,8 +1054,8 @@ async fn saved_mix_uses_stable_references_across_local_ids() -> Result<()> {
     let lib = Uuid::new_v4();
     let node = Uuid::new_v4();
     let _fs = Arc::new(FsIo::new());
-    let a = LibrarySyncStore::open(db1.clone(), node, Some(lib)).await?;
-    let b = LibrarySyncStore::open(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let a = fixtures::open_library(db1.clone(), node, Some(lib)).await?;
+    let b = fixtures::open_library(db2.clone(), Uuid::new_v4(), Some(lib)).await?;
     a.import_existing(node).await?;
 
     let playlist = create_playlist(
@@ -1185,7 +1132,7 @@ async fn saved_mix_uses_stable_references_across_local_ids() -> Result<()> {
 async fn mix_waits_for_dependencies_and_directory_paths_stay_local() -> Result<()> {
     let (db, _root) = setup().await?;
     let lib = Uuid::new_v4();
-    let target = LibrarySyncStore::open(db.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let target = fixtures::open_library(db.clone(), Uuid::new_v4(), Some(lib)).await?;
     let source = support::memory(lib, Uuid::new_v4())?;
     let track = Uuid::new_v4();
     let mix = Uuid::new_v4();
@@ -1284,7 +1231,7 @@ async fn streaming_lookup_uses_verified_signature_and_rechecks_changes() -> Resu
     let (db, root) = setup().await?;
     file(&db, 10).await?;
     let fs = Arc::new(FsIo::new());
-    let store = LibrarySyncStore::open(db.clone(), Uuid::new_v4(), None).await?;
+    let store = fixtures::open_library(db.clone(), Uuid::new_v4(), None).await?;
     store.head().await?;
     let blob = hash_file(&fs, &root.path().join("song.ogg"))?;
     assert_eq!(
@@ -1310,12 +1257,11 @@ async fn pending_projection_survives_database_restart() -> Result<()> {
     let dbfile = root.path().join("catalog.sqlite");
     let url = format!("sqlite://{}?mode=rwc", dbfile.display());
     let db = Database::connect(&url).await?;
-    let _ = migration::initialize_node_id(Uuid::new_v4().to_string());
-    Migrator::up(&db, None).await?;
+    fixtures::migrate(&db, Uuid::new_v4()).await?;
     let lib = Uuid::new_v4();
     let node = Uuid::new_v4();
     let _fs = Arc::new(FsIo::new());
-    let target = LibrarySyncStore::open(db.clone(), node, Some(lib)).await?;
+    let target = fixtures::open_library(db.clone(), node, Some(lib)).await?;
     let source = support::memory(lib, Uuid::new_v4())?;
     let track = Uuid::new_v4();
     let mix = Uuid::new_v4();
@@ -1352,7 +1298,7 @@ async fn pending_projection_survives_database_restart() -> Result<()> {
     drop(target);
     db.close().await?;
     let db = Database::connect(&url).await?;
-    let target = LibrarySyncStore::open(db.clone(), node, Some(lib)).await?;
+    let target = fixtures::open_library(db.clone(), node, Some(lib)).await?;
     assert_eq!(target.pending_mixes().await?.len(), 1);
     source
         .write_local(
@@ -1379,7 +1325,7 @@ async fn pending_projection_survives_database_restart() -> Result<()> {
 async fn received_record_materializes_without_head_side_effects() -> Result<()> {
     let (db, _root) = setup().await?;
     let lib = Uuid::new_v4();
-    let target = LibrarySyncStore::open(db.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let target = fixtures::open_library(db.clone(), Uuid::new_v4(), Some(lib)).await?;
     let source = support::memory(lib, Uuid::new_v4())?;
     let track = Uuid::new_v4();
     source
@@ -1412,7 +1358,7 @@ async fn received_record_materializes_without_head_side_effects() -> Result<()> 
 async fn catalog_track_removal_finishes_projection_once() -> Result<()> {
     let (db, _root) = setup().await?;
     let lib = Uuid::new_v4();
-    let target = LibrarySyncStore::open(db.clone(), Uuid::new_v4(), Some(lib)).await?;
+    let target = fixtures::open_library(db.clone(), Uuid::new_v4(), Some(lib)).await?;
     let source = support::memory(lib, Uuid::new_v4())?;
     let track = Uuid::new_v4();
     let key = ObjectKey {
@@ -1451,13 +1397,12 @@ async fn attached_track_id_remains_stable_after_database_reopen() -> Result<()> 
     );
     std::fs::write(root.path().join("song.ogg"), b"old bytes")?;
     let db = Database::connect(&url).await?;
-    let _ = migration::initialize_node_id(Uuid::new_v4().to_string());
-    Migrator::up(&db, None).await?;
+    fixtures::migrate(&db, Uuid::new_v4()).await?;
     file(&db, 10).await?;
     let node = Uuid::new_v4();
     let lib = Uuid::new_v4();
     let fs = Arc::new(FsIo::new());
-    let store = LibrarySyncStore::open(db.clone(), node, Some(lib)).await?;
+    let store = fixtures::open_library(db.clone(), node, Some(lib)).await?;
     store.head().await?;
     let track_id = track_uuid(&db, 10).await?;
     let track: Uuid = track_id.parse()?;
@@ -1493,7 +1438,7 @@ async fn attached_track_id_remains_stable_after_database_reopen() -> Result<()> 
     drop(store);
     db.close().await?;
     let db = Database::connect(&url).await?;
-    let _store = LibrarySyncStore::open(db.clone(), node, Some(lib)).await?;
+    let _store = fixtures::open_library(db.clone(), node, Some(lib)).await?;
     assert_eq!(resolve_local_id(&db, 10).await?, Some(10));
     assert_eq!(
         materialized_path(&db, &FsIo::new(), root.path(), 10).await?,
@@ -1562,7 +1507,7 @@ async fn staged_download_remains_queryable_but_not_playable() -> Result<()> {
         .values()
         .any(|items| items.contains(&20))
     );
-    let _store = LibrarySyncStore::open(db.clone(), Uuid::new_v4(), None).await?;
+    let _store = fixtures::open_library(db.clone(), Uuid::new_v4(), None).await?;
     assert_eq!(
         audio_availability(&db, &FsIo::new(), root.path(), &[20])
             .await?
@@ -1594,7 +1539,7 @@ async fn availability_distinguishes_local_reference_missing_and_pending() -> Res
         size: 1,
     };
     prepare_download(&db, &FsIo::new(), root.path(), staged, &staged_blob, "ogg").await?;
-    let store = LibrarySyncStore::open(db.clone(), Uuid::new_v4(), None).await?;
+    let store = fixtures::open_library(db.clone(), Uuid::new_v4(), None).await?;
     let key = ObjectKey {
         collection: Collection::Tracks,
         id: Uuid::new_v4(),
@@ -1647,8 +1592,8 @@ async fn explicit_catalog_membership_import_preserves_source_identity() -> Resul
     parent(&db1, Collection::Artists, 13, "Artist", "A").await?;
     member(&db1, Collection::Artists, 10, 13, None).await?;
     let namespace = Uuid::new_v4();
-    let a = LibrarySyncStore::open(db1.clone(), Uuid::new_v4(), Some(namespace)).await?;
-    let b = LibrarySyncStore::open(db2.clone(), Uuid::new_v4(), Some(namespace)).await?;
+    let a = fixtures::open_library(db1.clone(), Uuid::new_v4(), Some(namespace)).await?;
+    let b = fixtures::open_library(db2.clone(), Uuid::new_v4(), Some(namespace)).await?;
     a.import_existing(a.record_store().author()).await?;
     transfer(&a, &b).await?;
     let row = media_file_artists::Entity::find().one(&db2).await?.unwrap();

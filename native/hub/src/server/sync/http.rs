@@ -1,6 +1,8 @@
 //! Audio content endpoints mounted by an authenticated caller.
 
 use anyhow::Result;
+use axum::body::Body;
+use axum::http::Response;
 use axum::{
     Router,
     extract::State,
@@ -18,6 +20,10 @@ use database::{
         model::{Collection, ObjectKey, Payload},
     },
 };
+use entities::media_cover_art::Column;
+use entities::media_cover_art::Entity;
+use std::io::Error;
+use std::io::ErrorKind;
 use std::sync::Arc;
 
 /// The application replaces a library only while its background workers are stopped.
@@ -63,8 +69,8 @@ async fn get_artwork(
     let body = artwork
         .body()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let rows = entities::media_cover_art::Entity::find()
-        .filter(entities::media_cover_art::Column::HlcUuid.eq(id.to_string()))
+    let rows = Entity::find()
+        .filter(Column::HlcUuid.eq(id.to_string()))
         .all(&context.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -73,10 +79,10 @@ async fn get_artwork(
     }
     let bytes = rows.into_iter().next().unwrap().binary;
     verify_body(id, &body.digest, body.size, &bytes).map_err(|_| StatusCode::NOT_FOUND)?;
-    axum::http::Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_LENGTH, bytes.len())
-        .body(axum::body::Body::from(bytes))
+        .body(Body::from(bytes))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
@@ -148,11 +154,11 @@ async fn get_blob(
         None => (0, size, false),
         Some(Some((start, end))) => (start, end - start + 1, true),
         Some(None) => {
-            return axum::http::Response::builder()
+            return Response::builder()
                 .status(StatusCode::RANGE_NOT_SATISFIABLE)
                 .header(CONTENT_RANGE, format!("bytes */{size}"))
                 .header(ACCEPT_RANGES, "bytes")
-                .body(axum::body::Body::empty())
+                .body(Body::empty())
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
@@ -165,15 +171,12 @@ async fn get_blob(
         let mut buffer = vec![0; remaining.min(64 * 1024) as usize];
         let count = file.read(&mut buffer)?;
         if count == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "audio file shortened",
-            ));
+            return Err(Error::new(ErrorKind::UnexpectedEof, "audio file shortened"));
         }
         buffer.truncate(count);
         Ok(Some((buffer, (file, remaining - count as u64))))
     });
-    let mut response = axum::http::Response::builder()
+    let mut response = Response::builder()
         .status(if partial {
             StatusCode::PARTIAL_CONTENT
         } else {
@@ -188,7 +191,7 @@ async fn get_blob(
         );
     }
     response
-        .body(axum::body::Body::from_stream(chunks))
+        .body(Body::from_stream(chunks))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 

@@ -1,6 +1,7 @@
 #[cfg(target_os = "windows")]
 use std::ffi::c_void;
 use std::io::Write;
+use std::time::Duration;
 use std::{env, fs::File};
 use std::{
     path::{Path, PathBuf},
@@ -101,7 +102,7 @@ impl MediaControlManager {
 
         thread::spawn(move || {
             loop {
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                std::thread::sleep(Duration::from_millis(100));
 
                 // this must be run repeatedly by your program to ensure
                 // the Windows event queue is processed by your application

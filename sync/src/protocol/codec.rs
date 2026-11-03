@@ -1,5 +1,7 @@
 use super::*;
+use crate::causal::Context;
 use serde_json::{Value, json};
+use std::collections;
 fn err<E: std::fmt::Display>(e: E) -> SyncError {
     SyncError::Storage(e.to_string())
 }
@@ -17,7 +19,7 @@ pub fn validate_model<M: SyncModel>() -> Result<()> {
     if all.is_empty() || all.len() > MAX_COLLECTIONS {
         return Err(SyncError::Invalid("invalid collection registry".into()));
     }
-    let mut tags = std::collections::BTreeSet::new();
+    let mut tags = collections::BTreeSet::new();
     for c in all {
         let tag = M::collection_tag(&c);
         valid_tag(tag)?;
@@ -613,7 +615,7 @@ pub fn decode_context(bytes: &[u8]) -> Result<ExactContext> {
 /// Convert verified protocol context to the exact causal primitive.
 pub fn causal_context(context: &ExactContext) -> Result<crate::causal::Context> {
     canonical_context(context)?;
-    let mut out = crate::causal::Context::default();
+    let mut out = Context::default();
     for writer in &context.writers {
         if writer.prefix > 0 {
             out.insert_interval(writer.writer_incarnation, 1, writer.prefix)

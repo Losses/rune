@@ -4,6 +4,9 @@
 //! before the second cover pass to demonstrate the timestamp mismatch.
 //! Self-contained regressions run normally; the real-library probe is opt-in.
 
+#[path = "support/fixtures.rs"]
+mod fixtures;
+use anyhow::{Context, Result};
 use database::actions::metadata::MissingHostFilePolicy;
 use database::{
     actions::{
@@ -12,13 +15,12 @@ use database::{
     },
     connection::connect_main_db,
     entities::media_files,
-    sync::LibrarySyncStore,
 };
-use std::{path::PathBuf, sync::Arc, time::Instant};
-
-use anyhow::{Context, Result};
 use fsio::FsIo;
+use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter};
+use std::time::Duration;
+use std::{path::PathBuf, sync::Arc, time::Instant};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires RUNE_SCAN_ROOT; reads real audio, writes only a temporary database"]
@@ -39,7 +41,7 @@ async fn scan_real_library() -> Result<()> {
         temp.path().display()
     );
     let db = connect_main_db(&fs, temp.path().to_str().unwrap(), None, &node.to_string()).await?;
-    let library = LibrarySyncStore::open(db.clone(), node, None).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
     library.import_existing(node).await?;
     eprintln!(
         "DIAG initialized elapsed={:.3}s",
@@ -83,10 +85,7 @@ async fn scan_real_library() -> Result<()> {
                         .context("mtime outside chrono range")?
                         .to_rfc3339();
                     media_files::Entity::update_many()
-                        .col_expr(
-                            media_files::Column::LastModified,
-                            sea_orm::sea_query::Expr::value(timestamp),
-                        )
+                        .col_expr(media_files::Column::LastModified, Expr::value(timestamp))
                         .filter(media_files::Column::Id.eq(file.id))
                         .exec(&db)
                         .await?;
@@ -173,21 +172,15 @@ async fn unchanged_cover_scan_does_not_reinspect() -> Result<()> {
     let fs = Arc::new(FsIo::new());
     let node = uuid::Uuid::new_v4();
     let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
-    let library = LibrarySyncStore::open(db.clone(), node, None).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
     let store = library.record_store();
-    scan_audio_library(
+    fixtures::cleanup_scan(
         &fs,
         &db,
         &node.to_string(),
         root,
-        ScanOptions {
-            cleanup: true,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-            cancel_token: None,
-        },
-        |_| {},
         &store,
+        MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     scan_cover_arts(fs.clone(), &db, root, 16, |_, _| {}, None, &store).await?;
@@ -206,7 +199,7 @@ async fn unchanged_cover_scan_does_not_reinspect() -> Result<()> {
             .all(|file| file.cover_art_checked_at.is_some())
     );
     let head = sync_orm::causal_progress::head_on(&db, store.namespace()).await?;
-    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    tokio::time::sleep(Duration::from_millis(20)).await;
     scan_cover_arts(fs, &db, root, 16, |_, _| {}, None, &store).await?;
     let after = media_files::Entity::find().all(&db).await?;
     assert_eq!(before, after);
@@ -243,7 +236,7 @@ async fn rejected_artwork_assignment_does_not_stop_other_files_and_retries() -> 
     let fs = Arc::new(FsIo::new());
     let node = uuid::Uuid::new_v4();
     let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
-    let library = LibrarySyncStore::open(db.clone(), node, None).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
     let store = library.record_store();
     assert_eq!(
         scan_audio_library(
@@ -329,7 +322,7 @@ async fn oversized_tag_does_not_abort_library_scan() -> Result<()> {
     let fs = FsIo::new();
     let node = uuid::Uuid::new_v4();
     let db = connect_main_db(&fs, root.to_str().unwrap(), None, &node.to_string()).await?;
-    let library = LibrarySyncStore::open(db.clone(), node, None).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
     let progress = AtomicUsize::new(0);
     let result = scan_audio_library(
         &fs,

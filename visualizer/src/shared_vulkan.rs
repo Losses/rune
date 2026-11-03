@@ -27,6 +27,9 @@
 //! wgpu does not see these barriers: it still believes the image is a render target after the
 //! last frame, which is the layout the acquire leaves it in, so its own barriers stay correct.
 
+use hal::vulkan::TextureMemory;
+use khr::external_memory_fd::Device;
+use khr::external_semaphore_fd;
 use std::collections::VecDeque;
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::sync::Arc;
@@ -319,8 +322,8 @@ impl SharedTargets {
             let raw = hal_device.raw_device();
             let vulkan = Vulkan {
                 device: raw.clone(),
-                memory_fd: khr::external_memory_fd::Device::new(raw_instance, raw),
-                semaphore_fd: khr::external_semaphore_fd::Device::new(raw_instance, raw),
+                memory_fd: Device::new(raw_instance, raw),
+                semaphore_fd: external_semaphore_fd::Device::new(raw_instance, raw),
                 queue_family: hal_device.queue_family_index(),
             };
             // SAFETY: a plain query on a valid physical device.
@@ -547,7 +550,7 @@ impl SharedTargets {
                         view_formats: Vec::new(),
                     },
                     None,
-                    hal::vulkan::TextureMemory::Dedicated(memory),
+                    TextureMemory::Dedicated(memory),
                 )
             }
         };

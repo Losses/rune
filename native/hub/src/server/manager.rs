@@ -1,5 +1,11 @@
+use super::sync::http as super_sync_http;
+use super::sync::http::BlobContext;
+use super::sync::http::SharedLibrary;
+use super::sync::http::blob_router;
+use super::sync_auth::SyncAuth;
 use database::actions::file::catalog_track;
 use database::sync::model::RuneModel;
+use std::net::TcpListener;
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -9,11 +15,13 @@ use std::{
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use tokio::time::Instant;
 use tokio::{
     fs::{read_to_string, write},
     sync::{Mutex, RwLock, mpsc::unbounded_channel},
     task::JoinHandle,
 };
+use tokio_util::sync as tokio_util_sync;
 
 use anyhow::{Context, Result};
 use axum::{
@@ -98,7 +106,7 @@ fn coalesce_worker_notify(
     });
     Arc::new(move || {
         if !cancel.is_cancelled() {
-            let _ = sender.send(tokio::time::Instant::now());
+            let _ = sender.send(Instant::now());
         }
     })
 }
@@ -321,7 +329,7 @@ impl ServerManager {
                 .ok_or_else(|| anyhow::anyhow!("local metadata replica is unavailable"))?,
         ));
         let (_, fingerprint) = parse_certificate(&self.certificate)?;
-        let auth = super::sync_auth::SyncAuth::new(
+        let auth = SyncAuth::new(
             self.global_params.permission_manager.clone(),
             fingerprint.clone(),
         );
@@ -336,25 +344,21 @@ impl ServerManager {
                 path: signal_path.clone(),
             });
         });
-        let sync_routes = super::sync::library_router(
-            super::sync::http::SharedLibrary(library.clone()),
-            notify.clone(),
-        )
-        .merge(super::sync::http::blob_router(
-            super::sync::http::BlobContext {
-                store: library.clone(),
-                db: (*self.global_params.main_db).clone(),
-                fsio: self.global_params.fsio.clone(),
-                root: PathBuf::from(&*self.global_params.lib_path),
-                node_id,
-                upload_lock: Arc::new(Mutex::new(())),
-                notify: notify.clone(),
-            },
-        ))
-        .layer(middleware::from_fn_with_state(
-            auth.clone(),
-            super::sync_auth::require_auth,
-        ));
+        let sync_routes =
+            super::sync::library_router(SharedLibrary(library.clone()), notify.clone())
+                .merge(blob_router(BlobContext {
+                    store: library.clone(),
+                    db: (*self.global_params.main_db).clone(),
+                    fsio: self.global_params.fsio.clone(),
+                    root: PathBuf::from(&*self.global_params.lib_path),
+                    node_id,
+                    upload_lock: Arc::new(Mutex::new(())),
+                    notify: notify.clone(),
+                }))
+                .layer(middleware::from_fn_with_state(
+                    auth.clone(),
+                    super::sync_auth::require_auth,
+                ));
         let app = Router::new()
             .merge(register_route)
             .route("/ping", get(ping_handler))
@@ -397,7 +401,7 @@ impl ServerManager {
             .context("Failed to create TLS configuration")?
         };
 
-        let listener = std::net::TcpListener::bind(addr).context("Failed to bind sync server")?;
+        let listener = TcpListener::bind(addr).context("Failed to bind sync server")?;
         let addr = listener.local_addr()?;
         device_info.api_port = addr.port();
         listener.set_nonblocking(true)?;
@@ -413,7 +417,7 @@ impl ServerManager {
             }
         });
 
-        let watch_cancel = tokio_util::sync::CancellationToken::new();
+        let watch_cancel = tokio_util_sync::CancellationToken::new();
         let watch_stop = watch_cancel.clone();
         let lifetime_handle = shutdown_handle.clone();
         let lifetime_token = self.global_params.main_token.clone();
@@ -485,7 +489,7 @@ impl ServerManager {
         let cancel = self.global_params.main_token.child_token();
         let worker = super::sync_worker::run(
             self.global_params.clone(),
-            super::sync::http::SharedLibrary(Arc::new(RwLock::new(library))),
+            super_sync_http::SharedLibrary(Arc::new(RwLock::new(library))),
             coalesce_worker_notify(notify, cancel.clone()),
             fingerprint,
             self.private_key.clone(),
@@ -804,6 +808,16 @@ pub async fn update_root_password<P: AsRef<Path>>(config_path: P, password: &str
 
 #[cfg(test)]
 mod lifecycle_tests {
+    use super::super::sync_worker;
+    use super::super::sync_worker::authenticated_client;
+    use super::super::utils::device::load_device_info;
+    use database::connection::RecommendationDbConnection;
+    use migration::catalog_identity::ParentKind;
+    use playback::decoder::RuneDecoder;
+    use std::net::SocketAddr;
+    use std::net::TcpListener;
+    use std::path::Path;
+    use tracing_subscriber::filter::LevelFilter;
     #[tokio::test(start_paused = true)]
     async fn worker_notifications_are_coalesced() {
         use std::sync::{
@@ -812,7 +826,7 @@ mod lifecycle_tests {
         };
         use std::time::Duration;
         let count = Arc::new(AtomicUsize::new(0));
-        let cancel = tokio_util::sync::CancellationToken::new();
+        let cancel = CancellationToken::new();
         let notify = super::coalesce_worker_notify(
             Arc::new({
                 let count = count.clone();
@@ -885,7 +899,7 @@ mod lifecycle_tests {
             node_id: Arc::new(node.to_string()),
             main_db: Arc::new(db.clone()),
             library_sync: Some(library_sync),
-            recommend_db: Arc::new(database::connection::RecommendationDbConnection::new()),
+            recommend_db: Arc::new(RecommendationDbConnection::new()),
             main_token: token.clone(),
             task_tokens: Arc::new(Mutex::new(TaskTokens::default())),
             player: Arc::new(Mutex::new(MockPlayer)),
@@ -906,10 +920,7 @@ mod lifecycle_tests {
         Ok(manager)
     }
     async fn info(manager: &ServerManager) -> Result<discovery::utils::DeviceInfo> {
-        super::super::utils::device::load_device_info(std::path::Path::new(
-            &*manager.global_params.config_path,
-        ))
-        .await
+        load_device_info(Path::new(&*manager.global_params.config_path)).await
     }
     #[tokio::test]
     async fn outbound_worker_survives_listener_stop() -> Result<()> {
@@ -938,7 +949,7 @@ mod lifecycle_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn paired_background_sync_and_listener_lifecycle() -> Result<()> {
         let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing_subscriber::filter::LevelFilter::WARN)
+            .with_max_level(LevelFilter::WARN)
             .with_test_writer()
             .try_init();
         let first = tempfile::tempdir()?;
@@ -967,10 +978,10 @@ mod lifecycle_tests {
             .await
             .change_user_status(&b_info.fingerprint, UserStatus::Approved)
             .await?;
-        let a_reserve = std::net::TcpListener::bind("127.0.0.1:0")?;
-        let b_reserve = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let a_reserve = TcpListener::bind("127.0.0.1:0")?;
+        let b_reserve = TcpListener::bind("127.0.0.1:0")?;
         let a_addr = a_reserve.local_addr()?;
-        let b_addr = std::net::SocketAddr::from(([127, 0, 0, 2], b_reserve.local_addr()?.port()));
+        let b_addr = SocketAddr::from(([127, 0, 0, 2], b_reserve.local_addr()?.port()));
         assert_ne!(a_addr.port(), b_addr.port());
         drop((a_reserve, b_reserve));
         b.global_params
@@ -980,7 +991,7 @@ mod lifecycle_tests {
             .add_trusted_domains(["127.0.0.1"], &a_info.fingerprint)
             .await?;
         std::fs::copy(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
             second.path().join("source.ogg"),
         )?;
         scan_audio_library(
@@ -1024,10 +1035,7 @@ mod lifecycle_tests {
         );
         let key = ObjectKey {
             collection: Collection::Albums,
-            id: migration::catalog_identity::parent(
-                migration::catalog_identity::ParentKind::Album,
-                "background album",
-            ),
+            id: migration::catalog_identity::parent(ParentKind::Album, "background album"),
         };
         let store = LibrarySyncStore::open(
             (*b.global_params.main_db).clone(),
@@ -1194,7 +1202,7 @@ mod lifecycle_tests {
         let response = source.request.get(Some((0, Some(15)))).await?;
         assert_eq!(response.status(), reqwest::StatusCode::PARTIAL_CONTENT);
         assert_eq!(response.bytes().await?.as_ref(), &expected[..16]);
-        let (_, raw_client) = super::super::sync_worker::authenticated_client(
+        let (_, raw_client) = authenticated_client(
             &a.global_params,
             &a_info.fingerprint,
             &a.private_key,
@@ -1244,7 +1252,7 @@ mod lifecycle_tests {
                 "stream seek returned wrong bytes"
             );
             stream.seek(SeekFrom::Start(0))?;
-            let mut decoder = playback::decoder::RuneDecoder::new(stream, Some(&extension))?;
+            let mut decoder = RuneDecoder::new(stream, Some(&extension))?;
             Ok(decoder.next().is_some())
         })
         .await??;
@@ -1274,7 +1282,7 @@ mod lifecycle_tests {
             )
             .await?
         );
-        let (_, authorized) = super::super::sync_worker::authenticated_client(
+        let (_, authorized) = sync_worker::authenticated_client(
             &b.global_params,
             &b_info.fingerprint,
             &b.private_key,
@@ -1327,7 +1335,7 @@ mod lifecycle_tests {
         b.global_params.main_token.cancel();
         let rebound = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                if let Ok(listener) = std::net::TcpListener::bind(b_addr) {
+                if let Ok(listener) = TcpListener::bind(b_addr) {
                     break listener;
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1339,7 +1347,7 @@ mod lifecycle_tests {
         b.stop().await?;
         a.stop().await?;
         a.global_params.main_token.cancel();
-        let rebound = std::net::TcpListener::bind(a_addr)?;
+        let rebound = TcpListener::bind(a_addr)?;
         drop(rebound);
         Ok(())
     }
@@ -1353,7 +1361,7 @@ mod lifecycle_tests {
         let root = tempfile::tempdir()?;
         let manager = fixture(root.path()).await?;
         let params = &manager.global_params;
-        let fixture_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
+        let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
         std::fs::copy(
             fixture_dir.join("startup_0.ogg"),
             root.path().join("old.ogg"),
@@ -1382,7 +1390,7 @@ mod lifecycle_tests {
             .pop()
             .context("missing scanned audio")?;
         let track_id: Uuid = file.hlc_uuid.parse()?;
-        let resolver = super::super::sync_worker::PairedAudioResolver(Arc::downgrade(&manager));
+        let resolver = sync_worker::PairedAudioResolver(Arc::downgrade(&manager));
         let queued_before_revision = PlaybackSource::Local(root.path().join("old.ogg"));
         assert!(
             !queued_before_revision

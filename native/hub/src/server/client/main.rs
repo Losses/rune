@@ -1,3 +1,4 @@
+use rustyline::error::ReadlineError;
 pub mod api;
 pub mod cli;
 pub mod connection;
@@ -115,8 +116,8 @@ async fn repl_mode(service_url: &str) -> Result<()> {
                 }
             }
             Err(err) => match err {
-                rustyline::error::ReadlineError::Interrupted => continue,
-                rustyline::error::ReadlineError::Eof => {
+                ReadlineError::Interrupted => continue,
+                ReadlineError::Eof => {
                     println!("Encountered Eof");
                     break;
                 }

@@ -1,3 +1,4 @@
+use rsa::pkcs8::LineEnding;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -67,8 +68,8 @@ pub fn generate_self_signed_cert(
 
     let cert = params.self_signed(&key_pair)?;
 
-    let private_key_pem = private_key.to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)?;
-    let public_key_pem = public_key.to_public_key_pem(rsa::pkcs8::LineEnding::LF)?;
+    let private_key_pem = private_key.to_pkcs8_pem(LineEnding::LF)?;
+    let public_key_pem = public_key.to_public_key_pem(LineEnding::LF)?;
     let certificate_pem = cert.pem();
 
     let pem_entry = pem::parse(public_key_pem.as_bytes())?;

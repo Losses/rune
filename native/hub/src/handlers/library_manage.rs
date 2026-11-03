@@ -1,6 +1,8 @@
 use crate::utils::sync_settings::SyncSettings;
 use database::actions::metadata::ScanOptions;
+use std::time::Instant;
 use std::{path::Path, sync::Arc};
+use tokio::runtime::Runtime;
 
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
@@ -186,10 +188,10 @@ impl Signal for ScanAudioLibraryRequest {
         let supervisor_broadcaster = broadcaster.clone();
         let supervisor_tokens = task_tokens.clone();
         let worker = task::spawn_blocking(move || {
-            let runtime = tokio::runtime::Runtime::new().unwrap();
+            let runtime = Runtime::new().unwrap();
             runtime.block_on(async move {
                 let result: Result<usize> = async {
-                    let refresh_start = std::time::Instant::now();
+                    let refresh_start = Instant::now();
                     if let Err(e) = fsio.refresh_cache() {
                         warn!("Failed to refresh filesystem cache before scan: {e:#?}");
                     } else {
@@ -394,7 +396,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
         let computing_device = request.computing_device;
 
         task::spawn_blocking(move || {
-            let runtime = tokio::runtime::Runtime::new().unwrap();
+            let runtime = Runtime::new().unwrap();
             runtime.block_on(async move {
                 let cloned_broadcaster = Arc::clone(&broadcaster);
                 let result = async {
@@ -498,7 +500,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
         let request_path_clone = request_path.clone();
         task::spawn_blocking(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
+            let rt = Runtime::new().unwrap();
 
             let request_path_clone = request_path_clone.clone();
             rt.block_on(async {
@@ -662,6 +664,7 @@ mod scan_supervisor_tests {
 
     use super::*;
     use crate::utils::RinfRustSignal;
+    use std::time::Duration;
     use tokio::sync::oneshot;
 
     #[derive(Default)]
@@ -765,7 +768,7 @@ mod scan_supervisor_tests {
             tokens,
         ));
         token.cancel();
-        tokio::time::timeout(std::time::Duration::from_secs(1), supervisor)
+        tokio::time::timeout(Duration::from_secs(1), supervisor)
             .await
             .unwrap()
             .unwrap();
@@ -823,12 +826,12 @@ mod scan_supervisor_tests {
             )
             .await
             .unwrap();
-        let response = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let response = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 if let Some(bytes) = capture.0.lock().unwrap().first().cloned() {
                     break rinf::deserialize::<ScanAudioLibraryResponse>(&bytes).unwrap();
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await

@@ -1,15 +1,17 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
+
 use anyhow::Result;
 use sea_orm::{
-    ConnectionTrait, Database, TransactionTrait,
+    ConnectionTrait, TransactionTrait,
     sea_query::{Alias, Query},
 };
-use sync_orm::{causal_candidates::page_on, causal_schema};
+use sync_orm::causal_candidates::page_on;
 use uuid::Uuid;
 
 #[tokio::test]
 async fn candidate_lifetimes_reconstruct_old_positions_with_keyset_pages() -> Result<()> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let ns = Uuid::from_u128(1);
     let a = Uuid::from_u128(10);
     let b = Uuid::from_u128(20);

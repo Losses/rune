@@ -1,8 +1,7 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
 use anyhow::Result;
-use database::{
-    actions::{metadata::sync_file_descriptions, mixes, playlists},
-    sync::LibrarySyncStore,
-};
+use database::actions::{metadata::sync_file_descriptions, mixes, playlists};
 use fsio::FsIo;
 use metadata::describe::describe_file;
 use migration::{Migrator, MigratorTrait};
@@ -71,7 +70,7 @@ async fn alpha_database_with_bookkeeping_columns_still_works() -> Result<()> {
         row.try_get::<String>("", "cover_art_checked_at")?,
         "2023-01-02 03:04:05"
     );
-    let library = LibrarySyncStore::open(db.clone(), actor, None).await?;
+    let library = fixtures::open_library(db.clone(), actor, None).await?;
     library.import_basic().await?;
     let store = library.record_store();
     let list = playlists::create_playlist(&db, &store, "new".into(), "g".into()).await?;
@@ -88,9 +87,7 @@ async fn alpha_database_with_bookkeeping_columns_still_works() -> Result<()> {
     )
     .await?;
     let fs = FsIo::new();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../assets")
-        .canonicalize()?;
+    let root = fixtures::asset_directory().canonicalize()?;
     let audio = fs.canonicalize(&root.join("startup_0.ogg"))?;
     let mut descriptions = vec![Some(describe_file(&fs, &audio, &Some(root))?)];
     sync_file_descriptions(

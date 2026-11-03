@@ -2,6 +2,9 @@
 use crate::sync::model::BlobRef;
 use anyhow::{Context, Result, ensure};
 use fsio::FsIo;
+use sea_orm::sea_query::Expr;
+use std::collections::HashSet;
+use std::path::Component;
 use std::{
     io::Read,
     path::{Path, PathBuf},
@@ -70,9 +73,7 @@ pub fn blob_path(fsio: &FsIo, root: &Path, digest: &str, extension: &str) -> Res
     validate_digest(digest)?;
     validate_extension(extension)?;
     ensure!(
-        !root
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir)),
+        !root.components().any(|c| matches!(c, Component::ParentDir)),
         "invalid library root"
     );
     let dir = root.join(MANAGED_AUDIO_DIRECTORY);
@@ -159,7 +160,7 @@ pub async fn remote_content_ids(
     db: &DatabaseConnection,
     ids: &[i32],
 ) -> Result<std::collections::HashSet<i32>> {
-    let mut found = std::collections::HashSet::new();
+    let mut found = HashSet::new();
     for chunk in ids.chunks(512) {
         let rows = media_files::Entity::find()
             .filter(media_files::Column::Id.is_in(chunk.iter().copied()))
@@ -268,7 +269,7 @@ pub async fn attach_download(
     ensure!(
         relative
             .components()
-            .all(|c| matches!(c, std::path::Component::Normal(_))),
+            .all(|c| matches!(c, Component::Normal(_))),
         "invalid download path"
     );
     let directory = relative
@@ -314,18 +315,9 @@ pub async fn attach_download(
         "download job mismatch"
     );
     media_files::Entity::update_many()
-        .col_expr(
-            media_files::Column::Directory,
-            sea_orm::sea_query::Expr::value(directory),
-        )
-        .col_expr(
-            media_files::Column::FileName,
-            sea_orm::sea_query::Expr::value(name),
-        )
-        .col_expr(
-            media_files::Column::LocalAvailable,
-            sea_orm::sea_query::Expr::value(true),
-        )
+        .col_expr(media_files::Column::Directory, Expr::value(directory))
+        .col_expr(media_files::Column::FileName, Expr::value(name))
+        .col_expr(media_files::Column::LocalAvailable, Expr::value(true))
         .filter(media_files::Column::Id.eq(row.id))
         .exec(&tx)
         .await?;

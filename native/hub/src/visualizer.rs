@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
+use tokio::runtime::Handle;
 
 use ::database::{
     actions::{cover_art::bake_cover_art_by_media_files, mixes::query_mix_media_files},
@@ -49,7 +50,7 @@ pub fn provide_covers(
     recommend_db: Arc<RecommendationDbConnection>,
 ) {
     *COVER_SOURCE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(CoverSource {
-        runtime: tokio::runtime::Handle::current(),
+        runtime: Handle::current(),
         fsio,
         main_db,
         recommend_db,

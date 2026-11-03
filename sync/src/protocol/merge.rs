@@ -1,4 +1,5 @@
 use super::*;
+use crate::causal::Context;
 use std::collections::BTreeMap;
 
 /// Plan the collection-wide delta justified by a complete source leaf.
@@ -28,7 +29,7 @@ pub fn plan_leaf_merge<M: SyncModel>(
         }
     }
     added.sort_by(|a, b| a.key.cmp(&b.key).then(a.dot.cmp(&b.dot)));
-    let mut observed = crate::causal::Context::default();
+    let mut observed = Context::default();
     for dot in current.keys().filter(|d| !incoming_dots.contains(d)) {
         let dot = crate::causal::Dot {
             writer: dot.writer_incarnation,

@@ -33,6 +33,7 @@ pub trait CollectionDefinition: EntityTrait {
 #[macro_export]
 macro_rules! get_entity_to_cover_ids {
     ($db:expr, $entity_ids:expr, $item_entity:ident, $related_entity:ident, $relation_column_name:ident, $magic_cover_art_id:expr) => {{
+        use sea_orm::sea_query::Expr;
         use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect};
         use std::collections::{HashMap, HashSet};
         use $crate::entities::{media_cover_art, media_files};
@@ -41,10 +42,7 @@ macro_rules! get_entity_to_cover_ids {
             .select_only()
             .column_as(<$item_entity::Column>::Id, "owner_id")
             .column_as(
-                sea_orm::sea_query::Expr::col((
-                    media_cover_art::Entity,
-                    media_cover_art::Column::Id,
-                )),
+                Expr::col((media_cover_art::Entity, media_cover_art::Column::Id)),
                 "artwork_id",
             )
             .join(
@@ -176,7 +174,7 @@ macro_rules! parallel_media_files_processing {
         use log::{debug, error, info, warn};
         use std::sync::Arc;
         use tokio::sync::{Mutex, Semaphore};
-        use tokio::task;
+        use tokio::task::{self, JoinSet};
 
         anyhow::ensure!($batch_size > 0, "Batch size must be positive");
         let cursor_query_clone = $cursor_query.clone();
@@ -271,7 +269,7 @@ macro_rules! parallel_media_files_processing {
             let processed_count = Arc::clone(&processed_count);
             let progress_callback = Arc::clone(&$progress_callback);
             async move {
-                let mut active_tasks = tokio::task::JoinSet::new();
+                let mut active_tasks = JoinSet::new();
 
                 while let Ok(file_option) = rx.recv().await {
                     match file_option {

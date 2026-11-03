@@ -2,6 +2,7 @@ use sea_orm_migration::{
     prelude::*,
     sea_orm::{ConnectionTrait, FromQueryResult, TransactionTrait, prelude::Uuid},
 };
+use std::collections::HashSet;
 
 #[path = "source_uuid_conversion.rs"]
 mod source_uuid_conversion;
@@ -82,7 +83,7 @@ async fn correct_catalog_identities(
         let rows = ParentIdentityRow::find_by_statement(backend.build(&select))
             .all(tx)
             .await?;
-        let mut ids = std::collections::HashSet::new();
+        let mut ids = HashSet::new();
         for row in rows {
             let id = catalog_identity::parent(kind, &row.name).to_string();
             if !ids.insert(id.clone()) {
@@ -141,8 +142,8 @@ async fn correct_catalog_identities(
         let rows = MembershipIdentityRow::find_by_statement(backend.build(&select))
             .all(tx)
             .await?;
-        let mut pairs = std::collections::HashSet::new();
-        let mut ids = std::collections::HashSet::new();
+        let mut pairs = HashSet::new();
+        let mut ids = HashSet::new();
         for row in rows {
             if !pairs.insert((row.media_file_id, row.parent_id)) {
                 return Err(DbErr::Custom(format!(
@@ -178,7 +179,7 @@ async fn correct_catalog_identities(
         }
     }
     if schema.has_table("media_cover_art").await? {
-        let mut identities = std::collections::HashSet::new();
+        let mut identities = HashSet::new();
         let mut after = 0;
         loop {
             let query = Query::select()
@@ -247,7 +248,7 @@ async fn correct_catalog_identities(
         let rows = FingerprintIdentityRow::find_by_statement(backend.build(&query))
             .all(tx)
             .await?;
-        let mut files = std::collections::HashSet::new();
+        let mut files = HashSet::new();
         for row in rows {
             if !files.insert(row.media_file_id) {
                 return Err(DbErr::Custom(format!(
@@ -306,7 +307,7 @@ async fn correct_catalog_identities(
         let rows = SimilarityIdentityRow::find_by_statement(backend.build(&query))
             .all(tx)
             .await?;
-        let mut pairs = std::collections::HashSet::new();
+        let mut pairs = HashSet::new();
         for row in rows {
             if !pairs.insert((row.file_id1, row.file_id2)) {
                 return Err(DbErr::Custom(format!(
@@ -511,7 +512,7 @@ impl MigrationTrait for Migration {
         let rows = LegacyStat::find_by_statement(db.get_database_backend().build(&select))
             .all(&txn)
             .await?;
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         for row in &rows {
             if !seen.insert(row.media_file_id) {
                 return Err(DbErr::Custom(format!(
@@ -813,7 +814,7 @@ impl MigrationTrait for Migration {
         let likes = FileId::find_by_statement(db.get_database_backend().build(&likes_select))
             .all(&txn)
             .await?;
-        let mut ids = std::collections::HashSet::new();
+        let mut ids = HashSet::new();
         if stats.iter().any(|row| !ids.insert(row.media_file_id))
             || likes.iter().any(|row| !ids.contains(&row.media_file_id))
         {
@@ -1025,6 +1026,7 @@ impl MigrationTrait for Migration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog_identity::ParentKind;
     use sea_orm_migration::sea_orm::{ConnectionTrait, Database, Statement};
 
     async fn setup() -> sea_orm_migration::sea_orm::DatabaseConnection {
@@ -1301,8 +1303,7 @@ mod tests {
         let db = setup_catalog().await;
         Migration.up(&SchemaManager::new(&db)).await.unwrap();
         let row = db.query_one_raw(Statement::from_string(db.get_database_backend(), "SELECT a.id AS artist_id, a.hlc_uuid AS artist_uuid, l.id AS link_id, l.track_uuid, l.artist_uuid AS link_artist_uuid, l.hlc_uuid AS link_uuid FROM artists a JOIN media_file_artists l ON l.artist_uuid=a.hlc_uuid".to_owned())).await.unwrap().unwrap();
-        let parent =
-            crate::catalog_identity::parent(crate::catalog_identity::ParentKind::Artist, "Artist");
+        let parent = crate::catalog_identity::parent(ParentKind::Artist, "Artist");
         let file = Uuid::parse_str("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb").unwrap();
         assert_eq!(row.try_get::<i32>("", "artist_id").unwrap(), 3);
         assert_eq!(row.try_get::<i32>("", "link_id").unwrap(), 5);
@@ -1320,12 +1321,7 @@ mod tests {
         );
         assert_eq!(
             row.try_get::<String>("", "link_uuid").unwrap(),
-            crate::catalog_identity::membership(
-                file,
-                crate::catalog_identity::ParentKind::Artist,
-                parent
-            )
-            .to_string()
+            crate::catalog_identity::membership(file, ParentKind::Artist, parent).to_string()
         );
     }
     #[tokio::test]

@@ -1,5 +1,7 @@
 //! Receiver-only staging and coverage. Accepted values remain in the adapter.
 use super::*;
+use crate::causal::Context;
+use std::collections;
 pub const MAX_RECEIVER_METADATA_ITEMS: usize = 4096;
 pub const MAX_RECEIVER_METADATA_BYTES: u64 = 4 * 1024 * 1024;
 pub const MAX_RECEIVER_RETRY_RECEIPTS: usize = 1024;
@@ -362,7 +364,7 @@ impl<M: SyncModel> ReceiverLedger<M> {
                 contexts: descriptor.contexts.clone(),
             })?;
         }
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = collections::BTreeSet::new();
         for root in &remote.roots {
             if root.snapshot_id != remote.snapshot_id
                 || root.range.lower.is_some()
@@ -445,7 +447,7 @@ impl<M: SyncModel> ReceiverLedger<M> {
             source_live: remote
                 .contexts
                 .iter()
-                .map(|c| (c.collection.clone(), crate::causal::Context::default()))
+                .map(|c| (c.collection.clone(), Context::default()))
                 .collect(),
             promotion: Promotion {
                 index: 0,

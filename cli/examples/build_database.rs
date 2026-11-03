@@ -1,3 +1,4 @@
+use database::sync::LibrarySyncStore;
 use database::{
     actions::{
         analysis::{
@@ -44,7 +45,7 @@ async fn main() {
 
     let root_path = PathBuf::from(&path);
 
-    let library = database::sync::LibrarySyncStore::open(main_db.clone(), node_id, None)
+    let library = LibrarySyncStore::open(main_db.clone(), node_id, None)
         .await
         .unwrap();
     library.import_existing(node_id).await.unwrap();

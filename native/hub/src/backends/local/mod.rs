@@ -1,3 +1,4 @@
+use crate::utils::RunningMode;
 use crate::{
     Signal,
     server::{ServerManager, utils::device::load_device_info},
@@ -6,6 +7,8 @@ use crate::{
         nid::get_or_create_node_id, player::initialize_local_player, sync_settings::SyncSettings,
     },
 };
+use std::net::SocketAddr;
+use std::path::Path;
 #[macro_use]
 mod gui_request;
 
@@ -100,9 +103,7 @@ pub async fn local_player_loop(
 
         info!("Initializing UI events");
         let global_params = GlobalParams {
-            sync_settings: Arc::new(RwLock::new(SyncSettings::load(std::path::Path::new(
-                &**config_path,
-            )))),
+            sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(&**config_path)))),
             fsio,
             lib_path,
             config_path,
@@ -120,7 +121,7 @@ pub async fn local_player_loop(
             cert_validator,
             permission_manager,
             server_manager: OnceLock::new(),
-            running_mode: crate::utils::RunningMode::Client,
+            running_mode: RunningMode::Client,
         };
 
         let global_params = Arc::new(global_params);
@@ -135,9 +136,9 @@ pub async fn local_player_loop(
             log::warn!("Could not start paired sync worker: {error:#}");
         }
         if global_params.sync_settings.read().await.listen {
-            match load_device_info(std::path::Path::new(&*global_params.config_path)).await {
+            match load_device_info(Path::new(&*global_params.config_path)).await {
                 Ok(info) => {
-                    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 7863));
+                    let addr = SocketAddr::from(([0, 0, 0, 0], 7863));
                     if let Err(error) = server_manager
                         .clone()
                         .start_sync(addr, discovery::DiscoveryParams { device_info: info })

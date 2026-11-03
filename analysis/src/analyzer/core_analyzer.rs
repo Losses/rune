@@ -382,6 +382,7 @@ impl Analyzer {
 #[cfg(test)]
 mod regression_tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn final_window_does_not_retain_track_sized_buffer() {
@@ -397,7 +398,7 @@ mod regression_tests {
     fn cancelled_analysis_does_not_return_partial_results() {
         let mut analyzer = Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None);
         // Cancel after process() enters the decode loop, before its first packet.
-        let calls = std::cell::Cell::new(0);
+        let calls = Cell::new(0);
         analyzer.fn_is_cancelled = Box::new(move || {
             calls.set(calls.get() + 1);
             calls.get() > 1

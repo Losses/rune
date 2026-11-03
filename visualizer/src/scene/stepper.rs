@@ -400,6 +400,8 @@ impl Stepper {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scene::MusicValues;
+    use crate::scene::Pace;
     use crate::scene::fixtures;
 
     /// A quiet section, a high one the director bursts into, and a quieter one: 100 s.
@@ -642,7 +644,7 @@ mod tests {
         let song = song();
         let manifest = fixtures::manifest();
         let mut decider = fixtures::decider();
-        decider.hold_shot(1, &crate::scene::MusicValues::default());
+        decider.hold_shot(1, &MusicValues::default());
         let mut stepper = Stepper::default();
         let mut frame = |decider: &mut Decider, t: f64| {
             stepper.frame(decider, &manifest, &song, t, &mut None, 1.0, false, 0)
@@ -678,7 +680,7 @@ mod tests {
         decider
             .director_mut()
             .unwrap()
-            .set_pace_override(Some(crate::scene::Pace::Calm));
+            .set_pace_override(Some(Pace::Calm));
         frame(&mut stepper, &mut decider, 25.02, 0);
         assert!(stepper.snapshot_steps().is_empty());
         // So does a new version of the runtime's decisions.

@@ -4,6 +4,7 @@ use sea_orm::{
     ConnectionTrait, DatabaseTransaction, DbErr, ExprTrait, FromQueryResult,
     sea_query::{Alias, Condition, Expr, Func, Order, Query},
 };
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -171,7 +172,7 @@ pub async fn page_on(
             admitted_bytes += size;
         }
         let bodies = body_batch_on(tx, ns, collection, &headers[..admitted]).await?;
-        let mut body_map = std::collections::BTreeMap::new();
+        let mut body_map = BTreeMap::new();
         for body in bodies {
             if body_map
                 .insert((body.writer, body.counter), body.body)

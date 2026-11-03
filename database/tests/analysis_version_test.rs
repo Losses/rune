@@ -1,3 +1,5 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
 use analysis::{CURRENT_ANALYSIS_VERSION, utils::computing_device::ComputingDevice};
 use anyhow::Result;
 use database::{
@@ -17,7 +19,7 @@ use fsio::FsIo;
 use metadata::describe::describe_file;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{ConnectionTrait, Database, EntityTrait, PaginatorTrait};
-use std::{f64::consts::PI, path::Path, sync::Arc};
+use std::{f64::consts::PI, sync::Arc};
 
 #[tokio::test]
 async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()> {
@@ -36,10 +38,8 @@ async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()>
     .await?;
     Migrator::up(&db, None).await?;
     let fs = Arc::new(FsIo::new());
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../assets")
-        .canonicalize()?;
-    let store = database::sync::LibrarySyncStore::open(db.clone(), actor, None).await?;
+    let root = fixtures::asset_directory().canonicalize()?;
+    let store = fixtures::open_library(db.clone(), actor, None).await?;
     let node = fs.canonicalize(&root.join("startup_0.ogg"))?;
     let mut descriptions = vec![Some(describe_file(&fs, &node, &Some(root.clone()))?)];
     sync_file_descriptions(

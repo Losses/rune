@@ -1,5 +1,9 @@
 #![allow(dead_code)]
 
+use std::time::Instant;
+#[path = "fixtures.rs"]
+pub mod fixtures;
+
 use anyhow::Result;
 use database::entities::media_files;
 use database::sync::{LibrarySyncStore, model::*};
@@ -60,15 +64,10 @@ impl SqlLibrary {
     pub async fn new(namespace: Uuid, actor: Uuid) -> Result<Self> {
         let _ = migration::initialize_node_id(actor.to_string());
         let root = tempfile::tempdir()?;
-        let mut options = sea_orm::ConnectOptions::new("sqlite::memory:");
-        options
-            .max_connections(1)
-            .min_connections(1)
-            .idle_timeout(None)
-            .max_lifetime(None);
+        let options = fixtures::single_connection_options();
         let db = Database::connect(options).await?;
         Migrator::up(&db, None).await?;
-        let library = LibrarySyncStore::open(db.clone(), actor, Some(namespace)).await?;
+        let library = fixtures::open_library(db.clone(), actor, Some(namespace)).await?;
         let peer = Arc::new(library.endpoint());
         Ok(Self {
             db,
@@ -112,7 +111,7 @@ pub async fn drive(
     remote_source: &dyn p::SnapshotSource<RuneModel>,
     scope: Scope,
 ) -> Result<usize> {
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let mut coordinator = p::Coordinator::new(scope, limits())?;
     for step in 0..20000 {
         match coordinator
@@ -166,10 +165,14 @@ pub fn track() -> Payload {
 }
 
 pub fn audio(title: impl Into<String>, blob: &BlobRef) -> Payload {
+    optional_audio(title, Some(blob))
+}
+
+pub fn optional_audio(title: impl Into<String>, blob: Option<&BlobRef>) -> Payload {
     Payload::Track(Track {
         extension: "ogg".into(),
-        content_hash: Some(blob.digest.clone()),
-        content_size: Some(blob.size.try_into().unwrap()),
+        content_hash: blob.map(|b| b.digest.clone()),
+        content_size: blob.map(|b| b.size.try_into().unwrap()),
         duration: "0".to_owned().try_into().unwrap(),
         sample_rate: 0,
         cover_art_id: None,

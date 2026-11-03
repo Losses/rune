@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use tokio::runtime::Runtime;
 
 use log::{error, info};
 use tokio::sync::{broadcast, mpsc};
@@ -54,7 +55,7 @@ impl SfxPlayer {
         let internal_cancellation_token = cancellation_token.clone();
         thread::spawn(move || {
             let mut internal = SfxPlayerInternal::new(cmd_rx, internal_cancellation_token.clone());
-            let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+            let runtime = Runtime::new().expect("Failed to create Tokio runtime");
             if let Err(e) = runtime.block_on(internal.run()) {
                 error!("PlayerInternal runtime error: {e:?}");
 

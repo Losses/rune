@@ -1,11 +1,14 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
+
 use anyhow::Result;
 use sea_orm::{
-    ConnectionTrait, Database, TransactionTrait,
+    ConnectionTrait, TransactionTrait,
     sea_query::{Alias, ColumnDef, Query, Table},
 };
 use serde::{Deserialize, Serialize};
 use sync::protocol as p;
-use sync_orm::{causal_progress as progress, causal_schema, causal_store::CausalReplica};
+use sync_orm::{causal_progress as progress, causal_store::CausalReplica};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,8 +45,7 @@ fn scope() -> p::Scope<Model> {
 
 #[tokio::test]
 async fn checkpoint_and_completion_share_projection_transaction() -> Result<()> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     db.execute(
         &Table::create()
             .table(Alias::new("values"))
@@ -147,8 +149,7 @@ async fn checkpoint_and_completion_share_projection_transaction() -> Result<()> 
 
 #[tokio::test]
 async fn continuity_requires_initialized_matching_generation_and_anchor() -> Result<()> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let namespace = Uuid::new_v4();
     let store = CausalReplica::<Model>::create_empty(db.clone(), namespace, Uuid::new_v4()).await?;
     let identity = store.identity_on(&db).await?;

@@ -23,6 +23,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio::time::MissedTickBehavior;
 
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
@@ -395,7 +396,7 @@ impl DiscoveryService {
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(interval);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
             let send_announcement_message = || async {
                 let announcement = json!({

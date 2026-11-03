@@ -1,6 +1,7 @@
 //! Atomic source construction and reads from published source views.
 use crate::{causal_candidates, causal_leases, causal_manifests};
 use anyhow::{Result, ensure};
+use sea_orm::sea_query::Func;
 use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait,
     sea_query::{Alias, Expr, Query},
@@ -303,8 +304,7 @@ pub async fn fragment_on<M: SyncModel>(
     let q = Query::select()
         .columns(["offset", "digest"].map(Alias::new))
         .expr_as(
-            sea_orm::sea_query::Func::cust(Alias::new("length"))
-                .arg(Expr::col(Alias::new("bytes"))),
+            Func::cust(Alias::new("length")).arg(Expr::col(Alias::new("bytes"))),
             Alias::new("size"),
         )
         .from(Alias::new("sync_chunks"))

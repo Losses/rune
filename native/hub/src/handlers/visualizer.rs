@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::OnceCell;
 
 use anyhow::Result;
 use tokio::sync::Mutex;
@@ -533,8 +534,7 @@ impl Signal for SetVisualizerLogRequest {
 }
 
 /// What [`visualizer::probe_gpu`] found, once: the GPU does not change while the app runs.
-static GPU: tokio::sync::OnceCell<std::result::Result<String, String>> =
-    tokio::sync::OnceCell::const_new();
+static GPU: tokio::sync::OnceCell<std::result::Result<String, String>> = OnceCell::const_new();
 
 impl ParamsExtractor for VisualizerSupportRequest {
     type Params = ();

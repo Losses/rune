@@ -1,12 +1,13 @@
+use support::fixtures;
+
 #[path = "support/causal_library.rs"]
 mod support;
-
 use anyhow::Result;
 use database::entities::{
     albums, artists, genres, media_file_albums, media_file_artists, media_file_genres,
     media_file_playlists, media_files, playlists,
 };
-use database::sync::{LibrarySyncStore, model::*};
+use database::sync::model::*;
 use migration::catalog_identity::{self, ParentKind};
 use sea_orm::{EntityTrait, PaginatorTrait};
 use std::{
@@ -105,8 +106,8 @@ async fn catalog_scale() -> Result<()> {
     let totals = Arc::new(Mutex::new(QueryGroups::new()));
     let source_db = instrument(&source_sql.db, "source", phase.clone(), totals.clone());
     let target_db = instrument(&target_sql.db, "target", phase.clone(), totals.clone());
-    let source_library = LibrarySyncStore::open(source_db, source_actor, Some(lib)).await?;
-    let dest = LibrarySyncStore::open(target_db, target_actor, Some(lib)).await?;
+    let source_library = fixtures::open_library(source_db, source_actor, Some(lib)).await?;
+    let dest = fixtures::open_library(target_db, target_actor, Some(lib)).await?;
     let source: support::Peer = Arc::new(source_library.endpoint());
     let db = target_sql.db.clone();
     phase.store(1, Ordering::Relaxed);

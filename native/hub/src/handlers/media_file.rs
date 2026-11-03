@@ -1,5 +1,7 @@
+use crate::messages as crate_messages;
 use database::actions::file::{AudioAvailability, audio_availability, remote_content_ids};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
@@ -217,7 +219,7 @@ impl Signal for SearchMediaFileSummaryRequest {
         let states = audio_availability(
             &*main_db,
             &fsio,
-            std::path::Path::new(&*lib_path),
+            Path::new(&*lib_path),
             &media_summaries.iter().map(|row| row.id).collect::<Vec<_>>(),
         )
         .await?;
@@ -237,7 +239,7 @@ impl Signal for SearchMediaFileSummaryRequest {
                         x.title
                     },
                     cover_art_id: x.cover_art_id.unwrap_or(-1),
-                    audio_availability: crate::messages::AudioAvailability::from_local(
+                    audio_availability: crate_messages::AudioAvailability::from_local(
                         states
                             .get(&x.id)
                             .copied()

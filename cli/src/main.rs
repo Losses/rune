@@ -1,3 +1,4 @@
+use database::sync::LibrarySyncStore;
 use database::{
     actions::{
         cover_art::scan_cover_arts,
@@ -9,6 +10,9 @@ use database::{
     },
     connection::{connect_main_db, connect_recommendation_db},
 };
+use reqwest::header::HeaderMap;
+use reqwest::header::HeaderValue;
+use std::time::Duration;
 use std::{fs, path::PathBuf, sync::Arc};
 
 use clap::{Parser, Subcommand};
@@ -236,8 +240,8 @@ async fn main() {
     {
         let result: Result<(), Box<dyn std::error::Error>> = async {
             let mut builder = reqwest::Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(30))
-                .read_timeout(std::time::Duration::from_secs(30));
+                .connect_timeout(Duration::from_secs(30))
+                .read_timeout(Duration::from_secs(30));
             if let Some(path) = ca {
                 builder =
                     builder.add_root_certificate(reqwest::Certificate::from_pem(&fs::read(path)?)?);
@@ -250,14 +254,13 @@ async fn main() {
                 if !server.starts_with("https://") {
                     return Err("credentials require an HTTPS server".into());
                 }
-                let mut headers = reqwest::header::HeaderMap::new();
-                let mut value =
-                    reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token.trim()))?;
+                let mut headers = HeaderMap::new();
+                let mut value = HeaderValue::from_str(&format!("Bearer {}", token.trim()))?;
                 value.set_sensitive(true);
                 headers.insert(reqwest::header::AUTHORIZATION, value);
                 builder = builder.default_headers(headers);
             }
-            let library = database::sync::LibrarySyncStore::open(
+            let library = LibrarySyncStore::open(
                 main_db.clone(),
                 Uuid::parse_str(&node_id)?,
                 Some(Uuid::new_v5(
@@ -302,7 +305,7 @@ async fn main() {
     match &cli.command {
         Commands::Sync { .. } => unreachable!(),
         Commands::Scan => {
-            let library = match database::sync::LibrarySyncStore::open(
+            let library = match LibrarySyncStore::open(
                 main_db.clone(),
                 Uuid::parse_str(&node_id).expect("validated device UUID"),
                 Some(Uuid::new_v5(
@@ -355,7 +358,7 @@ async fn main() {
         }
         Commands::Index => {
             let result = async {
-                let library = database::sync::LibrarySyncStore::open(
+                let library = LibrarySyncStore::open(
                     main_db.clone(),
                     Uuid::parse_str(&node_id)?,
                     Some(Uuid::new_v5(

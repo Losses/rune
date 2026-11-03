@@ -9,6 +9,7 @@
 //! window allows without a ripple in the pass band.
 
 use std::fmt;
+use std::io::ErrorKind;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -115,7 +116,7 @@ pub fn decode_with(
         let packet = match format.next_packet() {
             Ok(p) => p,
             // The end of the stream is an end-of-file error.
-            Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(Error::IoError(e)) if e.kind() == ErrorKind::UnexpectedEof => break,
             Err(Error::ResetRequired) => break,
             Err(e) => bail!("failed to read the file: {e}"),
         };

@@ -1,20 +1,29 @@
+use axum::http::Method;
 use database::sync::{LibrarySyncStore, model::*};
 use database::{
     actions::{
         downloads::set_download_rule,
         file::{blob_path_for_track, catalog_track, hash_file, is_materialized},
-        metadata::{MissingHostFilePolicy, ScanOptions, scan_audio_library},
     },
     connection::{RecommendationDbConnection, initialize_db},
     entities::{albums, media_files, sync_download_jobs, sync_download_jobs::Column},
     sync::model::RuneModel,
 };
+use http_request::sync as http_request_sync;
 use hub::server::sync::{
     client::sync_library,
     downloads::download_requested_audio,
     http::{BlobContext, SharedLibrary, blob_router},
     library_router,
 };
+use migration::catalog_identity::ParentKind;
+use sea_orm::sea_query::Expr;
+use std::io::Error;
+use std::io::ErrorKind;
+use std::path::Path;
+use std::time::Instant;
+use support::fixtures;
+use tokio::net::TcpListener;
 type MetadataPeer = http_request::sync::MetadataPeer<RuneModel>;
 #[path = "support/causal_library.rs"]
 mod support;
@@ -88,7 +97,7 @@ async fn perturb(State(faults): State<Arc<Faults>>, request: Request, next: Next
     if path == "/sync/apply" {
         faults.applies.fetch_add(1, Ordering::SeqCst);
     }
-    if path.starts_with("/sync/blobs/") && method == axum::http::Method::GET {
+    if path.starts_with("/sync/blobs/") && method == Method::GET {
         faults.blobs.fetch_add(1, Ordering::SeqCst);
     }
     if mode == FRAGMENT {
@@ -98,7 +107,7 @@ async fn perturb(State(faults): State<Arc<Faults>>, request: Request, next: Next
     }
     let response = next.run(request).await;
     let is_page = path == "/sync/page";
-    let is_blob = path.starts_with("/sync/blobs/") && method == axum::http::Method::GET;
+    let is_blob = path.starts_with("/sync/blobs/") && method == Method::GET;
     let alter_page = is_page
         && faults.page.load(Ordering::SeqCst) == 2
         && (mode == PAGE_EOF || mode == PAGE_RESET);
@@ -127,10 +136,7 @@ async fn perturb(State(faults): State<Arc<Faults>>, request: Request, next: Next
         };
         Body::from_stream(stream::iter(vec![
             Ok::<_, std::io::Error>(prefix),
-            Err(std::io::Error::new(
-                std::io::ErrorKind::ConnectionReset,
-                "injected reset",
-            )),
+            Err(Error::new(ErrorKind::ConnectionReset, "injected reset")),
         ]))
     } else if is_blob && mode == AUDIO_STALL {
         let prefix = bytes.slice(..bytes.len().min(1024));
@@ -187,7 +193,7 @@ impl Replica {
         let node = Uuid::new_v4();
         initialize_db(&db, &node.to_string()).await?;
         let fsio = Arc::new(FsIo::new());
-        let store = Arc::new(LibrarySyncStore::open(db.clone(), node, library).await?);
+        let store = Arc::new(fixtures::open_library(db.clone(), node, library).await?);
         Ok(Self {
             _root: root,
             db,
@@ -202,10 +208,7 @@ impl Replica {
     async fn album(&self, name: &str) -> Result<ObjectKey> {
         let key = ObjectKey {
             collection: Collection::Albums,
-            id: migration::catalog_identity::parent(
-                migration::catalog_identity::ParentKind::Album,
-                name,
-            ),
+            id: migration::catalog_identity::parent(ParentKind::Album, name),
         };
         self.store
             .write_local(
@@ -242,7 +245,7 @@ async fn serve_at(
             notify: Arc::new(|| {}),
         }))
         .layer(axum::middleware::from_fn_with_state(faults, perturb));
-    let listener = tokio::net::TcpListener::bind(address).await?;
+    let listener = TcpListener::bind(address).await?;
     let address = listener.local_addr()?;
     Ok((
         address,
@@ -381,7 +384,7 @@ async fn page_interruptions_preserve_prefix_and_peer_progress() -> Result<()> {
     assert!(c.store.get(&b_key).await?.is_some());
     // Recreate A at the same address and confirm no log or progress is duplicated.
     let shared = Arc::new(RwLock::new((*a.store).clone()));
-    let listener = tokio::net::TcpListener::bind(addr_a).await?;
+    let listener = TcpListener::bind(addr_a).await?;
     let restarted = tokio::spawn(async move {
         axum::serve(
             listener,
@@ -424,7 +427,7 @@ async fn page_interruptions_preserve_prefix_and_peer_progress() -> Result<()> {
     .await?;
     assert_eq!(c.store.head().await?, previous);
     let shared_b = Arc::new(RwLock::new((*b.store).clone()));
-    let listener_b = tokio::net::TcpListener::bind(addr_b).await?;
+    let listener_b = TcpListener::bind(addr_b).await?;
     let restored_b = tokio::spawn(async move {
         axum::serve(
             listener_b,
@@ -449,26 +452,16 @@ async fn page_interruptions_preserve_prefix_and_peer_progress() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> Result<()> {
     let source = Replica::new(None).await?;
+    std::fs::copy(fixtures::audio_fixture(), source.root().join("one.ogg"))?;
     std::fs::copy(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
-        source.root().join("one.ogg"),
-    )?;
-    std::fs::copy(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_1.ogg"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_1.ogg"),
         source.root().join("two.ogg"),
     )?;
-    scan_audio_library(
+    fixtures::scan_library(
         &source.fsio,
         &source.db,
         &source.node.to_string(),
         &source.root(),
-        ScanOptions {
-            cleanup: false,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-            cancel_token: None,
-        },
-        |_| {},
         &source.store.record_store(),
     )
     .await?;
@@ -572,21 +565,18 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
     for mode in [AUDIO_RESET, AUDIO_STALL] {
         // Advance the persisted retry deadline between independently injected faults.
         sync_download_jobs::Entity::update_many()
-            .col_expr(
-                Column::RetryAt,
-                sea_orm::sea_query::Expr::value("2000-01-01T00:00:00Z"),
-            )
+            .col_expr(Column::RetryAt, Expr::value("2000-01-01T00:00:00Z"))
             .exec(&target.db)
             .await?;
         faults.set(mode);
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let result = download_requested_audio(
             target.db.clone(),
             &RecommendationDbConnection::new(),
             target.fsio.clone(),
             target.root(),
             target.node,
-            &http_request::sync::MetadataPeer::new(&base, client()),
+            &http_request_sync::MetadataPeer::new(&base, client()),
             Arc::new(|| {}),
         )
         .await;
@@ -618,10 +608,7 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
     }
     faults.set(FRAGMENT);
     sync_download_jobs::Entity::update_many()
-        .col_expr(
-            Column::RetryAt,
-            sea_orm::sea_query::Expr::value("2000-01-01T00:00:00Z"),
-        )
+        .col_expr(Column::RetryAt, Expr::value("2000-01-01T00:00:00Z"))
         .exec(&target.db)
         .await?;
     let report = download_requested_audio(
@@ -630,7 +617,7 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
         target.fsio.clone(),
         target.root(),
         target.node,
-        &http_request::sync::MetadataPeer::new(&base, client()),
+        &http_request_sync::MetadataPeer::new(&base, client()),
         Arc::new(|| {}),
     )
     .await?;
@@ -662,7 +649,7 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn slow_link_converges_after_three_outages_with_edits() -> Result<()> {
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let source = Replica::new(None).await?;
     let target = Replica::new(Some(source.store.identity().await?.namespace)).await?;
     let faults = Arc::new(Faults::default());

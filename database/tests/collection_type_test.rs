@@ -1,9 +1,5 @@
-use database::sync::model::{Collection, Genre, ObjectKey, Payload, RuneModel};
-use std::collections::HashSet;
-
-use anyhow::Result;
-use sea_orm::Database;
-
+#[path = "support/fixtures.rs"]
+mod fixtures;
 use ::database::{
     actions::{
         collection::{CollectionQuery, CollectionQueryType, UnifiedCollection},
@@ -12,6 +8,11 @@ use ::database::{
     connection::initialize_db,
     entities::mixes,
 };
+use anyhow::Result;
+use database::sync::model::{Collection, Genre, ObjectKey, Payload, RuneModel};
+use migration::catalog_identity::ParentKind;
+use sea_orm::Database;
+use std::collections::HashSet;
 
 const NODE_ID: &str = "collection-type-test";
 
@@ -64,9 +65,8 @@ async fn a_mix_with_genre_and_directory_queries_reads_back() -> Result<()> {
     initialize_db(&db, NODE_ID).await?;
 
     let actor = uuid::Uuid::new_v4();
-    let library = database::sync::LibrarySyncStore::open(db.clone(), actor, None).await?;
-    let genre =
-        migration::catalog_identity::parent(migration::catalog_identity::ParentKind::Genre, "Rock");
+    let library = fixtures::open_library(db.clone(), actor, None).await?;
+    let genre = migration::catalog_identity::parent(ParentKind::Genre, "Rock");
     RuneModel::project(
         &db,
         &ObjectKey {

@@ -195,6 +195,7 @@ mod glib {
 mod android {
     use std::collections::VecDeque;
     use std::ffi::{c_int, c_void};
+    use std::io::Error;
     use std::marker::PhantomData;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -247,10 +248,7 @@ mod android {
         // SAFETY: a plain call; the descriptor is owned right away.
         let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
         if fd < 0 {
-            error!(
-                "No eventfd for the main looper: {}",
-                std::io::Error::last_os_error()
-            );
+            error!("No eventfd for the main looper: {}", Error::last_os_error());
             return Err(TextureError::PlatformThread);
         }
         // SAFETY: `fd` is a new descriptor nothing else owns.

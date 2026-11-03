@@ -56,7 +56,7 @@ pub async fn file_handler(
     let service = ServeDir::new(root_dir);
     let request = Request::builder()
         .uri(format!("/{}", relative_path.to_string_lossy()))
-        .body(axum::body::Body::empty())
+        .body(Body::empty())
         .unwrap();
 
     match service.oneshot(request).await {

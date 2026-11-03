@@ -4,6 +4,7 @@ use crate::server::{
     generate_or_load_certificates, get_or_generate_alias,
     utils::device::load_device_info,
 };
+use std::net::SocketAddr;
 use std::{fs, future::Future, path::Path, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
@@ -222,13 +223,13 @@ impl Signal for StartServerRequest {
             let ip: std::net::IpAddr = request.interface.parse().map_err(|e| {
                 anyhow::anyhow!("Invalid interface address '{}': {}", request.interface, e)
             })?;
-            let addr = std::net::SocketAddr::new(ip, 7863);
+            let addr = SocketAddr::new(ip, 7863);
 
             let device_info = DeviceInfo {
                 alias: request.alias.clone(),
                 device_model: Some("RuneAudio".to_string()),
                 version: "Technical Preview".to_owned(),
-                device_type: Some(discovery::utils::DeviceType::Desktop),
+                device_type: Some(DeviceType::Desktop),
                 fingerprint: generate_or_load_certificates(
                     Path::new(&*config_path),
                     &request.alias.clone(),

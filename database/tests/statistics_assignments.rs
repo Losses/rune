@@ -1,3 +1,5 @@
+use support::fixtures;
+
 #[path = "support/causal_library.rs"]
 mod support;
 use anyhow::Result;
@@ -6,8 +8,7 @@ use database::{
     entities::media_file_stats,
     sync::model::*,
 };
-use migration::{Migrator, MigratorTrait};
-use sea_orm::{ConnectionTrait, Database, EntityTrait};
+use sea_orm::{ConnectionTrait, EntityTrait};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -128,9 +129,7 @@ async fn mix_filters_and_orders_by_likes_and_per_device_totals() -> Result<()> {
     };
     use sea_orm::Set;
     let node = Uuid::new_v4();
-    let _ = migration::initialize_node_id(node.to_string());
-    let db = Database::connect("sqlite::memory:").await?;
-    Migrator::up(&db, None).await?;
+    let db = fixtures::memory_database(node).await?;
     for id in 1..=3 {
         media_files::Entity::insert(media_files::ActiveModel {
             id: Set(id),

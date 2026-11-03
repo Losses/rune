@@ -1,7 +1,8 @@
 //! Eight replicas converge using only the scheduled graph before arbitrary-pair checks.
+use migration::catalog_identity::ParentKind;
+use std::time::Instant;
 #[path = "support/causal_library.rs"]
 mod support;
-
 use anyhow::{Context, Result, ensure};
 use database::actions::mixes::executable_queries_on;
 use database::{entities::*, sync::model::*};
@@ -123,10 +124,7 @@ async fn scenario(peers: &[Peer], shape: usize, seed: u64) -> Result<()> {
         exchange(&peers[i], &peers[i + 1]).await?;
     }
     let track = id(88);
-    let album = migration::catalog_identity::parent(
-        migration::catalog_identity::ParentKind::Album,
-        "Parent album",
-    );
+    let album = migration::catalog_identity::parent(ParentKind::Album, "Parent album");
     author(
         &peers[0],
         &mut expected,
@@ -336,7 +334,7 @@ async fn memory_peer_topologies_settle() -> Result<()> {
     Ok(())
 }
 async fn sqlite_scenario(shape: usize, seed: u64) -> Result<()> {
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     eprintln!("SQLite topology shape={shape} seed={seed} replicas=8 start");
     let mut libraries = Vec::new();
     for index in 0..8 {

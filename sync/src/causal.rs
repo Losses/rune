@@ -3,6 +3,7 @@
 //! It does not implement paging, persistence, writer fencing, or forgotten-dot provenance.
 use anyhow::{Result, ensure};
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Bound;
 use uuid::Uuid;
 
 /// Typed failures from causal state operations.
@@ -323,11 +324,8 @@ impl<K: Ord + Clone, V: Clone + Eq, R: Clone + Ord + Eq> CausalMap<K, V, R> {
         let start = range
             .start
             .as_ref()
-            .map_or(std::ops::Bound::Unbounded, std::ops::Bound::Included);
-        let end = range
-            .end
-            .as_ref()
-            .map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
+            .map_or(Bound::Unbounded, Bound::Included);
+        let end = range.end.as_ref().map_or(Bound::Unbounded, Bound::Excluded);
         for values in self.live.range((start, end)).map(|(_, values)| values) {
             for dot in values.keys() {
                 if !seen.contains(dot) && source_base.contains(*dot) {

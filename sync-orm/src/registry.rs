@@ -1,5 +1,6 @@
 //! Generate protocol dispatch from a single collection registration.
 
+use sync::protocol::SyncError;
 /// Register typed row mappings and generate protocol validation and projection.
 #[macro_export]
 macro_rules! row_registry {
@@ -29,29 +30,31 @@ macro_rules! row_registry {
                 match tag { $($tag => Some($collection::$variant),)+ _ => None }
             }
             fn validate_revision(key: &sync::protocol::ObjectKey<Self>, value: &Option<Self::Payload>, revision: &sync::protocol::Revision) -> sync::protocol::Result<()> {
+                use sync::protocol::SyncError;
                 Self::validate(key, value)?;
                 let result = match (&key.collection, value) {
                     $(($collection::$variant, Some($payload::$value(value))) => <$mapping as $crate::row_policy::RowMapping<$entity>>::validate_revision(key.id, Some(value), revision),
                     ($collection::$variant, None) => <$mapping as $crate::row_policy::RowMapping<$entity>>::validate_revision(key.id, None, revision),)+
                     _ => unreachable!(),
                 };
-                result.map_err(|e| sync::protocol::SyncError::Invalid(format!("{} {}: {}", Self::collection_tag(&key.collection), key.id, e)))
+                result.map_err(|e| SyncError::Invalid(format!("{} {}: {}", Self::collection_tag(&key.collection), key.id, e)))
             }
             fn validate(key: &sync::protocol::ObjectKey<Self>, value: &Option<Self::Payload>) -> sync::protocol::Result<()> {
+                use sync::protocol::SyncError;
                 let result = match (&key.collection, value) {
                     $(($collection::$variant, Some($payload::$value(value))) => <$mapping as $crate::row_policy::RowMapping<$entity>>::validate(key.id, Some(value)),
                     ($collection::$variant, None) => <$mapping as $crate::row_policy::RowMapping<$entity>>::validate(key.id, None),)+
-                    _ => return Err(sync::protocol::SyncError::Invalid("collection/payload mismatch".into())),
+                    _ => return Err(SyncError::Invalid("collection/payload mismatch".into())),
                 };
-                if key.id.is_nil() { return Err(sync::protocol::SyncError::Invalid("nil source UUID".into())); }
+                if key.id.is_nil() { return Err(SyncError::Invalid("nil source UUID".into())); }
                 if let Some(value) = value {
                     for (tag, id) in Self::references(value) {
                         if Self::collection_from_tag(tag).is_none() || id.is_nil() {
-                            return Err(sync::protocol::SyncError::Invalid("invalid declared reference".into()));
+                            return Err(SyncError::Invalid("invalid declared reference".into()));
                         }
                     }
                 }
-                result.map_err(|e| sync::protocol::SyncError::Invalid(format!("{} {}: {}", Self::collection_tag(&key.collection), key.id, e)))
+                result.map_err(|e| SyncError::Invalid(format!("{} {}: {}", Self::collection_tag(&key.collection), key.id, e)))
             }
         }
         #[async_trait::async_trait]
@@ -95,7 +98,8 @@ macro_rules! row_registry {
             }
             pub async fn missing_references_on<C: sea_orm::ConnectionTrait>(db: &C, value: &$payload, max_reads: u32) -> Result<Vec<sync::protocol::ObjectKey<Self>>, sea_orm::DbErr> {
                 use sync::protocol::SyncModel;
-                let mut keys = std::collections::BTreeSet::new();
+                use std::collections::BTreeSet;
+                let mut keys = BTreeSet::new();
                 for (tag, id) in Self::references(value) {
                     let collection = Self::collection_from_tag(tag).ok_or_else(|| sea_orm::DbErr::Custom("unknown reference target".into()))?;
                     if id.is_nil() { return Err(sea_orm::DbErr::Custom("nil reference target".into())); }
@@ -109,8 +113,9 @@ macro_rules! row_registry {
             /// Check static registration before opening a store.
             pub fn validate_registry() -> Result<(), sea_orm::DbErr> {
                 use sync::protocol::SyncModel;
-                let mut tags = std::collections::HashSet::new();
-                let mut owners = std::collections::HashMap::new();
+                use std::collections::{HashMap, HashSet};
+                let mut tags = HashSet::new();
+                let mut owners = HashMap::new();
                 if Self::model_id().is_empty() || Self::schema_id().is_empty() {
                     return Err(sea_orm::DbErr::Custom("empty model or schema identity".into()));
                 }
@@ -259,12 +264,12 @@ impl<M: PolicyRegistry> crate::causal_capabilities::TransactionProjection<M>
             let bound = M::projection_ceiling(&change.key.collection);
             reads = reads
                 .checked_add(bound.max_reads)
-                .ok_or(sync::protocol::SyncError::WorkLimit)?;
+                .ok_or(SyncError::WorkLimit)?;
             mutations = mutations
                 .checked_add(bound.max_mutations)
-                .ok_or(sync::protocol::SyncError::WorkLimit)?;
+                .ok_or(SyncError::WorkLimit)?;
             if reads > self.budget.max_reads || mutations > self.budget.max_mutations {
-                return Err(anyhow::anyhow!(sync::protocol::SyncError::WorkLimit));
+                return Err(anyhow::anyhow!(SyncError::WorkLimit));
             }
         }
         Ok(mutations)

@@ -1,5 +1,6 @@
 //! `scene.toml`: what a scene is made of. See `docs/scenes.md` for every key.
 
+use crate::bind::Evaluator;
 use std::collections::{BTreeMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::path::{Component, Path};
@@ -843,7 +844,7 @@ impl Manifest {
                 "[[bind]] for `{}`: the input has more than one bind",
                 bind.target
             );
-            crate::bind::Evaluator::new_in(
+            Evaluator::new_in(
                 bind,
                 input,
                 crate::bind::Scope {

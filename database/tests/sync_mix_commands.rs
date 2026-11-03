@@ -6,21 +6,17 @@ use database::{
         replace_mix_queries, update_mix,
     },
     entities::{mixes, mixes::Column, search_index},
-    sync::{
-        LibrarySyncStore,
-        model::{Collection, ObjectKey, Payload},
-    },
+    sync::model::{Collection, ObjectKey, Payload},
 };
-use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, EntityTrait, PaginatorTrait};
+use support::fixtures;
 use uuid::Uuid;
 #[tokio::test]
 async fn commands_author_and_reject_invalid_queries_atomically() -> Result<()> {
     let db = Database::connect("sqlite::memory:").await?;
     let actor = Uuid::new_v4();
-    let _ = migration::initialize_node_id(actor.to_string());
-    Migrator::up(&db, None).await?;
-    let library = LibrarySyncStore::open(db.clone(), actor, Some(Uuid::new_v4())).await?;
+    fixtures::migrate(&db, actor).await?;
+    let library = fixtures::open_library(db.clone(), actor, Some(Uuid::new_v4())).await?;
     let store = library.record_store();
     let head = library.head().await?;
     let mix_count = mixes::Entity::find().count(&db).await?;
@@ -239,8 +235,7 @@ async fn bootstrap_initializes_builtins_before_replication() -> Result<()> {
     };
     use sea_orm::{ColumnTrait, QueryFilter};
     let db = Database::connect("sqlite::memory:").await?;
-    let _ = migration::initialize_node_id(Uuid::new_v4().to_string());
-    Migrator::up(&db, None).await?;
+    fixtures::migrate(&db, Uuid::new_v4()).await?;
     initialize_mix_queries_before_replication(&db).await?;
     initialize_mix_queries_before_replication(&db).await?;
     let liked = mixes::Entity::find()

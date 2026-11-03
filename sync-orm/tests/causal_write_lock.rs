@@ -1,6 +1,10 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
+
 use anyhow::Result;
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, TransactionTrait};
 use sync::protocol::{self as p, ReceiveStore, SyncStore};
+use sync_orm::maintenance::Maintenance;
 use sync_orm::{causal_capabilities::CausalEndpoint, causal_schema, causal_store::CausalReplica};
 use uuid::Uuid;
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,8 +76,7 @@ async fn write_transaction_survives_concurrent_commit() -> Result<()> {
 async fn receive_transaction_locks_before_reading_progress() -> Result<()> {
     use p::ReceiveStore;
     use std::sync::{Arc, Mutex};
-    let mut db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let mut db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let store = CausalReplica::<Model>::create_empty(db.clone(), ns, Uuid::new_v4()).await?;
     let statements = Arc::new(Mutex::new(Vec::new()));
@@ -134,8 +137,7 @@ async fn receive_transaction_locks_before_reading_progress() -> Result<()> {
 #[tokio::test]
 async fn author_and_endpoint_lock_before_reading() -> Result<()> {
     use std::sync::{Arc, Mutex};
-    let mut db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let mut db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let store = CausalReplica::<Model>::create_empty(db.clone(), ns, Uuid::new_v4()).await?;
     let captured = Arc::new(Mutex::new(Vec::new()));
@@ -173,8 +175,7 @@ async fn author_and_endpoint_lock_before_reading() -> Result<()> {
 #[tokio::test]
 async fn maintenance_locks_before_reading() -> Result<()> {
     use std::sync::{Arc, Mutex};
-    let mut db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let mut db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let store = CausalReplica::<Model>::create_empty(db.clone(), ns, Uuid::new_v4()).await?;
     let endpoint = CausalEndpoint::new(store);
@@ -183,7 +184,7 @@ async fn maintenance_locks_before_reading() -> Result<()> {
     let statements = captured.clone();
     db.set_metric_callback(move |info| statements.lock().unwrap().push(info.statement.sql.clone()));
     captured.lock().unwrap().clear();
-    sync_orm::maintenance::Maintenance::default()
+    Maintenance::default()
         .advance::<Model>(&db, identity, 0)
         .await?;
     assert!(
@@ -240,8 +241,7 @@ async fn prepared_session() -> Result<(
 )> {
     use p::{SnapshotSink, SnapshotSource};
     use std::sync::{Arc, Mutex};
-    let mut db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let mut db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let original = CausalReplica::<Model>::create_empty(db.clone(), ns, Uuid::new_v4()).await?;
     let captured = Arc::new(Mutex::new(Vec::new()));

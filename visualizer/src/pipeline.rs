@@ -1824,12 +1824,19 @@ fn start_overlay(transitions: &mut Transitions, plan: Plan, scene: &Scene, time:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bind;
+    use crate::course::Phrase;
     use crate::transition::{CUTIN_BAND_SECONDS, CutInStyle};
+    use image::imageops::FilterType;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::time;
+    use std::time::Duration;
 
     /// Pipelines build the default scene, and the driver loses the device (an unexplained
     /// error) when several do so at once, so the tests that make one take turns.
     fn serial() -> std::sync::MutexGuard<'static, ()> {
-        static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        static TURN: std::sync::Mutex<()> = Mutex::new(());
         TURN.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -1859,7 +1866,7 @@ mod tests {
                 frame = Some(mapped);
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(10));
         }
         let frame = frame.expect("no frame came out");
         assert!(frame.bytes().iter().any(|&b| b != 0), "the frame is black");
@@ -2083,16 +2090,16 @@ mod tests {
         let report = pipeline.bindings();
         assert_eq!(report.len(), 1);
         assert_eq!(report[0].target, "shade");
-        assert_eq!(report[0].tick.level, crate::bind::Level::C);
-        assert_eq!(report[0].tick.used, crate::bind::Used::Source);
+        assert_eq!(report[0].tick.level, bind::Level::C);
+        assert_eq!(report[0].tick.used, bind::Used::Source);
         // A chart without a beat makes it level B.
         pipeline.set_chart(Some(&ChartState::default()));
         means(&mut pipeline, &[0.3, 0.4]);
-        assert_eq!(pipeline.bindings()[0].tick.level, crate::bind::Level::B);
+        assert_eq!(pipeline.bindings()[0].tick.level, bind::Level::B);
         // What a lab forces is kept for the render loop, which applies it to the chart.
         assert_eq!(pipeline.lab().level, None);
-        pipeline.set_lab_level(Some(crate::bind::Level::C));
-        assert_eq!(pipeline.lab().level, Some(crate::bind::Level::C));
+        pipeline.set_lab_level(Some(bind::Level::C));
+        assert_eq!(pipeline.lab().level, Some(bind::Level::C));
     }
 
     /// A cover of one colour, for the band of a cut-in.
@@ -2222,7 +2229,7 @@ mod tests {
     fn dump_cutin_frames() {
         let _turn = serial();
         let dir = std::env::var_os("CUTIN_FRAMES")
-            .map(std::path::PathBuf::from)
+            .map(PathBuf::from)
             .unwrap_or_else(std::env::temp_dir);
         let (w, h) = (1280u32, 720u32);
         let cover = image::RgbaImage::from_fn(256, 256, |x, y| {
@@ -2338,7 +2345,7 @@ mod tests {
                     &image::RgbaImage::from_raw(w, h, rgba).unwrap(),
                     tw,
                     th,
-                    image::imageops::FilterType::Triangle,
+                    FilterType::Triangle,
                 );
                 image::imageops::replace(
                     &mut sheet,
@@ -2362,7 +2369,7 @@ mod tests {
     fn dump_glitch_and_mosaic_frames() {
         let _turn = serial();
         let dir = std::env::var_os("FX_FRAMES")
-            .map(std::path::PathBuf::from)
+            .map(PathBuf::from)
             .unwrap_or_else(std::env::temp_dir);
         let (w, h) = (1280u32, 720u32);
         let beat: f64 = 0.5;
@@ -2485,8 +2492,7 @@ mod tests {
             for (i, rgba) in frames.into_iter().take(times.len()).enumerate() {
                 let full = image::RgbaImage::from_raw(w, h, rgba).unwrap();
                 full.save(folder.join(format!("{i:02}.png"))).unwrap();
-                let tile =
-                    image::imageops::resize(&full, tw, th, image::imageops::FilterType::Triangle);
+                let tile = image::imageops::resize(&full, tw, th, FilterType::Triangle);
                 image::imageops::replace(
                     &mut sheet,
                     &tile,
@@ -2543,7 +2549,7 @@ mod tests {
                 intensity: 1.0,
                 ..MusicValues::default()
             };
-            let mut run = OverlayRun::new(kind, 0.0, &crate::course::Phrase::default(), &music);
+            let mut run = OverlayRun::new(kind, 0.0, &Phrase::default(), &music);
             run.course = run.course.at_peak();
             // A step of the beat grid at a time, to the first that is not blank.
             for i in 1..12 {
@@ -2591,7 +2597,7 @@ mod tests {
                         None,
                     );
                 }
-                let started = std::time::Instant::now();
+                let started = time::Instant::now();
                 pipeline.queue.submit([encoder.finish()]);
                 wait(&pipeline.device);
                 started.elapsed()
@@ -2673,7 +2679,7 @@ mod tests {
                         None,
                     );
                 }
-                let started = std::time::Instant::now();
+                let started = time::Instant::now();
                 pipeline.queue.submit([encoder.finish()]);
                 wait(&pipeline.device);
                 started.elapsed()
@@ -3046,7 +3052,7 @@ mod tests {
         fn flush(&self) {}
     }
 
-    static LINES: Lines = Lines(std::sync::Mutex::new(Vec::new()));
+    static LINES: Lines = Lines(Mutex::new(Vec::new()));
 
     /// Growth with a budget of 1 ms a frame, drawn at about 200 fps by the sleep between frames,
     /// whatever the resolution: the GPU time is over the budget and the frame rate under the
@@ -3096,13 +3102,13 @@ mod tests {
                 eprintln!("{:.2} s: {level:?}", started.elapsed().as_secs_f64());
                 levels.push(level);
             }
-            std::thread::sleep(std::time::Duration::from_millis(4));
+            std::thread::sleep(Duration::from_millis(4));
         }
         // One more second for a line with the frame rate.
         let last = Instant::now();
         while last.elapsed().as_secs_f64() < 1.2 {
             pipeline.render(started.elapsed().as_secs_f64()).unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(4));
+            std::thread::sleep(Duration::from_millis(4));
         }
         let lines: Vec<String> = LINES
             .0

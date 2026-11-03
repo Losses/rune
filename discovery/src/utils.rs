@@ -91,12 +91,12 @@ pub struct FileExtraMetadata {
 
 pub fn ip_to_string(x: &IpAddr) -> String {
     match x {
-        rustls::pki_types::IpAddr::V4(ipv4_addr) => {
+        IpAddr::V4(ipv4_addr) => {
             let octets = ipv4_addr.as_ref();
             format!("{}.{}.{}.{}", octets[0], octets[1], octets[2], octets[3])
         }
 
-        rustls::pki_types::IpAddr::V6(ipv6_addr) => {
+        IpAddr::V6(ipv6_addr) => {
             let octets = ipv6_addr.as_ref();
             // Convert octets to 16-bit segments
             let segments = [

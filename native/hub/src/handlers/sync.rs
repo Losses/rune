@@ -5,6 +5,7 @@ use crate::{
     utils::{GlobalParams, ParamsExtractor, sync_settings::SyncSettings},
 };
 use database::actions::downloads::set_download_rule;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -110,14 +111,14 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
                 listen: request.listen,
                 missing_host_file: policy,
             };
-            next.save(std::path::Path::new(&**config))?;
+            next.save(Path::new(&**config))?;
             *current = next;
             if changed {
                 let manager =
                     manager.ok_or_else(|| anyhow::anyhow!("server manager unavailable"))?;
                 if request.listen {
                     if !manager.is_running() {
-                        let info = load_device_info(std::path::Path::new(&**config)).await?;
+                        let info = load_device_info(Path::new(&**config)).await?;
                         manager
                             .start_sync(
                                 ([0, 0, 0, 0], 7863).into(),

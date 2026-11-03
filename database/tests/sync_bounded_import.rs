@@ -1,3 +1,5 @@
+use support::fixtures;
+
 #[path = "support/causal_library.rs"]
 mod support;
 use anyhow::Result;
@@ -55,7 +57,7 @@ async fn finish_and_check(local: &SqlLibrary) -> Result<()> {
         "failed batch assigned a source UUID"
     );
     assert!(!initialized(local).await?);
-    let reopened = database::sync::LibrarySyncStore::open(
+    let reopened = fixtures::open_library(
         local.db.clone(),
         local.library.record_store().author(),
         Some(local.library.record_store().namespace()),

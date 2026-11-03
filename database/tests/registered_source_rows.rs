@@ -1,34 +1,24 @@
+#[path = "support/causal_library.rs"]
+mod support;
 use anyhow::Result;
 use database::actions::mixes::{add_item_to_mix, executable_queries_on};
 use database::{entities::*, sync::model::*};
-use migration::{Migrator, MigratorTrait};
+use migration::catalog_identity::ParentKind;
 use sea_orm::{
-    ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
-    TransactionTrait, sea_query::Expr,
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, TransactionTrait,
+    sea_query::Expr,
 };
+use support::fixtures;
 use sync::protocol::{self as p, SyncModel};
 use uuid::Uuid;
 
 async fn database() -> Result<DatabaseConnection> {
-    let _ = migration::initialize_node_id(Uuid::new_v4().to_string());
-    let db = Database::connect("sqlite::memory:").await?;
-    Migrator::up(&db, None).await?;
+    let db = fixtures::memory_database(Uuid::new_v4()).await?;
     RuneModel::validate_database_on(&db).await?;
     Ok(db)
 }
 fn key(collection: Collection, id: Uuid) -> p::ObjectKey<RuneModel> {
     p::ObjectKey { collection, id }
-}
-fn track(tags: Vec<MetadataTag>) -> Payload {
-    Payload::Track(Track {
-        extension: "flac".into(),
-        content_hash: None,
-        content_size: None,
-        duration: "1.23456789".to_owned().try_into().unwrap(),
-        sample_rate: 48000,
-        cover_art_id: None,
-        metadata: tags,
-    })
 }
 
 #[tokio::test]
@@ -57,7 +47,11 @@ async fn repeated_tags_reorder_without_replacing_source_rows_or_local_file_state
     RuneModel::project(
         &db,
         &key,
-        Some(&track(vec![first.clone(), second.clone(), custom.clone()])),
+        Some(&support::metadata_track(vec![
+            first.clone(),
+            second.clone(),
+            custom.clone(),
+        ])),
     )
     .await?;
     let local = RuneModel::local_id_on(&db, &key).await?.unwrap();
@@ -75,7 +69,7 @@ async fn repeated_tags_reorder_without_replacing_source_rows_or_local_file_state
     for (position, tag) in swapped.iter_mut().enumerate() {
         tag.position = position as i32;
     }
-    let payload = track(swapped);
+    let payload = support::metadata_track(swapped);
     RuneModel::project(&db, &key, Some(&payload)).await?;
     assert_eq!(RuneModel::encode_on(&db, &key).await?, Some(payload));
     let after = media_metadata::Entity::find()
@@ -99,10 +93,7 @@ async fn repeated_tags_reorder_without_replacing_source_rows_or_local_file_state
 async fn reference_arrival_and_parent_removal_leave_membership_untouched() -> Result<()> {
     let db = database().await?;
     let track_id = Uuid::new_v4();
-    let album_id = migration::catalog_identity::parent(
-        migration::catalog_identity::ParentKind::Album,
-        "Album",
-    );
+    let album_id = migration::catalog_identity::parent(ParentKind::Album, "Album");
     let membership = key(Collection::TrackAlbums, track_id);
     let payload = Payload::TrackAlbum(TrackAlbum {
         track_id,
@@ -125,7 +116,7 @@ async fn reference_arrival_and_parent_removal_leave_membership_untouched() -> Re
     RuneModel::project(
         &db,
         &key(Collection::Tracks, track_id),
-        Some(&track(vec![])),
+        Some(&support::metadata_track(vec![])),
     )
     .await?;
     RuneModel::project(
@@ -172,8 +163,7 @@ async fn owned_mix_list_preserves_local_directory_and_reports_unresolved_targets
     });
     RuneModel::project(&db, &object, Some(&payload)).await?;
     let actor = Uuid::new_v4();
-    let store =
-        database::sync::LibrarySyncStore::open(db.clone(), actor, Some(Uuid::new_v4())).await?;
+    let store = fixtures::open_library(db.clone(), actor, Some(Uuid::new_v4())).await?;
     let local_id = RuneModel::local_id_on(&db, &object).await?.unwrap() as i32;
     replace_mix_queries(
         &db,
@@ -282,7 +272,7 @@ async fn source_scan_and_declared_effect_failure_are_transactional() -> Result<(
     let db = database().await?;
     let id = Uuid::new_v4();
     let object = key(Collection::Tracks, id);
-    let payload = track(vec![MetadataTag {
+    let payload = support::metadata_track(vec![MetadataTag {
         id: Uuid::new_v4(),
         position: 0,
         key: "track_title".into(),
@@ -357,8 +347,7 @@ async fn adding_a_mix_selection_preserves_unbound_directories_and_clause_groups(
         .all(&db)
         .await?;
     let actor = Uuid::new_v4();
-    let store =
-        database::sync::LibrarySyncStore::open(db.clone(), actor, Some(Uuid::new_v4())).await?;
+    let store = fixtures::open_library(db.clone(), actor, Some(Uuid::new_v4())).await?;
     let local_id = RuneModel::local_id_on(&db, &key(Collection::Mixes, id))
         .await?
         .unwrap() as i32;

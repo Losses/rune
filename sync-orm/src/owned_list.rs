@@ -1,5 +1,6 @@
 //! Bounded reconciliation of rows owned by one source value.
 //! Callers hold the namespace writer lock from preparation through commit.
+use crate::row_policy::RowView;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, IdenStatic,
     QueryFilter, QueryOrder, QuerySelect, QueryTrait, Value, sea_query::Expr,
@@ -226,7 +227,7 @@ impl<E: EntityTrait, M: OwnedListMapping<E>> OwnedListPolicy<E, M> {
         let mut seen = BTreeSet::new();
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
-            let item = M::encode(&crate::row_policy::RowView::new(row))?;
+            let item = M::encode(&RowView::new(row))?;
             M::validate(&item)?;
             if !seen.insert(M::key(&item)) {
                 return Err(DbErr::Custom("duplicate owned-list key".into()));
@@ -274,7 +275,7 @@ impl<E: EntityTrait, M: OwnedListMapping<E>> OwnedListPolicy<E, M> {
         }
         let mut old = BTreeMap::new();
         for row in rows {
-            let item = M::encode(&crate::row_policy::RowView::new(row))?;
+            let item = M::encode(&RowView::new(row))?;
             M::validate(&item)?;
             if M::position(&item).is_some_and(|position| position < 0) {
                 return Err(DbErr::Custom("negative stored list position".into()));

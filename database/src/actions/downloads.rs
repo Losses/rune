@@ -8,6 +8,7 @@ use crate::{
 use anyhow::{Result, ensure};
 use chrono::{DateTime, SecondsFormat, Utc};
 use fsio::FsIo;
+use sea_orm::sea_query::Expr;
 use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
     sea_query::OnConflict,
@@ -257,25 +258,13 @@ pub async fn record_download_failure(
     let retry = (Utc::now() + chrono::Duration::seconds(delay))
         .to_rfc3339_opts(SecondsFormat::Millis, true);
     sync_download_jobs::Entity::update_many()
-        .col_expr(
-            sync_download_jobs::Column::State,
-            sea_orm::sea_query::Expr::value("pending"),
-        )
-        .col_expr(
-            sync_download_jobs::Column::Attempts,
-            sea_orm::sea_query::Expr::value(attempts),
-        )
-        .col_expr(
-            sync_download_jobs::Column::RetryAt,
-            sea_orm::sea_query::Expr::value(retry),
-        )
-        .col_expr(
-            sync_download_jobs::Column::RetrySource,
-            sea_orm::sea_query::Expr::value(server),
-        )
+        .col_expr(sync_download_jobs::Column::State, Expr::value("pending"))
+        .col_expr(sync_download_jobs::Column::Attempts, Expr::value(attempts))
+        .col_expr(sync_download_jobs::Column::RetryAt, Expr::value(retry))
+        .col_expr(sync_download_jobs::Column::RetrySource, Expr::value(server))
         .col_expr(
             sync_download_jobs::Column::LastError,
-            sea_orm::sea_query::Expr::value(format!("{error:#}")),
+            Expr::value(format!("{error:#}")),
         )
         .filter(sync_download_jobs::Column::Id.eq(job.id))
         .exec(db)

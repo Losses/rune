@@ -1,7 +1,9 @@
 use std::path::PathBuf;
+use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fmt, thread};
+use tokio::runtime::Runtime;
 
 use fsio::FsIo;
 use log::{debug, error};
@@ -254,7 +256,7 @@ impl Player {
 
         let commands = Arc::new(Mutex::new(cmd_tx.clone()));
         // Create the Player instance and wrap the command sender in Arc<Mutex>
-        let source_resolver = Arc::new(std::sync::RwLock::new(None));
+        let source_resolver = Arc::new(RwLock::new(None));
         let player = Player {
             source_resolver: source_resolver.clone(),
             commands: commands.clone(),
@@ -283,7 +285,7 @@ impl Player {
                 source_resolver,
             );
             // Create a new Tokio runtime for asynchronous tasks
-            let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+            let runtime = Runtime::new().expect("Failed to create Tokio runtime");
             // Run the main loop of PlayerInternal within the Tokio runtime
             if let Err(e) = runtime.block_on(internal.run()) {
                 error!("PlayerInternal runtime error: {e:?}");

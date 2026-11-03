@@ -1140,7 +1140,9 @@ impl Director {
 mod tests {
 
     use super::*;
+    use crate::bind::RuntimeBindings;
     use crate::bind::tests::embedded_with;
+    use crate::chart::Chart;
     use crate::scene::fixtures::chart_json;
     use crate::scene::wgsl::SHOT_SIZE;
 
@@ -2630,7 +2632,7 @@ mod tests {
 
     #[test]
     fn the_runtime_file_has_todays_numbers() {
-        let runtime = crate::bind::RuntimeBindings::embedded();
+        let runtime = RuntimeBindings::embedded();
         let d = &runtime.director;
         assert_eq!((d.below, d.above), (QUIET_BELOW, HIGH_ABOVE));
         assert_eq!(d.seconds, [QUIET_SECONDS, NORMAL_SECONDS, HIGH_SECONDS]);
@@ -2663,7 +2665,7 @@ mod tests {
 
     #[test]
     fn the_cadence_follows_the_source_the_file_names() {
-        let embedded = crate::bind::RuntimeBindings::embedded();
+        let embedded = RuntimeBindings::embedded();
         // The section's level, 0.2: a quiet section, a cut after 24 s.
         assert_eq!(first_cut_by(&embedded), Some(52));
         // The drive, 0.8: a high one, after 10 s.
@@ -2679,7 +2681,7 @@ mod tests {
     fn a_cut_lands_on_the_event_the_file_names() {
         // The quiet section's 24 s are due at beat 49: on the beats a cut lands there, on the
         // bars at the next downbeat.
-        let embedded = crate::bind::RuntimeBindings::embedded();
+        let embedded = RuntimeBindings::embedded();
         assert_eq!(first_cut_by(&embedded), Some(52));
         let custom = embedded_with(
             "target = \"director.cut\"\nsource = \"bars\"",
@@ -3082,7 +3084,7 @@ mod tests {
             director.set_binds(runtime.director.clone(), runtime.moments.clone());
             lift_run(&mut director).len()
         };
-        let embedded = crate::bind::RuntimeBindings::embedded();
+        let embedded = RuntimeBindings::embedded();
         // The lift of the song is 0.7, and a burst of 4 cuts comes before it.
         assert!(run(&embedded) >= 5);
         let custom = embedded_with("lift = 0.1,", "lift = 0.9,");
@@ -3328,7 +3330,7 @@ mod tests {
     /// raw values and signals), as the app does, and return each cut with its song time.
     fn play_chart(director: &mut Director, chart: &str, until: f64) -> Vec<(f64, Cut)> {
         use crate::scene::inputs::{EventCounter, Levels, music};
-        let chart = crate::chart::Chart::from_analysis(serde_json::from_str(chart).unwrap());
+        let chart = Chart::from_analysis(serde_json::from_str(chart).unwrap());
         let dt = 1.0 / 60.0;
         let mut events = EventCounter::default();
         let mut cuts = Vec::new();

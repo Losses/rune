@@ -1,6 +1,6 @@
+use tokio::net::TcpListener;
 #[path = "support/causal_library.rs"]
 mod support;
-
 use anyhow::Result;
 use database::sync::model::RuneModel;
 use database::sync::model::*;
@@ -20,7 +20,7 @@ async fn http_transfers_both_directions_and_rejects_large_requests() -> Result<(
         .peer
         .write_local(object.clone(), support::playlist("source"))
         .await?;
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
     let url = format!("http://{}", listener.local_addr()?);
     let app = router(source.peer.clone());
     let server = tokio::spawn(async move {
@@ -95,7 +95,7 @@ async fn rejects_large_responses_with_and_without_content_length() -> Result<()>
                 ))
             }),
         );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
@@ -132,7 +132,7 @@ async fn connection_failure_keeps_checkpoint() -> Result<()> {
         source_generation: identity.generation,
         scope_id: p::scope_id(&scope)?,
     };
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
     let url = format!("http://{}", listener.local_addr()?);
     let app = router(source);
     let server = tokio::spawn(async move {

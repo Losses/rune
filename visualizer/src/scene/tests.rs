@@ -1,6 +1,7 @@
 //! Scenes drawn on the GPU (skipped without an adapter).
 
 use super::*;
+use crate::bind;
 
 const SIZE: (u32, u32) = (64, 32);
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -860,8 +861,8 @@ fn the_inputs_the_binds_drive_reach_the_shaders() {
         (report[0].target.as_str(), report[0].source, report[0].how),
         ("level", "meter", "follow")
     );
-    assert_eq!(report[0].tick.level, crate::bind::Level::C);
-    assert_eq!(report[0].tick.used, crate::bind::Used::Source);
+    assert_eq!(report[0].tick.level, bind::Level::C);
+    assert_eq!(report[0].tick.used, bind::Used::Source);
     assert!((report[0].tick.output - 0.5).abs() < 1e-6);
     // Four per second, over three frames of a sixtieth.
     assert!(

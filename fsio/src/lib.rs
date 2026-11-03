@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::{
     io::{Read, Seek, Write},
     path::{Path, PathBuf},
@@ -45,7 +46,7 @@ pub trait FileStream: Read + Write + Seek + Send + Sync {
 
 impl FileStream for std::fs::File {
     fn sync_all(&mut self) -> Result<(), FileIoError> {
-        std::fs::File::sync_all(self).map_err(FileIoError::Io)
+        File::sync_all(self).map_err(FileIoError::Io)
     }
 }
 

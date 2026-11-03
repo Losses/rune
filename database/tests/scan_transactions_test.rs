@@ -1,5 +1,8 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
 use analysis::utils::computing_device::ComputingDevice;
 use anyhow::Result;
+use database::sync::SeaOrmSyncStore;
 use database::{
     actions::{analysis::analysis_audio_library, metadata::sync_file_descriptions},
     connection::initialize_db,
@@ -7,13 +10,19 @@ use database::{
 };
 use fsio::FsIo;
 use metadata::describe::describe_file;
+use sea_orm::sea_query::Alias;
+use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::Query;
 use sea_orm::{ConnectionTrait, Database, DbBackend, EntityTrait, PaginatorTrait, Statement};
+use std::path::Path;
+use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 #[tokio::test]
 async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
     let db = Database::connect("sqlite::memory:").await?;
     initialize_db(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
-    let store = database::sync::SeaOrmSyncStore::create_empty(
+    let store = SeaOrmSyncStore::create_empty(
         db.clone(),
         uuid::Uuid::from_u128(2),
         uuid::Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")?,
@@ -22,9 +31,7 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
     db.execute_raw(Statement::from_string(DbBackend::Sqlite,
         "CREATE TRIGGER reject_metadata BEFORE INSERT ON media_metadata BEGIN SELECT RAISE(ABORT, 'test failure'); END;".to_owned())).await?;
     let fs = FsIo::new();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../assets")
-        .canonicalize()?;
+    let root = fixtures::asset_directory().canonicalize()?;
     let node = fs.canonicalize(&root.join("startup_0.ogg"))?;
     let mut descriptions = vec![Some(describe_file(&fs, &node, &Some(root))?)];
     assert!(
@@ -55,12 +62,12 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
     )
     .await?;
     assert_eq!(media_files::Entity::find().count(&db).await?, 1);
-    let cancelled = tokio_util::sync::CancellationToken::new();
+    let cancelled = CancellationToken::new();
     cancelled.cancel();
     let processed = analysis_audio_library(
-        std::sync::Arc::new(fs),
+        Arc::new(fs),
         &db,
-        std::path::Path::new("."),
+        Path::new("."),
         1,
         ComputingDevice::Cpu,
         |_, _| {},
@@ -78,7 +85,7 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
 async fn failed_file_does_not_rollback_neighbors_or_stop_the_batch() -> Result<()> {
     let db = Database::connect("sqlite::memory:").await?;
     initialize_db(&db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").await?;
-    let store = database::sync::SeaOrmSyncStore::create_empty(
+    let store = SeaOrmSyncStore::create_empty(
         db.clone(),
         uuid::Uuid::from_u128(2),
         uuid::Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")?,
@@ -87,7 +94,7 @@ async fn failed_file_does_not_rollback_neighbors_or_stop_the_batch() -> Result<(
     db.execute_raw(Statement::from_string(DbBackend::Sqlite,
         "CREATE TRIGGER reject_one BEFORE INSERT ON media_metadata WHEN (SELECT file_name FROM media_files WHERE id=NEW.file_id)='bad.ogg' BEGIN SELECT RAISE(ABORT, 'test failure'); END;".to_owned())).await?;
     let dir = tempfile::tempdir()?;
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/startup_0.ogg");
+    let source = fixtures::audio_fixture();
     let fs = FsIo::new();
     let mut descriptions = Vec::new();
     for name in ["before.ogg", "bad.ogg", "after.ogg"] {
@@ -182,15 +189,11 @@ async fn lookup_indexes_upgrade_existing_database_and_survive_reopen() -> Result
         "idx_media_metadata_file_id",
         "idx_media_analysis_file_id",
     ] {
-        let q = sea_orm::sea_query::Query::select()
-            .expr(sea_orm::sea_query::Expr::val(1))
-            .from(sea_orm::sea_query::Alias::new("sqlite_master"))
-            .and_where(
-                sea_orm::sea_query::Expr::col(sea_orm::sea_query::Alias::new("type")).eq("index"),
-            )
-            .and_where(
-                sea_orm::sea_query::Expr::col(sea_orm::sea_query::Alias::new("name")).eq(name),
-            )
+        let q = Query::select()
+            .expr(Expr::val(1))
+            .from(Alias::new("sqlite_master"))
+            .and_where(Expr::col(Alias::new("type")).eq("index"))
+            .and_where(Expr::col(Alias::new("name")).eq(name))
             .to_owned();
         assert!(
             db.query_one(&q).await?.is_some(),

@@ -4,6 +4,7 @@ use crate::sync::{
     bindings::apply,
     model::{Collection, MixClauseMap, ObjectKey, author_source_on},
 };
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
@@ -624,9 +625,9 @@ fn sort_media_files(
 
         match (a_index, b_index) {
             (Some(a_idx), Some(b_idx)) => a_idx.cmp(b_idx),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
         }
     });
 
@@ -1224,7 +1225,7 @@ async fn replace_queries_on(
     let owner = [mix_uuid.to_owned().into()];
     let previous = Clauses::read_on(tx, &owner, Clauses::read_ceiling()).await?;
     let views = query_views_on(tx, mix_uuid).await?;
-    let mut used = std::collections::HashSet::new();
+    let mut used = HashSet::new();
     let mut incoming = Vec::with_capacity(queries.len());
     let mut directories = Vec::new();
     for (position, (operator, parameter)) in queries.into_iter().enumerate() {

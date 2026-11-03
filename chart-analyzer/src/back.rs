@@ -14,6 +14,7 @@ use crate::np::{floor_div, interp, mean, median, modulo, percentile, round_to, s
 use crate::sections::{SectionInput, feature_stack, phrase_starts, sections};
 use crate::streams::{GAPS, lead_stream, pick};
 use crate::tempo::{dp_beats, feel, near_max, tempo, tempo_window};
+use std::cmp::Ordering;
 
 /// A prefix shorter than this is too short for the tempo windows (8 s, see `window_acfs`).
 pub const MIN_SECONDS: f64 = 6.0;
@@ -312,7 +313,7 @@ fn meter_and_downbeats(f: &Front, nc: usize, r: &Rhythm) -> (Meter, Vec<Beat>) {
         }
     }
     // Sorted from the best, ties by the larger meter and phase, as sorting the tuples does.
-    results.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| b.partial_cmp(a).unwrap_or(Ordering::Equal));
     let (s, m, p) = results[0];
     let rival = results
         .iter()

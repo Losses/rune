@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, ensure};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use sync::protocol::{self as p, SnapshotSource, SyncStore};
 use sync_orm::{causal_capabilities::CausalEndpoint, causal_schema, causal_store::CausalReplica};
 use uuid::Uuid;
@@ -86,7 +87,7 @@ async fn verify_values(
 ) -> Result<()> {
     assert_eq!(snapshot.roots.len(), 1);
     let mut after = None;
-    let mut values = std::collections::BTreeMap::new();
+    let mut values = BTreeMap::new();
     loop {
         let page = endpoint
             .leaf(

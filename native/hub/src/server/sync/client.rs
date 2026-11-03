@@ -1,10 +1,14 @@
 //! Resumable bidirectional metadata sessions for an authenticated paired peer.
 use anyhow::{Result, ensure};
 use database::sync::{LibrarySyncStore, model::RuneModel};
+use http_request::sync::PageCursor;
 use http_request::sync::{BidirectionalSession, MetadataPeer};
 use sea_orm::DatabaseConnection;
+use std::ops::ControlFlow;
 use std::sync::Arc;
+use std::time::Duration;
 use sync::{SyncModel, SyncPeer};
+use tokio::time::Instant;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -83,10 +87,10 @@ pub async fn sync_library_with_notify(
     while !session.advance(&remote, notify.clone()).await? {
         tokio::task::yield_now().await;
     }
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
-    let mut cursor = http_request::sync::PageCursor::default();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut cursor = PageCursor::default();
     let (mut attached, mut pending) = (0, 0);
-    while !cursor.is_complete() && tokio::time::Instant::now() < deadline {
+    while !cursor.is_complete() && Instant::now() < deadline {
         let (new_attached, new_pending) = fetch_missing(
             &db,
             &local.record_store(),
@@ -142,15 +146,14 @@ pub async fn fetch_missing(
             let attached = &attached;
             let pending = &pending;
             async move {
-                if tokio::time::Instant::now() >= deadline {
+                if Instant::now() >= deadline {
                     pending.fetch_add(1, Ordering::Relaxed);
-                    return Ok(std::ops::ControlFlow::Break(()));
+                    return Ok(ControlFlow::Break(()));
                 }
                 if !artwork_body_needed(db, id, &artwork).await? {
-                    return Ok(std::ops::ControlFlow::Continue(()));
+                    return Ok(ControlFlow::Continue(()));
                 }
-                let limit =
-                    deadline.min(tokio::time::Instant::now() + std::time::Duration::from_secs(1));
+                let limit = deadline.min(Instant::now() + Duration::from_secs(1));
                 let result = tokio::time::timeout_at(limit, async {
                     let body = artwork.body()?;
                     let url = format!("{}/sync/artworks/{id}", server.trim_end_matches('/'));
@@ -177,7 +180,7 @@ pub async fn fetch_missing(
                         log::warn!("artwork {id} remains pending: {error:#}");
                     }
                 }
-                Ok(std::ops::ControlFlow::Continue(()))
+                Ok(ControlFlow::Continue(()))
             }
         },
     )

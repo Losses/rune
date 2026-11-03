@@ -4,6 +4,7 @@
 //! (Viterbi); and the beats by dynamic programming (Ellis 2007).
 
 use realfft::RealFftPlanner;
+use realfft::num_complex::Complex;
 
 use crate::front::{EPS, FPS};
 use crate::np::{argmax, argmin, hanning, mean, round_half_even, std};
@@ -85,7 +86,7 @@ pub fn window_acfs(odf: &[f64]) -> Windows {
         // The power spectrum, whose inverse is the autocorrelation.
         let mut power: Vec<_> = spectrum
             .iter()
-            .map(|c| realfft::num_complex::Complex::new(c.norm_sqr(), 0.0))
+            .map(|c| Complex::new(c.norm_sqr(), 0.0))
             .collect();
         let mut ac = inverse.make_output_vec();
         inverse.process(&mut power, &mut ac).unwrap_or_default();

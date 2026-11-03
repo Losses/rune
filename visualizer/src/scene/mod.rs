@@ -2,6 +2,9 @@
 //! `scene.toml` and WGSL files. The scene's `update()` runs once per frame on the GPU, its passes
 //! draw into HDR buffers, and the runtime's post-processing makes the frame.
 
+use crate::bind::Bindings;
+use std::io::Error;
+use std::io::ErrorKind;
 mod audio;
 mod decider;
 mod director;
@@ -106,7 +109,7 @@ impl Source {
                 .iter()
                 .find(|(path, _)| *path == name)
                 .map(|(_, bytes)| bytes.to_vec())
-                .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound)),
+                .ok_or_else(|| Error::from(ErrorKind::NotFound)),
         }
         .with_context(|| format!("Failed to read {name}"))
     }
@@ -990,8 +993,7 @@ impl Scene {
         queue.write_buffer(&params_buffer, 0, &params.pack(&files.param_values()));
         let input_layout = InputLayout::new(manifest);
         let input_buffer = uniform("scene inputs", input_layout.size);
-        let bindings =
-            crate::bind::Bindings::with_scope(&manifest.inputs, &manifest.params, &manifest.binds)?;
+        let bindings = Bindings::with_scope(&manifest.inputs, &manifest.params, &manifest.binds)?;
         queue.write_buffer(&input_buffer, 0, &input_layout.pack(bindings.values()));
         let storage = |label, size| {
             device.create_buffer(&wgpu::BufferDescriptor {
@@ -1686,7 +1688,7 @@ impl Scene {
             // The binds are only evaluated on the CPU: new ones start over, and the pipelines
             // stay.
             if files.manifest.binds != self.files.manifest.binds {
-                self.bindings = crate::bind::Bindings::with_scope(
+                self.bindings = Bindings::with_scope(
                     &files.manifest.inputs,
                     &files.manifest.params,
                     &files.manifest.binds,

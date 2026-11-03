@@ -1,9 +1,12 @@
+use axum::body::Body;
 use axum::{Router, routing::get};
 use database::actions::file::{blob_path, hash_file};
 use database::sync::model::BlobRef;
 use fsio::FsIo;
 use hub::server::sync::blobs::download_blob;
+use std::io::Error;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 
 #[tokio::test]
 async fn verifies_audio_and_recovers_after_corrupt_or_interrupted_transfer() {
@@ -14,7 +17,7 @@ async fn verifies_audio_and_recovers_after_corrupt_or_interrupted_transfer() {
     };
     let fixture = Arc::new(bytes);
     let serve = |bytes: Vec<u8>| async move {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let app = Router::new().route(
             "/sync/blobs/{digest}",
@@ -50,7 +53,7 @@ async fn verifies_audio_and_recovers_after_corrupt_or_interrupted_transfer() {
     );
     assert!(!final_path.exists());
     task.abort();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let first = fixture[..fixture.len() / 2].to_vec();
     let app = Router::new().route(
@@ -60,9 +63,9 @@ async fn verifies_audio_and_recovers_after_corrupt_or_interrupted_transfer() {
             async move {
                 let chunks = futures::stream::iter(vec![
                     Ok::<_, std::io::Error>(first),
-                    Err(std::io::Error::other("interrupted")),
+                    Err(Error::other("interrupted")),
                 ]);
-                axum::body::Body::from_stream(chunks)
+                Body::from_stream(chunks)
             }
         }),
     );

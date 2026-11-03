@@ -6,6 +6,7 @@ use sea_orm::{
     sea_query::{Alias, Condition, Expr, Func, Order, Query},
 };
 use std::collections::BTreeSet;
+use sync::protocol::SyncError;
 use sync::protocol::{
     Digest, Fragment, MAX_FRAGMENTS, MAX_LOGICAL_BYTES, MAX_LOGICAL_ITEMS, ManifestKind,
     ManifestRef, content_digest, fragment_digest, manifest_digest,
@@ -254,10 +255,7 @@ pub fn fragment_body(
         "invalid manifest body limits"
     );
     let count = body.len().div_ceil(fragment_bytes);
-    ensure!(
-        count <= MAX_FRAGMENTS as usize,
-        sync::protocol::SyncError::LogicalLimit
-    );
+    ensure!(count <= MAX_FRAGMENTS as usize, SyncError::LogicalLimit);
     let mut manifest = ManifestRef {
         kind,
         manifest_digest: [0; 32],
@@ -366,7 +364,7 @@ pub async fn read_on(
     let manifest = reference_on(tx, namespace, digest).await?;
     ensure!(
         manifest.encoded_bytes <= max_bytes && manifest.fragment_count <= max_fragments,
-        sync::protocol::SyncError::WorkLimit
+        SyncError::WorkLimit
     );
     let mut body = Vec::with_capacity(usize::try_from(manifest.encoded_bytes)?);
     if manifest.fragment_count == 1 {

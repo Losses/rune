@@ -1,10 +1,3 @@
-use std::path::Path;
-use std::time::Instant;
-
-use anyhow::Result;
-use rand::{Rng, SeedableRng, rngs::StdRng};
-use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryOrder, Statement};
-
 use ::database::{
     actions::analysis::AggregatedAnalysisResult,
     actions::recommendation::{
@@ -18,6 +11,12 @@ use ::database::{
     entities::media_analysis,
 };
 use ::fsio::FsIo;
+use anyhow::Result;
+use rand::{Rng, SeedableRng, rngs::StdRng};
+use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryOrder, Statement};
+use std::fs::Permissions;
+use std::path::Path;
+use std::time::Instant;
 
 async fn setup_db() -> Result<DatabaseConnection> {
     let db = Database::connect("sqlite::memory:").await?;
@@ -149,10 +148,10 @@ async fn connect_does_not_fail_when_the_legacy_file_cannot_be_deleted() -> Resul
     std::fs::create_dir_all(&rune_dir)?;
     std::fs::write(rune_dir.join(".analysis.db"), b"lmdb")?;
     // A read-only directory does not allow deleting its entries.
-    std::fs::set_permissions(&rune_dir, std::fs::Permissions::from_mode(0o555))?;
+    std::fs::set_permissions(&rune_dir, Permissions::from_mode(0o555))?;
 
     let result = connect_recommendation_db(&FsIo::new(), lib_path, None, &db).await;
-    std::fs::set_permissions(&rune_dir, std::fs::Permissions::from_mode(0o755))?;
+    std::fs::set_permissions(&rune_dir, Permissions::from_mode(0o755))?;
 
     let recommend_db = result?;
     assert_eq!(

@@ -1,10 +1,16 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
+
 use anyhow::Result;
 use sea_orm::{
     ConnectionTrait, Database, TransactionTrait,
     sea_query::{Alias, ColumnDef, Expr, Query, Table},
 };
 use serde::{Deserialize, Serialize};
+use sync::causal::Context;
+use sync::causal::Dot;
 use sync::protocol::{self, ObjectKey, Observed, SyncModel};
+use sync_orm::causal_compaction::FloorStep;
 use sync_orm::{causal_schema, causal_store::CausalReplica};
 use uuid::Uuid;
 
@@ -45,8 +51,7 @@ impl SyncModel for Notes {
 }
 #[tokio::test]
 async fn author_and_projection_rollback_and_reveal_lower_survivor() -> Result<()> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     db.execute(
         &Table::create()
             .table(Alias::new("notes"))
@@ -183,8 +188,7 @@ async fn author_and_projection_rollback_and_reveal_lower_survivor() -> Result<()
 #[tokio::test]
 async fn keyed_receive_retains_original_author_and_never_resurrects_observed_dot() -> Result<()> {
     use sync::protocol::{Candidate, Dot, KeyDelta, ModelId, Revision};
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let local = Uuid::new_v4();
     let original = Uuid::new_v4();
@@ -308,8 +312,7 @@ async fn suppressed_late_protected_candidate_cannot_create_empty_state() -> Resu
     use sync::protocol::{
         Candidate, Dot, ExactContext, KeyDelta, ModelId, Revision, WriterContext,
     };
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let actor = Uuid::new_v4();
     let writer = Uuid::new_v4();
@@ -634,8 +637,7 @@ async fn anchored_inline_page_and_projection_commit_or_roll_back_together() -> R
 #[tokio::test]
 async fn equal_revision_winner_uses_digest_before_dot() -> Result<()> {
     use sync::protocol::{Candidate, Dot, KeyDelta, ModelId, Revision};
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let actor = Uuid::new_v4();
     let store = CausalReplica::<Notes>::create_empty(db.clone(), ns, actor).await?;
@@ -717,8 +719,7 @@ impl SyncModel for OnlyStructural {
 #[tokio::test]
 async fn structural_protection_rejects_removal_even_with_a_survivor() -> Result<()> {
     use sync::protocol::{KeyDelta, Revision};
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let actor = Uuid::new_v4();
     let store =
         CausalReplica::<OnlyStructural>::create_empty(db.clone(), Uuid::new_v4(), actor).await?;
@@ -775,8 +776,7 @@ async fn structural_protection_rejects_removal_even_with_a_survivor() -> Result<
 
 #[tokio::test]
 async fn observed_context_is_collection_wide_and_suppresses_late_candidates() -> Result<()> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let actor = Uuid::new_v4();
     let store = CausalReplica::<Notes>::create_empty(db.clone(), ns, actor).await?;
@@ -792,8 +792,8 @@ async fn observed_context_is_collection_wide_and_suppresses_late_candidates() ->
         .after
         .unwrap();
     tx.commit().await?;
-    let mut context = sync::causal::Context::default();
-    context.insert(sync::causal::Dot::new(
+    let mut context = Context::default();
+    context.insert(Dot::new(
         initial.dot.writer_incarnation,
         initial.dot.counter,
     )?)?;
@@ -824,7 +824,7 @@ async fn observed_context_is_collection_wide_and_suppresses_late_candidates() ->
             &tx,
             ns,
             b"notes",
-            sync::causal::Dot::new(initial.dot.writer_incarnation, initial.dot.counter)?
+            Dot::new(initial.dot.writer_incarnation, initial.dot.counter)?
         )
         .await?
     );
@@ -861,8 +861,7 @@ async fn observed_context_is_collection_wide_and_suppresses_late_candidates() ->
 #[tokio::test]
 async fn bounded_floor_compaction_preserves_context_and_respects_a_pin() -> Result<()> {
     use sync::protocol::{KeyDelta, Revision};
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let actor = Uuid::new_v4();
     let store = CausalReplica::<Notes>::create_empty(db.clone(), ns, actor).await?;
@@ -920,25 +919,19 @@ async fn bounded_floor_compaction_preserves_context_and_respects_a_pin() -> Resu
     let step =
         sync_orm::causal_compaction::maintenance_step_on::<Notes>(&tx, ns, 1, 1024, 1024 * 1024)
             .await?;
-    assert_eq!(
-        step,
-        sync_orm::causal_compaction::FloorStep::Advanced { state_seq: 1 }
-    );
+    assert_eq!(step, FloorStep::Advanced { state_seq: 1 });
     tx.commit().await?;
     let tx = db.begin().await?;
     let step =
         sync_orm::causal_compaction::maintenance_step_on::<Notes>(&tx, ns, 1, 1024, 1024 * 1024)
             .await?;
-    assert_eq!(
-        step,
-        sync_orm::causal_compaction::FloorStep::Advanced { state_seq: 2 }
-    );
+    assert_eq!(step, FloorStep::Advanced { state_seq: 2 });
     tx.commit().await?;
     let tx = db.begin().await?;
     assert_eq!(
         sync_orm::causal_compaction::maintenance_step_on::<Notes>(&tx, ns, 1, 1024, 1024 * 1024)
             .await?,
-        sync_orm::causal_compaction::FloorStep::CaughtUp
+        FloorStep::CaughtUp
     );
     tx.commit().await?;
     let tx = db.begin().await?;

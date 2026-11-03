@@ -1,6 +1,9 @@
 #![cfg(all(feature = "sync-crash-probe", unix))]
 
-use database::sync::{LibrarySyncStore, model::*};
+#[path = "support/fixtures.rs"]
+mod fixtures;
+use anyhow::{Context, Result, ensure};
+use database::sync::model::*;
 use database::{
     actions::{
         downloads::set_download_rule,
@@ -8,25 +11,24 @@ use database::{
             AudioAvailability, audio_availability, blob_path_for_track, catalog_track,
             get_media_files, hash_file, is_materialized, materialized_path, resolve_local_id,
         },
-        metadata::{MissingHostFilePolicy, ScanOptions, scan_audio_library},
     },
     connection::{RecommendationDbConnection, initialize_db},
     entities::{media_files, sync_download_jobs},
     sync::model::{RuneModel, Scope},
 };
+use fsio::FsIo;
+use http_request::sync::MetadataPeer;
 use hub::server::sync::{
     client::sync_library,
     downloads::download_requested_audio,
     http::{BlobContext, SharedLibrary, blob_router},
     library_router,
 };
-
-use anyhow::{Context, Result, ensure};
-use fsio::FsIo;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, Database, DatabaseConnection, DbBackend, EntityTrait,
-    PaginatorTrait, QueryFilter, Statement,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, PaginatorTrait,
+    QueryFilter, Statement,
 };
+use std::fs::File;
 use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -34,6 +36,10 @@ use std::{
     time::Duration,
 };
 use sync::{ReceiveStore, SyncModel};
+use tokio::net::TcpListener;
+use tokio::runtime::Builder;
+use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 async fn open_replica(path: &Path) -> Result<DatabaseConnection> {
@@ -73,7 +79,7 @@ fn import_child() -> Result<()> {
     let root = PathBuf::from(std::env::var("RUNE_TEST_ROOT")?);
     let node = Uuid::parse_str(&std::env::var("RUNE_TEST_NODE")?)?;
     let server = std::env::var("RUNE_TEST_SERVER")?;
-    tokio::runtime::Builder::new_multi_thread()
+    Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()?
@@ -86,7 +92,7 @@ fn import_child() -> Result<()> {
                 fsio,
                 root,
                 node,
-                &http_request::sync::MetadataPeer::new(&server, reqwest::Client::new()),
+                &MetadataPeer::new(&server, reqwest::Client::new()),
                 Arc::new(|| {}),
             )
             .await?;
@@ -103,28 +109,18 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
     use std::os::unix::process::ExitStatusExt;
     let source_root = tempfile::tempdir()?;
     let fsio = Arc::new(FsIo::new());
-    let source_db = Database::connect("sqlite::memory:").await?;
     let source_node = Uuid::new_v4();
-    initialize_db(&source_db, &source_node.to_string()).await?;
+    let source_db = fixtures::initialized_memory(source_node).await?;
     for index in 0..2 {
-        let bytes = std::fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../assets/startup_{index}.ogg")),
-        )?;
+        let bytes = std::fs::read(fixtures::audio_fixture_at(index))?;
         std::fs::write(source_root.path().join(format!("source{index}.ogg")), bytes)?;
     }
-    let source = LibrarySyncStore::open(source_db.clone(), source_node, None).await?;
-    scan_audio_library(
+    let source = fixtures::open_library(source_db.clone(), source_node, None).await?;
+    fixtures::scan_library(
         &fsio,
         &source_db,
         &source_node.to_string(),
         source_root.path(),
-        ScanOptions {
-            cleanup: false,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-            cancel_token: None,
-        },
-        |_| {},
         &source.record_store(),
     )
     .await?;
@@ -151,7 +147,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
         })?,
     };
     let selected_blob = hash_file(&fsio, &source_root.path().join("source0.ogg"))?;
-    let shared = Arc::new(tokio::sync::RwLock::new(source));
+    let shared = Arc::new(RwLock::new(source));
     let app = library_router(SharedLibrary(shared.clone()), Arc::new(|| {})).merge(blob_router(
         BlobContext {
             store: shared,
@@ -159,11 +155,11 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
             fsio: fsio.clone(),
             root: source_root.path().into(),
             node_id: source_node,
-            upload_lock: Arc::new(tokio::sync::Mutex::new(())),
+            upload_lock: Arc::new(Mutex::new(())),
             notify: Arc::new(|| {}),
         },
     ));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
     let base = format!("http://{}", listener.local_addr()?);
     let server = tokio::spawn(async move { axum::serve(listener, app).await });
 
@@ -205,7 +201,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
             true,
         )
         .await?;
-        let before = LibrarySyncStore::open(db.clone(), node, None).await?;
+        let before = fixtures::open_library(db.clone(), node, None).await?;
         let baseline_head = before.head().await?;
         let baseline_counter = revision_counter(&db).await?;
         let baseline_checkpoint = before.endpoint().checkpoint(&checkpoint).await?;
@@ -221,7 +217,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
         db.close().await?;
         let marker = root.path().join("fault.marker");
         let log_path = root.path().join("child.log");
-        let log = std::fs::File::create(&log_path)?;
+        let log = File::create(&log_path)?;
         let mut child = Command::new(std::env::current_exe()?)
             .args(["--exact", "import_child", "--nocapture"])
             .env("RUNE_TEST_DB", &db_path)
@@ -267,7 +263,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
             .unwrap()
             .try_get("", "integrity_check")?;
         assert_eq!(integrity, "ok", "{stage}");
-        let local = LibrarySyncStore::open(db.clone(), node, None).await?;
+        let local = fixtures::open_library(db.clone(), node, None).await?;
         assert_eq!(
             is_materialized(&db, &fsio, root.path(), selected).await?,
             stage == "attached",
@@ -296,18 +292,11 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
             assert!(partial.len() > 0 && partial.len() < selected_blob.size);
         }
         // A user or startup scan can run before the interrupted import is retried.
-        scan_audio_library(
+        fixtures::scan_library(
             &fsio,
             &db,
             &node.to_string(),
             root.path(),
-            ScanOptions {
-                cleanup: false,
-                force: false,
-                missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-                cancel_token: None,
-            },
-            |_| {},
             &local.record_store(),
         )
         .await?;
@@ -384,7 +373,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
             fsio.clone(),
             root.path().into(),
             node,
-            &http_request::sync::MetadataPeer::new(&base, reqwest::Client::new()),
+            &MetadataPeer::new(&base, reqwest::Client::new()),
             Arc::new(|| {}),
         )
         .await?;

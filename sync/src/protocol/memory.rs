@@ -2,6 +2,7 @@
 use super::memory_core::MemoryCore;
 use super::receiver::ReceiverLedger;
 use super::*;
+use crate::causal::Context;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
 
@@ -1809,7 +1810,7 @@ impl<M: SyncModel> SnapshotSink<M> for MemorySyncStore<M> {
                 } => {
                     let (_, local) = state.receiver.descriptors(session)?;
                     let snapshot = view_mut(&mut state, local.snapshot_id)?;
-                    let mut observed = crate::causal::Context::default();
+                    let mut observed = Context::default();
                     let pinned = snapshot.core.clone();
                     let mut arrivals = 0u64;
                     for c in state.core.live(collection) {
@@ -2146,8 +2147,12 @@ fn advance_split<M: SyncModel>(
 #[cfg(test)]
 mod tests {
 
+    use super::super::coordinator;
+    use super::super::coordinator::SessionLimits;
     use super::*;
+    use crate::causal::Context;
     use serde::{Deserialize, Serialize};
+    use std::sync;
     use std::sync::atomic::{AtomicUsize, Ordering};
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct Model;
@@ -2735,22 +2740,21 @@ mod tests {
             scope_id: scope_id(&remote.scope).unwrap(),
         };
         set_checkpoint(&mut d.lock().unwrap().checkpoints, key_id, initial);
-        let b = std::sync::Arc::new(b);
+        let b = sync::Arc::new(b);
         let peer = StorePeer(b.clone());
-        let limits = super::super::coordinator::SessionLimits {
+        let limits = SessionLimits {
             pages,
             stages: stage_limits,
             apply: limits,
             work,
         };
-        let mut coordinator =
-            super::super::coordinator::Coordinator::new(remote.scope.clone(), limits).unwrap();
+        let mut coordinator = coordinator::Coordinator::new(remote.scope.clone(), limits).unwrap();
         let mut done = false;
         for _ in 0..100 {
             coordinator.start_pass();
             if matches!(
                 coordinator.advance(&d, &d, &d, &peer, &*b).await.unwrap(),
-                super::super::coordinator::SessionAdvance::Complete(_)
+                coordinator::SessionAdvance::Complete(_)
             ) {
                 done = true;
                 break;
@@ -2842,8 +2846,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_completes_first_contact_and_tail() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = std::sync::Arc::new(store(2));
-        let b = std::sync::Arc::new(store(3));
+        let a = sync::Arc::new(store(2));
+        let b = sync::Arc::new(store(3));
         let key = ObjectKey {
             collection: Collection::Notes,
             id: Uuid::from_u128(42),
@@ -3088,8 +3092,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_subdivides_large_differing_root() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = std::sync::Arc::new(store(2));
-        let b = std::sync::Arc::new(store(3));
+        let a = sync::Arc::new(store(2));
+        let b = sync::Arc::new(store(3));
         for n in 1..=130 {
             a.write_local(
                 ObjectKey {
@@ -3209,8 +3213,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_receives_fragmented_journal_event() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = std::sync::Arc::new(big_store(2));
-        let b = std::sync::Arc::new(big_store(3));
+        let a = sync::Arc::new(big_store(2));
+        let b = sync::Arc::new(big_store(3));
         let peer = StorePeer(a.clone());
         let scope = Scope {
             collections: [Collection::Notes].into_iter().collect(),
@@ -3631,8 +3635,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_splits_two_keys_for_single_projection_limit() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = std::sync::Arc::new(store(2));
-        let b = std::sync::Arc::new(store(3));
+        let a = sync::Arc::new(store(2));
+        let b = sync::Arc::new(store(3));
         for n in 1..=2 {
             a.write_local(
                 ObjectKey {
@@ -3739,8 +3743,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_yields_and_resumes_at_pass_limits() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = std::sync::Arc::new(store(2));
-        let b = std::sync::Arc::new(store(3));
+        let a = sync::Arc::new(store(2));
+        let b = sync::Arc::new(store(3));
         let key = ObjectKey {
             collection: Collection::Notes,
             id: Uuid::from_u128(33),
@@ -3972,8 +3976,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_abort_releases_opened_source_and_preserves_state() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = std::sync::Arc::new(store(2));
-        let b = std::sync::Arc::new(store(3));
+        let a = sync::Arc::new(store(2));
+        let b = sync::Arc::new(store(3));
         let peer = StorePeer(a.clone());
         let limits = SessionLimits {
             pages: PageLimits {
@@ -4037,8 +4041,8 @@ mod tests {
     #[tokio::test]
     async fn concurrent_candidates_at_one_key_use_one_projection_item() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = std::sync::Arc::new(store(2));
-        let b = std::sync::Arc::new(store(3));
+        let a = sync::Arc::new(store(2));
+        let b = sync::Arc::new(store(3));
         let c = store(4);
         let key = ObjectKey {
             collection: Collection::Notes,
@@ -4121,8 +4125,8 @@ mod tests {
     #[tokio::test]
     async fn journal_work_limit_falls_back_to_complete_comparison() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = std::sync::Arc::new(store(2));
-        let b = std::sync::Arc::new(store(3));
+        let a = sync::Arc::new(store(2));
+        let b = sync::Arc::new(store(3));
         let scope = Scope {
             collections: [Collection::Notes].into_iter().collect(),
         };
@@ -4196,8 +4200,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_preserves_storage_errors_without_reconciliation_fallback() {
         use super::super::coordinator::{Coordinator, SessionAdvance, SessionLimits};
-        let a = std::sync::Arc::new(store(2));
-        let b = std::sync::Arc::new(store(3));
+        let a = sync::Arc::new(store(2));
+        let b = sync::Arc::new(store(3));
         let scope = Scope {
             collections: [Collection::Notes].into_iter().collect(),
         };
@@ -4508,7 +4512,7 @@ mod tests {
         let a = store(2);
         let b = store(3);
         let writer = Uuid::from_u128(999);
-        let mut context = crate::causal::Context::default();
+        let mut context = Context::default();
         for n in 1..=3000 {
             context
                 .insert(crate::causal::Dot {

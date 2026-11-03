@@ -1,5 +1,6 @@
 use database::entities::{media_cover_art, media_cover_art::Column};
 use std::sync::Arc;
+use tokio::runtime::Runtime;
 
 use anyhow::Result;
 use futures::future::join_all;
@@ -113,7 +114,7 @@ impl Signal for GetPrimaryColorByTrackIdRequest {
 
         if let Some(item) = item {
             let response = task::spawn_blocking(move || {
-                let runtime = tokio::runtime::Runtime::new().unwrap();
+                let runtime = Runtime::new().unwrap();
                 runtime.block_on(async move {
                     let dispatcher = PlayingItemActionDispatcher::new();
                     let primary_color = dispatcher

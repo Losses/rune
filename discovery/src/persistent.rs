@@ -3,6 +3,7 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
+use tokio::runtime::Runtime;
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Serialize, de::DeserializeOwned};
@@ -175,7 +176,7 @@ where
                             match std::fs::read_to_string(&path_clone) {
                                 Ok(content) => {
                                     if let Ok(new_data) = toml::from_str::<T>(&content) {
-                                        let rt = tokio::runtime::Runtime::new().unwrap(); // Create a temporary runtime
+                                        let rt = Runtime::new().unwrap(); // Create a temporary runtime
                                         rt.block_on(async {
                                             let mut data = data_clone.write().await;
                                             *data = new_data.clone(); // Update in-memory data

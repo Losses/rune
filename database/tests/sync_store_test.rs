@@ -2,10 +2,9 @@
 mod support;
 use anyhow::Result;
 use database::sync::{SeaOrmSyncStore, model::*};
-use migration::{Migrator, MigratorTrait};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection};
 use std::sync::Arc;
-use support::Peer;
+use support::{Peer, fixtures};
 use sync::{self as p};
 use sync_orm::causal_capabilities::CausalEndpoint;
 use uuid::Uuid;
@@ -18,9 +17,7 @@ fn scope() -> Scope {
     }
 }
 async fn migrate(db: &DatabaseConnection) -> Result<()> {
-    let _ = migration::initialize_node_id(Uuid::new_v4().to_string());
-    Migrator::up(db, None).await?;
-    Ok(())
+    fixtures::migrate(db, Uuid::new_v4()).await
 }
 async fn create(db: DatabaseConnection, ns: Uuid, author: Uuid) -> Result<Peer> {
     Ok(Arc::new(CausalEndpoint::new(

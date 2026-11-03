@@ -1,12 +1,15 @@
 //! Transaction-bound causal authoring, reception, and accepted-state queries.
+use crate::causal_candidates::CandidateRow;
 use crate::causal_writer::WriterIncarnation;
 use anyhow::{Result, ensure};
+use sea_orm::sea_query::Order;
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DatabaseTransaction, ExprTrait, FromQueryResult,
     TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
 use std::{marker::PhantomData, sync::Arc};
+use sync::causal::{self, Context};
 use sync::protocol::{self, ModelId, StoreIdentity, SyncModel};
 use uuid::Uuid;
 
@@ -29,7 +32,7 @@ pub async fn list_namespace_ids_on<C: ConnectionTrait>(db: &C, limit: u64) -> Re
     let query = Query::select()
         .column(Alias::new("namespace"))
         .from(Alias::new("sync_meta"))
-        .order_by(Alias::new("namespace"), sea_orm::sea_query::Order::Asc)
+        .order_by(Alias::new("namespace"), Order::Asc)
         .limit(limit)
         .to_owned();
     let mut namespaces = Vec::new();
@@ -417,8 +420,8 @@ impl<M: SyncModel> CausalReplica<M> {
             digest,
         )?;
         if let Some(candidate) = added.first() {
-            let mut context = sync::causal::Context::default();
-            context.insert(sync::causal::Dot::new(
+            let mut context = Context::default();
+            context.insert(causal::Dot::new(
                 candidate.dot.writer_incarnation,
                 candidate.dot.counter,
             )?)?;
@@ -621,9 +624,9 @@ impl<M: SyncModel> CausalReplica<M> {
             }
         }
         let before = winner(&self.key_candidates_on(tx, &delta.key).await?)?;
-        let mut observed = sync::causal::Context::default();
+        let mut observed = Context::default();
         for dot in &delta.removed {
-            observed.insert(sync::causal::Dot::new(dot.writer_incarnation, dot.counter)?)?;
+            observed.insert(causal::Dot::new(dot.writer_incarnation, dot.counter)?)?;
         }
         let merge = protocol::MergeDelta {
             collection: delta.key.collection.clone(),
@@ -952,15 +955,13 @@ impl<M: SyncModel> CausalReplica<M> {
             .and_where(Expr::col(Alias::new("object")).eq(key.id.as_bytes().to_vec()))
             .and_where(Expr::col(Alias::new("live_from")).is_not_null())
             .and_where(Expr::col(Alias::new("live_until")).is_null())
-            .order_by(Alias::new("writer"), sea_orm::sea_query::Order::Asc)
-            .order_by(Alias::new("counter"), sea_orm::sea_query::Order::Asc)
+            .order_by(Alias::new("writer"), Order::Asc)
+            .order_by(Alias::new("counter"), Order::Asc)
             .limit(1025)
             .to_owned();
-        let rows = crate::causal_candidates::CandidateRow::find_by_statement(
-            db.get_database_backend().build(&q),
-        )
-        .all(db)
-        .await?;
+        let rows = CandidateRow::find_by_statement(db.get_database_backend().build(&q))
+            .all(db)
+            .await?;
         ensure!(rows.len() <= 1024, protocol::SyncError::WorkLimit);
         let mut candidates = Vec::with_capacity(rows.len());
         let mut bytes = 0_usize;
@@ -1025,7 +1026,7 @@ impl<M: SyncModel> CausalReplica<M> {
         if let Some(id) = after {
             q.and_where(Expr::col(Alias::new("object")).gt(id.as_bytes().to_vec()));
         }
-        q.order_by(Alias::new("object"), sea_orm::sea_query::Order::Asc)
+        q.order_by(Alias::new("object"), Order::Asc)
             .limit(u64::from(limits.max_scanned) + 1);
         let rows = tx.query_all(&q.to_owned()).await?;
         let mut records = Vec::new();
@@ -1169,7 +1170,7 @@ impl<M: SyncModel> CausalReplica<M> {
             .and_where(
                 Expr::col(Alias::new("sequence")).lte(i64::try_from(request.through.sequence)?),
             )
-            .order_by(Alias::new("sequence"), sea_orm::sea_query::Order::Asc)
+            .order_by(Alias::new("sequence"), Order::Asc)
             .limit(u64::from(request.limits.max_scanned))
             .to_owned();
         let rows = tx.query_all(&q).await?;
@@ -1447,8 +1448,7 @@ impl<M: SyncModel> CausalReplica<M> {
             );
             protocol::validate_candidate(candidate)?;
             keys.insert(candidate.key.id);
-            let dot =
-                sync::causal::Dot::new(candidate.dot.writer_incarnation, candidate.dot.counter)?;
+            let dot = causal::Dot::new(candidate.dot.writer_incarnation, candidate.dot.counter)?;
             context.insert(dot)?;
             let q = Query::select()
                 .columns(["object", "body"].map(Alias::new))

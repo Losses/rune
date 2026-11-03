@@ -8,6 +8,7 @@ use sea_orm::{
     sea_query::{Alias, Condition, Expr, Func, Order, Query},
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use sync::protocol::{self, KeyRange, SyncModel, WorkLimits};
 use uuid::Uuid;
 
@@ -365,7 +366,7 @@ async fn scan_candidate_batch_on<M: SyncModel>(
         .await?;
         used.rows += u64::try_from(count)?;
         used.bytes += body_bytes;
-        let mut body_map = std::collections::BTreeMap::new();
+        let mut body_map = BTreeMap::new();
         for body in bodies {
             ensure!(
                 body_map

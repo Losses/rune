@@ -1,6 +1,7 @@
+use support::fixtures;
+
 #[path = "support/causal_library.rs"]
 mod support;
-
 use anyhow::Result;
 use database::{
     actions::{mixes::create_mix, playlists},
@@ -8,10 +9,7 @@ use database::{
         media_file_playlists, media_files, mix_queries, mix_queries::Column,
         playlists as playlist_rows, playlists::Column as PlaylistsColumn,
     },
-    sync::{
-        LibrarySyncStore,
-        model::{Collection, Scope},
-    },
+    sync::model::{Collection, Scope},
 };
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, EntityTrait, PaginatorTrait, QueryFilter, Set};
@@ -23,11 +21,10 @@ async fn commands_publish_playlist_and_occurrence_removals() -> Result<()> {
     let peer_db = Database::connect("sqlite::memory:").await?;
     let node = Uuid::new_v4();
     let ns = Uuid::new_v4();
-    let _ = migration::initialize_node_id(node.to_string());
-    Migrator::up(&db, None).await?;
+    fixtures::migrate(&db, node).await?;
     Migrator::up(&peer_db, None).await?;
-    let a = LibrarySyncStore::open(db.clone(), node, Some(ns)).await?;
-    let b = LibrarySyncStore::open(peer_db.clone(), Uuid::new_v4(), Some(ns)).await?;
+    let a = fixtures::open_library(db.clone(), node, Some(ns)).await?;
+    let b = fixtures::open_library(peer_db.clone(), Uuid::new_v4(), Some(ns)).await?;
     let file = Uuid::new_v4();
     for conn in [&db, &peer_db] {
         media_files::Entity::insert(media_files::ActiveModel {
@@ -148,10 +145,9 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
     use sea_orm::{ColumnTrait, QueryOrder, Set, sea_query::Expr};
     let db = Database::connect("sqlite::memory:").await?;
     let actor = Uuid::new_v4();
-    let _ = migration::initialize_node_id(actor.to_string());
-    Migrator::up(&db, None).await?;
+    fixtures::migrate(&db, actor).await?;
     let root = tempfile::tempdir()?;
-    let store = LibrarySyncStore::open(db.clone(), actor, Some(Uuid::new_v4())).await?;
+    let store = fixtures::open_library(db.clone(), actor, Some(Uuid::new_v4())).await?;
     let file = media_files::Entity::insert(media_files::ActiveModel {
         file_name: Set("remote.flac".into()),
         directory: Set(String::new()),
@@ -271,7 +267,7 @@ async fn occurrence_cursor_preserves_duplicates_and_commands_address_one_uuid() 
 
     let peer_db = Database::connect("sqlite::memory:").await?;
     Migrator::up(&peer_db, None).await?;
-    let peer = LibrarySyncStore::open(
+    let peer = fixtures::open_library(
         peer_db.clone(),
         Uuid::new_v4(),
         Some(record_store.namespace()),

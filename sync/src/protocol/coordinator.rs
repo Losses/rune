@@ -1291,6 +1291,7 @@ impl<M: SyncModel> Coordinator<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct Test;
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -1333,7 +1334,7 @@ mod tests {
             replica: Uuid::from_u128(2),
             generation: Uuid::from_u128(3),
         };
-        let store = std::sync::Arc::new(
+        let store = Arc::new(
             MemorySyncStore::<Test>::new(
                 identity,
                 LocalAuthor {

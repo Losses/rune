@@ -1014,6 +1014,7 @@ mod traversal_tests {
 mod metadata_tests {
     use super::*;
     use p::{ReceiveStore, SnapshotSource, SyncStore};
+    use tokio::net::TcpListener;
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct Model;
@@ -1087,7 +1088,7 @@ mod metadata_tests {
         }
     }
     async fn serve(router: Router) -> (MetadataPeer<Model>, tokio::task::JoinHandle<()>) {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let task = tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();

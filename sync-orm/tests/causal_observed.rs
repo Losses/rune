@@ -1,10 +1,14 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
+
 use anyhow::Result;
 use sea_orm::{
-    ConnectionTrait, Database, ExprTrait, TransactionTrait,
+    ConnectionTrait, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
 use sync::causal::{Context, Dot};
-use sync_orm::{causal_observed as observed, causal_schema};
+use sync::protocol::SyncError;
+use sync_orm::causal_observed as observed;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,8 +41,7 @@ impl sync::protocol::SyncModel for Notes {
 
 #[tokio::test]
 async fn reclaim_preserves_pinned_observed_versions() -> Result<()> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let writer = Uuid::new_v4();
     sync_orm::causal_store::CausalReplica::<Notes>::create_empty(db.clone(), ns, Uuid::new_v4())
@@ -113,8 +116,7 @@ async fn reclaim_preserves_pinned_observed_versions() -> Result<()> {
 
 #[tokio::test]
 async fn insert_budget_rolls_back_a_two_interval_merge() -> Result<()> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let writer = Uuid::new_v4();
     let tx = db.begin().await?;
@@ -132,7 +134,7 @@ async fn insert_budget_rolls_back_a_two_interval_merge() -> Result<()> {
         .unwrap_err();
     assert!(matches!(
         error.downcast_ref::<sync::protocol::SyncError>(),
-        Some(sync::protocol::SyncError::WorkLimit)
+        Some(SyncError::WorkLimit)
     ));
     tx.rollback().await?;
     let tx = db.begin().await?;
@@ -146,8 +148,7 @@ async fn insert_budget_rolls_back_a_two_interval_merge() -> Result<()> {
 
 #[tokio::test]
 async fn observed_rows_are_versioned_and_canonical() -> Result<()> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let writer = Uuid::new_v4();
     let tx = db.begin().await?;
@@ -185,8 +186,7 @@ async fn observed_rows_are_versioned_and_canonical() -> Result<()> {
 
 #[tokio::test]
 async fn observed_terminal_interval_and_same_state_union() -> Result<()> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let writer = Uuid::new_v4();
     let tx = db.begin().await?;

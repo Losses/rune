@@ -4,10 +4,12 @@ use database::{
     sync::model::BlobRef,
 };
 use fsio::FsIo;
+use std::time::Duration;
 use std::{
     io::Write,
     path::{Path, PathBuf},
 };
+use tokio::runtime::Handle;
 use uuid::Uuid;
 struct TempFile {
     fsio: FsIo,
@@ -17,7 +19,7 @@ impl Drop for TempFile {
     fn drop(&mut self) {
         let fsio = self.fsio.clone();
         let path = self.path.clone();
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        if let Ok(handle) = Handle::try_current() {
             handle.spawn(async move {
                 let _ = fsio.remove_file(&path).await;
             });
@@ -89,7 +91,7 @@ async fn download_to_path(
     };
     let result = async {
         let mut response = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
+            Duration::from_secs(30),
             client
                 .get(format!(
                     "{}/sync/blobs/{}",
@@ -107,10 +109,9 @@ async fn download_to_path(
         let mut output = fsio.open(&temp.path, "wt")?;
         let mut size = 0u64;
         let mut hash = blake3::Hasher::new();
-        while let Some(chunk) =
-            tokio::time::timeout(std::time::Duration::from_secs(30), response.chunk())
-                .await
-                .context("blob transfer stalled")??
+        while let Some(chunk) = tokio::time::timeout(Duration::from_secs(30), response.chunk())
+            .await
+            .context("blob transfer stalled")??
         {
             size = size
                 .checked_add(chunk.len() as u64)

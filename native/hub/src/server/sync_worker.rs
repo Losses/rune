@@ -1,3 +1,6 @@
+use super::sync::client::LibrarySession;
+use super::sync::client::fetch_missing;
+use super::sync::downloads::download_requested_audio_until;
 use super::sync::http::SharedLibrary;
 use super::sync_auth::{Authorization, Challenge, Token, message};
 use crate::utils::GlobalParams;
@@ -5,14 +8,24 @@ use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, materialized_path, resolve_local_id};
 use database::actions::library::clean_local_orphans;
+use database::sync::Maintenance;
 use database::sync::model::RuneModel;
 use discovery::server::UserStatus;
+use http_request::sync::PageCursor;
 use rand::rngs::OsRng;
+use reqwest::header::HeaderMap;
+use reqwest::redirect::Policy;
 use rsa::{Pss, RsaPrivateKey, pkcs8::DecodePrivateKey};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use sha2::{Digest, Sha256};
+use std::path::Path;
+use std::time as std_time;
 use std::{sync::Arc, time::Duration};
 use sync::SyncPeer;
+use sync::protocol::SyncError;
+use tokio::sync::Mutex;
+use tokio::time as tokio_time;
+use tokio::time::MissedTickBehavior;
 
 const DEFAULT_PEER_PORT: u16 = 7863;
 const PEER_CONCURRENCY: usize = 4;
@@ -94,7 +107,7 @@ type ReplicaLocks = Arc<
 >;
 
 struct PeerSession {
-    session: Option<super::sync::client::LibrarySession>,
+    session: Option<LibrarySession>,
     client: Option<(String, reqwest::Client)>,
     identity: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid)>,
     artwork_cursor: http_request::sync::PageCursor,
@@ -112,8 +125,8 @@ impl Default for PeerSession {
             session: None,
             client: None,
             identity: None,
-            artwork_cursor: http_request::sync::PageCursor::default(),
-            last_used: std::time::Instant::now(),
+            artwork_cursor: PageCursor::default(),
+            last_used: std_time::Instant::now(),
         }
     }
 }
@@ -161,9 +174,9 @@ async fn maintain_metadata(
     db: Arc<database::connection::MainDbConnection>,
     cancel: tokio_util::sync::CancellationToken,
 ) {
-    let mut maintenance = database::sync::Maintenance::default();
+    let mut maintenance = Maintenance::default();
     let mut interval = tokio::time::interval(Duration::from_secs(5));
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! { _ = cancel.cancelled() => return, _ = interval.tick() => () }
         for _ in 0..32 {
@@ -192,12 +205,12 @@ async fn verify_managed_audio(
 ) {
     let mut verifier = ManagedAudioVerifier::default();
     let mut interval = tokio::time::interval(Duration::from_secs(1));
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! { _ = cancel.cancelled() => return, _ = interval.tick() => {} }
         let result = tokio::select! {
             _ = cancel.cancelled() => return,
-            result = verifier.step(&global.main_db, &global.fsio, std::path::Path::new(&*global.lib_path), 4 * 1024 * 1024) => result,
+            result = verifier.step(&global.main_db, &global.fsio, Path::new(&*global.lib_path), 4 * 1024 * 1024) => result,
         };
         match result {
             Ok(step) if step.invalidated => notify(),
@@ -314,7 +327,7 @@ async fn schedule_peers<P, D, DF, W, WF, K, C, CF>(
     let mut running = HashSet::new();
     let mut tasks = FuturesUnordered::new();
     let mut tick = tokio::time::interval(Duration::from_secs(1));
-    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut next_due = None;
     loop {
         tokio::select! {
@@ -407,11 +420,11 @@ async fn sync_one(
             );
             locks
                 .entry(endpoint.fingerprint.clone())
-                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(PeerSession::default())))
+                .or_insert_with(|| Arc::new(Mutex::new(PeerSession::default())))
                 .clone()
         };
         let mut state = lock.lock().await;
-        state.last_used = std::time::Instant::now();
+        state.last_used = std_time::Instant::now();
         let expected_base = if endpoint.host.contains(':') {
             format!("https://[{}]:{}", endpoint.host, endpoint.port)
         } else {
@@ -470,7 +483,7 @@ async fn sync_one(
             local.namespace == remote.namespace,
             "paired catalog namespace mismatch"
         );
-        let report = super::sync::downloads::download_requested_audio_until(
+        let report = download_requested_audio_until(
             (*global.main_db).clone(),
             &global.recommend_db,
             global.fsio.clone(),
@@ -478,7 +491,7 @@ async fn sync_one(
             global.node_id.parse()?,
             &peer,
             notify.clone(),
-            tokio::time::Instant::now() + Duration::from_secs(60),
+            tokio_time::Instant::now() + Duration::from_secs(60),
         )
         .await?;
         Ok(!report.deadline_reached)
@@ -489,7 +502,7 @@ fn metadata_unauthorized(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         cause
             .downcast_ref::<sync::protocol::SyncError>()
-            .is_some_and(|error| matches!(error, sync::protocol::SyncError::Unauthorized))
+            .is_some_and(|error| matches!(error, SyncError::Unauthorized))
             || cause
                 .downcast_ref::<reqwest::Error>()
                 .is_some_and(|error| error.status() == Some(reqwest::StatusCode::UNAUTHORIZED))
@@ -514,13 +527,11 @@ async fn metadata_pass(
     let identity = (remote.namespace, remote.replica, remote.generation);
     if state.identity != Some(identity) {
         state.session = None;
-        state.artwork_cursor = http_request::sync::PageCursor::default();
+        state.artwork_cursor = PageCursor::default();
         state.identity = Some(identity);
     }
     if state.session.is_none() {
-        state.session = Some(super::sync::client::LibrarySession::new(
-            library.0.read().await.clone(),
-        )?);
+        state.session = Some(LibrarySession::new(library.0.read().await.clone())?);
     }
     let complete = state
         .session
@@ -530,8 +541,8 @@ async fn metadata_pass(
         .await?;
     if complete {
         state.session = None;
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        let (attached, _) = super::sync::client::fetch_missing(
+        let deadline = tokio_time::Instant::now() + Duration::from_secs(10);
+        let (attached, _) = fetch_missing(
             &global.main_db,
             &library.0.read().await.record_store(),
             base,
@@ -544,7 +555,7 @@ async fn metadata_pass(
             notify();
         }
         if state.artwork_cursor.is_complete() {
-            state.artwork_cursor = http_request::sync::PageCursor::default();
+            state.artwork_cursor = PageCursor::default();
             return Ok(true);
         }
     }
@@ -577,7 +588,7 @@ pub(super) async fn authenticated_client(
         .use_preconfigured_tls(tls)
         .connect_timeout(Duration::from_secs(10))
         .read_timeout(Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::none())
+        .redirect(Policy::none())
         .build()?;
     let challenge: Challenge =
         bounded_json(client.get(format!("{base}/sync/challenge")).send().await?).await?;
@@ -600,7 +611,7 @@ pub(super) async fn authenticated_client(
             .await?,
     )
     .await?;
-    let mut headers = reqwest::header::HeaderMap::new();
+    let mut headers = HeaderMap::new();
     headers.insert(
         reqwest::header::AUTHORIZATION,
         format!("Bearer {}", token.token).parse()?,
@@ -611,7 +622,7 @@ pub(super) async fn authenticated_client(
         .default_headers(headers)
         .connect_timeout(Duration::from_secs(10))
         .read_timeout(Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::none())
+        .redirect(Policy::none())
         .build()?;
     Ok((base, client))
 }
@@ -787,16 +798,21 @@ impl playback::player::AudioRequest for RenewableAudio {
 mod tests {
 
     use super::*;
+    use axum::http::StatusCode;
     use database::sync::model::RuneModel;
+    use tokio::net::TcpListener;
+    use tokio::net::TcpStream;
+    use tokio::sync::Notify;
     use tokio::sync::oneshot;
+    use tokio_util::sync::CancellationToken;
 
     #[tokio::test]
     async fn newly_due_peer_runs_while_another_is_stalled() {
         use std::sync::atomic::{AtomicBool, Ordering};
         let available = Arc::new(AtomicBool::new(false));
-        let started = Arc::new(tokio::sync::Notify::new());
-        let second = Arc::new(tokio::sync::Notify::new());
-        let cancel = tokio_util::sync::CancellationToken::new();
+        let started = Arc::new(Notify::new());
+        let second = Arc::new(Notify::new());
+        let cancel = CancellationToken::new();
         let worker = tokio::spawn({
             let available = available.clone();
             let started = started.clone();
@@ -846,9 +862,9 @@ mod tests {
     async fn metadata_unauthorized_is_distinct_from_other_failures() {
         let app = axum::Router::new().route(
             "/sync/metadata",
-            axum::routing::post(|| async { axum::http::StatusCode::UNAUTHORIZED }),
+            axum::routing::post(|| async { StatusCode::UNAUTHORIZED }),
         );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let peer =
@@ -880,7 +896,7 @@ mod tests {
     #[tokio::test]
     async fn audio_range_requires_expected_status_and_content_range() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             for response in [
@@ -912,12 +928,12 @@ mod tests {
     #[tokio::test]
     async fn blocked_audio_does_not_stop_independent_metadata_worker() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let audio_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let metadata_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let audio_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let metadata_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let audio_addr = audio_listener.local_addr().unwrap();
         let metadata_addr = metadata_listener.local_addr().unwrap();
-        let cancel = tokio_util::sync::CancellationToken::new();
-        let audio_started = Arc::new(tokio::sync::Notify::new());
+        let cancel = CancellationToken::new();
+        let audio_started = Arc::new(Notify::new());
         let audio_server = tokio::spawn({
             let cancel = cancel.clone();
             async move {
@@ -934,7 +950,7 @@ mod tests {
             let cancel = cancel.clone();
             let audio_started = audio_started.clone();
             async move {
-                let mut stream = tokio::net::TcpStream::connect(audio_addr).await.unwrap();
+                let mut stream = TcpStream::connect(audio_addr).await.unwrap();
                 audio_started.notify_one();
                 let mut byte = [0];
                 tokio::select! { _ = cancel.cancelled() => {}, _ = stream.read_exact(&mut byte) => panic!("audio stream should remain stalled") }
@@ -944,7 +960,7 @@ mod tests {
             let audio_started = audio_started.clone();
             async move {
                 audio_started.notified().await;
-                let mut stream = tokio::net::TcpStream::connect(metadata_addr).await.unwrap();
+                let mut stream = TcpStream::connect(metadata_addr).await.unwrap();
                 let mut bytes = [0; 2];
                 stream.read_exact(&mut bytes).await.unwrap();
                 done_tx.send(bytes).unwrap();
@@ -1096,7 +1112,7 @@ async fn resolve_materialized_path(
     materialized_path(
         params.main_db.as_ref(),
         &params.fsio,
-        std::path::Path::new(params.lib_path.as_str()),
+        Path::new(params.lib_path.as_str()),
         id,
     )
     .await

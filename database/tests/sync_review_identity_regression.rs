@@ -1,39 +1,33 @@
+use support::fixtures;
+use sync::protocol::SyncError;
 #[path = "support/causal_library.rs"]
 mod support;
-
 use anyhow::Result;
 use database::{
     actions::{metadata::scan_audio_file, stats::set_liked},
     entities::media_files,
-    sync::{
-        LibrarySyncStore,
-        model::{Collection, Liked, ObjectKey, Payload, RuneObjectKey, Scope},
-    },
+    sync::model::{Collection, Liked, ObjectKey, Payload, RuneObjectKey, Scope},
 };
 use fsio::FsIo;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, EntityTrait};
 use std::sync::Arc;
-
 use uuid::Uuid;
 
 #[tokio::test]
 async fn new_node_opening_portable_library_can_publish_existing_state() -> Result<()> {
     let root = tempfile::tempdir()?;
     let database_path = root.path().join("library.db");
-    std::fs::File::create(&database_path)?;
     let url = format!("sqlite://{}", database_path.display());
-    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/startup_0.ogg");
+    let fixture = fixtures::audio_fixture();
     let audio = root.path().join("source.ogg");
     std::fs::copy(fixture, &audio)?;
-    let db = Database::connect(&url).await?;
     let node_a = Uuid::new_v4();
+    let db = fixtures::disk_database(&database_path, node_a).await?;
     let node_b = Uuid::new_v4();
     let library = Uuid::new_v4();
     let fsio = Arc::new(FsIo::new());
-    let _ = migration::initialize_node_id(node_a.to_string());
-    Migrator::up(&db, None).await?;
-    let node_a_store = LibrarySyncStore::open(db.clone(), node_a, Some(library)).await?;
+    let node_a_store = fixtures::open_library(db.clone(), node_a, Some(library)).await?;
     let file = scan_audio_file(
         &fsio,
         &db,
@@ -67,7 +61,7 @@ async fn new_node_opening_portable_library_can_publish_existing_state() -> Resul
     db.close().await?;
 
     let db = Database::connect(&url).await?;
-    let node_b_store = Arc::new(LibrarySyncStore::open(db, node_b, Some(library)).await?);
+    let node_b_store = Arc::new(fixtures::open_library(db, node_b, Some(library)).await?);
     let head_b = node_b_store.head().await?;
     let b_track = node_b_store.get(&track_key).await?;
     let b_like = node_b_store.get(&like_key).await?;
@@ -129,13 +123,10 @@ async fn copied_library_with_distinct_actors_is_rejected_as_same_replica() -> Re
     let _ = migration::initialize_node_id(actor_a.to_string());
     let db = Database::connect(&a_url).await?;
     Migrator::up(&db, None).await?;
-    let initial = LibrarySyncStore::open(db.clone(), actor_a, Some(namespace)).await?;
+    let initial = fixtures::open_library(db.clone(), actor_a, Some(namespace)).await?;
     let fsio = FsIo::new();
     let audio = root.path().join("source.ogg");
-    std::fs::copy(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/startup_0.ogg"),
-        &audio,
-    )?;
+    std::fs::copy(fixtures::audio_fixture(), &audio)?;
     let file = scan_audio_file(
         &fsio,
         &db,
@@ -159,8 +150,8 @@ async fn copied_library_with_distinct_actors_is_rejected_as_same_replica() -> Re
     std::fs::copy(&a_path, &b_path)?;
     let a_db = Database::connect(&a_url).await?;
     let b_db = Database::connect(&b_url).await?;
-    let a = LibrarySyncStore::open(a_db.clone(), actor_a, Some(namespace)).await?;
-    let b = LibrarySyncStore::open(b_db.clone(), actor_b, Some(namespace)).await?;
+    let a = fixtures::open_library(a_db.clone(), actor_a, Some(namespace)).await?;
+    let b = fixtures::open_library(b_db.clone(), actor_b, Some(namespace)).await?;
     let a_identity = a.identity().await?;
     let b_identity = b.identity().await?;
     assert_eq!(a_identity.replica, b_identity.replica);
@@ -176,7 +167,7 @@ async fn copied_library_with_distinct_actors_is_rejected_as_same_replica() -> Re
     let c_path = root.path().join("c.db");
     let c_db = Database::connect(format!("sqlite://{}?mode=rwc", c_path.display())).await?;
     Migrator::up(&c_db, None).await?;
-    let c = LibrarySyncStore::open(c_db.clone(), Uuid::new_v4(), Some(namespace)).await?;
+    let c = fixtures::open_library(c_db.clone(), Uuid::new_v4(), Some(namespace)).await?;
     let a_peer: support::Peer = Arc::new(a.endpoint());
     let b_peer: support::Peer = Arc::new(b.endpoint());
     let scope = Scope {
@@ -201,7 +192,7 @@ async fn copied_library_with_distinct_actors_is_rejected_as_same_replica() -> Re
     assert!(
         matches!(
             error.downcast_ref::<sync::protocol::SyncError>(),
-            Some(sync::protocol::SyncError::IncompatibleModel)
+            Some(SyncError::IncompatibleModel)
         ),
         "unexpected rejection: {error:#}"
     );

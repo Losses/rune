@@ -1,9 +1,12 @@
 //! Transaction-bound durable source/build pins for the causal storage layout.
 //! These primitives do not implement snapshot construction or compaction.
+use sea_orm::sea_query::Condition;
+use sea_orm::sea_query::Order;
 use sea_orm::{
     ConnectionTrait, DatabaseTransaction, DbErr, ExprTrait, FromQueryResult,
     sea_query::{Alias, Expr, Func, Query},
 };
+use sync::protocol::SyncError;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, FromQueryResult)]
@@ -306,7 +309,7 @@ pub async fn revoke_on(tx: &DatabaseTransaction, ns: Uuid, id: Uuid) -> Result<(
         .value(Alias::new("descriptor"), Option::<Vec<u8>>::None)
         .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
         .cond_where(
-            sea_orm::sea_query::Condition::any()
+            Condition::any()
                 .add(Expr::col(Alias::new("id")).eq(id.as_bytes().to_vec()))
                 .add(Expr::col(Alias::new("parent_lease")).eq(id.as_bytes().to_vec())),
         )
@@ -337,15 +340,15 @@ pub(crate) async fn reserve_child_on(
         .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
         .and_where(Expr::col(Alias::new("status")).ne(2))
         .and_where(Expr::col(Alias::new("expires_at_ms")).gt(now_ms))
-        .order_by(Alias::new("status"), sea_orm::sea_query::Order::Desc)
-        .order_by(Alias::new("id"), sea_orm::sea_query::Order::Asc)
+        .order_by(Alias::new("status"), Order::Desc)
+        .order_by(Alias::new("id"), Order::Asc)
         .limit(33)
         .to_owned();
     let rows = tx.query_all(&q).await?;
     let mut count = rows.len();
     let needed = count.saturating_sub(15);
     if needed as u64 > max_evictions {
-        return Err(sync::protocol::SyncError::LimitTooSmall {
+        return Err(SyncError::LimitTooSmall {
             required: needed as u64 + 3,
         }
         .into());
@@ -355,7 +358,7 @@ pub(crate) async fn reserve_child_on(
         .filter(|row| row.try_get_by_index::<i64>(1).ok() == Some(3))
         .count();
     if cached < needed {
-        return Err(sync::protocol::SyncError::StageQuota.into());
+        return Err(SyncError::StageQuota.into());
     }
     for row in &rows {
         if count < 16 {
@@ -375,7 +378,7 @@ pub(crate) async fn reserve_child_on(
         count -= 1;
     }
     if count >= 16 {
-        return Err(sync::protocol::SyncError::StageQuota.into());
+        return Err(SyncError::StageQuota.into());
     }
     Ok(())
 }
@@ -453,8 +456,8 @@ pub async fn revoke_expired_on(
         .and_where(Expr::col(Alias::new("namespace")).eq(namespace(ns)))
         .and_where(Expr::col(Alias::new("status")).ne(2))
         .and_where(Expr::col(Alias::new("expires_at_ms")).lte(now_ms))
-        .order_by(Alias::new("expires_at_ms"), sea_orm::sea_query::Order::Asc)
-        .order_by(Alias::new("id"), sea_orm::sea_query::Order::Asc)
+        .order_by(Alias::new("expires_at_ms"), Order::Asc)
+        .order_by(Alias::new("id"), Order::Asc)
         .limit(limit)
         .to_owned();
     let rows = tx.query_all(&select).await?;

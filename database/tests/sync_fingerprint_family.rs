@@ -1,6 +1,7 @@
+use std::path::Path;
+use support::fixtures;
 #[path = "support/causal_library.rs"]
 mod support;
-
 use anyhow::Result;
 use database::{
     actions::fingerprint::{
@@ -12,18 +13,13 @@ use database::{
         model::{Fingerprint, ScoreValue, Similarity},
     },
 };
-use migration::{Migrator, MigratorTrait};
-use sea_orm::{
-    ColumnTrait, ConnectionTrait, Database, EntityTrait, QueryFilter, Set, sea_query::Expr,
-};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, sea_query::Expr};
 use uuid::Uuid;
 
 #[tokio::test]
 async fn fingerprint_source_change_and_failed_journal_leave_no_assignment() -> Result<()> {
     let node = Uuid::new_v4();
-    let _ = migration::initialize_node_id(node.to_string());
-    let db = Database::connect("sqlite::memory:").await?;
-    Migrator::up(&db, None).await?;
+    let db = fixtures::memory_database(node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let file_id = Uuid::new_v4();
     support::local_file(&db, 1, file_id, "file").await?;
@@ -132,9 +128,7 @@ async fn independent_configurations_coexist_in_primary_rows() -> Result<()> {
     };
     use sea_orm::TransactionTrait;
     let node = Uuid::new_v4();
-    let _ = migration::initialize_node_id(node.to_string());
-    let db = Database::connect("sqlite::memory:").await?;
-    Migrator::up(&db, None).await?;
+    let db = fixtures::memory_database(node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let first = Uuid::new_v4();
     let second = Uuid::new_v4();
@@ -248,9 +242,7 @@ async fn independent_configurations_coexist_in_primary_rows() -> Result<()> {
 async fn legacy_fingerprint_does_not_block_supported_assignment() -> Result<()> {
     use database::actions::fingerprint::current_fingerprint;
     let node = Uuid::new_v4();
-    let _ = migration::initialize_node_id(node.to_string());
-    let db = Database::connect("sqlite::memory:").await?;
-    Migrator::up(&db, None).await?;
+    let db = fixtures::memory_database(node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let file_id = Uuid::new_v4();
     let legacy = migration::catalog_identity::fingerprint(file_id, None, None, None);
@@ -326,9 +318,7 @@ async fn duplicate_filter_uses_supported_current_identity_once() -> Result<()> {
         connection::RecommendationDbConnection,
     };
     let node = Uuid::new_v4();
-    let _ = migration::initialize_node_id(node.to_string());
-    let db = Database::connect("sqlite::memory:").await?;
-    Migrator::up(&db, None).await?;
+    let db = fixtures::memory_database(node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let first = Uuid::new_v4();
     let second = Uuid::new_v4();
@@ -392,9 +382,7 @@ async fn attach_download_accepts_symlinked_root() -> Result<()> {
     use fsio::FsIo;
     use std::os::unix::fs::symlink;
     let node = Uuid::new_v4();
-    let _ = migration::initialize_node_id(node.to_string());
-    let db = Database::connect("sqlite::memory:").await?;
-    Migrator::up(&db, None).await?;
+    let db = fixtures::memory_database(node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let id = Uuid::new_v4();
     support::local_file(&db, 1, id, "file").await?;
@@ -427,7 +415,7 @@ async fn attach_download_accepts_symlinked_root() -> Result<()> {
     attach_download(&db, &store, &fs, &root, id, &blob, &path).await?;
     let row = media_files::Entity::find_by_id(1).one(&db).await?.unwrap();
     assert!(row.local_available);
-    assert!(!std::path::Path::new(&row.directory).is_absolute());
+    assert!(!Path::new(&row.directory).is_absolute());
     assert_eq!(actual.join(&row.directory).join(&row.file_name), path);
     Ok(())
 }
@@ -437,9 +425,7 @@ async fn oversized_fingerprint_is_local_only() -> Result<()> {
     use database::sync::model::{Collection, ObjectKey};
     use sea_orm::TransactionTrait;
     let node = Uuid::new_v4();
-    let _ = migration::initialize_node_id(node.to_string());
-    let db = Database::connect("sqlite::memory:").await?;
-    Migrator::up(&db, None).await?;
+    let db = fixtures::memory_database(node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let file_id = Uuid::new_v4();
     support::local_file(&db, 1, file_id, "file").await?;
@@ -526,16 +512,11 @@ async fn oversized_fingerprint_is_local_only() -> Result<()> {
 
 #[tokio::test]
 async fn import_existing_skips_oversized_fingerprint() -> Result<()> {
-    use database::sync::{
-        LibrarySyncStore,
-        model::{Collection, ObjectKey},
-    };
+    use database::sync::model::{Collection, ObjectKey};
     use sea_orm::TransactionTrait;
     let node = Uuid::new_v4();
-    let _ = migration::initialize_node_id(node.to_string());
-    let db = Database::connect("sqlite::memory:").await?;
-    Migrator::up(&db, None).await?;
-    let library = LibrarySyncStore::open(db.clone(), node, Some(Uuid::new_v4())).await?;
+    let db = fixtures::memory_database(node).await?;
+    let library = fixtures::open_library(db.clone(), node, Some(Uuid::new_v4())).await?;
     let mut keys = Vec::new();
     for (n, size) in [(1, 40000), (2, 4)] {
         let id = Uuid::new_v4();

@@ -118,6 +118,7 @@ impl Raster {
 
 #[cfg(test)]
 mod tests {
+    use std::ptr::NonNull;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use objc2_core_foundation::CFGetRetainCount;
@@ -169,7 +170,7 @@ mod tests {
         let first = copy(&texture);
         assert!(!first.is_null());
         // SAFETY: the engine's side of the contract: it owns the returned reference.
-        let first = unsafe { CFRetained::from_raw(std::ptr::NonNull::new(first).unwrap()) };
+        let first = unsafe { CFRetained::from_raw(NonNull::new(first).unwrap()) };
         // Ours and the texture's (the frame it hands over again); the pool does not count it while
         // it is in use.
         assert_eq!(CFGetRetainCount(Some(&first)), 2);
@@ -179,7 +180,7 @@ mod tests {
         assert_eq!(again, CFRetained::as_ptr(&first).as_ptr());
         assert_eq!(CFGetRetainCount(Some(&first)), 3);
         // SAFETY: as above.
-        drop(unsafe { CFRetained::from_raw(std::ptr::NonNull::new(again).unwrap()) });
+        drop(unsafe { CFRetained::from_raw(NonNull::new(again).unwrap()) });
         assert_eq!(CFGetRetainCount(Some(&first)), 2);
 
         // A new frame replaces the texture's reference to the old one.
@@ -188,7 +189,7 @@ mod tests {
         assert_ne!(second, CFRetained::as_ptr(&first).as_ptr());
         assert_eq!(CFGetRetainCount(Some(&first)), 1);
         // SAFETY: as above.
-        drop(unsafe { CFRetained::from_raw(std::ptr::NonNull::new(second).unwrap()) });
+        drop(unsafe { CFRetained::from_raw(NonNull::new(second).unwrap()) });
         assert!(lock(&source.failures).is_empty());
     }
 }

@@ -436,11 +436,12 @@ mod tests {
     use crate::buffered::rune_buffered;
     use std::fs::File;
     use std::io::BufReader;
+    use std::path::Path;
 
     #[test]
     fn test_decode_and_seek_opus() {
         let path = "/tmp/test_startup.opus";
-        if !std::path::Path::new(path).exists() {
+        if !Path::new(path).exists() {
             return;
         }
 
@@ -488,7 +489,7 @@ mod tests {
     #[test]
     fn test_decode_and_seek_aac() {
         let path = "/tmp/test_startup.m4a";
-        if !std::path::Path::new(path).exists() {
+        if !Path::new(path).exists() {
             return;
         }
 
@@ -536,7 +537,7 @@ mod tests {
     #[test]
     fn test_buffered_decodes_past_first_packet() {
         let path = "../assets/startup_0.ogg";
-        if !std::path::Path::new(path).exists() {
+        if !Path::new(path).exists() {
             return;
         }
 
@@ -557,7 +558,7 @@ mod tests {
     #[test]
     fn test_decode_vorbis() {
         let path = "../assets/startup_0.ogg";
-        if !std::path::Path::new(path).exists() {
+        if !Path::new(path).exists() {
             return;
         }
 

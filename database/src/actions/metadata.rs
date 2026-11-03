@@ -10,6 +10,8 @@ use crate::entities::{
     sync_download_jobs, sync_download_jobs::Column,
 };
 use sea_orm::ExprTrait;
+use sea_orm::sqlx::Error;
+use std::collections::HashSet;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -60,12 +62,12 @@ pub async fn get_existing_files_modified(
     file_keys: Vec<(String, String)>, // (directory, file_name)
 ) -> Result<std::collections::HashMap<(String, String), String>> {
     if file_keys.is_empty() {
-        return Ok(std::collections::HashMap::new());
+        return Ok(HashMap::new());
     }
 
     // Split into chunks to avoid SQL query size limits
     let chunk_size = 500;
-    let mut result = std::collections::HashMap::new();
+    let mut result = HashMap::new();
 
     for chunk in file_keys.chunks(chunk_size) {
         let mut conditions = sea_orm::Condition::any();
@@ -139,7 +141,7 @@ pub(crate) fn is_fatal_scan_error(error: &anyhow::Error) -> bool {
             sea_orm::DbErr::Custom(_) => false,
             sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(error))
             | sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(error)) => match error.deref() {
-                sea_orm::sqlx::Error::Database(error) => !error
+                Error::Database(error) => !error
                     .code()
                     .and_then(|code| code.parse::<i32>().ok())
                     .is_some_and(|code| code & 0xff == 19),
@@ -183,13 +185,13 @@ async fn sync_file_descriptions_inner(
     // finished before opening each batch transaction; savepoints isolate bad files.
     const WRITE_BATCH_SIZE: usize = 16;
     let mut failed = 0;
-    let mut rejected = std::collections::HashSet::new();
+    let mut rejected = HashSet::new();
     for batch in descriptions.chunks_mut(WRITE_BATCH_SIZE) {
         let mut ready = Vec::new();
         for description in batch.iter_mut().flatten() {
             // Managed copies are verified by file actions and attached after download.
             // Unreferenced old versions must never become newly authored files.
-            if std::path::Path::new(&description.directory).starts_with(MANAGED_AUDIO_DIRECTORY) {
+            if Path::new(&description.directory).starts_with(MANAGED_AUDIO_DIRECTORY) {
                 rejected.insert((description.directory.clone(), description.file_name.clone()));
                 continue;
             }
@@ -606,7 +608,7 @@ async fn replace_metadata_on(
     type Tags = OwnedListPolicy<media_metadata::Entity, MetadataMap>;
     let owner = [file_id.into()];
     let previous = Tags::read_on(tx, &owner, Tags::read_ceiling()).await?;
-    let mut used = std::collections::HashSet::new();
+    let mut used = HashSet::new();
     let incoming = tags
         .iter()
         .enumerate()

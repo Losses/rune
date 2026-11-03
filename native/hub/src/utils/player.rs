@@ -1,4 +1,8 @@
 use database::actions::logging::LogLevel;
+use discovery::server::UserStatus;
+#[cfg(target_os = "macos")]
+use std::path;
+use std::time::Duration;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -439,9 +443,9 @@ pub async fn initialize_local_player(
                     fingerprint: user.fingerprint,
                     device_model: user.device_model,
                     status: match user.status {
-                        discovery::server::UserStatus::Approved => ClientStatus::Approved,
-                        discovery::server::UserStatus::Pending => ClientStatus::Pending,
-                        discovery::server::UserStatus::Blocked => ClientStatus::Blocked,
+                        UserStatus::Approved => ClientStatus::Approved,
+                        UserStatus::Pending => ClientStatus::Pending,
+                        UserStatus::Blocked => ClientStatus::Blocked,
                     },
                 },
             });
@@ -510,7 +514,7 @@ async fn update_media_controls_metadata(
     #[cfg(target_os = "macos")]
     let cover_url_owned = {
         let path = match cover_art_path {
-            Some(path) => std::path::Path::new(path),
+            Some(path) => path::Path::new(path),
             None => get_default_cover_art_path(),
         };
         macos_cover_file_url(path)
@@ -523,7 +527,7 @@ async fn update_media_controls_metadata(
         album: Some(&status.album),
         artist: Some(&status.artist),
         cover_url,
-        duration: Some(std::time::Duration::from_secs_f64(status.duration)),
+        duration: Some(Duration::from_secs_f64(status.duration)),
     };
 
     match manager.controls.set_metadata(metadata) {
@@ -552,12 +556,12 @@ async fn update_media_controls_progress(
 
     let playback = match status.state.as_str() {
         "Playing" => MediaPlayback::Playing {
-            progress: Some(MediaPosition(std::time::Duration::from_secs_f32(
+            progress: Some(MediaPosition(Duration::from_secs_f32(
                 status.progress_seconds,
             ))),
         },
         "Paused" => MediaPlayback::Paused {
-            progress: Some(MediaPosition(std::time::Duration::from_secs_f32(
+            progress: Some(MediaPosition(Duration::from_secs_f32(
                 status.progress_seconds,
             ))),
         },
@@ -578,13 +582,14 @@ async fn update_media_controls_progress(
 mod cover_file_url_tests {
     use super::macos_cover_file_url;
     use std::path::Path;
+    use std::time::SystemTime;
 
     #[test]
     fn macos_cover_url_encodes_and_round_trips_local_path() {
         let dir = std::env::temp_dir().join(format!(
             "rune-cover-url-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
+            SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()

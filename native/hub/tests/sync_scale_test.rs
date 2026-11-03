@@ -1,6 +1,6 @@
+use tokio::net::TcpListener;
 #[path = "support/causal_library.rs"]
 mod support;
-
 use anyhow::Result;
 use axum::{
     body::{Body, to_bytes},
@@ -136,7 +136,7 @@ async fn metadata_initial_incremental_and_idle_rounds() -> Result<()> {
             }
         },
     ));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
     let base = format!("http://{}", listener.local_addr()?);
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();

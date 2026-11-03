@@ -1,6 +1,7 @@
+use support::fixtures;
+
 #[path = "support/causal_library.rs"]
 mod support;
-
 use anyhow::Result;
 use database::entities::{artists, media_files};
 use database::{
@@ -10,7 +11,7 @@ use database::{
     },
     connection::RecommendationDbConnection,
     entities::{media_file_artists, media_file_playlists, mix_queries, mixes},
-    sync::{LibrarySyncStore, model::*},
+    sync::model::*,
 };
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use support::{Peer, SqlLibrary, key};
@@ -87,7 +88,7 @@ async fn reference_before_parent_survives_endpoint_restart_and_parent_removal() 
         .apply_page(&first, support::limits().apply)
         .await?;
     assert_eq!(local.library.pending_mixes().await?.len(), 1);
-    let restarted = LibrarySyncStore::open(local.db.clone(), actor, Some(ns)).await?;
+    let restarted = fixtures::open_library(local.db.clone(), actor, Some(ns)).await?;
     let second = page(&source, &selected, first.next).await?;
     restarted
         .endpoint()

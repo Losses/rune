@@ -5,6 +5,7 @@ use database::actions::playlists::{
     list_occurrences, remove_item_from_playlist, remove_playlist, reorder_playlist_item_position,
     update_playlist,
 };
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -559,7 +560,7 @@ impl Signal for FetchPlaylistOccurrencesRequest {
         let cover_art_map = if request.bake_cover_arts {
             bake_cover_art_by_media_files(&fsio, &db, source_files).await?
         } else {
-            std::collections::HashMap::new()
+            HashMap::new()
         };
         Ok(Some(FetchPlaylistOccurrencesResponse {
             request_id: request.request_id.clone(),

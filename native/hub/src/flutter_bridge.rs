@@ -23,7 +23,9 @@
 
 #[cfg(target_os = "linux")]
 use std::os::fd::OwnedFd;
+use std::ptr::NonNull;
 use std::sync::{Arc, LazyLock};
+use tokio::runtime::Handle;
 
 use log::{error, info, warn};
 use rinf::RustSignal;
@@ -56,7 +58,7 @@ const TEXTURE_LAYER: bool = cfg!(any(
 #[cfg(any(target_vendor = "apple", target_os = "windows", target_os = "linux"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rune_flutter_attach(registry: *mut std::ffi::c_void) -> bool {
-    let Some(registry) = std::ptr::NonNull::new(registry) else {
+    let Some(registry) = NonNull::new(registry) else {
         return false;
     };
     #[cfg(target_vendor = "apple")]
@@ -90,10 +92,7 @@ pub unsafe extern "system" fn Java_ci_not_rune_MainActivity_attachFlutter(
     _activity: *mut std::ffi::c_void,
     registry: *mut std::ffi::c_void,
 ) -> u8 {
-    let (Some(env), Some(registry)) = (
-        std::ptr::NonNull::new(env),
-        std::ptr::NonNull::new(registry),
-    ) else {
+    let (Some(env), Some(registry)) = (NonNull::new(env), NonNull::new(registry)) else {
         return 0;
     };
     let handle = flutter_texture::PlatformHandle::JniTextureRegistry { env, registry };
@@ -363,7 +362,7 @@ pub async fn visualizer_started() {
         textures.announced = None;
     }
     // The render thread tells how its frames leave the GPU once it is up, and when that changes.
-    let runtime = tokio::runtime::Handle::current();
+    let runtime = Handle::current();
     VISUALIZER.set_transport_listener(Some(Arc::new(move |transport| {
         crate::visualizer_log::diagnostic(
             "transport",

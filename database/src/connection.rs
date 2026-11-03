@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -337,7 +338,7 @@ async fn remove_legacy_recommendation_db(
     if db_uses_local_fs(&storage_info.db_dir) {
         let metadata = match tokio::fs::symlink_metadata(legacy_path).await {
             Ok(metadata) => metadata,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(e.into()),
         };
         if metadata.is_dir() {

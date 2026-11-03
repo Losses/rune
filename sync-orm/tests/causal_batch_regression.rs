@@ -1,17 +1,17 @@
 //! Independent SQL work and captured-state checks for candidate paging.
+#[path = "support/fixtures.rs"]
+mod fixtures;
+
 use anyhow::{Context, Result};
 use sea_orm::{
-    ConnectionTrait, Database, ExprTrait, TransactionTrait,
+    ConnectionTrait, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-use sync_orm::{
-    causal_candidates::{CandidatePageRequest, page_on},
-    causal_schema,
-};
+use sync_orm::causal_candidates::{CandidatePageRequest, page_on};
 use uuid::Uuid;
 
 async fn insert_candidate(
@@ -80,8 +80,7 @@ fn request(
 
 #[tokio::test]
 async fn captured_candidate_pages_batch_reads_and_preserve_byte_boundaries() -> Result<()> {
-    let mut db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let mut db = fixtures::fresh_database().await?;
     let namespace = Uuid::from_u128(1);
     let writer = Uuid::from_u128(2);
     const COUNT: usize = 40;
@@ -208,8 +207,7 @@ async fn pinned_public_snapshot_batches_leaf_reads_across_concurrent_changes() -
     use std::collections::BTreeMap;
     use sync::{SnapshotSource, SyncStore};
     use sync_orm::{causal_capabilities::CausalEndpoint, causal_store::CausalReplica};
-    let mut db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let mut db = fixtures::fresh_database().await?;
     let candidate_selects = Arc::new(AtomicUsize::new(0));
     let measured = candidate_selects.clone();
     db.set_metric_callback(move |info| {

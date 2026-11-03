@@ -1,3 +1,4 @@
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
@@ -21,7 +22,7 @@ impl FileIo for StdFsIo {
     }
 
     fn open(&self, path: &Path, open_mode: &str) -> Result<Box<dyn FileStream>, FileIoError> {
-        let mut options = std::fs::OpenOptions::new();
+        let mut options = OpenOptions::new();
         options.read(open_mode.contains('r'));
         options.write(open_mode.contains('w'));
         options.append(open_mode.contains('a'));

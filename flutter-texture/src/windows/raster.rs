@@ -249,7 +249,9 @@ unsafe extern "C" fn release_held(context: *mut c_void) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic;
     use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::AtomicUsize;
 
     use super::*;
     use crate::{Acquired, Pixels as Rows};
@@ -261,14 +263,14 @@ mod tests {
         dxgi: bool,
         rows: [u8; 24],
         /// How many frames are held.
-        held: Arc<std::sync::atomic::AtomicUsize>,
+        held: Arc<AtomicUsize>,
         failures: Mutex<Vec<TextureError>>,
     }
 
-    struct Hold(Arc<std::sync::atomic::AtomicUsize>);
+    struct Hold(Arc<atomic::AtomicUsize>);
 
     impl Hold {
-        fn new(held: &Arc<std::sync::atomic::AtomicUsize>) -> Box<Self> {
+        fn new(held: &Arc<atomic::AtomicUsize>) -> Box<Self> {
             held.fetch_add(1, Ordering::Relaxed);
             Box::new(Self(Arc::clone(held)))
         }

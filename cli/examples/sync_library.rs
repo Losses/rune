@@ -1,3 +1,4 @@
+use database::sync::LibrarySyncStore;
 use database::{
     actions::metadata::{
         MissingHostFilePolicy, ScanOptions, empty_progress_callback, scan_audio_library,
@@ -24,7 +25,7 @@ async fn main() {
     let root_path = PathBuf::from(&path);
     let fsio = Arc::new(FsIo::new());
 
-    let library = database::sync::LibrarySyncStore::open(main_db.clone(), node_id, None)
+    let library = LibrarySyncStore::open(main_db.clone(), node_id, None)
         .await
         .unwrap();
     library.import_existing(node_id).await.unwrap();

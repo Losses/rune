@@ -1,3 +1,4 @@
+use crate::stream_utils::ManagedStream;
 use std::{
     fmt::Debug,
     io::BufReader,
@@ -41,7 +42,7 @@ async fn open_library_stream(
     let guard = remote.cancellation.clone().drop_guard();
     let reader =
         crate::stream_utils::create_stream_with_authorizer(remote.request, &remote.url).await?;
-    let reader = crate::stream_utils::ManagedStream::new(reader, remote.cancellation);
+    let reader = ManagedStream::new(reader, remote.cancellation);
     guard.disarm();
     let decoder = RuneDecoder::new(reader, Some(&remote.extension))?;
     Ok((AnySource::Online(rune_buffered(decoder)), PathBuf::new()))
@@ -553,10 +554,7 @@ impl PlayerInternal {
                             info!("Downloading from url: {url}");
                             let ext = url.split('?').next().and_then(|u| u.rsplit('.').next());
                             let reader = crate::stream_utils::create_stream_from_url(url).await?;
-                            let reader = crate::stream_utils::ManagedStream::new(
-                                reader,
-                                CancellationToken::new(),
-                            );
+                            let reader = ManagedStream::new(reader, CancellationToken::new());
                             let decoder = RuneDecoder::new(reader, ext)?;
                             Ok((
                                 AnySource::Online(rune_buffered(decoder)),
@@ -817,7 +815,7 @@ impl PlayerInternal {
 
     fn seek(&mut self, position: f64) -> Result<()> {
         if let Some(sink) = &self.sink {
-            match sink.try_seek(std::time::Duration::from_secs_f64(position)) {
+            match sink.try_seek(Duration::from_secs_f64(position)) {
                 Ok(_) => {
                     info!("Seeking to position: {position} s");
 

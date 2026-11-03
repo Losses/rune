@@ -1,4 +1,10 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
+
 use anyhow::Result;
+use sea_orm::sea_query::ColumnDef;
+use sea_orm::sea_query::ExprTrait;
+use sea_orm::sea_query::Table;
 use sea_orm::{
     ConnectionTrait, Database, TransactionTrait,
     sea_query::{Alias, Expr, Query},
@@ -7,8 +13,7 @@ use sync_orm::causal_schema;
 
 #[tokio::test]
 async fn fresh_layout_is_complete_and_legacy_tables_are_never_replaced() -> Result<()> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     for name in [
         "sync_meta",
         "sync_candidates",
@@ -23,35 +28,28 @@ async fn fresh_layout_is_complete_and_legacy_tables_are_never_replaced() -> Resu
         let statement = Query::select()
             .expr(Expr::val(1))
             .from(Alias::new("sqlite_master"))
-            .and_where(sea_orm::sea_query::ExprTrait::eq(
-                Expr::col(Alias::new("name")),
-                name,
-            ))
+            .and_where(ExprTrait::eq(Expr::col(Alias::new("name")), name))
             .to_owned();
         assert!(db.query_one(&statement).await?.is_some(), "missing {name}");
     }
     assert!(causal_schema::install_fresh(&db).await.is_err());
     let old = Database::connect("sqlite::memory:").await?;
     old.execute(
-        &sea_orm::sea_query::Table::create()
+        &Table::create()
             .table(Alias::new("sync_meta"))
-            .col(sea_orm::sea_query::ColumnDef::new(Alias::new("unexpected_layout")).integer())
+            .col(ColumnDef::new(Alias::new("unexpected_layout")).integer())
             .to_owned(),
     )
     .await?;
-    let notes = sea_orm::sea_query::Table::create()
+    let notes = Table::create()
         .table(Alias::new("notes"))
         .col(
-            sea_orm::sea_query::ColumnDef::new(Alias::new("id"))
+            ColumnDef::new(Alias::new("id"))
                 .integer()
                 .not_null()
                 .primary_key(),
         )
-        .col(
-            sea_orm::sea_query::ColumnDef::new(Alias::new("text"))
-                .text()
-                .not_null(),
-        )
+        .col(ColumnDef::new(Alias::new("text")).text().not_null())
         .to_owned();
     old.execute(&notes).await?;
     let insert = Query::insert()
@@ -84,7 +82,7 @@ async fn fresh_layout_is_complete_and_legacy_tables_are_never_replaced() -> Resu
     let candidates = Query::select()
         .expr(Expr::val(1))
         .from(Alias::new("sqlite_master"))
-        .and_where(sea_orm::sea_query::ExprTrait::eq(
+        .and_where(ExprTrait::eq(
             Expr::col(Alias::new("name")),
             "sync_candidates",
         ))

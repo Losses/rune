@@ -15,6 +15,8 @@
 //!   jerky and a smooth clock was limp; this is both continuous and on the
 //!   beat. Without a followed beat it pushes on the hits.
 
+#[cfg(test)]
+use crate::bind::RuntimeBindings;
 use crate::bind::{CourseBinds, MomentBinds, Said};
 use crate::scene::MusicValues;
 use crate::switching::FOLLOWED;
@@ -118,7 +120,7 @@ impl Phrase {
     /// Take in a frame's music: a section start counts again from 0.
     #[cfg(test)]
     pub fn tick(&mut self, music: &MusicValues) {
-        self.tick_with(&crate::bind::RuntimeBindings::embedded().moments, music);
+        self.tick_with(&RuntimeBindings::embedded().moments, music);
     }
 
     /// The same, where `moments` say what a section start is.
@@ -326,6 +328,7 @@ impl Course {
 mod tests {
 
     use super::*;
+    use crate::bind::RuntimeBindings;
     use crate::bind::tests::embedded_with;
 
     fn music(intensity: f32) -> MusicValues {
@@ -570,7 +573,7 @@ mod tests {
 
     #[test]
     fn the_runtime_file_has_todays_numbers() {
-        let c = crate::bind::RuntimeBindings::embedded().course;
+        let c = RuntimeBindings::embedded().course;
         assert_eq!(
             (c.phrase, c.least_bars, c.most_bars),
             (PHRASE_BARS, MIN_BARS, MAX_BARS)
@@ -587,7 +590,7 @@ mod tests {
     #[test]
     fn the_phrase_and_the_floor_follow_the_file() {
         let m = music(1.0);
-        let embedded = crate::bind::RuntimeBindings::embedded().course;
+        let embedded = RuntimeBindings::embedded().course;
         assert_eq!(Phrase::default().beats_left_with(&embedded, &m), 16.0);
         let phrase = embedded_with("phrase = 4", "phrase = 2").course;
         assert_eq!(Phrase::default().beats_left_with(&phrase, &m), 8.0);
@@ -623,7 +626,7 @@ mod tests {
             course.tick(0.1, &hit);
             course.motion()
         };
-        let embedded = crate::bind::RuntimeBindings::embedded().course;
+        let embedded = RuntimeBindings::embedded().course;
         assert!(moved(embedded) > 0.0);
         // Cues push it instead: a hit does not.
         let custom = embedded_with(

@@ -9,8 +9,11 @@ use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Func, Query},
 };
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use sync::causal::Context;
+use sync::causal::Dot;
 use sync::protocol::{self as p, BoxFuture};
 use tokio::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
@@ -1023,13 +1026,13 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
                         Ok(candidate)
                     })
                     .collect::<Result<Vec<_>>>()?;
-                let mut observed = std::collections::BTreeSet::new();
+                let mut observed = BTreeSet::new();
                 for c in &input.candidates {
                     if crate::causal_observed::contains_on(
                         &tx,
                         self.inner.store.namespace(),
                         M::collection_tag(&range.collection).as_bytes(),
-                        sync::causal::Dot::new(c.dot.writer_incarnation, c.dot.counter)?,
+                        Dot::new(c.dot.writer_incarnation, c.dot.counter)?,
                     )
                     .await?
                     {
@@ -1099,7 +1102,7 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
                 )
                 .await?;
                 let ns = self.inner.store.namespace();
-                let mut observed = sync::causal::Context::default();
+                let mut observed = Context::default();
                 let collection = match &token.step {
                     p::PromotionStep::Arrivals {
                         collection,
@@ -1129,7 +1132,7 @@ impl<M: p::SyncModel> p::SnapshotSink<M> for CausalEndpoint<M> {
                             p::SyncError::WorkLimit
                         );
                         for row in rows {
-                            let dot = sync::causal::Dot::new(
+                            let dot = Dot::new(
                                 Uuid::from_slice(&row.try_get_by_index::<Vec<u8>>(0)?)?,
                                 u64::try_from(row.try_get_by_index::<i64>(1)?)?,
                             )?;

@@ -2,6 +2,7 @@
 //! scene's HDR `out` into the frame that leaves the GPU.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use wgpu::util::DeviceExt;
 
 use super::lens::{LENS_SIZE, LensFrame};
 use super::manifest::Tonemap;
@@ -155,7 +156,7 @@ impl Post {
             immediate_size: 0,
         });
         // Zeros until the first frame writes it: no effect on.
-        let lens = wgpu::util::DeviceExt::create_buffer_init(
+        let lens = DeviceExt::create_buffer_init(
             device,
             &wgpu::util::BufferInitDescriptor {
                 label: Some("scene lens"),

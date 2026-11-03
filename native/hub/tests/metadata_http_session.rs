@@ -1,7 +1,9 @@
 //! Real TCP metadata sessions with acknowledged writes whose replies are lost.
+use std::io::Error;
+use std::io::ErrorKind;
+use tokio::net::TcpListener;
 #[path = "support/causal_library.rs"]
 mod support;
-
 use anyhow::{Context, Result, ensure};
 use axum::{
     body::{Body, to_bytes},
@@ -86,8 +88,8 @@ async fn lose_reply(
         Disturbance::Truncate => Body::from(bytes.slice(..bytes.len() / 2)),
         Disturbance::Reset => Body::from_stream(futures::stream::iter(vec![
             Ok(bytes.slice(..bytes.len().min(32))),
-            Err(std::io::Error::new(
-                std::io::ErrorKind::ConnectionReset,
+            Err(Error::new(
+                ErrorKind::ConnectionReset,
                 "injected connection reset",
             )),
         ])),
@@ -130,7 +132,7 @@ impl Endpoint {
             ..Default::default()
         }));
         let app = router(store).layer(middleware::from_fn_with_state(faults.clone(), lose_reply));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
         let base = format!("http://{}", listener.local_addr()?);
         let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         Ok(Self {
@@ -563,7 +565,7 @@ async fn lost_batched_snapshot_reply_retries_old_cursor_and_preserves_view() -> 
         fault.clone(),
         lose_batched_snapshot_reply,
     ));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
     let base = format!("http://{}", listener.local_addr()?);
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let peer = MetadataPeer::new(base, reqwest::Client::new());

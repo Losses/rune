@@ -1,3 +1,4 @@
+use axum::extract::DefaultBodyLimit;
 use axum::{
     Json, Router,
     extract::{ConnectInfo, Request, State},
@@ -97,7 +98,7 @@ impl SyncAuth {
             .layer(GovernorLayer {
                 config: config.into(),
             })
-            .layer(axum::extract::DefaultBodyLimit::max(8192))
+            .layer(DefaultBodyLimit::max(8192))
             .with_state(self.clone())
     }
     pub async fn allowed(&self, token: &str) -> bool {
@@ -246,6 +247,7 @@ mod tests {
         body::{Body, to_bytes},
         http::Request,
     };
+    use discovery::utils::DeviceType;
     use rsa::{RsaPrivateKey, pkcs8::DecodePrivateKey};
     use tower::ServiceExt;
 
@@ -341,7 +343,7 @@ mod tests {
                 fingerprint.clone(),
                 "device".into(),
                 "test".into(),
-                discovery::utils::DeviceType::Desktop,
+                DeviceType::Desktop,
                 "127.0.0.1".into(),
             )
             .await
@@ -435,7 +437,7 @@ mod tests {
                 fingerprint.clone(),
                 "device".into(),
                 "test".into(),
-                discovery::utils::DeviceType::Desktop,
+                DeviceType::Desktop,
                 "127.0.0.1".into(),
             )
             .await

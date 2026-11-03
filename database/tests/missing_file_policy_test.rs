@@ -1,9 +1,6 @@
 use anyhow::Result;
 use database::{
-    actions::metadata::{
-        MissingHostFilePolicy, ScanOptions, empty_progress_callback, scan_audio_file,
-        scan_audio_library,
-    },
+    actions::metadata::{MissingHostFilePolicy, scan_audio_file},
     entities::media_files,
     sync::{
         SeaOrmSyncStore,
@@ -12,6 +9,7 @@ use database::{
 };
 use fsio::FsIo;
 use sea_orm::{Database, EntityTrait};
+use support::fixtures;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -22,10 +20,7 @@ async fn missing_host_file_remove_everywhere_authors_removal() -> Result<()> {
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let root = tempfile::tempdir()?;
     let path = root.path().join("track.ogg");
-    std::fs::copy(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/startup_0.ogg"),
-        &path,
-    )?;
+    std::fs::copy(fixtures::audio_fixture(), &path)?;
     let fs = FsIo::new();
     let id = scan_audio_file(&fs, &db, &node.to_string(), root.path(), &path, &store).await?;
     use database::entities::{media_file_likes, media_file_stats};
@@ -57,19 +52,13 @@ async fn missing_host_file_remove_everywhere_authors_removal() -> Result<()> {
     .exec(&db)
     .await?;
     std::fs::remove_file(path)?;
-    scan_audio_library(
+    fixtures::cleanup_scan(
         &fs,
         &db,
         &node.to_string(),
         root.path(),
-        ScanOptions {
-            cleanup: true,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-            cancel_token: None,
-        },
-        empty_progress_callback,
         &store,
+        MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     assert!(
@@ -96,10 +85,7 @@ async fn unavailable_case(managed: bool, policy: MissingHostFilePolicy) -> Resul
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
     let root = tempfile::tempdir()?;
     let path = root.path().join("track.ogg");
-    std::fs::copy(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/startup_0.ogg"),
-        &path,
-    )?;
+    std::fs::copy(fixtures::audio_fixture(), &path)?;
     let fs = FsIo::new();
     let id = scan_audio_file(&fs, &db, &node.to_string(), root.path(), &path, &store).await?;
     if managed {
@@ -117,21 +103,7 @@ async fn unavailable_case(managed: bool, policy: MissingHostFilePolicy) -> Resul
     };
     let before = store.get_on(&db, &key).await?;
     std::fs::remove_file(path)?;
-    scan_audio_library(
-        &fs,
-        &db,
-        &node.to_string(),
-        root.path(),
-        ScanOptions {
-            cleanup: true,
-            force: false,
-            missing_host_file: policy,
-            cancel_token: None,
-        },
-        empty_progress_callback,
-        &store,
-    )
-    .await?;
+    fixtures::cleanup_scan(&fs, &db, &node.to_string(), root.path(), &store, policy).await?;
     assert!(
         !media_files::Entity::find_by_id(id)
             .one(&db)
@@ -162,28 +134,19 @@ async fn mass_missing_host_files_are_not_removed() -> Result<()> {
     let mut ids = Vec::new();
     for i in 0..10 {
         let path = root.path().join(format!("track{i}.ogg"));
-        std::fs::copy(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/startup_0.ogg"),
-            &path,
-        )?;
+        std::fs::copy(fixtures::audio_fixture(), &path)?;
         ids.push(scan_audio_file(&fs, &db, &node.to_string(), root.path(), &path, &store).await?);
         if i < 6 {
             std::fs::remove_file(path)?;
         }
     }
-    scan_audio_library(
+    fixtures::cleanup_scan(
         &fs,
         &db,
         &node.to_string(),
         root.path(),
-        ScanOptions {
-            cleanup: true,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-            cancel_token: None,
-        },
-        empty_progress_callback,
         &store,
+        MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     for (i, id) in ids.into_iter().enumerate() {
@@ -208,10 +171,7 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
     let a = support::SqlLibrary::new(namespace, node).await?;
     let b = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;
     let path = a.root.path().join("track.ogg");
-    std::fs::copy(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/startup_0.ogg"),
-        &path,
-    )?;
+    std::fs::copy(fixtures::audio_fixture(), &path)?;
     let fs = FsIo::new();
     let store = a.library.record_store();
     let id = scan_audio_file(&fs, &a.db, &node.to_string(), a.root.path(), &path, &store).await?;
@@ -230,19 +190,13 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
             .is_some()
     );
     std::fs::remove_file(path)?;
-    scan_audio_library(
+    fixtures::cleanup_scan(
         &fs,
         &a.db,
         &node.to_string(),
         a.root.path(),
-        ScanOptions {
-            cleanup: true,
-            force: false,
-            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-            cancel_token: None,
-        },
-        empty_progress_callback,
         &store,
+        MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     support::exchange(&a.peer, &b.peer).await?;

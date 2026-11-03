@@ -1,3 +1,5 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
 use anyhow::Result;
 use database::{
     actions::{
@@ -15,13 +17,9 @@ async fn existence_queries_preserve_filters_duplicates_and_errors() -> Result<()
     let db = Database::connect("sqlite::memory:").await?;
     initialize_db(&db, "existence-test").await?;
     let fs = FsIo::new();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../assets")
-        .canonicalize()?;
+    let root = fixtures::asset_directory().canonicalize()?;
     let actor = uuid::Uuid::new_v4();
-    let store =
-        database::sync::LibrarySyncStore::open(db.clone(), actor, Some(uuid::Uuid::new_v4()))
-            .await?;
+    let store = fixtures::open_library(db.clone(), actor, Some(uuid::Uuid::new_v4())).await?;
     let node = fs.canonicalize(&root.join("startup_0.ogg"))?;
     let mut descriptions = vec![Some(describe_file(&fs, &node, &Some(root))?)];
     sync_file_descriptions(

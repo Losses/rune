@@ -1,11 +1,14 @@
 #![cfg(feature = "sync-crash-probe")]
+use std::fs::OpenOptions;
+use std::path::PathBuf;
+use support::fixtures;
 #[path = "support/causal_library.rs"]
 mod support;
 use anyhow::{Context, Result, ensure};
 use async_trait::async_trait;
 use database::{
     entities::{media_file_likes, media_file_stats, media_files},
-    sync::{LibrarySyncStore, model::*},
+    sync::model::*,
 };
 use fsio::FsIo;
 use sea_orm::{
@@ -77,7 +80,7 @@ async fn fixture(root: &Path) -> Result<(String, Uuid, Uuid, ChangePage)> {
         journal == "delete" && matches!(synchronous.as_str(), "2" | "3"),
         "test requires rollback journal and FULL or EXTRA sync"
     );
-    let target = LibrarySyncStore::open(db.clone(), node, Some(library)).await?;
+    let target = fixtures::open_library(db.clone(), node, Some(library)).await?;
     let source = support::memory(library, actor)?;
     let identity = source.identity().await?;
     let after = source.head().await?;
@@ -200,14 +203,13 @@ impl TransactionProjection<RuneModel> for PausingProjection {
 #[tokio::test]
 #[ignore = "subprocess entry point"]
 async fn crash_probe_child() -> Result<()> {
-    let root = std::path::PathBuf::from(
-        std::env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing child root")?,
-    );
+    let root =
+        PathBuf::from(std::env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing child root")?);
     let library: Uuid = std::env::var("RUNE_SYNC_CRASH_LIBRARY")?.parse()?;
     let node: Uuid = std::env::var("RUNE_SYNC_CRASH_NODE")?.parse()?;
     let page: ChangePage = serde_json::from_slice(&std::fs::read(root.join("page.json"))?)?;
     let db = connect(&root, node).await?;
-    let store = LibrarySyncStore::open(db, node, Some(library)).await?;
+    let store = fixtures::open_library(db, node, Some(library)).await?;
     let endpoint = CausalEndpoint::with_projection(
         store.record_store(),
         Arc::new(PausingProjection(RegistryProjection::new(
@@ -268,7 +270,7 @@ async fn inspect(
         scalar(&db, "PRAGMA integrity_check", "integrity_check").await?,
         "ok"
     );
-    let store = LibrarySyncStore::open(db.clone(), node, Some(library)).await?;
+    let store = fixtures::open_library(db.clone(), node, Some(library)).await?;
     let endpoint = store.endpoint();
     assert_eq!(
         endpoint.checkpoint(&checkpoint(page)?).await?,
@@ -371,7 +373,7 @@ async fn damaged_pending_journal_recovers_without_partial_page() -> Result<()> {
     let (url, library, node, page) = fixture(dir.path()).await?;
     kill_at(dir.path(), &url, library, node, "page_before_commit")?;
     let journal = dir.path().join(".rune/.0.db-journal");
-    let file = std::fs::OpenOptions::new()
+    let file = OpenOptions::new()
         .write(true)
         .open(&journal)
         .context("expected pending rollback journal")?;
@@ -385,9 +387,8 @@ async fn damaged_pending_journal_recovers_without_partial_page() -> Result<()> {
 #[tokio::test]
 #[ignore = "storage-fault fixture setup"]
 async fn crash_probe_setup() -> Result<()> {
-    let root = std::path::PathBuf::from(
-        std::env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing fixture root")?,
-    );
+    let root =
+        PathBuf::from(std::env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing fixture root")?);
     std::fs::create_dir_all(&root)?;
     let (url, library, node, _) = fixture(&root).await?;
     let manifest = serde_json::json!({"url":url,"library":library,"node":node,"database":root.join(".rune/.0.db")});
@@ -397,9 +398,8 @@ async fn crash_probe_setup() -> Result<()> {
 #[tokio::test]
 #[ignore = "storage-fault fixture verification"]
 async fn crash_probe_verify() -> Result<()> {
-    let root = std::path::PathBuf::from(
-        std::env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing fixture root")?,
-    );
+    let root =
+        PathBuf::from(std::env::var_os("RUNE_SYNC_CRASH_ROOT").context("missing fixture root")?);
     let manifest: serde_json::Value =
         serde_json::from_slice(&std::fs::read(root.join("manifest.json"))?)?;
     let url = manifest["url"].as_str().context("missing URL")?;
@@ -414,7 +414,7 @@ async fn crash_probe_verify() -> Result<()> {
         "false" => false,
         "auto" => {
             let db = connect(&root, node).await?;
-            let store = LibrarySyncStore::open(db.clone(), node, Some(library)).await?;
+            let store = fixtures::open_library(db.clone(), node, Some(library)).await?;
             let progress = store.endpoint().checkpoint(&checkpoint(&page)?).await?;
             ensure!(
                 progress == Some(page.request.after.clone()) || progress == Some(page.next.clone()),

@@ -6,6 +6,7 @@
 //! A file ending in `.f32` is read as raw little-endian `f32` mono samples at 22050 Hz instead
 //! of decoded, so that the back end can be fed exactly the samples the Python analysed.
 
+use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -17,7 +18,7 @@ use fsio::FsIo;
 
 /// Feeds the samples of a raw `.f32` file to `front`, a piece at a time.
 fn read_raw(path: &Path, front: &mut FrontBuilder) -> Result<()> {
-    let mut file = std::fs::File::open(path)?;
+    let mut file = File::open(path)?;
     let (mut bytes, mut samples) = (vec![0u8; 4 * 16384], Vec::new());
     let mut filled = 0;
     loop {

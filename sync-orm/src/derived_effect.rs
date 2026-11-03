@@ -1,6 +1,7 @@
 //! Bounded replacement of registered derived rows, such as search documents.
 //! Callers hold the namespace writer lock from preparation through commit.
 use crate::owned_list::{ListBudget, ListWork};
+use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, DbErr, EntityTrait, IdenStatic, QueryFilter,
     QuerySelect, Value,
@@ -102,7 +103,7 @@ impl<E: EntityTrait, M: EffectMapping<E>> DerivedEffect<E, M> {
         }
         let existing = E::find()
             .select_only()
-            .expr(sea_orm::sea_query::Expr::val(1))
+            .expr(Expr::val(1))
             .filter(predicate.clone())
             .limit(u64::from(M::max_items()) + 1)
             .into_tuple::<i32>()

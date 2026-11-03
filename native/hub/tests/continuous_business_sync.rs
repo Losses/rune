@@ -1,5 +1,7 @@
 //! Deterministic business commands interleaved with bounded metadata sessions.
 
+#[path = "support/fixtures.rs"]
+mod fixtures;
 use anyhow::{Context, Result, ensure};
 use axum::{
     body::{Body, to_bytes},
@@ -16,6 +18,7 @@ use database::{
 use http_request::sync::{MetadataPeer, MetadataStore, router};
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use std::time::Duration;
 use std::{
     collections::BTreeMap,
     sync::{
@@ -24,6 +27,9 @@ use std::{
     },
 };
 use sync::{Coordinator, SessionAdvance, SyncModel, SyncPeer};
+use tokio::net::TcpListener;
+use tokio::sync::Barrier;
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 struct Replica {
@@ -106,14 +112,14 @@ impl Replica {
         let db = Database::connect(options).await?;
         Migrator::up(&db, None).await?;
         let actor = Uuid::from_u128(1000 + index);
-        let library = LibrarySyncStore::open(db.clone(), actor, Some(namespace)).await?;
+        let library = fixtures::open_library(db.clone(), actor, Some(namespace)).await?;
         let lose_reply = Arc::new(AtomicBool::new(false));
         let lost = Arc::new(AtomicUsize::new(0));
         let retry = Arc::new(AtomicBool::new(false));
         let gate = Arc::new(AtomicBool::new(false));
         let gate_head = Arc::new(AtomicBool::new(false));
-        let entered = Arc::new(tokio::sync::Notify::new());
-        let release = Arc::new(tokio::sync::Notify::new());
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
         let peer: Arc<dyn MetadataStore<RuneModel>> = Arc::new(library.endpoint());
         let app = router(peer).layer(middleware::from_fn_with_state(
             Fault {
@@ -127,7 +133,7 @@ impl Replica {
             },
             lose_first_page,
         ));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
         let url = format!("http://{}", listener.local_addr()?);
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
@@ -261,7 +267,7 @@ async fn heads(replicas: &[Replica]) -> Result<Vec<sync::ReceiveProgress>> {
 
 #[tokio::test]
 async fn business_mutations_during_partitioned_http_sessions_converge() -> Result<()> {
-    tokio::time::timeout(std::time::Duration::from_secs(600), business_scenario())
+    tokio::time::timeout(Duration::from_secs(600), business_scenario())
         .await
         .context("business scenario exceeded its deadline")?
 }
@@ -326,7 +332,7 @@ async fn business_scenario() -> Result<()> {
     );
     a.gate.store(true, Ordering::SeqCst);
     a.lose_reply.store(true, Ordering::SeqCst);
-    let kept = tokio::time::timeout(std::time::Duration::from_secs(90), async {
+    let kept = tokio::time::timeout(Duration::from_secs(90), async {
     let mut kept = None;
     for _ in 0..20000 {
         let mut request = Box::pin(step(&mut in_flight, a, b));
@@ -606,7 +612,7 @@ async fn business_scenario() -> Result<()> {
 
 #[tokio::test]
 async fn repeated_partitioned_commands_preserve_unseen_edit_and_pagination() -> Result<()> {
-    tokio::time::timeout(std::time::Duration::from_secs(600), repeated_scenario())
+    tokio::time::timeout(Duration::from_secs(600), repeated_scenario())
         .await
         .context("repeated scenario exceeded its deadline")?
 }
@@ -822,7 +828,7 @@ async fn repeated_scenario() -> Result<()> {
 
 #[tokio::test]
 async fn concurrent_actions_and_http_while_writer_is_held() -> Result<()> {
-    tokio::time::timeout(std::time::Duration::from_secs(180), concurrent_scenario())
+    tokio::time::timeout(Duration::from_secs(180), concurrent_scenario())
         .await
         .context("concurrent scenario exceeded its deadline")?
 }
@@ -877,14 +883,14 @@ async fn concurrent_scenario() -> Result<()> {
     a.gate_head.store(true, Ordering::SeqCst);
     let peer = a.peer();
     let head_request = tokio::spawn(async move { peer.head().await });
-    tokio::time::timeout(std::time::Duration::from_secs(10), a.entered.notified())
+    tokio::time::timeout(Duration::from_secs(10), a.entered.notified())
         .await
         .context("metadata request did not reach source")?;
     assert!(!head_request.is_finished());
 
-    let barrier = Arc::new(tokio::sync::Barrier::new(3));
-    let stats_started = Arc::new(tokio::sync::Notify::new());
-    let playlist_started = Arc::new(tokio::sync::Notify::new());
+    let barrier = Arc::new(Barrier::new(3));
+    let stats_started = Arc::new(Notify::new());
+    let playlist_started = Arc::new(Notify::new());
     let stats_action = {
         let actor = a.actor;
         let db = a.db.clone();
@@ -909,10 +915,10 @@ async fn concurrent_scenario() -> Result<()> {
             playlists::update_playlist(&db, &store, id, Some("after lock".into()), None).await
         })
     };
-    tokio::time::timeout(std::time::Duration::from_secs(10), barrier.wait())
+    tokio::time::timeout(Duration::from_secs(10), barrier.wait())
         .await
         .context("business actions did not start")?;
-    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+    tokio::time::timeout(Duration::from_secs(10), async {
         tokio::join!(stats_started.notified(), playlist_started.notified());
     })
     .await
@@ -939,13 +945,13 @@ async fn concurrent_scenario() -> Result<()> {
     );
     tx.rollback().await?;
     a.release.notify_one();
-    tokio::time::timeout(std::time::Duration::from_secs(20), head_request)
+    tokio::time::timeout(Duration::from_secs(20), head_request)
         .await
         .context("metadata request did not finish")???;
-    tokio::time::timeout(std::time::Duration::from_secs(20), stats_action)
+    tokio::time::timeout(Duration::from_secs(20), stats_action)
         .await
         .context("statistics action did not finish")???;
-    tokio::time::timeout(std::time::Duration::from_secs(20), playlist_action)
+    tokio::time::timeout(Duration::from_secs(20), playlist_action)
         .await
         .context("playlist action did not finish")???;
     assert_eq!(a.playlist(playlist_uuid).await?.unwrap().name, "after lock");

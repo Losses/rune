@@ -500,6 +500,7 @@ impl Lens {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     /// Music at 120 bpm in 4/4, the beat followed, at full intensity.
     fn music(cue: f32, cues: u32) -> MusicValues {
@@ -924,7 +925,7 @@ mod tests {
             (first, furthest)
         };
         assert_eq!(start_at(2.0, 5).0, start_at(2.0, 5).0);
-        let mut sides = std::collections::HashSet::new();
+        let mut sides = HashSet::new();
         let mut points = Vec::new();
         for section in 0..4 {
             for bars in [0, 3, 6] {

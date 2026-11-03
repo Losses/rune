@@ -3,6 +3,7 @@ use crate::entities::{media_files, sync_download_jobs};
 use anyhow::{Result, ensure};
 use fsio::FsIo;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
+use std::path::Component;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -24,7 +25,7 @@ fn row_path(fsio: &FsIo, root: &Path, row: &media_files::Model) -> Result<Option
     ensure!(
         relative
             .components()
-            .all(|c| matches!(c, std::path::Component::Normal(_))),
+            .all(|c| matches!(c, Component::Normal(_))),
         "invalid local path"
     );
     #[cfg(not(target_os = "android"))]

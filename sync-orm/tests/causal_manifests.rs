@@ -1,15 +1,15 @@
+#[path = "support/fixtures.rs"]
+mod fixtures;
+
 use anyhow::Result;
 use sea_orm::{
-    ConnectionTrait, Database, ExprTrait, TransactionTrait,
+    ConnectionTrait, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Query},
 };
 use sync::protocol::{
     Fragment, ManifestKind, ManifestRef, content_digest, fragment_digest, manifest_digest,
 };
-use sync_orm::{
-    causal_manifests::{publish_on, read_on},
-    causal_schema,
-};
+use sync_orm::causal_manifests::{publish_on, read_on};
 use uuid::Uuid;
 
 fn single(bytes: &[u8]) -> Result<(ManifestRef, Vec<Fragment>)> {
@@ -34,8 +34,7 @@ fn single(bytes: &[u8]) -> Result<(ManifestRef, Vec<Fragment>)> {
 }
 #[tokio::test]
 async fn complete_validated_manifests_publish_idempotently_and_atomically() -> Result<()> {
-    let db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     let meta = Query::insert()
         .into_table(Alias::new("sync_meta"))
@@ -148,8 +147,7 @@ async fn bounded_fragment_batches_verify_integrity_and_limits() -> Result<()> {
         atomic::{AtomicBool, AtomicUsize, Ordering},
     };
     use sync_orm::causal_manifests::fragment_body;
-    let mut db = Database::connect("sqlite::memory:").await?;
-    causal_schema::install_fresh(&db).await?;
+    let mut db = fixtures::fresh_database().await?;
     let ns = Uuid::new_v4();
     db.execute(
         &Query::insert()
