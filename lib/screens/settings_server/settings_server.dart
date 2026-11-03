@@ -5,6 +5,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/l10n.dart';
+import '../../constants/configurations.dart';
+import '../../constants/settings_manager.dart';
 import '../../utils/api/get_sync_settings.dart';
 import '../../utils/api/set_sync_settings.dart';
 import '../../widgets/settings/settings_box_toggle.dart';
@@ -32,6 +34,7 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
   late Timer _refreshTimer;
   String selectedUserId = '';
   GetSyncSettingsResponse? syncSettings;
+  bool offlineCleanupDefault = true;
 
   @override
   void initState() {
@@ -48,6 +51,9 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
     );
 
     broadcastProvider.fetchUsers();
+    $settingsManager.getValue<bool>(kOfflineCleanupDefaultKey).then((value) {
+      if (mounted) setState(() => offlineCleanupDefault = value ?? true);
+    });
     getSyncSettings()
         .then((value) {
           if (mounted) setState(() => syncSettings = value);
@@ -99,6 +105,18 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
                         }
                       },
                     ),
+                  SettingsBoxToggle(
+                    title: S.of(context).offlineCleanupDefault,
+                    subtitle: S.of(context).offlineCleanupDefaultDescription,
+                    value: offlineCleanupDefault,
+                    onChanged: (value) {
+                      setState(() => offlineCleanupDefault = value);
+                      $settingsManager.setValue(
+                        kOfflineCleanupDefaultKey,
+                        value,
+                      );
+                    },
+                  ),
                   const ServerControlSetting(),
                   const EnableBroadcastSetting(),
                   const SizedBox(height: 8),

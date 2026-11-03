@@ -1,53 +1,133 @@
 use crate::{
     Session, Signal,
-    messages::{SetDownloadRuleRequest, SetDownloadRuleResponse},
+    messages::{
+        LibraryContentChanged, RemoveDownloadRuleRequest, RemoveDownloadRuleResponse,
+        SetDownloadRuleRequest, SetDownloadRuleResponse,
+    },
     server::utils::device::load_device_info,
-    utils::{GlobalParams, ParamsExtractor, sync_settings::SyncSettings},
+    utils::{Broadcaster, GlobalParams, ParamsExtractor, sync_settings::SyncSettings},
 };
-use database::actions::downloads::set_download_rule;
+use database::actions::downloads::{
+    cleanup_unselected_downloads, remove_download_rule, set_download_rule,
+};
+use database::connection::RecommendationDbConnection;
+use database::sync::SeaOrmSyncStore;
+use fsio::FsIo;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
 use database::connection::MainDbConnection;
 
-impl ParamsExtractor for SetDownloadRuleRequest {
-    type Params = Arc<MainDbConnection>;
-
-    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        all_params.main_db.clone()
+#[derive(Clone)]
+pub struct DownloadParams {
+    db: Arc<MainDbConnection>,
+    recommend: Arc<RecommendationDbConnection>,
+    fsio: Arc<FsIo>,
+    root: Arc<String>,
+    store: Option<SeaOrmSyncStore>,
+    broadcaster: Arc<dyn Broadcaster>,
+}
+impl DownloadParams {
+    fn from_global(p: &GlobalParams) -> Self {
+        Self {
+            db: p.main_db.clone(),
+            recommend: p.recommend_db.clone(),
+            fsio: p.fsio.clone(),
+            root: p.lib_path.clone(),
+            store: p.library_sync.as_ref().map(|s| s.record_store()),
+            broadcaster: p.broadcaster.clone(),
+        }
+    }
+    async fn cleanup(&self) -> Result<()> {
+        let store = self
+            .store
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("library sync store unavailable"))?;
+        let result = cleanup_unselected_downloads(
+            &self.db,
+            &self.recommend,
+            &self.fsio,
+            Path::new(&**self.root),
+            store,
+        )
+        .await;
+        self.broadcaster.broadcast(&LibraryContentChanged {
+            path: (*self.root).clone(),
+        });
+        result.map(|_| ())
     }
 }
-
+impl ParamsExtractor for SetDownloadRuleRequest {
+    type Params = DownloadParams;
+    fn extract_params(&self, p: &GlobalParams) -> Self::Params {
+        DownloadParams::from_global(p)
+    }
+}
 impl Signal for SetDownloadRuleRequest {
-    type Params = Arc<MainDbConnection>;
+    type Params = DownloadParams;
     type Response = SetDownloadRuleResponse;
-
     async fn handle(
         &self,
-        db: Self::Params,
-        _session: Option<Session>,
+        p: Self::Params,
+        _: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let result = set_download_rule(
-            &db,
-            request
-                .queries
-                .iter()
-                .map(|q| (q.operator.clone(), q.parameter.clone()))
-                .collect(),
-            request.mix_id,
-            request.enabled,
-        )
+        let result = async {
+            let id = set_download_rule(
+                &p.db,
+                request
+                    .queries
+                    .iter()
+                    .map(|q| (q.operator.clone(), q.parameter.clone()))
+                    .collect(),
+                request.mix_id,
+                request.enabled,
+            )
+            .await?;
+            if !request.enabled && request.delete_unselected_files {
+                p.cleanup().await?;
+            }
+            Ok::<_, anyhow::Error>(id)
+        }
         .await;
         let (rule_id, error) = match result {
             Ok(id) => (id, None),
-            Err(error) => (String::new(), Some(error.to_string())),
+            Err(error) => (String::new(), Some(format!("{error:#}"))),
         };
-        Ok(Some(SetDownloadRuleResponse {
+        Ok(Some(Self::Response {
             request_id: request.request_id.clone(),
             rule_id,
             error,
+        }))
+    }
+}
+impl ParamsExtractor for RemoveDownloadRuleRequest {
+    type Params = DownloadParams;
+    fn extract_params(&self, p: &GlobalParams) -> Self::Params {
+        DownloadParams::from_global(p)
+    }
+}
+impl Signal for RemoveDownloadRuleRequest {
+    type Params = DownloadParams;
+    type Response = RemoveDownloadRuleResponse;
+    async fn handle(
+        &self,
+        p: Self::Params,
+        _: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let result = async {
+            remove_download_rule(&p.db, &request.rule_id).await?;
+            if request.delete_unselected_files {
+                p.cleanup().await?;
+            }
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+        Ok(Some(Self::Response {
+            request_id: request.request_id.clone(),
+            error: result.err().map(|e| format!("{e:#}")),
         }))
     }
 }

@@ -1455,5 +1455,25 @@
   "allowPairedSyncDescription": "Turning this off stops listening and LAN announcements. This device can still sync from others.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
+  },
+  "audioSyncedCopy": "Synced copy",
+  "@audioSyncedCopy": {
+    "description": "Label for audio downloaded from a paired device."
+  },
+  "offlineCleanupDefault": "Delete downloaded files when they are no longer kept offline",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "Choose the default for deleting unneeded downloads when stopping offline availability.",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
+  "offlineCleanupCheckbox": "Also delete downloaded files that are no longer needed",
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
+  "offlineSelectionCleaned": "Offline selection updated and cleanup attempted.",
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
   }
 }

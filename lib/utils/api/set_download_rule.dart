@@ -15,7 +15,12 @@ int _requestSequence = 0;
   );
 }
 
-Future<void> setDownloadRule(CollectionType type, int id, bool enabled) async {
+Future<void> setDownloadRule(
+  CollectionType type,
+  int id,
+  bool enabled, {
+  bool deleteUnselectedFiles = false,
+}) async {
   final (queries, mixId) = offlineSelectionFor(type, id);
   final requestId =
       '${DateTime.now().microsecondsSinceEpoch}-${_requestSequence++}';
@@ -27,6 +32,7 @@ Future<void> setDownloadRule(CollectionType type, int id, bool enabled) async {
     queries: queries,
     mixId: mixId,
     enabled: enabled,
+    deleteUnselectedFiles: deleteUnselectedFiles,
   ).sendSignalToRust();
   final error = (await response).message.error;
   if (error != null) throw StateError(error);

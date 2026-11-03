@@ -4,8 +4,8 @@ mod content;
 mod integrity;
 
 pub use access::{
-    AudioAvailability, audio_availability, is_materialized, materialized_path, remote_required_ids,
-    resolve_local_id,
+    AudioAvailability, AudioOrigin, audio_availability, audio_origin, is_materialized,
+    materialized_path, remote_required_ids, resolve_local_id,
 };
 pub use content::{
     MANAGED_AUDIO_DIRECTORY, MAX_BLOB_BYTES, attach_download, blob_path, blob_path_for_track,

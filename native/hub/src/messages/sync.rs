@@ -11,12 +11,25 @@ pub struct SetDownloadRuleRequest {
     pub queries: Vec<MixQuery>,
     pub mix_id: Option<i32>,
     pub enabled: bool,
+    pub delete_unselected_files: bool,
 }
 
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct SetDownloadRuleResponse {
     pub request_id: String,
     pub rule_id: String,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct RemoveDownloadRuleRequest {
+    pub request_id: String,
+    pub rule_id: String,
+    pub delete_unselected_files: bool,
+}
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct RemoveDownloadRuleResponse {
+    pub request_id: String,
     pub error: Option<String>,
 }
 

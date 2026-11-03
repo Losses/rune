@@ -3,6 +3,9 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
 import '../../bindings/bindings.dart';
+import '../../constants/configurations.dart';
+import '../../constants/settings_manager.dart';
+import '../router/navigation.dart';
 import '../../providers/library_path.dart';
 import '../api/set_download_rule.dart';
 import '../l10n.dart';
@@ -43,9 +46,29 @@ Future<void> _saveSelection(
   final host = Navigator.of(context).context;
   final s = S.of(context);
   Flyout.of(context).close();
+  var deleteFiles = false;
+  if (!enabled) {
+    deleteFiles =
+        await $settingsManager.getValue<bool>(kOfflineCleanupDefaultKey) ??
+        true;
+    if (!host.mounted) return;
+    final result = await $showModal<bool>(
+      host,
+      (context, close) =>
+          OfflineCleanupDialog(initialValue: deleteFiles, onClose: close),
+    );
+    final confirmed = result != null;
+    deleteFiles = result ?? false;
+    if (confirmed != true || !host.mounted) return;
+  }
   String? failure;
   try {
-    await setDownloadRule(type, id, enabled);
+    await setDownloadRule(
+      type,
+      id,
+      enabled,
+      deleteUnselectedFiles: deleteFiles,
+    );
   } catch (error) {
     failure = error.toString();
   }
@@ -62,7 +85,11 @@ Future<void> _saveSelection(
       ),
       content: Text(
         failure ??
-            (enabled ? s.offlineSelectionQueued : s.offlineSelectionRetained),
+            (enabled
+                ? s.offlineSelectionQueued
+                : deleteFiles
+                ? s.offlineSelectionCleaned
+                : s.offlineSelectionRetained),
       ),
       severity: failure == null
           ? InfoBarSeverity.success
@@ -70,4 +97,46 @@ Future<void> _saveSelection(
       onClose: close,
     ),
   );
+}
+
+class OfflineCleanupDialog extends StatefulWidget {
+  const OfflineCleanupDialog({
+    super.key,
+    required this.initialValue,
+    required this.onClose,
+  });
+  final bool initialValue;
+  final void Function(bool?) onClose;
+
+  @override
+  State<OfflineCleanupDialog> createState() => _OfflineCleanupDialogState();
+}
+
+class _OfflineCleanupDialogState extends State<OfflineCleanupDialog> {
+  late bool deleteFiles = widget.initialValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    return ContentDialog(
+      title: Text(s.stopKeepingOffline),
+      content: LayoutBuilder(
+        builder: (context, constraints) => Checkbox(
+          checked: deleteFiles,
+          content: SizedBox(
+            width: (constraints.maxWidth - 32).clamp(0, double.infinity),
+            child: Text(s.offlineCleanupCheckbox),
+          ),
+          onChanged: (value) => setState(() => deleteFiles = value ?? false),
+        ),
+      ),
+      actions: [
+        Button(onPressed: () => widget.onClose(null), child: Text(s.cancel)),
+        FilledButton(
+          onPressed: () => widget.onClose(deleteFiles),
+          child: Text(s.confirm),
+        ),
+      ],
+    );
+  }
 }

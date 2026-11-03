@@ -40,6 +40,7 @@ Future<PlaylistOccurrencePage> fetchPlaylistOccurrences(
         trackNumber: file?.trackNumber,
         audioAvailability:
             file?.audioAvailability ?? AudioAvailability.unavailable,
+        audioOrigin: file?.audioOrigin ?? AudioOrigin.remote,
         playlistOccurrenceId: entry.occurrenceId,
         playlistPosition: entry.position,
       );

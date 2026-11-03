@@ -13,6 +13,7 @@ class InternalMediaFile {
   final String coverArtPath;
   final int? trackNumber;
   final AudioAvailability audioAvailability;
+  final AudioOrigin audioOrigin;
   final String? playlistOccurrenceId;
   final int? playlistPosition;
 
@@ -26,6 +27,7 @@ class InternalMediaFile {
     required this.coverArtPath,
     required this.trackNumber,
     this.audioAvailability = AudioAvailability.local,
+    this.audioOrigin = AudioOrigin.host,
     this.playlistOccurrenceId,
     this.playlistPosition,
   });
@@ -42,8 +44,13 @@ class InternalMediaFile {
         AudioAvailability.importPending => S.of(context).audioImportPending,
       };
 
+  String? originLabel(BuildContext context) => switch (audioOrigin) {
+    AudioOrigin.host || AudioOrigin.remote => null,
+    AudioOrigin.syncedCopy => S.of(context).audioSyncedCopy,
+  };
+
   String artistWithAvailability(BuildContext context) {
-    final label = availabilityLabel(context);
+    final label = availabilityLabel(context) ?? originLabel(context);
     return label == null ? artist : '$artist • $label';
   }
 }

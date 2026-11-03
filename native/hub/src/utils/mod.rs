@@ -6,7 +6,9 @@ pub mod nid;
 pub mod player;
 pub mod sync_settings;
 
-use database::actions::file::{AudioAvailability, audio_availability, remote_content_ids};
+use database::actions::file::{
+    AudioAvailability, audio_availability, audio_origin, remote_content_ids,
+};
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -520,6 +522,14 @@ pub async fn parse_media_files(
             let state = ApiState::from_local(state, remote_content.contains(&file.id));
             (PathBuf::new(), state)
         };
+        let origin = audio_origin(
+            if state == ApiState::Local {
+                LocalState::Local
+            } else {
+                LocalState::Unavailable
+            },
+            &file.directory,
+        );
         let media_file = MediaFile {
             id: file.id,
             path: media_path
@@ -545,6 +555,7 @@ pub async fn parse_media_files(
             cover_art_id: file.cover_art_id.unwrap_or(-1),
             track_number: file.track_number,
             audio_availability: state,
+            audio_origin: origin.into(),
         };
 
         media_files.push(media_file);

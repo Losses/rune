@@ -17,6 +17,23 @@ pub enum AudioAvailability {
     ImportPending,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AudioOrigin {
+    Host,
+    SyncedCopy,
+    Remote,
+}
+
+pub fn audio_origin(availability: AudioAvailability, directory: &str) -> AudioOrigin {
+    if availability != AudioAvailability::Local {
+        AudioOrigin::Remote
+    } else if super::content::is_managed_directory(directory) {
+        AudioOrigin::SyncedCopy
+    } else {
+        AudioOrigin::Host
+    }
+}
+
 fn row_path(fsio: &FsIo, root: &Path, row: &media_files::Model) -> Result<Option<PathBuf>> {
     if !row.local_available || row.file_name.is_empty() {
         return Ok(None);

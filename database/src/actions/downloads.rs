@@ -1,5 +1,8 @@
 //! Device-local rules for keeping selected audio available offline.
-use crate::actions::file::blob_path_for_track;
+use crate::actions::file::{MANAGED_AUDIO_DIRECTORY, blob_path_for_track, is_managed_directory};
+use crate::actions::mixes::query_mix_media_files;
+use crate::connection::RecommendationDbConnection;
+use crate::sync::SeaOrmSyncStore;
 use crate::sync::model::BlobRef;
 use crate::{
     actions::mixes::executable_mix_queries,
@@ -13,6 +16,7 @@ use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
     sea_query::OnConflict,
 };
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -118,6 +122,112 @@ pub async fn set_download_rule(
     .exec_without_returning(db)
     .await?;
     Ok(id)
+}
+
+pub async fn remove_download_rule(db: &DatabaseConnection, rule_id: &str) -> Result<()> {
+    sync_download_rules::Entity::delete_by_id(rule_id.to_owned())
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+#[derive(Debug, Default)]
+pub struct CleanupReport {
+    pub removed: usize,
+    pub delete_failures: usize,
+}
+
+pub async fn cleanup_unselected_downloads(
+    db: &DatabaseConnection,
+    recommend_db: &RecommendationDbConnection,
+    fsio: &FsIo,
+    root: &Path,
+    store: &SeaOrmSyncStore,
+) -> Result<CleanupReport> {
+    let rules = sync_download_rules::Entity::find()
+        .filter(sync_download_rules::Column::Enabled.eq(true))
+        .order_by_asc(sync_download_rules::Column::Id)
+        .all(db)
+        .await?;
+    let mut selected = HashSet::new();
+    const PAGE: usize = 100;
+    for rule in rules {
+        let queries = rule_queries(db, &rule).await?;
+        if queries.is_empty() {
+            continue;
+        }
+        validate_queries(&queries)?;
+        let mut cursor = 0;
+        loop {
+            let files =
+                query_mix_media_files(db, recommend_db, queries.clone(), cursor, PAGE).await?;
+            let count = files.len();
+            selected.extend(files.into_iter().map(|file| file.id));
+            cursor = cursor
+                .checked_add(count)
+                .ok_or_else(|| anyhow::anyhow!("offline query cursor overflow"))?;
+            if count < PAGE {
+                break;
+            }
+        }
+    }
+    let rows = media_files::Entity::find()
+        .filter(media_files::Column::LocalAvailable.eq(true))
+        .all(db)
+        .await?;
+    let canonical_root = fsio.canonicalize_path(root)?;
+    let managed = fsio.canonicalize_path(&root.join(MANAGED_AUDIO_DIRECTORY))?;
+    ensure!(
+        managed == canonical_root.join(MANAGED_AUDIO_DIRECTORY),
+        "managed download directory escapes the library"
+    );
+    let mut report = CleanupReport::default();
+    for row in rows {
+        if selected.contains(&row.id) || !is_managed_directory(&row.directory) {
+            continue;
+        }
+        let path = root.join(&row.directory).join(&row.file_name);
+        // Only forget rows whose file provably lives inside the managed directory.
+        let contained = fsio
+            .canonicalize_path(&path)
+            .is_ok_and(|canonical| canonical.starts_with(&managed) && canonical != managed);
+        if !contained {
+            log::warn!(
+                "Skipping download outside the managed directory: {}",
+                path.display()
+            );
+            report.delete_failures += 1;
+            continue;
+        }
+        let tx = db.begin().await?;
+        store.lock(&tx).await?;
+        let current = media_files::Entity::find_by_id(row.id).one(&tx).await?;
+        if current.as_ref() != Some(&row) {
+            tx.commit().await?;
+            continue;
+        }
+        media_files::Entity::update_many()
+            .col_expr(media_files::Column::LocalAvailable, Expr::value(false))
+            .col_expr(media_files::Column::Directory, Expr::value(""))
+            .col_expr(media_files::Column::FileName, Expr::value(""))
+            .filter(media_files::Column::Id.eq(row.id))
+            .exec(&tx)
+            .await?;
+        sync_download_jobs::Entity::delete_many()
+            .filter(sync_download_jobs::Column::FileUuid.eq(&row.hlc_uuid))
+            .exec(&tx)
+            .await?;
+        tx.commit().await?;
+        report.removed += 1;
+        if let Err(error) = fsio.remove_file(&path).await {
+            log::warn!(
+                "Could not delete downloaded file {}: {error:#}",
+                path.display()
+            );
+            report.delete_failures += 1;
+        }
+    }
+    Ok(report)
 }
 
 /// Persist a download job before publishing bytes into the managed directory.

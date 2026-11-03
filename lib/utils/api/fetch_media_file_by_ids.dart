@@ -26,6 +26,7 @@ Future<List<InternalMediaFile>> fetchMediaFileByIds(
           coverArtPath: response.coverArtMap[x.id] ?? '',
           trackNumber: x.trackNumber,
           audioAvailability: x.audioAvailability,
+          audioOrigin: x.audioOrigin,
         ),
       )
       .toList();

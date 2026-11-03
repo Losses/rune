@@ -7,7 +7,10 @@ import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../widgets/track_list/large_screen_track_list_item.dart';
 import '../../utils/query_list.dart';
 
-InternalMediaFile item(AudioAvailability availability) => InternalMediaFile(
+InternalMediaFile item(
+  AudioAvailability availability, [
+  AudioOrigin origin = AudioOrigin.host,
+]) => InternalMediaFile(
   id: 1,
   path: '',
   artist: 'Artist',
@@ -17,6 +20,7 @@ InternalMediaFile item(AudioAvailability availability) => InternalMediaFile(
   coverArtPath: '',
   trackNumber: 1,
   audioAvailability: availability,
+  audioOrigin: origin,
 );
 
 void main() {
@@ -58,6 +62,47 @@ void main() {
       );
     },
   );
+  testWidgets('synced copies show their origin next to the artist', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      FluentApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Builder(
+          builder: (context) => Column(
+            children: [
+              Text(
+                item(
+                  AudioAvailability.local,
+                  AudioOrigin.syncedCopy,
+                ).artistWithAvailability(context),
+              ),
+              Text(
+                item(
+                  AudioAvailability.local,
+                  AudioOrigin.host,
+                ).artistWithAvailability(context),
+              ),
+              Text(
+                item(
+                  AudioAvailability.remoteOnly,
+                  AudioOrigin.remote,
+                ).artistWithAvailability(context),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Artist • Synced copy'), findsOneWidget);
+    expect(find.text('Artist'), findsOneWidget);
+    expect(
+      find.text('Artist • Remote audio (connection unknown)'),
+      findsOneWidget,
+    );
+  });
   testWidgets('pending rows stay visible but cannot start playback', (
     tester,
   ) async {

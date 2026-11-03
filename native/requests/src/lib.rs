@@ -27,6 +27,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: true,
         },
         RequestResponse {
+            request: "RemoveDownloadRuleRequest".to_string(),
+            response: Some("RemoveDownloadRuleResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
             request: "TestLibraryInitializedRequest".to_string(),
             response: Some("TestLibraryInitializedResponse".to_string()),
             local_only: true,

@@ -176,3 +176,5 @@ const kVisualizerLastSceneKey = 'visualizer_last_scene';
 
 /// Per-profile multiplier for the application's interface, as an integer percent.
 const kInterfaceScaleKey = 'interface_scale';
+
+const kOfflineCleanupDefaultKey = "offline_cleanup_default";

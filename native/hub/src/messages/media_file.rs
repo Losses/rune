@@ -1,4 +1,6 @@
-use database::actions::file::AudioAvailability as FileAudioAvailability;
+use database::actions::file::{
+    AudioAvailability as FileAudioAvailability, AudioOrigin as FileAudioOrigin,
+};
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -36,6 +38,23 @@ impl AudioAvailability {
     }
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize, SignalPiece, Debug, PartialEq, Eq)]
+pub enum AudioOrigin {
+    Host,
+    SyncedCopy,
+    Remote,
+}
+
+impl From<FileAudioOrigin> for AudioOrigin {
+    fn from(value: FileAudioOrigin) -> Self {
+        match value {
+            FileAudioOrigin::Host => Self::Host,
+            FileAudioOrigin::SyncedCopy => Self::SyncedCopy,
+            FileAudioOrigin::Remote => Self::Remote,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, SignalPiece, Debug)]
 pub struct MediaFile {
     pub id: i32,
@@ -47,6 +66,7 @@ pub struct MediaFile {
     pub cover_art_id: i32,
     pub track_number: i32,
     pub audio_availability: AudioAvailability,
+    pub audio_origin: AudioOrigin,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
