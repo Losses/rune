@@ -17,10 +17,10 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use crate::node::{NodeContext, initialize_node};
 use anyhow::{Context, Result};
 use fsio::FsIo;
 use log::{error, info};
-use nid::get_or_create_node_id;
 use rinf::{DartSignal, DartSignalPack};
 use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
@@ -103,6 +103,7 @@ pub enum RunningMode {
 }
 
 pub struct GlobalParams {
+    pub node: Arc<NodeContext>,
     pub fsio: Arc<FsIo>,
     pub lib_path: Arc<String>,
     pub library_id: Option<Uuid>,
@@ -241,15 +242,20 @@ async fn handle_media_library_path(
                 return;
             }
         };
-        let node_id = match get_or_create_node_id(config_path).await {
-            Ok(node_id) => node_id.to_string(),
-            Err(e) => {
-                error!("Failed to get or create node id: {e:#?}");
+        let node = match initialize_node(
+            config_path,
+            &dart_signal.message.db_path,
+            broadcaster.clone(),
+        )
+        .await
+        {
+            Ok(node) => node,
+            Err(error) => {
                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
                     error_kind: None,
                     path: media_library_path.to_string(),
                     success: false,
-                    error: Some(format!("Failed to initialize library config: {e:#?}")),
+                    error: Some(format!("Failed to initialize node: {error:#}")),
                     not_ready: false,
                 });
                 return;
@@ -258,7 +264,6 @@ async fn handle_media_library_path(
 
         match &dart_signal.message.hosted_on {
             OperationDestination::Local => {
-                let database_path = dart_signal.message.db_path;
                 let database_mode = dart_signal.message.mode;
                 info!("Received path: {media_library_path}");
 
@@ -313,31 +318,20 @@ async fn handle_media_library_path(
                     let descriptor =
                         resolve_library(&fsio, &mut registry, media_library_path, alias, mode)
                             .await?;
-                    let pool = LibraryPool::new(
-                        Path::new(config_path),
-                        Path::new(&database_path),
-                        &node_id,
-                    )?;
-                    pool.acquire_ui(descriptor.library_id).await
+                    node.library_pool.acquire_ui(descriptor.library_id).await
                 }
                 .await;
                 match opened {
                     Ok(library) => {
                         info!("Resolved library id: {}", library.descriptor.library_id);
+                        let result = local_player_loop(library, node, Arc::clone(&scrobbler)).await;
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             error_kind: None,
                             path: media_library_path.to_string(),
-                            success: true,
-                            error: None,
+                            success: result.is_ok(),
+                            error: result.err().map(|error| format!("{error:#}")),
                             not_ready: false,
                         });
-                        local_player_loop(
-                            library,
-                            config_path.to_string(),
-                            Arc::clone(&scrobbler),
-                            broadcaster.clone(),
-                        )
-                        .await;
                     }
                     Err(e) => {
                         error!("Library initialization failed: {e:#?}");
@@ -352,8 +346,7 @@ async fn handle_media_library_path(
                 }
             }
             OperationDestination::Remote => {
-                let config_path = &dart_signal.message.config_path;
-                match server_player_loop(fsio, media_library_path, config_path, alias).await {
+                match server_player_loop(fsio, media_library_path, node, alias).await {
                     Ok(_) => {
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             error_kind: None,

@@ -10,6 +10,7 @@ mod handlers;
 pub mod backends;
 pub mod library_pool;
 pub mod messages;
+pub mod node;
 pub mod request_error;
 #[macro_use]
 pub mod server;
@@ -87,13 +88,19 @@ async fn main() {
     // not initialized, so it runs as an independent task instead of going
     // through the handler dispatch.
     tokio::spawn(receive_fs_self_test());
+    tokio::spawn(node::receive_initialize_node());
 
     // Start receiving the media library path
-    if let Err(e) = receive_media_library_path(scrobbler).await {
-        error!("Failed to receive media library path: {e:?}");
+    tokio::select! {
+        result = receive_media_library_path(scrobbler) => {
+            if let Err(error) = result { error!("Failed to receive media library path: {error:?}"); }
+        }
+        _ = rinf::dart_shutdown() => {}
     }
 
-    rinf::dart_shutdown().await;
+    if let Err(error) = node::shutdown_node().await {
+        error!("Node shutdown failed: {error:#}");
+    }
 
     if let Some(guard) = _guard {
         drop(guard);

@@ -104,6 +104,20 @@ void main(List<String> arguments) async {
     }
   }
   await initializeRust(assignRustSignal);
+  // Start device-level sharing and sync before any library is open. A
+  // failure here is not fatal: opening a library retries and reports it.
+  final nodeInitialized = InitializeNodeResponse.rustSignalStream.first;
+  InitializeNodeRequest(configPath: await getSettingsPath()).sendSignalToRust();
+  try {
+    final nodeResponse = (await nodeInitialized.timeout(
+      const Duration(seconds: 30),
+    )).message;
+    if (!nodeResponse.success) {
+      error$('Could not initialize this device: ${nodeResponse.error}');
+    }
+  } on TimeoutException {
+    error$('Device initialization did not answer within 30 seconds');
+  }
   // Scene files the app was opened with, or is asked to open later.
   SceneFiles.start(arguments);
 

@@ -5,7 +5,7 @@ use super::sync::{library_base, library_notification};
 use super::sync_auth::{Authorization, Challenge, Token, message};
 #[cfg(test)]
 use super::utils::device::load_device_info;
-use crate::{library_pool::LibraryHandle, utils::GlobalParams};
+use crate::{library_pool::LibraryHandle, node::NodeContext, utils::GlobalParams};
 use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, materialized_path, resolve_local_id};
@@ -31,7 +31,10 @@ use std::{
     hash::Hash,
     path::Path,
 };
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Weak},
+    time::Duration,
+};
 use sync::SyncPeer;
 use sync::protocol::SyncError;
 use tokio::sync::Mutex;
@@ -94,7 +97,7 @@ pub(crate) async fn trusted_fingerprint(
     Ok(fingerprint)
 }
 
-pub(super) async fn peer_endpoints(global: &GlobalParams, own: &str) -> Vec<Vec<PeerEndpoint>> {
+pub(super) async fn peer_endpoints(global: &NodeContext, own: &str) -> Vec<Vec<PeerEndpoint>> {
     let trusted = global
         .cert_validator
         .read()
@@ -171,7 +174,7 @@ impl Default for PeerSession {
 }
 
 pub async fn run(
-    global: Arc<GlobalParams>,
+    global: Arc<NodeContext>,
     notify: Arc<dyn Fn() + Send + Sync>,
     own_fingerprint: String,
     private_key: String,
@@ -205,7 +208,7 @@ pub async fn run(
     );
 }
 
-async fn eligible_libraries(global: &GlobalParams) -> Vec<Uuid> {
+async fn eligible_libraries(global: &NodeContext) -> Vec<Uuid> {
     match global.library_pool.served_library_ids().await {
         Ok(ids) => ids,
         Err(error) => {
@@ -215,7 +218,7 @@ async fn eligible_libraries(global: &GlobalParams) -> Vec<Uuid> {
     }
 }
 
-async fn maintain_metadata(global: Arc<GlobalParams>, cancel: tokio_util::sync::CancellationToken) {
+async fn maintain_metadata(global: Arc<NodeContext>, cancel: tokio_util::sync::CancellationToken) {
     let mut maintenance = HashMap::<Uuid, Maintenance>::new();
     let mut interval = tokio::time::interval(Duration::from_secs(5));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -256,12 +259,18 @@ async fn maintain_metadata(global: Arc<GlobalParams>, cancel: tokio_util::sync::
     }
 }
 
-fn pass_notification(
-    global: &GlobalParams,
+async fn pass_notification(
+    global: &NodeContext,
     library: &LibraryHandle,
     ui_notify: &Arc<dyn Fn() + Send + Sync>,
 ) -> Arc<dyn Fn() + Send + Sync> {
-    if global.library_id == Some(library.descriptor.library_id) {
+    if global
+        .current_ui()
+        .await
+        .ok()
+        .and_then(|params| params.library_id)
+        == Some(library.descriptor.library_id)
+    {
         ui_notify.clone()
     } else {
         library_notification(global, &library.media_root)
@@ -269,7 +278,7 @@ fn pass_notification(
 }
 
 async fn verify_managed_audio(
-    global: Arc<GlobalParams>,
+    global: Arc<NodeContext>,
     notify: Arc<dyn Fn() + Send + Sync>,
     cancel: tokio_util::sync::CancellationToken,
 ) {
@@ -296,7 +305,7 @@ async fn verify_managed_audio(
                     )
                     .await?;
                 if step.invalidated {
-                    pass_notification(&global, &library, &notify)();
+                    (pass_notification(&global, &library, &notify).await)();
                 }
                 Ok::<_, anyhow::Error>(())
             };
@@ -320,7 +329,7 @@ where
 }
 
 async fn run_loop(
-    global: Arc<GlobalParams>,
+    global: Arc<NodeContext>,
     notify: Arc<dyn Fn() + Send + Sync>,
     credentials: LocalCredentials,
     cancel: tokio_util::sync::CancellationToken,
@@ -354,7 +363,7 @@ async fn run_loop(
                     return (key, Duration::from_secs(30));
                 }
             };
-            let notify = pass_notification(&global, &library, &notify);
+            let notify = pass_notification(&global, &library, &notify).await;
             for endpoint in hosts {
                 let result = tokio::select! {
                     _ = cancel.cancelled() => return (key, Duration::from_secs(30)),
@@ -489,7 +498,7 @@ fn outbound_eligible(status: Option<UserStatus>) -> bool {
     matches!(status, None | Some(UserStatus::Approved))
 }
 
-pub(super) async fn wait_for_revocation(global: &GlobalParams, fingerprint: &str, host: &str) {
+pub(super) async fn wait_for_revocation(global: &NodeContext, fingerprint: &str, host: &str) {
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let status = global
@@ -541,11 +550,12 @@ fn classify_peer_pass(result: Result<bool>) -> Result<PeerPass> {
 
 #[cfg(test)]
 pub(super) async fn test_peer_pass(
-    global: Arc<GlobalParams>,
+    params: Arc<GlobalParams>,
     private_key: &str,
     endpoint: PeerEndpoint,
     metadata: bool,
 ) -> Result<PeerPass> {
+    let global = params.node.clone();
     let credentials = LocalCredentials {
         fingerprint: load_device_info(Path::new(&*global.config_path))
             .await?
@@ -554,7 +564,7 @@ pub(super) async fn test_peer_pass(
     };
     let library = global
         .library_pool
-        .acquire(global.library_id.unwrap())
+        .acquire(params.library_id.unwrap())
         .await?;
     let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
     classify_peer_pass(
@@ -580,7 +590,7 @@ struct PassOptions<'a> {
 }
 
 async fn sync_one(
-    global: &Arc<GlobalParams>,
+    global: &Arc<NodeContext>,
     library: &LibraryHandle,
     notify: &Arc<dyn Fn() + Send + Sync>,
     endpoint: &PeerEndpoint,
@@ -742,7 +752,7 @@ async fn metadata_pass(
 }
 
 pub(super) async fn authenticated_client(
-    global: &GlobalParams,
+    global: &NodeContext,
     own: &str,
     private_key: &str,
     fingerprint: &str,
@@ -823,7 +833,7 @@ pub(super) struct AudioCredentials {
 /// Caller-owned, pinned request capability for one immutable content address.
 #[derive(Clone)]
 pub(super) struct RenewableAudio {
-    pub global: Arc<GlobalParams>,
+    pub global: Arc<NodeContext>,
     pub own: String,
     pub private_key: String,
     pub endpoint: PeerEndpoint,
@@ -1254,7 +1264,7 @@ pub(crate) fn tls_config(
 }
 
 /// Resolves an unmaterialized catalog track at playback time using paired peers.
-pub struct PairedAudioResolver(pub std::sync::Weak<super::ServerManager>);
+pub struct PairedAudioResolver(pub Weak<GlobalParams>);
 impl playback::player::PlaybackSourceResolver for PairedAudioResolver {
     fn resolve_id(&self, id: i32) -> futures::future::BoxFuture<'static, Result<Option<i32>>> {
         let manager = self.0.clone();
@@ -1262,8 +1272,7 @@ impl playback::player::PlaybackSourceResolver for PairedAudioResolver {
             let manager = manager
                 .upgrade()
                 .ok_or_else(|| anyhow::anyhow!("library closed"))?;
-            let params = &manager.global_params;
-            resolve_local_id(params.main_db.as_ref(), id).await
+            resolve_local_id(manager.main_db.as_ref(), id).await
         })
     }
     fn local_path(
@@ -1285,19 +1294,29 @@ impl playback::player::PlaybackSourceResolver for PairedAudioResolver {
             let manager = manager
                 .upgrade()
                 .ok_or_else(|| anyhow::anyhow!("library closed"))?;
-            manager.resolve_remote_audio(id).await
+            let library = manager
+                .ui_library
+                .lock()
+                .await
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("library closed"))?;
+            manager
+                .node
+                .manager()?
+                .resolve_remote_audio(&library, manager.main_token.child_token(), id)
+                .await
         })
     }
 }
 
 async fn resolve_materialized_path(
-    manager: std::sync::Weak<super::ServerManager>,
+    manager: Weak<GlobalParams>,
     id: i32,
 ) -> Result<Option<std::path::PathBuf>> {
     let manager = manager
         .upgrade()
         .ok_or_else(|| anyhow::anyhow!("library closed"))?;
-    let params = &manager.global_params;
+    let params = &manager;
     materialized_path(
         params.main_db.as_ref(),
         &params.fsio,

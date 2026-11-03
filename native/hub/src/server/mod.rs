@@ -7,9 +7,9 @@ mod manager;
 pub mod sync;
 mod sync_auth;
 pub(crate) mod sync_worker;
+pub use sync_worker::PairedAudioResolver;
 pub mod utils;
 
-use fsio::FsIo;
 pub use manager::{
     ServerManager, generate_or_load_certificates, get_or_generate_alias, update_root_password,
 };
@@ -37,7 +37,6 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub type BroadcastTx = broadcast::Sender<Vec<u8>>;
 
 pub struct AppState {
-    pub lib_path: PathBuf,
     pub cover_temp_dir: PathBuf,
 }
 
@@ -49,7 +48,6 @@ pub struct ServerState {
     pub discovery_device_info: Arc<RwLock<DeviceInfo>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub device_scanner: Arc<DiscoveryService>,
-    pub fsio: Arc<FsIo>,
 }
 
 pub struct WebSocketService {

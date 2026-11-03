@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     Json,
-    extract::{Extension, Path as AxumPath, State},
+    extract::{Extension, Path as AxumPath, Query},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -11,7 +11,10 @@ use serde::Serialize;
 
 use crate::{
     messages::{Album, Artist, MediaFile},
-    server::{ServerManager, ServerState},
+    server::{
+        ServerManager,
+        libraries::{LibraryQuery, request_library},
+    },
     utils::parse_media_files,
 };
 use database::actions::{cover_art::bake_cover_art_by_file_ids, metadata::get_parsed_file_by_id};
@@ -24,30 +27,30 @@ pub struct MediaMetadataResponse {
 }
 
 pub async fn get_media_metadata_handler(
-    State(server_state): State<Arc<ServerState>>,
+    Query(query): Query<LibraryQuery>,
     Extension(server_manager): Extension<Arc<ServerManager>>,
     AxumPath(file_id): AxumPath<i64>,
 ) -> Result<Json<MediaMetadataResponse>, (StatusCode, String)> {
+    let library = request_library(&server_manager, query)
+        .await
+        .map_err(|status| (status, "Library unavailable".to_owned()))?;
     let file_id_i32 = file_id
         .try_into()
         .map_err(|_| (StatusCode::BAD_REQUEST, "File ID out of range".to_string()))?;
     let (media_file, artists, album) =
-        get_parsed_file_by_id(&server_manager.global_params.main_db, file_id_i32)
+        get_parsed_file_by_id(&library.main_db, file_id_i32)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let lib_path_string = server_state
-        .app_state
-        .lib_path
-        .to_string_lossy()
-        .to_string();
-
     let parsed_files = parse_media_files(
-        &server_state.fsio,
-        &server_manager.global_params.main_db,
-        &server_manager.global_params.node_id,
+        &library.fsio,
+        &library.main_db,
+        &server_manager
+            .node()
+            .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error.to_string()))?
+            .node_id,
         vec![media_file],
-        Arc::new(lib_path_string),
+        Arc::new(library.media_root.clone()),
     )
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -81,20 +84,20 @@ pub async fn get_media_metadata_handler(
 }
 
 pub async fn get_cover_art_handler(
-    State(server_state): State<Arc<ServerState>>,
+    Query(query): Query<LibraryQuery>,
     Extension(server_manager): Extension<Arc<ServerManager>>,
     AxumPath(file_id): AxumPath<i64>,
 ) -> Result<Response, (StatusCode, String)> {
+    let library = request_library(&server_manager, query)
+        .await
+        .map_err(|status| (status, "Library unavailable".to_owned()))?;
     let file_id_i32 = file_id
         .try_into()
         .map_err(|_| (StatusCode::BAD_REQUEST, "File ID out of range".to_string()))?;
-    let cover_art_map = bake_cover_art_by_file_ids(
-        &server_state.fsio,
-        &server_manager.global_params.main_db,
-        vec![file_id_i32],
-    )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let cover_art_map =
+        bake_cover_art_by_file_ids(&library.fsio, &library.main_db, vec![file_id_i32])
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let cover_path = cover_art_map
         .get(&file_id_i32)

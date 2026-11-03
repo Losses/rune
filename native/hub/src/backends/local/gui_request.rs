@@ -27,6 +27,7 @@ macro_rules! handle_single_gui_event {
                 let receiver = <$request>::get_dart_signal_receiver();
 
                 tokio::select! {
+                    biased;
                     _ = [<cancel_token_ $request:snake>].cancelled() => {
                         return;
                     }

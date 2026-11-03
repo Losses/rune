@@ -34,6 +34,10 @@ macro_rules! register_single_handler {
                         }
                     };
 
+                    let global_params = match global_params.current_ui().await {
+                        Ok(params) => params,
+                        Err(error) => return (String::new(), Err(error)),
+                    };
                     let params = request.extract_params(&global_params);
                     match request.handle(params, session, &request).await {
                         Ok(_response) => {

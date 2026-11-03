@@ -17,7 +17,7 @@ use futures::StreamExt;
 use tokio::sync::{Mutex, RwLock};
 use tower::ServiceExt;
 
-use crate::{library_pool::LibraryPool, messages::LibraryContentChanged, utils::GlobalParams};
+use crate::{library_pool::LibraryPool, messages::LibraryContentChanged, node::NodeContext};
 use http::{BlobContext, SharedLibrary, blob_router};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -39,11 +39,11 @@ pub fn library_router(
 #[derive(Clone)]
 struct PoolService {
     pool: Arc<LibraryPool>,
-    global: Arc<GlobalParams>,
+    global: Arc<NodeContext>,
     node_id: Uuid,
 }
 
-pub(super) fn pool_router(global: Arc<GlobalParams>, node_id: Uuid) -> axum::Router {
+pub(super) fn pool_router(global: Arc<NodeContext>, node_id: Uuid) -> axum::Router {
     axum::Router::new()
         .fallback(serve_library)
         .with_state(PoolService {
@@ -54,7 +54,7 @@ pub(super) fn pool_router(global: Arc<GlobalParams>, node_id: Uuid) -> axum::Rou
 }
 
 pub(super) fn library_notification(
-    global: &GlobalParams,
+    global: &NodeContext,
     root: &str,
 ) -> Arc<dyn Fn() + Send + Sync> {
     let broadcaster = global.broadcaster.clone();

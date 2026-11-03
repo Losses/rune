@@ -1,9 +1,9 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
 use anyhow::Result;
 use tokio::signal::ctrl_c;
 
-use hub::server::{ServerManager, utils::device::load_device_info};
+use hub::server::utils::device::load_device_info;
 
 use crate::initialize_global_params;
 
@@ -14,7 +14,10 @@ pub async fn handle_server(addr: String, lib_path: String) -> Result<()> {
     let device_info = load_device_info(config_path).await?;
     let global_params = initialize_global_params(&lib_path, config_path.to_str().unwrap()).await?;
 
-    let server_manager = Arc::new(ServerManager::new(global_params).await?);
+    let server_manager = global_params.node.manager()?;
+    if server_manager.is_running() {
+        server_manager.stop().await?;
+    }
     let socket_addr: SocketAddr = addr.parse()?;
 
     server_manager
@@ -23,6 +26,6 @@ pub async fn handle_server(addr: String, lib_path: String) -> Result<()> {
         .await?;
 
     ctrl_c().await?;
-    server_manager.stop().await?;
+    global_params.node.shutdown().await?;
     Ok(())
 }

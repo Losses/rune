@@ -22,7 +22,10 @@ pub async fn login_handler(
     Extension(server_manager): Extension<Arc<ServerManager>>,
     Json(request): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, AppError> {
-    let config_path = Path::new(&*server_manager.global_params.config_path);
+    let node = server_manager
+        .node()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let config_path = Path::new(&*node.config_path);
     let password_path = config_path.join("root_password.hash");
 
     if !password_path.exists() {

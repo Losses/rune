@@ -22,7 +22,10 @@ pub async fn update_alias_handler(
     Extension(server_manager): Extension<Arc<ServerManager>>,
     Json(payload): Json<UpdateAliasRequest>,
 ) -> Result<StatusCode, AppError> {
-    let config_path = Path::new(&*server_manager.global_params.config_path);
+    let node = server_manager
+        .node()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let config_path = Path::new(&*node.config_path);
     update_alias(config_path, &payload.alias)
         .await
         .context("Failed to update alias")

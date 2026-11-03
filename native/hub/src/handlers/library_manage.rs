@@ -31,18 +31,15 @@ use ::fsio::FsIo;
 
 use crate::{
     Session, Signal, TaskTokens,
-    library_pool::LibraryHandle,
     messages::*,
-    server::ServerManager,
+    node::NodeContext,
     utils::{Broadcaster, GlobalParams, ParamsExtractor, determine_batch_size},
 };
 
 pub struct CloseLibraryParams {
     lib_path: Arc<String>,
     main_token: Arc<CancellationToken>,
-    task_tokens: Arc<Mutex<TaskTokens>>,
-    server_manager: Option<Arc<ServerManager>>,
-    ui_library: Arc<Mutex<Option<LibraryHandle>>>,
+    node: Arc<NodeContext>,
 }
 
 impl ParamsExtractor for CloseLibraryRequest {
@@ -52,9 +49,7 @@ impl ParamsExtractor for CloseLibraryRequest {
         CloseLibraryParams {
             lib_path: Arc::clone(&all_params.lib_path),
             main_token: Arc::clone(&all_params.main_token),
-            task_tokens: Arc::clone(&all_params.task_tokens),
-            server_manager: all_params.server_manager.get().cloned(),
-            ui_library: all_params.ui_library.clone(),
+            node: all_params.node.clone(),
         }
     }
 }
@@ -72,9 +67,7 @@ impl Signal for CloseLibraryRequest {
         let CloseLibraryParams {
             lib_path,
             main_token,
-            task_tokens,
-            server_manager,
-            ui_library,
+            node,
         } = params;
         let request = dart_signal;
 
@@ -88,32 +81,7 @@ impl Signal for CloseLibraryRequest {
             return Ok(None);
         }
 
-        let mut tokens = task_tokens.lock().await;
-        if let Some(token) = tokens.scan_token.take() {
-            token.cancel();
-        }
-        if let Some(token) = tokens.analyze_token.take() {
-            token.cancel();
-        }
-
-        drop(tokens);
-        if let Some(server) = server_manager {
-            if server.is_running()
-                && let Err(error) = server.stop().await
-            {
-                log::error!("Server shutdown failed: {error}");
-            }
-            if let Err(error) = server.stop_worker().await {
-                log::error!("Sync worker shutdown failed: {error}");
-            }
-        }
-        main_token.cancel();
-        if let Some(library) = ui_library.lock().await.take() {
-            library
-                .pool()
-                .unregister_ui(library.descriptor.library_id)
-                .await;
-        }
+        node.close_ui(&main_token).await;
 
         Ok(Some(CloseLibraryResponse {
             path: request.path.clone(),

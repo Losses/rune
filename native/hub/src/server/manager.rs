@@ -1,13 +1,13 @@
 use super::sync_auth::SyncAuth;
-use crate::backends::remote::RemoteConnectError;
+use crate::backends::remote::{RemoteConnectError, token_error};
 use database::actions::file::catalog_track;
 use database::sync::model::RuneModel;
 use std::net::TcpListener;
 use std::{
     net::SocketAddr,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
-        Arc,
+        Arc, Weak,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -41,11 +41,12 @@ use tower_governor::{
 };
 
 use ::discovery::{DiscoveryParams, client::parse_certificate, ssl::generate_self_signed_cert};
-use ::fsio::FsIo;
 
 use crate::{
     Signal,
+    library_pool::LibraryHandle,
     messages::*,
+    node::NodeContext,
     server::{
         AppState, ServerState, WebSocketService,
         http::{
@@ -67,14 +68,14 @@ use crate::{
             websocket::websocket_handler,
         },
     },
-    utils::{GlobalParams, ParamsExtractor, RinfRustSignal},
+    utils::{ParamsExtractor, RinfRustSignal},
 };
 
 async fn register_request_handlers(
     websocket_service: Arc<WebSocketService>,
-    global_params: Arc<GlobalParams>,
+    node: Arc<NodeContext>,
 ) {
-    for_all_remote_request_pairs2!(listen_server_event, websocket_service, global_params);
+    for_all_remote_request_pairs2!(listen_server_event, websocket_service, node);
 }
 
 fn coalesce_worker_notify(
@@ -139,7 +140,7 @@ impl JwtClaims {
 
 #[derive(Debug)]
 pub struct ServerManager {
-    pub global_params: Arc<GlobalParams>,
+    node: Weak<NodeContext>,
     server_handle: Mutex<Option<JoinHandle<()>>>,
     start_lock: Mutex<()>,
     addr: Mutex<Option<SocketAddr>>,
@@ -156,7 +157,6 @@ pub struct ServerManager {
     certificate: String,
     private_key: String,
     pub jwt_secret: Vec<u8>,
-    pub fsio: Arc<FsIo>,
 }
 
 impl ServerManager {
@@ -165,12 +165,16 @@ impl ServerManager {
         &self,
         fingerprint: &str,
     ) -> Result<Vec<PeerLibrary>, RemoteConnectError> {
-        super::libraries::list_peer_libraries(&self.global_params, &self.private_key, fingerprint)
-            .await
+        let node = self.node().map_err(token_error)?;
+        super::libraries::list_peer_libraries(&node, &self.private_key, fingerprint).await
     }
 
-    pub async fn new(global_params: Arc<GlobalParams>) -> Result<Self> {
-        let config_path = Path::new(&*global_params.config_path);
+    pub fn node(&self) -> Result<Arc<NodeContext>> {
+        self.node.upgrade().context("Node has shut down")
+    }
+
+    pub async fn new(node: Arc<NodeContext>) -> Result<Self> {
+        let config_path = Path::new(&*node.config_path);
 
         let certificate_id = get_or_generate_alias(config_path).await?;
 
@@ -183,16 +187,8 @@ impl ServerManager {
             .await
             .context("Failed to initialize JWT secret")?;
 
-        #[cfg(not(target_os = "android"))]
-        let fsio = Arc::new(FsIo::new());
-        #[cfg(target_os = "android")]
-        let fsio = Arc::new(FsIo::new(
-            Path::new(".rune/.android-fs.db"),
-            &global_params.lib_path,
-        )?);
-
         Ok(Self {
-            global_params,
+            node: Arc::downgrade(&node),
             server_handle: Mutex::new(None),
             start_lock: Mutex::new(()),
             addr: Mutex::new(None),
@@ -209,7 +205,6 @@ impl ServerManager {
             certificate,
             private_key,
             jwt_secret,
-            fsio,
         })
     }
 
@@ -263,29 +258,19 @@ impl ServerManager {
         discovery_params: DiscoveryParams,
         sync_only: bool,
     ) -> Result<()> {
+        let node = self.node()?;
         let _start_guard = self.start_lock.lock().await;
-        anyhow::ensure!(
-            !self.global_params.main_token.is_cancelled(),
-            "library is shutting down"
-        );
+        anyhow::ensure!(!node.token.is_cancelled(), "node is shutting down");
         self.start_worker().await?;
         if self.is_running.load(Ordering::SeqCst) {
             return Err(anyhow::anyhow!("Server already running"));
         }
-        self.global_params
-            .player
-            .lock()
-            .await
-            .set_source_resolver(Arc::new(super::sync_worker::PairedAudioResolver(
-                Arc::downgrade(&self),
-            )));
         let mut device_info = discovery_params.device_info.clone();
-        let websocket_service = Arc::new(WebSocketService::new());
+        let websocket_service = node.websocket_service.clone();
 
-        register_request_handlers(websocket_service.clone(), self.global_params.clone()).await;
+        register_request_handlers(websocket_service.clone(), node.clone()).await;
 
         let app_state = Arc::new(AppState {
-            lib_path: PathBuf::from(&*self.global_params.lib_path),
             cover_temp_dir: COVER_TEMP_DIR.clone(),
         });
 
@@ -295,9 +280,8 @@ impl ServerManager {
             app_state: app_state.clone(),
             websocket_service: websocket_service.clone(),
             discovery_device_info: Arc::new(RwLock::new(discovery_params.device_info)),
-            permission_manager: self.global_params.permission_manager.clone(),
-            device_scanner: self.global_params.device_scanner.clone(),
-            fsio: Arc::clone(&self.fsio),
+            permission_manager: node.permission_manager.clone(),
+            device_scanner: node.device_scanner.clone(),
         });
 
         let governor_conf = GovernorConfigBuilder::default()
@@ -332,12 +316,9 @@ impl ServerManager {
                 config: governor_conf.into(),
             });
 
-        let node_id = uuid::Uuid::parse_str(&self.global_params.node_id)?;
+        let node_id = uuid::Uuid::parse_str(&node.node_id)?;
         let (_, fingerprint) = parse_certificate(&self.certificate)?;
-        let auth = SyncAuth::new(
-            self.global_params.permission_manager.clone(),
-            fingerprint.clone(),
-        );
+        let auth = SyncAuth::new(node.permission_manager.clone(), fingerprint.clone());
         #[cfg(test)]
         {
             *self.sync_auth_for_test.lock().await = Some(auth.clone());
@@ -345,7 +326,7 @@ impl ServerManager {
         let sync_routes = Router::new()
             .nest(
                 "/libraries/{library_id}",
-                super::sync::pool_router(self.global_params.clone(), node_id),
+                super::sync::pool_router(node.clone(), node_id),
             )
             .route("/libraries", get(super::libraries::list_libraries))
             .layer(middleware::from_fn_with_state(
@@ -357,18 +338,21 @@ impl ServerManager {
             .route("/ping", get(ping_handler))
             .route("/check-fingerprint", get(check_fingerprint_handler))
             .route("/device-info", get(device_info_handler));
+        let library_routes = Router::new()
+            .route("/files/{*file_path}", get(file_handler))
+            .route("/media/metadata/{id}", get(get_media_metadata_handler))
+            .route("/media/cover/{id}", get(get_cover_art_handler))
+            .layer(middleware::from_fn_with_state(
+                auth.clone(),
+                super::sync_auth::require_auth,
+            ));
+        let app = app.merge(library_routes);
         let app = if sync_only {
             app
         } else {
-            let device_routes = Router::new()
-                .route("/ws", get(websocket_handler))
-                .route("/files/{*file_path}", get(file_handler))
-                .route("/media/metadata/{id}", get(get_media_metadata_handler))
-                .route("/media/cover/{id}", get(get_cover_art_handler))
-                .layer(middleware::from_fn_with_state(
-                    auth.clone(),
-                    super::sync_auth::require_auth,
-                ));
+            let device_routes = Router::new().route("/ws", get(websocket_handler)).layer(
+                middleware::from_fn_with_state(auth.clone(), super::sync_auth::require_auth),
+            );
             app.merge(auth_routes)
                 .merge(protected_routes)
                 .merge(device_routes)
@@ -379,10 +363,6 @@ impl ServerManager {
             .merge(sync_routes)
             .layer(Extension(self.clone()));
 
-        info!(
-            "Library files path: {}",
-            app_state.lib_path.to_string_lossy()
-        );
         info!(
             "Temporary files path: {}",
             app_state.cover_temp_dir.to_string_lossy()
@@ -419,8 +399,8 @@ impl ServerManager {
         let watch_stop = watch_cancel.clone();
         let lifetime_handle = shutdown_handle.clone();
         let session_stop = watch_cancel.clone();
-        let lifetime_token = self.global_params.main_token.clone();
-        let lifetime_scanner = self.global_params.device_scanner.clone();
+        let lifetime_token = node.token.clone();
+        let lifetime_scanner = node.device_scanner.clone();
         *self.watch_handle.lock().await = Some(tokio::spawn(async move {
             tokio::select! {
                 _ = watch_stop.cancelled() => {},
@@ -433,18 +413,16 @@ impl ServerManager {
             }
         }));
         *self.watch_cancel.lock().await = Some(watch_cancel);
-        if !self.global_params.device_scanner.is_listening().await
-            && let Err(error) = self
-                .global_params
+        if !node.device_scanner.is_listening().await
+            && let Err(error) = node
                 .device_scanner
                 .start_listening(Some(fingerprint.clone()))
                 .await
         {
             log::warn!("Could not start paired-device discovery: {error}");
         }
-        if !self.global_params.device_scanner.is_announcing().await
-            && let Err(error) = self
-                .global_params
+        if !node.device_scanner.is_announcing().await
+            && let Err(error) = node
                 .device_scanner
                 .start_announcements(device_info, Duration::from_secs(3), None)
                 .await
@@ -456,43 +434,42 @@ impl ServerManager {
         *self.shutdown_handle.lock().await = Some(shutdown_handle);
         self.sync_only.store(sync_only, Ordering::SeqCst);
         self.is_running.store(true, Ordering::SeqCst);
-        if self.global_params.main_token.is_cancelled() {
+        if node.token.is_cancelled() {
             self.stop().await?;
-            anyhow::bail!("library is shutting down");
+            anyhow::bail!("node is shutting down");
         }
         Ok(())
     }
 
     pub async fn start_worker(self: &Arc<Self>) -> Result<()> {
+        let node = self.node()?;
         let mut handle = self.sync_handle.lock().await;
         if handle.is_some() {
             return Ok(());
         }
-        anyhow::ensure!(
-            self.global_params.library_sync.is_some(),
-            "local metadata replica is unavailable"
-        );
+        anyhow::ensure!(!node.token.is_cancelled(), "node is shutting down");
         let (_, fingerprint) = parse_certificate(&self.certificate)?;
-        self.global_params
-            .player
-            .lock()
-            .await
-            .set_source_resolver(Arc::new(super::sync_worker::PairedAudioResolver(
-                Arc::downgrade(self),
-            )));
-        let path = self.global_params.lib_path.to_string();
-        let broadcaster = self.global_params.broadcaster.clone();
+        let weak = Arc::downgrade(&node);
         let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-            broadcaster.broadcast(&crate::messages::LibraryContentChanged { path: path.clone() })
+            if let Some(node) = weak.upgrade() {
+                tokio::spawn(async move {
+                    if let Ok(params) = node.current_ui().await {
+                        node.broadcaster.broadcast(&LibraryContentChanged {
+                            path: (*params.lib_path).clone(),
+                        });
+                    }
+                });
+            }
         });
-        let cancel = self.global_params.main_token.child_token();
-        let worker = super::sync_worker::run(
-            self.global_params.clone(),
+        let cancel = node.token.child_token();
+        // Keep the worker future off nested library-startup stacks.
+        let worker = Box::pin(super::sync_worker::run(
+            node.clone(),
             coalesce_worker_notify(notify, cancel.clone()),
             fingerprint,
             self.private_key.clone(),
             cancel.clone(),
-        );
+        ));
         *self.sync_cancel.lock().await = Some(cancel);
         *handle = Some(tokio::spawn(worker));
         Ok(())
@@ -522,6 +499,7 @@ impl ServerManager {
     }
 
     pub async fn stop(&self) -> Result<()> {
+        let node = self.node()?;
         if !self.is_running.load(Ordering::SeqCst) {
             return Err(anyhow::anyhow!("Server not running"));
         }
@@ -547,8 +525,8 @@ impl ServerManager {
             first_error.get_or_insert_with(|| error.into());
         }
 
-        self.global_params.device_scanner.stop_announcements().await;
-        self.global_params.device_scanner.stop_listening().await;
+        node.device_scanner.stop_announcements().await;
+        node.device_scanner.stop_listening().await;
         *self.addr.lock().await = None;
         *self.shutdown_handle.lock().await = None;
         self.is_running.store(false, Ordering::SeqCst);
@@ -562,19 +540,17 @@ impl ServerManager {
     /// Locate an online paired replica and prepare a pinned authenticated audio stream.
     pub async fn resolve_remote_audio(
         &self,
+        library: &LibraryHandle,
+        lifetime: tokio_util_sync::CancellationToken,
         id: i32,
     ) -> Result<playback::player::RemoteAudioSource> {
-        let params = &self.global_params;
-        let library = params
-            .library_sync
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("local metadata replica is unavailable"))?;
-        let (track_id, blob, extension) = catalog_track(&params.main_db, id)
+        let node = self.node()?;
+        let (track_id, blob, extension) = catalog_track(&library.main_db, id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("track is not available for remote streaming"))?;
-        let library_id = library.identity().await?.namespace;
+        let library_id = library.library_sync.identity().await?.namespace;
         let (_, own) = parse_certificate(&self.certificate)?;
-        let entries = super::sync_worker::peer_endpoints(params, &own).await;
+        let entries = super::sync_worker::peer_endpoints(&node, &own).await;
         for hosts in entries {
             for endpoint in hosts {
                 let fingerprint = endpoint.fingerprint;
@@ -583,7 +559,7 @@ impl ServerManager {
                 let port = endpoint.port;
                 let result = async {
                     let (base, mut client) = super::sync_worker::authenticated_client(
-                        params,
+                        &node,
                         &own,
                         &self.private_key,
                         &fingerprint,
@@ -602,23 +578,24 @@ impl ServerManager {
                     let url = format!("{base}/sync/blobs/{}", blob.digest);
                     let mut response = client.head(&url).query(&[("track_id", track_id.to_string())]).send().await?;
                     if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-                        let (_, renewed) = super::sync_worker::authenticated_client(params, &own, &self.private_key, &fingerprint, &host, port).await?;
+                        let (_, renewed) = super::sync_worker::authenticated_client(&node, &own, &self.private_key, &fingerprint, &host, port).await?;
                         client = renewed;
                         response = client.head(&url).query(&[("track_id", track_id.to_string())]).send().await?;
                     }
                     response.error_for_status()?;
                     let mut stream_handles = self.stream_handles.lock().await;
                     let cancellation = self.sync_cancel.lock().await.as_ref()
-                        .ok_or_else(|| anyhow::anyhow!("library synchronization is closing"))?.child_token();
+                        .ok_or_else(|| anyhow::anyhow!("node synchronization is closing"))?.child_token();
+                    let library_cancel = lifetime.clone();
                     stream_handles.retain(|handle| !handle.is_finished());
                     let request = Arc::new(super::sync_worker::RenewableAudio {
-                        global: params.clone(), own: own.clone(), private_key: self.private_key.clone(),
+                        global: node.clone(), own: own.clone(), private_key: self.private_key.clone(),
                         endpoint: super::sync_worker::PeerEndpoint { fingerprint: fingerprint.clone(), trusted_host: trusted_host.clone(), host: host.clone(), port },
                         url: url.clone(), size: blob.size,
                         client: Arc::new(Mutex::new(super::sync_worker::AudioCredentials { client, generation: 0 })), cancel: cancellation.clone(),
                     });
                     let watch_cancel = cancellation.clone();
-                    let watch_params = params.clone();
+                    let watch_params = node.clone();
                     let watch_fingerprint = fingerprint.clone();
                     let revocation_host = trusted_host.clone();
                     let watch_request = request.clone();
@@ -641,6 +618,7 @@ impl ServerManager {
                         };
                         tokio::select! {
                             _ = watch_cancel.cancelled() => {},
+                            _ = library_cancel.cancelled() => watch_cancel.cancel(),
                             _ = super::sync_worker::wait_for_revocation(&watch_params, &watch_fingerprint, &revocation_host) => watch_cancel.cancel(),
                             _ = remote_probe => {},
                         }
@@ -813,7 +791,7 @@ mod lifecycle_tests {
     use crate::Signal;
     use crate::request_error::classify;
     use database::connection::RecommendationDbConnection;
-    use migration::catalog_identity::ParentKind;
+    use migration::catalog_identity::{ParentKind, parent};
     use playback::decoder::RuneDecoder;
     use std::net::SocketAddr;
     use std::net::TcpListener;
@@ -852,11 +830,11 @@ mod lifecycle_tests {
     }
 
     use super::*;
+    use crate::utils::nid::get_or_create_node_id;
     use crate::utils::{
         Broadcaster, GlobalParams, RinfRustSignal, RunningMode, TaskTokens,
         sync_settings::SyncSettings,
     };
-    use crate::utils::{initialize_databases, nid::get_or_create_node_id};
     use database::actions::downloads::{prepare_download, set_download_rule};
     use database::actions::file::{attach_download, catalog_track, hash_file, is_materialized};
     use database::actions::metadata::{
@@ -872,34 +850,42 @@ mod lifecycle_tests {
         LibrarySyncStore,
         model::{Album, Collection, MetadataTag, ObjectKey, Payload, Track},
     };
-    use discovery::{
-        client::CertValidator,
-        protocol::DiscoveryService,
-        server::{PermissionManager, UserStatus},
-        utils::DeviceType,
-    };
+    use discovery::{server::UserStatus, utils::DeviceType};
+    use fsio::FsIo;
     use migration::{Migrator, MigratorTrait};
     use playback::{player::MockPlayer, sfx_player::SfxPlayer};
     use scrobbling::manager::MockScrobblingManager;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
-    use std::sync::OnceLock;
+    use std::{ops::Deref, sync::OnceLock};
     use tokio::net::TcpStream;
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
     use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
 
-    use crate::library_pool::{LibraryPool, LibraryResources};
+    use crate::library_pool::{LibraryHandle, LibraryPool, LibraryResources};
+    use crate::node::NodeSlot;
 
     struct Quiet;
     impl Broadcaster for Quiet {
         fn broadcast(&self, _: &dyn RinfRustSignal) {}
     }
 
-    async fn fixture(dir: &Path) -> Result<Arc<ServerManager>> {
+    struct Fixture {
+        manager: Arc<ServerManager>,
+        global_params: Arc<GlobalParams>,
+    }
+    impl Deref for Fixture {
+        type Target = Arc<ServerManager>;
+        fn deref(&self) -> &Self::Target {
+            &self.manager
+        }
+    }
+
+    async fn fixture(dir: &Path) -> Result<Fixture> {
         fixture_with_library(dir, Uuid::new_v4()).await
     }
 
-    async fn fixture_with_library(dir: &Path, library_id: Uuid) -> Result<Arc<ServerManager>> {
+    async fn fixture_with_library(dir: &Path, library_id: Uuid) -> Result<Fixture> {
         fixture_with_library_timeout(dir, library_id, Duration::from_secs(300)).await
     }
 
@@ -907,7 +893,7 @@ mod lifecycle_tests {
         dir: &Path,
         library_id: Uuid,
         idle_timeout: Duration,
-    ) -> Result<Arc<ServerManager>> {
+    ) -> Result<Fixture> {
         let mut options = sea_orm::ConnectOptions::new(format!(
             "sqlite://{}?mode=rwc",
             dir.join("catalog.sqlite").display(),
@@ -935,31 +921,20 @@ mod lifecycle_tests {
         fixture_with_db(dir, dir, library_id, node, db).await
     }
 
-    async fn fixture_open_replica(config: &Path, root: &Path) -> Result<Arc<ServerManager>> {
-        let fsio = FsIo::new();
-        let mut registry = LibraryRegistry::load(config)?;
+    async fn fixture_open_replica(source: &Fixture, root: &Path) -> Result<Fixture> {
+        let node = source.global_params.node.clone();
+        let mut registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
         let descriptor = resolve_library(
-            &fsio,
+            &source.global_params.fsio,
             &mut registry,
             root.to_str().context("replica path")?,
             "",
             StorageMode::Portable,
         )
         .await?;
-        let node = get_or_create_node_id(config.to_str().context("config path")?).await?;
-        let connections = initialize_databases(
-            &fsio,
-            root.to_str().context("replica path")?,
-            None,
-            &node.to_string(),
-        )
-        .await?;
-        fixture_with_db(
-            root,
-            config,
-            descriptor.library_id,
-            node,
-            (*connections.main_db).clone(),
+        fixture_from_library(
+            node.clone(),
+            node.library_pool.acquire_ui(descriptor.library_id).await?,
         )
         .await
     }
@@ -970,9 +945,8 @@ mod lifecycle_tests {
         library_id: Uuid,
         node: Uuid,
         db: MainDbConnection,
-    ) -> Result<Arc<ServerManager>> {
+    ) -> Result<Fixture> {
         let fsio = Arc::new(FsIo::new());
-        let token = Arc::new(CancellationToken::new());
         let library_sync =
             crate::utils::initialize_library_replica(&db, &node.to_string(), library_id).await?;
         let pool = LibraryPool::new(config, config, &node.to_string())?;
@@ -993,43 +967,71 @@ mod lifecycle_tests {
                 descriptor,
             })
             .await?;
+        SyncSettings {
+            listen: false,
+            ..SyncSettings::default()
+        }
+        .save(config)?;
+        let node_context = NodeContext::new(
+            config.to_str().context("config path")?,
+            config.to_str().context("db path")?,
+            Arc::new(Quiet),
+        )
+        .await?;
+        fixture_from_library(node_context, library).await
+    }
+
+    async fn fixture_from_library(
+        node_context: Arc<NodeContext>,
+        library: LibraryHandle,
+    ) -> Result<Fixture> {
+        let token = Arc::new(node_context.token.child_token());
+        let fsio = library.fsio.clone();
+        let main_db = library.main_db.clone();
+        let recommend_db = library.recommend_db.clone();
+        let library_sync = library.library_sync.clone();
         let params = Arc::new(GlobalParams {
-            library_id: Some(library_id),
-            library_pool: pool,
-            ui_library: Arc::new(Mutex::new(Some(library))),
-            sync_settings: Arc::new(RwLock::new(SyncSettings::default())),
+            node: node_context.clone(),
+            library_id: Some(library.descriptor.library_id),
+            library_pool: node_context.library_pool.clone(),
+            sync_settings: node_context.sync_settings.clone(),
             fsio,
-            lib_path: Arc::new(dir.to_string_lossy().into_owned()),
-            config_path: Arc::new(config.to_string_lossy().into_owned()),
-            node_id: Arc::new(node.to_string()),
+            lib_path: Arc::new(library.media_root.clone()),
+            config_path: node_context.config_path.clone(),
+            node_id: node_context.node_id.clone(),
             main_db,
             library_sync: Some(library_sync),
+            ui_library: Arc::new(Mutex::new(Some(library))),
             recommend_db,
             main_token: token.clone(),
             task_tokens: Arc::new(Mutex::new(TaskTokens::default())),
             player: Arc::new(Mutex::new(MockPlayer)),
             sfx_player: Arc::new(Mutex::new(SfxPlayer::new(Some((*token).clone())))),
             scrobbler: Arc::new(Mutex::new(MockScrobblingManager::new())),
-            broadcaster: Arc::new(Quiet),
-            device_scanner: Arc::new(DiscoveryService::without_store()),
-            cert_validator: Arc::new(RwLock::new(CertValidator::new(config).await?)),
-            permission_manager: Arc::new(RwLock::new(PermissionManager::new(config)?)),
+            broadcaster: node_context.broadcaster.clone(),
+            device_scanner: node_context.device_scanner.clone(),
+            cert_validator: node_context.cert_validator.clone(),
+            permission_manager: node_context.permission_manager.clone(),
             server_manager: OnceLock::new(),
             running_mode: RunningMode::Client,
         });
-        let manager = Arc::new(ServerManager::new(params.clone()).await?);
+        let manager = node_context.manager()?;
+        node_context.attach_ui(&params).await;
         params
             .server_manager
             .set(manager.clone())
             .expect("manager set once");
-        Ok(manager)
+        Ok(Fixture {
+            manager,
+            global_params: params,
+        })
     }
     #[tokio::test]
     async fn request_gate_server_dispatch_rejects_local_requests() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let manager = fixture(dir.path()).await?;
         let service = Arc::new(WebSocketService::new());
-        register_request_handlers(service.clone(), manager.global_params.clone()).await;
+        register_request_handlers(service.clone(), manager.global_params.node.clone()).await;
         assert!(
             service
                 .handle_message("FetchRemoteFileRequest", Vec::new(), None)
@@ -1089,9 +1091,233 @@ mod lifecycle_tests {
         }
     }
 
-    async fn info(manager: &ServerManager) -> Result<discovery::utils::DeviceInfo> {
+    async fn info(manager: &Fixture) -> Result<discovery::utils::DeviceInfo> {
         load_device_info(Path::new(&*manager.global_params.config_path)).await
     }
+
+    async fn close_ui(params: &GlobalParams) -> Result<()> {
+        let request = CloseLibraryRequest {
+            path: (*params.lib_path).clone(),
+        };
+        request
+            .handle(request.extract_params(params), None, &request)
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn node_listener_and_worker_survive_ui_close() -> Result<()> {
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a = fixture(first.path()).await?;
+        let b = fixture(second.path()).await?;
+        let addr = paired_full(&a, &b).await?;
+        let worker = a.sync_handle.lock().await.as_ref().context("worker")?.id();
+        let (_, client) = authenticated_client(
+            &b.global_params.node,
+            &info(&b).await?.fingerprint,
+            &b.private_key,
+            &info(&a).await?.fingerprint,
+            "127.0.0.1",
+            addr.port(),
+        )
+        .await?;
+        close_ui(&a.global_params).await?;
+        assert_eq!(
+            a.get_address().await,
+            Some(addr),
+            "UI close stopped the node listener"
+        );
+        assert_eq!(
+            a.sync_handle
+                .lock()
+                .await
+                .as_ref()
+                .context("worker stopped")?
+                .id(),
+            worker
+        );
+        client
+            .get(format!("https://{addr}/libraries"))
+            .send()
+            .await?
+            .error_for_status()?;
+        let node = a.global_params.node.clone();
+        let original_id = a.global_params.library_id.context("original library")?;
+        let other_id = held_owned_library(&a, &first.path().join("B")).await?;
+        let original_connection = a.global_params.main_db.clone();
+        let mut current = None;
+        for id in [other_id, original_id, original_id] {
+            let opened =
+                fixture_from_library(node.clone(), node.library_pool.acquire_ui(id).await?).await?;
+            if id == original_id {
+                assert!(Arc::ptr_eq(
+                    &opened.global_params.main_db,
+                    &original_connection
+                ));
+            }
+            assert!(Arc::ptr_eq(
+                &opened.global_params.permission_manager,
+                &a.global_params.permission_manager
+            ));
+            assert!(Arc::ptr_eq(
+                &opened.global_params.cert_validator,
+                &a.global_params.cert_validator
+            ));
+            assert!(Arc::ptr_eq(
+                &opened.global_params.library_pool,
+                &node.library_pool
+            ));
+            node.attach_ui(&opened.global_params).await;
+            assert_eq!(a.get_address().await, Some(addr));
+            assert_eq!(
+                a.sync_handle
+                    .lock()
+                    .await
+                    .as_ref()
+                    .context("worker stopped")?
+                    .id(),
+                worker
+            );
+            client
+                .get(format!("https://{addr}/libraries"))
+                .send()
+                .await?
+                .error_for_status()?;
+            current = Some(opened);
+        }
+        close_ui(&current.context("current UI")?.global_params).await?;
+        let reopened = fixture_from_library(
+            node.clone(),
+            node.library_pool.acquire_ui(original_id).await?,
+        )
+        .await?;
+        close_ui(&reopened.global_params).await?;
+        set_library_background(&a, original_id, false).await?;
+        set_library_background(&a, other_id, false).await?;
+        assert!(
+            node.library_pool.served_library_ids().await?.is_empty(),
+            "UI registration leaked"
+        );
+        assert_eq!(a.get_address().await, Some(addr));
+        assert_eq!(
+            a.sync_handle
+                .lock()
+                .await
+                .as_ref()
+                .context("worker stopped")?
+                .id(),
+            worker
+        );
+        node.shutdown().await?;
+        b.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn node_dispatch_requires_current_ui_library() -> Result<()> {
+        use crate::backends::remote::connect_remote;
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a = fixture(first.path()).await?;
+        let b = fixture(second.path()).await?;
+        let addr = paired_full(&a, &b).await?;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &b.global_params.config_path,
+            b.global_params.cert_validator.read().await.clone(),
+        )
+        .await?;
+        let id = a.global_params.library_id.context("library")?;
+        close_ui(&a.global_params).await?;
+        let payload = rinf::serialize(&GetMediaFilesCountRequest {})?;
+        let (name, bytes) =
+            socket_request(&mut socket, "GetMediaFilesCountRequest", &payload).await?;
+        assert_eq!(name, "RemoteRequestFailed");
+        let failure: RemoteRequestFailed = rinf::deserialize(&bytes)?;
+        assert_eq!(failure.kind, RequestErrorKind::Unavailable);
+        assert!(failure.detail.contains("no library is open on this device"));
+        let node = a.global_params.node.clone();
+        let reopened =
+            fixture_from_library(node.clone(), node.library_pool.acquire_ui(id).await?).await?;
+        let (name, bytes) =
+            socket_request(&mut socket, "GetMediaFilesCountRequest", &payload).await?;
+        assert_eq!(name, "GetMediaFilesCountResponse");
+        assert_eq!(
+            rinf::deserialize::<GetMediaFilesCountResponse>(&bytes)?.count,
+            0
+        );
+        close_ui(&reopened.global_params).await?;
+        socket.close(None).await?;
+        node.shutdown().await?;
+        b.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn node_initialization_is_idempotent_and_rejects_another_path() -> Result<()> {
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        SyncSettings {
+            listen: false,
+            ..SyncSettings::default()
+        }
+        .save(first.path())?;
+        let slot = NodeSlot::new();
+        let request = InitializeNodeRequest {
+            config_path: first.path().to_string_lossy().into_owned(),
+        };
+        let node = slot
+            .initialize(&request.config_path, &request.config_path, Arc::new(Quiet))
+            .await?;
+        let worker = node
+            .manager()?
+            .sync_handle
+            .lock()
+            .await
+            .as_ref()
+            .context("worker")?
+            .id();
+        for _ in 0..2 {
+            let response = slot.handle(&request, Arc::new(Quiet)).await;
+            assert!(response.success);
+            assert!(response.error_kind.is_none());
+            let same = slot
+                .initialize(&request.config_path, &request.config_path, Arc::new(Quiet))
+                .await?;
+            assert!(Arc::ptr_eq(&node, &same));
+            assert_eq!(
+                same.manager()?
+                    .sync_handle
+                    .lock()
+                    .await
+                    .as_ref()
+                    .context("worker")?
+                    .id(),
+                worker
+            );
+        }
+        let response = slot
+            .handle(
+                &InitializeNodeRequest {
+                    config_path: second.path().to_string_lossy().into_owned(),
+                },
+                Arc::new(Quiet),
+            )
+            .await;
+        assert!(!response.success);
+        assert_eq!(response.error_kind, Some(RequestErrorKind::InvalidInput));
+        assert!(
+            response
+                .error
+                .context("path error")?
+                .contains("configuration path cannot change")
+        );
+        node.shutdown().await?;
+        Ok(())
+    }
+
     #[tokio::test]
     async fn outbound_worker_survives_listener_stop() -> Result<()> {
         let dir = tempfile::tempdir()?;
@@ -1113,10 +1339,10 @@ mod lifecycle_tests {
         );
         manager.stop_worker().await?;
         assert!(manager.sync_handle.lock().await.is_none());
-        manager.global_params.main_token.cancel();
+        manager.global_params.node.token.cancel();
         Ok(())
     }
-    async fn pair(a: &ServerManager, b: &ServerManager) -> Result<()> {
+    async fn pair(a: &Fixture, b: &Fixture) -> Result<()> {
         let a_info = info(a).await?;
         let b_info = info(b).await?;
         a.global_params
@@ -1147,9 +1373,10 @@ mod lifecycle_tests {
         Ok(())
     }
 
-    async fn paired_full(a: &Arc<ServerManager>, b: &Arc<ServerManager>) -> Result<SocketAddr> {
+    async fn paired_full(a: &Fixture, b: &Fixture) -> Result<SocketAddr> {
         pair(a, b).await?;
-        a.clone()
+        a.manager
+            .clone()
             .start(
                 ([127, 0, 0, 1], 0).into(),
                 DiscoveryParams {
@@ -1224,8 +1451,8 @@ mod lifecycle_tests {
             connect_remote("127.0.0.1", addr.port(), config, validator).await,
             Err(RemoteConnectError::Unreachable)
         ));
-        a.global_params.main_token.cancel();
-        b.global_params.main_token.cancel();
+        a.global_params.node.token.cancel();
+        b.global_params.node.token.cancel();
         Ok(())
     }
 
@@ -1261,7 +1488,7 @@ mod lifecycle_tests {
         let result = request
             .handle((manager.global_params.main_db.clone(),), None, &request)
             .await;
-        manager.global_params.main_token.cancel();
+        manager.global_params.node.token.cancel();
         let error = result
             .err()
             .context("missing playlist unexpectedly succeeded")?;
@@ -1277,7 +1504,7 @@ mod lifecycle_tests {
         let result = request
             .handle((manager.global_params.main_db.clone(),), None, &request)
             .await;
-        manager.global_params.main_token.cancel();
+        manager.global_params.node.token.cancel();
         let error = result.err().context("missing mix unexpectedly succeeded")?;
         assert_eq!(classify(&error), RequestErrorKind::NotFound);
         Ok(())
@@ -1331,8 +1558,8 @@ mod lifecycle_tests {
         }
         socket.close(None).await?;
         a.stop().await?;
-        a.global_params.main_token.cancel();
-        b.global_params.main_token.cancel();
+        a.global_params.node.token.cancel();
+        b.global_params.node.token.cancel();
         Ok(())
     }
 
@@ -1418,8 +1645,8 @@ mod lifecycle_tests {
         );
         socket.close(None).await?;
         a.stop().await?;
-        a.global_params.main_token.cancel();
-        b.global_params.main_token.cancel();
+        a.global_params.node.token.cancel();
+        b.global_params.node.token.cancel();
         Ok(())
     }
 
@@ -1432,7 +1659,7 @@ mod lifecycle_tests {
         let addr = paired_full(&a, &b).await?;
         a.stop_worker().await?;
         let (base, client) = authenticated_client(
-            &b.global_params,
+            &b.global_params.node,
             &info(&b).await?.fingerprint,
             &b.private_key,
             &info(&a).await?.fingerprint,
@@ -1468,8 +1695,8 @@ mod lifecycle_tests {
         let body: serde_json::Value = response.json().await?;
         assert_eq!(body["Ok"]["namespace"], served.to_string());
         a.stop().await?;
-        a.global_params.main_token.cancel();
-        b.global_params.main_token.cancel();
+        a.global_params.node.token.cancel();
+        b.global_params.node.token.cancel();
         Ok(())
     }
 
@@ -1554,13 +1781,13 @@ mod lifecycle_tests {
         }
         a.stop().await?;
         b.stop().await?;
-        a.global_params.main_token.cancel();
-        b.global_params.main_token.cancel();
+        a.global_params.node.token.cancel();
+        b.global_params.node.token.cancel();
         Ok(())
     }
 
     async fn request_peer_libraries(
-        manager: &ServerManager,
+        manager: &Fixture,
         fingerprint: &str,
     ) -> Result<ListPeerLibrariesResponse> {
         // Forced passes and listings share the challenge endpoint's rate limit.
@@ -1579,7 +1806,7 @@ mod lifecycle_tests {
     }
 
     async fn request_add_library(
-        manager: &ServerManager,
+        manager: &Fixture,
         fingerprint: &str,
         library: &PeerLibrary,
     ) -> Result<String> {
@@ -1680,7 +1907,7 @@ mod lifecycle_tests {
             path,
             request_add_library(&b, &fingerprint, &libraries[0]).await?
         );
-        let replica = fixture_open_replica(second.path(), Path::new(&path)).await?;
+        let replica = fixture_open_replica(&b, Path::new(&path)).await?;
         assert_eq!(replica.global_params.library_id, Some(library_id));
         let endpoint = PeerEndpoint {
             fingerprint: fingerprint.clone(),
@@ -1784,12 +2011,12 @@ mod lifecycle_tests {
         );
         for manager in [&a, &b, &replica] {
             manager.stop_worker().await?;
-            manager.global_params.main_token.cancel();
+            manager.global_params.node.token.cancel();
         }
         Ok(())
     }
 
-    async fn held_owned_library(manager: &ServerManager, root: &Path) -> Result<Uuid> {
+    async fn held_owned_library(manager: &Fixture, root: &Path) -> Result<Uuid> {
         let mut registry = LibraryRegistry::load(Path::new(&*manager.global_params.config_path))?;
         let descriptor = resolve_library(
             &manager.global_params.fsio,
@@ -1803,7 +2030,7 @@ mod lifecycle_tests {
     }
 
     async fn scan_held_track(
-        manager: &ServerManager,
+        manager: &Fixture,
         id: Uuid,
         name: &str,
     ) -> Result<media_files::Model> {
@@ -1830,11 +2057,7 @@ mod lifecycle_tests {
             .context("held track")
     }
 
-    async fn set_library_background(
-        manager: &ServerManager,
-        id: Uuid,
-        enabled: bool,
-    ) -> Result<()> {
+    async fn set_library_background(manager: &Fixture, id: Uuid, enabled: bool) -> Result<()> {
         let request = SetLibraryBackgroundSyncRequest {
             library_id: id.to_string(),
             enabled,
@@ -1852,6 +2075,135 @@ mod lifecycle_tests {
             "option failed: {:?}",
             response.error
         );
+        Ok(())
+    }
+
+    async fn write_album(library: &LibraryHandle, name: &str) -> Result<ObjectKey> {
+        let key = ObjectKey {
+            collection: Collection::Albums,
+            id: parent(ParentKind::Album, name),
+        };
+        library
+            .library_sync
+            .write_local(key.clone(), Some(album_payload(name)))
+            .await?;
+        Ok(key)
+    }
+
+    async fn wait_for_album(library: &LibraryHandle, key: &ObjectKey) -> Result<()> {
+        tokio::time::timeout(Duration::from_secs(45), async {
+            loop {
+                if library.library_sync.get(key).await?.is_some() {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .context("node worker did not converge without a local UI library")?
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn node_without_ui_serves_and_syncs_held_libraries_bidirectionally() -> Result<()> {
+        use crate::backends::remote::{WebSocketDartBridge, connect_remote};
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a = fixture(first.path()).await?;
+        let b = fixture(second.path()).await?;
+        let id = held_owned_library(&a, &first.path().join("Held")).await?;
+        request_add_library(
+            &b,
+            &info(&a).await?.fingerprint,
+            &PeerLibrary {
+                library_id: id.to_string(),
+                alias: "Held".into(),
+                added: false,
+            },
+        )
+        .await?;
+        let track = scan_held_track(&a, id, "source.ogg").await?;
+        let left = a.global_params.library_pool.acquire(id).await?;
+        let right = b.global_params.library_pool.acquire(id).await?;
+        let forward = write_album(&left, "forward").await?;
+        let reverse = write_album(&right, "reverse").await?;
+        close_ui(&a.global_params).await?;
+        close_ui(&b.global_params).await?;
+        assert!(a.global_params.node.current_ui().await.is_err());
+        assert!(b.global_params.node.current_ui().await.is_err());
+        let a_addr = paired_full(&a, &b).await?;
+        let b_addr = paired_full(&b, &a).await?;
+        for (local, remote, addr) in [(&a, &b, b_addr), (&b, &a, a_addr)] {
+            local
+                .global_params
+                .cert_validator
+                .read()
+                .await
+                .replace_hosts_for_fingerprint(
+                    &info(remote).await?.fingerprint,
+                    vec![format!("127.0.0.1:{}", addr.port())],
+                )
+                .await?;
+        }
+        let (_, client) = authenticated_client(
+            &b.global_params.node,
+            &info(&b).await?.fingerprint,
+            &b.private_key,
+            &info(&a).await?.fingerprint,
+            "127.0.0.1",
+            a_addr.port(),
+        )
+        .await?;
+        let response = client
+            .get(format!(
+                "https://{a_addr}/files/library/source.ogg?library_id={id}"
+            ))
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
+        assert_eq!(
+            blake3::hash(&response).to_hex().as_str(),
+            track.content_hash.as_ref().context("digest")?
+        );
+        client
+            .post(format!("https://{a_addr}/libraries/{id}/sync/metadata"))
+            .json(&serde_json::json!({"operation": "identity"}))
+            .send()
+            .await?
+            .error_for_status()?;
+        tokio::try_join!(
+            wait_for_album(&left, &reverse),
+            wait_for_album(&right, &forward)
+        )?;
+        let worker = b.sync_handle.lock().await.as_ref().context("worker")?.id();
+        let socket = connect_remote(
+            "127.0.0.1",
+            a_addr.port(),
+            &b.global_params.config_path,
+            b.global_params.cert_validator.read().await.clone(),
+        )
+        .await?;
+        let mut bridge = WebSocketDartBridge::new();
+        bridge
+            .run(socket, "remote-controller", b.global_params.node.clone())
+            .await?;
+        let remote_ui = b.global_params.node.current_ui().await?;
+        assert!(remote_ui.library_id.is_none());
+        assert!(Arc::ptr_eq(
+            &remote_ui.permission_manager,
+            &b.global_params.permission_manager
+        ));
+        assert_eq!(b.get_address().await, Some(b_addr));
+        assert_eq!(
+            b.sync_handle.lock().await.as_ref().context("worker")?.id(),
+            worker
+        );
+        let later = write_album(&left, "while controlling another node").await?;
+        wait_for_album(&right, &later).await?;
+        close_ui(&remote_ui).await?;
+        b.global_params.node.shutdown().await?;
+        a.global_params.node.shutdown().await?;
         Ok(())
     }
 
@@ -1939,8 +2291,10 @@ mod lifecycle_tests {
         .await
         .context("unopened L2 did not apply its download rule")??;
 
+        // The restarted worker shares the challenge quota with this direct request.
+        tokio::time::sleep(Duration::from_secs(1)).await;
         let (_, client) = authenticated_client(
-            &b.global_params,
+            &b.global_params.node,
             &info(&b).await?.fingerprint,
             &b.private_key,
             &fingerprint,
@@ -2023,8 +2377,8 @@ mod lifecycle_tests {
         ));
         a.stop().await?;
         b.stop_worker().await?;
-        a.global_params.main_token.cancel();
-        b.global_params.main_token.cancel();
+        a.global_params.node.token.cancel();
+        b.global_params.node.token.cancel();
         Ok(())
     }
 
@@ -2254,9 +2608,21 @@ mod lifecycle_tests {
             .await
             .add_trusted_domains(["127.0.0.2"], &b_info.fingerprint)
             .await?;
+        let audio_library = a
+            .global_params
+            .library_pool
+            .acquire(a.global_params.library_id.context("library")?)
+            .await?;
         let source = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                if let Ok(source) = a.resolve_remote_audio(remote_id).await {
+                if let Ok(source) = a
+                    .resolve_remote_audio(
+                        &audio_library,
+                        a.global_params.main_token.child_token(),
+                        remote_id,
+                    )
+                    .await
+                {
                     break source;
                 }
                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -2280,7 +2646,7 @@ mod lifecycle_tests {
         assert_eq!(response.status(), reqwest::StatusCode::PARTIAL_CONTENT);
         assert_eq!(response.bytes().await?.as_ref(), &expected[..16]);
         let (_, raw_client) = authenticated_client(
-            &a.global_params,
+            &a.global_params.node,
             &a_info.fingerprint,
             &a.private_key,
             &b_info.fingerprint,
@@ -2360,7 +2726,7 @@ mod lifecycle_tests {
             .await?
         );
         let (_, authorized) = sync_worker::authenticated_client(
-            &b.global_params,
+            &b.global_params.node,
             &b_info.fingerprint,
             &b.private_key,
             &a_info.fingerprint,
@@ -2368,17 +2734,23 @@ mod lifecycle_tests {
             a_addr.port(),
         )
         .await?;
-        for path in ["/files/anything", "/ws", "/panel/users"] {
+        // Pool-backed data routes are available on the sync listener.
+        for (path, status) in [
+            ("/files/anything", reqwest::StatusCode::BAD_REQUEST),
+            ("/ws", reqwest::StatusCode::NOT_FOUND),
+            ("/panel/users", reqwest::StatusCode::NOT_FOUND),
+        ] {
             assert_eq!(
                 authorized
                     .get(format!("{base}{path}"))
                     .send()
                     .await?
                     .status(),
-                reqwest::StatusCode::NOT_FOUND
+                status
             );
         }
-        a.clone()
+        a.manager
+            .clone()
             .start(
                 a_addr,
                 DiscoveryParams {
@@ -2387,7 +2759,7 @@ mod lifecycle_tests {
             )
             .await?;
         let (_, full_authorized) = authenticated_client(
-            &b.global_params,
+            &b.global_params.node,
             &b_info.fingerprint,
             &b.private_key,
             &a_info.fingerprint,
@@ -2460,7 +2832,7 @@ mod lifecycle_tests {
                 .status(),
             reqwest::StatusCode::UNAUTHORIZED
         );
-        b.global_params.main_token.cancel();
+        b.global_params.node.token.cancel();
         let rebound = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 if let Ok(listener) = TcpListener::bind(b_addr) {
@@ -2474,7 +2846,7 @@ mod lifecycle_tests {
         drop(rebound);
         b.stop().await?;
         a.stop().await?;
-        a.global_params.main_token.cancel();
+        a.global_params.node.token.cancel();
         let rebound = TcpListener::bind(a_addr)?;
         drop(rebound);
         Ok(())
@@ -2518,7 +2890,7 @@ mod lifecycle_tests {
             .pop()
             .context("missing scanned audio")?;
         let track_id: Uuid = file.hlc_uuid.parse()?;
-        let resolver = sync_worker::PairedAudioResolver(Arc::downgrade(&manager));
+        let resolver = sync_worker::PairedAudioResolver(Arc::downgrade(&manager.global_params));
         let queued_before_revision = PlaybackSource::Local(root.path().join("old.ogg"));
         assert!(
             !queued_before_revision

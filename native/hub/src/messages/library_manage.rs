@@ -2,6 +2,18 @@ use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, DartSignal)]
+pub struct InitializeNodeRequest {
+    pub config_path: String,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct InitializeNodeResponse {
+    pub success: bool,
+    pub error_kind: Option<super::RequestErrorKind>,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
 pub struct CloseLibraryRequest {
     pub path: String,
 }

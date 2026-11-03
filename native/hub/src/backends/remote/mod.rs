@@ -1,10 +1,8 @@
 #[macro_use]
 mod remote_request;
 
-use crate::library_pool::LibraryPool;
+use crate::node::NodeContext;
 use crate::request_error::classify;
-use crate::utils::sync_settings::SyncSettings;
-use std::path::Path;
 use std::{
     collections::HashMap,
     sync::{Arc, OnceLock},
@@ -18,7 +16,7 @@ use reqwest::redirect::Policy;
 use rinf::{DartSignal, RustSignal};
 use serde::Deserialize;
 use tokio::net::TcpStream;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tokio_tungstenite::{
     Connector, connect_async_tls_with_config,
     tungstenite::{client::IntoClientRequest, protocol::Message as TungsteniteMessage},
@@ -31,8 +29,6 @@ use uuid::Uuid;
 use ::database::connection::{connect_fake_main_db, connect_fake_recommendation_db};
 use ::discovery::{
     client::{CertValidator, select_best_host},
-    protocol::DiscoveryService,
-    server::PermissionManager,
     url::decode_rnsrv_url,
 };
 use ::fsio::FsIo;
@@ -46,10 +42,7 @@ use crate::{
         generate_or_load_certificates, get_or_generate_alias,
         sync_worker::{endpoint_host_port, obtain_token, tls_config, trusted_fingerprint},
     },
-    utils::{
-        GlobalParams, LocalGuiBroadcaster, ParamsExtractor, RinfRustSignal, RunningMode,
-        TaskTokens, nid::get_or_create_node_id,
-    },
+    utils::{GlobalParams, ParamsExtractor, RinfRustSignal, RunningMode, TaskTokens},
 };
 
 pub trait RinfDartSignal {
@@ -286,14 +279,14 @@ impl WebSocketDartBridge {
         &mut self,
         ws_stream: RemoteStream,
         rnsrv_url: &str,
-        config_path: &str,
+        node: Arc<NodeContext>,
     ) -> Result<()> {
         info!("WebSocket connection established");
 
         let (write, mut read) = ws_stream.split();
         let write = Arc::new(Mutex::new(write));
 
-        let cancel_token: CancellationToken = CancellationToken::new();
+        let cancel_token: CancellationToken = node.token.child_token();
 
         let sfx_player = SfxPlayer::new(Some(cancel_token.clone()));
         let sfx_player: Arc<Mutex<SfxPlayer>> = Arc::new(Mutex::new(sfx_player));
@@ -384,28 +377,19 @@ impl WebSocketDartBridge {
                     }
                 }
             }
+            cancel_token_clone.cancel();
         };
-
-        let device_scanner = Arc::new(DiscoveryService::without_store());
-        let permission_manager = Arc::new(RwLock::new(PermissionManager::new(config_path)?));
-        let cert_validator = Arc::new(RwLock::new(CertValidator::new(config_path).await?));
-
-        info!("Initializing UI events");
-        let node_id = get_or_create_node_id(config_path).await?.to_string();
 
         let global_params = GlobalParams {
             library_id: None,
-            library_pool: LibraryPool::new(
-                Path::new(config_path),
-                Path::new(config_path),
-                &node_id,
-            )?,
+            node: node.clone(),
+            library_pool: node.library_pool.clone(),
             ui_library: Arc::new(Mutex::new(None)),
-            sync_settings: Arc::new(RwLock::new(SyncSettings::default())),
+            sync_settings: node.sync_settings.clone(),
             fsio: Arc::new(FsIo::new_noop()),
             lib_path: Arc::new(rnsrv_url.to_owned()),
-            config_path: Arc::new(config_path.to_string()),
-            node_id: Arc::new(node_id),
+            config_path: node.config_path.clone(),
+            node_id: node.node_id.clone(),
             main_db: Arc::new(connect_fake_main_db().await?),
             library_sync: None,
             recommend_db: Arc::new(connect_fake_recommendation_db()?),
@@ -419,15 +403,20 @@ impl WebSocketDartBridge {
             player: Arc::new(Mutex::new(MockPlayer {})),
             sfx_player,
             scrobbler: Arc::new(Mutex::new(MockScrobblingManager::new())),
-            broadcaster: Arc::new(LocalGuiBroadcaster),
-            device_scanner,
-            cert_validator,
-            permission_manager,
+            broadcaster: node.broadcaster.clone(),
+            device_scanner: node.device_scanner.clone(),
+            cert_validator: node.cert_validator.clone(),
+            permission_manager: node.permission_manager.clone(),
             server_manager: OnceLock::new(),
             running_mode: RunningMode::Server,
         };
 
         let global_params = Arc::new(global_params);
+        global_params
+            .server_manager
+            .set(node.manager()?)
+            .map_err(|_| anyhow::anyhow!("Library server already initialized"))?;
+        node.attach_ui(&global_params).await;
 
         for_all_local_only_request_pairs2!(listen_local_gui_event, global_params, cancel_token);
         tokio::spawn(message_loop());
@@ -439,13 +428,14 @@ impl WebSocketDartBridge {
 pub async fn server_player_loop(
     fsio: Arc<FsIo>,
     url: &str,
-    config_path: &str,
+    node: Arc<NodeContext>,
     _alias: &str,
 ) -> Result<()> {
     info!("Media Library Received, initialize the server loop");
 
+    let config_path = node.config_path.as_str();
     let ws_stream = tokio::time::timeout(Duration::from_secs(10), async {
-        let cert_validator = Arc::new(CertValidator::new(config_path).await.map_err(protocol)?);
+        let cert_validator = Arc::new(node.cert_validator.read().await.clone());
         let hosts = decode_rnsrv_url(url).map_err(protocol)?;
         let entries = cert_validator.clone_trusted_entries().await;
         let hosts: Vec<_> = hosts
@@ -476,9 +466,8 @@ pub async fn server_player_loop(
     .map_err(|_| RemoteConnectError::Unreachable)??;
 
     let rnsrv_url = url.to_string();
-    let config_path = config_path.to_string();
     let _ = fsio;
-    tokio::spawn(async move {
+    {
         info!("Initializing bridge");
         let mut bridge = WebSocketDartBridge::new();
 
@@ -529,8 +518,8 @@ pub async fn server_player_loop(
             LibraryContentChanged
         );
 
-        bridge.run(ws_stream, &rnsrv_url, &config_path).await
-    });
+        bridge.run(ws_stream, &rnsrv_url, node).await?;
+    }
 
     Ok(())
 }

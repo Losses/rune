@@ -27,7 +27,7 @@ impl Signal for ListPeerLibrariesRequest {
         _: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        // Remote-control sessions have no local server; there is nothing to list from here.
+        // Incomplete library initialization can leave the manager unavailable.
         let Some(manager) = manager else {
             log::warn!("Peer libraries requested without a local server manager");
             return Ok(Some(ListPeerLibrariesResponse {

@@ -15,8 +15,9 @@ use super::sync_auth::AuthenticatedFingerprint;
 use super::sync_worker::{authenticated_client, peer_endpoints};
 use super::utils::device::load_device_info;
 use crate::backends::remote::{RemoteConnectError, token_error};
+use crate::library_pool::LibraryHandle;
 use crate::messages::PeerLibrary;
-use crate::utils::GlobalParams;
+use crate::node::NodeContext;
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct ListedLibrary {
@@ -33,8 +34,13 @@ pub(super) async fn list_libraries(
     Extension(manager): Extension<Arc<ServerManager>>,
     Extension(peer): Extension<AuthenticatedFingerprint>,
 ) -> Result<Json<Vec<ListedLibrary>>, StatusCode> {
-    let registry = LibraryRegistry::load(Path::new(&*manager.global_params.config_path))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let registry = LibraryRegistry::load(Path::new(
+        &*manager
+            .node()
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+            .config_path,
+    ))
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(
         registry
             .libraries
@@ -50,7 +56,7 @@ pub(super) async fn list_libraries(
 }
 
 pub(super) async fn list_peer_libraries(
-    params: &GlobalParams,
+    params: &NodeContext,
     private_key: &str,
     fingerprint: &str,
 ) -> Result<Vec<PeerLibrary>, RemoteConnectError> {
@@ -150,4 +156,38 @@ pub(crate) async fn add_remote_library(
     .await?;
     let LibraryStorage::Local { path } = descriptor.storage;
     Ok(path)
+}
+
+#[derive(Default, Deserialize)]
+pub struct LibraryQuery {
+    pub library_id: Option<Uuid>,
+}
+
+pub(crate) async fn request_library(
+    manager: &ServerManager,
+    query: LibraryQuery,
+) -> Result<LibraryHandle, StatusCode> {
+    let node = manager
+        .node()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let id = if let Some(id) = query.library_id {
+        id
+    } else if let Ok(params) = node.current_ui().await {
+        params.library_id.ok_or(StatusCode::BAD_REQUEST)?
+    } else {
+        let ids = node
+            .library_pool
+            .served_library_ids()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if ids.len() != 1 {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        ids[0]
+    };
+    node.library_pool
+        .acquire_served(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)
 }

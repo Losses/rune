@@ -54,6 +54,7 @@ macro_rules! forward_event_to_remote {
                     let receiver = <$request>::get_dart_signal_receiver();
                     loop {
                         tokio::select! {
+                            biased;
                             _ = [<cancel_token_ $request:snake>].cancelled() => {
                                 break;
                             }
