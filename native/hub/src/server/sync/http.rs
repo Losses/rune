@@ -49,9 +49,18 @@ pub fn blob_router(context: BlobContext) -> Router {
         .with_state(context)
 }
 
+#[derive(serde::Deserialize)]
+struct ArtworkPath {
+    id: uuid::Uuid,
+}
+#[derive(serde::Deserialize)]
+struct BlobPath {
+    digest: String,
+}
+
 async fn get_artwork(
     State(context): State<BlobContext>,
-    axum::extract::Path(id): axum::extract::Path<uuid::Uuid>,
+    axum::extract::Path(ArtworkPath { id }): axum::extract::Path<ArtworkPath>,
 ) -> Result<axum::response::Response, StatusCode> {
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
     let store = context.store.read().await;
@@ -92,7 +101,7 @@ struct HeadQuery {
 }
 async fn head_blob(
     State(context): State<BlobContext>,
-    axum::extract::Path(digest): axum::extract::Path<String>,
+    axum::extract::Path(BlobPath { digest }): axum::extract::Path<BlobPath>,
     axum::extract::Query(query): axum::extract::Query<HeadQuery>,
 ) -> Result<StatusCode, StatusCode> {
     file::validate_digest(&digest).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -132,7 +141,7 @@ async fn head_blob(
 
 async fn get_blob(
     State(context): State<BlobContext>,
-    axum::extract::Path(digest): axum::extract::Path<String>,
+    axum::extract::Path(BlobPath { digest }): axum::extract::Path<BlobPath>,
     headers: axum::http::HeaderMap,
 ) -> Result<axum::response::Response, StatusCode> {
     use std::io::{Read, Seek, SeekFrom};

@@ -361,9 +361,15 @@ impl ServerManager {
                     notify: notify.clone(),
                 }))
                 .layer(middleware::from_fn_with_state(
-                    auth.clone(),
-                    super::sync_auth::require_auth,
+                    library.read().await.identity().await?.namespace,
+                    super::sync::require_library,
                 ));
+        let sync_routes = Router::new()
+            .nest("/libraries/{library_id}", sync_routes)
+            .layer(middleware::from_fn_with_state(
+                auth.clone(),
+                super::sync_auth::require_auth,
+            ));
         let app = Router::new()
             .merge(register_route)
             .route("/ping", get(ping_handler))
@@ -605,6 +611,7 @@ impl ServerManager {
                         port,
                     )
                     .await?;
+                    let base = super::sync::library_base(&base, library_id);
                     let peer =
                         http_request::sync::MetadataPeer::<RuneModel>::new(&base, client.clone());
                     use sync::SyncPeer;
@@ -821,7 +828,7 @@ pub async fn update_root_password<P: AsRef<Path>>(config_path: P, password: &str
 #[cfg(test)]
 mod lifecycle_tests {
     use super::super::sync_worker;
-    use super::super::sync_worker::authenticated_client;
+    use super::super::sync_worker::{PeerEndpoint, PeerPass, authenticated_client, test_peer_pass};
     use super::super::utils::device::load_device_info;
     use database::connection::RecommendationDbConnection;
     use migration::catalog_identity::ParentKind;
@@ -886,6 +893,7 @@ mod lifecycle_tests {
     use migration::{Migrator, MigratorTrait};
     use playback::{player::MockPlayer, sfx_player::SfxPlayer};
     use scrobbling::manager::MockScrobblingManager;
+    use sea_orm::{EntityTrait, PaginatorTrait};
     use std::sync::OnceLock;
     use tokio::net::TcpStream;
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -897,16 +905,26 @@ mod lifecycle_tests {
         fn broadcast(&self, _: &dyn RinfRustSignal) {}
     }
 
-    async fn fixture(dir: &std::path::Path) -> Result<Arc<ServerManager>> {
+    async fn fixture(dir: &Path) -> Result<Arc<ServerManager>> {
+        fixture_with_library(dir, Uuid::new_v4()).await
+    }
+
+    async fn fixture_with_library(dir: &Path, library_id: Uuid) -> Result<Arc<ServerManager>> {
         let fsio = Arc::new(FsIo::new());
-        let db = sea_orm::Database::connect("sqlite::memory:").await?;
+        let mut options = sea_orm::ConnectOptions::new(format!(
+            "sqlite://{}?mode=rwc",
+            dir.join("catalog.sqlite").display(),
+        ));
+        options.max_connections(1).min_connections(1);
+        let db = sea_orm::Database::connect(options).await?;
         let node = Uuid::new_v4();
         let _ = migration::initialize_node_id(node.to_string());
         Migrator::up(&db, None).await?;
         let token = Arc::new(CancellationToken::new());
-        let library_sync = crate::utils::initialize_library_replica(&db, &node.to_string()).await?;
+        let library_sync =
+            crate::utils::initialize_library_replica(&db, &node.to_string(), library_id).await?;
         let params = Arc::new(GlobalParams {
-            library_id: None,
+            library_id: Some(library_id),
             sync_settings: Arc::new(RwLock::new(SyncSettings::default())),
             fsio,
             lib_path: Arc::new(dir.to_string_lossy().into_owned()),
@@ -1281,6 +1299,149 @@ mod lifecycle_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn library_namespace_requests_authenticate_before_rejecting_other_ids() -> Result<()> {
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a = fixture(first.path()).await?;
+        let b = fixture(second.path()).await?;
+        let addr = paired_full(&a, &b).await?;
+        a.stop_worker().await?;
+        let (base, client) = authenticated_client(
+            &b.global_params,
+            &info(&b).await?.fingerprint,
+            &b.private_key,
+            &info(&a).await?.fingerprint,
+            "127.0.0.1",
+            addr.port(),
+        )
+        .await?;
+        let operation = serde_json::json!({"operation": "identity"});
+        let wrong = Uuid::new_v4();
+        let url = format!("{base}/libraries/{wrong}/sync/metadata");
+        let response = client.post(&url).json(&operation).send().await?;
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+        assert_eq!(
+            response.json::<serde_json::Value>().await?,
+            serde_json::json!({"error": "library_not_served"})
+        );
+        let unauthenticated = reqwest::Client::builder()
+            .use_preconfigured_tls(
+                Arc::new(b.global_params.cert_validator.read().await.clone()).into_client_config(),
+            )
+            .build()?;
+        assert_eq!(
+            unauthenticated.post(&url).send().await?.status(),
+            reqwest::StatusCode::UNAUTHORIZED
+        );
+        let served = a.global_params.library_id.unwrap();
+        let response = client
+            .post(format!("{base}/libraries/{served}/sync/metadata"))
+            .json(&operation)
+            .send()
+            .await?;
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = response.json().await?;
+        assert_eq!(body["Ok"]["namespace"], served.to_string());
+        a.stop().await?;
+        a.global_params.main_token.cancel();
+        b.global_params.main_token.cancel();
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn library_namespace_different_libraries_skip_paired_worker_passes() -> Result<()> {
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a = fixture(first.path()).await?;
+        let b = fixture(second.path()).await?;
+        let a_track = Uuid::new_v4();
+        let b_track = Uuid::new_v4();
+        for (manager, id) in [(&a, a_track), (&b, b_track)] {
+            manager
+                .global_params
+                .library_sync
+                .as_ref()
+                .unwrap()
+                .write_local(
+                    ObjectKey {
+                        collection: Collection::Tracks,
+                        id,
+                    },
+                    Some(Payload::Track(Track {
+                        extension: "ogg".into(),
+                        content_hash: None,
+                        content_size: None,
+                        duration: "1".to_owned().try_into().unwrap(),
+                        sample_rate: 44100,
+                        cover_art_id: None,
+                        metadata: Vec::new(),
+                    })),
+                )
+                .await?;
+        }
+        let a_addr = paired_full(&a, &b).await?;
+        a.stop_worker().await?;
+        let b_addr = paired_full(&b, &a).await?;
+        b.stop_worker().await?;
+        for _ in 0..3 {
+            // Repeated forced passes still respect the challenge endpoint's rate limit.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            for (local, remote, addr) in [(&a, &b, b_addr), (&b, &a, a_addr)] {
+                let endpoint = PeerEndpoint {
+                    fingerprint: info(remote).await?.fingerprint,
+                    trusted_host: "127.0.0.1".into(),
+                    host: "127.0.0.1".into(),
+                    port: addr.port(),
+                };
+                for metadata in [true, false] {
+                    let outcome = test_peer_pass(
+                        local.global_params.clone(),
+                        &local.private_key,
+                        endpoint.clone(),
+                        metadata,
+                    )
+                    .await?;
+                    assert_eq!(outcome, PeerPass::LibraryNotServed);
+                    assert_eq!(outcome.retry_delay(), Duration::from_secs(30));
+                }
+            }
+        }
+        for (manager, other) in [(&a, b_track), (&b, a_track)] {
+            assert_eq!(
+                media_files::Entity::find()
+                    .count(&*manager.global_params.main_db)
+                    .await?,
+                1
+            );
+            assert!(
+                manager
+                    .global_params
+                    .library_sync
+                    .as_ref()
+                    .unwrap()
+                    .get(&ObjectKey {
+                        collection: Collection::Tracks,
+                        id: other
+                    })
+                    .await?
+                    .is_none()
+            );
+        }
+        a.stop().await?;
+        b.stop().await?;
+        a.global_params.main_token.cancel();
+        b.global_params.main_token.cancel();
+        Ok(())
+    }
+
+    fn album_payload(name: &str) -> Payload {
+        Payload::Album(Album {
+            name: name.into(),
+            group: "test".into(),
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn paired_background_sync_and_listener_lifecycle() -> Result<()> {
         let _ = tracing_subscriber::fmt()
             .with_max_level(LevelFilter::WARN)
@@ -1288,8 +1449,9 @@ mod lifecycle_tests {
             .try_init();
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
-        let a = fixture(first.path()).await?;
-        let b = fixture(second.path()).await?;
+        let library_id = Uuid::new_v4();
+        let a = fixture_with_library(first.path(), library_id).await?;
+        let b = fixture_with_library(second.path(), library_id).await?;
         let a_info = info(&a).await?;
         let b_info = info(&b).await?;
         pair(&a, &b).await?;
@@ -1346,6 +1508,16 @@ mod lifecycle_tests {
             collection: Collection::Albums,
             id: migration::catalog_identity::parent(ParentKind::Album, "background album"),
         };
+        let reverse_key = ObjectKey {
+            collection: Collection::Albums,
+            id: migration::catalog_identity::parent(ParentKind::Album, "first node album"),
+        };
+        a.global_params
+            .library_sync
+            .as_ref()
+            .unwrap()
+            .write_local(reverse_key.clone(), Some(album_payload("first node album")))
+            .await?;
         let store = LibrarySyncStore::open(
             (*b.global_params.main_db).clone(),
             b.global_params.node_id.parse()?,
@@ -1356,13 +1528,7 @@ mod lifecycle_tests {
             .import_existing(b.global_params.node_id.parse()?)
             .await?;
         store
-            .write_local(
-                key.clone(),
-                Some(Payload::Album(Album {
-                    name: "background album".into(),
-                    group: "test".into(),
-                })),
-            )
+            .write_local(key.clone(), Some(album_payload("background album")))
             .await?;
         a.clone()
             .start_sync(
@@ -1430,7 +1596,7 @@ mod lifecycle_tests {
         let base = format!("https://{a_addr}");
         assert_eq!(
             pinned
-                .post(format!("{base}/sync/metadata"))
+                .post(format!("{base}/libraries/{library_id}/sync/metadata"))
                 .send()
                 .await?
                 .status(),
@@ -1448,6 +1614,14 @@ mod lifecycle_tests {
             let receiver = a.global_params.library_sync.as_ref().unwrap();
             loop {
                 if receiver.get(&key).await.unwrap().is_some()
+                    && b.global_params
+                        .library_sync
+                        .as_ref()
+                        .unwrap()
+                        .get(&reverse_key)
+                        .await
+                        .unwrap()
+                        .is_some()
                     && let Some(track) = media_files::Entity::find()
                         .filter(Column::LocalAvailable.eq(false))
                         .one(&*a.global_params.main_db)

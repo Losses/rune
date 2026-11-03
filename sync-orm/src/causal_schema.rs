@@ -3,7 +3,7 @@
 //! Existing scalar replica tables are deliberately refused: converting their
 //! history requires an explicit import and cannot manufacture causal knowledge.
 use sea_orm::{
-    ConnectionTrait, DatabaseConnection, DbBackend, DbErr, ExprTrait,
+    ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, DbErr, ExprTrait,
     sea_query::{Alias, ColumnDef, Expr, Index, Query, Table},
 };
 
@@ -338,6 +338,22 @@ pub async fn install_on<C: ConnectionTrait>(db: &C) -> Result<(), DbErr> {
         db.execute(&index).await?;
     }
     Ok(())
+}
+
+/// Discard all state of one namespace inside the caller's reset transaction.
+pub async fn clear_namespace_on(
+    tx: &DatabaseTransaction,
+    namespace: uuid::Uuid,
+) -> Result<u64, DbErr> {
+    let mut removed = 0;
+    for (name, _, _) in TABLES.iter().rev() {
+        let query = Query::delete()
+            .from_table(Alias::new(*name))
+            .and_where(Expr::col(Alias::new("namespace")).eq(namespace.as_bytes().to_vec()))
+            .to_owned();
+        removed += tx.execute(&query).await?.rows_affected();
+    }
+    Ok(removed)
 }
 
 /// Remove the registered layout on the migration runner's transaction.

@@ -63,7 +63,12 @@ pub async fn local_player_loop(
         );
 
         let main_cancel_token = CancellationToken::new();
-        let library_sync = match crate::utils::initialize_library_replica(&main_db, &node_id).await
+        let library_sync = match crate::utils::initialize_library_replica(
+            &main_db,
+            &node_id,
+            descriptor.library_id,
+        )
+        .await
         {
             Ok(replica) => replica,
             Err(error) => {

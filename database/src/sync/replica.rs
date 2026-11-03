@@ -2,7 +2,7 @@
 use super::SeaOrmSyncStore;
 use super::model::Collection;
 use super::model::{ObjectKey, Payload, Record, RuneModel};
-use crate::sync::import;
+use crate::sync::{import, legacy};
 use anyhow::{Result, ensure};
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use std::sync::Arc;
@@ -74,11 +74,17 @@ impl LibrarySyncStore {
             "namespace identity cannot be nil"
         );
         RuneModel::validate_database_on(&db).await?;
-        let existing = sync_orm::causal_store::list_namespace_ids_on(&db, 2).await?;
+        let mut existing = sync_orm::causal_store::list_namespace_ids_on(&db, 2).await?;
         ensure!(
             existing.len() <= 1,
             "multiple namespaces require explicit selection"
         );
+        let reset = existing.as_slice() == [legacy::namespace()]
+            && library_id.is_some_and(|id| id != legacy::namespace());
+        if reset {
+            legacy::reset(&db, node_id).await?;
+            existing.clear();
+        }
         let actual = existing
             .first()
             .copied()
@@ -100,11 +106,15 @@ impl LibrarySyncStore {
                 max_mutations: 65536,
             })?),
         );
-        Ok(Self {
+        let library = Self {
             db,
             inner,
             endpoint,
-        })
+        };
+        if reset {
+            library.import_existing(node_id).await?;
+        }
+        Ok(library)
     }
     pub async fn maintain(&self, state: &mut sync_orm::maintenance::Maintenance) -> Result<()> {
         state

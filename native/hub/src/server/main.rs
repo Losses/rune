@@ -131,7 +131,8 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let config_path: Arc<String> = Arc::new(config_path.to_string());
 
     let main_cancel_token = CancellationToken::new();
-    let library_sync = hub::utils::initialize_library_replica(&main_db, &node_id).await?;
+    let library_sync =
+        hub::utils::initialize_library_replica(&main_db, &node_id, descriptor.library_id).await?;
     let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
 
     info!("Initializing player");

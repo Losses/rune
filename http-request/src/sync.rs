@@ -420,6 +420,12 @@ impl<M: SyncModel> MetadataPeer<M> {
                 body.extend_from_slice(&bytes);
             }
             if !status.is_success() {
+                if status == reqwest::StatusCode::NOT_FOUND
+                    && serde_json::from_slice::<serde_json::Value>(&body)
+                        .is_ok_and(|value| value["error"] == "library_not_served")
+                {
+                    return Err(p::SyncError::NamespaceNotServed);
+                }
                 if let Ok(Err(error)) =
                     serde_json::from_slice::<p::Result<serde_json::Value>>(&body)
                 {
@@ -1105,6 +1111,21 @@ mod metadata_tests {
                 StatusCode::UNAUTHORIZED,
                 "unauthorized",
                 p::SyncError::Unauthorized,
+            ),
+            (
+                StatusCode::NOT_FOUND,
+                r#"{"error":"library_not_served"}"#,
+                p::SyncError::NamespaceNotServed,
+            ),
+            (
+                StatusCode::NOT_FOUND,
+                r#"{"error":"other"}"#,
+                p::SyncError::Transport(String::new()),
+            ),
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                r#"{"error":"library_not_served"}"#,
+                p::SyncError::Transport(String::new()),
             ),
             (StatusCode::OK, "{", p::SyncError::Invalid(String::new())),
             (

@@ -2,7 +2,10 @@ use super::sync::client::LibrarySession;
 use super::sync::client::fetch_missing;
 use super::sync::downloads::download_requested_audio_until;
 use super::sync::http::SharedLibrary;
+use super::sync::library_base;
 use super::sync_auth::{Authorization, Challenge, Token, message};
+#[cfg(test)]
+use super::utils::device::load_device_info;
 use crate::utils::GlobalParams;
 use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -24,6 +27,8 @@ use std::{sync::Arc, time::Duration};
 use sync::SyncPeer;
 use sync::protocol::SyncError;
 use tokio::sync::Mutex;
+#[cfg(test)]
+use tokio::sync::RwLock;
 use tokio::time as tokio_time;
 use tokio::time::MissedTickBehavior;
 
@@ -286,16 +291,9 @@ async fn run_loop(
                         }
                     } => result,
                 };
-                match result {
+                match classify_peer_pass(result) {
                     Ok(complete) => {
-                        return (
-                            fingerprint,
-                            if complete {
-                                Duration::from_secs(30)
-                            } else {
-                                Duration::from_millis(100)
-                            },
-                        );
+                        return (fingerprint, complete.retry_delay());
                     }
                     Err(error) => log::warn!(
                         "Background {} with paired device failed: {error:#}",
@@ -428,6 +426,62 @@ pub(super) async fn wait_for_revocation(global: &GlobalParams, fingerprint: &str
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PeerPass {
+    Complete,
+    Incomplete,
+    LibraryNotServed,
+}
+impl PeerPass {
+    pub(super) fn retry_delay(self) -> Duration {
+        if self == Self::Incomplete {
+            Duration::from_millis(100)
+        } else {
+            Duration::from_secs(30)
+        }
+    }
+}
+
+fn classify_peer_pass(result: Result<bool>) -> Result<PeerPass> {
+    match result {
+        Ok(true) => Ok(PeerPass::Complete),
+        Ok(false) => Ok(PeerPass::Incomplete),
+        Err(error) if error.downcast_ref::<SyncError>() == Some(&SyncError::NamespaceNotServed) => {
+            Ok(PeerPass::LibraryNotServed)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+pub(super) async fn test_peer_pass(
+    global: Arc<GlobalParams>,
+    private_key: &str,
+    endpoint: PeerEndpoint,
+    metadata: bool,
+) -> Result<PeerPass> {
+    let credentials = LocalCredentials {
+        fingerprint: load_device_info(Path::new(&*global.config_path))
+            .await?
+            .fingerprint,
+        private_key: private_key.into(),
+    };
+    let library = SharedLibrary(Arc::new(RwLock::new(global.library_sync.clone().unwrap())));
+    let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+    classify_peer_pass(
+        sync_one(
+            &global,
+            &library,
+            &notify,
+            &credentials,
+            &endpoint,
+            metadata,
+            &Arc::default(),
+        )
+        .await,
+    )
+}
+
 async fn sync_one(
     global: &Arc<GlobalParams>,
     library: &SharedLibrary,
@@ -502,9 +556,10 @@ async fn sync_one(
             endpoint.port,
         )
         .await?;
+        let local = library.0.read().await.identity().await?;
+        let base = library_base(&base, local.namespace);
         let peer = http_request::sync::MetadataPeer::<RuneModel>::new(&base, client);
         let remote = peer.identity().await?;
-        let local = library.0.read().await.identity().await?;
         ensure!(
             local.namespace == remote.namespace,
             "paired catalog namespace mismatch"
@@ -543,9 +598,10 @@ async fn metadata_pass(
     base: &str,
     client: &reqwest::Client,
 ) -> Result<bool> {
-    let peer = http_request::sync::MetadataPeer::<RuneModel>::new(base, client.clone());
-    let remote = peer.identity().await?;
     let local = library.0.read().await.identity().await?;
+    let base = library_base(base, local.namespace);
+    let peer = http_request::sync::MetadataPeer::<RuneModel>::new(&base, client.clone());
+    let remote = peer.identity().await?;
     ensure!(
         local.namespace == remote.namespace,
         "paired catalog namespace mismatch"
@@ -571,7 +627,7 @@ async fn metadata_pass(
         let (attached, _) = fetch_missing(
             &global.main_db,
             &library.0.read().await.record_store(),
-            base,
+            &base,
             client,
             &mut state.artwork_cursor,
             deadline,

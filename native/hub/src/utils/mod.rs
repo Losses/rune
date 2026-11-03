@@ -129,10 +129,10 @@ pub struct GlobalParams {
 pub async fn initialize_library_replica(
     db: &MainDbConnection,
     device_id: &str,
-) -> Result<database::sync::LibrarySyncStore> {
-    let device_id = uuid::Uuid::parse_str(device_id)?;
-    let namespace = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, b"https://rune.audio/catalog");
-    let library = LibrarySyncStore::open(db.clone(), device_id, Some(namespace)).await?;
+    library_id: Uuid,
+) -> Result<LibrarySyncStore> {
+    let device_id = Uuid::parse_str(device_id)?;
+    let library = LibrarySyncStore::open(db.clone(), device_id, Some(library_id)).await?;
     library.import_existing(device_id).await?;
     Ok(library)
 }

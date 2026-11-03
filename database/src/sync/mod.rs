@@ -3,6 +3,7 @@
 pub mod accepted;
 pub mod bindings;
 pub mod import;
+mod legacy;
 pub mod model;
 pub mod references;
 pub mod replica;

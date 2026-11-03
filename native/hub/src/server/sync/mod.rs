@@ -5,8 +5,16 @@ pub mod downloads;
 mod fault_hook;
 pub mod http;
 
+use axum::{
+    Json,
+    extract::{Path, Request, State},
+    http::StatusCode,
+    middleware::Next,
+    response::{IntoResponse, Response},
+};
 use database::sync::model::RuneModel;
 use std::sync::Arc;
+use uuid::Uuid;
 
 pub fn library_router(
     library: http::SharedLibrary,
@@ -20,4 +28,30 @@ pub fn library_router(
                 as Arc<dyn http_request::sync::MetadataStore<RuneModel>>
         })
     }))
+}
+
+/// The paired service serves exactly one open library.
+pub(super) async fn require_library(
+    State(served): State<Uuid>,
+    Path(path): Path<LibraryPath>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if path.library_id.parse::<Uuid>().ok() != Some(served) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "library_not_served"})),
+        )
+            .into_response();
+    }
+    next.run(request).await
+}
+
+#[derive(serde::Deserialize)]
+pub(super) struct LibraryPath {
+    library_id: String,
+}
+
+pub(super) fn library_base(base: &str, library_id: Uuid) -> String {
+    format!("{}/libraries/{library_id}", base.trim_end_matches('/'))
 }
