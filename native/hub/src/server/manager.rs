@@ -370,12 +370,18 @@ impl ServerManager {
         let app = if sync_only {
             app
         } else {
-            app.merge(auth_routes)
-                .merge(protected_routes)
+            let device_routes = Router::new()
                 .route("/ws", get(websocket_handler))
                 .route("/files/{*file_path}", get(file_handler))
                 .route("/media/metadata/{id}", get(get_media_metadata_handler))
                 .route("/media/cover/{id}", get(get_cover_art_handler))
+                .layer(middleware::from_fn_with_state(
+                    auth.clone(),
+                    super::sync_auth::require_auth,
+                ));
+            app.merge(auth_routes)
+                .merge(protected_routes)
+                .merge(device_routes)
         };
         let app = app
             .with_state(server_state)
@@ -1356,6 +1362,57 @@ mod lifecycle_tests {
                 },
             )
             .await?;
+        let (_, full_authorized) = authenticated_client(
+            &b.global_params,
+            &b_info.fingerprint,
+            &b.private_key,
+            &a_info.fingerprint,
+            "127.0.0.1",
+            a_addr.port(),
+        )
+        .await?;
+        for path in [
+            "/files/anything",
+            "/media/cover/1",
+            "/media/metadata/1",
+            "/ws",
+        ] {
+            let request = |client: &reqwest::Client| {
+                let request = client.get(format!("{base}{path}"));
+                if path == "/ws" {
+                    request
+                        .header("Connection", "upgrade")
+                        .header("Upgrade", "websocket")
+                        .header("Sec-WebSocket-Version", "13")
+                        .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+                } else {
+                    request
+                }
+            };
+            assert_eq!(
+                request(&pinned).send().await?.status(),
+                reqwest::StatusCode::UNAUTHORIZED,
+                "{path}"
+            );
+            assert_ne!(
+                request(&full_authorized).send().await?.status(),
+                reqwest::StatusCode::UNAUTHORIZED,
+                "{path}"
+            );
+        }
+        let query = urlencoding::encode(&b_info.fingerprint);
+        assert_eq!(
+            pinned
+                .get(format!("{base}/ws?fingerprint={query}"))
+                .header("Connection", "upgrade")
+                .header("Upgrade", "websocket")
+                .header("Sec-WebSocket-Version", "13")
+                .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+                .send()
+                .await?
+                .status(),
+            reqwest::StatusCode::UNAUTHORIZED
+        );
         let full = pinned
             .post(format!("{base}/panel/auth/login"))
             .send()

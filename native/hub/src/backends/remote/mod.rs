@@ -10,12 +10,14 @@ use std::{
 use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
 use log::{debug, error, info};
+use reqwest::redirect::Policy;
 use rinf::{DartSignal, RustSignal};
 use rustls::ClientConfig;
 use serde::Deserialize;
 use tokio::sync::{Mutex, RwLock};
 use tokio_tungstenite::{
-    Connector, connect_async_tls_with_config, tungstenite::protocol::Message as TungsteniteMessage,
+    Connector, connect_async_tls_with_config,
+    tungstenite::{client::IntoClientRequest, protocol::Message as TungsteniteMessage},
 };
 use tokio_util::sync::CancellationToken;
 use urlencoding::encode;
@@ -35,7 +37,11 @@ use ::scrobbling::manager::MockScrobblingManager;
 use crate::{
     Signal,
     messages::*,
-    server::{api::check_fingerprint, generate_or_load_certificates},
+    server::{
+        api::check_fingerprint,
+        generate_or_load_certificates,
+        sync_worker::{obtain_token, tls_config, trusted_fingerprint},
+    },
     utils::{
         GlobalParams, LocalGuiBroadcaster, ParamsExtractor, RinfRustSignal, RunningMode,
         TaskTokens, nid::get_or_create_node_id,
@@ -146,24 +152,19 @@ impl WebSocketDartBridge {
         host: &str,
         config_path: &str,
         config: Arc<ClientConfig>,
-        fingerprint: &str,
+        token: &str,
     ) -> Result<()> {
-        let url = format!(
-            "wss://{}:7863/ws?fingerprint={}&host={}",
-            host,
-            encode(fingerprint),
-            encode(host)
+        let url = format!("wss://{}:7863/ws?host={}", host, encode(host));
+        let mut request = url.into_client_request()?;
+        request.headers_mut().insert(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {token}").parse()?,
         );
 
         info!("Connecting to {host}");
 
-        match connect_async_tls_with_config(
-            url.clone(),
-            None,
-            false,
-            Some(Connector::Rustls(config)),
-        )
-        .await
+        match connect_async_tls_with_config(request, None, false, Some(Connector::Rustls(config)))
+            .await
         {
             Ok((ws_stream, _)) => {
                 info!("WebSocket connection established");
@@ -342,7 +343,7 @@ pub async fn server_player_loop(
 
     let client_config = Arc::new(cert_validator.clone().into_client_config());
 
-    let (fingerprint, _, _) = generate_or_load_certificates(&config_path, alias)
+    let (fingerprint, _, private_key) = generate_or_load_certificates(&config_path, alias)
         .await
         .with_context(|| "Failed to kiad certufucates")?;
 
@@ -353,6 +354,23 @@ pub async fn server_player_loop(
     if !result.is_trusted {
         bail!("This client is not trusted by the server");
     }
+
+    let server_fingerprint = trusted_fingerprint(&cert_validator, &host, 7863).await?;
+    let pinned_config = tls_config((*cert_validator).clone(), &server_fingerprint);
+    let client = reqwest::Client::builder()
+        .use_preconfigured_tls(pinned_config.clone())
+        .redirect(Policy::none())
+        .build()?;
+    let base = format!("https://{host}:7863");
+    let token = obtain_token(
+        &client,
+        &base,
+        &fingerprint,
+        &private_key,
+        &server_fingerprint,
+    )
+    .await?;
+    let client_config = Arc::new(pinned_config);
 
     let rnsrv_url = url.to_string();
     let config_path = config_path.to_string();
@@ -385,7 +403,7 @@ pub async fn server_player_loop(
                 &host,
                 &config_path,
                 client_config,
-                &fingerprint,
+                &token,
             )
             .await
     });

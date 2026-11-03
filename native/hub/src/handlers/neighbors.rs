@@ -2,6 +2,7 @@ use crate::server::{
     ServerManager,
     api::{check_fingerprint, register_device},
     generate_or_load_certificates, get_or_generate_alias,
+    sync_worker::{obtain_token, tls_config, trusted_fingerprint},
     utils::device::load_device_info,
 };
 use std::net::SocketAddr;
@@ -9,6 +10,7 @@ use std::{fs, future::Future, path::Path, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
 use log::info;
+use reqwest::redirect::Policy;
 use tokio::sync::RwLock;
 use url::Url;
 
@@ -21,7 +23,6 @@ use ::discovery::{
     url::decode_rnsrv_url,
     utils::{DeviceInfo, DeviceType},
 };
-use ::http_request::{BodyExt, Bytes, Empty, Request, Uri, create_https_client, send_http_request};
 
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Session, Signal, messages::*};
@@ -840,28 +841,68 @@ impl Signal for FetchServerCertificateRequest {
     }
 }
 
+pub struct FetchRemoteFileParams {
+    validator: Arc<RwLock<CertValidator>>,
+    config_path: Arc<String>,
+}
+
 impl ParamsExtractor for FetchRemoteFileRequest {
-    type Params = Arc<RwLock<CertValidator>>;
+    type Params = FetchRemoteFileParams;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        Arc::clone(&all_params.cert_validator)
+        FetchRemoteFileParams {
+            validator: Arc::clone(&all_params.cert_validator),
+            config_path: Arc::clone(&all_params.config_path),
+        }
     }
 }
 
+/// Fetches `url` from a trusted peer with a proof-of-key bearer token.
+async fn authorized_get(
+    config_path: &str,
+    validator: CertValidator,
+    host: &str,
+    port: u16,
+    url: Url,
+) -> Result<reqwest::Response> {
+    let server_fingerprint = trusted_fingerprint(&validator, host, port).await?;
+    let config_path = Path::new(config_path);
+    let alias = get_or_generate_alias(config_path).await?;
+    let (fingerprint, _, private_key) = generate_or_load_certificates(config_path, &alias).await?;
+    let client = reqwest::Client::builder()
+        .use_preconfigured_tls(tls_config(validator, &server_fingerprint))
+        .redirect(Policy::none())
+        .build()?;
+    let base = if host.contains(':') {
+        format!("https://[{host}]:{port}")
+    } else {
+        format!("https://{host}:{port}")
+    };
+    let token = obtain_token(
+        &client,
+        &base,
+        &fingerprint,
+        &private_key,
+        &server_fingerprint,
+    )
+    .await?;
+    Ok(client.get(url).bearer_auth(token).send().await?)
+}
+
 impl Signal for FetchRemoteFileRequest {
-    type Params = Arc<RwLock<CertValidator>>;
+    type Params = FetchRemoteFileParams;
     type Response = FetchRemoteFileResponse;
 
     async fn handle(
         &self,
-        validator: Self::Params,
+        params: Self::Params,
         _session: Option<Session>,
         req: &Self,
     ) -> Result<Option<Self::Response>> {
-        let validator = Arc::new(validator.read().await.clone());
+        let validator = params.validator.read().await.clone();
 
         // Parse the URL to extract host, port, and path
-        let url = match Url::parse(&req.url) {
+        let mut url = match Url::parse(&req.url) {
             Ok(url) => url,
             Err(e) => {
                 return Ok(Some(FetchRemoteFileResponse {
@@ -885,6 +926,13 @@ impl Signal for FetchRemoteFileRequest {
         };
 
         let port = url.port().unwrap_or(7863);
+        if url.scheme() != "https" || url.set_port(Some(port)).is_err() {
+            return Ok(Some(FetchRemoteFileResponse {
+                success: false,
+                local_path: String::new(),
+                error: "Remote file URL must be an HTTPS URL with a valid port".to_string(),
+            }));
+        }
 
         // Extract the file name from the URL path
         let path = url.path();
@@ -922,61 +970,13 @@ impl Signal for FetchRemoteFileRequest {
             }));
         }
 
-        // Create an HTTPS client with the custom TLS configuration
-        let mut sender = match create_https_client(
-            host.clone(),
-            port,
-            validator.clone().into_client_config().into(),
-        )
-        .await
-        {
-            Ok(sender) => sender,
-            Err(e) => {
-                return Ok(Some(FetchRemoteFileResponse {
-                    success: false,
-                    local_path: String::new(),
-                    error: format!("Failed to create HTTPS client: {e}"),
-                }));
-            }
-        };
-
-        // Build the request URI
-        let uri = match Uri::builder()
-            .scheme("https")
-            .authority(format!("{host}:{port}"))
-            .path_and_query(path)
-            .build()
-        {
-            Ok(uri) => uri,
-            Err(e) => {
-                return Ok(Some(FetchRemoteFileResponse {
-                    success: false,
-                    local_path: String::new(),
-                    error: format!("Failed to build request URI: {e}"),
-                }));
-            }
-        };
-
-        // Build the HTTP request
-        let req = match Request::builder().uri(uri).body(Empty::<Bytes>::new()) {
-            Ok(req) => req,
-            Err(e) => {
-                return Ok(Some(FetchRemoteFileResponse {
-                    success: false,
-                    local_path: String::new(),
-                    error: format!("Failed to build HTTP request: {e}"),
-                }));
-            }
-        };
-
-        // Send the request
-        let res = match send_http_request(&mut sender, req).await {
+        let res = match authorized_get(&params.config_path, validator, &host, port, url).await {
             Ok(res) => res,
             Err(e) => {
                 return Ok(Some(FetchRemoteFileResponse {
                     success: false,
                     local_path: String::new(),
-                    error: format!("Failed to send HTTP request: {e}"),
+                    error: format!("Failed to fetch remote file: {e:#}"),
                 }));
             }
         };
@@ -991,8 +991,8 @@ impl Signal for FetchRemoteFileRequest {
         }
 
         // Read the response body
-        let body = match res.into_body().collect().await {
-            Ok(body) => body.to_bytes(),
+        let body = match res.bytes().await {
+            Ok(body) => body,
             Err(e) => {
                 return Ok(Some(FetchRemoteFileResponse {
                     success: false,

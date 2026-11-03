@@ -5,7 +5,7 @@ pub mod http;
 mod manager;
 pub mod sync;
 mod sync_auth;
-mod sync_worker;
+pub(crate) mod sync_worker;
 pub mod utils;
 
 use fsio::FsIo;

@@ -56,6 +56,32 @@ fn endpoint_host_port(value: &str) -> Option<(String, Option<u16>)> {
     (!value.is_empty() && !value.contains(':')).then(|| (value.to_owned(), None))
 }
 
+pub(crate) async fn trusted_fingerprint(
+    validator: &discovery::client::CertValidator,
+    host: &str,
+    port: u16,
+) -> Result<String> {
+    let entries = validator.clone_trusted_entries().await;
+    let mut matches = entries.into_iter().filter_map(|(fingerprint, hosts)| {
+        hosts
+            .iter()
+            .any(|candidate| {
+                endpoint_host_port(candidate).is_some_and(|(name, trusted_port)| {
+                    name == host && trusted_port.is_none_or(|p| p == port)
+                })
+            })
+            .then_some(fingerprint)
+    });
+    let fingerprint = matches
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("peer endpoint is not trusted"))?;
+    ensure!(
+        matches.next().is_none(),
+        "peer endpoint has multiple trusted identities"
+    );
+    Ok(fingerprint)
+}
+
 pub(super) async fn peer_endpoints(global: &GlobalParams, own: &str) -> Vec<Vec<PeerEndpoint>> {
     let trusted = global
         .cert_validator
@@ -590,6 +616,29 @@ pub(super) async fn authenticated_client(
         .read_timeout(Duration::from_secs(30))
         .redirect(Policy::none())
         .build()?;
+    let token = obtain_token(&client, &base, own, private_key, fingerprint).await?;
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        reqwest::header::AUTHORIZATION,
+        format!("Bearer {token}").parse()?,
+    );
+    let validator = global.cert_validator.read().await.clone();
+    let client = reqwest::Client::builder()
+        .use_preconfigured_tls(tls_config(validator, fingerprint))
+        .default_headers(headers)
+        .connect_timeout(Duration::from_secs(10))
+        .read_timeout(Duration::from_secs(30))
+        .redirect(Policy::none())
+        .build()?;
+    Ok((base, client))
+}
+pub(crate) async fn obtain_token(
+    client: &reqwest::Client,
+    base: &str,
+    own: &str,
+    private_key: &str,
+    fingerprint: &str,
+) -> Result<String> {
     let challenge: Challenge =
         bounded_json(client.get(format!("{base}/sync/challenge")).send().await?).await?;
     ensure!(
@@ -611,20 +660,7 @@ pub(super) async fn authenticated_client(
             .await?,
     )
     .await?;
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        reqwest::header::AUTHORIZATION,
-        format!("Bearer {}", token.token).parse()?,
-    );
-    let validator = global.cert_validator.read().await.clone();
-    let client = reqwest::Client::builder()
-        .use_preconfigured_tls(tls_config(validator, fingerprint))
-        .default_headers(headers)
-        .connect_timeout(Duration::from_secs(10))
-        .read_timeout(Duration::from_secs(30))
-        .redirect(Policy::none())
-        .build()?;
-    Ok((base, client))
+    Ok(token.token)
 }
 pub(super) struct AudioCredentials {
     pub client: reqwest::Client,
@@ -1051,7 +1087,7 @@ impl ServerCertVerifier for PinnedPeer {
         self.validator.supported_verify_schemes()
     }
 }
-fn tls_config(
+pub(crate) fn tls_config(
     validator: discovery::client::CertValidator,
     fingerprint: &str,
 ) -> rustls::ClientConfig {

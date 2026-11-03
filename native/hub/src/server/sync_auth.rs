@@ -101,19 +101,19 @@ impl SyncAuth {
             .layer(DefaultBodyLimit::max(8192))
             .with_state(self.clone())
     }
-    pub async fn allowed(&self, token: &str) -> bool {
+    pub async fn resolve_token(&self, token: &str) -> Option<String> {
         let fingerprint = {
             let mut e = self.entries.lock().await;
             e.tokens
                 .retain(|_, (_, deadline)| *deadline > Instant::now());
             e.tokens.get(token).map(|(f, _)| f.clone())
         };
-        let approved = match fingerprint {
+        let approved = match &fingerprint {
             Some(f) => self
                 .permissions
                 .read()
                 .await
-                .verify_by_fingerprint(&f)
+                .verify_by_fingerprint(f)
                 .await
                 .is_some_and(|u| u.status == UserStatus::Approved),
             None => false,
@@ -121,7 +121,7 @@ impl SyncAuth {
         if !approved {
             self.entries.lock().await.tokens.remove(token);
         }
-        approved
+        fingerprint.filter(|_| approved)
     }
 }
 async fn challenge(
@@ -223,9 +223,12 @@ async fn authorize(
     );
     Ok(Json(Token { token }))
 }
+#[derive(Clone)]
+pub struct AuthenticatedFingerprint(pub String);
+
 pub async fn require_auth(
     State(auth): State<SyncAuth>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
     let token = request
@@ -234,9 +237,13 @@ pub async fn require_auth(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    if !auth.allowed(token).await {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
+    let fingerprint = auth
+        .resolve_token(token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    request
+        .extensions_mut()
+        .insert(AuthenticatedFingerprint(fingerprint));
     Ok(next.run(request).await)
 }
 
@@ -410,7 +417,7 @@ mod tests {
         let (status, bytes) = post(&app, "/sync/authorize", &request).await;
         assert_eq!(status, StatusCode::OK);
         let token: Token = serde_json::from_slice(&bytes).unwrap();
-        assert!(auth.allowed(&token.token).await);
+        assert!(auth.resolve_token(&token.token).await.is_some());
         assert_eq!(
             post(&app, "/sync/authorize", &request).await.0,
             StatusCode::UNAUTHORIZED
@@ -421,14 +428,14 @@ mod tests {
             .change_user_status(&fingerprint, UserStatus::Blocked)
             .await
             .unwrap();
-        assert!(!auth.allowed(&token.token).await);
+        assert!(auth.resolve_token(&token.token).await.is_none());
         permissions
             .write()
             .await
             .remove_user(&fingerprint)
             .await
             .unwrap();
-        assert!(!auth.allowed(&token.token).await);
+        assert!(auth.resolve_token(&token.token).await.is_none());
         permissions
             .write()
             .await

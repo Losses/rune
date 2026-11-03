@@ -1,6 +1,7 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use axum::{
+    Extension,
     extract::{
         ConnectInfo, Query, State,
         ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
@@ -15,78 +16,37 @@ use tokio::sync::mpsc;
 use crate::{
     Session,
     backends::remote::{decode_message, encode_message},
-    server::ServerState,
+    server::{ServerState, sync_auth::AuthenticatedFingerprint},
 };
 use discovery::server::{User, UserStatus};
 
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
+    Extension(AuthenticatedFingerprint(fingerprint)): Extension<AuthenticatedFingerprint>,
     Query(params): Query<HashMap<String, String>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<ServerState>>,
 ) -> Response {
-    let auth_key = params
-        .get("auth")
-        .or_else(|| params.get("public_key"))
-        .or_else(|| params.get("fingerprint"))
-        .cloned();
-
     let host = params
         .get("host")
         .cloned()
         .unwrap_or("127.0.0.1".to_owned());
-
-    let auth_result = async {
-        let auth_key = auth_key.ok_or(StatusCode::BAD_REQUEST)?;
-
-        if let Some(user) = state
-            .permission_manager
-            .read()
-            .await
-            .verify_by_public_key(&auth_key)
-            .await
-        {
-            return match user.status {
-                UserStatus::Approved => Ok(user),
-                UserStatus::Blocked => Err(StatusCode::FORBIDDEN),
-                UserStatus::Pending => Err(StatusCode::UNAUTHORIZED),
-            };
-        }
-
-        if let Some(user) = state
-            .permission_manager
-            .read()
-            .await
-            .verify_by_fingerprint(&auth_key)
-            .await
-        {
-            return match user.status {
-                UserStatus::Approved => Ok(user),
-                UserStatus::Blocked => Err(StatusCode::FORBIDDEN),
-                UserStatus::Pending => Err(StatusCode::UNAUTHORIZED),
-            };
-        }
-
-        Err(StatusCode::UNAUTHORIZED)
-    }
-    .await;
-
-    match auth_result {
-        Ok(user) => {
+    let user = state
+        .permission_manager
+        .read()
+        .await
+        .verify_by_fingerprint(&fingerprint)
+        .await
+        .filter(|user| user.status == UserStatus::Approved);
+    match user {
+        Some(user) => {
             info!("Connection authorized for {} @ {}", user.alias, addr);
             let host = format!("https://{host}:7863");
             ws.on_upgrade(move |socket| handle_socket(socket, state, user, host))
         }
-        Err(code) => {
-            warn!(
-                "Unauthorized connection attempt from {}({})",
-                addr,
-                match params.get("fingerprint") {
-                    Some(x) => x,
-                    None => "",
-                }
-            );
-            code.into_response()
+        None => {
+            warn!("Unauthorized connection attempt from {}", addr);
+            StatusCode::UNAUTHORIZED.into_response()
         }
     }
 }
