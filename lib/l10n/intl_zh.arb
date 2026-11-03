@@ -1435,5 +1435,13 @@
   "remoteOpenProtocol": "无法与设备通信，两台设备需要相同版本的 Rune。",
   "remoteLossRevoked": "此设备的访问权限已被移除。",
   "remoteLossServerStopped": "另一台设备已停止共享。",
-  "remoteLossNetworkLost": "连接已断开。"
+  "remoteLossNetworkLost": "连接已断开。",
+  "deviceLibraries": "音乐库",
+  "addSharedLibrary": "添加",
+  "sharedLibraryAdded": "已添加",
+  "openSharedLibrary": "打开",
+  "noSharedLibraries": "这台设备没有可共享的音乐库",
+  "libraryFromDevice": "来自 {device}",
+  "backgroundLibrarySync": "在后台保持同步",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }

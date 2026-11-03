@@ -17,6 +17,9 @@ import '../../widgets/settings/settings_tile_title.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/broadcast.dart';
+import '../../providers/library_path.dart';
+import '../../utils/router/navigation.dart';
+import 'widgets/peer_libraries_dialog.dart';
 
 import 'utils/show_confirm_remove_device_dialog.dart';
 import 'utils/show_review_connection_dialog.dart';
@@ -164,6 +167,23 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
                     child: Text(S.of(context).review),
                   ),
                   const SizedBox(width: 12),
+                  if (client.status == ClientStatus.approved &&
+                      !(Provider.of<LibraryPathProvider>(
+                            context,
+                          ).currentPath?.startsWith('@RR|') ??
+                          false)) ...[
+                    Button(
+                      onPressed: () => $showModal<void>(
+                        context,
+                        (context, close) => PeerLibrariesDialog(
+                          client: client,
+                          close: () => close(null),
+                        ),
+                      ),
+                      child: Text(S.of(context).deviceLibraries),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                   Button(
                     onPressed: () async {
                       await showConfirmRemoveDeviceDialog(context, client);

@@ -1385,5 +1385,13 @@
   "remoteOpenProtocol": "Не вдалося зв’язатися з пристроєм. На обох потрібна однакова версія Rune.",
   "remoteLossRevoked": "Доступ цього пристрою видалено.",
   "remoteLossServerStopped": "Інший пристрій припинив спільний доступ.",
-  "remoteLossNetworkLost": "З’єднання втрачено."
+  "remoteLossNetworkLost": "З’єднання втрачено.",
+  "deviceLibraries": "Медіатеки",
+  "addSharedLibrary": "Додати",
+  "sharedLibraryAdded": "Додано",
+  "openSharedLibrary": "Відкрити",
+  "noSharedLibraries": "На цьому пристрої немає медіатек для спільного доступу",
+  "libraryFromDevice": "Від {device}",
+  "backgroundLibrarySync": "Синхронізувати у фоновому режимі",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }

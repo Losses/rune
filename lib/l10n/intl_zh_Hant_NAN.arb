@@ -1350,5 +1350,13 @@
   "remoteOpenProtocol": "Bô hoat-tō͘ kap siat-pī thong-sìn, nn̄g ê siat-pī su-iàu sio-kâng pán-pún ê Rune.",
   "remoteLossRevoked": "Chit ê siat-pī ê hóng-būn koân-hān í-keng hō͘ thô͘-khì.",
   "remoteLossServerStopped": "Lēng-gōa ê siat-pī í-keng thêng-chí hūn-hióng.",
-  "remoteLossNetworkLost": "Liân-soàⁿ í-keng tiong-toān."
+  "remoteLossNetworkLost": "Liân-soàⁿ í-keng tiong-toān.",
+  "deviceLibraries": "音樂庫",
+  "addSharedLibrary": "加入",
+  "sharedLibraryAdded": "已加入",
+  "openSharedLibrary": "開啟",
+  "noSharedLibraries": "這台裝置無通分享的音樂庫",
+  "libraryFromDevice": "來自 {device}",
+  "backgroundLibrarySync": "佇背景保持同步",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }

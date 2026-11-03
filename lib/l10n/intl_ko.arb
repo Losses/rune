@@ -1387,5 +1387,13 @@
   "remoteOpenProtocol": "기기와 통신할 수 없습니다. 두 기기에 같은 버전의 Rune이 필요합니다.",
   "remoteLossRevoked": "이 기기의 접근 권한이 제거되었습니다.",
   "remoteLossServerStopped": "다른 기기에서 공유를 중지했습니다.",
-  "remoteLossNetworkLost": "연결이 끊어졌습니다."
+  "remoteLossNetworkLost": "연결이 끊어졌습니다.",
+  "deviceLibraries": "라이브러리",
+  "addSharedLibrary": "추가",
+  "sharedLibraryAdded": "추가됨",
+  "openSharedLibrary": "열기",
+  "noSharedLibraries": "이 기기에 공유할 라이브러리가 없습니다",
+  "libraryFromDevice": "{device}에서",
+  "backgroundLibrarySync": "백그라운드에서 동기화 유지",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }

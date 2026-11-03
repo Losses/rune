@@ -1350,5 +1350,13 @@
   "remoteOpenProtocol": "Ne eblis komuniki kun la aparato. Ambaŭ aparatoj bezonas la saman version de Rune.",
   "remoteLossRevoked": "La aliro de ĉi tiu aparato estis forigita.",
   "remoteLossServerStopped": "La alia aparato ĉesis kundividi.",
-  "remoteLossNetworkLost": "La konekto perdiĝis."
+  "remoteLossNetworkLost": "La konekto perdiĝis.",
+  "deviceLibraries": "Bibliotekoj",
+  "addSharedLibrary": "Aldoni",
+  "sharedLibraryAdded": "Aldonita",
+  "openSharedLibrary": "Malfermi",
+  "noSharedLibraries": "Ĉi tiu aparato ne havas bibliotekojn por dividi",
+  "libraryFromDevice": "De {device}",
+  "backgroundLibrarySync": "Sinkronigi en la fono",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }

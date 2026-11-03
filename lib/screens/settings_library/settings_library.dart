@@ -19,6 +19,11 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/settings_library/widgets/add_library_setting_button.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
+import '../../providers/broadcast.dart';
+import '../../bindings/bindings.dart';
+import '../../utils/api/library_registry.dart';
+import '../../utils/library_ui/library_ui_state.dart';
+import '../../utils/dialogs/information/error.dart';
 
 import 'utils/show_reset_library_dialog.dart';
 
@@ -32,27 +37,70 @@ class SettingsLibraryPage extends StatefulWidget {
 class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
   String selectedItem = '';
 
-  bool requested = false;
-  List<String> allOpenedFiles = [];
+  List<LocalLibrary> registeredLibraries = [];
+  final Set<String> updatingLibraries = {};
 
   @override
-  void didChangeDependencies() {
-    if (requested) return;
-
-    final libraryPath =
-        Provider.of<LibraryPathProvider>(context, listen: false);
-
-    setState(() {
-      allOpenedFiles =
-          libraryPath.getLLPaths().reversed.map((x) => x.rawPath).toList();
+  void initState() {
+    super.initState();
+    listLocalLibraries().then((response) {
+      if (mounted) setState(() => registeredLibraries = response.libraries);
+    }).catchError((Object error) {
+      debugPrint('Could not load libraries: $error');
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Provider.of<BroadcastProvider>(context, listen: false).fetchUsers();
+      }
+    });
+  }
 
-    super.didChangeDependencies();
+  Future<void> _setBackgroundSync(LocalLibrary library, bool enabled) async {
+    setState(() {
+      updatingLibraries.add(library.libraryId);
+      registeredLibraries = registeredLibraries
+          .map(
+            (entry) => entry.libraryId == library.libraryId
+                ? entry.copyWith(backgroundSync: enabled)
+                : entry,
+          )
+          .toList();
+    });
+    String? error;
+    try {
+      final response =
+          await setLibraryBackgroundSync(library.libraryId, enabled);
+      error = response.error;
+    } catch (exception) {
+      error = exception.toString();
+    }
+    if (!mounted) return;
+    setState(() {
+      updatingLibraries.remove(library.libraryId);
+      if (error != null) {
+        registeredLibraries = registeredLibraries
+            .map(
+              (entry) => entry.libraryId == library.libraryId
+                  ? entry.copyWith(backgroundSync: library.backgroundSync)
+                  : entry,
+            )
+            .toList();
+      }
+    });
+    if (error != null) {
+      await showErrorDialog(
+        context: context,
+        title: S.of(context).unknownError,
+        errorMessage: error,
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
+    final allOpenedFiles =
+        libraryPath.getLLPaths().reversed.map((x) => x.rawPath).toList();
     final libraryManager =
         Provider.of<LibraryManagerProvider>(context, listen: false);
 
@@ -92,6 +140,20 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                       itemCount: allOpenedFiles.length,
                       itemBuilder: (context, index) {
                         final itemPath = allOpenedFiles[index];
+                        final aliases = {
+                          for (final user
+                              in Provider.of<BroadcastProvider>(context).users)
+                            if (user.status == ClientStatus.approved)
+                              user.fingerprint: user.alias,
+                        };
+                        final row = libraryRowState(
+                          itemPath,
+                          registeredLibraries,
+                          aliases,
+                          S.of(context).libraryFromDevice,
+                        );
+                        final owner = row.library?.ownerFingerprint;
+                        final shared = owner != null && owner.isNotEmpty;
                         final isCurrentLibrary =
                             itemPath == libraryPath.currentPath;
                         final isSelectedLibrary = itemPath == selectedItem;
@@ -122,9 +184,9 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
                         return ListTile.selectable(
                           title: SettingsTileTitle(
-                            icon: Symbols.folder,
-                            title: fileName,
-                            subtitle: allOpenedFiles[index],
+                            icon: shared ? Symbols.cloud_sync : Symbols.folder,
+                            title: shared ? row.library!.alias : fileName,
+                            subtitle: row.subtitle,
                             showActions: isSelectedLibrary,
                             actionsBuilder: (context) => Row(
                               children: [
@@ -182,6 +244,20 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                   }),
                                   child: Text(S.of(context).removeLibrary),
                                 ),
+                                if (row.library case final library?) ...[
+                                  const SizedBox(width: 12),
+                                  ToggleSwitch(
+                                    content: Text(
+                                      S.of(context).backgroundLibrarySync,
+                                    ),
+                                    checked: library.backgroundSync,
+                                    onChanged: updatingLibraries
+                                            .contains(library.libraryId)
+                                        ? null
+                                        : (value) =>
+                                            _setBackgroundSync(library, value),
+                                  ),
+                                ],
                                 if (isCurrentLibrary) ...[
                                   const SizedBox(width: 12),
                                   const ScanLibraryButton(),

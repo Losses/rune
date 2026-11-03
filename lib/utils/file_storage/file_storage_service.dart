@@ -66,9 +66,13 @@ class FileStorageService {
   Future<void> storeFilePath(String path, {String? alias}) async {
     final entries = await _getOpenedFiles();
 
+    final existing = entries.where((e) => e['path'] == path).firstOrNull;
     entries.removeWhere((e) => e['path'] == path);
 
-    final entry = LibraryPathEntry(path, alias: alias);
+    final entry = LibraryPathEntry(
+      path,
+      alias: alias ?? existing?['alias'] as String?,
+    );
     entries.add({
       'path': path,
       'alias': entry.alias,

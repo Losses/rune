@@ -1385,5 +1385,13 @@
   "remoteOpenProtocol": "Das Gerät antwortet nicht wie erwartet. Beide Geräte benötigen dieselbe Rune-Version.",
   "remoteLossRevoked": "Der Zugriff dieses Geräts wurde entfernt.",
   "remoteLossServerStopped": "Das andere Gerät hat die Freigabe beendet.",
-  "remoteLossNetworkLost": "Die Verbindung wurde unterbrochen."
+  "remoteLossNetworkLost": "Die Verbindung wurde unterbrochen.",
+  "deviceLibraries": "Bibliotheken",
+  "addSharedLibrary": "Hinzufügen",
+  "sharedLibraryAdded": "Hinzugefügt",
+  "openSharedLibrary": "Öffnen",
+  "noSharedLibraries": "Dieses Gerät hat keine Bibliotheken zum Teilen",
+  "libraryFromDevice": "Von {device}",
+  "backgroundLibrarySync": "Im Hintergrund synchron halten",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }

@@ -1482,5 +1482,13 @@
   "remoteOpenProtocol": "Could not talk to the device. Both devices need the same version of Rune.",
   "remoteLossRevoked": "This device's access was removed.",
   "remoteLossServerStopped": "The other device stopped sharing.",
-  "remoteLossNetworkLost": "The connection was lost."
+  "remoteLossNetworkLost": "The connection was lost.",
+  "deviceLibraries": "Libraries",
+  "addSharedLibrary": "Add",
+  "sharedLibraryAdded": "Added",
+  "openSharedLibrary": "Open",
+  "noSharedLibraries": "This device has no libraries to share",
+  "libraryFromDevice": "From {device}",
+  "backgroundLibrarySync": "Keep in sync in the background",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }

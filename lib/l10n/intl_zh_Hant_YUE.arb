@@ -1348,5 +1348,13 @@
   "remoteOpenProtocol": "無法同裝置通訊，兩部裝置需要相同版本嘅 Rune。",
   "remoteLossRevoked": "呢部裝置嘅存取權已被移除。",
   "remoteLossServerStopped": "另一部裝置已停止分享。",
-  "remoteLossNetworkLost": "連線已中斷。"
+  "remoteLossNetworkLost": "連線已中斷。",
+  "deviceLibraries": "音樂庫",
+  "addSharedLibrary": "加入",
+  "sharedLibraryAdded": "已加入",
+  "openSharedLibrary": "開啟",
+  "noSharedLibraries": "呢部裝置冇可以分享嘅音樂庫",
+  "libraryFromDevice": "來自 {device}",
+  "backgroundLibrarySync": "喺背景保持同步",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }

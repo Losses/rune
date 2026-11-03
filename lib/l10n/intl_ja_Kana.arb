@@ -1348,5 +1348,13 @@
   "remoteOpenProtocol": "デバイストツウシンデキマセン。リョウホウニオナジバージョンノRuneガヒツヨウデス。",
   "remoteLossRevoked": "コノデバイスノアクセスケンガサクジョサレマシタ。",
   "remoteLossServerStopped": "アイテノデバイスガキョウユウヲテイシシマシタ。",
-  "remoteLossNetworkLost": "セツゾクガキレマシタ。"
+  "remoteLossNetworkLost": "セツゾクガキレマシタ。",
+  "deviceLibraries": "ライブラリ",
+  "addSharedLibrary": "ツイカ",
+  "sharedLibraryAdded": "ツイカズミ",
+  "openSharedLibrary": "ヒラク",
+  "noSharedLibraries": "コノデバイスニキョウユウデキルライブラリハアリマセン",
+  "libraryFromDevice": "{device} カラ",
+  "backgroundLibrarySync": "バックグラウンドデドウキヲイジ",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }

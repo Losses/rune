@@ -1348,5 +1348,13 @@
   "remoteOpenProtocol": "デバイスと通信できません。両方で同じバージョンのRuneが必要です。",
   "remoteLossRevoked": "このデバイスのアクセス権が削除されました。",
   "remoteLossServerStopped": "相手のデバイスが共有を停止しました。",
-  "remoteLossNetworkLost": "接続が失われました。"
+  "remoteLossNetworkLost": "接続が失われました。",
+  "deviceLibraries": "らいぶらり",
+  "addSharedLibrary": "ついか",
+  "sharedLibraryAdded": "ついかずみ",
+  "openSharedLibrary": "ひらく",
+  "noSharedLibraries": "このでばいすにきょうゆうできるらいぶらりはありません",
+  "libraryFromDevice": "{device} から",
+  "backgroundLibrarySync": "ばっくぐらうんどでどうきをいじ",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }

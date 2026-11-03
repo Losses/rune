@@ -129,7 +129,7 @@ class LibraryPathProvider with ChangeNotifier {
 
   Set<LibraryPathEntry> get libraryHistory => _libraryHistory;
 
-  void addLibraryPath(
+  Future<void> addLibraryPath(
       BuildContext? context, String filePath, String alias) async {
     final entry = LibraryPathEntry(filePath, alias: alias);
 
@@ -137,7 +137,7 @@ class LibraryPathProvider with ChangeNotifier {
       notifyListeners();
     }
 
-    _fileStorageService.storeFilePath(filePath, alias: alias);
+    await _fileStorageService.storeFilePath(filePath, alias: alias);
   }
 
   Future<(bool, bool, String?, LibraryOpenErrorKind?)> setLibraryPath(

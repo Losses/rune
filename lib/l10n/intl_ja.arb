@@ -1385,5 +1385,13 @@
   "remoteOpenProtocol": "デバイスと通信できません。両方で同じバージョンのRuneが必要です。",
   "remoteLossRevoked": "このデバイスのアクセス権が削除されました。",
   "remoteLossServerStopped": "相手のデバイスが共有を停止しました。",
-  "remoteLossNetworkLost": "接続が失われました。"
+  "remoteLossNetworkLost": "接続が失われました。",
+  "deviceLibraries": "ライブラリ",
+  "addSharedLibrary": "追加",
+  "sharedLibraryAdded": "追加済み",
+  "openSharedLibrary": "開く",
+  "noSharedLibraries": "このデバイスに共有できるライブラリはありません",
+  "libraryFromDevice": "{device} から",
+  "backgroundLibrarySync": "バックグラウンドで同期を維持",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }

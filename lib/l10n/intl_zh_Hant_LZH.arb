@@ -1348,5 +1348,13 @@
   "remoteOpenProtocol": "不能通訊，兩器須用同版 Rune。",
   "remoteLossRevoked": "此器之存取權已除。",
   "remoteLossServerStopped": "彼器已止共享。",
-  "remoteLossNetworkLost": "連線已斷。"
+  "remoteLossNetworkLost": "連線已斷。",
+  "deviceLibraries": "樂庫",
+  "addSharedLibrary": "添",
+  "sharedLibraryAdded": "已添",
+  "openSharedLibrary": "啟",
+  "noSharedLibraries": "此器無樂庫可共",
+  "libraryFromDevice": "來自 {device}",
+  "backgroundLibrarySync": "於後臺保持同步",
+  "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}}
 }
