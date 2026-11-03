@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../utils/l10n.dart';
 import '../../constants/configurations.dart';
 import '../../constants/settings_manager.dart';
+import '../../utils/api/device_grants.dart';
 import '../../utils/api/get_sync_settings.dart';
 import '../../utils/api/set_sync_settings.dart';
 import '../../widgets/settings/settings_box_toggle.dart';
@@ -22,6 +23,7 @@ import '../settings_neighbors/widgets/edit_device_information_setting_button.dar
 import '../settings_neighbors/widgets/search_remote_device_setting_button.dart';
 import '../settings_neighbors/widgets/add_neighbor_manually_setting_button.dart';
 import 'device_status.dart';
+import 'device_access.dart';
 import 'remote_destinations_list.dart';
 
 import '../settings_server/utils/show_confirm_remove_device_dialog.dart';
@@ -40,6 +42,48 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
   String selectedUserId = '';
   GetSyncSettingsResponse? syncSettings;
   bool offlineCleanupDefault = true;
+  final Map<String, DeviceGrantsInfo> grants = {};
+  BroadcastProvider? broadcast;
+  bool loadingGrants = false;
+  bool refreshGrantsAgain = false;
+
+  Future<void> _refreshGrants() async {
+    if (loadingGrants) {
+      refreshGrantsAgain = true;
+      return;
+    }
+    loadingGrants = true;
+    do {
+      refreshGrantsAgain = false;
+      final clients = Provider.of<BroadcastProvider>(
+        context, listen: false,
+      ).users;
+      for (final client in clients.where(
+        (c) => c.status == ClientStatus.approved,
+      )) {
+        try {
+          final result = await getDeviceGrants(client.fingerprint);
+          if (!mounted) return;
+          setState(() => grants[client.fingerprint] = result.grants);
+        } catch (error) {
+          if (!mounted) return;
+          setState(() => grants.remove(client.fingerprint));
+          debugPrint('Could not load device settings: $error');
+        }
+      }
+    } while (refreshGrantsAgain && mounted);
+    loadingGrants = false;
+  }
+
+  void _onClientsChanged() {
+    if (mounted) _refreshGrants();
+  }
+
+  @override
+  void dispose() {
+    broadcast?.removeListener(_onClientsChanged);
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -56,6 +100,9 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
     );
 
     broadcastProvider.fetchUsers();
+    broadcast = broadcastProvider;
+    broadcastProvider.addListener(_onClientsChanged);
+    _refreshGrants();
     $settingsManager.getValue<bool>(kOfflineCleanupDefaultKey).then((value) {
       if (mounted) setState(() => offlineCleanupDefault = value ?? true);
     });
@@ -169,10 +216,27 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                   : null,
               badgeColor: _getStatusColor(client.status),
               title: client.alias,
-              subtitle: presentation.subtitle,
+              subtitle: client.status == ClientStatus.approved
+                  ? deviceAccessSummary(
+                      grants[client.fingerprint], S.of(context),
+                    )
+                  : presentation.subtitle,
               showActions: selectedUserId == client.fingerprint,
-              actionsBuilder: (context) => Row(
+              actionsBuilder: (context) => Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
+                  if (client.status == ClientStatus.approved) ...[
+                    Button(
+                      onPressed: () async {
+                        await $push(
+                          '/settings/device-access', arguments: client,
+                        );
+                        if (mounted) _refreshGrants();
+                      },
+                      child: Text(S.of(context).customizeDevice),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                   Button(
                     onPressed: () async {
                       await showReviewConnectionDialog(context, client);

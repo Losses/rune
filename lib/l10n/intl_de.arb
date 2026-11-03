@@ -1403,5 +1403,18 @@
   "devicesThatCanConnect": "Geräte, die sich mit diesem verbinden können",
   "otherDevices": "Andere Geräte",
   "myDevice": "Mein Gerät",
-  "waitingForApproval": "Wartet auf Bestätigung"
+  "waitingForApproval": "Wartet auf Bestätigung",
+  "guest": "Gast",
+  "myDeviceAccessDescription": "Kann deine Mediatheken abspielen, durchsuchen und synchronisieren",
+  "guestAccessDescription": "Kann die Wiedergabe steuern und dabei browsen",
+  "guestControlSummary": "Gast · Kann die Wiedergabe steuern",
+  "customDeviceAccess": "Benutzerdefiniert",
+  "customizeDevice": "Anpassen",
+  "controlPlayback": "Wiedergabe steuern",
+  "controlPlaybackDescription": "Kann beim Steuern browsen und Titel einreihen",
+  "deviceAccessLibraries": "Mediatheken",
+  "deviceNotShared": "Nicht geteilt",
+  "deviceReadOnly": "Nur lesen",
+  "deviceReadWrite": "Lesen und schreiben",
+  "requestPermissionDenied": "Dieses Gerät darf das nicht tun"
 }

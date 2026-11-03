@@ -17,6 +17,7 @@ import '../routes/query_tracks.dart' as query_tracks;
 import '../routes/library_home.dart' as library_home;
 
 import '../bindings/bindings.dart';
+import '../utils/router/router_transition_parameter.dart';
 
 final Map<String, WidgetBuilder> routes = {
   '/': (context) => const home.HomePage(),
@@ -118,6 +119,11 @@ final Map<String, WidgetBuilder> routes = {
   '/tracks': (context) => const tracks.TracksPage(),
   '/settings': (context) => const settings.SettingsHomePage(),
   '/settings/library': (context) => const settings.SettingsLibraryPage(),
+  '/settings/device-access': (context) {
+    final client = getRouterTransitionParameter()?.parameters;
+    if (client is! ClientSummary) throw 'Invalid router parameters';
+    return settings.SettingsDeviceAccessPage(client: client);
+  },
   '/settings/devices': (context) => const settings.SettingsDevicesPage(),
   '/settings/neighbors': (context) => const settings.SettingsDevicesPage(),
   '/settings/server': (context) => const settings.SettingsDevicesPage(),

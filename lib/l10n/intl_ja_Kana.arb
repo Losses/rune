@@ -1366,5 +1366,18 @@
   "devicesThatCanConnect": "コノデバイスニセツゾクデキルデバイス",
   "otherDevices": "ホカノデバイス",
   "myDevice": "ジブンノデバイス",
-  "waitingForApproval": "ショウニンマチ"
+  "waitingForApproval": "ショウニンマチ",
+  "guest": "ゲスト",
+  "myDeviceAccessDescription": "ライブラリヲ サイセイ、エツラン、ドウキ デキマス",
+  "guestAccessDescription": "サイセイヲ ソウサシナガラ エツラン デキマス",
+  "guestControlSummary": "ゲスト · サイセイヲ ソウサ デキマス",
+  "customDeviceAccess": "カスタム",
+  "customizeDevice": "カスタマイズ",
+  "controlPlayback": "サイセイヲ ソウサ",
+  "controlPlaybackDescription": "ソウサチュウニ エツランヤ キューヘノ ツイカガ デキマス",
+  "deviceAccessLibraries": "ライブラリ",
+  "deviceNotShared": "キョウユウ シナイ",
+  "deviceReadOnly": "ヨミトリ センヨウ",
+  "deviceReadWrite": "ヨミカキ",
+  "requestPermissionDenied": "コノ デバイスハ ソノ ソウサヲ キョカ サレテイマセン"
 }

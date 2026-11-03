@@ -1405,5 +1405,18 @@
   "devicesThatCanConnect": "Dispositivi che possono connettersi a questo",
   "otherDevices": "Altri dispositivi",
   "myDevice": "Il mio dispositivo",
-  "waitingForApproval": "In attesa di approvazione"
+  "waitingForApproval": "In attesa di approvazione",
+  "guest": "Ospite",
+  "myDeviceAccessDescription": "Può riprodurre, esplorare e sincronizzare le tue librerie",
+  "guestAccessDescription": "Può controllare la riproduzione ed esplorare durante il controllo",
+  "guestControlSummary": "Ospite · Può controllare la riproduzione",
+  "customDeviceAccess": "Personalizzato",
+  "customizeDevice": "Personalizza",
+  "controlPlayback": "Controlla riproduzione",
+  "controlPlaybackDescription": "Può esplorare e accodare durante il controllo",
+  "deviceAccessLibraries": "Librerie",
+  "deviceNotShared": "Non condivisa",
+  "deviceReadOnly": "Sola lettura",
+  "deviceReadWrite": "Lettura e scrittura",
+  "requestPermissionDenied": "Questo dispositivo non può farlo"
 }

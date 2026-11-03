@@ -11,3 +11,4 @@ export '../screens/settings_playback/settings_playback.dart';
 export '../screens/settings_laboratory/settings_laboratory.dart';
 export '../screens/settings_library_home/settings_library_home.dart';
 export '../screens/settings_media_controller/settings_media_controller.dart';
+export '../screens/settings_devices/settings_device_access.dart';

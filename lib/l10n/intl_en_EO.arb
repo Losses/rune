@@ -1368,5 +1368,18 @@
   "devicesThatCanConnect": "Aparatoj kiuj povas konektiĝi al ĉi tiu",
   "otherDevices": "Aliaj aparatoj",
   "myDevice": "Mia aparato",
-  "waitingForApproval": "Atendante aprobon"
+  "waitingForApproval": "Atendante aprobon",
+  "guest": "Gasto",
+  "myDeviceAccessDescription": "Povas ludi, foliumi kaj sinkronigi viajn bibliotekojn",
+  "guestAccessDescription": "Povas regi la ludadon kaj foliumi dum tio",
+  "guestControlSummary": "Gasto · Povas regi la ludadon",
+  "customDeviceAccess": "Propra",
+  "customizeDevice": "Agordi",
+  "controlPlayback": "Regi la ludadon",
+  "controlPlaybackDescription": "Povas foliumi kaj aldoni al la ludovico dum regado",
+  "deviceAccessLibraries": "Bibliotekoj",
+  "deviceNotShared": "Ne dividita",
+  "deviceReadOnly": "Nur legado",
+  "deviceReadWrite": "Legado kaj skribado",
+  "requestPermissionDenied": "Ĉi tiu aparato ne rajtas fari tion"
 }

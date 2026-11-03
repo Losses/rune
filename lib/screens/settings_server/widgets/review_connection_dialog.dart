@@ -9,7 +9,7 @@ import '../../../bindings/bindings.dart';
 import '../../../providers/broadcast.dart';
 
 class ReviewConnectionDialog extends StatefulWidget {
-  final void Function(ClientStatus?) $close;
+  final void Function((ClientStatus, DevicePreset?)?) $close;
   final ClientSummary clientSummary;
 
   const ReviewConnectionDialog({
@@ -24,10 +24,15 @@ class ReviewConnectionDialog extends StatefulWidget {
 
 class _ReviewConnectionDialogState extends State<ReviewConnectionDialog> {
   late ClientStatus status;
+  // A pending device starts as My device. An approved device has no preset
+  // selected, so confirming without a choice keeps its customized access.
+  DevicePreset? preset;
 
   @override
   void initState() {
-    status = widget.clientSummary.status;
+    final pending = widget.clientSummary.status == ClientStatus.pending;
+    status = pending ? ClientStatus.approved : widget.clientSummary.status;
+    if (pending) preset = DevicePreset.myDevice;
 
     super.initState();
   }
@@ -42,10 +47,7 @@ class _ReviewConnectionDialogState extends State<ReviewConnectionDialog> {
       ContentDialog(
         constraints: BoxConstraints(maxWidth: 520),
         title: Column(
-          children: [
-            SizedBox(height: 8),
-            Text(s.reviewRequestTitle),
-          ],
+          children: [SizedBox(height: 8), Text(s.reviewRequestTitle)],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -82,18 +84,33 @@ class _ReviewConnectionDialogState extends State<ReviewConnectionDialog> {
                   child: Column(
                     children: [
                       SubtitleButton(
-                        title: s.allowAccess,
-                        subtitle: s.allowAccessSubtitle,
-                        selected: status == ClientStatus.approved,
+                        title: s.myDevice,
+                        subtitle: s.myDeviceAccessDescription,
+                        selected:
+                            status == ClientStatus.approved &&
+                            preset == DevicePreset.myDevice,
                         onPressed: () => setState(() {
                           status = ClientStatus.approved;
+                          preset = DevicePreset.myDevice;
+                        }),
+                      ),
+                      const SizedBox(height: 8),
+                      SubtitleButton(
+                        title: s.guest,
+                        subtitle: s.guestAccessDescription,
+                        selected:
+                            status == ClientStatus.approved &&
+                            preset == DevicePreset.guest,
+                        onPressed: () => setState(() {
+                          status = ClientStatus.approved;
+                          preset = DevicePreset.guest;
                         }),
                       ),
                       const SizedBox(height: 8),
                       SubtitleButton(
                         title: s.blockDevice,
                         subtitle: s.blockDeviceSubtitle,
-                        selected: status != ClientStatus.approved,
+                        selected: status == ClientStatus.blocked,
                         onPressed: () => setState(() {
                           status = ClientStatus.blocked;
                         }),
@@ -107,13 +124,13 @@ class _ReviewConnectionDialogState extends State<ReviewConnectionDialog> {
         ),
         actions: [
           FilledButton(
-            onPressed: () => widget.$close(status),
+            onPressed: () => widget.$close((
+              status,
+              status == ClientStatus.approved ? preset : null,
+            )),
             child: Text(S.of(context).confirm),
           ),
-          Button(
-            onPressed: () => widget.$close(null),
-            child: Text(s.cancel),
-          ),
+          Button(onPressed: () => widget.$close(null), child: Text(s.cancel)),
         ],
       ),
     );

@@ -1365,6 +1365,19 @@
   "thisDevice": "此裝置",
   "devicesThatCanConnect": "可以連接此裝置嘅裝置",
   "otherDevices": "其他裝置",
-  "myDevice": "我嘅裝置",
-  "waitingForApproval": "等候批准"
+  "myDevice": "我的裝置",
+  "waitingForApproval": "等候批准",
+  "guest": "訪客",
+  "myDeviceAccessDescription": "可以播放、瀏覽和同步你的音樂庫",
+  "guestAccessDescription": "可以控制播放並在控制時瀏覽",
+  "guestControlSummary": "訪客 · 可以控制播放",
+  "customDeviceAccess": "自訂",
+  "customizeDevice": "自訂",
+  "controlPlayback": "控制播放",
+  "controlPlaybackDescription": "控制時可以瀏覽並加入播放佇列",
+  "deviceAccessLibraries": "音樂庫",
+  "deviceNotShared": "不共享",
+  "deviceReadOnly": "唯讀",
+  "deviceReadWrite": "讀寫",
+  "requestPermissionDenied": "此裝置不允許執行此操作"
 }

@@ -96,6 +96,7 @@ void main() {
       message(RequestErrorKind.unavailable),
       "This isn't available right now",
     );
+    expect(message(RequestErrorKind.permissionDenied), "This device isn't allowed to do that");
     expect(message(RequestErrorKind.internal), s.unknownError);
   });
 

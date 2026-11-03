@@ -1366,5 +1366,18 @@
   "devicesThatCanConnect": "このデバイスに接続できるデバイス",
   "otherDevices": "その他のデバイス",
   "myDevice": "自分のデバイス",
-  "waitingForApproval": "承認待ち"
+  "waitingForApproval": "承認待ち",
+  "guest": "ゲスト",
+  "myDeviceAccessDescription": "ライブラリの再生、閲覧、同期ができます",
+  "guestAccessDescription": "再生を操作しながら閲覧できます",
+  "guestControlSummary": "ゲスト · 再生を操作できます",
+  "customDeviceAccess": "カスタム",
+  "customizeDevice": "カスタマイズ",
+  "controlPlayback": "再生を操作",
+  "controlPlaybackDescription": "操作中に閲覧やキューへの追加ができます",
+  "deviceAccessLibraries": "ライブラリ",
+  "deviceNotShared": "共有しない",
+  "deviceReadOnly": "読み取り専用",
+  "deviceReadWrite": "読み書き",
+  "requestPermissionDenied": "このデバイスはその操作を許可されていません"
 }

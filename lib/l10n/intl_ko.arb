@@ -1405,5 +1405,18 @@
   "devicesThatCanConnect": "이 기기에 연결할 수 있는 기기",
   "otherDevices": "다른 기기",
   "myDevice": "내 기기",
-  "waitingForApproval": "승인 대기 중"
+  "waitingForApproval": "승인 대기 중",
+  "guest": "게스트",
+  "myDeviceAccessDescription": "라이브러리를 재생하고 탐색하고 동기화할 수 있습니다",
+  "guestAccessDescription": "재생을 제어하고 제어하는 동안 탐색할 수 있습니다",
+  "guestControlSummary": "게스트 · 재생을 제어할 수 있습니다",
+  "customDeviceAccess": "사용자 지정",
+  "customizeDevice": "사용자 지정",
+  "controlPlayback": "재생 제어",
+  "controlPlaybackDescription": "제어하는 동안 탐색하고 대기열에 추가할 수 있습니다",
+  "deviceAccessLibraries": "라이브러리",
+  "deviceNotShared": "공유 안 함",
+  "deviceReadOnly": "읽기 전용",
+  "deviceReadWrite": "읽기 및 쓰기",
+  "requestPermissionDenied": "이 기기는 해당 작업을 수행할 수 없습니다"
 }

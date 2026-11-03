@@ -1500,5 +1500,18 @@
   "devicesThatCanConnect": "Devices that can connect to this one",
   "otherDevices": "Other devices",
   "myDevice": "My device",
-  "waitingForApproval": "Waiting for approval"
+  "waitingForApproval": "Waiting for approval",
+  "guest": "Guest",
+  "myDeviceAccessDescription": "Can play, browse and sync your libraries",
+  "guestAccessDescription": "Can control playback and browse while doing so",
+  "guestControlSummary": "Guest · Can control playback",
+  "customDeviceAccess": "Custom",
+  "customizeDevice": "Customize",
+  "controlPlayback": "Control playback",
+  "controlPlaybackDescription": "Can browse and queue while controlling",
+  "deviceAccessLibraries": "Libraries",
+  "deviceNotShared": "Not shared",
+  "deviceReadOnly": "Read only",
+  "deviceReadWrite": "Read and write",
+  "requestPermissionDenied": "This device isn't allowed to do that"
 }

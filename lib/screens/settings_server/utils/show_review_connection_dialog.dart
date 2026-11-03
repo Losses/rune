@@ -13,7 +13,7 @@ Future<void> showReviewConnectionDialog(
   ClientSummary clientSummary,
 ) async {
   final s = S.of(context);
-  final result = await $showModal<ClientStatus>(
+  final result = await $showModal<(ClientStatus, DevicePreset?)>(
     context,
     (context, $close) => ReviewConnectionDialog(
       $close: $close,
@@ -27,7 +27,8 @@ Future<void> showReviewConnectionDialog(
     try {
       await updateClientStatus(
         clientSummary.fingerprint,
-        result,
+        result.$1,
+        preset: result.$2,
       );
     } catch (e) {
       if (!context.mounted) return;

@@ -1403,5 +1403,18 @@
   "devicesThatCanConnect": "Пристрої, які можуть підключатися до цього",
   "otherDevices": "Інші пристрої",
   "myDevice": "Мій пристрій",
-  "waitingForApproval": "Очікує на підтвердження"
+  "waitingForApproval": "Очікує на підтвердження",
+  "guest": "Гість",
+  "myDeviceAccessDescription": "Може відтворювати, переглядати й синхронізувати ваші бібліотеки",
+  "guestAccessDescription": "Може керувати відтворенням і переглядати під час керування",
+  "guestControlSummary": "Гість · Може керувати відтворенням",
+  "customDeviceAccess": "Власні налаштування",
+  "customizeDevice": "Налаштувати",
+  "controlPlayback": "Керувати відтворенням",
+  "controlPlaybackDescription": "Може переглядати й додавати до черги під час керування",
+  "deviceAccessLibraries": "Бібліотеки",
+  "deviceNotShared": "Не надано доступ",
+  "deviceReadOnly": "Лише читання",
+  "deviceReadWrite": "Читання й запис",
+  "requestPermissionDenied": "Цьому пристрою не дозволено це робити"
 }
