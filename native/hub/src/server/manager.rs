@@ -1026,6 +1026,7 @@ mod lifecycle_tests {
             node_id: node_context.node_id.clone(),
             main_db,
             library_sync: Some(library_sync),
+            library: Some(library.clone()),
             ui_library: Arc::new(Mutex::new(Some(library))),
             recommend_db,
             main_token: token.clone(),

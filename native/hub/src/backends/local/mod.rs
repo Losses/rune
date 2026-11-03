@@ -79,6 +79,7 @@ pub async fn local_player_loop(
         lib_path,
         library_id: Some(library.descriptor.library_id),
         library_pool: node.library_pool.clone(),
+        library: Some(library.clone()),
         ui_library: Arc::new(Mutex::new(Some(library))),
         config_path,
         node_id,

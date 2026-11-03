@@ -384,6 +384,7 @@ impl WebSocketDartBridge {
             library_id: None,
             node: node.clone(),
             library_pool: node.library_pool.clone(),
+            library: None,
             ui_library: Arc::new(Mutex::new(None)),
             sync_settings: node.sync_settings.clone(),
             fsio: Arc::new(FsIo::new_noop()),

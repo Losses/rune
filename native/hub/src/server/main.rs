@@ -164,6 +164,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         node: node.clone(),
         library_id: Some(descriptor.library_id),
         library_pool: pool,
+        library: Some(library.clone()),
         ui_library: Arc::new(Mutex::new(Some(library))),
         sync_settings: node.sync_settings.clone(),
         fsio,

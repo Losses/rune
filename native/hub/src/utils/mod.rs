@@ -52,6 +52,7 @@ use crate::backends::{
 };
 use crate::library_pool::{LibraryHandle, LibraryPool};
 use crate::messages::*;
+use crate::request_error::ExpectedRequestError;
 use crate::server::ServerManager;
 
 #[cfg(target_os = "android")]
@@ -102,12 +103,26 @@ pub enum RunningMode {
     Client,
 }
 
+/// The current UI library for a request, or the expected `Unavailable` error
+/// when this process has none open (for example in remote-control mode).
+pub fn require_library(library: Option<LibraryHandle>) -> Result<LibraryHandle> {
+    library.ok_or_else(|| {
+        ExpectedRequestError::Unavailable {
+            what: "no library is open on this device",
+        }
+        .into()
+    })
+}
+
 pub struct GlobalParams {
     pub node: Arc<NodeContext>,
     pub fsio: Arc<FsIo>,
     pub lib_path: Arc<String>,
     pub library_id: Option<Uuid>,
     pub library_pool: Arc<LibraryPool>,
+    /// The library open in this UI, the one source of per-library state for
+    /// request handlers. `None` in remote-control mode.
+    pub library: Option<LibraryHandle>,
     pub ui_library: Arc<Mutex<Option<LibraryHandle>>>,
     pub config_path: Arc<String>,
     pub sync_settings: Arc<RwLock<sync_settings::SyncSettings>>,
