@@ -867,8 +867,14 @@ mod lifecycle_tests {
     use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
 
+    use crate::backends::remote::{connect_remote, decode_message};
     use crate::library_pool::{LibraryHandle, LibraryPool, LibraryResources};
+    use crate::messages::{PlaybackStatus, TrustListUpdated};
     use crate::node::NodeSlot;
+    use crate::server::sync::client::sync_library;
+    use database::sync::model::RuneModel;
+    use futures::StreamExt;
+    use sync::{CheckpointKey, ReceiveStore, Scope, SyncModel, scope_id};
 
     include!("access_policy_tests.rs");
 
@@ -2295,6 +2301,160 @@ mod lifecycle_tests {
         close_ui(&remote_ui).await?;
         b.global_params.node.shutdown().await?;
         a.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn scenario_headless_controller_receives_only_allowed_status() -> Result<()> {
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let original = fixture(first.path()).await?;
+        original.global_params.node.shutdown().await?;
+        let node = NodeContext::new(
+            first.path().to_str().context("config path")?,
+            first.path().to_str().context("db path")?,
+            Arc::new(WebSocketService::new()),
+        )
+        .await?;
+        let library = node
+            .library_pool
+            .acquire_ui(original.global_params.library_id.context("library")?)
+            .await?;
+        let a = fixture_from_library(node, library).await?;
+        let b = fixture(second.path()).await?;
+        let addr = paired_full(&a, &b).await?;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &b.global_params.config_path,
+            b.global_params.cert_validator.read().await.clone(),
+        )
+        .await?;
+        let broadcaster = &a.global_params.broadcaster;
+        broadcaster.broadcast(&TrustListUpdated {
+            certificates: vec![],
+        });
+        broadcaster.broadcast(&PlaybackStatus {
+            state: "Playing".into(),
+            progress_seconds: 12.0,
+            progress_percentage: 0.5,
+            artist: None,
+            album: None,
+            title: None,
+            duration: 24.0,
+            index: None,
+            item: None,
+            playback_mode: 0,
+            ready: true,
+            cover_art_path: None,
+            lib_path: (*a.global_params.lib_path).clone(),
+        });
+        let frame = tokio::time::timeout(Duration::from_secs(3), socket.next())
+            .await?
+            .context("controller socket closed")??;
+        let (name, payload, _) = decode_message(&frame.into_data()).context("status frame")?;
+        assert_eq!(name, "PlaybackStatus");
+        let status: PlaybackStatus = rinf::deserialize(&payload)?;
+        assert_eq!(status.progress_seconds, 12.0);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), socket.next())
+                .await
+                .is_err()
+        );
+        a.global_params.node.shutdown().await?;
+        b.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn scenario_idle_held_library_reopens_for_sync_and_preserves_cursor() -> Result<()> {
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a =
+            fixture_with_library_timeout(first.path(), Uuid::new_v4(), Duration::from_millis(100))
+                .await?;
+        let b = fixture(second.path()).await?;
+        let id = held_owned_library(&a, &first.path().join("Held")).await?;
+        let fingerprint = info(&a).await?.fingerprint;
+        request_add_library(
+            &b,
+            &fingerprint,
+            &PeerLibrary {
+                library_id: id.to_string(),
+                alias: "Held".into(),
+                added: false,
+            },
+        )
+        .await?;
+        let addr = paired_full(&a, &b).await?;
+        a.stop_worker().await?;
+        b.stop_worker().await?;
+        set_library_background(&a, id, false).await?;
+        let source = a.global_params.library_pool.acquire(id).await?;
+        let key = write_album(&source, "before idle close").await?;
+        let identity = source.library_sync.identity().await?;
+        let connection = Arc::downgrade(&source.main_db);
+        drop(source);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while connection.upgrade().is_some() {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .context("held library did not idle close")?;
+        assert!(
+            !a.global_params
+                .library_pool
+                .served_library_ids()
+                .await?
+                .contains(&id)
+        );
+        set_library_background(&a, id, true).await?;
+        assert!(connection.upgrade().is_none());
+        let (base, client) = authenticated_client(
+            &b.global_params.node,
+            &info(&b).await?.fingerprint,
+            &b.private_key,
+            &fingerprint,
+            "127.0.0.1",
+            addr.port(),
+        )
+        .await?;
+        let replica = b.global_params.library_pool.acquire(id).await?;
+        let url = format!("{base}/libraries/{id}");
+        let node_id = Uuid::parse_str(&b.global_params.node_id)?;
+        let first_pass =
+            sync_library((*replica.main_db).clone(), node_id, &url, client.clone()).await?;
+        assert!(first_pass.pulled.sequence > 0);
+        assert!(replica.library_sync.get(&key).await?.is_some());
+        let checkpoint = CheckpointKey {
+            namespace: id,
+            source_replica: identity.replica,
+            source_generation: identity.generation,
+            scope_id: scope_id(&Scope::<RuneModel> {
+                collections: RuneModel::collections().into_iter().collect(),
+            })?,
+        };
+        assert_eq!(
+            replica
+                .library_sync
+                .endpoint()
+                .checkpoint(&checkpoint)
+                .await?,
+            Some(first_pass.pulled.clone())
+        );
+        let second_pass = sync_library((*replica.main_db).clone(), node_id, &url, client).await?;
+        assert!(second_pass.pulled.sequence >= first_pass.pulled.sequence);
+        assert_eq!(
+            replica
+                .library_sync
+                .endpoint()
+                .checkpoint(&checkpoint)
+                .await?,
+            Some(second_pass.pulled)
+        );
+        a.global_params.node.shutdown().await?;
+        b.global_params.node.shutdown().await?;
         Ok(())
     }
 
