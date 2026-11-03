@@ -1,7 +1,3 @@
-use super::sync::http as super_sync_http;
-use super::sync::http::BlobContext;
-use super::sync::http::SharedLibrary;
-use super::sync::http::blob_router;
 use super::sync_auth::SyncAuth;
 use crate::backends::remote::RemoteConnectError;
 use database::actions::file::catalog_track;
@@ -337,12 +333,6 @@ impl ServerManager {
             });
 
         let node_id = uuid::Uuid::parse_str(&self.global_params.node_id)?;
-        let library = Arc::new(RwLock::new(
-            self.global_params
-                .library_sync
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("local metadata replica is unavailable"))?,
-        ));
         let (_, fingerprint) = parse_certificate(&self.certificate)?;
         let auth = SyncAuth::new(
             self.global_params.permission_manager.clone(),
@@ -352,30 +342,11 @@ impl ServerManager {
         {
             *self.sync_auth_for_test.lock().await = Some(auth.clone());
         }
-        let signal_path = self.global_params.lib_path.to_string();
-        let broadcaster = self.global_params.broadcaster.clone();
-        let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-            broadcaster.broadcast(&crate::messages::LibraryContentChanged {
-                path: signal_path.clone(),
-            });
-        });
-        let sync_routes =
-            super::sync::library_router(SharedLibrary(library.clone()), notify.clone())
-                .merge(blob_router(BlobContext {
-                    store: library.clone(),
-                    db: (*self.global_params.main_db).clone(),
-                    fsio: self.global_params.fsio.clone(),
-                    root: PathBuf::from(&*self.global_params.lib_path),
-                    node_id,
-                    upload_lock: Arc::new(Mutex::new(())),
-                    notify: notify.clone(),
-                }))
-                .layer(middleware::from_fn_with_state(
-                    library.read().await.identity().await?.namespace,
-                    super::sync::require_library,
-                ));
         let sync_routes = Router::new()
-            .nest("/libraries/{library_id}", sync_routes)
+            .nest(
+                "/libraries/{library_id}",
+                super::sync::pool_router(self.global_params.clone(), node_id),
+            )
             .route("/libraries", get(super::libraries::list_libraries))
             .layer(middleware::from_fn_with_state(
                 auth.clone(),
@@ -497,11 +468,10 @@ impl ServerManager {
         if handle.is_some() {
             return Ok(());
         }
-        let library = self
-            .global_params
-            .library_sync
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("local metadata replica is unavailable"))?;
+        anyhow::ensure!(
+            self.global_params.library_sync.is_some(),
+            "local metadata replica is unavailable"
+        );
         let (_, fingerprint) = parse_certificate(&self.certificate)?;
         self.global_params
             .player
@@ -518,7 +488,6 @@ impl ServerManager {
         let cancel = self.global_params.main_token.child_token();
         let worker = super::sync_worker::run(
             self.global_params.clone(),
-            super_sync_http::SharedLibrary(Arc::new(RwLock::new(library))),
             coalesce_worker_notify(notify, cancel.clone()),
             fingerprint,
             self.private_key.clone(),
@@ -886,7 +855,7 @@ mod lifecycle_tests {
         sync_settings::SyncSettings,
     };
     use crate::utils::{initialize_databases, nid::get_or_create_node_id};
-    use database::actions::downloads::prepare_download;
+    use database::actions::downloads::{prepare_download, set_download_rule};
     use database::actions::file::{attach_download, catalog_track, hash_file, is_materialized};
     use database::actions::metadata::{
         MissingHostFilePolicy, ScanOptions, scan_audio_file, scan_audio_library,
@@ -929,6 +898,14 @@ mod lifecycle_tests {
     }
 
     async fn fixture_with_library(dir: &Path, library_id: Uuid) -> Result<Arc<ServerManager>> {
+        fixture_with_library_timeout(dir, library_id, Duration::from_secs(300)).await
+    }
+
+    async fn fixture_with_library_timeout(
+        dir: &Path,
+        library_id: Uuid,
+        idle_timeout: Duration,
+    ) -> Result<Arc<ServerManager>> {
         let mut options = sea_orm::ConnectOptions::new(format!(
             "sqlite://{}?mode=rwc",
             dir.join("catalog.sqlite").display(),
@@ -936,6 +913,7 @@ mod lifecycle_tests {
         options.max_connections(1).min_connections(1);
         let db = sea_orm::Database::connect(options).await?;
         let node = get_or_create_node_id(dir.to_str().context("config path")?).await?;
+        let _pool = LibraryPool::with_idle_timeout(dir, dir, &node.to_string(), idle_timeout)?;
         let _ = migration::initialize_node_id(node.to_string());
         Migrator::up(&db, None).await?;
         LibraryRegistry::update(dir, |registry| {
@@ -1774,6 +1752,245 @@ mod lifecycle_tests {
             manager.stop_worker().await?;
             manager.global_params.main_token.cancel();
         }
+        Ok(())
+    }
+
+    async fn held_owned_library(manager: &ServerManager, root: &Path) -> Result<Uuid> {
+        let mut registry = LibraryRegistry::load(Path::new(&*manager.global_params.config_path))?;
+        let descriptor = resolve_library(
+            &manager.global_params.fsio,
+            &mut registry,
+            root.to_str().context("held library path")?,
+            "Held",
+            StorageMode::Portable,
+        )
+        .await?;
+        Ok(descriptor.library_id)
+    }
+
+    async fn scan_held_track(
+        manager: &ServerManager,
+        id: Uuid,
+        name: &str,
+    ) -> Result<media_files::Model> {
+        let library = manager.global_params.library_pool.acquire(id).await?;
+        let root = Path::new(&library.media_root);
+        let source = root.join(name);
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
+            &source,
+        )?;
+        scan_audio_file(
+            &library.fsio,
+            &library.main_db,
+            &manager.global_params.node_id,
+            root,
+            &source,
+            &library.library_sync.record_store(),
+        )
+        .await?;
+        media_files::Entity::find()
+            .filter(Column::FileName.eq(name))
+            .one(&*library.main_db)
+            .await?
+            .context("held track")
+    }
+
+    async fn set_library_background(
+        manager: &ServerManager,
+        id: Uuid,
+        enabled: bool,
+    ) -> Result<()> {
+        let request = SetLibraryBackgroundSyncRequest {
+            library_id: id.to_string(),
+            enabled,
+        };
+        let response = request
+            .handle(
+                request.extract_params(&manager.global_params),
+                None,
+                &request,
+            )
+            .await?
+            .context("option response")?;
+        anyhow::ensure!(
+            response.error.is_none(),
+            "option failed: {:?}",
+            response.error
+        );
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn held_libraries_sync_without_ui_and_respect_background_option() -> Result<()> {
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let a = fixture_with_library(first.path(), Uuid::new_v4()).await?;
+        let b =
+            fixture_with_library_timeout(second.path(), Uuid::new_v4(), Duration::from_millis(100))
+                .await?;
+        let library_id = held_owned_library(&a, &first.path().join("L2")).await?;
+        let fingerprint = info(&a).await?.fingerprint;
+        let peer_library = PeerLibrary {
+            library_id: library_id.to_string(),
+            alias: "L2".into(),
+            added: false,
+        };
+        request_add_library(&b, &fingerprint, &peer_library).await?;
+        let original = scan_held_track(&a, library_id, "first.ogg").await?;
+        let replica = b.global_params.library_pool.acquire(library_id).await?;
+        let ui_id = b.global_params.library_id.context("UI library")?;
+        assert_ne!(a.global_params.library_id, Some(library_id));
+        assert_ne!(ui_id, library_id);
+        assert!(Arc::ptr_eq(
+            &b.global_params.main_db,
+            &b.global_params.library_pool.acquire(ui_id).await?.main_db,
+        ));
+        let addr = paired_full(&a, &b).await?;
+        a.stop_worker().await?;
+        b.global_params
+            .cert_validator
+            .read()
+            .await
+            .replace_hosts_for_fingerprint(&fingerprint, vec![format!("127.0.0.1:{}", addr.port())])
+            .await?;
+        b.start_worker().await?;
+        let received = tokio::time::timeout(Duration::from_secs(45), async {
+            loop {
+                if let Some(row) = media_files::Entity::find()
+                    .filter(Column::HlcUuid.eq(&original.hlc_uuid))
+                    .one(&*replica.main_db)
+                    .await?
+                {
+                    return Ok::<_, anyhow::Error>(row);
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .context("unopened L2 did not synchronize")??;
+        assert!(!received.local_available);
+        assert_eq!(
+            media_files::Entity::find()
+                .count(&*b.global_params.main_db)
+                .await?,
+            0
+        );
+
+        set_download_rule(
+            &replica.main_db,
+            vec![("lib::track".into(), received.id.to_string())],
+            None,
+            true,
+        )
+        .await?;
+        // A fresh worker pass should evaluate L2's rule, while M has no rules or tracks.
+        b.stop_worker().await?;
+        b.start_worker().await?;
+        tokio::time::timeout(Duration::from_secs(40), async {
+            loop {
+                if is_materialized(
+                    &*replica.main_db,
+                    &replica.fsio,
+                    Path::new(&replica.media_root),
+                    received.id,
+                )
+                .await?
+                {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .context("unopened L2 did not apply its download rule")??;
+
+        let (_, client) = authenticated_client(
+            &b.global_params,
+            &info(&b).await?.fingerprint,
+            &b.private_key,
+            &fingerprint,
+            "127.0.0.1",
+            addr.port(),
+        )
+        .await?;
+        let base = format!("https://{addr}/libraries/{library_id}");
+        let digest = original.content_hash.as_ref().context("track digest")?;
+        let blob_url = format!("{base}/sync/blobs/{digest}");
+        assert_eq!(
+            client
+                .head(&blob_url)
+                .query(&[("track_id", &original.hlc_uuid)])
+                .send()
+                .await?
+                .status(),
+            reqwest::StatusCode::OK
+        );
+        let bytes = client
+            .get(&blob_url)
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
+        assert_eq!(blake3::hash(&bytes).to_hex().as_str(), digest);
+
+        let a_ui = a.global_params.library_id.context("A UI library")?;
+        set_library_background(&a, a_ui, false).await?;
+        let response = client
+            .post(format!("https://{addr}/libraries/{a_ui}/sync/metadata"))
+            .json(&serde_json::json!({"operation": "identity"}))
+            .send()
+            .await?;
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            response.json::<serde_json::Value>().await?["Ok"]["namespace"],
+            a_ui.to_string()
+        );
+
+        set_library_background(&a, library_id, false).await?;
+        for response in [
+            client.post(format!("{base}/sync/metadata")).send().await?,
+            client.get(&blob_url).send().await?,
+        ] {
+            assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+            assert_eq!(
+                response.json::<serde_json::Value>().await?["error"],
+                "library_not_served"
+            );
+        }
+        set_library_background(&a, library_id, true).await?;
+        set_library_background(&b, library_id, false).await?;
+        let connection = Arc::downgrade(&replica.main_db);
+        drop(replica);
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        // Leave the worker running across a complete normal retry interval.
+        let later = scan_held_track(&a, library_id, "second.ogg").await?;
+        tokio::time::sleep(Duration::from_secs(32)).await;
+        let replica = b.global_params.library_pool.acquire(library_id).await?;
+        assert!(
+            media_files::Entity::find()
+                .filter(Column::HlcUuid.eq(&later.hlc_uuid))
+                .one(&*replica.main_db)
+                .await?
+                .is_none(),
+            "disabled L2 received a later track"
+        );
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while connection.upgrade().is_some() {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .context("disabled L2 kept its idle pool connection")?;
+        assert!(Arc::ptr_eq(
+            &b.global_params.main_db,
+            &b.global_params.library_pool.acquire(ui_id).await?.main_db,
+        ));
+        a.stop().await?;
+        b.stop_worker().await?;
+        a.global_params.main_token.cancel();
+        b.global_params.main_token.cancel();
         Ok(())
     }
 

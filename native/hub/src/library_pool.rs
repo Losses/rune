@@ -134,6 +134,33 @@ impl LibraryPool {
         }
     }
 
+    /// Libraries enabled for background work, including any library registered by the UI.
+    pub async fn served_library_ids(&self) -> Result<Vec<Uuid>> {
+        let mut ids: Vec<_> = LibraryRegistry::load(&self.config_dir)?
+            .libraries
+            .into_iter()
+            .filter(|library| library.background_sync)
+            .map(|library| library.library_id)
+            .collect();
+        for (id, entry) in self.entries.lock().await.iter() {
+            if entry.ui_users > 0 && !ids.contains(id) {
+                ids.push(*id);
+            }
+        }
+        Ok(ids)
+    }
+
+    /// Resolve the current serving policy before acquiring a connection.
+    pub async fn acquire_served(
+        self: &Arc<Self>,
+        library_id: Uuid,
+    ) -> Result<Option<LibraryHandle>> {
+        if !self.served_library_ids().await?.contains(&library_id) {
+            return Ok(None);
+        }
+        self.acquire(library_id).await.map(Some)
+    }
+
     /// Acquire an existing connection or open the registered library once.
     pub async fn acquire(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {
         let mut entries = self.entries.lock().await;

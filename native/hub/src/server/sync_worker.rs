@@ -1,12 +1,11 @@
 use super::sync::client::LibrarySession;
 use super::sync::client::fetch_missing;
 use super::sync::downloads::download_requested_audio_until;
-use super::sync::http::SharedLibrary;
-use super::sync::library_base;
+use super::sync::{library_base, library_notification};
 use super::sync_auth::{Authorization, Challenge, Token, message};
 #[cfg(test)]
 use super::utils::device::load_device_info;
-use crate::utils::GlobalParams;
+use crate::{library_pool::LibraryHandle, utils::GlobalParams};
 use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, materialized_path, resolve_local_id};
@@ -14,6 +13,11 @@ use database::actions::library::clean_local_orphans;
 use database::sync::Maintenance;
 use database::sync::model::RuneModel;
 use discovery::server::UserStatus;
+use futures::{
+    StreamExt,
+    future::{AbortHandle, Abortable},
+    stream::FuturesUnordered,
+};
 use http_request::sync::PageCursor;
 use rand::rngs::OsRng;
 use reqwest::header::HeaderMap;
@@ -21,16 +25,19 @@ use reqwest::redirect::Policy;
 use rsa::{Pss, RsaPrivateKey, pkcs8::DecodePrivateKey};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use sha2::{Digest, Sha256};
-use std::path::Path;
 use std::time as std_time;
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    path::Path,
+};
 use std::{sync::Arc, time::Duration};
 use sync::SyncPeer;
 use sync::protocol::SyncError;
 use tokio::sync::Mutex;
-#[cfg(test)]
-use tokio::sync::RwLock;
 use tokio::time as tokio_time;
-use tokio::time::MissedTickBehavior;
+use tokio::time::{Instant, MissedTickBehavior};
+use uuid::Uuid;
 
 const DEFAULT_PEER_PORT: u16 = 7863;
 const PEER_CONCURRENCY: usize = 4;
@@ -133,12 +140,12 @@ pub(super) async fn peer_endpoints(global: &GlobalParams, own: &str) -> Vec<Vec<
     peers
 }
 
-type ReplicaLocks = Arc<
-    tokio::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<PeerSession>>>>,
->;
+type PeerLibraryKey = (String, Uuid);
+type ReplicaLocks = Arc<Mutex<HashMap<PeerLibraryKey, Arc<Mutex<PeerSession>>>>>;
 
 struct PeerSession {
     session: Option<LibrarySession>,
+    library: Option<LibraryHandle>,
     client: Option<(String, reqwest::Client)>,
     identity: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid)>,
     artwork_cursor: http_request::sync::PageCursor,
@@ -154,6 +161,7 @@ impl Default for PeerSession {
     fn default() -> Self {
         Self {
             session: None,
+            library: None,
             client: None,
             identity: None,
             artwork_cursor: PageCursor::default(),
@@ -164,7 +172,6 @@ impl Default for PeerSession {
 
 pub async fn run(
     global: Arc<GlobalParams>,
-    library: SharedLibrary,
     notify: Arc<dyn Fn() + Send + Sync>,
     own_fingerprint: String,
     private_key: String,
@@ -177,7 +184,6 @@ pub async fn run(
     };
     let metadata = run_loop(
         global.clone(),
-        library.clone(),
         notify.clone(),
         credentials.clone(),
         cancel.clone(),
@@ -186,7 +192,6 @@ pub async fn run(
     );
     let audio = run_loop(
         global.clone(),
-        library.clone(),
         notify.clone(),
         credentials,
         cancel.clone(),
@@ -196,36 +201,70 @@ pub async fn run(
     tokio::join!(
         join_workers(metadata, audio),
         verify_managed_audio(global.clone(), notify, cancel.clone()),
-        maintain_metadata(library, global.main_db.clone(), cancel)
+        maintain_metadata(global, cancel)
     );
 }
 
-async fn maintain_metadata(
-    library: SharedLibrary,
-    db: Arc<database::connection::MainDbConnection>,
-    cancel: tokio_util::sync::CancellationToken,
-) {
-    let mut maintenance = Maintenance::default();
+async fn eligible_libraries(global: &GlobalParams) -> Vec<Uuid> {
+    match global.library_pool.served_library_ids().await {
+        Ok(ids) => ids,
+        Err(error) => {
+            log::warn!("Could not load background libraries: {error:#}");
+            Vec::new()
+        }
+    }
+}
+
+async fn maintain_metadata(global: Arc<GlobalParams>, cancel: tokio_util::sync::CancellationToken) {
+    let mut maintenance = HashMap::<Uuid, Maintenance>::new();
     let mut interval = tokio::time::interval(Duration::from_secs(5));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! { _ = cancel.cancelled() => return, _ = interval.tick() => () }
-        for _ in 0..32 {
-            let store = library.0.read().await.clone();
-            let result = tokio::select! {
+        let ids = eligible_libraries(&global).await;
+        maintenance.retain(|id, _| ids.contains(id));
+        for id in ids {
+            let library = tokio::select! {
                 _ = cancel.cancelled() => return,
-                result = store.maintain(&mut maintenance) => result,
+                library = global.library_pool.acquire_served(id) => library,
             };
-            if let Err(error) = result {
-                log::warn!("Metadata maintenance failed: {error:#}");
-                break;
+            let library = match library {
+                Ok(Some(library)) => library,
+                Ok(None) => continue,
+                Err(error) => {
+                    log::warn!("Could not acquire library for maintenance: {error:#}");
+                    continue;
+                }
+            };
+            let state = maintenance.entry(id).or_default();
+            for _ in 0..32 {
+                let result = tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    result = library.library_sync.maintain(state) => result,
+                };
+                if let Err(error) = result {
+                    log::warn!("Metadata maintenance failed: {error:#}");
+                    break;
+                }
+                if let Err(error) = clean_local_orphans(&library.main_db).await {
+                    log::warn!("Local metadata cleanup failed: {error:#}");
+                    break;
+                }
+                tokio::task::yield_now().await;
             }
-            if let Err(error) = clean_local_orphans(&db).await {
-                log::warn!("Local metadata cleanup failed: {error:#}");
-                break;
-            }
-            tokio::task::yield_now().await;
         }
+    }
+}
+
+fn pass_notification(
+    global: &GlobalParams,
+    library: &LibraryHandle,
+    ui_notify: &Arc<dyn Fn() + Send + Sync>,
+) -> Arc<dyn Fn() + Send + Sync> {
+    if global.library_id == Some(library.descriptor.library_id) {
+        ui_notify.clone()
+    } else {
+        library_notification(global, &library.media_root)
     }
 }
 
@@ -234,19 +273,40 @@ async fn verify_managed_audio(
     notify: Arc<dyn Fn() + Send + Sync>,
     cancel: tokio_util::sync::CancellationToken,
 ) {
-    let mut verifier = ManagedAudioVerifier::default();
+    let mut verifiers = HashMap::<Uuid, ManagedAudioVerifier>::new();
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! { _ = cancel.cancelled() => return, _ = interval.tick() => {} }
-        let result = tokio::select! {
-            _ = cancel.cancelled() => return,
-            result = verifier.step(&global.main_db, &global.fsio, Path::new(&*global.lib_path), 4 * 1024 * 1024) => result,
-        };
-        match result {
-            Ok(step) if step.invalidated => notify(),
-            Ok(_) => {}
-            Err(error) => log::warn!("Managed audio verification failed: {error:#}"),
+        let ids = eligible_libraries(&global).await;
+        verifiers.retain(|id, _| ids.contains(id));
+        for id in ids {
+            let result = async {
+                let Some(library) = global.library_pool.acquire_served(id).await? else {
+                    return Ok(());
+                };
+                let step = verifiers
+                    .entry(id)
+                    .or_default()
+                    .step(
+                        &library.main_db,
+                        &library.fsio,
+                        Path::new(&library.media_root),
+                        4 * 1024 * 1024,
+                    )
+                    .await?;
+                if step.invalidated {
+                    pass_notification(&global, &library, &notify)();
+                }
+                Ok::<_, anyhow::Error>(())
+            };
+            let result = tokio::select! {
+                _ = cancel.cancelled() => return,
+                result = result => result,
+            };
+            if let Err(error) = result {
+                log::warn!("Managed audio verification failed: {error:#}");
+            }
         }
     }
 }
@@ -261,29 +321,47 @@ where
 
 async fn run_loop(
     global: Arc<GlobalParams>,
-    library: SharedLibrary,
     notify: Arc<dyn Fn() + Send + Sync>,
     credentials: LocalCredentials,
     cancel: tokio_util::sync::CancellationToken,
     metadata: bool,
     locks: ReplicaLocks,
 ) {
-    let discover = || peer_endpoints(&global, &credentials.fingerprint);
-    let work = |hosts: Vec<PeerEndpoint>| {
+    let discover = || async {
+        let ids = eligible_libraries(&global).await;
+        let peers = peer_endpoints(&global, &credentials.fingerprint).await;
+        ids.into_iter()
+            .flat_map(|id| peers.iter().cloned().map(move |hosts| (id, hosts)))
+            .collect()
+    };
+    let work = |(id, hosts): (Uuid, Vec<PeerEndpoint>)| {
         let global = global.clone();
-        let library = library.clone();
         let notify = notify.clone();
         let credentials = credentials.clone();
         let cancel = cancel.clone();
         let locks = locks.clone();
         async move {
-            let fingerprint = hosts[0].fingerprint.clone();
+            let key = (hosts[0].fingerprint.clone(), id);
+            let library = tokio::select! {
+                _ = cancel.cancelled() => return (key, Duration::from_secs(30)),
+                library = global.library_pool.acquire_served(id) => library,
+            };
+            let library = match library {
+                Ok(Some(library)) => library,
+                Ok(None) => return (key, Duration::from_secs(30)),
+                Err(error) => {
+                    log::warn!("Could not acquire background library: {error:#}");
+                    return (key, Duration::from_secs(30));
+                }
+            };
+            let notify = pass_notification(&global, &library, &notify);
             for endpoint in hosts {
                 let result = tokio::select! {
-                    _ = cancel.cancelled() => return (fingerprint, Duration::from_secs(30)),
+                    _ = cancel.cancelled() => return (key, Duration::from_secs(30)),
                     _ = wait_for_revocation(&global, &endpoint.fingerprint, &endpoint.trusted_host) => Err(anyhow::anyhow!("peer permission revoked")),
                     result = async {
-                        let operation = sync_one(&global, &library, &notify, &credentials, &endpoint, metadata, &locks);
+                        let options = PassOptions { credentials: &credentials, metadata, locks: &locks };
+                        let operation = sync_one(&global, &library, &notify, &endpoint, options);
                         if metadata {
                             tokio::time::timeout(Duration::from_secs(60), operation).await.map_err(|_| anyhow::anyhow!("peer operation timed out"))?
                         } else {
@@ -292,9 +370,7 @@ async fn run_loop(
                     } => result,
                 };
                 match classify_peer_pass(result) {
-                    Ok(complete) => {
-                        return (fingerprint, complete.retry_delay());
-                    }
+                    Ok(complete) => return (key, complete.retry_delay()),
                     Err(error) => log::warn!(
                         "Background {} with paired device failed: {error:#}",
                         if metadata {
@@ -305,22 +381,24 @@ async fn run_loop(
                     ),
                 }
             }
-            (fingerprint, Duration::from_secs(30))
+            (key, Duration::from_secs(30))
         }
     };
     schedule_peers(
         discover,
         work,
-        |hosts| hosts[0].fingerprint.clone(),
+        |(id, hosts)| (hosts[0].fingerprint.clone(), *id),
         if metadata { PEER_CONCURRENCY } else { 1 },
         cancel.clone(),
         || async {
             if metadata {
-                locks.lock().await.retain(|_, entry| {
-                    Arc::strong_count(entry) > 1
-                        || entry.try_lock().map_or(true, |state| {
-                            state.last_used.elapsed() < Duration::from_secs(900)
-                        })
+                let ids = eligible_libraries(&global).await;
+                locks.lock().await.retain(|(_, id), entry| {
+                    ids.contains(id)
+                        && (Arc::strong_count(entry) > 1
+                            || entry.try_lock().map_or(true, |state| {
+                                state.last_used.elapsed() < Duration::from_secs(900)
+                            }))
                 });
             }
         },
@@ -328,7 +406,7 @@ async fn run_loop(
     .await;
 }
 
-async fn schedule_peers<P, D, DF, W, WF, K, C, CF>(
+async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
     discover: D,
     work: W,
     key: K,
@@ -339,16 +417,14 @@ async fn schedule_peers<P, D, DF, W, WF, K, C, CF>(
     D: Fn() -> DF,
     DF: std::future::Future<Output = Vec<P>>,
     W: Fn(P) -> WF,
-    WF: std::future::Future<Output = (String, Duration)>,
-    K: Fn(&P) -> String,
+    WF: std::future::Future<Output = (Q, Duration)>,
+    K: Fn(&P) -> Q,
+    Q: Clone + Eq + Hash,
     C: Fn() -> CF,
     CF: std::future::Future<Output = ()>,
 {
-    use futures::{StreamExt, stream::FuturesUnordered};
-    use std::collections::{HashMap, HashSet};
-    use tokio::time::Instant;
-    let mut due = HashMap::<String, Instant>::new();
-    let mut running = HashSet::new();
+    let mut due = HashMap::<Q, Instant>::new();
+    let mut running = HashMap::<Q, AbortHandle>::new();
     let mut tasks = FuturesUnordered::new();
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -358,9 +434,11 @@ async fn schedule_peers<P, D, DF, W, WF, K, C, CF>(
             _ = cancel.cancelled() => return,
             _ = tick.tick() => {},
             _ = async { match next_due { Some(deadline) => tokio::time::sleep_until(deadline).await, None => std::future::pending().await } } => {},
-            Some((fingerprint, wait)) = tasks.next(), if !tasks.is_empty() => {
-                running.remove(&fingerprint);
-                due.insert(fingerprint, Instant::now() + wait);
+            Some((key, result)) = tasks.next(), if !tasks.is_empty() => {
+                running.remove(&key);
+                if let Ok((key, wait)) = result {
+                    due.insert(key, Instant::now() + wait);
+                }
             }
         }
         let peers = tokio::select! {
@@ -369,25 +447,33 @@ async fn schedule_peers<P, D, DF, W, WF, K, C, CF>(
         };
         let eligible: HashSet<_> = peers.iter().map(&key).collect();
         due.retain(|fingerprint, _| eligible.contains(fingerprint));
+        for (key, handle) in &running {
+            if !eligible.contains(key) {
+                handle.abort();
+            }
+        }
         for peer in peers {
             if tasks.len() >= limit {
                 break;
             }
             let fingerprint = key(&peer);
-            if !running.contains(&fingerprint)
+            if !running.contains_key(&fingerprint)
                 && due
                     .get(&fingerprint)
                     .is_none_or(|deadline| *deadline <= Instant::now())
             {
-                running.insert(fingerprint);
-                tasks.push(work(peer));
+                let (handle, registration) = AbortHandle::new_pair();
+                running.insert(fingerprint.clone(), handle);
+                let future = work(peer);
+                tasks
+                    .push(async move { (fingerprint, Abortable::new(future, registration).await) });
             }
         }
         next_due = if tasks.len() < limit {
             due.iter()
                 .filter(|(fingerprint, deadline)| {
                     eligible.contains(*fingerprint)
-                        && !running.contains(*fingerprint)
+                        && !running.contains_key(*fingerprint)
                         && **deadline > Instant::now()
                 })
                 .map(|(_, deadline)| *deadline)
@@ -466,40 +552,50 @@ pub(super) async fn test_peer_pass(
             .fingerprint,
         private_key: private_key.into(),
     };
-    let library = SharedLibrary(Arc::new(RwLock::new(global.library_sync.clone().unwrap())));
+    let library = global
+        .library_pool
+        .acquire(global.library_id.unwrap())
+        .await?;
     let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
     classify_peer_pass(
         sync_one(
             &global,
             &library,
             &notify,
-            &credentials,
             &endpoint,
-            metadata,
-            &Arc::default(),
+            PassOptions {
+                credentials: &credentials,
+                metadata,
+                locks: &Arc::default(),
+            },
         )
         .await,
     )
 }
 
+struct PassOptions<'a> {
+    credentials: &'a LocalCredentials,
+    metadata: bool,
+    locks: &'a ReplicaLocks,
+}
+
 async fn sync_one(
     global: &Arc<GlobalParams>,
-    library: &SharedLibrary,
+    library: &LibraryHandle,
     notify: &Arc<dyn Fn() + Send + Sync>,
-    credentials: &LocalCredentials,
     endpoint: &PeerEndpoint,
-    metadata: bool,
-    locks: &ReplicaLocks,
+    options: PassOptions<'_>,
 ) -> Result<bool> {
+    let PassOptions {
+        credentials,
+        metadata,
+        locks,
+    } = options;
     if metadata {
         let lock = {
             let mut locks = locks.lock().await;
-            ensure!(
-                locks.len() < 64 || locks.contains_key(&endpoint.fingerprint),
-                "paired session capacity reached"
-            );
             locks
-                .entry(endpoint.fingerprint.clone())
+                .entry((endpoint.fingerprint.clone(), library.descriptor.library_id))
                 .or_insert_with(|| Arc::new(Mutex::new(PeerSession::default())))
                 .clone()
         };
@@ -536,7 +632,7 @@ async fn sync_one(
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("missing authenticated client"))?
                 .clone();
-            let result = metadata_pass(global, library, notify, &mut state, &base, &client).await;
+            let result = metadata_pass(library, notify, &mut state, &base, &client).await;
             if result.as_ref().err().is_some_and(metadata_unauthorized) {
                 state.client = None;
                 if attempt == 0 {
@@ -556,7 +652,7 @@ async fn sync_one(
             endpoint.port,
         )
         .await?;
-        let local = library.0.read().await.identity().await?;
+        let local = library.library_sync.identity().await?;
         let base = library_base(&base, local.namespace);
         let peer = http_request::sync::MetadataPeer::<RuneModel>::new(&base, client);
         let remote = peer.identity().await?;
@@ -565,10 +661,10 @@ async fn sync_one(
             "paired catalog namespace mismatch"
         );
         let report = download_requested_audio_until(
-            (*global.main_db).clone(),
-            &global.recommend_db,
-            global.fsio.clone(),
-            (&*global.lib_path).into(),
+            (*library.main_db).clone(),
+            &library.recommend_db,
+            library.fsio.clone(),
+            library.media_root.clone().into(),
             global.node_id.parse()?,
             &peer,
             notify.clone(),
@@ -591,14 +687,13 @@ fn metadata_unauthorized(error: &anyhow::Error) -> bool {
 }
 
 async fn metadata_pass(
-    global: &Arc<GlobalParams>,
-    library: &SharedLibrary,
+    library: &LibraryHandle,
     notify: &Arc<dyn Fn() + Send + Sync>,
     state: &mut PeerSession,
     base: &str,
     client: &reqwest::Client,
 ) -> Result<bool> {
-    let local = library.0.read().await.identity().await?;
+    let local = library.library_sync.identity().await?;
     let base = library_base(base, local.namespace);
     let peer = http_request::sync::MetadataPeer::<RuneModel>::new(&base, client.clone());
     let remote = peer.identity().await?;
@@ -613,7 +708,8 @@ async fn metadata_pass(
         state.identity = Some(identity);
     }
     if state.session.is_none() {
-        state.session = Some(LibrarySession::new(library.0.read().await.clone())?);
+        state.session = Some(LibrarySession::new(library.library_sync.clone())?);
+        state.library = Some(library.clone());
     }
     let complete = state
         .session
@@ -623,10 +719,11 @@ async fn metadata_pass(
         .await?;
     if complete {
         state.session = None;
+        state.library = None;
         let deadline = tokio_time::Instant::now() + Duration::from_secs(10);
         let (attached, _) = fetch_missing(
-            &global.main_db,
-            &library.0.read().await.record_store(),
+            &library.main_db,
+            &library.library_sync.record_store(),
             &base,
             client,
             &mut state.artwork_cursor,
