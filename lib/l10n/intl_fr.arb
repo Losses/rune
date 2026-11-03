@@ -1093,11 +1093,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "Met l'accent sur le fait que les modifications affectent la visibilité dans les listes de scan des autres. Évite les termes techniques. Se concentre sur les 'scans' comme contexte d'interaction."
   },
-  "enableBroadcast": "Activer la Diffusion",
+  "enableBroadcast": "Visible par les appareils à proximité",
   "@enableBroadcast": {
     "description": "'Diffusion' implique l'envoi actif d'informations d'appareil. Si la langue cible manque d'équivalent direct, privilégiez 'rendre visible' ou 'partager la disponibilité'."
   },
-  "enableBroadcastSubtitle": "Partagez publiquement vos informations d'appareil pour que d'autres puissent les découvrir.",
+  "enableBroadcastSubtitle": "Permettre aux appareils proches de trouver cet appareil.",
   "@enableBroadcastSubtitle": {
     "description": "Évite l'ambiguïté : 'publiquement' = aux utilisateurs du réseau local, pas tout l'internet."
   },
@@ -1169,15 +1169,15 @@
       }
     }
   },
-  "server": "Serveur",
+  "server": "Partage",
   "@server": {
     "description": "Le titre de la page de paramètres pour contrôler les comportements de partage du lecteur multimédia. Inclut la gestion des utilisateurs autorisés et la diffusion de la présence de l'appareil."
   },
-  "serverControl": "Contrôle du Serveur",
+  "serverControl": "Autoriser les autres appareils à se connecter",
   "@serverControl": {
     "description": "Titre de section pour contrôler le serveur de réseau local. 'Serveur' ici fait référence au service d'arrière-plan qui gère la découverte d'appareils."
   },
-  "serverControlSubtitle": "Démarrez le serveur pour permettre aux autres appareils de découvrir cet appareil sur le réseau local.",
+  "serverControlSubtitle": "Permettre aux autres appareils de se connecter à cet appareil.",
   "@serverControlSubtitle": {
     "description": "Clarifie que le serveur n'opère que sur le réseau local. Met l'accent sur le fait que démarrer permet la visibilité aux autres."
   },
@@ -1201,7 +1201,7 @@
   "@unknownStatus": {
     "description": "Affiché comme badge de statut utilisateur/client. Indique que le statut n'est pas reconnu ou indéfini. Suggérez des termes comme 'Non reconnu' ou 'Indéfini' mais maintenez un ton neutre sans impliquer d'erreurs. Associé avec des couleurs neutres comme le gris dans l'interface."
   },
-  "review": "Examiner",
+  "review": "Répondre",
   "@review": {
     "description": "Bouton pour examiner les demandes de connexion d'appareil en attente. Déclenche une modale pour approuver ou bloquer l'appareil."
   },
@@ -1209,11 +1209,11 @@
   "@reviewRequestTitle": {
     "description": "Titre affiché dans la modale lors de l'examen d'une connexion d'appareil. Garder concis, se concentrer sur l'action requise."
   },
-  "blockDevice": "Bloquer l'Appareil",
+  "blockDevice": "Bloquer",
   "@blockDevice": {
     "description": "Action pour refuser définitivement l'accès. Utilisez des verbes forts comme 'Bannir' si culturellement plus appropriés, mais évitez les connotations négatives."
   },
-  "allowAccess": "Autoriser l'Accès",
+  "allowAccess": "Mon appareil",
   "@allowAccess": {
     "description": "Action pour accorder la permission de connexion. Alignez avec des termes comme 'Approuver' ou 'Autoriser' si mieux adaptés à la langue cible."
   },
@@ -1231,7 +1231,7 @@
       }
     }
   },
-  "allowAccessSubtitle": "Accordez l'accès pour contrôler la lecture et télécharger des pistes depuis cet appareil.",
+  "allowAccessSubtitle": "Cet appareil peut parcourir, lire et synchroniser vos bibliothèques.",
   "@allowAccessSubtitle": {
     "description": "Explique les permissions accordées lors de l'autorisation d'accès. Utilisez 'Autoriser' ou 'Accorder des permissions' comme alternatives. Clarifiez que 'télécharger' fait référence à la récupération de contenu multimédia."
   },
@@ -1399,5 +1399,11 @@
   "requestItemMissing": "Cet élément n’existe plus",
   "requestInvalid": "La demande était invalide",
   "requestUnavailable": "Ceci n’est pas disponible pour le moment",
-  "mixNoLongerExists": "Ce mix n’existe plus"
+  "mixNoLongerExists": "Ce mix n’existe plus",
+  "devices": "Appareils",
+  "thisDevice": "Cet appareil",
+  "devicesThatCanConnect": "Appareils pouvant se connecter à celui-ci",
+  "otherDevices": "Autres appareils",
+  "myDevice": "Mon appareil",
+  "waitingForApproval": "En attente d’approbation"
 }

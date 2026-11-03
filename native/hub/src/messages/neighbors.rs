@@ -89,6 +89,9 @@ pub struct ListClientsResponse {
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
+pub struct TrustedClientsChanged {}
+
+#[derive(Deserialize, Serialize, RustSignal)]
 pub struct IncommingClientPermissionNotification {
     pub user: ClientSummary,
 }

@@ -11,13 +11,7 @@ final List<(String Function(BuildContext), String, IconData, bool)>
     Symbols.video_library,
     false
   ),
-  (
-    (context) => S.of(context).neighbors,
-    '/settings/neighbors',
-    Symbols.group,
-    false
-  ),
-  ((context) => S.of(context).server, '/settings/server', Symbols.p2p, false),
+  ((context) => S.of(context).devices, '/settings/devices', Symbols.devices, false),
   (
     (context) => S.of(context).playback,
     '/settings/playback',

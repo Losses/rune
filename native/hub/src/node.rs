@@ -23,7 +23,7 @@ use crate::{
     library_pool::LibraryPool,
     messages::{
         ClientStatus, ClientSummary, IncommingClientPermissionNotification, InitializeNodeRequest,
-        InitializeNodeResponse, TrustListUpdated, TrustedServerCertificate,
+        InitializeNodeResponse, TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
     },
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
@@ -141,6 +141,7 @@ impl NodeContext {
     async fn start_notifications(&self) {
         let mut certificates = self.cert_validator.read().await.subscribe_changes();
         let mut permissions = self.permission_manager.read().await.subscribe_new_user();
+        let mut changes = self.permission_manager.read().await.changes();
         let broadcaster = self.broadcaster.clone();
         let cancel = self.token.child_token();
         let certificate_task = tokio::spawn(async move {
@@ -186,10 +187,23 @@ impl NodeContext {
                 });
             }
         });
+        let broadcaster = self.broadcaster.clone();
+        let cancel = self.token.child_token();
+        let changes_task = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    result = changes.changed() => {
+                        if result.is_err() { return; }
+                        broadcaster.broadcast(&TrustedClientsChanged {});
+                    }
+                }
+            }
+        });
         self.event_handles
             .lock()
             .await
-            .extend([certificate_task, permission_task]);
+            .extend([certificate_task, permission_task, changes_task]);
     }
 
     pub fn manager(&self) -> Result<Arc<ServerManager>> {
@@ -361,16 +375,69 @@ pub async fn shutdown_node() -> Result<()> {
 mod tests {
     use std::sync::Arc;
 
-    use super::NodeBroadcaster;
+    use discovery::{server::UserStatus, utils::DeviceType};
+    use tokio::{
+        sync::mpsc,
+        time::{Duration, timeout},
+    };
+
+    use super::{NodeBroadcaster, NodeContext};
     use crate::{
         messages::{LibraryContentChanged, TrustListUpdated},
         server::WebSocketService,
         utils::{Broadcaster, RinfRustSignal},
     };
 
-    struct Quiet;
+    struct Quiet(Option<mpsc::UnboundedSender<String>>);
     impl Broadcaster for Quiet {
-        fn broadcast(&self, _: &dyn RinfRustSignal) {}
+        fn broadcast(&self, message: &dyn RinfRustSignal) {
+            if let Some(sender) = &self.0 {
+                let _ = sender.send(message.name());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn permission_status_change_emits_notification() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().to_string_lossy();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let node = NodeContext::new(&path, &path, Arc::new(Quiet(Some(tx)))).await?;
+        let manager = node.permission_manager.read().await;
+        manager
+            .add_user(
+                "key".into(),
+                "fingerprint".into(),
+                "alias".into(),
+                "model".into(),
+                DeviceType::Desktop,
+                "ip".into(),
+            )
+            .await?;
+        timeout(Duration::from_secs(2), async {
+            while let Some(name) = rx.recv().await {
+                if name == "TrustedClientsChanged" {
+                    return;
+                }
+            }
+        })
+        .await?;
+        manager
+            .change_user_status("fingerprint", UserStatus::Approved)
+            .await?;
+        drop(manager);
+        let result = timeout(Duration::from_secs(2), async {
+            while let Some(name) = rx.recv().await {
+                if name == "TrustedClientsChanged" {
+                    return true;
+                }
+            }
+            false
+        })
+        .await;
+        node.shutdown().await?;
+        assert_eq!(result.ok(), Some(true));
+        Ok(())
     }
 
     #[test]
@@ -378,7 +445,7 @@ mod tests {
         let remote = Arc::new(WebSocketService::new());
         let mut received = remote.broadcast_tx.subscribe();
         let broadcaster = NodeBroadcaster {
-            local: Arc::new(Quiet),
+            local: Arc::new(Quiet(None)),
             remote,
         };
         broadcaster.broadcast(&TrustListUpdated {

@@ -1101,11 +1101,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "Emphasize that changes affect visibility in others' scan lists. Avoid technical terms. Focus on 'scans' as interaction context."
   },
-  "enableBroadcast": "Enable Broadcast",
+  "enableBroadcast": "Visible to nearby devices",
   "@enableBroadcast": {
     "description": "'Broadcast' implies actively sending device info. If target language lacks direct equivalent, prioritize 'make visible' or 'share availability'."
   },
-  "enableBroadcastSubtitle": "Share your device information publicly for others to discover.",
+  "enableBroadcastSubtitle": "Let nearby devices find this device.",
   "@enableBroadcastSubtitle": {
     "description": "Avoid ambiguity: 'publicly' = to users in the local network, not the entire internet."
   },
@@ -1177,15 +1177,15 @@
       }
     }
   },
-  "server": "Server",
+  "server": "Sharing",
   "@server": {
     "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
   },
-  "serverControl": "Server Control",
+  "serverControl": "Allow other devices to connect",
   "@serverControl": {
     "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
   },
-  "serverControlSubtitle": "Start the server to allow other devices to discover this device on the local network.",
+  "serverControlSubtitle": "Let other devices connect to this device.",
   "@serverControlSubtitle": {
     "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
   },
@@ -1209,7 +1209,7 @@
   "@unknownStatus": {
     "description": "Shown as a user/client status badge. Indicates the status is unrecognized or undefined. Suggest terms like 'Unrecognized' or 'Undefined' but maintain neutral tone without implying errors. Associated with neutral colors like grey in the UI."
   },
-  "review": "Review",
+  "review": "Respond",
   "@review": {
     "description": "Button to review pending device connection requests. Triggers a modal to approve or block the device."
   },
@@ -1217,11 +1217,11 @@
   "@reviewRequestTitle": {
     "description": "Title shown in the modal when reviewing a device connection. Keep concise, focus on action required."
   },
-  "blockDevice": "Block Device",
+  "blockDevice": "Block",
   "@blockDevice": {
     "description": "Action to permanently deny access. Use strong verbs like 'Ban' if culturally more appropriate, but avoid negative connotations."
   },
-  "allowAccess": "Allow Access",
+  "allowAccess": "My device",
   "@allowAccess": {
     "description": "Action to grant connection permission. Align with terms like 'Approve' or 'Authorize' if better suited to target language."
   },
@@ -1239,7 +1239,7 @@
       }
     }
   },
-  "allowAccessSubtitle": "Grant access to control playback and download tracks from this device.",
+  "allowAccessSubtitle": "This device can browse, play and sync your libraries.",
   "@allowAccessSubtitle": {
     "description": "Explains permissions granted when allowing access. Use 'Authorize' or 'Grant permissions' as alternatives. Clarify that 'download' refers to media content retrieval."
   },
@@ -1494,5 +1494,11 @@
   "requestItemMissing": "This item no longer exists",
   "requestInvalid": "The request was not valid",
   "requestUnavailable": "This isn't available right now",
-  "mixNoLongerExists": "This mix no longer exists"
+  "mixNoLongerExists": "This mix no longer exists",
+  "devices": "Devices",
+  "thisDevice": "This device",
+  "devicesThatCanConnect": "Devices that can connect to this one",
+  "otherDevices": "Other devices",
+  "myDevice": "My device",
+  "waitingForApproval": "Waiting for approval"
 }

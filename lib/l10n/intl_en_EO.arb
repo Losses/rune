@@ -1093,11 +1093,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "Emfazas ke ŝanĝoj influas videblecon en skan-listoj de aliaj. Evitas teknikajn terminojn. Fokusas je 'skanoj' kiel interaga kunteksto."
   },
-  "enableBroadcast": "Ebligi Dissendo",
+  "enableBroadcast": "Videbla por proksimaj aparatoj",
   "@enableBroadcast": {
     "description": "'Dissendo' implicas aktive sendado de aparat-informoj. Se cela lingvo mankas rektan ekvivalenton, prioritatu 'videbliigi' aŭ 'kunhavigi disponeblon'."
   },
-  "enableBroadcastSubtitle": "Kunhavigi viajn aparat-informojn publike por ke aliaj malkovru.",
+  "enableBroadcastSubtitle": "Lasu proksimajn aparatojn trovi ĉi tiun aparaton.",
   "@enableBroadcastSubtitle": {
     "description": "Evitas duecocon: 'publike' = al uzantoj en la loka reto, ne la tuta interreto."
   },
@@ -1169,15 +1169,15 @@
       }
     }
   },
-  "server": "Servilo",
+  "server": "Kundivido",
   "@server": {
     "description": "La titolo de la agorda paĝo por regi amaskomunikilaj ludilo-kunhavigaj kondutoj. Inkluzivas administri rajtitajn uzantojn kaj dissendi aparatan ĉeeston."
   },
-  "serverControl": "Servilo-regado",
+  "serverControl": "Permesi konektojn de aliaj aparatoj",
   "@serverControl": {
     "description": "Sekcia titolo por regi la lokan retan servilon. 'Servilo' ĉi tie rilatas al la fona servo kiu administras aparat-malkovron."
   },
-  "serverControlSubtitle": "Startigi la servilon por permesi aliajn aparatojn malkovri ĉi tiun aparaton en la loka reto.",
+  "serverControlSubtitle": "Lasu aliajn aparatojn konektiĝi al ĉi tiu aparato.",
   "@serverControlSubtitle": {
     "description": "Klarigas ke la servilo nur funkcias en la loka reto. Emfazas ke startigo ebligas videblecon al aliaj."
   },
@@ -1201,7 +1201,7 @@
   "@unknownStatus": {
     "description": "Montrita kiel uzanto/kliento-stata insigno. Indikas ke la stato estas nerekonita aŭ nedifinita. Sugesti terminojn kiel 'Nerekonita' aŭ 'Nedifinita' sed manteni neŭtralan tonon sen implici erarojn. Asociita kun neŭtralaj koloroj kiel grizo en la UI."
   },
-  "review": "Kontroli",
+  "review": "Respondi",
   "@review": {
     "description": "Butono por kontroli atendantajn aparat-konektajn petojn. Malfermas modalon por aprobi aŭ bloki la aparaton."
   },
@@ -1209,11 +1209,11 @@
   "@reviewRequestTitle": {
     "description": "Titolo montrita en la modalo dum kontrolado de aparat-konekto. Manteni konciza, fokusi je bezonata ago."
   },
-  "blockDevice": "Bloki Aparaton",
+  "blockDevice": "Bloki",
   "@blockDevice": {
     "description": "Ago por daŭre rifuzi aliron. Uzu fortajn verbojn kiel 'Malpermesi' se kulture pli taŭgaj, sed evitu negativajn konotaciojn."
   },
-  "allowAccess": "Permesi Aliron",
+  "allowAccess": "Mia aparato",
   "@allowAccess": {
     "description": "Ago por doni konektan permeson. Harmoniu kun terminoj kiel 'Aprobi' aŭ 'Rajtigi' se pli taŭgaj por cela lingvo."
   },
@@ -1231,7 +1231,7 @@
       }
     }
   },
-  "allowAccessSubtitle": "Doni aliron por regi reproduktadon kaj elŝuti kantojn el ĉi tiu aparato.",
+  "allowAccessSubtitle": "Ĉi tiu aparato povas foliumi, ludi kaj sinkronigi viajn bibliotekojn.",
   "@allowAccessSubtitle": {
     "description": "Klarigas permesojn donitajn dum permesi aliron. Uzu 'Rajtigi' aŭ 'Doni permesojn' kiel alternativojn. Klarigu ke 'elŝuti' rilatas al amaskomuna enhavo-akiro."
   },
@@ -1362,5 +1362,11 @@
   "requestItemMissing": "Ĉi tiu ero ne plu ekzistas",
   "requestInvalid": "La peto ne estis valida",
   "requestUnavailable": "Ĉi tio nun ne disponeblas",
-  "mixNoLongerExists": "Ĉi tiu miksaĵo ne plu ekzistas"
+  "mixNoLongerExists": "Ĉi tiu miksaĵo ne plu ekzistas",
+  "devices": "Aparatoj",
+  "thisDevice": "Ĉi tiu aparato",
+  "devicesThatCanConnect": "Aparatoj kiuj povas konektiĝi al ĉi tiu",
+  "otherDevices": "Aliaj aparatoj",
+  "myDevice": "Mia aparato",
+  "waitingForApproval": "Atendante aprobon"
 }

@@ -824,11 +824,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "強調更改將影響在他人掃描列表中的可見性。避免使用技術術語，突出“掃描”這一交互場景。"
   },
-  "enableBroadcast": "啟用廣播",
+  "enableBroadcast": "讓附近的裝置看見",
   "@enableBroadcast": {
     "description": "“廣播”意味著主動發送設備資訊。如目標語言中沒有直接對應詞彙，可優先使用“使可見”或“共享可用性”。"
   },
-  "enableBroadcastSubtitle": "展示您的設備資訊，供他人發現。",
+  "enableBroadcastSubtitle": "讓附近的裝置找到此裝置。",
   "@enableBroadcastSubtitle": {
     "description": "避免歧義：此處“公開”僅指對本地網路中的用戶，而非整個網路。"
   },
@@ -900,15 +900,15 @@
       }
     }
   },
-  "server": "伺服器",
+  "server": "分享",
   "@server": {
     "description": "用於控制媒體播放器共享行為的設置頁面標題，包括管理授權用戶和廣播設備狀態。"
   },
-  "serverControl": "伺服器控制",
+  "serverControl": "允許其他裝置連線",
   "@serverControl": {
     "description": "用於控制本地網路伺服器的部分標題。“伺服器”指的是用於設備發現的後台服務。"
   },
-  "serverControlSubtitle": "啟動伺服器以便其他設備在本地網路中發現此設備。",
+  "serverControlSubtitle": "讓其他裝置連接此裝置。",
   "@serverControlSubtitle": {
     "description": "明確伺服器僅在本地網路中運行。強調啟動伺服器會使設備對他人可見。"
   },
@@ -932,7 +932,7 @@
   "@unknownStatus": {
     "description": "作為用戶/用戶端狀態徽章顯示，表示狀態無法識別或未定義。建議使用“未識別”或“未定義”，保持中性語氣，不暗示錯誤。UI 中常配灰色。"
   },
-  "review": "審查",
+  "review": "處理請求",
   "@review": {
     "description": "用於審查待處理設備連接請求的按鈕。會彈出一個允許或阻止設備的對話框。"
   },
@@ -940,11 +940,11 @@
   "@reviewRequestTitle": {
     "description": "審查設備連接時對話框顯示的標題。保持簡潔，突出所需操作。"
   },
-  "blockDevice": "阻止設備",
+  "blockDevice": "封鎖",
   "@blockDevice": {
     "description": "永久拒絕訪問的操作。根據文化習慣也可用“封禁”，但避免負面情緒過重。"
   },
-  "allowAccess": "允許訪問",
+  "allowAccess": "我的裝置",
   "@allowAccess": {
     "description": "授權連接權限的操作。可根據習慣使用“批准”或“授權”。"
   },
@@ -962,7 +962,7 @@
       }
     }
   },
-  "allowAccessSubtitle": "授權此設備控制播放並獲取曲目。",
+  "allowAccessSubtitle": "此裝置可以瀏覽、播放及同步你的音樂庫。",
   "@allowAccessSubtitle": {
     "description": "說明允許訪問時會授予的權限。“獲取”指的是獲取媒體內容。"
   },
@@ -1130,5 +1130,11 @@
   "requestItemMissing": "此項目已不存在",
   "requestInvalid": "請求無效",
   "requestUnavailable": "目前無法使用",
-  "mixNoLongerExists": "此混音已不存在"
+  "mixNoLongerExists": "此混音已不存在",
+  "devices": "裝置",
+  "thisDevice": "此裝置",
+  "devicesThatCanConnect": "可連接此裝置的裝置",
+  "otherDevices": "其他裝置",
+  "myDevice": "我的裝置",
+  "waitingForApproval": "等待核准"
 }

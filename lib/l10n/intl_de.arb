@@ -1091,11 +1091,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "Betont, dass Änderungen die Sichtbarkeit in den Scan-Listen anderer beeinflussen. Vermeidet technische Begriffe. Fokussiert auf 'Scans' als Interaktionskontext."
   },
-  "enableBroadcast": "Broadcast aktivieren",
+  "enableBroadcast": "Für Geräte in der Nähe sichtbar",
   "@enableBroadcast": {
     "description": "'Broadcast' impliziert aktives Senden von Geräteinformationen. Wenn die Zielsprache keine direkte Entsprechung hat, priorisieren Sie 'sichtbar machen' oder 'Verfügbarkeit teilen'."
   },
-  "enableBroadcastSubtitle": "Teilen Sie Ihre Geräteinformationen öffentlich, damit andere sie entdecken können.",
+  "enableBroadcastSubtitle": "Geräte in der Nähe können dieses Gerät finden.",
   "@enableBroadcastSubtitle": {
     "description": "Vermeidet Mehrdeutigkeit: 'öffentlich' = für Benutzer im lokalen Netzwerk, nicht das gesamte Internet."
   },
@@ -1167,15 +1167,15 @@
       }
     }
   },
-  "server": "Server",
+  "server": "Freigabe",
   "@server": {
     "description": "Der Titel der Einstellungsseite zur Steuerung der Mediaplayer-Freigabeverhalten. Beinhaltet die Verwaltung autorisierter Benutzer und das Übertragen der Gerätepräsenz."
   },
-  "serverControl": "Server-Steuerung",
+  "serverControl": "Verbindungen von anderen Geräten erlauben",
   "@serverControl": {
     "description": "Abschnittstitel zur Steuerung des lokalen Netzwerkservers. 'Server' bezieht sich hier auf den Hintergrunddienst, der die Geräteerkennung verwaltet."
   },
-  "serverControlSubtitle": "Starten Sie den Server, damit andere Geräte dieses Gerät im lokalen Netzwerk entdecken können.",
+  "serverControlSubtitle": "Andere Geräte können sich mit diesem Gerät verbinden.",
   "@serverControlSubtitle": {
     "description": "Klarstellt, dass der Server nur im lokalen Netzwerk operiert. Betont, dass das Starten die Sichtbarkeit für andere ermöglicht."
   },
@@ -1199,7 +1199,7 @@
   "@unknownStatus": {
     "description": "Angezeigt als Benutzer-/Client-Status-Badge. Zeigt an, dass der Status nicht erkannt oder undefiniert ist. Schlagen Sie Begriffe wie 'Nicht erkannt' oder 'Undefiniert' vor, aber behalten Sie einen neutralen Ton bei, ohne Fehler zu implizieren. Mit neutralen Farben wie Grau in der Benutzeroberfläche verbunden."
   },
-  "review": "Überprüfen",
+  "review": "Anfrage bearbeiten",
   "@review": {
     "description": "Button zur Überprüfung ausstehender Geräteverbindungsanfragen. Löst ein Modal aus, um das Gerät zu genehmigen oder zu blockieren."
   },
@@ -1207,11 +1207,11 @@
   "@reviewRequestTitle": {
     "description": "Titel angezeigt im Modal bei der Überprüfung einer Geräteverbindung. Kurz halten, auf erforderliche Aktion fokussieren."
   },
-  "blockDevice": "Gerät blockieren",
+  "blockDevice": "Blockieren",
   "@blockDevice": {
     "description": "Aktion zum dauerhaften Verweigern des Zugriffs. Verwenden Sie starke Verben wie 'Sperren', wenn kulturell angemessener, aber vermeiden Sie negative Konnotationen."
   },
-  "allowAccess": "Zugriff erlauben",
+  "allowAccess": "Mein Gerät",
   "@allowAccess": {
     "description": "Aktion zur Gewährung der Verbindungsberechtigung. Angleichen mit Begriffen wie 'Genehmigen' oder 'Autorisieren', wenn besser für die Zielsprache geeignet."
   },
@@ -1229,7 +1229,7 @@
       }
     }
   },
-  "allowAccessSubtitle": "Gewähren Sie Zugriff zur Steuerung der Wiedergabe und zum Herunterladen von Titeln von diesem Gerät.",
+  "allowAccessSubtitle": "Dieses Gerät kann deine Bibliotheken durchsuchen, abspielen und synchronisieren.",
   "@allowAccessSubtitle": {
     "description": "Erklärt die gewährten Berechtigungen bei Zugriffsgenehmigung. Verwenden Sie 'Autorisieren' oder 'Berechtigungen gewähren' als Alternativen. Klarstellen, dass sich 'Herunterladen' auf Medieninhalts-Abruf bezieht."
   },
@@ -1397,5 +1397,11 @@
   "requestItemMissing": "Dieses Element existiert nicht mehr",
   "requestInvalid": "Die Anfrage war ungültig",
   "requestUnavailable": "Dies ist derzeit nicht verfügbar",
-  "mixNoLongerExists": "Dieser Mix existiert nicht mehr"
+  "mixNoLongerExists": "Dieser Mix existiert nicht mehr",
+  "devices": "Geräte",
+  "thisDevice": "Dieses Gerät",
+  "devicesThatCanConnect": "Geräte, die sich mit diesem verbinden können",
+  "otherDevices": "Andere Geräte",
+  "myDevice": "Mein Gerät",
+  "waitingForApproval": "Wartet auf Bestätigung"
 }

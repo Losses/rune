@@ -1093,11 +1093,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "Sottolinea che le modifiche influenzano la visibilità negli elenchi di scansione degli altri. Evita termini tecnici. Si concentra sulle 'scansioni' come contesto di interazione."
   },
-  "enableBroadcast": "Abilita Trasmissione",
+  "enableBroadcast": "Visibile ai dispositivi vicini",
   "@enableBroadcast": {
     "description": "'Trasmissione' implica l'invio attivo di informazioni del dispositivo. Se la lingua di destinazione manca di un equivalente diretto, dai priorità a 'rendi visibile' o 'condividi disponibilità'."
   },
-  "enableBroadcastSubtitle": "Condividi le informazioni del tuo dispositivo pubblicamente per consentire ad altri di scoprirlo.",
+  "enableBroadcastSubtitle": "Consenti ai dispositivi vicini di trovare questo dispositivo.",
   "@enableBroadcastSubtitle": {
     "description": "Evita ambiguità: 'pubblicamente' = agli utenti della rete locale, non a tutto Internet."
   },
@@ -1169,15 +1169,15 @@
       }
     }
   },
-  "server": "Server",
+  "server": "Condivisione",
   "@server": {
     "description": "Il titolo della pagina delle impostazioni per controllare i comportamenti di condivisione del lettore multimediale. Include la gestione degli utenti autorizzati e la trasmissione della presenza del dispositivo."
   },
-  "serverControl": "Controllo Server",
+  "serverControl": "Consenti la connessione di altri dispositivi",
   "@serverControl": {
     "description": "Titolo della sezione per controllare il server di rete locale. 'Server' qui si riferisce al servizio in background che gestisce la scoperta dei dispositivi."
   },
-  "serverControlSubtitle": "Avvia il server per consentire ad altri dispositivi di scoprire questo dispositivo sulla rete locale.",
+  "serverControlSubtitle": "Consenti ad altri dispositivi di connettersi a questo.",
   "@serverControlSubtitle": {
     "description": "Chiarisce che il server opera solo sulla rete locale. Sottolinea che l'avvio abilita la visibilità agli altri."
   },
@@ -1201,7 +1201,7 @@
   "@unknownStatus": {
     "description": "Mostrato come badge di stato utente/client. Indica che lo stato non è riconosciuto o non è definito. Suggerisci termini come 'Non Riconosciuto' o 'Non Definito' ma mantieni un tono neutrale senza implicare errori. Associato a colori neutri come il grigio nell'UI."
   },
-  "review": "Esamina",
+  "review": "Rispondi",
   "@review": {
     "description": "Pulsante per esaminare le richieste di connessione del dispositivo in attesa. Attiva un modale per approvare o bloccare il dispositivo."
   },
@@ -1209,11 +1209,11 @@
   "@reviewRequestTitle": {
     "description": "Titolo mostrato nel modale durante l'esame di una connessione del dispositivo. Mantieni conciso, concentrati sull'azione richiesta."
   },
-  "blockDevice": "Blocca Dispositivo",
+  "blockDevice": "Blocca",
   "@blockDevice": {
     "description": "Azione per negare permanentemente l'accesso. Usa verbi forti come 'Banna' se culturalmente più appropriato, ma evita connotazioni negative."
   },
-  "allowAccess": "Consenti Accesso",
+  "allowAccess": "Il mio dispositivo",
   "@allowAccess": {
     "description": "Azione per concedere il permesso di connessione. Allinea con termini come 'Approva' o 'Autorizza' se più adatti per la lingua di destinazione."
   },
@@ -1231,7 +1231,7 @@
       }
     }
   },
-  "allowAccessSubtitle": "Concedi l'accesso per controllare la riproduzione e scaricare brani da questo dispositivo.",
+  "allowAccessSubtitle": "Questo dispositivo può esplorare, riprodurre e sincronizzare le tue librerie.",
   "@allowAccessSubtitle": {
     "description": "Spiega i permessi concessi quando si consente l'accesso. Usa 'Autorizza' o 'Concedi permessi' come alternative. Chiarisce che 'scaricare' si riferisce al recupero di contenuti multimediali."
   },
@@ -1399,5 +1399,11 @@
   "requestItemMissing": "Questo elemento non esiste più",
   "requestInvalid": "La richiesta non era valida",
   "requestUnavailable": "Non è disponibile al momento",
-  "mixNoLongerExists": "Questo mix non esiste più"
+  "mixNoLongerExists": "Questo mix non esiste più",
+  "devices": "Dispositivi",
+  "thisDevice": "Questo dispositivo",
+  "devicesThatCanConnect": "Dispositivi che possono connettersi a questo",
+  "otherDevices": "Altri dispositivi",
+  "myDevice": "Il mio dispositivo",
+  "waitingForApproval": "In attesa di approvazione"
 }

@@ -1093,11 +1093,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "변경 사항이 다른 사용자의 스캔 목록에서의 가시성에 영향을 미친다는 점을 강조. 기술 용어 피함. '스캔'을 상호작용 컨텍스트로 집중."
   },
-  "enableBroadcast": "브로드캐스트 활성화",
+  "enableBroadcast": "주변 기기에 표시",
   "@enableBroadcast": {
     "description": "'브로드캐스트'는 기기 정보를 능동적으로 전송하는 것을 의미. 대상 언어에 직접적인 동등어가 없다면 '표시하기' 또는 '가용성 공유'를 우선시."
   },
-  "enableBroadcastSubtitle": "다른 사용자가 발견할 수 있도록 기기 정보를 공개적으로 공유하세요.",
+  "enableBroadcastSubtitle": "주변 기기가 이 기기를 찾을 수 있습니다.",
   "@enableBroadcastSubtitle": {
     "description": "모호함 피하기: '공개적으로' = 로컬 네트워크의 사용자들에게, 전체 인터넷이 아님."
   },
@@ -1169,15 +1169,15 @@
       }
     }
   },
-  "server": "서버",
+  "server": "공유",
   "@server": {
     "description": "미디어 플레이어 공유 동작을 제어하는 설정 페이지 제목. 승인된 사용자 관리 및 기기 존재 브로드캐스트 포함."
   },
-  "serverControl": "서버 제어",
+  "serverControl": "다른 기기의 연결 허용",
   "@serverControl": {
     "description": "로컬 네트워크 서버를 제어하는 섹션 제목. 여기서 '서버'는 기기 발견을 처리하는 백그라운드 서비스를 의미."
   },
-  "serverControlSubtitle": "다른 기기들이 로컬 네트워크에서 이 기기를 발견할 수 있도록 서버를 시작하세요.",
+  "serverControlSubtitle": "다른 기기가 이 기기에 연결할 수 있습니다.",
   "@serverControlSubtitle": {
     "description": "서버가 로컬 네트워크에서만 작동한다는 점을 명확히. 시작하면 다른 기기들에게 가시성이 활성화된다는 점을 강조."
   },
@@ -1201,7 +1201,7 @@
   "@unknownStatus": {
     "description": "사용자/클라이언트 상태 배지로 표시. 상태가 인식되지 않거나 정의되지 않았음을 나타냄. '인식되지 않음' 또는 '정의되지 않음'과 같은 용어를 제안하되 오류를 의미하지 않도록 중립적인 톤을 유지. UI에서 회색과 같은 중립적인 색상과 연관됨."
   },
-  "review": "검토",
+  "review": "요청 처리",
   "@review": {
     "description": "대기 중인 기기 연결 요청을 검토하는 버튼. 기기를 승인하거나 차단하는 모달을 트리거."
   },
@@ -1209,11 +1209,11 @@
   "@reviewRequestTitle": {
     "description": "기기 연결을 검토할 때 모달에 표시되는 제목. 간결하게 유지하고 필요한 작업에 집중."
   },
-  "blockDevice": "기기 차단",
+  "blockDevice": "차단",
   "@blockDevice": {
     "description": "접근을 영구적으로 거부하는 작업. 문화적으로 더 적절하다면 '금지'와 같은 강한 동사를 사용하되 부정적인 함의는 피함."
   },
-  "allowAccess": "접근 허용",
+  "allowAccess": "내 기기",
   "@allowAccess": {
     "description": "연결 권한을 부여하는 작업. 대상 언어에 더 적합하다면 '승인' 또는 '권한 부여'와 같은 용어로 일치시킴."
   },
@@ -1231,7 +1231,7 @@
       }
     }
   },
-  "allowAccessSubtitle": "이 기기에서 재생을 제어하고 트랙을 다운로드할 수 있는 접근 권한을 부여합니다.",
+  "allowAccessSubtitle": "이 기기에서 내 보관함을 둘러보고 재생하고 동기화할 수 있습니다.",
   "@allowAccessSubtitle": {
     "description": "접근을 허용할 때 부여되는 권한을 설명. '권한 부여' 또는 '권한 허용'을 대안으로 사용. '다운로드'는 미디어 콘텐츠 검색을 의미함을 명확히."
   },
@@ -1399,5 +1399,11 @@
   "requestItemMissing": "이 항목이 더 이상 존재하지 않습니다",
   "requestInvalid": "요청이 유효하지 않습니다",
   "requestUnavailable": "지금은 사용할 수 없습니다",
-  "mixNoLongerExists": "이 믹스가 더 이상 존재하지 않습니다"
+  "mixNoLongerExists": "이 믹스가 더 이상 존재하지 않습니다",
+  "devices": "기기",
+  "thisDevice": "이 기기",
+  "devicesThatCanConnect": "이 기기에 연결할 수 있는 기기",
+  "otherDevices": "다른 기기",
+  "myDevice": "내 기기",
+  "waitingForApproval": "승인 대기 중"
 }

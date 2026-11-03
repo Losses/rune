@@ -14,6 +14,7 @@ class BroadcastProvider extends ChangeNotifier {
   static const int _defaultDuration = 300;
 
   Timer? _countdownTimer;
+  StreamSubscription? _clientsChangedSubscription;
   int _remainingSeconds = 0;
   bool _isBroadcasting = false;
   String? _errorMessage;
@@ -38,10 +39,13 @@ class BroadcastProvider extends ChangeNotifier {
   String? get interface => _interface;
 
   BroadcastProvider() {
+    _clientsChangedSubscription = TrustedClientsChanged.rustSignalStream.listen(
+      (_) => fetchUsers(),
+    );
     _initializationCompleter = Completer<void>();
+    _setupServerResponseListeners();
     _initializeDevice().then((_) {
       _initializationCompleter.complete();
-      _setupServerResponseListeners();
     });
   }
 
@@ -187,6 +191,7 @@ class BroadcastProvider extends ChangeNotifier {
   @override
   void dispose() {
     _countdownTimer?.cancel();
+    _clientsChangedSubscription?.cancel();
     super.dispose();
   }
 }

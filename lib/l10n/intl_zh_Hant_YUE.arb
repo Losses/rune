@@ -1091,11 +1091,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "強調更改會影響喺其他人掃描列表度嘅可見性。避免用技術術語，突出「掃描」呢個互動場景。"
   },
-  "enableBroadcast": "啟用廣播",
+  "enableBroadcast": "附近裝置可見",
   "@enableBroadcast": {
     "description": "「廣播」即係主動傳送裝置資訊。如果目標語言冇直接對應嘅詞，可以優先用「設定為可被發現」或「分享可用狀態」。"
   },
-  "enableBroadcastSubtitle": "展示你嘅裝置資訊，俾其他人發現。",
+  "enableBroadcastSubtitle": "畀附近裝置搵到此裝置。",
   "@enableBroadcastSubtitle": {
     "description": "避免歧義：呢度嘅「公開」只係指對本機網絡入面嘅用戶，而唔係成個互聯網。"
   },
@@ -1167,15 +1167,15 @@
       }
     }
   },
-  "server": "伺服器",
+  "server": "分享",
   "@server": {
     "description": "用嚟控制媒體播放器共享行為嘅設定頁面標題，包括管理授權用戶同廣播裝置狀態。"
   },
-  "serverControl": "伺服器控制",
+  "serverControl": "容許其他裝置連接",
   "@serverControl": {
     "description": "用嚟控制本機網絡伺服器嘅部分標題。「伺服器」指用嚟俾裝置發現嘅後台服務。"
   },
-  "serverControlSubtitle": "啟動伺服器，等其他裝置可以喺本機網絡搵到呢個裝置。",
+  "serverControlSubtitle": "畀其他裝置連接此裝置。",
   "@serverControlSubtitle": {
     "description": "明確伺服器只會喺本機網絡運行。強調啟動伺服器會令裝置對其他人可見。"
   },
@@ -1199,7 +1199,7 @@
   "@unknownStatus": {
     "description": "作為用戶/客戶端狀態徽章顯示，表示狀態無法識別或未定義。建議用「無法識別」或「未定義」，保持中性語氣，唔暗示錯誤。UI 中通常配灰色。"
   },
-  "review": "審查",
+  "review": "處理請求",
   "@review": {
     "description": "用嚟審查待處理嘅裝置連線請求嘅按鈕。會彈出一個對話框俾你允許或封鎖裝置。"
   },
@@ -1207,11 +1207,11 @@
   "@reviewRequestTitle": {
     "description": "審查裝置連線時對話框顯示嘅標題。保持簡潔，突出所需操作。"
   },
-  "blockDevice": "封鎖裝置",
+  "blockDevice": "封鎖",
   "@blockDevice": {
     "description": "永久拒絕存取嘅操作。根據文化習慣亦可用「禁用」，但避免負面情緒過重。"
   },
-  "allowAccess": "允許存取",
+  "allowAccess": "我嘅裝置",
   "@allowAccess": {
     "description": "授權連線權限嘅操作。可根據習慣用「批准」或「授權」。"
   },
@@ -1229,7 +1229,7 @@
       }
     }
   },
-  "allowAccessSubtitle": "授權呢個裝置控制播放同攞取歌曲。",
+  "allowAccessSubtitle": "此裝置可以瀏覽、播放同同步你嘅音樂庫。",
   "@allowAccessSubtitle": {
     "description": "說明允許存取時會授予嘅權限。「攞取」指獲取媒體內容。"
   },
@@ -1360,5 +1360,11 @@
   "requestItemMissing": "呢個項目已經唔存在",
   "requestInvalid": "要求無效",
   "requestUnavailable": "而家用唔到",
-  "mixNoLongerExists": "呢個混音已經唔存在"
+  "mixNoLongerExists": "呢個混音已經唔存在",
+  "devices": "裝置",
+  "thisDevice": "此裝置",
+  "devicesThatCanConnect": "可以連接此裝置嘅裝置",
+  "otherDevices": "其他裝置",
+  "myDevice": "我嘅裝置",
+  "waitingForApproval": "等候批准"
 }

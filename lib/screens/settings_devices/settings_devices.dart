@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -19,22 +17,26 @@ import '../../bindings/bindings.dart';
 import '../../providers/broadcast.dart';
 import '../../providers/library_path.dart';
 import '../../utils/router/navigation.dart';
-import 'widgets/peer_libraries_dialog.dart';
+import '../settings_server/widgets/peer_libraries_dialog.dart';
+import '../settings_neighbors/widgets/edit_device_information_setting_button.dart';
+import '../settings_neighbors/widgets/search_remote_device_setting_button.dart';
+import '../settings_neighbors/widgets/add_neighbor_manually_setting_button.dart';
+import 'device_status.dart';
+import 'remote_destinations_list.dart';
 
-import 'utils/show_confirm_remove_device_dialog.dart';
-import 'utils/show_review_connection_dialog.dart';
-import 'widgets/server_control_setting_button.dart';
-import 'widgets/enable_broadcast_setting_button.dart';
+import '../settings_server/utils/show_confirm_remove_device_dialog.dart';
+import '../settings_server/utils/show_review_connection_dialog.dart';
+import '../settings_server/widgets/server_control_setting_button.dart';
+import '../settings_server/widgets/enable_broadcast_setting_button.dart';
 
-class SettingsServerPage extends StatefulWidget {
-  const SettingsServerPage({super.key});
+class SettingsDevicesPage extends StatefulWidget {
+  const SettingsDevicesPage({super.key});
 
   @override
-  State<SettingsServerPage> createState() => _SettingsServerPageState();
+  State<SettingsDevicesPage> createState() => _SettingsDevicesPageState();
 }
 
-class _SettingsServerPageState extends State<SettingsServerPage> {
-  late Timer _refreshTimer;
+class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
   String selectedUserId = '';
   GetSyncSettingsResponse? syncSettings;
   bool offlineCleanupDefault = true;
@@ -64,16 +66,6 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
         .catchError((Object error) {
           debugPrint('Could not load sync settings: $error');
         });
-
-    _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      broadcastProvider.fetchUsers();
-    });
-  }
-
-  @override
-  void dispose() {
-    _refreshTimer.cancel();
-    super.dispose();
   }
 
   @override
@@ -90,6 +82,10 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _sectionTitle(context, S.of(context).thisDevice),
+                  const EditDeviceInformationSettingButton(),
+                  const EnableBroadcastSetting(),
+                  const ServerControlSetting(),
                   if (syncSettings case final settings?)
                     SettingsBoxToggle(
                       title: S.of(context).allowPairedSync,
@@ -120,10 +116,18 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
                       );
                     },
                   ),
-                  const ServerControlSetting(),
-                  const EnableBroadcastSetting(),
-                  const SizedBox(height: 8),
+                  _sectionTitle(context, S.of(context).devicesThatCanConnect),
                   _buildUserListView(users, context),
+                  _sectionTitle(context, S.of(context).otherDevices),
+                  const SearchRemoteDeviceSettingButton(
+                    tryClose: true,
+                    navigateIfFailed: true,
+                  ),
+                  const AddNeighborManuallySettingButton(
+                    tryClose: true,
+                    navigateIfFailed: true,
+                  ),
+                  const RemoteDestinationsList(),
                 ],
               ),
             ),
@@ -132,6 +136,11 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
       ),
     );
   }
+
+  Widget _sectionTitle(BuildContext context, String title) => Padding(
+    padding: const EdgeInsets.only(top: 24, bottom: 8),
+    child: Text(title, style: FluentTheme.of(context).typography.subtitle),
+  );
 
   Widget _buildUserListView(List<ClientSummary> clients, BuildContext context) {
     final broadcastProvider = Provider.of<BroadcastProvider>(context);
@@ -144,18 +153,23 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
         itemCount: clients.length,
         itemBuilder: (context, index) {
           final client = clients[index];
+          final presentation = deviceStatusPresentation(
+            client.status,
+            S.of(context),
+          );
           return ListTile.selectable(
             title: SettingsTileTitle(
               icon: Symbols.devices,
-              badgeContent: Icon(
-                _getStatusIcon(client.status),
-                size: 12,
-                color: Colors.white,
-              ),
+              badgeContent: presentation.showBadge
+                  ? Icon(
+                      _getStatusIcon(client.status),
+                      size: 12,
+                      color: Colors.white,
+                    )
+                  : null,
               badgeColor: _getStatusColor(client.status),
               title: client.alias,
-              subtitle:
-                  '${client.deviceModel} • ${_getStatusText(client.status, context)}',
+              subtitle: presentation.subtitle,
               showActions: selectedUserId == client.fingerprint,
               actionsBuilder: (context) => Row(
                 children: [
@@ -224,13 +238,5 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
       case ClientStatus.blocked:
         return Colors.red;
     }
-  }
-
-  String _getStatusText(ClientStatus status, BuildContext context) {
-    return switch (status) {
-      ClientStatus.approved => S.of(context).approvedStatus,
-      ClientStatus.pending => S.of(context).pendingStatus,
-      ClientStatus.blocked => S.of(context).blockedStatus,
-    };
   }
 }

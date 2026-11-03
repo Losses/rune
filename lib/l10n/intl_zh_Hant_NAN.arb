@@ -1093,11 +1093,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "強調修改會影響佇別人掃描清單中的可見度。避免使用技術術語，突出「掃描」這个互動情境。"
   },
-  "enableBroadcast": "啟用廣播",
+  "enableBroadcast": "附近裝置會當看著",
   "@enableBroadcast": {
     "description": "「廣播」意思是主動送出設備資訊。若目標語言無直接對應的詞，會當優先使用「予人看著」抑是「分享可用性」。"
   },
-  "enableBroadcastSubtitle": "顯示你的設備資訊，予別人發現。",
+  "enableBroadcastSubtitle": "予附近裝置尋著此裝置。",
   "@enableBroadcastSubtitle": {
     "description": "避免誤會：這馬的「公開」干焦指對本地網路中的使用者，毋是規个網際網路。"
   },
@@ -1169,15 +1169,15 @@
       }
     }
   },
-  "server": "伺服器",
+  "server": "分享",
   "@server": {
     "description": "用來控制媒體播放器分享行為的設定頁面標題，包括管理授權使用者佮廣播設備狀態。"
   },
-  "serverControl": "伺服器控制",
+  "serverControl": "允准其他裝置連線",
   "@serverControl": {
     "description": "用來控制本地網路伺服器的部分標題。「伺服器」指的是用來發現設備的背景服務。"
   },
-  "serverControlSubtitle": "啟動伺服器，予其他設備會當佇本地網路中發現這台設備。",
+  "serverControlSubtitle": "予其他裝置連線此裝置。",
   "@serverControlSubtitle": {
     "description": "明確伺服器干焦佇本地網路中執行。強調啟動伺服器會予設備對別人可見。"
   },
@@ -1201,7 +1201,7 @@
   "@unknownStatus": {
     "description": "做為使用者/客戶端狀態徽章顯示，表示狀態無法度識別或未定義。建議使用「未識別」或「未定義」，保持中性語氣，毋暗示錯誤。UI 中捷用灰色。"
   },
-  "review": "審查",
+  "review": "處理請求",
   "@review": {
     "description": "用來審查等待處理的設備連線請求的按鈕。會彈出一个允許或封鎖設備的對話框。"
   },
@@ -1209,11 +1209,11 @@
   "@reviewRequestTitle": {
     "description": "審查設備連線時對話框顯示的標題。保持簡潔，突出需要的操作。"
   },
-  "blockDevice": "封鎖設備",
+  "blockDevice": "封鎖",
   "@blockDevice": {
     "description": "永久拒絕存取的動作。根據文化習慣嘛會當用「封禁」，毋過避免負面情緒傷重。"
   },
-  "allowAccess": "允許存取",
+  "allowAccess": "我的裝置",
   "@allowAccess": {
     "description": "授權連線權限的動作。會當根據習慣使用「批准」或「授權」。"
   },
@@ -1231,7 +1231,7 @@
       }
     }
   },
-  "allowAccessSubtitle": "授權這台設備控制播放佮取得歌曲。",
+  "allowAccessSubtitle": "此裝置會當瀏覽、播放佮同步你的音樂庫。",
   "@allowAccessSubtitle": {
     "description": "說明允許存取時會授予的權限。「取得」指的是取得媒體內容。"
   },
@@ -1362,5 +1362,11 @@
   "requestItemMissing": "這个項目已經無矣",
   "requestInvalid": "要求無效",
   "requestUnavailable": "這馬無法度使用",
-  "mixNoLongerExists": "這个混音已經無矣"
+  "mixNoLongerExists": "這个混音已經無矣",
+  "devices": "裝置",
+  "thisDevice": "此裝置",
+  "devicesThatCanConnect": "會當連線此裝置的裝置",
+  "otherDevices": "其他裝置",
+  "myDevice": "我的裝置",
+  "waitingForApproval": "等待批准"
 }

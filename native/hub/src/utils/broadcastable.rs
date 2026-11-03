@@ -18,3 +18,5 @@ implement_rinf_rust_signal_trait!(PlaylistUpdate);
 implement_rinf_rust_signal_trait!(LibraryContentChanged);
 implement_rinf_rust_signal_trait!(TrustListUpdated);
 implement_rinf_rust_signal_trait!(IncommingClientPermissionNotification);
+
+implement_rinf_rust_signal_trait!(TrustedClientsChanged);

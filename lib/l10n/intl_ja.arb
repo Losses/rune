@@ -1091,11 +1091,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "Emphasize that changes affect visibility in others' scan lists. Avoid technical terms. Focus on 'scans' as interaction context."
   },
-  "enableBroadcast": "広報を有効にする",
+  "enableBroadcast": "近くのデバイスに表示",
   "@enableBroadcast": {
     "description": "'Broadcast' implies actively sending device info. If target language lacks direct equivalent, prioritize 'make visible' or 'share availability'."
   },
-  "enableBroadcastSubtitle": "あなたの装置情報を公開し、局地通信網中の他の人が発見できるようにする。",
+  "enableBroadcastSubtitle": "近くのデバイスがこのデバイスを見つけられます。",
   "@enableBroadcastSubtitle": {
     "description": "Avoid ambiguity: 'publicly' = to users in the local network, not the entire internet."
   },
@@ -1167,15 +1167,15 @@
       }
     }
   },
-  "server": "通信管理機",
+  "server": "共有",
   "@server": {
     "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
   },
-  "serverControl": "通信管理機の制御",
+  "serverControl": "他のデバイスからの接続を許可",
   "@serverControl": {
     "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
   },
-  "serverControlSubtitle": "通信管理機を起動し、他の装置が局地通信網上で本装置を検出できるようにする。",
+  "serverControlSubtitle": "他のデバイスがこのデバイスに接続できます。",
   "@serverControlSubtitle": {
     "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
   },
@@ -1199,7 +1199,7 @@
   "@unknownStatus": {
     "description": "Shown as a user/client status badge. Indicates the status is unrecognized or undefined. Suggest terms like 'Unrecognized' or 'Undefined' but maintain neutral tone without implying errors. Associated with neutral colors like grey in the UI."
   },
-  "review": "審査",
+  "review": "リクエストに対応",
   "@review": {
     "description": "Button to review pending device connection requests. Triggers a modal to approve or block the device."
   },
@@ -1207,11 +1207,11 @@
   "@reviewRequestTitle": {
     "description": "Title shown in the modal when reviewing a device connection. Keep concise, focus on action required."
   },
-  "blockDevice": "装置の接続を遮断",
+  "blockDevice": "ブロック",
   "@blockDevice": {
     "description": "Action to permanently deny access. Use strong verbs like 'Ban' if culturally more appropriate, but avoid negative connotations."
   },
-  "allowAccess": "接続を許可",
+  "allowAccess": "自分のデバイス",
   "@allowAccess": {
     "description": "Action to grant connection permission. Align with terms like 'Approve' or 'Authorize' if better suited to target language."
   },
@@ -1229,7 +1229,7 @@
       }
     }
   },
-  "allowAccessSubtitle": "この装置から再生制御と楽曲保存への接続を許可する。",
+  "allowAccessSubtitle": "このデバイスでライブラリの閲覧、再生、同期ができます。",
   "@allowAccessSubtitle": {
     "description": "Explains permissions granted when allowing access. Use 'Authorize' or 'Grant permissions' as alternatives. Clarify that 'download' refers to media content retrieval."
   },
@@ -1397,5 +1397,11 @@
   "requestItemMissing": "この項目はもう存在しません",
   "requestInvalid": "リクエストが無効でした",
   "requestUnavailable": "現在利用できません",
-  "mixNoLongerExists": "このミックスはもう存在しません"
+  "mixNoLongerExists": "このミックスはもう存在しません",
+  "devices": "デバイス",
+  "thisDevice": "このデバイス",
+  "devicesThatCanConnect": "このデバイスに接続できるデバイス",
+  "otherDevices": "その他のデバイス",
+  "myDevice": "自分のデバイス",
+  "waitingForApproval": "承認待ち"
 }

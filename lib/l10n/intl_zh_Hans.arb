@@ -1101,11 +1101,11 @@
   "@editDeviceInformationSubtitle": {
     "description": "强调更改将影响在他人扫描列表中的可见性。避免使用技术术语，突出“扫描”这一交互场景。"
   },
-  "enableBroadcast": "启用广播",
+  "enableBroadcast": "对附近设备可见",
   "@enableBroadcast": {
     "description": "“广播”意味着主动发送设备信息。如目标语言中没有直接对应词汇，可优先使用“使可见”或“共享可用性”。"
   },
-  "enableBroadcastSubtitle": "展示您的设备信息，供他人发现。",
+  "enableBroadcastSubtitle": "让附近的设备找到此设备。",
   "@enableBroadcastSubtitle": {
     "description": "避免歧义：此处“公开”仅指对本地网络中的用户，而非整个互联网。"
   },
@@ -1177,15 +1177,15 @@
       }
     }
   },
-  "server": "服务器",
+  "server": "共享",
   "@server": {
     "description": "用于控制媒体播放器共享行为的设置页面标题，包括管理授权用户和广播设备状态。"
   },
-  "serverControl": "服务器控制",
+  "serverControl": "允许其他设备连接",
   "@serverControl": {
     "description": "用于控制本地网络服务器的部分标题。“服务器”指的是用于设备发现的后台服务。"
   },
-  "serverControlSubtitle": "启动服务器以便其他设备在本地网络中发现此设备。",
+  "serverControlSubtitle": "让其他设备连接到此设备。",
   "@serverControlSubtitle": {
     "description": "明确服务器仅在本地网络中运行。强调启动服务器会使设备对他人可见。"
   },
@@ -1209,7 +1209,7 @@
   "@unknownStatus": {
     "description": "作为用户/客户端状态徽章显示，表示状态无法识别或未定义。建议使用“未识别”或“未定义”，保持中性语气，不暗示错误。UI 中常配灰色。"
   },
-  "review": "审查",
+  "review": "处理请求",
   "@review": {
     "description": "用于审查待处理设备连接请求的按钮。会弹出一个允许或阻止设备的对话框。"
   },
@@ -1217,11 +1217,11 @@
   "@reviewRequestTitle": {
     "description": "审查设备连接时对话框显示的标题。保持简洁，突出所需操作。"
   },
-  "blockDevice": "阻止设备",
+  "blockDevice": "阻止",
   "@blockDevice": {
     "description": "永久拒绝访问的操作。根据文化习惯也可用“封禁”，但避免负面情绪过重。"
   },
-  "allowAccess": "允许访问",
+  "allowAccess": "我的设备",
   "@allowAccess": {
     "description": "授权连接权限的操作。可根据习惯使用“批准”或“授权”。"
   },
@@ -1239,7 +1239,7 @@
       }
     }
   },
-  "allowAccessSubtitle": "授权此设备控制播放并获取曲目。",
+  "allowAccessSubtitle": "此设备可以浏览、播放和同步你的媒体库。",
   "@allowAccessSubtitle": {
     "description": "说明允许访问时会授予的权限。“获取”指的是获取媒体内容。"
   },
@@ -1457,5 +1457,11 @@
   "requestItemMissing": "此项目已不存在",
   "requestInvalid": "请求无效",
   "requestUnavailable": "目前无法使用",
-  "mixNoLongerExists": "此混音已不存在"
+  "mixNoLongerExists": "此混音已不存在",
+  "devices": "设备",
+  "thisDevice": "此设备",
+  "devicesThatCanConnect": "可以连接到此设备的设备",
+  "otherDevices": "其他设备",
+  "myDevice": "我的设备",
+  "waitingForApproval": "等待批准"
 }
