@@ -33,6 +33,7 @@ async fn exercise_duplicate(played: bool) -> Result<()> {
         |_| {},
         None,
         &store.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let first = media_files::Entity::find().all(&db).await?.pop().unwrap();
@@ -51,6 +52,7 @@ async fn exercise_duplicate(played: bool) -> Result<()> {
         |_| {},
         None,
         &store.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let second = media_files::Entity::find()

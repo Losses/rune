@@ -56,6 +56,7 @@ async fn metadata_is_automatic_and_audio_follows_track_artist_album_and_mix_rule
         |_| {},
         None,
         &store.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let source_files = media_files::Entity::find().all(&source_db).await?;

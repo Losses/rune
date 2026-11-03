@@ -745,6 +745,7 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
         |_| {},
         None,
         &store.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let old = get_media_files(&db, 0, 10).await?.pop().unwrap();
@@ -820,6 +821,7 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
             |_| {},
             None,
             &store.record_store(),
+            database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
         )
         .await?;
         assert_eq!(list_playback_queue(&db).await?, vec![old.id, old.id]);
@@ -902,6 +904,7 @@ async fn metadata_only_tracks_are_browsable_and_materialize_in_place() -> Result
         |_| {},
         None,
         &b.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     assert!(
@@ -1097,6 +1100,7 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
         |_| {},
         None,
         &store.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::KeepAsRemote,
     )
     .await?;
     assert_eq!(get_media_files_count(&db).await?, 2);
@@ -1113,6 +1117,7 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
         |_| {},
         None,
         &store.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::KeepAsRemote,
     )
     .await?;
     assert_eq!(get_media_files_count(&db).await?, 2);

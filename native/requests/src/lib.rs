@@ -12,6 +12,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let types = vec![
         // Library
         RequestResponse {
+            request: "GetSyncSettingsRequest".to_string(),
+            response: Some("GetSyncSettingsResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "SetSyncSettingsRequest".to_string(),
+            response: Some("SetSyncSettingsResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
             request: "SetDownloadRuleRequest".to_string(),
             response: Some("SetDownloadRuleResponse".to_string()),
             local_only: true,

@@ -230,3 +230,65 @@ pub async fn get_duration_by_file_id(
 pub async fn get_media_files_count(db: &DatabaseConnection) -> Result<u64, sea_orm::DbErr> {
     media_files::Entity::find().count(db).await
 }
+
+/// Remove a locally hosted track and its scanner-owned catalog records.
+pub async fn remove_track(
+    tx: &sea_orm::DatabaseTransaction,
+    store: &crate::sync::SeaOrmSyncStore,
+    file_id: i32,
+) -> Result<()> {
+    use crate::actions::{collection::CollectionQueryType, search::remove_term};
+    use crate::entities::{
+        media_file_albums, media_file_artists, media_file_fingerprint, media_file_genres,
+        media_metadata,
+    };
+    use crate::sync::model::{Collection, ObjectKey};
+    use anyhow::Context;
+
+    let file = media_files::Entity::find_by_id(file_id)
+        .one(tx)
+        .await?
+        .context("track not found")?;
+    macro_rules! remove_owned {
+        ($entity:ident, $collection:ident) => {{
+            let rows = $entity::Entity::find()
+                .filter($entity::Column::TrackUuid.eq(&file.hlc_uuid))
+                .all(tx)
+                .await?;
+            for row in rows {
+                store
+                    .author_on(
+                        tx,
+                        ObjectKey {
+                            collection: Collection::$collection,
+                            id: row.hlc_uuid.parse()?,
+                        },
+                        None,
+                    )
+                    .await?;
+                $entity::Entity::delete_by_id(row.id).exec(tx).await?;
+            }
+        }};
+    }
+    remove_owned!(media_file_albums, TrackAlbums);
+    remove_owned!(media_file_artists, FileArtists);
+    remove_owned!(media_file_genres, FileGenres);
+    remove_owned!(media_file_fingerprint, Fingerprints);
+    media_metadata::Entity::delete_many()
+        .filter(media_metadata::Column::FileId.eq(file_id))
+        .exec(tx)
+        .await?;
+    media_files::Entity::delete_by_id(file_id).exec(tx).await?;
+    remove_term(tx, CollectionQueryType::Track, file_id).await?;
+    store
+        .author_on(
+            tx,
+            ObjectKey {
+                collection: Collection::Tracks,
+                id: file.hlc_uuid.parse()?,
+            },
+            None,
+        )
+        .await?;
+    Ok(())
+}

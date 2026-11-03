@@ -399,6 +399,7 @@ async fn obsolete_reservation_is_released_without_reimporting_managed_bytes() ->
         |_| {},
         None,
         &records,
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     assert_eq!(

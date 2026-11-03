@@ -106,6 +106,7 @@ async fn interrupted_import_resumes_without_new_track_identity() -> Result<()> {
         |_| {},
         None,
         &store.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     store.head().await?;
@@ -170,6 +171,7 @@ async fn interrupted_import_resumes_without_new_track_identity() -> Result<()> {
         |_| {},
         None,
         &store.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     database::actions::file::attach_download(

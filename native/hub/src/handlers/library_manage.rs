@@ -2,7 +2,10 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
-use tokio::{sync::Mutex, task};
+use tokio::{
+    sync::{Mutex, RwLock},
+    task,
+};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -81,11 +84,15 @@ impl Signal for CloseLibraryRequest {
         }
 
         drop(tokens);
-        if let Some(server) = server_manager
-            && server.is_running()
-            && let Err(error) = server.stop().await
-        {
-            log::error!("Server shutdown failed: {error}");
+        if let Some(server) = server_manager {
+            if server.is_running()
+                && let Err(error) = server.stop().await
+            {
+                log::error!("Server shutdown failed: {error}");
+            }
+            if let Err(error) = server.stop_worker().await {
+                log::error!("Sync worker shutdown failed: {error}");
+            }
         }
         main_token.cancel();
 
@@ -103,6 +110,7 @@ impl ParamsExtractor for ScanAudioLibraryRequest {
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
         Option<database::sync::SeaOrmSyncStore>,
+        Arc<RwLock<crate::utils::sync_settings::SyncSettings>>,
     );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
@@ -116,6 +124,7 @@ impl ParamsExtractor for ScanAudioLibraryRequest {
                 .library_sync
                 .as_ref()
                 .map(|library| library.record_store()),
+            all_params.sync_settings.clone(),
         )
     }
 }
@@ -128,12 +137,13 @@ impl Signal for ScanAudioLibraryRequest {
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
         Option<database::sync::SeaOrmSyncStore>,
+        Arc<RwLock<crate::utils::sync_settings::SyncSettings>>,
     );
     type Response = ();
 
     async fn handle(
         &self,
-        (fsio, main_db, node_id, task_tokens, broadcaster, record_store): Self::Params,
+        (fsio, main_db, node_id, task_tokens, broadcaster, record_store, sync_settings): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<()>> {
@@ -163,6 +173,7 @@ impl Signal for ScanAudioLibraryRequest {
         #[cfg(not(target_os = "android"))]
         let scan_path = request_path.clone();
         let request_force = dart_signal.force;
+        let missing_host_file = sync_settings.read().await.missing_host_file;
         let main_db_clone = Arc::clone(&main_db);
         let broadcaster_clone = Arc::clone(&broadcaster);
 
@@ -206,6 +217,7 @@ impl Signal for ScanAudioLibraryRequest {
                         record_store
                             .as_ref()
                             .context("library sync store unavailable")?,
+                        missing_host_file,
                     )
                     .await?;
 
@@ -798,6 +810,9 @@ mod scan_supervisor_tests {
                     tokens,
                     capture.clone(),
                     None,
+                    Arc::new(RwLock::new(
+                        crate::utils::sync_settings::SyncSettings::default(),
+                    )),
                 ),
                 None,
                 &request,

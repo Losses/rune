@@ -36,6 +36,7 @@ async fn main() {
         empty_progress_callback,
         None,
         &library.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await;
 

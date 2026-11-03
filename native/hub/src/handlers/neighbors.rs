@@ -281,7 +281,14 @@ impl Signal for StopServerRequest {
         let address = server_manager.get_address().await;
         let result = async {
             server_manager.stop().await?;
-            if let Some(address) = address {
+            if server_manager
+                .global_params
+                .sync_settings
+                .read()
+                .await
+                .listen
+                && let Some(address) = address
+            {
                 let info = crate::server::utils::device::load_device_info(Path::new(
                     &*server_manager.global_params.config_path,
                 ))

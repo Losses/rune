@@ -94,6 +94,7 @@ async fn cleanup_during_partial_sync_does_not_delete_source_album() -> Result<()
         |_| {},
         None,
         &target.library.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     index_audio_library(&target.db, &actor, 16, None, &target.library.record_store()).await?;

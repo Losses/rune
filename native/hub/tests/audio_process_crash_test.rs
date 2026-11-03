@@ -118,6 +118,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
         |_| {},
         None,
         &source.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let source_files = media_files::Entity::find().all(&source_db).await?;
@@ -302,6 +303,7 @@ async fn killed_imports_recover_across_publication_stages() -> Result<()> {
             |_| {},
             None,
             &local.record_store(),
+            database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
         )
         .await?;
         assert_eq!(

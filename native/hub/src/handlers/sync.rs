@@ -49,3 +49,94 @@ impl Signal for SetDownloadRuleRequest {
         }))
     }
 }
+
+impl ParamsExtractor for crate::messages::GetSyncSettingsRequest {
+    type Params = Arc<tokio::sync::RwLock<crate::utils::sync_settings::SyncSettings>>;
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        params.sync_settings.clone()
+    }
+}
+impl Signal for crate::messages::GetSyncSettingsRequest {
+    type Params = Arc<tokio::sync::RwLock<crate::utils::sync_settings::SyncSettings>>;
+    type Response = crate::messages::GetSyncSettingsResponse;
+    async fn handle(
+        &self,
+        settings: Self::Params,
+        _: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let settings = settings.read().await;
+        Ok(Some(Self::Response {
+            request_id: request.request_id.clone(),
+            listen: settings.listen,
+            missing_host_file: settings.missing_host_file.into(),
+            error: None,
+        }))
+    }
+}
+impl ParamsExtractor for crate::messages::SetSyncSettingsRequest {
+    type Params = (
+        Arc<tokio::sync::RwLock<crate::utils::sync_settings::SyncSettings>>,
+        Arc<String>,
+        Option<Arc<crate::server::ServerManager>>,
+    );
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        (
+            params.sync_settings.clone(),
+            params.config_path.clone(),
+            params.server_manager.get().cloned(),
+        )
+    }
+}
+impl Signal for crate::messages::SetSyncSettingsRequest {
+    type Params = (
+        Arc<tokio::sync::RwLock<crate::utils::sync_settings::SyncSettings>>,
+        Arc<String>,
+        Option<Arc<crate::server::ServerManager>>,
+    );
+    type Response = crate::messages::SetSyncSettingsResponse;
+    async fn handle(
+        &self,
+        (settings, config, manager): Self::Params,
+        _: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let result: Result<()> = async {
+            let policy = request.missing_host_file.into();
+            let mut current = settings.write().await;
+            let changed = current.listen != request.listen;
+            let next = crate::utils::sync_settings::SyncSettings {
+                listen: request.listen,
+                missing_host_file: policy,
+            };
+            next.save(std::path::Path::new(&**config))?;
+            *current = next;
+            if changed {
+                let manager =
+                    manager.ok_or_else(|| anyhow::anyhow!("server manager unavailable"))?;
+                if request.listen {
+                    if !manager.is_running() {
+                        let info = crate::server::utils::device::load_device_info(
+                            std::path::Path::new(&**config),
+                        )
+                        .await?;
+                        manager
+                            .start_sync(
+                                ([0, 0, 0, 0], 7863).into(),
+                                discovery::DiscoveryParams { device_info: info },
+                            )
+                            .await?;
+                    }
+                } else if manager.is_running() {
+                    manager.stop().await?;
+                }
+            }
+            Ok(())
+        }
+        .await;
+        Ok(Some(Self::Response {
+            request_id: request.request_id.clone(),
+            error: result.err().map(|error| format!("{error:#}")),
+        }))
+    }
+}

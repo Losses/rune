@@ -58,6 +58,7 @@ async fn scan_real_library() -> Result<()> {
             },
             None,
             &library.record_store(),
+            database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
         )
         .await;
         eprintln!(
@@ -177,6 +178,7 @@ async fn unchanged_cover_scan_does_not_reinspect() -> Result<()> {
         |_| {},
         None,
         &store,
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     scan_cover_arts(fs.clone(), &db, root, 16, |_, _| {}, None, &store).await?;
@@ -244,7 +246,8 @@ async fn rejected_artwork_assignment_does_not_stop_other_files_and_retries() -> 
             false,
             |_| {},
             None,
-            &store
+            &store,
+            database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere
         )
         .await?,
         2
@@ -329,6 +332,7 @@ async fn oversized_tag_does_not_abort_library_scan() -> Result<()> {
         },
         None,
         &library.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await;
     let saved = media_files::Entity::find().count(&db).await?;

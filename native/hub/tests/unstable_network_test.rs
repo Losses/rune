@@ -463,6 +463,7 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
         |_| {},
         None,
         &source.store.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let source_files = media_files::Entity::find().all(&source.db).await?;

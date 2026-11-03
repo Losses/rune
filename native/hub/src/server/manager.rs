@@ -245,6 +245,7 @@ impl ServerManager {
             !self.global_params.main_token.is_cancelled(),
             "library is shutting down"
         );
+        self.start_worker().await?;
         if self.is_running.load(Ordering::SeqCst) {
             return Err(anyhow::anyhow!("Server already running"));
         }
@@ -444,17 +445,6 @@ impl ServerManager {
         {
             log::warn!("Could not announce paired-device service: {error}");
         }
-        let cancel = self.global_params.main_token.child_token();
-        let worker = super::sync_worker::run(
-            self.global_params.clone(),
-            super::sync::http::SharedLibrary(library),
-            coalesce_worker_notify(notify, cancel.clone()),
-            fingerprint,
-            self.private_key.clone(),
-            cancel.clone(),
-        );
-        *self.sync_handle.lock().await = Some(tokio::spawn(worker));
-        *self.sync_cancel.lock().await = Some(cancel);
         *self.server_handle.lock().await = Some(server_handle);
         *self.addr.lock().await = Some(addr);
         *self.shutdown_handle.lock().await = Some(shutdown_handle);
@@ -465,6 +455,66 @@ impl ServerManager {
             anyhow::bail!("library is shutting down");
         }
         Ok(())
+    }
+
+    pub async fn start_worker(self: &Arc<Self>) -> Result<()> {
+        let mut handle = self.sync_handle.lock().await;
+        if handle.is_some() {
+            return Ok(());
+        }
+        let library = self
+            .global_params
+            .library_sync
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("local metadata replica is unavailable"))?;
+        let (_, fingerprint) = parse_certificate(&self.certificate)?;
+        self.global_params
+            .player
+            .lock()
+            .await
+            .set_source_resolver(Arc::new(super::sync_worker::PairedAudioResolver(
+                Arc::downgrade(self),
+            )));
+        let path = self.global_params.lib_path.to_string();
+        let broadcaster = self.global_params.broadcaster.clone();
+        let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            broadcaster.broadcast(&crate::messages::LibraryContentChanged { path: path.clone() })
+        });
+        let cancel = self.global_params.main_token.child_token();
+        let worker = super::sync_worker::run(
+            self.global_params.clone(),
+            super::sync::http::SharedLibrary(Arc::new(RwLock::new(library))),
+            coalesce_worker_notify(notify, cancel.clone()),
+            fingerprint,
+            self.private_key.clone(),
+            cancel.clone(),
+        );
+        *self.sync_cancel.lock().await = Some(cancel);
+        *handle = Some(tokio::spawn(worker));
+        Ok(())
+    }
+
+    pub async fn stop_worker(&self) -> Result<()> {
+        let mut handle = self.sync_handle.lock().await;
+        if let Some(cancel) = self.sync_cancel.lock().await.take() {
+            cancel.cancel();
+        }
+        let mut first_error = None;
+        if let Some(handle) = handle.take()
+            && let Err(error) = handle.await
+        {
+            first_error = Some(anyhow::Error::from(error));
+        }
+        let streams = std::mem::take(&mut *self.stream_handles.lock().await);
+        for handle in streams {
+            if let Err(error) = handle.await {
+                first_error.get_or_insert_with(|| error.into());
+            }
+        }
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     pub async fn stop(&self) -> Result<()> {
@@ -481,22 +531,6 @@ impl ServerManager {
         {
             log::error!("Watch task failed during shutdown: {error}");
             first_error = Some(anyhow::Error::from(error));
-        }
-        if let Some(cancel) = self.sync_cancel.lock().await.take() {
-            cancel.cancel();
-        }
-        if let Some(handle) = self.sync_handle.lock().await.take()
-            && let Err(error) = handle.await
-        {
-            log::error!("Sync task failed during shutdown: {error}");
-            first_error.get_or_insert_with(|| error.into());
-        }
-        let streams = std::mem::take(&mut *self.stream_handles.lock().await);
-        for handle in streams {
-            if let Err(error) = handle.await {
-                log::error!("Stream task failed during shutdown: {error}");
-                first_error.get_or_insert_with(|| error.into());
-            }
         }
         if let Some(handle) = self.shutdown_handle.lock().await.as_ref() {
             handle.shutdown();
@@ -832,6 +866,9 @@ mod lifecycle_tests {
         let token = Arc::new(CancellationToken::new());
         let library_sync = crate::utils::initialize_library_replica(&db, &node.to_string()).await?;
         let params = Arc::new(GlobalParams {
+            sync_settings: Arc::new(RwLock::new(
+                crate::utils::sync_settings::SyncSettings::default(),
+            )),
             fsio,
             lib_path: Arc::new(dir.to_string_lossy().into_owned()),
             config_path: Arc::new(dir.to_string_lossy().into_owned()),
@@ -863,6 +900,30 @@ mod lifecycle_tests {
             &*manager.global_params.config_path,
         ))
         .await
+    }
+    #[tokio::test]
+    async fn outbound_worker_survives_listener_stop() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let manager = fixture(dir.path()).await?;
+        manager.start_worker().await?;
+        let device_info = info(&manager).await?;
+        manager
+            .clone()
+            .start_sync(([127, 0, 0, 1], 0).into(), DiscoveryParams { device_info })
+            .await?;
+        manager.stop().await?;
+        assert!(
+            manager
+                .sync_handle
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|task| !task.is_finished())
+        );
+        manager.stop_worker().await?;
+        assert!(manager.sync_handle.lock().await.is_none());
+        manager.global_params.main_token.cancel();
+        Ok(())
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn paired_background_sync_and_listener_lifecycle() -> Result<()> {
@@ -926,6 +987,7 @@ mod lifecycle_tests {
                 .as_ref()
                 .unwrap()
                 .record_store(),
+            database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
         )
         .await?;
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -1294,6 +1356,7 @@ mod lifecycle_tests {
             |_| {},
             None,
             &params.library_sync.as_ref().unwrap().record_store(),
+            database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
         )
         .await?;
         let store =

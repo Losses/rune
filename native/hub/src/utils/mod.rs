@@ -2,6 +2,7 @@ pub mod broadcastable;
 pub mod diagnostics;
 pub mod nid;
 pub mod player;
+pub mod sync_settings;
 
 use std::{
     collections::HashMap,
@@ -94,6 +95,7 @@ pub struct GlobalParams {
     pub fsio: Arc<FsIo>,
     pub lib_path: Arc<String>,
     pub config_path: Arc<String>,
+    pub sync_settings: Arc<RwLock<sync_settings::SyncSettings>>,
     pub node_id: Arc<String>,
     pub main_db: Arc<MainDbConnection>,
     pub library_sync: Option<database::sync::LibrarySyncStore>,

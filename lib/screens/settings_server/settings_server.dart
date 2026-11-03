@@ -5,6 +5,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/l10n.dart';
+import '../../utils/api/get_sync_settings.dart';
+import '../../utils/api/set_sync_settings.dart';
+import '../../widgets/settings/settings_box_toggle.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../widgets/unavailable_page_on_band.dart';
@@ -28,6 +31,7 @@ class SettingsServerPage extends StatefulWidget {
 class _SettingsServerPageState extends State<SettingsServerPage> {
   late Timer _refreshTimer;
   String selectedUserId = '';
+  GetSyncSettingsResponse? syncSettings;
 
   @override
   void initState() {
@@ -38,10 +42,19 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
   }
 
   void _initializeData() {
-    final broadcastProvider =
-        Provider.of<BroadcastProvider>(context, listen: false);
+    final broadcastProvider = Provider.of<BroadcastProvider>(
+      context,
+      listen: false,
+    );
 
     broadcastProvider.fetchUsers();
+    getSyncSettings()
+        .then((value) {
+          if (mounted) setState(() => syncSettings = value);
+        })
+        .catchError((Object error) {
+          debugPrint('Could not load sync settings: $error');
+        });
 
     _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       broadcastProvider.fetchUsers();
@@ -68,6 +81,24 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (syncSettings case final settings?)
+                    SettingsBoxToggle(
+                      title: S.of(context).allowPairedSync,
+                      subtitle: S.of(context).allowPairedSyncDescription,
+                      value: settings.listen,
+                      onChanged: (value) async {
+                        try {
+                          await setSyncSettings(
+                            value,
+                            settings.missingHostFile,
+                          );
+                          final updated = await getSyncSettings();
+                          if (mounted) setState(() => syncSettings = updated);
+                        } catch (error) {
+                          debugPrint('Could not update sync settings: $error');
+                        }
+                      },
+                    ),
                   const ServerControlSetting(),
                   const EnableBroadcastSetting(),
                   const SizedBox(height: 8),

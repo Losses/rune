@@ -656,30 +656,87 @@ async fn replace_metadata_on(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub enum MissingHostFilePolicy {
+    #[default]
+    RemoveEverywhere,
+    KeepAsRemote,
+}
+
 async fn clean_up_database(
     fsio: &FsIo,
     main_db: &DatabaseConnection,
     root_path: &Path,
+    policy: MissingHostFilePolicy,
+    store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<()> {
-    let db_files = media_files::Entity::find()
+    let files = media_files::Entity::find()
         .filter(media_files::Column::LocalAvailable.eq(true))
         .all(main_db)
         .await?;
-    for db_file in db_files {
-        let full_path = root_path.join(&db_file.directory).join(&db_file.file_name);
-        // An I/O error is not proof of absence.
-        if matches!(fsio.exists(&full_path), Ok(false)) {
-            media_files::Entity::update_many()
-                .col_expr(media_files::Column::LocalAvailable, Expr::value(false))
-                .filter(media_files::Column::Id.eq(db_file.id))
-                .filter(media_files::Column::Directory.eq(db_file.directory))
-                .filter(media_files::Column::FileName.eq(db_file.file_name))
-                .filter(media_files::Column::LocalAvailable.eq(true))
-                .exec(main_db)
-                .await?;
+    let managed = |directory: &str| {
+        let name = crate::actions::file::MANAGED_AUDIO_DIRECTORY;
+        directory == name
+            || directory.starts_with(&format!("{name}/"))
+            || directory.starts_with(&format!("{name}\\"))
+    };
+    let host_total = files
+        .iter()
+        .filter(|file| !managed(&file.directory))
+        .count();
+    let missing: Vec<_> = files
+        .into_iter()
+        .filter(|file| {
+            matches!(
+                fsio.exists(&root_path.join(&file.directory).join(&file.file_name)),
+                Ok(false)
+            )
+        })
+        .collect();
+    let host_missing = missing
+        .iter()
+        .filter(|file| !managed(&file.directory))
+        .count();
+    let mass_missing = host_missing > 5 && host_missing * 2 > host_total;
+    if mass_missing {
+        log::warn!("Skipping missing host file removals because the library looks unmounted");
+    }
+    let root_listable = fsio.read_dir(root_path).await.is_ok();
+    for file in missing {
+        let result: Result<()> = async {
+            if !managed(&file.directory)
+                && policy == MissingHostFilePolicy::RemoveEverywhere
+                && root_listable
+                && !mass_missing
+            {
+                let tx = main_db.begin().await?;
+                store.lock(&tx).await?;
+                let current = media_files::Entity::find_by_id(file.id).one(&tx).await?;
+                if current.as_ref().is_some_and(|row| {
+                    row.local_available
+                        && row.directory == file.directory
+                        && row.file_name == file.file_name
+                }) {
+                    crate::actions::file::remove_track(&tx, store, file.id).await?;
+                }
+                tx.commit().await?;
+            } else {
+                media_files::Entity::update_many()
+                    .col_expr(media_files::Column::LocalAvailable, Expr::value(false))
+                    .filter(media_files::Column::Id.eq(file.id))
+                    .filter(media_files::Column::Directory.eq(file.directory))
+                    .filter(media_files::Column::FileName.eq(file.file_name))
+                    .filter(media_files::Column::LocalAvailable.eq(true))
+                    .exec(main_db)
+                    .await?;
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = result {
+            error!("Failed to clean up missing file {}: {error:#}", file.id);
         }
     }
-
     Ok(())
 }
 
@@ -715,12 +772,24 @@ pub async fn scan_audio_library<F>(
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
     store: &crate::sync::SeaOrmSyncStore,
+    policy: MissingHostFilePolicy,
 ) -> Result<usize>
 where
     F: Fn(usize) + Send + Sync,
 {
     let root_path_str = lib_path.to_str().expect("Invalid UTF-8 sequence in path");
-    let mut scanner = AudioScanner::new(fsio, &root_path_str)?;
+    let mut scanner = match AudioScanner::new(fsio, &root_path_str) {
+        Ok(scanner) => scanner,
+        Err(error) => {
+            if cleanup
+                && let Err(cleanup_error) =
+                    clean_up_database(fsio, main_db, lib_path, policy, store).await
+            {
+                log::error!("Unable to clean up unavailable library: {cleanup_error:#}");
+            }
+            return Err(error.into());
+        }
+    };
 
     info!("Starting audio library scan with last-modified pre-filtering");
 
@@ -849,7 +918,7 @@ where
             .is_some_and(|token| token.is_cancelled())
     {
         info!("Starting cleanup process.");
-        match clean_up_database(fsio, main_db, lib_path)
+        match clean_up_database(fsio, main_db, lib_path, policy, store)
             .await
             .with_context(|| "Unable to cleanup database")
         {

@@ -1447,5 +1447,13 @@
   },
   "audioRemoteReference": "Remote audio (connection unknown)",
   "audioUnavailable": "Audio unavailable",
-  "audioImportPending": "Import in progress"
+  "audioImportPending": "Import in progress",
+  "allowPairedSync": "Allow paired devices to sync from this device",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "Turning this off stops listening and LAN announcements. This device can still sync from others.",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  }
 }

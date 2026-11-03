@@ -102,6 +102,11 @@ pub async fn local_player_loop(
 
         info!("Initializing UI events");
         let global_params = GlobalParams {
+            sync_settings: Arc::new(RwLock::new(
+                crate::utils::sync_settings::SyncSettings::load(std::path::Path::new(
+                    &**config_path,
+                )),
+            )),
             fsio,
             lib_path,
             config_path,
@@ -130,22 +135,27 @@ pub async fn local_player_loop(
             .set(server_manager.clone())
             .expect("Failed to set server manager in global params");
 
-        match crate::server::utils::device::load_device_info(std::path::Path::new(
-            &*global_params.config_path,
-        ))
-        .await
-        {
-            Ok(info) => {
-                let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 7863));
-                if let Err(error) = server_manager
-                    .clone()
-                    .start_sync(addr, discovery::DiscoveryParams { device_info: info })
-                    .await
-                {
-                    log::warn!("Could not start paired sync server: {error}");
+        if let Err(error) = server_manager.start_worker().await {
+            log::warn!("Could not start paired sync worker: {error:#}");
+        }
+        if global_params.sync_settings.read().await.listen {
+            match crate::server::utils::device::load_device_info(std::path::Path::new(
+                &*global_params.config_path,
+            ))
+            .await
+            {
+                Ok(info) => {
+                    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 7863));
+                    if let Err(error) = server_manager
+                        .clone()
+                        .start_sync(addr, discovery::DiscoveryParams { device_info: info })
+                        .await
+                    {
+                        log::warn!("Could not start paired sync server: {error}");
+                    }
                 }
+                Err(error) => log::warn!("Could not initialize paired sync identity: {error}"),
             }
-            Err(error) => log::warn!("Could not initialize paired sync identity: {error}"),
         }
         for_all_request_pairs2!(listen_local_gui_event, global_params, main_cancel_token);
     });

@@ -277,6 +277,7 @@ async fn scanned_symlinked_folder_is_playable() -> Result<()> {
         |_| {},
         None,
         &store.record_store(),
+        database::actions::metadata::MissingHostFilePolicy::RemoveEverywhere,
     )
     .await?;
     let rows = media_files::Entity::find().all(&db).await?;
