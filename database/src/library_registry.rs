@@ -8,9 +8,16 @@ use anyhow::{Context, Result, bail};
 use fsio::FsIo;
 use log::warn;
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::connection::StorageMode;
+
+static REGISTRY_WRITE: Mutex<()> = Mutex::const_new(());
+
+fn background_sync_default() -> bool {
+    true
+}
 
 /// A node's record of a library and its local storage.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -20,6 +27,8 @@ pub struct LibraryDescriptor {
     pub authority: LibraryAuthority,
     pub storage: LibraryStorage,
     pub db_placement: DbPlacement,
+    #[serde(default = "background_sync_default")]
+    pub background_sync: bool,
 }
 /// The authority responsible for a library.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -89,8 +98,47 @@ impl LibraryRegistry {
         };
         Ok(Self { libraries, path })
     }
-    /// Atomically replace the registry file.
-    pub fn save(&self) -> Result<()> {
+    /// Load, modify and persist a registry under the process-wide writer lock.
+    pub async fn update<T>(
+        config_dir: &Path,
+        change: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        let _guard = REGISTRY_WRITE.lock().await;
+        let mut registry = Self::load(config_dir)?;
+        let result = change(&mut registry)?;
+        registry.save()?;
+        Ok(result)
+    }
+
+    /// Persist a library's device-local background sync preference.
+    pub async fn set_background_sync(
+        config_dir: &Path,
+        library_id: Uuid,
+        enabled: bool,
+    ) -> Result<()> {
+        Self::update(config_dir, |registry| {
+            let library = registry
+                .libraries
+                .iter_mut()
+                .find(|library| library.library_id == library_id)
+                .context("Library is not registered on this node")?;
+            library.background_sync = enabled;
+            Ok(())
+        })
+        .await
+    }
+
+    fn reload(&mut self) -> Result<()> {
+        *self = Self::load(
+            self.path
+                .parent()
+                .context("Registry has no parent directory")?,
+        )?;
+        Ok(())
+    }
+
+    // Callers hold REGISTRY_WRITE across load, modification and atomic replacement.
+    fn save(&self) -> Result<()> {
         let dir = self
             .path
             .parent()
@@ -126,6 +174,8 @@ pub async fn resolve_library(
     alias: &str,
     mode: StorageMode,
 ) -> Result<LibraryDescriptor> {
+    let _guard = REGISTRY_WRITE.lock().await;
+    registry.reload()?;
     let rune_dir = if cfg!(target_os = "android") && root.starts_with("content://") {
         PathBuf::from(".rune")
     } else {
@@ -204,6 +254,12 @@ pub async fn resolve_library(
             path: root.to_owned(),
         },
         db_placement: placement,
+        background_sync: registry
+            .libraries
+            .iter()
+            .find(|entry| entry.library_id == id)
+            .map(|entry| entry.background_sync)
+            .unwrap_or(true),
     };
     registry.libraries.retain(|entry| {
         let collision = entry.library_id != id && entry.storage == descriptor.storage;
@@ -221,13 +277,15 @@ pub async fn resolve_library(
 }
 
 /// Register a remote library in a single Portable folder in this node's config directory.
-pub fn create_replica(
+pub async fn create_replica(
     config_dir: &Path,
     registry: &mut LibraryRegistry,
     library_id: Uuid,
     alias: &str,
     authority_fingerprint: &str,
 ) -> Result<LibraryDescriptor> {
+    let _guard = REGISTRY_WRITE.lock().await;
+    registry.reload()?;
     if let Some(existing) = registry
         .libraries
         .iter()
@@ -286,6 +344,7 @@ pub fn create_replica(
                 .to_owned(),
         },
         db_placement: DbPlacement::Portable,
+        background_sync: true,
     };
     registry.libraries.push(descriptor.clone());
     if let Err(error) = registry.save() {
@@ -333,10 +392,76 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn background_sync_defaults_on_for_legacy_registry() {
+        let mut f = Fixture::new();
+        let root = f.root("legacy");
+        f.resolve(&root, "Legacy", StorageMode::Portable).await;
+        let path = f.dir.path().join("libraries.json");
+        let mut data: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        data["libraries"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("background_sync");
+        fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
+        let registry = LibraryRegistry::load(f.dir.path()).unwrap();
+        let descriptor = serde_json::to_value(&registry.libraries[0]).unwrap();
+        assert_eq!(descriptor["background_sync"], true);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_registry_writers_keep_all_updates() {
+        let dir = TempDir::new().unwrap();
+        let mut writers = Vec::new();
+        // All writers start with the same stale snapshot, as independent requests can.
+        for _ in 0..32 {
+            writers.push((LibraryRegistry::load(dir.path()).unwrap(), Uuid::new_v4()));
+        }
+        let mut tasks = Vec::new();
+        for (mut registry, id) in writers {
+            let config = dir.path().to_owned();
+            tasks.push(tokio::spawn(async move {
+                let library = create_replica(&config, &mut registry, id, "Replica", "owner")
+                    .await
+                    .unwrap();
+                LibraryRegistry::set_background_sync(&config, id, false)
+                    .await
+                    .unwrap();
+                let LibraryStorage::Local { path } = library.storage;
+                resolve_library(
+                    &FsIo::new(),
+                    &mut registry,
+                    &path,
+                    "Replica",
+                    StorageMode::Portable,
+                )
+                .await
+                .unwrap();
+                id
+            }));
+        }
+        let mut ids = Vec::new();
+        for task in tasks {
+            ids.push(task.await.unwrap());
+        }
+        let registry = LibraryRegistry::load(dir.path()).unwrap();
+        assert_eq!(registry.libraries.len(), ids.len());
+        for id in ids {
+            assert!(
+                registry
+                    .libraries
+                    .iter()
+                    .any(|library| library.library_id == id && !library.background_sync)
+            );
+        }
+    }
+    #[tokio::test]
     async fn replica_authority_reopen_and_idempotency() {
         let mut f = Fixture::new();
         let id = Uuid::new_v4();
-        let first = create_replica(f.dir.path(), &mut f.registry, id, "Remote", "owner").unwrap();
+        let first = create_replica(f.dir.path(), &mut f.registry, id, "Remote", "owner")
+            .await
+            .unwrap();
         assert_eq!(
             first.authority,
             LibraryAuthority::Hosted {
@@ -354,7 +479,9 @@ mod tests {
         assert_eq!(file.version, 1);
         assert_eq!(file.authority, Some(first.authority.clone()));
         f.registry = LibraryRegistry::load(f.dir.path()).unwrap();
-        let second = create_replica(f.dir.path(), &mut f.registry, id, "Changed", "owner").unwrap();
+        let second = create_replica(f.dir.path(), &mut f.registry, id, "Changed", "owner")
+            .await
+            .unwrap();
         assert_eq!(first, second);
         assert_eq!(f.registry.libraries.len(), 1);
         assert_eq!(
@@ -366,10 +493,15 @@ mod tests {
         // A descriptor survives a registry loss or a crash before registration.
         f.registry.libraries.clear();
         f.registry.save().unwrap();
-        let recovered =
-            create_replica(f.dir.path(), &mut f.registry, id, "Changed", "owner").unwrap();
+        let recovered = create_replica(f.dir.path(), &mut f.registry, id, "Changed", "owner")
+            .await
+            .unwrap();
         assert_eq!(recovered, first);
-        assert!(create_replica(f.dir.path(), &mut f.registry, id, "", "other").is_err());
+        assert!(
+            create_replica(f.dir.path(), &mut f.registry, id, "", "other")
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -379,7 +511,9 @@ mod tests {
         let owned = f.resolve(&root, "Owned", StorageMode::Portable).await;
         assert_eq!(owned.authority, LibraryAuthority::Owned);
         assert!(
-            create_replica(f.dir.path(), &mut f.registry, owned.library_id, "", "peer").is_err()
+            create_replica(f.dir.path(), &mut f.registry, owned.library_id, "", "peer")
+                .await
+                .is_err()
         );
         assert_eq!(f.registry.libraries, vec![owned]);
         assert!(!f.dir.path().join("replicas").exists());

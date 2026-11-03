@@ -50,6 +50,7 @@ use crate::backends::{
     local::local_player_loop,
     remote::{RemoteConnectError, server_player_loop},
 };
+use crate::library_pool::{LibraryHandle, LibraryPool};
 use crate::messages::*;
 use crate::server::ServerManager;
 
@@ -105,6 +106,8 @@ pub struct GlobalParams {
     pub fsio: Arc<FsIo>,
     pub lib_path: Arc<String>,
     pub library_id: Option<Uuid>,
+    pub library_pool: Arc<LibraryPool>,
+    pub ui_library: Arc<Mutex<Option<LibraryHandle>>>,
     pub config_path: Arc<String>,
     pub sync_settings: Arc<RwLock<sync_settings::SyncSettings>>,
     pub node_id: Arc<String>,
@@ -304,41 +307,23 @@ async fn handle_media_library_path(
                     return;
                 }
 
-                // Initialize databases
-                match initialize_databases(
-                    &fsio,
-                    media_library_path,
-                    Some(&database_path),
-                    &node_id,
-                )
-                .await
-                {
-                    Ok(db_connections) => {
-                        let resolved = async {
-                            let mode = check_storage_mode(&fsio, media_library_path)?;
-                            let mut registry = LibraryRegistry::load(Path::new(config_path))?;
-                            resolve_library(&fsio, &mut registry, media_library_path, alias, mode)
-                                .await
-                        }
-                        .await;
-                        let descriptor = match resolved {
-                            Ok(descriptor) => descriptor,
-                            Err(e) => {
-                                error!("Failed to resolve library identity: {e:#}");
-                                broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                    error_kind: None,
-                                    path: media_library_path.to_string(),
-                                    success: false,
-                                    error: Some(format!(
-                                        "Failed to resolve library identity: {e:#}"
-                                    )),
-                                    not_ready: false,
-                                });
-                                return;
-                            }
-                        };
-                        info!("Resolved library id: {}", descriptor.library_id);
-                        // Send success response to Dart
+                let opened = async {
+                    let mode = check_storage_mode(&fsio, media_library_path)?;
+                    let mut registry = LibraryRegistry::load(Path::new(config_path))?;
+                    let descriptor =
+                        resolve_library(&fsio, &mut registry, media_library_path, alias, mode)
+                            .await?;
+                    let pool = LibraryPool::new(
+                        Path::new(config_path),
+                        Path::new(&database_path),
+                        &node_id,
+                    )?;
+                    pool.acquire_ui(descriptor.library_id).await
+                }
+                .await;
+                match opened {
+                    Ok(library) => {
+                        info!("Resolved library id: {}", library.descriptor.library_id);
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             error_kind: None,
                             path: media_library_path.to_string(),
@@ -346,24 +331,16 @@ async fn handle_media_library_path(
                             error: None,
                             not_ready: false,
                         });
-
-                        // Clone the Arc for this iteration
-                        let scrobbler_clone = Arc::clone(&scrobbler);
-
-                        // Continue with main loop
                         local_player_loop(
-                            fsio,
-                            descriptor,
+                            library,
                             config_path.to_string(),
-                            db_connections,
-                            scrobbler_clone,
+                            Arc::clone(&scrobbler),
                             broadcaster.clone(),
                         )
                         .await;
                     }
                     Err(e) => {
-                        error!("Database initialization failed: {e:#?}");
-                        // Send error response to Dart
+                        error!("Library initialization failed: {e:#?}");
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             error_kind: None,
                             path: media_library_path.to_string(),

@@ -917,6 +917,8 @@ mod lifecycle_tests {
     use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
 
+    use crate::library_pool::{LibraryPool, LibraryResources};
+
     struct Quiet;
     impl Broadcaster for Quiet {
         fn broadcast(&self, _: &dyn RinfRustSignal) {}
@@ -936,17 +938,20 @@ mod lifecycle_tests {
         let node = get_or_create_node_id(dir.to_str().context("config path")?).await?;
         let _ = migration::initialize_node_id(node.to_string());
         Migrator::up(&db, None).await?;
-        let mut registry = LibraryRegistry::load(dir)?;
-        registry.libraries.push(LibraryDescriptor {
-            library_id,
-            alias: "Owned".into(),
-            authority: LibraryAuthority::Owned,
-            storage: LibraryStorage::Local {
-                path: dir.to_string_lossy().into_owned(),
-            },
-            db_placement: DbPlacement::Portable,
-        });
-        registry.save()?;
+        LibraryRegistry::update(dir, |registry| {
+            registry.libraries.push(LibraryDescriptor {
+                library_id,
+                alias: "Owned".into(),
+                authority: LibraryAuthority::Owned,
+                storage: LibraryStorage::Local {
+                    path: dir.to_string_lossy().into_owned(),
+                },
+                db_placement: DbPlacement::Portable,
+                background_sync: true,
+            });
+            Ok(())
+        })
+        .await?;
         fixture_with_db(dir, dir, library_id, node, db).await
     }
 
@@ -990,16 +995,36 @@ mod lifecycle_tests {
         let token = Arc::new(CancellationToken::new());
         let library_sync =
             crate::utils::initialize_library_replica(&db, &node.to_string(), library_id).await?;
+        let pool = LibraryPool::new(config, config, &node.to_string())?;
+        let main_db = Arc::new(db);
+        let recommend_db = Arc::new(RecommendationDbConnection::new());
+        let descriptor = LibraryRegistry::load(config)?
+            .libraries
+            .into_iter()
+            .find(|library| library.library_id == library_id)
+            .context("fixture descriptor")?;
+        let library = pool
+            .register_ui(LibraryResources {
+                main_db: main_db.clone(),
+                library_sync: library_sync.clone(),
+                recommend_db: recommend_db.clone(),
+                fsio: fsio.clone(),
+                media_root: dir.to_string_lossy().into_owned(),
+                descriptor,
+            })
+            .await?;
         let params = Arc::new(GlobalParams {
             library_id: Some(library_id),
+            library_pool: pool,
+            ui_library: Arc::new(Mutex::new(Some(library))),
             sync_settings: Arc::new(RwLock::new(SyncSettings::default())),
             fsio,
             lib_path: Arc::new(dir.to_string_lossy().into_owned()),
             config_path: Arc::new(config.to_string_lossy().into_owned()),
             node_id: Arc::new(node.to_string()),
-            main_db: Arc::new(db.clone()),
+            main_db,
             library_sync: Some(library_sync),
-            recommend_db: Arc::new(RecommendationDbConnection::new()),
+            recommend_db,
             main_token: token.clone(),
             task_tokens: Arc::new(Mutex::new(TaskTokens::default())),
             player: Arc::new(Mutex::new(MockPlayer)),
@@ -1039,7 +1064,24 @@ mod lifecycle_tests {
         assert_eq!(name, "GetMediaFilesCountResponse");
         let response: GetMediaFilesCountResponse = rinf::deserialize(&response?)?;
         assert_eq!(response.count, 0);
-        manager.global_params.main_token.cancel();
+        let params = &manager.global_params;
+        let library = params
+            .library_pool
+            .acquire(params.library_id.unwrap())
+            .await?;
+        assert!(Arc::ptr_eq(&library.main_db, &params.main_db));
+        assert!(params.ui_library.lock().await.is_some());
+        let close = CloseLibraryRequest {
+            path: (*params.lib_path).clone(),
+        };
+        assert!(
+            close
+                .handle(close.extract_params(params), None, &close)
+                .await?
+                .is_some()
+        );
+        assert!(params.ui_library.lock().await.is_none());
+        assert!(params.main_token.is_cancelled());
         Ok(())
     }
 
@@ -1054,6 +1096,8 @@ mod lifecycle_tests {
         let mut names = Vec::new();
         for_all_remote_request_pairs2!(collect_names, names, ());
         for name in [
+            "ListLocalLibrariesRequest",
+            "SetLibraryBackgroundSyncRequest",
             "ListPeerLibrariesRequest",
             "AddRemoteLibraryRequest",
             "UpdateClientStatusRequest",
@@ -1560,7 +1604,8 @@ mod lifecycle_tests {
             Uuid::new_v4(),
             "Third party",
             "third",
-        )?;
+        )
+        .await?;
         let source = first.path().join("source.ogg");
         std::fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),

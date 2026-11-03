@@ -133,7 +133,7 @@ pub(super) async fn list_peer_libraries(
 }
 
 /// Add a Portable replica which can be opened through the normal local library path.
-pub(crate) fn add_remote_library(
+pub(crate) async fn add_remote_library(
     config_dir: &Path,
     fingerprint: &str,
     library_id: &str,
@@ -146,7 +146,8 @@ pub(crate) fn add_remote_library(
         Uuid::parse_str(library_id)?,
         alias,
         fingerprint,
-    )?;
+    )
+    .await?;
     let LibraryStorage::Local { path } = descriptor.storage;
     Ok(path)
 }

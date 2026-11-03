@@ -19,9 +19,10 @@ use cli::{
     server::handle_server,
 };
 use hub::{
+    library_pool::LibraryPool,
     server::{ServerManager, WebSocketService},
     utils::{
-        GlobalParams, RunningMode, TaskTokens, initialize_databases, nid::get_or_create_node_id,
+        GlobalParams, RunningMode, TaskTokens, nid::get_or_create_node_id,
         player::initialize_local_player, sync_settings::SyncSettings,
     },
 };
@@ -115,24 +116,23 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     #[cfg(target_os = "android")]
     let fsio = Arc::new(FsIo::new(Path::new(".rune/.android-fs.db"), &lib_path)?);
 
-    let db_path = format!("{lib_path}/.rune");
     let node_id = Arc::new(get_or_create_node_id(config_path).await?.to_string());
-
-    let db_connections = initialize_databases(&fsio, lib_path, Some(&db_path), &node_id).await?;
 
     let mode = check_storage_mode(&fsio, lib_path)?;
     let mut registry = LibraryRegistry::load(Path::new(config_path))?;
     let descriptor = resolve_library(&fsio, &mut registry, lib_path, "", mode).await?;
     info!("Resolved library id: {}", descriptor.library_id);
 
-    let main_db: Arc<MainDbConnection> = db_connections.main_db;
-    let recommend_db: Arc<RecommendationDbConnection> = db_connections.recommend_db;
+    let pool = LibraryPool::new(Path::new(config_path), Path::new(config_path), &node_id)?;
+    let library = pool.acquire_ui(descriptor.library_id).await?;
+    let fsio = library.fsio.clone();
+    let main_db: Arc<MainDbConnection> = library.main_db.clone();
+    let recommend_db: Arc<RecommendationDbConnection> = library.recommend_db.clone();
     let lib_path: Arc<String> = Arc::new(lib_path.to_string());
     let config_path: Arc<String> = Arc::new(config_path.to_string());
 
     let main_cancel_token = CancellationToken::new();
-    let library_sync =
-        hub::utils::initialize_library_replica(&main_db, &node_id, descriptor.library_id).await?;
+    let library_sync = library.library_sync.clone();
     let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
 
     info!("Initializing player");
@@ -169,6 +169,8 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
 
     let global_params = Arc::new(GlobalParams {
         library_id: Some(descriptor.library_id),
+        library_pool: pool,
+        ui_library: Arc::new(Mutex::new(Some(library))),
         sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(&**config_path)))),
         fsio,
         lib_path,

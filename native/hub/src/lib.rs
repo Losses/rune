@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use fmt::time::ChronoLocal;
 mod apple_bridge;
 pub mod flutter_bridge;
@@ -6,6 +8,7 @@ mod macros;
 mod handlers;
 #[macro_use]
 pub mod backends;
+pub mod library_pool;
 pub mod messages;
 #[macro_use]
 pub mod server;

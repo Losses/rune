@@ -30,43 +30,51 @@ use ::fsio::FsIo;
 
 use crate::{
     Session, Signal, TaskTokens,
+    library_pool::LibraryHandle,
     messages::*,
+    server::ServerManager,
     utils::{Broadcaster, GlobalParams, ParamsExtractor, determine_batch_size},
 };
 
+pub struct CloseLibraryParams {
+    lib_path: Arc<String>,
+    main_token: Arc<CancellationToken>,
+    task_tokens: Arc<Mutex<TaskTokens>>,
+    server_manager: Option<Arc<ServerManager>>,
+    ui_library: Arc<Mutex<Option<LibraryHandle>>>,
+}
+
 impl ParamsExtractor for CloseLibraryRequest {
-    type Params = (
-        Arc<String>,
-        Arc<CancellationToken>,
-        Arc<Mutex<TaskTokens>>,
-        Option<Arc<crate::server::ServerManager>>,
-    );
+    type Params = CloseLibraryParams;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            Arc::clone(&all_params.lib_path),
-            Arc::clone(&all_params.main_token),
-            Arc::clone(&all_params.task_tokens),
-            all_params.server_manager.get().cloned(),
-        )
+        CloseLibraryParams {
+            lib_path: Arc::clone(&all_params.lib_path),
+            main_token: Arc::clone(&all_params.main_token),
+            task_tokens: Arc::clone(&all_params.task_tokens),
+            server_manager: all_params.server_manager.get().cloned(),
+            ui_library: all_params.ui_library.clone(),
+        }
     }
 }
 
 impl Signal for CloseLibraryRequest {
-    type Params = (
-        Arc<String>,
-        Arc<CancellationToken>,
-        Arc<Mutex<TaskTokens>>,
-        Option<Arc<crate::server::ServerManager>>,
-    );
+    type Params = CloseLibraryParams;
     type Response = CloseLibraryResponse;
 
     async fn handle(
         &self,
-        (lib_path, main_token, task_tokens, server_manager): Self::Params,
+        params: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let CloseLibraryParams {
+            lib_path,
+            main_token,
+            task_tokens,
+            server_manager,
+            ui_library,
+        } = params;
         let request = dart_signal;
 
         info!("Closing library: {:#?}", request.path);
@@ -99,6 +107,12 @@ impl Signal for CloseLibraryRequest {
             }
         }
         main_token.cancel();
+        if let Some(library) = ui_library.lock().await.take() {
+            library
+                .pool()
+                .unregister_ui(library.descriptor.library_id)
+                .await;
+        }
 
         Ok(Some(CloseLibraryResponse {
             path: request.path.clone(),

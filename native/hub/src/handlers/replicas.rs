@@ -70,7 +70,9 @@ impl Signal for AddRemoteLibraryRequest {
             &request.fingerprint,
             &request.library_id,
             &request.alias,
-        ) {
+        )
+        .await
+        {
             Ok(path) => AddRemoteLibraryResponse { path, error: None },
             Err(error) => AddRemoteLibraryResponse {
                 path: String::new(),

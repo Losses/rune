@@ -3,8 +3,8 @@ use crate::{
     Signal,
     server::{ServerManager, utils::device::load_device_info},
     utils::{
-        Broadcaster, DatabaseConnections, GlobalParams, ParamsExtractor, TaskTokens,
-        nid::get_or_create_node_id, player::initialize_local_player, sync_settings::SyncSettings,
+        Broadcaster, GlobalParams, ParamsExtractor, TaskTokens, nid::get_or_create_node_id,
+        player::initialize_local_player, sync_settings::SyncSettings,
     },
 };
 use std::net::SocketAddr;
@@ -14,7 +14,6 @@ mod gui_request;
 
 use std::sync::{Arc, OnceLock};
 
-use fsio::FsIo;
 use log::{error, info};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -24,7 +23,6 @@ use rinf::{DartSignal, RustSignal};
 pub use tokio;
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
-use ::database::library_registry::{LibraryDescriptor, LibraryStorage};
 use ::discovery::client::CertValidator;
 use ::discovery::protocol::DiscoveryService;
 use ::discovery::server::PermissionManager;
@@ -32,13 +30,12 @@ use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
 
+use crate::library_pool::LibraryHandle;
 use crate::messages::*;
 
 pub async fn local_player_loop(
-    fsio: Arc<FsIo>,
-    descriptor: LibraryDescriptor,
+    library: LibraryHandle,
     config_path: String,
-    db_connections: DatabaseConnections,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
     broadcaster: Arc<dyn Broadcaster>,
 ) {
@@ -47,12 +44,12 @@ pub async fn local_player_loop(
     tokio::spawn(async move {
         info!("Initializing database");
 
-        let main_db: Arc<MainDbConnection> = db_connections.main_db;
+        let main_db: Arc<MainDbConnection> = library.main_db.clone();
 
-        let recommend_db: Arc<RecommendationDbConnection> = db_connections.recommend_db;
+        let recommend_db: Arc<RecommendationDbConnection> = library.recommend_db.clone();
 
-        let LibraryStorage::Local { path } = descriptor.storage;
-        let lib_path: Arc<String> = Arc::new(path);
+        let fsio = library.fsio.clone();
+        let lib_path: Arc<String> = Arc::new(library.media_root.clone());
         let config_path: Arc<String> = Arc::new(config_path);
 
         let node_id = Arc::new(
@@ -63,19 +60,7 @@ pub async fn local_player_loop(
         );
 
         let main_cancel_token = CancellationToken::new();
-        let library_sync = match crate::utils::initialize_library_replica(
-            &main_db,
-            &node_id,
-            descriptor.library_id,
-        )
-        .await
-        {
-            Ok(replica) => replica,
-            Err(error) => {
-                log::error!("Failed to initialize library replica: {error:#}");
-                return;
-            }
-        };
+        let library_sync = library.library_sync.clone();
         let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
 
         info!("Initializing player");
@@ -113,7 +98,9 @@ pub async fn local_player_loop(
             sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(&**config_path)))),
             fsio,
             lib_path,
-            library_id: Some(descriptor.library_id),
+            library_id: Some(library.descriptor.library_id),
+            library_pool: library.pool(),
+            ui_library: Arc::new(Mutex::new(Some(library))),
             config_path,
             node_id,
             main_db,

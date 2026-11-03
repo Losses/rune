@@ -1,7 +1,9 @@
 #[macro_use]
 mod remote_request;
 
+use crate::library_pool::LibraryPool;
 use crate::utils::sync_settings::SyncSettings;
+use std::path::Path;
 use std::{
     collections::HashMap,
     sync::{Arc, OnceLock},
@@ -392,6 +394,12 @@ impl WebSocketDartBridge {
 
         let global_params = GlobalParams {
             library_id: None,
+            library_pool: LibraryPool::new(
+                Path::new(config_path),
+                Path::new(config_path),
+                &node_id,
+            )?,
+            ui_library: Arc::new(Mutex::new(None)),
             sync_settings: Arc::new(RwLock::new(SyncSettings::default())),
             fsio: Arc::new(FsIo::new_noop()),
             lib_path: Arc::new(rnsrv_url.to_owned()),

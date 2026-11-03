@@ -6,6 +6,7 @@ mod directory;
 mod library_home;
 mod library_manage;
 mod license;
+mod local_libraries;
 mod logging;
 mod lyric;
 mod media_file;

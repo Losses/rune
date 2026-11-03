@@ -11,6 +11,16 @@ struct RequestResponse {
 pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let types = vec![
         RequestResponse {
+            request: "ListLocalLibrariesRequest".to_string(),
+            response: Some("ListLocalLibrariesResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "SetLibraryBackgroundSyncRequest".to_string(),
+            response: Some("SetLibraryBackgroundSyncResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
             request: "ListPeerLibrariesRequest".to_string(),
             response: Some("ListPeerLibrariesResponse".to_string()),
             local_only: true,
