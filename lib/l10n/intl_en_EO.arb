@@ -1381,5 +1381,6 @@
   "deviceNotShared": "Ne dividita",
   "deviceReadOnly": "Nur legado",
   "deviceReadWrite": "Legado kaj skribado",
-  "requestPermissionDenied": "Ĉi tiu aparato ne rajtas fari tion"
+  "requestPermissionDenied": "Ĉi tiu aparato ne rajtas fari tion",
+  "readOnly": "Nurlegebla"
 }

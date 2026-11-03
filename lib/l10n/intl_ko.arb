@@ -1418,5 +1418,6 @@
   "deviceNotShared": "공유 안 함",
   "deviceReadOnly": "읽기 전용",
   "deviceReadWrite": "읽기 및 쓰기",
-  "requestPermissionDenied": "이 기기는 해당 작업을 수행할 수 없습니다"
+  "requestPermissionDenied": "이 기기는 해당 작업을 수행할 수 없습니다",
+  "readOnly": "읽기 전용"
 }

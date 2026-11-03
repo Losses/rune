@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fast_file_picker/fast_file_picker.dart';
 import 'package:file_selector/file_selector.dart' show XTypeGroup;
+
+import '../../providers/library_path.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
@@ -165,7 +167,8 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                 );
               },
             ),
-            if (data.collectionType == CollectionType.mix)
+            if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+                data.collectionType == CollectionType.mix)
               MenuFlyoutItem(
                 leading: const Icon(Symbols.add),
                 text: Text(S.of(context).newMix),
@@ -175,7 +178,8 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   if (x != null) data.reloadData();
                 },
               ),
-            if (data.collectionType == CollectionType.playlist)
+            if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+                data.collectionType == CollectionType.playlist)
               MenuFlyoutItem(
                 leading: const Icon(Symbols.add),
                 text: Text(S.of(context).newPlaylist),
@@ -185,7 +189,8 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   if (x != null) data.reloadData();
                 },
               ),
-            if (data.collectionType == CollectionType.playlist)
+            if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+                data.collectionType == CollectionType.playlist)
               MenuFlyoutItem(
                 leading: const Icon(Symbols.download),
                 text: Text(S.of(context).importM3u8),

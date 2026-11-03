@@ -1379,5 +1379,6 @@
   "deviceNotShared": "キョウユウ シナイ",
   "deviceReadOnly": "ヨミトリ センヨウ",
   "deviceReadWrite": "ヨミカキ",
-  "requestPermissionDenied": "コノ デバイスハ ソノ ソウサヲ キョカ サレテイマセン"
+  "requestPermissionDenied": "コノ デバイスハ ソノ ソウサヲ キョカ サレテイマセン",
+  "readOnly": "ヨミトリセンヨウ"
 }

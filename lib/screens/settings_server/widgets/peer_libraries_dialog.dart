@@ -159,6 +159,8 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
                                 ),
                             ],
                           ),
+                          if (library.accessLevel == DeviceLibraryLevel.read)
+                            Text(s.readOnly),
                           if (errors[library.libraryId] case final error?)
                             Text(error),
                         ],

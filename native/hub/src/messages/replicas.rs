@@ -1,7 +1,7 @@
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
-use super::LibraryOpenErrorKind;
+use super::{DeviceLibraryLevel, LibraryOpenErrorKind};
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ListPeerLibrariesRequest {
@@ -13,6 +13,7 @@ pub struct PeerLibrary {
     pub library_id: String,
     pub alias: String,
     pub added: bool,
+    pub access_level: DeviceLibraryLevel,
 }
 
 #[derive(Serialize, Deserialize, RustSignal)]
@@ -26,6 +27,7 @@ pub struct AddRemoteLibraryRequest {
     pub fingerprint: String,
     pub library_id: String,
     pub alias: String,
+    pub access_level: DeviceLibraryLevel,
 }
 
 #[derive(Serialize, Deserialize, RustSignal)]

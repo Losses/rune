@@ -29,6 +29,16 @@ pub struct LibraryDescriptor {
     pub db_placement: DbPlacement,
     #[serde(default = "background_sync_default")]
     pub background_sync: bool,
+    #[serde(default)]
+    pub access_level: Option<LibraryAccess>,
+}
+
+/// Access granted by the authority of a hosted library.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LibraryAccess {
+    NotShared,
+    Read,
+    ReadWrite,
 }
 /// The authority responsible for a library.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -105,8 +115,11 @@ impl LibraryRegistry {
     ) -> Result<T> {
         let _guard = REGISTRY_WRITE.lock().await;
         let mut registry = Self::load(config_dir)?;
+        let before = registry.libraries.clone();
         let result = change(&mut registry)?;
-        registry.save()?;
+        if registry.libraries != before {
+            registry.save()?;
+        }
         Ok(result)
     }
 
@@ -124,6 +137,30 @@ impl LibraryRegistry {
                 .context("Library is not registered on this node")?;
             library.background_sync = enabled;
             Ok(())
+        })
+        .await
+    }
+
+    /// Record an authority's current grant on its replica.
+    pub async fn set_access_level(
+        config_dir: &Path,
+        library_id: Uuid,
+        fingerprint: &str,
+        level: LibraryAccess,
+    ) -> Result<bool> {
+        Self::update(config_dir, |registry| {
+            let Some(library) = registry.libraries.iter_mut().find(|library| {
+                library.library_id == library_id
+                    && library.authority
+                        == (LibraryAuthority::Hosted {
+                            fingerprint: fingerprint.to_owned(),
+                        })
+            }) else {
+                return Ok(false);
+            };
+            let changed = library.access_level != Some(level);
+            library.access_level = Some(level);
+            Ok(changed)
         })
         .await
     }
@@ -246,6 +283,15 @@ pub async fn resolve_library(
             .await
             .context("Failed to write library descriptor")?;
     }
+    let access_level = if authority == LibraryAuthority::Owned {
+        None
+    } else {
+        registry
+            .libraries
+            .iter()
+            .find(|entry| entry.library_id == id)
+            .and_then(|entry| entry.access_level)
+    };
     let descriptor = LibraryDescriptor {
         library_id: id,
         alias,
@@ -254,6 +300,7 @@ pub async fn resolve_library(
             path: root.to_owned(),
         },
         db_placement: placement,
+        access_level,
         background_sync: registry
             .libraries
             .iter()
@@ -345,6 +392,7 @@ pub async fn create_replica(
         },
         db_placement: DbPlacement::Portable,
         background_sync: true,
+        access_level: None,
     };
     registry.libraries.push(descriptor.clone());
     if let Err(error) = registry.save() {
@@ -403,10 +451,15 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("background_sync");
+        data["libraries"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("access_level");
         fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
         let registry = LibraryRegistry::load(f.dir.path()).unwrap();
         let descriptor = serde_json::to_value(&registry.libraries[0]).unwrap();
         assert_eq!(descriptor["background_sync"], true);
+        assert_eq!(registry.libraries[0].access_level, None);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -532,6 +585,13 @@ mod tests {
         let owned = f.resolve(&root, "", StorageMode::Portable).await;
         assert_eq!(owned.authority, LibraryAuthority::Owned);
         assert_eq!(owned.library_id, id);
+        f.registry.libraries[0].authority = LibraryAuthority::Hosted {
+            fingerprint: "owner".into(),
+        };
+        f.registry.libraries[0].access_level = Some(LibraryAccess::Read);
+        f.registry.save().unwrap();
+        let reopened_owned = f.resolve(&root, "", StorageMode::Portable).await;
+        assert_eq!(reopened_owned.access_level, None);
         let key = Uuid::new_v4();
         f.resolve(&root, "", StorageMode::Redirected(key)).await;
         let authority = LibraryAuthority::Hosted {

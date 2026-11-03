@@ -1418,5 +1418,6 @@
   "deviceNotShared": "Non condivisa",
   "deviceReadOnly": "Sola lettura",
   "deviceReadWrite": "Lettura e scrittura",
-  "requestPermissionDenied": "Questo dispositivo non può farlo"
+  "requestPermissionDenied": "Questo dispositivo non può farlo",
+  "readOnly": "Sola lettura"
 }

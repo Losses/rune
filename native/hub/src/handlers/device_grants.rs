@@ -1,7 +1,7 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result, ensure};
-use database::library_registry::LibraryRegistry;
+use database::library_registry::{LibraryAccess, LibraryRegistry};
 use discovery::server::UserStatus;
 use uuid::Uuid;
 
@@ -33,6 +33,24 @@ impl From<LibraryLevel> for DeviceLibraryLevel {
             LibraryLevel::NotShared => Self::NotShared,
             LibraryLevel::Read => Self::Read,
             LibraryLevel::ReadWrite => Self::ReadWrite,
+        }
+    }
+}
+impl From<DeviceLibraryLevel> for LibraryAccess {
+    fn from(level: DeviceLibraryLevel) -> Self {
+        match level {
+            DeviceLibraryLevel::NotShared => Self::NotShared,
+            DeviceLibraryLevel::Read => Self::Read,
+            DeviceLibraryLevel::ReadWrite => Self::ReadWrite,
+        }
+    }
+}
+impl From<LibraryAccess> for DeviceLibraryLevel {
+    fn from(level: LibraryAccess) -> Self {
+        match level {
+            LibraryAccess::NotShared => Self::NotShared,
+            LibraryAccess::Read => Self::Read,
+            LibraryAccess::ReadWrite => Self::ReadWrite,
         }
     }
 }

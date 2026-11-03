@@ -16,6 +16,7 @@ import '../../utils/dialogs/playlist/create_edit_playlist.dart';
 import '../../utils/dialogs/playlist/remove_playlist_dialog.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
+import '../../providers/library_path.dart';
 import '../../utils/l10n.dart';
 
 import '../build_query.dart';
@@ -249,7 +250,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
     ),
   ];
 
-  if (edit != null) {
+  if (edit != null && !context.read<LibraryPathProvider>().isReadOnlyReplica) {
     items.add(const MenuFlyoutSeparator());
     items.add(
       MenuFlyoutItem(
@@ -264,7 +265,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
     );
   }
 
-  if (remove != null) {
+  if (remove != null && !context.read<LibraryPathProvider>().isReadOnlyReplica) {
     items.add(
       MenuFlyoutItem(
         leading: const Icon(Symbols.delete),
@@ -278,7 +279,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
     );
   }
 
-  if (operator != null) {
+  if (operator != null && !context.read<LibraryPathProvider>().isReadOnlyReplica) {
     items.add(const MenuFlyoutSeparator());
     items.add(
       MenuFlyoutSubItem(

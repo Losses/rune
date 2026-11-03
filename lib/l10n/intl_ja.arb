@@ -1416,5 +1416,6 @@
   "deviceNotShared": "共有しない",
   "deviceReadOnly": "読み取り専用",
   "deviceReadWrite": "読み書き",
-  "requestPermissionDenied": "このデバイスはその操作を許可されていません"
+  "requestPermissionDenied": "このデバイスはその操作を許可されていません",
+  "readOnly": "読み取り専用"
 }

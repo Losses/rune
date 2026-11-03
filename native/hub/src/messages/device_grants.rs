@@ -8,7 +8,7 @@ pub enum DevicePreset {
     MyDevice,
     Guest,
 }
-#[derive(Clone, Copy, Serialize, Deserialize, SignalPiece)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, SignalPiece)]
 pub enum DeviceLibraryLevel {
     NotShared,
     Read,

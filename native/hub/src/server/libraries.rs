@@ -17,7 +17,7 @@ use super::sync_worker::{authenticated_client, peer_endpoints};
 use super::utils::device::load_device_info;
 use crate::backends::remote::{RemoteConnectError, token_error};
 use crate::library_pool::LibraryHandle;
-use crate::messages::PeerLibrary;
+use crate::messages::{DeviceLibraryLevel, PeerLibrary};
 use crate::node::NodeContext;
 
 #[derive(Serialize, Deserialize)]
@@ -136,6 +136,7 @@ pub(super) async fn list_peer_libraries(
                         }),
                         library_id: library.library_id.to_string(),
                         alias: library.alias,
+                        access_level: library.level.into(),
                     })
                     .collect(),
             )
@@ -160,6 +161,7 @@ pub(crate) async fn add_remote_library(
     fingerprint: &str,
     library_id: &str,
     alias: &str,
+    access_level: DeviceLibraryLevel,
 ) -> Result<String> {
     let mut registry = LibraryRegistry::load(config_dir)?;
     let descriptor = create_replica(
@@ -168,6 +170,13 @@ pub(crate) async fn add_remote_library(
         Uuid::parse_str(library_id)?,
         alias,
         fingerprint,
+    )
+    .await?;
+    LibraryRegistry::set_access_level(
+        config_dir,
+        descriptor.library_id,
+        fingerprint,
+        access_level.into(),
     )
     .await?;
     let LibraryStorage::Local { path } = descriptor.storage;

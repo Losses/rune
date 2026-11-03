@@ -1476,5 +1476,6 @@
   "deviceNotShared": "不共享",
   "deviceReadOnly": "只读",
   "deviceReadWrite": "读写",
-  "requestPermissionDenied": "此设备不允许执行此操作"
+  "requestPermissionDenied": "此设备不允许执行此操作",
+  "readOnly": "只读"
 }

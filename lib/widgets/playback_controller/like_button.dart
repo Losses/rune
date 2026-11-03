@@ -1,6 +1,8 @@
 import '../../bindings/bindings.dart';
 import '../../utils/api/request_failure.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:provider/provider.dart';
+import '../../providers/library_path.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/playing_item.dart';
@@ -71,6 +73,9 @@ class _LikeButtonState extends State<LikeButton> {
 
   @override
   Widget build(BuildContext context) {
+    if (context.watch<LibraryPathProvider>().isReadOnlyReplica) {
+      return const SizedBox.shrink();
+    }
     return RuneClickable(
       onPressed: item == null
           ? null

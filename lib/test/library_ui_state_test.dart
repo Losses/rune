@@ -24,8 +24,14 @@ void main() {
       PeerLibrariesStatus.empty,
     );
     const libraries = [
-      PeerLibrary(libraryId: '1', alias: 'One', added: false),
-      PeerLibrary(libraryId: '2', alias: 'Two', added: true),
+      PeerLibrary(
+        libraryId: '1', alias: 'One', added: false,
+        accessLevel: DeviceLibraryLevel.read,
+      ),
+      PeerLibrary(
+        libraryId: '2', alias: 'Two', added: true,
+        accessLevel: DeviceLibraryLevel.readWrite,
+      ),
     ];
     final rows = peerLibrariesState(
       s,
@@ -42,6 +48,7 @@ void main() {
         path: '/one',
         ownerFingerprint: 'peer',
         backgroundSync: true,
+        accessLevel: DeviceLibraryLevel.read,
       ),
       LocalLibrary(
         libraryId: '2',
@@ -53,12 +60,37 @@ void main() {
     LibraryRowState row(
       String path, [
       Map<String, String> aliases = const {},
-    ]) => libraryRowState(path, libraries, aliases, (device) => 'From $device');
-    expect(row('/one', {'peer': 'Laptop'}).subtitle, 'From Laptop');
-    expect(row('/one').subtitle, 'From Music');
+    ]) => libraryRowState(
+      path, libraries, aliases, (device) => 'From $device', s.readOnly,
+    );
+    expect(row('/one', {'peer': 'Laptop'}).subtitle, 'From Laptop · Read only');
+    expect(row('/one').subtitle, 'From Music · Read only');
     expect(row('/one').library?.backgroundSync, true);
     expect(row('/two').subtitle, '/two');
     expect(row('/two').library?.backgroundSync, false);
     expect(row('/missing').library, isNull);
+  });
+  test('only the current read replica is read only', () {
+    LocalLibrary library(String path, String? owner, DeviceLibraryLevel? level) =>
+        LocalLibrary(
+          libraryId: path,
+          alias: path,
+          path: path,
+          ownerFingerprint: owner,
+          backgroundSync: true,
+          accessLevel: level,
+        );
+    final libraries = [
+      library('/owned', null, DeviceLibraryLevel.read),
+      library('/read', 'peer', DeviceLibraryLevel.read),
+      library('/write', 'peer', DeviceLibraryLevel.readWrite),
+      library('/unknown', 'peer', null),
+    ];
+    expect(currentLibraryIsReadOnly('/owned', libraries), false);
+    expect(currentLibraryIsReadOnly('/read', libraries), true);
+    expect(currentLibraryIsReadOnly('/write', libraries), false);
+    expect(currentLibraryIsReadOnly('/unknown', libraries), false);
+    expect(currentLibraryIsReadOnly('/missing', libraries), false);
+    expect(currentLibraryIsReadOnly('@RR|/read', libraries), false);
   });
 }

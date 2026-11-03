@@ -246,6 +246,9 @@ mod access_policy_tests {
         let right = pair.b.global_params.library_pool.acquire(pair.id).await?;
         let album = write_album(&left, "read-only pull").await?;
         assert_eq!(pair.pass(false).await?, PeerPass::Complete);
+        let registry = LibraryRegistry::load(Path::new(&*pair.b.global_params.config_path))?;
+        let replica = registry.libraries.iter().find(|library| library.library_id == pair.id).context("replica descriptor")?;
+        assert_eq!(serde_json::to_value(replica)?["access_level"], "Read");
         assert!(right.library_sync.get(&album).await?.is_some());
         let remote = media_files::Entity::find()
             .filter(Column::HlcUuid.eq(&original.hlc_uuid))
@@ -295,6 +298,11 @@ mod access_policy_tests {
             assert_eq!(pair.pass(true).await?, PeerPass::Complete);
         }
         assert!(!get_liked(&*left.main_db, original.id).await?);
+        pair.grants(DeviceLibraryLevel::ReadWrite).await?;
+        assert_eq!(pair.pass(false).await?, PeerPass::Complete);
+        let registry = LibraryRegistry::load(Path::new(&*pair.b.global_params.config_path))?;
+        let replica = registry.libraries.iter().find(|library| library.library_id == pair.id).context("replica descriptor")?;
+        assert_eq!(serde_json::to_value(replica)?["access_level"], "ReadWrite");
         pair.close().await
     }
 

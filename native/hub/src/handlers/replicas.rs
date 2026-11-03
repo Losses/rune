@@ -70,6 +70,7 @@ impl Signal for AddRemoteLibraryRequest {
             &request.fingerprint,
             &request.library_id,
             &request.alias,
+            request.access_level,
         )
         .await
         {

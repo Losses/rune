@@ -14,6 +14,7 @@ import '../../utils/api/get_parsed_media_file.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
+import '../../providers/library_path.dart';
 
 import '../rune_log.dart';
 import '../execute_middle_click_action.dart';
@@ -103,7 +104,9 @@ void openTrackItemContextMenu(
             text: Text(S.of(context).audioUnavailable),
             onPressed: null,
           ),
-          if (playlistId != null && occurrenceId != null)
+          if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+              playlistId != null &&
+              occurrenceId != null)
             MenuFlyoutItem(
               text: Text(S.of(context).removeFromPlaylist),
               onPressed: () async {
@@ -257,9 +260,13 @@ Widget buildTrackItemContextMenu(
           );
         },
       ),
-      if (playlistId != null && occurrenceId != null)
+      if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+              playlistId != null &&
+              occurrenceId != null)
         const MenuFlyoutSeparator(),
-      if (playlistId != null && occurrenceId != null)
+      if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+              playlistId != null &&
+              occurrenceId != null)
         MenuFlyoutItem(
           leading: const Icon(Symbols.delete),
           text: Text(S.of(context).removeFromPlaylist),
@@ -320,8 +327,10 @@ Widget buildTrackItemContextMenu(
           ),
         },
       ),
-      const MenuFlyoutSeparator(),
-      MenuFlyoutSubItem(
+      if (!context.read<LibraryPathProvider>().isReadOnlyReplica)
+        const MenuFlyoutSeparator(),
+      if (!context.read<LibraryPathProvider>().isReadOnlyReplica)
+        MenuFlyoutSubItem(
         leading: const Icon(Symbols.list_alt),
         text: Text(S.of(context).addToPlaylist),
         items: (context) => [
@@ -349,7 +358,8 @@ Widget buildTrackItemContextMenu(
           ...playlistItems,
         ],
       ),
-      MenuFlyoutSubItem(
+      if (!context.read<LibraryPathProvider>().isReadOnlyReplica)
+        MenuFlyoutSubItem(
         leading: const Icon(Symbols.magic_button),
         text: Text(S.of(context).addToMix),
         items: (context) => [
@@ -437,7 +447,9 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         );
       },
     ),
-    if (playlistId != null && occurrenceId != null)
+    if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
+              playlistId != null &&
+              occurrenceId != null)
       CommandBarButton(
         icon: Tooltip(
           message: S.of(context).removeFromPlaylist,

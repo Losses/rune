@@ -1416,5 +1416,6 @@
   "deviceNotShared": "Не надано доступ",
   "deviceReadOnly": "Лише читання",
   "deviceReadWrite": "Читання й запис",
-  "requestPermissionDenied": "Цьому пристрою не дозволено це робити"
+  "requestPermissionDenied": "Цьому пристрою не дозволено це робити",
+  "readOnly": "Лише читання"
 }

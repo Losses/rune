@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/query_list.dart';
+import '../utils/api/library_registry.dart';
+import '../utils/library_ui/library_ui_state.dart';
 import '../utils/rune_log.dart';
 import '../utils/api/load_request.dart';
 import '../utils/api/request_failure.dart';
@@ -106,8 +109,41 @@ Future<String?> getInitialPath() async {
 class LibraryPathProvider with ChangeNotifier {
   String? _currentPath;
   final Set<LibraryPathEntry> _libraryHistory = {};
+  StreamSubscription<dynamic>? _contentSubscription;
+  bool _readOnly = false;
+  int _refreshVersion = 0;
+  bool _disposed = false;
+
+  bool get isReadOnlyReplica => _readOnly;
+
+  Future<void> _refreshAccess() async {
+    final version = ++_refreshVersion;
+    if (_currentPath == null || _currentPath!.startsWith('@RR|')) return;
+    try {
+      final libraries = await listLocalLibraries();
+      if (_disposed || version != _refreshVersion) return;
+      final readOnly =
+          currentLibraryIsReadOnly(_currentPath, libraries.libraries);
+      if (readOnly != _readOnly) {
+        _readOnly = readOnly;
+        notifyListeners();
+      }
+    } on RequestFailure catch (error) {
+      error$(error.toString());
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _contentSubscription?.cancel();
+    super.dispose();
+  }
 
   LibraryPathProvider(String? initialPath) {
+    _contentSubscription = LibraryContentChanged.rustSignalStream.listen((_) {
+      _refreshAccess();
+    });
     if (initialPath != null) {
       setLibraryPath(null, initialPath, null).then((result) {
         final success = result.$1;
@@ -147,6 +183,8 @@ class LibraryPathProvider with ChangeNotifier {
     LibraryInitializeMode? selectedMode,
   ) async {
     _currentPath = filePath;
+    _readOnly = false;
+    _refreshAccess();
     notifyListeners();
 
     (bool, bool, String?, LibraryOpenErrorKind?) result;
@@ -194,6 +232,7 @@ class LibraryPathProvider with ChangeNotifier {
     }
 
     if (success) {
+      await _refreshAccess();
       final entry = LibraryPathEntry(filePath);
       if (_libraryHistory.add(entry)) {
         notifyListeners();
@@ -257,6 +296,8 @@ class LibraryPathProvider with ChangeNotifier {
   Future<void> clearAllOpenedFiles() async {
     await _fileStorageService.clearAllOpenedFiles();
     _currentPath = null;
+    _readOnly = false;
+    _refreshVersion++;
     _libraryHistory.clear();
     notifyListeners();
   }
@@ -272,6 +313,8 @@ class LibraryPathProvider with ChangeNotifier {
 
     if (_currentPath == filePath) {
       _currentPath = null;
+      _readOnly = false;
+      _refreshVersion++;
       hasChanged = true;
     }
 
@@ -292,6 +335,8 @@ class LibraryPathProvider with ChangeNotifier {
 
   void removeCurrentPath() {
     _currentPath = null;
+    _readOnly = false;
+    _refreshVersion++;
     notifyListeners();
   }
 }

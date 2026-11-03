@@ -13,6 +13,7 @@ use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, materialized_path, resolve_local_id};
 use database::actions::library::clean_local_orphans;
+use database::library_registry::{LibraryAccess, LibraryRegistry};
 use database::sync::Maintenance;
 use database::sync::model::RuneModel;
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
@@ -712,7 +713,12 @@ async fn sync_one(
             } else {
                 true
             }; // A pinned authoritative server need not be paired as a client here.
-            let operation = metadata_pass(library, notify, &mut state, &base, &client, may_receive);
+            let target = MetadataTarget {
+                global,
+                fingerprint: &endpoint.fingerprint,
+                may_receive,
+            };
+            let operation = metadata_pass(target, library, notify, &mut state, &base, &client);
             let result = tokio::select! {
                 biased;
                 _ = grant_changes.changed() => { state.session = None; state.library = None; return Ok(false); },
@@ -771,14 +777,25 @@ fn metadata_unauthorized(error: &anyhow::Error) -> bool {
     })
 }
 
+struct MetadataTarget<'a> {
+    global: &'a NodeContext,
+    fingerprint: &'a str,
+    may_receive: bool,
+}
+
 async fn metadata_pass(
+    target: MetadataTarget<'_>,
     library: &LibraryHandle,
     notify: &Arc<dyn Fn() + Send + Sync>,
     state: &mut PeerSession,
     base: &str,
     client: &reqwest::Client,
-    may_receive: bool,
 ) -> Result<bool> {
+    let MetadataTarget {
+        global,
+        fingerprint,
+        may_receive,
+    } = target;
     let local = library.library_sync.identity().await?;
     let listings: Vec<ListedLibrary> = client
         .get(format!("{base}/libraries"))
@@ -787,16 +804,38 @@ async fn metadata_pass(
         .error_for_status()?
         .json()
         .await?;
-    let level = listings
+    let advertised = listings
         .iter()
         .find(|entry| entry.library_id == local.namespace)
-        .map(|entry| entry.level)
+        .map(|entry| entry.level);
+    let level = advertised
         // Hosted replicas are not advertised. Probe their authenticated routes;
         // a push denial below switches this peer to pull-only.
         .unwrap_or(LibraryLevel::ReadWrite);
     if state.advertised_level != Some(level) {
         state.push_forbidden = false;
         state.advertised_level = Some(level);
+    }
+    if let Some(level) = advertised {
+        let access = if state.push_forbidden {
+            LibraryAccess::Read
+        } else {
+            match level {
+                LibraryLevel::NotShared => LibraryAccess::NotShared,
+                LibraryLevel::Read => LibraryAccess::Read,
+                LibraryLevel::ReadWrite => LibraryAccess::ReadWrite,
+            }
+        };
+        if LibraryRegistry::set_access_level(
+            Path::new(&*global.config_path),
+            local.namespace,
+            fingerprint,
+            access,
+        )
+        .await?
+        {
+            notify();
+        }
     }
     if level == LibraryLevel::NotShared {
         state.session = None;
@@ -865,6 +904,16 @@ async fn metadata_pass(
                 && direction != SessionDirection::Pull =>
         {
             state.push_forbidden = true;
+            if LibraryRegistry::set_access_level(
+                Path::new(&*global.config_path),
+                local.namespace,
+                fingerprint,
+                LibraryAccess::Read,
+            )
+            .await?
+            {
+                notify();
+            }
             state.session = None;
             state.library = None;
             if !state.read_only_logged {

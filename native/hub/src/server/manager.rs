@@ -927,6 +927,7 @@ mod lifecycle_tests {
                 },
                 db_placement: DbPlacement::Portable,
                 background_sync: true,
+                access_level: None,
             });
             Ok(())
         })
@@ -1911,6 +1912,7 @@ mod lifecycle_tests {
             fingerprint: fingerprint.to_owned(),
             library_id: library.library_id.clone(),
             alias: library.alias.clone(),
+            access_level: library.access_level,
         };
         let response = request
             .handle(
@@ -2215,6 +2217,7 @@ mod lifecycle_tests {
                 library_id: id.to_string(),
                 alias: "Held".into(),
                 added: false,
+                access_level: DeviceLibraryLevel::ReadWrite,
             },
         )
         .await?;
@@ -2383,6 +2386,7 @@ mod lifecycle_tests {
                 library_id: id.to_string(),
                 alias: "Held".into(),
                 added: false,
+                access_level: DeviceLibraryLevel::ReadWrite,
             },
         )
         .await?;
@@ -2472,6 +2476,7 @@ mod lifecycle_tests {
             library_id: library_id.to_string(),
             alias: "L2".into(),
             added: false,
+            access_level: DeviceLibraryLevel::ReadWrite,
         };
         request_add_library(&b, &fingerprint, &peer_library).await?;
         let original = scan_held_track(&a, library_id, "first.ogg").await?;

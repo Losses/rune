@@ -48,6 +48,7 @@ LibraryRowState libraryRowState(
   List<LocalLibrary> libraries,
   Map<String, String> deviceAliases,
   String Function(String) fromDevice,
+  String readOnly,
 ) {
   for (final library in libraries) {
     if (library.path == path) {
@@ -56,9 +57,22 @@ LibraryRowState libraryRowState(
         library,
         owner == null || owner.isEmpty
             ? path
-            : fromDevice(deviceAliases[owner] ?? library.alias),
+            : fromDevice(deviceAliases[owner] ?? library.alias) +
+                (library.accessLevel == DeviceLibraryLevel.read
+                    ? ' · $readOnly'
+                    : ''),
       );
     }
   }
   return LibraryRowState(null, path);
+}
+
+// Whether the open local library is a read-only replica.
+bool currentLibraryIsReadOnly(String? path, List<LocalLibrary> libraries) {
+  if (path == null || path.startsWith('@RR|')) return false;
+  return libraries.any((library) =>
+      library.path == path &&
+      library.ownerFingerprint != null &&
+      library.ownerFingerprint!.isNotEmpty &&
+      library.accessLevel == DeviceLibraryLevel.read);
 }

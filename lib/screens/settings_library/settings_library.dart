@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:provider/provider.dart';
@@ -39,20 +40,34 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
   List<LocalLibrary> registeredLibraries = [];
   final Set<String> updatingLibraries = {};
+  StreamSubscription? _contentSubscription;
 
   @override
   void initState() {
     super.initState();
-    listLocalLibraries().then((response) {
-      if (mounted) setState(() => registeredLibraries = response.libraries);
-    }).catchError((Object error) {
-      debugPrint('Could not load libraries: $error');
+    _loadLibraries();
+    _contentSubscription = LibraryContentChanged.rustSignalStream.listen((_) {
+      _loadLibraries();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         Provider.of<BroadcastProvider>(context, listen: false).fetchUsers();
       }
     });
+  }
+
+  void _loadLibraries() {
+    listLocalLibraries().then((response) {
+      if (mounted) setState(() => registeredLibraries = response.libraries);
+    }).catchError((Object error) {
+      debugPrint('Could not load libraries: $error');
+    });
+  }
+
+  @override
+  void dispose() {
+    _contentSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _setBackgroundSync(LocalLibrary library, bool enabled) async {
@@ -151,6 +166,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                           registeredLibraries,
                           aliases,
                           S.of(context).libraryFromDevice,
+                          S.of(context).readOnly,
                         );
                         final owner = row.library?.ownerFingerprint;
                         final shared = owner != null && owner.isNotEmpty;
