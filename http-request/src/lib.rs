@@ -1,4 +1,5 @@
 pub mod sync;
+pub use reqwest;
 
 use hyper::{
     Response,

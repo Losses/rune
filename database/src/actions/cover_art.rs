@@ -1,6 +1,8 @@
 use crate::actions::file::hash_file;
+use crate::sync::SeaOrmSyncStore;
 use crate::sync::accepted as crate_sync_accepted;
 use crate::sync::model::{Artwork, BlobRef, Collection, ObjectKey, RuneModel, author_source_on};
+use http_request::reqwest;
 use std::{
     collections::HashMap,
     env, fs,
@@ -869,4 +871,83 @@ mod received_body_tests {
         assert!(media_cover_art::Entity::find().one(&db).await?.is_none());
         Ok(())
     }
+}
+
+/// Fetch missing verified artwork bodies with per-item failure isolation.
+pub async fn fetch_missing(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    server: &str,
+    client: &reqwest::Client,
+    cursor: &mut http_request::sync::PageCursor,
+    deadline: tokio::time::Instant,
+) -> Result<(usize, usize)> {
+    use crate::sync::model::Payload;
+    use std::ops::ControlFlow;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+    use tokio::time::Instant;
+    let attached = AtomicUsize::new(0);
+    let pending = AtomicUsize::new(0);
+    http_request::sync::visit_page(
+        cursor,
+        |cursor| async move {
+            let page = artwork_candidates(db, store, cursor).await?;
+            let records = page
+                .records
+                .into_iter()
+                .filter_map(|record| match record.value {
+                    Some(Payload::Artwork(artwork)) => Some((record.key.id, artwork)),
+                    _ => None,
+                })
+                .collect();
+            Ok((records, page.next, page.done))
+        },
+        |id, artwork| {
+            let attached = &attached;
+            let pending = &pending;
+            async move {
+                if Instant::now() >= deadline {
+                    pending.fetch_add(1, Ordering::Relaxed);
+                    return Ok(ControlFlow::Break(()));
+                }
+                if !artwork_body_needed(db, id, &artwork).await? {
+                    return Ok(ControlFlow::Continue(()));
+                }
+                let limit = deadline.min(Instant::now() + Duration::from_secs(1));
+                let result = tokio::time::timeout_at(limit, async {
+                    let body = artwork.body()?;
+                    let url = format!("{}/sync/artworks/{id}", server.trim_end_matches('/'));
+                    let bytes =
+                        http_request::sync::fetch_bounded(client, &url, body.size, limit).await?;
+                    attach_received_body(db, store, id, &artwork, bytes).await?;
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await
+                .unwrap_or_else(|_| Err(anyhow::anyhow!("artwork request timed out")));
+                match result {
+                    Ok(()) => {
+                        attached.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(error) => {
+                        if error.chain().any(|cause| {
+                            cause.downcast_ref::<reqwest::Error>().is_some_and(|error| {
+                                error.status() == Some(reqwest::StatusCode::UNAUTHORIZED)
+                            })
+                        }) {
+                            return Err(error);
+                        }
+                        pending.fetch_add(1, Ordering::Relaxed);
+                        log::warn!("artwork {id} remains pending: {error:#}");
+                    }
+                }
+                Ok(ControlFlow::Continue(()))
+            }
+        },
+    )
+    .await?;
+    Ok((
+        attached.load(Ordering::Relaxed),
+        pending.load(Ordering::Relaxed),
+    ))
 }

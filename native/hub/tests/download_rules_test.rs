@@ -2,7 +2,10 @@
 mod support;
 use anyhow::Result;
 use database::{
-    actions::{downloads::set_download_rule, file::attach_download},
+    actions::{
+        downloads::{prepare_download, remove_download_rule, set_download_rule},
+        file::attach_download,
+    },
     connection::RecommendationDbConnection,
     entities::{media_files, sync_download_jobs, sync_download_rules},
     sync::model::{Collection, ObjectKey},
@@ -149,5 +152,41 @@ async fn interrupted_import_resumes_without_new_track_identity() -> Result<()> {
             .await?,
         2
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn removed_rule_does_not_download_stale_pending_job() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let db = fixtures::disk_database(&dir.path().join("pending.db"), Uuid::new_v4()).await?;
+    let fs = Arc::new(FsIo::new());
+    let track = Uuid::new_v4();
+    use database::actions::file::hash_file;
+    let blob = hash_file(&fs, &fixtures::audio_fixture())?;
+    let store = fixtures::open_library(db.clone(), Uuid::new_v4(), Some(Uuid::new_v4())).await?;
+    store
+        .write_local(
+            ObjectKey {
+                collection: Collection::Tracks,
+                id: track,
+            },
+            Some(support::audio("Pending", &blob)),
+        )
+        .await?;
+    let id = set_download_rule(&db, vec![("lib::all".into(), "true".into())], None, true).await?;
+    prepare_download(&db, &fs, dir.path(), track, &blob, "ogg").await?;
+    remove_download_rule(&db, &id).await?;
+    let report = download_requested_audio(
+        db.clone(),
+        &RecommendationDbConnection::new(),
+        fs,
+        dir.path().to_path_buf(),
+        Uuid::new_v4(),
+        &fixtures::unreachable_peer(),
+        Arc::new(|| {}),
+    )
+    .await?;
+    assert_eq!(report.requested, 0);
+    assert_eq!(sync_download_jobs::Entity::find().count(&db).await?, 1);
     Ok(())
 }

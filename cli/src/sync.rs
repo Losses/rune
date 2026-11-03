@@ -1,10 +1,10 @@
 //! Resumable bidirectional metadata sessions for an authenticated paired peer.
 use anyhow::{Result, ensure};
+pub use database::actions::cover_art::fetch_missing;
 use database::sync::{LibrarySyncStore, model::RuneModel};
 use http_request::sync::PageCursor;
 use http_request::sync::{BidirectionalSession, MetadataPeer};
 use sea_orm::DatabaseConnection;
-use std::ops::ControlFlow;
 use std::time::Duration;
 use sync::{SyncModel, SyncPeer};
 use tokio::time::Instant;
@@ -67,76 +67,4 @@ pub async fn sync_library(
         artwork_pending,
         artwork_complete: cursor.is_complete(),
     })
-}
-
-/// Fetch missing verified artwork bodies with per-item failure isolation.
-pub async fn fetch_missing(
-    db: &DatabaseConnection,
-    store: &database::sync::SeaOrmSyncStore,
-    server: &str,
-    client: &reqwest::Client,
-    cursor: &mut http_request::sync::PageCursor,
-    deadline: tokio::time::Instant,
-) -> Result<(usize, usize)> {
-    use database::actions::cover_art::{
-        artwork_body_needed, artwork_candidates, attach_received_body,
-    };
-    use database::sync::model::Payload;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    let attached = AtomicUsize::new(0);
-    let pending = AtomicUsize::new(0);
-    http_request::sync::visit_page(
-        cursor,
-        |cursor| async move {
-            let page = artwork_candidates(db, store, cursor).await?;
-            let records = page
-                .records
-                .into_iter()
-                .filter_map(|record| match record.value {
-                    Some(Payload::Artwork(artwork)) => Some((record.key.id, artwork)),
-                    _ => None,
-                })
-                .collect();
-            Ok((records, page.next, page.done))
-        },
-        |id, artwork| {
-            let attached = &attached;
-            let pending = &pending;
-            async move {
-                if Instant::now() >= deadline {
-                    pending.fetch_add(1, Ordering::Relaxed);
-                    return Ok(ControlFlow::Break(()));
-                }
-                if !artwork_body_needed(db, id, &artwork).await? {
-                    return Ok(ControlFlow::Continue(()));
-                }
-                let limit = deadline.min(Instant::now() + Duration::from_secs(1));
-                let result = tokio::time::timeout_at(limit, async {
-                    let body = artwork.body()?;
-                    let url = format!("{}/sync/artworks/{id}", server.trim_end_matches('/'));
-                    let bytes =
-                        http_request::sync::fetch_bounded(client, &url, body.size, limit).await?;
-                    attach_received_body(db, store, id, &artwork, bytes).await?;
-                    Ok::<_, anyhow::Error>(())
-                })
-                .await
-                .unwrap_or_else(|_| Err(anyhow::anyhow!("artwork request timed out")));
-                match result {
-                    Ok(()) => {
-                        attached.fetch_add(1, Ordering::Relaxed);
-                    }
-                    Err(error) => {
-                        pending.fetch_add(1, Ordering::Relaxed);
-                        log::warn!("artwork {id} remains pending: {error:#}");
-                    }
-                }
-                Ok(ControlFlow::Continue(()))
-            }
-        },
-    )
-    .await?;
-    Ok((
-        attached.load(Ordering::Relaxed),
-        pending.load(Ordering::Relaxed),
-    ))
 }
