@@ -73,6 +73,13 @@ use crate::{
     utils::{GlobalParams, ParamsExtractor, RinfRustSignal},
 };
 
+async fn register_request_handlers(
+    websocket_service: Arc<WebSocketService>,
+    global_params: Arc<GlobalParams>,
+) {
+    for_all_remote_request_pairs2!(listen_server_event, websocket_service, global_params);
+}
+
 fn coalesce_worker_notify(
     notify: Arc<dyn Fn() + Send + Sync>,
     cancel: tokio_util::sync::CancellationToken,
@@ -269,11 +276,7 @@ impl ServerManager {
         let mut device_info = discovery_params.device_info.clone();
         let websocket_service = Arc::new(WebSocketService::new());
 
-        for_all_request_pairs2!(
-            listen_server_event,
-            websocket_service.clone(),
-            self.global_params.clone()
-        );
+        register_request_handlers(websocket_service.clone(), self.global_params.clone()).await;
 
         let app_state = Arc::new(AppState {
             lib_path: PathBuf::from(&*self.global_params.lib_path),
@@ -919,6 +922,50 @@ mod lifecycle_tests {
             .expect("manager set once");
         Ok(manager)
     }
+    #[tokio::test]
+    async fn request_gate_server_dispatch_rejects_local_requests() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let manager = fixture(dir.path()).await?;
+        let service = Arc::new(WebSocketService::new());
+        register_request_handlers(service.clone(), manager.global_params.clone()).await;
+        assert!(
+            service
+                .handle_message("FetchRemoteFileRequest", Vec::new(), None)
+                .await
+                .is_none()
+        );
+        let payload = rinf::serialize(&GetMediaFilesCountRequest {})?;
+        let (name, response) = service
+            .handle_message("GetMediaFilesCountRequest", payload, None)
+            .await
+            .context("forwardable request must be dispatched")?;
+        assert_eq!(name, "GetMediaFilesCountResponse");
+        let response: GetMediaFilesCountResponse = rinf::deserialize(&response?)?;
+        assert_eq!(response.count, 0);
+        manager.global_params.main_token.cancel();
+        Ok(())
+    }
+
+    #[test]
+    fn request_gate_owner_requests_are_not_forwardable() {
+        macro_rules! collect_names {
+            ($names:expr, $unused:expr $(, ($request:ident, $response:ident))* $(, $request_only:ident)*) => {{
+                $( $names.push(stringify!($request)); )*
+                $( $names.push(stringify!($request_only)); )*
+            }};
+        }
+        let mut names = Vec::new();
+        for_all_remote_request_pairs2!(collect_names, names, ());
+        for name in [
+            "UpdateClientStatusRequest",
+            "AuthenticateSingleServiceRequest",
+            "AuthenticateMultipleServiceRequest",
+            "LogoutSingleServiceRequest",
+        ] {
+            assert!(!names.contains(&name), "{name} must remain local");
+        }
+    }
+
     async fn info(manager: &ServerManager) -> Result<discovery::utils::DeviceInfo> {
         load_device_info(Path::new(&*manager.global_params.config_path)).await
     }

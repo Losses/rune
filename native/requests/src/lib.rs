@@ -428,17 +428,17 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "AuthenticateSingleServiceRequest".to_string(),
             response: Some("AuthenticateSingleServiceResponse".to_string()),
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "AuthenticateMultipleServiceRequest".to_string(),
             response: None,
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "LogoutSingleServiceRequest".to_string(),
             response: None,
-            local_only: false,
+            local_only: true,
         },
         // Log
         RequestResponse {
@@ -532,7 +532,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "UpdateClientStatusRequest".to_string(),
             response: Some("UpdateClientStatusResponse".to_string()),
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "EditHostsRequest".to_string(),
@@ -641,6 +641,25 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         })
         .collect();
 
+    let remote_response_pairs: Vec<_> = with_response
+        .iter()
+        .filter(|t| !t.local_only)
+        .map(|t| {
+            let req_ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
+            let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
+            quote! { (#req_ident, #resp_ident) }
+        })
+        .collect();
+
+    let remote_request_only: Vec<_> = without_response
+        .iter()
+        .filter(|t| !t.local_only)
+        .map(|t| {
+            let ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
+            quote! { #ident }
+        })
+        .collect();
+
     let expanded = quote! {
         #[macro_export]
         macro_rules! for_all_request_pairs {
@@ -653,6 +672,13 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         macro_rules! for_all_request_pairs2 {
             ($m:tt, $param1:expr, $param2:expr) => {
                 $m!($param1, $param2 #(, #response_pairs)* #(, #request_only)*);
+            };
+        }
+
+        #[macro_export]
+        macro_rules! for_all_remote_request_pairs2 {
+            ($m:tt, $param1:expr, $param2:expr) => {
+                $m!($param1, $param2 #(, #remote_response_pairs)* #(, #remote_request_only)*);
             };
         }
 
