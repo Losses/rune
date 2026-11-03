@@ -1380,5 +1380,12 @@
   "offlineCleanupCheckbox": "Supprimer aussi les fichiers téléchargés devenus inutiles",
   "@offlineCleanupCheckbox": {"description": "Option to delete downloads no enabled offline rule needs."},
   "offlineSelectionCleaned": "Sélection hors ligne mise à jour et nettoyage tenté.",
-  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."}
+  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."},
+  "remoteOpenUntrusted": "Cet appareil ne fait pas encore confiance au serveur. Associez-les d’abord.",
+  "remoteOpenNotAuthorized": "L’autre appareil n’a pas autorisé cet appareil ou l’a bloqué.",
+  "remoteOpenUnreachable": "L’appareil est inaccessible. Vérifiez qu’il est allumé et sur le même réseau.",
+  "remoteOpenProtocol": "Impossible de communiquer avec l’appareil. Les deux appareils doivent utiliser la même version de Rune.",
+  "remoteLossRevoked": "L’accès de cet appareil a été supprimé.",
+  "remoteLossServerStopped": "L’autre appareil a arrêté le partage.",
+  "remoteLossNetworkLost": "La connexion a été perdue."
 }

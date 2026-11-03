@@ -5,6 +5,7 @@ import '../../../providers/library_path.dart';
 import '../../../utils/api/close_library.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../utils/l10n.dart';
+import '../../../utils/remote_connection_messages.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../widgets/no_shortcuts.dart';
 
@@ -42,23 +43,25 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
   }
 
   _addConnection() async {
-    final libraryPath =
-        Provider.of<LibraryPathProvider>(context, listen: false);
+    final libraryPath = Provider.of<LibraryPathProvider>(
+      context,
+      listen: false,
+    );
 
     await closeLibrary(context);
 
     if (!mounted) return;
 
-    final (switched, cancelled, error) = await libraryPath.setLibraryPath(
-      context,
-      '@RR|${controller.toWebSocketUrl()}',
-      null,
-    );
+    final (switched, cancelled, _, errorKind) = await libraryPath
+        .setLibraryPath(context, '@RR|${controller.toWebSocketUrl()}', null);
 
     widget.$close(null);
-    if (!cancelled) {
+    if (!switched && !cancelled) {
       if (!context.mounted) return;
-      await showFailedToInitializeLibrary(context, error);
+      await showFailedToInitializeLibrary(
+        context,
+        remoteOpenErrorMessage(S.of(context), errorKind),
+      );
       if (widget.navigateIfFailed) {
         $$replace('/');
       }
@@ -71,24 +74,11 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
 
     return NoShortcuts(
       ContentDialog(
-        title: Column(
-          children: [
-            SizedBox(height: 8),
-            Text(s.addConnection),
-          ],
-        ),
-        content: AddRemoteDeviceForm(
-          controller: controller,
-        ),
+        title: Column(children: [SizedBox(height: 8), Text(s.addConnection)]),
+        content: AddRemoteDeviceForm(controller: controller),
         actions: [
-          FilledButton(
-            onPressed: _addConnection,
-            child: Text(s.addConnection),
-          ),
-          Button(
-            onPressed: () => widget.$close(null),
-            child: Text(s.cancel),
-          ),
+          FilledButton(onPressed: _addConnection, child: Text(s.addConnection)),
+          Button(onPressed: () => widget.$close(null), child: Text(s.cancel)),
         ],
       ),
     );

@@ -1475,5 +1475,12 @@
   "offlineSelectionCleaned": "Offline selection updated and cleanup attempted.",
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
-  }
+  },
+  "remoteOpenUntrusted": "This device does not trust that server yet. Pair it first.",
+  "remoteOpenNotAuthorized": "The other device has not allowed this device, or has blocked it.",
+  "remoteOpenUnreachable": "The device cannot be reached. Check that it is on and on the same network.",
+  "remoteOpenProtocol": "Could not talk to the device. Both devices need the same version of Rune.",
+  "remoteLossRevoked": "This device's access was removed.",
+  "remoteLossServerStopped": "The other device stopped sharing.",
+  "remoteLossNetworkLost": "The connection was lost."
 }

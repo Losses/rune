@@ -53,3 +53,16 @@ pub struct SetMediaLibraryPathResponse {
     pub error: Option<String>,
     pub not_ready: bool,
 }
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemoteLossKind {
+    Revoked,
+    ServerStopped,
+    NetworkLost,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct RemoteConnectionLost {
+    pub kind: RemoteLossKind,
+    pub detail: String,
+}

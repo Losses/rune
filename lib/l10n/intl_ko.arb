@@ -1380,5 +1380,12 @@
   "offlineCleanupCheckbox": "더 이상 필요하지 않은 다운로드 파일도 삭제",
   "@offlineCleanupCheckbox": {"description": "Option to delete downloads no enabled offline rule needs."},
   "offlineSelectionCleaned": "오프라인 선택을 업데이트하고 정리를 시도했습니다.",
-  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."}
+  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."},
+  "remoteOpenUntrusted": "이 기기는 아직 서버를 신뢰하지 않습니다. 먼저 페어링하세요.",
+  "remoteOpenNotAuthorized": "다른 기기에서 이 기기를 허용하지 않았거나 차단했습니다.",
+  "remoteOpenUnreachable": "기기에 연결할 수 없습니다. 켜져 있고 같은 네트워크에 있는지 확인하세요.",
+  "remoteOpenProtocol": "기기와 통신할 수 없습니다. 두 기기에 같은 버전의 Rune이 필요합니다.",
+  "remoteLossRevoked": "이 기기의 접근 권한이 제거되었습니다.",
+  "remoteLossServerStopped": "다른 기기에서 공유를 중지했습니다.",
+  "remoteLossNetworkLost": "연결이 끊어졌습니다."
 }

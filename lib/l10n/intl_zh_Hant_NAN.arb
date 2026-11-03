@@ -1343,5 +1343,12 @@
   },
   "interfaceScale": "介面縮放",
   "interfaceScaleSubtitle": "相對於系統縮放立即調整文字與應用程式內容。視窗大小和螢幕解析度不會改變。100% 遵循系統縮放。",
-  "interfaceScaleSaveError": "無法儲存介面縮放"
+  "interfaceScaleSaveError": "無法儲存介面縮放",
+  "remoteOpenUntrusted": "Chit ê siat-pī iáu-bē sìn-jīm ho̍k-bū-khì, chhiáⁿ sian phòe-tùi.",
+  "remoteOpenNotAuthorized": "Lēng-gōa chit ê siat-pī iáu-bē ún-chún á-sī í-keng hong-só chit ê siat-pī.",
+  "remoteOpenUnreachable": "Bô hoat-tō͘ liân-chiap siat-pī, chhiáⁿ kiám-cha kám ū khui-ki kap tī kāng chi̍t ê bāng-lō͘.",
+  "remoteOpenProtocol": "Bô hoat-tō͘ kap siat-pī thong-sìn, nn̄g ê siat-pī su-iàu sio-kâng pán-pún ê Rune.",
+  "remoteLossRevoked": "Chit ê siat-pī ê hóng-būn koân-hān í-keng hō͘ thô͘-khì.",
+  "remoteLossServerStopped": "Lēng-gōa ê siat-pī í-keng thêng-chí hūn-hióng.",
+  "remoteLossNetworkLost": "Liân-soàⁿ í-keng tiong-toān."
 }

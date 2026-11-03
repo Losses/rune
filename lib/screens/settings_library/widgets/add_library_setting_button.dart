@@ -44,7 +44,7 @@ class AddLibrarySettingButton extends StatelessWidget {
 
         if (!context.mounted) return;
 
-        final (switched, cancelled, error) =
+        final (switched, cancelled, error, _) =
             await libraryPath.setLibraryPath(context, path, null);
 
         if (switched) {

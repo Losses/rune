@@ -3,13 +3,12 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/l10n.dart';
+import '../../utils/remote_connection_messages.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
-import '../../utils/api/server_availability_test_request.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/dialogs/failed_to_initialize_library.dart';
-import '../../utils/dialogs/information/error.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
@@ -36,8 +35,10 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
   void didChangeDependencies() {
     if (requested) return;
 
-    final libraryPath =
-        Provider.of<LibraryPathProvider>(context, listen: false);
+    final libraryPath = Provider.of<LibraryPathProvider>(
+      context,
+      listen: false,
+    );
 
     setState(() {
       allOpenedFiles = libraryPath.getAnyDestinationRemotePaths();
@@ -93,27 +94,16 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                                   onPressed: isCurrentLibrary
                                       ? null
                                       : () async {
-                                          try {
-                                            await serverAvailabilityTest(
-                                              item.cleanPath,
-                                            );
-                                          } catch (e) {
-                                            if (!context.mounted) return;
-                                            showErrorDialog(
-                                              context: context,
-                                              title: s.unknownError,
-                                              errorMessage: e.toString(),
-                                            );
-                                            return;
-                                          }
-
-                                          if (!context.mounted) return;
                                           await closeLibrary(context);
 
                                           if (!context.mounted) return;
 
-                                          final (success, notReady, error) =
-                                              await libraryPath.setLibraryPath(
+                                          final (
+                                            success,
+                                            notReady,
+                                            _,
+                                            errorKind,
+                                          ) = await libraryPath.setLibraryPath(
                                             context,
                                             allOpenedFiles[index].rawPath,
                                             null,
@@ -122,7 +112,10 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                                           if (!success) {
                                             await showFailedToInitializeLibrary(
                                               context,
-                                              error,
+                                              remoteOpenErrorMessage(
+                                                s,
+                                                errorKind,
+                                              ),
                                             );
 
                                             $$replace("/");

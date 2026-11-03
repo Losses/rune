@@ -22,7 +22,7 @@ LibraryInitializeMode? stringToLibraryInitializeMode(String? x) {
   return LibraryInitializeMode.portable;
 }
 
-Future<(bool, bool, String?)> setMediaLibraryPath(
+Future<(bool, bool, String?, LibraryOpenErrorKind?)> setMediaLibraryPath(
   String path,
   LibraryInitializeMode? mode,
 ) async {
@@ -51,7 +51,12 @@ Future<(bool, bool, String?)> setMediaLibraryPath(
       final response = rustSignal.message;
 
       if (response.path == cleanPath) {
-        return (response.success, response.notReady, response.error);
+        return (
+          response.success,
+          response.notReady,
+          response.error,
+          response.errorKind,
+        );
       }
     }
   } on TimeoutException {
@@ -59,7 +64,8 @@ Future<(bool, bool, String?)> setMediaLibraryPath(
       false,
       false,
       'No response from the Rust backend within 30 seconds. '
-          'The Rust side may have failed to initialize; check logcat for details.'
+          'The Rust side may have failed to initialize; check logcat for details.',
+      null,
     );
   }
 }

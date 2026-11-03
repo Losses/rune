@@ -1341,5 +1341,12 @@
   },
   "interfaceScale": "介面縮放",
   "interfaceScaleSubtitle": "相對於系統縮放立即調整文字與應用程式內容。視窗大小和螢幕解析度不會改變。100% 遵循系統縮放。",
-  "interfaceScaleSaveError": "無法儲存介面縮放"
+  "interfaceScaleSaveError": "無法儲存介面縮放",
+  "remoteOpenUntrusted": "呢部裝置仲未信任伺服器，請先配對。",
+  "remoteOpenNotAuthorized": "另一部裝置未允許呢部裝置，或者已經封鎖咗佢。",
+  "remoteOpenUnreachable": "連接唔到裝置，請檢查佢有冇開機同連接同一個網絡。",
+  "remoteOpenProtocol": "無法同裝置通訊，兩部裝置需要相同版本嘅 Rune。",
+  "remoteLossRevoked": "呢部裝置嘅存取權已被移除。",
+  "remoteLossServerStopped": "另一部裝置已停止分享。",
+  "remoteLossNetworkLost": "連線已中斷。"
 }

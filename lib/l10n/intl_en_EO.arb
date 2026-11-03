@@ -1343,5 +1343,12 @@
   },
   "interfaceScale": "Interface scale",
   "interfaceScaleSubtitle": "Changes text and app content immediately relative to the system scale. Window size and display resolution do not change. 100% follows the system scale.",
-  "interfaceScaleSaveError": "Could not save interface scale"
+  "interfaceScaleSaveError": "Could not save interface scale",
+  "remoteOpenUntrusted": "Ĉi tiu aparato ankoraŭ ne fidas tiun servilon. Unue parigu ilin.",
+  "remoteOpenNotAuthorized": "La alia aparato ne permesis ĉi tiun aparaton aŭ blokis ĝin.",
+  "remoteOpenUnreachable": "La aparato ne estas atingebla. Kontrolu, ke ĝi estas ŝaltita kaj en la sama reto.",
+  "remoteOpenProtocol": "Ne eblis komuniki kun la aparato. Ambaŭ aparatoj bezonas la saman version de Rune.",
+  "remoteLossRevoked": "La aliro de ĉi tiu aparato estis forigita.",
+  "remoteLossServerStopped": "La alia aparato ĉesis kundividi.",
+  "remoteLossNetworkLost": "La konekto perdiĝis."
 }

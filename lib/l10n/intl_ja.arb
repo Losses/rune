@@ -1378,5 +1378,12 @@
   "offlineCleanupCheckbox": "不要になったダウンロードファイルも削除",
   "@offlineCleanupCheckbox": {"description": "Option to delete downloads no enabled offline rule needs."},
   "offlineSelectionCleaned": "オフラインの選択を更新し、クリーンアップを試みました。",
-  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."}
+  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."},
+  "remoteOpenUntrusted": "このデバイスはまだサーバーを信頼していません。先にペアリングしてください。",
+  "remoteOpenNotAuthorized": "相手のデバイスがこのデバイスを許可していないか、ブロックしています。",
+  "remoteOpenUnreachable": "デバイスに接続できません。電源が入り、同じネットワークにあるか確認してください。",
+  "remoteOpenProtocol": "デバイスと通信できません。両方で同じバージョンのRuneが必要です。",
+  "remoteLossRevoked": "このデバイスのアクセス権が削除されました。",
+  "remoteLossServerStopped": "相手のデバイスが共有を停止しました。",
+  "remoteLossNetworkLost": "接続が失われました。"
 }

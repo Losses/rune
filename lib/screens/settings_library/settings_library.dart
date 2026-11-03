@@ -150,7 +150,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
                                       if (!context.mounted) return;
 
-                                      final (success, notReady, error) =
+                                      final (success, notReady, error, _) =
                                           await libraryPath.setLibraryPath(
                                         context,
                                         allOpenedFiles[index],

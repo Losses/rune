@@ -1111,5 +1111,12 @@
   "offlineCleanupCheckbox": "同時刪除不再需要的下載檔案",
   "@offlineCleanupCheckbox": {"description": "Option to delete downloads no enabled offline rule needs."},
   "offlineSelectionCleaned": "離線選擇已更新，並已嘗試清理。",
-  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."}
+  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."},
+  "remoteOpenUntrusted": "此裝置尚未信任該伺服器，請先配對。",
+  "remoteOpenNotAuthorized": "另一部裝置尚未允許此裝置，或已封鎖它。",
+  "remoteOpenUnreachable": "無法連接裝置，請確認裝置已開啟並連接至相同網路。",
+  "remoteOpenProtocol": "無法與裝置通訊，兩部裝置需要相同版本的 Rune。",
+  "remoteLossRevoked": "此裝置的存取權限已移除。",
+  "remoteLossServerStopped": "另一部裝置已停止分享。",
+  "remoteLossNetworkLost": "連線已中斷。"
 }

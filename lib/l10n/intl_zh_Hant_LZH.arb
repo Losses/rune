@@ -1341,5 +1341,12 @@
   },
   "interfaceScale": "介面縮放",
   "interfaceScaleSubtitle": "相對於系統縮放立即調整文字與應用程式內容。視窗大小和螢幕解析度不會改變。100% 遵循系統縮放。",
-  "interfaceScaleSaveError": "無法儲存介面縮放"
+  "interfaceScaleSaveError": "無法儲存介面縮放",
+  "remoteOpenUntrusted": "此器未信彼伺服器，請先配對。",
+  "remoteOpenNotAuthorized": "彼器未允此器，或已封之。",
+  "remoteOpenUnreachable": "不能連彼器，請察其開啟且同網。",
+  "remoteOpenProtocol": "不能通訊，兩器須用同版 Rune。",
+  "remoteLossRevoked": "此器之存取權已除。",
+  "remoteLossServerStopped": "彼器已止共享。",
+  "remoteLossNetworkLost": "連線已斷。"
 }

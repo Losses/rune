@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/query_list.dart';
+import '../utils/rune_log.dart';
 import '../utils/api/load_request.dart';
 import '../utils/api/set_media_library_path.dart';
 import '../utils/api/operate_playback_with_mix_query.dart';
@@ -139,7 +140,7 @@ class LibraryPathProvider with ChangeNotifier {
     _fileStorageService.storeFilePath(filePath, alias: alias);
   }
 
-  Future<(bool, bool, String?)> setLibraryPath(
+  Future<(bool, bool, String?, LibraryOpenErrorKind?)> setLibraryPath(
     BuildContext? context,
     String filePath,
     LibraryInitializeMode? selectedMode,
@@ -147,15 +148,17 @@ class LibraryPathProvider with ChangeNotifier {
     _currentPath = filePath;
     notifyListeners();
 
-    var (success, notReady, error) =
+    var (success, notReady, error, errorKind) =
         await setMediaLibraryPath(filePath, selectedMode);
 
     if (!success) {
-      return (false, false, error);
+      if (error != null) error$(error);
+      removeCurrentPath();
+      return (false, false, error, errorKind);
     }
 
     if (notReady && context == null) {
-      return (false, true, null);
+      return (false, true, null, null);
     }
 
     if (notReady && context != null) {
@@ -170,10 +173,10 @@ class LibraryPathProvider with ChangeNotifier {
       }
 
       if (selectedMode == null) {
-        return (false, true, null);
+        return (false, true, null, null);
       }
 
-      (success, notReady, error) =
+      (success, notReady, error, errorKind) =
           await setMediaLibraryPath(filePath, selectedMode);
     }
 
@@ -203,7 +206,8 @@ class LibraryPathProvider with ChangeNotifier {
       removeCurrentPath();
     }
 
-    return (success, false, error);
+    if (!success && error != null) error$(error);
+    return (success, false, error, errorKind);
   }
 
   List<LibraryPathEntry> _filterEntries({

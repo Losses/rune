@@ -1378,5 +1378,12 @@
   "offlineCleanupCheckbox": "Також видалити завантажені файли, які більше не потрібні",
   "@offlineCleanupCheckbox": {"description": "Option to delete downloads no enabled offline rule needs."},
   "offlineSelectionCleaned": "Вибір для офлайну оновлено та виконано спробу очищення.",
-  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."}
+  "@offlineSelectionCleaned": {"description": "Confirmation after attempting to clean up offline downloads."},
+  "remoteOpenUntrusted": "Цей пристрій ще не довіряє серверу. Спочатку створіть пару.",
+  "remoteOpenNotAuthorized": "Інший пристрій не дозволив доступ цьому пристрою або заблокував його.",
+  "remoteOpenUnreachable": "Пристрій недоступний. Перевірте, чи він увімкнений і в тій самій мережі.",
+  "remoteOpenProtocol": "Не вдалося зв’язатися з пристроєм. На обох потрібна однакова версія Rune.",
+  "remoteLossRevoked": "Доступ цього пристрою видалено.",
+  "remoteLossServerStopped": "Інший пристрій припинив спільний доступ.",
+  "remoteLossNetworkLost": "З’єднання втрачено."
 }

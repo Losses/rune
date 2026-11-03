@@ -38,7 +38,7 @@ class WelcomePage extends StatelessWidget {
     if (path == null) return;
     if (!context.mounted) return;
 
-    final (success, cancelled, error) = await libraryPath.setLibraryPath(
+    final (success, cancelled, error, _) = await libraryPath.setLibraryPath(
       context,
       path,
       null,

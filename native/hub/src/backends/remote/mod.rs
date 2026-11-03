@@ -213,6 +213,14 @@ pub(crate) async fn connect_remote(
     .map_err(|_| RemoteConnectError::Unreachable)?
 }
 
+fn classify_remote_loss(close_code: Option<u16>) -> RemoteLossKind {
+    match close_code {
+        Some(4403) => RemoteLossKind::Revoked,
+        Some(1001) => RemoteLossKind::ServerStopped,
+        _ => RemoteLossKind::NetworkLost,
+    }
+}
+
 pub struct WebSocketDartBridge {
     handlers: HandlerMap,
 }
@@ -282,23 +290,6 @@ impl WebSocketDartBridge {
         let cancel_token = Arc::new(cancel_token);
 
         let cancel_token_clone = Arc::clone(&cancel_token);
-        let handle_event_close_library_request = || async move {
-            let receiver = CloseLibraryRequest::get_dart_signal_receiver();
-            loop {
-                tokio::select! {
-                    _ = cancel_token_clone.cancelled() => {
-                        break;
-                    }
-                    Some(_) = receiver.recv() => {
-                        cancel_token_clone.cancel();
-                    }
-                }
-            }
-        };
-
-        tokio::spawn(handle_event_close_library_request());
-
-        let cancel_token_clone = Arc::clone(&cancel_token);
         let sfx_player_clone = Arc::clone(&sfx_player);
         let handle_event_sfx_play_request = || async move {
             let receiver = SfxPlayRequest::get_dart_signal_receiver();
@@ -332,9 +323,27 @@ impl WebSocketDartBridge {
         let message_loop = || async move {
             loop {
                 tokio::select! {
+                    biased;
+                    _ = cancel_token_clone.cancelled() => {
+                        info!("Received cancel signal, closing connection");
+                        let mut write = write_clone.lock().await;
+                        if let Err(e) = write.close().await {
+                            error!("Error closing websocket connection: {e}");
+                        }
+                        break;
+                    }
+
                     message = read.next() => {
                         match message {
                             Some(Ok(msg)) => {
+                                if let TungsteniteMessage::Close(frame) = &msg {
+                                    let code = frame.as_ref().map(|frame| u16::from(frame.code));
+                                    RemoteConnectionLost {
+                                        kind: classify_remote_loss(code),
+                                        detail: format!("WebSocket closed: {frame:?}"),
+                                    }.send_signal_to_dart();
+                                    break;
+                                }
                                 if let TungsteniteMessage::Binary(payload) = msg
                                     && let Some((msg_type, msg_payload, _request_id)) = decode_message(&payload) {
                                         debug!("Received message with type: {msg_type}");
@@ -347,24 +356,24 @@ impl WebSocketDartBridge {
                             }
                             Some(Err(e)) => {
                                 error!("Error receiving message: {e}");
+                                RemoteConnectionLost {
+                                    kind: classify_remote_loss(None),
+                                    detail: e.to_string(),
+                                }.send_signal_to_dart();
                                 break;
                             }
-                            None => break,
+                            None => {
+                                RemoteConnectionLost {
+                                    kind: classify_remote_loss(None),
+                                    detail: "WebSocket ended without a close frame".to_string(),
+                                }.send_signal_to_dart();
+                                break;
+                            },
                         }
-                    }
-                    _ = cancel_token_clone.cancelled() => {
-                        info!("Received cancel signal, closing connection");
-                        let mut write = write_clone.lock().await;
-                        if let Err(e) = write.close().await {
-                            error!("Error closing websocket connection: {e}");
-                        }
-                        break;
                     }
                 }
             }
         };
-
-        tokio::spawn(message_loop());
 
         let device_scanner = Arc::new(DiscoveryService::without_store());
         let permission_manager = Arc::new(RwLock::new(PermissionManager::new(config_path)?));
@@ -404,6 +413,7 @@ impl WebSocketDartBridge {
         let global_params = Arc::new(global_params);
 
         for_all_local_only_request_pairs2!(listen_local_gui_event, global_params, cancel_token);
+        tokio::spawn(message_loop());
 
         Ok(())
     }
@@ -476,4 +486,23 @@ pub async fn server_player_loop(
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod loss_tests {
+    use super::*;
+
+    #[test]
+    fn classifies_remote_losses() {
+        assert_eq!(classify_remote_loss(Some(4403)), RemoteLossKind::Revoked);
+        assert_eq!(
+            classify_remote_loss(Some(1001)),
+            RemoteLossKind::ServerStopped
+        );
+        assert_eq!(classify_remote_loss(None), RemoteLossKind::NetworkLost);
+        assert_eq!(
+            classify_remote_loss(Some(4000)),
+            RemoteLossKind::NetworkLost
+        );
+    }
 }
