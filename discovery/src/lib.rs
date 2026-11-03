@@ -2,6 +2,7 @@ use utils::DeviceInfo;
 
 pub mod client;
 pub mod config;
+pub mod endpoint;
 pub mod persistent;
 pub mod protocol;
 pub mod server;

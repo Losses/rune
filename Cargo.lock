@@ -2177,6 +2177,7 @@ dependencies = [
  "toml",
  "tower 0.5.2",
  "tower-http",
+ "url",
  "uuid",
  "webpki-roots 0.26.8",
  "x509-parser",
