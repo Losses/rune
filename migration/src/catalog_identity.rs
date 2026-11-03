@@ -8,21 +8,25 @@ pub enum ParentKind {
     Album,
 }
 
+// Fixed namespaces for catalog identities. The values are frozen: every
+// artist, genre, album and artwork id in existing libraries is derived from
+// them, so changing one re-keys the whole catalog.
+const ARTIST_NAMESPACE: Uuid = Uuid::from_u128(0x8abe01e7_2bff_5bf7_83e5_5384e894b7ea);
+const GENRE_NAMESPACE: Uuid = Uuid::from_u128(0xbf8bc345_35d3_52de_9eda_98cb40b6e66a);
+const ALBUM_NAMESPACE: Uuid = Uuid::from_u128(0xcb7db76b_a1e9_5b23_a0af_fffed19fad14);
+const ARTWORK_NAMESPACE: Uuid = Uuid::from_u128(0x415eb90e_9ca3_525d_816b_f00dd6adf865);
+
 pub fn parent(kind: ParentKind, name: &str) -> Uuid {
-    let scope = match kind {
-        ParentKind::Artist => "https://rune.audio/catalog/artists",
-        ParentKind::Genre => "https://rune.audio/catalog/genres",
-        ParentKind::Album => "https://rune.audio/catalog/albums",
+    let namespace = match kind {
+        ParentKind::Artist => ARTIST_NAMESPACE,
+        ParentKind::Genre => GENRE_NAMESPACE,
+        ParentKind::Album => ALBUM_NAMESPACE,
     };
-    Uuid::new_v5(
-        &Uuid::new_v5(&Uuid::NAMESPACE_URL, scope.as_bytes()),
-        name.as_bytes(),
-    )
+    Uuid::new_v5(&namespace, name.as_bytes())
 }
 
 pub fn artwork(digest: &str) -> Uuid {
-    let namespace = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"https://rune.audio/catalog/artwork");
-    Uuid::new_v5(&namespace, digest.as_bytes())
+    Uuid::new_v5(&ARTWORK_NAMESPACE, digest.as_bytes())
 }
 
 fn provenance_bytes(
@@ -100,5 +104,27 @@ mod tests {
             membership(file, ParentKind::Artist, rock),
             membership(file, ParentKind::Genre, rock)
         );
+    }
+
+    #[test]
+    fn catalog_identities_are_frozen() {
+        let cases = [
+            (
+                parent(ParentKind::Genre, "Rock"),
+                0xfe10e0ca_5afa_5ebc_acb9_d52d188d0cff,
+            ),
+            (
+                parent(ParentKind::Artist, "Rock"),
+                0xebcada7c_e383_5af0_8789_e94ede911d4b,
+            ),
+            (
+                parent(ParentKind::Album, "Rock"),
+                0x92151a79_832a_55b5_ab8b_7324612f4d4f,
+            ),
+            (artwork("abc"), 0x9afadddf_9519_56ce_8b69_7006a0c1c6d9),
+        ];
+        for (actual, expected) in cases {
+            assert_eq!(actual, Uuid::from_u128(expected));
+        }
     }
 }

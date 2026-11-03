@@ -13,8 +13,10 @@ use sync::SyncModel;
 use sync_orm::{causal_schema, row_policy::ScanLimits};
 use uuid::Uuid;
 
+/// The single sync namespace every library shared before each library had
+/// its own `library_id`. Only used to recognise and reset that old history.
 pub(super) fn namespace() -> Uuid {
-    Uuid::new_v5(&Uuid::NAMESPACE_URL, b"https://rune.audio/catalog")
+    Uuid::from_u128(0x59336769_da35_55f3_bf01_8180c38025d0)
 }
 
 pub(super) async fn reset(db: &DatabaseConnection, actor: Uuid) -> Result<()> {

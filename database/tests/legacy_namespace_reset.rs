@@ -39,7 +39,7 @@ async fn legacy_fixture() -> Result<LegacyFixture> {
     let root = tempfile::tempdir()?;
     let actor = Uuid::new_v4();
     let other = Uuid::new_v4();
-    let legacy = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"https://rune.audio/catalog");
+    let legacy = Uuid::from_u128(0x59336769_da35_55f3_bf01_8180c38025d0);
     let db = fixtures::disk_database(&root.path().join("local.sqlite"), actor).await?;
     let peer_db = fixtures::disk_database(&root.path().join("peer.sqlite"), other).await?;
     let local = LibrarySyncStore::open(db.clone(), actor, Some(legacy)).await?;

@@ -8,13 +8,19 @@ use database::{
         },
         search::search_for,
     },
-    connection::{connect_main_db, connect_recommendation_db},
+    connection::{check_storage_mode, connect_main_db, connect_recommendation_db},
+    library_registry::{LibraryRegistry, resolve_library},
 };
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 use std::time::Duration;
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use directories::ProjectDirs;
 use dunce::canonicalize;
@@ -144,6 +150,14 @@ enum Commands {
     },
 }
 
+async fn resolve_library_id(fsio: &FsIo, config_path: &Path, lib_path: &str) -> Result<Uuid> {
+    let mode = check_storage_mode(fsio, lib_path)?;
+    let mut registry = LibraryRegistry::load(config_path)?;
+    Ok(resolve_library(fsio, &mut registry, lib_path, "", mode)
+        .await?
+        .library_id)
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -232,6 +246,15 @@ async fn main() {
         }
     };
 
+    // Each library syncs under its own id from this device's library registry.
+    let library_id = match resolve_library_id(&fsio, &config_path, lib_path).await {
+        Ok(id) => id,
+        Err(e) => {
+            error!("Failed to resolve library identity: {e:#}");
+            std::process::exit(1);
+        }
+    };
+
     if let Commands::Sync {
         server,
         ca,
@@ -263,10 +286,7 @@ async fn main() {
             let library = LibrarySyncStore::open(
                 main_db.clone(),
                 Uuid::parse_str(&node_id)?,
-                Some(Uuid::new_v5(
-                    &Uuid::NAMESPACE_URL,
-                    b"https://rune.audio/catalog",
-                )),
+                Some(library_id),
             )
             .await?;
             library.import_existing(Uuid::parse_str(&node_id)?).await?;
@@ -308,10 +328,7 @@ async fn main() {
             let library = match LibrarySyncStore::open(
                 main_db.clone(),
                 Uuid::parse_str(&node_id).expect("validated device UUID"),
-                Some(Uuid::new_v5(
-                    &Uuid::NAMESPACE_URL,
-                    b"https://rune.audio/catalog",
-                )),
+                Some(library_id),
             )
             .await
             {
@@ -361,10 +378,7 @@ async fn main() {
                 let library = LibrarySyncStore::open(
                     main_db.clone(),
                     Uuid::parse_str(&node_id)?,
-                    Some(Uuid::new_v5(
-                        &Uuid::NAMESPACE_URL,
-                        b"https://rune.audio/catalog",
-                    )),
+                    Some(library_id),
                 )
                 .await?;
                 index_audio_library(&main_db, &node_id, &library.record_store()).await
