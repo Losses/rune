@@ -54,7 +54,7 @@ List<String> decodeRnSrvUrl(String url) {
     throw FormatException('Invalid runep URL');
   }
 
-  final encoded = url.substring(7);
+  final encoded = url.substring('rnsrv://'.length);
   if (encoded.length % 7 != 0) {
     throw FormatException('Invalid encoded IP sequence');
   }
