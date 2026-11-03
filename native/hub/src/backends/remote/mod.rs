@@ -274,6 +274,7 @@ impl WebSocketDartBridge {
                 let node_id = get_or_create_node_id(config_path).await?.to_string();
 
                 let global_params = GlobalParams {
+                    library_id: None,
                     sync_settings: Arc::new(RwLock::new(SyncSettings::default())),
                     fsio: Arc::new(FsIo::new_noop()),
                     lib_path: Arc::new(rnsrv_url.to_owned()),

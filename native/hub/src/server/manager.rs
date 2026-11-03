@@ -901,6 +901,7 @@ mod lifecycle_tests {
         let token = Arc::new(CancellationToken::new());
         let library_sync = crate::utils::initialize_library_replica(&db, &node.to_string()).await?;
         let params = Arc::new(GlobalParams {
+            library_id: None,
             sync_settings: Arc::new(RwLock::new(SyncSettings::default())),
             fsio,
             lib_path: Arc::new(dir.to_string_lossy().into_owned()),

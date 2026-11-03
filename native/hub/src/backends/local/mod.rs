@@ -24,6 +24,7 @@ use rinf::{DartSignal, RustSignal};
 pub use tokio;
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
+use ::database::library_registry::{LibraryDescriptor, LibraryStorage};
 use ::discovery::client::CertValidator;
 use ::discovery::protocol::DiscoveryService;
 use ::discovery::server::PermissionManager;
@@ -35,7 +36,7 @@ use crate::messages::*;
 
 pub async fn local_player_loop(
     fsio: Arc<FsIo>,
-    lib_path: String,
+    descriptor: LibraryDescriptor,
     config_path: String,
     db_connections: DatabaseConnections,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
@@ -50,7 +51,8 @@ pub async fn local_player_loop(
 
         let recommend_db: Arc<RecommendationDbConnection> = db_connections.recommend_db;
 
-        let lib_path: Arc<String> = Arc::new(lib_path);
+        let LibraryStorage::Local { path } = descriptor.storage;
+        let lib_path: Arc<String> = Arc::new(path);
         let config_path: Arc<String> = Arc::new(config_path);
 
         let node_id = Arc::new(
@@ -106,6 +108,7 @@ pub async fn local_player_loop(
             sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(&**config_path)))),
             fsio,
             lib_path,
+            library_id: Some(descriptor.library_id),
             config_path,
             node_id,
             main_db,

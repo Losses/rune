@@ -26,7 +26,8 @@ use hub::{
     },
 };
 
-use ::database::connection::{MainDbConnection, RecommendationDbConnection};
+use ::database::connection::{MainDbConnection, RecommendationDbConnection, check_storage_mode};
+use ::database::library_registry::{LibraryRegistry, resolve_library};
 use ::discovery::{client::CertValidator, protocol::DiscoveryService, server::PermissionManager};
 use ::fsio::FsIo;
 use ::playback::{player::Player, sfx_player::SfxPlayer};
@@ -119,6 +120,11 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
 
     let db_connections = initialize_databases(&fsio, lib_path, Some(&db_path), &node_id).await?;
 
+    let mode = check_storage_mode(&fsio, lib_path)?;
+    let mut registry = LibraryRegistry::load(Path::new(config_path))?;
+    let descriptor = resolve_library(&fsio, &mut registry, lib_path, "", mode).await?;
+    info!("Resolved library id: {}", descriptor.library_id);
+
     let main_db: Arc<MainDbConnection> = db_connections.main_db;
     let recommend_db: Arc<RecommendationDbConnection> = db_connections.recommend_db;
     let lib_path: Arc<String> = Arc::new(lib_path.to_string());
@@ -161,6 +167,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     ));
 
     let global_params = Arc::new(GlobalParams {
+        library_id: Some(descriptor.library_id),
         sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(&**config_path)))),
         fsio,
         lib_path,

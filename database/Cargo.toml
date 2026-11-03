@@ -48,7 +48,7 @@ windows = { version = "0.58.0", features = [
 ] }
 async-trait = "0.1.83"
 thiserror = "2.0.3"
-uuid = { version = "1.11.0", features = ["v5", "v4"] }
+uuid = { version = "1.11.0", features = ["v5", "v4", "serde"] }
 regex = "1.11.1"
 blake3 = "1.7.0"
 fsio = { version = "0.1.0", path = "../fsio" }

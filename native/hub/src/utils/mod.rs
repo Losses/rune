@@ -1,5 +1,6 @@
 use database::sync::LibrarySyncStore;
 use tokio::time::Duration;
+use uuid::Uuid;
 pub mod broadcastable;
 pub mod diagnostics;
 pub mod nid;
@@ -32,9 +33,10 @@ use ::database::{
     },
     connection::{
         LibraryState, MainDbConnection, RecommendationDbConnection, check_library_state,
-        connect_main_db, connect_recommendation_db, create_redirect,
+        check_storage_mode, connect_main_db, connect_recommendation_db, create_redirect,
     },
     entities::media_files,
+    library_registry::{LibraryRegistry, resolve_library},
     playing_item::MediaFileHandle,
 };
 use ::discovery::{client::CertValidator, protocol::DiscoveryService, server::PermissionManager};
@@ -99,6 +101,7 @@ pub enum RunningMode {
 pub struct GlobalParams {
     pub fsio: Arc<FsIo>,
     pub lib_path: Arc<String>,
+    pub library_id: Option<Uuid>,
     pub config_path: Arc<String>,
     pub sync_settings: Arc<RwLock<sync_settings::SyncSettings>>,
     pub node_id: Arc<String>,
@@ -302,6 +305,29 @@ async fn handle_media_library_path(
                 .await
                 {
                     Ok(db_connections) => {
+                        let resolved = async {
+                            let mode = check_storage_mode(&fsio, media_library_path)?;
+                            let mut registry = LibraryRegistry::load(Path::new(config_path))?;
+                            resolve_library(&fsio, &mut registry, media_library_path, alias, mode)
+                                .await
+                        }
+                        .await;
+                        let descriptor = match resolved {
+                            Ok(descriptor) => descriptor,
+                            Err(e) => {
+                                error!("Failed to resolve library identity: {e:#}");
+                                broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                                    path: media_library_path.to_string(),
+                                    success: false,
+                                    error: Some(format!(
+                                        "Failed to resolve library identity: {e:#}"
+                                    )),
+                                    not_ready: false,
+                                });
+                                return;
+                            }
+                        };
+                        info!("Resolved library id: {}", descriptor.library_id);
                         // Send success response to Dart
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             path: media_library_path.to_string(),
@@ -316,7 +342,7 @@ async fn handle_media_library_path(
                         // Continue with main loop
                         local_player_loop(
                             fsio,
-                            media_library_path.to_string(),
+                            descriptor,
                             config_path.to_string(),
                             db_connections,
                             scrobbler_clone,
