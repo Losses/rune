@@ -1,41 +1,39 @@
 use crate::request_error::ExpectedRequestError;
-use std::sync::Arc;
 
 use anyhow::{Context, Result};
 
-use ::database::{
-    actions::logging::{clear_logs, delete_log, list_log},
-    connection::MainDbConnection,
-};
+use ::database::actions::logging::{clear_logs, delete_log, list_log};
 
 use crate::{
     Session, Signal,
+    library_pool::LibraryHandle,
     messages::*,
-    utils::{GlobalParams, ParamsExtractor},
+    utils::{GlobalParams, ParamsExtractor, require_library},
 };
 
 impl ParamsExtractor for ListLogRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        all_params.library.clone()
     }
 }
 
 impl Signal for ListLogRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
     type Response = ListLogResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let request = dart_signal;
 
         let result = list_log(
-            &main_db,
+            &library.main_db,
             request.cursor.try_into().map_err(|error| {
                 ExpectedRequestError::invalid_input(format!("Invalid cursor: {error}"))
             })?,
@@ -67,23 +65,24 @@ impl Signal for ListLogRequest {
 }
 
 impl ParamsExtractor for ClearLogRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        all_params.library.clone()
     }
 }
 
 impl Signal for ClearLogRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
     type Response = ClearLogResponse;
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        clear_logs(&main_db)
+        let library = require_library(library)?;
+        clear_logs(&library.main_db)
             .await
             .with_context(|| "Failed to clear logs")?;
 
@@ -92,25 +91,26 @@ impl Signal for ClearLogRequest {
 }
 
 impl ParamsExtractor for RemoveLogRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        all_params.library.clone()
     }
 }
 
 impl Signal for RemoveLogRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
     type Response = RemoveLogResponse;
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let request = dart_signal;
 
-        delete_log(&main_db, request.id)
+        delete_log(&library.main_db, request.id)
             .await
             .with_context(|| format!("Failed to delete log with id={}", request.id))?;
 

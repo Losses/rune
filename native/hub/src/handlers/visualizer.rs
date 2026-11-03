@@ -5,15 +5,14 @@ use tokio::sync::OnceCell;
 use anyhow::Result;
 use tokio::sync::Mutex;
 
-use ::database::connection::{MainDbConnection, RecommendationDbConnection};
-use ::fsio::FsIo;
 use ::playback::player::Playable;
 use ::visualizer::{Location, PcmInput, Transport};
 
 use crate::{
     Session, Signal, flutter_bridge,
+    library_pool::LibraryHandle,
     messages::*,
-    utils::{GlobalParams, ParamsExtractor},
+    utils::{GlobalParams, ParamsExtractor, require_library},
     visualizer::{VISUALIZER, provide_covers},
 };
 
@@ -34,41 +33,31 @@ fn report(operation: &'static str, result: Result<()>) -> Result<Option<()>> {
 static STARTING_OR_STOPPING: Mutex<()> = Mutex::const_new(());
 
 impl ParamsExtractor for StartVisualizerRequest {
-    type Params = (
-        Arc<Mutex<dyn Playable>>,
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
-        Arc<RecommendationDbConnection>,
-    );
+    type Params = (Arc<Mutex<dyn Playable>>, Option<LibraryHandle>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            Arc::clone(&all_params.player),
-            Arc::clone(&all_params.fsio),
-            Arc::clone(&all_params.main_db),
-            Arc::clone(&all_params.recommend_db),
-        )
+        (Arc::clone(&all_params.player), all_params.library.clone())
     }
 }
 
 impl Signal for StartVisualizerRequest {
-    type Params = (
-        Arc<Mutex<dyn Playable>>,
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
-        Arc<RecommendationDbConnection>,
-    );
+    type Params = (Arc<Mutex<dyn Playable>>, Option<LibraryHandle>);
     type Response = ();
 
     async fn handle(
         &self,
-        (player, fsio, main_db, recommend_db): Self::Params,
+        (player, library): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let _turn = STARTING_OR_STOPPING.lock().await;
-        crate::visualizer_log::write_to(Arc::clone(&main_db));
-        provide_covers(fsio, main_db, recommend_db);
+        crate::visualizer_log::write_to(Arc::clone(&library.main_db));
+        provide_covers(
+            Arc::clone(&library.fsio),
+            Arc::clone(&library.main_db),
+            Arc::clone(&library.recommend_db),
+        );
         let tap = player.lock().await.pcm_tap();
         // A restart: take the audio back from the running visualizer first.
         if let Some(input) = VISUALIZER.stop() {
@@ -510,25 +499,26 @@ fn rescan(dir: &std::path::Path) {
 }
 
 impl ParamsExtractor for SetVisualizerLogRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        all_params.library.clone()
     }
 }
 
 impl Signal for SetVisualizerLogRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
     type Response = ();
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         crate::visualizer_log::set_diagnostics(dart_signal.enabled);
-        crate::visualizer_log::write_to(main_db);
+        crate::visualizer_log::write_to(Arc::clone(&library.main_db));
         Ok(Some(()))
     }
 }

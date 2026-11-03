@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use log::{error, warn};
 
@@ -16,39 +14,40 @@ use ::playback::player::PlayingItem;
 
 use crate::{
     Session, Signal,
+    library_pool::LibraryHandle,
     messages::*,
-    utils::{GlobalParams, ParamsExtractor},
+    utils::{GlobalParams, ParamsExtractor, require_library},
 };
 
 impl ParamsExtractor for GetLyricByTrackIdRequest {
-    type Params = (Arc<FsIo>, Arc<String>, Arc<MainDbConnection>);
+    type Params = (Option<LibraryHandle>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            Arc::clone(&all_params.fsio),
-            Arc::clone(&all_params.lib_path),
-            Arc::clone(&all_params.main_db),
-        )
+        (all_params.library.clone(),)
     }
 }
 
 impl Signal for GetLyricByTrackIdRequest {
-    type Params = (Arc<FsIo>, Arc<String>, Arc<MainDbConnection>);
+    type Params = (Option<LibraryHandle>,);
     type Response = GetLyricByTrackIdResponse;
 
     async fn handle(
         &self,
-        (fsio, lib_path, main_db): Self::Params,
+        (library,): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
+        let fsio = &library.fsio;
+        let media_root = &library.media_root;
+        let main_db = &library.main_db;
         let item = &dart_signal.item;
 
         let Some(item) = item else {
             return Ok(None);
         };
 
-        let lines = match load_lyric_lines(&fsio, &lib_path, &main_db, item).await {
+        let lines = match load_lyric_lines(fsio, media_root, main_db, item).await {
             Ok(lines) => lines,
             Err(err) => {
                 error!("Unable to load lyric: item={item:#?}: {err:#}");
@@ -64,21 +63,16 @@ impl Signal for GetLyricByTrackIdRequest {
 }
 
 async fn load_lyric_lines(
-    fsio: &Arc<FsIo>,
-    lib_path: &Arc<String>,
-    main_db: &Arc<MainDbConnection>,
+    fsio: &FsIo,
+    media_root: &String,
+    main_db: &MainDbConnection,
     item: &PlayingItemRequest,
 ) -> Result<Vec<LyricContentLine>> {
     let parsed_item: PlayingItem = item.clone().into();
     let dispatcher = PlayingItemActionDispatcher::new();
 
     let paths = dispatcher
-        .get_file_path(
-            fsio,
-            lib_path.as_ref(),
-            main_db,
-            [parsed_item.clone()].as_ref(),
-        )
+        .get_file_path(fsio, media_root, main_db, [parsed_item.clone()].as_ref())
         .await?;
 
     let Some(path) = paths.get(&parsed_item) else {

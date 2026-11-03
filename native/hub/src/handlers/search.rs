@@ -1,43 +1,42 @@
-use std::sync::Arc;
-
 use anyhow::{Context, Result};
 
+use crate::library_pool::LibraryHandle;
 use ::database::actions::collection::CollectionQueryType;
 use ::database::actions::search::convert_to_collection_types;
 use ::database::actions::search::search_for;
-use ::database::connection::MainDbConnection;
 
 use crate::{
     Session, Signal,
     messages::*,
-    utils::{GlobalParams, ParamsExtractor},
+    utils::{GlobalParams, ParamsExtractor, require_library},
 };
 
 impl ParamsExtractor for SearchForRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Option<LibraryHandle>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (all_params.library.clone(),)
     }
 }
 
 impl Signal for SearchForRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Option<LibraryHandle>,);
     type Response = SearchForResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (library,): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
+        let library = require_library(library)?;
         let query_str = &request.query_str;
         let search_fields = convert_to_collection_types(request.fields.clone());
         let n = request.n as usize;
 
         let results = search_for(
-            &main_db,
+            &library.main_db,
             query_str,
             if search_fields.is_empty() {
                 None

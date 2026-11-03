@@ -1,12 +1,8 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 #[cfg(not(target_os = "ios"))]
 use sysinfo::System;
 #[cfg(not(target_os = "ios"))]
 use sysinfo::Users;
-
-use ::database::connection::MainDbConnection;
 
 use crate::{
     Session, Signal,
@@ -15,20 +11,18 @@ use crate::{
 };
 
 impl ParamsExtractor for SystemInfoRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = ();
 
-    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
-    }
+    fn extract_params(&self, _: &GlobalParams) -> Self::Params {}
 }
 
 impl Signal for SystemInfoRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = ();
     type Response = SystemInfoResponse;
 
     async fn handle(
         &self,
-        (_main_db,): Self::Params,
+        _: Self::Params,
         _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {

@@ -458,9 +458,11 @@ impl ServerManager {
         let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
             if let Some(node) = weak.upgrade() {
                 tokio::spawn(async move {
-                    if let Ok(params) = node.current_ui().await {
+                    if let Ok(params) = node.current_ui().await
+                        && let Some(library) = &params.library
+                    {
                         node.broadcaster.broadcast(&LibraryContentChanged {
-                            path: (*params.lib_path).clone(),
+                            path: library.media_root.clone(),
                         });
                     }
                 });
@@ -939,7 +941,7 @@ mod lifecycle_tests {
         let node = source.global_params.node.clone();
         let mut registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
         let descriptor = resolve_library(
-            &source.global_params.fsio,
+            &source.global_params.test_library().fsio,
             &mut registry,
             root.to_str().context("replica path")?,
             "",
@@ -1011,24 +1013,15 @@ mod lifecycle_tests {
         library: LibraryHandle,
     ) -> Result<Fixture> {
         let token = Arc::new(node_context.token.child_token());
-        let fsio = library.fsio.clone();
-        let main_db = library.main_db.clone();
-        let recommend_db = library.recommend_db.clone();
-        let library_sync = library.library_sync.clone();
         let params = Arc::new(GlobalParams {
             node: node_context.clone(),
             library_id: Some(library.descriptor.library_id),
             library_pool: node_context.library_pool.clone(),
             sync_settings: node_context.sync_settings.clone(),
-            fsio,
-            lib_path: Arc::new(library.media_root.clone()),
             config_path: node_context.config_path.clone(),
             node_id: node_context.node_id.clone(),
-            main_db,
-            library_sync: Some(library_sync),
             library: Some(library.clone()),
             ui_library: Arc::new(Mutex::new(Some(library))),
-            recommend_db,
             main_token: token.clone(),
             task_tokens: Arc::new(Mutex::new(TaskTokens::default())),
             player: Arc::new(Mutex::new(MockPlayer)),
@@ -1077,10 +1070,13 @@ mod lifecycle_tests {
             .library_pool
             .acquire(params.library_id.unwrap())
             .await?;
-        assert!(Arc::ptr_eq(&library.main_db, &params.main_db));
+        assert!(Arc::ptr_eq(
+            &library.main_db,
+            &params.test_library().main_db
+        ));
         assert!(params.ui_library.lock().await.is_some());
         let close = CloseLibraryRequest {
-            path: (*params.lib_path).clone(),
+            path: params.test_library().media_root.clone(),
         };
         assert!(
             close
@@ -1122,12 +1118,16 @@ mod lifecycle_tests {
     }
 
     async fn close_ui(params: &GlobalParams) -> Result<()> {
-        let request = CloseLibraryRequest {
-            path: (*params.lib_path).clone(),
-        };
-        request
-            .handle(request.extract_params(params), None, &request)
-            .await?;
+        if let Some(library) = &params.library {
+            let request = CloseLibraryRequest {
+                path: library.media_root.clone(),
+            };
+            request
+                .handle(request.extract_params(params), None, &request)
+                .await?;
+        } else {
+            params.node.close_ui(&params.main_token).await;
+        }
         Ok(())
     }
 
@@ -1171,14 +1171,14 @@ mod lifecycle_tests {
         let node = a.global_params.node.clone();
         let original_id = a.global_params.library_id.context("original library")?;
         let other_id = held_owned_library(&a, &first.path().join("B")).await?;
-        let original_connection = a.global_params.main_db.clone();
+        let original_connection = a.global_params.test_library().main_db.clone();
         let mut current = None;
         for id in [other_id, original_id, original_id] {
             let opened =
                 fixture_from_library(node.clone(), node.library_pool.acquire_ui(id).await?).await?;
             if id == original_id {
                 assert!(Arc::ptr_eq(
-                    &opened.global_params.main_db,
+                    &opened.global_params.test_library().main_db,
                     &original_connection
                 ));
             }
@@ -1585,7 +1585,11 @@ mod lifecycle_tests {
         let manager = fixture(dir.path()).await?;
         let request = GetPlaylistByIdRequest { playlist_id: -1 };
         let result = request
-            .handle((manager.global_params.main_db.clone(),), None, &request)
+            .handle(
+                Some(manager.global_params.test_library().clone()),
+                None,
+                &request,
+            )
             .await;
         manager.global_params.node.token.cancel();
         let error = result
@@ -1601,7 +1605,11 @@ mod lifecycle_tests {
         let manager = fixture(dir.path()).await?;
         let request = GetMixByIdRequest { mix_id: -1 };
         let result = request
-            .handle((manager.global_params.main_db.clone(),), None, &request)
+            .handle(
+                Some(manager.global_params.test_library().clone()),
+                None,
+                &request,
+            )
             .await;
         manager.global_params.node.token.cancel();
         let error = result.err().context("missing mix unexpectedly succeeded")?;
@@ -1810,9 +1818,8 @@ mod lifecycle_tests {
         for (manager, id) in [(&a, a_track), (&b, b_track)] {
             manager
                 .global_params
+                .test_library()
                 .library_sync
-                .as_ref()
-                .unwrap()
                 .write_local(
                     ObjectKey {
                         collection: Collection::Tracks,
@@ -1860,16 +1867,15 @@ mod lifecycle_tests {
         for (manager, other) in [(&a, b_track), (&b, a_track)] {
             assert_eq!(
                 media_files::Entity::find()
-                    .count(&*manager.global_params.main_db)
+                    .count(&*manager.global_params.test_library().main_db)
                     .await?,
                 1
             );
             assert!(
                 manager
                     .global_params
+                    .test_library()
                     .library_sync
-                    .as_ref()
-                    .unwrap()
                     .get(&ObjectKey {
                         collection: Collection::Tracks,
                         id: other
@@ -1951,20 +1957,16 @@ mod lifecycle_tests {
             &source,
         )?;
         scan_audio_file(
-            &a.global_params.fsio,
-            &a.global_params.main_db,
+            &a.global_params.test_library().fsio,
+            &a.global_params.test_library().main_db,
             &a.global_params.node_id,
             first.path(),
             &source,
-            &a.global_params
-                .library_sync
-                .as_ref()
-                .unwrap()
-                .record_store(),
+            &a.global_params.test_library().library_sync.record_store(),
         )
         .await?;
         let original = media_files::Entity::find()
-            .one(&*a.global_params.main_db)
+            .one(&*a.global_params.test_library().main_db)
             .await?
             .context("owner track")?;
         let addr = paired_full(&a, &b).await?;
@@ -2031,13 +2033,13 @@ mod lifecycle_tests {
         }
         let remote = media_files::Entity::find()
             .filter(Column::HlcUuid.eq(&original.hlc_uuid))
-            .one(&*replica.global_params.main_db)
+            .one(&*replica.global_params.test_library().main_db)
             .await?
             .context("replicated track")?;
         assert!(!remote.local_available);
         scan_audio_library(
-            &replica.global_params.fsio,
-            &replica.global_params.main_db,
+            &replica.global_params.test_library().fsio,
+            &replica.global_params.test_library().main_db,
             &replica.global_params.node_id,
             Path::new(&path),
             ScanOptions {
@@ -2049,15 +2051,14 @@ mod lifecycle_tests {
             |_| {},
             &replica
                 .global_params
+                .test_library()
                 .library_sync
-                .as_ref()
-                .unwrap()
                 .record_store(),
         )
         .await?;
         assert_eq!(
             media_files::Entity::find_by_id(remote.id)
-                .one(&*replica.global_params.main_db)
+                .one(&*replica.global_params.test_library().main_db)
                 .await?,
             Some(remote)
         );
@@ -2119,7 +2120,7 @@ mod lifecycle_tests {
     async fn held_owned_library(manager: &Fixture, root: &Path) -> Result<Uuid> {
         let mut registry = LibraryRegistry::load(Path::new(&*manager.global_params.config_path))?;
         let descriptor = resolve_library(
-            &manager.global_params.fsio,
+            &manager.global_params.test_library().fsio,
             &mut registry,
             root.to_str().context("held library path")?,
             "Held",
@@ -2286,9 +2287,7 @@ mod lifecycle_tests {
         )
         .await?;
         let mut bridge = WebSocketDartBridge::new();
-        bridge
-            .run(socket, "remote-controller", b.global_params.node.clone())
-            .await?;
+        bridge.run(socket, b.global_params.node.clone()).await?;
         let remote_ui = b.global_params.node.current_ui().await?;
         assert!(remote_ui.library_id.is_none());
         assert!(Arc::ptr_eq(
@@ -2351,7 +2350,7 @@ mod lifecycle_tests {
             playback_mode: 0,
             ready: true,
             cover_art_path: None,
-            lib_path: (*a.global_params.lib_path).clone(),
+            lib_path: a.global_params.test_library().media_root.clone(),
         });
         let frame = tokio::time::timeout(Duration::from_secs(3), socket.next())
             .await?
@@ -2486,7 +2485,7 @@ mod lifecycle_tests {
         assert_ne!(a.global_params.library_id, Some(library_id));
         assert_ne!(ui_id, library_id);
         assert!(Arc::ptr_eq(
-            &b.global_params.main_db,
+            &b.global_params.test_library().main_db,
             &b.global_params.library_pool.acquire(ui_id).await?.main_db,
         ));
         let addr = paired_full(&a, &b).await?;
@@ -2515,7 +2514,7 @@ mod lifecycle_tests {
         assert!(!received.local_available);
         assert_eq!(
             media_files::Entity::find()
-                .count(&*b.global_params.main_db)
+                .count(&*b.global_params.test_library().main_db)
                 .await?,
             0
         );
@@ -2629,7 +2628,7 @@ mod lifecycle_tests {
         .await
         .context("disabled L2 kept its idle pool connection")?;
         assert!(Arc::ptr_eq(
-            &b.global_params.main_db,
+            &b.global_params.test_library().main_db,
             &b.global_params.library_pool.acquire(ui_id).await?.main_db,
         ));
         a.stop().await?;
@@ -2671,8 +2670,8 @@ mod lifecycle_tests {
             second.path().join("source.ogg"),
         )?;
         scan_audio_library(
-            &b.global_params.fsio,
-            &b.global_params.main_db,
+            &b.global_params.test_library().fsio,
+            &b.global_params.test_library().main_db,
             &b.global_params.node_id,
             second.path(),
             ScanOptions {
@@ -2682,17 +2681,13 @@ mod lifecycle_tests {
                 cancel_token: None,
             },
             |_| {},
-            &b.global_params
-                .library_sync
-                .as_ref()
-                .unwrap()
-                .record_store(),
+            &b.global_params.test_library().library_sync.record_store(),
         )
         .await?;
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
         let source_track = media_files::Entity::find()
             .filter(Column::LocalAvailable.eq(true))
-            .one(&*b.global_params.main_db)
+            .one(&*b.global_params.test_library().main_db)
             .await?
             .context("fixture scanner did not create the source audio row")?;
         let track_key = ObjectKey {
@@ -2701,9 +2696,8 @@ mod lifecycle_tests {
         };
         anyhow::ensure!(
             b.global_params
+                .test_library()
                 .library_sync
-                .as_ref()
-                .unwrap()
                 .get(&track_key)
                 .await?
                 .is_some(),
@@ -2718,13 +2712,12 @@ mod lifecycle_tests {
             id: migration::catalog_identity::parent(ParentKind::Album, "first node album"),
         };
         a.global_params
+            .test_library()
             .library_sync
-            .as_ref()
-            .unwrap()
             .write_local(reverse_key.clone(), Some(album_payload("first node album")))
             .await?;
         let store = LibrarySyncStore::open(
-            (*b.global_params.main_db).clone(),
+            (*b.global_params.test_library().main_db).clone(),
             b.global_params.node_id.parse()?,
             None,
         )
@@ -2816,20 +2809,19 @@ mod lifecycle_tests {
             reqwest::StatusCode::UNAUTHORIZED
         );
         let remote_id = tokio::time::timeout(Duration::from_secs(45), async {
-            let receiver = a.global_params.library_sync.as_ref().unwrap();
+            let receiver = a.global_params.test_library().library_sync.clone();
             loop {
                 if receiver.get(&key).await.unwrap().is_some()
                     && b.global_params
+                        .test_library()
                         .library_sync
-                        .as_ref()
-                        .unwrap()
                         .get(&reverse_key)
                         .await
                         .unwrap()
                         .is_some()
                     && let Some(track) = media_files::Entity::find()
                         .filter(Column::LocalAvailable.eq(false))
-                        .one(&*a.global_params.main_db)
+                        .one(&*a.global_params.test_library().main_db)
                         .await
                         .unwrap()
                 {
@@ -2975,8 +2967,8 @@ mod lifecycle_tests {
             .await?;
         assert!(
             !is_materialized(
-                a.global_params.main_db.as_ref(),
-                &a.global_params.fsio,
+                a.global_params.test_library().main_db.as_ref(),
+                &a.global_params.test_library().fsio,
                 first.path(),
                 remote_id
             )
@@ -3124,8 +3116,8 @@ mod lifecycle_tests {
             root.path().join("old.ogg"),
         )?;
         scan_audio_library(
-            &params.fsio,
-            &params.main_db,
+            &params.test_library().fsio,
+            &params.test_library().main_db,
             &params.node_id,
             root.path(),
             ScanOptions {
@@ -3135,14 +3127,17 @@ mod lifecycle_tests {
                 cancel_token: None,
             },
             |_| {},
-            &params.library_sync.as_ref().unwrap().record_store(),
+            &params.test_library().library_sync.record_store(),
         )
         .await?;
-        let store =
-            LibrarySyncStore::open((*params.main_db).clone(), params.node_id.parse()?, None)
-                .await?;
+        let store = LibrarySyncStore::open(
+            (*params.test_library().main_db).clone(),
+            params.node_id.parse()?,
+            None,
+        )
+        .await?;
         store.import_existing(params.node_id.parse()?).await?;
-        let file = get_media_files(&params.main_db, 0, 10)
+        let file = get_media_files(&params.test_library().main_db, 0, 10)
             .await?
             .pop()
             .context("missing scanned audio")?;
@@ -3154,7 +3149,10 @@ mod lifecycle_tests {
                 .requires_stream_at_load(file.id, &resolver)
                 .await?
         );
-        let blob = hash_file(&params.fsio, &fixture_dir.join("startup_1.ogg"))?;
+        let blob = hash_file(
+            &params.test_library().fsio,
+            &fixture_dir.join("startup_1.ogg"),
+        )?;
         store
             .write_local(
                 ObjectKey {
@@ -3185,8 +3183,8 @@ mod lifecycle_tests {
         );
         let handles = vec![file.clone().into()];
         let queued = crate::utils::files_to_playback_request(
-            &params.fsio,
-            &params.main_db,
+            &params.test_library().fsio,
+            &params.test_library().main_db,
             &params.node_id,
             &root.path(),
             &handles,
@@ -3195,27 +3193,30 @@ mod lifecycle_tests {
         assert!(
             matches!(&queued[..], [(PlayingItem::InLibrary(id), PlaybackSource::LibraryStream)] if *id == file.id)
         );
-        let summaries =
-            get_metadata_summary_by_files(params.main_db.as_ref(), vec![file.clone()]).await?;
+        let summaries = get_metadata_summary_by_files(
+            params.test_library().main_db.as_ref(),
+            vec![file.clone()],
+        )
+        .await?;
         let parsed = crate::utils::parse_media_files(
-            &params.fsio,
-            &params.main_db,
+            &params.test_library().fsio,
+            &params.test_library().main_db,
             &params.node_id,
             summaries,
-            params.lib_path.clone(),
+            Arc::new(params.test_library().media_root.clone()),
         )
         .await?;
         assert_eq!(parsed.len(), 1);
         assert!(parsed[0].path.is_empty());
         assert_eq!(
-            catalog_track(&params.main_db, file.id).await?,
+            catalog_track(&params.test_library().main_db, file.id).await?,
             Some((track_id, blob.clone(), "ogg".into()))
         );
         use playback::player::PlaybackSourceResolver;
         let queued_remote = PlaybackSource::LibraryStream;
         let updated_path = prepare_download(
-            &params.main_db,
-            &params.fsio,
+            &params.test_library().main_db,
+            &params.test_library().fsio,
             root.path(),
             track_id,
             &blob,
@@ -3224,8 +3225,8 @@ mod lifecycle_tests {
         .await?;
         std::fs::copy(fixture_dir.join("startup_1.ogg"), &updated_path)?;
         let scan_error = scan_audio_file(
-            &params.fsio,
-            &params.main_db,
+            &params.test_library().fsio,
+            &params.test_library().main_db,
             &params.node_id,
             root.path(),
             &updated_path,
@@ -3239,9 +3240,9 @@ mod lifecycle_tests {
                 .contains("Audio file was not indexed")
         );
         attach_download(
-            &params.main_db,
+            &params.test_library().main_db,
             &store.record_store(),
-            &params.fsio,
+            &params.test_library().fsio,
             root.path(),
             track_id,
             &blob,
@@ -3255,14 +3256,19 @@ mod lifecycle_tests {
         );
         assert_eq!(
             resolver.local_path(file.id).await?,
-            Some(params.fsio.canonicalize_path(&updated_path)?)
+            Some(
+                params
+                    .test_library()
+                    .fsio
+                    .canonicalize_path(&updated_path)?
+            )
         );
         assert!(
             !queued_before_revision
                 .requires_stream_at_load(file.id, &resolver)
                 .await?
         );
-        let current = get_media_files(&params.main_db, 0, 10)
+        let current = get_media_files(&params.test_library().main_db, 0, 10)
             .await?
             .pop()
             .context("missing updated audio")?;

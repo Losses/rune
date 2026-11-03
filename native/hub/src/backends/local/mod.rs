@@ -17,7 +17,7 @@ use rinf::{DartSignal, RustSignal};
 
 pub use tokio;
 
-use ::database::connection::{MainDbConnection, RecommendationDbConnection};
+use ::database::connection::MainDbConnection;
 use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
@@ -35,8 +35,6 @@ pub async fn local_player_loop(
     info!("Initializing database");
 
     let main_db: Arc<MainDbConnection> = library.main_db.clone();
-
-    let recommend_db: Arc<RecommendationDbConnection> = library.recommend_db.clone();
 
     let fsio = library.fsio.clone();
     let lib_path: Arc<String> = Arc::new(library.media_root.clone());
@@ -75,17 +73,12 @@ pub async fn local_player_loop(
     let global_params = GlobalParams {
         node: node.clone(),
         sync_settings: node.sync_settings.clone(),
-        fsio,
-        lib_path,
         library_id: Some(library.descriptor.library_id),
         library_pool: node.library_pool.clone(),
         library: Some(library.clone()),
         ui_library: Arc::new(Mutex::new(Some(library))),
         config_path,
         node_id,
-        main_db,
-        library_sync: Some(library_sync),
-        recommend_db,
         main_token: Arc::clone(&main_cancel_token),
         task_tokens,
         player,

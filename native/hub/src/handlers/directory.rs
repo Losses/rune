@@ -1,14 +1,11 @@
-use std::sync::Arc;
-
 use anyhow::{Context, Result};
 
+use crate::library_pool::LibraryHandle;
 use database::actions::directory::DirectoryTree;
 use database::actions::directory::get_directory_tree;
-use database::connection::MainDbConnection;
 
 use crate::Session;
-use crate::utils::GlobalParams;
-use crate::utils::ParamsExtractor;
+use crate::utils::{GlobalParams, ParamsExtractor, require_library};
 use crate::{Signal, messages::*};
 
 fn convert_directory_tree(tree: DirectoryTree) -> DirectoryTreeResponse {
@@ -24,23 +21,24 @@ fn convert_directory_tree(tree: DirectoryTree) -> DirectoryTreeResponse {
 }
 
 impl ParamsExtractor for FetchDirectoryTreeRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Option<LibraryHandle>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (all_params.library.clone(),)
     }
 }
 
 impl Signal for FetchDirectoryTreeRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Option<LibraryHandle>,);
     type Response = FetchDirectoryTreeResponse;
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (library,): Self::Params,
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let root = get_directory_tree(&main_db)
+        let library = require_library(library)?;
+        let root = get_directory_tree(&library.main_db)
             .await
             .with_context(|| "Failed to fetch directory tree")?;
 

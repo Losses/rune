@@ -1,8 +1,6 @@
-use std::{fs::File, io::Read, path::Path, sync::Arc};
+use std::{fs::File, io::Read, path::Path};
 
 use anyhow::Result;
-
-use database::connection::MainDbConnection;
 
 use crate::{
     Session, Signal,
@@ -86,20 +84,18 @@ const LICENSES: [&str; 18] = [
 ];
 
 impl ParamsExtractor for RegisterLicenseRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = ();
 
-    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
-    }
+    fn extract_params(&self, _: &GlobalParams) -> Self::Params {}
 }
 
 impl Signal for RegisterLicenseRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = ();
     type Response = RegisterLicenseResponse;
 
     async fn handle(
         &self,
-        (_main_db,): Self::Params,
+        _: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -150,20 +146,18 @@ async fn read_file_content<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
 }
 
 impl ParamsExtractor for ValidateLicenseRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = ();
 
-    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
-    }
+    fn extract_params(&self, _: &GlobalParams) -> Self::Params {}
 }
 
 impl Signal for ValidateLicenseRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = ();
     type Response = ValidateLicenseResponse;
 
     async fn handle(
         &self,
-        (_main_db,): Self::Params,
+        _: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {

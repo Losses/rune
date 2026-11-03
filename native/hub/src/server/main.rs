@@ -23,7 +23,7 @@ use hub::{
     utils::{GlobalParams, RunningMode, TaskTokens, player::initialize_local_player},
 };
 
-use ::database::connection::{MainDbConnection, RecommendationDbConnection, check_storage_mode};
+use ::database::connection::{MainDbConnection, check_storage_mode};
 use ::database::library_registry::{LibraryRegistry, resolve_library};
 use ::fsio::FsIo;
 use ::playback::{player::Player, sfx_player::SfxPlayer};
@@ -123,7 +123,6 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let library = pool.acquire_ui(descriptor.library_id).await?;
     let fsio = library.fsio.clone();
     let main_db: Arc<MainDbConnection> = library.main_db.clone();
-    let recommend_db: Arc<RecommendationDbConnection> = library.recommend_db.clone();
     let lib_path: Arc<String> = Arc::new(lib_path.to_string());
     let config_path = node.config_path.clone();
 
@@ -167,13 +166,8 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         library: Some(library.clone()),
         ui_library: Arc::new(Mutex::new(Some(library))),
         sync_settings: node.sync_settings.clone(),
-        fsio,
-        lib_path,
         config_path,
         node_id,
-        main_db,
-        library_sync: Some(library_sync),
-        recommend_db,
         main_token: main_cancel_token,
         task_tokens,
         player,

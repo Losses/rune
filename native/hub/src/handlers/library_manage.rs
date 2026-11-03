@@ -1,4 +1,3 @@
-use crate::request_error::ExpectedRequestError;
 use crate::utils::sync_settings::SyncSettings;
 use database::actions::metadata::ScanOptions;
 use std::time::Instant;
@@ -15,29 +14,26 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use ::analysis::utils::computing_device::ComputingDevice;
-use ::database::{
-    actions::{
-        analysis::analysis_audio_library,
-        cover_art::scan_cover_arts,
-        fingerprint::{
-            Configuration, compare_all_pairs, compute_file_fingerprints, mark_duplicate_files,
-        },
-        metadata::scan_audio_library,
-        recommendation::sync_recommendation,
+use ::database::actions::{
+    analysis::analysis_audio_library,
+    cover_art::scan_cover_arts,
+    fingerprint::{
+        Configuration, compare_all_pairs, compute_file_fingerprints, mark_duplicate_files,
     },
-    connection::{MainDbConnection, RecommendationDbConnection},
+    metadata::scan_audio_library,
+    recommendation::sync_recommendation,
 };
-use ::fsio::FsIo;
 
 use crate::{
     Session, Signal, TaskTokens,
+    library_pool::LibraryHandle,
     messages::*,
     node::NodeContext,
-    utils::{Broadcaster, GlobalParams, ParamsExtractor, determine_batch_size},
+    utils::{Broadcaster, GlobalParams, ParamsExtractor, determine_batch_size, require_library},
 };
 
 pub struct CloseLibraryParams {
-    lib_path: Arc<String>,
+    library: Option<LibraryHandle>,
     main_token: Arc<CancellationToken>,
     node: Arc<NodeContext>,
 }
@@ -47,7 +43,7 @@ impl ParamsExtractor for CloseLibraryRequest {
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         CloseLibraryParams {
-            lib_path: Arc::clone(&all_params.lib_path),
+            library: all_params.library.clone(),
             main_token: Arc::clone(&all_params.main_token),
             node: all_params.node.clone(),
         }
@@ -65,18 +61,19 @@ impl Signal for CloseLibraryRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let CloseLibraryParams {
-            lib_path,
+            library,
             main_token,
             node,
         } = params;
+        let library = require_library(library)?;
         let request = dart_signal;
 
         info!("Closing library: {:#?}", request.path);
 
-        if request.path != *lib_path {
+        if request.path != library.media_root {
             warn!(
                 "Library path mismatch: {:#?} != {:#?}",
-                request.path, *lib_path
+                request.path, library.media_root
             );
             return Ok(None);
         }
@@ -91,26 +88,19 @@ impl Signal for CloseLibraryRequest {
 
 impl ParamsExtractor for ScanAudioLibraryRequest {
     type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
+        Option<LibraryHandle>,
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
-        Option<database::sync::SeaOrmSyncStore>,
         Arc<RwLock<SyncSettings>>,
     );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
-            Arc::clone(&all_params.fsio),
-            Arc::clone(&all_params.main_db),
+            all_params.library.clone(),
             Arc::clone(&all_params.node_id),
             Arc::clone(&all_params.task_tokens),
             Arc::clone(&all_params.broadcaster),
-            all_params
-                .library_sync
-                .as_ref()
-                .map(|library| library.record_store()),
             all_params.sync_settings.clone(),
         )
     }
@@ -118,22 +108,21 @@ impl ParamsExtractor for ScanAudioLibraryRequest {
 
 impl Signal for ScanAudioLibraryRequest {
     type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
+        Option<LibraryHandle>,
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
-        Option<database::sync::SeaOrmSyncStore>,
         Arc<RwLock<SyncSettings>>,
     );
     type Response = ();
 
     async fn handle(
         &self,
-        (fsio, main_db, node_id, task_tokens, broadcaster, record_store, sync_settings): Self::Params,
+        (library, node_id, task_tokens, broadcaster, sync_settings): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<()>> {
+        let library = require_library(library)?;
         let mut tokens = task_tokens.lock().await;
         // If there is scanning task
         if let Some(token) = tokens.scan_token.take() {
@@ -161,7 +150,7 @@ impl Signal for ScanAudioLibraryRequest {
         let scan_path = request_path.clone();
         let request_force = dart_signal.force;
         let missing_host_file = sync_settings.read().await.missing_host_file;
-        let main_db_clone = Arc::clone(&main_db);
+        let main_db_clone = Arc::clone(&library.main_db);
         let broadcaster_clone = Arc::clone(&broadcaster);
 
         let scan_id = dart_signal.scan_id.clone();
@@ -171,11 +160,12 @@ impl Signal for ScanAudioLibraryRequest {
         let supervisor_broadcaster = broadcaster.clone();
         let supervisor_tokens = task_tokens.clone();
         let worker = task::spawn_blocking(move || {
+            let _library = library;
             let runtime = Runtime::new().unwrap();
             runtime.block_on(async move {
                 let result: Result<usize> = async {
                     let refresh_start = Instant::now();
-                    if let Err(e) = fsio.refresh_cache() {
+                    if let Err(e) = _library.fsio.refresh_cache() {
                         warn!("Failed to refresh filesystem cache before scan: {e:#?}");
                     } else {
                         info!(
@@ -185,7 +175,7 @@ impl Signal for ScanAudioLibraryRequest {
                     }
 
                     let file_processed = scan_audio_library(
-                        &fsio,
+                        &_library.fsio,
                         &main_db_clone,
                         &node_id,
                         Path::new(&scan_path),
@@ -204,11 +194,7 @@ impl Signal for ScanAudioLibraryRequest {
                                 total: 0,
                             });
                         },
-                        record_store
-                            .as_ref()
-                            .ok_or(ExpectedRequestError::Unavailable {
-                                what: "library sync store",
-                            })?,
+                        &_library.library_sync.record_store(),
                     )
                     .await?;
 
@@ -224,7 +210,7 @@ impl Signal for ScanAudioLibraryRequest {
                     let id_for_closure = worker_id.clone();
 
                     scan_cover_arts(
-                        fsio,
+                        Arc::clone(&_library.fsio),
                         &main_db_clone,
                         Path::new(&scan_path),
                         batch_size,
@@ -238,11 +224,7 @@ impl Signal for ScanAudioLibraryRequest {
                             });
                         },
                         Some(new_token.clone()),
-                        record_store
-                            .as_ref()
-                            .ok_or(ExpectedRequestError::Unavailable {
-                                what: "library sync store",
-                            })?,
+                        &_library.library_sync.record_store(),
                     )
                     .await?;
 
@@ -317,20 +299,16 @@ impl From<ComputingDeviceRequest> for ComputingDevice {
 
 impl ParamsExtractor for AnalyzeAudioLibraryRequest {
     type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
+        Option<LibraryHandle>,
         Arc<String>,
-        Arc<RecommendationDbConnection>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
     );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
-            Arc::clone(&all_params.fsio),
-            Arc::clone(&all_params.main_db),
+            all_params.library.clone(),
             Arc::clone(&all_params.node_id),
-            Arc::clone(&all_params.recommend_db),
             Arc::clone(&all_params.task_tokens),
             Arc::clone(&all_params.broadcaster),
         )
@@ -339,10 +317,8 @@ impl ParamsExtractor for AnalyzeAudioLibraryRequest {
 
 impl Signal for AnalyzeAudioLibraryRequest {
     type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
+        Option<LibraryHandle>,
         Arc<String>,
-        Arc<RecommendationDbConnection>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
     );
@@ -350,10 +326,11 @@ impl Signal for AnalyzeAudioLibraryRequest {
 
     async fn handle(
         &self,
-        (fsio, main_db, _node_id, recommend_db, task_tokens, broadcaster): Self::Params,
+        (library, _node_id, task_tokens, broadcaster): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let mut tokens = task_tokens.lock().await;
         if let Some(token) = tokens.scan_token.take() {
             token.cancel();
@@ -383,13 +360,14 @@ impl Signal for AnalyzeAudioLibraryRequest {
         let computing_device = request.computing_device;
 
         task::spawn_blocking(move || {
+            let _library = library;
             let runtime = Runtime::new().unwrap();
             runtime.block_on(async move {
                 let cloned_broadcaster = Arc::clone(&broadcaster);
                 let result = async {
                     let total_files = analysis_audio_library(
-                        fsio,
-                        &main_db,
+                        Arc::clone(&_library.fsio),
+                        &_library.main_db,
                         Path::new(&analysis_path),
                         batch_size,
                         computing_device.into(),
@@ -405,7 +383,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
                     .await
                     .with_context(|| "Audio analysis failed")?;
 
-                    sync_recommendation(&main_db, &recommend_db)
+                    sync_recommendation(&_library.main_db, &_library.recommend_db)
                         .await
                         .with_context(|| "Recommendation synchronization failed")?;
 
@@ -430,46 +408,38 @@ impl Signal for AnalyzeAudioLibraryRequest {
 
 impl ParamsExtractor for DeduplicateAudioLibraryRequest {
     type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
+        Option<LibraryHandle>,
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
-        Option<database::sync::SeaOrmSyncStore>,
     );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
-            Arc::clone(&all_params.fsio),
-            Arc::clone(&all_params.main_db),
+            all_params.library.clone(),
             Arc::clone(&all_params.node_id),
             Arc::clone(&all_params.task_tokens),
             Arc::clone(&all_params.broadcaster),
-            all_params
-                .library_sync
-                .as_ref()
-                .map(|library| library.record_store()),
         )
     }
 }
 
 impl Signal for DeduplicateAudioLibraryRequest {
     type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
+        Option<LibraryHandle>,
         Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
-        Option<database::sync::SeaOrmSyncStore>,
     );
     type Response = ();
 
     async fn handle(
         &self,
-        (fsio, main_db, node_id, task_tokens, broadcaster, record_store): Self::Params,
+        (library, node_id, task_tokens, broadcaster): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let mut tokens = task_tokens.lock().await;
         if let Some(token) = tokens.deduplicate_token.take() {
             token.cancel();
@@ -487,6 +457,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
         let request_path_clone = request_path.clone();
         task::spawn_blocking(move || {
+            let _library = library;
             let rt = Runtime::new().unwrap();
 
             let request_path_clone = request_path_clone.clone();
@@ -506,20 +477,15 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 };
                 let _ = uuid_node_id;
 
-                let record_store =
-                    record_store
-                        .as_ref()
-                        .ok_or(ExpectedRequestError::Unavailable {
-                            what: "library sync store",
-                        })?;
+                let record_store = _library.library_sync.record_store();
                 // Stage 1: Compute fingerprints (0% - 33%)
                 let broadcaster_clone = Arc::clone(&broadcaster);
                 let progress_path = request_path_clone.to_string();
 
                 let request_path_clone = request_path_clone.to_string();
                 compute_file_fingerprints(
-                    fsio,
-                    &main_db,
+                    Arc::clone(&_library.fsio),
+                    &_library.main_db,
                     Path::new(&request_path_clone),
                     batch_size,
                     move |cur, total| {
@@ -532,7 +498,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                         })
                     },
                     Some(new_token.clone()),
-                    record_store,
+                    &record_store,
                 )
                 .await?;
 
@@ -543,7 +509,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 let progress_path = request_path_clone.to_string();
 
                 compare_all_pairs(
-                    &main_db,
+                    &_library.main_db,
                     move |cur, total| {
                         let progress = 0.33 + cur as f32 / total as f32 * 0.33;
 
@@ -555,7 +521,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                     },
                     &config,
                     Some(Arc::new(new_token.clone())),
-                    record_store,
+                    &record_store,
                 )
                 .await?;
 
@@ -567,7 +533,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                     let progress_path = request_path_clone.to_string();
 
                     mark_duplicate_files(
-                        &main_db,
+                        &_library.main_db,
                         similarity_threshold,
                         move |cur, total| {
                             let progress = 0.66 + cur as f32 / total as f32 * 0.34;
@@ -578,7 +544,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                                 total: 100,
                             });
                         },
-                        record_store,
+                        &record_store,
                     )
                     .await?;
                 }
@@ -791,43 +757,28 @@ mod scan_supervisor_tests {
         assert_eq!(tokens.lock().await.scan_id.as_deref(), Some("new"));
     }
     #[tokio::test]
-    async fn handler_broadcasts_missing_store_error() {
+    async fn handler_rejects_request_without_open_library() {
         let capture = Arc::new(Capture::default());
         let tokens = Arc::new(Mutex::new(TaskTokens::default()));
-        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
         let request = ScanAudioLibraryRequest {
             scan_id: "handler".into(),
             path: "/tmp".into(),
             force: false,
         };
-        request
+        let error = request
             .handle(
                 (
-                    Arc::new(FsIo::new()),
-                    Arc::new(db),
+                    None,
                     Arc::new(uuid::Uuid::new_v4().to_string()),
                     tokens,
-                    capture.clone(),
-                    None,
+                    capture,
                     Arc::new(RwLock::new(SyncSettings::default())),
                 ),
                 None,
                 &request,
             )
             .await
-            .unwrap();
-        let response = tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                if let Some(bytes) = capture.0.lock().unwrap().first().cloned() {
-                    break rinf::deserialize::<ScanAudioLibraryResponse>(&bytes).unwrap();
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-        assert_eq!(response.scan_id, "handler");
-        assert_eq!(response.status, "failed");
-        assert!(response.error.contains("library sync store unavailable"));
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("no library is open on this device"));
     }
 }

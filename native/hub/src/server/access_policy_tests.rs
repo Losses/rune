@@ -150,7 +150,10 @@ mod access_policy_tests {
         fs::write(Path::new(&library.media_root).join(name), b"audio")?;
         fs::create_dir_all(&*COVER_TEMP_DIR)?;
         fs::write(COVER_TEMP_DIR.join(name), b"cover")?;
-        Ok([format!("files/library/{name}"), format!("files/cache/{name}")])
+        Ok([
+            format!("files/library/{name}"),
+            format!("files/cache/{name}"),
+        ])
     }
 
     async fn status(pair: &PolicyPair, path: &str) -> Result<reqwest::StatusCode> {
@@ -209,7 +212,7 @@ mod access_policy_tests {
         assert!(right.library_sync.get(&forward).await?.is_some());
         assert!(left.library_sync.get(&reverse).await?.is_some());
         fs::write(
-            Path::new(&*pair.a.global_params.lib_path).join("migration.txt"),
+            Path::new(&pair.a.global_params.test_library().media_root).join("migration.txt"),
             b"migration",
         )?;
         let response = pair
@@ -247,7 +250,11 @@ mod access_policy_tests {
         let album = write_album(&left, "read-only pull").await?;
         assert_eq!(pair.pass(false).await?, PeerPass::Complete);
         let registry = LibraryRegistry::load(Path::new(&*pair.b.global_params.config_path))?;
-        let replica = registry.libraries.iter().find(|library| library.library_id == pair.id).context("replica descriptor")?;
+        let replica = registry
+            .libraries
+            .iter()
+            .find(|library| library.library_id == pair.id)
+            .context("replica descriptor")?;
         assert_eq!(serde_json::to_value(replica)?["access_level"], "Read");
         assert!(right.library_sync.get(&album).await?.is_some());
         let remote = media_files::Entity::find()
@@ -301,7 +308,11 @@ mod access_policy_tests {
         pair.grants(DeviceLibraryLevel::ReadWrite).await?;
         assert_eq!(pair.pass(false).await?, PeerPass::Complete);
         let registry = LibraryRegistry::load(Path::new(&*pair.b.global_params.config_path))?;
-        let replica = registry.libraries.iter().find(|library| library.library_id == pair.id).context("replica descriptor")?;
+        let replica = registry
+            .libraries
+            .iter()
+            .find(|library| library.library_id == pair.id)
+            .context("replica descriptor")?;
         assert_eq!(serde_json::to_value(replica)?["access_level"], "ReadWrite");
         pair.close().await
     }
@@ -355,7 +366,11 @@ mod access_policy_tests {
             library_levels: Vec::new(),
         };
         let response = request
-            .handle(request.extract_params(&pair.a.global_params), None, &request)
+            .handle(
+                request.extract_params(&pair.a.global_params),
+                None,
+                &request,
+            )
             .await?
             .context("grants response")?;
         assert!(response.error.is_none(), "{:?}", response.error);

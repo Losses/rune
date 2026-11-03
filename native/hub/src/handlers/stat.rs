@@ -1,51 +1,35 @@
-use crate::request_error::ExpectedRequestError;
-use std::sync::Arc;
-
 use anyhow::{Context, Result};
 
-use ::database::{
-    actions::stats::{get_liked, set_liked},
-    connection::MainDbConnection,
-};
+use ::database::actions::stats::{get_liked, set_liked};
 use ::playback::player::PlayingItem;
 
 use crate::{
     Session, Signal,
+    library_pool::LibraryHandle,
     messages::*,
-    utils::{GlobalParams, ParamsExtractor},
+    utils::{GlobalParams, ParamsExtractor, require_library},
 };
 
 impl ParamsExtractor for SetLikedRequest {
-    type Params = (
-        Arc<MainDbConnection>,
-        Option<database::sync::SeaOrmSyncStore>,
-    );
+    type Params = Option<LibraryHandle>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            all_params.main_db.clone(),
-            all_params
-                .library_sync
-                .as_ref()
-                .map(|library| library.record_store()),
-        )
+        all_params.library.clone()
     }
 }
 
 impl Signal for SetLikedRequest {
-    type Params = (
-        Arc<MainDbConnection>,
-        Option<database::sync::SeaOrmSyncStore>,
-    );
+    type Params = Option<LibraryHandle>;
     type Response = SetLikedResponse;
 
     async fn handle(
         &self,
-        (main_db, store): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
+        let library = require_library(library)?;
 
         if let Some(item) = &request.item {
             let parsed_item: PlayingItem = item.clone().into();
@@ -53,10 +37,8 @@ impl Signal for SetLikedRequest {
             let response = match parsed_item {
                 PlayingItem::InLibrary(file_id) => {
                     set_liked(
-                        &main_db,
-                        store.as_ref().ok_or(ExpectedRequestError::Unavailable {
-                            what: "library replica",
-                        })?,
+                        &library.main_db,
+                        &library.library_sync.record_store(),
                         file_id,
                         request.liked,
                     )
@@ -95,31 +77,32 @@ impl Signal for SetLikedRequest {
 }
 
 impl ParamsExtractor for GetLikedRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        all_params.library.clone()
     }
 }
 
 impl Signal for GetLikedRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
     type Response = GetLikedResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
+        let library = require_library(library)?;
 
         if let Some(item) = &request.item {
             let parsed_item: PlayingItem = item.clone().into();
 
             let response = match parsed_item {
                 PlayingItem::InLibrary(file_id) => {
-                    let liked = get_liked(&*main_db, file_id)
+                    let liked = get_liked(&*library.main_db, file_id)
                         .await
                         .with_context(|| format!("Failed to get liked: file_id={file_id}"))?;
 

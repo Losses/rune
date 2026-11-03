@@ -1,6 +1,7 @@
 #[path = "support/fixtures.rs"]
 mod fixtures;
 use anyhow::Result;
+use database::connection::RecommendationDbConnection;
 use database::{
     actions::{
         downloads::prepare_download,
@@ -11,11 +12,14 @@ use database::{
         metadata::get_metadata_summary_by_files,
     },
     entities::media_files,
+    library_registry::{DbPlacement, LibraryAuthority, LibraryDescriptor, LibraryStorage},
+    sync::LibrarySyncStore,
     sync::model::BlobRef,
 };
 use fsio::FsIo;
 use hub::{
     Signal,
+    library_pool::{LibraryHandle, LibraryPool, LibraryResources},
     messages::{AudioAvailability, SearchMediaFileSummaryRequest},
     utils::{files_to_playback_request, parse_media_files},
 };
@@ -23,6 +27,38 @@ use sea_orm::sea_query;
 use sea_orm::{ConnectionTrait, Database, EntityTrait, ExprTrait, Set};
 use std::sync::Arc;
 use uuid::Uuid;
+
+async fn request_library(
+    db: sea_orm::DatabaseConnection,
+    fsio: Arc<FsIo>,
+    media_root: String,
+    actor: Uuid,
+    config_path: &std::path::Path,
+) -> Result<LibraryHandle> {
+    let library_id = Uuid::new_v4();
+    let library_sync = LibrarySyncStore::open(db.clone(), actor, Some(library_id)).await?;
+    let pool = LibraryPool::new(config_path, config_path, &actor.to_string())?;
+    let descriptor = LibraryDescriptor {
+        library_id,
+        alias: "Test library".into(),
+        authority: LibraryAuthority::Owned,
+        storage: LibraryStorage::Local {
+            path: media_root.clone(),
+        },
+        db_placement: DbPlacement::Portable,
+        background_sync: false,
+        access_level: None,
+    };
+    pool.register_ui(LibraryResources {
+        main_db: Arc::new(db),
+        library_sync,
+        recommend_db: Arc::new(RecommendationDbConnection::new()),
+        fsio,
+        media_root,
+        descriptor,
+    })
+    .await
+}
 
 #[tokio::test]
 async fn pending_rows_are_returned_and_reported_without_becoming_playable() -> Result<()> {
@@ -97,17 +133,26 @@ async fn pending_rows_are_returned_and_reported_without_becoming_playable() -> R
     assert!(states[1].2.is_empty());
     assert!(states[2].2.is_empty());
     let request = SearchMediaFileSummaryRequest { n: 50 };
+    let library = request_library(
+        db.clone(),
+        Arc::new(fsio.clone()),
+        root.to_string(),
+        node,
+        dir.path(),
+    )
+    .await?;
+    use sea_orm::sea_query::{Alias, Expr, Query};
+    let query = Query::select()
+        .expr_as(Expr::col(Alias::new("namespace")).count(), Alias::new("n"))
+        .from(Alias::new("sync_meta"))
+        .to_owned();
+    let sync_metadata_before = db
+        .query_one(&query)
+        .await?
+        .unwrap()
+        .try_get::<i64>("", "n")?;
     let summary = request
-        .handle(
-            (
-                Arc::new(db.clone()),
-                Arc::new(fsio.clone()),
-                root.clone(),
-                Arc::new(node.to_string()),
-            ),
-            None,
-            &request,
-        )
+        .handle((Some(library),), None, &request)
         .await?
         .unwrap();
     for (id, state, _) in &states {
@@ -121,18 +166,13 @@ async fn pending_rows_are_returned_and_reported_without_becoming_playable() -> R
             *state
         );
     }
-    use sea_orm::sea_query::{Alias, Expr, Query};
-    let query = Query::select()
-        .expr_as(Expr::col(Alias::new("namespace")).count(), Alias::new("n"))
-        .from(Alias::new("sync_meta"))
-        .to_owned();
     assert_eq!(
         db.query_one(&query)
             .await?
             .unwrap()
             .try_get::<i64>("", "n")?,
-        0,
-        "catalog reads must not initialize a replication store"
+        sync_metadata_before,
+        "catalog reads must not change replication metadata"
     );
     let _store = fixtures::open_library(db.clone(), node, None).await?;
     assert_eq!(
@@ -181,6 +221,14 @@ async fn queued_downloads_with_content_remain_streamable() -> Result<()> {
     let id = inserted.last_insert_id;
     let row = media_files::Entity::find_by_id(id).one(&db).await?.unwrap();
     let handles = vec![row.into()];
+    let library = request_library(
+        db.clone(),
+        Arc::new(fsio.clone()),
+        root.path().to_string_lossy().into_owned(),
+        actor,
+        root.path(),
+    )
+    .await?;
     prepare_download(&db, &fsio, root.path(), track, &blob, "ogg").await?;
     for retrying in [false, true] {
         if retrying {
@@ -216,16 +264,7 @@ async fn queued_downloads_with_content_remain_streamable() -> Result<()> {
         );
         let request = SearchMediaFileSummaryRequest { n: 10 };
         let response = request
-            .handle(
-                (
-                    Arc::new(db.clone()),
-                    Arc::new(fsio.clone()),
-                    Arc::new(root.path().to_string_lossy().into_owned()),
-                    Arc::new(actor.to_string()),
-                ),
-                None,
-                &request,
-            )
+            .handle((Some(library.clone()),), None, &request)
             .await?
             .unwrap();
         assert_eq!(

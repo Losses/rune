@@ -26,7 +26,6 @@ use tokio_util::sync::CancellationToken;
 use urlencoding::encode;
 use uuid::Uuid;
 
-use ::database::connection::{connect_fake_main_db, connect_fake_recommendation_db};
 use ::discovery::{
     client::{CertValidator, select_best_host},
     url::decode_rnsrv_url,
@@ -275,12 +274,7 @@ impl WebSocketDartBridge {
         }
     }
 
-    pub async fn run(
-        &mut self,
-        ws_stream: RemoteStream,
-        rnsrv_url: &str,
-        node: Arc<NodeContext>,
-    ) -> Result<()> {
+    pub async fn run(&mut self, ws_stream: RemoteStream, node: Arc<NodeContext>) -> Result<()> {
         info!("WebSocket connection established");
 
         let (write, mut read) = ws_stream.split();
@@ -387,13 +381,8 @@ impl WebSocketDartBridge {
             library: None,
             ui_library: Arc::new(Mutex::new(None)),
             sync_settings: node.sync_settings.clone(),
-            fsio: Arc::new(FsIo::new_noop()),
-            lib_path: Arc::new(rnsrv_url.to_owned()),
             config_path: node.config_path.clone(),
             node_id: node.node_id.clone(),
-            main_db: Arc::new(connect_fake_main_db().await?),
-            library_sync: None,
-            recommend_db: Arc::new(connect_fake_recommendation_db()?),
             main_token: Arc::clone(&cancel_token),
             task_tokens: Arc::new(Mutex::new(TaskTokens {
                 scan_token: None,
@@ -466,7 +455,6 @@ pub async fn server_player_loop(
     .await
     .map_err(|_| RemoteConnectError::Unreachable)??;
 
-    let rnsrv_url = url.to_string();
     let _ = fsio;
     {
         info!("Initializing bridge");
@@ -519,7 +507,7 @@ pub async fn server_player_loop(
             LibraryContentChanged
         );
 
-        bridge.run(ws_stream, &rnsrv_url, node).await?;
+        bridge.run(ws_stream, node).await?;
     }
 
     Ok(())

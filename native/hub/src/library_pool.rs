@@ -211,6 +211,7 @@ impl LibraryPool {
 
     /// Open for the UI, reusing any connection already acquired in the background.
     pub async fn acquire_ui(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {
+        self.forget_moved(library_id).await?;
         let handle = self.acquire(library_id).await?;
         let mut entries = self.entries.lock().await;
         let entry = entries
@@ -218,6 +219,31 @@ impl LibraryPool {
             .context("Library connection disappeared")?;
         entry.ui_users += 1;
         Ok(handle)
+    }
+
+    /// Forget a cached connection whose library was reopened at another path, so
+    /// the UI gets storage under the path it opened (a portable library on a
+    /// drive mounted elsewhere). Holders of the old handle keep it until dropped.
+    async fn forget_moved(&self, library_id: Uuid) -> Result<()> {
+        let registered = LibraryRegistry::load(&self.config_dir)?
+            .libraries
+            .into_iter()
+            .find(|library| library.library_id == library_id);
+        let Some(LibraryDescriptor {
+            storage: LibraryStorage::Local { path },
+            ..
+        }) = registered
+        else {
+            return Ok(());
+        };
+        let mut entries = self.entries.lock().await;
+        if entries
+            .get(&library_id)
+            .is_some_and(|entry| entry.resources.media_root != path)
+        {
+            entries.remove(&library_id);
+        }
+        Ok(())
     }
 
     /// Register an already-open UI connection. A different live connection is rejected.
@@ -390,6 +416,24 @@ mod tests {
             &same_pool.acquire(id).await?.main_db
         ));
         assert!(f.pool.acquire(Uuid::new_v4()).await.is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ui_open_follows_a_moved_library() -> Result<()> {
+        let f = Fixture::new(false).await?;
+        let id = f.descriptor.library_id;
+        let background = f.pool.acquire(id).await?;
+        let moved = f.dir.path().join("moved").to_string_lossy().into_owned();
+        fs::rename(&f.root, &moved)?;
+        let mode = check_storage_mode(&f.fsio, &moved)?;
+        let mut registry = LibraryRegistry::load(f.dir.path())?;
+        let reopened = resolve_library(&f.fsio, &mut registry, &moved, "Test", mode).await?;
+        assert_eq!(reopened.library_id, id);
+        let ui = f.pool.acquire_ui(id).await?;
+        assert_eq!(ui.media_root, moved);
+        assert_eq!(background.media_root, f.root);
+        assert_eq!(f.pool.acquire(id).await?.media_root, moved);
         Ok(())
     }
 

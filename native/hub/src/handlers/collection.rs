@@ -4,6 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::Result;
 use futures::future::join_all;
 
+use crate::library_pool::LibraryHandle;
 use ::database::{
     actions::collection::{
         CollectionQuery, CollectionQueryListMode, CollectionQueryType, UnifiedCollection,
@@ -13,7 +14,9 @@ use ::database::{
 };
 use ::fsio::FsIo;
 
-use crate::utils::{GlobalParams, ParamsExtractor, RunningMode, inject_cover_art_map};
+use crate::utils::{
+    GlobalParams, ParamsExtractor, RunningMode, inject_cover_art_map, require_library,
+};
 use crate::{Session, Signal, messages::*};
 
 impl From<CollectionQueryType> for CollectionType {
@@ -288,69 +291,67 @@ impl Collection {
 }
 
 impl ParamsExtractor for FetchCollectionGroupSummaryRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Option<LibraryHandle>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (all_params.library.clone(),)
     }
 }
 
 impl Signal for FetchCollectionGroupSummaryRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Option<LibraryHandle>,);
     type Response = CollectionGroupSummaryResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (library,): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         match dart_signal.collection_type {
-            CollectionType::Album => handle_fetch_group_summary::<albums::Model>(&main_db).await,
-            CollectionType::Artist => handle_fetch_group_summary::<artists::Model>(&main_db).await,
-            CollectionType::Playlist => {
-                handle_fetch_group_summary::<playlists::Model>(&main_db).await
+            CollectionType::Album => {
+                handle_fetch_group_summary::<albums::Model>(&library.main_db).await
             }
-            CollectionType::Mix => handle_fetch_group_summary::<mixes::Model>(&main_db).await,
-            CollectionType::Genre => handle_fetch_group_summary::<genres::Model>(&main_db).await,
+            CollectionType::Artist => {
+                handle_fetch_group_summary::<artists::Model>(&library.main_db).await
+            }
+            CollectionType::Playlist => {
+                handle_fetch_group_summary::<playlists::Model>(&library.main_db).await
+            }
+            CollectionType::Mix => {
+                handle_fetch_group_summary::<mixes::Model>(&library.main_db).await
+            }
+            CollectionType::Genre => {
+                handle_fetch_group_summary::<genres::Model>(&library.main_db).await
+            }
             _ => Err(ExpectedRequestError::invalid_input("Invalid collection type").into()),
         }
     }
 }
 
 impl ParamsExtractor for FetchCollectionGroupsRequest {
-    type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
-        Arc<RecommendationDbConnection>,
-        RunningMode,
-    );
+    type Params = (Option<LibraryHandle>, RunningMode);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            Arc::clone(&all_params.fsio),
-            Arc::clone(&all_params.main_db),
-            Arc::clone(&all_params.recommend_db),
-            all_params.running_mode,
-        )
+        (all_params.library.clone(), all_params.running_mode)
     }
 }
 
 impl Signal for FetchCollectionGroupsRequest {
-    type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
-        Arc<RecommendationDbConnection>,
-        RunningMode,
-    );
+    type Params = (Option<LibraryHandle>, RunningMode);
     type Response = FetchCollectionGroupsResponse;
 
     async fn handle(
         &self,
-        (fsio, main_db, recommend_db, running_mode): Self::Params,
+        (library, running_mode): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
+        let fsio = &library.fsio;
+        let main_db = &library.main_db;
+        let recommend_db = &library.recommend_db;
         let params = CollectionActionParams {
             group_titles: Some(dart_signal.group_titles.clone()),
             bake_cover_arts: dart_signal.bake_cover_arts,
@@ -365,9 +366,9 @@ impl Signal for FetchCollectionGroupsRequest {
         match dart_signal.collection_type {
             CollectionType::Album => {
                 handle_fetch_groups::<albums::Model>(
-                    &fsio,
-                    &main_db,
-                    &recommend_db,
+                    fsio,
+                    main_db,
+                    recommend_db,
                     &running_mode,
                     &remote_host,
                     params,
@@ -376,9 +377,9 @@ impl Signal for FetchCollectionGroupsRequest {
             }
             CollectionType::Artist => {
                 handle_fetch_groups::<artists::Model>(
-                    &fsio,
-                    &main_db,
-                    &recommend_db,
+                    fsio,
+                    main_db,
+                    recommend_db,
                     &running_mode,
                     &remote_host,
                     params,
@@ -387,9 +388,9 @@ impl Signal for FetchCollectionGroupsRequest {
             }
             CollectionType::Playlist => {
                 handle_fetch_groups::<playlists::Model>(
-                    &fsio,
-                    &main_db,
-                    &recommend_db,
+                    fsio,
+                    main_db,
+                    recommend_db,
                     &running_mode,
                     &remote_host,
                     params,
@@ -398,9 +399,9 @@ impl Signal for FetchCollectionGroupsRequest {
             }
             CollectionType::Mix => {
                 handle_fetch_groups::<mixes::Model>(
-                    &fsio,
-                    &main_db,
-                    &recommend_db,
+                    fsio,
+                    main_db,
+                    recommend_db,
                     &running_mode,
                     &remote_host,
                     params,
@@ -409,9 +410,9 @@ impl Signal for FetchCollectionGroupsRequest {
             }
             CollectionType::Genre => {
                 handle_fetch_groups::<genres::Model>(
-                    &fsio,
-                    &main_db,
-                    &recommend_db,
+                    fsio,
+                    main_db,
+                    recommend_db,
                     &running_mode,
                     &remote_host,
                     params,
@@ -424,38 +425,27 @@ impl Signal for FetchCollectionGroupsRequest {
 }
 
 impl ParamsExtractor for FetchCollectionByIdsRequest {
-    type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
-        Arc<RecommendationDbConnection>,
-        RunningMode,
-    );
+    type Params = (Option<LibraryHandle>, RunningMode);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            Arc::clone(&all_params.fsio),
-            Arc::clone(&all_params.main_db),
-            Arc::clone(&all_params.recommend_db),
-            all_params.running_mode,
-        )
+        (all_params.library.clone(), all_params.running_mode)
     }
 }
 
 impl Signal for FetchCollectionByIdsRequest {
-    type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
-        Arc<RecommendationDbConnection>,
-        RunningMode,
-    );
+    type Params = (Option<LibraryHandle>, RunningMode);
     type Response = FetchCollectionByIdsResponse;
 
     async fn handle(
         &self,
-        (fsio, main_db, recommend_db, running_mode): Self::Params,
+        (library, running_mode): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
+        let fsio = &library.fsio;
+        let main_db = &library.main_db;
+        let recommend_db = &library.recommend_db;
         let params = CollectionActionParams {
             ids: Some(dart_signal.ids.clone()),
             ..Default::default()
@@ -469,9 +459,9 @@ impl Signal for FetchCollectionByIdsRequest {
         match dart_signal.collection_type {
             CollectionType::Album => {
                 handle_fetch_by_id::<albums::Model>(
-                    &fsio,
-                    &main_db,
-                    &recommend_db,
+                    fsio,
+                    main_db,
+                    recommend_db,
                     &running_mode,
                     &remote_host,
                     params,
@@ -480,9 +470,9 @@ impl Signal for FetchCollectionByIdsRequest {
             }
             CollectionType::Artist => {
                 handle_fetch_by_id::<artists::Model>(
-                    &fsio,
-                    &main_db,
-                    &recommend_db,
+                    fsio,
+                    main_db,
+                    recommend_db,
                     &running_mode,
                     &remote_host,
                     params,
@@ -491,9 +481,9 @@ impl Signal for FetchCollectionByIdsRequest {
             }
             CollectionType::Playlist => {
                 handle_fetch_by_id::<playlists::Model>(
-                    &fsio,
-                    &main_db,
-                    &recommend_db,
+                    fsio,
+                    main_db,
+                    recommend_db,
                     &running_mode,
                     &remote_host,
                     params,
@@ -502,9 +492,9 @@ impl Signal for FetchCollectionByIdsRequest {
             }
             CollectionType::Mix => {
                 handle_fetch_by_id::<mixes::Model>(
-                    &fsio,
-                    &main_db,
-                    &recommend_db,
+                    fsio,
+                    main_db,
+                    recommend_db,
                     &running_mode,
                     &remote_host,
                     params,
@@ -513,9 +503,9 @@ impl Signal for FetchCollectionByIdsRequest {
             }
             CollectionType::Genre => {
                 handle_fetch_by_id::<genres::Model>(
-                    &fsio,
-                    &main_db,
-                    &recommend_db,
+                    fsio,
+                    main_db,
+                    recommend_db,
                     &running_mode,
                     &remote_host,
                     params,
@@ -528,23 +518,25 @@ impl Signal for FetchCollectionByIdsRequest {
 }
 
 impl ParamsExtractor for SearchCollectionSummaryRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Option<LibraryHandle>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (all_params.library.clone(),)
     }
 }
 
 impl Signal for SearchCollectionSummaryRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Option<LibraryHandle>,);
     type Response = SearchCollectionSummaryResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (library,): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
+        let main_db = &library.main_db;
         let params = CollectionActionParams {
             n: Some(dart_signal.n.try_into().map_err(|error| {
                 ExpectedRequestError::invalid_input(format!("Invalid N: {error}"))
@@ -553,13 +545,13 @@ impl Signal for SearchCollectionSummaryRequest {
         };
 
         match dart_signal.collection_type {
-            Some(CollectionType::Album) => handle_search::<albums::Model>(&main_db, params).await,
-            Some(CollectionType::Artist) => handle_search::<artists::Model>(&main_db, params).await,
+            Some(CollectionType::Album) => handle_search::<albums::Model>(main_db, params).await,
+            Some(CollectionType::Artist) => handle_search::<artists::Model>(main_db, params).await,
             Some(CollectionType::Playlist) => {
-                handle_search::<playlists::Model>(&main_db, params).await
+                handle_search::<playlists::Model>(main_db, params).await
             }
-            Some(CollectionType::Mix) => handle_search::<mixes::Model>(&main_db, params).await,
-            Some(CollectionType::Genre) => handle_search::<genres::Model>(&main_db, params).await,
+            Some(CollectionType::Mix) => handle_search::<mixes::Model>(main_db, params).await,
+            Some(CollectionType::Genre) => handle_search::<genres::Model>(main_db, params).await,
             _ => Err(ExpectedRequestError::invalid_input(format!(
                 "Invalid collection type: {:?}",
                 dart_signal.collection_type

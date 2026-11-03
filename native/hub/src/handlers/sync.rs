@@ -1,62 +1,47 @@
 use crate::request_error::ExpectedRequestError;
 use crate::{
     Session, Signal,
+    library_pool::LibraryHandle,
     messages::{
         LibraryContentChanged, RemoveDownloadRuleRequest, RemoveDownloadRuleResponse,
         SetDownloadRuleRequest, SetDownloadRuleResponse,
     },
     server::utils::device::load_device_info,
-    utils::{Broadcaster, GlobalParams, ParamsExtractor, sync_settings::SyncSettings},
+    utils::{
+        Broadcaster, GlobalParams, ParamsExtractor, require_library, sync_settings::SyncSettings,
+    },
 };
 use database::actions::downloads::{
     cleanup_unselected_downloads, remove_download_rule, set_download_rule,
 };
-use database::connection::RecommendationDbConnection;
-use database::sync::SeaOrmSyncStore;
-use fsio::FsIo;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-use database::connection::MainDbConnection;
 
 #[derive(Clone)]
 pub struct DownloadParams {
-    db: Arc<MainDbConnection>,
-    recommend: Arc<RecommendationDbConnection>,
-    fsio: Arc<FsIo>,
-    root: Arc<String>,
-    store: Option<SeaOrmSyncStore>,
+    library: Option<LibraryHandle>,
     broadcaster: Arc<dyn Broadcaster>,
 }
 impl DownloadParams {
     fn from_global(p: &GlobalParams) -> Self {
         Self {
-            db: p.main_db.clone(),
-            recommend: p.recommend_db.clone(),
-            fsio: p.fsio.clone(),
-            root: p.lib_path.clone(),
-            store: p.library_sync.as_ref().map(|s| s.record_store()),
+            library: p.library.clone(),
             broadcaster: p.broadcaster.clone(),
         }
     }
-    async fn cleanup(&self) -> Result<()> {
-        let store = self
-            .store
-            .as_ref()
-            .ok_or(ExpectedRequestError::Unavailable {
-                what: "library sync store",
-            })?;
+    async fn cleanup(&self, library: &LibraryHandle) -> Result<()> {
         let result = cleanup_unselected_downloads(
-            &self.db,
-            &self.recommend,
-            &self.fsio,
-            Path::new(&**self.root),
-            store,
+            &library.main_db,
+            &library.recommend_db,
+            &library.fsio,
+            Path::new(&library.media_root),
+            &library.library_sync.record_store(),
         )
         .await;
         self.broadcaster.broadcast(&LibraryContentChanged {
-            path: (*self.root).clone(),
+            path: library.media_root.clone(),
         });
         result.map(|_| ())
     }
@@ -76,9 +61,10 @@ impl Signal for SetDownloadRuleRequest {
         _: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(p.library.clone())?;
         let result = async {
             let id = set_download_rule(
-                &p.db,
+                &library.main_db,
                 request
                     .queries
                     .iter()
@@ -89,7 +75,7 @@ impl Signal for SetDownloadRuleRequest {
             )
             .await?;
             if !request.enabled && request.delete_unselected_files {
-                p.cleanup().await?;
+                p.cleanup(&library).await?;
             }
             Ok::<_, anyhow::Error>(id)
         }
@@ -120,10 +106,11 @@ impl Signal for RemoveDownloadRuleRequest {
         _: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(p.library.clone())?;
         let result = async {
-            remove_download_rule(&p.db, &request.rule_id).await?;
+            remove_download_rule(&library.main_db, &request.rule_id).await?;
             if request.delete_unselected_files {
-                p.cleanup().await?;
+                p.cleanup(&library).await?;
             }
             Ok::<_, anyhow::Error>(())
         }

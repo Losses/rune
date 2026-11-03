@@ -1,54 +1,43 @@
-use crate::request_error::ExpectedRequestError;
 use database::actions::mixes::{add_item_to_mix, create_mix, remove_mix, update_mix};
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 
-use ::database::{
-    actions::{
-        cover_art::bake_cover_art_by_media_files,
-        metadata::get_metadata_summary_by_files,
-        mixes::{get_all_mixes, get_mix_by_id, get_mix_queries_by_mix_id, query_mix_media_files},
-    },
-    connection::{MainDbConnection, RecommendationDbConnection},
+use ::database::actions::{
+    cover_art::bake_cover_art_by_media_files,
+    metadata::get_metadata_summary_by_files,
+    mixes::{get_all_mixes, get_mix_by_id, get_mix_queries_by_mix_id, query_mix_media_files},
 };
-use ::fsio::FsIo;
 
-use crate::utils::{GlobalParams, ParamsExtractor, parse_media_files};
+use crate::library_pool::LibraryHandle;
+use crate::utils::{GlobalParams, ParamsExtractor, parse_media_files, require_library};
 use crate::{Session, Signal, messages::*};
 
-type MixParams = (
-    Arc<MainDbConnection>,
-    Option<database::sync::SeaOrmSyncStore>,
-    Arc<String>,
-);
+type MixParams = Option<LibraryHandle>;
 fn mix_params(params: &GlobalParams) -> MixParams {
-    (
-        Arc::clone(&params.main_db),
-        params.library_sync.as_ref().map(|sync| sync.record_store()),
-        Arc::clone(&params.node_id),
-    )
+    params.library.clone()
 }
 
 impl ParamsExtractor for FetchAllMixesRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        all_params.library.clone()
     }
 }
 
 impl Signal for FetchAllMixesRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
     type Response = FetchAllMixesResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let mixes = get_all_mixes(&main_db)
+        let library = require_library(library)?;
+        let mixes = get_all_mixes(&library.main_db)
             .await
             .with_context(|| "Failed to fetch all mixes")?;
 
@@ -81,17 +70,15 @@ impl Signal for CreateMixRequest {
 
     async fn handle(
         &self,
-        (db, store, _node_id): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let request = dart_signal;
-
-        let store = store.ok_or(ExpectedRequestError::Unavailable {
-            what: "mix synchronization",
-        })?;
+        let store = library.library_sync.record_store();
         let mix = create_mix(
-            &db,
+            &library.main_db,
             &store,
             request.name.clone(),
             request.group.clone(),
@@ -134,17 +121,15 @@ impl Signal for UpdateMixRequest {
 
     async fn handle(
         &self,
-        (db, store, _node_id): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let request = dart_signal;
-
-        let store = store.ok_or(ExpectedRequestError::Unavailable {
-            what: "mix synchronization",
-        })?;
+        let store = library.library_sync.record_store();
         let mix = update_mix(
-            &db,
+            &library.main_db,
             &store,
             request.mix_id,
             Some(request.name.clone()),
@@ -190,16 +175,14 @@ impl Signal for RemoveMixRequest {
 
     async fn handle(
         &self,
-        (db, store, _node_id): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let request = dart_signal;
-
-        let store = store.ok_or(ExpectedRequestError::Unavailable {
-            what: "mix synchronization",
-        })?;
-        remove_mix(&db, &store, request.mix_id)
+        let store = library.library_sync.record_store();
+        remove_mix(&library.main_db, &store, request.mix_id)
             .await
             .with_context(|| format!("Failed to remove mix with id: {}", request.mix_id))?;
 
@@ -224,21 +207,20 @@ impl Signal for AddItemToMixRequest {
 
     async fn handle(
         &self,
-        (db, store, _node_id): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let request = dart_signal;
 
         let mix_id = request.mix_id;
         let operator = &request.operator;
         let parameter = &request.parameter;
 
-        let store = store.ok_or(ExpectedRequestError::Unavailable {
-            what: "mix synchronization",
-        })?;
+        let store = library.library_sync.record_store();
         add_item_to_mix(
-            &db, &store, mix_id,
+            &library.main_db, &store, mix_id,
             operator.clone(),
             parameter.clone(),
         )
@@ -254,26 +236,27 @@ impl Signal for AddItemToMixRequest {
 }
 
 impl ParamsExtractor for GetMixByIdRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        all_params.library.clone()
     }
 }
 
 impl Signal for GetMixByIdRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
     type Response = GetMixByIdResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let request = dart_signal;
 
-        let mix = get_mix_by_id(&main_db, request.mix_id)
+        let mix = get_mix_by_id(&library.main_db, request.mix_id)
             .await
             .with_context(|| format!("Failed to get mix by id: {}", request.mix_id))?;
 
@@ -290,42 +273,26 @@ impl Signal for GetMixByIdRequest {
 }
 
 impl ParamsExtractor for MixQueryRequest {
-    type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
-        Arc<RecommendationDbConnection>,
-        Arc<String>,
-        Arc<String>,
-    );
+    type Params = (Option<LibraryHandle>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            Arc::clone(&all_params.fsio),
-            Arc::clone(&all_params.main_db),
-            Arc::clone(&all_params.recommend_db),
-            Arc::clone(&all_params.lib_path),
-            Arc::clone(&all_params.node_id),
-        )
+        (all_params.library.clone(), Arc::clone(&all_params.node_id))
     }
 }
 
 impl Signal for MixQueryRequest {
-    type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
-        Arc<RecommendationDbConnection>,
-        Arc<String>,
-        Arc<String>,
-    );
+    type Params = (Option<LibraryHandle>, Arc<String>);
     type Response = MixQueryResponse;
 
     async fn handle(
         &self,
-        (fsio, main_db, recommend_db, lib_path, node_id): Self::Params,
+        (library, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let request = dart_signal;
+        let lib_path = Arc::new(library.media_root.clone());
 
         let queries = request
             .queries
@@ -335,8 +302,8 @@ impl Signal for MixQueryRequest {
             .collect();
 
         let media_entries = query_mix_media_files(
-            &main_db,
-            &recommend_db,
+            &library.main_db,
+            &library.recommend_db,
             queries,
             request.cursor as usize,
             request.page_size as usize,
@@ -345,13 +312,20 @@ impl Signal for MixQueryRequest {
         .with_context(|| "Unable to query mix media files")?;
 
         let media_summaries =
-            get_metadata_summary_by_files(main_db.as_ref(), media_entries.clone())
+            get_metadata_summary_by_files(library.main_db.as_ref(), media_entries.clone())
                 .await
                 .with_context(|| "Failed to get media summaries")?;
 
-        let files = parse_media_files(&fsio, &main_db, &node_id, media_summaries, lib_path).await?;
+        let files = parse_media_files(
+            &library.fsio,
+            &library.main_db,
+            &node_id,
+            media_summaries,
+            lib_path,
+        )
+        .await?;
         let cover_art_map = if request.bake_cover_arts {
-            bake_cover_art_by_media_files(&fsio, &main_db, media_entries).await?
+            bake_cover_art_by_media_files(&library.fsio, &library.main_db, media_entries).await?
         } else {
             HashMap::new()
         };
@@ -364,26 +338,27 @@ impl Signal for MixQueryRequest {
 }
 
 impl ParamsExtractor for FetchMixQueriesRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        all_params.library.clone()
     }
 }
 
 impl Signal for FetchMixQueriesRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = Option<LibraryHandle>;
     type Response = FetchMixQueriesResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        library: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
         let request = dart_signal;
 
-        let queries = get_mix_queries_by_mix_id(&main_db, request.mix_id)
+        let queries = get_mix_queries_by_mix_id(&library.main_db, request.mix_id)
             .await
             .with_context(|| "Unable to get mix queries files")?;
 

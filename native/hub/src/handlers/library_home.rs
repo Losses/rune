@@ -6,6 +6,12 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use log::warn;
 
+use crate::{
+    Session, Signal,
+    library_pool::LibraryHandle,
+    messages::*,
+    utils::{GlobalParams, ParamsExtractor, require_library},
+};
 use ::database::{
     actions::{
         collection::{
@@ -17,13 +23,6 @@ use ::database::{
     },
     connection::{MainDbConnection, RecommendationDbConnection},
     entities::{albums, artists, genres, media_files, mixes, playlists},
-};
-use ::fsio::FsIo;
-
-use crate::{
-    Session, Signal,
-    messages::*,
-    utils::{GlobalParams, ParamsExtractor},
 };
 
 #[async_trait]
@@ -220,38 +219,27 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
 }
 
 impl ParamsExtractor for ComplexQueryRequest {
-    type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
-        Arc<RecommendationDbConnection>,
-        crate::utils::RunningMode,
-    );
+    type Params = (Option<LibraryHandle>, crate::utils::RunningMode);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            Arc::clone(&all_params.fsio),
-            Arc::clone(&all_params.main_db),
-            Arc::clone(&all_params.recommend_db),
-            all_params.running_mode,
-        )
+        (all_params.library.clone(), all_params.running_mode)
     }
 }
 
 impl Signal for ComplexQueryRequest {
-    type Params = (
-        Arc<FsIo>,
-        Arc<MainDbConnection>,
-        Arc<RecommendationDbConnection>,
-        crate::utils::RunningMode,
-    );
+    type Params = (Option<LibraryHandle>, crate::utils::RunningMode);
     type Response = ComplexQueryResponse;
 
     async fn handle(
         &self,
-        (fsio, main_db, recommend_db, running_mode): Self::Params,
+        (library, running_mode): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
+        let fsio = Arc::clone(&library.fsio);
+        let main_db = Arc::clone(&library.main_db);
+        let recommend_db = Arc::clone(&library.recommend_db);
         let queries = &dart_signal.queries;
         let remote_host = match session {
             Some(x) => Some(x.host.clone()),

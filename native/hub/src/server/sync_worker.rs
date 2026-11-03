@@ -1472,7 +1472,13 @@ impl playback::player::PlaybackSourceResolver for PairedAudioResolver {
             let manager = manager
                 .upgrade()
                 .ok_or_else(|| anyhow::anyhow!("library closed"))?;
-            resolve_local_id(manager.main_db.as_ref(), id).await
+            let library = manager
+                .ui_library
+                .lock()
+                .await
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("library closed"))?;
+            resolve_local_id(library.main_db.as_ref(), id).await
         })
     }
     fn local_path(
@@ -1516,11 +1522,16 @@ async fn resolve_materialized_path(
     let manager = manager
         .upgrade()
         .ok_or_else(|| anyhow::anyhow!("library closed"))?;
-    let params = &manager;
+    let library = manager
+        .ui_library
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("library closed"))?;
     materialized_path(
-        params.main_db.as_ref(),
-        &params.fsio,
-        Path::new(params.lib_path.as_str()),
+        library.main_db.as_ref(),
+        &library.fsio,
+        Path::new(library.media_root.as_str()),
         id,
     )
     .await

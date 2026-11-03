@@ -116,8 +116,6 @@ pub fn require_library(library: Option<LibraryHandle>) -> Result<LibraryHandle> 
 
 pub struct GlobalParams {
     pub node: Arc<NodeContext>,
-    pub fsio: Arc<FsIo>,
-    pub lib_path: Arc<String>,
     pub library_id: Option<Uuid>,
     pub library_pool: Arc<LibraryPool>,
     /// The library open in this UI, the one source of per-library state for
@@ -127,9 +125,6 @@ pub struct GlobalParams {
     pub config_path: Arc<String>,
     pub sync_settings: Arc<RwLock<sync_settings::SyncSettings>>,
     pub node_id: Arc<String>,
-    pub main_db: Arc<MainDbConnection>,
-    pub library_sync: Option<database::sync::LibrarySyncStore>,
-    pub recommend_db: Arc<RecommendationDbConnection>,
     pub main_token: Arc<CancellationToken>,
     pub task_tokens: Arc<Mutex<TaskTokens>>,
     pub player: Arc<Mutex<dyn Playable>>,
@@ -156,10 +151,21 @@ pub async fn initialize_library_replica(
     Ok(library)
 }
 
+#[cfg(test)]
+impl GlobalParams {
+    /// The library a test fixture opened. Fixtures that build `GlobalParams`
+    /// for a local library always set it, so a missing one is a broken fixture.
+    pub fn test_library(&self) -> &LibraryHandle {
+        self.library
+            .as_ref()
+            .expect("test fixture opened no library")
+    }
+}
+
 impl Debug for GlobalParams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GlobalParams")
-            .field("lib_path", &self.lib_path)
+            .field("library_id", &self.library_id)
             .finish()
     }
 }
