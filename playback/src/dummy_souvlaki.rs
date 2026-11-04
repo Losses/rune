@@ -40,9 +40,9 @@ pub enum SeekDirection {
     Backward,
 }
 
-pub struct PlatformConfig {
-    pub dbus_name: &'static str,
-    pub display_name: &'static str,
+pub struct PlatformConfig<'a> {
+    pub dbus_name: &'a str,
+    pub display_name: &'a str,
     pub hwnd: Option<()>,
 }
 
@@ -55,7 +55,7 @@ pub struct MediaControls;
 
 impl MediaControls {
     /// Create media controls with the specified config.
-    pub fn new(_config: PlatformConfig) -> Result<Self, Error> {
+    pub fn new(_config: PlatformConfig<'_>) -> Result<Self, Error> {
         Ok(Self)
     }
 
