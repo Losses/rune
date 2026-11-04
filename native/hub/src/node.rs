@@ -4,6 +4,7 @@ use std::{
     path::Path,
     sync::{Arc, OnceLock, Weak},
 };
+use uuid::Uuid;
 
 use anyhow::{Context, Result, ensure};
 use discovery::{
@@ -238,6 +239,10 @@ impl NodeContext {
             .get()
             .cloned()
             .context("Node session is not initialized")
+    }
+
+    pub async fn session_queue_for_library(&self, library_id: Uuid) -> Result<Vec<i32>> {
+        Ok(self.session()?.queue_for_library(library_id).await)
     }
 
     pub fn manager(&self) -> Result<Arc<ServerManager>> {

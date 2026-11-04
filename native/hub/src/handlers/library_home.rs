@@ -1,4 +1,7 @@
+use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
+use crate::utils::CollectionCoverOptions;
+use crate::utils::RunningMode;
 use std::{marker::PhantomData, str::FromStr, sync::Arc};
 
 use anyhow::{Error, Result};
@@ -31,6 +34,7 @@ pub trait ComplexQuery: Send + Sync {
         &self,
         main_db: &MainDbConnection,
         recommend_db: &RecommendationDbConnection,
+        queue: &[i32],
     ) -> Result<Vec<UnifiedCollection>>;
 }
 
@@ -43,6 +47,7 @@ where
         &self,
         main_db: &MainDbConnection,
         _: &RecommendationDbConnection,
+        _: &[i32],
     ) -> Result<Vec<UnifiedCollection>> {
         self.query_model_collections(main_db).await
     }
@@ -130,6 +135,7 @@ impl ComplexQuery for NaiveTrackComplexQuery {
         &self,
         main_db: &MainDbConnection,
         _: &RecommendationDbConnection,
+        _: &[i32],
     ) -> Result<Vec<UnifiedCollection>> {
         let tracks = match self.mode {
             // This is actually fake since we didn't find anywhere that use this case
@@ -151,13 +157,14 @@ impl ComplexQuery for MixTrackComplexQuery {
         &self,
         main_db: &MainDbConnection,
         recommend_db: &RecommendationDbConnection,
+        queue: &[i32],
     ) -> Result<Vec<UnifiedCollection>> {
         if !self.enabled {
             return Ok(vec![]);
         }
 
         let tracks =
-            query_mix_media_files(main_db, recommend_db, self.query.clone(), 0, 25).await?;
+            query_mix_media_files(main_db, recommend_db, self.query.clone(), 0, 25, queue).await?;
 
         build_track_collections(main_db, tracks).await
     }
@@ -219,20 +226,24 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
 }
 
 impl ParamsExtractor for ComplexQueryRequest {
-    type Params = (Option<LibraryHandle>, crate::utils::RunningMode);
+    type Params = (Option<LibraryHandle>, RunningMode, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), all_params.running_mode)
+        (
+            all_params.library.clone(),
+            all_params.running_mode,
+            all_params.node.clone(),
+        )
     }
 }
 
 impl Signal for ComplexQueryRequest {
-    type Params = (Option<LibraryHandle>, crate::utils::RunningMode);
+    type Params = (Option<LibraryHandle>, RunningMode, Arc<NodeContext>);
     type Response = ComplexQueryResponse;
 
     async fn handle(
         &self,
-        (library, running_mode): Self::Params,
+        (library, running_mode, node): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -240,6 +251,10 @@ impl Signal for ComplexQueryRequest {
         let fsio = Arc::clone(&library.fsio);
         let main_db = Arc::clone(&library.main_db);
         let recommend_db = Arc::clone(&library.recommend_db);
+        let queue = Arc::new(
+            node.session_queue_for_library(library.descriptor.library_id)
+                .await?,
+        );
         let queries = &dart_signal.queries;
         let remote_host = match session {
             Some(x) => Some(x.host.clone()),
@@ -250,14 +265,16 @@ impl Signal for ComplexQueryRequest {
             let main_db = main_db.clone();
             let recommend_db = recommend_db.clone();
             let fsio = Arc::clone(&fsio);
+            let queue = queue.clone();
 
             {
                 let value = remote_host.clone();
                 async move {
                     let fsio = Arc::clone(&fsio);
                     let query_executor = create_query(&query.domain, &query.parameter)?;
-                    let unified_collections =
-                        query_executor.execute(&main_db, &recommend_db).await?;
+                    let unified_collections = query_executor
+                        .execute(&main_db, &recommend_db, &queue)
+                        .await?;
                     let remote_host = value.clone();
 
                     let entries_futures =
@@ -266,6 +283,7 @@ impl Signal for ComplexQueryRequest {
                             let main_db = main_db.clone();
                             let recommend_db = recommend_db.clone();
                             let remote_host = remote_host.clone();
+                            let queue = queue.clone();
                             async move {
                                 // Get the collection with processed cover art paths
                                 let mut collection =
@@ -277,8 +295,12 @@ impl Signal for ComplexQueryRequest {
                                         recommend_db,
                                         collection,
                                         None,
-                                        &running_mode,
-                                        &remote_host,
+                                        CollectionCoverOptions {
+                                            bake: true,
+                                            running_mode: &running_mode,
+                                            remote_host: &remote_host,
+                                            playback_queue: &queue,
+                                        },
                                     )
                                     .await?;
                                 }

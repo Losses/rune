@@ -674,7 +674,7 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
     use database::actions::{
         file::get_media_files,
         metadata::scan_audio_library,
-        playback_queue::{list_playback_queue, replace_playback_queue},
+        playback_queue::{list_legacy_playback_queue, replace_playback_queue},
     };
     let root = tempfile::tempdir()?;
     let fixtures = fixtures::asset_directory();
@@ -768,7 +768,7 @@ async fn attachment_keeps_player_references_across_scans() -> Result<()> {
             &store.record_store(),
         )
         .await?;
-        assert_eq!(list_playback_queue(&db).await?, vec![old.id, old.id]);
+        assert_eq!(list_legacy_playback_queue(&db).await?, vec![old.id, old.id]);
         assert!(get_liked(&db, old.id).await?);
         assert_eq!(resolve_local_id(&db, old.id).await?, Some(old.id));
         assert_eq!(std::fs::read(root.path().join("original.ogg"))?, original);
@@ -827,6 +827,7 @@ async fn metadata_only_tracks_are_browsable_and_materialize_in_place() -> Result
             vec![(op.into(), filter.to_string())],
             0,
             20,
+            &[],
         )
         .await?;
         assert_eq!(found.iter().map(|f| f.id).collect::<Vec<_>>(), vec![id]);
@@ -975,7 +976,7 @@ async fn remote_metadata_edits_project_onto_existing_audio_without_feedback() ->
 async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()> {
     use database::actions::{
         file::get_media_files_count,
-        playback_queue::{list_playback_queue, replace_playback_queue},
+        playback_queue::{list_legacy_playback_queue, replace_playback_queue},
     };
     let (db, root) = setup().await?;
     file(&db, 10).await?;
@@ -1005,7 +1006,7 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
     )
     .await?;
     assert_eq!(get_media_files_count(&db).await?, 2);
-    assert_eq!(list_playback_queue(&db).await?, vec![10]);
+    assert_eq!(list_legacy_playback_queue(&db).await?, vec![10]);
     assert_eq!(i64::from(entry_file(&db).await?), i64::from(10));
     std::fs::remove_file(root.path().join("second.ogg"))?;
     fixtures::cleanup_scan(
@@ -1020,7 +1021,7 @@ async fn cache_cleanup_keeps_distinct_catalog_ids_and_references() -> Result<()>
     assert_eq!(get_media_files_count(&db).await?, 2);
     assert!(!is_materialized(&db, &FsIo::new(), root.path(), 10).await?);
     assert_eq!(resolve_local_id(&db, 10).await?, Some(10));
-    assert_eq!(list_playback_queue(&db).await?, vec![10]);
+    assert_eq!(list_legacy_playback_queue(&db).await?, vec![10]);
     Ok(())
 }
 
@@ -1121,7 +1122,7 @@ async fn saved_mix_uses_stable_references_across_local_ids() -> Result<()> {
     assert_ne!(params.iter().find(|q| q.0 == "lib::genre").unwrap().1, "12");
     assert_ne!(params.iter().find(|q| q.0 == "lib::album").unwrap().1, "13");
     let found =
-        query_mix_media_files(&db2, &RecommendationDbConnection::new(), params, 0, 20).await?;
+        query_mix_media_files(&db2, &RecommendationDbConnection::new(), params, 0, 20, &[]).await?;
     assert_eq!(found.iter().map(|f| f.id).collect::<Vec<_>>(), vec![77]);
     let head = b.head().await?;
     assert_eq!(b.head().await?, head);
@@ -1493,6 +1494,7 @@ async fn staged_download_remains_queryable_but_not_playable() -> Result<()> {
         vec![("lib::all".into(), "true".into())],
         0,
         10,
+        &[],
     )
     .await?;
     assert_eq!(mix.iter().map(|f| f.id).collect::<Vec<_>>(), vec![10, 20]);

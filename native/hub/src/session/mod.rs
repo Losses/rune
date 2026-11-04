@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 use database::{
     actions::{
         logging::{LogLevel, insert_log},
-        playback_queue::{SessionQueue, list_legacy_playback_queue},
+        playback_queue::list_legacy_playback_queue,
         stats::increase_played_through,
     },
     connection::MainDbConnection,
@@ -73,6 +73,21 @@ pub struct PlayerSession {
 }
 
 impl PlayerSession {
+    pub async fn queue_for_library(&self, library_id: Uuid) -> Vec<i32> {
+        let library_id = library_id.to_string();
+        self.player
+            .lock()
+            .await
+            .get_status()
+            .playlist
+            .into_iter()
+            .filter_map(|item| match item {
+                PlayingItem::InLibrary(file_id, id) if id == library_id => Some(file_id),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub(crate) async fn new(
         node: &Arc<NodeContext>,
         name: &str,
@@ -131,11 +146,7 @@ impl PlayerSession {
             node: Arc::downgrade(node),
             legacy_restore: AtomicBool::new(false),
         });
-        let queue = Arc::new(SessionQueue::new(
-            state.tracks().into_iter().map(|(item, _)| item).collect(),
-        ));
-        node.library_pool.set_session_queue(queue.clone()).await;
-        session.start_events(node, queue).await;
+        session.start_events(node).await;
         session.player.lock().await.restore(
             state.tracks(),
             state.index,
@@ -206,7 +217,7 @@ impl PlayerSession {
         result
     }
 
-    async fn start_events(&self, node: &Arc<NodeContext>, queue: Arc<SessionQueue>) {
+    async fn start_events(&self, node: &Arc<NodeContext>) {
         let player = self.player.lock().await;
         let status = player.subscribe_status();
         let playlist = player.subscribe_playlist();
@@ -283,7 +294,7 @@ impl PlayerSession {
                         return;
                     },
                     Some(value) = persist_playlist_rx.recv() => {
-                        record_playlist_change(&state, &queue, value.items, &mut dirty_deadline).await;
+                        record_playlist_change(&state, value.items, &mut dirty_deadline).await;
                     }
                     Some(value) = persist_status_rx.recv() => {
                         record_status_change(&state, &value, &mut dirty_deadline).await;
@@ -316,11 +327,9 @@ async fn update_persisted_cursor(state: &Mutex<SessionState>, status: &PlayerSta
 
 async fn record_playlist_change(
     state: &Mutex<SessionState>,
-    queue: &SessionQueue,
     items: Vec<PlayingItem>,
     deadline: &mut Option<Instant>,
 ) {
-    *queue.write().unwrap_or_else(|error| error.into_inner()) = items.clone();
     if update_persisted_queue(state, &items).await {
         deadline.get_or_insert_with(|| Instant::now() + Duration::from_millis(300));
     }

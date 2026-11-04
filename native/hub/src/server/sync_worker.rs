@@ -2,7 +2,7 @@ use super::libraries::ListedLibrary;
 use super::sync::client::LibrarySession;
 use super::sync::client::SessionDirection;
 use super::sync::client::fetch_missing;
-use super::sync::downloads::download_requested_audio_until;
+use super::sync::downloads::{DownloadAudioContext, download_requested_audio_until};
 use super::sync::{library_base, library_notification};
 use super::sync_auth::{Authorization, Challenge, Token, message};
 #[cfg(test)]
@@ -787,14 +787,20 @@ async fn sync_one(
             local.namespace == remote.namespace,
             "paired catalog namespace mismatch"
         );
+        let playback_queue = global
+            .session_queue_for_library(library.descriptor.library_id)
+            .await?;
         let report = download_requested_audio_until(
             (*library.main_db).clone(),
             &library.recommend_db,
             library.fsio.clone(),
             library.media_root.clone().into(),
-            global.node_id.parse()?,
-            &peer,
-            notify.clone(),
+            DownloadAudioContext {
+                node_id: global.node_id.parse()?,
+                remote: &peer,
+                notify: notify.clone(),
+                playback_queue: &playback_queue,
+            },
             tokio_time::Instant::now() + Duration::from_secs(60),
         )
         .await?;

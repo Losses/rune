@@ -1,3 +1,4 @@
+use crate::node::NodeContext;
 use database::entities::{media_cover_art, media_cover_art::Column};
 use std::path::Path;
 use std::sync::Arc;
@@ -18,19 +19,19 @@ use crate::{
 };
 
 impl ParamsExtractor for GetCoverArtIdsByMixQueriesRequest {
-    type Params = Option<LibraryHandle>;
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        all_params.library.clone()
+        (all_params.library.clone(), all_params.node.clone())
     }
 }
 
 impl Signal for GetCoverArtIdsByMixQueriesRequest {
-    type Params = Option<LibraryHandle>;
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
     type Response = GetCoverArtIdsByMixQueriesResponse;
     async fn handle(
         &self,
-        library: Self::Params,
+        (library, node): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -39,14 +40,24 @@ impl Signal for GetCoverArtIdsByMixQueriesRequest {
         let main_db = Arc::clone(&library.main_db);
         let recommend_db = Arc::clone(&library.recommend_db);
         let queries = &request.requests;
+        let queue = Arc::new(
+            node.session_queue_for_library(library.descriptor.library_id)
+                .await?,
+        );
 
         let files_futures = queries.clone().into_iter().map(|x| {
             let main_db = Arc::clone(&main_db);
             let recommend_db = Arc::clone(&recommend_db);
+            let queue = queue.clone();
             async move {
-                let query =
-                    query_cover_arts(&main_db, recommend_db, x.queries.clone(), Some(request.n))
-                        .await;
+                let query = query_cover_arts(
+                    &main_db,
+                    recommend_db,
+                    x.queries.clone(),
+                    Some(request.n),
+                    &queue,
+                )
+                .await;
 
                 match query {
                     Ok(files) => {

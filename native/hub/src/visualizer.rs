@@ -3,9 +3,11 @@
 //! Its frames reach the screen through [`crate::flutter_bridge`], which registers a texture with
 //! the engine from Rust, so the pixels never travel through Dart.
 
+use crate::node::NodeContext;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
 use tokio::runtime::Handle;
+use uuid::Uuid;
 
 use ::database::{
     actions::{cover_art::bake_cover_art_by_media_files, mixes::query_mix_media_files},
@@ -35,6 +37,8 @@ struct CoverSource {
     fsio: Arc<FsIo>,
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
+    node: Arc<NodeContext>,
+    library_id: Uuid,
 }
 
 static COVER_SOURCE: Mutex<Option<Arc<CoverSource>>> = Mutex::new(None);
@@ -48,12 +52,16 @@ pub fn provide_covers(
     fsio: Arc<FsIo>,
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
+    node: Arc<NodeContext>,
+    library_id: Uuid,
 ) {
     *COVER_SOURCE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(CoverSource {
         runtime: Handle::current(),
         fsio,
         main_db,
         recommend_db,
+        node,
+        library_id,
     }));
     VISUALIZER.set_covers_requester(refresh_covers);
 }
@@ -103,6 +111,10 @@ fn refresh_covers() {
 
 /// The same query as the cover wall's, for the cover files of random tracks.
 async fn random_covers(source: &CoverSource) -> Result<Vec<PathBuf>> {
+    let queue = source
+        .node
+        .session_queue_for_library(source.library_id)
+        .await?;
     let files = query_mix_media_files(
         &source.main_db,
         &source.recommend_db,
@@ -112,6 +124,7 @@ async fn random_covers(source: &CoverSource) -> Result<Vec<PathBuf>> {
         ],
         0,
         RANDOM_COVERS,
+        &queue,
     )
     .await?;
     let ids: Vec<i32> = files.iter().map(|file| file.id).collect();

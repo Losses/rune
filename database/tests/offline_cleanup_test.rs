@@ -63,6 +63,7 @@ async fn cleanup_removes_only_unselected_managed_files() -> Result<()> {
         &fs,
         root.path(),
         &store,
+        &[],
     )
     .await?;
     assert!(managed.join("0.ogg").exists());

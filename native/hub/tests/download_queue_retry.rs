@@ -14,7 +14,9 @@ use database::{
     },
 };
 use http_request::sync::MetadataPeer;
-use hub::server::sync::downloads::{download_requested_audio, download_requested_audio_until};
+use hub::server::sync::downloads::{
+    DownloadAudioContext, download_requested_audio, download_requested_audio_until,
+};
 use sea_orm::sea_query::Expr;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -530,9 +532,12 @@ async fn transfer_finishes_after_pass_deadline_without_starting_next_file() -> R
         &RecommendationDbConnection::new(),
         fixture.fs.clone(),
         fixture.root.path().into(),
-        fixture.node,
-        &MetadataPeer::new(&fixture.base, reqwest::Client::new()),
-        Arc::new(|| {}),
+        DownloadAudioContext {
+            node_id: fixture.node,
+            remote: &MetadataPeer::new(&fixture.base, reqwest::Client::new()),
+            notify: Arc::new(|| {}),
+            playback_queue: &[],
+        },
         Instant::now() + Duration::from_millis(200),
     )
     .await?;

@@ -1,3 +1,4 @@
+use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
 use crate::{
     Session, Signal,
@@ -23,21 +24,28 @@ use anyhow::Result;
 pub struct DownloadParams {
     library: Option<LibraryHandle>,
     broadcaster: Arc<dyn Broadcaster>,
+    node: Arc<NodeContext>,
 }
 impl DownloadParams {
     fn from_global(p: &GlobalParams) -> Self {
         Self {
             library: p.library.clone(),
             broadcaster: p.broadcaster.clone(),
+            node: p.node.clone(),
         }
     }
     async fn cleanup(&self, library: &LibraryHandle) -> Result<()> {
+        let queue = self
+            .node
+            .session_queue_for_library(library.descriptor.library_id)
+            .await?;
         let result = cleanup_unselected_downloads(
             &library.main_db,
             &library.recommend_db,
             &library.fsio,
             Path::new(&library.media_root),
             &library.library_sync.record_store(),
+            &queue,
         )
         .await;
         self.broadcaster.broadcast(&LibraryContentChanged {

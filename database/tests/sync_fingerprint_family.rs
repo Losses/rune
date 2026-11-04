@@ -368,6 +368,7 @@ async fn duplicate_filter_uses_supported_current_identity_once() -> Result<()> {
         vec![("lib::all".into(), "true".into())],
         0,
         20,
+        &[],
     )
     .await?;
     assert_eq!(files.into_iter().map(|f| f.id).collect::<Vec<_>>(), vec![2]);

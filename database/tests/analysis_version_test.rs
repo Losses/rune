@@ -72,7 +72,8 @@ async fn legacy_rows_are_invalid_and_replaced_only_after_success() -> Result<()>
                     ("filter::analyzed".into(), value.into())
                 ],
                 0,
-                10
+                10,
+                &[]
             )
             .await?
             .len(),

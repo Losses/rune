@@ -20,7 +20,6 @@ use sea_orm::{
 };
 
 use crate::actions::analysis::{get_analyze_count, get_percentile_analysis_result};
-use crate::actions::playback_queue::list_playback_queue;
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
 use crate::entities::{
     albums, artists, genres, media_analysis, media_file_albums, media_file_artists,
@@ -642,6 +641,7 @@ pub async fn query_mix_media_files(
     queries: Vec<(String, String)>,
     cursor: usize,
     page_size: usize,
+    session_queue: &[i32],
 ) -> Result<Vec<media_files::Model>> {
     let mut all: bool = false;
 
@@ -875,11 +875,9 @@ pub async fn query_mix_media_files(
     if let Some(queue_enabled) = playback_queue
         && queue_enabled
     {
-        let queued_tracks = list_playback_queue(main_db).await?;
-
         let subquery = media_files::Entity::find()
             .select_only()
-            .filter(media_files::Column::Id.is_in(queued_tracks))
+            .filter(media_files::Column::Id.is_in(session_queue.to_vec()))
             .column(media_files::Column::Id)
             .into_query();
 

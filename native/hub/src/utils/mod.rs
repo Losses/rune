@@ -412,14 +412,20 @@ async fn handle_media_library_path(
     }
 }
 
+pub struct CollectionCoverOptions<'a> {
+    pub bake: bool,
+    pub running_mode: &'a RunningMode,
+    pub remote_host: &'a Option<String>,
+    pub playback_queue: &'a [i32],
+}
+
 pub async fn inject_cover_art_map(
     fsio: &FsIo,
     main_db: &MainDbConnection,
     recommend_db: Arc<RecommendationDbConnection>,
     collection: Collection,
     n: Option<i32>,
-    running_mode: &RunningMode,
-    remote_host: &Option<String>,
+    options: CollectionCoverOptions<'_>,
 ) -> Result<Collection> {
     let files = query_cover_arts(
         main_db,
@@ -434,6 +440,7 @@ pub async fn inject_cover_art_map(
             collection.queries.clone()
         },
         n,
+        options.playback_queue,
     )
     .await?;
 
@@ -443,7 +450,12 @@ pub async fn inject_cover_art_map(
     // Process the cover art paths based on the running mode
     let cover_art_map: HashMap<i32, String> = raw_cover_art_map
         .into_iter()
-        .map(|(id, path)| (id, process_cover_art_path(&path, running_mode, remote_host)))
+        .map(|(id, path)| {
+            (
+                id,
+                process_cover_art_path(&path, options.running_mode, options.remote_host),
+            )
+        })
         .collect();
 
     Ok(Collection {
@@ -461,6 +473,7 @@ pub async fn query_cover_arts(
     recommend_db: Arc<RecommendationDbConnection>,
     queries: Vec<MixQuery>,
     n: Option<i32>,
+    queue: &[i32],
 ) -> Result<Vec<media_files::Model>> {
     query_mix_media_files(
         main_db,
@@ -481,6 +494,7 @@ pub async fn query_cover_arts(
             }
             None => 18,
         },
+        queue,
     )
     .await
 }

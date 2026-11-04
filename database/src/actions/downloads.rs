@@ -143,6 +143,7 @@ pub async fn cleanup_unselected_downloads(
     fsio: &FsIo,
     root: &Path,
     store: &SeaOrmSyncStore,
+    playback_queue: &[i32],
 ) -> Result<CleanupReport> {
     let rules = sync_download_rules::Entity::find()
         .filter(sync_download_rules::Column::Enabled.eq(true))
@@ -159,8 +160,15 @@ pub async fn cleanup_unselected_downloads(
         validate_queries(&queries)?;
         let mut cursor = 0;
         loop {
-            let files =
-                query_mix_media_files(db, recommend_db, queries.clone(), cursor, PAGE).await?;
+            let files = query_mix_media_files(
+                db,
+                recommend_db,
+                queries.clone(),
+                cursor,
+                PAGE,
+                playback_queue,
+            )
+            .await?;
             let count = files.len();
             selected.extend(files.into_iter().map(|file| file.id));
             cursor = cursor

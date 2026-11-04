@@ -171,10 +171,15 @@ async fn mix_filters_and_orders_by_likes_and_per_device_totals() -> Result<()> {
     let ids =
         |rows: Vec<media_files::Model>| rows.into_iter().map(|row| row.id).collect::<Vec<_>>();
     assert_eq!(
-        ids(
-            query_mix_media_files(&db, &recommendations, query("filter::liked", "true"), 0, 10)
-                .await?
-        ),
+        ids(query_mix_media_files(
+            &db,
+            &recommendations,
+            query("filter::liked", "true"),
+            0,
+            10,
+            &[]
+        )
+        .await?),
         [3]
     );
     assert_eq!(
@@ -183,16 +188,22 @@ async fn mix_filters_and_orders_by_likes_and_per_device_totals() -> Result<()> {
             &recommendations,
             query("filter::liked", "false"),
             0,
-            10
+            10,
+            &[]
         )
         .await?),
         [1, 2]
     );
     assert_eq!(
-        ids(
-            query_mix_media_files(&db, &recommendations, query("sort::skipped", "true"), 0, 10)
-                .await?
-        ),
+        ids(query_mix_media_files(
+            &db,
+            &recommendations,
+            query("sort::skipped", "true"),
+            0,
+            10,
+            &[]
+        )
+        .await?),
         [1, 3, 2]
     );
     assert_eq!(
@@ -201,7 +212,8 @@ async fn mix_filters_and_orders_by_likes_and_per_device_totals() -> Result<()> {
             &recommendations,
             query("sort::playedthrough", "true"),
             0,
-            10
+            10,
+            &[]
         )
         .await?),
         [1, 2, 3]
@@ -217,6 +229,7 @@ async fn mix_filters_and_orders_by_likes_and_per_device_totals() -> Result<()> {
         ],
         0,
         10,
+        &[],
     )
     .await?;
     assert_eq!(ids(recommended), [1, 2, 3]);

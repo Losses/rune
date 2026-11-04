@@ -5,7 +5,7 @@ use std::{env, process::Command};
 use database::actions::{
     downloads::cleanup_unselected_downloads,
     mixes::query_mix_media_files,
-    playback_queue::{list_legacy_playback_queue, list_playback_queue, replace_playback_queue},
+    playback_queue::{list_legacy_playback_queue, replace_playback_queue},
 };
 use database::entities::media_file_stats;
 use database::entities::media_metadata;
@@ -447,7 +447,12 @@ async fn session_d4_queue_queries_and_download_rules_are_library_scoped() -> Res
             .filter(Column::Id.eq(file.id))
             .exec(&*library.main_db)
             .await?;
-        assert_eq!(list_playback_queue(&library.main_db).await?, expected);
+        let queue = f
+            .global_params
+            .node
+            .session_queue_for_library(library.descriptor.library_id)
+            .await?;
+        assert_eq!(queue, expected);
         let queries = vec![("lib::queue".into(), "true".into())];
         let rows = query_mix_media_files(
             &library.main_db,
@@ -455,6 +460,7 @@ async fn session_d4_queue_queries_and_download_rules_are_library_scoped() -> Res
             queries.clone(),
             0,
             100,
+            &queue,
         )
         .await?;
         assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), expected);
@@ -466,6 +472,7 @@ async fn session_d4_queue_queries_and_download_rules_are_library_scoped() -> Res
             &library.fsio,
             Path::new(&library.media_root),
             &library.library_sync.record_store(),
+            &queue,
         )
         .await?;
         assert_eq!(report.delete_failures, 0);
@@ -473,6 +480,54 @@ async fn session_d4_queue_queries_and_download_rules_are_library_scoped() -> Res
         assert_eq!(target.exists(), !expected.is_empty());
     }
     a.global_params.node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_f4_nodes_with_matching_sqlite_filenames_keep_queues_separate() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let bdir = tempfile::tempdir()?;
+    let a = fixture(dir.path()).await?;
+    let aid = session_audio(&a, "queue-a.ogg").await?;
+    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let bid = session_audio(&b, "queue-b.ogg").await?;
+    assert_eq!(aid, bid, "exercise colliding catalog integer IDs");
+
+    let filename = |fixture: &Fixture| {
+        fixture
+            .global_params
+            .test_library()
+            .main_db
+            .get_sqlite_connection_pool()
+            .connect_options()
+            .get_filename()
+            .file_name()
+            .map(ToOwned::to_owned)
+    };
+    assert_eq!(filename(&a), filename(&b));
+
+    queue_session(&a, &[aid]).await?;
+    sleep(Duration::from_millis(400)).await;
+    for (fixture, expected) in [(&a, vec![aid]), (&b, vec![])] {
+        let library = fixture.global_params.test_library();
+        let queue = fixture
+            .global_params
+            .node
+            .session_queue_for_library(library.descriptor.library_id)
+            .await?;
+        assert_eq!(queue, expected);
+        let rows = query_mix_media_files(
+            &library.main_db,
+            &library.recommend_db,
+            vec![("lib::queue".into(), "true".into())],
+            0,
+            10,
+            &queue,
+        )
+        .await?;
+        assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), expected);
+    }
+    a.global_params.node.shutdown().await?;
+    b.global_params.node.shutdown().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

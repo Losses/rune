@@ -22,6 +22,13 @@ use std::{collections::HashSet, path::PathBuf, sync::Arc};
 use sync::SyncPeer;
 use tokio::time::Instant;
 use uuid::Uuid;
+
+pub struct DownloadAudioContext<'a> {
+    pub node_id: Uuid,
+    pub remote: &'a MetadataPeer<RuneModel>,
+    pub notify: Arc<dyn Fn() + Send + Sync>,
+    pub playback_queue: &'a [i32],
+}
 /// Evaluate enabled rules and fetch only missing matching audio from this peer.
 pub async fn download_requested_audio(
     db: DatabaseConnection,
@@ -32,14 +39,18 @@ pub async fn download_requested_audio(
     remote: &MetadataPeer<RuneModel>,
     notify: Arc<dyn Fn() + Send + Sync>,
 ) -> Result<DownloadReport> {
+    let context = DownloadAudioContext {
+        node_id,
+        remote,
+        notify,
+        playback_queue: &[],
+    };
     download_requested_audio_until(
         db,
         recommend_db,
         fsio,
         root,
-        node_id,
-        remote,
-        notify,
+        context,
         Instant::now() + Duration::from_secs(60),
     )
     .await
@@ -52,9 +63,7 @@ pub async fn download_requested_audio_until(
     recommend_db: &RecommendationDbConnection,
     fsio: Arc<FsIo>,
     root: PathBuf,
-    node_id: Uuid,
-    remote: &MetadataPeer<RuneModel>,
-    notify: Arc<dyn Fn() + Send + Sync>,
+    context: DownloadAudioContext<'_>,
     deadline: tokio::time::Instant,
 ) -> Result<DownloadReport> {
     release_obsolete_reservations(&db).await?;
@@ -66,14 +75,15 @@ pub async fn download_requested_audio_until(
     if rules.is_empty() {
         return Ok(DownloadReport::default());
     }
-    let server = remote.base_url();
-    let client = remote.client();
-    let identity = remote.identity().await?;
+    let server = context.remote.base_url();
+    let client = context.remote.client();
+    let identity = context.remote.identity().await?;
     ensure!(
         !identity.namespace.is_nil() && !identity.replica.is_nil() && !identity.generation.is_nil(),
         "invalid peer identity"
     );
-    let local = LibrarySyncStore::open(db.clone(), node_id, Some(identity.namespace)).await?;
+    let local =
+        LibrarySyncStore::open(db.clone(), context.node_id, Some(identity.namespace)).await?;
     let mut report = DownloadReport::default();
     const PAGE: usize = 100;
     const MAX_ATTEMPTS: usize = 128;
@@ -97,16 +107,23 @@ pub async fn download_requested_audio_until(
         }
         let mut cursor = 0usize;
         loop {
-            let files =
-                match query_mix_media_files(&db, recommend_db, queries.clone(), cursor, PAGE).await
-                {
-                    Ok(files) => files,
-                    Err(error) => {
-                        log::warn!("Could not query offline rule {}: {error:#}", rule.id);
-                        report.failed_rules += 1;
-                        break;
-                    }
-                };
+            let files = match query_mix_media_files(
+                &db,
+                recommend_db,
+                queries.clone(),
+                cursor,
+                PAGE,
+                context.playback_queue,
+            )
+            .await
+            {
+                Ok(files) => files,
+                Err(error) => {
+                    log::warn!("Could not query offline rule {}: {error:#}", rule.id);
+                    report.failed_rules += 1;
+                    break;
+                }
+            };
             let count = files.len();
             if count == 0 {
                 break;
@@ -184,7 +201,7 @@ pub async fn download_requested_audio_until(
                 match transfer {
                     Ok(()) => {
                         report.downloaded += 1;
-                        notify();
+                        (context.notify)();
                     }
                     Err(error) => {
                         log::warn!("Download failed for file {}: {error:#}", file.id);

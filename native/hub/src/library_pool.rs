@@ -3,7 +3,7 @@ use std::{
     fs,
     ops::Deref,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex as StdMutex, OnceLock, RwLock, Weak},
+    sync::{Arc, Mutex as StdMutex, OnceLock, Weak},
     time::Duration,
 };
 
@@ -18,8 +18,6 @@ use database::{
 use fsio::FsIo;
 use tokio::{sync::Mutex, time::Instant};
 use uuid::Uuid;
-
-use database::actions::playback_queue::{SessionQueue, bind_session_queue};
 
 use crate::utils::{initialize_databases, initialize_library_replica};
 
@@ -77,7 +75,6 @@ pub struct LibraryPool {
     db_path: PathBuf,
     node_id: String,
     idle_timeout: Duration,
-    session_queue: RwLock<Option<Arc<SessionQueue>>>,
     entries: Mutex<HashMap<Uuid, Entry>>,
 }
 
@@ -114,7 +111,6 @@ impl LibraryPool {
             db_path,
             node_id: node_id.to_owned(),
             idle_timeout,
-            session_queue: RwLock::new(None),
             entries: Mutex::new(HashMap::new()),
         });
         pools.insert(config_dir, Arc::downgrade(&pool));
@@ -132,29 +128,7 @@ impl LibraryPool {
         Ok(pool)
     }
 
-    pub async fn set_session_queue(&self, queue: Arc<SessionQueue>) {
-        for (id, entry) in self.entries.lock().await.iter() {
-            bind_session_queue(&entry.resources.main_db, *id, &queue);
-        }
-        *self
-            .session_queue
-            .write()
-            .unwrap_or_else(|e| e.into_inner()) = Some(queue);
-    }
-
     fn handle(self: &Arc<Self>, entry: &Entry) -> LibraryHandle {
-        if let Some(queue) = self
-            .session_queue
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-        {
-            bind_session_queue(
-                &entry.resources.main_db,
-                entry.resources.descriptor.library_id,
-                queue,
-            );
-        }
         LibraryHandle {
             resources: entry.resources.clone(),
             pool: self.clone(),

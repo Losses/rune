@@ -404,24 +404,35 @@ impl Signal for SetAdaptiveSwitchingEnabledRequest {
 }
 
 impl ParamsExtractor for OperatePlaybackWithMixQueryRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>, Arc<Mutex<dyn Playable>>);
+    type Params = (
+        Option<LibraryHandle>,
+        Arc<String>,
+        Arc<Mutex<dyn Playable>>,
+        Arc<NodeContext>,
+    );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             all_params.library.clone(),
             Arc::clone(&all_params.node_id),
             Arc::clone(&all_params.player),
+            all_params.node.clone(),
         )
     }
 }
 
 impl Signal for OperatePlaybackWithMixQueryRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>, Arc<Mutex<dyn Playable>>);
+    type Params = (
+        Option<LibraryHandle>,
+        Arc<String>,
+        Arc<Mutex<dyn Playable>>,
+        Arc<NodeContext>,
+    );
     type Response = OperatePlaybackWithMixQueryResponse;
 
     async fn handle(
         &self,
-        (library, _node_id, player): Self::Params,
+        (library, _node_id, player, node): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -441,6 +452,9 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
                 .get_file_handle(&library.fsio, &library.main_db, &items)
                 .await?
         } else {
+            let queue = node
+                .session_queue_for_library(library.descriptor.library_id)
+                .await?;
             query_mix_media_files(
                 &library.main_db,
                 &library.recommend_db,
@@ -451,6 +465,7 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
                     .collect(),
                 0,
                 4096,
+                &queue,
             )
             .await
             .with_context(|| format!("Failed to query tracks: {:?}", request.queries))?

@@ -296,7 +296,8 @@ async fn file_artist_keeps_membership_while_parents_arrive_and_return() -> Resul
             &RecommendationDbConnection::new(),
             vec![("lib::artist".into(), artist_row.id.to_string())],
             0,
-            20
+            20,
+            &[]
         )
         .await?
         .len(),

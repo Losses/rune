@@ -55,7 +55,7 @@ pub async fn mixes(
         .collect();
 
     let files: Vec<media_files::Model> =
-        match query_mix_media_files(main_db, recommend_db, mix_parameters_vec, 0, num).await {
+        match query_mix_media_files(main_db, recommend_db, mix_parameters_vec, 0, num, &[]).await {
             Ok(recommendations) => recommendations,
             Err(e) => {
                 eprintln!("Failed to get recommendations: {e}");

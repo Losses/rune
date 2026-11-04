@@ -1,4 +1,6 @@
+use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
+use crate::utils::CollectionCoverOptions;
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
@@ -75,6 +77,7 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
     running_mode: &RunningMode,
     remote_host: &Option<String>,
     params: CollectionActionParams,
+    queue: Vec<i32>,
 ) -> Result<Option<FetchCollectionGroupsResponse>> {
     let entry = T::get_groups(
         main_db,
@@ -87,16 +90,20 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
         let collections_result: Result<Vec<Collection>> = join_all(x.1.into_iter().map(|x| {
             let main_db = Arc::clone(main_db);
             let recommend_db = Arc::clone(recommend_db);
+            let queue = queue.clone();
 
             async move {
                 Collection::from_model_bakeable(
                     fsio,
                     &main_db,
                     recommend_db,
-                    running_mode,
-                    remote_host,
                     x.0.clone(),
-                    params.bake_cover_arts,
+                    CollectionCoverOptions {
+                        bake: params.bake_cover_arts,
+                        running_mode,
+                        remote_host,
+                        playback_queue: &queue,
+                    },
                 )
                 .await
             }
@@ -126,6 +133,7 @@ async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
     running_mode: &RunningMode,
     remote_host: &Option<String>,
     params: CollectionActionParams,
+    queue: Vec<i32>,
 ) -> Result<Option<FetchCollectionByIdsResponse>> {
     let items = T::get_by_ids(
         main_db,
@@ -134,17 +142,23 @@ async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
             .ok_or_else(|| ExpectedRequestError::invalid_input("ID parameter is None"))?,
     )
     .await?;
-    let futures = items.into_iter().map(|item| async move {
-        Collection::from_model_bakeable(
-            fsio,
-            main_db,
-            Arc::clone(recommend_db),
-            running_mode,
-            remote_host,
-            item.clone(),
-            params.bake_cover_arts,
-        )
-        .await
+    let futures = items.into_iter().map(|item| {
+        let queue = queue.clone();
+        async move {
+            Collection::from_model_bakeable(
+                fsio,
+                main_db,
+                Arc::clone(recommend_db),
+                item.clone(),
+                CollectionCoverOptions {
+                    bake: params.bake_cover_arts,
+                    running_mode,
+                    remote_host,
+                    playback_queue: &queue,
+                },
+            )
+            .await
+        }
     });
 
     let collections: Vec<_> = join_all(futures)
@@ -239,24 +253,15 @@ impl Collection {
         fsio: &FsIo,
         main_db: &MainDbConnection,
         recommend_db: Arc<RecommendationDbConnection>,
-        running_mode: &RunningMode,
-        remote_host: &Option<String>,
         model: T,
-        bake_cover_arts: bool,
+        options: CollectionCoverOptions<'_>,
     ) -> Result<Self> {
         let mut collection = Collection::from_model(main_db, &model).await?;
 
-        if bake_cover_arts {
-            collection = inject_cover_art_map(
-                fsio,
-                main_db,
-                recommend_db,
-                collection,
-                None,
-                running_mode,
-                remote_host,
-            )
-            .await?;
+        if options.bake {
+            collection =
+                inject_cover_art_map(fsio, main_db, recommend_db, collection, None, options)
+                    .await?;
         }
 
         Ok(collection)
@@ -266,24 +271,15 @@ impl Collection {
         fsio: &FsIo,
         main_db: &MainDbConnection,
         recommend_db: Arc<RecommendationDbConnection>,
-        running_mode: &RunningMode,
-        remote_host: &Option<String>,
         x: UnifiedCollection,
-        bake_cover_arts: bool,
+        options: CollectionCoverOptions<'_>,
     ) -> Result<Self> {
         let mut collection = Collection::from_unified_collection(x);
 
-        if bake_cover_arts {
-            collection = inject_cover_art_map(
-                fsio,
-                main_db,
-                recommend_db,
-                collection,
-                None,
-                running_mode,
-                remote_host,
-            )
-            .await?;
+        if options.bake {
+            collection =
+                inject_cover_art_map(fsio, main_db, recommend_db, collection, None, options)
+                    .await?;
         }
 
         Ok(collection)
@@ -331,20 +327,24 @@ impl Signal for FetchCollectionGroupSummaryRequest {
 }
 
 impl ParamsExtractor for FetchCollectionGroupsRequest {
-    type Params = (Option<LibraryHandle>, RunningMode);
+    type Params = (Option<LibraryHandle>, RunningMode, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), all_params.running_mode)
+        (
+            all_params.library.clone(),
+            all_params.running_mode,
+            all_params.node.clone(),
+        )
     }
 }
 
 impl Signal for FetchCollectionGroupsRequest {
-    type Params = (Option<LibraryHandle>, RunningMode);
+    type Params = (Option<LibraryHandle>, RunningMode, Arc<NodeContext>);
     type Response = FetchCollectionGroupsResponse;
 
     async fn handle(
         &self,
-        (library, running_mode): Self::Params,
+        (library, running_mode, node): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -352,6 +352,9 @@ impl Signal for FetchCollectionGroupsRequest {
         let fsio = &library.fsio;
         let main_db = &library.main_db;
         let recommend_db = &library.recommend_db;
+        let queue = node
+            .session_queue_for_library(library.descriptor.library_id)
+            .await?;
         let params = CollectionActionParams {
             group_titles: Some(dart_signal.group_titles.clone()),
             bake_cover_arts: dart_signal.bake_cover_arts,
@@ -372,6 +375,7 @@ impl Signal for FetchCollectionGroupsRequest {
                     &running_mode,
                     &remote_host,
                     params,
+                    queue.clone(),
                 )
                 .await
             }
@@ -383,6 +387,7 @@ impl Signal for FetchCollectionGroupsRequest {
                     &running_mode,
                     &remote_host,
                     params,
+                    queue.clone(),
                 )
                 .await
             }
@@ -394,6 +399,7 @@ impl Signal for FetchCollectionGroupsRequest {
                     &running_mode,
                     &remote_host,
                     params,
+                    queue.clone(),
                 )
                 .await
             }
@@ -405,6 +411,7 @@ impl Signal for FetchCollectionGroupsRequest {
                     &running_mode,
                     &remote_host,
                     params,
+                    queue.clone(),
                 )
                 .await
             }
@@ -416,6 +423,7 @@ impl Signal for FetchCollectionGroupsRequest {
                     &running_mode,
                     &remote_host,
                     params,
+                    queue.clone(),
                 )
                 .await
             }
@@ -425,20 +433,24 @@ impl Signal for FetchCollectionGroupsRequest {
 }
 
 impl ParamsExtractor for FetchCollectionByIdsRequest {
-    type Params = (Option<LibraryHandle>, RunningMode);
+    type Params = (Option<LibraryHandle>, RunningMode, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), all_params.running_mode)
+        (
+            all_params.library.clone(),
+            all_params.running_mode,
+            all_params.node.clone(),
+        )
     }
 }
 
 impl Signal for FetchCollectionByIdsRequest {
-    type Params = (Option<LibraryHandle>, RunningMode);
+    type Params = (Option<LibraryHandle>, RunningMode, Arc<NodeContext>);
     type Response = FetchCollectionByIdsResponse;
 
     async fn handle(
         &self,
-        (library, running_mode): Self::Params,
+        (library, running_mode, node): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -446,6 +458,9 @@ impl Signal for FetchCollectionByIdsRequest {
         let fsio = &library.fsio;
         let main_db = &library.main_db;
         let recommend_db = &library.recommend_db;
+        let queue = node
+            .session_queue_for_library(library.descriptor.library_id)
+            .await?;
         let params = CollectionActionParams {
             ids: Some(dart_signal.ids.clone()),
             ..Default::default()
@@ -465,6 +480,7 @@ impl Signal for FetchCollectionByIdsRequest {
                     &running_mode,
                     &remote_host,
                     params,
+                    queue.clone(),
                 )
                 .await
             }
@@ -476,6 +492,7 @@ impl Signal for FetchCollectionByIdsRequest {
                     &running_mode,
                     &remote_host,
                     params,
+                    queue.clone(),
                 )
                 .await
             }
@@ -487,6 +504,7 @@ impl Signal for FetchCollectionByIdsRequest {
                     &running_mode,
                     &remote_host,
                     params,
+                    queue.clone(),
                 )
                 .await
             }
@@ -498,6 +516,7 @@ impl Signal for FetchCollectionByIdsRequest {
                     &running_mode,
                     &remote_host,
                     params,
+                    queue.clone(),
                 )
                 .await
             }
@@ -509,6 +528,7 @@ impl Signal for FetchCollectionByIdsRequest {
                     &running_mode,
                     &remote_host,
                     params,
+                    queue.clone(),
                 )
                 .await
             }

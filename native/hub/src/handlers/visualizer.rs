@@ -1,3 +1,4 @@
+use crate::node::NodeContext;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
@@ -33,20 +34,32 @@ fn report(operation: &'static str, result: Result<()>) -> Result<Option<()>> {
 static STARTING_OR_STOPPING: Mutex<()> = Mutex::const_new(());
 
 impl ParamsExtractor for StartVisualizerRequest {
-    type Params = (Arc<Mutex<dyn Playable>>, Option<LibraryHandle>);
+    type Params = (
+        Arc<Mutex<dyn Playable>>,
+        Option<LibraryHandle>,
+        Arc<NodeContext>,
+    );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.player), all_params.library.clone())
+        (
+            Arc::clone(&all_params.player),
+            all_params.library.clone(),
+            all_params.node.clone(),
+        )
     }
 }
 
 impl Signal for StartVisualizerRequest {
-    type Params = (Arc<Mutex<dyn Playable>>, Option<LibraryHandle>);
+    type Params = (
+        Arc<Mutex<dyn Playable>>,
+        Option<LibraryHandle>,
+        Arc<NodeContext>,
+    );
     type Response = ();
 
     async fn handle(
         &self,
-        (player, library): Self::Params,
+        (player, library, node): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -57,6 +70,8 @@ impl Signal for StartVisualizerRequest {
             Arc::clone(&library.fsio),
             Arc::clone(&library.main_db),
             Arc::clone(&library.recommend_db),
+            node,
+            library.descriptor.library_id,
         );
         let tap = player.lock().await.pcm_tap();
         // A restart: take the audio back from the running visualizer first.
