@@ -165,6 +165,16 @@ impl LibraryPool {
 
     /// Acquire an existing connection or open the registered library once.
     pub async fn acquire(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {
+        // Keep initialization alive if a worker is cancelled while waiting for it. Dropping
+        // the future while migrations are in flight would release the serialization lock
+        // before SQLite has necessarily stopped executing the migration statements.
+        let pool = self.clone();
+        tokio::spawn(async move { pool.acquire_inner(library_id).await })
+            .await
+            .context("Library acquisition task failed")?
+    }
+
+    async fn acquire_inner(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {
         let mut entries = self.entries.lock().await;
         let descriptor = LibraryRegistry::load(&self.config_dir)?
             .libraries
