@@ -78,10 +78,17 @@ impl SyncAuth {
         }
     }
     #[cfg(test)]
-    pub(super) async fn expire_tokens_for_test(&self) {
+    pub(super) async fn expire_latest_token_for_test(&self) -> bool {
         let mut entries = self.entries.lock().await;
-        for (_, deadline) in entries.tokens.values_mut() {
+        if let Some((_, (_, deadline))) = entries
+            .tokens
+            .iter_mut()
+            .max_by_key(|(_, (_, deadline))| *deadline)
+        {
             *deadline = Instant::now();
+            true
+        } else {
+            false
         }
     }
     pub fn router(&self) -> Router {

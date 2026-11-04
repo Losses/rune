@@ -1044,6 +1044,26 @@ pub(crate) async fn obtain_token(
     private_key: &str,
     fingerprint: &str,
 ) -> Result<String> {
+    let mut retries = 0;
+    loop {
+        match obtain_token_once(client, base, own, private_key, fingerprint).await {
+            Ok(token) => return Ok(token),
+            Err(error) if is_too_many_requests(&error) && retries < 2 => {
+                retries += 1;
+                tokio_time::sleep(Duration::from_secs(1)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+async fn obtain_token_once(
+    client: &reqwest::Client,
+    base: &str,
+    own: &str,
+    private_key: &str,
+    fingerprint: &str,
+) -> Result<String> {
     let challenge: Challenge =
         bounded_json(client.get(format!("{base}/sync/challenge")).send().await?).await?;
     ensure!(
@@ -1066,6 +1086,14 @@ pub(crate) async fn obtain_token(
     )
     .await?;
     Ok(token.token)
+}
+
+fn is_too_many_requests(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<reqwest::Error>()
+            .is_some_and(|error| error.status() == Some(reqwest::StatusCode::TOO_MANY_REQUESTS))
+    })
 }
 pub(super) struct AudioCredentials {
     pub client: reqwest::Client,

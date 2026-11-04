@@ -859,6 +859,7 @@ mod lifecycle_tests {
     use discovery::{server::UserStatus, utils::DeviceType};
     use playback::sfx_player::SfxPlayer;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+    use std::future::Future;
     use std::{fs, ops::Deref, sync::OnceLock};
     use tokio::net::TcpStream;
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -888,6 +889,15 @@ mod lifecycle_tests {
     struct Fixture {
         manager: Arc<ServerManager>,
         global_params: Arc<GlobalParams>,
+    }
+
+    async fn peer_step<T>(
+        name: &'static str,
+        future: impl Future<Output = Result<T>>,
+    ) -> Result<T> {
+        tokio::time::timeout(Duration::from_secs(15), future)
+            .await
+            .with_context(|| format!("peer step timed out: {name}"))?
     }
     impl Deref for Fixture {
         type Target = Arc<ServerManager>;
@@ -2767,22 +2777,24 @@ mod lifecycle_tests {
             .no_proxy()
             .build()?;
         let base = format!("https://{a_addr}");
-        assert_eq!(
-            pinned
+        let unauthorized_metadata = peer_step("unauthorized metadata request", async {
+            Ok(pinned
                 .post(format!("{base}/libraries/{library_id}/sync/metadata"))
                 .send()
                 .await?
-                .status(),
-            reqwest::StatusCode::UNAUTHORIZED
-        );
-        assert_eq!(
-            pinned
+                .status())
+        })
+        .await?;
+        assert_eq!(unauthorized_metadata, reqwest::StatusCode::UNAUTHORIZED);
+        let unauthorized_file = peer_step("unauthorized file request", async {
+            Ok(pinned
                 .get(format!("{base}/files/anything"))
                 .send()
                 .await?
-                .status(),
-            reqwest::StatusCode::UNAUTHORIZED
-        );
+                .status())
+        })
+        .await?;
+        assert_eq!(unauthorized_file, reqwest::StatusCode::UNAUTHORIZED);
         let remote_id = tokio::time::timeout(Duration::from_secs(45), async {
             let receiver = a.global_params.test_library().library_sync.clone();
             loop {
@@ -2832,13 +2844,15 @@ mod lifecycle_tests {
             .await
             .add_trusted_domains(["127.0.0.2"], &b_info.fingerprint)
             .await?;
+        // Let the background workers finish their shared per-IP auth burst.
+        tokio::time::sleep(Duration::from_secs(1)).await;
         let audio_library = a
             .global_params
             .library_pool
             .acquire(a.global_params.library_id.context("library")?)
             .await?;
-        let source = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
+        let source = peer_step("resolve remote audio", async {
+            Ok(loop {
                 if let Ok(source) = a
                     .resolve_remote_audio(
                         &audio_library,
@@ -2850,48 +2864,71 @@ mod lifecycle_tests {
                     break source;
                 }
                 tokio::time::sleep(Duration::from_millis(100)).await;
-            }
+            })
         })
         .await
         .context("could not resolve remote audio")?;
         let expected = std::fs::read(second.path().join("source.ogg"))?;
-        let full = source.request.get(None).await?;
-        assert_eq!(full.status(), reqwest::StatusCode::OK);
-        assert_eq!(full.bytes().await?.as_ref(), expected.as_slice());
+        let full_bytes = peer_step("full audio GET", async {
+            let full = source.request.get(None).await?;
+            anyhow::ensure!(
+                full.status() == reqwest::StatusCode::OK,
+                "full audio GET status"
+            );
+            Ok(full.bytes().await?)
+        })
+        .await?;
+        assert_eq!(full_bytes.as_ref(), expected.as_slice());
         // Expire the server-side token, then exercise a real ranged GET with renewal.
-        b.sync_auth_for_test
+        let expired_token = b
+            .sync_auth_for_test
             .lock()
             .await
             .as_ref()
             .unwrap()
-            .expire_tokens_for_test()
+            .expire_latest_token_for_test()
             .await;
-        let response = source.request.get(Some((0, Some(15)))).await?;
-        assert_eq!(response.status(), reqwest::StatusCode::PARTIAL_CONTENT);
-        assert_eq!(response.bytes().await?.as_ref(), &expected[..16]);
+        anyhow::ensure!(expired_token, "audio renewal test found no token to expire");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let range_bytes = peer_step("renewed ranged audio GET", async {
+            let response = source.request.get(Some((0, Some(15)))).await?;
+            anyhow::ensure!(
+                response.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+                "ranged audio GET status"
+            );
+            Ok(response.bytes().await?)
+        })
+        .await?;
+        assert_eq!(range_bytes.as_ref(), &expected[..16]);
         let stream_cancel = source.cancellation.clone();
-        let stream = playback::stream_utils::create_stream_with_authorizer(
-            source.request.clone(),
-            &source.url,
-        )
+        let stream = peer_step("create authorized audio stream", async {
+            playback::stream_utils::create_stream_with_authorizer(
+                source.request.clone(),
+                &source.url,
+            )
+            .await
+        })
         .await?;
         let extension = source.extension;
         let expected_tail = expected[expected.len() - 12..].to_vec();
-        let decoded = tokio::task::spawn_blocking(move || -> Result<bool> {
-            use std::io::{Read, Seek, SeekFrom};
-            let mut stream = stream;
-            let mut tail = [0u8; 12];
-            stream.seek(SeekFrom::End(-12))?;
-            stream.read_exact(&mut tail)?;
-            anyhow::ensure!(
-                tail.as_slice() == expected_tail.as_slice(),
-                "stream seek returned wrong bytes"
-            );
-            stream.seek(SeekFrom::Start(0))?;
-            let mut decoder = RuneDecoder::new(stream, Some(&extension))?;
-            Ok(decoder.next().is_some())
+        let decoded = peer_step("stream seek and decode", async move {
+            tokio::task::spawn_blocking(move || -> Result<bool> {
+                use std::io::{Read, Seek, SeekFrom};
+                let mut stream = stream;
+                let mut tail = [0u8; 12];
+                stream.seek(SeekFrom::End(-12))?;
+                stream.read_exact(&mut tail)?;
+                anyhow::ensure!(
+                    tail.as_slice() == expected_tail.as_slice(),
+                    "stream seek returned wrong bytes"
+                );
+                stream.seek(SeekFrom::Start(0))?;
+                let mut decoder = RuneDecoder::new(stream, Some(&extension))?;
+                Ok(decoder.next().is_some())
+            })
+            .await?
         })
-        .await??;
+        .await?;
         assert!(decoded, "remote audio must decode without materializing it");
         b.global_params
             .permission_manager
@@ -2899,42 +2936,60 @@ mod lifecycle_tests {
             .await
             .change_user_status(&a_info.fingerprint, UserStatus::Blocked)
             .await?;
-        assert!(source.request.get(Some((16, Some(31)))).await.is_err());
+        let denied = peer_step("revoked ranged audio GET", async {
+            Ok(source.request.get(Some((16, Some(31)))).await)
+        })
+        .await?;
+        assert!(denied.is_err());
         tokio::time::timeout(Duration::from_secs(10), stream_cancel.cancelled())
             .await
             .context("revocation did not cancel the remote stream")?;
-        a.stop_worker().await?;
-        b.stop_worker().await?;
+        peer_step("stop paired workers", async {
+            a.stop_worker().await?;
+            b.stop_worker().await
+        })
+        .await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
         b.global_params
             .permission_manager
             .write()
             .await
             .change_user_status(&a_info.fingerprint, UserStatus::Approved)
             .await?;
-        let (_, raw_client) = authenticated_client(
-            &a.global_params.node,
-            &a_info.fingerprint,
-            &a.private_key,
-            &b_info.fingerprint,
-            "127.0.0.2",
-            b_addr.port(),
-        )
+        let (_, raw_client) = peer_step("authenticate raw audio client", async {
+            authenticated_client(
+                &a.global_params.node,
+                &a_info.fingerprint,
+                &a.private_key,
+                &b_info.fingerprint,
+                "127.0.0.2",
+                b_addr.port(),
+            )
+            .await
+        })
         .await?;
-        let suffix = raw_client
-            .get(&source.url)
-            .header(reqwest::header::RANGE, "bytes=-12")
-            .send()
-            .await?;
-        assert_eq!(suffix.status(), reqwest::StatusCode::PARTIAL_CONTENT);
-        assert_eq!(
-            suffix.bytes().await?.as_ref(),
-            &expected[expected.len() - 12..]
-        );
-        let invalid = raw_client
-            .get(&source.url)
-            .header(reqwest::header::RANGE, format!("bytes={}-", expected.len()))
-            .send()
-            .await?;
+        let suffix_bytes = peer_step("raw suffix audio GET", async {
+            let suffix = raw_client
+                .get(&source.url)
+                .header(reqwest::header::RANGE, "bytes=-12")
+                .send()
+                .await?;
+            anyhow::ensure!(
+                suffix.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+                "suffix audio GET status"
+            );
+            Ok(suffix.bytes().await?)
+        })
+        .await?;
+        assert_eq!(suffix_bytes.as_ref(), &expected[expected.len() - 12..]);
+        let invalid = peer_step("invalid range audio GET", async {
+            Ok(raw_client
+                .get(&source.url)
+                .header(reqwest::header::RANGE, format!("bytes={}-", expected.len()))
+                .send()
+                .await?)
+        })
+        .await?;
         assert_eq!(invalid.status(), reqwest::StatusCode::RANGE_NOT_SATISFIABLE);
         assert_eq!(
             invalid
@@ -2952,14 +3007,18 @@ mod lifecycle_tests {
             )
             .await?
         );
-        let (_, authorized) = sync_worker::authenticated_client(
-            &b.global_params.node,
-            &b_info.fingerprint,
-            &b.private_key,
-            &a_info.fingerprint,
-            "127.0.0.1",
-            a_addr.port(),
-        )
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let (_, authorized) = peer_step("authenticate sync-only client", async {
+            sync_worker::authenticated_client(
+                &b.global_params.node,
+                &b_info.fingerprint,
+                &b.private_key,
+                &a_info.fingerprint,
+                "127.0.0.1",
+                a_addr.port(),
+            )
+            .await
+        })
         .await?;
         // Pool-backed data routes are available on the sync listener.
         for (path, status) in [
@@ -2967,14 +3026,15 @@ mod lifecycle_tests {
             ("/ws", reqwest::StatusCode::NOT_FOUND),
             ("/panel/users", reqwest::StatusCode::NOT_FOUND),
         ] {
-            assert_eq!(
-                authorized
+            let actual = peer_step("sync-only listener route", async {
+                Ok(authorized
                     .get(format!("{base}{path}"))
                     .send()
                     .await?
-                    .status(),
-                status
-            );
+                    .status())
+            })
+            .await?;
+            assert_eq!(actual, status);
         }
         a.manager
             .clone()
@@ -2985,14 +3045,18 @@ mod lifecycle_tests {
                 },
             )
             .await?;
-        let (_, full_authorized) = authenticated_client(
-            &b.global_params.node,
-            &b_info.fingerprint,
-            &b.private_key,
-            &a_info.fingerprint,
-            "127.0.0.1",
-            a_addr.port(),
-        )
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let (_, full_authorized) = peer_step("authenticate full listener client", async {
+            authenticated_client(
+                &b.global_params.node,
+                &b_info.fingerprint,
+                &b.private_key,
+                &a_info.fingerprint,
+                "127.0.0.1",
+                a_addr.port(),
+            )
+            .await
+        })
         .await?;
         for path in [
             "/files/anything",
@@ -3012,20 +3076,28 @@ mod lifecycle_tests {
                     request
                 }
             };
+            let anonymous_status = peer_step("anonymous full-listener request", async {
+                Ok(request(&pinned).send().await?.status())
+            })
+            .await?;
             assert_eq!(
-                request(&pinned).send().await?.status(),
+                anonymous_status,
                 reqwest::StatusCode::UNAUTHORIZED,
                 "{path}"
             );
+            let authorized_status = peer_step("authorized full-listener request", async {
+                Ok(request(&full_authorized).send().await?.status())
+            })
+            .await?;
             assert_ne!(
-                request(&full_authorized).send().await?.status(),
+                authorized_status,
                 reqwest::StatusCode::UNAUTHORIZED,
                 "{path}"
             );
         }
         let query = urlencoding::encode(&b_info.fingerprint);
-        assert_eq!(
-            pinned
+        let anonymous_ws_status = peer_step("anonymous websocket request", async {
+            Ok(pinned
                 .get(format!("{base}/ws?fingerprint={query}"))
                 .header("Connection", "upgrade")
                 .header("Upgrade", "websocket")
@@ -3033,14 +3105,18 @@ mod lifecycle_tests {
                 .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
                 .send()
                 .await?
-                .status(),
-            reqwest::StatusCode::UNAUTHORIZED
-        );
-        let full = pinned
-            .post(format!("{base}/panel/auth/login"))
-            .send()
-            .await?
-            .status();
+                .status())
+        })
+        .await?;
+        assert_eq!(anonymous_ws_status, reqwest::StatusCode::UNAUTHORIZED);
+        let full = peer_step("panel login route", async {
+            Ok(pinned
+                .post(format!("{base}/panel/auth/login"))
+                .send()
+                .await?
+                .status())
+        })
+        .await?;
         assert_ne!(full, reqwest::StatusCode::NOT_FOUND);
         a.stop().await?;
         a.clone()
@@ -3051,14 +3127,15 @@ mod lifecycle_tests {
                 },
             )
             .await?;
-        assert_eq!(
-            pinned
+        let restarted_status = peer_step("restarted listener request", async {
+            Ok(pinned
                 .get(format!("{base}/files/anything"))
                 .send()
                 .await?
-                .status(),
-            reqwest::StatusCode::UNAUTHORIZED
-        );
+                .status())
+        })
+        .await?;
+        assert_eq!(restarted_status, reqwest::StatusCode::UNAUTHORIZED);
         b.global_params.node.token.cancel();
         let rebound = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
