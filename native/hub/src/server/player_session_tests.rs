@@ -417,6 +417,7 @@ async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()>
         );
     wait_player(&b, |s| s.playlist.len() == 2).await?;
     let bad = a.global_params.player.lock().await.get_playlist()[0].clone();
+    let descriptor = a.global_params.test_library().descriptor.clone();
     LibraryRegistry::update(dir.path(), |registry| {
         registry
             .libraries
@@ -456,5 +457,137 @@ async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()>
             .iter()
             .all(|(name, _)| name != "CrashResponse")
     );
+    LibraryRegistry::update(dir.path(), |registry| {
+        registry.libraries.push(descriptor);
+        Ok(())
+    })
+    .await?;
+    b.global_params.player.lock().await.load(0);
+    let recovered = wait_player(&b, |s| s.item == Some(bad.clone()) && s.ready).await?;
+    assert!(!recovered.unavailable.contains(&bad));
+    b.global_params.player.lock().await.play();
+    let playing = wait_player(&b, |s| {
+        s.item == Some(bad.clone()) && s.state == PlaybackState::Playing
+    })
+    .await?;
+    assert!(!playing.unavailable.contains(&bad));
+    timeout(Duration::from_secs(3), async {
+        loop {
+            let reported = signals.0.lock().unwrap().iter().any(|(name, bytes)| {
+                name == "PlaylistUpdate"
+                    && rinf::deserialize::<PlaylistUpdate>(bytes).is_ok_and(|update| {
+                        update.items.len() == 2 && !update.items[0].unavailable
+                    })
+            });
+            if reported {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await?;
+    a.global_params.node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_f1_repeat_all_wraps_after_failed_last_item() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let bdir = tempfile::tempdir()?;
+    let a = fixture(dir.path()).await?;
+    let bad_id = session_audio(&a, "repeat-bad.ogg").await?;
+    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let good_id = session_audio(&b, "repeat-good.ogg").await?;
+    let source_library_id = a.global_params.library_id.context("library")?.to_string();
+    let replica_library_id = b.global_params.library_id.context("library")?.to_string();
+    let good = PlayingItem::InLibrary(good_id, replica_library_id);
+    let bad = PlayingItem::InLibrary(bad_id, source_library_id);
+    b.global_params.player.lock().await.add_to_playlist_with_sources(
+        vec![
+            (good.clone(), PlaybackSource::LibraryStream),
+            (bad.clone(), PlaybackSource::LibraryStream),
+        ],
+        AddMode::AppendToEnd,
+    );
+    wait_player(&b, |s| s.playlist.len() == 2).await?;
+    LibraryRegistry::update(dir.path(), |registry| {
+        registry.libraries.retain(|lib| Some(lib.library_id) != a.global_params.library_id);
+        Ok(())
+    }).await?;
+    b.global_params.player.lock().await.set_playback_mode(PlaybackMode::RepeatAll);
+    b.global_params.player.lock().await.switch(1);
+    wait_player(&b, |s| {
+        s.item == Some(good.clone())
+            && s.index == Some(0)
+            && s.state == PlaybackState::Playing
+    }).await?;
+    a.global_params.node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_f1_all_failed_items_stop_without_hanging() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let bdir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let a = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let ids = [
+        session_audio(&a, "all-fail-a.ogg").await?,
+        session_audio(&a, "all-fail-b.ogg").await?,
+    ];
+    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let source_library_id = a.global_params.library_id.context("library")?.to_string();
+    b.global_params.player.lock().await.add_to_playlist_with_sources(
+        ids.iter()
+            .map(|id| (PlayingItem::InLibrary(*id, source_library_id.clone()), PlaybackSource::LibraryStream))
+            .collect(),
+        AddMode::AppendToEnd,
+    );
+    wait_player(&b, |s| s.playlist.len() == ids.len()).await?;
+    LibraryRegistry::update(dir.path(), |registry| {
+        registry.libraries.retain(|lib| Some(lib.library_id) != a.global_params.library_id);
+        Ok(())
+    }).await?;
+    b.global_params.player.lock().await.set_playback_mode(PlaybackMode::RepeatAll);
+    b.global_params.player.lock().await.switch(0);
+    let status = timeout(Duration::from_secs(5), async {
+        loop {
+            let status = b.global_params.player.lock().await.get_status();
+            if status.unavailable.len() == ids.len() && status.state == PlaybackState::Stopped {
+                return status;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    }).await.context("all failed tracks did not stop playback")?;
+    assert_eq!(status.unavailable.len(), ids.len());
+    timeout(Duration::from_secs(3), async {
+        loop {
+            let count = signals.0.lock().unwrap().iter().filter(|(name, bytes)| {
+                name == "PlaylistUpdate"
+                    && rinf::deserialize::<PlaylistUpdate>(bytes)
+                        .is_ok_and(|update| update.items.iter().filter(|item| item.unavailable).count() == ids.len())
+            }).count();
+            if count >= 1 {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    }).await.context("unavailable playlist updates did not arrive")?;
+    let updates_before = signals.0.lock().unwrap().iter().filter(|(name, bytes)| {
+        name == "PlaylistUpdate"
+            && rinf::deserialize::<PlaylistUpdate>(bytes)
+                .is_ok_and(|update| update.items.iter().filter(|item| item.unavailable).count() == ids.len())
+    }).count();
+    sleep(Duration::from_millis(300)).await;
+    let updates_after = signals.0.lock().unwrap().iter().filter(|(name, bytes)| {
+        name == "PlaylistUpdate"
+            && rinf::deserialize::<PlaylistUpdate>(bytes)
+                .is_ok_and(|update| update.items.iter().filter(|item| item.unavailable).count() == ids.len())
+    }).count();
+    assert_eq!(updates_after, updates_before, "failed tracks kept auto-advancing");
     a.global_params.node.shutdown().await
 }

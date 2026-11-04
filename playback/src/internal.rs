@@ -1,5 +1,6 @@
 use crate::stream_utils::ManagedStream;
 use std::{
+    collections::HashSet,
     fmt::Debug,
     io::BufReader,
     path::PathBuf,
@@ -193,6 +194,7 @@ pub enum PlayerCommand {
 #[derive(Debug, Clone)]
 pub enum PlayerEvent {
     Unavailable(PlayingItem),
+    UnavailableCleared(Option<PlayingItem>),
     Stopped,
     Loaded {
         item: PlayingItem,
@@ -320,7 +322,7 @@ pub(crate) struct PlayerInternal {
     stream_retry_count: usize,
     adaptive_switching: bool,
     restore_position: Option<Duration>,
-    unavailable: Vec<PlayingItem>,
+    unavailable: HashSet<PlayingItem>,
 }
 
 impl PlayerInternal {
@@ -360,7 +362,7 @@ impl PlayerInternal {
             stream_retry_count: 0,
             adaptive_switching: false,
             restore_position: None,
-            unavailable: Vec::new(),
+            unavailable: HashSet::new(),
         }
     }
 
@@ -386,6 +388,7 @@ impl PlayerInternal {
                     debug!("Received command: {cmd:?}");
                     match cmd {
                         PlayerCommand::Restore { tracks, index, position, mode } => {
+                            self.clear_unavailable(None)?;
                             self.add_to_playlist(tracks, AddMode::AppendToEnd);
                             self.debounce_timer = None;
                             self.send_playlist_updated()?;
@@ -393,7 +396,13 @@ impl PlayerInternal {
                             self.restore_position = Some(position);
                             self.load(index, false, false)?;
                         },
-                        PlayerCommand::Load { index } => self.load(Some(index), false, true)?,
+                        PlayerCommand::Load { index } => {
+                            if index < self.playlist.len() {
+                                let mapped = self.get_mapped_track_index(index);
+                                self.clear_unavailable(Some(self.playlist[mapped].item.clone()))?;
+                            }
+                            self.load(Some(index), false, true)?;
+                        },
                         PlayerCommand::LoadComplete { result, item, original_item, index, playlist_index, path, play } => {
                             self.state = InternalPlaybackState::Stopped;
                             match *result {
@@ -410,13 +419,10 @@ impl PlayerInternal {
                                 Err(e) => {
                                     error!("Failed to load track: {e:?}");
                                     self.restore_position = None;
-                                    self.unavailable.push(item.clone());
+                                    self.unavailable.insert(item.clone());
                                     self.event_sender.send(PlayerEvent::Unavailable(item))?;
                                     // Advance from the failed load, including when no track has loaded yet.
-                                    let next = ((index + 1)..self.playlist.len()).find(|candidate| {
-                                        let mapped = self.get_mapped_track_index(*candidate);
-                                        !self.unavailable.contains(&self.playlist[mapped].item)
-                                    });
+                                    let next = self.find_available_after(playlist_index);
                                     if let Some(next) = next { self.load(Some(next), play, true)?; }
                                     else { self.stop()?; self.event_sender.send(PlayerEvent::EndOfPlaylist)?; }
                                 }
@@ -845,6 +851,7 @@ impl PlayerInternal {
     fn switch(&mut self, index: usize) -> Result<()> {
         if index < self.playlist.len() {
             debug!("Switching to track at index: {}", { index });
+            self.clear_unavailable(Some(self.playlist[index].item.clone()))?;
             self.load(Some(index), true, false)?;
         } else {
             warn!("Switch command received but index {index} is out of bounds");
@@ -953,7 +960,8 @@ impl PlayerInternal {
     fn remove_from_playlist(&mut self, index: usize) -> Result<()> {
         if index < self.playlist.len() {
             debug!("Removing from playlist at index: {}", { index });
-            self.playlist.remove(index);
+            let removed = self.playlist.remove(index);
+            self.clear_unavailable(Some(removed.item))?;
             self.playback_strategy.on_playlist_updated(
                 self.playlist.len(),
                 UpdateReason::RemoveFromPlaylist { index },
@@ -970,6 +978,7 @@ impl PlayerInternal {
     }
 
     fn clear_playlist(&mut self) -> Result<()> {
+        self.clear_unavailable(None)?;
         self.playlist.clear();
         self.playback_strategy
             .on_playlist_updated(0, UpdateReason::ClearPlaylist);
@@ -1003,6 +1012,47 @@ impl PlayerInternal {
     fn get_mapped_track_index(&self, index: usize) -> usize {
         self.playback_strategy
             .get_mapped_track_index(index, self.playlist.len())
+    }
+
+    fn find_available_after(&self, failed_playlist_index: usize) -> Option<usize> {
+        let playlist_len = self.playlist.len();
+        if playlist_len == 0 {
+            return None;
+        }
+        let strategy_index = (0..playlist_len)
+            .find(|index| self.get_mapped_track_index(*index) == failed_playlist_index)?;
+        let repeat = matches!(
+            self.playback_mode,
+            PlaybackMode::RepeatAll | PlaybackMode::Shuffle
+        );
+        for offset in 1..=playlist_len {
+            if !repeat && strategy_index + offset >= playlist_len {
+                break;
+            }
+            let candidate = (strategy_index + offset) % playlist_len;
+            let mapped = self.get_mapped_track_index(candidate);
+            if !self.unavailable.contains(&self.playlist[mapped].item) {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn clear_unavailable(&mut self, item: Option<PlayingItem>) -> Result<()> {
+        let changed = match &item {
+            Some(item) => self.unavailable.remove(item),
+            None => {
+                let changed = !self.unavailable.is_empty();
+                self.unavailable.clear();
+                changed
+            }
+        };
+        if changed {
+            self.event_sender
+                .send(PlayerEvent::UnavailableCleared(item))
+                .context("Failed to clear unavailable status")?;
+        }
+        Ok(())
     }
 
     fn send_progress(&mut self) -> Result<()> {

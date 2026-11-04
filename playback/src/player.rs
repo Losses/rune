@@ -422,6 +422,19 @@ impl Player {
                             unavailable: status.unavailable.clone(),
                         });
                     }
+                    PlayerEvent::UnavailableCleared(item) => {
+                        if let Some(item) = item {
+                            status
+                                .unavailable
+                                .retain(|unavailable| unavailable != &item);
+                        } else {
+                            status.unavailable.clear();
+                        }
+                        playlist_sender_clone.send(PlaylistStatus {
+                            items: status.playlist.clone(),
+                            unavailable: status.unavailable.clone(),
+                        });
+                    }
                     PlayerEvent::PlaylistUpdated(playlist) => {
                         status.unavailable.retain(|item| playlist.contains(item));
                         status.playlist = playlist.clone();
