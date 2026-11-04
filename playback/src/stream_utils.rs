@@ -1,5 +1,5 @@
 use anyhow::{Result, anyhow};
-use std::io;
+use std::io::{self, Seek};
 use stream_download::http::HttpStream;
 use stream_download::{Settings, StreamDownload, storage::temp::TempStorageProvider};
 use symphonia::core::io::{MediaSource, ReadOnlySource};
@@ -122,11 +122,32 @@ impl ManagedStream {
             Ok(())
         }
     }
+
+    fn fail_on_incomplete_eof(
+        &mut self,
+        position: u64,
+        result: std::io::Result<usize>,
+    ) -> std::io::Result<usize> {
+        let bytes_read = result?;
+        if bytes_read == 0
+            && self
+                .inner
+                .content_length()
+                .is_some_and(|length| position < length)
+        {
+            return Err(io::Error::other(
+                "audio stream stopped before download completed",
+            ));
+        }
+        Ok(bytes_read)
+    }
 }
 impl std::io::Read for ManagedStream {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.ensure_active()?;
-        self.inner.read(buf)
+        let position = self.inner.stream_position()?;
+        let result = self.inner.read(buf);
+        self.fail_on_incomplete_eof(position, result)
     }
 }
 impl std::io::Seek for ManagedStream {
@@ -222,6 +243,49 @@ mod tests {
             ErrorKind::PermissionDenied
         );
         drop(managed);
+        server.await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn managed_reader_returns_error_when_range_download_fails() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let server = tokio::spawn(async move {
+            let (mut initial, _) = listener.accept().await.unwrap();
+            let mut request = vec![0; 4096];
+            let _ = initial.read(&mut request).await.unwrap();
+            initial
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            initial.write_all(&[1]).await.unwrap();
+            drop(initial);
+
+            let (mut range, _) = listener.accept().await.unwrap();
+            let _ = range.read(&mut request).await.unwrap();
+            range
+                .write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+        });
+        let client = reqwest::Client::builder().no_proxy().build()?;
+        let stream = tokio::time::timeout(
+            Duration::from_secs(5),
+            create_stream_with_client(client, &format!("http://{address}/audio")),
+        )
+        .await??;
+        let mut managed = ManagedStream::new(stream, CancellationToken::new());
+        let reader = tokio::task::spawn_blocking(move || {
+            let mut output = vec![0; 1_048_576];
+            managed.read_exact(&mut output)
+        });
+        let result = tokio::time::timeout(Duration::from_secs(5), reader).await??;
+        assert!(result.is_err(), "failed range request must fail the read");
         server.await?;
         Ok(())
     }

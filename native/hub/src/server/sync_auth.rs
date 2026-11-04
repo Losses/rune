@@ -33,6 +33,8 @@ const DOMAIN: &str = "rune-sync-auth-1";
 struct Entries {
     nonces: HashMap<String, (std::net::IpAddr, Instant)>,
     tokens: HashMap<String, (String, Instant)>,
+    #[cfg(test)]
+    reject_next_authorization: bool,
 }
 #[derive(Clone)]
 pub struct SyncAuth {
@@ -90,6 +92,10 @@ impl SyncAuth {
         } else {
             false
         }
+    }
+    #[cfg(test)]
+    pub(super) async fn reject_next_authorization_for_test(&self) {
+        self.entries.lock().await.reject_next_authorization = true;
     }
     pub fn router(&self) -> Router {
         let Some(config) = GovernorConfigBuilder::default()
@@ -170,6 +176,16 @@ async fn authorize(
         .is_some_and(|(_, t)| t > Instant::now());
     if !valid_nonce {
         return Err(StatusCode::UNAUTHORIZED);
+    }
+    #[cfg(test)]
+    {
+        let reject_once = {
+            let mut entries = auth.entries.lock().await;
+            std::mem::take(&mut entries.reject_next_authorization)
+        };
+        if reject_once {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
     }
     let user = auth
         .permissions

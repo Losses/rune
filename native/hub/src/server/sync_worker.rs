@@ -1095,6 +1095,17 @@ fn is_too_many_requests(error: &anyhow::Error) -> bool {
             .is_some_and(|error| error.status() == Some(reqwest::StatusCode::TOO_MANY_REQUESTS))
     })
 }
+
+fn is_authentication_denied(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause.downcast_ref::<reqwest::Error>().is_some_and(|error| {
+            matches!(
+                error.status(),
+                Some(reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN)
+            )
+        })
+    })
+}
 pub(super) struct AudioCredentials {
     pub client: reqwest::Client,
     pub generation: u64,
@@ -1136,11 +1147,14 @@ impl RenewableAudio {
         }
         Ok(())
     }
-    pub(super) async fn refresh(&self) -> Result<()> {
+    pub(super) async fn refresh_if_current(&self, observed_generation: u64) -> Result<()> {
         let mut client = tokio::select! {
             _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
             client = self.client.lock() => client,
         };
+        if client.generation != observed_generation {
+            return Ok(());
+        }
         self.refresh_locked(&mut client).await
     }
     async fn refresh_locked(&self, credentials: &mut AudioCredentials) -> Result<()> {
@@ -1150,6 +1164,13 @@ impl RenewableAudio {
             _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
             result = authenticated_client(&global, &self.own, &self.private_key, &self.endpoint.fingerprint, &self.endpoint.host, self.endpoint.port) => result,
         };
+        let result = match result {
+            Err(error) if is_authentication_denied(&error) => tokio::select! {
+                _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
+                result = authenticated_client(&global, &self.own, &self.private_key, &self.endpoint.fingerprint, &self.endpoint.host, self.endpoint.port) => result,
+            },
+            result => result,
+        };
         match result {
             Ok((_, renewed)) => {
                 credentials.client = renewed;
@@ -1157,13 +1178,12 @@ impl RenewableAudio {
                 Ok(())
             }
             Err(error) => {
-                if error.chain().any(|cause| {
-                    cause
-                        .downcast_ref::<reqwest::Error>()
-                        .is_some_and(|e| e.status() == Some(reqwest::StatusCode::UNAUTHORIZED))
-                }) {
+                if is_authentication_denied(&error) {
                     self.cancel.cancel();
                 }
+                self.check_authorization()
+                    .await
+                    .context("audio authorization check failed during renewal")?;
                 Err(error)
             }
         }
@@ -1206,7 +1226,10 @@ impl RenewableAudio {
         } else {
             response
         };
-        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        if matches!(
+            response.status(),
+            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+        ) {
             self.cancel.cancel();
             anyhow::bail!("audio authorization denied after renewal");
         }

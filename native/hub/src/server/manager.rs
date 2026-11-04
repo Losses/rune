@@ -611,10 +611,13 @@ impl ServerManager {
                         let remote_probe = async {
                             loop {
                                 tokio::time::sleep(Duration::from_secs(5)).await;
-                                let client = watch_request.client.lock().await.client.clone();
+                                let (client, generation) = {
+                                    let credentials = watch_request.client.lock().await;
+                                    (credentials.client.clone(), credentials.generation)
+                                };
                                 match client.get(&probe_url).send().await {
                                     Ok(response) if response.status() == reqwest::StatusCode::UNAUTHORIZED => {
-                                        if let Err(error) = watch_request.refresh().await {
+                                        if let Err(error) = watch_request.refresh_if_current(generation).await {
                                             log::debug!("Audio authorization refresh failed: {error:#}");
                                             if watch_cancel.is_cancelled() { break; }
                                         }
@@ -799,6 +802,7 @@ mod lifecycle_tests {
     use crate::request_error::classify;
     use migration::catalog_identity::{ParentKind, parent};
     use playback::decoder::RuneDecoder;
+    use playback::stream_utils::ManagedStream;
     use std::net::SocketAddr;
     use std::net::TcpListener;
     use std::path::Path;
@@ -2890,16 +2894,38 @@ mod lifecycle_tests {
             .await;
         anyhow::ensure!(expired_token, "audio renewal test found no token to expire");
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let range_bytes = peer_step("renewed ranged audio GET", async {
-            let response = source.request.get(Some((0, Some(15)))).await?;
-            anyhow::ensure!(
-                response.status() == reqwest::StatusCode::PARTIAL_CONTENT,
-                "ranged audio GET status"
-            );
-            Ok(response.bytes().await?)
-        })
-        .await?;
-        assert_eq!(range_bytes.as_ref(), &expected[..16]);
+        b.sync_auth_for_test
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .reject_next_authorization_for_test()
+            .await;
+        let renewed_ranges = tokio::join!(
+            peer_step("first concurrent renewed ranged audio GET", async {
+                let response = source.request.get(Some((0, Some(15)))).await?;
+                anyhow::ensure!(
+                    response.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+                    "ranged audio GET status"
+                );
+                Ok(response.bytes().await?)
+            }),
+            peer_step("second concurrent renewed ranged audio GET", async {
+                let response = source.request.get(Some((16, Some(31)))).await?;
+                anyhow::ensure!(
+                    response.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+                    "ranged audio GET status"
+                );
+                Ok(response.bytes().await?)
+            }),
+        );
+        let (first_range, second_range) = renewed_ranges;
+        assert_eq!(first_range?.as_ref(), &expected[..16]);
+        assert_eq!(second_range?.as_ref(), &expected[16..32]);
+        anyhow::ensure!(
+            !source.cancellation.is_cancelled(),
+            "concurrent token renewal revoked an authorized stream"
+        );
         let stream_cancel = source.cancellation.clone();
         let stream = peer_step("create authorized audio stream", async {
             playback::stream_utils::create_stream_with_authorizer(
@@ -2909,6 +2935,7 @@ mod lifecycle_tests {
             .await
         })
         .await?;
+        let stream = ManagedStream::new(stream, stream_cancel.clone());
         let extension = source.extension;
         let expected_tail = expected[expected.len() - 12..].to_vec();
         let decoded = peer_step("stream seek and decode", async move {
