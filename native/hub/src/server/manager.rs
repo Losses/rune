@@ -877,6 +877,7 @@ mod lifecycle_tests {
     use crate::server::sync::client::sync_library;
     use database::sync::model::RuneModel;
     use futures::StreamExt;
+    use reqwest::header::CONNECTION;
     use sync::{CheckpointKey, ReceiveStore, Scope, SyncModel, scope_id};
 
     include!("access_policy_tests.rs");
@@ -910,6 +911,22 @@ mod lifecycle_tests {
         tokio::time::timeout(limit, future)
             .await
             .with_context(|| format!("peer step timed out: {name}"))?
+    }
+
+    /// Anonymous client that trusts the certificates `params` has pinned.
+    /// `max_idle_per_host = Some(0)` disables connection reuse.
+    async fn pinned_anonymous_client(
+        params: &GlobalParams,
+        max_idle_per_host: Option<usize>,
+    ) -> Result<reqwest::Client> {
+        let tls = Arc::new(params.cert_validator.read().await.clone()).into_client_config();
+        let mut builder = reqwest::Client::builder()
+            .use_preconfigured_tls(tls)
+            .no_proxy();
+        if let Some(max_idle) = max_idle_per_host {
+            builder = builder.pool_max_idle_per_host(max_idle);
+        }
+        Ok(builder.build()?)
     }
     impl Deref for Fixture {
         type Target = Arc<ServerManager>;
@@ -2831,15 +2848,10 @@ mod lifecycle_tests {
         })
         .await
         .context("peers did not learn advertised ports")?;
-        let pinned = peer_step("build pinned anonymous client", async {
-            Ok(reqwest::Client::builder()
-                .use_preconfigured_tls(
-                    Arc::new(b.global_params.cert_validator.read().await.clone())
-                        .into_client_config(),
-                )
-                .no_proxy()
-                .build()?)
-        })
+        let pinned = peer_step(
+            "build pinned anonymous client",
+            pinned_anonymous_client(&b.global_params, None),
+        )
         .await?;
         let base = format!("https://{a_addr}");
         let unauthorized_metadata = peer_step("unauthorized metadata request", async {
@@ -3248,8 +3260,29 @@ mod lifecycle_tests {
             ),
         )
         .await?;
+        let restarted_client = peer_step(
+            "build restarted listener client",
+            pinned_anonymous_client(&b.global_params, Some(0)),
+        )
+        .await?;
+        peer_step("wait for restarted listener readiness", async {
+            loop {
+                if let Ok(response) = restarted_client
+                    .get(format!("{base}/ping"))
+                    .header(CONNECTION, "close")
+                    .send()
+                    .await
+                    && response.status().is_success()
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            Ok(())
+        })
+        .await?;
         let restarted_status = peer_step("restarted listener request", async {
-            Ok(pinned
+            Ok(restarted_client
                 .get(format!("{base}/files/anything"))
                 .send()
                 .await?
