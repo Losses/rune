@@ -2937,7 +2937,7 @@ mod lifecycle_tests {
                 .await
                 .as_ref()
                 .unwrap()
-                .expire_latest_token_for_test()
+                .expire_tokens_for_fingerprint_for_test(&a_info.fingerprint)
                 .await)
         })
         .await?;
@@ -2949,7 +2949,7 @@ mod lifecycle_tests {
                 .await
                 .as_ref()
                 .unwrap()
-                .reject_next_authorization_for_test()
+                .reject_next_authorization_for_test(&a_info.fingerprint)
                 .await;
             Ok(())
         })
@@ -2975,6 +2975,16 @@ mod lifecycle_tests {
         let (first_range, second_range) = renewed_ranges;
         assert_eq!(first_range?.as_ref(), &expected[..16]);
         assert_eq!(second_range?.as_ref(), &expected[16..32]);
+        anyhow::ensure!(
+            !b.sync_auth_for_test
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .authorization_rejection_pending_for_test(&a_info.fingerprint)
+                .await,
+            "stream renewal did not consume its targeted transient rejection"
+        );
         anyhow::ensure!(
             !source.cancellation.is_cancelled(),
             "concurrent token renewal revoked an authorized stream"

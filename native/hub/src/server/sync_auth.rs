@@ -34,7 +34,7 @@ struct Entries {
     nonces: HashMap<String, (std::net::IpAddr, Instant)>,
     tokens: HashMap<String, (String, Instant)>,
     #[cfg(test)]
-    reject_next_authorization: bool,
+    reject_next_authorization_for: Option<String>,
 }
 #[derive(Clone)]
 pub struct SyncAuth {
@@ -80,22 +80,30 @@ impl SyncAuth {
         }
     }
     #[cfg(test)]
-    pub(super) async fn expire_latest_token_for_test(&self) -> bool {
+    pub(super) async fn expire_tokens_for_fingerprint_for_test(&self, fingerprint: &str) -> bool {
         let mut entries = self.entries.lock().await;
-        if let Some((_, (_, deadline))) = entries
-            .tokens
-            .iter_mut()
-            .max_by_key(|(_, (_, deadline))| *deadline)
-        {
-            *deadline = Instant::now();
-            true
-        } else {
-            false
+        let deadline = Instant::now();
+        let mut expired = false;
+        for (token_fingerprint, token_deadline) in entries.tokens.values_mut() {
+            if token_fingerprint == fingerprint {
+                *token_deadline = deadline;
+                expired = true;
+            }
         }
+        expired
     }
     #[cfg(test)]
-    pub(super) async fn reject_next_authorization_for_test(&self) {
-        self.entries.lock().await.reject_next_authorization = true;
+    pub(super) async fn reject_next_authorization_for_test(&self, fingerprint: &str) {
+        self.entries.lock().await.reject_next_authorization_for = Some(fingerprint.to_owned());
+    }
+    #[cfg(test)]
+    pub(super) async fn authorization_rejection_pending_for_test(&self, fingerprint: &str) -> bool {
+        self.entries
+            .lock()
+            .await
+            .reject_next_authorization_for
+            .as_deref()
+            == Some(fingerprint)
     }
     pub fn router(&self) -> Router {
         let Some(config) = GovernorConfigBuilder::default()
@@ -181,7 +189,11 @@ async fn authorize(
     {
         let reject_once = {
             let mut entries = auth.entries.lock().await;
-            std::mem::take(&mut entries.reject_next_authorization)
+            if entries.reject_next_authorization_for.as_deref() == Some(&request.fingerprint) {
+                entries.reject_next_authorization_for.take().is_some()
+            } else {
+                false
+            }
         };
         if reject_once {
             return Err(StatusCode::UNAUTHORIZED);
@@ -496,6 +508,69 @@ mod tests {
                 .await
                 .0,
             StatusCode::OK
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn test_authorization_rejection_is_scoped_to_its_fingerprint() {
+        let dir = std::env::temp_dir().join(format!("rune-auth-{}", random()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let permissions = Arc::new(RwLock::new(PermissionManager::new(&dir).unwrap()));
+        let auth = SyncAuth::new(permissions, "server".into());
+        let target_fingerprint = "stream-peer";
+        auth.reject_next_authorization_for_test(target_fingerprint)
+            .await;
+
+        let unrelated_challenge = challenge(
+            State(auth.clone()),
+            ConnectInfo("127.0.0.1:1".parse().unwrap()),
+        )
+        .await
+        .unwrap()
+        .0;
+        let unrelated = authorize(
+            State(auth.clone()),
+            Json(Authorization {
+                nonce: unrelated_challenge.nonce,
+                fingerprint: "background-worker".into(),
+                signature: String::new(),
+            }),
+        )
+        .await;
+        assert!(matches!(unrelated, Err(StatusCode::UNAUTHORIZED)));
+        assert_eq!(
+            auth.entries
+                .lock()
+                .await
+                .reject_next_authorization_for
+                .as_deref(),
+            Some(target_fingerprint)
+        );
+
+        let target_challenge = challenge(
+            State(auth.clone()),
+            ConnectInfo("127.0.0.1:1".parse().unwrap()),
+        )
+        .await
+        .unwrap()
+        .0;
+        let target = authorize(
+            State(auth.clone()),
+            Json(Authorization {
+                nonce: target_challenge.nonce,
+                fingerprint: target_fingerprint.into(),
+                signature: String::new(),
+            }),
+        )
+        .await;
+        assert!(matches!(target, Err(StatusCode::UNAUTHORIZED)));
+        assert!(
+            auth.entries
+                .lock()
+                .await
+                .reject_next_authorization_for
+                .is_none()
         );
         let _ = std::fs::remove_dir_all(dir);
     }
