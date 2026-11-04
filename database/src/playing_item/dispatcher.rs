@@ -168,7 +168,7 @@ impl PlayingItemActionDispatcher {
         item: &PlayingItem,
     ) -> Option<i32> {
         match item {
-            PlayingItem::InLibrary(_) | PlayingItem::Online(_, Some(_)) => {
+            PlayingItem::InLibrary(_, _) | PlayingItem::Online(_, Some(_)) => {
                 self.in_library_processor
                     .get_cover_art_primary_color(fsio, lib_path, main_db, item)
                     .await

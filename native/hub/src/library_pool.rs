@@ -3,19 +3,23 @@ use std::{
     fs,
     ops::Deref,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex as StdMutex, OnceLock, Weak},
+    sync::{Arc, Mutex as StdMutex, OnceLock, RwLock, Weak},
     time::Duration,
 };
 
 use anyhow::{Context, Result, ensure};
 use database::{
     connection::{MainDbConnection, RecommendationDbConnection, StorageMode, check_storage_mode},
-    library_registry::{DbPlacement, LibraryDescriptor, LibraryRegistry, LibraryStorage},
+    library_registry::{
+        DbPlacement, LibraryAccess, LibraryDescriptor, LibraryRegistry, LibraryStorage,
+    },
     sync::LibrarySyncStore,
 };
 use fsio::FsIo;
 use tokio::{sync::Mutex, time::Instant};
 use uuid::Uuid;
+
+use database::actions::playback_queue::{SessionQueue, bind_session_queue};
 
 use crate::utils::{initialize_databases, initialize_library_replica};
 
@@ -73,6 +77,7 @@ pub struct LibraryPool {
     db_path: PathBuf,
     node_id: String,
     idle_timeout: Duration,
+    session_queue: RwLock<Option<Arc<SessionQueue>>>,
     entries: Mutex<HashMap<Uuid, Entry>>,
 }
 
@@ -109,6 +114,7 @@ impl LibraryPool {
             db_path,
             node_id: node_id.to_owned(),
             idle_timeout,
+            session_queue: RwLock::new(None),
             entries: Mutex::new(HashMap::new()),
         });
         pools.insert(config_dir, Arc::downgrade(&pool));
@@ -126,7 +132,29 @@ impl LibraryPool {
         Ok(pool)
     }
 
+    pub async fn set_session_queue(&self, queue: Arc<SessionQueue>) {
+        for (id, entry) in self.entries.lock().await.iter() {
+            bind_session_queue(&entry.resources.main_db, *id, &queue);
+        }
+        *self
+            .session_queue
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(queue);
+    }
+
     fn handle(self: &Arc<Self>, entry: &Entry) -> LibraryHandle {
+        if let Some(queue) = self
+            .session_queue
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            bind_session_queue(
+                &entry.resources.main_db,
+                entry.resources.descriptor.library_id,
+                queue,
+            );
+        }
         LibraryHandle {
             resources: entry.resources.clone(),
             pool: self.clone(),
@@ -164,14 +192,18 @@ impl LibraryPool {
     /// Acquire an existing connection or open the registered library once.
     pub async fn acquire(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {
         let mut entries = self.entries.lock().await;
-        if let Some(entry) = entries.get(&library_id) {
-            return Ok(self.handle(entry));
-        }
         let descriptor = LibraryRegistry::load(&self.config_dir)?
             .libraries
             .into_iter()
             .find(|library| library.library_id == library_id)
             .context("Library is not registered on this node")?;
+        ensure!(
+            descriptor.access_level != Some(LibraryAccess::NotShared),
+            "Library access revoked"
+        );
+        if let Some(entry) = entries.get(&library_id) {
+            return Ok(self.handle(entry));
+        }
         let LibraryStorage::Local { path } = &descriptor.storage;
         #[cfg(not(target_os = "android"))]
         let fsio = Arc::new(FsIo::new());
@@ -246,7 +278,7 @@ impl LibraryPool {
         Ok(())
     }
 
-    /// Register an already-open UI connection. A different live connection is rejected.
+    /// Test seam for registering an already-open UI connection. Production opens through `acquire`.
     pub async fn register_ui(
         self: &Arc<Self>,
         resources: LibraryResources,

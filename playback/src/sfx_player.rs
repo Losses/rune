@@ -29,6 +29,12 @@ impl Default for SfxPlayer {
     }
 }
 
+impl Drop for SfxPlayer {
+    fn drop(&mut self) {
+        self.cancellation_token.cancel();
+    }
+}
+
 impl SfxPlayer {
     // Create a new Player instance and return the Player and the event receiver
     pub fn new(cancellation_token: Option<CancellationToken>) -> Self {
@@ -36,7 +42,10 @@ impl SfxPlayer {
         let (status_sender, _) = broadcast::channel(16);
         let (crash_sender, _) = broadcast::channel(16);
 
-        let cancellation_token = cancellation_token.unwrap_or_default();
+        // A child token: dropping this player stops it without cancelling the caller's token.
+        let cancellation_token = cancellation_token
+            .map(|token| token.child_token())
+            .unwrap_or_default();
 
         let current_status = Arc::new(Mutex::new(SfxPlayerStatus {
             path: None,

@@ -8,6 +8,10 @@ publish = false
 name = "playback"
 path = "src/lib.rs"
 
+[features]
+# Consume real decoded PCM on a clock without requiring an audio device in lifecycle tests.
+test-output = []
+
 [dependencies]
 fsio = { path = "../fsio" }
 log = { version = "0.4.22" }

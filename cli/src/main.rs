@@ -435,11 +435,17 @@ async fn main() {
         // In the main function, update the match statement for Commands::Play
         Commands::Play { mode, id } => match mode.as_deref() {
             Some("random") => {
-                play_random(&main_db, &canonicalized_path).await;
+                play_random(&main_db, &canonicalized_path, &library_id.to_string()).await;
             }
             Some("id") => {
                 if let Some(file_id) = id {
-                    play_by_id(&main_db, &canonicalized_path, *file_id).await;
+                    play_by_id(
+                        &main_db,
+                        &canonicalized_path,
+                        *file_id,
+                        &library_id.to_string(),
+                    )
+                    .await;
                 } else {
                     error!("File ID is required for playById mode.");
                 }

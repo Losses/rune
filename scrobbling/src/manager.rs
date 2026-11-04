@@ -59,6 +59,7 @@ pub enum ActionType {
 
 #[derive(Debug)]
 pub struct ScrobblingError {
+    pub library_id: Option<String>,
     pub service: ScrobblingService,
     pub action: ActionType,
     pub error: anyhow::Error,
@@ -232,6 +233,7 @@ impl ScrobblingManager {
                     manager.error_sender().send(ScrobblingError {
                         service: credentials.service,
                         action: ActionType::Authenticate,
+                        library_id: None,
                         error: e,
                     });
                 }
@@ -389,6 +391,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 self.error_sender.send(ScrobblingError {
                     service: *service,
                     action: ActionType::UpdateNowPlaying,
+                    library_id: track.library_id.clone(),
                     error: e,
                 });
             }
@@ -448,6 +451,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 error_sender.send(ScrobblingError {
                     service: ScrobblingService::LastFm,
                     action: ActionType::UpdateNowPlaying,
+                    library_id: track.library_id.clone(),
                     error: e,
                 });
             }
@@ -459,6 +463,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 error_sender.send(ScrobblingError {
                     service: ScrobblingService::LibreFm,
                     action: ActionType::UpdateNowPlaying,
+                    library_id: track.library_id.clone(),
                     error: e,
                 });
             }
@@ -470,6 +475,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 error_sender.send(ScrobblingError {
                     service: ScrobblingService::ListenBrainz,
                     action: ActionType::UpdateNowPlaying,
+                    library_id: track.library_id.clone(),
                     error: e,
                 });
             }
@@ -517,6 +523,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                     self.error_sender.send(ScrobblingError {
                         service,
                         action: ActionType::Scrobbling,
+                        library_id: track.library_id.clone(),
                         error: e,
                     });
                 } else {
@@ -562,6 +569,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                     error_sender.send(ScrobblingError {
                         service: ScrobblingService::LastFm,
                         action: ActionType::Scrobbling,
+                        library_id: track.library_id.clone(),
                         error: e,
                     });
                 }
@@ -583,6 +591,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                     error_sender.send(ScrobblingError {
                         service: ScrobblingService::LibreFm,
                         action: ActionType::Scrobbling,
+                        library_id: track.library_id.clone(),
                         error: e,
                     });
                 }
@@ -604,6 +613,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                     error_sender.send(ScrobblingError {
                         service: ScrobblingService::ListenBrainz,
                         action: ActionType::Scrobbling,
+                        library_id: track.library_id.clone(),
                         error: e,
                     });
                 }

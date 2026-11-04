@@ -17,6 +17,7 @@ use crate::{
     Session, Signal,
     library_pool::LibraryHandle,
     messages::*,
+    node::NodeContext,
     utils::{
         GlobalParams, ParamsExtractor, files_to_playback_request, find_nearest_index,
         require_library,
@@ -26,7 +27,7 @@ use crate::{
 impl From<PlayingItem> for PlayingItemRequest {
     fn from(x: PlayingItem) -> Self {
         match x {
-            PlayingItem::InLibrary(x) => PlayingItemRequest {
+            PlayingItem::InLibrary(x, _) => PlayingItemRequest {
                 in_library: Some(InLibraryPlayingItem { file_id: x }),
                 independent_file: None,
             },
@@ -48,7 +49,7 @@ impl From<PlayingItemRequest> for PlayingItem {
         if let Some(in_library) = x.in_library
             && in_library.file_id != 0
         {
-            return PlayingItem::InLibrary(in_library.file_id);
+            return PlayingItem::InLibrary(in_library.file_id, String::new());
         }
 
         if let Some(independent_file) = x.independent_file
@@ -131,33 +132,38 @@ impl Signal for PauseRequest {
     }
 }
 
+async fn record_skip(node: &NodeContext, player: &Arc<Mutex<dyn Playable>>) -> Result<()> {
+    let item = player.lock().await.get_status().item;
+    if let Some(PlayingItem::InLibrary(file_id, library_id)) = item
+        && let Ok(library) = node.library_pool.acquire(library_id.parse()?).await
+    {
+        let store = library.library_sync.record_store();
+        increase_skipped(&library.main_db, &store, file_id, store.author())
+            .await
+            .context("Unable to increase skipped count")?;
+    }
+    Ok(())
+}
+
 impl ParamsExtractor for NextRequest {
-    type Params = (Option<LibraryHandle>, Arc<Mutex<dyn Playable>>);
+    type Params = (Arc<NodeContext>, Arc<Mutex<dyn Playable>>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), Arc::clone(&all_params.player))
+        (all_params.node.clone(), Arc::clone(&all_params.player))
     }
 }
 
 impl Signal for NextRequest {
-    type Params = (Option<LibraryHandle>, Arc<Mutex<dyn Playable>>);
+    type Params = (Arc<NodeContext>, Arc<Mutex<dyn Playable>>);
     type Response = ();
 
     async fn handle(
         &self,
-        (library, player): Self::Params,
+        (node, player): Self::Params,
         _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
-        let library = require_library(library)?;
-        let item = player.lock().await.get_status().item;
-
-        if let Some(PlayingItem::InLibrary(file_id)) = item {
-            let store = library.library_sync.record_store();
-            increase_skipped(&library.main_db, &store, file_id, store.author())
-                .await
-                .context("Unable to increase skipped count")?;
-        }
+        record_skip(&node, &player).await?;
 
         player.lock().await.next();
         Ok(Some(()))
@@ -165,32 +171,24 @@ impl Signal for NextRequest {
 }
 
 impl ParamsExtractor for PreviousRequest {
-    type Params = (Option<LibraryHandle>, Arc<Mutex<dyn Playable>>);
+    type Params = (Arc<NodeContext>, Arc<Mutex<dyn Playable>>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), Arc::clone(&all_params.player))
+        (all_params.node.clone(), Arc::clone(&all_params.player))
     }
 }
 
 impl Signal for PreviousRequest {
-    type Params = (Option<LibraryHandle>, Arc<Mutex<dyn Playable>>);
+    type Params = (Arc<NodeContext>, Arc<Mutex<dyn Playable>>);
     type Response = ();
 
     async fn handle(
         &self,
-        (library, player): Self::Params,
+        (node, player): Self::Params,
         _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
-        let library = require_library(library)?;
-        let item = player.lock().await.get_status().item;
-
-        if let Some(PlayingItem::InLibrary(file_id)) = item {
-            let store = library.library_sync.record_store();
-            increase_skipped(&library.main_db, &store, file_id, store.author())
-                .await
-                .context("Unable to increase skipped count")?;
-        }
+        record_skip(&node, &player).await?;
 
         player.lock().await.previous();
         Ok(Some(()))
@@ -222,30 +220,24 @@ impl Signal for SetPlaybackModeRequest {
 }
 
 impl ParamsExtractor for SwitchRequest {
-    type Params = (Option<LibraryHandle>, Arc<Mutex<dyn Playable>>);
+    type Params = (Arc<NodeContext>, Arc<Mutex<dyn Playable>>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), Arc::clone(&all_params.player))
+        (all_params.node.clone(), Arc::clone(&all_params.player))
     }
 }
 
 impl Signal for SwitchRequest {
-    type Params = (Option<LibraryHandle>, Arc<Mutex<dyn Playable>>);
+    type Params = (Arc<NodeContext>, Arc<Mutex<dyn Playable>>);
     type Response = ();
 
     async fn handle(
         &self,
-        (library, player): Self::Params,
+        (node, player): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let library = require_library(library)?;
-        if let Some(PlayingItem::InLibrary(file_id)) = player.lock().await.get_status().item {
-            let store = library.library_sync.record_store();
-            increase_skipped(&library.main_db, &store, file_id, store.author())
-                .await
-                .context("Unable to increase skipped count")?;
-        }
+        record_skip(&node, &player).await?;
 
         player
             .lock()
@@ -429,7 +421,7 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
 
     async fn handle(
         &self,
-        (library, node_id, player): Self::Params,
+        (library, _node_id, player): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -470,7 +462,7 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
         let prepared = files_to_playback_request(
             &library.fsio,
             &library.main_db,
-            &node_id,
+            &library.descriptor.library_id.to_string(),
             &library.media_root,
             &tracks,
         )
@@ -511,7 +503,11 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
         } else {
             find_nearest_index(&items, request.hint_position.try_into().unwrap(), |x| {
                 if let Some(initial_item) = &request.initial_playback_item {
-                    *x == PlayingItem::from(initial_item.clone())
+                    let mut initial = PlayingItem::from(initial_item.clone());
+                    if let PlayingItem::InLibrary(_, library_id) = &mut initial {
+                        *library_id = library.descriptor.library_id.to_string();
+                    }
+                    *x == initial
                 } else {
                     false
                 }

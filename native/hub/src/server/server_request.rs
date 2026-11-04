@@ -22,10 +22,13 @@ macro_rules! process_server_handlers {
 macro_rules! register_single_handler {
     ($server:expr, $global_params:expr, $request:ty, $with_response:tt) => {
         paste::paste! {
-            let global_params = $global_params.clone();
+            let global_params = Arc::downgrade(&$global_params);
             $server.register_handler(stringify!($request), move |payload, session| {
                 let global_params = global_params.clone();
                 async move {
+                    let Some(global_params) = global_params.upgrade() else {
+                        return (String::new(), Err(anyhow::anyhow!("Node has shut down")));
+                    };
                     let ui_params = match global_params.current_ui().await {
                         Ok(params) => params,
                         Err(error) => return (String::new(), Err(error)),

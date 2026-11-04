@@ -276,7 +276,7 @@ impl ServerManager {
 
         let watch_cancel = tokio_util_sync::CancellationToken::new();
         let server_state = Arc::new(ServerState {
-            node: node.clone(),
+            node: Arc::downgrade(&node),
             session_cancel: watch_cancel.clone(),
             app_state: app_state.clone(),
             websocket_service: websocket_service.clone(),
@@ -471,7 +471,7 @@ impl ServerManager {
         let cancel = node.token.child_token();
         // Keep the worker future off nested library-startup stacks.
         let worker = Box::pin(super::sync_worker::run(
-            node.clone(),
+            Arc::downgrade(&node),
             coalesce_worker_notify(notify, cancel.clone()),
             fingerprint,
             self.private_key.clone(),
@@ -596,13 +596,13 @@ impl ServerManager {
                     let library_cancel = lifetime.clone();
                     stream_handles.retain(|handle| !handle.is_finished());
                     let request = Arc::new(super::sync_worker::RenewableAudio {
-                        global: node.clone(), own: own.clone(), private_key: self.private_key.clone(),
+                        global: Arc::downgrade(&node), own: own.clone(), private_key: self.private_key.clone(),
                         endpoint: super::sync_worker::PeerEndpoint { fingerprint: fingerprint.clone(), trusted_host: trusted_host.clone(), host: host.clone(), port },
                         url: url.clone(), size: blob.size,
                         client: Arc::new(Mutex::new(super::sync_worker::AudioCredentials { client, generation: 0 })), cancel: cancellation.clone(),
                     });
                     let watch_cancel = cancellation.clone();
-                    let watch_params = node.clone();
+                    let watch_params = Arc::downgrade(&node);
                     let watch_fingerprint = fingerprint.clone();
                     let revocation_host = trusted_host.clone();
                     let watch_request = request.clone();
@@ -626,7 +626,7 @@ impl ServerManager {
                         tokio::select! {
                             _ = watch_cancel.cancelled() => {},
                             _ = library_cancel.cancelled() => watch_cancel.cancel(),
-                            _ = super::sync_worker::wait_for_revocation(&watch_params, &watch_fingerprint, &revocation_host) => watch_cancel.cancel(),
+                            _ = super::sync_worker::wait_for_revocation(watch_params, &watch_fingerprint, &revocation_host) => watch_cancel.cancel(),
                             _ = remote_probe => {},
                         }
                     });
@@ -797,7 +797,6 @@ mod lifecycle_tests {
     use super::super::utils::device::load_device_info;
     use crate::Signal;
     use crate::request_error::classify;
-    use database::connection::RecommendationDbConnection;
     use migration::catalog_identity::{ParentKind, parent};
     use playback::decoder::RuneDecoder;
     use std::net::SocketAddr;
@@ -847,7 +846,7 @@ mod lifecycle_tests {
     use database::actions::metadata::{
         MissingHostFilePolicy, ScanOptions, scan_audio_file, scan_audio_library,
     };
-    use database::connection::{MainDbConnection, StorageMode};
+    use database::connection::StorageMode;
     use database::entities::{media_files, media_files::Column};
     use database::library_registry::{
         DbPlacement, LibraryAuthority, LibraryDescriptor, LibraryRegistry, LibraryStorage,
@@ -858,10 +857,7 @@ mod lifecycle_tests {
         model::{Album, Collection, MetadataTag, ObjectKey, Payload, Track},
     };
     use discovery::{server::UserStatus, utils::DeviceType};
-    use fsio::FsIo;
-    use migration::{Migrator, MigratorTrait};
-    use playback::{player::MockPlayer, sfx_player::SfxPlayer};
-    use scrobbling::manager::MockScrobblingManager;
+    use playback::sfx_player::SfxPlayer;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::{fs, ops::Deref, sync::OnceLock};
     use tokio::net::TcpStream;
@@ -870,7 +866,7 @@ mod lifecycle_tests {
     use uuid::Uuid;
 
     use crate::backends::remote::{connect_remote, decode_message};
-    use crate::library_pool::{LibraryHandle, LibraryPool, LibraryResources};
+    use crate::library_pool::{LibraryHandle, LibraryPool};
     use crate::messages::{PlaybackStatus, TrustListUpdated};
     use crate::node::NodeSlot;
     use crate::server::sync::client::sync_library;
@@ -879,6 +875,10 @@ mod lifecycle_tests {
     use sync::{CheckpointKey, ReceiveStore, Scope, SyncModel, scope_id};
 
     include!("access_policy_tests.rs");
+    mod player_session_tests {
+        use super::*;
+        include!("player_session_tests.rs");
+    }
 
     struct Quiet;
     impl Broadcaster for Quiet {
@@ -909,16 +909,19 @@ mod lifecycle_tests {
         library_id: Uuid,
         idle_timeout: Duration,
     ) -> Result<Fixture> {
-        let mut options = sea_orm::ConnectOptions::new(format!(
-            "sqlite://{}?mode=rwc",
-            dir.join("catalog.sqlite").display(),
-        ));
-        options.max_connections(1).min_connections(1);
-        let db = sea_orm::Database::connect(options).await?;
+        fixture_with_broadcaster(dir, library_id, idle_timeout, Arc::new(Quiet)).await
+    }
+
+    async fn fixture_with_broadcaster(
+        dir: &Path,
+        library_id: Uuid,
+        idle_timeout: Duration,
+        broadcaster: Arc<dyn Broadcaster>,
+    ) -> Result<Fixture> {
+        fs::create_dir_all(dir.join(".rune"))?;
         let node = get_or_create_node_id(dir.to_str().context("config path")?).await?;
-        let _pool = LibraryPool::with_idle_timeout(dir, dir, &node.to_string(), idle_timeout)?;
+        let pool = LibraryPool::with_idle_timeout(dir, dir, &node.to_string(), idle_timeout)?;
         let _ = migration::initialize_node_id(node.to_string());
-        Migrator::up(&db, None).await?;
         LibraryRegistry::update(dir, |registry| {
             registry.libraries.push(LibraryDescriptor {
                 library_id,
@@ -934,7 +937,20 @@ mod lifecycle_tests {
             Ok(())
         })
         .await?;
-        fixture_with_db(dir, dir, library_id, node, db).await
+        let library = pool.acquire_ui(library_id).await?;
+        SyncSettings {
+            listen: false,
+            ..SyncSettings::default()
+        }
+        .save(dir)?;
+        let node_context = NodeContext::new(
+            dir.to_str().context("config path")?,
+            dir.to_str().context("db path")?,
+            broadcaster,
+            false,
+        )
+        .await?;
+        fixture_from_library(node_context, library).await
     }
 
     async fn fixture_open_replica(source: &Fixture, root: &Path) -> Result<Fixture> {
@@ -955,52 +971,10 @@ mod lifecycle_tests {
         .await
     }
 
-    async fn fixture_with_db(
-        dir: &Path,
-        config: &Path,
-        library_id: Uuid,
-        node: Uuid,
-        db: MainDbConnection,
-    ) -> Result<Fixture> {
-        let fsio = Arc::new(FsIo::new());
-        let library_sync =
-            crate::utils::initialize_library_replica(&db, &node.to_string(), library_id).await?;
-        let pool = LibraryPool::new(config, config, &node.to_string())?;
-        let main_db = Arc::new(db);
-        let recommend_db = Arc::new(RecommendationDbConnection::new());
-        let descriptor = LibraryRegistry::load(config)?
-            .libraries
-            .into_iter()
-            .find(|library| library.library_id == library_id)
-            .context("fixture descriptor")?;
-        let library = pool
-            .register_ui(LibraryResources {
-                main_db: main_db.clone(),
-                library_sync: library_sync.clone(),
-                recommend_db: recommend_db.clone(),
-                fsio: fsio.clone(),
-                media_root: dir.to_string_lossy().into_owned(),
-                descriptor,
-            })
-            .await?;
-        SyncSettings {
-            listen: false,
-            ..SyncSettings::default()
-        }
-        .save(config)?;
-        let node_context = NodeContext::new(
-            config.to_str().context("config path")?,
-            config.to_str().context("db path")?,
-            Arc::new(Quiet),
-        )
-        .await?;
-        fixture_from_library(node_context, library).await
-    }
-
     async fn reopen_fixture(original: &Fixture) -> Result<Fixture> {
         original.global_params.node.shutdown().await?;
         let config = &original.global_params.config_path;
-        let node = NodeContext::new(config, config, Arc::new(Quiet)).await?;
+        let node = NodeContext::new(config, config, Arc::new(Quiet), false).await?;
         let library = node
             .library_pool
             .acquire_ui(original.global_params.library_id.context("library")?)
@@ -1024,9 +998,9 @@ mod lifecycle_tests {
             ui_library: Arc::new(Mutex::new(Some(library))),
             main_token: token.clone(),
             task_tokens: Arc::new(Mutex::new(TaskTokens::default())),
-            player: Arc::new(Mutex::new(MockPlayer)),
+            player: node_context.session()?.player.clone(),
             sfx_player: Arc::new(Mutex::new(SfxPlayer::new(Some((*token).clone())))),
-            scrobbler: Arc::new(Mutex::new(MockScrobblingManager::new())),
+            scrobbler: node_context.session()?.scrobbler.clone(),
             broadcaster: node_context.broadcaster.clone(),
             device_scanner: node_context.device_scanner.clone(),
             cert_validator: node_context.cert_validator.clone(),
@@ -2317,6 +2291,7 @@ mod lifecycle_tests {
             first.path().to_str().context("config path")?,
             first.path().to_str().context("db path")?,
             Arc::new(WebSocketService::new()),
+            false,
         )
         .await?;
         let library = node
@@ -2894,6 +2869,48 @@ mod lifecycle_tests {
         let response = source.request.get(Some((0, Some(15)))).await?;
         assert_eq!(response.status(), reqwest::StatusCode::PARTIAL_CONTENT);
         assert_eq!(response.bytes().await?.as_ref(), &expected[..16]);
+        let stream_cancel = source.cancellation.clone();
+        let stream = playback::stream_utils::create_stream_with_authorizer(
+            source.request.clone(),
+            &source.url,
+        )
+        .await?;
+        let extension = source.extension;
+        let expected_tail = expected[expected.len() - 12..].to_vec();
+        let decoded = tokio::task::spawn_blocking(move || -> Result<bool> {
+            use std::io::{Read, Seek, SeekFrom};
+            let mut stream = stream;
+            let mut tail = [0u8; 12];
+            stream.seek(SeekFrom::End(-12))?;
+            stream.read_exact(&mut tail)?;
+            anyhow::ensure!(
+                tail.as_slice() == expected_tail.as_slice(),
+                "stream seek returned wrong bytes"
+            );
+            stream.seek(SeekFrom::Start(0))?;
+            let mut decoder = RuneDecoder::new(stream, Some(&extension))?;
+            Ok(decoder.next().is_some())
+        })
+        .await??;
+        assert!(decoded, "remote audio must decode without materializing it");
+        b.global_params
+            .permission_manager
+            .write()
+            .await
+            .change_user_status(&a_info.fingerprint, UserStatus::Blocked)
+            .await?;
+        assert!(source.request.get(Some((16, Some(31)))).await.is_err());
+        tokio::time::timeout(Duration::from_secs(10), stream_cancel.cancelled())
+            .await
+            .context("revocation did not cancel the remote stream")?;
+        a.stop_worker().await?;
+        b.stop_worker().await?;
+        b.global_params
+            .permission_manager
+            .write()
+            .await
+            .change_user_status(&a_info.fingerprint, UserStatus::Approved)
+            .await?;
         let (_, raw_client) = authenticated_client(
             &a.global_params.node,
             &a_info.fingerprint,
@@ -2926,45 +2943,6 @@ mod lifecycle_tests {
                 .unwrap(),
             format!("bytes */{}", expected.len()).as_str()
         );
-        let stream_cancel = source.cancellation.clone();
-        let stream = playback::stream_utils::create_stream_with_authorizer(
-            source.request.clone(),
-            &source.url,
-        )
-        .await?;
-        let extension = source.extension;
-        let decoded = tokio::task::spawn_blocking(move || -> Result<bool> {
-            use std::io::{Read, Seek, SeekFrom};
-            let mut stream = stream;
-            let mut tail = [0u8; 12];
-            stream.seek(SeekFrom::End(-12))?;
-            stream.read_exact(&mut tail)?;
-            anyhow::ensure!(
-                tail.as_slice() == &expected[expected.len() - 12..],
-                "stream seek returned wrong bytes"
-            );
-            stream.seek(SeekFrom::Start(0))?;
-            let mut decoder = RuneDecoder::new(stream, Some(&extension))?;
-            Ok(decoder.next().is_some())
-        })
-        .await??;
-        assert!(decoded, "remote audio must decode without materializing it");
-        b.global_params
-            .permission_manager
-            .write()
-            .await
-            .change_user_status(&a_info.fingerprint, UserStatus::Blocked)
-            .await?;
-        assert!(source.request.get(Some((16, Some(31)))).await.is_err());
-        tokio::time::timeout(Duration::from_secs(10), stream_cancel.cancelled())
-            .await
-            .context("revocation did not cancel the remote stream")?;
-        b.global_params
-            .permission_manager
-            .write()
-            .await
-            .change_user_status(&a_info.fingerprint, UserStatus::Approved)
-            .await?;
         assert!(
             !is_materialized(
                 a.global_params.test_library().main_db.as_ref(),
@@ -3142,7 +3120,14 @@ mod lifecycle_tests {
             .pop()
             .context("missing scanned audio")?;
         let track_id: Uuid = file.hlc_uuid.parse()?;
-        let resolver = sync_worker::PairedAudioResolver(Arc::downgrade(&manager.global_params));
+        let resolver = sync_worker::PairedAudioResolver(
+            Arc::downgrade(&manager.global_params.node),
+            manager
+                .global_params
+                .library_id
+                .context("library")?
+                .to_string(),
+        );
         let queued_before_revision = PlaybackSource::Local(root.path().join("old.ogg"));
         assert!(
             !queued_before_revision
@@ -3185,13 +3170,13 @@ mod lifecycle_tests {
         let queued = crate::utils::files_to_playback_request(
             &params.test_library().fsio,
             &params.test_library().main_db,
-            &params.node_id,
+            &params.library_id.context("library")?.to_string(),
             &root.path(),
             &handles,
         )
         .await?;
         assert!(
-            matches!(&queued[..], [(PlayingItem::InLibrary(id), PlaybackSource::LibraryStream)] if *id == file.id)
+            matches!(&queued[..], [(PlayingItem::InLibrary(id, _), PlaybackSource::LibraryStream)] if *id == file.id)
         );
         let summaries = get_metadata_summary_by_files(
             params.test_library().main_db.as_ref(),

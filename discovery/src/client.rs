@@ -153,11 +153,9 @@ impl CertValidator {
         let cached_entries = Arc::new(RwLock::new(initial_entries));
 
         // Set up background task to monitor storage updates and refresh cache
-        let storage_clone = storage.clone();
+        let mut subscriber = storage.subscribe();
         let cached_clone = cached_entries.clone();
         tokio::spawn(async move {
-            let mut subscriber = storage_clone.subscribe();
-
             while let Ok(data) = subscriber.recv().await {
                 if let Ok(mut cache) = cached_clone.write() {
                     *cache = data.entries.clone();

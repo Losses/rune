@@ -24,7 +24,7 @@ use tower::ServiceExt;
 
 use crate::{library_pool::LibraryPool, messages::LibraryContentChanged, node::NodeContext};
 use http::{BlobContext, SharedLibrary, blob_router};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use uuid::Uuid;
 
 pub fn library_router(
@@ -44,7 +44,7 @@ pub fn library_router(
 #[derive(Clone)]
 struct PoolService {
     pool: Arc<LibraryPool>,
-    global: Arc<NodeContext>,
+    global: Weak<NodeContext>,
     node_id: Uuid,
 }
 
@@ -53,7 +53,7 @@ pub(super) fn pool_router(global: Arc<NodeContext>, node_id: Uuid) -> axum::Rout
         .fallback(serve_library)
         .with_state(PoolService {
             pool: global.library_pool.clone(),
-            global,
+            global: Arc::downgrade(&global),
             node_id,
         })
 }
@@ -80,6 +80,9 @@ async fn serve_library(
     Path(path): Path<LibraryPath>,
     mut request: Request,
 ) -> Response {
+    let Some(global) = service.global.upgrade() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
     let Some(peer) = request.extensions().get::<PeerIdentity>().cloned() else {
         return forbidden();
     };
@@ -116,7 +119,7 @@ async fn serve_library(
     } else {
         Action::LibraryRead { library_id: id }
     };
-    guarded_response(service.global.clone(), peer, action, async move {
+    guarded_response(global.clone(), peer, action, async move {
         let library = match path.library_id.parse::<Uuid>() {
             Ok(id) => service.pool.acquire_served(id).await,
             Err(_) => Ok(None),
@@ -129,7 +132,7 @@ async fn serve_library(
                 return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
-        let notify = library_notification(&service.global, &library.media_root);
+        let notify = library_notification(&global, &library.media_root);
         let store = Arc::new(RwLock::new(library.library_sync.clone()));
         let router = library_router(SharedLibrary(store.clone()), notify.clone()).merge(
             blob_router(BlobContext {

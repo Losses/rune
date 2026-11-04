@@ -22,6 +22,9 @@ struct SessionInfo {
 
 #[derive(Debug, Serialize)]
 pub struct ScrobblingTrack {
+    /// Local routing context; never sent to a scrobbling service.
+    #[serde(skip)]
+    pub library_id: Option<String>,
     pub artist: String,
     pub track: String,
     pub album: Option<String>,

@@ -48,6 +48,7 @@ pub enum LibraryOpenErrorKind {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct SetMediaLibraryPathResponse {
+    pub restore_last_index: bool,
     pub error_kind: Option<LibraryOpenErrorKind>,
     pub path: String,
     pub success: bool,

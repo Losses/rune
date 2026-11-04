@@ -31,7 +31,7 @@ pub struct MediaFileHandle {
 impl From<media_files::Model> for MediaFileHandle {
     fn from(x: media_files::Model) -> Self {
         MediaFileHandle {
-            item: PlayingItem::InLibrary(x.id),
+            item: PlayingItem::InLibrary(x.id, String::new()),
             file_name: x.file_name,
             directory: x.directory,
             extension: x.extension,
@@ -88,7 +88,7 @@ impl Default for PlayingItemMetadataSummary {
 impl From<MetadataSummary> for PlayingItemMetadataSummary {
     fn from(x: MetadataSummary) -> Self {
         PlayingItemMetadataSummary {
-            item: PlayingItem::InLibrary(x.id),
+            item: PlayingItem::InLibrary(x.id, String::new()),
             artist: x.artist,
             album: x.album,
             title: x.title,

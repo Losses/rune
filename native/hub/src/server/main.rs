@@ -1,10 +1,7 @@
 mod cli;
 
 use std::path::Path;
-use std::{
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::sync::{Arc, OnceLock};
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
@@ -19,15 +16,14 @@ use cli::{
 };
 use hub::{
     node::initialize_node,
-    server::{PairedAudioResolver, WebSocketService},
-    utils::{GlobalParams, RunningMode, TaskTokens, player::initialize_local_player},
+    server::WebSocketService,
+    utils::{GlobalParams, RunningMode, TaskTokens},
 };
 
-use ::database::connection::{MainDbConnection, check_storage_mode};
+use ::database::connection::check_storage_mode;
 use ::database::library_registry::{LibraryRegistry, resolve_library};
 use ::fsio::FsIo;
-use ::playback::{player::Player, sfx_player::SfxPlayer};
-use ::scrobbling::manager::ScrobblingManager;
+use ::playback::sfx_player::SfxPlayer;
 
 #[derive(Parser)]
 #[command(name = "Rune", author = "Rune Developers", version)]
@@ -121,43 +117,26 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
 
     let pool = node.library_pool.clone();
     let library = pool.acquire_ui(descriptor.library_id).await?;
-    let fsio = library.fsio.clone();
-    let main_db: Arc<MainDbConnection> = library.main_db.clone();
-    let lib_path: Arc<String> = Arc::new(lib_path.to_string());
     let config_path = node.config_path.clone();
 
     let main_cancel_token = node.token.child_token();
-    let library_sync = library.library_sync.clone();
     let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
 
     info!("Initializing player");
-    let player = Player::new(Arc::clone(&fsio), Some(main_cancel_token.clone()));
-    let player: Arc<Mutex<Player>> = Arc::new(Mutex::new(player));
+    let session = node.session()?;
+    session.migrate_legacy(&library).await?;
+    let player = session.player.clone();
+    let scrobbler = session.scrobbler.clone();
 
     let sfx_player = SfxPlayer::new(Some(main_cancel_token.clone()));
     let sfx_player: Arc<Mutex<SfxPlayer>> = Arc::new(Mutex::new(sfx_player));
 
     let main_cancel_token = Arc::new(main_cancel_token);
 
-    let scrobbler = ScrobblingManager::new(10, Duration::new(5, 0));
-    let scrobbler = Arc::new(Mutex::new(scrobbler));
-
     let broadcaster = node.broadcaster.clone();
     let device_scanner = node.device_scanner.clone();
     let permission_manager = node.permission_manager.clone();
     let cert_validator = node.cert_validator.clone();
-
-    info!("Initializing Player events");
-    tokio::spawn(initialize_local_player(
-        fsio.clone(),
-        lib_path.clone(),
-        main_db.clone(),
-        library_sync.record_store(),
-        library_sync.record_store().author(),
-        player.clone(),
-        scrobbler.clone(),
-        broadcaster.clone(),
-    ));
 
     let global_params = Arc::new(GlobalParams {
         node: node.clone(),
@@ -188,12 +167,5 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         .set(server_manager.clone())
         .map_err(|_| anyhow::anyhow!("Library server already initialized"))?;
 
-    global_params
-        .player
-        .lock()
-        .await
-        .set_source_resolver(Arc::new(PairedAudioResolver(Arc::downgrade(
-            &global_params,
-        ))));
     Ok(global_params)
 }

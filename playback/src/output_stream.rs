@@ -1,15 +1,25 @@
 use std::sync::{Arc, Weak};
 
 use rodio::cpal::Sample;
-use rodio::cpal::traits::{HostTrait, StreamTrait};
+#[cfg(not(feature = "test-output"))]
+use rodio::cpal::traits::HostTrait;
+use rodio::cpal::traits::StreamTrait;
 use rodio::dynamic_mixer::{self, DynamicMixerController};
 use rodio::source::Source;
 use rodio::{DeviceTrait, SupportedStreamConfig, cpal};
 use rodio::{PlayError, StreamError};
+#[cfg(feature = "test-output")]
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    thread,
+    time::Duration,
+};
 
 pub struct RuneOutputStream {
     mixer: Arc<DynamicMixerController<f32>>,
-    _stream: cpal::Stream,
+    _stream: Option<cpal::Stream>,
+    #[cfg(feature = "test-output")]
+    test_stop: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Clone)]
@@ -46,13 +56,19 @@ impl RuneOutputStream {
         let (mixer, _stream) =
             device.try_new_output_stream_config_with_callback(config, error_callback)?;
         _stream.play().map_err(StreamError::PlayStreamError)?;
-        let out = Self { mixer, _stream };
+        let out = Self {
+            mixer,
+            _stream: Some(_stream),
+            #[cfg(feature = "test-output")]
+            test_stop: None,
+        };
         let handle = RuneOutputStreamHandle {
             mixer: Arc::downgrade(&out.mixer),
         };
         Ok((out, handle))
     }
 
+    #[cfg(not(feature = "test-output"))]
     pub fn try_default_with_callback<E>(
         error_callback: E,
     ) -> Result<(Self, RuneOutputStreamHandle), StreamError>
@@ -76,6 +92,46 @@ impl RuneOutputStream {
                 .find_map(|d| Self::try_from_device_with_callback(&d, error_callback.clone()).ok())
                 .ok_or(original_err)
         })
+    }
+}
+
+#[cfg(feature = "test-output")]
+impl RuneOutputStream {
+    pub fn try_default_with_callback<E>(_: E) -> Result<(Self, RuneOutputStreamHandle), StreamError>
+    where
+        E: FnMut(cpal::StreamError) + Send + 'static + Clone,
+    {
+        let (mixer, mut source) = dynamic_mixer::mixer::<f32>(2, 48_000);
+        let stop = Arc::new(AtomicBool::new(false));
+        let cancel = stop.clone();
+        thread::spawn(move || {
+            while !cancel.load(Ordering::Relaxed) {
+                for _ in 0..960 {
+                    let _ = source.next();
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        });
+        let handle = RuneOutputStreamHandle {
+            mixer: Arc::downgrade(&mixer),
+        };
+        Ok((
+            Self {
+                mixer,
+                _stream: None,
+                test_stop: Some(stop),
+            },
+            handle,
+        ))
+    }
+}
+
+#[cfg(feature = "test-output")]
+impl Drop for RuneOutputStream {
+    fn drop(&mut self) {
+        if let Some(stop) = &self.test_stop {
+            stop.store(true, Ordering::Relaxed);
+        }
     }
 }
 

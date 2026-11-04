@@ -217,6 +217,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
             if let Err(panic) = futures::FutureExt::catch_unwind(handling).await {
                 error!("Panicked while handling media library path {path}: {panic:?}");
                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                    restore_last_index: false,
                     error_kind: None,
                     path,
                     success: false,
@@ -254,6 +255,7 @@ async fn handle_media_library_path(
             Err(e) => {
                 error!("Failed to initialize Android SAF filesystem: {e:#?}");
                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                    restore_last_index: false,
                     error_kind: None,
                     path: media_library_path.to_string(),
                     success: false,
@@ -273,6 +275,7 @@ async fn handle_media_library_path(
             Ok(node) => node,
             Err(error) => {
                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                    restore_last_index: false,
                     error_kind: None,
                     path: media_library_path.to_string(),
                     success: false,
@@ -293,6 +296,7 @@ async fn handle_media_library_path(
                     Err(e) => {
                         error!("Failed to check library state: {e:#?}");
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            restore_last_index: false,
                             error_kind: None,
                             path: media_library_path.to_string(),
                             success: false,
@@ -307,6 +311,7 @@ async fn handle_media_library_path(
                     match &library_test {
                         LibraryState::Uninitialized => {
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                                restore_last_index: false,
                                 error_kind: None,
                                 path: media_library_path.to_string(),
                                 success: true,
@@ -324,6 +329,7 @@ async fn handle_media_library_path(
                     && let Err(e) = create_redirect(&fsio, media_library_path).await
                 {
                     broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                        restore_last_index: false,
                         error_kind: None,
                         path: media_library_path.to_string(),
                         success: false,
@@ -345,8 +351,13 @@ async fn handle_media_library_path(
                 match opened {
                     Ok(library) => {
                         info!("Resolved library id: {}", library.descriptor.library_id);
-                        let result = local_player_loop(library, node, Arc::clone(&scrobbler)).await;
+                        let result =
+                            local_player_loop(library, node.clone(), Arc::clone(&scrobbler)).await;
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            restore_last_index: result.is_ok()
+                                && node
+                                    .session()
+                                    .is_ok_and(|session| session.take_legacy_restore()),
                             error_kind: None,
                             path: media_library_path.to_string(),
                             success: result.is_ok(),
@@ -357,6 +368,7 @@ async fn handle_media_library_path(
                     Err(e) => {
                         error!("Library initialization failed: {e:#?}");
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            restore_last_index: false,
                             error_kind: None,
                             path: media_library_path.to_string(),
                             success: false,
@@ -370,6 +382,7 @@ async fn handle_media_library_path(
                 match server_player_loop(fsio, media_library_path, node, alias).await {
                     Ok(_) => {
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            restore_last_index: false,
                             error_kind: None,
                             path: media_library_path.to_string(),
                             success: true,
@@ -380,6 +393,7 @@ async fn handle_media_library_path(
                     Err(e) => {
                         error!("Failed to server player loop: {e:#?}");
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                            restore_last_index: false,
                             error_kind: Some(
                                 e.downcast_ref::<RemoteConnectError>()
                                     .map_or(LibraryOpenErrorKind::RemoteProtocol, |error| {
@@ -603,14 +617,14 @@ pub async fn parse_media_files(
 pub async fn files_to_playback_request<P: AsRef<Path>>(
     fsio: &FsIo,
     db: &MainDbConnection,
-    _node_id: &str,
+    library_id: &str,
     lib_path: &P,
     files: &[MediaFileHandle],
 ) -> Result<Vec<(PlayingItem, PlaybackSource)>> {
     let ids: Vec<i32> = files
         .iter()
         .filter_map(|file| match file.item {
-            PlayingItem::InLibrary(id) => Some(id),
+            PlayingItem::InLibrary(id, _) => Some(id),
             _ => None,
         })
         .collect();
@@ -620,7 +634,7 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
         .iter()
         .filter_map(|file| {
             let source = match &file.item {
-                PlayingItem::InLibrary(id)
+                PlayingItem::InLibrary(id, _)
                     if matches!(
                         availability.get(id),
                         Some(AudioAvailability::RemoteOnly)
@@ -629,12 +643,12 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
                 {
                     PlaybackSource::LibraryStream
                 }
-                PlayingItem::InLibrary(id)
+                PlayingItem::InLibrary(id, _)
                     if !matches!(availability.get(id), Some(AudioAvailability::Local)) =>
                 {
                     return None;
                 }
-                PlayingItem::InLibrary(_) => match fsio.canonicalize_path(
+                PlayingItem::InLibrary(_, _) => match fsio.canonicalize_path(
                     &lib_path
                         .as_ref()
                         .join(&file.directory)
@@ -649,7 +663,11 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
                 PlayingItem::Online(_, _) => PlaybackSource::Local(PathBuf::new()),
                 PlayingItem::Unknown => return None,
             };
-            Some((file.item.clone(), source))
+            let mut item = file.item.clone();
+            if let PlayingItem::InLibrary(_, id) = &mut item {
+                *id = library_id.to_owned();
+            }
+            Some((item, source))
         })
         .collect())
 }

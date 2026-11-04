@@ -15,7 +15,13 @@ pub use manager::{
     ServerManager, generate_or_load_certificates, get_or_generate_alias, update_root_password,
 };
 
-use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap,
+    future::Future,
+    path::PathBuf,
+    pin::Pin,
+    sync::{Arc, Weak},
+};
 
 use anyhow::Result;
 use log::error;
@@ -44,7 +50,7 @@ pub struct AppState {
 
 #[derive(Clone)]
 pub struct ServerState {
-    pub node: Arc<NodeContext>,
+    pub node: Weak<NodeContext>,
     pub app_state: Arc<AppState>,
     pub websocket_service: Arc<WebSocketService>,
     pub session_cancel: tokio_util::sync::CancellationToken,

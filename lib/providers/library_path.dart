@@ -107,6 +107,7 @@ Future<String?> getInitialPath() async {
 }
 
 class LibraryPathProvider with ChangeNotifier {
+  bool _openedLocalLibrary = false;
   String? _currentPath;
   final Set<LibraryPathEntry> _libraryHistory = {};
   StreamSubscription<dynamic>? _contentSubscription;
@@ -187,9 +188,26 @@ class LibraryPathProvider with ChangeNotifier {
     _refreshAccess();
     notifyListeners();
 
+    var restoreLastIndex = false;
+    Future<(bool, bool, String?, LibraryOpenErrorKind?)> openLibrary() async {
+      final subscription = SetMediaLibraryPathResponse.rustSignalStream
+          .where(
+            (event) =>
+                event.message.path == LibraryPathEntry.removePrefix(filePath),
+          )
+          .listen((event) {
+            restoreLastIndex = event.message.restoreLastIndex;
+          });
+      try {
+        return await setMediaLibraryPath(filePath, selectedMode);
+      } finally {
+        await subscription.cancel();
+      }
+    }
+
     (bool, bool, String?, LibraryOpenErrorKind?) result;
     try {
-      result = await setMediaLibraryPath(filePath, selectedMode);
+      result = await openLibrary();
     } on RequestFailure {
       removeCurrentPath();
       rethrow;
@@ -223,8 +241,7 @@ class LibraryPathProvider with ChangeNotifier {
       }
 
       try {
-        (success, notReady, error, errorKind) =
-            await setMediaLibraryPath(filePath, selectedMode);
+        (success, notReady, error, errorKind) = await openLibrary();
       } on RequestFailure {
         removeCurrentPath();
         rethrow;
@@ -241,20 +258,37 @@ class LibraryPathProvider with ChangeNotifier {
       _fileStorageService.storeFilePath(filePath);
 
       try {
-        await operatePlaybackWithMixQuery(
-          queries: const QueryList([("lib::queue", "true")]),
-          playbackMode:
-              await SettingsManager().getValue<int>(kPlaybackModeKey) ?? 99,
-          hintPosition: -1,
-          initialPlaybackId: 0,
-          instantlyPlay: false,
-          operateMode: PlaylistOperateMode.replace,
-          fallbackPlayingItems: [],
-        );
+        if (filePath.startsWith('@RR|')) {
+          await operatePlaybackWithMixQuery(
+            queries: const QueryList([("lib::queue", "true")]),
+            playbackMode:
+                await SettingsManager().getValue<int>(kPlaybackModeKey) ?? 99,
+            hintPosition: -1,
+            initialPlaybackId: 0,
+            instantlyPlay: false,
+            operateMode: PlaylistOperateMode.replace,
+            fallbackPlayingItems: [],
+          );
 
-        final lastQueueIndex =
-            await (SettingsManager().getValue(kLastQueueIndexKey));
-        load(lastQueueIndex ?? 0);
+          final lastQueueIndex = await (SettingsManager().getValue(
+            kLastQueueIndexKey,
+          ));
+          load(lastQueueIndex ?? 0);
+        } else {
+          if (!_openedLocalLibrary && restoreLastIndex) {
+            final mode = await SettingsManager().getValue<int>(
+              kPlaybackModeKey,
+            );
+            if (mode != null && mode != 99) {
+              SetPlaybackModeRequest(mode: mode).sendSignalToRust();
+            }
+            final index = await SettingsManager().getValue<int>(
+              kLastQueueIndexKey,
+            );
+            load(index ?? 0);
+          }
+          _openedLocalLibrary = true;
+        }
       } on RequestFailure {
         // Opening the library does not depend on restoring its queue.
       }

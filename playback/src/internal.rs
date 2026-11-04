@@ -147,6 +147,12 @@ impl From<PlaybackMode> for u32 {
 
 #[derive(Debug)]
 pub enum PlayerCommand {
+    Restore {
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        index: Option<usize>,
+        position: Duration,
+        mode: PlaybackMode,
+    },
     Load {
         index: usize,
     },
@@ -186,6 +192,7 @@ pub enum PlayerCommand {
 
 #[derive(Debug, Clone)]
 pub enum PlayerEvent {
+    Unavailable(PlayingItem),
     Stopped,
     Loaded {
         item: PlayingItem,
@@ -312,6 +319,8 @@ pub(crate) struct PlayerInternal {
     stream_error_receiver: mpsc::UnboundedReceiver<String>,
     stream_retry_count: usize,
     adaptive_switching: bool,
+    restore_position: Option<Duration>,
+    unavailable: Vec<PlayingItem>,
 }
 
 impl PlayerInternal {
@@ -350,6 +359,8 @@ impl PlayerInternal {
             stream_error_receiver,
             stream_retry_count: 0,
             adaptive_switching: false,
+            restore_position: None,
+            unavailable: Vec::new(),
         }
     }
 
@@ -374,6 +385,14 @@ impl PlayerInternal {
 
                     debug!("Received command: {cmd:?}");
                     match cmd {
+                        PlayerCommand::Restore { tracks, index, position, mode } => {
+                            self.add_to_playlist(tracks, AddMode::AppendToEnd);
+                            self.debounce_timer = None;
+                            self.send_playlist_updated()?;
+                            self.set_playback_mode(mode)?;
+                            self.restore_position = Some(position);
+                            self.load(index, false, false)?;
+                        },
                         PlayerCommand::Load { index } => self.load(Some(index), false, true)?,
                         PlayerCommand::LoadComplete { result, item, original_item, index, playlist_index, path, play } => {
                             self.state = InternalPlaybackState::Stopped;
@@ -386,10 +405,20 @@ impl PlayerInternal {
                                         self.schedule_playlist_update();
                                     }
                                     self.setup_sink(source, item, index, path, play)?;
+                                    if let Some(position) = self.restore_position.take() { self.seek(position.as_secs_f64())?; }
                                 }
                                 Err(e) => {
                                     error!("Failed to load track: {e:?}");
-                                    self.next()?;
+                                    self.restore_position = None;
+                                    self.unavailable.push(item.clone());
+                                    self.event_sender.send(PlayerEvent::Unavailable(item))?;
+                                    // Advance from the failed load, including when no track has loaded yet.
+                                    let next = ((index + 1)..self.playlist.len()).find(|candidate| {
+                                        let mapped = self.get_mapped_track_index(*candidate);
+                                        !self.unavailable.contains(&self.playlist[mapped].item)
+                                    });
+                                    if let Some(next) = next { self.load(Some(next), play, true)?; }
+                                    else { self.stop()?; self.event_sender.send(PlayerEvent::EndOfPlaylist)?; }
                                 }
                             }
                         },
@@ -502,21 +531,32 @@ impl PlayerInternal {
             tokio::spawn(async move {
                 let original_item = item.item.clone();
                 let source_future = async {
-                    let resolved_item = if let (PlayingItem::InLibrary(id), Some(resolver)) =
+                    let mut fsio = fsio;
+                    let mut resolver = resolver;
+                    if let (PlayingItem::InLibrary(_, library_id), Some(root)) =
                         (&item.item, resolver.as_ref())
+                        && let Some(library) = root.for_library(library_id.clone()).await?
                     {
-                        PlayingItem::InLibrary(
-                            resolver
-                                .resolve_id(*id)
-                                .await?
-                                .context("library track no longer exists")?,
-                        )
-                    } else {
-                        item.item.clone()
-                    };
+                        fsio = library.fsio;
+                        resolver = Some(library.resolver);
+                    }
+                    let resolved_item =
+                        if let (PlayingItem::InLibrary(id, library_id), Some(resolver)) =
+                            (&item.item, resolver.as_ref())
+                        {
+                            PlayingItem::InLibrary(
+                                resolver
+                                    .resolve_id(*id)
+                                    .await?
+                                    .context("library track no longer exists")?,
+                                library_id.clone(),
+                            )
+                        } else {
+                            item.item.clone()
+                        };
                     match &resolved_item {
-                        PlayingItem::IndependentFile(_) | PlayingItem::InLibrary(_) => {
-                            let path = if let (PlayingItem::InLibrary(id), Some(resolver)) =
+                        PlayingItem::IndependentFile(_) | PlayingItem::InLibrary(_, _) => {
+                            let path = if let (PlayingItem::InLibrary(id, _), Some(resolver)) =
                                 (&resolved_item, resolver.as_ref())
                             {
                                 if item

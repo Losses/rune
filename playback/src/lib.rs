@@ -22,7 +22,7 @@ pub use dummy_souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
 #[cfg(not(target_os = "android"))]
 pub use souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
 
-pub use internal::{PlayerCommand, PlayerEvent};
+pub use internal::{PlaybackMode, PlayerCommand, PlayerEvent};
 
 #[cfg(target_os = "android")]
 pub mod android_utils;

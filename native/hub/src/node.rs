@@ -18,10 +18,10 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::Session;
 use crate::access_policy::{Action, Denial, RuneAccessPolicy};
 use crate::macros::{RequestClass, request_class};
 use crate::request_error::ExpectedRequestError;
+use crate::{Session, session::PlayerSession};
 use crate::{
     library_pool::LibraryPool,
     messages::{
@@ -54,6 +54,7 @@ pub struct NodeContext {
     pub websocket_service: Arc<WebSocketService>,
     pub token: Arc<CancellationToken>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
+    local_session: OnceLock<Arc<PlayerSession>>,
     current_ui: Mutex<Option<Weak<GlobalParams>>>,
     event_handles: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -96,10 +97,14 @@ impl Broadcaster for NodeBroadcaster {
 }
 
 impl NodeContext {
+    /// `os_media_controls` registers the local session with the OS (MPRIS, SMTC).
+    /// Only the app and the headless server enable it; tests must not touch the
+    /// desktop session.
     pub(crate) async fn new(
         config_path: &str,
         db_path: &str,
         broadcaster: Arc<dyn Broadcaster>,
+        os_media_controls: bool,
     ) -> Result<Arc<Self>> {
         fs::create_dir_all(config_path).context("Create node configuration directory")?;
         let node_id = Arc::new(get_or_create_node_id(config_path).await?.to_string());
@@ -131,6 +136,7 @@ impl NodeContext {
             websocket_service,
             token: Arc::new(CancellationToken::new()),
             server_manager: OnceLock::new(),
+            local_session: OnceLock::new(),
             current_ui: Mutex::new(None),
             event_handles: Mutex::new(Vec::new()),
         });
@@ -138,6 +144,9 @@ impl NodeContext {
         node.server_manager
             .set(manager.clone())
             .map_err(|_| anyhow::anyhow!("Node server already initialized"))?;
+        node.local_session
+            .set(PlayerSession::new(&node, "local", os_media_controls).await?)
+            .map_err(|_| anyhow::anyhow!("Local session already initialized"))?;
         node.start_notifications().await;
         manager.start_worker().await?;
         if node.sync_settings.read().await.listen {
@@ -221,6 +230,14 @@ impl NodeContext {
             .lock()
             .await
             .extend([certificate_task, permission_task, changes_task]);
+    }
+
+    /// The default local renderer, independent of the UI library.
+    pub fn session(&self) -> Result<Arc<PlayerSession>> {
+        self.local_session
+            .get()
+            .cloned()
+            .context("Node session is not initialized")
     }
 
     pub fn manager(&self) -> Result<Arc<ServerManager>> {
@@ -332,6 +349,11 @@ impl NodeContext {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
+        let session_result = if let Some(session) = self.local_session.get() {
+            session.shutdown().await
+        } else {
+            Ok(())
+        };
         self.token.cancel();
         if let Some(params) = self
             .current_ui
@@ -342,10 +364,10 @@ impl NodeContext {
         {
             Self::release_ui(&params).await;
         }
-        let mut result = Ok(());
+        let mut result = session_result;
         if let Some(manager) = self.server_manager.get() {
             if manager.is_running() {
-                result = manager.stop().await;
+                result = result.and(manager.stop().await);
             }
             let worker_result = manager.stop_worker().await;
             result = result.and(worker_result);
@@ -354,6 +376,12 @@ impl NodeContext {
             result = result.and(handle.await.context("Node event listener failed"));
         }
         result
+    }
+}
+
+impl Drop for NodeContext {
+    fn drop(&mut self) {
+        self.token.cancel();
     }
 }
 
@@ -401,7 +429,7 @@ impl NodeSlot {
             );
             return Ok(node.clone());
         }
-        let node = NodeContext::new(config_path, db_path, broadcaster).await?;
+        let node = NodeContext::new(config_path, db_path, broadcaster, true).await?;
         *slot = Some(node.clone());
         Ok(node)
     }
@@ -462,7 +490,7 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let path = dir.path().to_string_lossy();
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let node = NodeContext::new(&path, &path, Arc::new(Quiet(Some(tx)))).await?;
+        let node = NodeContext::new(&path, &path, Arc::new(Quiet(Some(tx))), false).await?;
         let manager = node.permission_manager.read().await;
         manager
             .add_user(

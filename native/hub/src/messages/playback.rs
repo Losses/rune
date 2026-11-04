@@ -65,6 +65,7 @@ pub struct MovePlaylistItemRequest {
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct PlaylistItem {
+    pub unavailable: bool,
     pub item: PlayingItemRequest,
     pub artist: String,
     pub album: String,

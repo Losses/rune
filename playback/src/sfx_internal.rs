@@ -59,7 +59,11 @@ impl SfxPlayerInternal {
                 self.state = InternalSfxPlaybackState::Empty;
             }
 
-            if let Some(cmd) = self.commands.recv().await {
+            let cmd = tokio::select! {
+                _ = self.cancellation_token.cancelled() => break,
+                cmd = self.commands.recv() => cmd,
+            };
+            if let Some(cmd) = cmd {
                 if self.cancellation_token.is_cancelled() {
                     debug!("Cancellation token triggered, exiting run loop");
                     if let Some(sink) = &self.sink {
@@ -73,6 +77,8 @@ impl SfxPlayerInternal {
                     SfxPlayerCommand::Load { path } => self.load(Some(path)),
                     SfxPlayerCommand::SetVolume(volume) => self.set_volume(volume),
                 }?;
+            } else {
+                break;
             }
         }
 

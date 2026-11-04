@@ -35,7 +35,7 @@ impl Signal for SetLikedRequest {
             let parsed_item: PlayingItem = item.clone().into();
 
             let response = match parsed_item {
-                PlayingItem::InLibrary(file_id) => {
+                PlayingItem::InLibrary(file_id, _) => {
                     set_liked(
                         &library.main_db,
                         &library.library_sync.record_store(),
@@ -101,7 +101,7 @@ impl Signal for GetLikedRequest {
             let parsed_item: PlayingItem = item.clone().into();
 
             let response = match parsed_item {
-                PlayingItem::InLibrary(file_id) => {
+                PlayingItem::InLibrary(file_id, _) => {
                     let liked = get_liked(&*library.main_db, file_id)
                         .await
                         .with_context(|| format!("Failed to get liked: file_id={file_id}"))?;

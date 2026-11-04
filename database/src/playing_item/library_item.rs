@@ -24,7 +24,7 @@ pub fn extract_in_library_ids(items: Vec<PlayingItem>) -> Vec<i32> {
     items
         .into_iter()
         .filter_map(|item| {
-            if let PlayingItem::InLibrary(id) = item {
+            if let PlayingItem::InLibrary(id, _) = item {
                 Some(id)
             } else {
                 None
@@ -48,7 +48,16 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
         Ok(get_files_by_ids(main_db, &in_library_ids)
             .await?
             .into_iter()
-            .map(|x| x.into())
+            .map(|x| {
+                let id = x.id;
+                let mut handle: MediaFileHandle = x.into();
+                if let Some(item) = items.iter().find(
+                    |item| matches!(item, PlayingItem::InLibrary(item_id, _) if *item_id == id),
+                ) {
+                    handle.item = item.clone();
+                }
+                handle
+            })
             .collect())
     }
 
@@ -88,7 +97,16 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
             get_metadata_summary_by_file_ids(main_db, in_library_ids)
                 .await?
                 .into_iter()
-                .map(|x| x.into())
+                .map(|x| {
+                    let id = x.id;
+                    let mut summary: PlayingItemMetadataSummary = x.into();
+                    if let Some(item) = items.iter().find(
+                        |item| matches!(item, PlayingItem::InLibrary(item_id, _) if *item_id == id),
+                    ) {
+                        summary.item = item.clone();
+                    }
+                    summary
+                })
                 .collect();
 
         Ok(result)
@@ -109,7 +127,16 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
         let mut converted_result = HashMap::new();
 
         for (id, cover_art) in result {
-            converted_result.insert(PlayingItem::InLibrary(id), cover_art);
+            converted_result.insert(
+                items
+                    .iter()
+                    .find(
+                        |item| matches!(item, PlayingItem::InLibrary(item_id, _) if *item_id == id),
+                    )
+                    .cloned()
+                    .unwrap_or(PlayingItem::Unknown),
+                cover_art,
+            );
         }
 
         Ok(converted_result)
@@ -123,7 +150,7 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
         item: &PlayingItem,
     ) -> Option<i32> {
         let track_id = match item {
-            PlayingItem::InLibrary(id) => Some(*id),
+            PlayingItem::InLibrary(id, _) => Some(*id),
             PlayingItem::Online(_, Some(file)) => Some(file.id),
             _ => None,
         }?;

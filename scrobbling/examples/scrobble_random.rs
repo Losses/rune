@@ -56,6 +56,7 @@ async fn main() -> Result<()> {
     let action = matches.get_one::<String>("action").unwrap();
 
     let track = ScrobblingTrack {
+        library_id: None,
         artist: "Random Artist".to_string(),
         track: "Random Track".to_string(),
         album: Some("Random Album".to_string()),

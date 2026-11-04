@@ -8,8 +8,10 @@ use super::sync_auth::{Authorization, Challenge, Token, message};
 #[cfg(test)]
 use super::utils::device::load_device_info;
 use crate::access_policy::{Action, LibraryLevel};
-use crate::{library_pool::LibraryHandle, node::NodeContext, utils::GlobalParams};
-use anyhow::{Result, ensure};
+#[cfg(test)]
+use crate::utils::GlobalParams;
+use crate::{library_pool::LibraryHandle, node::NodeContext};
+use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, materialized_path, resolve_local_id};
 use database::actions::library::clean_local_orphans;
@@ -18,21 +20,21 @@ use database::sync::Maintenance;
 use database::sync::model::RuneModel;
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use discovery::server::UserStatus;
-use futures::{
-    StreamExt,
-    future::{AbortHandle, Abortable},
-    stream::FuturesUnordered,
-};
+use futures::future::BoxFuture;
+use futures::future::{AbortHandle, Abortable};
 use http_request::sync::PageCursor;
+use playback::player::{LibraryPlaybackSource, PlaybackSourceResolver, RemoteAudioSource};
 use rand::rngs::OsRng;
 use reqwest::header::HeaderMap;
 use reqwest::redirect::Policy;
 use rsa::{Pss, RsaPrivateKey, pkcs8::DecodePrivateKey};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 use std::time as std_time;
 use std::{
     collections::{HashMap, HashSet},
+    future::Future,
     hash::Hash,
     path::Path,
 };
@@ -42,9 +44,9 @@ use std::{
 };
 use sync::SyncPeer;
 use sync::protocol::SyncError;
-use tokio::sync::Mutex;
 use tokio::time as tokio_time;
 use tokio::time::{Instant, MissedTickBehavior};
+use tokio::{sync::Mutex, task::JoinSet};
 use uuid::Uuid;
 
 const DEFAULT_PEER_PORT: u16 = 7863;
@@ -187,7 +189,7 @@ impl Default for PeerSession {
 }
 
 pub async fn run(
-    global: Arc<NodeContext>,
+    global: Weak<NodeContext>,
     notify: Arc<dyn Fn() + Send + Sync>,
     own_fingerprint: String,
     private_key: String,
@@ -231,12 +233,15 @@ async fn eligible_libraries(global: &NodeContext) -> Vec<Uuid> {
     }
 }
 
-async fn maintain_metadata(global: Arc<NodeContext>, cancel: tokio_util::sync::CancellationToken) {
+async fn maintain_metadata(global: Weak<NodeContext>, cancel: tokio_util::sync::CancellationToken) {
     let mut maintenance = HashMap::<Uuid, Maintenance>::new();
     let mut interval = tokio::time::interval(Duration::from_secs(5));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! { _ = cancel.cancelled() => return, _ = interval.tick() => () }
+        let Some(global) = global.upgrade() else {
+            return;
+        };
         let ids = eligible_libraries(&global).await;
         maintenance.retain(|id, _| ids.contains(id));
         for id in ids {
@@ -291,7 +296,7 @@ async fn pass_notification(
 }
 
 async fn verify_managed_audio(
-    global: Arc<NodeContext>,
+    global: Weak<NodeContext>,
     notify: Arc<dyn Fn() + Send + Sync>,
     cancel: tokio_util::sync::CancellationToken,
 ) {
@@ -300,6 +305,9 @@ async fn verify_managed_audio(
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! { _ = cancel.cancelled() => return, _ = interval.tick() => {} }
+        let Some(global) = global.upgrade() else {
+            return;
+        };
         let ids = eligible_libraries(&global).await;
         verifiers.retain(|id, _| ids.contains(id));
         for id in ids {
@@ -342,7 +350,7 @@ where
 }
 
 async fn run_loop(
-    global: Arc<NodeContext>,
+    global: Weak<NodeContext>,
     notify: Arc<dyn Fn() + Send + Sync>,
     credentials: LocalCredentials,
     cancel: tokio_util::sync::CancellationToken,
@@ -350,6 +358,9 @@ async fn run_loop(
     locks: ReplicaLocks,
 ) {
     let discover = || async {
+        let Some(global) = global.upgrade() else {
+            return Vec::new();
+        };
         let ids = eligible_libraries(&global).await;
         let peers = peer_endpoints(&global, &credentials.fingerprint).await;
         ids.into_iter()
@@ -364,6 +375,9 @@ async fn run_loop(
         let locks = locks.clone();
         async move {
             let key = (hosts[0].fingerprint.clone(), id);
+            let Some(global) = global.upgrade() else {
+                return (key, Duration::from_secs(30));
+            };
             let library = tokio::select! {
                 _ = cancel.cancelled() => return (key, Duration::from_secs(30)),
                 library = global.library_pool.acquire_served(id) => library,
@@ -380,7 +394,7 @@ async fn run_loop(
             for endpoint in hosts {
                 let result = tokio::select! {
                     _ = cancel.cancelled() => return (key, Duration::from_secs(30)),
-                    _ = wait_for_revocation(&global, &endpoint.fingerprint, &endpoint.trusted_host) => Err(anyhow::anyhow!("peer permission revoked")),
+                    _ = wait_for_revocation(Arc::downgrade(&global), &endpoint.fingerprint, &endpoint.trusted_host) => Err(anyhow::anyhow!("peer permission revoked")),
                     result = async {
                         let options = PassOptions { credentials: &credentials, metadata, locks: &locks };
                         let operation = sync_one(&global, &library, &notify, &endpoint, options);
@@ -414,6 +428,9 @@ async fn run_loop(
         cancel.clone(),
         || async {
             if metadata {
+                let Some(global) = global.upgrade() else {
+                    return;
+                };
                 let ids = eligible_libraries(&global).await;
                 locks.lock().await.retain(|(_, id), entry| {
                     ids.contains(id)
@@ -437,26 +454,38 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
     cleanup: C,
 ) where
     D: Fn() -> DF,
-    DF: std::future::Future<Output = Vec<P>>,
+    DF: Future<Output = Vec<P>>,
     W: Fn(P) -> WF,
-    WF: std::future::Future<Output = (Q, Duration)>,
+    WF: Future<Output = (Q, Duration)> + Send + 'static,
     K: Fn(&P) -> Q,
-    Q: Clone + Eq + Hash,
+    Q: Clone + Eq + Hash + Send + 'static,
     C: Fn() -> CF,
-    CF: std::future::Future<Output = ()>,
+    CF: Future<Output = ()>,
 {
     let mut due = HashMap::<Q, Instant>::new();
     let mut running = HashMap::<Q, AbortHandle>::new();
-    let mut tasks = FuturesUnordered::new();
+    // Discovery and cleanup may await locks held by an in-flight peer pass.
+    let mut tasks = JoinSet::new();
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut next_due = None;
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => return,
+            _ = cancel.cancelled() => {
+                tasks.shutdown().await;
+                return;
+            },
             _ = tick.tick() => {},
             _ = async { match next_due { Some(deadline) => tokio::time::sleep_until(deadline).await, None => std::future::pending().await } } => {},
-            Some((key, result)) = tasks.next(), if !tasks.is_empty() => {
+            Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+                let (key, result) = match result {
+                    Ok(result) => result,
+                    Err(error) => {
+                        log::error!("Background peer task failed: {error}");
+                        tasks.shutdown().await;
+                        return;
+                    }
+                };
                 running.remove(&key);
                 if let Ok((key, wait)) = result {
                     due.insert(key, Instant::now() + wait);
@@ -464,7 +493,10 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
             }
         }
         let peers = tokio::select! {
-            _ = cancel.cancelled() => return,
+            _ = cancel.cancelled() => {
+                tasks.shutdown().await;
+                return;
+            },
             peers = discover() => peers,
         };
         let eligible: HashSet<_> = peers.iter().map(&key).collect();
@@ -487,8 +519,9 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
                 let (handle, registration) = AbortHandle::new_pair();
                 running.insert(fingerprint.clone(), handle);
                 let future = work(peer);
-                tasks
-                    .push(async move { (fingerprint, Abortable::new(future, registration).await) });
+                tasks.spawn(
+                    async move { (fingerprint, Abortable::new(future, registration).await) },
+                );
             }
         }
         next_due = if tasks.len() < limit {
@@ -511,9 +544,12 @@ fn outbound_eligible(status: Option<UserStatus>) -> bool {
     matches!(status, None | Some(UserStatus::Approved))
 }
 
-pub(super) async fn wait_for_revocation(global: &NodeContext, fingerprint: &str, host: &str) {
+pub(super) async fn wait_for_revocation(global: Weak<NodeContext>, fingerprint: &str, host: &str) {
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
+        let Some(global) = global.upgrade() else {
+            return;
+        };
         let status = global
             .permission_manager
             .read()
@@ -1033,7 +1069,7 @@ pub(super) struct AudioCredentials {
 /// Caller-owned, pinned request capability for one immutable content address.
 #[derive(Clone)]
 pub(super) struct RenewableAudio {
-    pub global: Arc<NodeContext>,
+    pub global: Weak<NodeContext>,
     pub own: String,
     pub private_key: String,
     pub endpoint: PeerEndpoint,
@@ -1046,16 +1082,15 @@ pub(super) struct RenewableAudio {
 impl RenewableAudio {
     async fn check_authorization(&self) -> Result<()> {
         ensure!(!self.cancel.is_cancelled(), "audio access revoked");
-        let status = self
-            .global
+        let global = self.global.upgrade().context("Node has shut down")?;
+        let status = global
             .permission_manager
             .read()
             .await
             .verify_by_fingerprint(&self.endpoint.fingerprint)
             .await
             .map(|user| user.status);
-        let trusted = self
-            .global
+        let trusted = global
             .cert_validator
             .read()
             .await
@@ -1076,9 +1111,10 @@ impl RenewableAudio {
     }
     async fn refresh_locked(&self, credentials: &mut AudioCredentials) -> Result<()> {
         self.check_authorization().await?;
+        let global = self.global.upgrade().context("Node has shut down")?;
         let result = tokio::select! {
             _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
-            result = authenticated_client(&self.global, &self.own, &self.private_key, &self.endpoint.fingerprint, &self.endpoint.host, self.endpoint.port) => result,
+            result = authenticated_client(&global, &self.own, &self.private_key, &self.endpoint.fingerprint, &self.endpoint.host, self.endpoint.port) => result,
         };
         match result {
             Ok((_, renewed)) => {
@@ -1199,15 +1235,118 @@ mod tests {
     use super::*;
     use axum::http::StatusCode;
     use database::sync::model::RuneModel;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::net::TcpListener;
     use tokio::net::TcpStream;
-    use tokio::sync::Notify;
     use tokio::sync::oneshot;
+    use tokio::sync::{Notify, Semaphore};
     use tokio_util::sync::CancellationToken;
+
+    #[derive(Clone, Copy)]
+    enum ContentionPhase {
+        Discovery,
+        Cleanup,
+    }
+
+    struct SchedulerContention {
+        pool: Mutex<()>,
+        rounds: AtomicUsize,
+        started: Semaphore,
+        entered: Semaphore,
+        release: Semaphore,
+        finished: Semaphore,
+    }
+
+    impl Default for SchedulerContention {
+        fn default() -> Self {
+            Self {
+                pool: Mutex::new(()),
+                rounds: AtomicUsize::new(0),
+                started: Semaphore::new(0),
+                entered: Semaphore::new(0),
+                release: Semaphore::new(0),
+                finished: Semaphore::new(0),
+            }
+        }
+    }
+
+    async fn assert_peer_progress(phase: ContentionPhase) {
+        let state = Arc::new(SchedulerContention::default());
+        let cancel = CancellationToken::new();
+        let worker = tokio::spawn({
+            let state = state.clone();
+            let cancel = cancel.clone();
+            async move {
+                schedule_peers(
+                    || {
+                        let state = state.clone();
+                        async move {
+                            if state.rounds.fetch_add(1, Ordering::SeqCst) > 0
+                                && matches!(phase, ContentionPhase::Discovery)
+                            {
+                                state.entered.add_permits(1);
+                                let _guard = state.pool.lock().await;
+                            }
+                            vec![0]
+                        }
+                    },
+                    |peer| {
+                        let state = state.clone();
+                        async move {
+                            let guard = state.pool.lock().await;
+                            state.started.add_permits(2);
+                            state.release.acquire().await.unwrap().forget();
+                            drop(guard);
+                            state.finished.add_permits(1);
+                            (peer, Duration::from_secs(30))
+                        }
+                    },
+                    |peer| *peer,
+                    1,
+                    cancel,
+                    || {
+                        let state = state.clone();
+                        async move {
+                            if matches!(phase, ContentionPhase::Cleanup) {
+                                state.entered.add_permits(1);
+                                state.started.acquire().await.unwrap().forget();
+                                let _guard = state.pool.lock().await;
+                            }
+                        }
+                    },
+                )
+                .await;
+            }
+        });
+        let result = tokio_time::timeout(Duration::from_secs(3), async {
+            state.started.acquire().await.unwrap().forget();
+            state.entered.acquire().await.unwrap().forget();
+            state.release.add_permits(1);
+            state.finished.acquire().await.unwrap().forget();
+        })
+        .await;
+        cancel.cancel();
+        worker.abort();
+        let _ = worker.await;
+        assert!(
+            result.is_ok(),
+            "peer work stopped progressing during scheduler housekeeping"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn peer_progress_during_discovery() {
+        assert_peer_progress(ContentionPhase::Discovery).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn peer_progress_during_cleanup() {
+        assert_peer_progress(ContentionPhase::Cleanup).await;
+    }
 
     #[tokio::test]
     async fn newly_due_peer_runs_while_another_is_stalled() {
-        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::atomic::AtomicBool;
         let available = Arc::new(AtomicBool::new(false));
         let started = Arc::new(Notify::new());
         let second = Arc::new(Notify::new());
@@ -1464,74 +1603,72 @@ pub(crate) fn tls_config(
 }
 
 /// Resolves an unmaterialized catalog track at playback time using paired peers.
-pub struct PairedAudioResolver(pub Weak<GlobalParams>);
-impl playback::player::PlaybackSourceResolver for PairedAudioResolver {
-    fn resolve_id(&self, id: i32) -> futures::future::BoxFuture<'static, Result<Option<i32>>> {
-        let manager = self.0.clone();
+pub struct PairedAudioResolver(pub Weak<NodeContext>, pub String);
+impl PlaybackSourceResolver for PairedAudioResolver {
+    fn for_library(
+        &self,
+        library_id: String,
+    ) -> BoxFuture<'static, Result<Option<LibraryPlaybackSource>>> {
+        let node = self.0.clone();
         Box::pin(async move {
-            let manager = manager
-                .upgrade()
-                .ok_or_else(|| anyhow::anyhow!("library closed"))?;
-            let library = manager
-                .ui_library
-                .lock()
-                .await
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("library closed"))?;
+            let owner = node.upgrade().context("Node stopped")?;
+            let library = owner.library_pool.acquire(library_id.parse()?).await?;
+            Ok(Some(LibraryPlaybackSource {
+                fsio: library.fsio.clone(),
+                resolver: Arc::new(PairedAudioResolver(node, library_id)),
+            }))
+        })
+    }
+    fn resolve_id(&self, id: i32) -> BoxFuture<'static, Result<Option<i32>>> {
+        let node = self.0.clone();
+        let library_id = self.1.clone();
+        Box::pin(async move {
+            let owner = node.upgrade().context("Node stopped")?;
+            let library = owner.library_pool.acquire(library_id.parse()?).await?;
             resolve_local_id(library.main_db.as_ref(), id).await
         })
     }
-    fn local_path(
-        &self,
-        id: i32,
-    ) -> futures::future::BoxFuture<'static, Result<Option<std::path::PathBuf>>> {
-        Box::pin(resolve_materialized_path(self.0.clone(), id))
+    fn local_path(&self, id: i32) -> BoxFuture<'static, Result<Option<PathBuf>>> {
+        Box::pin(resolve_materialized_path(
+            self.0.clone(),
+            self.1.clone(),
+            id,
+        ))
     }
-    fn requires_stream(&self, id: i32) -> futures::future::BoxFuture<'static, Result<bool>> {
-        let manager = self.0.clone();
-        Box::pin(async move { Ok(resolve_materialized_path(manager, id).await?.is_none()) })
-    }
-    fn resolve(
-        &self,
-        id: i32,
-    ) -> futures::future::BoxFuture<'static, Result<playback::player::RemoteAudioSource>> {
-        let manager = self.0.clone();
+    fn requires_stream(&self, id: i32) -> BoxFuture<'static, Result<bool>> {
+        let node = self.0.clone();
+        let library_id = self.1.clone();
         Box::pin(async move {
-            let manager = manager
-                .upgrade()
-                .ok_or_else(|| anyhow::anyhow!("library closed"))?;
-            let library = manager
-                .ui_library
-                .lock()
-                .await
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("library closed"))?;
-            manager
-                .node
+            Ok(resolve_materialized_path(node, library_id, id)
+                .await?
+                .is_none())
+        })
+    }
+    fn resolve(&self, id: i32) -> BoxFuture<'static, Result<RemoteAudioSource>> {
+        let node = self.0.clone();
+        let library_id = self.1.clone();
+        Box::pin(async move {
+            let owner = node.upgrade().context("Node stopped")?;
+            let library = owner.library_pool.acquire(library_id.parse()?).await?;
+            owner
                 .manager()?
-                .resolve_remote_audio(&library, manager.main_token.child_token(), id)
+                .resolve_remote_audio(&library, owner.token.child_token(), id)
                 .await
         })
     }
 }
 
 async fn resolve_materialized_path(
-    manager: Weak<GlobalParams>,
+    node: Weak<NodeContext>,
+    library_id: String,
     id: i32,
-) -> Result<Option<std::path::PathBuf>> {
-    let manager = manager
-        .upgrade()
-        .ok_or_else(|| anyhow::anyhow!("library closed"))?;
-    let library = manager
-        .ui_library
-        .lock()
-        .await
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("library closed"))?;
+) -> Result<Option<PathBuf>> {
+    let owner = node.upgrade().context("Node stopped")?;
+    let library = owner.library_pool.acquire(library_id.parse()?).await?;
     materialized_path(
         library.main_db.as_ref(),
         &library.fsio,
-        Path::new(library.media_root.as_str()),
+        Path::new(&library.media_root),
         id,
     )
     .await

@@ -8,7 +8,6 @@ mod access_policy_tests {
     use database::actions::stats::{get_liked, set_liked};
     use futures::StreamExt;
     use http_request::sync::MetadataPeer;
-    use sea_orm::TransactionTrait;
     use std::fs;
     use sync::protocol::SyncError;
     use tempfile::TempDir;
@@ -402,9 +401,13 @@ mod access_policy_tests {
             pair.b.global_params.cert_validator.read().await.clone(),
         )
         .await?;
-        // Hold the actual served database's sole connection so sync remains in flight.
+        // Hold every connection while the metadata handler's head query waits on the pool.
         let library = pair.a.global_params.library_pool.acquire(pair.id).await?;
-        let transaction = library.main_db.begin().await?;
+        let pool = library.main_db.get_sqlite_connection_pool();
+        let mut connections = Vec::new();
+        for _ in 0..pool.options().get_max_connections() {
+            connections.push(pool.acquire().await?);
+        }
         let request = pair
             .client
             .post(format!(
@@ -427,7 +430,7 @@ mod access_policy_tests {
             timeout(Duration::from_secs(2), request).await??.status(),
             reqwest::StatusCode::FORBIDDEN
         );
-        transaction.rollback().await?;
+        drop(connections);
         pair.close().await
     }
 

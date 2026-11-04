@@ -44,16 +44,14 @@ pub async fn websocket_handler(
         .filter(|user| user.status == UserStatus::Approved);
     match user {
         Some(user) => {
+            let Some(node) = state.node.upgrade() else {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            };
             let peer = PeerIdentity {
                 fingerprint: user.fingerprint.clone(),
                 public_key: user.public_key.clone(),
             };
-            if state
-                .node
-                .access_policy
-                .check(&peer, &Action::Control)
-                .is_err()
-            {
+            if node.access_policy.check(&peer, &Action::Control).is_err() {
                 return StatusCode::FORBIDDEN.into_response();
             }
             info!("Connection authorized for {} @ {}", user.alias, addr);
@@ -69,7 +67,11 @@ pub async fn websocket_handler(
 
 pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: User, host: String) {
     let mut changes = state.permission_manager.read().await.changes();
-    let policy = state.node.access_policy.clone();
+    let Some(node) = state.node.upgrade() else {
+        return;
+    };
+    let policy = node.access_policy.clone();
+    drop(node);
     let mut grant_changes = policy.changes();
     let peer = PeerIdentity {
         fingerprint: user.fingerprint.clone(),

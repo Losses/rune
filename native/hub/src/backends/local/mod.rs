@@ -1,7 +1,6 @@
-use crate::server::sync_worker::PairedAudioResolver;
 use crate::{
     Signal,
-    utils::{GlobalParams, ParamsExtractor, TaskTokens, player::initialize_local_player},
+    utils::{GlobalParams, ParamsExtractor, TaskTokens},
 };
 use crate::{node::NodeContext, utils::RunningMode};
 #[macro_use]
@@ -17,8 +16,6 @@ use rinf::{DartSignal, RustSignal};
 
 pub use tokio;
 
-use ::database::connection::MainDbConnection;
-use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
 
@@ -28,26 +25,23 @@ use crate::messages::*;
 pub async fn local_player_loop(
     library: LibraryHandle,
     node: Arc<NodeContext>,
-    scrobbler: Arc<Mutex<ScrobblingManager>>,
+    _scrobbler: Arc<Mutex<ScrobblingManager>>,
 ) -> anyhow::Result<()> {
     info!("Media Library Received, initialize other receivers");
 
     info!("Initializing database");
 
-    let main_db: Arc<MainDbConnection> = library.main_db.clone();
-
-    let fsio = library.fsio.clone();
-    let lib_path: Arc<String> = Arc::new(library.media_root.clone());
     let config_path = node.config_path.clone();
     let node_id = node.node_id.clone();
     let broadcaster = node.broadcaster.clone();
     let main_cancel_token = node.token.child_token();
-    let library_sync = library.library_sync.clone();
     let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
 
     info!("Initializing player");
-    let player = Player::new(Arc::clone(&fsio), Some(main_cancel_token.clone()));
-    let player: Arc<Mutex<Player>> = Arc::new(Mutex::new(player));
+    let session = node.session()?;
+    session.migrate_legacy(&library).await?;
+    let player = session.player.clone();
+    let scrobbler = session.scrobbler.clone();
 
     let sfx_player = SfxPlayer::new(Some(main_cancel_token.clone()));
     let sfx_player: Arc<Mutex<SfxPlayer>> = Arc::new(Mutex::new(sfx_player));
@@ -57,18 +51,6 @@ pub async fn local_player_loop(
     let device_scanner = node.device_scanner.clone();
     let permission_manager = node.permission_manager.clone();
     let cert_validator = node.cert_validator.clone();
-    info!("Initializing Player events");
-    tokio::spawn(initialize_local_player(
-        fsio.clone(),
-        lib_path.clone(),
-        main_db.clone(),
-        library_sync.record_store(),
-        library_sync.record_store().author(),
-        player.clone(),
-        scrobbler.clone(),
-        broadcaster.clone(),
-    ));
-
     info!("Initializing UI events");
     let global_params = GlobalParams {
         node: node.clone(),
@@ -98,13 +80,6 @@ pub async fn local_player_loop(
         .server_manager
         .set(server_manager.clone())
         .map_err(|_| anyhow::anyhow!("Library server already initialized"))?;
-    global_params
-        .player
-        .lock()
-        .await
-        .set_source_resolver(Arc::new(PairedAudioResolver(Arc::downgrade(
-            &global_params,
-        ))));
     node.attach_ui(&global_params).await;
     for_all_request_pairs2!(listen_local_gui_event, global_params, main_cancel_token);
     Ok(())
