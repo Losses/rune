@@ -28,12 +28,14 @@ use playback::{
     controller::{MediaControlManager, handle_media_control_event},
     player::{Playable, PlaybackState, Player, PlayerStatus, PlayingItem, PlaylistStatus},
 };
-use scrobbling::manager::{ScrobblingManager, ScrobblingServiceManager};
+use scrobbling::manager::{
+    LoginStatus, ScrobblingError, ScrobblingManager, ScrobblingServiceManager,
+};
 use sea_orm::TransactionTrait;
 use tokio::{
-    sync::Mutex,
+    sync::{Mutex, mpsc},
     task::JoinHandle,
-    time::{Instant, interval},
+    time::{Instant, sleep_until},
 };
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -228,10 +230,10 @@ impl PlayerSession {
         let player = self.player.clone();
         let scrobbler = self.scrobbler.clone();
         let cancel = self.cancel.clone();
+        let (persist_status_tx, mut persist_status_rx) = mpsc::channel(32);
+        let (persist_playlist_tx, mut persist_playlist_rx) = mpsc::channel(32);
         let event_task = tokio::spawn(async move {
-            let mut last_item = None;
-            let mut metadata = PlayingItemMetadataSummary::default();
-            let mut cover = None;
+            let mut item_state = ItemEventState::default();
             loop {
                 tokio::select! {
                     biased;
@@ -241,80 +243,53 @@ impl PlayerSession {
                     },
                     Ok(value) = status.recv() => {
                         let Some(node) = weak.upgrade() else { return };
-                        if value.item != last_item {
-                            metadata = PlayingItemMetadataSummary::default(); cover = None;
-                            if let Some(item) = &value.item
-                                && let Ok((summary, art)) = item_metadata(&node, item, true).await {
-                                metadata = summary; cover = art;
-                                if let Some(manager) = &controls { let _ = update_media_controls_metadata(manager.clone(), &metadata, cover.as_ref()).await; }
-                                scrobbler.lock().await.update_now_playing_all(metadata_summary_to_scrobbling_track(&metadata));
-                            }
-                            playing_cover_changed(cover.as_deref());
-                            last_item = value.item.clone();
-                        }
-                        let library = match &value.item {
-                            Some(PlayingItem::InLibrary(_, id)) => match id.parse() { Ok(id) => node.library_pool.acquire(id).await.ok(), Err(_) => None },
-                            _ => None,
-                        };
-                        if let Some(library) = &library { VISUALIZER.set_fsio(library.fsio.clone()); }
-                        let root = library.as_ref().map(|library| library.media_root.clone()).unwrap_or_default();
-                        let playing = value.state == PlaybackState::Playing;
-                        VISUALIZER.set_playing(playing);
-                        VISUALIZER.set_playback(value.path.as_deref(), value.position, playing);
-                        let report = format_status(&value, &metadata, cover.clone(), root);
-                        if let Some(manager) = &controls { let _ = update_media_controls_progress(manager.clone(), &report).await; }
-                        broadcaster.broadcast(&report);
+                        if persist_status_tx.send(value.clone()).await.is_err() { return; }
+                        handle_status_event(&node, value, &mut item_state, &controls, &scrobbler, &broadcaster).await;
                     }
                     Ok(value) = playlist.recv() => {
-                        if let Some(node) = weak.upgrade() { send_playlist(&node, &value, broadcaster.as_ref()).await; }
+                        if persist_playlist_tx.send(value.clone()).await.is_err() { return; }
+                        if let Some(node) = weak.upgrade() { handle_playlist_event(&node, value, broadcaster.as_ref()).await; }
                     }
                     Ok(item) = played.recv() => {
                         if let Some(node) = weak.upgrade() {
-                            if let Err(error) = record_played(&node, &item).await { log::warn!("Could not record played item: {error:#}"); }
-                            if let Ok((metadata, _)) = item_metadata(&node, &item, false).await { scrobbler.lock().await.scrobble_all(metadata_summary_to_scrobbling_track(&metadata)); }
+                            handle_played_event(&node, item, &scrobbler).await;
                         }
                     }
                     Ok(value) = fft.recv() => broadcaster.broadcast(&RealtimeFFT { value }),
                     Ok(detail) = crash.recv() => broadcaster.broadcast(&CrashResponse { detail }),
                     Ok(error) = logs.recv() => {
                         let item = player.lock().await.get_status().item;
-                        if let (Some(node), Some(item)) = (weak.upgrade(), item) { let _ = item_log(&node, &item, error.domain, error.error).await; }
+                        if let (Some(node), Some(item)) = (weak.upgrade(), item) { handle_log_event(&node, item, error.domain, error.error).await; }
                     }
                     Ok(error) = errors.recv() => {
-                        if let (Some(node), Some(library_id)) = (weak.upgrade(), error.library_id.clone()) {
-                            let item = PlayingItem::InLibrary(0, library_id);
-                            let _ = item_log(&node, &item, format!("scrobbler::{:?}::{:?}", error.action, error.service), format!("{error:#?}")).await;
-                        } else { log::warn!("Scrobbler error without catalog context: {error:#?}"); }
+                        handle_scrobbler_error(weak.upgrade(), error).await;
                     }
-                    Ok(value) = login.recv() => broadcaster.broadcast(&ScrobbleServiceStatusUpdated { services: value.into_iter().map(|x| ScrobbleServiceStatus { service_id: x.service.to_string(), is_available: x.is_available, error: x.error_message }).collect() }),
+                    Ok(value) = login.recv() => handle_login_event(value, broadcaster.as_ref()),
                     Some(value) = async { match &controller { Some(receiver) => receiver.recv().await.ok(), None => pending().await } } => { let _ = handle_media_control_event(&player, value).await; }
                 }
             }
         });
         let state = self.state.clone();
         let path = self.path.clone();
-        let player = self.player.clone();
         let cancel = self.cancel.clone();
         let persistence_task = tokio::spawn(async move {
-            let mut tick = interval(Duration::from_millis(100));
             let mut written = state.lock().await.clone();
-            let mut dirty_since = None;
+            let mut dirty_deadline = None;
             loop {
                 tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return,
-                    _ = tick.tick() => {
-                        let status = player.lock().await.get_status();
-                        *queue.write().unwrap_or_else(|e| e.into_inner()) = status.playlist.clone();
-                        let mut current = state.lock().await;
-                        current.update(&status);
-                        if *current != written {
-                            let since = dirty_since.get_or_insert_with(Instant::now);
-                            if since.elapsed() >= Duration::from_millis(300) {
-                                match current.write(&path) { Ok(()) => { written = current.clone(); dirty_since = None; }, Err(error) => log::error!("Could not persist player session: {error:#}") }
-                            }
-                        } else { dirty_since = None; }
+                    _ = cancel.cancelled() => {
+                        flush_session_state(&state, &path, &mut written).await;
+                        return;
+                    },
+                    Some(value) = persist_playlist_rx.recv() => {
+                        record_playlist_change(&state, &queue, value.items, &mut dirty_deadline).await;
                     }
+                    Some(value) = persist_status_rx.recv() => {
+                        record_status_change(&state, &value, &mut dirty_deadline).await;
+                    }
+                    _ = sleep_until(dirty_deadline.unwrap_or_else(Instant::now)), if dirty_deadline.is_some() =>
+                        persist_when_due(&state, &path, &mut written, &mut dirty_deadline).await,
                 }
             }
         });
@@ -325,31 +300,224 @@ impl PlayerSession {
     }
 }
 
+async fn update_persisted_queue(state: &Mutex<SessionState>, items: &[PlayingItem]) -> bool {
+    let mut state = state.lock().await;
+    let previous = state.clone();
+    state.update_queue(items);
+    *state != previous
+}
+
+async fn update_persisted_cursor(state: &Mutex<SessionState>, status: &PlayerStatus) -> bool {
+    let mut state = state.lock().await;
+    let previous = state.clone();
+    state.update_cursor(status);
+    *state != previous
+}
+
+async fn record_playlist_change(
+    state: &Mutex<SessionState>,
+    queue: &SessionQueue,
+    items: Vec<PlayingItem>,
+    deadline: &mut Option<Instant>,
+) {
+    *queue.write().unwrap_or_else(|error| error.into_inner()) = items.clone();
+    if update_persisted_queue(state, &items).await {
+        deadline.get_or_insert_with(|| Instant::now() + Duration::from_millis(300));
+    }
+}
+
+async fn record_status_change(
+    state: &Mutex<SessionState>,
+    status: &PlayerStatus,
+    deadline: &mut Option<Instant>,
+) {
+    if update_persisted_cursor(state, status).await {
+        deadline.get_or_insert_with(|| Instant::now() + Duration::from_millis(300));
+    }
+}
+
+async fn persist_when_due(
+    state: &Mutex<SessionState>,
+    path: &Path,
+    written: &mut SessionState,
+    deadline: &mut Option<Instant>,
+) {
+    if deadline.take().is_some()
+        && let Err(error) = persist_session_state(state, path, written).await
+    {
+        log::error!("Could not persist player session: {error:#}");
+        *deadline = Some(Instant::now() + Duration::from_millis(300));
+    }
+}
+
+async fn flush_session_state(state: &Mutex<SessionState>, path: &Path, written: &mut SessionState) {
+    if let Err(error) = persist_session_state(state, path, written).await {
+        log::error!("Could not flush player session: {error:#}");
+    }
+}
+
+async fn persist_session_state(
+    state: &Mutex<SessionState>,
+    path: &Path,
+    written: &mut SessionState,
+) -> Result<()> {
+    let current = state.lock().await;
+    if *current != *written {
+        current.write(path)?;
+        *written = current.clone();
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct ItemEventState {
+    last_item: Option<PlayingItem>,
+    library: Option<ResolvedLibrary>,
+    metadata: PlayingItemMetadataSummary,
+    cover: Option<String>,
+}
+
+struct ResolvedLibrary {
+    fsio: Arc<FsIo>,
+    media_root: String,
+}
+
+async fn handle_status_event(
+    node: &NodeContext,
+    value: PlayerStatus,
+    item_state: &mut ItemEventState,
+    controls: &Option<Arc<Mutex<MediaControlManager>>>,
+    scrobbler: &Arc<Mutex<dyn ScrobblingServiceManager>>,
+    broadcaster: &Arc<dyn Broadcaster>,
+) {
+    if value.item != item_state.last_item {
+        item_state.metadata = PlayingItemMetadataSummary::default();
+        item_state.cover = None;
+        item_state.library = None;
+        if let Some(item) = &value.item {
+            let result = match item {
+                PlayingItem::InLibrary(_, library_id) => match library_id.parse() {
+                    Ok(library_id) => match node.library_pool.acquire(library_id).await {
+                        Ok(library) => {
+                            let result = item_metadata_from_library(item, true, &library).await;
+                            item_state.library = Some(ResolvedLibrary {
+                                fsio: library.fsio.clone(),
+                                media_root: library.media_root.clone(),
+                            });
+                            result
+                        }
+                        Err(error) => Err(error),
+                    },
+                    Err(error) => Err(error.into()),
+                },
+                _ => item_metadata(node, item, true).await,
+            };
+            if let Ok((metadata, cover)) = result {
+                item_state.metadata = metadata;
+                item_state.cover = cover;
+                if let Some(manager) = controls {
+                    let _ = update_media_controls_metadata(
+                        manager.clone(),
+                        &item_state.metadata,
+                        item_state.cover.as_ref(),
+                    )
+                    .await;
+                }
+                scrobbler.lock().await.update_now_playing_all(
+                    metadata_summary_to_scrobbling_track(&item_state.metadata),
+                );
+            }
+        }
+        playing_cover_changed(item_state.cover.as_deref());
+        item_state.last_item = value.item.clone();
+    }
+    let root = item_state
+        .library
+        .as_ref()
+        .map(|library| library.media_root.clone())
+        .unwrap_or_default();
+    let playing = value.state == PlaybackState::Playing;
+    VISUALIZER.set_playing(playing);
+    VISUALIZER.set_playback(
+        value.path.as_deref(),
+        value.position,
+        playing,
+        item_state
+            .library
+            .as_ref()
+            .map(|library| library.fsio.clone()),
+    );
+    let report = format_status(&value, &item_state.metadata, item_state.cover.clone(), root);
+    if let Some(manager) = controls {
+        let _ = update_media_controls_progress(manager.clone(), &report).await;
+    }
+    broadcaster.broadcast(&report);
+}
+
+async fn handle_playlist_event(
+    node: &NodeContext,
+    value: PlaylistStatus,
+    broadcaster: &dyn Broadcaster,
+) {
+    send_playlist(node, &value, broadcaster).await;
+}
+
+async fn handle_played_event(
+    node: &NodeContext,
+    item: PlayingItem,
+    scrobbler: &Arc<Mutex<dyn ScrobblingServiceManager>>,
+) {
+    if let Err(error) = record_played(node, &item).await {
+        log::warn!("Could not record played item: {error:#}");
+    }
+    if let Ok((metadata, _)) = item_metadata(node, &item, false).await {
+        scrobbler
+            .lock()
+            .await
+            .scrobble_all(metadata_summary_to_scrobbling_track(&metadata));
+    }
+}
+
+async fn handle_log_event(node: &NodeContext, item: PlayingItem, domain: String, detail: String) {
+    let _ = item_log(node, &item, domain, detail).await;
+}
+
+async fn handle_scrobbler_error(node: Option<Arc<NodeContext>>, error: ScrobblingError) {
+    if let (Some(node), Some(library_id)) = (node, error.library_id.clone()) {
+        let item = PlayingItem::InLibrary(0, library_id);
+        let domain = format!("scrobbler::{:?}::{:?}", error.action, error.service);
+        let detail = format!("{error:#?}");
+        let _ = item_log(&node, &item, domain, detail).await;
+    } else {
+        log::warn!("Scrobbler error without catalog context: {error:#?}");
+    }
+}
+
+fn handle_login_event(value: Vec<LoginStatus>, broadcaster: &dyn Broadcaster) {
+    broadcaster.broadcast(&ScrobbleServiceStatusUpdated {
+        services: value
+            .into_iter()
+            .map(|status| ScrobbleServiceStatus {
+                service_id: status.service.to_string(),
+                is_available: status.is_available,
+                error: status.error_message,
+            })
+            .collect(),
+    });
+}
+
 async fn item_metadata(
     node: &NodeContext,
     item: &PlayingItem,
     with_cover: bool,
 ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
-    let dispatcher = PlayingItemActionDispatcher::new();
-    let items = from_ref(item);
     if let PlayingItem::InLibrary(_, library_id) = item {
         let library = node.library_pool.acquire(library_id.parse()?).await?;
-        let metadata = dispatcher
-            .get_metadata_summary(&library.fsio, &library.main_db, items)
-            .await?
-            .into_iter()
-            .next()
-            .context("Track metadata unavailable")?;
-        let cover = if with_cover {
-            dispatcher
-                .bake_cover_art(&library.fsio, &library.media_root, &library.main_db, items)
-                .await?
-                .remove(item)
-        } else {
-            None
-        };
-        Ok((metadata, cover))
-    } else {
+        return item_metadata_from_library(item, with_cover, &library).await;
+    }
+    let dispatcher = PlayingItemActionDispatcher::new();
+    let items = from_ref(item);
+    {
         #[cfg(not(target_os = "android"))]
         let fsio = FsIo::new();
         #[cfg(target_os = "android")]
@@ -371,6 +539,30 @@ async fn item_metadata(
         };
         Ok((metadata, cover))
     }
+}
+
+async fn item_metadata_from_library(
+    item: &PlayingItem,
+    with_cover: bool,
+    library: &LibraryHandle,
+) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
+    let dispatcher = PlayingItemActionDispatcher::new();
+    let items = from_ref(item);
+    let metadata = dispatcher
+        .get_metadata_summary(&library.fsio, &library.main_db, items)
+        .await?
+        .into_iter()
+        .next()
+        .context("Track metadata unavailable")?;
+    let cover = if with_cover {
+        dispatcher
+            .bake_cover_art(&library.fsio, &library.media_root, &library.main_db, items)
+            .await?
+            .remove(item)
+    } else {
+        None
+    };
+    Ok((metadata, cover))
 }
 
 async fn record_played(node: &NodeContext, item: &PlayingItem) -> Result<()> {

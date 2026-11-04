@@ -709,3 +709,57 @@ async fn session_f1_all_failed_items_stop_without_hanging() -> Result<()> {
     assert_eq!(updates_after, updates_before, "failed tracks kept auto-advancing");
     a.global_params.node.shutdown().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_f3_persists_changes_without_rewriting_while_idle() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let a = fixture(dir.path()).await?;
+    let id = session_audio(&a, "persist-first.ogg").await?;
+    queue_session(&a, &[id]).await?;
+    let store = dir.path().join("sessions/local.json");
+    wait_persisted_queue(&store, 1)
+        .await
+        .context("initial session queue was not persisted")?;
+    a.global_params.player.lock().await.switch(0);
+    wait_player(&a, |status| status.state == PlaybackState::Playing).await?;
+    a.global_params.player.lock().await.pause();
+    wait_player(&a, |status| status.state == PlaybackState::Paused).await?;
+    sleep(Duration::from_millis(350)).await;
+    let before = fs::read(&store)?;
+    let modified_before = fs::metadata(&store)?.modified()?;
+    sleep(Duration::from_secs(1)).await;
+    assert_eq!(fs::metadata(&store)?.modified()?, modified_before);
+    assert_eq!(fs::read(&store)?, before);
+
+    let second = session_audio(&a, "persist-second.ogg").await?;
+    let library_id = a.global_params.library_id.context("library")?.to_string();
+    a.global_params.player.lock().await.add_to_playlist_with_sources(
+        vec![(
+            PlayingItem::InLibrary(second, library_id),
+            PlaybackSource::LibraryStream,
+        )],
+        AddMode::AppendToEnd,
+    );
+    wait_player(&a, |status| status.playlist.len() == 2).await?;
+    wait_persisted_queue(&store, 2)
+        .await
+        .context("changed queue was not persisted within one second")?;
+    a.global_params.node.shutdown().await
+}
+
+/// Waits up to a second for the session file at `store` to hold a queue of `len` items.
+async fn wait_persisted_queue(store: &Path, len: usize) -> Result<()> {
+    timeout(Duration::from_secs(1), async {
+        loop {
+            let contents = fs::read(store).unwrap_or_default();
+            if serde_json::from_slice::<serde_json::Value>(&contents)
+                .is_ok_and(|state| state["queue"].as_array().is_some_and(|queue| queue.len() == len))
+            {
+                return;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await?;
+    Ok(())
+}

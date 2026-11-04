@@ -45,7 +45,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -299,8 +299,6 @@ struct Shared {
     inspect: Mutex<Option<Inspect>>,
     /// The file that plays and where, for analysing it into a chart and the time in it.
     playback: Mutex<Playback>,
-    /// Where the player's files are opened from, set once; without it files are not analysed.
-    fsio: OnceLock<Arc<FsIo>>,
     /// The chart of the song while the visualizer is stopped, for when it starts again.
     kept_chart: chart::KeptChart,
     /// Whether the scene on screen reads the atlas of album covers.
@@ -421,7 +419,6 @@ impl Visualizer {
                 effect_level: AtomicU8::new(0),
                 lab_chance: AtomicU8::new(NO_LAB_CHANCE),
                 playback: Mutex::new(Playback::default()),
-                fsio: OnceLock::new(),
                 kept_chart: chart::KeptChart::default(),
                 wants_covers: AtomicBool::new(false),
                 covers: Mutex::new(CoverAtlas::default()),
@@ -544,23 +541,23 @@ impl Visualizer {
         self.shared.playing.store(playing, Ordering::Relaxed);
     }
 
-    /// Open the player's files through `fsio` (once, before [`Self::start`]), so that the
-    /// visualizer can analyse the file that plays. Without it scenes stay on the live beat
-    /// tracker.
-    pub fn set_fsio(&self, fsio: Arc<FsIo>) {
-        let _ = self.shared.fsio.set(fsio);
-    }
-
-    /// Follow the player's file and position (call it with every progress report). The file
-    /// is analysed in the background (see [`Self::set_fsio`]); once that is done, scenes get
+    /// Follow the player's file source and position (call it with every progress report). The file
+    /// is analysed in the background; once that is done, scenes get
     /// the beats, bars and sections from the chart.
-    pub fn set_playback(&self, path: Option<&Path>, position: Duration, playing: bool) {
+    pub fn set_playback(
+        &self,
+        path: Option<&Path>,
+        position: Duration,
+        playing: bool,
+        fsio: Option<Arc<FsIo>>,
+    ) {
         let mut playback = lock(&self.shared.playback);
         if playback.path.as_deref() != path {
             playback.path = path.map(Path::to_path_buf);
         }
         playback.position = position;
         playback.playing = playing;
+        playback.fsio = fsio;
         playback.at = Some(Instant::now());
     }
 
@@ -948,7 +945,7 @@ fn run(
     // The folder of the scene on screen, reloaded when it is saved (live editing).
     let mut watched: Option<Watched> = None;
     let mut tracker = BeatTracker::new(sample_rate);
-    let mut charts = ChartFollower::new(shared.fsio.get().cloned(), Arc::clone(&shared.kept_chart));
+    let mut charts = ChartFollower::new(Arc::clone(&shared.kept_chart));
     // The version of the atlas of covers the pipeline has.
     let mut covers_seen: Option<u64> = None;
     // The same for the cell of the track playing.

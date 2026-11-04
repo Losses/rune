@@ -93,13 +93,19 @@ impl SessionState {
         }
     }
     pub fn update(&mut self, status: &PlayerStatus) {
-        self.queue = status.playlist.iter().cloned().map(Into::into).collect();
-        self.index = status.index;
-        self.position = status.position;
-        self.mode = status.playback_mode.into();
+        self.update_cursor(status);
+        self.update_queue(&status.playlist);
+    }
+    pub fn update_queue(&mut self, items: &[PlayingItem]) {
+        self.queue = items.iter().cloned().map(Into::into).collect();
         if !self.queue.is_empty() {
             self.migrated = true;
         }
+    }
+    pub fn update_cursor(&mut self, status: &PlayerStatus) {
+        self.index = status.index;
+        self.position = status.position;
+        self.mode = status.playback_mode.into();
     }
     pub fn tracks(&self) -> Vec<(PlayingItem, PlaybackSource)> {
         self.queue
