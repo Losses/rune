@@ -802,7 +802,7 @@ mod lifecycle_tests {
     use crate::request_error::classify;
     use migration::catalog_identity::{ParentKind, parent};
     use playback::decoder::RuneDecoder;
-    use playback::stream_utils::ManagedStream;
+    use playback::stream_utils::{ManagedStream, create_stream_with_authorizer};
     use std::net::SocketAddr;
     use std::net::TcpListener;
     use std::path::Path;
@@ -899,7 +899,15 @@ mod lifecycle_tests {
         name: &'static str,
         future: impl Future<Output = Result<T>>,
     ) -> Result<T> {
-        tokio::time::timeout(Duration::from_secs(15), future)
+        peer_step_with_timeout(name, Duration::from_secs(15), future).await
+    }
+
+    async fn peer_step_with_timeout<T>(
+        name: &'static str,
+        limit: Duration,
+        future: impl Future<Output = Result<T>>,
+    ) -> Result<T> {
+        tokio::time::timeout(limit, future)
             .await
             .with_context(|| format!("peer step timed out: {name}"))?
     }
@@ -2643,11 +2651,21 @@ mod lifecycle_tests {
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
         let library_id = Uuid::new_v4();
-        let a = fixture_with_library(first.path(), library_id).await?;
-        let b = fixture_with_library(second.path(), library_id).await?;
-        let a_info = info(&a).await?;
-        let b_info = info(&b).await?;
-        pair(&a, &b).await?;
+        let a = peer_step_with_timeout(
+            "create first fixture",
+            Duration::from_secs(120),
+            fixture_with_library(first.path(), library_id),
+        )
+        .await?;
+        let b = peer_step_with_timeout(
+            "create second fixture",
+            Duration::from_secs(120),
+            fixture_with_library(second.path(), library_id),
+        )
+        .await?;
+        let a_info = peer_step("read first peer identity", info(&a)).await?;
+        let b_info = peer_step("read second peer identity", info(&b)).await?;
+        peer_step("pair library peers", pair(&a, &b)).await?;
         let a_reserve = TcpListener::bind("127.0.0.1:0")?;
         let b_reserve = TcpListener::bind("127.0.0.1:0")?;
         let a_addr = a_reserve.local_addr()?;
@@ -2658,81 +2676,96 @@ mod lifecycle_tests {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
             second.path().join("source.ogg"),
         )?;
-        scan_audio_library(
-            &b.global_params.test_library().fsio,
-            &b.global_params.test_library().main_db,
-            &b.global_params.node_id,
-            second.path(),
-            ScanOptions {
-                cleanup: false,
-                force: false,
-                missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
-                cancel_token: None,
+        peer_step_with_timeout(
+            "scan and publish source audio",
+            Duration::from_secs(120),
+            async {
+                scan_audio_library(
+                    &b.global_params.test_library().fsio,
+                    &b.global_params.test_library().main_db,
+                    &b.global_params.node_id,
+                    second.path(),
+                    ScanOptions {
+                        cleanup: false,
+                        force: false,
+                        missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                        cancel_token: None,
+                    },
+                    |_| {},
+                    &b.global_params.test_library().library_sync.record_store(),
+                )
+                .await?;
+                let source_track = media_files::Entity::find()
+                    .filter(Column::LocalAvailable.eq(true))
+                    .one(&*b.global_params.test_library().main_db)
+                    .await?
+                    .context("fixture scanner did not create the source audio row")?;
+                let track_key = ObjectKey {
+                    collection: Collection::Tracks,
+                    id: source_track.hlc_uuid.parse()?,
+                };
+                anyhow::ensure!(
+                    b.global_params
+                        .test_library()
+                        .library_sync
+                        .get(&track_key)
+                        .await?
+                        .is_some(),
+                    "fixture scanner did not publish source track metadata"
+                );
+                Ok(())
             },
-            |_| {},
-            &b.global_params.test_library().library_sync.record_store(),
         )
         .await?;
-        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-        let source_track = media_files::Entity::find()
-            .filter(Column::LocalAvailable.eq(true))
-            .one(&*b.global_params.test_library().main_db)
-            .await?
-            .context("fixture scanner did not create the source audio row")?;
-        let track_key = ObjectKey {
-            collection: Collection::Tracks,
-            id: source_track.hlc_uuid.parse()?,
-        };
-        anyhow::ensure!(
-            b.global_params
-                .test_library()
-                .library_sync
-                .get(&track_key)
-                .await?
-                .is_some(),
-            "fixture scanner did not publish source track metadata"
-        );
         let key = ObjectKey {
             collection: Collection::Albums,
-            id: migration::catalog_identity::parent(ParentKind::Album, "background album"),
+            id: parent(ParentKind::Album, "background album"),
         };
         let reverse_key = ObjectKey {
             collection: Collection::Albums,
-            id: migration::catalog_identity::parent(ParentKind::Album, "first node album"),
+            id: parent(ParentKind::Album, "first node album"),
         };
-        a.global_params
-            .test_library()
-            .library_sync
-            .write_local(reverse_key.clone(), Some(album_payload("first node album")))
+        peer_step("seed bidirectional metadata", async {
+            a.global_params
+                .test_library()
+                .library_sync
+                .write_local(reverse_key.clone(), Some(album_payload("first node album")))
+                .await?;
+            let store = LibrarySyncStore::open(
+                (*b.global_params.test_library().main_db).clone(),
+                b.global_params.node_id.parse()?,
+                None,
+            )
             .await?;
-        let store = LibrarySyncStore::open(
-            (*b.global_params.test_library().main_db).clone(),
-            b.global_params.node_id.parse()?,
-            None,
-        )
+            store
+                .import_existing(b.global_params.node_id.parse()?)
+                .await?;
+            store
+                .write_local(key.clone(), Some(album_payload("background album")))
+                .await?;
+            Ok(())
+        })
         .await?;
-        store
-            .import_existing(b.global_params.node_id.parse()?)
-            .await?;
-        store
-            .write_local(key.clone(), Some(album_payload("background album")))
-            .await?;
-        a.clone()
-            .start_sync(
+        peer_step(
+            "start first sync listener",
+            a.clone().start_sync(
                 a_addr,
                 DiscoveryParams {
                     device_info: a_info.clone(),
                 },
-            )
-            .await?;
-        b.clone()
-            .start_sync(
+            ),
+        )
+        .await?;
+        peer_step(
+            "start second sync listener",
+            b.clone().start_sync(
                 b_addr,
                 DiscoveryParams {
                     device_info: b_info.clone(),
                 },
-            )
-            .await?;
+            ),
+        )
+        .await?;
         // Deliver actual discovery datagrams deterministically when multicast is unavailable.
         for (receiver, info, addr) in [(&a, &b_info, b_addr), (&b, &a_info, a_addr)] {
             let announcement = serde_json::json!({
@@ -2740,11 +2773,15 @@ mod lifecycle_tests {
                 "deviceModel": info.device_model, "deviceType": info.device_type,
                 "api_port": addr.port(), "announce": true,
             });
-            receiver
-                .global_params
-                .device_scanner
-                .observe_announcement(&serde_json::to_vec(&announcement)?, addr, None)
-                .await?;
+            peer_step(
+                "deliver peer announcement",
+                receiver.global_params.device_scanner.observe_announcement(
+                    &serde_json::to_vec(&announcement)?,
+                    addr,
+                    None,
+                ),
+            )
+            .await?;
         }
         tokio::time::timeout(Duration::from_secs(15), async {
             loop {
@@ -2774,12 +2811,16 @@ mod lifecycle_tests {
         })
         .await
         .context("peers did not learn advertised ports")?;
-        let pinned = reqwest::Client::builder()
-            .use_preconfigured_tls(
-                Arc::new(b.global_params.cert_validator.read().await.clone()).into_client_config(),
-            )
-            .no_proxy()
-            .build()?;
+        let pinned = peer_step("build pinned anonymous client", async {
+            Ok(reqwest::Client::builder()
+                .use_preconfigured_tls(
+                    Arc::new(b.global_params.cert_validator.read().await.clone())
+                        .into_client_config(),
+                )
+                .no_proxy()
+                .build()?)
+        })
+        .await?;
         let base = format!("https://{a_addr}");
         let unauthorized_metadata = peer_step("unauthorized metadata request", async {
             Ok(pinned
@@ -2823,38 +2864,44 @@ mod lifecycle_tests {
         })
         .await
         .context("background sync did not transfer album and track metadata")?;
-        b.global_params
-            .permission_manager
-            .write()
-            .await
-            .add_user(
-                a.certificate.clone(),
-                a_info.fingerprint.clone(),
-                "paired".into(),
-                "test".into(),
-                DeviceType::Desktop,
-                "127.0.0.1".into(),
-            )
-            .await?;
-        b.global_params
-            .permission_manager
-            .write()
-            .await
-            .change_user_status(&a_info.fingerprint, UserStatus::Approved)
-            .await?;
-        a.global_params
-            .cert_validator
-            .read()
-            .await
-            .add_trusted_domains(["127.0.0.2"], &b_info.fingerprint)
-            .await?;
+        peer_step("configure audio peer permissions", async {
+            b.global_params
+                .permission_manager
+                .write()
+                .await
+                .add_user(
+                    a.certificate.clone(),
+                    a_info.fingerprint.clone(),
+                    "paired".into(),
+                    "test".into(),
+                    DeviceType::Desktop,
+                    "127.0.0.1".into(),
+                )
+                .await?;
+            b.global_params
+                .permission_manager
+                .write()
+                .await
+                .change_user_status(&a_info.fingerprint, UserStatus::Approved)
+                .await?;
+            a.global_params
+                .cert_validator
+                .read()
+                .await
+                .add_trusted_domains(["127.0.0.2"], &b_info.fingerprint)
+                .await?;
+            Ok(())
+        })
+        .await?;
         // Let the background workers finish their shared per-IP auth burst.
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let audio_library = a
-            .global_params
-            .library_pool
-            .acquire(a.global_params.library_id.context("library")?)
-            .await?;
+        let audio_library = peer_step(
+            "acquire audio library",
+            a.global_params
+                .library_pool
+                .acquire(a.global_params.library_id.context("library")?),
+        )
+        .await?;
         let source = peer_step("resolve remote audio", async {
             Ok(loop {
                 if let Ok(source) = a
@@ -2884,23 +2931,29 @@ mod lifecycle_tests {
         .await?;
         assert_eq!(full_bytes.as_ref(), expected.as_slice());
         // Expire the server-side token, then exercise a real ranged GET with renewal.
-        let expired_token = b
-            .sync_auth_for_test
-            .lock()
-            .await
-            .as_ref()
-            .unwrap()
-            .expire_latest_token_for_test()
-            .await;
+        let expired_token = peer_step("expire audio token", async {
+            Ok(b.sync_auth_for_test
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .expire_latest_token_for_test()
+                .await)
+        })
+        .await?;
         anyhow::ensure!(expired_token, "audio renewal test found no token to expire");
         tokio::time::sleep(Duration::from_secs(1)).await;
-        b.sync_auth_for_test
-            .lock()
-            .await
-            .as_ref()
-            .unwrap()
-            .reject_next_authorization_for_test()
-            .await;
+        peer_step("inject transient renewal rejection", async {
+            b.sync_auth_for_test
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .reject_next_authorization_for_test()
+                .await;
+            Ok(())
+        })
+        .await?;
         let renewed_ranges = tokio::join!(
             peer_step("first concurrent renewed ranged audio GET", async {
                 let response = source.request.get(Some((0, Some(15)))).await?;
@@ -2928,16 +2981,13 @@ mod lifecycle_tests {
         );
         let stream_cancel = source.cancellation.clone();
         let stream = peer_step("create authorized audio stream", async {
-            playback::stream_utils::create_stream_with_authorizer(
-                source.request.clone(),
-                &source.url,
-            )
-            .await
+            create_stream_with_authorizer(source.request.clone(), &source.url).await
         })
         .await?;
         let stream = ManagedStream::new(stream, stream_cancel.clone());
         let extension = source.extension;
         let expected_tail = expected[expected.len() - 12..].to_vec();
+        let _cancel_stream_on_timeout = stream_cancel.clone().drop_guard();
         let decoded = peer_step("stream seek and decode", async move {
             tokio::task::spawn_blocking(move || -> Result<bool> {
                 use std::io::{Read, Seek, SeekFrom};
@@ -2957,12 +3007,16 @@ mod lifecycle_tests {
         })
         .await?;
         assert!(decoded, "remote audio must decode without materializing it");
-        b.global_params
-            .permission_manager
-            .write()
-            .await
-            .change_user_status(&a_info.fingerprint, UserStatus::Blocked)
-            .await?;
+        peer_step("revoke remote audio permission", async {
+            b.global_params
+                .permission_manager
+                .write()
+                .await
+                .change_user_status(&a_info.fingerprint, UserStatus::Blocked)
+                .await?;
+            Ok(())
+        })
+        .await?;
         let denied = peer_step("revoked ranged audio GET", async {
             Ok(source.request.get(Some((16, Some(31)))).await)
         })
@@ -2977,12 +3031,16 @@ mod lifecycle_tests {
         })
         .await?;
         tokio::time::sleep(Duration::from_secs(1)).await;
-        b.global_params
-            .permission_manager
-            .write()
-            .await
-            .change_user_status(&a_info.fingerprint, UserStatus::Approved)
-            .await?;
+        peer_step("restore remote audio permission", async {
+            b.global_params
+                .permission_manager
+                .write()
+                .await
+                .change_user_status(&a_info.fingerprint, UserStatus::Approved)
+                .await?;
+            Ok(())
+        })
+        .await?;
         let (_, raw_client) = peer_step("authenticate raw audio client", async {
             authenticated_client(
                 &a.global_params.node,
@@ -3026,11 +3084,14 @@ mod lifecycle_tests {
             format!("bytes */{}", expected.len()).as_str()
         );
         assert!(
-            !is_materialized(
-                a.global_params.test_library().main_db.as_ref(),
-                &a.global_params.test_library().fsio,
-                first.path(),
-                remote_id
+            !peer_step(
+                "check audio remains unmaterialized",
+                is_materialized(
+                    a.global_params.test_library().main_db.as_ref(),
+                    &a.global_params.test_library().fsio,
+                    first.path(),
+                    remote_id
+                )
             )
             .await?
         );
@@ -3063,15 +3124,16 @@ mod lifecycle_tests {
             .await?;
             assert_eq!(actual, status);
         }
-        a.manager
-            .clone()
-            .start(
+        peer_step(
+            "upgrade to full listener",
+            a.manager.clone().start(
                 a_addr,
                 DiscoveryParams {
                     device_info: a_info.clone(),
                 },
-            )
-            .await?;
+            ),
+        )
+        .await?;
         tokio::time::sleep(Duration::from_secs(1)).await;
         let (_, full_authorized) = peer_step("authenticate full listener client", async {
             authenticated_client(
@@ -3145,15 +3207,17 @@ mod lifecycle_tests {
         })
         .await?;
         assert_ne!(full, reqwest::StatusCode::NOT_FOUND);
-        a.stop().await?;
-        a.clone()
-            .start_sync(
+        peer_step("stop full listener", a.stop()).await?;
+        peer_step(
+            "restart sync listener",
+            a.clone().start_sync(
                 a_addr,
                 DiscoveryParams {
                     device_info: a_info,
                 },
-            )
-            .await?;
+            ),
+        )
+        .await?;
         let restarted_status = peer_step("restarted listener request", async {
             Ok(pinned
                 .get(format!("{base}/files/anything"))
@@ -3175,8 +3239,8 @@ mod lifecycle_tests {
         .await
         .context("main cancellation did not release listener")?;
         drop(rebound);
-        b.stop().await?;
-        a.stop().await?;
+        peer_step("stop cancelled second listener", b.stop()).await?;
+        peer_step("stop restarted first listener", a.stop()).await?;
         a.global_params.node.token.cancel();
         let rebound = TcpListener::bind(a_addr)?;
         drop(rebound);

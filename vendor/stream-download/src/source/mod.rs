@@ -131,6 +131,7 @@ pub(crate) struct Source<S: SourceStream, W: StorageWriter> {
     prefetch_start_position: u64,
     remaining_bytes: Option<Bytes>,
     cancellation_token: CancellationToken,
+    finished: bool,
 }
 
 impl<S, W> Source<S, W>
@@ -166,6 +167,7 @@ where
             prefetch_start_position: 0,
             remaining_bytes: None,
             cancellation_token,
+            finished: false,
         }
     }
 
@@ -191,6 +193,7 @@ where
             self.download_status.set_failed();
         }
         self.signal_download_complete();
+        self.finished = true;
     }
 
     async fn download_inner(&mut self, stream: &mut S) -> io::Result<StreamOutcome> {
@@ -234,13 +237,22 @@ where
     }
 
     async fn handle_seek(&mut self, stream: &mut S, position: u64) -> io::Result<()> {
+        // The reader can queue a seek just before the writer publishes its range.
+        // EOF also has no bytes to download, even while the source is still active.
+        if self.content_length == Some(position) || self.downloaded.get(position).is_some() {
+            if self.requested_position.get() == Some(position) {
+                self.requested_position.clear();
+                self.position_reached.notify_position_reached();
+            }
+            return Ok(());
+        }
         if self.should_seek(stream, position)? {
             debug!("seek position not yet downloaded");
             let current_stream_position = self.writer.stream_position()?;
             if self.prefetch_complete {
                 debug!("re-starting prefetch");
                 self.prefetch_start_position = position;
-                self.prefetch_complete = false;
+                self.prefetch_complete = self.prefetch_bytes == 0;
             } else {
                 debug!("seeking during prefetch, ending prefetch early");
                 self.downloaded
@@ -551,3 +563,15 @@ where
         }
     }
 }
+
+impl<S: SourceStream, W: StorageWriter> Drop for Source<S, W> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.download_status.set_failed();
+        }
+        self.position_reached.notify_stream_done();
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests;

@@ -406,10 +406,10 @@ impl<P: StorageProvider> StreamDownload<P> {
         let handle = source.source_handle();
 
         tokio::spawn({
-            let cancellation_token = cancellation_token.clone();
+            let finished = cancellation_token.clone().drop_guard();
             async move {
+                let _finished = finished;
                 source.download(stream).await;
-                cancellation_token.cancel();
                 debug!("download task finished");
             }
         });
