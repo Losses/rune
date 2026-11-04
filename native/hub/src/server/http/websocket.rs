@@ -13,7 +13,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast::Receiver, mpsc};
 
 use crate::{
     Session,
@@ -56,7 +56,8 @@ pub async fn websocket_handler(
             }
             info!("Connection authorized for {} @ {}", user.alias, addr);
             let host = format!("https://{host}:7863");
-            ws.on_upgrade(move |socket| handle_socket(socket, state, user, host))
+            let broadcast_rx = state.websocket_service.broadcast_tx.subscribe();
+            ws.on_upgrade(move |socket| handle_socket(socket, state, user, host, broadcast_rx))
         }
         None => {
             warn!("Unauthorized connection attempt from {}", addr);
@@ -65,7 +66,13 @@ pub async fn websocket_handler(
     }
 }
 
-pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: User, host: String) {
+pub async fn handle_socket(
+    socket: WebSocket,
+    state: Arc<ServerState>,
+    user: User,
+    host: String,
+    mut broadcast_rx: Receiver<Vec<u8>>,
+) {
     let mut changes = state.permission_manager.read().await.changes();
     let Some(node) = state.node.upgrade() else {
         return;
@@ -82,7 +89,6 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: Use
     let session_cancel = state.session_cancel.clone();
     let session_fingerprint = user.fingerprint.clone();
     let (mut sender, mut receiver) = socket.split();
-    let mut broadcast_rx = state.websocket_service.broadcast_tx.subscribe();
     let (tx, mut rx) = mpsc::channel(32);
 
     let alias = user.alias.clone();

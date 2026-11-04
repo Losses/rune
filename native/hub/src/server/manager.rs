@@ -1260,13 +1260,16 @@ mod lifecycle_tests {
         let second = tempfile::tempdir()?;
         let a = fixture(first.path()).await?;
         let b = fixture(second.path()).await?;
-        let addr = paired_full(&a, &b).await?;
-        let mut socket = connect_remote(
-            "127.0.0.1",
-            addr.port(),
-            &b.global_params.config_path,
-            b.global_params.cert_validator.read().await.clone(),
-        )
+        let addr = peer_step("pair headless controller nodes", paired_full(&a, &b)).await?;
+        let mut socket = peer_step("connect headless controller", async {
+            Ok(connect_remote(
+                "127.0.0.1",
+                addr.port(),
+                &b.global_params.config_path,
+                b.global_params.cert_validator.read().await.clone(),
+            )
+            .await?)
+        })
         .await?;
         let id = a.global_params.library_id.context("library")?;
         close_ui(&a.global_params).await?;
@@ -2367,6 +2370,15 @@ mod lifecycle_tests {
             b.global_params.cert_validator.read().await.clone(),
         )
         .await?;
+        assert!(
+            a.global_params
+                .node
+                .websocket_service
+                .broadcast_tx
+                .receiver_count()
+                > 0,
+            "controller connection returned before broadcast subscription"
+        );
         let broadcaster = &a.global_params.broadcaster;
         broadcaster.broadcast(&TrustListUpdated {
             certificates: vec![],
@@ -2386,17 +2398,21 @@ mod lifecycle_tests {
             cover_art_path: None,
             lib_path: a.global_params.test_library().media_root.clone(),
         });
-        let frame = tokio::time::timeout(Duration::from_secs(3), socket.next())
-            .await?
-            .context("controller socket closed")??;
+        let frame = peer_step_with_timeout(
+            "controller playback status frame",
+            Duration::from_secs(3),
+            async { Ok(socket.next().await.context("controller socket closed")??) },
+        )
+        .await?;
         let (name, payload, _) = decode_message(&frame.into_data()).context("status frame")?;
         assert_eq!(name, "PlaybackStatus");
         let status: PlaybackStatus = rinf::deserialize(&payload)?;
         assert_eq!(status.progress_seconds, 12.0);
+        let unexpected_frame =
+            tokio::time::timeout(Duration::from_millis(200), socket.next()).await;
         assert!(
-            tokio::time::timeout(Duration::from_millis(200), socket.next())
-                .await
-                .is_err()
+            unexpected_frame.is_err(),
+            "controller received a disallowed frame"
         );
         a.global_params.node.shutdown().await?;
         b.global_params.node.shutdown().await?;
