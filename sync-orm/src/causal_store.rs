@@ -1136,6 +1136,21 @@ impl<M: SyncModel> CausalReplica<M> {
         let tx = self.db.begin().await?;
         let (identity, meta) = self.meta_on(&tx).await?;
         ensure!(request.source == identity, "source identity mismatch");
+        if i64::try_from(request.after.sequence)? < meta.history_floor {
+            return Err(protocol::SyncError::NeedsReconciliation(
+                protocol::HistoryStatus::BelowFloor {
+                    floor: protocol::ReceiveProgress {
+                        sequence: u64::try_from(meta.history_floor)?,
+                        anchor: meta
+                            .floor_anchor
+                            .clone()
+                            .try_into()
+                            .map_err(|_| anyhow::anyhow!("invalid floor anchor"))?,
+                    },
+                },
+            )
+            .into());
+        }
         ensure!(
             request.after.sequence <= request.through.sequence,
             "invalid page range"

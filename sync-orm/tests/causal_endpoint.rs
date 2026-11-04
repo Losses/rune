@@ -12,6 +12,64 @@ use sync::causal;
 use sync::causal::Dot;
 use sync_orm::maintenance::Maintenance;
 
+struct CompactAfterHistory<'a> {
+    source: &'a CausalEndpoint<Notes>,
+    db: sea_orm::DatabaseConnection,
+    namespace: Uuid,
+    compact_next: AtomicBool,
+}
+
+impl p::SyncPeer<Notes> for CompactAfterHistory<'_> {
+    fn identity(&self) -> p::BoxFuture<'_, p::StoreIdentity> {
+        p::SyncPeer::identity(self.source)
+    }
+
+    fn head(&self) -> p::BoxFuture<'_, p::ReceiveProgress> {
+        p::SyncPeer::head(self.source)
+    }
+
+    fn history_status<'a>(
+        &'a self,
+        key: &'a p::CheckpointKey,
+        progress: Option<p::ReceiveProgress>,
+    ) -> p::BoxFuture<'a, p::HistoryStatus> {
+        Box::pin(async move {
+            let status = p::SyncPeer::history_status(self.source, key, progress).await?;
+            if self.compact_next.swap(false, Ordering::SeqCst) {
+                let compact: Result<()> = async {
+                    let tx = self.db.begin().await?;
+                    sync_orm::causal_compaction::maintenance_step_on::<Notes>(
+                        &tx,
+                        self.namespace,
+                        64,
+                        64,
+                        65536,
+                    )
+                    .await?;
+                    tx.commit().await?;
+                    Ok(())
+                }
+                .await;
+                compact.map_err(|error| p::SyncError::Storage(format!("{error:#}")))?;
+            }
+            Ok(status)
+        })
+    }
+
+    fn read_page(&self, request: p::PageRequest<Notes>) -> p::BoxFuture<'_, p::PageRead<Notes>> {
+        p::SyncPeer::read_page(self.source, request)
+    }
+
+    fn read_fragment(
+        &self,
+        manifest: p::ManifestRef,
+        ordinal: u32,
+        max_bytes: u64,
+    ) -> p::BoxFuture<'_, p::Fragment> {
+        p::SyncPeer::read_fragment(self.source, manifest, ordinal, max_bytes)
+    }
+}
+
 fn session_limits() -> p::SessionLimits {
     p::SessionLimits {
         pages: p::PageLimits {
@@ -61,6 +119,58 @@ async fn synchronize(
         }
     }
     anyhow::bail!("SQL reconciliation did not finish")
+}
+
+#[tokio::test]
+async fn incremental_cursor_below_compaction_floor_recovers_with_full_resync() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let (source_db, source, _) = setup(namespace).await?;
+    let (_, target, _) = setup(namespace).await?;
+    synchronize(&source, &target).await?;
+
+    let key = p::ObjectKey {
+        collection: 1,
+        id: Uuid::from_u128(1),
+    };
+    source
+        .write_local(key.clone(), Some(Note("after checkpoint".into())))
+        .await?;
+    let peer = CompactAfterHistory {
+        source: &source,
+        db: source_db,
+        namespace,
+        compact_next: AtomicBool::new(true),
+    };
+    let mut coordinator = p::Coordinator::new(
+        p::Scope {
+            collections: [1].into_iter().collect(),
+        },
+        session_limits(),
+    )?;
+    let mut completed = false;
+    for _ in 0..20000 {
+        match coordinator
+            .advance(&target, &target, &target, &peer, &source)
+            .await?
+        {
+            p::SessionAdvance::Complete(_) => {
+                completed = true;
+                break;
+            }
+            p::SessionAdvance::BudgetExhausted => coordinator.start_pass(),
+            p::SessionAdvance::Incomplete => (),
+            p::SessionAdvance::Cancelled => anyhow::bail!("unexpected cancellation"),
+        }
+    }
+    ensure!(
+        completed,
+        "SQL reconciliation did not finish after floor advance"
+    );
+    assert_eq!(
+        target.get(&key).await?.unwrap().value,
+        Some(Note("after checkpoint".into()))
+    );
+    Ok(())
 }
 
 #[tokio::test]

@@ -2208,15 +2208,18 @@ mod lifecycle_tests {
         let a = fixture(first.path()).await?;
         let b = fixture(second.path()).await?;
         let id = held_owned_library(&a, &first.path().join("Held")).await?;
-        request_add_library(
-            &b,
-            &info(&a).await?.fingerprint,
-            &PeerLibrary {
-                library_id: id.to_string(),
-                alias: "Held".into(),
-                added: false,
-                access_level: DeviceLibraryLevel::ReadWrite,
-            },
+        peer_step(
+            "add held library peer",
+            request_add_library(
+                &b,
+                &info(&a).await?.fingerprint,
+                &PeerLibrary {
+                    library_id: id.to_string(),
+                    alias: "Held".into(),
+                    added: false,
+                    access_level: DeviceLibraryLevel::ReadWrite,
+                },
+            ),
         )
         .await?;
         let track = scan_held_track(&a, id, "source.ogg").await?;
@@ -2228,8 +2231,8 @@ mod lifecycle_tests {
         close_ui(&b.global_params).await?;
         assert!(a.global_params.node.current_ui().await.is_err());
         assert!(b.global_params.node.current_ui().await.is_err());
-        let a_addr = paired_full(&a, &b).await?;
-        let b_addr = paired_full(&b, &a).await?;
+        let a_addr = peer_step("pair and start first listener", paired_full(&a, &b)).await?;
+        let b_addr = peer_step("pair and start second listener", paired_full(&b, &a)).await?;
         for (local, remote, addr) in [(&a, &b, b_addr), (&b, &a, a_addr)] {
             local
                 .global_params
@@ -2242,48 +2245,65 @@ mod lifecycle_tests {
                 )
                 .await?;
         }
-        let (_, client) = authenticated_client(
-            &b.global_params.node,
-            &info(&b).await?.fingerprint,
-            &b.private_key,
-            &info(&a).await?.fingerprint,
-            "127.0.0.1",
-            a_addr.port(),
+        let (_, client) = peer_step(
+            "authenticate held library client",
+            authenticated_client(
+                &b.global_params.node,
+                &info(&b).await?.fingerprint,
+                &b.private_key,
+                &info(&a).await?.fingerprint,
+                "127.0.0.1",
+                a_addr.port(),
+            ),
         )
         .await?;
-        let response = client
-            .get(format!(
-                "https://{a_addr}/files/library/source.ogg?library_id={id}"
-            ))
-            .send()
-            .await?
-            .error_for_status()?
-            .bytes()
-            .await?;
+        let response = peer_step("fetch held library file", async {
+            Ok(client
+                .get(format!(
+                    "https://{a_addr}/files/library/source.ogg?library_id={id}"
+                ))
+                .send()
+                .await?
+                .error_for_status()?
+                .bytes()
+                .await?)
+        })
+        .await?;
         assert_eq!(
             blake3::hash(&response).to_hex().as_str(),
             track.content_hash.as_ref().context("digest")?
         );
-        client
-            .post(format!("https://{a_addr}/libraries/{id}/sync/metadata"))
-            .json(&serde_json::json!({"operation": "identity"}))
-            .send()
-            .await?
-            .error_for_status()?;
+        peer_step("request held library metadata sync", async {
+            client
+                .post(format!("https://{a_addr}/libraries/{id}/sync/metadata"))
+                .json(&serde_json::json!({"operation": "identity"}))
+                .send()
+                .await?
+                .error_for_status()?;
+            Ok(())
+        })
+        .await?;
         tokio::try_join!(
             wait_for_album(&left, &reverse),
             wait_for_album(&right, &forward)
         )?;
         let worker = b.sync_handle.lock().await.as_ref().context("worker")?.id();
-        let socket = connect_remote(
-            "127.0.0.1",
-            a_addr.port(),
-            &b.global_params.config_path,
-            b.global_params.cert_validator.read().await.clone(),
-        )
+        let socket = peer_step("connect headless controller", async {
+            Ok(connect_remote(
+                "127.0.0.1",
+                a_addr.port(),
+                &b.global_params.config_path,
+                b.global_params.cert_validator.read().await.clone(),
+            )
+            .await?)
+        })
         .await?;
         let mut bridge = WebSocketDartBridge::new();
-        bridge.run(socket, b.global_params.node.clone()).await?;
+        peer_step(
+            "run headless controller bridge",
+            bridge.run(socket, b.global_params.node.clone()),
+        )
+        .await?;
         let remote_ui = b.global_params.node.current_ui().await?;
         assert!(remote_ui.library_id.is_none());
         assert!(Arc::ptr_eq(
