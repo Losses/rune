@@ -2,6 +2,7 @@
 mod store;
 
 use std::{
+    collections::HashMap,
     future::pending,
     path::{Path, PathBuf},
     slice::from_ref,
@@ -35,6 +36,7 @@ use tokio::{
     time::{Instant, interval},
 };
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 use crate::{
     library_pool::LibraryHandle,
@@ -400,20 +402,76 @@ async fn send_playlist(
     playlist: &PlaylistStatus,
     broadcaster: &dyn Broadcaster,
 ) {
-    let mut items = Vec::with_capacity(playlist.items.len());
+    let mut library_items = HashMap::<Uuid, Vec<PlayingItem>>::new();
+    let mut independent_items = Vec::new();
     for item in &playlist.items {
-        let result = item_metadata(node, item, false).await;
-        let unavailable = playlist.unavailable.contains(item) || result.is_err();
-        let metadata = result.map(|(metadata, _)| metadata).unwrap_or_default();
-        items.push(PlaylistItem {
-            item: item.clone().into(),
-            artist: metadata.artist,
-            album: metadata.album,
-            title: metadata.title,
-            duration: metadata.duration,
-            unavailable,
-        });
+        match item {
+            PlayingItem::InLibrary(_, library_id) => {
+                if let Ok(library_id) = library_id.parse() {
+                    library_items
+                        .entry(library_id)
+                        .or_default()
+                        .push(item.clone());
+                }
+            }
+            _ => independent_items.push(item.clone()),
+        }
     }
+
+    let dispatcher = PlayingItemActionDispatcher::new();
+    let mut metadata = HashMap::<PlayingItem, PlayingItemMetadataSummary>::new();
+    for (library_id, batch) in library_items {
+        let Ok(library) = node.library_pool.acquire(library_id).await else {
+            continue;
+        };
+        if let Ok(summaries) = dispatcher
+            .get_metadata_summary(&library.fsio, &library.main_db, &batch)
+            .await
+        {
+            metadata.extend(
+                summaries
+                    .into_iter()
+                    .map(|summary| (summary.item.clone(), summary)),
+            );
+        }
+    }
+
+    if !independent_items.is_empty() {
+        #[cfg(not(target_os = "android"))]
+        let fsio_result = Ok::<_, anyhow::Error>(FsIo::new());
+        #[cfg(target_os = "android")]
+        let fsio_result = FsIo::new(Path::new(".rune/.android-fs.db"), "");
+        let db = MainDbConnection::default();
+        if let Ok(fsio) = fsio_result
+            && let Ok(summaries) = dispatcher
+                .get_metadata_summary(&fsio, &db, &independent_items)
+                .await
+        {
+            metadata.extend(
+                summaries
+                    .into_iter()
+                    .map(|summary| (summary.item.clone(), summary)),
+            );
+        }
+    }
+
+    let items = playlist
+        .items
+        .iter()
+        .map(|item| {
+            let summary = metadata.get(item);
+            let unavailable = playlist.unavailable.contains(item) || summary.is_none();
+            let metadata = summary.cloned().unwrap_or_default();
+            PlaylistItem {
+                item: item.clone().into(),
+                artist: metadata.artist,
+                album: metadata.album,
+                title: metadata.title,
+                duration: metadata.duration,
+                unavailable,
+            }
+        })
+        .collect();
     broadcaster.broadcast(&PlaylistUpdate { items });
 }
 

@@ -8,12 +8,14 @@ use database::actions::{
     playback_queue::{list_legacy_playback_queue, list_playback_queue, replace_playback_queue},
 };
 use database::entities::media_file_stats;
+use database::entities::media_metadata;
 use playback::{
     PlaybackMode,
     player::{PlaybackSource, PlaybackState, PlayerStatus, PlayingItem},
     strategies::AddMode,
 };
 use sea_orm::sea_query::Expr;
+use sea_orm::{EntityTrait, Set};
 #[cfg(target_os = "linux")]
 use tokio::runtime::Builder;
 use tokio::time::{sleep, timeout};
@@ -189,6 +191,122 @@ async fn queue_session(f: &Fixture, ids: &[i32]) -> Result<()> {
     drop(player);
     wait_player(f, |status| status.playlist.len() == ids.len()).await?;
     Ok(())
+}
+
+async fn set_session_title(f: &Fixture, id: i32, title: &str) -> Result<()> {
+    media_metadata::Entity::delete_many()
+        .filter(media_metadata::Column::FileId.eq(id))
+        .exec(&*f.global_params.test_library().main_db)
+        .await?;
+    media_metadata::Entity::insert(media_metadata::ActiveModel {
+        file_id: Set(id),
+        position: Set(0),
+        meta_key: Set("track_title".into()),
+        meta_value: Set(title.into()),
+        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        ..Default::default()
+    })
+    .exec(&*f.global_params.test_library().main_db)
+    .await?;
+    Ok(())
+}
+
+async fn playlist_update_with_titles(
+    signals: &RecordedSignals,
+    titles: &[&str],
+) -> Result<PlaylistUpdate> {
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(update) = signals.0.lock().unwrap().iter().rev().find_map(|(name, bytes)| {
+                (name == "PlaylistUpdate")
+                    .then(|| rinf::deserialize::<PlaylistUpdate>(bytes).ok())
+                    .flatten()
+                    .filter(|update| {
+                        update.items.iter().map(|item| item.title.as_str()).collect::<Vec<_>>()
+                            == titles
+                    })
+            }) {
+                return update;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("playlist update with expected title order did not arrive")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_f2_batches_playlist_metadata_per_library_in_queue_order() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let bdir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let a = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let a1 = session_audio(&a, "f2-a1.ogg").await?;
+    let a2 = session_audio(&a, "f2-a2.ogg").await?;
+    let b = fixture_open_replica(&a, bdir.path()).await?;
+    let b1 = session_audio(&b, "f2-b1.ogg").await?;
+    set_session_title(&a, a1, "A1").await?;
+    set_session_title(&b, b1, "B1").await?;
+    set_session_title(&a, a2, "A2").await?;
+
+    let a_library_id = a.global_params.library_id.context("library A")?.to_string();
+    let b_library_id = b.global_params.library_id.context("library B")?.to_string();
+    let queue = vec![
+        PlayingItem::InLibrary(a1, a_library_id),
+        PlayingItem::InLibrary(b1, b_library_id),
+        PlayingItem::InLibrary(a2, a.global_params.library_id.context("library A")?.to_string()),
+    ];
+    a.global_params.player.lock().await.add_to_playlist_with_sources(
+        queue.iter()
+            .cloned()
+            .map(|item| (item, PlaybackSource::LibraryStream))
+            .collect(),
+        AddMode::AppendToEnd,
+    );
+    wait_player(&a, |status| status.playlist == queue).await?;
+
+    let initial = playlist_update_with_titles(&signals, &["A1", "B1", "A2"]).await?;
+    assert!(initial.items.iter().all(|item| !item.unavailable));
+
+    let removed_id = a.global_params.library_id.context("library A")?;
+    LibraryRegistry::update(dir.path(), |registry| {
+        registry.libraries.retain(|library| library.library_id != removed_id);
+        Ok(())
+    })
+    .await?;
+    a.global_params.player.lock().await.clear_playlist();
+    a.global_params.player.lock().await.add_to_playlist_with_sources(
+        queue.iter()
+            .cloned()
+            .map(|item| (item, PlaybackSource::LibraryStream))
+            .collect(),
+        AddMode::AppendToEnd,
+    );
+    wait_player(&a, |status| status.playlist == queue).await?;
+
+    let unavailable = playlist_update_with_titles(
+        &signals,
+        &["Unknown Title", "B1", "Unknown Title"],
+    )
+    .await?;
+    assert_eq!(
+        unavailable
+            .items
+            .iter()
+            .map(|item| item.unavailable)
+            .collect::<Vec<_>>(),
+        vec![true, false, true]
+    );
+    assert!(unavailable.items[0].artist == "Unknown Artist");
+    assert!(unavailable.items[0].album == "Unknown Album");
+    assert_eq!(unavailable.items[0].duration, 0.0);
+    a.global_params.node.shutdown().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
