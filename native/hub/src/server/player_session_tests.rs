@@ -737,31 +737,17 @@ async fn session_f1_all_failed_items_stop_without_hanging() -> Result<()> {
         }
     }).await.context("all failed tracks did not stop playback")?;
     assert_eq!(status.unavailable.len(), ids.len());
-    timeout(Duration::from_secs(3), async {
-        loop {
-            let count = signals.0.lock().unwrap().iter().filter(|(name, bytes)| {
-                name == "PlaylistUpdate"
-                    && rinf::deserialize::<PlaylistUpdate>(bytes)
-                        .is_ok_and(|update| update.items.iter().filter(|item| item.unavailable).count() == ids.len())
-            }).count();
-            if count >= 1 {
-                break;
-            }
-            sleep(Duration::from_millis(20)).await;
-        }
-    }).await.context("unavailable playlist updates did not arrive")?;
-    let updates_before = signals.0.lock().unwrap().iter().filter(|(name, bytes)| {
-        name == "PlaylistUpdate"
-            && rinf::deserialize::<PlaylistUpdate>(bytes)
-                .is_ok_and(|update| update.items.iter().filter(|item| item.unavailable).count() == ids.len())
-    }).count();
+    let settled = b.global_params.player.lock().await.get_status();
+    assert_eq!(settled.item, None);
+    assert_eq!(settled.index, None);
     sleep(Duration::from_millis(300)).await;
-    let updates_after = signals.0.lock().unwrap().iter().filter(|(name, bytes)| {
-        name == "PlaylistUpdate"
-            && rinf::deserialize::<PlaylistUpdate>(bytes)
-                .is_ok_and(|update| update.items.iter().filter(|item| item.unavailable).count() == ids.len())
-    }).count();
-    assert_eq!(updates_after, updates_before, "failed tracks kept auto-advancing");
+    let after_quiet_period = b.global_params.player.lock().await.get_status();
+    assert_eq!(after_quiet_period.state, PlaybackState::Stopped);
+    assert_eq!(after_quiet_period.index, settled.index);
+    assert_eq!(after_quiet_period.item, settled.item);
+    assert_eq!(after_quiet_period.playlist, settled.playlist);
+    assert_eq!(after_quiet_period.unavailable, settled.unavailable);
+    assert_eq!(after_quiet_period.unavailable.len(), ids.len());
     a.global_params.node.shutdown().await
 }
 
