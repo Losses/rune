@@ -12,12 +12,12 @@ use discovery::server::UserStatus;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::ServerManager;
 use super::sync_worker::{authenticated_client, peer_endpoints};
 use super::utils::device::load_device_info;
+use super::{ServerManager, generate_or_load_certificates};
 use crate::backends::remote::{RemoteConnectError, token_error};
 use crate::library_pool::LibraryHandle;
-use crate::messages::{DeviceLibraryLevel, PeerLibrary};
+use crate::messages::{CastLibraryState, DeviceLibraryLevel, PeerLibrary};
 use crate::node::NodeContext;
 
 #[derive(Serialize, Deserialize)]
@@ -25,6 +25,112 @@ pub(super) struct ListedLibrary {
     pub(super) library_id: Uuid,
     pub(super) alias: String,
     pub(super) level: LibraryLevel,
+}
+
+/// Check whether this node can currently read a registered library for a cast.
+pub(crate) async fn cast_library_state(node: &NodeContext, library_id: Uuid) -> CastLibraryState {
+    let registry = match LibraryRegistry::load(Path::new(&*node.config_path)) {
+        Ok(registry) => registry,
+        Err(error) => {
+            log::warn!("Could not read the library registry for cast preflight: {error:#}");
+            return CastLibraryState::Unreachable;
+        }
+    };
+    let Some(library) = registry
+        .libraries
+        .iter()
+        .find(|library| library.library_id == library_id)
+    else {
+        return CastLibraryState::NotHeld;
+    };
+    let LibraryAuthority::Hosted { fingerprint } = &library.authority else {
+        return CastLibraryState::Ready;
+    };
+
+    let info = match load_device_info(Path::new(&*node.config_path)).await {
+        Ok(info) => info,
+        Err(error) => {
+            log::warn!("Could not load local identity for cast preflight: {error:#}");
+            return CastLibraryState::Unreachable;
+        }
+    };
+    let (_, _, private_key) =
+        match generate_or_load_certificates(Path::new(&*node.config_path), &info.alias).await {
+            Ok(credentials) => credentials,
+            Err(error) => {
+                log::warn!("Could not load local credentials for cast preflight: {error:#}");
+                return CastLibraryState::Unreachable;
+            }
+        };
+    let endpoints = peer_endpoints(node, &info.fingerprint)
+        .await
+        .into_iter()
+        .flatten()
+        .filter(|endpoint| endpoint.fingerprint == *fingerprint)
+        .collect::<Vec<_>>();
+    if endpoints.is_empty() {
+        log::warn!("Cast preflight has no eligible trusted endpoint for {fingerprint}");
+    }
+    for endpoint in endpoints {
+        let (base, client) = match authenticated_client(
+            node,
+            &info.fingerprint,
+            &private_key,
+            fingerprint,
+            &endpoint.host,
+            endpoint.port,
+        )
+        .await
+        {
+            Ok(client) => client,
+            Err(error) => {
+                log::warn!("Cast preflight could not authenticate with {fingerprint}: {error:#}");
+                if error.chain().any(|cause| {
+                    cause.downcast_ref::<reqwest::Error>().is_some_and(|error| {
+                        matches!(
+                            error.status(),
+                            Some(StatusCode::FORBIDDEN | StatusCode::UNAUTHORIZED)
+                        )
+                    })
+                }) {
+                    return CastLibraryState::AccessRevoked;
+                }
+                continue;
+            }
+        };
+        let response = match client.get(format!("{base}/libraries")).send().await {
+            Ok(response) => response,
+            Err(error) => {
+                log::warn!(
+                    "Cast preflight could not reach library authority {fingerprint}: {error}"
+                );
+                continue;
+            }
+        };
+        if response.status() == StatusCode::FORBIDDEN
+            || response.status() == StatusCode::UNAUTHORIZED
+        {
+            return CastLibraryState::AccessRevoked;
+        }
+        if response.status().is_server_error() {
+            return CastLibraryState::Unreachable;
+        }
+        if !response.status().is_success() {
+            return CastLibraryState::AccessRevoked;
+        }
+        let Ok(libraries) = response.json::<Vec<ListedLibrary>>().await else {
+            return CastLibraryState::Unreachable;
+        };
+        return if libraries
+            .iter()
+            .any(|library| library.library_id == library_id)
+        {
+            CastLibraryState::Ready
+        } else {
+            CastLibraryState::AccessRevoked
+        };
+    }
+    CastLibraryState::Unreachable
 }
 
 // Pairing was checked by the transport; grants decide library visibility.

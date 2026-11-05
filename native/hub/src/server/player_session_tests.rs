@@ -12,10 +12,11 @@ use database::entities::media_file_stats;
 use database::entities::media_files;
 use database::entities::media_metadata;
 use crate::{
+    access_policy::LibraryLevel,
     handlers::playback::{playing_item_from_request, playing_item_requests},
     messages::{
-        GetMediaFilesCountRequest, InLibraryPlayingItem, LibraryItemRequest, PlayingItemRequest,
-        RequestErrorKind,
+        CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem,
+        LibraryItemRequest, PlayingItemRequest, PlaylistUpdate, RequestErrorKind,
     },
     request_error::classify,
     session::store::SessionState,
@@ -1331,10 +1332,8 @@ async fn deleted_queued_uuid_is_unreadable_and_playback_advances() -> Result<()>
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
     use crate::server::{sync, sync_worker};
-    use crate::access_policy::LibraryLevel;
     use crate::backends::remote::{connect_remote, decode_message};
     use crate::messages::{PlaylistUnavailableReason, PlaylistUpdate};
-    use crate::server::sync_worker::{PeerEndpoint, test_peer_pass};
     use futures::StreamExt;
 
     let a_dir = tempfile::tempdir()?;
@@ -1380,75 +1379,15 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
     }
     let b_local_id = session_audio(&b, "revoke-b-local.ogg").await?;
 
-    let c_addr = peer_step("pair B with C", paired_full(&c, &b)).await?;
-    let c_info = peer_step("read C identity", info(&c)).await?;
-    let b_info = peer_step("read B identity", info(&b)).await?;
-    let c_library_id = c.global_params.library_id.context("C library id")?;
-    b.global_params
-        .cert_validator
-        .read()
-        .await
-        .replace_hosts_for_fingerprint(
-            &c_info.fingerprint,
-            vec![format!("127.0.0.1:{}", c_addr.port())],
-        )
-        .await?;
-    let mut initial_grant = c
-        .global_params
-        .node
-        .access_policy
-        .grants(&b_info.fingerprint)?;
-    initial_grant
-        .libraries
-        .insert(c_library_id, LibraryLevel::ReadWrite);
-    c.global_params
-        .node
-        .access_policy
-        .set(&b_info.fingerprint, initial_grant)?;
-    let listed = peer_step(
-        "list C libraries on B",
-        request_peer_libraries(&b, &c_info.fingerprint),
+    let (c_addr, b_replica) = peer_step_with_timeout(
+        "replicate C library on B",
+        Duration::from_secs(45),
+        replicate_host_library(&c, &b),
     )
     .await?;
-    let hosted = listed
-        .libraries
-        .iter()
-        .find(|library| library.library_id == c.global_params.library_id.unwrap().to_string())
-        .with_context(|| {
-            format!(
-                "C library was not listed (error {:?}, libraries {:?})",
-                listed.error_kind, listed.libraries
-            )
-        })?;
-    let replica_path = peer_step("add C library replica on B", async {
-        request_add_library(&b, &c_info.fingerprint, hosted).await
-    })
-    .await?;
-    let b_replica = fixture_open_replica(&b, Path::new(&replica_path)).await?;
-    let c_endpoint = PeerEndpoint {
-        fingerprint: c_info.fingerprint.clone(),
-        trusted_host: format!("127.0.0.1:{}", c_addr.port()),
-        host: "127.0.0.1".into(),
-        port: c_addr.port(),
-    };
-    peer_step_with_timeout("sync C metadata to B", Duration::from_secs(30), async {
-        loop {
-            match test_peer_pass(
-                b_replica.global_params.clone(),
-                &b_replica.private_key,
-                c_endpoint.clone(),
-                true,
-            )
-            .await?
-            {
-                PeerPass::Complete => break,
-                PeerPass::Incomplete => tokio::task::yield_now().await,
-                result => anyhow::bail!("unexpected C metadata pass: {result:?}"),
-            }
-        }
-        Ok(())
-    })
-    .await?;
+    let c_info = info(&c).await?;
+    let b_info = info(&b).await?;
+    let c_library_id = c.global_params.library_id.context("C library id")?;
     let b_c_ids = peer_step("resolve C replica track ids on B", async {
         let mut ids = Vec::new();
         for track_uuid in &c_track_uuids {
@@ -1717,6 +1656,274 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() -> Result<()> {
+    use crate::backends::remote::{connect_remote, decode_message};
+    use crate::messages::{
+        CastLibraryState, CastLoadRequest, CastLoadResponse, CastPreflightResponse,
+        LibraryItemRequest, PlaylistOperateMode, 
+        RemoteRequestFailed,
+    };
+    use futures::StreamExt;
+
+    let host_dir = tempfile::tempdir()?;
+    let renderer_dir = tempfile::tempdir()?;
+    let controller_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let host = fixture(host_dir.path()).await?;
+    let renderer = fixture_with_broadcaster(
+        renderer_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals,
+    )
+    .await?;
+    let controller = fixture(controller_dir.path()).await?;
+
+    let host_ids = [
+        session_audio(&host, "cast-first.ogg").await?,
+        session_audio(&host, "cast-second.ogg").await?,
+    ];
+    let host_items = futures::future::join_all(
+        host_ids.iter().map(|id| library_item_for_id(&host, *id)),
+    )
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>>>()?;
+    let (_, _renderer_replica) = replicate_host_library(&host, &renderer).await?;
+    let renderer_info = info(&renderer).await?;
+    let host_library_id = host.global_params.library_id.context("host library id")?;
+
+    let controller_addr = paired_full(&renderer, &controller).await?;
+    let mut socket = connect_remote(
+        "127.0.0.1",
+        controller_addr.port(),
+        &controller.global_params.config_path,
+        controller.global_params.cert_validator.read().await.clone(),
+    )
+    .await?;
+
+    let preflight = CastPreflightRequest {
+        library_ids: vec![host_library_id.to_string()],
+    };
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastPreflightRequest",
+        rinf::serialize(&preflight)?,
+    )
+    .await?;
+    assert_eq!(name, "CastPreflightResponse");
+    let preflight: CastPreflightResponse = rinf::deserialize(&payload)?;
+    assert_eq!(preflight.libraries[0].state, CastLibraryState::Ready);
+
+    let cast_items = host_items
+        .iter()
+        .map(|item| LibraryItemRequest {
+            library_id: item.library_id.to_string(),
+            file_uuid: item.file_uuid.to_string(),
+        })
+        .collect::<Vec<_>>();
+    let load = CastLoadRequest {
+        items: cast_items.clone(),
+        start_index: 0,
+        mode: PlaylistOperateMode::Replace,
+        expected_revision: None,
+    };
+    let (name, payload, updates) =
+        controller_request(&mut socket, "CastLoadRequest", rinf::serialize(&load)?).await?;
+    assert_eq!(name, "CastLoadResponse");
+    let _: CastLoadResponse = rinf::deserialize(&payload)?;
+    wait_player(&renderer, |status| {
+        status.item == Some(PlayingItem::InLibrary(host_items[0]))
+    })
+    .await?;
+    let mut updates = updates;
+    tokio::time::timeout(Duration::from_secs(8), async {
+        while !updates.iter().any(|update| update.items.len() == 2) {
+            let frame = socket.next().await.context("controller socket closed")??;
+            if let Some((name, payload, _)) = decode_message(&frame.into_data())
+                && name == "PlaylistUpdate"
+            {
+                updates.push(rinf::deserialize(&payload)?);
+            }
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("controller did not receive the cast queue")??;
+    let update = updates
+        .into_iter()
+        .find(|update| update.items.len() == 2)
+        .context("controller did not receive the cast queue")?;
+    assert!(update.items.iter().all(|item| {
+        item.item.in_library.is_some() || item.item.library_item.is_some()
+    }));
+    assert_eq!(update.revision, 1);
+    renderer.stop_worker().await?;
+    host.stop_worker().await?;
+    let revision = renderer.global_params.node.session()?.queue_revision().await;
+    let local_cast_id = session_audio(&renderer, "cast-local.ogg").await?;
+    let local_cast_item = library_item_for_id(&renderer, local_cast_id).await?;
+    let stale_load = CastLoadRequest {
+        items: vec![LibraryItemRequest {
+            library_id: local_cast_item.library_id.to_string(),
+            file_uuid: local_cast_item.file_uuid.to_string(),
+        }],
+        expected_revision: Some(revision.saturating_sub(1)),
+        start_index: 0,
+        mode: PlaylistOperateMode::Replace,
+    };
+    let queue_before_stale = renderer.global_params.player.lock().await.get_playlist();
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastLoadRequest",
+        rinf::serialize(&stale_load)?,
+    )
+    .await?;
+    assert_eq!(name, "RemoteRequestFailed");
+    assert_eq!(
+        rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
+        RequestErrorKind::Conflict
+    );
+    assert_eq!(renderer.global_params.node.session()?.queue_revision().await, revision);
+    assert_eq!(
+        renderer.global_params.player.lock().await.get_playlist(),
+        queue_before_stale
+    );
+
+    let not_held = LibraryItemRequest {
+        library_id: controller.global_params.library_id.context("controller library id")?.to_string(),
+        file_uuid: host_items[0].file_uuid.to_string(),
+    };
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastPreflightRequest",
+        rinf::serialize(&CastPreflightRequest {
+            library_ids: vec![not_held.library_id.clone()],
+        })?,
+    )
+    .await?;
+    let preflight: CastPreflightResponse = rinf::deserialize(&payload)?;
+    assert_eq!(name, "CastPreflightResponse");
+    assert_eq!(preflight.libraries[0].state, CastLibraryState::NotHeld);
+    let queue_before_denial = renderer.global_params.player.lock().await.get_playlist();
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastLoadRequest",
+        rinf::serialize(&CastLoadRequest {
+            items: vec![not_held],
+            start_index: 0,
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(revision),
+        })?,
+    )
+    .await?;
+    assert_eq!(name, "RemoteRequestFailed");
+    assert_eq!(
+        rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
+        RequestErrorKind::PermissionDenied
+    );
+    assert_eq!(renderer.global_params.node.session()?.queue_revision().await, revision);
+    assert_eq!(
+        renderer.global_params.player.lock().await.get_playlist(),
+        queue_before_denial
+    );
+
+    set_library_grant(
+        &host,
+        &renderer_info.fingerprint,
+        host_library_id,
+        LibraryLevel::NotShared,
+    )?;
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastPreflightRequest",
+        rinf::serialize(&preflight_request(host_library_id))?,
+    )
+    .await?;
+    assert_eq!(name, "CastPreflightResponse");
+    assert_eq!(
+        rinf::deserialize::<CastPreflightResponse>(&payload)?.libraries[0].state,
+        CastLibraryState::AccessRevoked
+    );
+    host.global_params.node.shutdown().await?;
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastPreflightRequest",
+        rinf::serialize(&preflight_request(host_library_id))?,
+    )
+    .await?;
+    assert_eq!(name, "CastPreflightResponse");
+    assert_eq!(
+        rinf::deserialize::<CastPreflightResponse>(&payload)?.libraries[0].state,
+        CastLibraryState::Unreachable
+    );
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastLoadRequest",
+        rinf::serialize(&CastLoadRequest {
+            items: cast_items,
+            start_index: 0,
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(revision),
+        })?,
+    )
+    .await?;
+    assert_eq!(name, "RemoteRequestFailed");
+    assert_eq!(
+        rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
+        RequestErrorKind::Unavailable
+    );
+    assert_eq!(renderer.global_params.node.session()?.queue_revision().await, revision);
+    assert_eq!(
+        renderer.global_params.player.lock().await.get_playlist(),
+        queue_before_denial
+    );
+
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastPreflightRequest",
+        rinf::serialize(&CastPreflightRequest {
+            library_ids: vec!["malformed".into()],
+        })?,
+    )
+    .await?;
+    assert_eq!(name, "RemoteRequestFailed");
+    assert_eq!(
+        rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
+        RequestErrorKind::InvalidInput
+    );
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastLoadRequest",
+        rinf::serialize(&CastLoadRequest {
+            items: vec![LibraryItemRequest {
+                library_id: host_library_id.to_string(),
+                file_uuid: "malformed".into(),
+            }],
+            start_index: 0,
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(revision),
+        })?,
+    )
+    .await?;
+    assert_eq!(name, "RemoteRequestFailed");
+    assert_eq!(
+        rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
+        RequestErrorKind::InvalidInput
+    );
+
+    renderer.global_params.node.shutdown().await?;
+    controller.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+fn preflight_request(library_id: Uuid) -> CastPreflightRequest {
+    CastPreflightRequest {
+        library_ids: vec![library_id.to_string()],
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn session_f3_persists_changes_without_rewriting_while_idle() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let a = fixture(dir.path()).await?;
@@ -1823,41 +2030,8 @@ async fn session_c2a_revision_conflicts_and_identity_persist() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn session_c2a_two_controllers_observe_conflict_and_same_queue() -> Result<()> {
-    use crate::backends::remote::encode_message;
     use crate::messages::{MovePlaylistItemRequest, PlaylistUpdate, RemoteRequestFailed, RemoveRequest};
-    use futures::{SinkExt, StreamExt};
-    use tokio_tungstenite::tungstenite::Message;
-
-    async fn request_and_updates(
-        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-        name: &str,
-        payload: Vec<u8>,
-    ) -> Result<(String, Vec<u8>, Vec<PlaylistUpdate>)> {
-        let request_id = Uuid::new_v4();
-        socket
-            .send(Message::Binary(
-                encode_message(name, &payload, Some(request_id)).into(),
-            ))
-            .await?;
-        let mut updates = Vec::new();
-        timeout(Duration::from_secs(5), async {
-            loop {
-                let frame = socket.next().await.context("controller socket closed")??;
-                let Some((response_name, payload, response_id)) =
-                    decode_message(&frame.into_data())
-                else {
-                    continue;
-                };
-                if response_name == "PlaylistUpdate" {
-                    updates.push(rinf::deserialize(&payload)?);
-                }
-                if response_id == request_id {
-                    return Ok::<_, anyhow::Error>((response_name, payload, updates));
-                }
-            }
-        })
-        .await?
-    }
+    use futures::StreamExt;
 
     async fn wait_revision(
         socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
@@ -1893,7 +2067,7 @@ async fn session_c2a_two_controllers_observe_conflict_and_same_queue() -> Result
     let second_track = session_audio(&renderer, "conflict-second.ogg").await?;
     queue_session(&renderer, &[first_track, second_track]).await?;
 
-    let (first_name, _, first_updates) = request_and_updates(
+    let (first_name, _, first_updates) = controller_request(
         &mut first,
         "MovePlaylistItemRequest",
         rinf::serialize(&MovePlaylistItemRequest {
@@ -1904,7 +2078,7 @@ async fn session_c2a_two_controllers_observe_conflict_and_same_queue() -> Result
     )
     .await?;
     assert_eq!(first_name, "");
-    let (second_name, failure_payload, second_updates) = request_and_updates(
+    let (second_name, failure_payload, second_updates) = controller_request(
         &mut second,
         "RemoveRequest",
         rinf::serialize(&RemoveRequest {
@@ -1958,6 +2132,116 @@ async fn connect_two_controllers(
 }
 
 type ControllerSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+/// Send one addressed request over a controller socket and collect queue updates until its reply.
+async fn controller_request(
+    socket: &mut ControllerSocket,
+    name: &str,
+    payload: Vec<u8>,
+) -> Result<(String, Vec<u8>, Vec<PlaylistUpdate>)> {
+    use crate::backends::remote::encode_message;
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    let request_id = Uuid::new_v4();
+    socket
+        .send(Message::Binary(
+            encode_message(name, &payload, Some(request_id)).into(),
+        ))
+        .await?;
+    let mut updates = Vec::new();
+    timeout(Duration::from_secs(8), async {
+        loop {
+            let frame = socket.next().await.context("controller socket closed")??;
+            let Some((response_name, payload, response_id)) = decode_message(&frame.into_data())
+            else {
+                continue;
+            };
+            if response_name == "PlaylistUpdate" {
+                updates.push(rinf::deserialize(&payload)?);
+            }
+            if response_id == request_id {
+                return Ok::<_, anyhow::Error>((response_name, payload, updates));
+            }
+        }
+    })
+    .await?
+}
+
+/// Set one library's level in the grant `host` gives to `peer_fingerprint`.
+fn set_library_grant(
+    host: &Fixture,
+    peer_fingerprint: &str,
+    library_id: Uuid,
+    level: LibraryLevel,
+) -> Result<()> {
+    let policy = &host.global_params.node.access_policy;
+    let mut grant = policy.grants(peer_fingerprint)?;
+    grant.libraries.insert(library_id, level);
+    policy.set(peer_fingerprint, grant)?;
+    Ok(())
+}
+
+/// Pair `peer` with `host`, grant it the host library, add the replica and sync its metadata.
+async fn replicate_host_library(host: &Fixture, peer: &Fixture) -> Result<(SocketAddr, Fixture)> {
+    use crate::server::sync_worker::{PeerEndpoint, test_peer_pass};
+
+    let host_addr = paired_full(host, peer).await?;
+    let host_info = info(host).await?;
+    let peer_info = info(peer).await?;
+    let trusted_host = format!("127.0.0.1:{}", host_addr.port());
+    peer.global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(&host_info.fingerprint, vec![trusted_host.clone()])
+        .await?;
+    let host_library_id = host.global_params.library_id.context("host library id")?;
+    set_library_grant(
+        host,
+        &peer_info.fingerprint,
+        host_library_id,
+        LibraryLevel::ReadWrite,
+    )?;
+    let listed = request_peer_libraries(peer, &host_info.fingerprint).await?;
+    let hosted = listed
+        .libraries
+        .iter()
+        .find(|library| library.library_id == host_library_id.to_string())
+        .with_context(|| {
+            format!(
+                "host library was not listed (error {:?}, libraries {:?})",
+                listed.error_kind, listed.libraries
+            )
+        })?;
+    let replica_path = request_add_library(peer, &host_info.fingerprint, hosted).await?;
+    let replica = fixture_open_replica(peer, Path::new(&replica_path)).await?;
+    let endpoint = PeerEndpoint {
+        fingerprint: host_info.fingerprint,
+        trusted_host,
+        host: "127.0.0.1".into(),
+        port: host_addr.port(),
+    };
+    timeout(Duration::from_secs(30), async {
+        loop {
+            match test_peer_pass(
+                replica.global_params.clone(),
+                &replica.private_key,
+                endpoint.clone(),
+                true,
+            )
+            .await?
+            {
+                PeerPass::Complete => return Ok::<_, anyhow::Error>(()),
+                PeerPass::Incomplete => tokio::task::yield_now().await,
+                other => anyhow::bail!("unexpected replica metadata pass: {other:?}"),
+            }
+        }
+    })
+    .await
+    .context("replica metadata sync timed out")??;
+    Ok((host_addr, replica))
+}
 
 async fn wait_controller_count(node: &NodeContext, count: usize) -> Result<()> {
     timeout(Duration::from_secs(3), async {

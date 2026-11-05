@@ -475,6 +475,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("OperatePlaybackWithMixQueryResponse".to_string()),
             class: RequestClass::Control,
         },
+        RequestResponse {
+            request: "CastPreflightRequest".to_string(),
+            response: Some("CastPreflightResponse".to_string()),
+            class: RequestClass::Control,
+        },
+        RequestResponse {
+            request: "CastLoadRequest".to_string(),
+            response: Some("CastLoadResponse".to_string()),
+            class: RequestClass::Control,
+        },
         // Like
         RequestResponse {
             request: "SetLikedRequest".to_string(),

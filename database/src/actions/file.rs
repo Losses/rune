@@ -50,11 +50,11 @@ pub async fn get_files_by_ids(
         .await
 }
 
-/// Resolve stable file identities to the row ids local to this database.
-pub async fn file_ids_by_uuid(
+/// Load the rows for stable file identities, keyed by identity.
+pub async fn files_by_uuid(
     db: &DatabaseConnection,
     file_uuids: &[Uuid],
-) -> Result<HashMap<Uuid, i32>> {
+) -> Result<HashMap<Uuid, media_files::Model>> {
     let identities = file_uuids.iter().map(Uuid::to_string).collect::<Vec<_>>();
     Ok(media_files::Entity::find()
         .filter(media_files::Column::HlcUuid.is_in(identities))
@@ -64,8 +64,20 @@ pub async fn file_ids_by_uuid(
         .filter_map(|file| {
             Uuid::parse_str(&file.hlc_uuid)
                 .ok()
-                .map(|uuid| (uuid, file.id))
+                .map(|uuid| (uuid, file))
         })
+        .collect())
+}
+
+/// Resolve stable file identities to the row ids local to this database.
+pub async fn file_ids_by_uuid(
+    db: &DatabaseConnection,
+    file_uuids: &[Uuid],
+) -> Result<HashMap<Uuid, i32>> {
+    Ok(files_by_uuid(db, file_uuids)
+        .await?
+        .into_iter()
+        .map(|(uuid, file)| (uuid, file.id))
         .collect())
 }
 

@@ -3,7 +3,7 @@ use database::error::ExpectedError;
 use thiserror::Error as ThisError;
 
 use crate::access_policy::Denial;
-use crate::messages::RequestErrorKind;
+use crate::messages::{CastLibraryState, RequestErrorKind};
 
 /// Expected failures at the request boundary.
 #[derive(Debug, ThisError)]
@@ -14,6 +14,11 @@ pub enum ExpectedRequestError {
     Unavailable { what: &'static str },
     #[error("Queue changed: expected revision {expected}, current revision {current}")]
     StaleQueueRevision { expected: u64, current: u64 },
+    #[error("Cast is not possible for library {library_id}: {state:?}")]
+    CastNotPossible {
+        library_id: String,
+        state: CastLibraryState,
+    },
 }
 
 impl ExpectedRequestError {
@@ -42,6 +47,13 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                 ExpectedRequestError::InvalidInput { .. } => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::Unavailable { .. } => RequestErrorKind::Unavailable,
                 ExpectedRequestError::StaleQueueRevision { .. } => RequestErrorKind::Conflict,
+                ExpectedRequestError::CastNotPossible { state, .. } => match state {
+                    CastLibraryState::NotHeld | CastLibraryState::AccessRevoked => {
+                        RequestErrorKind::PermissionDenied
+                    }
+                    CastLibraryState::Unreachable => RequestErrorKind::Unavailable,
+                    CastLibraryState::Ready => RequestErrorKind::Internal,
+                },
             };
         }
     }

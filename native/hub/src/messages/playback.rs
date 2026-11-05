@@ -139,6 +139,42 @@ pub enum PlaylistOperateMode {
     Replace,
 }
 
+#[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CastLibraryState {
+    Ready,
+    NotHeld,
+    AccessRevoked,
+    Unreachable,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct CastPreflightRequest {
+    pub library_ids: Vec<String>,
+}
+
+#[derive(Deserialize, Serialize, SignalPiece)]
+pub struct CastLibraryStatus {
+    pub library_id: String,
+    pub state: CastLibraryState,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct CastPreflightResponse {
+    pub libraries: Vec<CastLibraryStatus>,
+}
+
+#[derive(Clone, Serialize, Deserialize, DartSignal)]
+pub struct CastLoadRequest {
+    pub items: Vec<LibraryItemRequest>,
+    pub start_index: u32,
+    pub mode: PlaylistOperateMode,
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct CastLoadResponse {}
+
 #[derive(Debug, Clone, Serialize, Deserialize, SignalPiece)]
 pub struct InLibraryPlayingItem {
     pub file_id: i32,
