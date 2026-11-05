@@ -46,7 +46,7 @@ impl WriterIncarnation {
         let previous = self
             .inner
             .counter
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
                 (n < i64::MAX as u64).then_some(n + 1)
             })
             .map_err(|_| "writer counter exhausted")?;
