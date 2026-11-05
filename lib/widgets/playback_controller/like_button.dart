@@ -41,7 +41,7 @@ class _LikeButtonState extends State<LikeButton> {
   }
 
   Future<void> _fetchLikedStatus() async {
-    if (item == null) return;
+    if (item == null || !item!.hasLocalFileId) return;
 
     try {
       final isLiked = await getLiked(item!);
@@ -56,7 +56,7 @@ class _LikeButtonState extends State<LikeButton> {
   }
 
   Future<void> _toggleLikedStatus() async {
-    if (item == null) return;
+    if (item == null || !item!.hasLocalFileId) return;
 
     final newLikedStatus = !liked;
     try {
@@ -73,7 +73,9 @@ class _LikeButtonState extends State<LikeButton> {
 
   @override
   Widget build(BuildContext context) {
-    if (context.watch<LibraryPathProvider>().isReadOnlyReplica) {
+    if (item == null ||
+        !item!.hasLocalFileId ||
+        context.watch<LibraryPathProvider>().isReadOnlyReplica) {
       return const SizedBox.shrink();
     }
     return RuneClickable(

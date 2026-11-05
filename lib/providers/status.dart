@@ -171,8 +171,9 @@ class PlaybackStatusProvider with ChangeNotifier {
         _playbackStatusState.coverArtPath = newStatus.coverArtPath;
         _playbackStatusState.libPath = newStatus.libPath;
 
-        final newPlayingItem =
-            newStatus.item?.isEmpty == true || newStatus.item == null
+        final newPlayingItem = newStatus.itemRequest != null
+            ? PlayingItem.fromRequest(newStatus.itemRequest!)
+            : newStatus.item?.isEmpty == true || newStatus.item == null
                 ? null
                 : PlayingItem.fromString(newStatus.item!);
         _playingItem = newPlayingItem;

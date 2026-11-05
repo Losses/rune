@@ -2,25 +2,44 @@ import '../bindings/bindings.dart';
 
 class PlayingItem {
   final int? inLibrary;
+  final String? libraryId;
+  final String? fileUuid;
   final String? independentFile;
   final bool isUnknown;
 
-  const PlayingItem._(
-      {this.inLibrary, this.independentFile, this.isUnknown = false});
+  const PlayingItem._({
+    this.inLibrary,
+    this.libraryId,
+    this.fileUuid,
+    this.independentFile,
+    this.isUnknown = false,
+  });
 
   const PlayingItem.inLibrary(int id) : this._(inLibrary: id);
+  const PlayingItem.libraryItem({
+    required String libraryId,
+    required String fileUuid,
+  }) : this._(libraryId: libraryId, fileUuid: fileUuid);
   const PlayingItem.independentFile(String path)
       : this._(independentFile: path);
   const PlayingItem.unknown() : this._(isUnknown: true);
+
+  bool get hasLocalFileId => inLibrary != null;
 
   // Mirrors `From<PlayingItemRequest> for PlayingItem` in the hub: a file
   // outside the library is sent without `inLibrary`.
   static PlayingItem fromRequest(PlayingItemRequest request) {
     final inLibrary = request.inLibrary;
     final independentFile = request.independentFile;
+    final libraryItem = request.libraryItem;
 
     if (inLibrary != null && inLibrary.fileId != 0) {
       return PlayingItem.inLibrary(inLibrary.fileId);
+    } else if (libraryItem != null) {
+      return PlayingItem.libraryItem(
+        libraryId: libraryItem.libraryId,
+        fileUuid: libraryItem.fileUuid,
+      );
     } else if (independentFile != null && independentFile.rawPath.isNotEmpty) {
       return PlayingItem.independentFile(independentFile.rawPath);
     } else {
@@ -34,11 +53,14 @@ class PlayingItem {
       other is PlayingItem &&
           runtimeType == other.runtimeType &&
           inLibrary == other.inLibrary &&
+          libraryId == other.libraryId &&
+          fileUuid == other.fileUuid &&
           independentFile == other.independentFile &&
           isUnknown == other.isUnknown;
 
   @override
-  int get hashCode => Object.hash(inLibrary, independentFile, isUnknown);
+  int get hashCode =>
+      Object.hash(inLibrary, libraryId, fileUuid, independentFile, isUnknown);
 
   static const independentFilePrefix = 'PlayingItem::IndependentFile(';
 
@@ -64,6 +86,8 @@ class PlayingItem {
       return 'PlayingItem::InLibrary($inLibrary)';
     } else if (independentFile != null) {
       return 'PlayingItem::IndependentFile($independentFile)';
+    } else if (libraryId != null && fileUuid != null) {
+      return 'PlayingItem::LibraryItem($libraryId, $fileUuid)';
     } else if (isUnknown) {
       return 'PlayingItem::Unknown()';
     }
@@ -77,16 +101,28 @@ extension PlayingItemExtension on PlayingItem {
       return PlayingItemRequest(
         inLibrary: InLibraryPlayingItem(fileId: inLibrary!),
         independentFile: null,
+        libraryItem: null,
+      );
+    } else if (libraryId != null && fileUuid != null) {
+      return PlayingItemRequest(
+        inLibrary: null,
+        independentFile: null,
+        libraryItem: LibraryItemRequest(
+          libraryId: libraryId!,
+          fileUuid: fileUuid!,
+        ),
       );
     } else if (independentFile != null) {
       return PlayingItemRequest(
         inLibrary: null,
         independentFile: IndependentFilePlayingItem(rawPath: independentFile!),
+        libraryItem: null,
       );
     } else {
       return PlayingItemRequest(
         inLibrary: null,
         independentFile: null,
+        libraryItem: null,
       );
     }
   }

@@ -64,6 +64,44 @@ void main() {
     expect(find.byKey(const Key('queue-unavailable-reason')), findsNothing);
   });
 
+  testWidgets('other-library queue rows render their supplied metadata', (
+    tester,
+  ) async {
+    final entry = PlaylistEntry(
+      0,
+      PlaylistItem(
+        item: const PlayingItemRequest(
+          libraryItem: LibraryItemRequest(
+            libraryId: 'library-uuid',
+            fileUuid: 'file-uuid',
+          ),
+        ),
+        artist: 'Other Artist',
+        album: 'Other Album',
+        title: 'Other Track',
+        duration: 125,
+      ),
+    );
+    await tester.pumpWidget(
+      FluentApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: ScaffoldPage(
+          content: PlaylistQueueItem(
+            entry: entry,
+            isCurrent: false,
+            onPlay: _noop,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Other Track'), findsOneWidget);
+    expect(find.text('Other Artist'), findsOneWidget);
+    expect(entry.item.hasLocalFileId, isFalse);
+  });
+
   testWidgets('tapping an unavailable item shows its reason without playing', (
     tester,
   ) async {
