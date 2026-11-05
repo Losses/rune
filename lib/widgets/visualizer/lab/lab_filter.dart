@@ -34,9 +34,10 @@ const _listEnd = 16.0;
 // heading, and under it a checkbox on each row of the group.
 const _stripColumn = 52.0;
 
-// A group's heading, with the room above it that sets the group apart from
-// the one before.
-const _headerHeight = 48.0;
+// A group's heading, and the room before it that sets the group apart from
+// the one before. The room scrolls with the list: were it part of the
+// heading, it would stick with it, a band over the rows under the view's name.
+const _headerHeight = 28.0;
 const _headerGap = 20.0;
 
 // Text that says less than what is beside it, as the app's settings write
@@ -226,7 +227,10 @@ class _LabRowsDialogState extends State<LabRowsDialog> {
       if (i >= 0) return y + i * _rowHeight;
       y += pinned.length * _rowHeight;
     }
+    var first = pinned.isEmpty;
     for (final (name, rows) in _groups()) {
+      if (!first) y += _headerGap;
+      first = false;
       y += _headerHeight;
       if (_collapsed.contains(name)) continue;
       final i = rows.indexWhere((c) => c.id == id);
@@ -383,42 +387,53 @@ class _LabRowsDialogState extends State<LabRowsDialog> {
 
   // The top of the list, as To-Do's: the view's name, large, and the close
   // button at the right edge.
+  // It is painted after the list, and its ground a pixel past its foot,
+  // over the list's first pixel: the dialog's scale puts that edge between
+  // two pixels, where the rows going under a stuck heading would show as a
+  // seam. The pixel past it lies on the heading, which has the same ground.
   Widget _header({required bool overlay}) {
     final theme = FluentTheme.of(context);
     final close = widget.onClose;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(_listStart, 14, _listEnd, 10),
-      child: Row(
-        children: [
-          // Where the pane is not beside the list, the way to open it.
-          if (overlay)
-            Padding(
-              padding: const EdgeInsetsDirectional.only(end: 6),
-              child: Tooltip(
-                message: 'Views',
-                child: IconButton(
-                  icon: const Icon(Symbols.menu, size: 18),
-                  onPressed: () => setState(() => _paneOpen = true),
+    final ground = _listColor(theme);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: ground,
+        boxShadow: [BoxShadow(color: ground, offset: const Offset(0, 1))],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(_listStart, 14, _listEnd, 10),
+        child: Row(
+          children: [
+            // Where the pane is not beside the list, the way to open it.
+            if (overlay)
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: 6),
+                child: Tooltip(
+                  message: 'Views',
+                  child: IconButton(
+                    icon: const Icon(Symbols.menu, size: 18),
+                    onPressed: () => setState(() => _paneOpen = true),
+                  ),
                 ),
               ),
-            ),
-          Expanded(
-            child: Text(
-              _model.currentName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.typography.subtitle,
-            ),
-          ),
-          if (close != null)
-            Tooltip(
-              message: 'Close',
-              child: IconButton(
-                icon: const Icon(Symbols.close, size: 18),
-                onPressed: close,
+            Expanded(
+              child: Text(
+                _model.currentName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.typography.subtitle,
               ),
             ),
-        ],
+            if (close != null)
+              Tooltip(
+                message: 'Close',
+                child: IconButton(
+                  icon: const Icon(Symbols.close, size: 18),
+                  onPressed: close,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -439,9 +454,9 @@ class _LabRowsDialogState extends State<LabRowsDialog> {
   );
 
   Widget _list() {
-    final selection = _model.selection;
     final groups = _groups();
     final pinned = _pinned();
+    const gap = SliverToBoxAdapter(child: SizedBox(height: _headerGap));
 
     return CustomScrollView(
       controller: _scroll,
@@ -451,10 +466,7 @@ class _LabRowsDialogState extends State<LabRowsDialog> {
             slivers: [
               SliverPersistentHeader(
                 pinned: true,
-                delegate: _GroupHeader(
-                  name: 'Pinned',
-                  count: '${pinned.length}',
-                ),
+                delegate: _GroupHeader(name: 'Pinned'),
               ),
               SliverList.builder(
                 itemCount: pinned.length,
@@ -467,15 +479,14 @@ class _LabRowsDialogState extends State<LabRowsDialog> {
               ),
             ],
           ),
-        for (final (name, rows) in groups)
+        for (final (index, (name, rows)) in groups.indexed) ...[
+          if (index > 0 || pinned.isNotEmpty) gap,
           SliverMainAxisGroup(
             slivers: [
               SliverPersistentHeader(
                 pinned: true,
                 delegate: _GroupHeader(
                   name: name,
-                  count:
-                      '${rows.where(selection.isShown).length}/${rows.length}',
                   collapsed: _collapsed.contains(name),
                   onShowAll: () => _setRows(rows, on: true),
                   onHideAll: () => _setRows(rows, on: false),
@@ -494,6 +505,7 @@ class _LabRowsDialogState extends State<LabRowsDialog> {
                 ),
             ],
           ),
+        ],
         if (groups.isEmpty && pinned.isEmpty)
           SliverToBoxAdapter(
             child: Padding(
@@ -524,11 +536,14 @@ class _LabRowsDialogState extends State<LabRowsDialog> {
             // content is: the pane is the light, grained one.
             final list = DecoratedBox(
               decoration: BoxDecoration(color: _listColor(theme)),
+              // The name above the list, laid out from the foot up so that
+              // it is painted after the list, over its edge.
               child: Column(
+                verticalDirection: VerticalDirection.up,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _header(overlay: overlay),
                   Expanded(child: _list()),
+                  _header(overlay: overlay),
                 ],
               ),
             );
@@ -852,7 +867,6 @@ class _ViewNameFieldState extends State<_ViewNameField> {
 class _GroupHeader extends SliverPersistentHeaderDelegate {
   _GroupHeader({
     required this.name,
-    required this.count,
     this.collapsed = false,
     this.onShowAll,
     this.onHideAll,
@@ -860,9 +874,6 @@ class _GroupHeader extends SliverPersistentHeaderDelegate {
   });
 
   final String name;
-
-  /// What is shown on the group: "3/10", or the number of pinned rows.
-  final String count;
   final bool collapsed;
   final VoidCallback? onShowAll;
   final VoidCallback? onHideAll;
@@ -907,8 +918,7 @@ class _GroupHeaderBarState extends State<_GroupHeaderBar> {
     final theme = FluentTheme.of(context);
     final h = widget.header;
     // As the app's settings head a block: the name a little larger than the
-    // body, and the count as a subtitle is.
-    // The name gives way first, where there is little room.
+    // body. It gives way first, where there is little room.
     Widget title = Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -926,8 +936,6 @@ class _GroupHeaderBarState extends State<_GroupHeaderBar> {
             style: theme.typography.body?.apply(fontSizeFactor: 1.1),
           ),
         ),
-        const SizedBox(width: 8),
-        Text(h.count, style: _secondary(context)),
       ],
     );
     // As the app's own group titles (the library's home): a little faded
@@ -952,7 +960,7 @@ class _GroupHeaderBarState extends State<_GroupHeaderBar> {
     );
     Widget bar = Container(
       color: _listColor(theme),
-      padding: const EdgeInsets.fromLTRB(_listStart, _headerGap, _listEnd, 0),
+      padding: const EdgeInsets.fromLTRB(_listStart, 0, _listEnd, 0),
       alignment: Alignment.centerLeft,
       child: Row(
         children: [
@@ -999,10 +1007,9 @@ class _GroupHeaderBarState extends State<_GroupHeaderBar> {
   }
 }
 
-/// A row of the list, as one of fluent's list items: its name with its
-/// meaning under it, a checkbox for each of its strips, and on hover the pin,
-/// or for a pinned row the moves and unpin. A click on the row shows or hides
-/// all of it.
+/// A row of the list, as one of fluent's list items: its name, a checkbox
+/// for each of its strips, and on hover the pin, or for a pinned row the
+/// moves and unpin. A click on the row shows or hides all of it.
 class _ColumnRow extends StatefulWidget {
   const _ColumnRow({
     required this.column,

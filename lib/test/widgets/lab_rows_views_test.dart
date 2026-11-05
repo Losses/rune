@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -583,7 +585,7 @@ void main() {
       return model;
     }
 
-    // The name of a row in the dialog, which has its meaning after it.
+    // The name of a row in the dialog.
     Finder name(String text) =>
         find.textContaining(text, findRichText: true).last;
 
@@ -592,18 +594,30 @@ void main() {
 
     Finder tip(String message) =>
         find.byWidgetPredicate((w) => w is Tooltip && w.message == message);
-    // A group's heading: its name, with its count beside it.
-    // A group's heading: its name (which may give way to room), with its
-    // count beside it.
+    // A group's heading in the list: its name, which may give way to room.
     bool says(Widget w, String text) =>
         w is Text && w.data == text ||
         w is Flexible && w.child is Text && (w.child as Text).data == text;
-    Finder heading(String name, String count) => find.byWidgetPredicate(
-      (w) =>
-          w is Row &&
-          w.children.any((c) => says(c, name)) &&
-          w.children.any((c) => says(c, count)),
+    Finder heading(String name) => find.descendant(
+      of: find.byType(CustomScrollView),
+      matching: find.byWidgetPredicate(
+        (w) => w is Row && w.children.any((c) => says(c, name)),
+      ),
     );
+
+    // The heading a row is listed under: the nearest above it.
+    String groupOf(WidgetTester tester, String row) {
+      final top = tester.getRect(rows(row)).top;
+      String? under;
+      var at = double.negativeInfinity;
+      for (final name in ['Pinned', 'Director', 'Signals', 'Inputs']) {
+        final found = heading(name);
+        if (found.evaluate().isEmpty) continue;
+        final y = tester.getRect(found).top;
+        if (y < top && y > at) (under, at) = (name, y);
+      }
+      return under!;
+    }
 
     Future<TestGesture> hover(WidgetTester tester, Finder at) async {
       final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
@@ -735,11 +749,49 @@ void main() {
       );
       final director = tester.getRect(find.text('Director').last);
       expect(director.top - marks.bottom, greaterThanOrEqualTo(16));
-      // A heading's count in the app's subtitle colour.
+      // A strip's name over its column in the app's subtitle colour.
       final theme = FluentTheme.of(tester.element(find.byType(LabRowsDialog)));
       final secondary = theme.inactiveColor.withAlpha(160);
       Color? colorOf(Finder f) => tester.widget<Text>(f).style?.color;
-      expect(colorOf(find.text('2').first), secondary);
+      expect(colorOf(find.text('Plan').first), secondary);
+    });
+
+    testWidgets('a heading says only its name, and sticks right under the '
+        'view\'s name with no band for the rows to show through', (
+      tester,
+    ) async {
+      await open(tester);
+      // No count of rows beside any heading.
+      for (final name in ['Pinned', 'Director', 'Signals', 'Inputs']) {
+        expect(heading(name), findsOneWidget, reason: name);
+      }
+      expect(find.textContaining(RegExp(r'^\d+(/\d+)?$')), findsNothing);
+      // In a window short enough for the list to scroll, scrolled a little
+      // into Signals: its heading sticks at the top of the list, where the
+      // rows go under it.
+      tester.view.physicalSize = const Size(1200, 360);
+      await tester.pumpAndSettle();
+      final list = tester.getRect(find.byType(CustomScrollView));
+      final scroll = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byType(CustomScrollView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      final to = tester.getRect(heading('Signals')).top - list.top + 10;
+      expect(to, lessThan(scroll.position.maxScrollExtent));
+      scroll.position.jumpTo(to);
+      await tester.pumpAndSettle();
+      final title = tester.getRect(heading('Signals'));
+      expect(title.top - list.top, inInclusiveRange(0, 8));
+      // The groups still stand apart where they are not stuck.
+      final inputs = tester.getRect(heading('Inputs'));
+      final last = tester.getRect(
+        find.ancestor(of: rows('Band Low'), matching: find.byType(ListTile)),
+      );
+      expect(inputs.top - last.bottom, greaterThanOrEqualTo(16));
     });
 
     testWidgets('a row says nothing under its name, and keeps its height '
@@ -763,6 +815,56 @@ void main() {
         findsWidgets,
       );
       expect(tester.getSize(row('Sections')).height, height);
+    });
+
+    testWidgets('the rows going under a stuck heading leave no seam at the '
+        'top of the list, where the dialog\'s scale puts its edge between '
+        'two pixels', (tester) async {
+      await open(tester);
+      // A window short enough for the list to scroll.
+      tester.view.physicalSize = const Size(1200, 360);
+      await tester.pumpAndSettle();
+      final list = tester.getRect(find.byType(CustomScrollView));
+      expect(list.top, isNot(list.top.roundToDouble()));
+      // Pinned's heading stuck, and the name of its first row across the
+      // list's top edge, under the heading.
+      final scroll = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byType(CustomScrollView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      final to = tester.getRect(rows('Sections')).center.dy - list.top;
+      expect(to, lessThan(scroll.position.maxScrollExtent));
+      scroll.position.jumpTo(to);
+      await tester.pumpAndSettle();
+      final size = tester.view.physicalSize;
+      final pixels = (await tester.runAsync(() async {
+        final layer =
+            tester.binding.renderViews.first.debugLayer! as OffsetLayer;
+        final image = await layer.toImage(Offset.zero & size);
+        return image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      }))!;
+      List<int> at(int x, int y) {
+        final i = (y * size.width.toInt() + x) * 4;
+        return [for (var c = 0; c < 4; c++) pixels.getUint8(i + c)];
+      }
+
+      // The ground, in the stuck heading under the edge.
+      final edge = list.top.floor();
+      final ground = at((list.left + 300).toInt(), edge + 3);
+      for (var x = (list.left + 16).toInt(); x < list.left + 160; x++) {
+        final p = at(x, edge);
+        for (var c = 0; c < 3; c++) {
+          expect(
+            (p[c] - ground[c]).abs(),
+            lessThanOrEqualTo(2),
+            reason: 'x $x',
+          );
+        }
+      }
     });
 
     testWidgets('a strip a row has not is a checkbox that cannot be ticked, '
@@ -873,7 +975,7 @@ void main() {
     testWidgets('New View names the view in its place, with no dialog over '
         'the dialog, and keeps it under a name that is free', (tester) async {
       final model = await open(tester);
-      expect(heading('Pinned', '2'), findsOneWidget);
+      expect(heading('Pinned'), findsOneWidget);
       final pane = find.byKey(const ValueKey('lab-views-pane'));
       Finder box() => find.descendant(of: pane, matching: find.byType(TextBox));
 
@@ -1057,22 +1159,22 @@ void main() {
       // Sections and Marks are pinned and are not in a Pinned-free group.
       expect(rows('Sections'), findsOneWidget);
       expect(rows('Marks'), findsOneWidget);
+      expect(groupOf(tester, 'Drive'), 'Signals');
       model.setSelection(model.selection.pin('drive'));
       await tester.pump();
-      expect(heading('Pinned', '3'), findsOneWidget);
       expect(rows('Drive'), findsOneWidget);
-      expect(heading('Signals', '2/2'), findsOneWidget);
+      expect(groupOf(tester, 'Drive'), 'Pinned');
       model.setSelection(model.selection.unpin('drive'));
       await tester.pump();
-      expect(heading('Signals', '2/2'), findsNothing);
-      expect(heading('Signals', '3/3'), findsOneWidget);
+      expect(rows('Drive'), findsOneWidget);
+      expect(groupOf(tester, 'Drive'), 'Signals');
     });
 
     testWidgets('a heading\'s title answers the pointer as the app\'s own '
         'group titles do', (tester) async {
       await open(tester);
       final title = find.ancestor(
-        of: heading('Director', '1/1'),
+        of: heading('Director'),
         matching: find.byType(HoverOpacity),
       );
       expect(title, findsOneWidget);
@@ -1082,13 +1184,13 @@ void main() {
           )
           .opacity;
       expect(opacity(), 0.7);
-      await hover(tester, heading('Director', '1/1'));
+      await hover(tester, heading('Director'));
       await tester.pumpAndSettle();
       expect(opacity(), 1);
       // Pinned, which does not collapse, looks the same at rest.
       expect(
         find.ancestor(
-          of: heading('Pinned', '2'),
+          of: heading('Pinned'),
           matching: find.byType(HoverOpacity),
         ),
         findsOneWidget,
@@ -1097,7 +1199,7 @@ void main() {
 
     testWidgets('a heading shows all or hides all of its rows', (tester) async {
       final model = await open(tester);
-      final signals = heading('Signals', '3/3');
+      final signals = heading('Signals');
       expect(signals, findsOneWidget);
       expect(find.text('Hide All'), findsNothing);
       await hover(tester, signals);
@@ -1264,7 +1366,7 @@ void main() {
       await tester.tap(tip('Pin to Top'));
       await tester.pumpAndSettle();
       expect(model.selection.isPinned('shot'), isTrue);
-      expect(heading('Pinned', '3'), findsOneWidget);
+      expect(groupOf(tester, 'Shot'), 'Pinned');
     });
   });
 }
