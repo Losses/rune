@@ -1418,6 +1418,7 @@
   "deviceNotShared": "Non condivisa",
   "deviceReadOnly": "Sola lettura",
   "deviceReadWrite": "Lettura e scrittura",
+  "requestConflict": "La coda è cambiata, riprova",
   "requestPermissionDenied": "Questo dispositivo non può farlo",
   "readOnly": "Sola lettura",
   "queueUnavailableAccessRevoked": "L’accesso è stato revocato",

@@ -1476,6 +1476,7 @@
   "deviceNotShared": "不共享",
   "deviceReadOnly": "只读",
   "deviceReadWrite": "读写",
+  "requestConflict": "播放队列已变化，请重试",
   "requestPermissionDenied": "此设备不允许执行此操作",
   "readOnly": "只读",
   "queueUnavailableAccessRevoked": "访问权限已撤销",

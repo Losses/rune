@@ -62,6 +62,7 @@ String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
       RequestErrorKind.invalidInput => s.requestInvalid,
       RequestErrorKind.unavailable => s.requestUnavailable,
       RequestErrorKind.permissionDenied => s.requestPermissionDenied,
+      RequestErrorKind.conflict => s.requestConflict,
       RequestErrorKind.internal => s.unknownError,
     };
 

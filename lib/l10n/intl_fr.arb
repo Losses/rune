@@ -1418,6 +1418,7 @@
   "deviceNotShared": "Non partagé",
   "deviceReadOnly": "Lecture seule",
   "deviceReadWrite": "Lecture et écriture",
+  "requestConflict": "La file d’attente a changé, réessayez",
   "requestPermissionDenied": "Cet appareil n’est pas autorisé à faire cela",
   "readOnly": "Lecture seule",
   "queueUnavailableAccessRevoked": "L’accès a été révoqué",

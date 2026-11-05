@@ -2441,6 +2441,7 @@ mod lifecycle_tests {
             certificates: vec![],
         });
         broadcaster.broadcast(&PlaybackStatus {
+            session_id: a.global_params.node.session()?.session_id().await,
             state: "Playing".into(),
             progress_seconds: 12.0,
             progress_percentage: 0.5,

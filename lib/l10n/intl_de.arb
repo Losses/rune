@@ -1416,6 +1416,7 @@
   "deviceNotShared": "Nicht geteilt",
   "deviceReadOnly": "Nur lesen",
   "deviceReadWrite": "Lesen und schreiben",
+  "requestConflict": "Die Warteschlange hat sich geändert, bitte erneut versuchen",
   "requestPermissionDenied": "Dieses Gerät darf das nicht tun",
   "readOnly": "Schreibgeschützt",
   "queueUnavailableAccessRevoked": "Der Zugriff wurde widerrufen",

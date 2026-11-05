@@ -1521,6 +1521,7 @@
   "deviceNotShared": "Not shared",
   "deviceReadOnly": "Read only",
   "deviceReadWrite": "Read and write",
+  "requestConflict": "The queue changed; try again",
   "requestPermissionDenied": "This device isn't allowed to do that",
   "readOnly": "Read only",
   "queueUnavailableAccessRevoked": "Access was revoked",

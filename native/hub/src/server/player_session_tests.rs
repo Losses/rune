@@ -462,7 +462,7 @@ async fn session_store_v1_migrates_stable_file_uuids_and_cursor() -> Result<()> 
     assert_eq!(tracks[0].0, PlayingItem::InLibrary(LibraryItem { library_id, file_uuid: first_uuid }));
     assert_eq!(tracks[1].0, PlayingItem::InLibrary(LibraryItem { library_id, file_uuid: second_uuid }));
     let written: serde_json::Value = serde_json::from_slice(&std::fs::read(&session_path)?)?;
-    assert_eq!(written["version"], 2);
+    assert_eq!(written["version"], 3);
     assert!(written["queue"][0].get("file_uuid").is_some());
     let mut current_dropped = state.clone();
     current_dropped["index"] = serde_json::json!(0);
@@ -1413,6 +1413,200 @@ async fn session_f3_persists_changes_without_rewriting_while_idle() -> Result<()
         .await
         .context("changed queue was not persisted within one second")?;
     a.global_params.node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_c2a_revision_conflicts_and_identity_persist() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = fixture(dir.path()).await?;
+    let track = session_audio(&fixture, "revision-track.ogg").await?;
+    let item = PlayingItem::InLibrary(library_item_for_id(&fixture, track).await?);
+    let session = fixture.global_params.node.session()?;
+    let session_id = session.session_id().await;
+    session
+        .edit_queue(None, |player| {
+            player.add_to_playlist_with_sources(
+                vec![(item.clone(), PlaybackSource::LibraryStream)],
+                AddMode::AppendToEnd,
+            );
+            true
+        })
+        .await?;
+    wait_player(&fixture, |status| status.playlist == [item.clone()]).await?;
+    assert_eq!(session.queue_revision().await, 1);
+
+    fixture.global_params.player.lock().await.play();
+    fixture.global_params.player.lock().await.pause();
+    fixture.global_params.player.lock().await.seek(0.0);
+    assert_eq!(session.queue_revision().await, 1);
+
+    let stale = session
+        .edit_queue(Some(0), |player| {
+            player.remove_from_playlist(0);
+            true
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(classify(&stale), RequestErrorKind::Conflict);
+    assert_eq!(fixture.global_params.player.lock().await.get_playlist(), [item]);
+
+    session
+        .edit_queue(None, |player| {
+            player.remove_from_playlist(0);
+            true
+        })
+        .await?;
+    wait_player(&fixture, |status| status.playlist.is_empty()).await?;
+    assert_eq!(session.queue_revision().await, 2);
+
+    let session_path = dir.path().join("sessions/local.json");
+    fixture.global_params.node.shutdown().await?;
+    let reopened = NodeContext::new(
+        &fixture.global_params.config_path,
+        &fixture.global_params.config_path,
+        Arc::new(Quiet),
+        false,
+    )
+    .await?;
+    assert_eq!(reopened.session()?.session_id().await, session_id);
+
+    let mut legacy: serde_json::Value = serde_json::from_slice(&fs::read(session_path)?)?;
+    legacy["version"] = 2.into();
+    legacy.as_object_mut().context("session JSON object")?.remove("session_id");
+    legacy.as_object_mut().context("session JSON object")?.remove("queue_revision");
+    let v2_path = dir.path().join("sessions/v2.json");
+    fs::write(&v2_path, serde_json::to_vec(&legacy)?)?;
+    let migrated = SessionState::read(&v2_path, &reopened.library_pool).await?;
+    assert_ne!(migrated.session_id, Uuid::nil());
+    assert_eq!(migrated.queue_revision, 0);
+    assert_eq!(serde_json::from_slice::<serde_json::Value>(&fs::read(v2_path)?)?["version"], 3);
+    reopened.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_c2a_two_controllers_observe_conflict_and_same_queue() -> Result<()> {
+    use crate::backends::remote::encode_message;
+    use crate::messages::{MovePlaylistItemRequest, PlaylistUpdate, RemoteRequestFailed, RemoveRequest};
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    async fn request_and_updates(
+        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        name: &str,
+        payload: Vec<u8>,
+    ) -> Result<(String, Vec<u8>, Vec<PlaylistUpdate>)> {
+        let request_id = Uuid::new_v4();
+        socket
+            .send(Message::Binary(
+                encode_message(name, &payload, Some(request_id)).into(),
+            ))
+            .await?;
+        let mut updates = Vec::new();
+        timeout(Duration::from_secs(5), async {
+            loop {
+                let frame = socket.next().await.context("controller socket closed")??;
+                let Some((response_name, payload, response_id)) =
+                    decode_message(&frame.into_data())
+                else {
+                    continue;
+                };
+                if response_name == "PlaylistUpdate" {
+                    updates.push(rinf::deserialize(&payload)?);
+                }
+                if response_id == request_id {
+                    return Ok::<_, anyhow::Error>((response_name, payload, updates));
+                }
+            }
+        })
+        .await?
+    }
+
+    async fn wait_revision(
+        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        mut updates: Vec<PlaylistUpdate>,
+        revision: u64,
+    ) -> Result<PlaylistUpdate> {
+        timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(index) = updates.iter().position(|update| update.revision == revision) {
+                    return Ok(updates.swap_remove(index));
+                }
+                let frame = socket.next().await.context("controller socket closed")??;
+                if let Some((name, payload, _)) = decode_message(&frame.into_data())
+                    && name == "PlaylistUpdate"
+                {
+                    updates.push(rinf::deserialize(&payload)?);
+                }
+            }
+        })
+        .await?
+    }
+
+    let renderer_dir = tempfile::tempdir()?;
+    let first_controller_dir = tempfile::tempdir()?;
+    let second_controller_dir = tempfile::tempdir()?;
+    let renderer = fixture(renderer_dir.path()).await?;
+    let first_controller = fixture(first_controller_dir.path()).await?;
+    let second_controller = fixture(second_controller_dir.path()).await?;
+    let first_addr = paired_full(&renderer, &first_controller).await?;
+    pair(&renderer, &second_controller).await?;
+    let mut first = connect_remote(
+        "127.0.0.1",
+        first_addr.port(),
+        &first_controller.global_params.config_path,
+        first_controller.global_params.cert_validator.read().await.clone(),
+    )
+    .await?;
+    let mut second = connect_remote(
+        "127.0.0.1",
+        first_addr.port(),
+        &second_controller.global_params.config_path,
+        second_controller.global_params.cert_validator.read().await.clone(),
+    )
+    .await?;
+
+    let first_track = session_audio(&renderer, "conflict-first.ogg").await?;
+    let second_track = session_audio(&renderer, "conflict-second.ogg").await?;
+    queue_session(&renderer, &[first_track, second_track]).await?;
+
+    let (first_name, _, first_updates) = request_and_updates(
+        &mut first,
+        "MovePlaylistItemRequest",
+        rinf::serialize(&MovePlaylistItemRequest {
+            old_index: 0,
+            new_index: 1,
+            expected_revision: Some(0),
+        })?,
+    )
+    .await?;
+    assert_eq!(first_name, "");
+    let (second_name, failure_payload, second_updates) = request_and_updates(
+        &mut second,
+        "RemoveRequest",
+        rinf::serialize(&RemoveRequest {
+            index: 0,
+            expected_revision: Some(0),
+        })?,
+    )
+    .await?;
+    assert_eq!(second_name, "RemoteRequestFailed");
+    let failure: RemoteRequestFailed = rinf::deserialize(&failure_payload)?;
+    assert_eq!(failure.kind, RequestErrorKind::Conflict);
+    let first_final = wait_revision(&mut first, first_updates, 1).await?;
+    let second_final = wait_revision(&mut second, second_updates, 1).await?;
+    assert_eq!(first_final.items.len(), 2);
+    assert_eq!(first_final.items.len(), second_final.items.len());
+    assert_eq!(first_final.session_id, second_final.session_id);
+    assert_eq!(
+        first_final.items.iter().map(|item| &item.title).collect::<Vec<_>>(),
+        second_final.items.iter().map(|item| &item.title).collect::<Vec<_>>(),
+    );
+    assert_eq!(renderer.global_params.node.session()?.queue_revision().await, 1);
+    renderer.global_params.node.shutdown().await?;
+    first_controller.global_params.node.shutdown().await?;
+    second_controller.global_params.node.shutdown().await?;
+    Ok(())
 }
 
 /// Waits up to a second for the session file at `store` to hold a queue of `len` items.

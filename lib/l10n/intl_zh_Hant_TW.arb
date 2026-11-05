@@ -1149,6 +1149,7 @@
   "deviceNotShared": "不共享",
   "deviceReadOnly": "唯讀",
   "deviceReadWrite": "讀寫",
+  "requestConflict": "播放佇列已變更，請再試一次",
   "requestPermissionDenied": "此裝置不允許執行此操作",
   "readOnly": "唯讀",
   "queueUnavailableAccessRevoked": "存取權已撤銷",

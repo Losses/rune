@@ -52,6 +52,7 @@ use crate::{
         PlaylistUpdate, RealtimeFFT, ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
     },
     node::NodeContext,
+    request_error::ExpectedRequestError,
     server::PairedAudioResolver,
     utils::{
         Broadcaster,
@@ -78,6 +79,38 @@ pub struct PlayerSession {
 }
 
 impl PlayerSession {
+    pub async fn edit_queue<F>(&self, expected_revision: Option<u64>, edit: F) -> Result<()>
+    where
+        F: FnOnce(&mut dyn Playable) -> bool + Send,
+    {
+        let mut state = self.state.lock().await;
+        if let Some(expected) = expected_revision
+            && expected != state.queue_revision
+        {
+            return Err(ExpectedRequestError::StaleQueueRevision {
+                expected,
+                current: state.queue_revision,
+            }
+            .into());
+        }
+        let mut player = self.player.lock().await;
+        if edit(&mut *player) {
+            state.queue_revision = state
+                .queue_revision
+                .checked_add(1)
+                .context("Queue revision overflow")?;
+        }
+        Ok(())
+    }
+
+    pub async fn session_id(&self) -> String {
+        self.state.lock().await.session_id.to_string()
+    }
+
+    pub async fn queue_revision(&self) -> u64 {
+        self.state.lock().await.queue_revision
+    }
+
     pub async fn queue_for_library(&self, library_id: Uuid) -> Vec<i32> {
         let items = self
             .player
@@ -269,6 +302,8 @@ impl PlayerSession {
         let player = self.player.clone();
         let scrobbler = self.scrobbler.clone();
         let cancel = self.cancel.clone();
+        let session_id = self.state.lock().await.session_id.to_string();
+        let event_state = self.state.clone();
         let (persist_status_tx, mut persist_status_rx) = mpsc::channel(32);
         let (persist_playlist_tx, mut persist_playlist_rx) = mpsc::channel(32);
         let event_task = tokio::spawn(async move {
@@ -283,11 +318,14 @@ impl PlayerSession {
                     Ok(value) = status.recv() => {
                         let Some(node) = weak.upgrade() else { return };
                         if persist_status_tx.send(value.clone()).await.is_err() { return; }
-                        handle_status_event(&node, value, &mut item_state, &controls, &scrobbler, &broadcaster).await;
+                        handle_status_event(&node, value, &mut item_state, &controls, &scrobbler, &broadcaster, &session_id).await;
                     }
                     Ok(value) = playlist.recv() => {
                         if persist_playlist_tx.send(value.clone()).await.is_err() { return; }
-                        if let Some(node) = weak.upgrade() { handle_playlist_event(&node, value, broadcaster.as_ref()).await; }
+                        if let Some(node) = weak.upgrade() {
+                            let revision = event_state.lock().await.queue_revision;
+                            handle_playlist_event(&node, value, broadcaster.as_ref(), &session_id, revision).await;
+                        }
                     }
                     Ok(item) = played.recv() => {
                         if let Some(node) = weak.upgrade() {
@@ -429,6 +467,7 @@ async fn handle_status_event(
     controls: &Option<Arc<Mutex<MediaControlManager>>>,
     scrobbler: &Arc<Mutex<dyn ScrobblingServiceManager>>,
     broadcaster: &Arc<dyn Broadcaster>,
+    session_id: &str,
 ) {
     let item_changed = value.item != item_state.last_item;
     if item_changed {
@@ -504,6 +543,7 @@ async fn handle_status_event(
         item_state.cover.clone(),
         root,
         item_request,
+        session_id,
     );
     if let Some(manager) = controls {
         let _ = update_media_controls_progress(manager.clone(), &report).await;
@@ -515,8 +555,10 @@ async fn handle_playlist_event(
     node: &NodeContext,
     value: PlaylistStatus,
     broadcaster: &dyn Broadcaster,
+    session_id: &str,
+    revision: u64,
 ) {
-    send_playlist(node, &value, broadcaster).await;
+    send_playlist(node, &value, broadcaster, session_id, revision).await;
 }
 
 async fn handle_played_event(
@@ -667,6 +709,8 @@ async fn send_playlist(
     node: &NodeContext,
     playlist: &PlaylistStatus,
     broadcaster: &dyn Broadcaster,
+    session_id: &str,
+    revision: u64,
 ) {
     let mut library_items = HashMap::<Uuid, Vec<PlayingItem>>::new();
     let mut independent_items = Vec::new();
@@ -745,7 +789,11 @@ async fn send_playlist(
             }
         })
         .collect();
-    broadcaster.broadcast(&PlaylistUpdate { items });
+    broadcaster.broadcast(&PlaylistUpdate {
+        items,
+        session_id: session_id.to_string(),
+        revision,
+    });
 }
 
 fn format_status(
@@ -754,8 +802,10 @@ fn format_status(
     cover_art_path: Option<String>,
     lib_path: String,
     item_request: Option<PlayingItemRequest>,
+    session_id: &str,
 ) -> PlaybackStatus {
     PlaybackStatus {
+        session_id: session_id.to_string(),
         state: status.state.to_string(),
         progress_seconds: status.position.as_secs_f32(),
         progress_percentage: if metadata.duration > 0.0 {

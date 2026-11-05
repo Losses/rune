@@ -75,6 +75,8 @@ impl From<StoredItem> for PlayingItem {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SessionState {
     version: u32,
+    pub session_id: Uuid,
+    pub queue_revision: u64,
     pub migrated: bool,
     queue: Vec<StoredItem>,
     pub index: Option<usize>,
@@ -84,7 +86,9 @@ pub(crate) struct SessionState {
 impl Default for SessionState {
     fn default() -> Self {
         Self {
-            version: 2,
+            version: 3,
+            session_id: Uuid::new_v4(),
+            queue_revision: 0,
             migrated: false,
             queue: Vec::new(),
             index: None,
@@ -103,8 +107,32 @@ impl SessionState {
                     .get("version")
                     .and_then(serde_json::Value::as_u64)
                     .unwrap_or_default();
+                if version == 3 {
+                    return serde_json::from_value(value).context("Read player session v3");
+                }
                 if version == 2 {
-                    return serde_json::from_value(value).context("Read player session v2");
+                    #[derive(Deserialize)]
+                    struct V2State {
+                        migrated: bool,
+                        queue: Vec<StoredItem>,
+                        index: Option<usize>,
+                        position: Duration,
+                        mode: u32,
+                    }
+                    let previous: V2State =
+                        serde_json::from_value(value).context("Read player session v2")?;
+                    let state = Self {
+                        version: 3,
+                        session_id: Uuid::new_v4(),
+                        queue_revision: 0,
+                        migrated: previous.migrated,
+                        queue: previous.queue,
+                        index: previous.index,
+                        position: previous.position,
+                        mode: previous.mode,
+                    };
+                    state.write(path)?;
+                    return Ok(state);
                 }
                 ensure!(version == 1, "Unsupported player session version");
                 #[derive(Deserialize)]
@@ -189,7 +217,9 @@ impl SessionState {
                     .and_then(|index| index.checked_sub(dropped_before_index))
                     .filter(|index| *index < queue.len());
                 let state = Self {
-                    version: 2,
+                    version: 3,
+                    session_id: Uuid::new_v4(),
+                    queue_revision: 0,
                     migrated: legacy.migrated,
                     queue,
                     index,
@@ -199,7 +229,11 @@ impl SessionState {
                 state.write(path)?;
                 Ok(state)
             }
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(Self::default()),
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                let state = Self::default();
+                state.write(path)?;
+                Ok(state)
+            }
             Err(error) => Err(error).context("Read player session store"),
         }
     }
@@ -209,7 +243,7 @@ impl SessionState {
     }
     pub fn update_queue(&mut self, items: &[PlayingItem]) {
         self.queue = items.iter().cloned().map(Into::into).collect();
-        self.version = 2;
+        self.version = 3;
         if !self.queue.is_empty() {
             self.migrated = true;
         }

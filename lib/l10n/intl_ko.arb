@@ -1418,6 +1418,7 @@
   "deviceNotShared": "공유 안 함",
   "deviceReadOnly": "읽기 전용",
   "deviceReadWrite": "읽기 및 쓰기",
+  "requestConflict": "재생 대기열이 변경되었습니다. 다시 시도하세요",
   "requestPermissionDenied": "이 기기는 해당 작업을 수행할 수 없습니다",
   "readOnly": "읽기 전용",
   "queueUnavailableAccessRevoked": "접근 권한이 취소되었습니다",

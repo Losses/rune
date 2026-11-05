@@ -12,6 +12,8 @@ pub enum ExpectedRequestError {
     InvalidInput { detail: String },
     #[error("{what} unavailable")]
     Unavailable { what: &'static str },
+    #[error("Queue changed: expected revision {expected}, current revision {current}")]
+    StaleQueueRevision { expected: u64, current: u64 },
 }
 
 impl ExpectedRequestError {
@@ -39,6 +41,7 @@ pub fn classify(error: &Error) -> RequestErrorKind {
             return match expected {
                 ExpectedRequestError::InvalidInput { .. } => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::Unavailable { .. } => RequestErrorKind::Unavailable,
+                ExpectedRequestError::StaleQueueRevision { .. } => RequestErrorKind::Conflict,
             };
         }
     }
@@ -90,5 +93,15 @@ mod tests {
     #[test]
     fn untyped_error_is_internal() {
         assert_eq!(classify(&anyhow!("boom")), RequestErrorKind::Internal);
+    }
+
+    #[test]
+    fn stale_queue_revision_is_a_conflict_after_context() {
+        let error = Error::new(ExpectedRequestError::StaleQueueRevision {
+            expected: 7,
+            current: 8,
+        })
+        .context("move playlist item");
+        assert_eq!(classify(&error), RequestErrorKind::Conflict);
     }
 }

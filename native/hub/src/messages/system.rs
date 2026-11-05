@@ -30,6 +30,7 @@ pub enum RequestErrorKind {
     Unavailable,
     Internal,
     PermissionDenied,
+    Conflict,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

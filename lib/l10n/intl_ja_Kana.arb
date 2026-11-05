@@ -1379,6 +1379,7 @@
   "deviceNotShared": "キョウユウ シナイ",
   "deviceReadOnly": "ヨミトリ センヨウ",
   "deviceReadWrite": "ヨミカキ",
+  "requestConflict": "さいせいキューが へんこうされました。もういちど おためしください",
   "requestPermissionDenied": "コノ デバイスハ ソノ ソウサヲ キョカ サレテイマセン",
   "readOnly": "ヨミトリセンヨウ",
   "queueUnavailableAccessRevoked": "アクセスがとりけされました",

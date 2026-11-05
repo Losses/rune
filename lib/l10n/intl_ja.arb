@@ -1416,6 +1416,7 @@
   "deviceNotShared": "共有しない",
   "deviceReadOnly": "読み取り専用",
   "deviceReadWrite": "読み書き",
+  "requestConflict": "再生キューが変更されました。もう一度お試しください",
   "requestPermissionDenied": "このデバイスはその操作を許可されていません",
   "readOnly": "読み取り専用",
   "queueUnavailableAccessRevoked": "アクセスが取り消されました",

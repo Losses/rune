@@ -1381,6 +1381,7 @@
   "deviceNotShared": "Ne dividita",
   "deviceReadOnly": "Nur legado",
   "deviceReadWrite": "Legado kaj skribado",
+  "requestConflict": "La vico ŝanĝiĝis; reprovu",
   "requestPermissionDenied": "Ĉi tiu aparato ne rajtas fari tion",
   "readOnly": "Nurlegebla",
   "queueUnavailableAccessRevoked": "La atingo estis revokita",

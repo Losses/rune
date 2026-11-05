@@ -393,27 +393,30 @@ impl Signal for SeekRequest {
 }
 
 impl ParamsExtractor for RemoveRequest {
-    type Params = (Arc<Mutex<dyn Playable>>,);
+    type Params = (Arc<NodeContext>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.player),)
+        (all_params.node.clone(),)
     }
 }
 
 impl Signal for RemoveRequest {
-    type Params = (Arc<Mutex<dyn Playable>>,);
+    type Params = (Arc<NodeContext>,);
     type Response = ();
 
     async fn handle(
         &self,
-        (player,): Self::Params,
+        (node,): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        player
-            .lock()
-            .await
-            .remove_from_playlist(dart_signal.index as usize);
+        node.session()?
+            .edit_queue(dart_signal.expected_revision, |player| {
+                let changed = (dart_signal.index as usize) < player.get_playlist().len();
+                player.remove_from_playlist(dart_signal.index as usize);
+                changed
+            })
+            .await?;
         Ok(Some(()))
     }
 }
@@ -443,20 +446,20 @@ impl Signal for VolumeRequest {
 }
 
 impl ParamsExtractor for MovePlaylistItemRequest {
-    type Params = (Arc<Mutex<dyn Playable>>,);
+    type Params = (Arc<NodeContext>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.player),)
+        (all_params.node.clone(),)
     }
 }
 
 impl Signal for MovePlaylistItemRequest {
-    type Params = (Arc<Mutex<dyn Playable>>,);
+    type Params = (Arc<NodeContext>,);
     type Response = ();
 
     async fn handle(
         &self,
-        (player,): Self::Params,
+        (node,): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -464,14 +467,20 @@ impl Signal for MovePlaylistItemRequest {
         let old_index = request.old_index;
         let new_index = request.new_index;
 
-        player.lock().await.move_playlist_item(
-            old_index.try_into().map_err(|error| {
-                ExpectedRequestError::invalid_input(format!("Invalid old index: {error}"))
-            })?,
-            new_index.try_into().map_err(|error| {
-                ExpectedRequestError::invalid_input(format!("Invalid new index: {error}"))
-            })?,
-        );
+        let old_index = old_index.try_into().map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("Invalid old index: {error}"))
+        })?;
+        let new_index = new_index.try_into().map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("Invalid new index: {error}"))
+        })?;
+        node.session()?
+            .edit_queue(dart_signal.expected_revision, |player| {
+                let len = player.get_playlist().len();
+                let changed = old_index != new_index && old_index < len && new_index < len;
+                player.move_playlist_item(old_index, new_index);
+                changed
+            })
+            .await?;
         Ok(Some(()))
     }
 }
@@ -525,35 +534,24 @@ impl Signal for SetAdaptiveSwitchingEnabledRequest {
 }
 
 impl ParamsExtractor for OperatePlaybackWithMixQueryRequest {
-    type Params = (
-        Option<LibraryHandle>,
-        Arc<String>,
-        Arc<Mutex<dyn Playable>>,
-        Arc<NodeContext>,
-    );
+    type Params = (Option<LibraryHandle>, Arc<String>, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             all_params.library.clone(),
             Arc::clone(&all_params.node_id),
-            Arc::clone(&all_params.player),
             all_params.node.clone(),
         )
     }
 }
 
 impl Signal for OperatePlaybackWithMixQueryRequest {
-    type Params = (
-        Option<LibraryHandle>,
-        Arc<String>,
-        Arc<Mutex<dyn Playable>>,
-        Arc<NodeContext>,
-    );
+    type Params = (Option<LibraryHandle>, Arc<String>, Arc<NodeContext>);
     type Response = OperatePlaybackWithMixQueryResponse;
 
     async fn handle(
         &self,
-        (library, _node_id, player, node): Self::Params,
+        (library, _node_id, node): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -599,31 +597,37 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
             &tracks,
         )
         .await?;
-        let mut player = player.lock().await;
-
         let operate_mode = request.operate_mode;
-        // Clear the playlist if requested
-        if operate_mode == PlaylistOperateMode::Replace {
-            player.clear_playlist();
-        }
-
         let add_mode = if operate_mode == PlaylistOperateMode::PlayNext {
             AddMode::PlayNext
         } else {
             AddMode::AppendToEnd
         };
 
-        let playlist_len = if operate_mode == PlaylistOperateMode::Replace {
-            0
-        } else {
-            player.get_playlist().len()
-        };
+        let mut playlist_len = 0;
 
         let mut items: Vec<PlayingItem> = prepared.iter().map(|(item, _)| item.clone()).collect();
 
         // If not required to play instantly, add to playlist and return
         if !request.instantly_play {
-            player.add_to_playlist_with_sources(prepared.clone(), add_mode);
+            node.session()?
+                .edit_queue(request.expected_revision, |player| {
+                    let queue_changed = operate_mode == PlaylistOperateMode::Replace
+                        && !player.get_playlist().is_empty();
+                    if operate_mode == PlaylistOperateMode::Replace {
+                        player.clear_playlist();
+                    }
+                    playlist_len = if operate_mode == PlaylistOperateMode::Replace {
+                        0
+                    } else {
+                        player.get_playlist().len()
+                    };
+                    if !prepared.is_empty() {
+                        player.add_to_playlist_with_sources(prepared.clone(), add_mode);
+                    }
+                    queue_changed || !prepared.is_empty()
+                })
+                .await?;
             return Ok(Some(OperatePlaybackWithMixQueryResponse {
                 playing_items: playing_item_requests(
                     &items,
@@ -660,21 +664,31 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
 
         let nearest_index = nearest_index.unwrap_or(request.hint_position.try_into().unwrap_or(0));
 
-        // Add to playlist
-        if !prepared.is_empty() {
-            player.add_to_playlist_with_sources(prepared.clone(), add_mode);
-        }
-
-        // Set playback mode
-        if request.playback_mode != 99 {
-            player.set_playback_mode(request.playback_mode.into());
-        }
-
-        // Switch to the nearest index and play
-        if !prepared.is_empty() {
-            player.switch(nearest_index + playlist_len);
-            player.play();
-        }
+        node.session()?
+            .edit_queue(request.expected_revision, |player| {
+                let queue_changed = operate_mode == PlaylistOperateMode::Replace
+                    && !player.get_playlist().is_empty();
+                if operate_mode == PlaylistOperateMode::Replace {
+                    player.clear_playlist();
+                }
+                playlist_len = if operate_mode == PlaylistOperateMode::Replace {
+                    0
+                } else {
+                    player.get_playlist().len()
+                };
+                if !prepared.is_empty() {
+                    player.add_to_playlist_with_sources(prepared.clone(), add_mode);
+                }
+                if request.playback_mode != 99 {
+                    player.set_playback_mode(request.playback_mode.into());
+                }
+                if !prepared.is_empty() {
+                    player.switch(nearest_index + playlist_len);
+                    player.play();
+                }
+                queue_changed || !prepared.is_empty()
+            })
+            .await?;
 
         Ok(Some(OperatePlaybackWithMixQueryResponse {
             playing_items: playing_item_requests(

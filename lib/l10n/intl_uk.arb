@@ -1416,6 +1416,7 @@
   "deviceNotShared": "Не надано доступ",
   "deviceReadOnly": "Лише читання",
   "deviceReadWrite": "Читання й запис",
+  "requestConflict": "Черга змінилася, спробуйте ще раз",
   "requestPermissionDenied": "Цьому пристрою не дозволено це робити",
   "readOnly": "Лише читання",
   "queueUnavailableAccessRevoked": "Доступ відкликано",

@@ -7,6 +7,7 @@ use super::mix::MixQuery;
 
 #[derive(Clone, Deserialize, Serialize, RustSignal)]
 pub struct PlaybackStatus {
+    pub session_id: String,
     pub state: String,
     pub progress_seconds: f32,
     pub progress_percentage: f32,
@@ -58,12 +59,16 @@ pub struct SeekRequest {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct RemoveRequest {
     pub index: u32,
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct MovePlaylistItemRequest {
     pub old_index: u32,
     pub new_index: u32,
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
@@ -98,6 +103,8 @@ impl From<UnavailableReason> for PlaylistUnavailableReason {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct PlaylistUpdate {
     pub items: Vec<PlaylistItem>,
+    pub session_id: String,
+    pub revision: u64,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
@@ -173,6 +180,8 @@ pub struct OperatePlaybackWithMixQueryRequest {
     pub instantly_play: bool,
     pub operate_mode: PlaylistOperateMode,
     pub fallback_playing_items: Vec<PlayingItemRequest>,
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

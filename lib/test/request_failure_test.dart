@@ -97,6 +97,7 @@ void main() {
       "This isn't available right now",
     );
     expect(message(RequestErrorKind.permissionDenied), "This device isn't allowed to do that");
+    expect(message(RequestErrorKind.conflict), 'The queue changed; try again');
     expect(message(RequestErrorKind.internal), s.unknownError);
   });
 
