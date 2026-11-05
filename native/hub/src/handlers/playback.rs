@@ -127,10 +127,13 @@ fn edit_playlist(
     if mode == PlaylistOperateMode::Replace {
         player.clear_playlist();
     }
-    let offset = if mode == PlaylistOperateMode::Replace {
-        0
-    } else {
-        player.get_playlist().len()
+    let offset = match mode {
+        PlaylistOperateMode::Replace => 0,
+        PlaylistOperateMode::AppendToEnd => player.get_playlist().len(),
+        PlaylistOperateMode::PlayNext => player
+            .get_status()
+            .index
+            .map_or(0, |index| index.saturating_add(1)),
     };
     let add_mode = if mode == PlaylistOperateMode::PlayNext {
         AddMode::PlayNext
@@ -851,17 +854,21 @@ impl Signal for CastLoadRequest {
             .iter()
             .filter_map(|item| prepared_by_item.get(item).cloned())
             .collect::<Vec<_>>();
-        let start_index = usize::try_from(request.start_index).map_err(|error| {
-            ExpectedRequestError::invalid_input(format!("Invalid cast start index: {error}"))
-        })?;
+        let start_index = request
+            .start_index
+            .map(usize::try_from)
+            .transpose()
+            .map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid cast start index: {error}"))
+            })?;
         node.session()?
             .edit_queue(request.expected_revision, |player| {
                 edit_playlist(
                     player,
                     &prepared,
                     request.mode,
-                    (request.mode == PlaylistOperateMode::Replace).then_some(start_index),
-                    None,
+                    start_index,
+                    request.playback_mode,
                 )
                 .0
             })

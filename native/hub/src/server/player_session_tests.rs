@@ -1091,10 +1091,7 @@ async fn playback_boundary_uses_current_library_and_maps_online_to_unknown_shape
     let other_request = PlayingItemRequest {
         in_library: None,
         independent_file: None,
-        library_item: Some(LibraryItemRequest {
-            library_id: other.library_id.to_string(),
-            file_uuid: other.file_uuid.to_string(),
-        }),
+        library_item: Some(other.into()),
     };
     assert_eq!(
         playing_item_from_request(other_request, None).await?,
@@ -2071,16 +2068,14 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
 
     let cast_items = host_items
         .iter()
-        .map(|item| LibraryItemRequest {
-            library_id: item.library_id.to_string(),
-            file_uuid: item.file_uuid.to_string(),
-        })
+        .map(|item| (*item).into())
         .collect::<Vec<_>>();
     let load = CastLoadRequest {
         items: cast_items.clone(),
-        start_index: 0,
+        start_index: Some(0),
         mode: PlaylistOperateMode::Replace,
         expected_revision: None,
+        playback_mode: None,
     };
     let (name, payload, updates) =
         controller_request(&mut socket, "CastLoadRequest", rinf::serialize(&load)?).await?;
@@ -2126,13 +2121,11 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     let local_cast_id = session_audio(&renderer, "cast-local.ogg").await?;
     let local_cast_item = library_item_for_id(&renderer, local_cast_id).await?;
     let stale_load = CastLoadRequest {
-        items: vec![LibraryItemRequest {
-            library_id: local_cast_item.library_id.to_string(),
-            file_uuid: local_cast_item.file_uuid.to_string(),
-        }],
+        items: vec![local_cast_item.into()],
         expected_revision: Some(revision.saturating_sub(1)),
-        start_index: 0,
+        start_index: Some(0),
         mode: PlaylistOperateMode::Replace,
+        playback_mode: None,
     };
     let queue_before_stale = renderer.global_params.player.lock().await.get_playlist();
     let (name, payload, _) = controller_request(
@@ -2185,9 +2178,10 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         "CastLoadRequest",
         rinf::serialize(&CastLoadRequest {
             items: vec![not_held],
-            start_index: 0,
+            start_index: Some(0),
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
+            playback_mode: None,
         })?,
     )
     .await?;
@@ -2244,9 +2238,10 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         "CastLoadRequest",
         rinf::serialize(&CastLoadRequest {
             items: cast_items,
-            start_index: 0,
+            start_index: Some(0),
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
+            playback_mode: None,
         })?,
     )
     .await?;
@@ -2282,6 +2277,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
         RequestErrorKind::InvalidInput
     );
+
     let (name, payload, _) = controller_request(
         &mut socket,
         "CastLoadRequest",
@@ -2290,9 +2286,10 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
                 library_id: host_library_id.to_string(),
                 file_uuid: "malformed".into(),
             }],
-            start_index: 0,
+            start_index: Some(0),
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
+            playback_mode: None,
         })?,
     )
     .await?;
@@ -2303,6 +2300,230 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     );
 
     renderer.global_params.node.shutdown().await?;
+    controller.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Result<()> {
+    use crate::backends::remote::RendererLink;
+    use crate::messages::{
+        CastLibraryState, CastLoadRequest, CastLoadResponse, CastPreflightResponse,
+        LibraryItemRequest, PlaylistOperateMode, RequestErrorKind,
+    };
+    use crate::request_error::classify;
+
+    let controller_dir = tempfile::tempdir()?;
+    let renderer_dir = tempfile::tempdir()?;
+    let controller_signals = Arc::new(RecordedSignals::default());
+    let controller = fixture_with_broadcaster(
+        controller_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        controller_signals.clone(),
+    )
+    .await?;
+    let renderer = fixture(renderer_dir.path()).await?;
+    attach_pair_with_signals(&controller, &renderer, &controller_signals).await?;
+    let link: Arc<RendererLink> = controller
+        .global_params
+        .node
+        .renderer_link()?
+        .context("attached renderer link")?;
+    let library_id = renderer
+        .global_params
+        .library_id
+        .context("renderer library id")?;
+
+    let (name, payload) = link
+        .request(
+            "CastPreflightRequest",
+            &rinf::serialize(&preflight_request(library_id))?,
+        )
+        .await?;
+    assert_eq!(name, "CastPreflightResponse");
+    let preflight: CastPreflightResponse = rinf::deserialize(&payload)?;
+    assert_eq!(preflight.libraries[0].state, CastLibraryState::Ready);
+
+    let ids = [
+        session_audio(&renderer, "request-anchor.ogg").await?,
+        session_audio(&renderer, "request-no-switch.ogg").await?,
+        session_audio(&renderer, "request-append-play.ogg").await?,
+        session_audio(&renderer, "request-play-next.ogg").await?,
+    ];
+    let items = futures::future::join_all(ids.iter().map(|id| library_item_for_id(&renderer, *id)))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+    let anchor = items[0];
+    renderer
+        .global_params
+        .node
+        .session()?
+        .edit_queue(None, move |player| {
+            player.add_to_playlist_with_sources(
+                vec![(
+                    PlayingItem::InLibrary(anchor),
+                    PlaybackSource::LibraryStream,
+                )],
+                AddMode::AppendToEnd,
+            );
+            true
+        })
+        .await?;
+    wait_player(&renderer, |status| status.playlist.len() == 1).await?;
+    renderer.global_params.player.lock().await.switch(0);
+    wait_player(&renderer, |status| {
+        status.item == Some(PlayingItem::InLibrary(items[0]))
+    })
+    .await?;
+    renderer.global_params.player.lock().await.pause();
+    wait_player(&renderer, |status| {
+        status.item == Some(PlayingItem::InLibrary(items[0]))
+            && status.state == PlaybackState::Paused
+    })
+    .await?;
+
+    let initial_revision = renderer
+        .global_params
+        .node
+        .session()?
+        .queue_revision()
+        .await;
+    let append_without_switch = CastLoadRequest {
+        items: vec![items[1].into()],
+        start_index: None,
+        mode: PlaylistOperateMode::AppendToEnd,
+        expected_revision: Some(initial_revision),
+        playback_mode: None,
+    };
+    let (name, payload) = link
+        .request("CastLoadRequest", &rinf::serialize(&append_without_switch)?)
+        .await?;
+    assert_eq!(name, "CastLoadResponse");
+    let _: CastLoadResponse = rinf::deserialize(&payload)?;
+    wait_player(&renderer, |status| status.playlist.len() == 2).await?;
+    assert_eq!(
+        renderer.global_params.player.lock().await.get_status().item,
+        Some(PlayingItem::InLibrary(items[0]))
+    );
+    assert_eq!(
+        renderer
+            .global_params
+            .node
+            .session()?
+            .queue_revision()
+            .await,
+        initial_revision + 1
+    );
+
+    for (mode, item, expected_state) in [
+        (
+            PlaylistOperateMode::AppendToEnd,
+            items[2],
+            PlaybackState::Playing,
+        ),
+        (
+            PlaylistOperateMode::PlayNext,
+            items[3],
+            PlaybackState::Playing,
+        ),
+    ] {
+        let request = CastLoadRequest {
+            items: vec![item.into()],
+            start_index: Some(0),
+            mode,
+            expected_revision: Some(
+                renderer
+                    .global_params
+                    .node
+                    .session()?
+                    .queue_revision()
+                    .await,
+            ),
+            playback_mode: None,
+        };
+        let (name, payload) = link
+            .request("CastLoadRequest", &rinf::serialize(&request)?)
+            .await?;
+        assert_eq!(name, "CastLoadResponse");
+        let _: CastLoadResponse = rinf::deserialize(&payload)?;
+        wait_player(&renderer, |status| {
+            status.item == Some(PlayingItem::InLibrary(item)) && status.state == expected_state
+        })
+        .await?;
+        // Keep this test from decoding audio for the rest of its run; other tests in the
+        // process share the machine and stream audio under 10 second deadlines.
+        renderer.global_params.player.lock().await.pause();
+    }
+
+    // The player publishes the queue and the current item separately; wait for all four
+    // items before taking the snapshot the rejected load must leave unchanged.
+    let queue_before_invalid = wait_player(&renderer, |status| status.playlist.len() == 4)
+        .await?
+        .playlist;
+    let revision_before_invalid = renderer
+        .global_params
+        .node
+        .session()?
+        .queue_revision()
+        .await;
+    let invalid = CastLoadRequest {
+        items: vec![LibraryItemRequest {
+            library_id: library_id.to_string(),
+            file_uuid: "malformed".into(),
+        }],
+        start_index: None,
+        mode: PlaylistOperateMode::AppendToEnd,
+        expected_revision: None,
+        playback_mode: None,
+    };
+    let error = link
+        .request("CastLoadRequest", &rinf::serialize(&invalid)?)
+        .await
+        .unwrap_err();
+    assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+    assert_eq!(
+        renderer.global_params.player.lock().await.get_playlist(),
+        queue_before_invalid
+    );
+    assert_eq!(
+        renderer
+            .global_params
+            .node
+            .session()?
+            .queue_revision()
+            .await,
+        revision_before_invalid
+    );
+    assert!(
+        !controller_signals
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(name, _)| name == "RemoteRequestFailed")
+    );
+
+    renderer.global_params.node.shutdown().await?;
+    timeout(Duration::from_secs(5), async {
+        while controller.global_params.node.renderer_link()?.is_some() {
+            sleep(Duration::from_millis(20)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("renderer link did not clear after renderer shutdown")??;
+    let error = link
+        .request(
+            "CastPreflightRequest",
+            &rinf::serialize(&preflight_request(library_id))?,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(classify(&error), RequestErrorKind::Unavailable);
+    assert!(controller.global_params.node.renderer_link()?.is_none());
+
     controller.global_params.node.shutdown().await?;
     Ok(())
 }

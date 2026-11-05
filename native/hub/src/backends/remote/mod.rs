@@ -7,7 +7,7 @@ use crate::request_error::classify;
 use std::{
     collections::HashMap,
     sync::{
-        Arc, OnceLock,
+        Arc, OnceLock, Weak,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -21,7 +21,7 @@ use reqwest::redirect::Policy;
 use rinf::{DartSignal, RustSignal};
 use serde::Deserialize;
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, oneshot};
 use tokio_tungstenite::{
     Connector, connect_async_tls_with_config,
     tungstenite::{client::IntoClientRequest, protocol::Message as TungsteniteMessage},
@@ -189,6 +189,7 @@ pub(crate) fn token_error(error: anyhow::Error) -> RemoteConnectError {
 }
 
 type RemoteStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type PendingReplies = Arc<Mutex<HashMap<Uuid, oneshot::Sender<Result<(String, Vec<u8>)>>>>>;
 
 /// A node-owned control connection to a remote renderer.
 pub struct RendererLink {
@@ -196,6 +197,8 @@ pub struct RendererLink {
     write: Arc<Mutex<SplitSink<RemoteStream, TungsteniteMessage>>>,
     cancel: CancellationToken,
     locally_detached: Arc<AtomicBool>,
+    pending_replies: PendingReplies,
+    node: Weak<NodeContext>,
     reader: tokio::task::JoinHandle<()>,
 }
 
@@ -245,6 +248,8 @@ impl RendererLink {
         let handlers = Arc::new(Mutex::new(HashMap::<String, MessageHandler>::new()));
         register_renderer_handlers(&handlers, node.gui_broadcaster.clone()).await;
         let reader_handlers = handlers.clone();
+        let pending_replies: PendingReplies = Arc::new(Mutex::new(HashMap::new()));
+        let reader_pending_replies = pending_replies.clone();
         let reader_cancel = cancel.clone();
         let reader_local_detach = locally_detached.clone();
         let weak_node = Arc::downgrade(&node);
@@ -256,10 +261,15 @@ impl RendererLink {
                     _ = reader_cancel.cancelled() => break,
                     message = read.next() => match message {
                         Some(Ok(TungsteniteMessage::Binary(payload))) => {
-                            if let Some((name, body, _)) = decode_message(&payload)
-                                && let Some(handler) = reader_handlers.lock().await.get(&name)
-                            {
-                                handler(body);
+                            if let Some((name, body, request_id)) = decode_message(&payload) {
+                                let pending = reader_pending_replies.lock().await.remove(&request_id);
+                                if let Some(reply) = pending {
+                                    let _ = reply.send(renderer_reply(name, body));
+                                    continue;
+                                }
+                                if let Some(handler) = reader_handlers.lock().await.get(&name) {
+                                    handler(body);
+                                }
                             }
                         }
                         Some(Ok(TungsteniteMessage::Close(frame))) => {
@@ -274,6 +284,7 @@ impl RendererLink {
                 }
             }
             reader_cancel.cancel();
+            reader_pending_replies.lock().await.clear();
             if !reader_local_detach.load(Ordering::Acquire)
                 && let Some(node) = weak_node.upgrade()
             {
@@ -286,6 +297,8 @@ impl RendererLink {
             write,
             cancel,
             locally_detached,
+            pending_replies,
+            node: Arc::downgrade(&node),
             reader,
         }
     }
@@ -299,6 +312,46 @@ impl RendererLink {
             .send(TungsteniteMessage::Binary(frame.into()))
             .await
             .context("Could not send control request to renderer")
+    }
+
+    /// Send a request to the renderer and wait for its matching response frame.
+    pub async fn request(&self, name: &str, payload: &[u8]) -> Result<(String, Vec<u8>)> {
+        let request_id = Uuid::new_v4();
+        let (sender, receiver) = oneshot::channel();
+        self.pending_replies.lock().await.insert(request_id, sender);
+        // The reader clears pending replies when it ends; a link that already ended would
+        // otherwise leave this request waiting for the timeout.
+        if self.cancel.is_cancelled() {
+            self.pending_replies.lock().await.remove(&request_id);
+            return Err(ExpectedRequestError::Unavailable { what: "renderer" }.into());
+        }
+        let frame = encode_message(name, payload, Some(request_id));
+        if let Err(error) = self
+            .write
+            .lock()
+            .await
+            .send(TungsteniteMessage::Binary(frame.into()))
+            .await
+        {
+            self.pending_replies.lock().await.remove(&request_id);
+            self.report_send_failure(format!("Could not send request to renderer: {error}"))
+                .await;
+            return Err(ExpectedRequestError::Unavailable { what: "renderer" }.into());
+        }
+        match tokio::time::timeout(Duration::from_secs(30), receiver).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) | Err(_) => {
+                self.pending_replies.lock().await.remove(&request_id);
+                Err(ExpectedRequestError::Unavailable { what: "renderer" }.into())
+            }
+        }
+    }
+
+    async fn report_send_failure(&self, detail: String) {
+        if let Some(node) = self.node.upgrade() {
+            node.renderer_link_lost(self.id, RemoteLossKind::NetworkLost, detail)
+                .await;
+        }
     }
 
     pub(crate) fn id(&self) -> Uuid {
@@ -329,18 +382,28 @@ pub async fn forward_control_request(
             what: "adding tracks to another device needs cast",
         }));
     }
-    if link.forward(name, payload).await.is_err() {
-        node.renderer_link_lost(
-            link.id(),
-            RemoteLossKind::NetworkLost,
-            "Could not send request to renderer".into(),
-        )
-        .await;
+    if let Err(error) = link.forward(name, payload).await {
+        link.report_send_failure(format!("Could not send request to renderer: {error:#}"))
+            .await;
         return Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
             what: "renderer",
         }));
     }
     Ok(true)
+}
+
+/// Turn a reply frame the hub waited for into its typed outcome.
+fn renderer_reply(name: String, body: Vec<u8>) -> Result<(String, Vec<u8>)> {
+    if name != "RemoteRequestFailed" {
+        return Ok((name, body));
+    }
+    let failure = rinf::deserialize::<RemoteRequestFailed>(&body)
+        .map_err(|error| anyhow::anyhow!("Could not decode renderer failure: {error}"))?;
+    Err(ExpectedRequestError::Remote {
+        kind: failure.kind,
+        detail: failure.detail,
+    }
+    .into())
 }
 
 pub fn is_mix_query_request(name: &str) -> bool {

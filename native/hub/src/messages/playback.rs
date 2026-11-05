@@ -166,10 +166,13 @@ pub struct CastPreflightResponse {
 #[derive(Clone, Serialize, Deserialize, DartSignal)]
 pub struct CastLoadRequest {
     pub items: Vec<LibraryItemRequest>,
-    pub start_index: u32,
+    #[serde(default)]
+    pub start_index: Option<u32>,
     pub mode: PlaylistOperateMode,
     #[serde(default)]
     pub expected_revision: Option<u64>,
+    #[serde(default)]
+    pub playback_mode: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
