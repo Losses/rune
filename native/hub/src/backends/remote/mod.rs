@@ -378,9 +378,7 @@ pub async fn forward_control_request(
         return Ok(false);
     };
     if is_mix_query_request(name) {
-        return Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
-            what: "adding tracks to another device needs cast",
-        }));
+        return Ok(false);
     }
     if let Err(error) = link.forward(name, payload).await {
         link.report_send_failure(format!("Could not send request to renderer: {error:#}"))

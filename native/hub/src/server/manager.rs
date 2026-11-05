@@ -498,7 +498,10 @@ impl ServerManager {
         }
         let streams = std::mem::take(&mut *self.stream_handles.lock().await);
         for handle in streams {
-            if let Err(error) = handle.await {
+            // A watcher whose task was already cancelled has nothing left to stop.
+            if let Err(error) = handle.await
+                && !error.is_cancelled()
+            {
                 first_error.get_or_insert_with(|| error.into());
             }
         }

@@ -14,7 +14,7 @@ use crate::{
 };
 use database::actions::{
     downloads::cleanup_unselected_downloads,
-    file::{catalog_track, file_uuids_by_id},
+    file::{catalog_track, file_ids_by_uuid, file_uuids_by_id},
     mixes::query_mix_media_files,
     playback_queue::{list_legacy_playback_queue, replace_playback_queue},
 };
@@ -637,10 +637,9 @@ async fn old_renderer_reader_cannot_clear_a_new_link() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn mix_query_is_rejected_while_library_reads_stay_local() -> Result<()> {
+async fn mix_query_forwarding_leaves_it_for_local_resolution() -> Result<()> {
     use crate::backends::remote::forward_control_request;
     use crate::messages::OperatePlaybackWithMixQueryRequest;
-    use crate::request_error::{ExpectedRequestError, classify};
 
     let a_dir = tempfile::tempdir()?;
     let b_dir = tempfile::tempdir()?;
@@ -667,19 +666,16 @@ async fn mix_query_is_rejected_while_library_reads_stay_local() -> Result<()> {
         fallback_playing_items: Vec::new(),
         expected_revision: None,
     };
-    let error = forward_control_request(
+    let forwarded = forward_control_request(
         &a.global_params.node,
         "OperatePlaybackWithMixQueryRequest",
         &rinf::serialize(&request)?,
     )
-    .await
-    .unwrap_err();
+    .await?;
     assert!(
-        error
-            .chain()
-            .any(|cause| cause.is::<ExpectedRequestError>())
+        !forwarded,
+        "mix queries must run locally for cast resolution"
     );
-    assert_eq!(classify(&error), RequestErrorKind::Unavailable);
     assert_eq!(
         b.global_params.player.lock().await.get_status().playlist,
         before
@@ -699,6 +695,316 @@ async fn mix_query_is_rejected_while_library_reads_stay_local() -> Result<()> {
     a.global_params.node.detach_renderer().await?;
     a.global_params.node.shutdown().await?;
     b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn attached_mix_query_casts_and_stale_edits_are_rejected() -> Result<()> {
+    use crate::Signal;
+    use crate::messages::{MixQuery, OperatePlaybackWithMixQueryRequest, PlaylistOperateMode};
+    use crate::request_error::{ExpectedRequestError, classify};
+    use crate::utils::ParamsExtractor;
+
+    let host_dir = tempfile::tempdir()?;
+    let renderer_dir = tempfile::tempdir()?;
+    let controller_dir = tempfile::tempdir()?;
+    let host = fixture(host_dir.path()).await?;
+    let renderer = fixture(renderer_dir.path()).await?;
+    let signals = Arc::new(RecordedSignals::default());
+    let controller = fixture_with_broadcaster(
+        controller_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let ids = [
+        session_audio(&host, "mix-cast-first.ogg").await?,
+        session_audio(&host, "mix-cast-second.ogg").await?,
+        session_audio(&host, "mix-cast-local-queue.ogg").await?,
+    ];
+    let host_items =
+        futures::future::join_all(ids[..2].iter().map(|id| library_item_for_id(&host, *id)))
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+    let (_, renderer_replica) = replicate_host_library(&host, &renderer).await?;
+    let host_addr = host.get_address().await.context("host listener address")?;
+    pair(&host, &controller).await?;
+    let (_, controller_replica) = replicate_host_library_at(&host, &controller, host_addr).await?;
+    attach_pair_with_signals(&controller_replica, &renderer_replica, &signals).await?;
+
+    queue_session(&controller_replica, &[ids[2]]).await?;
+    let local_queue = controller_replica
+        .global_params
+        .player
+        .lock()
+        .await
+        .get_playlist();
+    let local_revision = controller_replica
+        .global_params
+        .node
+        .session()?
+        .queue_revision()
+        .await;
+    let controller_file_ids = file_ids_by_uuid(
+        &controller_replica.global_params.test_library().main_db,
+        &host_items
+            .iter()
+            .map(|item| item.file_uuid)
+            .collect::<Vec<_>>(),
+    )
+    .await?;
+    let request = OperatePlaybackWithMixQueryRequest {
+        queries: host_items
+            .iter()
+            .map(|item| MixQuery {
+                operator: "lib::track".into(),
+                parameter: controller_file_ids[&item.file_uuid].to_string(),
+            })
+            .collect(),
+        playback_mode: 0,
+        hint_position: -1,
+        initial_playback_item: None,
+        instantly_play: true,
+        operate_mode: PlaylistOperateMode::Replace,
+        fallback_playing_items: Vec::new(),
+        expected_revision: Some(0),
+    };
+    let params = request.extract_params(&controller_replica.global_params);
+    let response = request
+        .handle(params, None, &request)
+        .await?
+        .context("cast mix query response")?;
+    assert_eq!(response.playing_items.len(), 2);
+    let response_ids = response
+        .playing_items
+        .iter()
+        .map(|item| {
+            item.in_library
+                .as_ref()
+                .map(|item| item.file_id)
+                .context("resolved mix item is not in the controller library")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let response_uuids = file_uuids_by_id(
+        &controller_replica.global_params.test_library().main_db,
+        &response_ids,
+    )
+    .await?;
+    let expected_items = response_ids
+        .iter()
+        .map(|file_id| {
+            response_uuids
+                .get(file_id)
+                .copied()
+                .map(|file_uuid| {
+                    PlayingItem::InLibrary(LibraryItem {
+                        library_id: controller_replica
+                            .global_params
+                            .library_id
+                            .expect("replica library id"),
+                        file_uuid,
+                    })
+                })
+                .context("resolved mix item uuid")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let renderer_status = wait_player(&renderer_replica, |status| {
+        status.playlist == expected_items && status.item == expected_items.first().cloned()
+    })
+    .await?;
+    renderer_replica.global_params.player.lock().await.pause();
+    wait_player(&renderer_replica, |status| {
+        status.state == PlaybackState::Paused
+    })
+    .await?;
+    assert_eq!(renderer_status.playlist, expected_items);
+    assert_eq!(
+        controller_replica
+            .global_params
+            .player
+            .lock()
+            .await
+            .get_playlist(),
+        local_queue
+    );
+    assert_eq!(
+        controller_replica
+            .global_params
+            .node
+            .session()?
+            .queue_revision()
+            .await,
+        local_revision
+    );
+
+    let renderer_revision = renderer_replica
+        .global_params
+        .node
+        .session()?
+        .queue_revision()
+        .await;
+    let mut stale = request;
+    stale.expected_revision = Some(renderer_revision.saturating_sub(1));
+    let params = stale.extract_params(&controller_replica.global_params);
+    let error = match stale.handle(params, None, &stale).await {
+        Err(error) => error,
+        Ok(_) => anyhow::bail!("stale mix cast unexpectedly succeeded"),
+    };
+    assert!(
+        error
+            .chain()
+            .any(|cause| cause.is::<ExpectedRequestError>())
+    );
+    assert_eq!(classify(&error), RequestErrorKind::Conflict);
+    assert_eq!(
+        renderer_replica
+            .global_params
+            .node
+            .session()?
+            .queue_revision()
+            .await,
+        renderer_revision
+    );
+    assert_eq!(
+        renderer_replica
+            .global_params
+            .player
+            .lock()
+            .await
+            .get_playlist(),
+        renderer_status.playlist
+    );
+
+    renderer_replica.global_params.player.lock().await.stop();
+    wait_player(&renderer_replica, |status| {
+        status.state == PlaybackState::Stopped
+    })
+    .await?;
+    controller_replica
+        .global_params
+        .node
+        .detach_renderer()
+        .await?;
+    renderer_replica.global_params.node.shutdown().await?;
+    controller_replica.global_params.node.shutdown().await?;
+    host.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result<()> {
+    use crate::Signal;
+    use crate::messages::{
+        IndependentFilePlayingItem, OperatePlaybackWithMixQueryRequest, PlayingItemRequest,
+        PlaylistOperateMode,
+    };
+    use crate::utils::ParamsExtractor;
+
+    let controller_dir = tempfile::tempdir()?;
+    let renderer_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let controller = fixture_with_broadcaster(
+        controller_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let renderer = fixture(renderer_dir.path()).await?;
+    let id = session_audio(&controller, "mix-cast-unheld.ogg").await?;
+    attach_pair_with_signals(&controller, &renderer, &signals).await?;
+    let before_queue = renderer.global_params.player.lock().await.get_playlist();
+    let before_revision = renderer
+        .global_params
+        .node
+        .session()?
+        .queue_revision()
+        .await;
+    let independent_dir = tempfile::tempdir()?;
+    let independent_path = independent_dir.path().join("outside.ogg");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
+        &independent_path,
+    )?;
+    let independent_request = OperatePlaybackWithMixQueryRequest {
+        queries: Vec::new(),
+        playback_mode: 0,
+        hint_position: -1,
+        initial_playback_item: None,
+        instantly_play: false,
+        operate_mode: PlaylistOperateMode::Replace,
+        fallback_playing_items: vec![PlayingItemRequest {
+            independent_file: Some(IndependentFilePlayingItem {
+                raw_path: independent_path.to_string_lossy().into_owned(),
+            }),
+            in_library: None,
+            library_item: None,
+        }],
+        expected_revision: None,
+    };
+    let params = independent_request.extract_params(&controller.global_params);
+    let error = match independent_request
+        .handle(params, None, &independent_request)
+        .await
+    {
+        Err(error) => error,
+        Ok(_) => anyhow::bail!("cast of an independent file unexpectedly succeeded"),
+    };
+    assert_eq!(classify(&error), RequestErrorKind::Unavailable);
+    assert!(format!("{error:#}").contains("casting files outside a library"));
+    assert_eq!(
+        renderer.global_params.player.lock().await.get_playlist(),
+        before_queue
+    );
+    assert_eq!(
+        renderer
+            .global_params
+            .node
+            .session()?
+            .queue_revision()
+            .await,
+        before_revision
+    );
+
+    let item = library_item_for_id(&controller, id).await?;
+    let request = OperatePlaybackWithMixQueryRequest {
+        queries: Vec::new(),
+        playback_mode: 0,
+        hint_position: -1,
+        initial_playback_item: None,
+        instantly_play: false,
+        operate_mode: PlaylistOperateMode::Replace,
+        fallback_playing_items: playing_item_requests(
+            &[PlayingItem::InLibrary(item)],
+            &controller.global_params.library_pool,
+            controller.global_params.library_id,
+        )
+        .await,
+        expected_revision: None,
+    };
+    let params = request.extract_params(&controller.global_params);
+    let error = match request.handle(params, None, &request).await {
+        Err(error) => error,
+        Ok(_) => anyhow::bail!("cast of an unheld library unexpectedly succeeded"),
+    };
+    assert_eq!(classify(&error), RequestErrorKind::PermissionDenied);
+    assert_eq!(
+        renderer.global_params.player.lock().await.get_playlist(),
+        before_queue
+    );
+    assert_eq!(
+        renderer
+            .global_params
+            .node
+            .session()?
+            .queue_revision()
+            .await,
+        before_revision
+    );
+    controller.global_params.node.shutdown().await?;
+    renderer.global_params.node.shutdown().await?;
     Ok(())
 }
 
@@ -2085,6 +2391,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         status.item == Some(PlayingItem::InLibrary(host_items[0]))
     })
     .await?;
+    renderer.global_params.player.lock().await.pause();
     let mut updates = updates;
     tokio::time::timeout(Duration::from_secs(8), async {
         while !updates.iter().any(|update| update.items.len() == 2) {
@@ -2220,6 +2527,37 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     assert_eq!(
         rinf::deserialize::<CastPreflightResponse>(&payload)?.libraries[0].state,
         CastLibraryState::AccessRevoked
+    );
+    let queue_before_revoked_load = renderer.global_params.player.lock().await.get_playlist();
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastLoadRequest",
+        rinf::serialize(&CastLoadRequest {
+            items: cast_items.clone(),
+            start_index: None,
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(revision),
+            playback_mode: None,
+        })?,
+    )
+    .await?;
+    assert_eq!(name, "RemoteRequestFailed");
+    assert_eq!(
+        rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
+        RequestErrorKind::PermissionDenied
+    );
+    assert_eq!(
+        renderer
+            .global_params
+            .node
+            .session()?
+            .queue_revision()
+            .await,
+        revision
+    );
+    assert_eq!(
+        renderer.global_params.player.lock().await.get_playlist(),
+        queue_before_revoked_load
     );
     host.global_params.node.shutdown().await?;
     let (name, payload, _) = controller_request(
@@ -2832,9 +3170,17 @@ fn set_library_grant(
 
 /// Pair `peer` with `host`, grant it the host library, add the replica and sync its metadata.
 async fn replicate_host_library(host: &Fixture, peer: &Fixture) -> Result<(SocketAddr, Fixture)> {
+    let host_addr = paired_full(host, peer).await?;
+    replicate_host_library_at(host, peer, host_addr).await
+}
+
+async fn replicate_host_library_at(
+    host: &Fixture,
+    peer: &Fixture,
+    host_addr: SocketAddr,
+) -> Result<(SocketAddr, Fixture)> {
     use crate::server::sync_worker::{PeerEndpoint, test_peer_pass};
 
-    let host_addr = paired_full(host, peer).await?;
     let host_info = info(host).await?;
     let peer_info = info(peer).await?;
     let trusted_host = format!("127.0.0.1:{}", host_addr.port());
