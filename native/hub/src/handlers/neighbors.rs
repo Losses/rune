@@ -69,6 +69,7 @@ impl Signal for StartBroadcastRequest {
                     fingerprint: fingerprint.clone(),
                     api_port: 7863,
                     protocol: "http".to_owned(),
+                    capabilities: None,
                 },
                 Duration::from_secs(request.duration_seconds.into()),
                 None,
@@ -244,6 +245,7 @@ impl Signal for StartServerRequest {
                 .0,
                 api_port: 7863,
                 protocol: "http".to_owned(),
+                capabilities: None,
             };
 
             let discovery_params = DiscoveryParams { device_info };

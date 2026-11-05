@@ -895,7 +895,7 @@ mod lifecycle_tests {
         LibrarySyncStore,
         model::{Album, Collection, MetadataTag, ObjectKey, Payload, Track},
     };
-    use discovery::{server::UserStatus, utils::DeviceType};
+    use discovery::{capabilities::Capabilities, server::UserStatus, utils::DeviceType};
     use playback::sfx_player::SfxPlayer;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::future::Future;
@@ -1163,6 +1163,28 @@ mod lifecycle_tests {
 
     async fn info(manager: &Fixture) -> Result<discovery::utils::DeviceInfo> {
         load_device_info(Path::new(&*manager.global_params.config_path)).await
+    }
+
+    #[tokio::test]
+    async fn device_info_returns_rune_capabilities() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let client_dir = tempfile::tempdir()?;
+        let manager = fixture(dir.path()).await?;
+        let client_fixture = fixture(client_dir.path()).await?;
+        let addr = paired_full(&manager, &client_fixture).await?;
+        let client = pinned_anonymous_client(&client_fixture.global_params, Some(0)).await?;
+
+        let response = client
+            .get(format!("https://{addr}/device-info"))
+            .send()
+            .await?
+            .error_for_status()?;
+        let body: serde_json::Value = response.json().await?;
+
+        let capabilities: discovery::capabilities::Capabilities =
+            serde_json::from_value(body["capabilities"].clone())?;
+        assert_eq!(capabilities, Capabilities::rune_native());
+        Ok(())
     }
 
     async fn close_ui(params: &GlobalParams) -> Result<()> {

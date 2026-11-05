@@ -135,6 +135,7 @@ async fn main() -> anyhow::Result<()> {
         fingerprint,
         api_port,
         protocol: "http".to_string(),
+        capabilities: None,
     };
 
     let discovery = DeviceDiscovery::new().await?;
