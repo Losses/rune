@@ -14,7 +14,8 @@ use database::entities::media_metadata;
 use crate::{
     handlers::playback::{playing_item_from_request, playing_item_requests},
     messages::{
-        InLibraryPlayingItem, LibraryItemRequest, PlayingItemRequest, RequestErrorKind,
+        GetMediaFilesCountRequest, InLibraryPlayingItem, LibraryItemRequest, PlayingItemRequest,
+        RequestErrorKind,
     },
     request_error::classify,
     session::store::SessionState,
@@ -345,7 +346,7 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
     assert!(updates.iter().any(|update| update.session_id == remote_session_id));
     assert!(!updates.iter().any(|update| update.session_id == local_session_id));
 
-    a.global_params.node.detach_renderer()?;
+    a.global_params.node.detach_renderer().await?;
     let detached = signals.0.lock().unwrap().iter().rev().find_map(|(name, payload)| {
         (name == "RendererAttachmentChanged")
             .then(|| rinf::deserialize::<RendererAttachmentChanged>(payload).ok())
@@ -391,6 +392,152 @@ async fn renderer_attach_failures_are_typed() -> Result<()> {
     assert!(unreachable.chain().any(|cause| cause.is::<ExpectedRequestError>()));
     assert_eq!(classify(&unreachable), RequestErrorKind::Unavailable);
     a.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+async fn attach_pair_with_signals(
+    a: &Fixture,
+    b: &Fixture,
+    signals: &Arc<RecordedSignals>,
+) -> Result<String> {
+    let b_address = super::paired_full(b, a).await?;
+    let b_info = super::info(b).await?;
+    a.global_params.cert_validator.read().await
+        .replace_hosts_for_fingerprint(
+            &b_info.fingerprint,
+            vec![format!("127.0.0.1:{}", b_address.port())],
+        ).await?;
+    signals.0.lock().unwrap().clear();
+    a.global_params.node.attach_renderer(&b_info.fingerprint).await?;
+    Ok(b_info.fingerprint)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn detached_renderer_restores_local_session_signals() -> Result<()> {
+    use crate::messages::{RemoteConnectionLost, RemoteLossKind, RendererAttachmentChanged};
+
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let a = fixture_with_broadcaster(a_dir.path(), Uuid::new_v4(), Duration::from_secs(300), signals.clone()).await?;
+    let b = fixture(b_dir.path()).await?;
+    attach_pair_with_signals(&a, &b, &signals).await?;
+    let local_track = session_audio(&a, "restore-after-detach.ogg").await?;
+    queue_session(&a, &[local_track]).await?;
+    a.global_params.node.session()?.player.lock().await.pause();
+    let local_session_id = a.global_params.node.session()?.session_id().await;
+    let controller = b.global_params.node.session()?.attached_controllers().into_iter().next()
+        .context("renderer did not register its controller")?;
+    b.global_params.node.session()?.detach_controller(Uuid::parse_str(&controller.id)?)?;
+
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let (loss, attachment, local_queue) = {
+                let records = signals.0.lock().unwrap();
+                let loss = records.iter().position(|(name, bytes)| name == "RemoteConnectionLost"
+                    && rinf::deserialize::<RemoteConnectionLost>(bytes).is_ok_and(|event| event.kind == RemoteLossKind::Detached));
+                let attachment = records.iter().position(|(name, bytes)| name == "RendererAttachmentChanged"
+                    && rinf::deserialize::<RendererAttachmentChanged>(bytes).is_ok_and(|event| event.renderer.is_none()));
+                let local_queue = records.iter().position(|(name, bytes)| name == "PlaylistUpdate"
+                    && rinf::deserialize::<PlaylistUpdate>(bytes).is_ok_and(|event| event.session_id == local_session_id));
+                (loss, attachment, local_queue)
+            };
+            if let (Some(loss), Some(attachment), Some(queue)) = (loss, attachment, local_queue) {
+                assert!(loss < attachment && attachment < queue);
+                return;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    }).await.context("detached renderer loss did not restore the local queue")?;
+    assert!(a.global_params.node.renderer_link()?.is_none());
+    a.global_params.node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stopped_renderer_clears_link_and_reports_server_stopped() -> Result<()> {
+    use crate::messages::{RemoteConnectionLost, RemoteLossKind};
+
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let a = fixture_with_broadcaster(a_dir.path(), Uuid::new_v4(), Duration::from_secs(300), signals.clone()).await?;
+    let b = fixture(b_dir.path()).await?;
+    attach_pair_with_signals(&a, &b, &signals).await?;
+    b.global_params.node.shutdown().await?;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if signals.0.lock().unwrap().iter().any(|(name, bytes)| name == "RemoteConnectionLost"
+                && rinf::deserialize::<RemoteConnectionLost>(bytes).is_ok_and(|event| event.kind == RemoteLossKind::ServerStopped))
+            { break; }
+            sleep(Duration::from_millis(20)).await;
+        }
+    }).await.context("renderer shutdown was not reported")?;
+    assert!(a.global_params.node.renderer_link()?.is_none());
+    a.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn old_renderer_reader_cannot_clear_a_new_link() -> Result<()> {
+    use crate::messages::RemoteLossKind;
+
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let a = fixture_with_broadcaster(a_dir.path(), Uuid::new_v4(), Duration::from_secs(300), signals.clone()).await?;
+    let b = fixture(b_dir.path()).await?;
+    let fingerprint = attach_pair_with_signals(&a, &b, &signals).await?;
+    let old = a.global_params.node.renderer_link()?.context("first link")?;
+    a.global_params.node.detach_renderer().await?;
+    a.global_params.node.attach_renderer(&fingerprint).await?;
+    let current = a.global_params.node.renderer_link()?.context("second link")?;
+    a.global_params.node.renderer_link_lost(old.id(), RemoteLossKind::NetworkLost, "late old reader".into()).await;
+    assert_eq!(a.global_params.node.renderer_link()?.as_ref().map(|link| link.id()), Some(current.id()));
+    a.global_params.node.detach_renderer().await?;
+    a.global_params.node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn mix_query_is_rejected_while_library_reads_stay_local() -> Result<()> {
+    use crate::backends::remote::forward_control_request;
+    use crate::messages::OperatePlaybackWithMixQueryRequest;
+    use crate::request_error::{ExpectedRequestError, classify};
+
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let a = fixture_with_broadcaster(a_dir.path(), Uuid::new_v4(), Duration::from_secs(300), signals.clone()).await?;
+    let b = fixture(b_dir.path()).await?;
+    attach_pair_with_signals(&a, &b, &signals).await?;
+    let id = session_audio(&b, "mix-query-renderer.ogg").await?;
+    queue_session(&b, &[id]).await?;
+    let before = b.global_params.player.lock().await.get_status().playlist;
+    let request = OperatePlaybackWithMixQueryRequest {
+        queries: Vec::new(), playback_mode: 0, hint_position: 0, initial_playback_item: None,
+        instantly_play: false, operate_mode: crate::messages::PlaylistOperateMode::AppendToEnd,
+        fallback_playing_items: Vec::new(), expected_revision: None,
+    };
+    let error = forward_control_request(&a.global_params.node, "OperatePlaybackWithMixQueryRequest", &rinf::serialize(&request)?).await.unwrap_err();
+    assert!(error.chain().any(|cause| cause.is::<ExpectedRequestError>()));
+    assert_eq!(classify(&error), RequestErrorKind::Unavailable);
+    assert_eq!(b.global_params.player.lock().await.get_status().playlist, before);
+
+    let read = GetMediaFilesCountRequest {};
+    assert!(!forward_control_request(
+        &a.global_params.node,
+        "GetMediaFilesCountRequest",
+        &rinf::serialize(&read)?,
+    )
+    .await?);
+    let params = read.extract_params(&a.global_params);
+    assert!(read.handle(params, None, &read).await?.is_some());
+    a.global_params.node.detach_renderer().await?;
+    a.global_params.node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
     Ok(())
 }
 

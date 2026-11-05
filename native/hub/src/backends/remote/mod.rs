@@ -2,10 +2,14 @@
 mod remote_request;
 
 use crate::node::NodeContext;
+use crate::request_error::ExpectedRequestError;
 use crate::request_error::classify;
 use std::{
     collections::HashMap,
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -188,8 +192,10 @@ type RemoteStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// A node-owned control connection to a remote renderer.
 pub struct RendererLink {
+    id: Uuid,
     write: Arc<Mutex<SplitSink<RemoteStream, TungsteniteMessage>>>,
     cancel: CancellationToken,
+    locally_detached: Arc<AtomicBool>,
     reader: tokio::task::JoinHandle<()>,
 }
 
@@ -226,27 +232,25 @@ impl RendererLink {
         .await
         .map(|info| info.alias)
         .map_err(|_| RemoteConnectError::Unreachable)?;
-        let link = Self::new(
-            stream,
-            node.gui_broadcaster.clone(),
-            node.token.child_token(),
-        )
-        .await;
+        let link = Self::new(stream, node.clone()).await;
         Ok((link, host.to_owned(), alias))
     }
 
-    async fn new(
-        stream: RemoteStream,
-        broadcaster: Arc<dyn Broadcaster>,
-        cancel: CancellationToken,
-    ) -> Self {
+    async fn new(stream: RemoteStream, node: Arc<NodeContext>) -> Self {
+        let id = Uuid::new_v4();
+        let cancel = node.token.child_token();
+        let locally_detached = Arc::new(AtomicBool::new(false));
         let (write, mut read) = stream.split();
         let write = Arc::new(Mutex::new(write));
         let handlers = Arc::new(Mutex::new(HashMap::<String, MessageHandler>::new()));
-        register_renderer_handlers(&handlers, broadcaster).await;
+        register_renderer_handlers(&handlers, node.gui_broadcaster.clone()).await;
         let reader_handlers = handlers.clone();
         let reader_cancel = cancel.clone();
+        let reader_local_detach = locally_detached.clone();
+        let weak_node = Arc::downgrade(&node);
         let reader = tokio::spawn(async move {
+            let mut close_code = None;
+            let mut detail = "Renderer connection ended".to_owned();
             loop {
                 tokio::select! {
                     _ = reader_cancel.cancelled() => break,
@@ -258,16 +262,30 @@ impl RendererLink {
                                 handler(body);
                             }
                         }
-                        Some(Ok(TungsteniteMessage::Close(_))) | None | Some(Err(_)) => break,
+                        Some(Ok(TungsteniteMessage::Close(frame))) => {
+                            close_code = frame.as_ref().map(|frame| u16::from(frame.code));
+                            detail = format!("Renderer closed the connection: {frame:?}");
+                            break;
+                        }
+                        None => { detail = "Renderer connection ended without a close frame".into(); break; }
+                        Some(Err(error)) => { detail = format!("Renderer connection failed: {error}"); break; }
                         Some(Ok(_)) => {}
                     }
                 }
             }
             reader_cancel.cancel();
+            if !reader_local_detach.load(Ordering::Acquire)
+                && let Some(node) = weak_node.upgrade()
+            {
+                node.renderer_link_lost(id, classify_remote_loss(close_code), detail)
+                    .await;
+            }
         });
         Self {
+            id,
             write,
             cancel,
+            locally_detached,
             reader,
         }
     }
@@ -283,7 +301,12 @@ impl RendererLink {
             .context("Could not send control request to renderer")
     }
 
+    pub(crate) fn id(&self) -> Uuid {
+        self.id
+    }
+
     pub(crate) fn close(&self) {
+        self.locally_detached.store(true, Ordering::Release);
         self.cancel.cancel();
     }
 }
@@ -301,8 +324,27 @@ pub async fn forward_control_request(
     let Some(link) = node.renderer_link()? else {
         return Ok(false);
     };
-    link.forward(name, payload).await?;
+    if is_mix_query_request(name) {
+        return Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
+            what: "adding tracks to another device needs cast",
+        }));
+    }
+    if link.forward(name, payload).await.is_err() {
+        node.renderer_link_lost(
+            link.id(),
+            RemoteLossKind::NetworkLost,
+            "Could not send request to renderer".into(),
+        )
+        .await;
+        return Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
+            what: "renderer",
+        }));
+    }
     Ok(true)
+}
+
+pub fn is_mix_query_request(name: &str) -> bool {
+    name == "OperatePlaybackWithMixQueryRequest"
 }
 
 pub fn is_control_request(name: &str) -> bool {

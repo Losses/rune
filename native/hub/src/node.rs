@@ -30,8 +30,9 @@ use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::{
         AttachedRenderer, ClientStatus, ClientSummary, IncommingClientPermissionNotification,
-        InitializeNodeRequest, InitializeNodeResponse, RendererAttachmentChanged, TrustListUpdated,
-        TrustedClientsChanged, TrustedServerCertificate,
+        InitializeNodeRequest, InitializeNodeResponse, RemoteConnectionLost, RemoteLossKind,
+        RendererAttachmentChanged, TrustListUpdated, TrustedClientsChanged,
+        TrustedServerCertificate,
     },
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
@@ -315,23 +316,44 @@ impl NodeContext {
         Ok(())
     }
 
-    pub fn detach_renderer(&self) -> Result<()> {
-        let mut slot = self
-            .renderer_link
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Renderer link lock poisoned"))?;
-        let detached = if let Some(link) = slot.take() {
-            link.close();
-            true
-        } else {
-            false
+    pub async fn detach_renderer(&self) -> Result<()> {
+        let detached = {
+            let mut slot = self
+                .renderer_link
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Renderer link lock poisoned"))?;
+            if let Some(link) = slot.take() {
+                link.close();
+                true
+            } else {
+                false
+            }
         };
-        drop(slot);
         if detached {
             self.gui_broadcaster
                 .broadcast(&RendererAttachmentChanged { renderer: None });
+            self.session()?.reemit_current().await?;
         }
         Ok(())
+    }
+
+    pub(crate) async fn renderer_link_lost(&self, id: Uuid, kind: RemoteLossKind, detail: String) {
+        let removed = match self.renderer_link.lock() {
+            Ok(mut slot) if slot.as_ref().is_some_and(|link| link.id() == id) => slot.take(),
+            _ => None,
+        };
+        if removed.is_none() {
+            return;
+        }
+        self.gui_broadcaster
+            .broadcast(&RemoteConnectionLost { kind, detail });
+        self.gui_broadcaster
+            .broadcast(&RendererAttachmentChanged { renderer: None });
+        if let Ok(session) = self.session()
+            && let Err(error) = session.reemit_current().await
+        {
+            log::warn!("Could not restore local session after renderer loss: {error:#}");
+        }
     }
 
     pub fn renderer_link(&self) -> Result<Option<Arc<RendererLink>>> {

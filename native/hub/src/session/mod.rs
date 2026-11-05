@@ -223,6 +223,43 @@ impl PlayerSession {
         self.state.lock().await.queue_revision
     }
 
+    /// Re-send this session's current player bar and queue after renderer control ends.
+    pub(crate) async fn reemit_current(&self) -> Result<()> {
+        let Some(node) = self.node.upgrade() else {
+            return Ok(());
+        };
+        let status = self.player.lock().await.get_status();
+        let (session_id, revision) = {
+            let state = self.state.lock().await;
+            (state.session_id.to_string(), state.queue_revision)
+        };
+        let controls = self.controls.lock().await.clone();
+        let mut item_state = ItemEventState::default();
+        handle_status_event(
+            &node,
+            status.clone(),
+            &mut item_state,
+            &controls,
+            None,
+            &node.gui_broadcaster,
+            &session_id,
+        )
+        .await;
+        let playlist = PlaylistStatus {
+            items: status.playlist,
+            unavailable: status.unavailable_reasons,
+        };
+        send_playlist(
+            &node,
+            &playlist,
+            node.gui_broadcaster.as_ref(),
+            &session_id,
+            revision,
+        )
+        .await;
+        Ok(())
+    }
+
     pub async fn queue_for_library(&self, library_id: Uuid) -> Vec<i32> {
         let items = self
             .player
@@ -431,7 +468,7 @@ impl PlayerSession {
                     Ok(value) = status.recv() => {
                         let Some(node) = weak.upgrade() else { return };
                         if persist_status_tx.send(value.clone()).await.is_err() { return; }
-                        handle_status_event(&node, value, &mut item_state, &controls, &scrobbler, &broadcaster, &session_id).await;
+                        handle_status_event(&node, value, &mut item_state, &controls, Some(&scrobbler), &broadcaster, &session_id).await;
                     }
                     Ok(value) = playlist.recv() => {
                         if persist_playlist_tx.send(value.clone()).await.is_err() { return; }
@@ -573,12 +610,15 @@ struct ResolvedLibrary {
     media_root: String,
 }
 
+/// Turns a player status into the GUI report. `scrobbler` is `None` when only
+/// re-showing the current state (e.g. after renderer control ends), so services
+/// never see a "now playing" for a track that did not start.
 async fn handle_status_event(
     node: &NodeContext,
     value: PlayerStatus,
     item_state: &mut ItemEventState,
     controls: &Option<Arc<Mutex<MediaControlManager>>>,
-    scrobbler: &Arc<Mutex<dyn ScrobblingServiceManager>>,
+    scrobbler: Option<&Arc<Mutex<dyn ScrobblingServiceManager>>>,
     broadcaster: &Arc<dyn Broadcaster>,
     session_id: &str,
 ) {
@@ -615,9 +655,11 @@ async fn handle_status_event(
                     )
                     .await;
                 }
-                scrobbler.lock().await.update_now_playing_all(
-                    metadata_summary_to_scrobbling_track(&item_state.metadata),
-                );
+                if let Some(scrobbler) = scrobbler {
+                    scrobbler.lock().await.update_now_playing_all(
+                        metadata_summary_to_scrobbling_track(&item_state.metadata),
+                    );
+                }
             }
         }
         playing_cover_changed(item_state.cover.as_deref());

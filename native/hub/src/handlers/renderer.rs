@@ -50,7 +50,7 @@ impl Signal for DetachRendererRequest {
         _: Option<crate::Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
-        node.detach_renderer()?;
+        node.detach_renderer().await?;
         Ok(None)
     }
 }

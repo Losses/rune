@@ -70,6 +70,8 @@ pub struct RemoteConnectionLost {
     pub detail: String,
 }
 
+crate::implement_rinf_rust_signal_trait!(RemoteConnectionLost);
+
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct AttachedControllerInfo {
     pub id: String,
