@@ -16,12 +16,15 @@ use sea_orm::DatabaseConnection;
 
 use metadata::describe::FileDescription;
 use playback::player::PlayingItem;
+use uuid::Uuid;
 
 use crate::{actions::metadata::MetadataSummary, entities::media_files};
 
 #[derive(Clone, Debug)]
 pub struct MediaFileHandle {
     pub item: PlayingItem,
+    pub file_id: Option<i32>,
+    pub file_uuid: Option<Uuid>,
     pub file_name: String,
     pub directory: String,
     pub extension: String,
@@ -31,7 +34,9 @@ pub struct MediaFileHandle {
 impl From<media_files::Model> for MediaFileHandle {
     fn from(x: media_files::Model) -> Self {
         MediaFileHandle {
-            item: PlayingItem::InLibrary(x.id, String::new()),
+            item: PlayingItem::Unknown,
+            file_id: Some(x.id),
+            file_uuid: Uuid::parse_str(&x.hlc_uuid).ok(),
             file_name: x.file_name,
             directory: x.directory,
             extension: x.extension,
@@ -44,6 +49,8 @@ impl From<FileDescription> for MediaFileHandle {
     fn from(x: FileDescription) -> Self {
         MediaFileHandle {
             item: PlayingItem::IndependentFile(x.raw_path),
+            file_id: None,
+            file_uuid: None,
             file_name: x.file_name,
             directory: x.directory,
             extension: x.extension,
@@ -88,7 +95,7 @@ impl Default for PlayingItemMetadataSummary {
 impl From<MetadataSummary> for PlayingItemMetadataSummary {
     fn from(x: MetadataSummary) -> Self {
         PlayingItemMetadataSummary {
-            item: PlayingItem::InLibrary(x.id, String::new()),
+            item: PlayingItem::Unknown,
             artist: x.artist,
             album: x.album,
             title: x.title,

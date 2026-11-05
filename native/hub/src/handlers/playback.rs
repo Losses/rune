@@ -1,21 +1,29 @@
 use crate::request_error::ExpectedRequestError;
+use std::collections::HashMap;
+use std::slice;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use log::warn;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use ::database::{
-    actions::{mixes::query_mix_media_files, stats::increase_skipped},
+    actions::{
+        file::{file_ids_by_uuid, file_uuids_by_id},
+        mixes::query_mix_media_files,
+        stats::increase_skipped,
+    },
     playing_item::dispatcher::PlayingItemActionDispatcher,
 };
 use ::playback::{
-    player::{Playable, PlayingItem},
+    player::{LibraryItem, Playable, PlayingItem},
     strategies::AddMode,
 };
 
 use crate::{
     Session, Signal,
-    library_pool::LibraryHandle,
+    library_pool::{LibraryHandle, LibraryPool},
     messages::*,
     node::NodeContext,
     utils::{
@@ -24,42 +32,109 @@ use crate::{
     },
 };
 
-impl From<PlayingItem> for PlayingItemRequest {
-    fn from(x: PlayingItem) -> Self {
-        match x {
-            PlayingItem::InLibrary(x, _) => PlayingItemRequest {
-                in_library: Some(InLibraryPlayingItem { file_id: x }),
-                independent_file: None,
-            },
-            PlayingItem::IndependentFile(path_str) => PlayingItemRequest {
-                in_library: None,
-                independent_file: Some(IndependentFilePlayingItem { raw_path: path_str }),
-            },
-            PlayingItem::Online(_, _) => todo!(),
-            PlayingItem::Unknown => PlayingItemRequest {
-                in_library: None,
-                independent_file: None,
-            },
-        }
-    }
+pub async fn playing_item_from_request(
+    request: PlayingItemRequest,
+    library: &LibraryHandle,
+) -> Result<PlayingItem> {
+    let mut items = playing_items_from_requests(slice::from_ref(&request), library).await?;
+    Ok(items.pop().unwrap_or(PlayingItem::Unknown))
 }
 
-impl From<PlayingItemRequest> for PlayingItem {
-    fn from(x: PlayingItemRequest) -> Self {
-        if let Some(in_library) = x.in_library
-            && in_library.file_id != 0
-        {
-            return PlayingItem::InLibrary(in_library.file_id, String::new());
-        }
+/// Convert many requests against one library with a single id lookup.
+pub async fn playing_items_from_requests(
+    requests: &[PlayingItemRequest],
+    library: &LibraryHandle,
+) -> Result<Vec<PlayingItem>> {
+    let ids = requests
+        .iter()
+        .filter_map(|request| request.in_library.as_ref())
+        .map(|in_library| in_library.file_id)
+        .filter(|id| *id != 0)
+        .collect::<Vec<_>>();
+    let uuids = file_uuids_by_id(&library.main_db, &ids).await?;
+    Ok(requests
+        .iter()
+        .map(|request| {
+            if let Some(in_library) = &request.in_library
+                && in_library.file_id != 0
+            {
+                return uuids
+                    .get(&in_library.file_id)
+                    .map(|file_uuid| {
+                        PlayingItem::InLibrary(LibraryItem {
+                            library_id: library.descriptor.library_id,
+                            file_uuid: *file_uuid,
+                        })
+                    })
+                    .unwrap_or(PlayingItem::Unknown);
+            }
+            match &request.independent_file {
+                Some(file) if !file.raw_path.is_empty() => {
+                    PlayingItem::IndependentFile(file.raw_path.clone())
+                }
+                _ => PlayingItem::Unknown,
+            }
+        })
+        .collect())
+}
 
-        if let Some(independent_file) = x.independent_file
-            && !independent_file.raw_path.is_empty()
-        {
-            return PlayingItem::IndependentFile(independent_file.raw_path);
+/// Convert many items to requests, acquiring each library and querying it once.
+pub async fn playing_item_requests(
+    items: &[PlayingItem],
+    pool: &Arc<LibraryPool>,
+) -> Vec<PlayingItemRequest> {
+    let mut by_library: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for item in items {
+        if let PlayingItem::InLibrary(identity) = item {
+            by_library
+                .entry(identity.library_id)
+                .or_default()
+                .push(identity.file_uuid);
         }
-
-        PlayingItem::Unknown
     }
+    let mut ids: HashMap<LibraryItem, i32> = HashMap::new();
+    for (library_id, file_uuids) in by_library {
+        let resolved = async {
+            let library = pool.acquire(library_id).await?;
+            file_ids_by_uuid(&library.main_db, &file_uuids).await
+        }
+        .await;
+        match resolved {
+            Ok(resolved) => ids.extend(resolved.into_iter().map(|(file_uuid, id)| {
+                (
+                    LibraryItem {
+                        library_id,
+                        file_uuid,
+                    },
+                    id,
+                )
+            })),
+            Err(error) => {
+                warn!("Unable to resolve queued items of library {library_id}: {error:#}")
+            }
+        }
+    }
+    items
+        .iter()
+        .map(|item| match item {
+            PlayingItem::InLibrary(identity) => PlayingItemRequest {
+                in_library: ids
+                    .get(identity)
+                    .map(|file_id| InLibraryPlayingItem { file_id: *file_id }),
+                independent_file: None,
+            },
+            PlayingItem::IndependentFile(path) => PlayingItemRequest {
+                in_library: None,
+                independent_file: Some(IndependentFilePlayingItem {
+                    raw_path: path.clone(),
+                }),
+            },
+            PlayingItem::Online(_, _) | PlayingItem::Unknown => PlayingItemRequest {
+                in_library: None,
+                independent_file: None,
+            },
+        })
+        .collect()
 }
 
 impl ParamsExtractor for LoadRequest {
@@ -134,13 +209,16 @@ impl Signal for PauseRequest {
 
 async fn record_skip(node: &NodeContext, player: &Arc<Mutex<dyn Playable>>) -> Result<()> {
     let item = player.lock().await.get_status().item;
-    if let Some(PlayingItem::InLibrary(file_id, library_id)) = item
-        && let Ok(library) = node.library_pool.acquire(library_id.parse()?).await
+    if let Some(PlayingItem::InLibrary(identity)) = item
+        && let Ok(library) = node.library_pool.acquire(identity.library_id).await
     {
-        let store = library.library_sync.record_store();
-        increase_skipped(&library.main_db, &store, file_id, store.author())
-            .await
-            .context("Unable to increase skipped count")?;
+        let ids = file_ids_by_uuid(&library.main_db, &[identity.file_uuid]).await?;
+        if let Some(file_id) = ids.get(&identity.file_uuid) {
+            let store = library.library_sync.record_store();
+            increase_skipped(&library.main_db, &store, *file_id, store.author())
+                .await
+                .context("Unable to increase skipped count")?;
+        }
     }
     Ok(())
 }
@@ -439,12 +517,8 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
         let library = require_library(library)?;
         let request = dart_signal;
 
-        let items: Vec<PlayingItem> = request
-            .fallback_playing_items
-            .clone()
-            .into_iter()
-            .map(|x| x.into())
-            .collect();
+        let items: Vec<PlayingItem> =
+            playing_items_from_requests(&request.fallback_playing_items, &library).await?;
 
         // Retrieve tracks
         let tracks = if request.queries.is_empty() {
@@ -508,21 +582,22 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
         if !request.instantly_play {
             player.add_to_playlist_with_sources(prepared.clone(), add_mode);
             return Ok(Some(OperatePlaybackWithMixQueryResponse {
-                playing_items: items.into_iter().map(|x| x.into()).collect(),
+                playing_items: playing_item_requests(&items, &node.library_pool).await,
             }));
         }
 
         // Find the nearest index
+        let initial_item = if let Some(initial_item) = &request.initial_playback_item {
+            Some(playing_item_from_request(initial_item.clone(), &library).await?)
+        } else {
+            None
+        };
         let nearest_index: Option<usize> = if request.hint_position < 0 {
             Some(0)
         } else {
             find_nearest_index(&items, request.hint_position.try_into().unwrap(), |x| {
-                if let Some(initial_item) = &request.initial_playback_item {
-                    let mut initial = PlayingItem::from(initial_item.clone());
-                    if let PlayingItem::InLibrary(_, library_id) = &mut initial {
-                        *library_id = library.descriptor.library_id.to_string();
-                    }
-                    *x == initial
+                if let Some(initial_item) = &initial_item {
+                    x == initial_item
                 } else {
                     false
                 }
@@ -531,12 +606,7 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
 
         // If no suitable index found, use fallback_media_file_ids
         if nearest_index.is_none() {
-            items = request
-                .fallback_playing_items
-                .clone()
-                .into_iter()
-                .map(|x| x.into())
-                .collect();
+            items = playing_items_from_requests(&request.fallback_playing_items, &library).await?;
         }
 
         let nearest_index = nearest_index.unwrap_or(request.hint_position.try_into().unwrap_or(0));
@@ -558,7 +628,7 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
         }
 
         Ok(Some(OperatePlaybackWithMixQueryResponse {
-            playing_items: items.into_iter().map(|x| x.into()).collect(),
+            playing_items: playing_item_requests(&items, &node.library_pool).await,
         }))
     }
 }

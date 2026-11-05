@@ -5429,6 +5429,7 @@ dependencies = [
  "tracing-logcat",
  "tracing-subscriber",
  "url",
+ "uuid",
  "windows 0.44.0",
 ]
 

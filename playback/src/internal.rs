@@ -559,42 +559,42 @@ impl PlayerInternal {
                 let source_future = async {
                     let mut fsio = fsio;
                     let mut resolver = resolver;
-                    if let (PlayingItem::InLibrary(_, library_id), Some(root)) =
+                    if let (PlayingItem::InLibrary(identity), Some(root)) =
                         (&item.item, resolver.as_ref())
-                        && let Some(library) = root.for_library(library_id.clone()).await?
+                        && let Some(library) =
+                            root.for_library(identity.library_id.to_string()).await?
                     {
                         fsio = library.fsio;
                         resolver = Some(library.resolver);
                     }
-                    let resolved_item =
-                        if let (PlayingItem::InLibrary(id, library_id), Some(resolver)) =
-                            (&item.item, resolver.as_ref())
-                        {
-                            PlayingItem::InLibrary(
-                                resolver
-                                    .resolve_id(*id)
-                                    .await?
-                                    .context("library track no longer exists")?,
-                                library_id.clone(),
-                            )
-                        } else {
-                            item.item.clone()
-                        };
+                    let local_file_id = if let (PlayingItem::InLibrary(identity), Some(resolver)) =
+                        (&item.item, resolver.as_ref())
+                    {
+                        Some(
+                            resolver
+                                .resolve_id(identity.file_uuid)
+                                .await?
+                                .context("library track no longer exists")?,
+                        )
+                    } else {
+                        None
+                    };
+                    let resolved_item = item.item.clone();
                     match &resolved_item {
-                        PlayingItem::IndependentFile(_) | PlayingItem::InLibrary(_, _) => {
-                            let path = if let (PlayingItem::InLibrary(id, _), Some(resolver)) =
-                                (&resolved_item, resolver.as_ref())
+                        PlayingItem::IndependentFile(_) | PlayingItem::InLibrary(_) => {
+                            let path = if let (Some(id), Some(resolver)) =
+                                (local_file_id, resolver.as_ref())
                             {
                                 if item
                                     .source
-                                    .requires_stream_at_load(*id, resolver.as_ref())
+                                    .requires_stream_at_load(id, resolver.as_ref())
                                     .await?
                                 {
-                                    let (source, path) = open_library_stream(resolver, *id).await?;
+                                    let (source, path) = open_library_stream(resolver, id).await?;
                                     return Ok((source, path, resolved_item.clone()));
                                 }
                                 resolver
-                                    .local_path(*id)
+                                    .local_path(id)
                                     .await?
                                     .context("current local audio is unavailable")?
                             } else {

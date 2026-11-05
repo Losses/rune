@@ -14,23 +14,33 @@ use crate::actions::{
     cover_art::{
         bake_cover_art_by_file_ids, get_cover_art_id_by_track_id, get_primary_color_by_cover_art_id,
     },
-    file::get_files_by_ids,
+    file::{file_ids_by_uuid, get_files_by_ids},
     metadata::get_metadata_summary_by_file_ids,
 };
 
 use super::{MediaFileHandle, PlayingFileMetadataProvider, PlayingItemMetadataSummary};
 
-pub fn extract_in_library_ids(items: Vec<PlayingItem>) -> Vec<i32> {
-    items
-        .into_iter()
-        .filter_map(|item| {
-            if let PlayingItem::InLibrary(id, _) = item {
-                Some(id)
-            } else {
-                None
-            }
+pub async fn extract_in_library_ids(
+    main_db: &DatabaseConnection,
+    items: &[PlayingItem],
+) -> Result<HashMap<PlayingItem, i32>> {
+    let file_uuids = items
+        .iter()
+        .filter_map(|item| match item {
+            PlayingItem::InLibrary(item) => Some(item.file_uuid),
+            _ => None,
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let ids = file_ids_by_uuid(main_db, &file_uuids).await?;
+    Ok(items
+        .iter()
+        .filter_map(|item| match item {
+            PlayingItem::InLibrary(identity) => {
+                ids.get(&identity.file_uuid).map(|id| (item.clone(), *id))
+            }
+            _ => None,
+        })
+        .collect())
 }
 
 pub struct LibraryItemProcessor;
@@ -43,22 +53,26 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<MediaFileHandle>> {
-        let in_library_ids = extract_in_library_ids(items.to_vec());
+        let in_library_ids = extract_in_library_ids(main_db, items).await?;
 
-        Ok(get_files_by_ids(main_db, &in_library_ids)
-            .await?
-            .into_iter()
-            .map(|x| {
-                let id = x.id;
-                let mut handle: MediaFileHandle = x.into();
-                if let Some(item) = items.iter().find(
-                    |item| matches!(item, PlayingItem::InLibrary(item_id, _) if *item_id == id),
-                ) {
-                    handle.item = item.clone();
-                }
-                handle
-            })
-            .collect())
+        Ok(get_files_by_ids(
+            main_db,
+            &in_library_ids.values().copied().collect::<Vec<_>>(),
+        )
+        .await?
+        .into_iter()
+        .map(|x| {
+            let id = x.id;
+            let mut handle: MediaFileHandle = x.into();
+            if let Some(item) = in_library_ids
+                .iter()
+                .find_map(|(item, item_id)| (*item_id == id).then_some(item))
+            {
+                handle.item = item.clone();
+            }
+            handle
+        })
+        .collect())
     }
 
     async fn get_file_path(
@@ -91,18 +105,19 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<Vec<PlayingItemMetadataSummary>> {
-        let in_library_ids = extract_in_library_ids(items.to_vec());
+        let in_library_ids = extract_in_library_ids(main_db, items).await?;
 
         let result: Vec<PlayingItemMetadataSummary> =
-            get_metadata_summary_by_file_ids(main_db, in_library_ids)
+            get_metadata_summary_by_file_ids(main_db, in_library_ids.values().copied().collect())
                 .await?
                 .into_iter()
                 .map(|x| {
                     let id = x.id;
                     let mut summary: PlayingItemMetadataSummary = x.into();
-                    if let Some(item) = items.iter().find(
-                        |item| matches!(item, PlayingItem::InLibrary(item_id, _) if *item_id == id),
-                    ) {
+                    if let Some(item) = in_library_ids
+                        .iter()
+                        .find_map(|(item, item_id)| (*item_id == id).then_some(item))
+                    {
                         summary.item = item.clone();
                     }
                     summary
@@ -119,21 +134,19 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
-        let in_library_ids = extract_in_library_ids(items.to_vec());
+        let in_library_ids = extract_in_library_ids(main_db, items).await?;
 
         let result: HashMap<i32, String> =
-            bake_cover_art_by_file_ids(fsio, main_db, in_library_ids).await?;
+            bake_cover_art_by_file_ids(fsio, main_db, in_library_ids.values().copied().collect())
+                .await?;
 
         let mut converted_result = HashMap::new();
 
         for (id, cover_art) in result {
             converted_result.insert(
-                items
+                in_library_ids
                     .iter()
-                    .find(
-                        |item| matches!(item, PlayingItem::InLibrary(item_id, _) if *item_id == id),
-                    )
-                    .cloned()
+                    .find_map(|(item, item_id)| (*item_id == id).then_some(item.clone()))
                     .unwrap_or(PlayingItem::Unknown),
                 cover_art,
             );
@@ -150,7 +163,11 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
         item: &PlayingItem,
     ) -> Option<i32> {
         let track_id = match item {
-            PlayingItem::InLibrary(id, _) => Some(*id),
+            PlayingItem::InLibrary(identity) => file_ids_by_uuid(main_db, &[identity.file_uuid])
+                .await
+                .ok()?
+                .get(&identity.file_uuid)
+                .copied(),
             PlayingItem::Online(_, Some(file)) => Some(file.id),
             _ => None,
         }?;

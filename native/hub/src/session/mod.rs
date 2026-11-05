@@ -1,5 +1,5 @@
 //! Node-owned render state. Catalog resources are leased only while resolving an item.
-mod store;
+pub(crate) mod store;
 
 use std::{
     collections::HashMap,
@@ -16,6 +16,7 @@ use std::{
 use anyhow::{Context, Result};
 use database::{
     actions::{
+        file::{file_ids_by_uuid, file_uuids_by_id},
         logging::{LogLevel, insert_log},
         playback_queue::list_legacy_playback_queue,
         stats::increase_played_through,
@@ -44,6 +45,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
+    handlers::playback::playing_item_requests,
     library_pool::LibraryHandle,
     messages::{
         CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUnavailableReason, PlaylistUpdate,
@@ -77,17 +79,32 @@ pub struct PlayerSession {
 
 impl PlayerSession {
     pub async fn queue_for_library(&self, library_id: Uuid) -> Vec<i32> {
-        let library_id = library_id.to_string();
-        self.player
+        let items = self
+            .player
             .lock()
             .await
             .get_status()
             .playlist
             .into_iter()
             .filter_map(|item| match item {
-                PlayingItem::InLibrary(file_id, id) if id == library_id => Some(file_id),
+                PlayingItem::InLibrary(identity) if identity.library_id == library_id => {
+                    Some(identity.file_uuid)
+                }
                 _ => None,
             })
+            .collect::<Vec<_>>();
+        let Some(node) = self.node.upgrade() else {
+            return Vec::new();
+        };
+        let Ok(library) = node.library_pool.acquire(library_id).await else {
+            return Vec::new();
+        };
+        let Ok(ids) = file_ids_by_uuid(&library.main_db, &items).await else {
+            return Vec::new();
+        };
+        items
+            .iter()
+            .filter_map(|uuid| ids.get(uuid).copied())
             .collect()
     }
 
@@ -99,7 +116,7 @@ impl PlayerSession {
         let path = Path::new(&*node.config_path)
             .join("sessions")
             .join(format!("{name}.json"));
-        let state = SessionState::read(&path)?;
+        let state = SessionState::read(&path, &node.library_pool).await?;
         let cancel = node.token.child_token();
         #[cfg(not(target_os = "android"))]
         let fsio = FsIo::new();
@@ -166,9 +183,17 @@ impl PlayerSession {
             return Ok(());
         }
         let ids = list_legacy_playback_queue(&library.main_db).await?;
+        let identities = file_uuids_by_id(&library.main_db, &ids).await?;
         let items = ids
             .into_iter()
-            .map(|id| PlayingItem::InLibrary(id, library.descriptor.library_id.to_string()))
+            .filter_map(|id| {
+                identities.get(&id).copied().map(|file_uuid| {
+                    PlayingItem::InLibrary(playback::player::LibraryItem {
+                        library_id: library.descriptor.library_id,
+                        file_uuid,
+                    })
+                })
+            })
             .collect::<Vec<_>>();
         let mut status = self.player.lock().await.get_status();
         // A controller may have populated the session before the first library opens.
@@ -408,8 +433,8 @@ async fn handle_status_event(
         item_state.library = None;
         if let Some(item) = &value.item {
             let result = match item {
-                PlayingItem::InLibrary(_, library_id) => match library_id.parse() {
-                    Ok(library_id) => match node.library_pool.acquire(library_id).await {
+                PlayingItem::InLibrary(identity) => {
+                    match node.library_pool.acquire(identity.library_id).await {
                         Ok(library) => {
                             let result = item_metadata_from_library(item, true, &library).await;
                             item_state.library = Some(ResolvedLibrary {
@@ -419,9 +444,8 @@ async fn handle_status_event(
                             result
                         }
                         Err(error) => Err(error),
-                    },
-                    Err(error) => Err(error.into()),
-                },
+                    }
+                }
                 _ => item_metadata(node, item, true).await,
             };
             if let Ok((metadata, cover)) = result {
@@ -496,10 +520,13 @@ async fn handle_log_event(node: &NodeContext, item: PlayingItem, domain: String,
 
 async fn handle_scrobbler_error(node: Option<Arc<NodeContext>>, error: ScrobblingError) {
     if let (Some(node), Some(library_id)) = (node, error.library_id.clone()) {
-        let item = PlayingItem::InLibrary(0, library_id);
-        let domain = format!("scrobbler::{:?}::{:?}", error.action, error.service);
-        let detail = format!("{error:#?}");
-        let _ = item_log(&node, &item, domain, detail).await;
+        if let Ok(library_id) = library_id.parse() {
+            let domain = format!("scrobbler::{:?}::{:?}", error.action, error.service);
+            let detail = format!("{error:#?}");
+            let _ = library_log(&node, library_id, domain, detail).await;
+        } else {
+            log::warn!("Scrobbler error with invalid library context: {error:#?}");
+        }
     } else {
         log::warn!("Scrobbler error without catalog context: {error:#?}");
     }
@@ -523,8 +550,8 @@ async fn item_metadata(
     item: &PlayingItem,
     with_cover: bool,
 ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
-    if let PlayingItem::InLibrary(_, library_id) = item {
-        let library = node.library_pool.acquire(library_id.parse()?).await?;
+    if let PlayingItem::InLibrary(identity) = item {
+        let library = node.library_pool.acquire(identity.library_id).await?;
         return item_metadata_from_library(item, with_cover, &library).await;
     }
     let dispatcher = PlayingItemActionDispatcher::new();
@@ -578,8 +605,12 @@ async fn item_metadata_from_library(
 }
 
 async fn record_played(node: &NodeContext, item: &PlayingItem) -> Result<()> {
-    if let PlayingItem::InLibrary(id, library_id) = item {
-        let library = node.library_pool.acquire(library_id.parse()?).await?;
+    if let PlayingItem::InLibrary(identity) = item {
+        let library = node.library_pool.acquire(identity.library_id).await?;
+        let ids = file_ids_by_uuid(&library.main_db, &[identity.file_uuid]).await?;
+        let id = ids
+            .get(&identity.file_uuid)
+            .context("Playing track no longer exists in its library")?;
         let store = library.library_sync.record_store();
         increase_played_through(&library.main_db, &store, *id, store.author()).await?;
     }
@@ -592,12 +623,22 @@ async fn item_log(
     domain: String,
     detail: String,
 ) -> Result<()> {
-    if let PlayingItem::InLibrary(_, library_id) = item {
-        let library = node.library_pool.acquire(library_id.parse()?).await?;
-        let tx = library.main_db.begin().await?;
-        insert_log(&tx, LogLevel::Error, domain, detail).await?;
-        tx.commit().await?;
+    if let PlayingItem::InLibrary(identity) = item {
+        library_log(node, identity.library_id, domain, detail).await?;
     }
+    Ok(())
+}
+
+async fn library_log(
+    node: &NodeContext,
+    library_id: Uuid,
+    domain: String,
+    detail: String,
+) -> Result<()> {
+    let library = node.library_pool.acquire(library_id).await?;
+    let tx = library.main_db.begin().await?;
+    insert_log(&tx, LogLevel::Error, domain, detail).await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -610,13 +651,11 @@ async fn send_playlist(
     let mut independent_items = Vec::new();
     for item in &playlist.items {
         match item {
-            PlayingItem::InLibrary(_, library_id) => {
-                if let Ok(library_id) = library_id.parse() {
-                    library_items
-                        .entry(library_id)
-                        .or_default()
-                        .push(item.clone());
-                }
+            PlayingItem::InLibrary(identity) => {
+                library_items
+                    .entry(identity.library_id)
+                    .or_default()
+                    .push(item.clone());
             }
             _ => independent_items.push(item.clone()),
         }
@@ -659,10 +698,12 @@ async fn send_playlist(
         }
     }
 
+    let item_requests = playing_item_requests(&playlist.items, &node.library_pool).await;
     let items = playlist
         .items
         .iter()
-        .map(|item| {
+        .zip(item_requests)
+        .map(|(item, item_request)| {
             let summary = metadata.get(item);
             let unavailable = playlist
                 .unavailable
@@ -672,7 +713,7 @@ async fn send_playlist(
                 .map(PlaylistUnavailableReason::from);
             let metadata = summary.cloned().unwrap_or_default();
             PlaylistItem {
-                item: item.clone().into(),
+                item: item_request,
                 artist: metadata.artist,
                 album: metadata.album,
                 title: metadata.title,
@@ -703,7 +744,7 @@ fn format_status(
         title: Some(metadata.title.clone()),
         duration: metadata.duration,
         index: status.index.map(|i| i as i32),
-        item: status.item.clone().map(Into::into),
+        item: status.item.clone().map(|item| item.to_string()),
         playback_mode: status.playback_mode.into(),
         ready: status.ready,
         cover_art_path,

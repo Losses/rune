@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fmt, thread};
 use tokio::runtime::Runtime;
+use uuid::Uuid;
 
 use fsio::FsIo;
 use log::{debug, error};
@@ -93,9 +94,18 @@ pub struct OnlineInLibraryFile {
     pub id: i32,
 }
 
+/// A track addressed independently of its replica-local database row id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LibraryItem {
+    /// Stable identity of the library containing the track.
+    pub library_id: Uuid,
+    /// Stable identity of the track within the library.
+    pub file_uuid: Uuid,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PlayingItem {
-    InLibrary(i32, String),
+    InLibrary(LibraryItem),
     /// This is the raw content, on native platform it
     /// is the path, on Android, it is the Content URI
     IndependentFile(String),
@@ -110,7 +120,7 @@ pub enum PlayingItem {
 impl fmt::Display for PlayingItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PlayingItem::InLibrary(id, _) => write!(f, "PlayingItem::InLibrary({id})"),
+            PlayingItem::InLibrary(item) => write!(f, "PlayingItem::InLibrary({})", item.file_uuid),
             PlayingItem::IndependentFile(path) => {
                 write!(f, "PlayingItem::IndependentFile({path})")
             }
@@ -174,8 +184,11 @@ pub trait PlaybackSourceResolver: Send + Sync {
         Box::pin(async { Ok(None) })
     }
 
-    fn resolve_id(&self, id: i32) -> BoxFuture<'static, Result<Option<i32>>> {
-        Box::pin(async move { Ok(Some(id)) })
+    fn resolve_id(&self, file_uuid: Uuid) -> BoxFuture<'static, Result<Option<i32>>> {
+        Box::pin(async move {
+            let _ = file_uuid;
+            Ok(None)
+        })
     }
     fn local_path(&self, _id: i32) -> BoxFuture<'static, Result<Option<PathBuf>>> {
         Box::pin(async { Ok(None) })

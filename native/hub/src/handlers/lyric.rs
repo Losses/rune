@@ -10,10 +10,10 @@ use ::lyric::{
     vtt::parse_vtt,
 };
 use ::metadata::reader::get_lyrics;
-use ::playback::player::PlayingItem;
 
 use crate::{
     Session, Signal,
+    handlers::playback::playing_item_from_request,
     library_pool::LibraryHandle,
     messages::*,
     utils::{GlobalParams, ParamsExtractor, require_library},
@@ -47,7 +47,7 @@ impl Signal for GetLyricByTrackIdRequest {
             return Ok(None);
         };
 
-        let lines = match load_lyric_lines(fsio, media_root, main_db, item).await {
+        let lines = match load_lyric_lines(fsio, media_root, main_db, item, &library).await {
             Ok(lines) => lines,
             Err(err) => {
                 error!("Unable to load lyric: item={item:#?}: {err:#}");
@@ -67,8 +67,9 @@ async fn load_lyric_lines(
     media_root: &String,
     main_db: &MainDbConnection,
     item: &PlayingItemRequest,
+    library: &LibraryHandle,
 ) -> Result<Vec<LyricContentLine>> {
-    let parsed_item: PlayingItem = item.clone().into();
+    let parsed_item = playing_item_from_request(item.clone(), library).await?;
     let dispatcher = PlayingItemActionDispatcher::new();
 
     let paths = dispatcher

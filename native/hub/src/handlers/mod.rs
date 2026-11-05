@@ -13,7 +13,7 @@ mod lyric;
 mod media_file;
 mod mix;
 pub(crate) mod neighbors;
-mod playback;
+pub(crate) mod playback;
 mod playlist;
 mod replicas;
 mod scrobble;

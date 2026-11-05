@@ -1,10 +1,14 @@
 use anyhow::{Context, Result};
 
-use ::database::actions::stats::{get_liked, set_liked};
+use ::database::actions::{
+    file::file_ids_by_uuid,
+    stats::{get_liked, set_liked},
+};
 use ::playback::player::PlayingItem;
 
 use crate::{
     Session, Signal,
+    handlers::playback::playing_item_from_request,
     library_pool::LibraryHandle,
     messages::*,
     utils::{GlobalParams, ParamsExtractor, require_library},
@@ -32,10 +36,23 @@ impl Signal for SetLikedRequest {
         let library = require_library(library)?;
 
         if let Some(item) = &request.item {
-            let parsed_item: PlayingItem = item.clone().into();
+            let parsed_item = playing_item_from_request(item.clone(), &library).await?;
 
             let response = match parsed_item {
-                PlayingItem::InLibrary(file_id, _) => {
+                PlayingItem::InLibrary(identity)
+                    if identity.library_id == library.descriptor.library_id =>
+                {
+                    let file_id = file_ids_by_uuid(&library.main_db, &[identity.file_uuid])
+                        .await?
+                        .get(&identity.file_uuid)
+                        .copied();
+                    let Some(file_id) = file_id else {
+                        return Ok(Some(SetLikedResponse {
+                            item: item.clone(),
+                            liked: false,
+                            success: false,
+                        }));
+                    };
                     set_liked(
                         &library.main_db,
                         &library.library_sync.record_store(),
@@ -61,7 +78,11 @@ impl Signal for SetLikedRequest {
                     liked: false,
                     success: false,
                 },
-                PlayingItem::Online(_, _) => todo!(),
+                PlayingItem::InLibrary(_) | PlayingItem::Online(_, _) => SetLikedResponse {
+                    item: item.clone(),
+                    liked: false,
+                    success: false,
+                },
                 PlayingItem::Unknown => SetLikedResponse {
                     item: item.clone(),
                     liked: false,
@@ -98,10 +119,22 @@ impl Signal for GetLikedRequest {
         let library = require_library(library)?;
 
         if let Some(item) = &request.item {
-            let parsed_item: PlayingItem = item.clone().into();
+            let parsed_item = playing_item_from_request(item.clone(), &library).await?;
 
             let response = match parsed_item {
-                PlayingItem::InLibrary(file_id, _) => {
+                PlayingItem::InLibrary(identity)
+                    if identity.library_id == library.descriptor.library_id =>
+                {
+                    let Some(file_id) = file_ids_by_uuid(&library.main_db, &[identity.file_uuid])
+                        .await?
+                        .get(&identity.file_uuid)
+                        .copied()
+                    else {
+                        return Ok(Some(GetLikedResponse {
+                            item: item.clone(),
+                            liked: false,
+                        }));
+                    };
                     let liked = get_liked(&*library.main_db, file_id)
                         .await
                         .with_context(|| format!("Failed to get liked: file_id={file_id}"))?;
@@ -115,7 +148,10 @@ impl Signal for GetLikedRequest {
                     item: item.clone(),
                     liked: false,
                 },
-                PlayingItem::Online(_, _) => todo!(),
+                PlayingItem::InLibrary(_) | PlayingItem::Online(_, _) => GetLikedResponse {
+                    item: item.clone(),
+                    liked: false,
+                },
                 PlayingItem::Unknown => GetLikedResponse {
                     item: item.clone(),
                     liked: false,

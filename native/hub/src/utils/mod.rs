@@ -635,34 +635,27 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
     lib_path: &P,
     files: &[MediaFileHandle],
 ) -> Result<Vec<(PlayingItem, PlaybackSource)>> {
-    let ids: Vec<i32> = files
-        .iter()
-        .filter_map(|file| match file.item {
-            PlayingItem::InLibrary(id, _) => Some(id),
-            _ => None,
-        })
-        .collect();
+    let ids: Vec<i32> = files.iter().filter_map(|file| file.file_id).collect();
+    let library_uuid = library_id.parse::<uuid::Uuid>()?;
     let availability = audio_availability(db, fsio, lib_path.as_ref(), &ids).await?;
     let remote_content = remote_content_ids(db, &ids).await?;
     Ok(files
         .iter()
         .filter_map(|file| {
-            let source = match &file.item {
-                PlayingItem::InLibrary(id, _)
+            let source = match file.file_id {
+                Some(id)
                     if matches!(
-                        availability.get(id),
+                        availability.get(&id),
                         Some(AudioAvailability::RemoteOnly)
                             | Some(AudioAvailability::ImportPending)
-                    ) && remote_content.contains(id) =>
+                    ) && remote_content.contains(&id) =>
                 {
                     PlaybackSource::LibraryStream
                 }
-                PlayingItem::InLibrary(id, _)
-                    if !matches!(availability.get(id), Some(AudioAvailability::Local)) =>
-                {
+                Some(id) if !matches!(availability.get(&id), Some(AudioAvailability::Local)) => {
                     return None;
                 }
-                PlayingItem::InLibrary(_, _) => match fsio.canonicalize_path(
+                Some(_) => match fsio.canonicalize_path(
                     &lib_path
                         .as_ref()
                         .join(&file.directory)
@@ -671,16 +664,19 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
                     Ok(path) => PlaybackSource::Local(path),
                     Err(_) => return None,
                 },
-                PlayingItem::IndependentFile(path) => {
+                None if let PlayingItem::IndependentFile(path) = &file.item => {
                     PlaybackSource::Local(fsio.canonicalize_path_str(path).ok()?)
                 }
-                PlayingItem::Online(_, _) => PlaybackSource::Local(PathBuf::new()),
-                PlayingItem::Unknown => return None,
+                None => return None,
             };
-            let mut item = file.item.clone();
-            if let PlayingItem::InLibrary(_, id) = &mut item {
-                *id = library_id.to_owned();
-            }
+            let item = match &file.item {
+                PlayingItem::InLibrary(identity) => PlayingItem::InLibrary(*identity),
+                PlayingItem::IndependentFile(path) => PlayingItem::IndependentFile(path.clone()),
+                _ => PlayingItem::InLibrary(playback::player::LibraryItem {
+                    library_id: library_uuid,
+                    file_uuid: file.file_uuid?,
+                }),
+            };
             Some((item, source))
         })
         .collect())

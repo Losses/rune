@@ -20,7 +20,7 @@ pub fn metadata_summary_to_scrobbling_track(
 ) -> ScrobblingTrack {
     ScrobblingTrack {
         library_id: match &metadata.item {
-            PlayingItem::InLibrary(_, library_id) => Some(library_id.clone()),
+            PlayingItem::InLibrary(identity) => Some(identity.library_id.to_string()),
             _ => None,
         },
         artist: metadata.artist.clone(),

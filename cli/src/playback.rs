@@ -14,9 +14,10 @@ use dunce::canonicalize;
 use futures::future::join_all;
 use log::{debug, error, info};
 use tokio::task;
+use uuid::Uuid;
 
 use playback::{
-    player::{Playable, Player, PlayingItem},
+    player::{LibraryItem, Playable, Player, PlayingItem},
     strategies::AddMode,
 };
 
@@ -46,15 +47,33 @@ async fn play_files(
         .filter_map(|file| file.flatten())
         .collect();
 
+    let library_uuid = match Uuid::parse_str(library_id) {
+        Ok(library_uuid) => library_uuid,
+        Err(error) => {
+            error!("Invalid library id {library_id}: {error}");
+            return;
+        }
+    };
+
     player.lock().unwrap().add_to_playlist(
         files
             .into_iter()
-            .map(|file| {
-                (
-                    PlayingItem::InLibrary(file.id, library_id.to_owned()),
+            .filter_map(|file| {
+                let file_uuid = match Uuid::parse_str(&file.hlc_uuid) {
+                    Ok(file_uuid) => file_uuid,
+                    Err(error) => {
+                        error!("Invalid file UUID {}: {error}", file.hlc_uuid);
+                        return None;
+                    }
+                };
+                Some((
+                    PlayingItem::InLibrary(LibraryItem {
+                        library_id: library_uuid,
+                        file_uuid,
+                    }),
                     canonicalize(canonicalized_path.join(file.directory).join(file.file_name))
                         .unwrap(),
-                )
+                ))
             })
             .collect(),
         AddMode::AppendToEnd,

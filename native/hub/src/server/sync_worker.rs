@@ -13,7 +13,7 @@ use crate::utils::GlobalParams;
 use crate::{library_pool::LibraryHandle, node::NodeContext};
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use database::actions::file::{ManagedAudioVerifier, materialized_path, resolve_local_id};
+use database::actions::file::{ManagedAudioVerifier, file_ids_by_uuid, materialized_path};
 use database::actions::library::clean_local_orphans;
 use database::library_registry::{LibraryAccess, LibraryRegistry};
 use database::sync::Maintenance;
@@ -1743,7 +1743,7 @@ impl PlaybackSourceResolver for PairedAudioResolver {
             }))
         })
     }
-    fn resolve_id(&self, id: i32) -> BoxFuture<'static, Result<Option<i32>>> {
+    fn resolve_id(&self, file_uuid: Uuid) -> BoxFuture<'static, Result<Option<i32>>> {
         let node = self.0.clone();
         let library_id = self.1.clone();
         Box::pin(async move {
@@ -1753,7 +1753,8 @@ impl PlaybackSourceResolver for PairedAudioResolver {
                 .acquire(library_id.parse()?)
                 .await
                 .map_err(|_| anyhow::anyhow!(RemoteAudioError::LibraryUnavailable))?;
-            resolve_local_id(library.main_db.as_ref(), id).await
+            let ids = file_ids_by_uuid(library.main_db.as_ref(), &[file_uuid]).await?;
+            Ok(ids.get(&file_uuid).copied())
         })
     }
     fn local_path(&self, id: i32) -> BoxFuture<'static, Result<Option<PathBuf>>> {

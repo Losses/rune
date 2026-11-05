@@ -3458,7 +3458,7 @@ mod lifecycle_tests {
         )
         .await?;
         assert!(
-            matches!(&queued[..], [(PlayingItem::InLibrary(id, _), PlaybackSource::LibraryStream)] if *id == file.id)
+            matches!(&queued[..], [(PlayingItem::InLibrary(item), PlaybackSource::LibraryStream)] if item.file_uuid.to_string() == file.hlc_uuid)
         );
         let summaries = get_metadata_summary_by_files(
             params.test_library().main_db.as_ref(),
@@ -3540,7 +3540,8 @@ mod lifecycle_tests {
             .pop()
             .context("missing updated audio")?;
         assert_eq!(current.id, file.id);
-        assert_eq!(resolver.resolve_id(file.id).await?, Some(current.id));
+        let file_uuid = Uuid::parse_str(&file.hlc_uuid)?;
+        assert_eq!(resolver.resolve_id(file_uuid).await?, Some(current.id));
         params.main_token.cancel();
         Ok(())
     }

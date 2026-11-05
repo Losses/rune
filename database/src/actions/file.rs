@@ -18,6 +18,7 @@ pub use integrity::{ManagedAudioVerifier, VerificationStep};
 use sea_orm::ExprTrait;
 use std::collections::HashMap;
 use std::path::Path;
+use uuid::Uuid;
 
 use crate::actions::{collection::CollectionQueryType, search::remove_term};
 use crate::entities::{
@@ -47,6 +48,41 @@ pub async fn get_files_by_ids(
         .filter(media_files::Column::Id.is_in(ids.to_vec()))
         .all(db)
         .await
+}
+
+/// Resolve stable file identities to the row ids local to this database.
+pub async fn file_ids_by_uuid(
+    db: &DatabaseConnection,
+    file_uuids: &[Uuid],
+) -> Result<HashMap<Uuid, i32>> {
+    let identities = file_uuids.iter().map(Uuid::to_string).collect::<Vec<_>>();
+    Ok(media_files::Entity::find()
+        .filter(media_files::Column::HlcUuid.is_in(identities))
+        .all(db)
+        .await?
+        .into_iter()
+        .filter_map(|file| {
+            Uuid::parse_str(&file.hlc_uuid)
+                .ok()
+                .map(|uuid| (uuid, file.id))
+        })
+        .collect())
+}
+
+/// Resolve replica-local row ids to stable file identities.
+pub async fn file_uuids_by_id(
+    db: &DatabaseConnection,
+    file_ids: &[i32],
+) -> Result<HashMap<i32, Uuid>> {
+    Ok(get_files_by_ids(db, file_ids)
+        .await?
+        .into_iter()
+        .filter_map(|file| {
+            Uuid::parse_str(&file.hlc_uuid)
+                .ok()
+                .map(|uuid| (file.id, uuid))
+        })
+        .collect())
 }
 pub async fn get_file_by_id(
     db: &DatabaseConnection,

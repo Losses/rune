@@ -13,6 +13,7 @@ use ::database::playing_item::dispatcher::PlayingItemActionDispatcher;
 
 use crate::{
     Session, Signal,
+    handlers::playback::playing_item_from_request,
     library_pool::LibraryHandle,
     messages::*,
     utils::{GlobalParams, ParamsExtractor, query_cover_arts, require_library},
@@ -118,6 +119,7 @@ impl Signal for GetPrimaryColorByTrackIdRequest {
         let library = require_library(library)?;
 
         if let Some(item) = item {
+            let parsed_item = playing_item_from_request(item.clone(), &library).await?;
             let response = task::spawn_blocking(move || {
                 let runtime = Runtime::new().unwrap();
                 runtime.block_on(async move {
@@ -127,7 +129,7 @@ impl Signal for GetPrimaryColorByTrackIdRequest {
                             &library.fsio,
                             Path::new(&library.media_root),
                             &library.main_db,
-                            &item.clone().into(),
+                            &parsed_item,
                         )
                         .await;
 

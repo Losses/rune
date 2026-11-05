@@ -2,22 +2,26 @@ use std::{
     fs::{self, File},
     io::{ErrorKind, Write},
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
+use crate::library_pool::LibraryPool;
 use anyhow::{Context, Result, ensure};
+use database::actions::file::file_uuids_by_id;
 use playback::{
     PlaybackMode,
-    player::{OnlineInLibraryFile, PlaybackSource, PlayerStatus, PlayingItem},
+    player::{LibraryItem, OnlineInLibraryFile, PlaybackSource, PlayerStatus, PlayingItem},
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum StoredItem {
     InLibrary {
-        id: i32,
-        library_id: String,
+        library_id: Uuid,
+        file_uuid: Uuid,
     },
     IndependentFile {
         path: String,
@@ -31,7 +35,10 @@ enum StoredItem {
 impl From<PlayingItem> for StoredItem {
     fn from(item: PlayingItem) -> Self {
         match item {
-            PlayingItem::InLibrary(id, library_id) => Self::InLibrary { id, library_id },
+            PlayingItem::InLibrary(item) => Self::InLibrary {
+                library_id: item.library_id,
+                file_uuid: item.file_uuid,
+            },
             PlayingItem::IndependentFile(path) => Self::IndependentFile { path },
             PlayingItem::Online(url, library) => Self::Online {
                 url,
@@ -44,7 +51,13 @@ impl From<PlayingItem> for StoredItem {
 impl From<StoredItem> for PlayingItem {
     fn from(item: StoredItem) -> Self {
         match item {
-            StoredItem::InLibrary { id, library_id } => Self::InLibrary(id, library_id),
+            StoredItem::InLibrary {
+                library_id,
+                file_uuid,
+            } => Self::InLibrary(LibraryItem {
+                library_id,
+                file_uuid,
+            }),
             StoredItem::IndependentFile { path } => Self::IndependentFile(path),
             StoredItem::Online { url, library } => Self::Online(
                 url,
@@ -60,7 +73,7 @@ impl From<StoredItem> for PlayingItem {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(super) struct SessionState {
+pub(crate) struct SessionState {
     version: u32,
     pub migrated: bool,
     queue: Vec<StoredItem>,
@@ -71,7 +84,7 @@ pub(super) struct SessionState {
 impl Default for SessionState {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 2,
             migrated: false,
             queue: Vec::new(),
             index: None,
@@ -81,11 +94,109 @@ impl Default for SessionState {
     }
 }
 impl SessionState {
-    pub fn read(path: &Path) -> Result<Self> {
+    pub async fn read(path: &Path, pool: &Arc<LibraryPool>) -> Result<Self> {
         match fs::read(path) {
             Ok(bytes) => {
-                let state: Self = serde_json::from_slice(&bytes).context("Read player session")?;
-                ensure!(state.version == 1, "Unsupported player session version");
+                let mut value: serde_json::Value =
+                    serde_json::from_slice(&bytes).context("Read player session")?;
+                let version = value
+                    .get("version")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or_default();
+                if version == 2 {
+                    return serde_json::from_value(value).context("Read player session v2");
+                }
+                ensure!(version == 1, "Unsupported player session version");
+                #[derive(Deserialize)]
+                #[serde(tag = "type", rename_all = "snake_case")]
+                enum LegacyItem {
+                    InLibrary {
+                        id: i32,
+                        library_id: String,
+                    },
+                    IndependentFile {
+                        path: String,
+                    },
+                    Online {
+                        url: String,
+                        library: Option<(String, String, i32)>,
+                    },
+                    Unknown,
+                }
+                #[derive(Deserialize)]
+                struct LegacyState {
+                    migrated: bool,
+                    queue: Vec<LegacyItem>,
+                    index: Option<usize>,
+                    position: Duration,
+                    mode: u32,
+                }
+                let legacy: LegacyState =
+                    serde_json::from_value(value.take()).context("Read player session v1")?;
+                let old_index = legacy.index;
+                let mut dropped_before_index = 0;
+                let mut current_dropped = false;
+                let mut queue = Vec::new();
+                for (old_position, item) in legacy.queue.into_iter().enumerate() {
+                    let converted = match item {
+                        LegacyItem::InLibrary { id, library_id } => {
+                            let result = async {
+                                let library = pool.acquire(library_id.parse()?).await?;
+                                let rows =
+                                    file_uuids_by_id(library.main_db.as_ref(), &[id]).await?;
+                                Ok::<_, anyhow::Error>(rows.get(&id).copied().map(|file_uuid| {
+                                    StoredItem::InLibrary {
+                                        library_id: library.descriptor.library_id,
+                                        file_uuid,
+                                    }
+                                }))
+                            }
+                            .await;
+                            match result {
+                                Ok(Some(item)) => Some(item),
+                                Ok(None) => {
+                                    log::warn!(
+                                        "Dropped player session item: library {library_id} has no file row {id}"
+                                    );
+                                    None
+                                }
+                                Err(error) => {
+                                    log::warn!(
+                                        "Dropped player session item {id} in library {library_id}: {error:#}"
+                                    );
+                                    None
+                                }
+                            }
+                        }
+                        LegacyItem::IndependentFile { path } => {
+                            Some(StoredItem::IndependentFile { path })
+                        }
+                        LegacyItem::Online { url, library } => {
+                            Some(StoredItem::Online { url, library })
+                        }
+                        LegacyItem::Unknown => Some(StoredItem::Unknown),
+                    };
+                    if let Some(item) = converted {
+                        queue.push(item);
+                    } else if old_index.is_some_and(|index| old_position < index) {
+                        dropped_before_index += 1;
+                    } else if old_index == Some(old_position) {
+                        current_dropped = true;
+                    }
+                }
+                let index = old_index
+                    .filter(|_| !current_dropped)
+                    .and_then(|index| index.checked_sub(dropped_before_index))
+                    .filter(|index| *index < queue.len());
+                let state = Self {
+                    version: 2,
+                    migrated: legacy.migrated,
+                    queue,
+                    index,
+                    position: legacy.position,
+                    mode: legacy.mode,
+                };
+                state.write(path)?;
                 Ok(state)
             }
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(Self::default()),
@@ -98,6 +209,7 @@ impl SessionState {
     }
     pub fn update_queue(&mut self, items: &[PlayingItem]) {
         self.queue = items.iter().cloned().map(Into::into).collect();
+        self.version = 2;
         if !self.queue.is_empty() {
             self.migrated = true;
         }
