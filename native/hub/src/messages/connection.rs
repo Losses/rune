@@ -61,12 +61,40 @@ pub enum RemoteLossKind {
     Revoked,
     ServerStopped,
     NetworkLost,
+    Detached,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RemoteConnectionLost {
     pub kind: RemoteLossKind,
     pub detail: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, SignalPiece)]
+pub struct AttachedControllerInfo {
+    pub id: String,
+    pub fingerprint: String,
+    pub alias: String,
+    /// Unix timestamp in seconds when this WebSocket attached.
+    pub connected_at: u64,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct ListControllersRequest {}
+
+#[derive(Serialize, Deserialize, SignalPiece, RustSignal)]
+pub struct ListControllersResponse {
+    pub controllers: Vec<AttachedControllerInfo>,
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, RustSignal)]
+pub struct ControllersUpdated {
+    pub controllers: Vec<AttachedControllerInfo>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct DetachControllerRequest {
+    pub id: String,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

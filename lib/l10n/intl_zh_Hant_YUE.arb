@@ -1347,6 +1347,10 @@
   "remoteOpenUnreachable": "連接唔到裝置，請檢查佢有冇開機同連接同一個網絡。",
   "remoteOpenProtocol": "無法同裝置通訊，兩部裝置需要相同版本嘅 Rune。",
   "remoteLossRevoked": "呢部裝置嘅存取權已被移除。",
+  "remoteLossDetached": "播放裝置已中斷呢個控制器嘅連線。",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
   "remoteLossServerStopped": "另一部裝置已停止分享。",
   "remoteLossNetworkLost": "連線已中斷。",
   "deviceLibraries": "音樂庫",

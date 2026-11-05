@@ -1347,6 +1347,10 @@
   "remoteOpenUnreachable": "不能連彼器，請察其開啟且同網。",
   "remoteOpenProtocol": "不能通訊，兩器須用同版 Rune。",
   "remoteLossRevoked": "此器之存取權已除。",
+  "remoteLossDetached": "播器已斷此控器之連線。",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
   "remoteLossServerStopped": "彼器已止共享。",
   "remoteLossNetworkLost": "連線已斷。",
   "deviceLibraries": "樂庫",

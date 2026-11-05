@@ -1152,6 +1152,8 @@ mod lifecycle_tests {
             "SetLibraryBackgroundSyncRequest",
             "ListPeerLibrariesRequest",
             "AddRemoteLibraryRequest",
+            "ListControllersRequest",
+            "DetachControllerRequest",
             "UpdateClientStatusRequest",
             "AuthenticateSingleServiceRequest",
             "AuthenticateMultipleServiceRequest",
@@ -1523,6 +1525,21 @@ mod lifecycle_tests {
             assert!(
                 matches!(frame, Message::Close(Some(frame)) if u16::from(frame.code) == 4403 && frame.reason == "revoked")
             );
+            tokio::time::timeout(Duration::from_secs(3), async {
+                loop {
+                    if a.global_params
+                        .node
+                        .session()?
+                        .attached_controllers()
+                        .iter()
+                        .all(|controller| controller.fingerprint != fingerprint)
+                    {
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await??;
             if !remove {
                 assert!(matches!(
                     connect_remote("127.0.0.1", addr.port(), config, validator.clone()).await,

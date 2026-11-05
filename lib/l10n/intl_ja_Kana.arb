@@ -1347,6 +1347,10 @@
   "remoteOpenUnreachable": "デバイスニセツゾクデキマセン。デンゲントオナジネットワークヲカクニンシテクダサイ。",
   "remoteOpenProtocol": "デバイストツウシンデキマセン。リョウホウニオナジバージョンノRuneガヒツヨウデス。",
   "remoteLossRevoked": "コノデバイスノアクセスケンガサクジョサレマシタ。",
+  "remoteLossDetached": "レンダラーハコノコントローラーヲセツダンシマシタ。",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
   "remoteLossServerStopped": "アイテノデバイスガキョウユウヲテイシシマシタ。",
   "remoteLossNetworkLost": "セツゾクガキレマシタ。",
   "deviceLibraries": "ライブラリ",

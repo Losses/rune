@@ -30,6 +30,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             class: RequestClass::NodeLocal,
         },
         RequestResponse {
+            request: "ListControllersRequest".to_string(),
+            response: Some("ListControllersResponse".to_string()),
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
+            request: "DetachControllerRequest".to_string(),
+            response: None,
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
             request: "ListLocalLibrariesRequest".to_string(),
             response: Some("ListLocalLibrariesResponse".to_string()),
             class: RequestClass::NodeLocal,

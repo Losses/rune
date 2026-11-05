@@ -1549,22 +1549,8 @@ async fn session_c2a_two_controllers_observe_conflict_and_same_queue() -> Result
     let renderer = fixture(renderer_dir.path()).await?;
     let first_controller = fixture(first_controller_dir.path()).await?;
     let second_controller = fixture(second_controller_dir.path()).await?;
-    let first_addr = paired_full(&renderer, &first_controller).await?;
-    pair(&renderer, &second_controller).await?;
-    let mut first = connect_remote(
-        "127.0.0.1",
-        first_addr.port(),
-        &first_controller.global_params.config_path,
-        first_controller.global_params.cert_validator.read().await.clone(),
-    )
-    .await?;
-    let mut second = connect_remote(
-        "127.0.0.1",
-        first_addr.port(),
-        &second_controller.global_params.config_path,
-        second_controller.global_params.cert_validator.read().await.clone(),
-    )
-    .await?;
+    let (mut first, mut second) =
+        connect_two_controllers(&renderer, &first_controller, &second_controller).await?;
 
     let first_track = session_audio(&renderer, "conflict-first.ogg").await?;
     let second_track = session_audio(&renderer, "conflict-second.ogg").await?;
@@ -1603,6 +1589,146 @@ async fn session_c2a_two_controllers_observe_conflict_and_same_queue() -> Result
         second_final.items.iter().map(|item| &item.title).collect::<Vec<_>>(),
     );
     assert_eq!(renderer.global_params.node.session()?.queue_revision().await, 1);
+    renderer.global_params.node.shutdown().await?;
+    first_controller.global_params.node.shutdown().await?;
+    second_controller.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+/// Pairs both controllers with `renderer` and opens a controller WebSocket from each.
+async fn connect_two_controllers(
+    renderer: &Fixture,
+    first: &Fixture,
+    second: &Fixture,
+) -> Result<(ControllerSocket, ControllerSocket)> {
+    let addr = paired_full(renderer, first).await?;
+    pair(renderer, second).await?;
+    let mut sockets = Vec::with_capacity(2);
+    for controller in [first, second] {
+        sockets.push(
+            connect_remote(
+                "127.0.0.1",
+                addr.port(),
+                &controller.global_params.config_path,
+                controller.global_params.cert_validator.read().await.clone(),
+            )
+            .await?,
+        );
+    }
+    let second_socket = sockets.pop().context("second controller socket")?;
+    let first_socket = sockets.pop().context("first controller socket")?;
+    Ok((first_socket, second_socket))
+}
+
+type ControllerSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+async fn wait_controller_count(node: &NodeContext, count: usize) -> Result<()> {
+    timeout(Duration::from_secs(3), async {
+        loop {
+            if node.session()?.attached_controllers().len() == count {
+                return Ok::<_, anyhow::Error>(());
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_c2b_attached_controllers_list_detach_and_disconnect() -> Result<()> {
+    use crate::backends::remote::encode_message;
+    use crate::messages::{
+        DetachControllerRequest, ListControllersRequest, MovePlaylistItemRequest,
+    };
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    let renderer_dir = tempfile::tempdir()?;
+    let first_controller_dir = tempfile::tempdir()?;
+    let second_controller_dir = tempfile::tempdir()?;
+    let renderer = fixture(renderer_dir.path()).await?;
+    let first_controller = fixture(first_controller_dir.path()).await?;
+    let second_controller = fixture(second_controller_dir.path()).await?;
+    let (mut first, mut second) =
+        connect_two_controllers(&renderer, &first_controller, &second_controller).await?;
+    let renderer_node = &renderer.global_params.node;
+    wait_controller_count(renderer_node, 2).await?;
+    let list_request = ListControllersRequest {};
+    let controllers = list_request
+        .handle(renderer_node.clone(), None, &list_request)
+        .await?
+        .context("owner controller list response")?
+        .controllers;
+    let first_fingerprint = info(&first_controller).await?.fingerprint;
+    let second_fingerprint = info(&second_controller).await?.fingerprint;
+    let first_entry = controllers
+        .iter()
+        .find(|controller| controller.fingerprint == first_fingerprint)
+        .context("first controller missing from owner list")?;
+    assert!(!first_entry.alias.is_empty());
+    assert!(first_entry.connected_at > 0);
+    assert!(controllers
+        .iter()
+        .any(|controller| controller.fingerprint == second_fingerprint));
+
+    let unknown_detach = DetachControllerRequest {
+        id: Uuid::new_v4().to_string(),
+    };
+    let error = unknown_detach
+        .handle(renderer_node.clone(), None, &unknown_detach)
+        .await
+        .unwrap_err();
+    assert_eq!(classify(&error), RequestErrorKind::NotFound);
+    let detach = DetachControllerRequest {
+        id: first_entry.id.clone(),
+    };
+    detach
+        .handle(renderer_node.clone(), None, &detach)
+        .await?;
+    let frame = timeout(Duration::from_secs(3), first.next())
+        .await?
+        .context("detached socket closed without a frame")??;
+    assert!(matches!(frame, Message::Close(Some(frame)) if u16::from(frame.code) == 4409 && frame.reason == "detached"));
+    wait_controller_count(renderer_node, 1).await?;
+
+    let first_track = session_audio(&renderer, "attached-controller-first.ogg").await?;
+    let second_track = session_audio(&renderer, "attached-controller-second.ogg").await?;
+    queue_session(&renderer, &[first_track, second_track]).await?;
+    let request_id = Uuid::new_v4();
+    second
+        .send(Message::Binary(
+            encode_message(
+                "MovePlaylistItemRequest",
+                &rinf::serialize(&MovePlaylistItemRequest {
+                    old_index: 0,
+                    new_index: 1,
+                    expected_revision: Some(0),
+                })?,
+                Some(request_id),
+            )
+            .into(),
+        ))
+        .await?;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let frame = second.next().await.context("second controller disconnected")??;
+            if let Some((name, payload, _)) = decode_message(&frame.into_data())
+                && name == "PlaylistUpdate"
+            {
+                let update: PlaylistUpdate = rinf::deserialize(&payload)?;
+                if update.revision == 1 {
+                    assert_eq!(update.items.len(), 2);
+                    return Ok::<_, anyhow::Error>(());
+                }
+            }
+        }
+    })
+    .await??;
+    assert_eq!(renderer_node.session()?.attached_controllers().len(), 1);
+
+    drop(second);
+    wait_controller_count(renderer_node, 0).await?;
     renderer.global_params.node.shutdown().await?;
     first_controller.global_params.node.shutdown().await?;
     second_controller.global_params.node.shutdown().await?;

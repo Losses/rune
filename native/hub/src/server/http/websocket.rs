@@ -77,6 +77,11 @@ pub async fn handle_socket(
     let Some(node) = state.node.upgrade() else {
         return;
     };
+    let Ok(session) = node.session() else {
+        return;
+    };
+    let controller_guard = session.attach_controller(user.fingerprint.clone(), user.alias.clone());
+    let controller_cancel = controller_guard.cancellation_token();
     let policy = node.access_policy.clone();
     drop(node);
     let mut grant_changes = policy.changes();
@@ -201,6 +206,7 @@ pub async fn handle_socket(
         _ = incoming => None,
         _ = outgoing => None,
         _ = revoked => Some((4403, "revoked")),
+        _ = controller_cancel.cancelled() => Some((4409, "detached")),
         _ = session_cancel.cancelled() => Some((1001, "server stopping")),
     };
     if let Some((code, reason)) = close {
@@ -215,5 +221,6 @@ pub async fn handle_socket(
 
     // Wait for the send task to complete
     let _ = send_task.await;
+    drop(controller_guard);
     info!("[{alias}] WebSocket connection closed");
 }

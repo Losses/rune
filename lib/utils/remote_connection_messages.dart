@@ -17,5 +17,6 @@ String remoteLossMessage(AppLocalizations s, RemoteLossKind kind) {
     RemoteLossKind.revoked => s.remoteLossRevoked,
     RemoteLossKind.serverStopped => s.remoteLossServerStopped,
     RemoteLossKind.networkLost => s.remoteLossNetworkLost,
+    RemoteLossKind.detached => s.remoteLossDetached,
   };
 }

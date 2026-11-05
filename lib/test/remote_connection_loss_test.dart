@@ -12,6 +12,7 @@ void main() {
   test('remote loss kinds map to localized messages', () {
     final s = AppLocalizationsEn();
     expect(remoteLossMessage(s, RemoteLossKind.revoked), s.remoteLossRevoked);
+    expect(remoteLossMessage(s, RemoteLossKind.detached), s.remoteLossDetached);
     expect(
       remoteLossMessage(s, RemoteLossKind.serverStopped),
       s.remoteLossServerStopped,

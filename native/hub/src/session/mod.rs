@@ -7,10 +7,10 @@ use std::{
     path::{Path, PathBuf},
     slice::from_ref,
     sync::{
-        Arc, Weak,
+        Arc, Mutex as StdMutex, MutexGuard, PoisonError, Weak,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
@@ -22,6 +22,7 @@ use database::{
         stats::increase_played_through,
     },
     connection::MainDbConnection,
+    error::ExpectedError,
     playing_item::{PlayingItemMetadataSummary, dispatcher::PlayingItemActionDispatcher},
 };
 use fsio::FsIo;
@@ -48,8 +49,9 @@ use crate::{
     handlers::playback::playing_item_requests,
     library_pool::LibraryHandle,
     messages::{
-        CrashResponse, PlaybackStatus, PlayingItemRequest, PlaylistItem, PlaylistUnavailableReason,
-        PlaylistUpdate, RealtimeFFT, ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
+        AttachedControllerInfo, ControllersUpdated, CrashResponse, PlaybackStatus,
+        PlayingItemRequest, PlaylistItem, PlaylistUnavailableReason, PlaylistUpdate, RealtimeFFT,
+        ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
     },
     node::NodeContext,
     request_error::ExpectedRequestError,
@@ -76,9 +78,119 @@ pub struct PlayerSession {
     path: PathBuf,
     node: Weak<NodeContext>,
     legacy_restore: AtomicBool,
+    attached_controllers: StdMutex<Vec<ControllerEntry>>,
+}
+
+struct ControllerEntry {
+    controller: AttachedController,
+    cancel: CancellationToken,
+}
+
+#[derive(Clone)]
+struct AttachedController {
+    id: Uuid,
+    fingerprint: String,
+    alias: String,
+    connected_at: u64,
+}
+
+/// Owns one attached controller entry for the lifetime of its WebSocket.
+pub(crate) struct AttachedControllerGuard {
+    session: Arc<PlayerSession>,
+    id: Uuid,
+    cancel: CancellationToken,
+}
+
+impl AttachedControllerGuard {
+    pub(crate) fn cancellation_token(&self) -> CancellationToken {
+        self.cancel.clone()
+    }
+}
+
+impl Drop for AttachedControllerGuard {
+    fn drop(&mut self) {
+        self.session.remove_controller(self.id);
+    }
 }
 
 impl PlayerSession {
+    pub(crate) fn attach_controller(
+        self: &Arc<Self>,
+        fingerprint: String,
+        alias: String,
+    ) -> AttachedControllerGuard {
+        let id = Uuid::new_v4();
+        let cancel = CancellationToken::new();
+        let connected_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_secs());
+        let controller = AttachedController {
+            id,
+            fingerprint,
+            alias,
+            connected_at,
+        };
+        self.controllers().push(ControllerEntry {
+            controller,
+            cancel: cancel.clone(),
+        });
+        self.broadcast_controllers_updated();
+        AttachedControllerGuard {
+            session: self.clone(),
+            id,
+            cancel,
+        }
+    }
+
+    /// The controller list stays consistent even if a holder panicked: every
+    /// critical section only pushes, retains or reads.
+    fn controllers(&self) -> MutexGuard<'_, Vec<ControllerEntry>> {
+        self.attached_controllers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn attached_controllers(&self) -> Vec<AttachedControllerInfo> {
+        self.controllers()
+            .iter()
+            .map(|entry| AttachedControllerInfo {
+                id: entry.controller.id.to_string(),
+                fingerprint: entry.controller.fingerprint.clone(),
+                alias: entry.controller.alias.clone(),
+                connected_at: entry.controller.connected_at,
+            })
+            .collect()
+    }
+
+    pub(crate) fn detach_controller(&self, id: Uuid) -> Result<()> {
+        let controllers = self.controllers();
+        let Some(entry) = controllers.iter().find(|entry| entry.controller.id == id) else {
+            return Err(ExpectedError::NotFound { what: "controller" }.into());
+        };
+        entry.cancel.cancel();
+        Ok(())
+    }
+
+    fn remove_controller(&self, id: Uuid) {
+        let removed = {
+            let mut controllers = self.controllers();
+            let before = controllers.len();
+            controllers.retain(|entry| entry.controller.id != id);
+            controllers.len() != before
+        };
+        if removed {
+            self.broadcast_controllers_updated();
+        }
+    }
+
+    fn broadcast_controllers_updated(&self) {
+        if let Some(node) = self.node.upgrade() {
+            node.broadcaster.broadcast(&ControllersUpdated {
+                controllers: self.attached_controllers(),
+            });
+        }
+    }
+
     pub async fn edit_queue<F>(&self, expected_revision: Option<u64>, edit: F) -> Result<()>
     where
         F: FnOnce(&mut dyn Playable) -> bool + Send,
@@ -198,6 +310,7 @@ impl PlayerSession {
             path,
             node: Arc::downgrade(node),
             legacy_restore: AtomicBool::new(false),
+            attached_controllers: StdMutex::new(Vec::new()),
         });
         session.start_events(node).await;
         session.player.lock().await.restore(

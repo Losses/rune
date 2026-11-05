@@ -219,6 +219,7 @@ fn classify_remote_loss(close_code: Option<u16>) -> RemoteLossKind {
     match close_code {
         Some(4403) => RemoteLossKind::Revoked,
         Some(1001) => RemoteLossKind::ServerStopped,
+        Some(4409) => RemoteLossKind::Detached,
         _ => RemoteLossKind::NetworkLost,
     }
 }
@@ -533,6 +534,7 @@ mod loss_tests {
     #[test]
     fn classifies_remote_losses() {
         assert_eq!(classify_remote_loss(Some(4403)), RemoteLossKind::Revoked);
+        assert_eq!(classify_remote_loss(Some(4409)), RemoteLossKind::Detached);
         assert_eq!(
             classify_remote_loss(Some(1001)),
             RemoteLossKind::ServerStopped

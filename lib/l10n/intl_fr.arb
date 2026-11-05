@@ -1386,6 +1386,10 @@
   "remoteOpenUnreachable": "L’appareil est inaccessible. Vérifiez qu’il est allumé et sur le même réseau.",
   "remoteOpenProtocol": "Impossible de communiquer avec l’appareil. Les deux appareils doivent utiliser la même version de Rune.",
   "remoteLossRevoked": "L’accès de cet appareil a été supprimé.",
+  "remoteLossDetached": "Le moteur de rendu a détaché ce contrôleur.",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
   "remoteLossServerStopped": "L’autre appareil a arrêté le partage.",
   "remoteLossNetworkLost": "La connexion a été perdue.",
   "deviceLibraries": "Bibliothèques",

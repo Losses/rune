@@ -1386,6 +1386,10 @@
   "remoteOpenUnreachable": "기기에 연결할 수 없습니다. 켜져 있고 같은 네트워크에 있는지 확인하세요.",
   "remoteOpenProtocol": "기기와 통신할 수 없습니다. 두 기기에 같은 버전의 Rune이 필요합니다.",
   "remoteLossRevoked": "이 기기의 접근 권한이 제거되었습니다.",
+  "remoteLossDetached": "렌더러가 이 컨트롤러의 연결을 해제했습니다.",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
   "remoteLossServerStopped": "다른 기기에서 공유를 중지했습니다.",
   "remoteLossNetworkLost": "연결이 끊어졌습니다.",
   "deviceLibraries": "라이브러리",

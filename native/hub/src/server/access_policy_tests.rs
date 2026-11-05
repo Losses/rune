@@ -446,6 +446,8 @@ mod access_policy_tests {
             "ListClientsRequest",
             "GetDeviceGrantsRequest",
             "SetDeviceGrantsRequest",
+            "ListControllersRequest",
+            "DetachControllerRequest",
             "ListLogRequest",
             "SystemInfoRequest",
             "GetDiscoveredDeviceRequest",

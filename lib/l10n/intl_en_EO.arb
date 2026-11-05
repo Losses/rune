@@ -1349,6 +1349,10 @@
   "remoteOpenUnreachable": "La aparato ne estas atingebla. Kontrolu, ke ĝi estas ŝaltita kaj en la sama reto.",
   "remoteOpenProtocol": "Ne eblis komuniki kun la aparato. Ambaŭ aparatoj bezonas la saman version de Rune.",
   "remoteLossRevoked": "La aliro de ĉi tiu aparato estis forigita.",
+  "remoteLossDetached": "La ludigilo malkonektis ĉi tiun regilon.",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
   "remoteLossServerStopped": "La alia aparato ĉesis kundividi.",
   "remoteLossNetworkLost": "La konekto perdiĝis.",
   "deviceLibraries": "Bibliotekoj",

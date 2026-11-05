@@ -1,6 +1,7 @@
 mod analyze;
 mod collection;
 mod connection;
+mod controllers;
 mod cover_art;
 mod device_grants;
 mod directory;

@@ -1347,6 +1347,10 @@
   "remoteOpenUnreachable": "デバイスに接続できません。電源が入り、同じネットワークにあるか確認してください。",
   "remoteOpenProtocol": "デバイスと通信できません。両方で同じバージョンのRuneが必要です。",
   "remoteLossRevoked": "このデバイスのアクセス権が削除されました。",
+  "remoteLossDetached": "レンダラーがこのコントローラーを切断しました。",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
   "remoteLossServerStopped": "相手のデバイスが共有を停止しました。",
   "remoteLossNetworkLost": "接続が失われました。",
   "deviceLibraries": "らいぶらり",

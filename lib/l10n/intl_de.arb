@@ -1384,6 +1384,10 @@
   "remoteOpenUnreachable": "Das Gerät ist nicht erreichbar. Prüfe, ob es eingeschaltet und im selben Netzwerk ist.",
   "remoteOpenProtocol": "Das Gerät antwortet nicht wie erwartet. Beide Geräte benötigen dieselbe Rune-Version.",
   "remoteLossRevoked": "Der Zugriff dieses Geräts wurde entfernt.",
+  "remoteLossDetached": "Der Renderer hat diesen Controller getrennt.",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
   "remoteLossServerStopped": "Das andere Gerät hat die Freigabe beendet.",
   "remoteLossNetworkLost": "Die Verbindung wurde unterbrochen.",
   "deviceLibraries": "Bibliotheken",
