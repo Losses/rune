@@ -119,7 +119,7 @@ impl Signal for GetPrimaryColorByTrackIdRequest {
         let library = require_library(library)?;
 
         if let Some(item) = item {
-            let parsed_item = playing_item_from_request(item.clone(), &library).await?;
+            let parsed_item = playing_item_from_request(item.clone(), Some(&library)).await?;
             let response = task::spawn_blocking(move || {
                 let runtime = Runtime::new().unwrap();
                 runtime.block_on(async move {

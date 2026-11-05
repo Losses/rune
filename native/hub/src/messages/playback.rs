@@ -1,3 +1,4 @@
+use playback::player::LibraryItem;
 use playback::player::UnavailableReason;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,7 @@ pub struct PlaybackStatus {
     pub duration: f64,
     pub index: Option<i32>,
     pub item: Option<String>,
+    pub item_request: Option<PlayingItemRequest>,
     pub playback_mode: u32,
     pub ready: bool,
     pub cover_art_path: Option<String>,
@@ -140,10 +142,26 @@ pub struct IndependentFilePlayingItem {
     pub raw_path: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, SignalPiece)]
+pub struct LibraryItemRequest {
+    pub library_id: String,
+    pub file_uuid: String,
+}
+
+impl From<LibraryItem> for LibraryItemRequest {
+    fn from(item: LibraryItem) -> Self {
+        Self {
+            library_id: item.library_id.to_string(),
+            file_uuid: item.file_uuid.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, SignalPiece)]
 pub struct PlayingItemRequest {
     pub in_library: Option<InLibraryPlayingItem>,
     pub independent_file: Option<IndependentFilePlayingItem>,
+    pub library_item: Option<LibraryItemRequest>,
 }
 
 #[derive(Debug, Serialize, Deserialize, DartSignal)]

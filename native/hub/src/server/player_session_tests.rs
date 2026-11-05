@@ -11,7 +11,14 @@ use database::actions::{
 use database::entities::media_file_stats;
 use database::entities::media_files;
 use database::entities::media_metadata;
-use crate::{handlers::playback::{playing_item_from_request, playing_item_requests}, messages::{InLibraryPlayingItem, PlayingItemRequest}, session::store::SessionState};
+use crate::{
+    handlers::playback::{playing_item_from_request, playing_item_requests},
+    messages::{
+        InLibraryPlayingItem, LibraryItemRequest, PlayingItemRequest, RequestErrorKind,
+    },
+    request_error::classify,
+    session::store::SessionState,
+};
 use playback::{
     PlaybackMode,
     player::{LibraryItem, PlaybackSource, PlaybackState, PlayerStatus, PlayingItem, UnavailableReason},
@@ -480,21 +487,150 @@ async fn playback_boundary_uses_current_library_and_maps_online_to_unknown_shape
         PlayingItemRequest {
             in_library: Some(InLibraryPlayingItem { file_id: id }),
             independent_file: None,
+            library_item: None,
         },
-        library,
+        Some(library),
     ).await?;
     assert_eq!(parsed, PlayingItem::InLibrary(expected));
+    let current_library_id = library.descriptor.library_id;
+    let other = LibraryItem {
+        library_id: Uuid::new_v4(),
+        file_uuid: expected.file_uuid,
+    };
     let outgoing = playing_item_requests(
         &[
             PlayingItem::InLibrary(expected),
+            PlayingItem::InLibrary(other),
             PlayingItem::Online("https://example.invalid/audio".into(), None),
         ],
         &f.global_params.node.library_pool,
+        Some(current_library_id),
     ).await;
     assert_eq!(outgoing[0].in_library.as_ref().map(|item| item.file_id), Some(id));
+    assert!(outgoing[0].library_item.is_none());
     assert!(outgoing[1].in_library.is_none());
-    assert!(outgoing[1].independent_file.is_none());
+    assert_eq!(outgoing[1].library_item.as_ref().map(|item| item.library_id.clone()), Some(other.library_id.to_string()));
+    assert_eq!(outgoing[1].library_item.as_ref().map(|item| item.file_uuid.clone()), Some(other.file_uuid.to_string()));
+    assert!(outgoing[2].in_library.is_none());
+    assert!(outgoing[2].independent_file.is_none());
+    assert!(outgoing[2].library_item.is_none());
+
+    let without_ui = playing_item_requests(
+        &[PlayingItem::InLibrary(expected)],
+        &f.global_params.node.library_pool,
+        None,
+    ).await;
+    assert!(without_ui[0].in_library.is_none());
+    assert!(without_ui[0].library_item.is_some());
+
+    let other_request = PlayingItemRequest {
+        in_library: None,
+        independent_file: None,
+        library_item: Some(LibraryItemRequest {
+            library_id: other.library_id.to_string(),
+            file_uuid: other.file_uuid.to_string(),
+        }),
+    };
+    assert_eq!(
+        playing_item_from_request(other_request, None).await?,
+        PlayingItem::InLibrary(other),
+    );
+    let malformed = PlayingItemRequest {
+        in_library: None,
+        independent_file: None,
+        library_item: Some(LibraryItemRequest {
+            library_id: other.library_id.to_string(),
+            file_uuid: "bad-file-uuid".into(),
+        }),
+    };
+    let error = playing_item_from_request(malformed, None).await.unwrap_err();
+    assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
     f.global_params.node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn playlist_update_uses_library_item_after_switching_ui_library() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let bdir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let a = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let a_id = session_audio(&a, "boundary-switch.ogg").await?;
+    let a_item = library_item_for_id(&a, a_id).await?;
+    let b = fixture_open_replica(&a, bdir.path()).await?;
+    assert_ne!(a_item.library_id, b.global_params.test_library().descriptor.library_id);
+
+    a.global_params.player.lock().await.add_to_playlist_with_sources(
+        vec![(PlayingItem::InLibrary(a_item), PlaybackSource::LibraryStream)],
+        AddMode::AppendToEnd,
+    );
+    wait_player(&a, |status| status.playlist == [PlayingItem::InLibrary(a_item)]).await?;
+    a.global_params.player.lock().await.switch(0);
+    wait_player(&a, |status| status.item == Some(PlayingItem::InLibrary(a_item))).await?;
+    let update = timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(update) = signals.0.lock().unwrap().iter().rev().find_map(
+                |(name, bytes)| {
+                    (name == "PlaylistUpdate")
+                        .then(|| rinf::deserialize::<PlaylistUpdate>(bytes).ok())
+                        .flatten()
+                        .filter(|update| {
+                            update.items.iter().any(|item| {
+                                item.item.library_item.as_ref().is_some_and(|identity| {
+                                    identity.library_id == a_item.library_id.to_string()
+                                        && identity.file_uuid == a_item.file_uuid.to_string()
+                                })
+                            })
+                        })
+                },
+            ) {
+                break update;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("playlist update with stable library item did not arrive")?;
+    assert_eq!(update.items.len(), 1);
+    assert!(update.items[0].item.in_library.is_none());
+    let library_item = update.items[0]
+        .item
+        .library_item
+        .as_ref()
+        .context("other-library queue item was not sent by stable identity")?;
+    assert_eq!(library_item.library_id, a_item.library_id.to_string());
+    assert_eq!(library_item.file_uuid, a_item.file_uuid.to_string());
+    let status = timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(status) = signals.0.lock().unwrap().iter().rev().find_map(
+                |(name, bytes)| {
+                    (name == "PlaybackStatus")
+                        .then(|| rinf::deserialize::<PlaybackStatus>(bytes).ok())
+                        .flatten()
+                        .filter(|status| {
+                            status.item_request.as_ref().is_some_and(|request| {
+                                request.library_item.as_ref().is_some_and(|identity| {
+                                    identity.library_id == a_item.library_id.to_string()
+                                        && identity.file_uuid == a_item.file_uuid.to_string()
+                                })
+                            })
+                        })
+                },
+            ) {
+                break status;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("playback status with stable library item did not arrive")?;
+    assert!(status.item_request.unwrap().in_library.is_none());
+    a.global_params.node.shutdown().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

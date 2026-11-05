@@ -2428,6 +2428,7 @@ mod lifecycle_tests {
             duration: 24.0,
             index: None,
             item: None,
+            item_request: None,
             playback_mode: 0,
             ready: true,
             cover_art_path: None,

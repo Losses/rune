@@ -69,7 +69,7 @@ async fn load_lyric_lines(
     item: &PlayingItemRequest,
     library: &LibraryHandle,
 ) -> Result<Vec<LyricContentLine>> {
-    let parsed_item = playing_item_from_request(item.clone(), library).await?;
+    let parsed_item = playing_item_from_request(item.clone(), Some(library)).await?;
     let dispatcher = PlayingItemActionDispatcher::new();
 
     let paths = dispatcher

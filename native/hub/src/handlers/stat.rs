@@ -36,7 +36,7 @@ impl Signal for SetLikedRequest {
         let library = require_library(library)?;
 
         if let Some(item) = &request.item {
-            let parsed_item = playing_item_from_request(item.clone(), &library).await?;
+            let parsed_item = playing_item_from_request(item.clone(), Some(&library)).await?;
 
             let response = match parsed_item {
                 PlayingItem::InLibrary(identity)
@@ -119,7 +119,7 @@ impl Signal for GetLikedRequest {
         let library = require_library(library)?;
 
         if let Some(item) = &request.item {
-            let parsed_item = playing_item_from_request(item.clone(), &library).await?;
+            let parsed_item = playing_item_from_request(item.clone(), Some(&library)).await?;
 
             let response = match parsed_item {
                 PlayingItem::InLibrary(identity)

@@ -48,8 +48,8 @@ use crate::{
     handlers::playback::playing_item_requests,
     library_pool::LibraryHandle,
     messages::{
-        CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUnavailableReason, PlaylistUpdate,
-        RealtimeFFT, ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
+        CrashResponse, PlaybackStatus, PlayingItemRequest, PlaylistItem, PlaylistUnavailableReason,
+        PlaylistUpdate, RealtimeFFT, ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
     },
     node::NodeContext,
     server::PairedAudioResolver,
@@ -412,6 +412,9 @@ struct ItemEventState {
     library: Option<ResolvedLibrary>,
     metadata: PlayingItemMetadataSummary,
     cover: Option<String>,
+    /// `last_item` as sent to Dart, valid for `request_ui_library`.
+    request: Option<PlayingItemRequest>,
+    request_ui_library: Option<Uuid>,
 }
 
 struct ResolvedLibrary {
@@ -427,7 +430,8 @@ async fn handle_status_event(
     scrobbler: &Arc<Mutex<dyn ScrobblingServiceManager>>,
     broadcaster: &Arc<dyn Broadcaster>,
 ) {
-    if value.item != item_state.last_item {
+    let item_changed = value.item != item_state.last_item;
+    if item_changed {
         item_state.metadata = PlayingItemMetadataSummary::default();
         item_state.cover = None;
         item_state.library = None;
@@ -483,7 +487,24 @@ async fn handle_status_event(
             .as_ref()
             .map(|library| library.fsio.clone()),
     );
-    let report = format_status(&value, &item_state.metadata, item_state.cover.clone(), root);
+    let ui_library_id = current_ui_library_id(node).await;
+    if item_changed || ui_library_id != item_state.request_ui_library {
+        item_state.request_ui_library = ui_library_id;
+        item_state.request = match &value.item {
+            Some(item) => playing_item_requests(from_ref(item), &node.library_pool, ui_library_id)
+                .await
+                .pop(),
+            None => None,
+        };
+    }
+    let item_request = item_state.request.clone();
+    let report = format_status(
+        &value,
+        &item_state.metadata,
+        item_state.cover.clone(),
+        root,
+        item_request,
+    );
     if let Some(manager) = controls {
         let _ = update_media_controls_progress(manager.clone(), &report).await;
     }
@@ -698,7 +719,9 @@ async fn send_playlist(
         }
     }
 
-    let item_requests = playing_item_requests(&playlist.items, &node.library_pool).await;
+    let ui_library_id = current_ui_library_id(node).await;
+    let item_requests =
+        playing_item_requests(&playlist.items, &node.library_pool, ui_library_id).await;
     let items = playlist
         .items
         .iter()
@@ -730,6 +753,7 @@ fn format_status(
     metadata: &PlayingItemMetadataSummary,
     cover_art_path: Option<String>,
     lib_path: String,
+    item_request: Option<PlayingItemRequest>,
 ) -> PlaybackStatus {
     PlaybackStatus {
         state: status.state.to_string(),
@@ -745,11 +769,22 @@ fn format_status(
         duration: metadata.duration,
         index: status.index.map(|i| i as i32),
         item: status.item.clone().map(|item| item.to_string()),
+        item_request,
         playback_mode: status.playback_mode.into(),
         ready: status.ready,
         cover_art_path,
         lib_path,
     }
+}
+
+async fn current_ui_library_id(node: &NodeContext) -> Option<Uuid> {
+    let params = node.current_ui().await.ok()?;
+    params
+        .ui_library
+        .lock()
+        .await
+        .as_ref()
+        .map(|library| library.descriptor.library_id)
 }
 
 impl Drop for PlayerSession {
