@@ -406,6 +406,47 @@ pub struct LabOverrides {
     pub lens: LabLens,
 }
 
+/// Something the visualizer decided or was told to do, at the song time it happened (see
+/// [`crate::Visualizer::drain_lab_events`]).
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct LabEvent {
+    /// Song seconds.
+    pub time: f64,
+    pub kind: LabEventKind,
+}
+
+/// What a [`LabEvent`] is.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum LabEventKind {
+    /// The camera cut to a shot. `first` is the scene's first shot, begun with its first frame, or
+    /// the shot on where the decisions were put at a song time without playing up to it (see
+    /// `scene::stepper`): a jump rather than a cut.
+    Cut {
+        shot: String,
+        /// "wide", "medium", "close", "detail" or "top".
+        size: String,
+        /// 0 for a normal cut, else the position in a burst.
+        fill: u32,
+        /// The cut lands on a strong transition of the scene's list.
+        strong: bool,
+        /// The view jumps (not a glide).
+        hard: bool,
+        /// The transition that dresses the cut, by name.
+        dress: Option<String>,
+        first: bool,
+    },
+    /// The look changed.
+    Look { look: String },
+    /// A moment of the music played an effect. `strength` is "medium" or "strong"; `effect` is
+    /// what it did by name, none when the scene lists nothing that suits it.
+    Moment {
+        strength: String,
+        effect: Option<String>,
+    },
+}
+
 /// What the render thread is told to do now, for a scene lab (see
 /// [`crate::Visualizer::lab`]).
 #[derive(Clone, Debug, PartialEq, Eq)]

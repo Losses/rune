@@ -9,6 +9,7 @@ import '../router/navigation.dart';
 import 'utils/escape_from_search.dart';
 import 'utils/escape_from_lyrics.dart';
 import 'utils/escape_from_cover_art_wall.dart';
+import 'utils/escape_from_visualizer_lab.dart';
 
 import 'escape_intent.dart';
 
@@ -44,6 +45,7 @@ class EscapeAction extends Action<EscapeIntent> {
       return;
     }
 
+    if (escapeFromVisualizerLab()) return;
     if (escapeFromSearch()) return;
     if (escapeFromLyrics()) return;
     if (escapeFromCoverArtWall()) return;

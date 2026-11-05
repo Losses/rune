@@ -17,6 +17,7 @@ import 'widgets/settings/library_cover_wallpaper_settings.dart';
 import 'widgets/settings/mild_spectrum_settings.dart';
 import 'widgets/settings/tray_icon_color_mode_settings.dart';
 import 'widgets/settings/visualizer_diagnostics_settings.dart';
+import 'widgets/settings/visualizer_lab_settings.dart';
 
 class SettingsLaboratory extends StatelessWidget {
   const SettingsLaboratory({super.key});
@@ -104,6 +105,7 @@ class _ResponsiveSettingsGrid extends StatelessWidget {
           TrayIconColorModeSettings(),
           FsSelfTestSettings(),
           VisualizerDiagnosticsSettings(),
+          VisualizerLabSettings(),
         ],
       ),
     );

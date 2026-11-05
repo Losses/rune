@@ -11,11 +11,14 @@ import '../../../widgets/context_menu_wrapper.dart';
 import '../../../widgets/visualizer/visualizer_controller.dart';
 import '../../../widgets/visualizer/visualizer_surface.dart';
 import '../../../widgets/visualizer/visualizer_problem.dart';
+import '../../../widgets/visualizer/lab/lab_mode_builder.dart';
+import '../../../widgets/visualizer/lab/lab_overlay.dart';
 import '../../../widgets/cover_wall_background/gradient_container.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
 import '../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../providers/responsive_providers.dart';
+import '../../../providers/visualizer_lab.dart';
 import '../../../providers/visualizer_scenes.dart';
 
 import 'back_button.dart';
@@ -187,30 +190,79 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
               ),
               height: (mainAxisCount * gridSize).toDouble(),
             ),
-            const PlayingTrack(),
-            if (!isMini)
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: const Alignment(0.0, -1.0),
-                    end: const Alignment(0.0, 1.0),
-                    colors: [
-                      shadowColor.withAlpha(0),
-                      isDark
-                          ? shadowColor.withAlpha(200)
-                          : shadowColor.lighten(0.2).withAlpha(220),
-                    ],
-                  ),
-                ),
-                height: playbackControllerHeight,
+            // In the lab mode a scrim darkens the visualizer, which keeps
+            // its place and size behind it.
+            Positioned.fill(
+              child: LabModeBuilder(
+                builder: (context, value, on, child) {
+                  // The scrim goes with the lab's body while the lab peeks.
+                  final peeking = context.select<VisualizerLabProvider, bool>(
+                    (p) => p.peeking,
+                  );
+                  return value == 0
+                      ? const SizedBox.shrink()
+                      : IgnorePointer(
+                          child: AnimatedOpacity(
+                            opacity: peeking ? 0 : 1,
+                            duration: labPeekDuration,
+                            child: ColoredBox(
+                              color: Colors.black.withValues(
+                                alpha: 0.62 * value,
+                              ),
+                            ),
+                          ),
+                        );
+                },
               ),
-            const Positioned(
+            ),
+            // The track leaves through the top of the window, ahead of the
+            // controller that follows it there.
+            LabModeBuilder(
+              enterDuration: const Duration(milliseconds: 200),
+              builder: (context, value, on, child) => IgnorePointer(
+                ignoring: on,
+                child: Transform.translate(
+                  offset: Offset(0, -value * constraints.maxHeight),
+                  child: child,
+                ),
+              ),
+              child: const PlayingTrack(),
+            ),
+            if (!isMini)
+              LabModeBuilder(
+                builder: (context, value, on, child) =>
+                    Opacity(opacity: 1 - value, child: child),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: const Alignment(0.0, -1.0),
+                      end: const Alignment(0.0, 1.0),
+                      colors: [
+                        shadowColor.withAlpha(0),
+                        isDark
+                            ? shadowColor.withAlpha(200)
+                            : shadowColor.lighten(0.2).withAlpha(220),
+                      ],
+                    ),
+                  ),
+                  height: playbackControllerHeight,
+                ),
+              ),
+            // The controller takes its place in the lab mode.
+            Positioned(
               top: 0,
               left: 0,
-              child: BackButton(),
+              child: LabModeBuilder(
+                builder: (context, value, on, child) => IgnorePointer(
+                  ignoring: on,
+                  child: Opacity(opacity: 1 - value, child: child),
+                ),
+                child: const BackButton(),
+              ),
             ),
             // A problem of the visualizer, in the corner.
             if (showVisualizer) VisualizerProblem(controller: _visualizer),
+            VisualizerLabOverlay(controller: _visualizer),
           ],
         );
 

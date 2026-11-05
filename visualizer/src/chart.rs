@@ -272,6 +272,13 @@ impl Chart {
             .collect()
     }
 
+    /// How long the song is as the chart knows it, in seconds: where its last section ends, else
+    /// its last beat; 0 for a chart with neither.
+    pub fn length(&self) -> f64 {
+        let beat = self.beats.last().map_or(0.0, |b| b.t);
+        self.sections.last().map_or(beat, |s| s.end)
+    }
+
     /// The chart at song time `t` (seconds).
     pub fn at(&self, t: f64) -> ChartState {
         let mut state = ChartState {
@@ -470,6 +477,8 @@ fn silent(values: &[f64], hop: f64, t: f64) -> bool {
 #[derive(Debug, Clone, Default)]
 pub struct Playback {
     pub path: Option<PathBuf>,
+    /// How often the file changed, to tell one song from the next.
+    pub generation: u64,
     pub fsio: Option<Arc<FsIo>>,
     pub position: Duration,
     pub playing: bool,
@@ -532,6 +541,8 @@ pub struct ChartFollower {
     fsio: Option<Arc<FsIo>>,
     path: Option<PathBuf>,
     chart: Option<Arc<Chart>>,
+    /// How many charts have arrived: which one `chart` is, for what is made from it.
+    arrivals: u64,
     loading: Option<Receiver<Option<Chart>>>,
     /// Stops the running analysis, if any.
     cancel: Option<Arc<AtomicBool>>,
@@ -548,6 +559,7 @@ impl ChartFollower {
             fsio: None,
             path: None,
             chart: None,
+            arrivals: 0,
             loading: None,
             cancel: None,
             clock: SongClock::default(),
@@ -578,6 +590,7 @@ impl ChartFollower {
             if let Some((path, chart)) = kept {
                 info!("The chart of {} was kept", path.display());
                 self.chart = Some(chart);
+                self.arrivals += 1;
             } else if let (Some(fsio), Some(path)) = (&self.fsio, &self.path)
                 && !path.as_os_str().is_empty()
             {
@@ -589,6 +602,7 @@ impl ChartFollower {
             match receiver.try_recv() {
                 Ok(chart) => {
                     arrived = chart.is_some();
+                    self.arrivals += u64::from(arrived);
                     self.chart = chart.map(Arc::new);
                     self.loading = None;
                 }
@@ -613,9 +627,11 @@ impl ChartFollower {
             .unwrap_or_default()
     }
 
-    /// The chart of the file that plays, once there is one.
-    pub fn chart(&self) -> Option<Arc<Chart>> {
-        self.chart.clone()
+    /// The chart of the file that plays, once there is one, with the number of its arrival, and
+    /// where the file is.
+    pub fn chart(&self) -> Option<(u64, Arc<Chart>, &Path)> {
+        let chart = self.chart.as_ref()?;
+        Some((self.arrivals, Arc::clone(chart), self.path.as_deref()?))
     }
 
     /// The file followed, once there is one (it may be empty: a song that is not a file).
@@ -865,6 +881,7 @@ mod tests {
             position: Duration::from_secs(10),
             playing: true,
             at: Some(start),
+            ..Playback::default()
         };
         assert_eq!(clock.tick(&playback, start), 10.0);
         // A report 40 ms late moves the clock only part of the way.
@@ -895,6 +912,7 @@ mod tests {
             position: Duration::from_secs(10),
             playing: false,
             at: Some(start),
+            ..Playback::default()
         };
         assert_eq!(clock.tick(&playback, start), 10.0);
         // A small seek while paused is shown where it went, not a part of the way.
@@ -955,6 +973,7 @@ mod tests {
             position: Duration::from_secs_f64(position),
             playing: false,
             at: Some(Instant::now()),
+            ..Playback::default()
         }
     }
 
@@ -1039,7 +1058,7 @@ mod tests {
         // The visualizer starts again on the same song: the chart is there at once.
         let mut follower = ChartFollower::new(Arc::clone(&kept));
         assert!(follower.tick(&playing(a, 2.0), Instant::now()).is_some());
-        assert!(follower.chart().is_some());
+        assert_eq!(follower.chart().map(|(arrival, _, _)| arrival), Some(1));
         drop(follower);
         // On another song it is not, and it is gone.
         let mut follower = ChartFollower::new(Arc::clone(&kept));

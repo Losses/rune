@@ -10,6 +10,7 @@ import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
 import '../router/rune_stack.dart';
+import '../visualizer/lab/lab_mode_builder.dart';
 
 import 'drag_move_window_area.dart';
 
@@ -106,7 +107,7 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
               return DragMoveWindowArea();
             }
 
-            return Column(
+            final titleRow = Column(
               children: [
                 SizedBox(
                   height: 40,
@@ -131,6 +132,13 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
                   ),
                 ),
               ],
+            );
+
+            // The controller has the window's top in the lab mode.
+            return LabModeBuilder(
+              builder: (context, value, on, child) =>
+                  IgnorePointer(ignoring: on, child: child),
+              child: titleRow,
             );
           },
         ),

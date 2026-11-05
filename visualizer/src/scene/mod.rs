@@ -25,6 +25,7 @@ mod wgsl;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 
@@ -33,8 +34,9 @@ use crate::chart::ChartState;
 use crate::covers::{self, Atlas, Cell};
 use crate::rhythm::Rhythm;
 use audio::{Analyzer, SPECTRUM_ROWS, SPECTRUM_WIDTH, WAVEFORM_WIDTH};
-pub(crate) use decider::Decider;
 pub use decider::STEP;
+pub use decider::Settings as DeciderSettings;
+pub(crate) use decider::{Decider, LabRow};
 pub use director::DirectorView;
 use inputs::{EventCounter, WallClock};
 pub use lens::LensView;
@@ -65,6 +67,9 @@ pub struct CutInfo {
     /// The cut lands on a strong transition of the scene's list (see `director::Cut::strong`).
     pub strong: bool,
 }
+
+/// The number the next scene built gets (see `Scene::id`).
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Buffers of a scene may take this much memory together.
 const MAX_BUFFER_BYTES: u64 = 256 << 20;
@@ -524,6 +529,16 @@ pub struct Scene {
     forced_cut: Option<CutInfo>,
     /// The glitch or mosaic over the picture that started in the last frame.
     overlay: Option<crate::transition::Overlay>,
+    /// What the last frame decided, for the event log (see [`Scene::take_events`]).
+    events: Vec<crate::inspect::LabEvent>,
+    /// Whether the event log is made (see [`Scene::record_events`]).
+    record_events: bool,
+    /// A number of its own, so that what is made from the decisions of this scene (a plan of the
+    /// song) is not taken for another's.
+    id: u64,
+    /// How often the scene's bindings or parameters were replaced while it stayed the same scene
+    /// (a lab's edit, or a saved file that changed only those).
+    edits: u64,
     /// The visualizer's time when the scene started, and of the last frame.
     started: Option<f64>,
     last: Option<f64>,
@@ -1363,6 +1378,10 @@ impl Scene {
             cut: None,
             forced_cut: None,
             overlay: None,
+            events: Vec::new(),
+            record_events: false,
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            edits: 0,
             started: None,
             last: None,
             last_song: 0.0,
@@ -1453,6 +1472,7 @@ impl Scene {
             );
             // What a reload of the saved text reads is what is on screen: it finds nothing new.
             self.files.manifest = manifest;
+            self.edits += 1;
         }
         Ok(false)
     }
@@ -1467,6 +1487,53 @@ impl Scene {
     /// for the scene switching that follows the music.
     pub fn music(&self) -> &inputs::MusicValues {
         &self.music_values
+    }
+
+    /// What decided the last frames of the scene on screen, as the event log tells it: taken, so
+    /// that a frame is told once.
+    pub fn take_events(&mut self) -> Vec<crate::inspect::LabEvent> {
+        std::mem::take(&mut self.events)
+    }
+
+    /// A number the scene has of its own, which another scene (and this one built again from
+    /// its files) does not.
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// How often the bindings or the parameters of this scene were replaced (see [`Scene::id`]).
+    pub fn edits(&self) -> u64 {
+        self.edits
+    }
+
+    /// What a lab shows of this scene besides its decisions: its shots and looks, its inputs
+    /// and the bindings that drive them.
+    pub fn lab_scene(&self) -> crate::lab::LabScene {
+        let manifest = &self.files.manifest;
+        crate::lab::LabScene {
+            shots: self
+                .decider
+                .shots()
+                .into_iter()
+                .map(|(name, size, _)| (name, decider::size_name(size)))
+                .collect(),
+            looks: self.decider.look_names(),
+            inputs: manifest.inputs.clone(),
+            params: manifest.params.clone(),
+            binds: manifest.binds.clone(),
+            param_values: self.files.param_numbers(),
+        }
+    }
+
+    /// What a lab or the user set on the decisions of this scene.
+    pub fn decider_settings(&self) -> DeciderSettings {
+        self.decider.settings()
+    }
+
+    /// The decisions of this scene, set the same way and from the start of a song, to play a song
+    /// through ahead of time (see [`crate::plan`]).
+    pub fn plan_decider(&self) -> Decider {
+        self.decider.fresh(&self.files.manifest)
     }
 
     /// The camera cut the director made in the last frame drawn, if any: for the transition layer
@@ -1642,6 +1709,16 @@ impl Scene {
         }
     }
 
+    /// Whether the scene makes the event log (see [`Scene::take_events`]), which only a lab shows.
+    /// Off, no event is built for a cut, a look or a moment.
+    pub fn record_events(&mut self, on: bool) {
+        self.record_events = on;
+        self.stepper.record(on);
+        if !on {
+            self.events.clear();
+        }
+    }
+
     /// Make every lifting section start burst, or none, or with none leave it to the runtime's
     /// chance (a scene lab; see `Director::set_burst_override`). Nothing without shots.
     pub fn set_bursts(&mut self, bursts: Option<bool>) {
@@ -1701,6 +1778,7 @@ impl Scene {
             }
             self.on_disk = files.clone();
             self.files = files;
+            self.edits += 1;
             return Ok(true);
         }
         self.rebuild(device, queue, files.clone(), files)?;
@@ -2072,10 +2150,14 @@ impl Scene {
         let (decision, jumped, replaced, since_step) = match stepped {
             Some(Stepped {
                 decision,
+                events,
                 jumped,
                 replaced,
                 since_step,
-            }) => (decision, jumped, replaced, since_step),
+            }) => {
+                self.events = events;
+                (decision, jumped, replaced, since_step)
+            }
             None => {
                 let forced_cut = self.forced_cut.take();
                 let decision = self.decider.step(
@@ -2086,6 +2168,11 @@ impl Scene {
                     forced_cut,
                     self.level.quality,
                 );
+                self.events = if self.record_events {
+                    self.decider.events(input.song.0, &decision, self.first)
+                } else {
+                    Vec::new()
+                };
                 (decision, false, false, 0.0)
             }
         };
@@ -2236,7 +2323,7 @@ impl Scene {
 }
 
 /// A seed of `seed` and `n` together, spread over all the bits (the finaliser of MurmurHash3).
-fn mix_seed(seed: u32, n: u32) -> u32 {
+pub(crate) fn mix_seed(seed: u32, n: u32) -> u32 {
     let mut h = seed ^ n.wrapping_mul(0x9e37_79b9);
     h ^= h >> 16;
     h = h.wrapping_mul(0x85eb_ca6b);

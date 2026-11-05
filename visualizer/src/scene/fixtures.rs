@@ -60,3 +60,39 @@ pub(crate) fn manifest() -> Manifest {
 pub(crate) fn decider() -> Decider {
     Decider::new(&manifest())
 }
+
+/// What a lab shows of the scene Armillary, with its own inputs and bindings.
+pub(crate) fn lab_scene() -> crate::lab::LabScene {
+    lab_scene_of(&manifest())
+}
+
+/// The same scene with the inputs and bindings of `bindings` (the text of `[[input]]`s and
+/// `[[bind]]`s) in place of its own.
+pub(crate) fn lab_scene_with(bindings: &str) -> crate::lab::LabScene {
+    lab_scene_of(&manifest().with_bindings(bindings).unwrap())
+}
+
+fn lab_scene_of(manifest: &Manifest) -> crate::lab::LabScene {
+    use super::manifest::Value;
+    let decider = Decider::new(manifest);
+    crate::lab::LabScene {
+        shots: decider
+            .shots()
+            .into_iter()
+            .map(|(name, size, _)| (name, super::decider::size_name(size)))
+            .collect(),
+        looks: decider.look_names(),
+        inputs: manifest.inputs.clone(),
+        params: manifest.params.clone(),
+        binds: manifest.binds.clone(),
+        param_values: manifest
+            .params
+            .iter()
+            .map(|p| match p.value().unwrap() {
+                Value::Float(v) => v,
+                Value::Int(v) => v as f32,
+                _ => 0.0,
+            })
+            .collect(),
+    }
+}

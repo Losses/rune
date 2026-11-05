@@ -13,6 +13,7 @@ import '../../providers/responsive_providers.dart';
 import '../../providers/linux_custom_window_controls.dart';
 
 import '../router/rune_stack.dart';
+import '../visualizer/lab/lab_mode_builder.dart';
 
 import 'window_icon_button.dart';
 import 'drag_move_window_area.dart';
@@ -63,7 +64,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows> {
                   return DragMoveWindowArea();
                 }
 
-                return SizedBox(
+                final titleRow = SizedBox(
                   height: 30,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -178,6 +179,15 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows> {
                             : SizedBox(width: 7),
                     ],
                   ),
+                );
+
+                // The lab mode's controller has the window's top.
+                return LabModeBuilder(
+                  builder: (context, value, on, child) => IgnorePointer(
+                    ignoring: on,
+                    child: Opacity(opacity: 1 - value, child: child),
+                  ),
+                  child: titleRow,
                 );
               },
             ),

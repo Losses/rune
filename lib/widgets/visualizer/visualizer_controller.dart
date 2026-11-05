@@ -18,6 +18,18 @@ class VisualizerController {
   /// visualizer runs.
   final ValueNotifier<String?> scenePath = ValueNotifier(null);
 
+  /// The name of the scene on screen, from the status; null while
+  /// [scenePath] is.
+  final ValueNotifier<String?> sceneName = ValueNotifier(null);
+
+  /// The id of the texture the surface shows, null while there is none. A
+  /// widget that shows the same picture elsewhere gives its own `Texture` this
+  /// id; Rust renders once, whoever shows it.
+  final ValueNotifier<int?> textureId = ValueNotifier(null);
+
+  /// The width over the height of the picture in the texture.
+  final ValueNotifier<double> textureAspect = ValueNotifier(16 / 9);
+
   /// Whether the page waits in the dark for the scene the visualizer begins
   /// with, rather than showing the cover wall until it comes: from when a
   /// surface attaches to resume a scene until a scene shows, a problem comes or
@@ -37,6 +49,8 @@ class VisualizerController {
     _attached = true;
     problem.value = null;
     scenePath.value = null;
+    sceneName.value = null;
+    textureId.value = null;
     _waitTimer?.cancel();
     waiting.value = resumesScene;
     if (resumesScene) _waitTimer = Timer(waitLimit, stopWaiting);

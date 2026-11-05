@@ -7,7 +7,10 @@ use anyhow::Result;
 use tokio::sync::Mutex;
 
 use ::playback::player::Playable;
-use ::visualizer::{Location, PcmInput, Transport};
+use ::visualizer::{
+    Inspect, LabCommand, LabEvent, LabEventKind, LabTransition, Level, Location, PcmInput,
+    Transport,
+};
 
 use crate::{
     Session, Signal, flutter_bridge,
@@ -623,5 +626,299 @@ impl Signal for ListVisualizerPresetsRequest {
             })
             .collect();
         Ok(Some(ListVisualizerPresetsResponse { presets }))
+    }
+}
+
+impl ParamsExtractor for SetVisualizerLabRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for SetVisualizerLabRequest {
+    type Params = ();
+    type Response = ();
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        VISUALIZER.set_inspecting(dart_signal.enabled);
+        Ok(Some(()))
+    }
+}
+
+impl From<VisualizerLabLevel> for Level {
+    fn from(level: VisualizerLabLevel) -> Self {
+        match level {
+            VisualizerLabLevel::A => Self::A,
+            VisualizerLabLevel::B => Self::B,
+            VisualizerLabLevel::C => Self::C,
+        }
+    }
+}
+
+impl From<Level> for VisualizerLabLevel {
+    fn from(level: Level) -> Self {
+        match level {
+            Level::A => Self::A,
+            Level::B => Self::B,
+            Level::C => Self::C,
+        }
+    }
+}
+
+impl From<VisualizerLabTransition> for LabTransition {
+    fn from(transition: VisualizerLabTransition) -> Self {
+        match transition {
+            VisualizerLabTransition::Fade => Self::Fade,
+            VisualizerLabTransition::Dissolve => Self::Dissolve,
+            VisualizerLabTransition::Flash => Self::Flash,
+            VisualizerLabTransition::Glitch => Self::Glitch,
+            VisualizerLabTransition::Mosaic => Self::Mosaic,
+        }
+    }
+}
+
+impl From<VisualizerLabCommand> for LabCommand {
+    fn from(command: VisualizerLabCommand) -> Self {
+        match command {
+            VisualizerLabCommand::Cut => Self::Cut,
+            VisualizerLabCommand::Shot { index } => Self::Shot(index),
+            VisualizerLabCommand::Look { index } => Self::Look(index),
+            VisualizerLabCommand::CutDressed { transition } => Self::CutDressed(transition.into()),
+            VisualizerLabCommand::Flare => Self::Flare,
+            VisualizerLabCommand::Leak => Self::Leak,
+            VisualizerLabCommand::LensGlitch => Self::LensGlitch,
+            VisualizerLabCommand::LensMosaic => Self::LensMosaic,
+            VisualizerLabCommand::ForceLevel { level } => Self::ForceLevel(level.map(Into::into)),
+            VisualizerLabCommand::Burst => Self::Burst,
+        }
+    }
+}
+
+impl ParamsExtractor for VisualizerLabCommandRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for VisualizerLabCommandRequest {
+    type Params = ();
+    type Response = ();
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        // A visualizer that is not running has nothing to tell.
+        if let Err(e) = VISUALIZER.lab(dart_signal.command.clone().into()) {
+            log::warn!("The visualizer lab command was dropped: {e:#}");
+        }
+        Ok(Some(()))
+    }
+}
+
+/// The lab's events as messages; an event of a kind this build does not know is left out.
+fn lab_event(event: LabEvent) -> Option<VisualizerLabEvent> {
+    let kind = match event.kind {
+        LabEventKind::Cut {
+            shot,
+            size,
+            fill,
+            strong,
+            dress,
+            first,
+            ..
+        } => VisualizerLabEventKind::Cut {
+            shot,
+            size,
+            fill,
+            strong,
+            dress,
+            first,
+        },
+        LabEventKind::Look { look } => VisualizerLabEventKind::Look { look },
+        LabEventKind::Moment { strength, effect } => {
+            VisualizerLabEventKind::Moment { strength, effect }
+        }
+        _ => return None,
+    };
+    Some(VisualizerLabEvent {
+        time: event.time,
+        kind,
+    })
+}
+
+/// The live readout of a frame the visualizer saw.
+fn lab_now(inspect: Inspect) -> VisualizerLabNow {
+    let overrides = inspect.overrides;
+    VisualizerLabNow {
+        director: inspect.director.map(|director| VisualizerLabDirector {
+            shot_index: director.shot_index,
+            held: director.held,
+            shots: director
+                .shots
+                .into_iter()
+                .map(|shot| VisualizerLabShot {
+                    name: shot.name,
+                    size: shot.size,
+                })
+                .collect(),
+        }),
+        looks: inspect.looks.map(|looks| VisualizerLabLooks {
+            names: looks.names,
+            on: looks.on,
+            held: looks.held,
+        }),
+        effects: VisualizerLabEffects {
+            cut: inspect.effects.cut,
+            lens: inspect.effects.lens,
+        },
+        forced_level: overrides.level.map(Into::into),
+    }
+}
+
+impl ParamsExtractor for VisualizerLabRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for VisualizerLabRequest {
+    type Params = ();
+    type Response = VisualizerLabResponse;
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let inspect = VISUALIZER.inspect();
+        // The samples are drained before the catalogue is read: a switch between the two calls
+        // leaves samples of the old catalogue, which the app resets, not ones it would drop.
+        let samples = VISUALIZER.drain_lab_samples();
+        let columns = VISUALIZER
+            .lab_columns()
+            .filter(|columns| columns.version != dart_signal.columns_version)
+            .map(|columns| VisualizerLabColumns {
+                version: columns.version,
+                rate: ::visualizer::LAB_RATE,
+                columns: columns
+                    .columns
+                    .iter()
+                    .map(|column| VisualizerLabColumn {
+                        id: column.id.clone(),
+                        name: column.name.clone(),
+                        group: column.group.as_str().to_string(),
+                        kind: column.kind.as_str().to_string(),
+                        lo: column.lo,
+                        hi: column.hi,
+                        unit: column.unit.clone(),
+                        categories: column.categories.clone(),
+                        plan: column.plan.as_str().to_string(),
+                        binds: column.binds.clone(),
+                        rest: column.rest,
+                    })
+                    .collect(),
+            });
+        Ok(Some(VisualizerLabResponse {
+            inspecting: VISUALIZER.is_inspecting(),
+            song_time: inspect
+                .as_ref()
+                .map_or(0.0, |inspect| f64::from(inspect.music.time)),
+            plan_version: VISUALIZER.plan_version(),
+            events: VISUALIZER
+                .drain_lab_events()
+                .into_iter()
+                .filter_map(lab_event)
+                .collect(),
+            now: inspect.map(lab_now),
+            columns,
+            samples: samples
+                .into_iter()
+                .map(|sample| VisualizerLabSample {
+                    bucket: sample.bucket,
+                    columns_version: sample.columns_version,
+                    values: sample.values,
+                })
+                .collect(),
+        }))
+    }
+}
+
+impl ParamsExtractor for VisualizerPlanRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for VisualizerPlanRequest {
+    type Params = ();
+    type Response = VisualizerPlanResponse;
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        _dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        // The version first: a plan made in between is then fetched again for its own version.
+        let version = VISUALIZER.plan_version();
+        let plan = VISUALIZER.plan().map(|plan| VisualizerPlan {
+            length: plan.length,
+            sections: plan
+                .sections
+                .iter()
+                .map(|section| VisualizerPlanSection {
+                    start: section.start,
+                    end: section.end,
+                    label: section.label.clone(),
+                    tier: section.tier.clone(),
+                })
+                .collect(),
+            cuts: plan
+                .cuts
+                .iter()
+                .map(|cut| VisualizerPlanCut {
+                    time: cut.time,
+                    shot: cut.shot.clone(),
+                    size: cut.size.clone(),
+                    fill: cut.fill,
+                    strong: cut.strong,
+                    dress: cut.dress.clone(),
+                    first: cut.first,
+                })
+                .collect(),
+            looks: plan
+                .looks
+                .iter()
+                .map(|look| VisualizerPlanLook {
+                    time: look.time,
+                    look: look.look.clone(),
+                })
+                .collect(),
+            moments: plan
+                .moments
+                .iter()
+                .map(|moment| VisualizerPlanMoment {
+                    time: moment.time,
+                    strength: moment.strength.clone(),
+                    effect: moment.effect.clone(),
+                })
+                .collect(),
+            series: plan.series.as_ref().map(|series| VisualizerPlanSeries {
+                columns_version: series.columns_version,
+                rate: ::visualizer::LAB_RATE,
+                buckets: series.buckets,
+                values: series.values.clone(),
+            }),
+        });
+        Ok(Some(VisualizerPlanResponse { version, plan }))
     }
 }

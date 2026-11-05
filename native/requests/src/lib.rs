@@ -238,6 +238,26 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             class: RequestClass::NodeLocal,
         },
         RequestResponse {
+            request: "SetVisualizerLabRequest".to_string(),
+            response: None,
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
+            request: "VisualizerLabCommandRequest".to_string(),
+            response: None,
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
+            request: "VisualizerLabRequest".to_string(),
+            response: Some("VisualizerLabResponse".to_string()),
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
+            request: "VisualizerPlanRequest".to_string(),
+            response: Some("VisualizerPlanResponse".to_string()),
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
             request: "VisualizerSupportRequest".to_string(),
             response: Some("VisualizerSupportResponse".to_string()),
             class: RequestClass::NodeLocal,

@@ -50,7 +50,7 @@ class SmallScreenPlayingTrackCommandBarContainerState
 
   static (List<ControllerEntry>, List<ControllerEntry>)
       playbackControllerSelector(context, controllerProvider) {
-    final entries = controllerProvider.entries;
+    final entries = controllerProvider.availableEntries(context);
     final hiddenIndex = entries.indexWhere((entry) => entry.id == 'hidden');
     final List<ControllerEntry> visibleEntries =
         hiddenIndex != -1 ? entries.sublist(0, hiddenIndex) : entries;
