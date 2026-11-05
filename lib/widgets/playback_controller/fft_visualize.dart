@@ -51,7 +51,13 @@ class FFTVisualizerRegistry {
 }
 
 class FFTVisualize extends StatefulWidget {
-  const FFTVisualize({super.key});
+  const FFTVisualize({super.key, this.alignment = Alignment.topCenter});
+
+  /// Where the bars, drawn twice as tall as the parent, sit against it. At the
+  /// top their middle line is the parent's bottom edge, so that only their
+  /// upper half rises over it; at the bottom the middle line is the parent's
+  /// top edge, and only the lower half hangs under it.
+  final Alignment alignment;
 
   @override
   FFTVisualizeState createState() => FFTVisualizeState();
@@ -169,7 +175,7 @@ class FFTVisualizeState extends State<FFTVisualize>
 
         return OverflowBox(
           maxHeight: parentHeight * 2,
-          alignment: Alignment.topCenter,
+          alignment: widget.alignment,
           child: SizedBox(
             height: parentHeight * 2,
             child: Opacity(

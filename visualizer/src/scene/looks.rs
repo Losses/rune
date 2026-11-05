@@ -255,6 +255,11 @@ impl Looks {
         &self.state
     }
 
+    /// Whether the look is held (see [`Looks::hold`]).
+    pub fn is_held(&self) -> bool {
+        self.held
+    }
+
     /// What a readout shows: the state, the names and whether the look is held.
     pub fn view(&self) -> LooksView {
         LooksView {

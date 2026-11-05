@@ -112,6 +112,8 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
     _controller.detach();
     // Not while the tree is being torn down: listeners rebuild.
     scheduleMicrotask(() => _scenes.sceneShowing = false);
+    final controller = _controller;
+    scheduleMicrotask(() => controller.textureId.value = null);
 
     // Rust unregisters its textures when the visualizer stops.
     if (_textureId != null || _starting) {
@@ -142,6 +144,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       ).sendSignalToRust();
 
       setState(() => _renderedSize = size);
+      _publishAspect(size);
     } catch (e) {
       error$('Failed to start the visualizer: $e');
       // Leave `_starting` set so the next frames don't retry in a loop; showing
@@ -156,6 +159,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
   void _showTexture(int id) {
     if (_disposed || !mounted) return;
     setState(() => _textureId = id);
+    _controller.textureId.value = id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_disposed) return;
       VisualizerTextureShownRequest(textureId: id).sendSignalToRust();
@@ -178,7 +182,13 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
         height: size.$2,
       ).sendSignalToRust();
       setState(() => _renderedSize = size);
+      _publishAspect(size);
     });
+  }
+
+  // The shape of the picture, for a preview of the same texture.
+  void _publishAspect((int, int) size) {
+    if (size.$2 > 0) _controller.textureAspect.value = size.$1 / size.$2;
   }
 
   Future<void> _pollStatus() async {
@@ -196,6 +206,7 @@ class _VisualizerSurfaceState extends State<VisualizerSurface>
       // built, and the page stays as it is until it shows.
       final path = status.running ? status.presetPath : '';
       _controller.scenePath.value = path.isEmpty ? null : path;
+      _controller.sceneName.value = path.isEmpty ? null : status.presetName;
       if (path.isNotEmpty) {
         // The scene to resume next time, also after a restart.
         _scenes.setLastScene(path);

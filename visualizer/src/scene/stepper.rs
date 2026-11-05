@@ -25,6 +25,7 @@ use super::inputs::Levels;
 use super::lens::LensFrame;
 use super::manifest::Manifest;
 use crate::chart::Chart;
+use crate::inspect::LabEvent;
 use crate::rhythm::Rhythm;
 
 /// The seed of the song in the file at `path`: a hash of the path (FNV-1a), the same each time
@@ -64,6 +65,8 @@ pub struct Stepped {
     /// moment, a glitch or mosaic. The lens is that of the last step taken, also in a frame that
     /// takes none.
     pub decision: Decision,
+    /// The event log of the steps, each at its own song time.
+    pub events: Vec<LabEvent>,
     /// The decider was put where the song is without playing what it skipped: the screen jumps to
     /// the shot on.
     pub jumped: bool,
@@ -95,6 +98,8 @@ pub struct Stepper {
     shadow: Option<(SongChart, Decider, u32)>,
     /// What the post pass was told by the last step.
     lens: LensFrame,
+    /// Whether the event log of the steps is made (see [`Stepper::record`]).
+    record: bool,
     /// Tests only: every step taken on screen, with what it decided.
     #[cfg(test)]
     decided: Vec<(u32, Decision)>,
@@ -157,9 +162,10 @@ impl Stepper {
             self.restore(decider, manifest, song, target, quality);
             return Some(self.jump(decider, time));
         }
-        let decision = self.run(decider, song, target, forced, quality);
+        let (decision, events) = self.run(decider, song, target, forced, quality);
         Some(Stepped {
             decision,
+            events,
             jumped: false,
             replaced: false,
             since_step: self.since_step(time),
@@ -171,6 +177,27 @@ impl Stepper {
     pub fn off(&mut self) {
         self.on = None;
         self.shadow = None;
+    }
+
+    /// Whether the steps make the event log, which only a lab shows: off, [`Stepped::events`] is
+    /// empty and nothing is built for it.
+    pub fn record(&mut self, on: bool) {
+        self.record = on;
+    }
+
+    /// What `decision` of a step at song time `time` is for the event log, when it is kept.
+    fn events(
+        &self,
+        decider: &Decider,
+        time: f64,
+        decision: &Decision,
+        first: bool,
+    ) -> Vec<LabEvent> {
+        if self.record {
+            decider.events(time, decision, first)
+        } else {
+            Vec::new()
+        }
     }
 
     /// A lab changed the decider on screen by hand (a cut, an effect, a hold, an override): it is
@@ -204,8 +231,9 @@ impl Stepper {
         target: u32,
         forced: &mut Option<CutInfo>,
         quality: f32,
-    ) -> Decision {
+    ) -> (Decision, Vec<LabEvent>) {
         let mut frame = self.standing(decider);
+        let mut events = Vec::new();
         while self.steps < target {
             if self.pure {
                 self.keep(self.steps, decider);
@@ -221,11 +249,12 @@ impl Stepper {
             );
             #[cfg(test)]
             self.decided.push((step, decision.clone()));
+            events.extend(self.events(decider, f64::from(step) * STEP, &decision, false));
             merge(&mut frame, decision);
             self.steps += 1;
         }
         self.lens = frame.lens;
-        frame
+        (frame, events)
     }
 
     /// The song's own decider, stepped next to the one on screen until it cuts; then it is put on
@@ -269,11 +298,13 @@ impl Stepper {
             self.on = Some(song.clone());
             self.steps = steps;
             self.pure = true;
+            let decision = Decision {
+                look: decider.look_on(),
+                ..self.standing(decider)
+            };
             return Some(Stepped {
-                decision: Decision {
-                    look: decider.look_on(),
-                    ..self.standing(decider)
-                },
+                events: self.events(decider, time, &decision, false),
+                decision,
                 jumped: false,
                 replaced: true,
                 since_step: self.since_step(time),
@@ -281,6 +312,7 @@ impl Stepper {
         }
         while steps < target {
             let decision = shadow.step_at(&song.chart, steps, song.seed, unheard(), None, quality);
+            let step = steps;
             steps += 1;
             if decision.cut.is_none() {
                 continue;
@@ -293,13 +325,30 @@ impl Stepper {
             self.pure = true;
             #[cfg(test)]
             self.decided.push((steps - 1, decision.clone()));
+            let at = f64::from(step) * STEP;
+            let mut events = self.events(decider, at, &decision, false);
             let mut frame = decision;
-            frame.look = frame.look.or(decider.look_on());
-            let rest = self.run(decider, song, target, forced, quality);
+            if frame.look.is_none()
+                && let Some(look) = decider.look_on()
+            {
+                // The look the song's decider is on is told with the cut.
+                frame.look = Some(look);
+                let told = Decision {
+                    cut: None,
+                    look: Some(look),
+                    moment: None,
+                    overlay: None,
+                    ..frame.clone()
+                };
+                events.extend(self.events(decider, at, &told, false));
+            }
+            let (rest, more) = self.run(decider, song, target, forced, quality);
             merge(&mut frame, rest);
+            events.extend(more);
             self.lens = frame.lens;
             return Some(Stepped {
                 decision: frame,
+                events,
                 jumped: false,
                 replaced: true,
                 since_step: self.since_step(time),
@@ -363,11 +412,13 @@ impl Stepper {
     /// The frame of a jump: the shot and the look the decider is on, as the scene's first frame
     /// tells them, and nothing else.
     fn jump(&self, decider: &Decider, time: f64) -> Stepped {
+        let decision = Decision {
+            look: decider.look_on(),
+            ..self.standing(decider)
+        };
         Stepped {
-            decision: Decision {
-                look: decider.look_on(),
-                ..self.standing(decider)
-            },
+            events: self.events(decider, time, &decision, true),
+            decision,
             jumped: true,
             replaced: true,
             since_step: self.since_step(time),
@@ -456,6 +507,38 @@ mod tests {
             }
         }
         jumps
+    }
+
+    #[test]
+    fn events_are_made_only_while_they_are_asked_for() {
+        let song = song();
+        let manifest = fixtures::manifest();
+        let events_of = |record: bool| {
+            let mut stepper = Stepper::default();
+            stepper.record(record);
+            let mut decider = fixtures::decider();
+            let mut count = 0;
+            // The first frame tells the shot the scene opens on; the frames that follow cross the
+            // cuts of the first section.
+            for (i, time) in [0.0, 5.0, 10.0, 20.0, 29.0].into_iter().enumerate() {
+                let stepped = stepper
+                    .frame(
+                        &mut decider,
+                        &manifest,
+                        &song,
+                        time,
+                        &mut None,
+                        1.0,
+                        i == 0,
+                        0,
+                    )
+                    .expect("stepped");
+                count += stepped.events.len();
+            }
+            count
+        };
+        assert!(events_of(true) > 0);
+        assert_eq!(events_of(false), 0);
     }
 
     /// Song times from `from` to `to` at a frame rate that wanders between 30 and 200 fps.

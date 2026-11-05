@@ -10,6 +10,8 @@ import '../../widgets/playback_controller/like_button.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
 
+import '../visualizer/lab/lab_progress_markers.dart';
+
 import 'cover_wall_button.dart';
 import 'track_title.dart';
 
@@ -31,7 +33,7 @@ class ControllerProgressBar extends StatelessWidget {
     final typography = theme.typography;
 
     final controllerProvider = Provider.of<PlaybackControllerProvider>(context);
-    final entries = controllerProvider.entries;
+    final entries = controllerProvider.availableEntries(context);
     final hiddenIndex = entries.indexWhere((entry) => entry.id == 'hidden');
     final reduceCount = (hiddenIndex - 6).clamp(0, 5);
 
@@ -64,16 +66,20 @@ class ControllerProgressBar extends StatelessWidget {
                   ],
                 ),
               ),
-              Slider(
-                value: status != null
-                    ? (status?.progressPercentage ?? 0) * 100
-                    : 0,
-                onChanged: (value) {
-                  if (status != null && !notReady) {
-                    seek(value, status);
-                  }
-                },
-                style: const SliderThemeData(useThumbBall: false),
+              withLabMarkers(
+                context,
+                duration: status?.duration ?? 0,
+                slider: Slider(
+                  value: status != null
+                      ? (status?.progressPercentage ?? 0) * 100
+                      : 0,
+                  onChanged: (value) {
+                    if (status != null && !notReady) {
+                      seek(value, status);
+                    }
+                  },
+                  style: const SliderThemeData(useThumbBall: false),
+                ),
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),

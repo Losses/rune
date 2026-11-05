@@ -19,10 +19,14 @@ import '../../../providers/status.dart';
 import '../../../providers/volume.dart';
 import '../../../providers/full_screen.dart';
 import '../../../providers/visualizer_scenes.dart';
+import '../../../providers/responsive_providers.dart';
+import '../../../providers/visualizer_lab.dart';
+import '../../../utils/visualizer_supported.dart';
 
 import '../lyric_button.dart';
 import '../next_button.dart';
 import '../volume_button.dart';
+import '../visualizer_lab_button.dart';
 import '../queue_button.dart';
 import '../previous_button.dart';
 import '../cover_wall_button.dart';
@@ -42,6 +46,10 @@ class ControllerEntry {
   final List<SingleActivator>? shortcuts;
   final void Function(BuildContext context)? onShortcut;
 
+  /// Whether the entry is offered now; an entry that is not is left out of the
+  /// controller, its menu and the settings page.
+  final bool Function(BuildContext context) isAvailable;
+
   ControllerEntry({
     required this.id,
     required this.icon,
@@ -52,8 +60,11 @@ class ControllerEntry {
     required this.flyoutEntryBuilder,
     required this.shortcuts,
     required this.onShortcut,
+    this.isAvailable = _alwaysAvailable,
   });
 }
+
+bool _alwaysAvailable(BuildContext context) => true;
 
 /// Whether the cover wall shows the visualizer, which renames its entry.
 bool _coverWallShowsVisualizer(BuildContext context, {bool listen = true}) =>
@@ -548,6 +559,39 @@ List<ControllerEntry> controllerItems = [
         onPressed: () {
           Navigator.pop(context);
           fullScreen.setFullScreen(!fullScreen.isFullScreen);
+        },
+      );
+    },
+  ),
+  ControllerEntry(
+    id: 'visualizer_lab',
+    icon: (context) => Symbols.science,
+    titleBuilder: (context) => S.of(context).visualizerLab,
+    subtitleBuilder: (context) => S.of(context).visualizerLabSubtitle,
+    shortcuts: [],
+    onShortcut: (context) {
+      toggleVisualizerLab(context);
+    },
+    // Only where the controller is a bar: the zune, car, band and dock layouts
+    // have none to move.
+    isAvailable: (context) =>
+        isVisualizerSupported &&
+        context.select<VisualizerLabProvider, bool>((p) => p.enabled) &&
+        context.select<VisualizerScenesProvider, bool>(
+          (p) => p.showVisualizer,
+        ) &&
+        context.select<ResponsiveProvider, bool>(visualizerLabFits),
+    tooltipBuilder: (context) => S.of(context).visualizerLab,
+    controllerButtonBuilder: (context, shadows) => VisualizerLabButton(
+      shadows: shadows,
+    ),
+    flyoutEntryBuilder: (context) async {
+      return MenuFlyoutItem(
+        leading: const Icon(Symbols.science),
+        text: Text(S.of(context).visualizerLab),
+        onPressed: () {
+          Navigator.pop(context);
+          toggleVisualizerLab(context);
         },
       );
     },

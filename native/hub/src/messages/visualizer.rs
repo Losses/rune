@@ -193,3 +193,312 @@ pub struct VisualizerPresetEntry {
 pub struct ListVisualizerPresetsResponse {
     pub presets: Vec<VisualizerPresetEntry>,
 }
+
+/// Whether the visualizer copies what it sees in each frame for the in-app lab
+/// ([`VisualizerLabResponse`]) and plans the song for it. Off by default: the lab sends it on while
+/// its setting is on (the progress bars show the plan even with the panel closed) and off when
+/// the setting is turned off, and the app pays nothing for it otherwise. Turning it off drops what
+/// the lab had collected, and the plan.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SetVisualizerLabRequest {
+    pub enabled: bool,
+}
+
+/// The fallback level the music is at: A has a chart and a followed beat, B a chart alone, C
+/// neither.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VisualizerLabLevel {
+    A,
+    B,
+    C,
+}
+
+/// How a scene switch or a dressed camera cut looks.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VisualizerLabTransition {
+    Fade,
+    Dissolve,
+    Flash,
+    Glitch,
+    Mosaic,
+}
+
+/// Something the lab tells the visualizer to do now. Where a command carries an option, setting
+/// it replaces what the visualizer chooses by itself, and none hands the choice back.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub enum VisualizerLabCommand {
+    /// The camera director cuts now, as if a cut were due.
+    Cut,
+    /// Cut to the shot at `index` (from 0) and hold it, so that the director cuts no more, until
+    /// none.
+    Shot { index: Option<u32> },
+    /// Change to the look at `index` (from 0) now and hold it, so that the runtime changes the
+    /// look no more, until none.
+    Look { index: Option<u32> },
+    /// The camera director cuts now, dressed with this transition.
+    CutDressed { transition: VisualizerLabTransition },
+    /// Start a lens flare now.
+    Flare,
+    /// Start a light leak now.
+    Leak,
+    /// Play a glitch over the picture now.
+    LensGlitch,
+    /// Play a mosaic over the picture now.
+    LensMosaic,
+    /// Hold the music at this fallback level, which can only take it down from what the song
+    /// has; none leaves it be.
+    ForceLevel { level: Option<VisualizerLabLevel> },
+    /// Start a burst of cuts now: the director cuts on each of the next 4 beats.
+    Burst,
+}
+
+/// Tell the visualizer to do something now, for the lab. The command is dropped (and logged) when
+/// the visualizer is not running.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct VisualizerLabCommandRequest {
+    pub command: VisualizerLabCommand,
+}
+
+/// What the visualizer decided or was told to do, at the song time it happened (seconds).
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub enum VisualizerLabEventKind {
+    /// The camera cut to a shot.
+    Cut {
+        shot: String,
+        /// "wide", "medium", "close", "detail" or "top".
+        size: String,
+        /// 0 for a normal cut, else the position in a burst.
+        fill: u32,
+        /// The cut lands on a strong transition.
+        strong: bool,
+        /// The transition that dresses the cut, by name.
+        dress: Option<String>,
+        /// The scene's first shot, which it begins with, or the shot on where the visualizer was
+        /// put at a song time without playing up to it (a seek): a jump rather than a cut.
+        first: bool,
+    },
+    /// The look changed to `look`.
+    Look { look: String },
+    /// A moment of the music played an effect. `strength` is "medium" or "strong"; `effect` is
+    /// what it did by name, none when the scene lists nothing that suits it.
+    Moment {
+        strength: String,
+        effect: Option<String>,
+    },
+}
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerLabEvent {
+    /// Song seconds.
+    pub time: f64,
+    pub kind: VisualizerLabEventKind,
+}
+
+/// One of the scene's shots.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerLabShot {
+    /// The shot's name, empty if it has none.
+    pub name: String,
+    /// "wide", "medium", "close", "detail" or "top".
+    pub size: String,
+}
+
+/// The camera director of the scene on screen.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerLabDirector {
+    /// The shot on, as a place in `shots`.
+    pub shot_index: u32,
+    /// Whether the shot is held.
+    pub held: bool,
+    /// The scene's shots in order, which the numbers of `Shot` count.
+    pub shots: Vec<VisualizerLabShot>,
+}
+
+/// The looks of the scene on screen.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerLabLooks {
+    /// The scene's looks in order, which the numbers of `Look` count; a look without a name is
+    /// empty.
+    pub names: Vec<String>,
+    /// The look on, as a place in `names`.
+    pub on: u32,
+    /// Whether the look is held.
+    pub held: bool,
+}
+
+/// The transitions and lens effects the scene on screen declares.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerLabEffects {
+    /// What may dress a camera cut, by name.
+    pub cut: Vec<String>,
+    /// The lens effects, by name.
+    pub lens: Vec<String>,
+}
+
+/// What the visualizer saw in its last frame, for the live readout of the lab.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerLabNow {
+    /// None when the scene declares no shots.
+    pub director: Option<VisualizerLabDirector>,
+    /// None when the scene declares no looks.
+    pub looks: Option<VisualizerLabLooks>,
+    pub effects: VisualizerLabEffects,
+    /// The level a lab holds the music at, none when it is the music's own.
+    pub forced_level: Option<VisualizerLabLevel>,
+}
+
+/// Asked about every 100 ms while the lab's panel is open, and every 500 ms while it is closed (to
+/// keep recording, and for the plan's marks on the player's slider). `columns_version` is the
+/// version of the catalogue of columns the app has (0 for none): the response carries the
+/// catalogue only when it is another.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct VisualizerLabRequest {
+    pub columns_version: u64,
+}
+
+/// `inspecting` says whether the lab is on (see `SetVisualizerLabRequest`); `now` is none until a
+/// frame was drawn. Ask for the plan again when `plan_version` is not the one last seen.
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct VisualizerLabResponse {
+    pub inspecting: bool,
+    /// Song seconds.
+    pub song_time: f64,
+    pub plan_version: u64,
+    /// What happened since the last response, oldest first.
+    pub events: Vec<VisualizerLabEvent>,
+    pub now: Option<VisualizerLabNow>,
+    /// The columns of the lab's series, only when their version is not the request's.
+    pub columns: Option<VisualizerLabColumns>,
+    /// The buckets of song time finished since the last response, oldest first.
+    pub samples: Vec<VisualizerLabSample>,
+}
+
+/// The columns a lab draws as series, for the scene on screen: the same ones for the live samples
+/// and the plan.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerLabColumns {
+    /// Changes when the scene, its inputs, its bindings or its parameters change, and with each
+    /// new song.
+    pub version: u64,
+    /// Buckets of song time in a second.
+    pub rate: u32,
+    pub columns: Vec<VisualizerLabColumn>,
+}
+
+/// One column of the catalogue.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerLabColumn {
+    pub id: String,
+    pub name: String,
+    /// "Director", "Looks & Level", "Signals" or "Inputs".
+    pub group: String,
+    /// "number", "event", "bool", "category" or "phase".
+    pub kind: String,
+    pub lo: f32,
+    pub hi: f32,
+    /// Empty when it has none.
+    pub unit: String,
+    /// What the places of a category stand for.
+    pub categories: Vec<String>,
+    /// Whether the plan has the column: "yes" or "no".
+    pub plan: String,
+    /// For a scene input, the ids of the columns its bindings read.
+    pub binds: Vec<String>,
+    /// For a scene input, the value it sits at when nothing drives it.
+    pub rest: Option<f32>,
+}
+
+/// A bucket of song time folded from the frames the visualizer drew.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerLabSample {
+    pub bucket: u32,
+    /// The catalogue the values follow.
+    pub columns_version: u64,
+    /// One per column, in the catalogue's order; NaN where there is none.
+    pub values: Vec<f32>,
+}
+
+/// Asked for when the `plan_version` of the lab's response changes.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct VisualizerPlanRequest {}
+
+/// One section of the planned song.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerPlanSection {
+    /// Seconds.
+    pub start: f64,
+    pub end: f64,
+    pub label: String,
+    /// How lively the director takes it to be: "quiet", "normal" or "high".
+    pub tier: String,
+}
+
+/// A planned cut of the camera.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerPlanCut {
+    /// Song seconds.
+    pub time: f64,
+    pub shot: String,
+    /// "wide", "medium", "close", "detail" or "top".
+    pub size: String,
+    /// 0 for a normal cut, else the position in a burst (1 to 4).
+    pub fill: u32,
+    pub strong: bool,
+    /// The transition that dresses it, by name.
+    pub dress: Option<String>,
+    /// The scene's first shot, which it begins with.
+    pub first: bool,
+}
+
+/// A planned change of look; the first one is the look the scene opens in.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerPlanLook {
+    /// Song seconds.
+    pub time: f64,
+    pub look: String,
+}
+
+/// A planned moment of the music that plays an effect.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerPlanMoment {
+    /// Song seconds.
+    pub time: f64,
+    /// "medium" or "strong".
+    pub strength: String,
+    /// What it plays, by name; none if the scene lists nothing that suits the moment.
+    pub effect: Option<String>,
+}
+
+/// What the scene on screen does in the song on screen, played through ahead of time.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerPlan {
+    /// Seconds.
+    pub length: f64,
+    pub sections: Vec<VisualizerPlanSection>,
+    pub cuts: Vec<VisualizerPlanCut>,
+    pub looks: Vec<VisualizerPlanLook>,
+    pub moments: Vec<VisualizerPlanMoment>,
+    /// The columns of the lab's catalogue over the song.
+    pub series: Option<VisualizerPlanSeries>,
+}
+
+/// The columns of the lab's catalogue over the planned song, in buckets of song time.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq)]
+pub struct VisualizerPlanSeries {
+    /// The catalogue the values follow.
+    pub columns_version: u64,
+    /// Buckets of song time in a second.
+    pub rate: u32,
+    /// How many buckets the song has.
+    pub buckets: u32,
+    /// Column-major: `values[column * buckets + bucket]`; NaN where the plan has none.
+    pub values: Vec<f32>,
+}
+
+/// The plan in `version`, none while the lab is off, the song has no chart or the plan is still
+/// being made.
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct VisualizerPlanResponse {
+    pub version: u64,
+    pub plan: Option<VisualizerPlan>,
+}

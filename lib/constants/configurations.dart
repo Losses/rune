@@ -170,6 +170,53 @@ const kVisualizerDisabledScenesKey = 'visualizer_disabled_scenes';
 /// defaults to false.
 const kVisualizerLogKey = 'visualizer_log';
 
+/// Whether the visualizer lab is on: the cover wall page can open the lab as
+/// an overlay over the visualizer. This defaults to false.
+const kVisualizerLabKey = 'visualizer_lab';
+
+/// The rows the lab's timeline shows, as JSON: for each column, whether its
+/// plan and its actual strip are on. Without it the lab shows its default rows.
+const kVisualizerLabRowsKey = 'visualizer_lab_rows';
+
+/// The row views the user saved in the lab, as a JSON list of their names and
+/// rows. Without it the lab has only its built-in views.
+const kVisualizerLabViewsKey = 'visualizer_lab_views';
+
+/// The name of the row view the lab is on. This defaults to Overview.
+const kVisualizerLabViewKey = 'visualizer_lab_view';
+
+/// How the lab's timeline draws its rows, as JSON: which strips, which levels
+/// as lines, and whether rows with nothing in the song are left out. It stays
+/// when the view changes. Without it the lab draws both strips and every level
+/// as its color band, and leaves out the empty rows.
+const kVisualizerLabDisplayKey = 'visualizer_lab_display';
+
+/// The width of the label column of the lab's timeline, in logical pixels.
+/// Without it the timeline uses its default width.
+const kVisualizerLabLabelWidthKey = 'visualizer_lab_label_width';
+
+/// The height of the lab's card row, in logical pixels. Without it the row is
+/// as tall as its tallest card.
+const kVisualizerLabCardsHeightKey = 'visualizer_lab_cards_height';
+
+/// The width of the lab's scene picture, in logical pixels. Without it the
+/// picture is as wide as its shape makes it at the cards' height.
+const kVisualizerLabSceneWidthKey = 'visualizer_lab_scene_width';
+
+/// The corner the lab's floating scene picture rests in on a small window:
+/// top_left, top_right, bottom_left or bottom_right.
+const kVisualizerLabPipCornerKey = 'visualizer_lab_pip_corner';
+
+/// The width of the floating scene picture, in logical pixels. Without it the
+/// picture has its default width.
+const kVisualizerLabPipWidthKey = 'visualizer_lab_pip_width';
+
+/// The side the floating scene picture is tucked into: none, left or right.
+const kVisualizerLabPipStashKey = 'visualizer_lab_pip_stash';
+
+/// Where the tucked picture's tab sits on its side, from 0 (top) to 1 (bottom).
+const kVisualizerLabPipStashAtKey = 'visualizer_lab_pip_stash_at';
+
 /// The path of the visualizer scene on screen (in the form of the scene list's
 /// paths), which the visualizer resumes after a restart.
 const kVisualizerLastSceneKey = 'visualizer_last_scene';

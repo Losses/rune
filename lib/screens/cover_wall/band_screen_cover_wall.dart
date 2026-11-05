@@ -45,7 +45,8 @@ class LibraryHomeListState extends State<BandScreenCoverWallView> {
     Provider.of<PlaybackStatusProvider>(context);
     Provider.of<VolumeProvider>(context);
 
-    final children = controllers.entries
+    final children = controllers
+        .availableEntries(context)
         .where((x) => x.onShortcut != null)
         .map(
           (item) => Padding(

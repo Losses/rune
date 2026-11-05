@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../utils/format_time.dart';
 import '../../../utils/api/seek.dart';
 import '../../../providers/status.dart';
+import '../../../widgets/visualizer/lab/lab_progress_markers.dart';
 
 class CoverArtPageProgressBar extends StatefulWidget {
   final List<Shadow> shadows;
@@ -30,10 +31,14 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Expanded(
-          child: Slider(
-            value: status.progressPercentage * 100,
-            onChanged: !notReady ? (v) => seek(v, status) : null,
-            style: const SliderThemeData(useThumbBall: false),
+          child: withLabMarkers(
+            context,
+            duration: status.duration,
+            slider: Slider(
+              value: status.progressPercentage * 100,
+              onChanged: !notReady ? (v) => seek(v, status) : null,
+              style: const SliderThemeData(useThumbBall: false),
+            ),
           ),
         ),
         Transform.translate(

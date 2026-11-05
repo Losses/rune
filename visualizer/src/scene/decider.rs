@@ -17,10 +17,10 @@ use super::director::Director;
 use super::inputs::{self, EventCounter, Levels, MusicValues};
 use super::lens::{Lens, LensFrame};
 use super::looks::Looks;
-use super::manifest::{Manifest, Pace, ShotMove};
+use super::manifest::{Manifest, Pace, ShotMove, ShotSize};
 use crate::bind::RuntimeBindings;
 use crate::chart::{Chart, ChartState, trusted_rhythm};
-use crate::inspect::LabLens;
+use crate::inspect::{LabEvent, LabEventKind, LabLens};
 use crate::moments::{self, Chances, Played, Scheduler, Strength};
 use crate::rhythm::Rhythm;
 use crate::transition::{Overlay, Transition};
@@ -72,6 +72,20 @@ pub struct Settings {
     pub shot: Option<u32>,
     pub look: Option<u32>,
     pub lens: LabLens,
+}
+
+/// What the director and the looks are in (see [`Decider::lab_row`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LabRow {
+    pub shot: Option<u32>,
+    pub size: Option<u32>,
+    pub tier: Option<u32>,
+    pub pace: Option<u32>,
+    pub age: Option<f32>,
+    pub held: Option<bool>,
+    pub look: Option<u32>,
+    pub mix: Option<f32>,
+    pub look_held: Option<bool>,
 }
 
 /// The decisions of one scene.
@@ -269,8 +283,8 @@ impl Decider {
 
     /// Decide step `step` of a song with this whole `chart`: the frame at `step` times [`STEP`]
     /// of song time, with the music's values heard from the chart at that time and from the live
-    /// audio (`live`) only where the chart has no value, which decides nothing then (a test below
-    /// says so). The same steps with the same `seed` decide the same things.
+    /// audio (`live`) only where the chart has no value, which decides nothing then (see
+    /// `crate::plan`'s tests). The same steps with the same `seed` decide the same things.
     pub fn step_at(
         &mut self,
         chart: &Chart,
@@ -280,11 +294,26 @@ impl Decider {
         forced: Option<CutInfo>,
         quality: f32,
     ) -> Decision {
+        self.step_heard(chart, step, seed, (tracker, levels), forced, quality)
+            .0
+    }
+
+    /// As [`Decider::step_at`], with the music's values the step heard as well.
+    pub fn step_heard(
+        &mut self,
+        chart: &Chart,
+        step: u32,
+        seed: u32,
+        (tracker, levels): (Rhythm, Levels),
+        forced: Option<CutInfo>,
+        quality: f32,
+    ) -> (Decision, MusicValues) {
         let time = f64::from(step) * STEP;
         let state = chart.at(time);
         let rhythm = trusted_rhythm(tracker, Some(&state));
         let music = self.hear(&rhythm, Some(&state), levels, (time, true), STEP);
-        self.step(STEP as f32, &music, Some(&state), seed, forced, quality)
+        let decision = self.step(STEP as f32, &music, Some(&state), seed, forced, quality);
+        (decision, music)
     }
 
     /// Decide a frame of `dt` seconds with its music and the frame's `seed`. `forced` is a cut a
@@ -390,6 +419,28 @@ impl Decider {
         }
     }
 
+    /// What the director and the looks are in after a step that heard `music`, as numbers (places
+    /// in the lists of names): none where the scene has no director or no looks.
+    pub fn lab_row(&self, music: &MusicValues) -> LabRow {
+        let mut row = LabRow::default();
+        if let Some(director) = &self.director {
+            let state = director.state();
+            row.shot = Some(state.index);
+            row.size = Some(state.size);
+            row.tier = Some(director.tier_index(music) as u32);
+            row.pace = Some(director.pace() as u32);
+            row.age = Some(state.age);
+            row.held = Some(director.is_held());
+        }
+        if let Some(looks) = &self.looks {
+            let state = looks.state();
+            row.look = Some(state.to);
+            row.mix = Some(state.mix);
+            row.look_held = Some(looks.is_held());
+        }
+        row
+    }
+
     /// The shot the director is on, 0 without a director.
     pub fn shot_index(&self) -> u32 {
         self.director.as_ref().map_or(0, |d| d.state().index)
@@ -405,6 +456,118 @@ impl Decider {
         self.looks
             .as_ref()
             .map_or([0; super::wgsl::LOOK_SIZE as usize], |l| l.state().bytes())
+    }
+
+    /// The scene's shots with their sizes as the director lists them (names, sizes and the place
+    /// in the burst), empty without a director.
+    pub fn shots(&self) -> Vec<(String, ShotSize, u32)> {
+        self.director
+            .as_ref()
+            .map_or_else(Vec::new, Director::shot_list)
+    }
+
+    /// The names of the scene's looks, empty without looks.
+    pub fn look_names(&self) -> Vec<String> {
+        self.looks
+            .as_ref()
+            .map_or_else(Vec::new, |looks| looks.view().names)
+    }
+
+    /// The tier (`quiet`, `normal` or `high`) a section of this level is, by the runtime's
+    /// decisions this decider reads.
+    pub fn tier_at(&self, level: f32) -> &'static str {
+        let tier = match &self.runtime {
+            Some(runtime) => runtime.director.tier_at(level),
+            None => RuntimeBindings::embedded().director.tier_at(level),
+        };
+        ["quiet", "normal", "high"][tier.min(2)]
+    }
+
+    /// What `decision` of a frame at song time `time` is for the event log. `first` is the
+    /// scene's first frame, which begins its first shot like a cut.
+    pub fn events(&self, time: f64, decision: &Decision, first: bool) -> Vec<LabEvent> {
+        if decision.cut.is_none() && decision.look.is_none() && decision.moment.is_none() && !first
+        {
+            return Vec::new();
+        }
+        let shots = self.shots();
+        let shot_of = |index: u32| shots.get(index as usize);
+        let cut_event = |size: ShotSize, fill, strong, hard, dress: Option<Transition>, first| {
+            LabEventKind::Cut {
+                shot: shot_of(decision.shot).map_or_else(String::new, |s| s.0.clone()),
+                size: size_name(size).to_string(),
+                fill,
+                strong,
+                hard,
+                dress: dress.map(|kind| kind.name().to_string()),
+                first,
+            }
+        };
+        let mut events = Vec::new();
+        match &decision.cut {
+            Some(cut) => events.push(cut_event(
+                cut.size,
+                cut.fill,
+                cut.strong,
+                cut.motion == ShotMove::Cut,
+                cut.dress,
+                false,
+            )),
+            None if first => {
+                if let Some((_, size, _)) = shot_of(decision.shot) {
+                    events.push(cut_event(*size, 0, false, true, None, true));
+                }
+            }
+            None => {}
+        }
+        if let Some(look) = decision.look {
+            let names = self.look_names();
+            events.push(LabEventKind::Look {
+                look: names.get(look as usize).cloned().unwrap_or_default(),
+            });
+        }
+        if let Some(moment) = &decision.moment {
+            events.push(LabEventKind::Moment {
+                strength: strength_name(moment.strength).to_string(),
+                effect: effect_name(moment.effect),
+            });
+        }
+        events
+            .into_iter()
+            .map(|kind| LabEvent { time, kind })
+            .collect()
+    }
+}
+
+/// The word for a shot's size in a readout.
+pub fn size_name(size: ShotSize) -> &'static str {
+    match size {
+        ShotSize::Wide => "wide",
+        ShotSize::Medium => "medium",
+        ShotSize::Close => "close",
+        ShotSize::Detail => "detail",
+        ShotSize::Top => "top",
+    }
+}
+
+/// The word for a moment's strength in a readout.
+pub fn strength_name(strength: Strength) -> &'static str {
+    match strength {
+        Strength::Medium => "medium",
+        Strength::Strong => "strong",
+    }
+}
+
+/// What a moment did, in a word, or none when nothing played.
+pub fn effect_name(effect: Effect) -> Option<String> {
+    match effect {
+        Effect::Dressed(kind) => Some(kind.name().to_string()),
+        Effect::Forced => Some("forced".to_string()),
+        Effect::Lens(Some(moments::Lens::Flare)) => Some("flare".to_string()),
+        Effect::Lens(Some(moments::Lens::Leak)) => Some("leak".to_string()),
+        Effect::Lens(Some(moments::Lens::Glitch)) => Some("glitch".to_string()),
+        Effect::Lens(Some(moments::Lens::Mosaic)) => Some("mosaic".to_string()),
+        Effect::Lens(None) => None,
     }
 }
 

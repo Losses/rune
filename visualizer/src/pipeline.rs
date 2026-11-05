@@ -27,7 +27,10 @@ use crate::inspect::{LabLens, LabOverrides, LabPace, LabTransition};
 use crate::moments::Chances;
 use crate::readback::{MappedFrame, Target};
 use crate::rhythm::Rhythm;
-use crate::scene::{DirectorView, FrameInput, LooksView, MusicValues, Scene, SongChart, Source};
+use crate::scene::{
+    Decider, DeciderSettings, DirectorView, FrameInput, LooksView, MusicValues, Scene, SongChart,
+    Source,
+};
 #[cfg(target_os = "windows")]
 use crate::shared_dx12::{SharedTargets, SharedTexture};
 #[cfg(target_os = "linux")]
@@ -59,6 +62,8 @@ pub struct Pipeline {
     transitions: Transitions,
     /// What a scene lab replaces of the choices made by themselves.
     lab: LabOverrides,
+    /// Whether the scene makes the event log (see [`Scene::record_events`]).
+    record_events: bool,
     sample_rate: u32,
     rhythm: Rhythm,
     chart: Option<ChartState>,
@@ -73,6 +78,8 @@ pub struct Pipeline {
     chances: Chances,
     /// The runtime's decisions (`runtime.toml`), which every scene reads.
     runtime: Arc<RuntimeBindings>,
+    /// How often they were replaced, for what is made from them (a plan of the song).
+    runtime_version: u64,
     /// The atlas of covers for scenes that read one.
     covers: Option<Arc<Atlas>>,
     /// The cell of the track playing, which stays over cell 0 of the atlas.
@@ -492,6 +499,7 @@ impl Pipeline {
             device,
             transitions,
             lab: LabOverrides::default(),
+            record_events: false,
             queue,
             scene,
             sample_rate,
@@ -503,6 +511,7 @@ impl Pipeline {
             accent: None,
             chances: Chances::default(),
             runtime: RuntimeBindings::embedded(),
+            runtime_version: 0,
             covers: None,
             playing_cover: None,
             output,
@@ -988,6 +997,7 @@ impl Pipeline {
     /// transition and every scene that comes (a scene lab replaced `runtime.toml`).
     pub fn set_runtime(&mut self, runtime: Arc<RuntimeBindings>) {
         self.runtime = runtime;
+        self.runtime_version += 1;
         self.scene.set_runtime(&self.runtime);
         if let Some(pending) = self
             .transitions
@@ -997,6 +1007,49 @@ impl Pipeline {
         {
             pending.set_runtime(&self.runtime);
         }
+    }
+
+    /// What a plan of the song depends on besides the chart: the scene on screen, the runtime's
+    /// decisions and what a lab or the user set on the scene's decisions (see [`crate::plan`]).
+    pub fn plan_parts(&self) -> (u64, u64, DeciderSettings) {
+        (
+            self.scene.id(),
+            self.runtime_version,
+            self.scene.decider_settings(),
+        )
+    }
+
+    /// What a lab's catalogue of columns depends on: the scene on screen, the runtime's decisions
+    /// and how often the scene's bindings or parameters were replaced.
+    pub fn lab_key(&self) -> (u64, u64, u64) {
+        (self.scene.id(), self.runtime_version, self.scene.edits())
+    }
+
+    /// What a lab shows of the scene on screen besides its decisions (see [`Scene::lab_scene`]).
+    pub fn lab_scene(&self) -> crate::lab::LabScene {
+        self.scene.lab_scene()
+    }
+
+    /// The decisions of the scene on screen, set as it is and from the start of a song.
+    pub fn plan_decider(&self) -> Decider {
+        self.scene.plan_decider()
+    }
+
+    /// Whether the scene on screen, and the ones that follow it, make the event log (see
+    /// [`Scene::record_events`]).
+    pub fn record_events(&mut self, on: bool) {
+        self.record_events = on;
+        self.scene.record_events(on);
+    }
+
+    /// What the last frame of the scene on screen decided, once (see [`Scene::take_events`]).
+    pub fn take_events(&mut self) -> Vec<crate::inspect::LabEvent> {
+        self.scene.take_events()
+    }
+
+    /// The song time of the last frame.
+    pub fn song_time(&self) -> f64 {
+        self.song.0
     }
 
     /// The runtime's decisions in use.
@@ -1110,6 +1163,7 @@ impl Pipeline {
         scene.set_bursts(self.lab.bursts);
         scene.set_effect_chances(self.chances);
         scene.set_runtime(&self.runtime);
+        scene.record_events(self.record_events);
         self.scene = scene;
         self.restart_adaptive();
         Ok(())

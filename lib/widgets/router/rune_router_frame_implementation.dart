@@ -27,6 +27,8 @@ import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
 import '../../providers/visualizer_scenes.dart';
 import '../visualizer/visualizer_dark_theme.dart';
+import '../visualizer/lab/lab_mode_builder.dart';
+import '../../providers/visualizer_lab.dart';
 
 import '../../bindings/bindings.dart';
 
@@ -125,6 +127,8 @@ class _RuneRouterFrameImplementationState
 
     final path = Provider.of<RouterPathProvider>(context).path;
     final isSpecialLayout = isCoverArtWallLayout(path);
+    final labMode = watchVisualizerLabMode(context);
+    final topInset = MediaQuery.of(context).viewPadding.top;
 
     // Create the PlaybackController with a key once
     final playbackController = KeyedSubtree(
@@ -189,7 +193,23 @@ class _RuneRouterFrameImplementationState
                       Visibility(
                         visible: true, // Always in the tree
                         maintainState: true, // Keep the state
-                        child: playbackController,
+                        // In the lab mode the controller moves to the top of
+                        // the window. It is the same widget, so it plays on.
+                        child: AnimatedAlign(
+                          alignment: labMode
+                              ? Alignment.topCenter
+                              : Alignment.bottomCenter,
+                          duration: labModeDuration,
+                          curve: labModeCurve,
+                          child: AnimatedPadding(
+                            padding: EdgeInsets.only(
+                              top: labMode ? topInset : 0,
+                            ),
+                            duration: labModeDuration,
+                            curve: labModeCurve,
+                            child: playbackController,
+                          ),
+                        ),
                       ),
                     FocusTraversalOrder(
                       order: const NumericFocusOrder(1),
@@ -205,7 +225,22 @@ class _RuneRouterFrameImplementationState
                               activeBreakpoint == DeviceType.dock;
 
                           if (!isSmallView) {
-                            return NavigationBar(path: path);
+                            // The bar slides out through the top of the
+                            // window in the lab mode.
+                            return LabModeBuilder(
+                              builder: (context, value, on, child) =>
+                                  IgnorePointer(
+                                    ignoring: on,
+                                    child: Transform.translate(
+                                      offset: Offset(
+                                        0,
+                                        -value * (240 + topInset),
+                                      ),
+                                      child: child,
+                                    ),
+                                  ),
+                              child: NavigationBar(path: path),
+                            );
                           }
 
                           return const Positioned(

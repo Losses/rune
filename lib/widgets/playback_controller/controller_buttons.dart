@@ -76,7 +76,7 @@ class _ControllerButtonsState extends State<ControllerButtons> {
 
     Provider.of<PlaybackStatusProvider>(context);
 
-    final entries = controllerProvider.entries;
+    final entries = controllerProvider.availableEntries(context);
     final hiddenIndex = entries.indexWhere((entry) => entry.id == 'hidden');
     final List<ControllerEntry> visibleEntries =
         hiddenIndex != -1 ? entries.sublist(0, hiddenIndex) : entries;

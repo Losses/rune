@@ -18,6 +18,10 @@ class PlaybackControllerProvider extends ChangeNotifier {
 
   List<ControllerEntry> get entries => List.unmodifiable(_entries);
 
+  /// The entries that are on offer now, in order.
+  List<ControllerEntry> availableEntries(BuildContext context) =>
+      _entries.where((entry) => entry.isAvailable(context)).toList();
+
   void _loadEntries() async {
     String? storedOrderJson =
         await settingsManager.getValue<String>(storageKey);
@@ -58,9 +62,20 @@ class PlaybackControllerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void reorder(int oldIndex, int newIndex) {
-    final item = _entries.removeAt(oldIndex);
-    _entries.insert(newIndex, item);
+  /// Moves an entry of [shown], a list of the available entries as shown,
+  /// from [oldIndex] to [newIndex] in it, and keeps the others where they are.
+  void reorderShown(List<ControllerEntry> shown, int oldIndex, int newIndex) {
+    final item = shown[oldIndex];
+    final rest = List.of(shown)..removeAt(oldIndex);
+    _entries.remove(item);
+    if (newIndex >= rest.length) {
+      _entries.insert(
+        rest.isEmpty ? 0 : _entries.indexOf(rest.last) + 1,
+        item,
+      );
+    } else {
+      _entries.insert(_entries.indexOf(rest[newIndex]), item);
+    }
 
     _saveEntries();
     notifyListeners();

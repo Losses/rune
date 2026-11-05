@@ -65,17 +65,29 @@ Future<T?> $showModal<T extends Object?>(
   (bool, dynamic) Function()? canPop,
   bool barrierDismissible = false,
   bool dismissWithEsc = false,
+  RouteTransitionsBuilder? transitionBuilder,
 }) {
+  Widget wrapped(BuildContext context) => ModalRouteWrapper(
+    name: name ?? 'modal',
+    arguments: arguments,
+    canPop: canPop,
+    builder: builder,
+  );
+  // Fluent's own transition when none is given.
+  if (transitionBuilder == null) {
+    return showDialog<T>(
+      context: context,
+      barrierDismissible: barrierDismissible,
+      dismissWithEsc: dismissWithEsc,
+      builder: wrapped,
+    );
+  }
   return showDialog<T>(
     context: context,
     barrierDismissible: barrierDismissible,
     dismissWithEsc: dismissWithEsc,
-    builder: (context) => ModalRouteWrapper(
-      name: name ?? 'modal',
-      arguments: arguments,
-      canPop: canPop,
-      builder: builder,
-    ),
+    transitionBuilder: transitionBuilder,
+    builder: wrapped,
   );
 }
 

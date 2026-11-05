@@ -598,6 +598,16 @@ impl Director {
         &self.state
     }
 
+    /// The tier of the section by `music` as a place in `quiet`, `normal`, `high`.
+    pub fn tier_index(&self, music: &MusicValues) -> usize {
+        Tier::of(&self.binds, music).index()
+    }
+
+    /// Whether the shot is held (see [`Director::hold_shot`]).
+    pub fn is_held(&self) -> bool {
+        self.held
+    }
+
     /// What a readout shows: the state, the shot's name, the section's tier (from `music`) and
     /// whether the shot is held.
     pub fn view(&self, music: &MusicValues) -> DirectorView {

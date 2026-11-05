@@ -32,6 +32,7 @@ class _SettingsMediaControllerPageState
 
     final playbackController = Provider.of<PlaybackControllerProvider>(context);
     Provider.of<VolumeProvider>(context);
+    final entries = playbackController.availableEntries(context);
 
     return PageContentFrame(
       child: UnavailablePageOnBand(
@@ -49,9 +50,11 @@ class _SettingsMediaControllerPageState
                         return ReorderableColumn(
                           needsLongPressDraggable:
                               kind == PointerDeviceKind.touch,
-                          onReorder: playbackController.reorder,
+                          onReorder: (oldIndex, newIndex) =>
+                              playbackController.reorderShown(
+                                  entries, oldIndex, newIndex),
                           buildDraggableFeedback: buildDraggableFeedback,
-                          children: playbackController.entries
+                          children: entries
                               .map(
                                 (item) => item.id == 'hidden'
                                     ? Padding(

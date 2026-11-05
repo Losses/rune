@@ -21,10 +21,12 @@ mod covers;
 mod gpu_time;
 mod in_flight;
 mod inspect;
+mod lab;
 mod loading;
 mod moments;
 pub mod package;
 mod pipeline;
+mod plan;
 mod presets;
 mod published;
 mod readback;
@@ -41,6 +43,7 @@ mod transition;
 #[cfg(target_os = "android")]
 mod window;
 
+use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
@@ -51,7 +54,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use fsio::FsIo;
-use log::{error, info};
+use log::{debug, error, info, warn};
 use rtrb::Consumer;
 
 pub use bind::{Level, RuntimeBindings, Used};
@@ -65,12 +68,16 @@ use chart::{ChartFollower, Playback};
 pub use inspect::{
     Inspect, InspectBinding, InspectDirector, InspectEffects, InspectInput, InspectLens,
     InspectLooks, InspectMusic, InspectSection, InspectShot, InspectSignal, InspectSwitching,
-    InspectTransition, LabCommand, LabLens, LabOverrides, LabPace, LabTransition,
+    InspectTransition, LabCommand, LabEvent, LabEventKind, LabLens, LabOverrides, LabPace,
+    LabTransition,
 };
+pub use lab::RATE as LAB_RATE;
+pub use lab::{ColumnGroup, ColumnKind, ColumnPlan, LabColumn, LabColumns, LabSample, PlanSeries};
 use loading::Loads;
 pub use moments::{Chances, EffectLevel};
 pub use pipeline::{DEFAULT_PRESET_NAME, Transport, probe_gpu};
 use pipeline::{Pipeline, Rendered, SceneBuild};
+pub use plan::{PlanCut, PlanLook, PlanMoment, PlanSection, SongPlan};
 pub use presets::{Location, PresetInfo};
 use presets::{Preset, PresetList};
 pub use rhythm::{BeatTracker, Rhythm};
@@ -297,6 +304,16 @@ struct Shared {
     inspecting: AtomicBool,
     /// What the render thread saw in its last frame, while inspecting.
     inspect: Mutex<Option<Inspect>>,
+    /// The song on screen played through ahead of time, while inspecting and it has a chart.
+    plan: Mutex<PlanSlot>,
+    /// The number of the latest plan job; an older job drops its result.
+    plan_job: AtomicU64,
+    /// What the visualizer decided and was told in the last moments, while inspecting, oldest
+    /// first (see [`Visualizer::drain_lab_events`]).
+    lab_events: Mutex<VecDeque<LabEvent>>,
+    /// The lab's catalogue of columns and the frames folded into buckets, while inspecting (see
+    /// [`Visualizer::lab_columns`]).
+    lab: Mutex<lab::LabState>,
     /// The file that plays and where, for analysing it into a chart and the time in it.
     playback: Mutex<Playback>,
     /// The chart of the song while the visualizer is stopped, for when it starts again.
@@ -332,6 +349,16 @@ struct Shared {
     window: Mutex<Option<Window>>,
 }
 
+/// The most events the lab's log keeps: when it is not read, the oldest go.
+const LAB_EVENTS: usize = 512;
+
+/// The plan of the song made last (none: there is no chart) and how often it was replaced.
+#[derive(Default)]
+struct PlanSlot {
+    plan: Option<Arc<SongPlan>>,
+    version: u64,
+}
+
 /// The atlas of covers made last (none: there are no covers) and how often it was replaced.
 #[derive(Default)]
 struct CoverAtlas {
@@ -356,6 +383,40 @@ impl Shared {
             }
             .chances(),
             percent => Chances::every(f32::from(percent) / 100.0),
+        }
+    }
+
+    /// Put `events` in the lab's log, if a lab is inspecting; the log keeps the newest
+    /// [`LAB_EVENTS`].
+    fn log_events(&self, events: impl IntoIterator<Item = LabEvent>) {
+        if !self.inspecting.load(Ordering::Relaxed) {
+            return;
+        }
+        let mut log = lock(&self.lab_events);
+        for event in events {
+            if log.len() == LAB_EVENTS {
+                log.pop_front();
+            }
+            log.push_back(event);
+        }
+    }
+
+    /// Keep `plan`, made by job `job`, unless a later job was started since.
+    fn store_plan(&self, job: u64, plan: SongPlan) {
+        let mut slot = lock(&self.plan);
+        if self.plan_job.load(Ordering::Relaxed) != job {
+            return;
+        }
+        slot.version += 1;
+        slot.plan = Some(Arc::new(plan));
+    }
+
+    /// Drop the plan, and the result of a job still running.
+    fn clear_plan(&self) {
+        let mut slot = lock(&self.plan);
+        self.plan_job.fetch_add(1, Ordering::Relaxed);
+        if slot.plan.take().is_some() {
+            slot.version += 1;
         }
     }
 
@@ -414,6 +475,10 @@ impl Visualizer {
                 playing: AtomicBool::new(true),
                 inspecting: AtomicBool::new(false),
                 inspect: Mutex::new(None),
+                plan: Mutex::default(),
+                plan_job: AtomicU64::new(0),
+                lab_events: Mutex::default(),
+                lab: Mutex::default(),
                 visible: AtomicBool::new(true),
                 accent: AtomicU32::new(0),
                 effect_level: AtomicU8::new(0),
@@ -446,6 +511,9 @@ impl Visualizer {
         self.shared.inspecting.store(inspecting, Ordering::Relaxed);
         if !inspecting {
             *lock(&self.shared.inspect) = None;
+            lock(&self.shared.lab_events).clear();
+            lock(&self.shared.lab).reset();
+            self.shared.clear_plan();
         }
     }
 
@@ -453,6 +521,51 @@ impl Visualizer {
     /// [`Self::set_inspecting`]) and once a frame was drawn; else none.
     pub fn inspect(&self) -> Option<Inspect> {
         lock(&self.shared.inspect).clone()
+    }
+
+    /// Whether a lab inspects the render thread (see [`Self::set_inspecting`]).
+    pub fn is_inspecting(&self) -> bool {
+        self.shared.inspecting.load(Ordering::Relaxed)
+    }
+
+    /// The song on screen played through ahead of time with the scene's decisions, while
+    /// inspecting (see [`Self::set_inspecting`]) and the song has a chart; else none. Made in the
+    /// background after the song, the scene or what a lab set changes.
+    pub fn plan(&self) -> Option<Arc<SongPlan>> {
+        let plan = lock(&self.shared.plan).plan.clone()?;
+        // The plan of a song that no longer plays (it changed while the visualizer was stopped or
+        // showed the cover wall, and planned nothing) is not this song's.
+        let playing = lock(&self.shared.playback)
+            .path
+            .as_ref()
+            .map(|path| path.display().to_string());
+        (playing.as_deref() == Some(plan.path.as_str())).then_some(plan)
+    }
+
+    /// How often the plan was replaced or dropped: a reader that has seen a version needs to
+    /// fetch the plan again only when this changes.
+    pub fn plan_version(&self) -> u64 {
+        lock(&self.shared.plan).version
+    }
+
+    /// The columns of the scene on screen that a lab draws as series (see [`crate::lab`]), while
+    /// inspecting and once a frame was drawn; else none. Its version changes with the scene, the
+    /// runtime's bindings, the scene's bindings and its parameters, and with each new song.
+    pub fn lab_columns(&self) -> Option<Arc<LabColumns>> {
+        lock(&self.shared.lab).columns()
+    }
+
+    /// The buckets of song time (a twentieth of a second) finished since the last call, oldest
+    /// first, with the catalogue each follows; at most the last two minutes. Empty while not
+    /// inspecting.
+    pub fn drain_lab_samples(&self) -> Vec<LabSample> {
+        lock(&self.shared.lab).drain()
+    }
+
+    /// What the visualizer decided (a cut, a look, a moment's effect) and what a lab told it
+    /// since the last call, oldest first; at most the last 512. Empty while not inspecting.
+    pub fn drain_lab_events(&self) -> Vec<LabEvent> {
+        lock(&self.shared.lab_events).drain(..).collect()
     }
 
     /// Tell the render thread to do something now (see [`LabCommand`]), for a scene lab.
@@ -554,6 +667,7 @@ impl Visualizer {
         let mut playback = lock(&self.shared.playback);
         if playback.path.as_deref() != path {
             playback.path = path.map(Path::to_path_buf);
+            playback.generation += 1;
         }
         playback.position = position;
         playback.playing = playing;
@@ -946,6 +1060,7 @@ fn run(
     let mut watched: Option<Watched> = None;
     let mut tracker = BeatTracker::new(sample_rate);
     let mut charts = ChartFollower::new(Arc::clone(&shared.kept_chart));
+    let mut planner = Planner::default();
     // The version of the atlas of covers the pipeline has.
     let mut covers_seen: Option<u64> = None;
     // The same for the cell of the track playing.
@@ -1100,7 +1215,7 @@ fn run(
         pipeline.set_rhythm(&rhythm);
         pipeline.set_chart(chart.as_ref());
         // With the song's chart (and no lab holding the music at a level), scenes decide by song
-        // time, with the song's seed.
+        // time, with the seed the song is planned with.
         let song_seed = charts
             .path()
             .filter(|path| !path.as_os_str().is_empty())
@@ -1109,7 +1224,7 @@ fn run(
             .chart()
             .filter(|_| pipeline.lab().level.is_none())
             .zip(song_seed)
-            .map(|(chart, seed)| scene::SongChart { chart, seed });
+            .map(|((_, chart, _), seed)| scene::SongChart { chart, seed });
         pipeline.set_song_chart(song_chart);
         pipeline.set_song_seed(song_seed);
         pipeline.set_song(charts.song_time(), shared.playing.load(Ordering::Relaxed));
@@ -1128,6 +1243,7 @@ fn run(
         {
             show_pipeline_scene(shared, &pipeline);
         }
+        pipeline.record_events(shared.inspecting.load(Ordering::Relaxed));
         let rendered = pipeline.render(time)?;
         let age = match shared.taken_age.swap(0, Ordering::Relaxed) {
             0 => None,
@@ -1138,8 +1254,22 @@ fn run(
             bench.frame(&mut pipeline, Instant::now(), taken, age);
         }
         show(shared, &pipeline, rendered);
-        if shared.inspecting.load(Ordering::Relaxed) {
+        let events = pipeline.take_events();
+        shared.log_events(events);
+        let inspecting = shared.inspecting.load(Ordering::Relaxed);
+        if inspecting {
+            let song = lock(&shared.playback).generation;
+            let (scene, runtime, edits) = pipeline.lab_key();
+            lock(&shared.lab).follow((scene, runtime, edits, song), || pipeline.lab_scene());
+        }
+        planner.update(shared, &pipeline, &charts);
+        if inspecting {
             let seen = inspection(shared, &pipeline, &charts, time);
+            lock(&shared.lab).record(
+                pipeline.song_time(),
+                &seen,
+                bind::Level::of(pipeline.music()),
+            );
             *lock(&shared.inspect) = Some(seen);
         }
         // The output falls back to reading frames back if pixel buffers, shared textures or shared
@@ -1481,6 +1611,117 @@ fn lab(
     }
 }
 
+/// What a plan of the song depends on: when it changes, the song is played through again.
+#[derive(Clone, PartialEq)]
+struct PlanKey {
+    /// Which chart of the file (see [`ChartFollower::chart`]).
+    chart: u64,
+    /// The scene on screen, and how often the runtime's decisions were replaced.
+    scene: u64,
+    runtime: u64,
+    /// How often the scene's bindings or parameters were replaced.
+    edits: u64,
+    /// Which catalogue the lab's series follow (`LabColumns::version`): a lab turned off and on
+    /// again starts a new one, and the plan of the old one is not the plan of that.
+    columns: u64,
+    /// The level a lab holds the music at.
+    level: Option<Level>,
+    /// The chances, and what a lab holds or overrides in the scene's decisions.
+    settings: scene::DeciderSettings,
+}
+
+/// Whether the plan kept for `old` must be dropped before the one for `new` is made: it is when
+/// the lab's catalogue changed (another scene, song or edit, or the lab turned off and on), as
+/// the old plan would then show series that no longer exist.
+fn clears(old: Option<&PlanKey>, new: &PlanKey) -> bool {
+    old.is_none_or(|old| old.columns != new.columns)
+}
+
+/// Keeps the plan of the song current (see [`plan`]): while a lab inspects and the song has a
+/// chart, a change of what the plan depends on starts playing the song through on a thread of
+/// its own, and the result is kept unless a newer change came meanwhile.
+#[derive(Default)]
+struct Planner {
+    /// What the plan kept (or being made) is of.
+    key: Option<PlanKey>,
+}
+
+impl Planner {
+    fn update(&mut self, shared: &Arc<Shared>, pipeline: &Pipeline, charts: &ChartFollower) {
+        // A lab holding the music at a level decides without the chart, which the plan cannot show.
+        let chart = charts.chart().filter(|_| {
+            shared.inspecting.load(Ordering::Relaxed) && pipeline.lab().level.is_none()
+        });
+        let Some((arrival, chart, path)) = chart else {
+            if self.key.take().is_some() {
+                shared.clear_plan();
+            }
+            return;
+        };
+        // The catalogue the series follow is made before the plan.
+        let (columns, lab_scene) = {
+            let lab = lock(&shared.lab);
+            (lab.columns(), lab.scene())
+        };
+        let Some(lab) = columns
+            .zip(lab_scene)
+            .map(|(columns, scene)| plan::PlanLab { columns, scene })
+        else {
+            return;
+        };
+        let (scene, runtime, settings) = pipeline.plan_parts();
+        let key = PlanKey {
+            chart: arrival,
+            scene,
+            runtime,
+            edits: pipeline.lab_key().2,
+            columns: lab.columns.version,
+            level: pipeline.lab().level,
+            settings,
+        };
+        if self.key.as_ref() == Some(&key) {
+            return;
+        }
+        // The plan of another catalogue is not shown while the new one is made. A plan of the same
+        // catalogue stays until the new one replaces it, so the app does not flicker.
+        if clears(self.key.as_ref(), &key) {
+            shared.clear_plan();
+        }
+        self.key = Some(key);
+        let job = shared.plan_job.fetch_add(1, Ordering::Relaxed) + 1;
+        let decider = pipeline.plan_decider();
+        let path = path.display().to_string();
+        // The scene's name, not where it is (`Status::preset_path`).
+        let scene = pipeline.preset_name().to_string();
+        let shared = Arc::clone(shared);
+        let spawned = thread::Builder::new()
+            .name("song plan".into())
+            .spawn(move || {
+                let start = Instant::now();
+                let seed = scene::song_seed(&path);
+                let wanted = || shared.plan_job.load(Ordering::Relaxed) == job;
+                let Some(mut plan) = plan::plan_song(&chart, decider, seed, Some(&lab), wanted)
+                else {
+                    debug!("Planning {path} was superseded");
+                    return;
+                };
+                debug!(
+                    "Planned {path} in {:.2?}: {} cuts, {} looks, {} moments",
+                    start.elapsed(),
+                    plan.cuts.len(),
+                    plan.looks.len(),
+                    plan.moments.len()
+                );
+                plan.path = path;
+                plan.scene = scene;
+                shared.store_plan(job, plan);
+            });
+        if let Err(e) = spawned {
+            warn!("Failed to start the song plan: {e}");
+        }
+    }
+}
+
 /// What the render thread saw in the frame it drew at `time`, for [`Visualizer::inspect`].
 fn inspection(shared: &Shared, pipeline: &Pipeline, charts: &ChartFollower, time: f64) -> Inspect {
     Inspect {
@@ -1645,5 +1886,159 @@ fn publish(shared: &Shared, width: u32, height: u32, data: FrameData) {
     let listener = lock(&shared.frame_listener).clone();
     if let Some(listener) = listener {
         listener(id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plan_key(columns: u64) -> PlanKey {
+        PlanKey {
+            chart: 1,
+            scene: 1,
+            runtime: 0,
+            edits: 0,
+            columns,
+            level: None,
+            settings: scene::DeciderSettings {
+                chances: moments::Chances::default(),
+                pace: None,
+                bursts: None,
+                shot: None,
+                look: None,
+                lens: Default::default(),
+            },
+        }
+    }
+
+    #[test]
+    fn a_plan_is_dropped_only_when_the_catalogue_changes() {
+        let old = plan_key(3);
+        assert!(clears(None, &old));
+        assert!(clears(Some(&old), &plan_key(4)));
+        // A held shot, another level or any other setting keeps the old plan on show.
+        let mut held = plan_key(3);
+        held.settings.shot = Some(2);
+        held.level = Some(Level::default());
+        held.edits = 1;
+        held.chart = 2;
+        assert!(!clears(Some(&old), &held));
+    }
+
+    fn event(i: u32) -> LabEvent {
+        LabEvent {
+            time: f64::from(i),
+            kind: LabEventKind::Look {
+                look: i.to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn the_event_log_keeps_the_newest_and_is_read_once() {
+        let visualizer = Visualizer::new();
+        visualizer.set_inspecting(true);
+        let over = LAB_EVENTS as u32 + 10;
+        visualizer.shared.log_events((0..over).map(event));
+        let events = visualizer.drain_lab_events();
+        assert_eq!(events.len(), LAB_EVENTS);
+        assert_eq!(events[0], event(10));
+        assert_eq!(events[LAB_EVENTS - 1], event(over - 1));
+        assert!(visualizer.drain_lab_events().is_empty());
+    }
+
+    #[test]
+    fn nothing_is_logged_while_not_inspecting() {
+        let visualizer = Visualizer::new();
+        visualizer.shared.log_events([event(1)]);
+        assert!(visualizer.drain_lab_events().is_empty());
+        visualizer.set_inspecting(true);
+        visualizer.shared.log_events([event(2)]);
+        visualizer.set_inspecting(false);
+        assert!(visualizer.drain_lab_events().is_empty());
+    }
+
+    #[test]
+    fn a_plan_of_an_older_job_is_dropped_and_each_kept_one_has_a_new_version() {
+        let visualizer = Visualizer::new();
+        let shared = &visualizer.shared;
+        visualizer.set_playback(Some(Path::new("/music/a.flac")), Duration::ZERO, true, None);
+        let plan = || SongPlan {
+            path: "/music/a.flac".to_string(),
+            ..SongPlan::default()
+        };
+        assert_eq!((visualizer.plan_version(), visualizer.plan()), (0, None));
+        shared.plan_job.store(2, Ordering::Relaxed);
+        shared.store_plan(1, plan());
+        assert!(visualizer.plan().is_none());
+        shared.store_plan(2, plan());
+        assert!(visualizer.plan().is_some());
+        assert_eq!(visualizer.plan_version(), 1);
+        shared.plan_job.store(3, Ordering::Relaxed);
+        shared.store_plan(3, plan());
+        assert_eq!(visualizer.plan_version(), 2);
+        // A song without a chart has no plan, and a job still running for the one before does not
+        // bring it back.
+        shared.clear_plan();
+        shared.store_plan(3, plan());
+        assert_eq!((visualizer.plan_version(), visualizer.plan()), (3, None));
+    }
+
+    #[test]
+    fn the_plan_is_of_the_song_that_plays_and_goes_with_the_lab() {
+        let visualizer = Visualizer::new();
+        let shared = &visualizer.shared;
+        visualizer.set_inspecting(true);
+        visualizer.set_playback(Some(Path::new("/music/a.flac")), Duration::ZERO, true, None);
+        let job = shared.plan_job.load(Ordering::Relaxed);
+        shared.store_plan(
+            job,
+            SongPlan {
+                path: "/music/a.flac".to_string(),
+                ..SongPlan::default()
+            },
+        );
+        assert!(visualizer.plan().is_some());
+        // Another song started while nothing planned it: the plan is not shown on it.
+        visualizer.set_playback(Some(Path::new("/music/b.flac")), Duration::ZERO, true, None);
+        assert!(visualizer.plan().is_none());
+        visualizer.set_playback(Some(Path::new("/music/a.flac")), Duration::ZERO, true, None);
+        assert!(visualizer.plan().is_some());
+        // Turning the lab off drops it.
+        visualizer.set_inspecting(false);
+        assert!(lock(&shared.plan).plan.is_none());
+    }
+
+    #[test]
+    fn a_new_song_is_a_new_catalogue_and_the_old_ones_last_bucket_keeps_the_old_version() {
+        let visualizer = Visualizer::new();
+        let shared = &visualizer.shared;
+        let song = || lock(&shared.playback).generation;
+        let key = |song| (1, 1, 0, song);
+        let play =
+            |path| visualizer.set_playback(Some(Path::new(path)), Duration::ZERO, true, None);
+        play("/music/a.flac");
+        let a = song();
+        play("/music/a.flac");
+        assert_eq!(song(), a);
+        lock(&shared.lab).follow(key(a), scene::fixtures::lab_scene);
+        let old = lock(&shared.lab).columns().unwrap().version;
+        // The old song's bucket at 4:00 is still open when the next song's first frame comes.
+        lock(&shared.lab).record(240.0, &Inspect::default(), Level::A);
+        play("/music/b.flac");
+        assert_ne!(song(), a);
+        let mut lab = lock(&shared.lab);
+        lab.follow(key(song()), scene::fixtures::lab_scene);
+        lab.record(0.0, &Inspect::default(), Level::A);
+        lab.record(0.5, &Inspect::default(), Level::A);
+        let new = lab.columns().unwrap().version;
+        assert_ne!(new, old);
+        let samples = lab.drain();
+        let [last, first] = &samples[..] else {
+            panic!("two buckets: {}", samples.len())
+        };
+        assert_eq!((last.bucket, last.columns_version), (4800, old));
+        assert_eq!((first.bucket, first.columns_version), (0, new));
     }
 }

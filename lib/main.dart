@@ -62,6 +62,7 @@ import 'providers/app_scale.dart';
 import 'providers/crash.dart';
 import 'providers/remote_connection_loss.dart';
 import 'providers/visualizer_scenes.dart';
+import 'providers/visualizer_lab.dart';
 import 'providers/volume.dart';
 import 'providers/status.dart';
 import 'providers/license.dart';
@@ -371,6 +372,14 @@ void mainLoop(
         ChangeNotifierProvider(create: (_) => BroadcastProvider()),
         ChangeNotifierProvider(create: (_) => FullScreenProvider()),
         ChangeNotifierProvider(create: (_) => VisualizerScenesProvider()),
+        ChangeNotifierProxyProvider2<PlaybackStatusProvider,
+            VisualizerScenesProvider, VisualizerLabProvider>(
+          lazy: false,
+          create: (_) => VisualizerLabProvider(),
+          update: (_, status, scenes, previous) => previous!
+            ..attachStatus(status)
+            ..attachGpu(scenes.gpu),
+        ),
         ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
