@@ -19,6 +19,7 @@ use database::library_registry::{LibraryAccess, LibraryRegistry};
 use database::sync::Maintenance;
 use database::sync::model::RuneModel;
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
+use discovery::endpoint::endpoint_host_port;
 use discovery::server::UserStatus;
 use futures::future::BoxFuture;
 use futures::future::{AbortHandle, Abortable};
@@ -60,24 +61,6 @@ pub(super) struct PeerEndpoint {
     pub trusted_host: String,
     pub host: String,
     pub port: u16,
-}
-
-pub(crate) fn endpoint_host_port(value: &str) -> Option<(String, Option<u16>)> {
-    if let Ok(addr) = value.parse::<std::net::SocketAddr>() {
-        return (addr.port() != 0).then(|| (addr.ip().to_string(), Some(addr.port())));
-    }
-    let host = value.trim_matches(|c| c == '[' || c == ']');
-    if host.parse::<std::net::IpAddr>().is_ok() {
-        return Some((host.to_owned(), None));
-    }
-    if let Some((name, port)) = value.rsplit_once(':')
-        && !name.is_empty()
-        && !name.contains(':')
-        && let Ok(port) = port.parse::<u16>()
-    {
-        return (port != 0).then(|| (name.to_owned(), Some(port)));
-    }
-    (!value.is_empty() && !value.contains(':')).then(|| (value.to_owned(), None))
 }
 
 pub(crate) async fn trusted_fingerprint(

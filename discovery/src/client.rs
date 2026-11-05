@@ -35,6 +35,7 @@ use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
 
 use crate::{
+    endpoint::endpoint_host_port,
     persistent::{PersistenceError, PersistentDataManager},
     ssl::calculate_base85_fingerprint,
     utils::server_name_to_string,
@@ -46,6 +47,11 @@ use crate::{
 /// the certificate in string format (PEM encoded) and its base85 fingerprint. It is used
 /// in contexts where certificate retrieval might fail or the certificate information is not yet available.
 type CertInfo = Option<(String, String)>;
+
+/// A trusted entry may carry a port (`host:port`); TLS only sees the host name.
+fn trusted_host_matches(candidate: &str, host: &str) -> bool {
+    candidate == host || endpoint_host_port(candidate).is_some_and(|(name, _)| name == host)
+}
 
 /// Defines errors that can occur during certificate validation and management.
 ///
@@ -329,7 +335,11 @@ impl CertValidator {
             .await // Acquire read lock on persistent storage
             .entries
             .iter() // Iterate over fingerprint-to-hosts entries
-            .filter(|(_, hosts)| hosts.contains(&host.to_string())) // Filter entries where host list contains the target host
+            .filter(|(_, hosts)| {
+                hosts
+                    .iter()
+                    .any(|candidate| trusted_host_matches(candidate, host))
+            }) // Match a trusted host with or without its explicit port
             .map(|(fp, _)| fp.clone()) // Map filtered entries to fingerprints (keys)
             .collect() // Collect fingerprints to Vec<String>
     }
@@ -458,7 +468,11 @@ impl ServerCertVerifier for CertValidator {
             .map_err(|_| RustlsError::General("Failed to acquire the lock".into()))?; // Read cached fingerprint entries
         let is_trusted = entries
             .get(&fingerprint) // Get trusted hosts for the fingerprint from cache
-            .map(|hosts| hosts.contains(&server_name_str)) // Check if server name is in the trusted hosts list
+            .map(|hosts| {
+                hosts
+                    .iter()
+                    .any(|host| trusted_host_matches(host, &server_name_str))
+            }) // Check trusted hosts with or without explicit ports
             .unwrap_or(false); // Default to false if fingerprint not found
 
         if is_trusted {
@@ -917,4 +931,18 @@ pub async fn measure_host_response_times(
     response_times.sort_by_key(|(_, duration)| *duration);
 
     Ok(response_times)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::trusted_host_matches;
+
+    #[test]
+    fn trusted_entry_with_port_matches_its_host_only() {
+        assert!(trusted_host_matches("127.0.0.1", "127.0.0.1"));
+        assert!(trusted_host_matches("127.0.0.1:7863", "127.0.0.1"));
+        assert!(trusted_host_matches("[::1]:7863", "::1"));
+        assert!(!trusted_host_matches("127.0.0.1:7863", "127.0.0.2"));
+        assert!(!trusted_host_matches("127.0.0.10", "127.0.0.1"));
+    }
 }

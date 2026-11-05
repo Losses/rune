@@ -15,14 +15,22 @@ pub async fn fetch_device_info(
     host: &str,
     config: Arc<ClientConfig>,
 ) -> Result<SanitizedDeviceInfo> {
+    fetch_device_info_at_port(host, 7863, config).await
+}
+
+pub async fn fetch_device_info_at_port(
+    host: &str,
+    port: u16,
+    config: Arc<ClientConfig>,
+) -> Result<SanitizedDeviceInfo> {
     let uri = Uri::builder()
         .scheme("https")
-        .authority(format!("{host}:7863"))
+        .authority(format!("{host}:{port}"))
         .path_and_query("/device-info")
         .build()
         .context("Invalid URL format")?;
 
-    let mut sender = create_https_client(host.to_owned(), 7863, config)
+    let mut sender = create_https_client(host.to_owned(), port, config)
         .await
         .context("Failed to create HTTPS client")?;
 

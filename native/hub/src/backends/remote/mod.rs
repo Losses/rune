@@ -9,7 +9,8 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use reqwest::redirect::Policy;
@@ -28,20 +29,24 @@ use uuid::Uuid;
 
 use ::discovery::{
     client::{CertValidator, select_best_host},
+    endpoint::endpoint_host_port,
     url::decode_rnsrv_url,
 };
 use ::fsio::FsIo;
 use ::playback::{player::MockPlayer, sfx_player::SfxPlayer};
 use ::scrobbling::manager::MockScrobblingManager;
 
+use crate::macros::{RequestClass, request_class};
+use crate::register_response_handlers;
 use crate::{
     Signal,
     messages::*,
     server::{
+        api::fetch_device_info_at_port,
         generate_or_load_certificates, get_or_generate_alias,
-        sync_worker::{endpoint_host_port, obtain_token, tls_config, trusted_fingerprint},
+        sync_worker::{obtain_token, tls_config, trusted_fingerprint},
     },
-    utils::{GlobalParams, ParamsExtractor, RinfRustSignal, RunningMode, TaskTokens},
+    utils::{Broadcaster, GlobalParams, ParamsExtractor, RinfRustSignal, RunningMode, TaskTokens},
 };
 
 pub trait RinfDartSignal {
@@ -181,6 +186,188 @@ pub(crate) fn token_error(error: anyhow::Error) -> RemoteConnectError {
 
 type RemoteStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
+/// A node-owned control connection to a remote renderer.
+pub struct RendererLink {
+    write: Arc<Mutex<SplitSink<RemoteStream, TungsteniteMessage>>>,
+    cancel: CancellationToken,
+    reader: tokio::task::JoinHandle<()>,
+}
+
+impl RendererLink {
+    pub(crate) async fn connect(
+        node: Arc<NodeContext>,
+        fingerprint: &str,
+    ) -> std::result::Result<(Self, String, String), RemoteConnectError> {
+        let validator = node.cert_validator.read().await.clone();
+        let hosts = validator.get_hosts_for_fingerprint(fingerprint).await;
+        if hosts.is_empty() {
+            return Err(RemoteConnectError::UntrustedEndpoint);
+        }
+        let hosts = hosts
+            .into_iter()
+            .filter_map(|value| endpoint_host_port(&value))
+            .map(|(host, port)| format!("https://{host}:{}", port.unwrap_or(7863)))
+            .collect::<Vec<_>>();
+        if hosts.is_empty() {
+            return Err(RemoteConnectError::UntrustedEndpoint);
+        }
+        let endpoint = select_renderer_host(&node, hosts).await?;
+        let parsed = url::Url::parse(&endpoint).map_err(protocol)?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| protocol("invalid renderer host"))?;
+        let port = parsed.port().unwrap_or(7863);
+        let stream = connect_remote(host, port, &node.config_path, validator.clone()).await?;
+        let alias = fetch_device_info_at_port(
+            host,
+            port,
+            Arc::new(Arc::new(validator.clone()).into_client_config()),
+        )
+        .await
+        .map(|info| info.alias)
+        .map_err(|_| RemoteConnectError::Unreachable)?;
+        let link = Self::new(
+            stream,
+            node.gui_broadcaster.clone(),
+            node.token.child_token(),
+        )
+        .await;
+        Ok((link, host.to_owned(), alias))
+    }
+
+    async fn new(
+        stream: RemoteStream,
+        broadcaster: Arc<dyn Broadcaster>,
+        cancel: CancellationToken,
+    ) -> Self {
+        let (write, mut read) = stream.split();
+        let write = Arc::new(Mutex::new(write));
+        let handlers = Arc::new(Mutex::new(HashMap::<String, MessageHandler>::new()));
+        register_renderer_handlers(&handlers, broadcaster).await;
+        let reader_handlers = handlers.clone();
+        let reader_cancel = cancel.clone();
+        let reader = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = reader_cancel.cancelled() => break,
+                    message = read.next() => match message {
+                        Some(Ok(TungsteniteMessage::Binary(payload))) => {
+                            if let Some((name, body, _)) = decode_message(&payload)
+                                && let Some(handler) = reader_handlers.lock().await.get(&name)
+                            {
+                                handler(body);
+                            }
+                        }
+                        Some(Ok(TungsteniteMessage::Close(_))) | None | Some(Err(_)) => break,
+                        Some(Ok(_)) => {}
+                    }
+                }
+            }
+            reader_cancel.cancel();
+        });
+        Self {
+            write,
+            cancel,
+            reader,
+        }
+    }
+
+    /// Forward a serialized control request to the renderer.
+    pub async fn forward(&self, name: &str, payload: &[u8]) -> Result<()> {
+        let frame = encode_message(name, payload, Some(Uuid::new_v4()));
+        self.write
+            .lock()
+            .await
+            .send(TungsteniteMessage::Binary(frame.into()))
+            .await
+            .context("Could not send control request to renderer")
+    }
+
+    pub(crate) fn close(&self) {
+        self.cancel.cancel();
+    }
+}
+
+/// Route a classified control request through the node's attached renderer.
+/// Returns `false` when this request remains local.
+pub async fn forward_control_request(
+    node: &NodeContext,
+    name: &str,
+    payload: &[u8],
+) -> Result<bool> {
+    if !is_control_request(name) {
+        return Ok(false);
+    }
+    let Some(link) = node.renderer_link()? else {
+        return Ok(false);
+    };
+    link.forward(name, payload).await?;
+    Ok(true)
+}
+
+pub fn is_control_request(name: &str) -> bool {
+    matches!(request_class(name), Some(RequestClass::Control))
+}
+
+impl Drop for RendererLink {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+        self.reader.abort();
+    }
+}
+
+async fn register_renderer_handlers(handlers: &HandlerMap, broadcaster: Arc<dyn Broadcaster>) {
+    let status_broadcaster = broadcaster.clone();
+    handlers.lock().await.insert(
+        "PlaybackStatus".into(),
+        Box::new(
+            move |payload| match rinf::deserialize::<PlaybackStatus>(&payload) {
+                Ok(message) => status_broadcaster.broadcast(&message),
+                Err(error) => error!("Failed to decode renderer status: {error}"),
+            },
+        ),
+    );
+    let playlist_broadcaster = broadcaster.clone();
+    handlers.lock().await.insert(
+        "PlaylistUpdate".into(),
+        Box::new(
+            move |payload| match rinf::deserialize::<PlaylistUpdate>(&payload) {
+                Ok(message) => playlist_broadcaster.broadcast(&message),
+                Err(error) => error!("Failed to decode renderer queue: {error}"),
+            },
+        ),
+    );
+    handlers.lock().await.insert(
+        "RealtimeFFT".into(),
+        Box::new(
+            move |payload| match rinf::deserialize::<RealtimeFFT>(&payload) {
+                Ok(message) => broadcaster.broadcast(&message),
+                Err(error) => error!("Failed to decode renderer spectrum: {error}"),
+            },
+        ),
+    );
+    for_all_responses!(register_response_handlers, handlers);
+    handlers.lock().await.insert(
+        "RemoteRequestFailed".into(),
+        Box::new(|payload| dispatch_remote_failure(&payload)),
+    );
+}
+
+#[macro_export]
+macro_rules! register_response_handlers {
+    ($handlers:expr, $($response:ty),*) => {
+        $(
+            let handler: MessageHandler = Box::new(|payload| {
+                match rinf::deserialize::<$response>(&payload) {
+                    Ok(response) => response.send_signal_to_dart(),
+                    Err(error) => error!("Failed to decode renderer response: {error}"),
+                }
+            });
+            $handlers.lock().await.insert(stringify!($response).into(), handler);
+        )*
+    };
+}
+
 pub(crate) async fn connect_remote(
     host: &str,
     port: u16,
@@ -198,9 +385,13 @@ pub(crate) async fn connect_remote(
         }) {
             return Err(RemoteConnectError::UntrustedEndpoint);
         }
-        let server_fingerprint = trusted_fingerprint(&validator, host, port)
-            .await
-            .map_err(protocol)?;
+        let server_fingerprint =
+            trusted_fingerprint(&validator, host, port)
+                .await
+                .map_err(|error| {
+                    error!("Could not identify trusted renderer at {host}:{port}: {error:#}");
+                    protocol(error)
+                })?;
         let alias = get_or_generate_alias(config_path.as_ref())
             .await
             .map_err(protocol)?;
@@ -222,7 +413,10 @@ pub(crate) async fn connect_remote(
             &server_fingerprint,
         )
         .await
-        .map_err(token_error)?;
+        .map_err(|error| {
+            error!("Could not obtain renderer token at {host}:{port}: {error:#}");
+            token_error(error)
+        })?;
         let url = format!("wss://{host}:{port}/ws?host={}", encode(host));
         let mut request = url.into_client_request().map_err(protocol)?;
         request.headers_mut().insert(
@@ -258,6 +452,34 @@ fn remote_failure_detail(failure: &RemoteRequestFailed) -> String {
         "Remote request {} failed: {}",
         failure.request, failure.detail
     )
+}
+
+fn dispatch_remote_failure(payload: &[u8]) {
+    match rinf::deserialize::<RemoteRequestFailed>(payload) {
+        Ok(failure) => {
+            let detail = remote_failure_detail(&failure);
+            let kind = failure.kind;
+            RequestFailedResponse {
+                request: failure.request,
+                kind,
+                detail: failure.detail,
+            }
+            .send_signal_to_dart();
+            if kind == RequestErrorKind::Internal {
+                error!("{detail}");
+                CrashResponse { detail }.send_signal_to_dart();
+            } else {
+                warn!("{detail}");
+            }
+        }
+        Err(error) => {
+            error!("Failed to decode message: {error}");
+            CrashResponse {
+                detail: format!("Failed to decode message: {error}"),
+            }
+            .send_signal_to_dart();
+        }
+    }
 }
 
 fn classify_remote_loss(close_code: Option<u16>) -> RemoteLossKind {
@@ -489,14 +711,18 @@ pub async fn server_player_loop(
         if hosts.is_empty() {
             return Err(RemoteConnectError::UntrustedEndpoint);
         }
-        let client_config = cert_validator.clone().into_client_config();
-        let host = select_best_host(hosts, Arc::new(client_config))
-            .await
-            .map_err(|error| {
-                error!("Host selection failed: {error:#}");
-                RemoteConnectError::Unreachable
-            })?;
-        connect_remote(&host, 7863, config_path, (*cert_validator).clone()).await
+        let endpoint = select_renderer_host(&node, hosts).await?;
+        let parsed = url::Url::parse(&endpoint).map_err(protocol)?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| protocol("invalid renderer host"))?;
+        connect_remote(
+            host,
+            parsed.port().unwrap_or(7863),
+            config_path,
+            (*cert_validator).clone(),
+        )
+        .await
     })
     .await
     .map_err(|_| RemoteConnectError::Unreachable)??;
@@ -557,6 +783,30 @@ pub async fn server_player_loop(
     }
 
     Ok(())
+}
+
+async fn select_renderer_host(
+    node: &NodeContext,
+    hosts: Vec<String>,
+) -> std::result::Result<String, RemoteConnectError> {
+    let validator = node.cert_validator.read().await.clone();
+    let client_config = Arc::new(validator).into_client_config();
+    let hosts = hosts
+        .into_iter()
+        .map(|host| {
+            if host.contains("://") {
+                host
+            } else {
+                format!("https://{host}:7863")
+            }
+        })
+        .collect();
+    select_best_host(hosts, Arc::new(client_config))
+        .await
+        .map_err(|error| {
+            error!("Host selection failed: {error:#}");
+            RemoteConnectError::Unreachable
+        })
 }
 
 #[cfg(test)]

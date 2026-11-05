@@ -2,11 +2,12 @@ use std::{
     fmt::{Debug, Formatter, Result as FmtResult},
     fs,
     path::Path,
-    sync::{Arc, OnceLock, Weak},
+    sync::{Arc, Mutex as StdMutex, OnceLock, Weak},
 };
 use uuid::Uuid;
 
 use anyhow::{Context, Result, ensure};
+use database::error::ExpectedError;
 use discovery::{
     client::CertValidator,
     protocol::DiscoveryService,
@@ -21,14 +22,16 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use crate::access_policy::{Action, Denial, RuneAccessPolicy};
+use crate::backends::remote::{RemoteConnectError, RendererLink};
 use crate::macros::{RequestClass, request_class};
 use crate::request_error::ExpectedRequestError;
 use crate::{Session, session::PlayerSession};
 use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::{
-        ClientStatus, ClientSummary, IncommingClientPermissionNotification, InitializeNodeRequest,
-        InitializeNodeResponse, TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
+        AttachedRenderer, ClientStatus, ClientSummary, IncommingClientPermissionNotification,
+        InitializeNodeRequest, InitializeNodeResponse, RendererAttachmentChanged, TrustListUpdated,
+        TrustedClientsChanged, TrustedServerCertificate,
     },
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
@@ -54,6 +57,8 @@ pub struct NodeContext {
     pub sync_settings: Arc<RwLock<SyncSettings>>,
     pub broadcaster: Arc<dyn Broadcaster>,
     pub websocket_service: Arc<WebSocketService>,
+    pub gui_broadcaster: Arc<dyn Broadcaster>,
+    pub renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
     pub token: Arc<CancellationToken>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
     local_session: OnceLock<Arc<PlayerSession>>,
@@ -72,6 +77,7 @@ impl Debug for NodeContext {
 struct NodeBroadcaster {
     local: Arc<dyn Broadcaster>,
     remote: Arc<WebSocketService>,
+    renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
 }
 /// Signals a remote controller renders. Everything else (trust lists, pairing
 /// requests, crash details) stays on this device until access control decides
@@ -89,7 +95,14 @@ const REMOTE_SIGNALS: &[&str] = &[
 
 impl Broadcaster for NodeBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
-        self.local.broadcast(message);
+        let suppress_local_status = self.renderer_link.lock().is_ok_and(|link| link.is_some())
+            && matches!(
+                message.name().as_str(),
+                "PlaybackStatus" | "PlaylistUpdate" | "RealtimeFFT"
+            );
+        if !suppress_local_status {
+            self.local.broadcast(message);
+        }
         if self.remote.broadcast_tx.receiver_count() > 0
             && REMOTE_SIGNALS.contains(&message.name().as_str())
         {
@@ -111,6 +124,7 @@ impl NodeContext {
         fs::create_dir_all(config_path).context("Create node configuration directory")?;
         let node_id = Arc::new(get_or_create_node_id(config_path).await?.to_string());
         let websocket_service = Arc::new(WebSocketService::new());
+        let renderer_link = Arc::new(StdMutex::new(None));
         let mut permission_manager = PermissionManager::new(config_path)?;
         let access_policy = Arc::new(RuneAccessPolicy::load(
             Path::new(config_path),
@@ -132,10 +146,13 @@ impl NodeContext {
             device_scanner: Arc::new(DiscoveryService::without_store()),
             sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(config_path)))),
             broadcaster: Arc::new(NodeBroadcaster {
-                local: broadcaster,
+                local: broadcaster.clone(),
                 remote: websocket_service.clone(),
+                renderer_link: renderer_link.clone(),
             }),
+            gui_broadcaster: broadcaster,
             websocket_service,
+            renderer_link,
             token: Arc::new(CancellationToken::new()),
             server_manager: OnceLock::new(),
             local_session: OnceLock::new(),
@@ -244,6 +261,85 @@ impl NodeContext {
 
     pub async fn session_queue_for_library(&self, library_id: Uuid) -> Result<Vec<i32>> {
         Ok(self.session()?.queue_for_library(library_id).await)
+    }
+
+    pub async fn attach_renderer(self: &Arc<Self>, fingerprint: &str) -> Result<()> {
+        if !self
+            .cert_validator
+            .read()
+            .await
+            .clone_trusted_entries()
+            .await
+            .contains_key(fingerprint)
+        {
+            return Err(anyhow::Error::new(ExpectedError::NotFound {
+                what: "renderer",
+            }));
+        }
+        let (link, _host, alias) = RendererLink::connect(self.clone(), fingerprint)
+            .await
+            .map_err(|error| {
+                let detail = format!("Renderer connection failed: {error:?}");
+                match error {
+                    RemoteConnectError::UntrustedEndpoint => {
+                        anyhow::Error::new(Denial::Untrusted).context(detail)
+                    }
+                    RemoteConnectError::Unreachable | RemoteConnectError::Protocol(_) => {
+                        anyhow::Error::new(ExpectedRequestError::Unavailable { what: "renderer" })
+                            .context(detail)
+                    }
+                    RemoteConnectError::NotAuthorized => {
+                        anyhow::Error::new(Denial::Untrusted).context(detail)
+                    }
+                }
+            })?;
+        {
+            let mut slot = self
+                .renderer_link
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Renderer link lock poisoned"))?;
+            if slot.is_some() {
+                return Err(anyhow::Error::new(ExpectedRequestError::invalid_input(
+                    "A renderer is already attached",
+                )));
+            }
+            *slot = Some(Arc::new(link));
+        }
+        self.session()?.player.lock().await.pause();
+        self.gui_broadcaster.broadcast(&RendererAttachmentChanged {
+            renderer: Some(AttachedRenderer {
+                fingerprint: fingerprint.to_owned(),
+                alias,
+            }),
+        });
+        Ok(())
+    }
+
+    pub fn detach_renderer(&self) -> Result<()> {
+        let mut slot = self
+            .renderer_link
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Renderer link lock poisoned"))?;
+        let detached = if let Some(link) = slot.take() {
+            link.close();
+            true
+        } else {
+            false
+        };
+        drop(slot);
+        if detached {
+            self.gui_broadcaster
+                .broadcast(&RendererAttachmentChanged { renderer: None });
+        }
+        Ok(())
+    }
+
+    pub fn renderer_link(&self) -> Result<Option<Arc<RendererLink>>> {
+        let slot = self
+            .renderer_link
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Renderer link lock poisoned"))?;
+        Ok(slot.clone())
     }
 
     pub fn manager(&self) -> Result<Arc<ServerManager>> {
@@ -508,6 +604,7 @@ pub async fn shutdown_node() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::Mutex as StdMutex;
 
     use discovery::{server::UserStatus, utils::DeviceType};
     use tokio::{
@@ -581,6 +678,7 @@ mod tests {
         let broadcaster = NodeBroadcaster {
             local: Arc::new(Quiet(None)),
             remote,
+            renderer_link: Arc::new(StdMutex::new(None)),
         };
         broadcaster.broadcast(&TrustListUpdated {
             certificates: Vec::new(),

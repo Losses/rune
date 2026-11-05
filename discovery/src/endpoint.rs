@@ -1,12 +1,32 @@
 //! Exchange URLs for endpoints. Optional `opt-` hints are ignored for versioned adapters.
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
 use thiserror::Error;
 use url::{Url, form_urlencoded};
 use uuid::Uuid;
+
+/// Splits a trusted host entry (`host`, `host:port`, `ip`, `ip:port`, `[v6]:port`) into
+/// its host and optional port. Returns `None` for an entry with port 0 or no host.
+pub fn endpoint_host_port(value: &str) -> Option<(String, Option<u16>)> {
+    if let Ok(addr) = value.parse::<SocketAddr>() {
+        return (addr.port() != 0).then(|| (addr.ip().to_string(), Some(addr.port())));
+    }
+    let host = value.trim_matches(|c| c == '[' || c == ']');
+    if host.parse::<IpAddr>().is_ok() {
+        return Some((host.to_owned(), None));
+    }
+    if let Some((name, port)) = value.rsplit_once(':')
+        && !name.is_empty()
+        && !name.contains(':')
+        && let Ok(port) = port.parse::<u16>()
+    {
+        return (port != 0).then(|| (name.to_owned(), Some(port)));
+    }
+    (!value.is_empty() && !value.contains(':')).then(|| (value.to_owned(), None))
+}
 
 /// Current version of the endpoint exchange format.
 pub const ENDPOINT_URL_VERSION: u32 = 1;

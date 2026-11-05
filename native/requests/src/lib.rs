@@ -20,6 +20,16 @@ struct RequestResponse {
 pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let types = vec![
         RequestResponse {
+            request: "AttachRendererRequest".to_string(),
+            response: None,
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
+            request: "DetachRendererRequest".to_string(),
+            response: None,
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
             request: "GetDeviceGrantsRequest".to_string(),
             response: Some("GetDeviceGrantsResponse".to_string()),
             class: RequestClass::NodeLocal,

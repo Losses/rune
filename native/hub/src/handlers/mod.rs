@@ -16,6 +16,7 @@ mod mix;
 pub(crate) mod neighbors;
 pub(crate) mod playback;
 mod playlist;
+mod renderer;
 mod replicas;
 mod scrobble;
 mod search;

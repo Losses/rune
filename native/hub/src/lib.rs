@@ -53,6 +53,8 @@ pub trait Signal: Sized {
     ) -> impl Future<Output = Result<Option<Self::Response>>> + Send;
 }
 
+pub(crate) use backends::remote::{forward_control_request, is_control_request};
+
 rinf::write_interface!();
 
 #[tokio::main(flavor = "current_thread")]

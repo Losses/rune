@@ -18,6 +18,7 @@ mod mix;
 mod neighbors;
 mod playback;
 mod playlist;
+mod renderer;
 mod replicas;
 mod scrobble;
 mod search;
@@ -54,6 +55,7 @@ pub use sync::*;
 pub use system::*;
 pub use visualizer::*;
 
+pub use renderer::*;
 pub use replicas::*;
 
 pub use device_grants::*;

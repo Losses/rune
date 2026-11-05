@@ -34,31 +34,63 @@ macro_rules! handle_single_gui_event {
                     _ = async {
                         while let Some(dart_signal) = receiver.recv().await {
                             let event = dart_signal.message;
-                            let params = event.extract_params(&global_params);
-
-                            match event.handle(params, None, &event).await {
-                                Ok(_response) => {
-                                    handle_response!(_response, $response_type);
-                                }
-                                Err(e) => {
-                                    let kind = classify(&e);
-                                    RequestFailedResponse {
-                                        request: stringify!($request).to_owned(),
-                                        kind,
-                                        detail: format!("{e:#}"),
+                            let forwarded = if $crate::is_control_request(stringify!($request)) {
+                                match rinf::serialize(&event) {
+                                    Ok(payload) => match $crate::forward_control_request(
+                                        &global_params.node,
+                                        stringify!($request),
+                                        &payload,
+                                    ).await {
+                                        Ok(forwarded) => forwarded,
+                                        Err(e) => {
+                                            let kind = classify(&e);
+                                            RequestFailedResponse {
+                                                request: stringify!($request).to_owned(),
+                                                kind,
+                                                detail: format!("{e:#}"),
+                                            }.send_signal_to_dart();
+                                            true
+                                        }
+                                    },
+                                    Err(e) => {
+                                        RequestFailedResponse {
+                                            request: stringify!($request).to_owned(),
+                                            kind: RequestErrorKind::Internal,
+                                            detail: format!("{e:#}"),
+                                        }.send_signal_to_dart();
+                                        true
                                     }
-                                    .send_signal_to_dart();
-                                    if kind == RequestErrorKind::Internal {
-                                        error!("Request {} failed: {:?}", stringify!($request), e);
-                                        error!("Full error chain for {}: {:#}", stringify!($request), e);
-                                        let backtrace = e.backtrace();
-                                        error!("Backtrace for {}: {:?}", stringify!($request), backtrace);
-                                        CrashResponse {
-                                            detail: format!("{e:#?}"),
+                                }
+                            } else {
+                                false
+                            };
+                            if !forwarded {
+                                let params = event.extract_params(&global_params);
+
+                                match event.handle(params, None, &event).await {
+                                    Ok(_response) => {
+                                        handle_response!(_response, $response_type);
+                                    }
+                                    Err(e) => {
+                                        let kind = classify(&e);
+                                        RequestFailedResponse {
+                                            request: stringify!($request).to_owned(),
+                                            kind,
+                                            detail: format!("{e:#}"),
                                         }
                                         .send_signal_to_dart();
-                                    } else {
-                                        warn!("Request {} failed: {e:#}", stringify!($request));
+                                        if kind == RequestErrorKind::Internal {
+                                            error!("Request {} failed: {:?}", stringify!($request), e);
+                                            error!("Full error chain for {}: {:#}", stringify!($request), e);
+                                            let backtrace = e.backtrace();
+                                            error!("Backtrace for {}: {:?}", stringify!($request), backtrace);
+                                            CrashResponse {
+                                                detail: format!("{e:#?}"),
+                                            }
+                                            .send_signal_to_dart();
+                                        } else {
+                                            warn!("Request {} failed: {e:#}", stringify!($request));
+                                        }
                                     }
                                 }
                             }
