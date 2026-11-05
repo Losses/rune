@@ -12,7 +12,7 @@ use database::entities::media_file_stats;
 use database::entities::media_metadata;
 use playback::{
     PlaybackMode,
-    player::{PlaybackSource, PlaybackState, PlayerStatus, PlayingItem},
+    player::{PlaybackSource, PlaybackState, PlayerStatus, PlayingItem, UnavailableReason},
     strategies::AddMode,
 };
 use sea_orm::sea_query::Expr;
@@ -273,7 +273,7 @@ async fn session_f2_batches_playlist_metadata_per_library_in_queue_order() -> Re
     wait_player(&a, |status| status.playlist == queue).await?;
 
     let initial = playlist_update_with_titles(&signals, &["A1", "B1", "A2"]).await?;
-    assert!(initial.items.iter().all(|item| !item.unavailable));
+    assert!(initial.items.iter().all(|item| item.unavailable.is_none()));
 
     let removed_id = a.global_params.library_id.context("library A")?;
     LibraryRegistry::update(dir.path(), |registry| {
@@ -300,7 +300,7 @@ async fn session_f2_batches_playlist_metadata_per_library_in_queue_order() -> Re
         unavailable
             .items
             .iter()
-            .map(|item| item.unavailable)
+            .map(|item| item.unavailable.is_some())
             .collect::<Vec<_>>(),
         vec![true, false, true]
     );
@@ -563,6 +563,7 @@ async fn session_d5_stats_follow_item_library() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()> {
+    use crate::messages::PlaylistUnavailableReason;
     let dir = tempfile::tempdir()?;
     let bdir = tempfile::tempdir()?;
     let signals = Arc::new(RecordedSignals::default());
@@ -605,6 +606,10 @@ async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()>
     })
     .await?;
     assert!(status.unavailable.contains(&bad));
+    assert_eq!(
+        status.unavailable_reasons.get(&bad),
+        Some(&UnavailableReason::LibraryUnavailable)
+    );
     assert_eq!(status.playlist.len(), 2);
     timeout(Duration::from_secs(3), async {
         loop {
@@ -612,8 +617,8 @@ async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()>
                 name == "PlaylistUpdate"
                     && rinf::deserialize::<PlaylistUpdate>(bytes).is_ok_and(|update| {
                         update.items.len() == 2
-                            && update.items[0].unavailable
-                            && !update.items[1].unavailable
+                            && update.items[0].unavailable == Some(PlaylistUnavailableReason::LibraryUnavailable)
+                            && update.items[1].unavailable.is_none()
                     })
             });
             if reported {
@@ -650,7 +655,7 @@ async fn session_d6_removed_library_is_unavailable_without_crash() -> Result<()>
             let reported = signals.0.lock().unwrap().iter().any(|(name, bytes)| {
                 name == "PlaylistUpdate"
                     && rinf::deserialize::<PlaylistUpdate>(bytes).is_ok_and(|update| {
-                        update.items.len() == 2 && !update.items[0].unavailable
+                        update.items.len() == 2 && update.items[0].unavailable.is_none()
                     })
             });
             if reported {
@@ -757,7 +762,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
     use crate::server::{sync, sync_worker};
     use crate::access_policy::LibraryLevel;
     use crate::backends::remote::{connect_remote, decode_message};
-    use crate::messages::PlaylistUpdate;
+    use crate::messages::{PlaylistUnavailableReason, PlaylistUpdate};
     use crate::server::sync_worker::{PeerEndpoint, test_peer_pass};
     use futures::StreamExt;
 
@@ -1060,7 +1065,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
                         }
                     } else if name == "PlaylistUpdate" {
                         let update: PlaylistUpdate = rinf::deserialize(&payload)?;
-                        if update.items.iter().filter(|item| item.unavailable).count() == 2 {
+                        if update.items.iter().filter(|item| item.unavailable == Some(PlaylistUnavailableReason::AccessRevoked)).count() == 2 {
                             return Ok(());
                         }
                     }

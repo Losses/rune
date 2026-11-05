@@ -477,7 +477,9 @@ impl<R: Read + Seek + Send + Sync + 'static> Source for RuneDecoder<R> {
 mod tests {
     use super::*;
     use crate::buffered::rune_buffered;
+    use crate::player::UnavailableReason;
     use std::fs::File;
+    use std::io::Cursor;
     use std::io::{BufReader, Error as IoError};
     use std::path::Path;
 
@@ -507,6 +509,17 @@ mod tests {
             "revoked stream must not panic in decoder fallback"
         );
         assert!(result.unwrap().is_err(), "revoked stream must fail to load");
+    }
+
+    #[test]
+    fn non_audio_file_is_classified_as_unreadable() {
+        let error = RuneDecoder::new(Cursor::new(b"plain text, not audio"), Some("ogg"))
+            .err()
+            .expect("non-audio data must fail probing");
+        assert_eq!(
+            UnavailableReason::classify(&error),
+            UnavailableReason::Unreadable
+        );
     }
 
     #[test]

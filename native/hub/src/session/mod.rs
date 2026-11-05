@@ -26,7 +26,10 @@ use database::{
 use fsio::FsIo;
 use playback::{
     controller::{MediaControlManager, handle_media_control_event},
-    player::{Playable, PlaybackState, Player, PlayerStatus, PlayingItem, PlaylistStatus},
+    player::{
+        Playable, PlaybackState, Player, PlayerStatus, PlayingItem, PlaylistStatus,
+        UnavailableReason,
+    },
 };
 use scrobbling::manager::{
     LoginStatus, ScrobblingError, ScrobblingManager, ScrobblingServiceManager,
@@ -43,8 +46,8 @@ use uuid::Uuid;
 use crate::{
     library_pool::LibraryHandle,
     messages::{
-        CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFFT,
-        ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
+        CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUnavailableReason, PlaylistUpdate,
+        RealtimeFFT, ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
     },
     node::NodeContext,
     server::PairedAudioResolver,
@@ -661,7 +664,12 @@ async fn send_playlist(
         .iter()
         .map(|item| {
             let summary = metadata.get(item);
-            let unavailable = playlist.unavailable.contains(item) || summary.is_none();
+            let unavailable = playlist
+                .unavailable
+                .get(item)
+                .copied()
+                .or_else(|| summary.is_none().then_some(UnavailableReason::Unreadable))
+                .map(PlaylistUnavailableReason::from);
             let metadata = summary.cloned().unwrap_or_default();
             PlaylistItem {
                 item: item.clone().into(),

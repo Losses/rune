@@ -1,13 +1,10 @@
 use crate::stream_utils::ManagedStream;
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     fmt::Debug,
     io::BufReader,
     path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -25,7 +22,7 @@ use crate::buffered::{RuneBuffered, rune_buffered};
 use crate::decoder::RuneDecoder;
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::pcm_tap::PcmTap;
-use crate::player::{PlaybackSource, PlaybackSourceResolver, PlayingItem};
+use crate::player::{PlaybackSource, PlaybackSourceResolver, PlayingItem, UnavailableReason};
 use crate::realtime_fft::RealTimeFFT;
 use crate::shared_source::SharedSource;
 use crate::strategies::{
@@ -35,7 +32,10 @@ use crate::strategies::{
 
 pub enum AnySource {
     Local(RuneBuffered<RuneDecoder<BufReader<Box<dyn FileStream>>>>),
-    Online(RuneBuffered<RuneDecoder<ManagedStream>>, Arc<AtomicBool>),
+    Online(
+        RuneBuffered<RuneDecoder<ManagedStream>>,
+        Arc<Mutex<Option<UnavailableReason>>>,
+    ),
 }
 
 async fn open_library_stream(
@@ -47,7 +47,7 @@ async fn open_library_stream(
     let guard = remote.cancellation.clone().drop_guard();
     let reader =
         crate::stream_utils::create_stream_with_authorizer(remote.request, &remote.url).await?;
-    let failed = Arc::new(AtomicBool::new(false));
+    let failed = remote.failure_reason;
     let reader = ManagedStream::new_with_failure(reader, remote.cancellation, failed.clone());
     guard.disarm();
     let decoder = RuneDecoder::new_with_length(reader, Some(&remote.extension), Some(size))?;
@@ -124,7 +124,7 @@ impl Source for AnySource {
 }
 
 impl AnySource {
-    fn stream_failure(&self) -> Option<Arc<AtomicBool>> {
+    fn stream_failure(&self) -> Option<Arc<Mutex<Option<UnavailableReason>>>> {
         match self {
             AnySource::Local(_) => None,
             AnySource::Online(_, failed) => Some(failed.clone()),
@@ -210,7 +210,7 @@ pub enum PlayerCommand {
 
 #[derive(Debug, Clone)]
 pub enum PlayerEvent {
-    Unavailable(PlayingItem),
+    Unavailable(PlayingItem, UnavailableReason),
     UnavailableCleared(Option<PlayingItem>),
     Stopped,
     Loaded {
@@ -326,7 +326,7 @@ pub(crate) struct PlayerInternal {
     current_item: Option<PlayingItem>,
     current_track_index: Option<usize>,
     current_track_path: Option<PathBuf>,
-    active_stream_failure: Option<Arc<AtomicBool>>,
+    active_stream_failure: Option<Arc<Mutex<Option<UnavailableReason>>>>,
     sink: Option<Sink>,
     _stream: Option<RuneOutputStream>,
     state: InternalPlaybackState,
@@ -340,7 +340,7 @@ pub(crate) struct PlayerInternal {
     stream_retry_count: usize,
     adaptive_switching: bool,
     restore_position: Option<Duration>,
-    unavailable: HashSet<PlayingItem>,
+    unavailable: HashMap<PlayingItem, UnavailableReason>,
 }
 
 impl PlayerInternal {
@@ -381,7 +381,7 @@ impl PlayerInternal {
             stream_retry_count: 0,
             adaptive_switching: false,
             restore_position: None,
-            unavailable: HashSet::new(),
+            unavailable: HashMap::new(),
         }
     }
 
@@ -438,8 +438,9 @@ impl PlayerInternal {
                                 Err(e) => {
                                     error!("Failed to load track: {e:?}");
                                     self.restore_position = None;
-                                    self.unavailable.insert(item.clone());
-                                    self.event_sender.send(PlayerEvent::Unavailable(item))?;
+                                    let reason = UnavailableReason::classify(&e);
+                                    self.unavailable.insert(item.clone(), reason);
+                                    self.event_sender.send(PlayerEvent::Unavailable(item, reason))?;
                                     // Advance from the failed load, including when no track has loaded yet.
                                     let next = self.find_available_after(playlist_index);
                                     if let Some(next) = next { self.load(Some(next), play, true)?; }
@@ -619,7 +620,7 @@ impl PlayerInternal {
                             info!("Downloading from url: {url}");
                             let ext = url.split('?').next().and_then(|u| u.rsplit('.').next());
                             let reader = crate::stream_utils::create_stream_from_url(url).await?;
-                            let failed = Arc::new(AtomicBool::new(false));
+                            let failed = Arc::new(Mutex::new(None));
                             let reader = ManagedStream::new_with_failure(
                                 reader,
                                 CancellationToken::new(),
@@ -1058,7 +1059,7 @@ impl PlayerInternal {
             }
             let candidate = (strategy_index + offset) % playlist_len;
             let mapped = self.get_mapped_track_index(candidate);
-            if !self.unavailable.contains(&self.playlist[mapped].item) {
+            if !self.unavailable.contains_key(&self.playlist[mapped].item) {
                 return Some(candidate);
             }
         }
@@ -1067,7 +1068,7 @@ impl PlayerInternal {
 
     fn clear_unavailable(&mut self, item: Option<PlayingItem>) -> Result<()> {
         let changed = match &item {
-            Some(item) => self.unavailable.remove(item),
+            Some(item) => self.unavailable.remove(item).is_some(),
             None => {
                 let changed = !self.unavailable.is_empty();
                 self.unavailable.clear();
@@ -1096,13 +1097,19 @@ impl PlayerInternal {
                 if self
                     .active_stream_failure
                     .as_ref()
-                    .is_some_and(|failed| failed.load(Ordering::Acquire))
+                    .is_some_and(|failed| failed.lock().is_ok_and(|reason| reason.is_some()))
                 {
+                    let reason = self
+                        .active_stream_failure
+                        .as_ref()
+                        .and_then(|failed| failed.lock().ok().and_then(|reason| *reason))
+                        .unwrap_or(UnavailableReason::SourceUnreachable);
                     let item = id.context("failed stream has no current item")?;
                     let failed_index = index.context("failed stream has no current index")?;
                     self.stop()?;
-                    self.unavailable.insert(item.clone());
-                    self.event_sender.send(PlayerEvent::Unavailable(item))?;
+                    self.unavailable.insert(item.clone(), reason);
+                    self.event_sender
+                        .send(PlayerEvent::Unavailable(item, reason))?;
                     if let Some(next) = self.find_available_after(failed_index) {
                         self.load(Some(next), true, true)?;
                     } else {
@@ -1261,6 +1268,7 @@ mod stream_open_tests {
                     extension: "mp3".into(),
                     size: 1,
                     cancellation,
+                    failure_reason: Arc::new(Mutex::new(None)),
                 })
             })
         }

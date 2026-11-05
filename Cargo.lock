@@ -5422,6 +5422,7 @@ dependencies = [
  "symphonia",
  "symphonia-adapter-fdk-aac",
  "symphonia-adapter-libopus",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "tracing",

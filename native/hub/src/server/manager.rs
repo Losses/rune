@@ -1,8 +1,10 @@
 use super::sync_auth::SyncAuth;
+use super::sync_worker::wait_for_revocation;
 use crate::backends::remote::{RemoteConnectError, token_error};
 use database::actions::file::catalog_track;
 use database::sync::model::RuneModel;
 use std::net::TcpListener;
+use std::sync::Mutex as StdMutex;
 use std::{
     net::SocketAddr,
     path::Path,
@@ -30,6 +32,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE};
 use database::actions::cover_art::COVER_TEMP_DIR;
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use log::{error, info};
+use playback::player::{RemoteAudioError, UnavailableReason};
 use rand::{
     RngCore,
     distributions::{Alphanumeric, DistString},
@@ -584,13 +587,21 @@ impl ServerManager {
                     );
                     let url = format!("{base}/sync/blobs/{}", blob.digest);
                     let access_url = format!("{url}?track_id={track_id}");
-                    let mut response = client.head(&url).query(&[("track_id", track_id.to_string())]).send().await?;
-                    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+                    let mut response = client.head(&url).query(&[("track_id", track_id.to_string())]).send().await
+                        .map_err(RemoteAudioError::unreachable)?;
+                    if matches!(response.status(), reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN | reqwest::StatusCode::NOT_FOUND) {
                         let (_, renewed) = super::sync_worker::authenticated_client(&node, &own, &self.private_key, &fingerprint, &host, port).await?;
                         client = renewed;
-                        response = client.head(&url).query(&[("track_id", track_id.to_string())]).send().await?;
+                        response = client.head(&url).query(&[("track_id", track_id.to_string())]).send().await
+                            .map_err(RemoteAudioError::unreachable)?;
                     }
-                    response.error_for_status()?;
+                    if matches!(response.status(), reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN | reqwest::StatusCode::NOT_FOUND) {
+                        lifetime.cancel();
+                        anyhow::bail!(RemoteAudioError::AccessRevoked);
+                    }
+                    if !response.status().is_success() {
+                        anyhow::bail!(RemoteAudioError::unreachable(format!("unexpected status {}", response.status())));
+                    }
                     let mut stream_handles = self.stream_handles.lock().await;
                     let cancellation = self.sync_cancel.lock().await.as_ref()
                         .ok_or_else(|| anyhow::anyhow!("node synchronization is closing"))?.child_token();
@@ -602,6 +613,8 @@ impl ServerManager {
                         url: url.clone(), access_url, size: blob.size,
                         client: Arc::new(Mutex::new(super::sync_worker::AudioCredentials { client, generation: 0 })), cancel: cancellation.clone(),
                     });
+                    let failure_reason = Arc::new(StdMutex::new(None));
+                    let watcher_failure_reason = failure_reason.clone();
                     let watch_cancel = cancellation.clone();
                     let watch_params = Arc::downgrade(&node);
                     let watch_fingerprint = fingerprint.clone();
@@ -615,14 +628,24 @@ impl ServerManager {
                                     if watch_cancel.is_cancelled() {
                                         break;
                                     }
+                                    if let Ok(mut reason) = watcher_failure_reason.lock() {
+                                        *reason = Some(UnavailableReason::classify(&error));
+                                    }
+                                    watch_cancel.cancel();
                                     log::debug!("Audio library access check failed: {error:#}");
                                 }
                             }
                         };
                         tokio::select! {
                             _ = watch_cancel.cancelled() => {},
-                            _ = library_cancel.cancelled() => watch_cancel.cancel(),
-                            _ = super::sync_worker::wait_for_revocation(watch_params, &watch_fingerprint, &revocation_host) => watch_cancel.cancel(),
+                            _ = library_cancel.cancelled() => {
+                                if let Ok(mut reason) = watcher_failure_reason.lock() { *reason = Some(UnavailableReason::SourceUnreachable); }
+                                watch_cancel.cancel()
+                            },
+                            _ = wait_for_revocation(watch_params, &watch_fingerprint, &revocation_host) => {
+                                if let Ok(mut reason) = watcher_failure_reason.lock() { *reason = Some(UnavailableReason::AccessRevoked); }
+                                watch_cancel.cancel()
+                            },
                             _ = access_probe => {},
                         }
                     });
@@ -633,15 +656,30 @@ impl ServerManager {
                         extension: extension.clone(),
                         size: blob.size,
                         cancellation,
+                        failure_reason,
                     })
                 }
                 .await;
-                if let Ok(source) = result {
-                    return Ok(source);
+                match result {
+                    Ok(source) => return Ok(source),
+                    Err(error)
+                        if error.chain().any(|cause| {
+                            cause
+                                .downcast_ref::<RemoteAudioError>()
+                                .is_some_and(|remote| {
+                                    matches!(remote, RemoteAudioError::AccessRevoked)
+                                })
+                        }) =>
+                    {
+                        return Err(error);
+                    }
+                    Err(_) => {}
                 }
             }
         }
-        anyhow::bail!("no paired device currently has this audio")
+        anyhow::bail!(RemoteAudioError::unreachable(
+            "no paired device currently has this audio"
+        ))
     }
 
     pub fn is_running(&self) -> bool {

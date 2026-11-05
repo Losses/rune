@@ -1,3 +1,4 @@
+use playback::player::UnavailableReason;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -65,12 +66,31 @@ pub struct MovePlaylistItemRequest {
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct PlaylistItem {
-    pub unavailable: bool,
+    pub unavailable: Option<PlaylistUnavailableReason>,
     pub item: PlayingItemRequest,
     pub artist: String,
     pub album: String,
     pub title: String,
     pub duration: f64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
+pub enum PlaylistUnavailableReason {
+    AccessRevoked,
+    LibraryUnavailable,
+    SourceUnreachable,
+    Unreadable,
+}
+
+impl From<UnavailableReason> for PlaylistUnavailableReason {
+    fn from(reason: UnavailableReason) -> Self {
+        match reason {
+            UnavailableReason::AccessRevoked => Self::AccessRevoked,
+            UnavailableReason::LibraryUnavailable => Self::LibraryUnavailable,
+            UnavailableReason::SourceUnreachable => Self::SourceUnreachable,
+            UnavailableReason::Unreadable => Self::Unreadable,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

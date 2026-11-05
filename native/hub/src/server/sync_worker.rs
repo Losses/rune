@@ -23,7 +23,9 @@ use discovery::server::UserStatus;
 use futures::future::BoxFuture;
 use futures::future::{AbortHandle, Abortable};
 use http_request::sync::PageCursor;
-use playback::player::{LibraryPlaybackSource, PlaybackSourceResolver, RemoteAudioSource};
+use playback::player::{
+    LibraryPlaybackSource, PlaybackSourceResolver, RemoteAudioError, RemoteAudioSource,
+};
 use rand::rngs::OsRng;
 use reqwest::header::HeaderMap;
 use reqwest::redirect::Policy;
@@ -1127,7 +1129,9 @@ pub(super) struct RenewableAudio {
 
 impl RenewableAudio {
     async fn check_authorization(&self) -> Result<()> {
-        ensure!(!self.cancel.is_cancelled(), "audio access revoked");
+        if self.cancel.is_cancelled() {
+            anyhow::bail!(RemoteAudioError::AccessRevoked);
+        }
         let global = self.global.upgrade().context("Node has shut down")?;
         let status = global
             .permission_manager
@@ -1144,7 +1148,7 @@ impl RenewableAudio {
             .await;
         if !outbound_eligible(status) || !trusted.contains(&self.endpoint.trusted_host) {
             self.cancel.cancel();
-            anyhow::bail!("audio access revoked");
+            anyhow::bail!(RemoteAudioError::AccessRevoked);
         }
         Ok(())
     }
@@ -1153,21 +1157,26 @@ impl RenewableAudio {
         self.check_authorization().await?;
         let (client, generation) = {
             let credentials = tokio::select! {
-                _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
+                _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked),
                 credentials = self.client.lock() => credentials,
             };
             (credentials.client.clone(), credentials.generation)
         };
         let response = tokio::select! {
-            _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
-            response = client.head(&self.access_url).send() => response?,
+            _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked),
+            response = client.head(&self.access_url).send() => response.map_err(RemoteAudioError::unreachable)?,
         };
-        let response = if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let response = if matches!(
+            response.status(),
+            reqwest::StatusCode::UNAUTHORIZED
+                | reqwest::StatusCode::FORBIDDEN
+                | reqwest::StatusCode::NOT_FOUND
+        ) {
             self.refresh_if_current(generation).await?;
             let client = self.client.lock().await.client.clone();
             tokio::select! {
-                _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
-                response = client.head(&self.access_url).send() => response?,
+                _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked),
+                response = client.head(&self.access_url).send() => response.map_err(RemoteAudioError::unreachable)?,
             }
         } else {
             response
@@ -1179,17 +1188,19 @@ impl RenewableAudio {
                 | reqwest::StatusCode::NOT_FOUND
         ) {
             self.cancel.cancel();
-            anyhow::bail!("host library audio is no longer readable");
+            anyhow::bail!(RemoteAudioError::AccessRevoked);
         }
-        ensure!(
-            response.status() == reqwest::StatusCode::OK,
-            "host returned an unexpected library access response"
-        );
+        if response.status() != reqwest::StatusCode::OK {
+            anyhow::bail!(RemoteAudioError::unreachable(format!(
+                "unexpected status {}",
+                response.status()
+            )));
+        }
         Ok(())
     }
     pub(super) async fn refresh_if_current(&self, observed_generation: u64) -> Result<()> {
         let mut client = tokio::select! {
-            _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
+            _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked),
             client = self.client.lock() => client,
         };
         if client.generation != observed_generation {
@@ -1201,12 +1212,12 @@ impl RenewableAudio {
         self.check_authorization().await?;
         let global = self.global.upgrade().context("Node has shut down")?;
         let result = tokio::select! {
-            _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
+            _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked),
             result = authenticated_client(&global, &self.own, &self.private_key, &self.endpoint.fingerprint, &self.endpoint.host, self.endpoint.port) => result,
         };
         let result = match result {
             Err(error) if is_authentication_denied(&error) => tokio::select! {
-                _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
+                _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked),
                 result = authenticated_client(&global, &self.own, &self.private_key, &self.endpoint.fingerprint, &self.endpoint.host, self.endpoint.port) => result,
             },
             result => result,
@@ -1220,6 +1231,7 @@ impl RenewableAudio {
             Err(error) => {
                 if is_authentication_denied(&error) {
                     self.cancel.cancel();
+                    anyhow::bail!(RemoteAudioError::AccessRevoked);
                 }
                 self.check_authorization()
                     .await
@@ -1232,7 +1244,7 @@ impl RenewableAudio {
         self.check_authorization().await?;
         let (client, generation) = {
             let credentials = tokio::select! {
-                _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
+                _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked),
                 credentials = self.client.lock() => credentials,
             };
             (credentials.client.clone(), credentials.generation)
@@ -1250,11 +1262,16 @@ impl RenewableAudio {
             }
             request.send()
         };
-        let response = tokio::select! { _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"), result = send(client.clone()) => result? };
-        let response = if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let response = tokio::select! { _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked), result = send(client.clone()) => result.map_err(RemoteAudioError::unreachable)? };
+        let response = if matches!(
+            response.status(),
+            reqwest::StatusCode::UNAUTHORIZED
+                | reqwest::StatusCode::FORBIDDEN
+                | reqwest::StatusCode::NOT_FOUND
+        ) {
             let renewed = {
                 let mut credentials = tokio::select! {
-                    _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
+                    _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked),
                     credentials = self.client.lock() => credentials,
                 };
                 if credentials.generation == generation {
@@ -1262,16 +1279,18 @@ impl RenewableAudio {
                 }
                 credentials.client.clone()
             };
-            tokio::select! { _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"), result = send(renewed) => result? }
+            tokio::select! { _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked), result = send(renewed) => result.map_err(RemoteAudioError::unreachable)? }
         } else {
             response
         };
         if matches!(
             response.status(),
-            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+            reqwest::StatusCode::UNAUTHORIZED
+                | reqwest::StatusCode::FORBIDDEN
+                | reqwest::StatusCode::NOT_FOUND
         ) {
             self.cancel.cancel();
-            anyhow::bail!("audio authorization denied after renewal");
+            anyhow::bail!(RemoteAudioError::AccessRevoked);
         }
         validate_audio_response(&response, self.size, range)?;
         Ok(response)
@@ -1287,32 +1306,36 @@ fn validate_audio_response(
         ensure!(start < size, "audio range starts beyond content");
         let last = end.unwrap_or(size - 1).min(size - 1);
         ensure!(last >= start, "invalid audio range");
-        ensure!(
-            response.status() == reqwest::StatusCode::PARTIAL_CONTENT,
-            "peer did not honor audio range"
-        );
+        if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+            anyhow::bail!(RemoteAudioError::unreachable(format!(
+                "unexpected status {}",
+                response.status()
+            )));
+        }
         let expected = format!("bytes {start}-{last}/{size}");
-        ensure!(
-            response
-                .headers()
-                .get(reqwest::header::CONTENT_RANGE)
-                .and_then(|h| h.to_str().ok())
-                == Some(expected.as_str()),
-            "invalid audio content range"
-        );
+        if response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|h| h.to_str().ok())
+            != Some(expected.as_str())
+        {
+            anyhow::bail!(RemoteAudioError::unreachable(format!(
+                "content range does not match {expected}"
+            )));
+        }
         last - start + 1
     } else {
-        ensure!(
-            response.status() == reqwest::StatusCode::OK,
-            "audio request failed: {}",
-            response.status()
-        );
+        if response.status() != reqwest::StatusCode::OK {
+            anyhow::bail!(RemoteAudioError::unreachable(format!(
+                "unexpected status {}",
+                response.status()
+            )));
+        }
         size
     };
-    ensure!(
-        response.content_length() == Some(expected_length),
-        "invalid audio response length"
-    );
+    if response.content_length() != Some(expected_length) {
+        anyhow::bail!(RemoteAudioError::Incomplete);
+    }
     Ok(())
 }
 
@@ -1709,7 +1732,11 @@ impl PlaybackSourceResolver for PairedAudioResolver {
         let node = self.0.clone();
         Box::pin(async move {
             let owner = node.upgrade().context("Node stopped")?;
-            let library = owner.library_pool.acquire(library_id.parse()?).await?;
+            let library = owner
+                .library_pool
+                .acquire(library_id.parse()?)
+                .await
+                .map_err(|_| anyhow::anyhow!(RemoteAudioError::LibraryUnavailable))?;
             Ok(Some(LibraryPlaybackSource {
                 fsio: library.fsio.clone(),
                 resolver: Arc::new(PairedAudioResolver(node, library_id)),
@@ -1721,7 +1748,11 @@ impl PlaybackSourceResolver for PairedAudioResolver {
         let library_id = self.1.clone();
         Box::pin(async move {
             let owner = node.upgrade().context("Node stopped")?;
-            let library = owner.library_pool.acquire(library_id.parse()?).await?;
+            let library = owner
+                .library_pool
+                .acquire(library_id.parse()?)
+                .await
+                .map_err(|_| anyhow::anyhow!(RemoteAudioError::LibraryUnavailable))?;
             resolve_local_id(library.main_db.as_ref(), id).await
         })
     }
@@ -1746,7 +1777,11 @@ impl PlaybackSourceResolver for PairedAudioResolver {
         let library_id = self.1.clone();
         Box::pin(async move {
             let owner = node.upgrade().context("Node stopped")?;
-            let library = owner.library_pool.acquire(library_id.parse()?).await?;
+            let library = owner
+                .library_pool
+                .acquire(library_id.parse()?)
+                .await
+                .map_err(|_| anyhow::anyhow!(RemoteAudioError::LibraryUnavailable))?;
             owner
                 .manager()?
                 .resolve_remote_audio(&library, owner.token.child_token(), id)

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use futures::future::BoxFuture;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
@@ -17,6 +18,59 @@ use crate::internal::{InternalLog, PlaybackMode, PlayerCommand, PlayerEvent, Pla
 use crate::pcm_tap::PcmTap;
 use crate::strategies::AddMode;
 
+/// Why a queued item could not be played.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UnavailableReason {
+    /// The host no longer grants access to this audio.
+    AccessRevoked,
+    /// The library could not be acquired on this node.
+    LibraryUnavailable,
+    /// The audio source could not be reached or ended before completion.
+    SourceUnreachable,
+    /// The reachable source could not be probed or decoded as audio.
+    Unreadable,
+}
+
+/// Underlying cause kept on [`RemoteAudioError::Unreachable`] for diagnostics.
+pub type RemoteAudioCause = Box<dyn std::error::Error + Send + Sync>;
+
+/// Typed failures reported by remote audio requests and stream readers.
+#[derive(Debug, thiserror::Error)]
+pub enum RemoteAudioError {
+    #[error("audio access revoked")]
+    AccessRevoked,
+    #[error("audio source unreachable")]
+    Unreachable(#[source] RemoteAudioCause),
+    #[error("audio stream ended before completion")]
+    Incomplete,
+    #[error("library unavailable")]
+    LibraryUnavailable,
+}
+
+impl RemoteAudioError {
+    /// The source could not be reached; `cause` says why.
+    pub fn unreachable(cause: impl Into<RemoteAudioCause>) -> Self {
+        Self::Unreachable(cause.into())
+    }
+}
+
+impl UnavailableReason {
+    pub fn classify(error: &anyhow::Error) -> Self {
+        for cause in error.chain() {
+            if let Some(remote) = cause.downcast_ref::<RemoteAudioError>() {
+                return match remote {
+                    RemoteAudioError::AccessRevoked => Self::AccessRevoked,
+                    RemoteAudioError::Unreachable(_) | RemoteAudioError::Incomplete => {
+                        Self::SourceUnreachable
+                    }
+                    RemoteAudioError::LibraryUnavailable => Self::LibraryUnavailable,
+                };
+            }
+        }
+        Self::Unreadable
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PlayerStatus {
     pub item: Option<PlayingItem>,
@@ -26,6 +80,7 @@ pub struct PlayerStatus {
     pub state: PlaybackState,
     pub playlist: Vec<PlayingItem>,
     pub unavailable: Vec<PlayingItem>,
+    pub unavailable_reasons: HashMap<PlayingItem, UnavailableReason>,
     pub playback_mode: PlaybackMode,
     pub ready: bool,
     pub volume: f32,
@@ -104,6 +159,7 @@ pub struct RemoteAudioSource {
     pub extension: String,
     pub size: u64,
     pub cancellation: CancellationToken,
+    pub failure_reason: Arc<Mutex<Option<UnavailableReason>>>,
 }
 pub struct LibraryPlaybackSource {
     pub fsio: Arc<FsIo>,
@@ -133,7 +189,7 @@ pub trait PlaybackSourceResolver: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct PlaylistStatus {
     pub items: Vec<PlayingItem>,
-    pub unavailable: Vec<PlayingItem>,
+    pub unavailable: HashMap<PlayingItem, UnavailableReason>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -268,6 +324,7 @@ impl Player {
             playback_mode: PlaybackMode::Sequential,
             playlist: Vec::new(),
             unavailable: Vec::new(),
+            unavailable_reasons: HashMap::new(),
             ready: false,
             volume: 1.0,
         }));
@@ -415,13 +472,14 @@ impl Player {
                     } => {
                         error!("Error at index {index}({item:?}): {path:?} - {error}");
                     }
-                    PlayerEvent::Unavailable(item) => {
+                    PlayerEvent::Unavailable(item, reason) => {
                         if !status.unavailable.contains(&item) {
-                            status.unavailable.push(item);
+                            status.unavailable.push(item.clone());
                         }
+                        status.unavailable_reasons.insert(item, reason);
                         playlist_sender_clone.send(PlaylistStatus {
                             items: status.playlist.clone(),
-                            unavailable: status.unavailable.clone(),
+                            unavailable: status.unavailable_reasons.clone(),
                         });
                     }
                     PlayerEvent::UnavailableCleared(item) => {
@@ -429,21 +487,26 @@ impl Player {
                             status
                                 .unavailable
                                 .retain(|unavailable| unavailable != &item);
+                            status.unavailable_reasons.remove(&item);
                         } else {
                             status.unavailable.clear();
+                            status.unavailable_reasons.clear();
                         }
                         playlist_sender_clone.send(PlaylistStatus {
                             items: status.playlist.clone(),
-                            unavailable: status.unavailable.clone(),
+                            unavailable: status.unavailable_reasons.clone(),
                         });
                     }
                     PlayerEvent::PlaylistUpdated(playlist) => {
                         status.unavailable.retain(|item| playlist.contains(item));
+                        status
+                            .unavailable_reasons
+                            .retain(|item, _| playlist.contains(item));
                         status.playlist = playlist.clone();
                         debug!("Sending playlist status");
                         playlist_sender_clone.send(PlaylistStatus {
                             items: playlist.clone(),
-                            unavailable: status.unavailable.clone(),
+                            unavailable: status.unavailable_reasons.clone(),
                         });
                     }
                     PlayerEvent::RealtimeFFT(data) => {
@@ -652,6 +715,7 @@ impl Playable for MockPlayer {
             state: PlaybackState::Stopped,
             playlist: Vec::new(),
             unavailable: Vec::new(),
+            unavailable_reasons: HashMap::new(),
             playback_mode: PlaybackMode::Sequential,
             ready: false,
             volume: 1.0,
@@ -677,5 +741,28 @@ impl Playable for MockPlayer {
     }
     fn subscribe_log(&self) -> SimpleReceiver<InternalLog> {
         SimpleChannel::channel(1).1
+    }
+}
+
+#[cfg(test)]
+mod unavailable_reason_tests {
+    use super::{RemoteAudioError, UnavailableReason};
+
+    #[test]
+    fn string_only_revocation_is_not_classified_as_access_revoked() {
+        let error = anyhow::anyhow!("audio access revoked");
+        assert_eq!(
+            UnavailableReason::classify(&error),
+            UnavailableReason::Unreadable
+        );
+    }
+
+    #[test]
+    fn typed_remote_failures_map_to_queue_reasons() {
+        let error = anyhow::Error::new(RemoteAudioError::AccessRevoked);
+        assert_eq!(
+            UnavailableReason::classify(&error),
+            UnavailableReason::AccessRevoked
+        );
     }
 }
