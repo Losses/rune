@@ -1119,6 +1119,7 @@ pub(super) struct RenewableAudio {
     pub private_key: String,
     pub endpoint: PeerEndpoint,
     pub url: String,
+    pub access_url: String,
     pub size: u64,
     pub client: Arc<tokio::sync::Mutex<AudioCredentials>>,
     pub cancel: tokio_util::sync::CancellationToken,
@@ -1145,6 +1146,45 @@ impl RenewableAudio {
             self.cancel.cancel();
             anyhow::bail!("audio access revoked");
         }
+        Ok(())
+    }
+
+    pub(super) async fn check_library_access(&self) -> Result<()> {
+        self.check_authorization().await?;
+        let (client, generation) = {
+            let credentials = tokio::select! {
+                _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
+                credentials = self.client.lock() => credentials,
+            };
+            (credentials.client.clone(), credentials.generation)
+        };
+        let response = tokio::select! {
+            _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
+            response = client.head(&self.access_url).send() => response?,
+        };
+        let response = if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            self.refresh_if_current(generation).await?;
+            let client = self.client.lock().await.client.clone();
+            tokio::select! {
+                _ = self.cancel.cancelled() => anyhow::bail!("audio access revoked"),
+                response = client.head(&self.access_url).send() => response?,
+            }
+        } else {
+            response
+        };
+        if matches!(
+            response.status(),
+            reqwest::StatusCode::UNAUTHORIZED
+                | reqwest::StatusCode::FORBIDDEN
+                | reqwest::StatusCode::NOT_FOUND
+        ) {
+            self.cancel.cancel();
+            anyhow::bail!("host library audio is no longer readable");
+        }
+        ensure!(
+            response.status() == reqwest::StatusCode::OK,
+            "host returned an unexpected library access response"
+        );
         Ok(())
     }
     pub(super) async fn refresh_if_current(&self, observed_generation: u64) -> Result<()> {

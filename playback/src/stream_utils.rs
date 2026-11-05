@@ -1,5 +1,9 @@
 use anyhow::{Result, anyhow};
 use std::io::{self, Seek};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use stream_download::http::HttpStream;
 use stream_download::{Settings, StreamDownload, storage::temp::TempStorageProvider};
 use symphonia::core::io::{MediaSource, ReadOnlySource};
@@ -93,6 +97,7 @@ pub async fn create_stream_with_authorizer(
 pub struct ManagedStream {
     inner: StreamDownload<TempStorageProvider>,
     cancel: tokio_util::sync::CancellationToken,
+    failed: Arc<AtomicBool>,
     cancellation_bridge: tokio::task::JoinHandle<()>,
 }
 impl ManagedStream {
@@ -100,20 +105,31 @@ impl ManagedStream {
         inner: StreamDownload<TempStorageProvider>,
         cancel: tokio_util::sync::CancellationToken,
     ) -> Self {
+        Self::new_with_failure(inner, cancel, Arc::new(AtomicBool::new(false)))
+    }
+    pub fn new_with_failure(
+        inner: StreamDownload<TempStorageProvider>,
+        cancel: tokio_util::sync::CancellationToken,
+        failed: Arc<AtomicBool>,
+    ) -> Self {
         let download = inner.cancellation_token();
         let stop = cancel.clone();
+        let failed_on_cancel = failed.clone();
         let cancellation_bridge = tokio::spawn(async move {
             stop.cancelled().await;
+            failed_on_cancel.store(true, Ordering::Release);
             download.cancel();
         });
         Self {
             inner,
             cancel,
+            failed,
             cancellation_bridge,
         }
     }
     fn ensure_active(&self) -> std::io::Result<()> {
         if self.cancel.is_cancelled() {
+            self.failed.store(true, Ordering::Release);
             Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "audio access revoked",
@@ -128,13 +144,20 @@ impl ManagedStream {
         position: u64,
         result: std::io::Result<usize>,
     ) -> std::io::Result<usize> {
-        let bytes_read = result?;
+        let bytes_read = match result {
+            Ok(bytes_read) => bytes_read,
+            Err(error) => {
+                self.failed.store(true, Ordering::Release);
+                return Err(error);
+            }
+        };
         if bytes_read == 0
             && self
                 .inner
                 .content_length()
                 .is_some_and(|length| position < length)
         {
+            self.failed.store(true, Ordering::Release);
             return Err(io::Error::other(
                 "audio stream stopped before download completed",
             ));

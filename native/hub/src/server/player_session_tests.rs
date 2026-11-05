@@ -4,6 +4,7 @@ use std::{env, process::Command};
 
 use database::actions::{
     downloads::cleanup_unselected_downloads,
+    file::catalog_track,
     mixes::query_mix_media_files,
     playback_queue::{list_legacy_playback_queue, replace_playback_queue},
 };
@@ -18,7 +19,7 @@ use sea_orm::sea_query::Expr;
 use sea_orm::{EntityTrait, Set};
 #[cfg(target_os = "linux")]
 use tokio::runtime::Builder;
-use tokio::time::{sleep, timeout};
+use tokio::time::{Instant, sleep, timeout};
 
 #[cfg(target_os = "linux")]
 #[test]
@@ -749,6 +750,405 @@ async fn session_f1_all_failed_items_stop_without_hanging() -> Result<()> {
     assert_eq!(after_quiet_period.unavailable, settled.unavailable);
     assert_eq!(after_quiet_period.unavailable.len(), ids.len());
     a.global_params.node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
+    use crate::server::{sync, sync_worker};
+    use crate::access_policy::LibraryLevel;
+    use crate::backends::remote::{connect_remote, decode_message};
+    use crate::messages::PlaylistUpdate;
+    use crate::server::sync_worker::{PeerEndpoint, test_peer_pass};
+    use futures::StreamExt;
+
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let c_dir = tempfile::tempdir()?;
+    let b_signals = Arc::new(RecordedSignals::default());
+    let a = fixture(a_dir.path()).await?;
+    let b = fixture_with_broadcaster(
+        b_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        b_signals.clone(),
+    )
+    .await?;
+    let c = fixture(c_dir.path()).await?;
+    let c_tracks = ["revoke-c1.ogg", "revoke-c2.ogg"];
+    let mut c_ids = Vec::new();
+    let mut c_track_uuids = Vec::new();
+    for track in c_tracks {
+        let source = if track == "revoke-c1.ogg" {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg")
+        } else {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_1.ogg")
+        };
+        let target = c_dir.path().join(track);
+        fs::copy(source, &target)?;
+        scan_audio_file(
+            &c.global_params.test_library().fsio,
+            &c.global_params.test_library().main_db,
+            &c.global_params.node_id,
+            c_dir.path(),
+            &target,
+            &c.global_params.test_library().library_sync.record_store(),
+        )
+        .await?;
+        let row = media_files::Entity::find()
+                .filter(Column::FileName.eq(track))
+                .one(&*c.global_params.test_library().main_db)
+                .await?
+                .context("host fixture track")?;
+        c_ids.push(row.id);
+        c_track_uuids.push(row.hlc_uuid);
+    }
+    let b_local_id = session_audio(&b, "revoke-b-local.ogg").await?;
+
+    let c_addr = peer_step("pair B with C", paired_full(&c, &b)).await?;
+    let c_info = peer_step("read C identity", info(&c)).await?;
+    let b_info = peer_step("read B identity", info(&b)).await?;
+    let c_library_id = c.global_params.library_id.context("C library id")?;
+    b.global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &c_info.fingerprint,
+            vec![format!("127.0.0.1:{}", c_addr.port())],
+        )
+        .await?;
+    let mut initial_grant = c
+        .global_params
+        .node
+        .access_policy
+        .grants(&b_info.fingerprint)?;
+    initial_grant
+        .libraries
+        .insert(c_library_id, LibraryLevel::ReadWrite);
+    c.global_params
+        .node
+        .access_policy
+        .set(&b_info.fingerprint, initial_grant)?;
+    let listed = peer_step(
+        "list C libraries on B",
+        request_peer_libraries(&b, &c_info.fingerprint),
+    )
+    .await?;
+    let hosted = listed
+        .libraries
+        .iter()
+        .find(|library| library.library_id == c.global_params.library_id.unwrap().to_string())
+        .with_context(|| {
+            format!(
+                "C library was not listed (error {:?}, libraries {:?})",
+                listed.error_kind, listed.libraries
+            )
+        })?;
+    let replica_path = peer_step("add C library replica on B", async {
+        request_add_library(&b, &c_info.fingerprint, hosted).await
+    })
+    .await?;
+    let b_replica = fixture_open_replica(&b, Path::new(&replica_path)).await?;
+    let c_endpoint = PeerEndpoint {
+        fingerprint: c_info.fingerprint.clone(),
+        trusted_host: format!("127.0.0.1:{}", c_addr.port()),
+        host: "127.0.0.1".into(),
+        port: c_addr.port(),
+    };
+    peer_step_with_timeout("sync C metadata to B", Duration::from_secs(30), async {
+        loop {
+            match test_peer_pass(
+                b_replica.global_params.clone(),
+                &b_replica.private_key,
+                c_endpoint.clone(),
+                true,
+            )
+            .await?
+            {
+                PeerPass::Complete => break,
+                PeerPass::Incomplete => tokio::task::yield_now().await,
+                result => anyhow::bail!("unexpected C metadata pass: {result:?}"),
+            }
+        }
+        Ok(())
+    })
+    .await?;
+    let b_c_ids = peer_step("resolve C replica track ids on B", async {
+        let mut ids = Vec::new();
+        for track_uuid in &c_track_uuids {
+            ids.push(
+                media_files::Entity::find()
+                    .filter(Column::HlcUuid.eq(track_uuid))
+                    .one(&*b_replica.global_params.test_library().main_db)
+                    .await?
+                    .context("replicated host track")?
+                    .id,
+            );
+        }
+        Ok(ids)
+    })
+    .await?;
+    for id in &b_c_ids {
+        let row = media_files::Entity::find_by_id(*id)
+            .one(&*b_replica.global_params.test_library().main_db)
+            .await?
+            .context("replicated host row")?;
+        assert!(!row.local_available, "C audio must remain remote only on B");
+    }
+
+    let a_addr = peer_step("pair A with B", paired_full(&b, &a)).await?;
+    let mut controller = peer_step("connect A controller socket", async {
+        Ok(connect_remote(
+            "127.0.0.1",
+            a_addr.port(),
+            &a.global_params.config_path,
+            a.global_params.cert_validator.read().await.clone(),
+        )
+        .await?)
+    })
+    .await?;
+    let b_library_id = b.global_params.library_id.context("B library id")?.to_string();
+    let mut grant = c.global_params.node.access_policy.grants(&b_info.fingerprint)?;
+    grant.libraries.insert(c_library_id, LibraryLevel::NotShared);
+    let c_blob = catalog_track(
+        &c.global_params.test_library().main_db,
+        c_ids[0],
+    )
+    .await?
+    .context("host audio blob")?;
+    let (base, b_client) = peer_step("authenticate B audio client before playback", async {
+        sync_worker::authenticated_client(
+            &b.global_params.node,
+            &b_info.fingerprint,
+            &b.private_key,
+            &c_info.fingerprint,
+            "127.0.0.1",
+            c_addr.port(),
+        )
+        .await
+    })
+    .await?;
+    let audio_url = format!(
+        "{}/sync/blobs/{}?track_id={}",
+        sync::library_base(&base, c_library_id),
+        c_blob.1.digest,
+        c_blob.0
+    );
+    peer_step("verify B can request C audio before playback", async {
+        let response = b_client
+            .get(&audio_url)
+            .header(reqwest::header::RANGE, "bytes=0-31")
+            .send()
+            .await?;
+        anyhow::ensure!(
+            response.status() == reqwest::StatusCode::PARTIAL_CONTENT,
+            "pre-revocation range request returned {}",
+            response.status()
+        );
+        Ok(())
+    })
+    .await?;
+    let queue = b_c_ids
+        .iter()
+        .map(|id| {
+            (
+                PlayingItem::InLibrary(*id, c_library_id.to_string()),
+                PlaybackSource::LibraryStream,
+            )
+        })
+        .collect();
+    b.global_params
+        .player
+        .lock()
+        .await
+        .add_to_playlist_with_sources(queue, AddMode::AppendToEnd);
+    b.global_params.player.lock().await.switch(0);
+    let first = PlayingItem::InLibrary(b_c_ids[0], c_library_id.to_string());
+    let playing_result = peer_step_with_timeout("B starts remote C track", Duration::from_secs(35), async {
+        loop {
+            let status = b.global_params.player.lock().await.get_status();
+            if status.item == Some(first.clone()) && status.state == PlaybackState::Playing {
+                return Ok(status);
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    let playing = match playing_result {
+        Ok(playing) => playing,
+        Err(error) => {
+            let status = b.global_params.player.lock().await.get_status();
+            let crashed = b_signals
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(name, _)| name == "CrashResponse");
+            return Err(error.context(format!(
+                "latest B player status: {status:?}; crash response recorded: {crashed}"
+            )));
+        }
+    };
+    assert_eq!(playing.index, Some(0));
+    assert!(playing
+        .path
+        .as_deref()
+        .is_some_and(|path| path.as_os_str().is_empty()));
+    let first_status_item = first.to_string();
+    peer_step("revoke B read grant on C library", async {
+        c.global_params
+            .node
+            .access_policy
+            .set(&b_info.fingerprint, grant)?;
+        Ok(())
+    })
+    .await?;
+    peer_step_with_timeout("B stops after C stream revocation", Duration::from_secs(20), async {
+        let deadline = Instant::now() + Duration::from_secs(19);
+        loop {
+            let status = b.global_params.player.lock().await.get_status();
+            if status.state == PlaybackState::Stopped
+                && status.item.is_none()
+                && status.unavailable.contains(&first)
+                && status.unavailable.contains(&PlayingItem::InLibrary(
+                    b_c_ids[1],
+                    c_library_id.to_string(),
+                ))
+            {
+                return Ok(status);
+            }
+            if Instant::now() >= deadline {
+                anyhow::bail!("player did not settle after revocation: {status:?}");
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await?;
+    peer_step_with_timeout("A receives B playing status", Duration::from_secs(5), async {
+        loop {
+            let frame = controller
+                .next()
+                .await
+                .context("controller socket closed")??;
+            if let Some((name, payload, _)) = decode_message(&frame.into_data())
+                && name == "PlaybackStatus"
+            {
+                let status: PlaybackStatus = rinf::deserialize(&payload)?;
+                if status.state == "Playing"
+                    && status.item.as_deref() == Some(first_status_item.as_str())
+                {
+                    return Ok(());
+                }
+            }
+        }
+    })
+    .await?;
+    let controller_update = peer_step_with_timeout(
+        "A receives stopped status or unavailable playlist update",
+        Duration::from_secs(5),
+        async {
+            loop {
+                let frame = controller
+                    .next()
+                    .await
+                    .context("controller socket closed")??;
+                if let Some((name, payload, _)) = decode_message(&frame.into_data()) {
+                    if name == "PlaybackStatus" {
+                        let status: PlaybackStatus = rinf::deserialize(&payload)?;
+                        if status.state == "Stopped" && status.item.is_none() {
+                            return Ok(());
+                        }
+                    } else if name == "PlaylistUpdate" {
+                        let update: PlaylistUpdate = rinf::deserialize(&payload)?;
+                        if update.items.iter().filter(|item| item.unavailable).count() == 2 {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        },
+    )
+    .await;
+    if let Err(error) = controller_update {
+        let local_statuses: Vec<_> = b_signals
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(name, _)| name == "PlaybackStatus")
+            .filter_map(|(_, payload)| rinf::deserialize::<PlaybackStatus>(payload).ok())
+            .map(|status| (status.state, status.item, status.ready))
+            .collect();
+        return Err(error.context(format!(
+            "B's locally recorded playback status signals: {local_statuses:?}"
+        )));
+    }
+    peer_step("C denies a new ranged audio request from B", async {
+        let response = b_client
+            .get(&audio_url)
+            .header(reqwest::header::RANGE, "bytes=0-31")
+            .send()
+            .await?;
+        anyhow::ensure!(
+            response.status() == reqwest::StatusCode::FORBIDDEN
+                || response.status() == reqwest::StatusCode::UNAUTHORIZED,
+            "revoked range request returned {}",
+            response.status()
+        );
+        Ok(())
+    })
+    .await?;
+    assert!(
+        b_signals
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(name, _)| name != "CrashResponse"),
+        "expected access revocation must not crash the player"
+    );
+
+    let local = PlayingItem::InLibrary(b_local_id, b_library_id);
+    b.global_params
+        .player
+        .lock()
+        .await
+        .add_to_playlist_with_sources(
+            vec![(local.clone(), PlaybackSource::LibraryStream)],
+            AddMode::AppendToEnd,
+        );
+    b.global_params.player.lock().await.switch(2);
+    peer_step_with_timeout("B player continues with local audio", Duration::from_secs(15), async {
+        loop {
+            let status = b.global_params.player.lock().await.get_status();
+            if status.item == Some(local.clone()) && status.state == PlaybackState::Playing {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await?;
+    peer_step_with_timeout("A receives post-revocation playback update", Duration::from_secs(5), async {
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(2), controller.next())
+                .await
+                .context("controller update timed out")?
+                .context("controller socket closed")??;
+            if let Some((name, payload, _)) = decode_message(&frame.into_data())
+                && name == "PlaybackStatus"
+            {
+                let status: PlaybackStatus = rinf::deserialize(&payload)?;
+                if status.item == Some(format!("PlayingItem::InLibrary({b_local_id})")) {
+                    return Ok(());
+                }
+            }
+        }
+    })
+    .await?;
+    a.global_params.node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    c.global_params.node.shutdown().await?;
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

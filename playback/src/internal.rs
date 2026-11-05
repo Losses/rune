@@ -4,7 +4,10 @@ use std::{
     fmt::Debug,
     io::BufReader,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -32,7 +35,7 @@ use crate::strategies::{
 
 pub enum AnySource {
     Local(RuneBuffered<RuneDecoder<BufReader<Box<dyn FileStream>>>>),
-    Online(RuneBuffered<RuneDecoder<crate::stream_utils::ManagedStream>>),
+    Online(RuneBuffered<RuneDecoder<ManagedStream>>, Arc<AtomicBool>),
 }
 
 async fn open_library_stream(
@@ -40,20 +43,25 @@ async fn open_library_stream(
     id: i32,
 ) -> Result<(AnySource, PathBuf)> {
     let remote = resolver.resolve(id).await?;
+    let size = remote.size;
     let guard = remote.cancellation.clone().drop_guard();
     let reader =
         crate::stream_utils::create_stream_with_authorizer(remote.request, &remote.url).await?;
-    let reader = ManagedStream::new(reader, remote.cancellation);
+    let failed = Arc::new(AtomicBool::new(false));
+    let reader = ManagedStream::new_with_failure(reader, remote.cancellation, failed.clone());
     guard.disarm();
-    let decoder = RuneDecoder::new(reader, Some(&remote.extension))?;
-    Ok((AnySource::Online(rune_buffered(decoder)), PathBuf::new()))
+    let decoder = RuneDecoder::new_with_length(reader, Some(&remote.extension), Some(size))?;
+    Ok((
+        AnySource::Online(rune_buffered(decoder), failed),
+        PathBuf::new(),
+    ))
 }
 
 impl Debug for AnySource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AnySource::Local(_) => f.debug_struct("AnySource::Local").finish(),
-            AnySource::Online(_) => f.debug_struct("AnySource::Online").finish(),
+            AnySource::Online(_, _) => f.debug_struct("AnySource::Online").finish(),
         }
     }
 }
@@ -62,7 +70,7 @@ impl AnySource {
     fn current_samples(&self) -> Option<Vec<i16>> {
         match self {
             AnySource::Local(s) => s.current_samples(),
-            AnySource::Online(s) => s.current_samples(),
+            AnySource::Online(s, _) => s.current_samples(),
         }
     }
 }
@@ -73,7 +81,7 @@ impl Iterator for AnySource {
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             AnySource::Local(s) => s.next(),
-            AnySource::Online(s) => s.next(),
+            AnySource::Online(s, _) => s.next(),
         }
     }
 }
@@ -82,35 +90,44 @@ impl Source for AnySource {
     fn current_frame_len(&self) -> Option<usize> {
         match self {
             AnySource::Local(s) => s.current_frame_len(),
-            AnySource::Online(s) => s.current_frame_len(),
+            AnySource::Online(s, _) => s.current_frame_len(),
         }
     }
 
     fn channels(&self) -> u16 {
         match self {
             AnySource::Local(s) => s.channels(),
-            AnySource::Online(s) => s.channels(),
+            AnySource::Online(s, _) => s.channels(),
         }
     }
 
     fn sample_rate(&self) -> u32 {
         match self {
             AnySource::Local(s) => s.sample_rate(),
-            AnySource::Online(s) => s.sample_rate(),
+            AnySource::Online(s, _) => s.sample_rate(),
         }
     }
 
     fn total_duration(&self) -> Option<Duration> {
         match self {
             AnySource::Local(s) => s.total_duration(),
-            AnySource::Online(s) => s.total_duration(),
+            AnySource::Online(s, _) => s.total_duration(),
         }
     }
 
     fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
         match self {
             AnySource::Local(s) => s.try_seek(pos),
-            AnySource::Online(s) => s.try_seek(pos),
+            AnySource::Online(s, _) => s.try_seek(pos),
+        }
+    }
+}
+
+impl AnySource {
+    fn stream_failure(&self) -> Option<Arc<AtomicBool>> {
+        match self {
+            AnySource::Local(_) => None,
+            AnySource::Online(_, failed) => Some(failed.clone()),
         }
     }
 }
@@ -309,6 +326,7 @@ pub(crate) struct PlayerInternal {
     current_item: Option<PlayingItem>,
     current_track_index: Option<usize>,
     current_track_path: Option<PathBuf>,
+    active_stream_failure: Option<Arc<AtomicBool>>,
     sink: Option<Sink>,
     _stream: Option<RuneOutputStream>,
     state: InternalPlaybackState,
@@ -346,6 +364,7 @@ impl PlayerInternal {
             current_item: None,
             current_track_index: None,
             current_track_path: None,
+            active_stream_failure: None,
             sink: None,
             _stream: None,
             realtime_fft: Arc::new(Mutex::new(RealTimeFFT::new(512))),
@@ -600,10 +619,15 @@ impl PlayerInternal {
                             info!("Downloading from url: {url}");
                             let ext = url.split('?').next().and_then(|u| u.rsplit('.').next());
                             let reader = crate::stream_utils::create_stream_from_url(url).await?;
-                            let reader = ManagedStream::new(reader, CancellationToken::new());
+                            let failed = Arc::new(AtomicBool::new(false));
+                            let reader = ManagedStream::new_with_failure(
+                                reader,
+                                CancellationToken::new(),
+                                failed.clone(),
+                            );
                             let decoder = RuneDecoder::new(reader, ext)?;
                             Ok((
-                                AnySource::Online(rune_buffered(decoder)),
+                                AnySource::Online(rune_buffered(decoder), failed),
                                 PathBuf::new(),
                                 resolved_item.clone(),
                             ))
@@ -647,6 +671,7 @@ impl PlayerInternal {
         path: PathBuf,
         play: bool,
     ) -> Result<()> {
+        self.active_stream_failure = source.stream_failure();
         let source = SharedSource::new(source);
         let source_for_fft = Arc::clone(&source.inner);
 
@@ -791,6 +816,7 @@ impl PlayerInternal {
         } else {
             warn!("Stop command received but no track is loaded");
         }
+        self.active_stream_failure = None;
 
         Ok(())
     }
@@ -983,6 +1009,7 @@ impl PlayerInternal {
         self.playback_strategy
             .on_playlist_updated(0, UpdateReason::ClearPlaylist);
         self.current_track_index = None;
+        self.active_stream_failure = None;
         self.sink = None;
         self._stream = None;
         info!("Playlist cleared");
@@ -1066,6 +1093,23 @@ impl PlayerInternal {
             let position = sink.get_pos();
 
             if sink.empty() {
+                if self
+                    .active_stream_failure
+                    .as_ref()
+                    .is_some_and(|failed| failed.load(Ordering::Acquire))
+                {
+                    let item = id.context("failed stream has no current item")?;
+                    let failed_index = index.context("failed stream has no current index")?;
+                    self.stop()?;
+                    self.unavailable.insert(item.clone());
+                    self.event_sender.send(PlayerEvent::Unavailable(item))?;
+                    if let Some(next) = self.find_available_after(failed_index) {
+                        self.load(Some(next), true, true)?;
+                    } else {
+                        self.event_sender.send(PlayerEvent::EndOfPlaylist)?;
+                    }
+                    return Ok(());
+                }
                 self.event_sender
                     .send(PlayerEvent::EndOfTrack {
                         item: id.unwrap(),
@@ -1215,6 +1259,7 @@ mod stream_open_tests {
                     request: Arc::new(FailingRequest),
                     url: "http://localhost/audio".into(),
                     extension: "mp3".into(),
+                    size: 1,
                     cancellation,
                 })
             })

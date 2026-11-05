@@ -102,6 +102,7 @@ pub struct RemoteAudioSource {
     pub request: Arc<dyn AudioRequest>,
     pub url: String,
     pub extension: String,
+    pub size: u64,
     pub cancellation: CancellationToken,
 }
 pub struct LibraryPlaybackSource {
@@ -388,6 +389,7 @@ impl Player {
                         status.ready = ready;
                     }
                     PlayerEvent::EndOfPlaylist => {
+                        status.item = None;
                         status.index = None;
                         status.path = None;
                         status.position = Duration::new(0, 0);

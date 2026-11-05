@@ -1,4 +1,4 @@
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{ErrorKind, Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -20,21 +20,42 @@ const MAX_DECODE_RETRIES: usize = 3;
 
 struct SharedSourceMedia<R> {
     inner: Arc<Mutex<R>>,
+    io_error: Arc<Mutex<Option<ErrorKind>>>,
     len: Option<u64>,
 }
 
 impl<R: Read + Seek> SharedSourceMedia<R> {
-    fn new(inner: Arc<Mutex<R>>) -> Self {
-        let len = {
+    fn new(
+        inner: Arc<Mutex<R>>,
+        io_error: Arc<Mutex<Option<ErrorKind>>>,
+        known_len: Option<u64>,
+    ) -> Self {
+        let len = known_len.or_else(|| {
             let mut guard = inner.lock().unwrap();
-            let current = guard.stream_position().ok();
-            let end = guard.seek(SeekFrom::End(0)).ok();
+            let current = match guard.stream_position() {
+                Ok(position) => Some(position),
+                Err(error) => {
+                    *io_error.lock().unwrap() = Some(error.kind());
+                    None
+                }
+            };
+            let end = match guard.seek(SeekFrom::End(0)) {
+                Ok(position) => Some(position),
+                Err(error) => {
+                    *io_error.lock().unwrap() = Some(error.kind());
+                    None
+                }
+            };
             if let Some(pos) = current {
                 let _ = guard.seek(SeekFrom::Start(pos));
             }
             end
-        };
-        Self { inner, len }
+        });
+        Self {
+            inner,
+            io_error,
+            len,
+        }
     }
 }
 
@@ -50,13 +71,21 @@ impl<R: Read + Seek + Send + Sync> MediaSource for SharedSourceMedia<R> {
 
 impl<R: Read + Seek + Send + Sync> Read for SharedSourceMedia<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.inner.lock().unwrap().read(buf)
+        let result = self.inner.lock().unwrap().read(buf);
+        if let Err(error) = &result {
+            *self.io_error.lock().unwrap() = Some(error.kind());
+        }
+        result
     }
 }
 
 impl<R: Read + Seek + Send + Sync> Seek for SharedSourceMedia<R> {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.inner.lock().unwrap().seek(pos)
+        let result = self.inner.lock().unwrap().seek(pos);
+        if let Err(error) = &result {
+            *self.io_error.lock().unwrap() = Some(error.kind());
+        }
+        result
     }
 }
 
@@ -85,7 +114,7 @@ impl SymphoniaDecoder {
 
         let mut probed = symphonia::default::get_probe()
             .format(&hint, mss, &format_opts, &metadata_opts)
-            .map_err(|e| anyhow!("Failed to probe audio stream: {e}"))?;
+            .map_err(|e| anyhow::Error::new(e).context("Failed to probe audio stream"))?;
 
         let track = probed
             .format
@@ -348,8 +377,19 @@ enum DecoderInner<R: Read + Seek + Send + Sync + 'static> {
 
 impl<R: Read + Seek + Send + Sync + 'static> RuneDecoder<R> {
     pub fn new(reader: R, extension: Option<&str>) -> Result<Self> {
+        Self::new_with_length(reader, extension, None)
+    }
+
+    /// Creates a decoder while preserving streaming reads when the container
+    /// length is already known by the remote source.
+    pub fn new_with_length(
+        reader: R,
+        extension: Option<&str>,
+        known_len: Option<u64>,
+    ) -> Result<Self> {
         let shared = Arc::new(Mutex::new(reader));
-        let media_source = SharedSourceMedia::new(shared.clone());
+        let io_error = Arc::new(Mutex::new(None));
+        let media_source = SharedSourceMedia::new(shared.clone(), io_error.clone(), known_len);
         let mss = MediaSourceStream::new(Box::new(media_source), Default::default());
 
         match SymphoniaDecoder::new(mss, extension) {
@@ -358,6 +398,9 @@ impl<R: Read + Seek + Send + Sync + 'static> RuneDecoder<R> {
             }),
             Err(e) => {
                 log::debug!("SymphoniaDecoder failed: {e:?}, falling back to rodio::Decoder");
+                if let Some(kind) = *io_error.lock().unwrap() {
+                    return Err(e.context(format!("audio source I/O failed: {kind}")));
+                }
                 // Reset seek position
                 let mut guard = shared.lock().unwrap();
                 let _ = guard.seek(SeekFrom::Start(0));
@@ -435,8 +478,36 @@ mod tests {
     use super::*;
     use crate::buffered::rune_buffered;
     use std::fs::File;
-    use std::io::BufReader;
+    use std::io::{BufReader, Error as IoError};
     use std::path::Path;
+
+    struct RevokedReader;
+    impl Read for RevokedReader {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(IoError::new(
+                ErrorKind::PermissionDenied,
+                "audio access revoked",
+            ))
+        }
+    }
+    impl Seek for RevokedReader {
+        fn seek(&mut self, _: SeekFrom) -> std::io::Result<u64> {
+            Err(IoError::new(
+                ErrorKind::PermissionDenied,
+                "audio access revoked",
+            ))
+        }
+    }
+
+    #[test]
+    fn revoked_reader_io_error_does_not_panic_during_decoder_fallback() {
+        let result = std::panic::catch_unwind(|| RuneDecoder::new(RevokedReader, Some("ogg")));
+        assert!(
+            result.is_ok(),
+            "revoked stream must not panic in decoder fallback"
+        );
+        assert!(result.unwrap().is_err(), "revoked stream must fail to load");
+    }
 
     #[test]
     fn test_decode_and_seek_opus() {

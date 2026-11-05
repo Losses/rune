@@ -583,6 +583,7 @@ impl ServerManager {
                         "peer library mismatch"
                     );
                     let url = format!("{base}/sync/blobs/{}", blob.digest);
+                    let access_url = format!("{url}?track_id={track_id}");
                     let mut response = client.head(&url).query(&[("track_id", track_id.to_string())]).send().await?;
                     if response.status() == reqwest::StatusCode::UNAUTHORIZED {
                         let (_, renewed) = super::sync_worker::authenticated_client(&node, &own, &self.private_key, &fingerprint, &host, port).await?;
@@ -598,7 +599,7 @@ impl ServerManager {
                     let request = Arc::new(super::sync_worker::RenewableAudio {
                         global: Arc::downgrade(&node), own: own.clone(), private_key: self.private_key.clone(),
                         endpoint: super::sync_worker::PeerEndpoint { fingerprint: fingerprint.clone(), trusted_host: trusted_host.clone(), host: host.clone(), port },
-                        url: url.clone(), size: blob.size,
+                        url: url.clone(), access_url, size: blob.size,
                         client: Arc::new(Mutex::new(super::sync_worker::AudioCredentials { client, generation: 0 })), cancel: cancellation.clone(),
                     });
                     let watch_cancel = cancellation.clone();
@@ -606,23 +607,15 @@ impl ServerManager {
                     let watch_fingerprint = fingerprint.clone();
                     let revocation_host = trusted_host.clone();
                     let watch_request = request.clone();
-                    let probe_url = format!("{base}/sync/head");
                     let watcher = tokio::spawn(async move {
-                        let remote_probe = async {
+                        let access_probe = async {
                             loop {
-                                tokio::time::sleep(Duration::from_secs(5)).await;
-                                let (client, generation) = {
-                                    let credentials = watch_request.client.lock().await;
-                                    (credentials.client.clone(), credentials.generation)
-                                };
-                                match client.get(&probe_url).send().await {
-                                    Ok(response) if response.status() == reqwest::StatusCode::UNAUTHORIZED => {
-                                        if let Err(error) = watch_request.refresh_if_current(generation).await {
-                                            log::debug!("Audio authorization refresh failed: {error:#}");
-                                            if watch_cancel.is_cancelled() { break; }
-                                        }
-                                    },
-                                    _ => {},
+                                tokio::time::sleep(Duration::from_secs(1)).await;
+                                if let Err(error) = watch_request.check_library_access().await {
+                                    if watch_cancel.is_cancelled() {
+                                        break;
+                                    }
+                                    log::debug!("Audio library access check failed: {error:#}");
                                 }
                             }
                         };
@@ -630,12 +623,16 @@ impl ServerManager {
                             _ = watch_cancel.cancelled() => {},
                             _ = library_cancel.cancelled() => watch_cancel.cancel(),
                             _ = super::sync_worker::wait_for_revocation(watch_params, &watch_fingerprint, &revocation_host) => watch_cancel.cancel(),
-                            _ = remote_probe => {},
+                            _ = access_probe => {},
                         }
                     });
                     stream_handles.push(watcher);
                     Ok::<_, anyhow::Error>(playback::player::RemoteAudioSource {
-                        request, url, extension: extension.clone(), cancellation,
+                        request,
+                        url,
+                        extension: extension.clone(),
+                        size: blob.size,
+                        cancellation,
                     })
                 }
                 .await;
