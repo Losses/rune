@@ -20,7 +20,7 @@ This is stream-download 0.24.5 from crates.io, with its original licenses, used 
 
 Regression tests: `src/source/lifecycle_tests.rs` (on unpatched 0.24.5 the cached-seek,
 zero-prefetch and downloader-panic tests fail; the two gap tests guard the 0.22.4 panic), run from this directory with
-`cargo test --lib source::lifecycle_tests --target-dir ../../target`.
+`cargo test --lib source::lifecycle_tests --target-dir ../target`.
 
 Remove this copy once upstream releases the fixes below and the workspace moves to
 reqwest 0.13.
