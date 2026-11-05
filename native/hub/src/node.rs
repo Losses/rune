@@ -12,6 +12,7 @@ use discovery::{
     protocol::DiscoveryService,
     server::{PermissionManager, UserStatus},
 };
+use playback::sfx_player::SfxPlayer;
 use rinf::{DartSignal, RustSignal};
 use tokio::{
     sync::{Mutex, RwLock},
@@ -24,7 +25,7 @@ use crate::macros::{RequestClass, request_class};
 use crate::request_error::ExpectedRequestError;
 use crate::{Session, session::PlayerSession};
 use crate::{
-    library_pool::LibraryPool,
+    library_pool::{LibraryHandle, LibraryPool},
     messages::{
         ClientStatus, ClientSummary, IncommingClientPermissionNotification, InitializeNodeRequest,
         InitializeNodeResponse, TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
@@ -32,8 +33,8 @@ use crate::{
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
     utils::{
-        Broadcaster, GlobalParams, LocalGuiBroadcaster, RinfRustSignal, nid::get_or_create_node_id,
-        sync_settings::SyncSettings,
+        Broadcaster, GlobalParams, LocalGuiBroadcaster, RinfRustSignal, RunningMode, TaskTokens,
+        nid::get_or_create_node_id, sync_settings::SyncSettings,
     },
 };
 use discovery::DiscoveryParams;
@@ -257,7 +258,8 @@ impl NodeContext {
         &self,
         session: &Session,
         name: &str,
-        params: &GlobalParams,
+        params: Option<&GlobalParams>,
+        addressed_library_id: Option<Uuid>,
     ) -> Result<()> {
         let user = self
             .permission_manager
@@ -273,9 +275,11 @@ impl NodeContext {
             Some(RequestClass::Control) => Action::Control,
             Some(RequestClass::Administer) => Action::Administer,
             Some(class @ (RequestClass::LibraryRead | RequestClass::LibraryWrite)) => {
-                let library_id = params.library_id.ok_or(ExpectedRequestError::Unavailable {
-                    what: "UI library identity",
-                })?;
+                let library_id = addressed_library_id
+                    .or_else(|| params.and_then(|params| params.library_id))
+                    .ok_or(ExpectedRequestError::Unavailable {
+                        what: "UI library identity",
+                    })?;
                 if class == RequestClass::LibraryRead {
                     // The WebSocket is a control attachment: reads there browse.
                     Action::Browse { library_id }
@@ -308,6 +312,43 @@ impl NodeContext {
                 }
                 .into()
             })
+    }
+
+    /// Build request parameters from node-owned services for a node with no UI
+    /// attached. With a UI, derive them from the UI's params instead (`for_library`),
+    /// which shares its effect player and task tokens.
+    pub(crate) fn params_for_library(
+        self: &Arc<Self>,
+        library: LibraryHandle,
+    ) -> Result<GlobalParams> {
+        let token = Arc::new(self.token.child_token());
+        let session = self.session()?;
+        let server_manager = OnceLock::new();
+        server_manager
+            .set(self.manager()?)
+            .map_err(|_| anyhow::anyhow!("Could not initialize request server manager"))?;
+        let base = GlobalParams {
+            node: self.clone(),
+            library_id: None,
+            library_pool: self.library_pool.clone(),
+            library: None,
+            ui_library: Arc::new(Mutex::new(None)),
+            config_path: self.config_path.clone(),
+            sync_settings: self.sync_settings.clone(),
+            node_id: self.node_id.clone(),
+            main_token: token.clone(),
+            task_tokens: Arc::new(Mutex::new(TaskTokens::default())),
+            player: session.player.clone(),
+            sfx_player: Arc::new(Mutex::new(SfxPlayer::new(Some((*token).clone())))),
+            scrobbler: session.scrobbler.clone(),
+            broadcaster: self.broadcaster.clone(),
+            device_scanner: self.device_scanner.clone(),
+            cert_validator: self.cert_validator.clone(),
+            permission_manager: self.permission_manager.clone(),
+            server_manager,
+            running_mode: RunningMode::Server,
+        };
+        Ok(base.for_library(library))
     }
 
     pub async fn attach_ui(&self, params: &Arc<GlobalParams>) {

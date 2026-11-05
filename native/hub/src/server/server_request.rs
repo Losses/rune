@@ -23,21 +23,59 @@ macro_rules! register_single_handler {
     ($server:expr, $global_params:expr, $request:ty, $with_response:tt) => {
         paste::paste! {
             let global_params = Arc::downgrade(&$global_params);
-            $server.register_handler(stringify!($request), move |payload, session| {
+            $server.register_handler(stringify!($request), move |payload, session, library_id| {
                 let global_params = global_params.clone();
                 async move {
+                    use $crate::macros::{RequestClass, request_class};
+
                     let Some(global_params) = global_params.upgrade() else {
                         return (String::new(), Err(anyhow::anyhow!("Node has shut down")));
                     };
-                    let ui_params = match global_params.current_ui().await {
-                        Ok(params) => params,
-                        Err(error) => return (String::new(), Err(error)),
+                    let request_class = request_class(stringify!($request));
+                    let addressed_library = library_id.filter(|_| matches!(
+                        request_class,
+                        Some(RequestClass::LibraryRead | RequestClass::LibraryWrite)
+                    ));
+                    let params = if let Some(library_id) = addressed_library {
+                        if let Some(session) = &session
+                            && let Err(error) = global_params.authorize_request(
+                                session,
+                                stringify!($request),
+                                None,
+                                Some(library_id),
+                            ).await
+                        {
+                            return (String::new(), Err(error));
+                        }
+                        let library = match global_params.library_pool.acquire_for_request(library_id).await {
+                            Ok(library) => library,
+                            Err(error) => return (String::new(), Err(error)),
+                        };
+                        match global_params.current_ui().await {
+                            Ok(ui_params) => Arc::new(ui_params.for_library(library)),
+                            Err(_) => match global_params.params_for_library(library) {
+                                Ok(params) => Arc::new(params),
+                                Err(error) => return (String::new(), Err(error)),
+                            },
+                        }
+                    } else {
+                        // TODO(C6): reject frames without library_id
+                        let ui_params = match global_params.current_ui().await {
+                            Ok(params) => params,
+                            Err(error) => return (String::new(), Err(error)),
+                        };
+                        if let Some(session) = &session
+                            && let Err(error) = global_params.authorize_request(
+                                session,
+                                stringify!($request),
+                                Some(&ui_params),
+                                None,
+                            ).await
+                        {
+                            return (String::new(), Err(error));
+                        }
+                        ui_params
                     };
-                    if let Some(session) = &session
-                        && let Err(error) = global_params.authorize_request(session, stringify!($request), &ui_params).await
-                    {
-                        return (String::new(), Err(error));
-                    }
                     let buf = payload.as_slice();
                     let request = match rinf::deserialize::<$request>(buf) {
                         Ok(req) => req,
@@ -46,8 +84,8 @@ macro_rules! register_single_handler {
                         }
                     };
 
-                    let params = request.extract_params(&ui_params);
-                    match request.handle(params, session, &request).await {
+                    let handler_params = request.extract_params(&params);
+                    match request.handle(handler_params, session, &request).await {
                         Ok(_response) => {
                             handle_server_response!(_response, $with_response)
                         }

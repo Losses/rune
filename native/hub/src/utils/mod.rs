@@ -114,6 +114,7 @@ pub fn require_library(library: Option<LibraryHandle>) -> Result<LibraryHandle> 
     })
 }
 
+#[derive(Clone)]
 pub struct GlobalParams {
     pub node: Arc<NodeContext>,
     pub library_id: Option<Uuid>,
@@ -136,6 +137,17 @@ pub struct GlobalParams {
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
     pub running_mode: RunningMode,
+}
+
+impl GlobalParams {
+    /// Construct request parameters scoped to the addressed library.
+    pub fn for_library(&self, library: LibraryHandle) -> Self {
+        let library_id = library.descriptor.library_id;
+        let mut params = self.clone();
+        params.library_id = Some(library_id);
+        params.library = Some(library);
+        params
+    }
 }
 
 /// The application owns the replicated catalog scope. Pairing authorization

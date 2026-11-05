@@ -17,7 +17,7 @@ use tokio::sync::{broadcast::Receiver, mpsc};
 
 use crate::{
     Session,
-    backends::remote::{decode_message, encode_message},
+    backends::remote::{decode_message_with_library_id, encode_message},
     messages::RemoteRequestFailed,
     request_error::classify,
     server::{ServerState, sync_auth::AuthenticatedFingerprint},
@@ -118,13 +118,14 @@ pub async fn handle_socket(
     let incoming = async move {
         while let Some(Ok(msg)) = receiver.next().await {
             if let WsMessage::Binary(payload) = msg
-                && let Some((msg_type, msg_payload, uuid)) = decode_message(&payload)
+                && let Some((msg_type, msg_payload, uuid, library_id)) =
+                    decode_message_with_library_id(&payload)
             {
                 debug!("[{incoming_alias}] Received: {msg_type}");
 
                 let result = state
                     .websocket_service
-                    .handle_message(
+                    .handle_addressed_message(
                         &msg_type,
                         msg_payload,
                         Some(Session {
@@ -132,6 +133,7 @@ pub async fn handle_socket(
                             public_key: peer.public_key.clone(),
                             host: host.to_owned(),
                         }),
+                        library_id,
                     )
                     .await;
                 if let Some((resp_type, response)) = result {

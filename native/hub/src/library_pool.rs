@@ -10,6 +10,7 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use database::{
     connection::{MainDbConnection, RecommendationDbConnection, StorageMode, check_storage_mode},
+    error::ExpectedError,
     library_registry::{
         DbPlacement, LibraryAccess, LibraryDescriptor, LibraryRegistry, LibraryStorage,
     },
@@ -19,7 +20,10 @@ use fsio::FsIo;
 use tokio::{sync::Mutex, time::Instant};
 use uuid::Uuid;
 
-use crate::utils::{initialize_databases, initialize_library_replica};
+use crate::{
+    request_error::ExpectedRequestError,
+    utils::{initialize_databases, initialize_library_replica},
+};
 
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 static POOLS: OnceLock<StdMutex<HashMap<PathBuf, Weak<LibraryPool>>>> = OnceLock::new();
@@ -172,6 +176,25 @@ impl LibraryPool {
         tokio::spawn(async move { pool.acquire_inner(library_id).await })
             .await
             .context("Library acquisition task failed")?
+    }
+
+    /// Acquire a library for a WebSocket request with request-boundary errors.
+    pub async fn acquire_for_request(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {
+        let registry = LibraryRegistry::load(&self.config_dir)
+            .context("Could not read the library registry")?;
+        if !registry
+            .libraries
+            .iter()
+            .any(|entry| entry.library_id == library_id)
+        {
+            return Err(ExpectedError::NotFound { what: "library" }.into());
+        }
+        self.acquire(library_id).await.map_err(|error| {
+            anyhow::Error::new(ExpectedRequestError::Unavailable {
+                what: "addressed library",
+            })
+            .context(error)
+        })
     }
 
     async fn acquire_inner(self: &Arc<Self>, library_id: Uuid) -> Result<LibraryHandle> {

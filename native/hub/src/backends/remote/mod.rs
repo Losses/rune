@@ -72,6 +72,51 @@ pub fn encode_message(type_name: &str, payload: &[u8], uuid: Option<Uuid>) -> Ve
     message_data
 }
 
+/// Encode a request addressed to a particular library.
+pub fn encode_request(
+    type_name: &str,
+    payload: &[u8],
+    request_id: Uuid,
+    library_id: Uuid,
+) -> Vec<u8> {
+    let type_len = type_name.len() as u8;
+    let mut message_data = vec![0, type_len];
+    message_data.extend_from_slice(type_name.as_bytes());
+    message_data.extend_from_slice(library_id.as_bytes());
+    message_data.extend_from_slice(payload);
+    message_data.extend_from_slice(request_id.as_bytes());
+    message_data
+}
+
+/// Decode either request form, returning its optional library address.
+pub fn decode_message_with_library_id(
+    payload: &[u8],
+) -> Option<(String, Vec<u8>, Uuid, Option<Uuid>)> {
+    if payload.first() == Some(&0) {
+        if payload.len() < 1 + 1 + 1 + 16 + 16 {
+            return None;
+        }
+        let type_len = payload[1] as usize;
+        if type_len == 0 || payload.len() < 2 + type_len + 16 + 16 {
+            return None;
+        }
+        let type_start = 2;
+        let library_start = type_start + type_len;
+        let request_start = payload.len() - 16;
+        if library_start + 16 > request_start {
+            return None;
+        }
+        let library_id = Uuid::from_slice(&payload[library_start..library_start + 16]).ok()?;
+        let request_id = Uuid::from_slice(&payload[request_start..]).ok()?;
+        let msg_type = String::from_utf8_lossy(&payload[type_start..library_start]).to_string();
+        let msg_payload = payload[library_start + 16..request_start].to_vec();
+        Some((msg_type, msg_payload, request_id, Some(library_id)))
+    } else {
+        let (name, body, request_id) = decode_message(payload)?;
+        Some((name, body, request_id, None))
+    }
+}
+
 pub fn decode_message(payload: &[u8]) -> Option<(String, Vec<u8>, Uuid)> {
     if payload.len() < 17 {
         return None;
@@ -544,5 +589,39 @@ mod loss_tests {
             classify_remote_loss(Some(4000)),
             RemoteLossKind::NetworkLost
         );
+    }
+
+    #[test]
+    fn request_frames_round_trip_with_and_without_library_address() {
+        let id = Uuid::new_v4();
+        let library_id = Uuid::new_v4();
+        let legacy = encode_message("FetchMediaFilesRequest", b"legacy", Some(id));
+        assert_eq!(
+            decode_message_with_library_id(&legacy),
+            Some((
+                "FetchMediaFilesRequest".into(),
+                b"legacy".to_vec(),
+                id,
+                None,
+            ))
+        );
+        let addressed = encode_request("FetchMediaFilesRequest", b"addressed", id, library_id);
+        assert_eq!(
+            decode_message_with_library_id(&addressed),
+            Some((
+                "FetchMediaFilesRequest".into(),
+                b"addressed".to_vec(),
+                id,
+                Some(library_id),
+            ))
+        );
+    }
+
+    #[test]
+    fn truncated_addressed_request_frame_is_rejected() {
+        let id = Uuid::new_v4();
+        let mut frame = encode_request("FetchMediaFilesRequest", b"", id, Uuid::new_v4());
+        frame.truncate(2 + "FetchMediaFilesRequest".len() + 8);
+        assert_eq!(decode_message_with_library_id(&frame), None);
     }
 }

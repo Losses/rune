@@ -37,7 +37,13 @@ use crate::{
 };
 
 pub type HandlerFn = Box<
-    dyn Fn(Vec<u8>, Option<Session>) -> BoxFuture<'static, (String, Result<Vec<u8>>)> + Send + Sync,
+    dyn Fn(
+            Vec<u8>,
+            Option<Session>,
+            Option<uuid::Uuid>,
+        ) -> BoxFuture<'static, (String, Result<Vec<u8>>)>
+        + Send
+        + Sync,
 >;
 pub type HandlerMap = Arc<Mutex<HashMap<String, HandlerFn>>>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -81,13 +87,27 @@ impl WebSocketService {
 
     pub async fn register_handler<F, Fut>(&self, msg_type: &str, handler: F)
     where
-        F: Fn(Vec<u8>, Option<Session>) -> Fut + Send + Sync + 'static,
+        F: Fn(Vec<u8>, Option<Session>, Option<uuid::Uuid>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = (String, Result<Vec<u8>>)> + Send + 'static,
     {
         self.handlers.lock().await.insert(
             msg_type.to_string(),
-            Box::new(move |payload, session| Box::pin(handler(payload, session))),
+            Box::new(move |payload, session, library_id| {
+                Box::pin(handler(payload, session, library_id))
+            }),
         );
+    }
+
+    pub async fn handle_addressed_message(
+        &self,
+        msg_type: &str,
+        payload: Vec<u8>,
+        session: Option<Session>,
+        library_id: Option<uuid::Uuid>,
+    ) -> Option<(String, Result<Vec<u8>>)> {
+        let handlers = self.handlers.lock().await;
+        let handler = handlers.get(msg_type)?;
+        Some(handler(payload, session, library_id).await)
     }
 
     pub async fn handle_message(
@@ -98,7 +118,7 @@ impl WebSocketService {
     ) -> Option<(String, Result<Vec<u8>>)> {
         let handlers = self.handlers.lock().await;
         let handler = handlers.get(msg_type)?;
-        Some(handler(payload, session).await)
+        Some(handler(payload, session, None).await)
     }
 }
 
