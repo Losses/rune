@@ -1382,5 +1382,9 @@
   "deviceReadOnly": "Nur legado",
   "deviceReadWrite": "Legado kaj skribado",
   "requestPermissionDenied": "Ĉi tiu aparato ne rajtas fari tion",
-  "readOnly": "Nurlegebla"
+  "readOnly": "Nurlegebla",
+  "queueUnavailableAccessRevoked": "La atingo estis revokita",
+  "queueUnavailableLibraryUnavailable": "La biblioteko ne disponeblas",
+  "queueUnavailableSourceUnreachable": "La fonto ne atingeblas",
+  "queueUnavailableUnreadable": "La aŭdaĵo ne legeblas"
 }

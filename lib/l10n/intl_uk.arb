@@ -1417,5 +1417,9 @@
   "deviceReadOnly": "Лише читання",
   "deviceReadWrite": "Читання й запис",
   "requestPermissionDenied": "Цьому пристрою не дозволено це робити",
-  "readOnly": "Лише читання"
+  "readOnly": "Лише читання",
+  "queueUnavailableAccessRevoked": "Доступ відкликано",
+  "queueUnavailableLibraryUnavailable": "Бібліотека недоступна",
+  "queueUnavailableSourceUnreachable": "Не вдалося підключитися до джерела",
+  "queueUnavailableUnreadable": "Не вдалося прочитати аудіо"
 }

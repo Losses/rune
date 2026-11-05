@@ -1380,5 +1380,9 @@
   "deviceReadOnly": "ヨミトリ センヨウ",
   "deviceReadWrite": "ヨミカキ",
   "requestPermissionDenied": "コノ デバイスハ ソノ ソウサヲ キョカ サレテイマセン",
-  "readOnly": "ヨミトリセンヨウ"
+  "readOnly": "ヨミトリセンヨウ",
+  "queueUnavailableAccessRevoked": "アクセスがとりけされました",
+  "queueUnavailableLibraryUnavailable": "ライブラリをりようできません",
+  "queueUnavailableSourceUnreachable": "ソースにせつぞくできません",
+  "queueUnavailableUnreadable": "おんせいをよみとれません"
 }

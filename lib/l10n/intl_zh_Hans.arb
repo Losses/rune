@@ -1477,5 +1477,9 @@
   "deviceReadOnly": "只读",
   "deviceReadWrite": "读写",
   "requestPermissionDenied": "此设备不允许执行此操作",
-  "readOnly": "只读"
+  "readOnly": "只读",
+  "queueUnavailableAccessRevoked": "访问权限已撤销",
+  "queueUnavailableLibraryUnavailable": "媒体库不可用",
+  "queueUnavailableSourceUnreachable": "无法连接到来源",
+  "queueUnavailableUnreadable": "无法读取音频"
 }

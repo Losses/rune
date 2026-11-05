@@ -1417,5 +1417,9 @@
   "deviceReadOnly": "読み取り専用",
   "deviceReadWrite": "読み書き",
   "requestPermissionDenied": "このデバイスはその操作を許可されていません",
-  "readOnly": "読み取り専用"
+  "readOnly": "読み取り専用",
+  "queueUnavailableAccessRevoked": "アクセスが取り消されました",
+  "queueUnavailableLibraryUnavailable": "ライブラリを利用できません",
+  "queueUnavailableSourceUnreachable": "ソースに接続できません",
+  "queueUnavailableUnreadable": "音声を読み取れません"
 }

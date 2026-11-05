@@ -1417,5 +1417,9 @@
   "deviceReadOnly": "Nur lesen",
   "deviceReadWrite": "Lesen und schreiben",
   "requestPermissionDenied": "Dieses Gerät darf das nicht tun",
-  "readOnly": "Schreibgeschützt"
+  "readOnly": "Schreibgeschützt",
+  "queueUnavailableAccessRevoked": "Der Zugriff wurde widerrufen",
+  "queueUnavailableLibraryUnavailable": "Die Bibliothek ist nicht verfügbar",
+  "queueUnavailableSourceUnreachable": "Die Quelle ist nicht erreichbar",
+  "queueUnavailableUnreadable": "Die Audiodatei ist nicht lesbar"
 }

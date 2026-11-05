@@ -1419,5 +1419,9 @@
   "deviceReadOnly": "읽기 전용",
   "deviceReadWrite": "읽기 및 쓰기",
   "requestPermissionDenied": "이 기기는 해당 작업을 수행할 수 없습니다",
-  "readOnly": "읽기 전용"
+  "readOnly": "읽기 전용",
+  "queueUnavailableAccessRevoked": "접근 권한이 취소되었습니다",
+  "queueUnavailableLibraryUnavailable": "라이브러리를 사용할 수 없습니다",
+  "queueUnavailableSourceUnreachable": "소스에 연결할 수 없습니다",
+  "queueUnavailableUnreadable": "오디오를 읽을 수 없습니다"
 }

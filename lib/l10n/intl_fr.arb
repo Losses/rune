@@ -1419,5 +1419,9 @@
   "deviceReadOnly": "Lecture seule",
   "deviceReadWrite": "Lecture et écriture",
   "requestPermissionDenied": "Cet appareil n’est pas autorisé à faire cela",
-  "readOnly": "Lecture seule"
+  "readOnly": "Lecture seule",
+  "queueUnavailableAccessRevoked": "L’accès a été révoqué",
+  "queueUnavailableLibraryUnavailable": "La bibliothèque est indisponible",
+  "queueUnavailableSourceUnreachable": "La source est inaccessible",
+  "queueUnavailableUnreadable": "Le fichier audio est illisible"
 }

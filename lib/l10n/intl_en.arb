@@ -1514,5 +1514,9 @@
   "deviceReadOnly": "Read only",
   "deviceReadWrite": "Read and write",
   "requestPermissionDenied": "This device isn't allowed to do that",
-  "readOnly": "Read only"
+  "readOnly": "Read only",
+  "queueUnavailableAccessRevoked": "Access was revoked",
+  "queueUnavailableLibraryUnavailable": "Library is unavailable",
+  "queueUnavailableSourceUnreachable": "Source is unreachable",
+  "queueUnavailableUnreadable": "Audio cannot be read"
 }
