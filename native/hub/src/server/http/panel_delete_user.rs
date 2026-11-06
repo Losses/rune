@@ -31,6 +31,9 @@ pub async fn delete_user_handler(
             }
             _ => AppError::Internal(e.to_string()),
         })?;
+    if let Some(node) = server_state.node.upgrade() {
+        node.sync_tokens.remove_peer(&fingerprint);
+    }
 
     Ok(Json(json!({
         "success": true,

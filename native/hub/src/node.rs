@@ -25,6 +25,7 @@ use crate::access_policy::{Action, Denial, RuneAccessPolicy};
 use crate::backends::remote::{RemoteConnectError, RendererLink, RendererLinkUse};
 use crate::macros::{RequestClass, request_class};
 use crate::request_error::ExpectedRequestError;
+use crate::server::sync_worker::SyncTokenStore;
 use crate::{Session, session::PlayerSession};
 use crate::{
     library_pool::{LibraryHandle, LibraryPool},
@@ -74,6 +75,7 @@ pub struct NodeContext {
     pub gui_broadcaster: Arc<dyn Broadcaster>,
     pub renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
     pub token: Arc<CancellationToken>,
+    pub(crate) sync_tokens: SyncTokenStore,
     pub server_manager: OnceLock<Arc<ServerManager>>,
     local_session: OnceLock<Arc<PlayerSession>>,
     current_ui: Mutex<Option<Weak<GlobalParams>>>,
@@ -139,13 +141,18 @@ impl NodeContext {
         let node_id = Arc::new(get_or_create_node_id(config_path).await?.to_string());
         let websocket_service = Arc::new(WebSocketService::new());
         let renderer_link = Arc::new(StdMutex::new(None));
+        let sync_tokens = SyncTokenStore::default();
         let mut permission_manager = PermissionManager::new(config_path)?;
         let access_policy = Arc::new(RuneAccessPolicy::load(
             Path::new(config_path),
             &permission_manager.list_users().await,
         )?);
         let policy = access_policy.clone();
+        let revoked_tokens = sync_tokens.clone();
         permission_manager.set_trust_change_hook(Arc::new(move |fingerprint, status| {
+            if status != Some(&UserStatus::Approved) {
+                revoked_tokens.remove_peer(fingerprint);
+            }
             policy
                 .trust_changed(fingerprint, status)
                 .map_err(|error| format!("{error:#}"))
@@ -168,6 +175,7 @@ impl NodeContext {
             websocket_service,
             renderer_link,
             token: Arc::new(CancellationToken::new()),
+            sync_tokens,
             server_manager: OnceLock::new(),
             local_session: OnceLock::new(),
             current_ui: Mutex::new(None),

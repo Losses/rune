@@ -194,6 +194,7 @@ mod access_policy_tests {
             pair.addr.port(),
             &pair.b.global_params.config_path,
             pair.b.global_params.cert_validator.read().await.clone(),
+            &pair.b.global_params.node.sync_tokens,
         )
         .await?;
         let (name, _) = socket_request(
@@ -399,6 +400,7 @@ mod access_policy_tests {
             pair.addr.port(),
             &pair.b.global_params.config_path,
             pair.b.global_params.cert_validator.read().await.clone(),
+            &pair.b.global_params.node.sync_tokens,
         )
         .await?;
         // Hold every connection while the metadata handler's head query waits on the pool.

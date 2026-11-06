@@ -24,7 +24,10 @@ use tokio::net::TcpStream;
 use tokio::sync::{Mutex, oneshot};
 use tokio_tungstenite::{
     Connector, connect_async_tls_with_config,
-    tungstenite::{client::IntoClientRequest, protocol::Message as TungsteniteMessage},
+    tungstenite::{
+        Error as TungsteniteError, client::IntoClientRequest,
+        protocol::Message as TungsteniteMessage,
+    },
 };
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tokio_util::sync::CancellationToken;
@@ -48,7 +51,9 @@ use crate::{
     server::{
         api::fetch_device_info_at_port,
         generate_or_load_certificates, get_or_generate_alias,
-        sync_worker::{obtain_token, tls_config, trusted_fingerprint},
+        sync_worker::{
+            SyncTokenStore, obtain_or_reuse_token, peer_base, tls_config, trusted_fingerprint,
+        },
     },
     utils::{Broadcaster, GlobalParams, ParamsExtractor, RinfRustSignal, RunningMode, TaskTokens},
 };
@@ -237,7 +242,14 @@ impl RendererLink {
             .host_str()
             .ok_or_else(|| protocol("invalid renderer host"))?;
         let port = parsed.port().unwrap_or(7863);
-        let stream = connect_remote(host, port, &node.config_path, validator.clone()).await?;
+        let stream = connect_remote(
+            host,
+            port,
+            &node.config_path,
+            validator.clone(),
+            &node.sync_tokens,
+        )
+        .await?;
         let alias = fetch_device_info_at_port(
             host,
             port,
@@ -518,6 +530,7 @@ pub(crate) async fn connect_remote(
     port: u16,
     config_path: &str,
     validator: CertValidator,
+    sync_tokens: &SyncTokenStore,
 ) -> std::result::Result<RemoteStream, RemoteConnectError> {
     tokio::time::timeout(Duration::from_secs(10), async {
         let entries = validator.clone_trusted_entries().await;
@@ -549,8 +562,9 @@ pub(crate) async fn connect_remote(
             .redirect(Policy::none())
             .build()
             .map_err(protocol)?;
-        let base = format!("https://{host}:{port}");
-        let token = obtain_token(
+        let base = peer_base(host, port);
+        let token = obtain_or_reuse_token(
+            sync_tokens,
             &client,
             &base,
             &fingerprint,
@@ -563,33 +577,65 @@ pub(crate) async fn connect_remote(
             token_error(error)
         })?;
         let url = format!("wss://{host}:{port}/ws?host={}", encode(host));
-        let mut request = url.into_client_request().map_err(protocol)?;
+        let mut request = url.as_str().into_client_request().map_err(protocol)?;
         request.headers_mut().insert(
             reqwest::header::AUTHORIZATION,
             format!("Bearer {token}").parse().map_err(protocol)?,
         );
-        let (stream, _) = connect_async_tls_with_config(
+        let result = connect_async_tls_with_config(
             request,
             None,
             false,
-            Some(Connector::Rustls(Arc::new(pinned_config))),
+            Some(Connector::Rustls(Arc::new(pinned_config.clone()))),
         )
-        .await
-        .map_err(|error| {
-            use tokio_tungstenite::tungstenite::Error;
-            error!("WebSocket upgrade failed: {error}");
-            match error {
-                Error::Http(response) if matches!(response.status().as_u16(), 401 | 403) => {
-                    RemoteConnectError::NotAuthorized
-                }
-                Error::Io(_) | Error::Tls(_) => RemoteConnectError::Unreachable,
-                other => protocol(other),
+        .await;
+        let (stream, _) = match result {
+            Ok(connection) => connection,
+            Err(TungsteniteError::Http(response))
+                if response.status() == reqwest::StatusCode::UNAUTHORIZED =>
+            {
+                sync_tokens.invalidate(&server_fingerprint, &base);
+                let fresh_token = obtain_or_reuse_token(
+                    sync_tokens,
+                    &client,
+                    &base,
+                    &fingerprint,
+                    &private_key,
+                    &server_fingerprint,
+                )
+                .await
+                .map_err(token_error)?;
+                let mut retry = url.as_str().into_client_request().map_err(protocol)?;
+                retry.headers_mut().insert(
+                    reqwest::header::AUTHORIZATION,
+                    format!("Bearer {fresh_token}").parse().map_err(protocol)?,
+                );
+                connect_async_tls_with_config(
+                    retry,
+                    None,
+                    false,
+                    Some(Connector::Rustls(Arc::new(pinned_config))),
+                )
+                .await
+                .map_err(map_websocket_connect_error)?
             }
-        })?;
+            Err(error) => return Err(map_websocket_connect_error(error)),
+        };
         Ok(stream)
     })
     .await
     .map_err(|_| RemoteConnectError::Unreachable)?
+}
+
+fn map_websocket_connect_error(error: TungsteniteError) -> RemoteConnectError {
+    error!("WebSocket upgrade failed: {error}");
+    match error {
+        TungsteniteError::Http(response) if matches!(response.status().as_u16(), 401 | 403) => {
+            RemoteConnectError::NotAuthorized
+        }
+        TungsteniteError::Io(_) | TungsteniteError::Tls(_) => RemoteConnectError::Unreachable,
+        other => protocol(other),
+    }
 }
 
 fn remote_failure_detail(failure: &RemoteRequestFailed) -> String {
@@ -867,6 +913,7 @@ pub async fn server_player_loop(
             parsed.port().unwrap_or(7863),
             config_path,
             (*cert_validator).clone(),
+            &node.sync_tokens,
         )
         .await
     })

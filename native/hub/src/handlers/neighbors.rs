@@ -4,7 +4,9 @@ use crate::server::{
     ServerManager,
     api::{check_fingerprint, register_device},
     generate_or_load_certificates, get_or_generate_alias,
-    sync_worker::{obtain_token, tls_config, trusted_fingerprint},
+    sync_worker::{
+        SyncTokenStore, obtain_or_reuse_token, peer_base, tls_config, trusted_fingerprint,
+    },
     utils::device::load_device_info,
 };
 use std::net::SocketAddr;
@@ -390,24 +392,30 @@ impl Signal for GetSslCertificateFingerprintRequest {
 }
 
 impl ParamsExtractor for RemoveTrustedClientRequest {
-    type Params = Arc<RwLock<PermissionManager>>;
+    type Params = (Arc<RwLock<PermissionManager>>, SyncTokenStore);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        Arc::clone(&all_params.permission_manager)
+        (
+            Arc::clone(&all_params.permission_manager),
+            all_params.node.sync_tokens.clone(),
+        )
     }
 }
 
 impl Signal for RemoveTrustedClientRequest {
-    type Params = Arc<RwLock<PermissionManager>>;
+    type Params = (Arc<RwLock<PermissionManager>>, SyncTokenStore);
     type Response = RemoveTrustedClientResponse;
 
     async fn handle(
         &self,
-        validator: Self::Params,
+        (validator, sync_tokens): Self::Params,
         _session: Option<Session>,
         req: &Self,
     ) -> Result<Option<Self::Response>> {
         let result = validator.write().await.remove_user(&req.fingerprint).await;
+        if result.is_ok() {
+            sync_tokens.remove_peer(&req.fingerprint);
+        }
         match result {
             Ok(_) => Ok(Some(RemoveTrustedClientResponse {
                 success: true,
@@ -614,20 +622,23 @@ impl Signal for AddTrustedServerRequest {
 }
 
 impl ParamsExtractor for RemoveTrustedServerRequest {
-    type Params = Arc<RwLock<CertValidator>>;
+    type Params = (Arc<RwLock<CertValidator>>, SyncTokenStore);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        Arc::clone(&all_params.cert_validator)
+        (
+            Arc::clone(&all_params.cert_validator),
+            all_params.node.sync_tokens.clone(),
+        )
     }
 }
 
 impl Signal for RemoveTrustedServerRequest {
-    type Params = Arc<RwLock<CertValidator>>;
+    type Params = (Arc<RwLock<CertValidator>>, SyncTokenStore);
     type Response = RemoveTrustedServerResponse;
 
     async fn handle(
         &self,
-        validator: Self::Params,
+        (validator, sync_tokens): Self::Params,
         _session: Option<Session>,
         req: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -636,6 +647,9 @@ impl Signal for RemoveTrustedServerRequest {
             .await
             .remove_fingerprint(&req.fingerprint)
             .await;
+        if result.is_ok() {
+            sync_tokens.remove_peer(&req.fingerprint);
+        }
         match result {
             Ok(_) => Ok(Some(RemoveTrustedServerResponse {
                 success: true,
@@ -861,6 +875,7 @@ impl Signal for FetchServerCertificateRequest {
 pub struct FetchRemoteFileParams {
     validator: Arc<RwLock<CertValidator>>,
     config_path: Arc<String>,
+    sync_tokens: SyncTokenStore,
 }
 
 impl ParamsExtractor for FetchRemoteFileRequest {
@@ -870,6 +885,7 @@ impl ParamsExtractor for FetchRemoteFileRequest {
         FetchRemoteFileParams {
             validator: Arc::clone(&all_params.cert_validator),
             config_path: Arc::clone(&all_params.config_path),
+            sync_tokens: all_params.node.sync_tokens.clone(),
         }
     }
 }
@@ -878,6 +894,7 @@ impl ParamsExtractor for FetchRemoteFileRequest {
 pub(crate) async fn authorized_get(
     config_path: &str,
     validator: CertValidator,
+    sync_tokens: &SyncTokenStore,
     host: &str,
     port: u16,
     url: Url,
@@ -890,12 +907,9 @@ pub(crate) async fn authorized_get(
         .use_preconfigured_tls(tls_config(validator, &server_fingerprint))
         .redirect(Policy::none())
         .build()?;
-    let base = if host.contains(':') {
-        format!("https://[{host}]:{port}")
-    } else {
-        format!("https://{host}:{port}")
-    };
-    let token = obtain_token(
+    let base = peer_base(host, port);
+    let token = obtain_or_reuse_token(
+        sync_tokens,
         &client,
         &base,
         &fingerprint,
@@ -903,7 +917,21 @@ pub(crate) async fn authorized_get(
         &server_fingerprint,
     )
     .await?;
-    Ok(client.get(url).bearer_auth(token).send().await?)
+    let response = client.get(url.clone()).bearer_auth(&token).send().await?;
+    if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+        return Ok(response);
+    }
+    sync_tokens.invalidate(&server_fingerprint, &base);
+    let refreshed = obtain_or_reuse_token(
+        sync_tokens,
+        &client,
+        &base,
+        &fingerprint,
+        &private_key,
+        &server_fingerprint,
+    )
+    .await?;
+    Ok(client.get(url).bearer_auth(refreshed).send().await?)
 }
 
 impl Signal for FetchRemoteFileRequest {
@@ -987,7 +1015,16 @@ impl Signal for FetchRemoteFileRequest {
             }));
         }
 
-        let res = match authorized_get(&params.config_path, validator, &host, port, url).await {
+        let res = match authorized_get(
+            &params.config_path,
+            validator,
+            &params.sync_tokens,
+            &host,
+            port,
+            url,
+        )
+        .await
+        {
             Ok(res) => res,
             Err(e) => {
                 return Ok(Some(FetchRemoteFileResponse {

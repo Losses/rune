@@ -4,7 +4,7 @@ use super::sync::client::SessionDirection;
 use super::sync::client::fetch_missing;
 use super::sync::downloads::{DownloadAudioContext, download_requested_audio_until};
 use super::sync::{library_base, library_notification};
-use super::sync_auth::{Authorization, Challenge, Token, message};
+use super::sync_auth::{Authorization, Challenge, TOKEN_TTL, Token, message};
 #[cfg(test)]
 use super::utils::device::load_device_info;
 use crate::access_policy::{Action, LibraryLevel};
@@ -42,7 +42,7 @@ use std::{
     path::Path,
 };
 use std::{
-    sync::{Arc, Weak},
+    sync::{Arc, Mutex as StdMutex, Weak},
     time::Duration,
 };
 use sync::SyncPeer;
@@ -56,6 +56,72 @@ const DEFAULT_PEER_PORT: u16 = 7863;
 const PEER_CONCURRENCY: usize = 4;
 const PEER_RETRY_START: Duration = Duration::from_secs(1);
 const PEER_RETRY_CAP: Duration = Duration::from_secs(30);
+const TOKEN_SAFETY_MARGIN: Duration = Duration::from_secs(30);
+
+/// A peer endpoint: its fingerprint and base URL.
+type PeerKey = (String, String);
+
+#[derive(Clone, Default)]
+pub struct SyncTokenStore {
+    tokens: Arc<StdMutex<HashMap<PeerKey, StoredSyncToken>>>,
+    authorization_locks: Arc<StdMutex<HashMap<PeerKey, Arc<Mutex<()>>>>>,
+}
+
+struct StoredSyncToken {
+    value: String,
+    obtained_at: std_time::Instant,
+}
+
+impl SyncTokenStore {
+    /// Serializes authorization per peer endpoint, so concurrent passes against one
+    /// peer share a single challenge round trip while other peers are not blocked.
+    fn authorization_lock(&self, fingerprint: &str, base: &str) -> Arc<Mutex<()>> {
+        let mut locks = self
+            .authorization_locks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        locks
+            .entry((fingerprint.to_owned(), base.to_owned()))
+            .or_default()
+            .clone()
+    }
+
+    fn get(&self, fingerprint: &str, base: &str) -> Option<String> {
+        let mut tokens = self.tokens.lock().ok()?;
+        tokens.retain(|_, token| token.obtained_at.elapsed() < TOKEN_TTL);
+        let token = tokens.get(&(fingerprint.to_owned(), base.to_owned()))?;
+        (token.obtained_at.elapsed() < TOKEN_TTL.saturating_sub(TOKEN_SAFETY_MARGIN))
+            .then(|| token.value.clone())
+    }
+
+    fn insert(&self, fingerprint: &str, base: &str, value: String) {
+        if let Ok(mut tokens) = self.tokens.lock() {
+            tokens.retain(|_, token| token.obtained_at.elapsed() < TOKEN_TTL);
+            tokens.insert(
+                (fingerprint.to_owned(), base.to_owned()),
+                StoredSyncToken {
+                    value,
+                    obtained_at: std_time::Instant::now(),
+                },
+            );
+        }
+    }
+
+    pub(crate) fn invalidate(&self, fingerprint: &str, base: &str) {
+        if let Ok(mut tokens) = self.tokens.lock() {
+            tokens.remove(&(fingerprint.to_owned(), base.to_owned()));
+        }
+    }
+
+    pub(crate) fn remove_peer(&self, fingerprint: &str) {
+        if let Ok(mut tokens) = self.tokens.lock() {
+            tokens.retain(|(peer, _), _| peer != fingerprint);
+        }
+        if let Ok(mut locks) = self.authorization_locks.lock() {
+            locks.retain(|(peer, _), _| peer != fingerprint);
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(super) struct PeerEndpoint {
@@ -697,11 +763,7 @@ async fn sync_one(
         };
         let mut state = lock.lock().await;
         state.last_used = std_time::Instant::now();
-        let expected_base = if endpoint.host.contains(':') {
-            format!("https://[{}]:{}", endpoint.host, endpoint.port)
-        } else {
-            format!("https://{}:{}", endpoint.host, endpoint.port)
-        };
+        let expected_base = peer_base(&endpoint.host, endpoint.port);
         if state
             .client
             .as_ref()
@@ -777,6 +839,7 @@ async fn sync_one(
                 result = operation => result,
             };
             if result.as_ref().err().is_some_and(metadata_unauthorized) {
+                invalidate_sync_token(global, &endpoint.fingerprint, &endpoint.host, endpoint.port);
                 state.client = None;
                 if attempt == 0 {
                     continue;
@@ -786,41 +849,54 @@ async fn sync_one(
         }
         unreachable!()
     } else {
-        let (base, client) = authenticated_client(
-            global,
-            &credentials.fingerprint,
-            &credentials.private_key,
-            &endpoint.fingerprint,
-            &endpoint.host,
-            endpoint.port,
-        )
-        .await?;
         let local = library.library_sync.identity().await?;
-        let base = library_base(&base, local.namespace);
-        let peer = http_request::sync::MetadataPeer::<RuneModel>::new(&base, client);
-        let remote = peer.identity().await?;
-        ensure!(
-            local.namespace == remote.namespace,
-            "paired catalog namespace mismatch"
-        );
         let playback_queue = global
             .session_queue_for_library(library.descriptor.library_id)
             .await?;
-        let report = download_requested_audio_until(
-            (*library.main_db).clone(),
-            &library.recommend_db,
-            library.fsio.clone(),
-            library.media_root.clone().into(),
-            DownloadAudioContext {
-                node_id: global.node_id.parse()?,
-                remote: &peer,
-                notify: notify.clone(),
-                playback_queue: &playback_queue,
-            },
-            tokio_time::Instant::now() + Duration::from_secs(60),
-        )
-        .await?;
-        Ok(!report.deadline_reached)
+        for attempt in 0..2 {
+            let (base, client) = authenticated_client(
+                global,
+                &credentials.fingerprint,
+                &credentials.private_key,
+                &endpoint.fingerprint,
+                &endpoint.host,
+                endpoint.port,
+            )
+            .await?;
+            let base = library_base(&base, local.namespace);
+            let peer = http_request::sync::MetadataPeer::<RuneModel>::new(&base, client);
+            let result = async {
+                let remote = peer.identity().await?;
+                ensure!(
+                    local.namespace == remote.namespace,
+                    "paired catalog namespace mismatch"
+                );
+                let report = download_requested_audio_until(
+                    (*library.main_db).clone(),
+                    &library.recommend_db,
+                    library.fsio.clone(),
+                    library.media_root.clone().into(),
+                    DownloadAudioContext {
+                        node_id: global.node_id.parse()?,
+                        remote: &peer,
+                        notify: notify.clone(),
+                        playback_queue: &playback_queue,
+                    },
+                    tokio_time::Instant::now() + Duration::from_secs(60),
+                )
+                .await?;
+                Ok(!report.deadline_reached)
+            }
+            .await;
+            if result.as_ref().err().is_some_and(metadata_unauthorized) {
+                invalidate_sync_token(global, &endpoint.fingerprint, &endpoint.host, endpoint.port);
+                if attempt == 0 {
+                    continue;
+                }
+            }
+            return result;
+        }
+        unreachable!()
     }
 }
 
@@ -1026,18 +1102,22 @@ pub(super) async fn authenticated_client(
         "peer endpoint is not trusted"
     );
     let tls = tls_config(validator, fingerprint);
-    let base = if host.contains(':') {
-        format!("https://[{host}]:{peer_port}")
-    } else {
-        format!("https://{host}:{peer_port}")
-    };
+    let base = peer_base(host, peer_port);
     let client = reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .connect_timeout(Duration::from_secs(10))
         .read_timeout(Duration::from_secs(30))
         .redirect(Policy::none())
         .build()?;
-    let token = obtain_token(&client, &base, own, private_key, fingerprint).await?;
+    let token = obtain_or_reuse_token(
+        &global.sync_tokens,
+        &client,
+        &base,
+        own,
+        private_key,
+        fingerprint,
+    )
+    .await?;
     let mut headers = HeaderMap::new();
     headers.insert(
         reqwest::header::AUTHORIZATION,
@@ -1053,6 +1133,53 @@ pub(super) async fn authenticated_client(
         .build()?;
     Ok((base, client))
 }
+
+pub(crate) async fn obtain_or_reuse_token(
+    store: &SyncTokenStore,
+    client: &reqwest::Client,
+    base: &str,
+    own: &str,
+    private_key: &str,
+    fingerprint: &str,
+) -> Result<String> {
+    let token = match store.get(fingerprint, base) {
+        Some(token) => token,
+        None => {
+            let lock = store.authorization_lock(fingerprint, base);
+            let _authorization = lock.lock().await;
+            match store.get(fingerprint, base) {
+                Some(token) => token,
+                None => {
+                    let token = obtain_token(client, base, own, private_key, fingerprint).await?;
+                    store.insert(fingerprint, base, token.clone());
+                    token
+                }
+            }
+        }
+    };
+    Ok(token)
+}
+
+pub(crate) fn invalidate_sync_token(
+    global: &NodeContext,
+    fingerprint: &str,
+    host: &str,
+    port: u16,
+) {
+    global
+        .sync_tokens
+        .invalidate(fingerprint, &peer_base(host, port));
+}
+
+/// The base URL of a peer's HTTPS server, bracketing IPv6 hosts.
+pub(crate) fn peer_base(host: &str, port: u16) -> String {
+    if host.contains(':') {
+        format!("https://[{host}]:{port}")
+    } else {
+        format!("https://{host}:{port}")
+    }
+}
+
 pub(crate) async fn obtain_token(
     client: &reqwest::Client,
     base: &str,
@@ -1225,6 +1352,12 @@ impl RenewableAudio {
     async fn refresh_locked(&self, credentials: &mut AudioCredentials) -> Result<()> {
         self.check_authorization().await?;
         let global = self.global.upgrade().context("Node has shut down")?;
+        invalidate_sync_token(
+            &global,
+            &self.endpoint.fingerprint,
+            &self.endpoint.host,
+            self.endpoint.port,
+        );
         let result = tokio::select! {
             _ = self.cancel.cancelled() => anyhow::bail!(RemoteAudioError::AccessRevoked),
             result = authenticated_client(&global, &self.own, &self.private_key, &self.endpoint.fingerprint, &self.endpoint.host, self.endpoint.port) => result,

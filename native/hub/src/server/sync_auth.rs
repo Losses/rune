@@ -27,7 +27,7 @@ use tower_governor::{
 
 const CAP: usize = 1024;
 const CHALLENGE_TTL: Duration = Duration::from_secs(60);
-const TOKEN_TTL: Duration = Duration::from_secs(300);
+pub(crate) const TOKEN_TTL: Duration = Duration::from_secs(300);
 const DOMAIN: &str = "rune-sync-auth-1";
 #[derive(Default)]
 struct Entries {
@@ -35,6 +35,10 @@ struct Entries {
     tokens: HashMap<String, (String, Instant)>,
     #[cfg(test)]
     reject_next_authorization_for: Option<String>,
+    #[cfg(test)]
+    challenge_count: usize,
+    #[cfg(test)]
+    authorization_count: usize,
 }
 #[derive(Clone)]
 pub struct SyncAuth {
@@ -65,7 +69,6 @@ fn random() -> String {
 pub fn message(server: &str, nonce: &str) -> Vec<u8> {
     format!("{DOMAIN}\n{server}\n{nonce}").into_bytes()
 }
-#[cfg(test)]
 impl std::fmt::Debug for SyncAuth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SyncAuth").finish_non_exhaustive()
@@ -91,6 +94,16 @@ impl SyncAuth {
             }
         }
         expired
+    }
+
+    #[cfg(test)]
+    pub(super) async fn challenge_count_for_test(&self) -> usize {
+        self.entries.lock().await.challenge_count
+    }
+
+    #[cfg(test)]
+    pub(super) async fn authorization_count_for_test(&self) -> usize {
+        self.entries.lock().await.authorization_count
     }
     #[cfg(test)]
     pub(super) async fn reject_next_authorization_for_test(&self, fingerprint: &str) {
@@ -151,6 +164,10 @@ async fn challenge(
     ConnectInfo(address): ConnectInfo<SocketAddr>,
 ) -> Result<Json<Challenge>, StatusCode> {
     let mut e = auth.entries.lock().await;
+    #[cfg(test)]
+    {
+        e.challenge_count += 1;
+    }
     e.nonces.retain(|_, (_, t)| *t > Instant::now());
     if e.nonces.len() >= CAP
         || e.nonces
@@ -257,6 +274,10 @@ async fn authorize(
         token.clone(),
         (request.fingerprint, Instant::now() + TOKEN_TTL),
     );
+    #[cfg(test)]
+    {
+        e.authorization_count += 1;
+    }
     Ok(Json(Token { token }))
 }
 #[derive(Clone)]

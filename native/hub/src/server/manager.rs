@@ -1,6 +1,6 @@
 use super::libraries::{cast_preflight, peer_access};
 use super::sync_auth::SyncAuth;
-use super::sync_worker::wait_for_revocation;
+use super::sync_worker::{invalidate_sync_token, wait_for_revocation};
 use crate::backends::remote::{RemoteConnectError, token_error};
 use database::actions::file::catalog_track;
 use database::sync::model::RuneModel;
@@ -154,8 +154,7 @@ pub struct ServerManager {
     sync_cancel: Mutex<Option<tokio_util::sync::CancellationToken>>,
     sync_handle: Mutex<Option<JoinHandle<()>>>,
     stream_handles: Mutex<Vec<JoinHandle<()>>>,
-    #[cfg(test)]
-    sync_auth_for_test: Mutex<Option<super::sync_auth::SyncAuth>>,
+    sync_auth: Mutex<Option<SyncAuth>>,
     watch_cancel: Mutex<Option<tokio_util::sync::CancellationToken>>,
     watch_handle: Mutex<Option<JoinHandle<()>>>,
     certificate: String,
@@ -202,8 +201,7 @@ impl ServerManager {
             sync_cancel: Mutex::new(None),
             sync_handle: Mutex::new(None),
             stream_handles: Mutex::new(Vec::new()),
-            #[cfg(test)]
-            sync_auth_for_test: Mutex::new(None),
+            sync_auth: Mutex::new(None),
             watch_cancel: Mutex::new(None),
             watch_handle: Mutex::new(None),
             certificate,
@@ -323,11 +321,14 @@ impl ServerManager {
 
         let node_id = uuid::Uuid::parse_str(&node.node_id)?;
         let (_, fingerprint) = parse_certificate(&self.certificate)?;
-        let auth = SyncAuth::new(node.permission_manager.clone(), fingerprint.clone());
-        #[cfg(test)]
-        {
-            *self.sync_auth_for_test.lock().await = Some(auth.clone());
-        }
+        let auth = {
+            let mut sync_auth = self.sync_auth.lock().await;
+            sync_auth
+                .get_or_insert_with(|| {
+                    SyncAuth::new(node.permission_manager.clone(), fingerprint.clone())
+                })
+                .clone()
+        };
         let sync_routes = Router::new()
             .nest(
                 "/libraries/{library_id}",
@@ -596,6 +597,9 @@ impl ServerManager {
                     let mut response = client.head(&url).query(&[("track_id", track_id.to_string())]).send().await
                         .map_err(RemoteAudioError::unreachable)?;
                     if matches!(response.status(), reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN | reqwest::StatusCode::NOT_FOUND) {
+                        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+                            invalidate_sync_token(&node, &fingerprint, &host, port);
+                        }
                         let (_, renewed) = super::sync_worker::authenticated_client(&node, &own, &self.private_key, &fingerprint, &host, port).await?;
                         client = renewed;
                         response = client.head(&url).query(&[("track_id", track_id.to_string())]).send().await
@@ -1400,6 +1404,7 @@ mod lifecycle_tests {
                 addr.port(),
                 &b.global_params.config_path,
                 b.global_params.cert_validator.read().await.clone(),
+                &b.global_params.node.sync_tokens,
             )
             .await?)
         })
@@ -1575,15 +1580,28 @@ mod lifecycle_tests {
         let validator = b.global_params.cert_validator.read().await.clone();
         let config = &b.global_params.config_path;
         assert!(matches!(
-            connect_remote("127.0.0.1", 1, config, validator.clone()).await,
+            connect_remote(
+                "127.0.0.1",
+                1,
+                config,
+                validator.clone(),
+                &b.global_params.node.sync_tokens
+            )
+            .await,
             Err(RemoteConnectError::UntrustedEndpoint)
         ));
         let addr = paired_full(&a, &b).await?;
         let validator = b.global_params.cert_validator.read().await.clone();
         let fingerprint = info(&b).await?.fingerprint;
         for remove in [false, true] {
-            let mut socket =
-                connect_remote("127.0.0.1", addr.port(), config, validator.clone()).await?;
+            let mut socket = connect_remote(
+                "127.0.0.1",
+                addr.port(),
+                config,
+                validator.clone(),
+                &b.global_params.node.sync_tokens,
+            )
+            .await?;
             let manager = a.global_params.permission_manager.read().await;
             if remove {
                 manager.remove_user(&fingerprint).await?;
@@ -1616,7 +1634,14 @@ mod lifecycle_tests {
             .await??;
             if !remove {
                 assert!(matches!(
-                    connect_remote("127.0.0.1", addr.port(), config, validator.clone()).await,
+                    connect_remote(
+                        "127.0.0.1",
+                        addr.port(),
+                        config,
+                        validator.clone(),
+                        &b.global_params.node.sync_tokens
+                    )
+                    .await,
                     Err(RemoteConnectError::NotAuthorized)
                 ));
                 a.global_params
@@ -1628,8 +1653,14 @@ mod lifecycle_tests {
             }
         }
         pair(&a, &b).await?;
-        let mut socket =
-            connect_remote("127.0.0.1", addr.port(), config, validator.clone()).await?;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            config,
+            validator.clone(),
+            &b.global_params.node.sync_tokens,
+        )
+        .await?;
         a.stop().await?;
         let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
             .await?
@@ -1638,7 +1669,14 @@ mod lifecycle_tests {
             matches!(frame, Message::Close(Some(frame)) if u16::from(frame.code) == 1001 && frame.reason == "server stopping")
         );
         assert!(matches!(
-            connect_remote("127.0.0.1", addr.port(), config, validator).await,
+            connect_remote(
+                "127.0.0.1",
+                addr.port(),
+                config,
+                validator,
+                &b.global_params.node.sync_tokens
+            )
+            .await,
             Err(RemoteConnectError::Unreachable)
         ));
         a.global_params.node.token.cancel();
@@ -1784,6 +1822,7 @@ mod lifecycle_tests {
             addr.port(),
             &controller.global_params.config_path,
             validator,
+            &controller.global_params.node.sync_tokens,
         )
         .await?;
         let count_request = rinf::serialize(&GetMediaFilesCountRequest {})?;
@@ -1889,6 +1928,7 @@ mod lifecycle_tests {
             addr.port(),
             &b.global_params.config_path,
             validator,
+            &b.global_params.node.sync_tokens,
         )
         .await?;
         let (name, _) = socket_request(
@@ -1990,6 +2030,7 @@ mod lifecycle_tests {
             addr.port(),
             &b.global_params.config_path,
             validator,
+            &b.global_params.node.sync_tokens,
         )
         .await?;
         for (name, payload) in [
@@ -2043,8 +2084,14 @@ mod lifecycle_tests {
         let addr = paired_full(&a, &b).await?;
         let validator = b.global_params.cert_validator.read().await.clone();
         let config = &b.global_params.config_path;
-        let mut socket =
-            connect_remote("127.0.0.1", addr.port(), config, validator.clone()).await?;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            config,
+            validator.clone(),
+            &b.global_params.node.sync_tokens,
+        )
+        .await?;
         async fn count(socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>) -> Result<()> {
             let payload = rinf::serialize(&GetMediaFilesCountRequest {})?;
             let (name, payload) =
@@ -2082,8 +2129,15 @@ mod lifecycle_tests {
             "https://127.0.0.1:{}/files/library/{name}",
             addr.port()
         ))?;
-        let response =
-            authorized_get(config, validator.clone(), "127.0.0.1", addr.port(), url).await?;
+        let response = authorized_get(
+            config,
+            validator.clone(),
+            &b.global_params.node.sync_tokens,
+            "127.0.0.1",
+            addr.port(),
+            url,
+        )
+        .await?;
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         assert_eq!(response.bytes().await?.as_ref(), bytes);
         for url in [
@@ -2104,9 +2158,15 @@ mod lifecycle_tests {
             .change_user_status(&info(&b).await?.fingerprint, UserStatus::Blocked)
             .await?;
         assert!(
-            connect_remote("127.0.0.1", addr.port(), config, validator)
-                .await
-                .is_err()
+            connect_remote(
+                "127.0.0.1",
+                addr.port(),
+                config,
+                validator,
+                &b.global_params.node.sync_tokens
+            )
+            .await
+            .is_err()
         );
         socket.close(None).await?;
         a.stop().await?;
@@ -2246,6 +2306,99 @@ mod lifecycle_tests {
         b.stop().await?;
         a.global_params.node.token.cancel();
         b.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn sync_tokens_are_reused_across_authenticated_clients_and_peer_passes() -> Result<()> {
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let host = fixture(first.path()).await?;
+        let client = fixture(second.path()).await?;
+        let address = paired_full(&host, &client).await?;
+        host.stop_worker().await?;
+        client.stop_worker().await?;
+        let own = info(&client).await?.fingerprint;
+        let peer = info(&host).await?.fingerprint;
+        let auth = host
+            .manager
+            .sync_auth
+            .lock()
+            .await
+            .clone()
+            .context("host sync auth")?;
+
+        for _ in 0..2 {
+            authenticated_client(
+                &client.global_params.node,
+                &own,
+                &client.private_key,
+                &peer,
+                "127.0.0.1",
+                address.port(),
+            )
+            .await?;
+        }
+        assert_eq!(auth.challenge_count_for_test().await, 1);
+        assert_eq!(auth.authorization_count_for_test().await, 1);
+
+        let endpoint = PeerEndpoint {
+            fingerprint: peer,
+            trusted_host: format!("127.0.0.1:{}", address.port()),
+            host: "127.0.0.1".into(),
+            port: address.port(),
+        };
+        for _ in 0..30 {
+            let result = test_peer_pass(
+                client.global_params.clone(),
+                &client.private_key,
+                endpoint.clone(),
+                true,
+            )
+            .await?;
+            assert_eq!(result, PeerPass::LibraryNotServed);
+        }
+        assert_eq!(auth.challenge_count_for_test().await, 1);
+        assert_eq!(auth.authorization_count_for_test().await, 1);
+
+        anyhow::ensure!(
+            auth.expire_tokens_for_fingerprint_for_test(&own).await,
+            "host had no token to expire"
+        );
+        let (_, stale_client) = authenticated_client(
+            &client.global_params.node,
+            &own,
+            &client.private_key,
+            &endpoint.fingerprint,
+            &endpoint.host,
+            endpoint.port,
+        )
+        .await?;
+        let url = format!("https://{address}/libraries");
+        assert_eq!(
+            stale_client.get(&url).send().await?.status(),
+            reqwest::StatusCode::UNAUTHORIZED
+        );
+        sync_worker::invalidate_sync_token(
+            &client.global_params.node,
+            &endpoint.fingerprint,
+            &endpoint.host,
+            endpoint.port,
+        );
+        let (_, fresh_client) = authenticated_client(
+            &client.global_params.node,
+            &own,
+            &client.private_key,
+            &endpoint.fingerprint,
+            &endpoint.host,
+            endpoint.port,
+        )
+        .await?;
+        assert!(fresh_client.get(&url).send().await?.status().is_success());
+        assert_eq!(auth.challenge_count_for_test().await, 2);
+        assert_eq!(auth.authorization_count_for_test().await, 2);
+        host.global_params.node.shutdown().await?;
+        client.global_params.node.shutdown().await?;
         Ok(())
     }
 
@@ -2656,6 +2809,7 @@ mod lifecycle_tests {
                 a_addr.port(),
                 &b.global_params.config_path,
                 b.global_params.cert_validator.read().await.clone(),
+                &b.global_params.node.sync_tokens,
             )
             .await?)
         })
@@ -2710,6 +2864,7 @@ mod lifecycle_tests {
             addr.port(),
             &b.global_params.config_path,
             b.global_params.cert_validator.read().await.clone(),
+            &b.global_params.node.sync_tokens,
         )
         .await?;
         assert!(
@@ -3325,7 +3480,7 @@ mod lifecycle_tests {
         assert_eq!(full_bytes.as_ref(), expected.as_slice());
         // Expire the server-side token, then exercise a real ranged GET with renewal.
         let expired_token = peer_step("expire audio token", async {
-            Ok(b.sync_auth_for_test
+            Ok(b.sync_auth
                 .lock()
                 .await
                 .as_ref()
@@ -3337,7 +3492,7 @@ mod lifecycle_tests {
         anyhow::ensure!(expired_token, "audio renewal test found no token to expire");
         tokio::time::sleep(Duration::from_secs(1)).await;
         peer_step("inject transient renewal rejection", async {
-            b.sync_auth_for_test
+            b.sync_auth
                 .lock()
                 .await
                 .as_ref()
@@ -3369,7 +3524,7 @@ mod lifecycle_tests {
         assert_eq!(first_range?.as_ref(), &expected[..16]);
         assert_eq!(second_range?.as_ref(), &expected[16..32]);
         anyhow::ensure!(
-            !b.sync_auth_for_test
+            !b.sync_auth
                 .lock()
                 .await
                 .as_ref()

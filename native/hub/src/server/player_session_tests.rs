@@ -1140,7 +1140,9 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         .context("detached cast response")?;
     assert_eq!(response.playing_items.len(), 1);
     let renderer_status = wait_player(&renderer, |status| {
-        status.state == PlaybackState::Playing && status.item.is_some()
+        status.state == PlaybackState::Playing
+            && status.item.is_some()
+            && status.playlist.len() == 1
     })
     .await?;
     assert_eq!(renderer_status.playlist.len(), 1);
@@ -2421,6 +2423,7 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
             a_addr.port(),
             &a.global_params.config_path,
             a.global_params.cert_validator.read().await.clone(),
+            &a.global_params.node.sync_tokens,
         )
         .await?)
     })
@@ -2742,6 +2745,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         controller_addr.port(),
         &controller.global_params.config_path,
         controller.global_params.cert_validator.read().await.clone(),
+        &controller.global_params.node.sync_tokens,
     )
     .await?;
 
@@ -3625,6 +3629,7 @@ async fn connect_two_controllers(
                 addr.port(),
                 &controller.global_params.config_path,
                 controller.global_params.cert_validator.read().await.clone(),
+                &controller.global_params.node.sync_tokens,
             )
             .await?,
         );
