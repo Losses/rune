@@ -2,9 +2,10 @@ use crate::stream_utils::ManagedStream;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    io::BufReader,
+    future::Future,
+    io::{BufReader, Error, ErrorKind},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
 
@@ -22,13 +23,45 @@ use crate::buffered::{RuneBuffered, rune_buffered};
 use crate::decoder::RuneDecoder;
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::pcm_tap::PcmTap;
-use crate::player::{PlaybackSource, PlaybackSourceResolver, PlayingItem, UnavailableReason};
+use crate::player::{
+    PlaybackSource, PlaybackSourceResolver, PlayingItem, RemoteAudioError, UnavailableReason,
+};
 use crate::realtime_fft::RealTimeFFT;
 use crate::shared_source::SharedSource;
 use crate::strategies::{
     AddMode, PlaybackStrategy, RepeatAllStrategy, RepeatOneStrategy, SequentialStrategy,
     ShuffleStrategy, UpdateReason,
 };
+
+const SOURCE_START_TIMEOUT: Duration = Duration::from_secs(30);
+
+async fn bound_source_start<T>(
+    limit: Duration,
+    source: impl Future<Output = Result<T>>,
+) -> Result<T> {
+    match tokio::time::timeout(limit, source).await {
+        Ok(result) => result,
+        Err(_) => Err(anyhow!(RemoteAudioError::unreachable(Error::new(
+            ErrorKind::TimedOut,
+            "audio source did not start before the deadline",
+        )))),
+    }
+}
+
+async fn probe_decoder<R>(
+    reader: R,
+    extension: Option<String>,
+    known_len: Option<u64>,
+) -> Result<RuneDecoder<R>>
+where
+    R: std::io::Read + std::io::Seek + Send + Sync + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        RuneDecoder::new_with_length(reader, extension.as_deref(), known_len)
+    })
+    .await
+    .context("decoder probe task failed")?
+}
 
 pub enum AnySource {
     Local(RuneBuffered<RuneDecoder<BufReader<Box<dyn FileStream>>>>),
@@ -42,15 +75,19 @@ async fn open_library_stream(
     resolver: &Arc<dyn PlaybackSourceResolver>,
     id: i32,
 ) -> Result<(AnySource, PathBuf)> {
+    debug!("Resolving remote audio source for library track {id}");
     let remote = resolver.resolve(id).await?;
     let size = remote.size;
     let guard = remote.cancellation.clone().drop_guard();
+    debug!("Opening initial HTTP range for library track {id}");
     let reader =
         crate::stream_utils::create_stream_with_authorizer(remote.request, &remote.url).await?;
     let failed = remote.failure_reason;
     let reader = ManagedStream::new_with_failure(reader, remote.cancellation, failed.clone());
+    debug!("Probing decoder for library track {id}");
+    let decoder = probe_decoder(reader, Some(remote.extension), Some(size)).await?;
     guard.disarm();
-    let decoder = RuneDecoder::new_with_length(reader, Some(&remote.extension), Some(size))?;
+    debug!("Decoder ready for library track {id}");
     Ok((
         AnySource::Online(rune_buffered(decoder), failed),
         PathBuf::new(),
@@ -275,6 +312,13 @@ enum InternalPlaybackState {
     Loading,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PendingLoad {
+    index: usize,
+    play: bool,
+    mapped: bool,
+}
+
 fn try_new_sink(stream: &RuneOutputStreamHandle) -> Result<Sink, PlayError> {
     let (sink, queue_rx) = Sink::new_idle();
     stream.play_raw(queue_rx)?;
@@ -318,7 +362,7 @@ pub(crate) struct PlayerInternal {
     commands_sender: mpsc::UnboundedSender<PlayerCommand>,
     event_sender: mpsc::UnboundedSender<PlayerEvent>,
     fsio: Arc<FsIo>,
-    source_resolver: Arc<std::sync::RwLock<Option<Arc<dyn PlaybackSourceResolver>>>>,
+    source_resolver: Arc<RwLock<Option<Arc<dyn PlaybackSourceResolver>>>>,
     realtime_fft: Arc<Mutex<RealTimeFFT>>,
     fft_enabled: Arc<Mutex<bool>>,
     pcm_tap: Arc<PcmTap>,
@@ -330,6 +374,7 @@ pub(crate) struct PlayerInternal {
     sink: Option<Sink>,
     _stream: Option<RuneOutputStream>,
     state: InternalPlaybackState,
+    pending_load: Option<PendingLoad>,
     debounce_timer: Option<Instant>,
     cancellation_token: CancellationToken,
     playback_mode: PlaybackMode,
@@ -351,7 +396,7 @@ impl PlayerInternal {
         commands_sender: mpsc::UnboundedSender<PlayerCommand>,
         fsio: Arc<FsIo>,
         pcm_tap: Arc<PcmTap>,
-        source_resolver: Arc<std::sync::RwLock<Option<Arc<dyn PlaybackSourceResolver>>>>,
+        source_resolver: Arc<RwLock<Option<Arc<dyn PlaybackSourceResolver>>>>,
     ) -> Self {
         let (stream_error_sender, stream_error_receiver) = mpsc::unbounded_channel();
         Self {
@@ -369,6 +414,7 @@ impl PlayerInternal {
             _stream: None,
             realtime_fft: Arc::new(Mutex::new(RealTimeFFT::new(512))),
             state: InternalPlaybackState::Stopped,
+            pending_load: None,
             debounce_timer: None,
             cancellation_token,
             playback_mode: PlaybackMode::Sequential,
@@ -424,6 +470,11 @@ impl PlayerInternal {
                         },
                         PlayerCommand::LoadComplete { result, item, original_item, index, playlist_index, path, play } => {
                             self.state = InternalPlaybackState::Stopped;
+                            if let Some(pending) = self.pending_load.take() {
+                                debug!("Load {index} completed after a newer request; starting index {}", pending.index);
+                                self.load(Some(pending.index), pending.play, pending.mapped)?;
+                                continue;
+                            }
                             match *result {
                                 Ok(source) => {
                                     if let Some(entry) = self.playlist.get_mut(playlist_index)
@@ -526,7 +577,14 @@ impl PlayerInternal {
 
     fn load(&mut self, index: Option<usize>, play: bool, mapped: bool) -> Result<()> {
         if self.state == InternalPlaybackState::Loading {
-            warn!("Already loading a track, ignoring new load request.");
+            if let Some(index) = index {
+                debug!("Load {index} queued while another track is loading; newest request wins");
+                self.pending_load = Some(PendingLoad {
+                    index,
+                    play,
+                    mapped,
+                });
+            }
             return Ok(());
         }
 
@@ -546,6 +604,7 @@ impl PlayerInternal {
             }
 
             let item = self.playlist[mapped_index].clone();
+            debug!("Starting track load at playlist index {mapped_index} (request index {index})");
             let commands_sender = self.commands_sender.clone();
             let fsio = Arc::clone(&self.fsio);
             let resolver = match self.source_resolver.read() {
@@ -570,6 +629,7 @@ impl PlayerInternal {
                     let local_file_id = if let (PlayingItem::InLibrary(identity), Some(resolver)) =
                         (&item.item, resolver.as_ref())
                     {
+                        debug!("Resolving source identity for track load {index}");
                         Some(
                             resolver
                                 .resolve_id(identity.file_uuid)
@@ -585,11 +645,14 @@ impl PlayerInternal {
                             let path = if let (Some(id), Some(resolver)) =
                                 (local_file_id, resolver.as_ref())
                             {
-                                if item
+                                let requires_stream = item
                                     .source
                                     .requires_stream_at_load(id, resolver.as_ref())
-                                    .await?
-                                {
+                                    .await?;
+                                debug!(
+                                    "Track load {index} requires remote streaming: {requires_stream}"
+                                );
+                                if requires_stream {
                                     let (source, path) = open_library_stream(resolver, id).await?;
                                     return Ok((source, path, resolved_item.clone()));
                                 }
@@ -609,7 +672,9 @@ impl PlayerInternal {
                                 .open(&path, "r")
                                 .with_context(|| format!("Failed to open file: {path:?}"))?;
                             let ext = path.extension().and_then(|e| e.to_str());
-                            let decoder = RuneDecoder::new(BufReader::new(stream), ext)?;
+                            let decoder =
+                                probe_decoder(BufReader::new(stream), ext.map(str::to_owned), None)
+                                    .await?;
                             Ok((
                                 AnySource::Local(rune_buffered(decoder)),
                                 path,
@@ -626,7 +691,8 @@ impl PlayerInternal {
                                 CancellationToken::new(),
                                 failed.clone(),
                             );
-                            let decoder = RuneDecoder::new(reader, ext)?;
+                            let decoder =
+                                probe_decoder(reader, ext.map(str::to_owned), None).await?;
                             Ok((
                                 AnySource::Online(rune_buffered(decoder), failed),
                                 PathBuf::new(),
@@ -640,8 +706,17 @@ impl PlayerInternal {
                 };
                 let source_result = tokio::select! {
                     _ = load_cancel.cancelled() => Err(anyhow!("library closed")),
-                    result = source_future => result,
+                    result = bound_source_start(SOURCE_START_TIMEOUT, source_future) => result,
                 };
+
+                debug!(
+                    "Track load {index} source resolution finished: {}",
+                    if source_result.is_ok() {
+                        "ready"
+                    } else {
+                        "failed"
+                    }
+                );
 
                 let (source_result, path, resolved_item) = match source_result {
                     Ok((source, path, resolved_item)) => (Ok(source), path, resolved_item),
@@ -818,6 +893,7 @@ impl PlayerInternal {
             warn!("Stop command received but no track is loaded");
         }
         self.active_stream_failure = None;
+        self.pending_load = None;
 
         Ok(())
     }
@@ -1011,6 +1087,7 @@ impl PlayerInternal {
             .on_playlist_updated(0, UpdateReason::ClearPlaylist);
         self.current_track_index = None;
         self.active_stream_failure = None;
+        self.pending_load = None;
         self.sink = None;
         self._stream = None;
         info!("Playlist cleared");
@@ -1245,8 +1322,15 @@ impl PlayerInternal {
 #[cfg(test)]
 mod stream_open_tests {
     use super::*;
-    use crate::player::{AudioRequest, RemoteAudioSource};
+    use crate::player::{AudioRequest, LibraryItem, LibraryPlaybackSource, RemoteAudioSource};
     use futures::future::BoxFuture;
+    use std::collections::HashMap;
+    use std::io::{Read, Seek, SeekFrom};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::{Receiver, channel};
+    use tokio::sync::Notify;
+    use tokio::task::LocalSet;
+    use uuid::Uuid;
 
     struct FailingRequest;
     impl AudioRequest for FailingRequest {
@@ -1279,5 +1363,215 @@ mod stream_open_tests {
         let resolver: Arc<dyn PlaybackSourceResolver> = Arc::new(Resolver(token.clone()));
         assert!(open_library_stream(&resolver, 1).await.is_err());
         assert!(token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn source_start_timeout_uses_unavailable_network_reason() {
+        let error = bound_source_start(Duration::from_millis(1), async {
+            std::future::pending::<Result<()>>().await
+        })
+        .await
+        .expect_err("a source that never starts must time out");
+        assert_eq!(
+            UnavailableReason::classify(&error),
+            UnavailableReason::SourceUnreachable
+        );
+    }
+
+    struct StalledReader {
+        release: Arc<Mutex<Receiver<()>>>,
+        released: Arc<AtomicBool>,
+        probe_finished: Arc<Notify>,
+    }
+
+    impl Read for StalledReader {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            if !self.released.swap(true, Ordering::SeqCst) {
+                self.release.lock().unwrap().recv().unwrap();
+            }
+            self.probe_finished.notify_one();
+            Ok(0)
+        }
+    }
+
+    impl Seek for StalledReader {
+        fn seek(&mut self, _: SeekFrom) -> std::io::Result<u64> {
+            Ok(0)
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn blocking_decoder_probe_respects_source_start_timeout() -> Result<()> {
+        let (release_sender, release_receiver) = channel();
+        let probe_finished = Arc::new(Notify::new());
+        let release_done = probe_finished.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            release_sender.send(()).unwrap();
+            release_done.notified().await;
+        });
+
+        let reader = StalledReader {
+            release: Arc::new(Mutex::new(release_receiver)),
+            released: Arc::new(AtomicBool::new(false)),
+            probe_finished: probe_finished.clone(),
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            bound_source_start(
+                Duration::from_millis(25),
+                probe_decoder(reader, Some("ogg".to_owned()), None),
+            ),
+        )
+        .await?;
+        let error = match result {
+            Ok(_) => panic!("blocking decoder probe must be bounded"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            UnavailableReason::classify(&error),
+            UnavailableReason::SourceUnreachable
+        );
+        tokio::time::timeout(Duration::from_secs(2), probe_finished.notified()).await?;
+        Ok(())
+    }
+
+    struct DelayedResolver {
+        ids: Arc<Mutex<Vec<i32>>>,
+        started: Arc<Notify>,
+        release: Arc<Notify>,
+        file_ids: Arc<HashMap<Uuid, i32>>,
+    }
+
+    impl PlaybackSourceResolver for DelayedResolver {
+        fn for_library(
+            &self,
+            _: String,
+        ) -> BoxFuture<'static, Result<Option<LibraryPlaybackSource>>> {
+            let ids = self.ids.clone();
+            let started = self.started.clone();
+            let release = self.release.clone();
+            let file_ids = self.file_ids.clone();
+            Box::pin(async move {
+                Ok(Some(LibraryPlaybackSource {
+                    fsio: Arc::new(FsIo::new_noop()),
+                    resolver: Arc::new(DelayedLibraryResolver {
+                        ids,
+                        started,
+                        release,
+                        file_ids,
+                    }),
+                }))
+            })
+        }
+
+        fn resolve(&self, _: i32) -> BoxFuture<'static, Result<RemoteAudioSource>> {
+            Box::pin(async { anyhow::bail!("unexpected remote source resolution") })
+        }
+    }
+
+    struct DelayedLibraryResolver {
+        ids: Arc<Mutex<Vec<i32>>>,
+        started: Arc<Notify>,
+        release: Arc<Notify>,
+        file_ids: Arc<HashMap<Uuid, i32>>,
+    }
+
+    impl PlaybackSourceResolver for DelayedLibraryResolver {
+        fn resolve_id(&self, file_uuid: Uuid) -> BoxFuture<'static, Result<Option<i32>>> {
+            let id = self.file_ids.get(&file_uuid).copied();
+            Box::pin(async move { Ok(id) })
+        }
+
+        fn requires_stream(&self, id: i32) -> BoxFuture<'static, Result<bool>> {
+            let ids = self.ids.clone();
+            let started = self.started.clone();
+            let release = self.release.clone();
+            Box::pin(async move {
+                ids.lock().unwrap().push(id);
+                if id == 1 {
+                    started.notify_one();
+                    release.notified().await;
+                }
+                Ok(false)
+            })
+        }
+
+        fn resolve(&self, _: i32) -> BoxFuture<'static, Result<RemoteAudioSource>> {
+            Box::pin(async { anyhow::bail!("unexpected remote source resolution") })
+        }
+    }
+
+    #[tokio::test]
+    async fn newest_switch_during_load_replaces_the_pending_track() -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let resolver = Arc::new(DelayedResolver {
+            ids: ids.clone(),
+            started: started.clone(),
+            release: release.clone(),
+            file_ids: Arc::new(HashMap::from([
+                (file_uuids[0], 1),
+                (file_uuids[1], 2),
+                (file_uuids[2], 3),
+            ])),
+        });
+        let (commands_sender, commands) = mpsc::unbounded_channel();
+        let (event_sender, _events) = mpsc::unbounded_channel();
+        let mut internal = PlayerInternal::new(
+            commands,
+            event_sender,
+            CancellationToken::new(),
+            commands_sender.clone(),
+            Arc::new(FsIo::new_noop()),
+            PcmTap::new(),
+            Arc::new(RwLock::new(Some(resolver))),
+        );
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    commands_sender.send(PlayerCommand::AddToPlaylist {
+                        tracks: file_uuids
+                            .iter()
+                            .map(|file_uuid| {
+                                (
+                                    PlayingItem::InLibrary(LibraryItem {
+                                        library_id,
+                                        file_uuid: *file_uuid,
+                                    }),
+                                    PlaybackSource::LibraryStream,
+                                )
+                            })
+                            .collect(),
+                        mode: AddMode::AppendToEnd,
+                    })?;
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    tokio::time::timeout(Duration::from_secs(2), started.notified()).await?;
+                    commands_sender.send(PlayerCommand::Switch(2))?;
+                    release.notify_one();
+
+                    tokio::time::timeout(Duration::from_secs(2), async {
+                        loop {
+                            if ids.lock().unwrap().len() >= 2 {
+                                break;
+                            }
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await?;
+                    assert_eq!(&*ids.lock().unwrap(), &[1, 3]);
+
+                    runner.abort();
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
     }
 }
