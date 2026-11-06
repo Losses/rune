@@ -3,13 +3,15 @@ import UIKit
 import AVFAudio
 
 func initAudioSession() {
-  let audio_session = AVAudioSession.sharedInstance();
+  let session = AVAudioSession.sharedInstance()
   do {
-      try audio_session.setCategory(AVAudioSession.Category.playAndRecord);
-      try audio_session.setActive(true);
+    // Rune only plays. The playback category sends music to the speaker rather than the receiver
+    // and to Bluetooth headphones in full quality, and keeps it playing in the background.
+    try session.setCategory(.playback, mode: .default)
+    try session.setActive(true)
   } catch {
-      // This is a fatal error because the audio session is required for the app to work
-      fatalError("\(error)");
+    // Activation fails during a phone call, for one. That must not stop Rune from starting.
+    NSLog("Rune could not set up the audio session: \(error)")
   }
 }
 
