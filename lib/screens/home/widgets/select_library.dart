@@ -89,6 +89,9 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                   child: SizedBox(
                     width: double.maxFinite,
                     child: ListView.builder(
+                      // The list is in the middle of the window, not at its
+                      // edges.
+                      padding: EdgeInsets.zero,
                       shrinkWrap: true,
                       itemCount: allOpenedFiles.length + 1,
                       itemBuilder: (context, index) {

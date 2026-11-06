@@ -121,7 +121,7 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
     final users = broadcastProvider.users;
 
     return PageContentFrame(
-      child: UnavailablePageOnBand(
+      builder: (context) => UnavailablePageOnBand(
         child: SettingsPagePadding(
           child: SingleChildScrollView(
             padding: getScrollContainerPadding(context),

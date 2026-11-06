@@ -40,7 +40,6 @@ class LargeScreenSearchTrackListImplementation extends StatelessWidget {
       ),
       padding: getScrollContainerPadding(
         context,
-        top: false,
         left: false,
         right: false,
       ),

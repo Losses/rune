@@ -2,6 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import 'package:rune/widgets/visualizer/lab/lab_data.dart';
 import 'package:rune/widgets/visualizer/lab/lab_display.dart';
@@ -333,19 +335,22 @@ void main() {
       addTearDown(tester.view.reset);
       final model = LabRowsModel()..setSelection(LabRowSelection.all(_columns));
       await tester.pumpWidget(
-        FluentApp(
-          // As the app's root: the reveal of its items needs it.
-          builder: (context, child) => RevealEffectContext(child: child!),
-          home: ScaffoldPage(
-            padding: EdgeInsets.zero,
-            content: LabTimeline(
-              data: LabTimelineData(
-                length: 60,
-                columns: _columns,
-                emptyColumns: empty,
+        ChangeNotifierProvider(
+          create: (_) => ScreenSizeProvider.withWriter(null, (_) async {}),
+          child: FluentApp(
+            // As the app's root: the reveal of its items needs it.
+            builder: (context, child) => RevealEffectContext(child: child!),
+            home: ScaffoldPage(
+              padding: EdgeInsets.zero,
+              content: LabTimeline(
+                data: LabTimelineData(
+                  length: 60,
+                  columns: _columns,
+                  emptyColumns: empty,
+                ),
+                rows: model,
+                onSeek: onSeek ?? (_) {},
               ),
-              rows: model,
-              onSeek: onSeek ?? (_) {},
             ),
           ),
         ),

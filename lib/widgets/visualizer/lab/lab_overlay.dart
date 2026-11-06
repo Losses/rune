@@ -10,8 +10,11 @@ import '../../../bindings/bindings.dart';
 import '../../../providers/status.dart';
 import '../../../providers/visualizer_lab.dart';
 import '../../../providers/visualizer_scenes.dart';
+import '../../../providers/responsive_providers.dart';
 import '../../../utils/api/seek.dart';
-import '../../playback_controller/constants/playback_controller_height.dart';
+import '../../../utils/kept_clear.dart';
+import '../../keep_clear.dart';
+import '../../navigation_bar/page_chrome.dart';
 import '../visualizer_controller.dart';
 
 import 'lab_cards.dart';
@@ -66,31 +69,38 @@ class VisualizerLabOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final top =
-        playbackControllerHeight + MediaQuery.of(context).viewPadding.top;
+    final chrome = pageChromeOf(
+      Provider.of<ResponsiveProvider>(context),
+      Provider.of<ScreenSizeProvider>(context).screenSize,
+    );
 
     return Positioned(
-      top: top,
+      top: chrome.controller,
       left: 0,
       right: 0,
       bottom: 0,
-      // It comes in after the controller has arrived, and goes out at once.
-      child: LabModeBuilder(
-        enterCurve: const Interval(0.35, 1, curve: labModeCurve),
-        builder: (context, value, on, child) {
-          if (value == 0) return const SizedBox.shrink();
-          return IgnorePointer(
-            ignoring: !on,
-            child: Opacity(
-              opacity: value,
-              child: FractionalTranslation(
-                translation: Offset(0, (1 - value) * 0.04),
-                child: child,
+      // The controller is below the status bar, so is the overlay.
+      child: KeepClear(
+        left: false,
+        right: false,
+        // It comes in after the controller has arrived, and goes out at once.
+        child: LabModeBuilder(
+          enterCurve: const Interval(0.35, 1, curve: labModeCurve),
+          builder: (context, value, on, child) {
+            if (value == 0) return const SizedBox.shrink();
+            return IgnorePointer(
+              ignoring: !on,
+              child: Opacity(
+                opacity: value,
+                child: FractionalTranslation(
+                  translation: Offset(0, (1 - value) * 0.04),
+                  child: child,
+                ),
               ),
-            ),
-          );
-        },
-        child: LabBody(controller: controller),
+            );
+          },
+          child: LabBody(controller: controller),
+        ),
       ),
     );
   }
@@ -281,24 +291,29 @@ class _LabBodyState extends State<LabBody> with WidgetsBindingObserver {
     EdgeInsets padding,
     LabPipLayout pip,
   ) {
-    final view = MediaQuery.viewPaddingOf(context);
-    // The screen's own edges (a notch, a home bar) are kept clear; the top is
-    // already under the controller.
+    final keptClear = context.keptClear;
+    // The pages run to the screen's sides and keep their content clear of a
+    // notch there; the top is already under the controller, and the content
+    // runs under the home indicator.
     final pages = padding.copyWith(
-      left: padding.left + view.left,
-      right: padding.right + view.right,
-      bottom: padding.bottom + view.bottom,
+      left: padding.left + keptClear.left,
+      right: padding.right + keptClear.right,
     );
     return Stack(
       children: [
         Positioned.fill(
-          child: LabPages(
-            axis: layout == LabLayout.pagesAcross
-                ? Axis.horizontal
-                : Axis.vertical,
-            padding: pages,
-            cards: _playCard(fill: true),
-            timeline: _timeline(),
+          child: MediaQuery.removePadding(
+            context: context,
+            removeLeft: true,
+            removeRight: true,
+            child: LabPages(
+              axis: layout == LabLayout.pagesAcross
+                  ? Axis.horizontal
+                  : Axis.vertical,
+              padding: pages,
+              cards: _playCard(fill: true),
+              timeline: _timeline(),
+            ),
           ),
         ),
         LabPip(

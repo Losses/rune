@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../utils/kept_clear.dart';
 import '../utils/settings_manager.dart';
 import 'app_scale.dart';
 import '../constants/configurations.dart';
@@ -192,9 +194,21 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
   final Future<void> Function(String) _writeSize;
   Future<void> _writes = Future.value();
   Size _rawWindowSize = Size.zero;
+  EdgeInsets _keptClear = EdgeInsets.zero;
   Timer? _debounceTimer;
   Size get rawWindowSize => _rawWindowSize;
+
+  /// The whole window at the interface scale, for what is sized by it.
   Size get screenSize => _rawWindowSize / (_scale?.scaleFactor ?? 1);
+
+  /// The size layouts are chosen by: the window less the insets content keeps
+  /// clear of ([keptClearOf]), at the interface scale.
+  Size get layoutSize =>
+      Size(
+        math.max(0.0, _rawWindowSize.width - _keptClear.horizontal),
+        math.max(0.0, _rawWindowSize.height - _keptClear.vertical),
+      ) /
+      (_scale?.scaleFactor ?? 1);
 
   void _scaleChanged() => notifyListeners();
 
@@ -208,6 +222,12 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
     final view = views.first;
     if (view.devicePixelRatio <= 0) return;
     final size = view.physicalSize / view.devicePixelRatio;
+    final keptClear = keptClearOf(
+      EdgeInsets.fromViewPadding(view.viewPadding, view.devicePixelRatio),
+    );
+    // A rotation changes both at once, and notifies once.
+    final insetsChanged = keptClear != _keptClear;
+    _keptClear = keptClear;
     if (size != _rawWindowSize) {
       _rawWindowSize = size;
       notifyListeners();
@@ -222,6 +242,8 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
               });
         });
       }
+    } else if (insetsChanged) {
+      notifyListeners();
     }
   }
 
@@ -281,7 +303,7 @@ class ResponsiveProvider extends ChangeNotifier {
   }
 
   void _updateDeviceTypes() {
-    final size = _screenSizeProvider.screenSize;
+    final size = _screenSizeProvider.layoutSize;
     final width = size.width;
     final height = size.height;
 
@@ -490,8 +512,8 @@ class SmallerOrEqualToScreenSize extends StatelessWidget {
     return Selector<ScreenSizeProvider, bool>(
       selector: (_, screenSizeProvider) {
         final size = orientation == DeviceOrientation.vertical
-            ? screenSizeProvider.screenSize.width
-            : screenSizeProvider.screenSize.height;
+            ? screenSizeProvider.layoutSize.width
+            : screenSizeProvider.layoutSize.height;
         return size <= maxSize;
       },
       builder: (context, isSmaller, child) => builder(context, isSmaller),
@@ -516,8 +538,8 @@ class GreaterOrEqualToScreenSize extends StatelessWidget {
     return Selector<ScreenSizeProvider, bool>(
       selector: (_, screenSizeProvider) {
         final size = orientation == DeviceOrientation.vertical
-            ? screenSizeProvider.screenSize.width
-            : screenSizeProvider.screenSize.height;
+            ? screenSizeProvider.layoutSize.width
+            : screenSizeProvider.layoutSize.height;
         return size >= minSize;
       },
       builder: (context, isGreater, child) => builder(context, isGreater),
@@ -538,8 +560,8 @@ class SmallerOrEqualThanWatch extends StatelessWidget {
   Widget build(BuildContext context) {
     return Selector<ScreenSizeProvider, bool>(
       selector: (_, screenSizeProvider) {
-        final width = screenSizeProvider.screenSize.width;
-        final height = screenSizeProvider.screenSize.height;
+        final width = screenSizeProvider.layoutSize.width;
+        final height = screenSizeProvider.layoutSize.height;
         return width <= 64 || height <= 64;
       },
       builder: (context, isWatch, child) => builder(context, isWatch),

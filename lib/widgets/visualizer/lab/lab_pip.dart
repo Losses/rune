@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/ax_shadow.dart';
+import '../../../utils/kept_clear.dart';
 import '../visualizer_controller.dart';
 import 'lab_overlay.dart';
 import 'lab_pip_layout.dart';
@@ -666,7 +667,7 @@ class _LabPipState extends State<LabPip> with TickerProviderStateMixin {
     final area = widget.area;
     final layout = widget.layout;
     final shorter = math.min(area.width, area.height);
-    _viewPadding = MediaQuery.viewPaddingOf(context);
+    _viewPadding = context.keptClear;
     return ListenableBuilder(
       listenable: widget.controller.textureAspect,
       builder: (context, _) {

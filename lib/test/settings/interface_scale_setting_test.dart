@@ -21,6 +21,8 @@ class _Screen extends ChangeNotifier implements ScreenSizeProvider {
   @override
   Size get screenSize => const Size(800, 600);
   @override
+  Size get layoutSize => screenSize;
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 

@@ -9,6 +9,8 @@ import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
 import '../../utils/l10n.dart';
 import '../../utils/router/navigation.dart';
+import '../../widgets/keep_clear.dart';
+import '../../widgets/status_bar_style.dart';
 
 class ScanningPage extends StatefulWidget {
   const ScanningPage({super.key});
@@ -58,53 +60,59 @@ class _ScanningPageState extends State<ScanningPage>
       ],
       options: AnimatedMeshGradientOptions(),
       controller: _animationController,
-      child: SizedBox.expand(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            if (progress?.status == TaskStatus.failed ||
-                progress?.status == TaskStatus.cancelled) ...[
-              Text(
-                S.of(context).error(progress?.error ?? ''),
-                style: typography.bodyLarge?.apply(color: Colors.white),
-              ),
-              const SizedBox(height: 12),
-              Button(
-                onPressed: () => libraryManager.scanLibrary(
-                  libraryPath.currentPath ?? '',
-                  isInitializeTask: true,
-                ),
-                child: Text(S.of(context).scan),
-              ),
-              Button(
-                onPressed: () => $$replace('/'),
-                child: Text(S.of(context).cancel),
-              ),
-            ] else ...[
-              Text(
-                S.of(context).thisMightTakeAFewMinutes,
-                style: typography.title?.apply(
-                  fontWeightDelta: -20,
-                  color: Colors.white,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              AnimatedFlipCounter(
-                value: count,
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeInOut,
-                suffix: task == ScanTaskType.indexFiles
-                    ? S.of(context).tracksFound
-                    : S.of(context).albumCoversCollected,
-                textStyle: typography.bodyLarge?.apply(
-                  color: Colors.white,
-                  fontWeightDelta: -50,
-                ),
-              ),
-            ],
-          ],
+      // The page's background is dark in both themes.
+      child: StatusBarStyle(
+        brightness: Brightness.dark,
+        child: SizedBox.expand(
+          child: KeepClear(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (progress?.status == TaskStatus.failed ||
+                    progress?.status == TaskStatus.cancelled) ...[
+                  Text(
+                    S.of(context).error(progress?.error ?? ''),
+                    style: typography.bodyLarge?.apply(color: Colors.white),
+                  ),
+                  const SizedBox(height: 12),
+                  Button(
+                    onPressed: () => libraryManager.scanLibrary(
+                      libraryPath.currentPath ?? '',
+                      isInitializeTask: true,
+                    ),
+                    child: Text(S.of(context).scan),
+                  ),
+                  Button(
+                    onPressed: () => $$replace('/'),
+                    child: Text(S.of(context).cancel),
+                  ),
+                ] else ...[
+                  Text(
+                    S.of(context).thisMightTakeAFewMinutes,
+                    style: typography.title?.apply(
+                      fontWeightDelta: -20,
+                      color: Colors.white,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  AnimatedFlipCounter(
+                    value: count,
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.easeInOut,
+                    suffix: task == ScanTaskType.indexFiles
+                        ? S.of(context).tracksFound
+                        : S.of(context).albumCoversCollected,
+                    textStyle: typography.bodyLarge?.apply(
+                      color: Colors.white,
+                      fontWeightDelta: -50,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

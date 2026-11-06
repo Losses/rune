@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/kept_clear.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/navigation/navigation_item.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
@@ -113,7 +114,7 @@ class NavigationBarState extends State<NavigationBar> {
 
         final titleFlipKey = 'title:${parent?.path}';
 
-        final viewPadding = MediaQuery.of(context).viewPadding;
+        final keptClear = context.keptClear;
 
         late Widget parentWidget = Align(
           alignment: AlignmentGeometry.topLeft,
@@ -121,7 +122,7 @@ class NavigationBarState extends State<NavigationBar> {
             deviceType: DeviceType.fish,
             builder: (context, isFish) {
               if (isFish) {
-                return NavigationBackParent(viewPadding: viewPadding);
+                return const NavigationBackParent();
               }
 
               return parent != null
@@ -196,14 +197,19 @@ class NavigationBarState extends State<NavigationBar> {
         return Stack(
           children: [
             if (isZune || !isSearch)
+              // The titles keep their place under the status bar, the links
+              // keep clear of the sides.
               Transform.translate(
-                offset: Offset(0 + viewPadding.left, -44 + viewPadding.top),
+                offset: Offset(0, -44 + keptClear.top),
                 child: Padding(
-                  padding: Platform.isMacOS
-                      ? EdgeInsets.only(
-                          left: nativeWindowLogicalToLocal(context, 24),
-                        )
-                      : const EdgeInsets.only(),
+                  padding: EdgeInsets.only(
+                    left:
+                        keptClear.left +
+                        (Platform.isMacOS
+                            ? nativeWindowLogicalToLocal(context, 24)
+                            : 0),
+                    right: keptClear.right,
+                  ),
                   child: FocusTraversalGroup(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -218,8 +224,8 @@ class NavigationBarState extends State<NavigationBar> {
                 !(Platform.isLinux &&
                     context.watch<LinuxCustomWindowControlsProvider>().enabled))
               Positioned(
-                top: 16 + viewPadding.top,
-                right: 16 + viewPadding.right,
+                top: 16 + keptClear.top,
+                right: 16 + keptClear.right,
                 child: AxReveal0(
                   child: RuneClickable(
                     child: Icon(
@@ -244,14 +250,13 @@ class NavigationBarState extends State<NavigationBar> {
 }
 
 class NavigationBackParent extends StatelessWidget {
-  const NavigationBackParent({super.key, required this.viewPadding});
-
-  final EdgeInsets viewPadding;
+  const NavigationBackParent({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // The bar around it is already below the status bar.
     return Padding(
-      padding: EdgeInsetsDirectional.only(top: 20 + viewPadding.top),
+      padding: const EdgeInsetsDirectional.only(top: 20),
       child: Align(
         alignment: Alignment.centerLeft,
         child: SizedBox(width: 60, height: 60, child: NavigationBackButton()),

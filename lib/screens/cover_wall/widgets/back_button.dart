@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../widgets/ax_reveal/ax_reveal.dart';
+import '../../../widgets/keep_clear.dart';
 import '../../../widgets/rune_clickable.dart';
 import '../../../widgets/playback_controller/cover_wall_button.dart';
 import '../../../providers/responsive_providers.dart';
@@ -18,19 +19,14 @@ class BackButton extends StatelessWidget {
       builder: (_, isTrue) {
         if (!isTrue) return Container();
 
-        final viewPadding = MediaQuery.of(context).viewPadding;
-
-        return Padding(
-          padding: EdgeInsets.only(
-            top: 16 + viewPadding.top,
-            left: 16 + viewPadding.left,
-          ),
-          child: AxReveal0(
-            child: RuneClickable(
-              onPressed: showCoverArtWall,
-              child: Icon(
-                Symbols.arrow_back,
-                size: 24,
+        return KeepClear(
+          right: false,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 16, left: 16),
+            child: AxReveal0(
+              child: RuneClickable(
+                onPressed: showCoverArtWall,
+                child: Icon(Symbols.arrow_back, size: 24),
               ),
             ),
           ),

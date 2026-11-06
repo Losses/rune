@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../providers/responsive_providers.dart';
+import '../keep_clear.dart';
 
 import 'visualizer_controller.dart';
 
@@ -44,39 +45,42 @@ class _VisualizerProblemState extends State<VisualizerProblem> {
   Widget build(BuildContext context) {
     final problem = widget.controller.problem.value;
     final theme = FluentTheme.of(context);
-    final viewPadding = MediaQuery.viewPaddingOf(context);
     final r = Provider.of<ResponsiveProvider>(context);
 
-    // Small layouts show the back button in the corner and hide the macOS
-    // window buttons; the others show the buttons stacked on the left.
-    final small = r.smallerOrEqualTo(DeviceType.mobile, false);
-    final left = 16 +
-        viewPadding.left +
-        (small ? 40 : 0) +
-        (Platform.isMacOS && !small ? 24 : 0);
+    // Narrow windows show the back button in the corner, by the check the
+    // button makes; the others show the macOS window buttons stacked on the
+    // left.
+    final small = r.smallerOrEqualTo(DeviceType.mobile);
+    final left =
+        16.0 + (small ? 40 : 0) + (Platform.isMacOS && !small ? 24 : 0);
 
     return Positioned(
-      top: 16 + viewPadding.top,
-      left: left,
-      right: 16 + viewPadding.right,
+      top: 0,
+      left: 0,
+      right: 0,
       child: IgnorePointer(
-        child: AnimatedOpacity(
-          opacity: _visible ? 1 : 0,
-          duration: _fade,
-          child: Text(
-            // Shown whole: the tail says why (a scene's file and line, the
-            // graphics API a GPU was looked for in).
-            problem ?? '',
-            style: theme.typography.bodyStrong?.copyWith(
-              color: Colors.red,
-              shadows: [
-                Shadow(
-                  color: theme.brightness.isDark
-                      ? Colors.black
-                      : Colors.white,
-                  blurRadius: 8,
+        child: KeepClear(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(left, 16, 16, 0),
+            child: AnimatedOpacity(
+              opacity: _visible ? 1 : 0,
+              duration: _fade,
+              child: Text(
+                // Shown whole: the tail says why (a scene's file and line, the
+                // graphics API a GPU was looked for in).
+                problem ?? '',
+                style: theme.typography.bodyStrong?.copyWith(
+                  color: Colors.red,
+                  shadows: [
+                    Shadow(
+                      color: theme.brightness.isDark
+                          ? Colors.black
+                          : Colors.white,
+                      blurRadius: 8,
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),

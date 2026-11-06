@@ -51,7 +51,7 @@ class BandLinkTileList extends StatelessWidget {
       builder: (context, deviceType) {
         if (deviceType == DeviceType.dock) {
           return SingleChildScrollView(
-            padding: getScrollContainerPadding(context, top: topPadding),
+            padding: getScrollContainerPadding(context),
             child: Column(
               children: children,
             ),
@@ -62,7 +62,7 @@ class BandLinkTileList extends StatelessWidget {
           builder: (context, controller) {
             return SingleChildScrollView(
               controller: controller,
-              padding: getScrollContainerPadding(context, top: topPadding),
+              padding: getScrollContainerPadding(context),
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: children,

@@ -208,10 +208,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                         SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
                           controller: scrollController,
-                          padding: getScrollContainerPadding(
-                            context,
-                            top: widget.topPadding,
-                          ),
+                          padding: getScrollContainerPadding(context),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.start,
                             crossAxisAlignment: CrossAxisAlignment.start,

@@ -53,7 +53,7 @@ class LargeScreenSettingsHomeListViewState
       alignment: Alignment.centerLeft,
       child: SmoothHorizontalScroll(
         builder: (context, scrollController) => SingleChildScrollView(
-          padding: getScrollContainerPadding(context, top: widget.topPadding),
+          padding: getScrollContainerPadding(context),
           scrollDirection: Axis.horizontal,
           controller: scrollController,
           child: LayoutBuilder(

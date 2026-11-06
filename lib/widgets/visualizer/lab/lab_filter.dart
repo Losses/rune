@@ -87,7 +87,7 @@ Future<void> showLabRowsDialog(
   // On a phone the dialog is the window. Fluent's dialog already keeps to the
   // safe area, so its constraints fill that and its decoration has no
   // rounding.
-  final full = labLayoutOf(context).paged;
+  final full = labLayoutOf(context, listen: false).paged;
 
   return $showModal<void>(
     context,

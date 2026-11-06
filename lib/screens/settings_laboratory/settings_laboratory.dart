@@ -4,7 +4,9 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/router/navigation.dart';
+import '../../widgets/keep_clear.dart';
 import '../../widgets/rune_clickable.dart';
+import '../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../widgets/router/rune_stack.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -26,21 +28,21 @@ class SettingsLaboratory extends StatelessWidget {
   Widget build(BuildContext context) {
     final typography = FluentTheme.of(context).typography;
 
-    final viewPadding = MediaQuery.of(context).viewPadding;
-
-    return RuneStack(
-      children: [
-        _buildBackButton(viewPadding),
-        _buildTitle(context, typography, viewPadding),
-        _buildSettingsGrid(context, viewPadding),
-      ],
+    return KeepClear(
+      child: RuneStack(
+        children: [
+          _buildBackButton(),
+          _buildTitle(context, typography),
+          _buildSettingsGrid(context),
+        ],
+      ),
     );
   }
 
-  Widget _buildBackButton(EdgeInsets viewPadding) {
+  Widget _buildBackButton() {
     return Positioned(
-      top: 16 + viewPadding.top,
-      left: 16 + viewPadding.left,
+      top: 16,
+      left: 16,
       child: RuneClickable(
         child: Icon(Symbols.arrow_back, size: 24),
         onPressed: () => $pop(),
@@ -48,15 +50,11 @@ class SettingsLaboratory extends StatelessWidget {
     );
   }
 
-  Widget _buildTitle(
-    BuildContext context,
-    Typography typography,
-    EdgeInsets viewPadding,
-  ) {
+  Widget _buildTitle(BuildContext context, Typography typography) {
     return Align(
       alignment: Alignment.topCenter,
       child: Padding(
-        padding: EdgeInsets.only(top: 20 + viewPadding.top),
+        padding: EdgeInsets.only(top: 20),
         child: Text(
           S.of(context).laboratory,
           style: typography.title,
@@ -65,17 +63,14 @@ class SettingsLaboratory extends StatelessWidget {
     );
   }
 
-  Widget _buildSettingsGrid(
-    BuildContext context,
-    EdgeInsets viewPadding,
-  ) {
+  Widget _buildSettingsGrid(BuildContext context) {
     return Align(
       alignment: Alignment.topCenter,
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 8.0),
         constraints: BoxConstraints(maxWidth: 800),
         child: Padding(
-          padding: EdgeInsets.only(top: 68 + viewPadding.top),
+          padding: EdgeInsets.only(top: 68),
           child: _ResponsiveSettingsGrid(),
         ),
       ),
@@ -89,7 +84,8 @@ class _ResponsiveSettingsGrid extends StatelessWidget {
     return SmallerOrEqualTo(
       deviceType: DeviceType.phone,
       builder: (context, isMini) => MasonryGridView(
-        padding: EdgeInsets.only(top: 4),
+        // The playback controller is over the bottom of the page.
+        padding: EdgeInsets.only(top: 4, bottom: playbackControllerHeight),
         gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: isMini ? 1 : 2,
         ),

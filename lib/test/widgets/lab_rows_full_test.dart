@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:provider/provider.dart';
+import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import 'package:rune/widgets/visualizer/lab/lab_data.dart';
 import 'package:rune/widgets/visualizer/lab/lab_filter.dart';
@@ -40,14 +42,17 @@ void main() {
     addTearDown(tester.view.reset);
     final model = LabRowsModel();
     await tester.pumpWidget(
-      FluentApp(
-        builder: (context, child) => RevealEffectContext(child: child!),
-        home: ScaffoldPage(
-          padding: EdgeInsets.zero,
-          content: LabTimeline(
-            data: LabTimelineData(length: 60, columns: _columns),
-            rows: model,
-            onSeek: (_) {},
+      ChangeNotifierProvider(
+        create: (_) => ScreenSizeProvider.withWriter(null, (_) async {}),
+        child: FluentApp(
+          builder: (context, child) => RevealEffectContext(child: child!),
+          home: ScaffoldPage(
+            padding: EdgeInsets.zero,
+            content: LabTimeline(
+              data: LabTimelineData(length: 60, columns: _columns),
+              rows: model,
+              onSeek: (_) {},
+            ),
           ),
         ),
       ),

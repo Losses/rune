@@ -68,7 +68,7 @@ class _SettingsLanguageState extends State<SettingsLanguage> {
   @override
   Widget build(BuildContext context) {
     return PageContentFrame(
-      child: UnavailablePageOnBand(
+      builder: (context) => UnavailablePageOnBand(
         child: SingleChildScrollView(
           padding: getScrollContainerPadding(context),
           child: SettingsPagePadding(

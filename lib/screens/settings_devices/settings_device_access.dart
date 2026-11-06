@@ -71,7 +71,7 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
     final s = S.of(context);
     final current = data;
     return PageContentFrame(
-      child: SettingsPagePadding(
+      builder: (context) => SettingsPagePadding(
         child: SingleChildScrollView(
           padding: getScrollContainerPadding(context),
           child: SettingsBodyPadding(

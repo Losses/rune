@@ -66,7 +66,6 @@ class LargeScreenTrackList extends StatelessWidget {
                     : GridView.builder(
                         padding: getScrollContainerPadding(
                           context,
-                          top: topPadding,
                           leftPlus: 12,
                           rightPlus: 12,
                         ),

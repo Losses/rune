@@ -4,12 +4,14 @@ import 'dart:async';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/kept_clear.dart';
 import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../widgets/keep_clear.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/search/widgets/small_screen_search_track_list.dart';
 import '../../screens/search/constants/search_categories.dart';
@@ -265,44 +267,45 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
       deviceType: widget.deviceType,
     );
 
-    final viewPadding = MediaQuery.of(context).viewPadding;
-
     if (widget.deviceType == DeviceType.tablet) {
-      return PageContentFrame(
-        top: false,
-        child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
-          value: mediumScreenLayoutManager,
-          child: Column(
-            children: [
-              if (Platform.isWindows) SizedBox(height: 20),
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  32 + viewPadding.left,
-                  20 + viewPadding.top,
-                  60 + viewPadding.right,
-                  20 + viewPadding.bottom,
+      return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+        value: mediumScreenLayoutManager,
+        child: PageContentFrame(
+          top: false,
+          // The search box is at the top, below the status bar.
+          builder: (context) => KeepClear(
+            left: false,
+            right: false,
+            child: Column(
+              children: [
+                if (Platform.isWindows) SizedBox(height: 20),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    32 + context.keptClear.left,
+                    20,
+                    60 + context.keptClear.right,
+                    20,
+                  ),
+                  child: autoSuggestBox,
                 ),
-                child: autoSuggestBox,
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: getScrollContainerPadding(context, top: false),
-                  child: MediumScreenSearchTrackList(
-                    items: items,
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: getScrollContainerPadding(context),
+                    child: MediumScreenSearchTrackList(items: items),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );
     }
 
     if (widget.deviceType == DeviceType.dock) {
-      return PageContentFrame(
-        child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
-          value: bandScreenLayoutManager,
-          child: Column(
+      return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+        value: bandScreenLayoutManager,
+        child: PageContentFrame(
+          builder: (context) => Column(
             children: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -359,10 +362,10 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
     }
 
     if (widget.deviceType == DeviceType.zune) {
-      return PageContentFrame(
-        child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
-          value: smallScreenLayoutManager,
-          child: Column(
+      return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+        value: smallScreenLayoutManager,
+        child: PageContentFrame(
+          builder: (context) => Column(
             children: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -391,9 +394,13 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
               top: false,
               left: false,
               right: false,
-              child: LargeScreenSearchTrackList(
-                selectedItem: selectedItem,
-                items: items,
+              // The sidebar has the right side of the window.
+              child: KeepClear(
+                right: false,
+                child: LargeScreenSearchTrackList(
+                  selectedItem: selectedItem,
+                  items: items,
+                ),
               ),
             ),
           ),

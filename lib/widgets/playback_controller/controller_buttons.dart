@@ -4,6 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/fetch_flyout_items.dart';
 import '../../utils/is_cover_art_wall_layout.dart';
+import '../../utils/kept_clear.dart';
 import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../utils/unavailable_menu_entry.dart';
 import '../../widgets/ax_reveal/ax_reveal.dart';
@@ -61,6 +62,7 @@ class _ControllerButtonsState extends State<ControllerButtons> {
 
   @override
   Widget build(BuildContext context) {
+    final keptClear = context.keptClear;
     final miniLayout = Provider.of<ResponsiveProvider>(context)
         .smallerOrEqualTo(DeviceType.mobile);
 
@@ -129,7 +131,7 @@ class _ControllerButtonsState extends State<ControllerButtons> {
               ),
             ),
           ),
-        const SizedBox(width: 8),
+        SizedBox(width: 8 + keptClear.right),
       ],
     );
   }

@@ -132,7 +132,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
         Provider.of<LibraryManagerProvider>(context, listen: false);
 
     return PageContentFrame(
-      child: UnavailablePageOnBand(
+      builder: (context) => UnavailablePageOnBand(
         child: SettingsPagePadding(
           child: SingleChildScrollView(
             padding: getScrollContainerPadding(context),

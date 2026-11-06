@@ -83,7 +83,7 @@ class BandScreenTrackList extends StatelessWidget {
           ? Axis.vertical
           : Axis.horizontal,
       controller: scrollController,
-      padding: getScrollContainerPadding(context, top: topPadding),
+      padding: getScrollContainerPadding(context),
       itemCount: totalCount,
       itemBuilder: (context, index) {
         final item = getItem(index);

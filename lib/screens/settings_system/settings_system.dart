@@ -19,7 +19,7 @@ class _SettingsAnalysisState extends State<SettingsAnalysis> {
   @override
   Widget build(BuildContext context) {
     return PageContentFrame(
-      child: UnavailablePageOnBand(
+      builder: (context) => UnavailablePageOnBand(
         child: SingleChildScrollView(
           padding: getScrollContainerPadding(context),
           child: SettingsPagePadding(

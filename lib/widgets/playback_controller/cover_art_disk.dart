@@ -8,6 +8,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/ax_shadow.dart';
 import '../../utils/format_time.dart';
+import '../../utils/kept_clear.dart';
 import '../../utils/api/play_next.dart';
 import '../../utils/api/play_previous.dart';
 import '../../utils/router/router_aware_flyout_controller.dart';
@@ -387,7 +388,9 @@ class CoverArtDiskState extends State<CoverArtDisk>
     }
 
     return Positioned(
-      right: _finalOffsetX,
+      // In the car layouts the disk peeks in from the right edge, clear of a
+      // notch there.
+      right: isCar ? _finalOffsetX + context.keptClear.right : _finalOffsetX,
       bottom: _finalOffsetY,
       child: Transform(
         transform: Matrix4.identity()
