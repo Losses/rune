@@ -117,6 +117,12 @@ pub struct SetAdaptiveSwitchingEnabledRequest {
     pub enabled: bool,
 }
 
+/// Lets other apps keep playing while this device plays (iOS only; other platforms ignore it).
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SetMixWithOthersRequest {
+    pub enabled: bool,
+}
+
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RealtimeFFT {
     pub value: Vec<f32>,

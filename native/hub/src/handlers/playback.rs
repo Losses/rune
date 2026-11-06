@@ -747,6 +747,29 @@ impl Signal for SetAdaptiveSwitchingEnabledRequest {
     }
 }
 
+impl ParamsExtractor for SetMixWithOthersRequest {
+    type Params = (Arc<Mutex<dyn Playable>>,);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.player),)
+    }
+}
+
+impl Signal for SetMixWithOthersRequest {
+    type Params = (Arc<Mutex<dyn Playable>>,);
+    type Response = ();
+
+    async fn handle(
+        &self,
+        (player,): Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        player.lock().await.set_mix_with_others(dart_signal.enabled);
+        Ok(Some(()))
+    }
+}
+
 impl ParamsExtractor for OperatePlaybackWithMixQueryRequest {
     type Params = (Option<LibraryHandle>, Arc<String>, Arc<NodeContext>);
 

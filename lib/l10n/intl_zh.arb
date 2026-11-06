@@ -973,6 +973,14 @@
   "@adaptiveSwitchingSubtitle": {
     "description": "播放設置頁面中條目的設置描述"
   },
+  "mixWithOthers": "與其他應用同時播放",
+  "@mixWithOthers": {
+    "description": "播放設置頁面中條目的設置標題"
+  },
+  "mixWithOthersSubtitle": "其他應用在 Rune 播放時繼續播放。開啟後，鎖屏、控制中心和耳機按鍵無法控制 Rune。",
+  "@mixWithOthersSubtitle": {
+    "description": "播放設置頁面中條目的設置描述"
+  },
   "considerPurchase": "請考慮購買正版許可證。",
   "@considerPurchase": {
     "description": "關於頁面中的通知，引導用戶購買許可證"

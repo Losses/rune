@@ -2,11 +2,15 @@
 //! category, its activation, and what its notifications mean for playback all live here.
 //!
 //! [`configure`] gives the session the playback category. The player calls it when it is made,
-//! so that any audio the app plays has the category from the start.
+//! so that any audio the app plays has the category from the start. With `mix_with_others` the
+//! category carries the mix-with-others option, so that other apps keep playing alongside. The
+//! cost is that the system no longer takes the app for the Now Playing app, so the lock screen,
+//! Control Center and headphone buttons do not control it. The player calls it again whenever
+//! the setting changes.
 //!
-//! [`activate`] sets the category again and makes the session active. A reset of the media
-//! services drops the category, so it is set every time. Activation can block for a while, so
-//! the player calls it on its own thread, right before an output stream opens.
+//! [`activate`] sets the category again, with the same option, and makes the session active. A
+//! reset of the media services drops the category, so it is set every time. Activation can block
+//! for a while, so the player calls it on its own thread, right before an output stream opens.
 //!
 //! [`observe`] subscribes to `AVAudioSession`'s interruption, route change and media services
 //! reset notifications, and turns each into a [`PlayerCommand::Output`] for the player. No queue
@@ -61,7 +65,7 @@ fn media_services_reset_event() -> OutputEvent {
 }
 
 #[cfg(target_os = "ios")]
-pub(crate) use ios::{Observers, activate, configure, observe};
+pub(crate) use ios::{Observers, activate, configure, deactivate, observe};
 
 #[cfg(target_os = "ios")]
 mod ios {
@@ -109,8 +113,9 @@ mod ios {
 
     /// Gives the session the playback category, as Rune only plays. The category sends music to
     /// the speaker rather than the receiver and to Bluetooth headphones in full quality, and
-    /// keeps it playing in the background.
-    pub(crate) fn configure() {
+    /// keeps it playing in the background. With `mix_with_others`, other apps' audio goes on
+    /// beside it.
+    pub(crate) fn configure(mix_with_others: bool) {
         // SAFETY: these are constants of the AVFAudio framework, which is linked.
         let (category, mode) =
             unsafe { (AVAudioSessionCategoryPlayback, AVAudioSessionModeDefault) };
@@ -118,14 +123,15 @@ mod ios {
             error!("The playback category or the default mode is missing from the SDK");
             return;
         };
+        let options = if mix_with_others {
+            AVAudioSessionCategoryOptions::MixWithOthers
+        } else {
+            AVAudioSessionCategoryOptions::empty()
+        };
         // SAFETY: `sharedInstance` returns the process's session, which takes
         // `setCategory:mode:options:error:` from any thread.
         let result = unsafe {
-            AVAudioSession::sharedInstance().setCategory_mode_options_error(
-                category,
-                mode,
-                AVAudioSessionCategoryOptions::empty(),
-            )
+            AVAudioSession::sharedInstance().setCategory_mode_options_error(category, mode, options)
         };
         if let Err(error) = result {
             error!(
@@ -138,8 +144,8 @@ mod ios {
     /// Sets the category again and makes the session active, so that an output stream can
     /// start. An interruption leaves the session inactive. Returns whether it is active, which
     /// it cannot be during a call, for one.
-    pub(crate) fn activate() -> bool {
-        configure();
+    pub(crate) fn activate(mix_with_others: bool) -> bool {
+        configure(mix_with_others);
         // SAFETY: `sharedInstance` returns the process's session, which takes `setActive:error:`
         // from any thread.
         let result = unsafe { AVAudioSession::sharedInstance().setActive_error(true) };
@@ -152,6 +158,18 @@ mod ios {
                 );
                 false
             }
+        }
+    }
+
+    /// Makes the session inactive. It only succeeds while no output of the app runs.
+    pub(crate) fn deactivate() {
+        // SAFETY: as in `activate`.
+        let result = unsafe { AVAudioSession::sharedInstance().setActive_error(false) };
+        if let Err(error) = result {
+            error!(
+                "Failed to deactivate the audio session: {}",
+                error.localizedDescription()
+            );
         }
     }
 

@@ -983,6 +983,14 @@
   "@adaptiveSwitchingSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },
+  "mixWithOthers": "Play Alongside Other Apps",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Other apps keep playing while Rune plays. The lock screen, Control Center and headphone buttons can't control Rune while this is on.",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
   "considerPurchase": "Please consider purchasing a genuine license.",
   "@considerPurchase": {
     "description": "Notice in the about page, guiding user to purchase a license"

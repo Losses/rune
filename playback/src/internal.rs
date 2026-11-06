@@ -251,6 +251,7 @@ pub enum PlayerCommand {
     SetVolume(f32),
     SetRealtimeFFTEnabled(bool),
     SetAdaptiveSwitchingEnabled(bool),
+    SetMixWithOthers(bool),
     Output(OutputEvent),
 }
 
@@ -416,6 +417,9 @@ pub(crate) struct PlayerInternal {
     stream_error_receiver: mpsc::UnboundedReceiver<String>,
     stream_retry_count: usize,
     adaptive_switching: bool,
+    // iOS: other apps keep playing while this one does. The audio session reads it; elsewhere it
+    // is only kept.
+    mix_with_others: bool,
     // Where the current track starts once its output opens. Set when a load starts and taken
     // when the output opens. It stays while the track has no output that plays, so that the next
     // play opens one there: the track came up paused, no output could be opened, or a stale
@@ -483,6 +487,7 @@ impl PlayerInternal {
             stream_error_receiver,
             stream_retry_count: 0,
             adaptive_switching: false,
+            mix_with_others: false,
             restore_position: None,
             output_stale: false,
             resume_after_interruption: false,
@@ -609,6 +614,7 @@ impl PlayerInternal {
                         PlayerCommand::SetVolume(volume) => self.set_volume(volume)?,
                         PlayerCommand::SetRealtimeFFTEnabled(enabled) => self.set_realtime_fft_enabled(enabled)?,
                         PlayerCommand::SetAdaptiveSwitchingEnabled(enabled) => self.set_adaptive_switching(enabled)?,
+                        PlayerCommand::SetMixWithOthers(enabled) => self.set_mix_with_others(enabled)?,
                         PlayerCommand::Output(event) => self.output_event(event)?,
                     };
                 },
@@ -869,7 +875,7 @@ impl PlayerInternal {
         // activated, as during a call, fails the open, and the track waits paused for the next
         // play.
         #[cfg(target_os = "ios")]
-        if !crate::ios_session::activate() {
+        if !crate::ios_session::activate(self.mix_with_others) {
             bail!("the audio session could not be activated");
         }
         RuneOutputStream::try_default_with_callback({
@@ -1181,7 +1187,7 @@ impl PlayerInternal {
             return Ok(());
         };
         #[cfg(target_os = "ios")]
-        if !crate::ios_session::activate() {
+        if !crate::ios_session::activate(self.mix_with_others) {
             bail!("The audio session could not be made active");
         }
         #[cfg(test)]
@@ -1740,6 +1746,39 @@ impl PlayerInternal {
             *enabled = x;
         }
 
+        Ok(())
+    }
+
+    // Applies at once. iOS settles whether the app may be the Now Playing app, the one the lock
+    // screen and Control Center control, when its session becomes active, and a session only
+    // goes inactive while no output runs. So a playing output stops, the session goes down and
+    // comes up again with the new category, and the output starts again.
+    fn set_mix_with_others(&mut self, x: bool) -> Result<()> {
+        if self.mix_with_others == x {
+            return Ok(());
+        }
+        self.mix_with_others = x;
+        info!("Mix with other apps status changed: {x}");
+
+        let playing = self.state == InternalPlaybackState::Playing
+            && self.sink.is_some()
+            && !self.output_stale;
+        if playing {
+            self.suspend_output();
+        }
+        #[cfg(target_os = "ios")]
+        {
+            crate::ios_session::deactivate();
+            crate::ios_session::configure(x);
+        }
+        if playing
+            && self.output_suspended()
+            && let Err(e) = self.resume_output()
+        {
+            error!("Failed to start the audio output again: {e:?}");
+            self.mark_output_stale();
+            self.reopen_output()?;
+        }
         Ok(())
     }
 
@@ -3482,6 +3521,70 @@ mod stream_open_tests {
                     expect_loaded(&mut events, &track).await?;
                     commands_sender.send(PlayerCommand::Previous)?;
                     assert_about(expect_playing(&mut events, &track).await?, Duration::ZERO);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mixing_with_other_apps_is_off_until_asked_and_follows_the_command() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, _events, wav_path) = long_track_engine(&[file_uuid]);
+        assert!(!internal.mix_with_others);
+
+        // The command goes through the engine's own loop, which keeps running while it waits.
+        commands_sender.send(PlayerCommand::SetMixWithOthers(true))?;
+        let local = LocalSet::new();
+        let internal = local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move {
+                    let _ = tokio::time::timeout(Duration::from_millis(200), internal.run()).await;
+                    internal
+                });
+                runner.await
+            })
+            .await?;
+        assert!(internal.mix_with_others);
+
+        let mut internal = internal;
+        internal.set_mix_with_others(false)?;
+        assert!(!internal.mix_with_others);
+        let _ = std::fs::remove_file(wav_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn changing_mixing_while_playing_restarts_the_output_where_it_plays() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let opens = internal.output_opens.clone();
+        let suspends = internal.output_suspends.clone();
+        let resumes = internal.output_resumes.clone();
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    start_playing(&commands_sender, &mut events, file_uuid).await?;
+                    commands_sender.send(PlayerCommand::SetMixWithOthers(true))?;
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    while events.try_recv().is_ok() {}
+                    let before = next_progress(&mut events).await?;
+                    assert_eq!(suspends.load(Ordering::SeqCst), 1);
+                    assert_eq!(resumes.load(Ordering::SeqCst), 1);
+
+                    // The same output plays on.
+                    tokio::time::sleep(Duration::from_millis(400)).await;
+                    while events.try_recv().is_ok() {}
+                    let later = next_progress(&mut events).await?;
+                    assert!(later >= before + Duration::from_millis(300), "{later:?}");
+                    assert_eq!(opens.load(Ordering::SeqCst), 1);
 
                     runner.abort();
                     let _ = std::fs::remove_file(wav_path);
