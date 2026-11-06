@@ -12,6 +12,7 @@ import '../../../utils/api/play_next.dart';
 import '../../../utils/api/play_pause.dart';
 import '../../../utils/api/play_previous.dart';
 import '../../../utils/dialogs/play_queue_dialog.dart';
+import '../../../utils/dialogs/play_on/play_on_dialog.dart';
 import '../../../utils/settings_manager.dart';
 import '../../../widgets/playback_controller/fullscreen_button.dart';
 import '../../../widgets/playback_controller/utils/playback_mode.dart';
@@ -21,6 +22,8 @@ import '../../../providers/full_screen.dart';
 import '../../../providers/visualizer_scenes.dart';
 import '../../../providers/responsive_providers.dart';
 import '../../../providers/visualizer_lab.dart';
+import '../../../providers/renderer_attachment.dart';
+import '../../../providers/library_path.dart';
 import '../../../utils/visualizer_supported.dart';
 
 import '../lyric_button.dart';
@@ -433,6 +436,38 @@ List<ControllerEntry> controllerItems = [
           Navigator.pop(context);
           showPlayQueueDialog(context);
         },
+      );
+    },
+  ),
+  ControllerEntry(
+    id: 'play_on',
+    icon: (context) => Symbols.cast,
+    titleBuilder: (context) => S.of(context).playOn,
+    subtitleBuilder: (context) => S.of(context).playOnSubtitle,
+    shortcuts: null,
+    onShortcut: null,
+    tooltipBuilder: (context) {
+      final remotePath = Provider.of<LibraryPathProvider>(context).currentPath;
+      if (remotePath?.startsWith('@RR|') ?? false) {
+        return S.of(context).playOnFixedToRemote;
+      }
+      final renderer = Provider.of<RendererAttachmentProvider>(context).renderer;
+      return renderer == null
+          ? S.of(context).playOn
+          : S.of(context).playOnPlayingOn(renderer.alias);
+    },
+    controllerButtonBuilder: (context, shadows) => const PlayOnButton(),
+    flyoutEntryBuilder: (context) async {
+      final remotePath = Provider.of<LibraryPathProvider>(context, listen: false).currentPath;
+      return MenuFlyoutItem(
+        leading: const Icon(Symbols.cast),
+        text: Text(S.of(context).playOn),
+        onPressed: remotePath?.startsWith('@RR|') ?? false
+            ? null
+            : () {
+                Navigator.pop(context);
+                showPlayOnDialog(context);
+              },
       );
     },
   ),

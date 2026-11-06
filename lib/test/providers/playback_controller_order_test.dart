@@ -4,6 +4,12 @@ import 'package:rune/providers/playback_controller.dart';
 import 'package:rune/widgets/playback_controller/constants/controller_items.dart';
 
 void main() {
+  test('Play on is visible by default immediately after playlist', () {
+    final ids = [for (final item in controllerItems) item.id];
+    expect(ids[ids.indexOf('playlist') + 1], 'play_on');
+    expect(ids.indexOf('play_on'), lessThan(ids.indexOf('hidden')));
+  });
+
   test('an entry the saved order lacks goes to the end, past the hidden', () {
     final ids = [for (final item in controllerItems) item.id];
     final added = ids.last;

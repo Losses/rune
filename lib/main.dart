@@ -76,6 +76,7 @@ import 'providers/library_home.dart';
 import 'providers/library_manager.dart';
 import 'providers/linux_custom_window_controls.dart';
 import 'providers/playback_controller.dart';
+import 'providers/renderer_attachment.dart';
 import 'providers/responsive_providers.dart';
 
 import 'theme.dart';
@@ -348,6 +349,10 @@ void mainLoop(
         ChangeNotifierProvider(lazy: false, create: (_) => VolumeProvider()),
         ChangeNotifierProvider(lazy: false, create: (_) => ScrobbleProvider()),
         ChangeNotifierProvider(lazy: false, create: (_) => PlaylistProvider()),
+        ChangeNotifierProvider(
+          lazy: false,
+          create: (_) => RendererAttachmentProvider(),
+        ),
         ChangeNotifierProvider(
           lazy: false,
           create: (context) =>
