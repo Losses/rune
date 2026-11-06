@@ -89,13 +89,11 @@ class LibraryTaskButton extends StatelessWidget {
             filled: false,
           )
         : GestureDetector(
-            onSecondaryTapUp: isDesktop
-                ? (details) {
-                    if (onContextMenu != null) {
-                      onContextMenu!(libraryManager, itemPath);
-                    }
-                  }
-                : null,
+            onSecondaryTapUp: (details) {
+              if (onContextMenu != null) {
+                onContextMenu!(libraryManager, itemPath);
+              }
+            },
             onLongPressEnd: isDesktop
                 ? null
                 : (details) {
