@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/settings_page_padding.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 
 import 'widgets/color_mode_setting.dart';
@@ -33,10 +34,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
             width: math.max(220, constraints.maxWidth),
             child: SingleChildScrollView(
               padding: getScrollContainerPadding(context),
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: constraints.maxWidth < 300 ? 4 : 24,
-                ),
+              child: SettingsPagePadding(
                 child: Column(
                   children: [
                     InterfaceScaleSetting(),
