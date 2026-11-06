@@ -1055,21 +1055,17 @@
   "@userToken": {
     "description": "scrobble 登錄表單的輸入欄位標題。"
   },
-  "hostname": "主機名",
-  "@hostname": {
-    "description": "URL 的主機名部分。"
-  },
-  "port": "埠",
-  "@port": {
-    "description": "URL 的埠部分。"
-  },
-  "secured": "已加密",
-  "@secured": {
-    "description": "是否為加密連接。"
+  "ipAddress": "IP 位址",
+  "@ipAddress": {
+    "description": "在新增連線對話框中輸入的另一台裝置的 IPv4 位址。"
   },
   "addConnection": "添加連接",
   "@addConnection": {
     "description": "對話框中的操作按鈕。"
+  },
+  "invalidIpv4Address": "請輸入有效的 IPv4 位址，例如 192.168.1.20。",
+  "@invalidIpv4Address": {
+    "description": "在新增連線對話框中輸入的主機不是 IPv4 位址時顯示的錯誤。"
   },
   "neighbors": "附近",
   "@neighbors": {

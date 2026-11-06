@@ -4,8 +4,11 @@ import '../../../utils/router/navigation.dart';
 
 import '../widgets/fingerprint_quiz_dialog.dart';
 
-Future<bool?> showFingerprintQuizDialog(BuildContext context, String host) {
-  return $showModal<bool?>(
+Future<FingerprintQuizResult?> showFingerprintQuizDialog(
+  BuildContext context,
+  String host,
+) {
+  return $showModal<FingerprintQuizResult?>(
     context,
     (context, $close) => FingerprintQuizDialog(
       host: host,

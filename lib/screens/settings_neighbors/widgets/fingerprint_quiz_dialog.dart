@@ -6,6 +6,9 @@ import '../../../utils/api/fetch_server_certificate.dart';
 import '../../../widgets/fingerprint/fingerprint_quiz.dart';
 import '../../../widgets/no_shortcuts.dart';
 
+/// The outcome of the quiz and the fingerprint it was asked about.
+typedef FingerprintQuizResult = ({bool correct, String fingerprint});
+
 class FingerprintQuizDialog extends StatefulWidget {
   const FingerprintQuizDialog({
     super.key,
@@ -14,7 +17,7 @@ class FingerprintQuizDialog extends StatefulWidget {
   });
 
   final String host;
-  final void Function(bool?) $close;
+  final void Function(FingerprintQuizResult?) $close;
 
   @override
   FingerprintQuizDialogState createState() => FingerprintQuizDialogState();
@@ -29,8 +32,8 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
     _fingerprintFuture = fetchServerCertificate(widget.host);
   }
 
-  void _handleAnswer(bool correct) async {
-    widget.$close(correct);
+  void _handleAnswer(String fingerprint, bool correct) {
+    widget.$close((correct: correct, fingerprint: fingerprint));
   }
 
   @override
@@ -75,7 +78,8 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
                 const SizedBox(height: 24),
                 FingerprintQuiz(
                   fingerprint: snapshot.data!,
-                  onAnswer: _handleAnswer,
+                  onAnswer: (correct) =>
+                      _handleAnswer(snapshot.data!, correct),
                 )
               ],
             );

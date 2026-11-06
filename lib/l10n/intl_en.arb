@@ -1065,21 +1065,17 @@
   "@userToken": {
     "description": "Input field title of the scrobble login form."
   },
-  "hostname": "Hostname",
-  "@hostname": {
-    "description": "The host name part of an URL."
-  },
-  "port": "Port",
-  "@port": {
-    "description": "The port part of an URL."
-  },
-  "secured": "Secured",
-  "@secured": {
-    "description": "If the connection is secured."
+  "ipAddress": "IP Address",
+  "@ipAddress": {
+    "description": "The IPv4 address of another device, typed in the add connection dialog."
   },
   "addConnection": "Add Connection",
   "@addConnection": {
     "description": "The action button of the dialog."
+  },
+  "invalidIpv4Address": "Enter a valid IPv4 address, such as 192.168.1.20.",
+  "@invalidIpv4Address": {
+    "description": "Error shown when the host typed in the add connection dialog is not an IPv4 address."
   },
   "neighbors": "Neighbors",
   "@neighbors": {

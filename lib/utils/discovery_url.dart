@@ -1,9 +1,23 @@
-String _encodeIPv4(String ip) {
-  final parts = ip.split('.');
-  if (parts.length != 4) throw FormatException('Invalid IPv4');
+final _ipv4Pattern = RegExp(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$');
 
-  final nums = parts.map((p) => int.parse(p)).toList();
-  if (nums.any((n) => n < 0 || n > 255)) throw FormatException('Invalid octet');
+/// Returns the four octets of a dotted IPv4 literal, or null for anything else.
+List<int>? _ipv4Octets(String ip) {
+  final match = _ipv4Pattern.firstMatch(ip);
+  if (match == null) return null;
+
+  final octets = [for (var i = 1; i <= 4; i++) int.parse(match.group(i)!)];
+  return octets.any((n) => n > 255) ? null : octets;
+}
+
+/// Returns the trimmed [input] if it is a dotted IPv4 literal, otherwise null.
+String? parseIpv4Host(String input) {
+  final host = input.trim();
+  return _ipv4Octets(host) == null ? null : host;
+}
+
+String _encodeIPv4(String ip) {
+  final nums = _ipv4Octets(ip);
+  if (nums == null) throw FormatException('Invalid IPv4');
 
   int num = nums[0] << 24 | nums[1] << 16 | nums[2] << 8 | nums[3];
   final buffer = StringBuffer();

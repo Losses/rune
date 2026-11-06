@@ -123,7 +123,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
       widget.onPaired();
       final result = await showFingerprintQuizDialog(context, device.ips.first);
 
-      widget.onAnswered(device, result);
+      widget.onAnswered(device, result?.correct);
     }
   }
 }

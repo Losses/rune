@@ -1055,18 +1055,6 @@
   "@userToken": {
     "description": "scrobble 登入表格嘅輸入欄位標題。"
   },
-  "hostname": "主機名稱",
-  "@hostname": {
-    "description": "URL 嘅主機名稱部分。"
-  },
-  "port": "連接埠",
-  "@port": {
-    "description": "URL 嘅連接埠部分。"
-  },
-  "secured": "已加密",
-  "@secured": {
-    "description": "係唔係加密連線。"
-  },
   "addConnection": "新增連線",
   "@addConnection": {
     "description": "對話框入面嘅操作按鈕。"

@@ -1057,18 +1057,6 @@
   "@userToken": {
     "description": "Input field title of the scrobble login form."
   },
-  "hostname": "Gastiganto nomo",
-  "@hostname": {
-    "description": "La gastiganto-noma parto de URL."
-  },
-  "port": "Pordo",
-  "@port": {
-    "description": "La porda parto de URL."
-  },
-  "secured": "Sekurigita",
-  "@secured": {
-    "description": "Ĉu la konekto estas sekurigita."
-  },
   "addConnection": "Aldoni Konekton",
   "@addConnection": {
     "description": "La ago-butono de la dialogo."
