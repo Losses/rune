@@ -17,7 +17,12 @@ use tokio::sync::Mutex;
 #[cfg(target_os = "android")]
 use crate::dummy_souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "ios")]
+use crate::ios_now_playing::MediaControls;
+#[cfg(target_os = "ios")]
+use souvlaki::{MediaControlEvent, PlatformConfig, SeekDirection};
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
 
 use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};

@@ -66,11 +66,17 @@ souvlaki = { git = "https://github.com/Losses/souvlaki", rev = "e60e9b9a6a277430
 # The audio session on iOS: its notifications tell the player about calls and headphones, and it
 # is made active before an output opens. The objc2 crates are the versions the visualizer and
 # flutter-texture use.
+# The lock screen's Now Playing info and remote commands on iOS: MediaPlayer, called on the main
+# thread through the main dispatch queue, and UIKit for the artwork's image.
 [target.'cfg(target_os = "ios")'.dependencies]
 block2 = "0.6"
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
 objc2 = "0.6"
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioSession", "AVAudioSessionTypes"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSDictionary", "NSNotification", "NSOperation", "NSString", "NSValue"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "objc2"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSData", "NSDictionary", "NSNotification", "NSObject", "NSOperation", "NSString", "NSValue"] }
+objc2-media-player = { version = "0.3", default-features = false, features = ["std", "block2", "MPMediaItem", "MPNowPlayingInfoCenter", "MPRemoteCommand", "MPRemoteCommandCenter", "MPRemoteCommandEvent"] }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "UIImage"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1.1"
