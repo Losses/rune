@@ -23,7 +23,7 @@ class BandScreenFallbackButton extends StatelessWidget {
         return RuneClickable(
           iconSize: (size * 0.8).clamp(0, 48),
           padding: (size * 0.1).clamp(0, 12),
-          onPressed: () => {},
+          onPressed: onPressed,
           child: icon,
         );
       },
