@@ -91,6 +91,12 @@ const kPlaybackModeKey = 'playback_mode';
 /// queue without replacing the current playlist.
 const kNonReplaceOperateModeKey = 'playlist_operate_mode';
 
+/// Whether casting a track appends it as the next item instead of replacing the queue.
+const kCastTrackModeKey = 'cast_track_mode';
+
+/// Whether casting also attaches this device as a controller of the renderer.
+const kCastControlRendererKey = 'cast_control_renderer';
+
 /// The primary purpose of this key is to allow customization of the startup
 /// sound effect that plays when Rune launches.
 const kBandingSfxKey = 'branding_sfx';

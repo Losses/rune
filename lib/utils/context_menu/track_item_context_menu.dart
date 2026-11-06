@@ -15,6 +15,7 @@ import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
 import '../../providers/library_path.dart';
+import '../dialogs/play_on/play_on_dialog.dart';
 
 import '../rune_log.dart';
 import '../execute_middle_click_action.dart';
@@ -220,6 +221,7 @@ Widget buildTrackItemContextMenu(
       },
     );
   }).toList();
+  final libraryPath = context.read<LibraryPathProvider>().currentPath;
 
   return MenuFlyout(
     items: [
@@ -235,6 +237,23 @@ Widget buildTrackItemContextMenu(
           );
         },
       ),
+      if (libraryPath != null && !libraryPath.startsWith('@RR|'))
+        MenuFlyoutItem(
+          leading: const Icon(Symbols.cast),
+          text: Text(S.of(context).playOn),
+          onPressed: () async {
+            final host = Navigator.of(context).context;
+            Flyout.of(context).close();
+            await _runTrackAction(host, () async {
+              await showCastOnDialog(
+                host,
+                libraryPath: libraryPath,
+                cast: (candidate) =>
+                    castTrackWithSettings(item.file.id, candidate.fingerprint),
+              );
+            });
+          },
+        ),
       MenuFlyoutItem(
         leading: const Icon(Symbols.playlist_add),
         text: Text(S.of(context).addToQueue),
@@ -261,12 +280,12 @@ Widget buildTrackItemContextMenu(
         },
       ),
       if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
-              playlistId != null &&
-              occurrenceId != null)
+          playlistId != null &&
+          occurrenceId != null)
         const MenuFlyoutSeparator(),
       if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
-              playlistId != null &&
-              occurrenceId != null)
+          playlistId != null &&
+          occurrenceId != null)
         MenuFlyoutItem(
           leading: const Icon(Symbols.delete),
           text: Text(S.of(context).removeFromPlaylist),
@@ -331,68 +350,68 @@ Widget buildTrackItemContextMenu(
         const MenuFlyoutSeparator(),
       if (!context.read<LibraryPathProvider>().isReadOnlyReplica)
         MenuFlyoutSubItem(
-        leading: const Icon(Symbols.list_alt),
-        text: Text(S.of(context).addToPlaylist),
-        items: (context) => [
-          MenuFlyoutItem(
-            leading: const Icon(Symbols.add),
-            text: Text(S.of(context).newPlaylist),
-            onPressed: () async {
-              final host = Navigator.of(context).context;
-              Flyout.of(context).close();
+          leading: const Icon(Symbols.list_alt),
+          text: Text(S.of(context).addToPlaylist),
+          items: (context) => [
+            MenuFlyoutItem(
+              leading: const Icon(Symbols.add),
+              text: Text(S.of(context).newPlaylist),
+              onPressed: () async {
+                final host = Navigator.of(context).context;
+                Flyout.of(context).close();
 
-              final playlist = await showCreateEditPlaylistDialog(
-                host,
-                item.file.title,
-                playlistId: null,
-              );
+                final playlist = await showCreateEditPlaylistDialog(
+                  host,
+                  item.file.title,
+                  playlistId: null,
+                );
 
-              if (playlist == null) return;
+                if (playlist == null) return;
 
-              if (host.mounted) {
-                await _addToPlaylist(host, playlist.id, item.file.id);
-              }
-            },
-          ),
-          if (playlistItems.isNotEmpty) const MenuFlyoutSeparator(),
-          ...playlistItems,
-        ],
-      ),
+                if (host.mounted) {
+                  await _addToPlaylist(host, playlist.id, item.file.id);
+                }
+              },
+            ),
+            if (playlistItems.isNotEmpty) const MenuFlyoutSeparator(),
+            ...playlistItems,
+          ],
+        ),
       if (!context.read<LibraryPathProvider>().isReadOnlyReplica)
         MenuFlyoutSubItem(
-        leading: const Icon(Symbols.magic_button),
-        text: Text(S.of(context).addToMix),
-        items: (context) => [
-          MenuFlyoutItem(
-            leading: const Icon(Symbols.add),
-            text: Text(S.of(context).newMix),
-            onPressed: () async {
-              final host = Navigator.of(context).context;
-              Flyout.of(context).close();
+          leading: const Icon(Symbols.magic_button),
+          text: Text(S.of(context).addToMix),
+          items: (context) => [
+            MenuFlyoutItem(
+              leading: const Icon(Symbols.add),
+              text: Text(S.of(context).newMix),
+              onPressed: () async {
+                final host = Navigator.of(context).context;
+                Flyout.of(context).close();
 
-              final playlist = await showCreateEditMixDialog(
-                host,
-                item.file.title,
-                mixId: null,
-              );
+                final playlist = await showCreateEditMixDialog(
+                  host,
+                  item.file.title,
+                  mixId: null,
+                );
 
-              if (playlist == null) return;
+                if (playlist == null) return;
 
-              if (!host.mounted) return;
-              await _runTrackAction(
-                host,
-                () => addItemToMix(
-                  playlist.id,
-                  "lib::track",
-                  item.file.id.toString(),
-                ),
-              );
-            },
-          ),
-          if (mixItems.isNotEmpty) const MenuFlyoutSeparator(),
-          ...mixItems,
-        ],
-      ),
+                if (!host.mounted) return;
+                await _runTrackAction(
+                  host,
+                  () => addItemToMix(
+                    playlist.id,
+                    "lib::track",
+                    item.file.id.toString(),
+                  ),
+                );
+              },
+            ),
+            if (mixItems.isNotEmpty) const MenuFlyoutSeparator(),
+            ...mixItems,
+          ],
+        ),
     ],
   );
 }
@@ -405,6 +424,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
   String? occurrenceId,
   void Function()? refreshList,
 }) {
+  final libraryPath = context.read<LibraryPathProvider>().currentPath;
   List<CommandBarButton> items = [
     CommandBarButton(
       icon: Tooltip(
@@ -418,6 +438,23 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         );
       },
     ),
+    if (libraryPath != null && !libraryPath.startsWith('@RR|'))
+      CommandBarButton(
+        icon: Tooltip(
+          message: S.of(context).playOn,
+          child: const Icon(Symbols.cast),
+        ),
+        onPressed: () async {
+          await _runTrackAction(context, () async {
+            await showCastOnDialog(
+              context,
+              libraryPath: libraryPath,
+              cast: (candidate) =>
+                  castTrackWithSettings(item.file.id, candidate.fingerprint),
+            );
+          });
+        },
+      ),
     CommandBarButton(
       icon: Tooltip(
         message: S.of(context).addToQueue,
@@ -448,8 +485,8 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
       },
     ),
     if (!context.read<LibraryPathProvider>().isReadOnlyReplica &&
-              playlistId != null &&
-              occurrenceId != null)
+        playlistId != null &&
+        occurrenceId != null)
       CommandBarButton(
         icon: Tooltip(
           message: S.of(context).removeFromPlaylist,

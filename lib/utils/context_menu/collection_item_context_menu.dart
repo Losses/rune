@@ -25,6 +25,7 @@ import '../dialogs/information/error.dart';
 import '../build_collection_query.dart';
 import '../execute_middle_click_action.dart';
 import '../dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
+import '../dialogs/play_on/play_on_dialog.dart';
 
 import '../router/router_aware_flyout_controller.dart';
 import 'utils/build_m3u8.dart';
@@ -197,6 +198,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
   final operator = typeToOperator[type];
   final edit = typeToEdit[type];
   final remove = typeToRemove[type];
+  final libraryPath = context.read<LibraryPathProvider>().currentPath;
 
   final List<MenuFlyoutItem> mixItems = mixes.where((x) => !x.locked).map((
     mix,
@@ -228,6 +230,27 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
         );
       },
     ),
+    if (libraryPath != null && !libraryPath.startsWith('@RR|'))
+      MenuFlyoutItem(
+        leading: const Icon(Symbols.cast),
+        text: Text(S.of(context).playOn),
+        onPressed: () async {
+          final host = Navigator.of(context).context;
+          Flyout.of(context).close();
+          await _handleCollectionRequest(host, () async {
+            await showCastOnDialog(
+              host,
+              libraryPath: libraryPath,
+              cast: (candidate) => castCollectionWithSettings(
+                type,
+                id,
+                fallbackFileIds,
+                candidate.fingerprint,
+              ),
+            );
+          });
+        },
+      ),
     MenuFlyoutItem(
       leading: const Icon(Symbols.playlist_add),
       text: Text(S.of(context).addToQueue),
@@ -265,7 +288,8 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
     );
   }
 
-  if (remove != null && !context.read<LibraryPathProvider>().isReadOnlyReplica) {
+  if (remove != null &&
+      !context.read<LibraryPathProvider>().isReadOnlyReplica) {
     items.add(
       MenuFlyoutItem(
         leading: const Icon(Symbols.delete),
@@ -279,7 +303,8 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
     );
   }
 
-  if (operator != null && !context.read<LibraryPathProvider>().isReadOnlyReplica) {
+  if (operator != null &&
+      !context.read<LibraryPathProvider>().isReadOnlyReplica) {
     items.add(const MenuFlyoutSeparator());
     items.add(
       MenuFlyoutSubItem(
@@ -370,6 +395,7 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
   bool isBand, [
   List<int> fallbackFileIds = const [],
 ]) {
+  final libraryPath = context.read<LibraryPathProvider>().currentPath;
   List<CommandBarButton> items = [
     CommandBarButton(
       icon: Tooltip(
@@ -383,6 +409,28 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
         );
       },
     ),
+    if (libraryPath != null && !libraryPath.startsWith('@RR|'))
+      CommandBarButton(
+        icon: Tooltip(
+          message: S.of(context).playOn,
+          child: const Icon(Symbols.cast),
+        ),
+        onPressed: () async {
+          final host = Navigator.of(context).context;
+          await _handleCollectionRequest(host, () async {
+            await showCastOnDialog(
+              host,
+              libraryPath: libraryPath,
+              cast: (candidate) => castCollectionWithSettings(
+                type,
+                id,
+                fallbackFileIds,
+                candidate.fingerprint,
+              ),
+            );
+          });
+        },
+      ),
     CommandBarButton(
       icon: Tooltip(
         message: S.of(context).addToQueue,

@@ -10,6 +10,7 @@ import 'widgets/queue_mode_setting.dart';
 import 'widgets/playback_mode_setting.dart';
 import 'widgets/adaptive_switching_setting.dart';
 import 'widgets/middle_click_action_setting.dart';
+import 'widgets/cast_settings.dart';
 
 class SettingsPlayback extends StatefulWidget {
   const SettingsPlayback({super.key});
@@ -32,12 +33,18 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 QueueModeSetting(),
+                CastTrackModeSetting(),
+                CastControlRendererSetting(),
                 MiddleClickActionSetting(),
                 PlaybackModeSetting(),
                 AdaptiveSwitchingSetting(),
                 Padding(
-                  padding:
-                      EdgeInsets.only(top: 8, bottom: 2, left: 6, right: 6),
+                  padding: EdgeInsets.only(
+                    top: 8,
+                    bottom: 2,
+                    left: 6,
+                    right: 6,
+                  ),
                   child: Text(s.onlineServices),
                 ),
                 SettingsBoxScrobbleLogin(

@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
+import '../constants/settings_manager.dart';
 
 import 'api/operate_playback_with_mix_query.dart';
 import 'api/request_failure.dart';
@@ -55,7 +56,7 @@ Future<void> startPlaying(
   int id, [
   List<int> fallbackFileIds = const [],
 ]) async {
-  final queries = QueryList(await buildQuery(collectionType, id));
+  final queries = await _buildCollectionQueries(collectionType, id);
   await operatePlaybackWithMixQuery(
     queries: queries,
     playbackMode: 99,
@@ -64,6 +65,85 @@ Future<void> startPlaying(
     instantlyPlay: true,
     operateMode: PlaylistOperateMode.replace,
     fallbackPlayingItems: fallbackFileIds.map(PlayingItem.inLibrary).toList(),
+  );
+}
+
+Future<QueryList> _buildCollectionQueries(
+  CollectionType collectionType,
+  int id,
+) async => QueryList(await buildQuery(collectionType, id));
+
+Future<void> castCollection(
+  CollectionType collectionType,
+  int id,
+  List<int> fallbackFileIds,
+  CastTarget castTo,
+) async {
+  final behavior = castCollectionBehavior();
+  final queries = await _buildCollectionQueries(collectionType, id);
+  await operatePlaybackWithMixQuery(
+    queries: queries,
+    playbackMode: 99,
+    hintPosition: -1,
+    initialPlaybackId: 0,
+    instantlyPlay: behavior.instantlyPlay,
+    operateMode: behavior.operateMode,
+    fallbackPlayingItems: fallbackFileIds.map(PlayingItem.inLibrary).toList(),
+    castTo: castTo,
+  );
+}
+
+({PlaylistOperateMode operateMode, bool instantlyPlay})
+castCollectionBehavior() =>
+    (operateMode: PlaylistOperateMode.replace, instantlyPlay: true);
+
+CastTarget castTargetFor(String fingerprint, bool attach) =>
+    CastTarget(fingerprint: fingerprint, attach: attach);
+
+Future<bool> _castAttaches() async =>
+    await $settingsManager.getValue<bool>(kCastControlRendererKey) ?? false;
+
+/// Casts a track to [fingerprint] as the cast settings say.
+Future<void> castTrackWithSettings(int id, String fingerprint) async {
+  final playNext =
+      await $settingsManager.getValue<bool>(kCastTrackModeKey) ?? false;
+  await castTrack(
+    id,
+    castTargetFor(fingerprint, await _castAttaches()),
+    playNext,
+  );
+}
+
+/// Casts a collection to [fingerprint] as the cast settings say.
+Future<void> castCollectionWithSettings(
+  CollectionType collectionType,
+  int id,
+  List<int> fallbackFileIds,
+  String fingerprint,
+) async => castCollection(
+  collectionType,
+  id,
+  fallbackFileIds,
+  castTargetFor(fingerprint, await _castAttaches()),
+);
+
+({PlaylistOperateMode operateMode, bool instantlyPlay}) castTrackBehavior(
+  bool playNext,
+) => playNext
+    ? (operateMode: PlaylistOperateMode.playNext, instantlyPlay: false)
+    : (operateMode: PlaylistOperateMode.replace, instantlyPlay: true);
+
+Future<void> castTrack(int id, CastTarget castTo, bool playNext) async {
+  final behavior = castTrackBehavior(playNext);
+  await operatePlaybackWithMixQuery(
+    queries: await _buildCollectionQueries(CollectionType.track, id),
+    playbackMode: 99,
+    hintPosition: -1,
+    initialPlaybackId: 0,
+    instantlyPlay: behavior.instantlyPlay,
+    operateMode: behavior.operateMode,
+    fallbackPlayingItems: const [],
+    castTo: castTo,
   );
 }
 

@@ -10,6 +10,7 @@ import '../../providers/renderer_attachment.dart';
 import '../../utils/api/request_failure.dart';
 import '../../utils/dialogs/play_on/play_on_dialog.dart';
 import '../../utils/playing_item.dart';
+import '../../utils/execute_middle_click_action.dart';
 
 void main() {
   testWidgets('unavailable reasons are dimmed and cannot be selected', (
@@ -134,6 +135,68 @@ void main() {
       );
     },
   );
+
+  testWidgets('cast mode omits this device and can cast to an attached row', (
+    tester,
+  ) async {
+    List<String>? requestedLibraries;
+    CastTarget? castTarget;
+    await _open(
+      tester,
+      candidates: [
+        _candidate(
+          'Bedroom',
+          RendererAvailability.available,
+          fingerprint: 'fp-b',
+          attached: true,
+        ),
+      ],
+      loader: (ids) async {
+        requestedLibraries = ids;
+        return [
+          _candidate(
+            'Bedroom',
+            RendererAvailability.available,
+            fingerprint: 'fp-b',
+            attached: true,
+          ),
+        ];
+      },
+      castLibraryIds: const ['library-h'],
+      cast: (candidate) async {
+        castTarget = castTargetFor(candidate.fingerprint, true);
+      },
+    );
+
+    expect(find.text('This device'), findsNothing);
+    expect(requestedLibraries, ['library-h']);
+    await tester.tap(find.text('Bedroom'));
+    await tester.pumpAndSettle();
+    expect(castTarget, const CastTarget(fingerprint: 'fp-b', attach: true));
+    expect(find.text('Play on'), findsNothing);
+  });
+
+  testWidgets('cast failures stay in the dialog with a localized message', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      candidates: [_candidate('Bedroom', RendererAvailability.available)],
+      castLibraryIds: const ['blocked-library'],
+      cast: (_) async {
+        throw const RequestFailure(
+          'OperatePlaybackWithMixQueryRequest',
+          RequestErrorKind.permissionDenied,
+          'denied',
+        );
+      },
+    );
+
+    await tester.tap(find.text('Bedroom'));
+    await tester.pumpAndSettle();
+    expect(find.text("This device isn't allowed to do that"), findsOneWidget);
+    expect(find.text('Play on'), findsOneWidget);
+  });
 }
 
 RendererCandidate _candidate(
@@ -160,6 +223,8 @@ Future<void> _open(
   RendererAttach? attach,
   RendererDetach? detach,
   RendererAttachmentChanged? initial,
+  List<String>? castLibraryIds,
+  RendererCast? cast,
 }) async {
   await tester.pumpWidget(
     MultiProvider(
@@ -181,6 +246,8 @@ Future<void> _open(
               attach: attach ?? (_) async {},
               detach: detach ?? () async {},
               loadLibraryNames: () async => {'blocked-library': 'My Music'},
+              castLibraryIds: castLibraryIds,
+              cast: cast,
             ),
           ),
         ),

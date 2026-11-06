@@ -18,6 +18,7 @@ typedef RendererLoader =
     Future<List<RendererCandidate>> Function(List<String> libraryIds);
 typedef RendererAttach = Future<void> Function(String fingerprint);
 typedef RendererDetach = Future<void> Function();
+typedef RendererCast = Future<void> Function(RendererCandidate candidate);
 typedef LibraryNamesLoader = Future<Map<String, String>> Function();
 
 Future<Map<String, String>> _loadLibraryNames() async {
@@ -38,13 +39,17 @@ Future<void> showPlayOnDialog(
   RendererAttach attach = attachRenderer,
   RendererDetach detach = detachRenderer,
   LibraryNamesLoader loadLibraryNames = _loadLibraryNames,
+  List<String>? castLibraryIds,
+  RendererCast? cast,
 }) async {
   final playlist = Provider.of<PlaylistProvider>(context, listen: false);
   final attachment = Provider.of<RendererAttachmentProvider>(
     context,
     listen: false,
   );
-  final libraryIds = queueLibraryIds(playlist.items.map((entry) => entry.item));
+  final libraryIds =
+      castLibraryIds ??
+      queueLibraryIds(playlist.items.map((entry) => entry.item));
   final namesFuture = loadLibraryNames();
   await showDialog<void>(
     context: context,
@@ -55,7 +60,37 @@ Future<void> showPlayOnDialog(
       libraryNamesFuture: namesFuture,
       libraryIds: libraryIds,
       attachment: attachment,
+      castMode: cast != null,
+      cast: cast,
     ),
+  );
+}
+
+Future<void> showCastOnDialog(
+  BuildContext context, {
+  required String libraryPath,
+  required RendererCast cast,
+  RendererLoader loader = listRenderers,
+  LibraryNamesLoader loadLibraryNames = _loadLibraryNames,
+}) async {
+  final libraries = await listLocalLibraries();
+  if (!context.mounted) return;
+  final library = libraries.libraries.where(
+    (entry) => entry.path == libraryPath,
+  );
+  if (library.isEmpty) {
+    throw const RequestFailure(
+      'ListLocalLibrariesRequest',
+      RequestErrorKind.unavailable,
+      'The open library is unavailable',
+    );
+  }
+  await showPlayOnDialog(
+    context,
+    loader: loader,
+    loadLibraryNames: loadLibraryNames,
+    castLibraryIds: [library.first.libraryId],
+    cast: cast,
   );
 }
 
@@ -76,6 +111,8 @@ class _PlayOnDialog extends StatefulWidget {
     required this.libraryNamesFuture,
     required this.libraryIds,
     required this.attachment,
+    required this.castMode,
+    required this.cast,
   });
 
   final RendererLoader loader;
@@ -84,6 +121,8 @@ class _PlayOnDialog extends StatefulWidget {
   final Future<Map<String, String>> libraryNamesFuture;
   final List<String> libraryIds;
   final RendererAttachmentProvider attachment;
+  final bool castMode;
+  final RendererCast? cast;
 
   @override
   State<_PlayOnDialog> createState() => _PlayOnDialogState();
@@ -167,15 +206,16 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                         Text(requestErrorText(strings, _error!)),
                         const SizedBox(height: 8),
                       ],
-                      _row(
-                        alias: strings.thisDevice,
-                        selected: thisDeviceSelected,
-                        enabled: currentRenderer != null,
-                        working: _working == 'this-device',
-                        onTap: currentRenderer == null
-                            ? null
-                            : () => _select('this-device', widget.detach),
-                      ),
+                      if (!widget.castMode)
+                        _row(
+                          alias: strings.thisDevice,
+                          selected: thisDeviceSelected,
+                          enabled: currentRenderer != null,
+                          working: _working == 'this-device',
+                          onTap: currentRenderer == null
+                              ? null
+                              : () => _select('this-device', widget.detach),
+                        ),
                       for (final candidate in snapshot.data!) ...[
                         const Divider(),
                         _row(
@@ -191,15 +231,17 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                           enabled:
                               candidate.availability ==
                                   RendererAvailability.available &&
-                              !candidate.attached,
+                              (widget.castMode || !candidate.attached),
                           working: _working == candidate.fingerprint,
                           onTap:
                               candidate.availability ==
                                       RendererAvailability.available &&
-                                  !candidate.attached
+                                  (widget.castMode || !candidate.attached)
                               ? () => _select(
                                   candidate.fingerprint,
-                                  () => widget.attach(candidate.fingerprint),
+                                  () => widget.castMode
+                                      ? widget.cast!(candidate)
+                                      : widget.attach(candidate.fingerprint),
                                 )
                               : null,
                         ),
