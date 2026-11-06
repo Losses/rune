@@ -1173,6 +1173,25 @@ mod lifecycle_tests {
         load_device_info(Path::new(&*manager.global_params.config_path)).await
     }
 
+    /// Deliver a discovery announcement for `info` at `addr` to `receiver`,
+    /// as a multicast datagram would.
+    async fn announce_peer(
+        receiver: &Fixture,
+        info: &discovery::utils::DeviceInfo,
+        addr: SocketAddr,
+    ) -> Result<()> {
+        let announcement = serde_json::json!({
+            "fingerprint": info.fingerprint, "alias": info.alias,
+            "deviceModel": info.device_model, "deviceType": info.device_type,
+            "api_port": addr.port(), "announce": true,
+        });
+        receiver
+            .global_params
+            .device_scanner
+            .observe_announcement(&serde_json::to_vec(&announcement)?, addr, None)
+            .await
+    }
+
     #[tokio::test]
     async fn device_info_returns_rune_capabilities() -> Result<()> {
         let dir = tempfile::tempdir()?;
@@ -3134,6 +3153,14 @@ mod lifecycle_tests {
             ),
         )
         .await?;
+        // Expose the peer before its listener starts so the first metadata pass
+        // deterministically encounters a refused connection.
+        peer_step(
+            "announce peer before second listener starts",
+            announce_peer(&a, &b_info, b_addr),
+        )
+        .await?;
+        tokio::time::sleep(Duration::from_secs(2)).await;
         peer_step(
             "start second sync listener",
             b.clone().start_sync(
@@ -3144,23 +3171,11 @@ mod lifecycle_tests {
             ),
         )
         .await?;
-        // Deliver actual discovery datagrams deterministically when multicast is unavailable.
-        for (receiver, info, addr) in [(&a, &b_info, b_addr), (&b, &a_info, a_addr)] {
-            let announcement = serde_json::json!({
-                "fingerprint": info.fingerprint, "alias": info.alias,
-                "deviceModel": info.device_model, "deviceType": info.device_type,
-                "api_port": addr.port(), "announce": true,
-            });
-            peer_step(
-                "deliver peer announcement",
-                receiver.global_params.device_scanner.observe_announcement(
-                    &serde_json::to_vec(&announcement)?,
-                    addr,
-                    None,
-                ),
-            )
-            .await?;
-        }
+        peer_step(
+            "announce first listener to second peer",
+            announce_peer(&b, &a_info, a_addr),
+        )
+        .await?;
         tokio::time::timeout(Duration::from_secs(15), async {
             loop {
                 let seen_a =
@@ -3213,6 +3228,7 @@ mod lifecycle_tests {
         })
         .await?;
         assert_eq!(unauthorized_file, reqwest::StatusCode::UNAUTHORIZED);
+        let metadata_wait_started = Instant::now();
         let remote_id = tokio::time::timeout(Duration::from_secs(45), async {
             let receiver = a.global_params.test_library().library_sync.clone();
             loop {
@@ -3237,6 +3253,10 @@ mod lifecycle_tests {
         })
         .await
         .context("background sync did not transfer album and track metadata")?;
+        anyhow::ensure!(
+            metadata_wait_started.elapsed() < Duration::from_secs(20),
+            "metadata transfer after a refused first pass took longer than 20 seconds"
+        );
         peer_step("configure audio peer permissions", async {
             b.global_params
                 .permission_manager

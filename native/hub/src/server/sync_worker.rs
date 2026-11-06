@@ -22,7 +22,7 @@ use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use discovery::endpoint::endpoint_host_port;
 use discovery::server::UserStatus;
 use futures::future::BoxFuture;
-use futures::future::{AbortHandle, Abortable};
+use futures::future::{AbortHandle, Abortable, Aborted};
 use http_request::sync::PageCursor;
 use playback::player::{
     LibraryPlaybackSource, PlaybackSourceResolver, RemoteAudioError, RemoteAudioSource,
@@ -54,6 +54,8 @@ use uuid::Uuid;
 
 const DEFAULT_PEER_PORT: u16 = 7863;
 const PEER_CONCURRENCY: usize = 4;
+const PEER_RETRY_START: Duration = Duration::from_secs(1);
+const PEER_RETRY_CAP: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug)]
 pub(super) struct PeerEndpoint {
@@ -361,24 +363,24 @@ async fn run_loop(
         async move {
             let key = (hosts[0].fingerprint.clone(), id);
             let Some(global) = global.upgrade() else {
-                return (key, Duration::from_secs(30));
+                return (key, Duration::from_secs(30), false);
             };
             let library = tokio::select! {
-                _ = cancel.cancelled() => return (key, Duration::from_secs(30)),
+                _ = cancel.cancelled() => return (key, Duration::from_secs(30), false),
                 library = global.library_pool.acquire_served(id) => library,
             };
             let library = match library {
                 Ok(Some(library)) => library,
-                Ok(None) => return (key, Duration::from_secs(30)),
+                Ok(None) => return (key, Duration::from_secs(30), true),
                 Err(error) => {
                     log::warn!("Could not acquire background library: {error:#}");
-                    return (key, Duration::from_secs(30));
+                    return (key, Duration::from_secs(30), true);
                 }
             };
             let notify = pass_notification(&global, &library, &notify).await;
             for endpoint in hosts {
                 let result = tokio::select! {
-                    _ = cancel.cancelled() => return (key, Duration::from_secs(30)),
+                    _ = cancel.cancelled() => return (key, Duration::from_secs(30), false),
                     _ = wait_for_revocation(Arc::downgrade(&global), &endpoint.fingerprint, &endpoint.trusted_host) => Err(anyhow::anyhow!("peer permission revoked")),
                     result = async {
                         let options = PassOptions { credentials: &credentials, metadata, locks: &locks };
@@ -391,7 +393,7 @@ async fn run_loop(
                     } => result,
                 };
                 match classify_peer_pass(result) {
-                    Ok(complete) => return (key, complete.retry_delay()),
+                    Ok(complete) => return (key, complete.retry_delay(), false),
                     Err(error) => log::warn!(
                         "Background {} with paired device failed: {error:#}",
                         if metadata {
@@ -402,7 +404,7 @@ async fn run_loop(
                     ),
                 }
             }
-            (key, Duration::from_secs(30))
+            (key, Duration::from_secs(30), true)
         }
     };
     schedule_peers(
@@ -430,6 +432,9 @@ async fn run_loop(
     .await;
 }
 
+type PeerWorkResult<Q> = (Q, Duration, bool);
+type PeerTaskResult<Q> = (Q, Result<PeerWorkResult<Q>, Aborted>);
+
 async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
     discover: D,
     work: W,
@@ -441,16 +446,17 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
     D: Fn() -> DF,
     DF: Future<Output = Vec<P>>,
     W: Fn(P) -> WF,
-    WF: Future<Output = (Q, Duration)> + Send + 'static,
+    WF: Future<Output = PeerWorkResult<Q>> + Send + 'static,
     K: Fn(&P) -> Q,
     Q: Clone + Eq + Hash + Send + 'static,
     C: Fn() -> CF,
     CF: Future<Output = ()>,
 {
     let mut due = HashMap::<Q, Instant>::new();
+    let mut backoff = HashMap::<Q, PeerFailureBackoff>::new();
     let mut running = HashMap::<Q, AbortHandle>::new();
     // Discovery and cleanup may await locks held by an in-flight peer pass.
-    let mut tasks = JoinSet::new();
+    let mut tasks: JoinSet<PeerTaskResult<Q>> = JoinSet::new();
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut next_due = None;
@@ -472,7 +478,14 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
                     }
                 };
                 running.remove(&key);
-                if let Ok((key, wait)) = result {
+                if let Ok((key, wait, failed)) = result {
+                    let policy = backoff.entry(key.clone()).or_default();
+                    let wait = if failed {
+                        policy.next_failure_delay()
+                    } else {
+                        policy.reset();
+                        wait
+                    };
                     due.insert(key, Instant::now() + wait);
                 }
             }
@@ -486,6 +499,7 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
         };
         let eligible: HashSet<_> = peers.iter().map(&key).collect();
         due.retain(|fingerprint, _| eligible.contains(fingerprint));
+        backoff.retain(|fingerprint, _| eligible.contains(fingerprint));
         for (key, handle) in &running {
             if !eligible.contains(key) {
                 handle.abort();
@@ -522,6 +536,23 @@ async fn schedule_peers<P, Q, D, DF, W, WF, K, C, CF>(
             None
         };
         cleanup().await;
+    }
+}
+
+#[derive(Default)]
+struct PeerFailureBackoff {
+    next_delay: Option<Duration>,
+}
+
+impl PeerFailureBackoff {
+    fn next_failure_delay(&mut self) -> Duration {
+        let delay = self.next_delay.unwrap_or(PEER_RETRY_START);
+        self.next_delay = Some(delay.saturating_mul(2).min(PEER_RETRY_CAP));
+        delay
+    }
+
+    fn reset(&mut self) {
+        self.next_delay = None;
     }
 }
 
@@ -1401,7 +1432,7 @@ mod tests {
                             state.release.acquire().await.unwrap().forget();
                             drop(guard);
                             state.finished.add_permits(1);
-                            (peer, Duration::from_secs(30))
+                            (peer, Duration::from_secs(30), false)
                         }
                     },
                     |peer| *peer,
@@ -1447,6 +1478,18 @@ mod tests {
         assert_peer_progress(ContentionPhase::Cleanup).await;
     }
 
+    #[test]
+    fn peer_failure_backoff_doubles_caps_and_resets_after_success() {
+        let mut backoff = PeerFailureBackoff::default();
+        let delays = (0..7)
+            .map(|_| backoff.next_failure_delay())
+            .collect::<Vec<_>>();
+        assert_eq!(delays, [1, 2, 4, 8, 16, 30, 30].map(Duration::from_secs));
+
+        backoff.reset();
+        assert_eq!(backoff.next_failure_delay(), PEER_RETRY_START);
+    }
+
     #[tokio::test]
     async fn newly_due_peer_runs_while_another_is_stalled() {
         use std::sync::atomic::AtomicBool;
@@ -1477,7 +1520,7 @@ mod tests {
                                 std::future::pending::<()>().await;
                             }
                             second.notify_one();
-                            (peer, Duration::from_secs(30))
+                            (peer, Duration::from_secs(30), false)
                         }
                     },
                     |peer: &String| peer.clone(),
