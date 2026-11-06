@@ -28,6 +28,18 @@
   "@factoryResetSubtitle": {
     "description": "設置界面中“恢復出廠設置”按鈕的說明文字。"
   },
+  "onMyIPhone": "我的 iPhone",
+  "@onMyIPhone": {
+    "description": "iPhone 上「檔案」App 中的位置，顯示在媒體庫位置的開頭。"
+  },
+  "onMyIPad": "我的 iPad",
+  "@onMyIPad": {
+    "description": "iPad 上「檔案」App 中的位置，顯示在媒體庫位置的開頭。"
+  },
+  "iCloudDrive": "iCloud 雲碟",
+  "@iCloudDrive": {
+    "description": "iCloud 雲碟在「檔案」App 中的位置，顯示在媒體庫位置的開頭。"
+  },
   "bsodBody": "您的播放器遇到問題，需要重新啟動。我們尊重您的隱私，不會收集任何數據。",
   "@bsodBody": {
     "description": "在藍屏界面，這向用戶解釋軟體遇到了致命錯誤。並信達雅提示用戶隱私保護。"

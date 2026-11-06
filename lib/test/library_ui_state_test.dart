@@ -70,6 +70,56 @@ void main() {
     expect(row('/two').library?.backgroundSync, false);
     expect(row('/missing').library, isNull);
   });
+  test('iOS folders are named by where the Files app shows them', () {
+    String location(String path) => filesAppLocation(
+      path,
+      onThisDevice: 'On My iPhone',
+      iCloudDrive: 'iCloud Drive',
+    );
+    const onDevice = '/private/var/mobile/Containers/Shared/AppGroup/'
+        '2A36B718-E77C-43AD-9B4A-C15B1D7F74FC/File Provider Storage';
+    expect(location('$onDevice/music'), 'On My iPhone › music');
+    expect(
+      location('${onDevice.substring('/private'.length)}/Music/Jazz'),
+      'On My iPhone › Music › Jazz',
+    );
+    expect(location(onDevice), 'On My iPhone');
+    expect(
+      location(
+        '/private/var/mobile/Library/Mobile Documents/com~apple~CloudDocs/Music',
+      ),
+      'iCloud Drive › Music',
+    );
+    expect(location('/Users/me/Music'), '/Users/me/Music');
+  });
+  test('a local row shows the described path, a shared one its device', () {
+    final libraries = [
+      LocalLibrary(
+        libraryId: 'a',
+        alias: 'Music',
+        path: '/one',
+        ownerFingerprint: 'peer',
+        backgroundSync: true,
+      ),
+      LocalLibrary(
+        libraryId: 'b',
+        alias: 'Local',
+        path: '/two',
+        backgroundSync: false,
+      ),
+    ];
+    LibraryRowState row(String path) => libraryRowState(
+      path,
+      libraries,
+      const {},
+      (device) => 'From $device',
+      s.readOnly,
+      describePath: (path) => 'described $path',
+    );
+    expect(row('/two').subtitle, 'described /two');
+    expect(row('/missing').subtitle, 'described /missing');
+    expect(row('/one').subtitle, startsWith('From Music'));
+  });
   test('only the current read replica is read only', () {
     LocalLibrary library(String path, String? owner, DeviceLibraryLevel? level) =>
         LocalLibrary(

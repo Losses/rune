@@ -48,15 +48,16 @@ LibraryRowState libraryRowState(
   List<LocalLibrary> libraries,
   Map<String, String> deviceAliases,
   String Function(String) fromDevice,
-  String readOnly,
-) {
+  String readOnly, {
+  String Function(String)? describePath,
+}) {
   for (final library in libraries) {
     if (library.path == path) {
       final owner = library.ownerFingerprint;
       return LibraryRowState(
         library,
         owner == null || owner.isEmpty
-            ? path
+            ? (describePath?.call(path) ?? path)
             : fromDevice(deviceAliases[owner] ?? library.alias) +
                 (library.accessLevel == DeviceLibraryLevel.read
                     ? ' · $readOnly'
@@ -64,7 +65,36 @@ LibraryRowState libraryRowState(
       );
     }
   }
-  return LibraryRowState(null, path);
+  return LibraryRowState(null, describePath?.call(path) ?? path);
+}
+
+final _filesOnDevice = RegExp(
+  r'^(?:/private)?/var/mobile/Containers/Shared/AppGroup/[^/]+'
+  r'/File Provider Storage(?:/(.*))?$',
+);
+final _filesInICloud = RegExp(
+  r'^(?:/private)?/var/mobile/Library/Mobile Documents/com~apple~CloudDocs'
+  r'(?:/(.*))?$',
+);
+
+/// Where an iOS folder shows in the Files app, such as
+/// "On My iPhone › music", in place of its sandbox path. Other paths are
+/// returned as they are.
+String filesAppLocation(
+  String path, {
+  required String onThisDevice,
+  required String iCloudDrive,
+}) {
+  String join(String root, String? rest) => [
+        root,
+        ...?rest?.split('/').where((part) => part.isNotEmpty),
+      ].join(' › ');
+
+  final local = _filesOnDevice.firstMatch(path);
+  if (local != null) return join(onThisDevice, local.group(1));
+  final cloud = _filesInICloud.firstMatch(path);
+  if (cloud != null) return join(iCloudDrive, cloud.group(1));
+  return path;
 }
 
 // Whether the open local library is a read-only replica.
