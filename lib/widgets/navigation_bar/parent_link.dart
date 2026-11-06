@@ -24,6 +24,7 @@ class ParentLinkState extends State<ParentLink> {
   bool _isFocus = false;
   double? _cachedScaledWidth;
   String? _cachedText;
+  TextScaler? _cachedTextScaler;
 
   final FocusNode _focusNode = FocusNode(debugLabel: 'Parent Link');
 
@@ -45,8 +46,10 @@ class ParentLinkState extends State<ParentLink> {
     });
   }
 
-  double _getScaledWidth() {
-    if (_cachedScaledWidth == null || _cachedText != widget.text) {
+  double _getScaledWidth(TextScaler textScaler) {
+    if (_cachedScaledWidth == null ||
+        _cachedText != widget.text ||
+        _cachedTextScaler != textScaler) {
       final textPainter = TextPainter(
         text: TextSpan(
           text: widget.text,
@@ -56,11 +59,13 @@ class ParentLinkState extends State<ParentLink> {
           ),
         ),
         textDirection: TextDirection.ltr,
+        textScaler: textScaler,
       );
       textPainter.layout();
 
       _cachedScaledWidth = (textPainter.width * 5) + 12;
       _cachedText = widget.text;
+      _cachedTextScaler = textScaler;
     }
 
     return _cachedScaledWidth!;
@@ -79,7 +84,9 @@ class ParentLinkState extends State<ParentLink> {
     final accentColor = FluentTheme.of(context).accentColor;
 
     return Container(
-      constraints: BoxConstraints.tightFor(width: _getScaledWidth()),
+      constraints: BoxConstraints.tightFor(
+        width: _getScaledWidth(MediaQuery.textScalerOf(context)),
+      ),
       padding: const EdgeInsets.only(right: 12),
       child: Listener(
         onPointerUp: (_) => _onPressed(),
