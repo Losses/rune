@@ -21,6 +21,7 @@ use ::playback::{
     strategies::AddMode,
 };
 
+use crate::backends::remote::{RendererLink, RendererLinkUse};
 use crate::request_error::ExpectedRequestError;
 use crate::server::libraries::{cast_library_state, cast_library_states, parse_library_ids};
 use crate::{
@@ -233,6 +234,7 @@ async fn resolve_mix_query(
     request: &OperatePlaybackWithMixQueryRequest,
     library: &LibraryHandle,
     node: &NodeContext,
+    exclude_local_queue: bool,
 ) -> Result<ResolvedMixQuery> {
     let fallback_items =
         playing_items_from_requests(&request.fallback_playing_items, Some(library)).await?;
@@ -242,10 +244,12 @@ async fn resolve_mix_query(
             .get_file_handle(&library.fsio, &library.main_db, &fallback_items)
             .await?
     } else {
-        // TODO(C5): exclude the renderer queue while casting.
-        let queue = node
-            .session_queue_for_library(library.descriptor.library_id)
-            .await?;
+        let queue = if exclude_local_queue {
+            node.session_queue_for_library(library.descriptor.library_id)
+                .await?
+        } else {
+            Vec::new()
+        };
         query_mix_media_files(
             &library.main_db,
             &library.recommend_db,
@@ -319,6 +323,47 @@ async fn resolve_mix_query(
         response_items,
         start_index,
     })
+}
+
+async fn send_resolved_cast(
+    link: &RendererLink,
+    resolved: &ResolvedMixQuery,
+    request: &OperatePlaybackWithMixQueryRequest,
+) -> Result<()> {
+    let items = resolved
+        .prepared
+        .iter()
+        .map(|(item, _)| match item {
+            PlayingItem::InLibrary(item) => Ok(LibraryItemRequest::from(*item)),
+            _ => Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
+                what: "casting files outside a library",
+            })),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let start_index = resolved
+        .start_index
+        .map(u32::try_from)
+        .transpose()
+        .map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
+        })?;
+    let load = CastLoadRequest {
+        items,
+        start_index,
+        mode: request.operate_mode,
+        expected_revision: request.expected_revision,
+        playback_mode: request.instantly_play.then_some(request.playback_mode),
+    };
+    let (name, payload) = link
+        .request("CastLoadRequest", &rinf::serialize(&load)?)
+        .await?;
+    anyhow::ensure!(
+        name == "CastLoadResponse",
+        "Unexpected renderer response: {name}"
+    );
+    let _: CastLoadResponse =
+        rinf::deserialize(&payload).context("Could not decode renderer cast response")?;
+    Ok(())
 }
 
 impl ParamsExtractor for LoadRequest {
@@ -697,43 +742,33 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
-        let resolved = resolve_mix_query(dart_signal, &library, &node).await?;
-        if let Some(link) = node.renderer_link()? {
-            let items = resolved
-                .prepared
-                .iter()
-                .map(|(item, _)| match item {
-                    PlayingItem::InLibrary(item) => Ok(LibraryItemRequest::from(*item)),
-                    _ => Err(anyhow::Error::new(ExpectedRequestError::Unavailable {
-                        what: "casting files outside a library",
-                    })),
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let start_index = resolved
-                .start_index
-                .map(u32::try_from)
-                .transpose()
-                .map_err(|error| {
-                    ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
-                })?;
-            let load = CastLoadRequest {
-                items,
-                start_index,
-                mode: dart_signal.operate_mode,
-                expected_revision: dart_signal.expected_revision,
-                playback_mode: dart_signal
-                    .instantly_play
-                    .then_some(dart_signal.playback_mode),
-            };
-            let (name, payload) = link
-                .request("CastLoadRequest", &rinf::serialize(&load)?)
+        let attached = node.renderer_link()?;
+        let (cast_link, temporary_link) = match &dart_signal.cast_to {
+            Some(target)
+                if attached
+                    .as_ref()
+                    .is_some_and(|link| link.fingerprint() == target.fingerprint) =>
+            {
+                (attached.clone(), None)
+            }
+            Some(target) if target.attach => {
+                node.attach_renderer(&target.fingerprint).await?;
+                (node.renderer_link()?, None)
+            }
+            Some(target) => (None, Some(target.fingerprint.as_str())),
+            None => (attached.clone(), None),
+        };
+        let is_cast = cast_link.is_some() || temporary_link.is_some();
+        let resolved = resolve_mix_query(dart_signal, &library, &node, !is_cast).await?;
+        if let Some(link) = cast_link {
+            send_resolved_cast(&link, &resolved, dart_signal).await?;
+        } else if let Some(fingerprint) = temporary_link {
+            let (link, _) = node
+                .connect_renderer(fingerprint, RendererLinkUse::Cast)
                 .await?;
-            anyhow::ensure!(
-                name == "CastLoadResponse",
-                "Unexpected renderer response: {name}"
-            );
-            let _: CastLoadResponse =
-                rinf::deserialize(&payload).context("Could not decode renderer cast response")?;
+            let result = send_resolved_cast(&link, &resolved, dart_signal).await;
+            link.close();
+            result?;
         } else {
             node.session()?
                 .edit_queue(dart_signal.expected_revision, |player| {

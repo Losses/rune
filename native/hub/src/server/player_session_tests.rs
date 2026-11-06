@@ -666,6 +666,7 @@ async fn mix_query_forwarding_leaves_it_for_local_resolution() -> Result<()> {
         operate_mode: crate::messages::PlaylistOperateMode::AppendToEnd,
         fallback_playing_items: Vec::new(),
         expected_revision: None,
+        cast_to: None,
     };
     let forwarded = forward_control_request(
         &a.global_params.node,
@@ -771,6 +772,7 @@ async fn attached_mix_query_casts_and_stale_edits_are_rejected() -> Result<()> {
         operate_mode: PlaylistOperateMode::Replace,
         fallback_playing_items: Vec::new(),
         expected_revision: Some(0),
+        cast_to: None,
     };
     let params = request.extract_params(&controller_replica.global_params);
     let response = request
@@ -944,6 +946,7 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
             library_item: None,
         }],
         expected_revision: None,
+        cast_to: None,
     };
     let params = independent_request.extract_params(&controller.global_params);
     let error = match independent_request
@@ -984,6 +987,7 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
         )
         .await,
         expected_revision: None,
+        cast_to: None,
     };
     let params = request.extract_params(&controller.global_params);
     let error = match request.handle(params, None, &request).await {
@@ -1006,6 +1010,387 @@ async fn attached_mix_query_rejects_items_outside_renderer_libraries() -> Result
     );
     controller.global_params.node.shutdown().await?;
     renderer.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() -> Result<()> {
+    use crate::Signal;
+    use crate::backends::remote::RendererLinkUse;
+    use crate::messages::{
+        CastTarget, MixQuery, OperatePlaybackWithMixQueryRequest, PlaylistOperateMode,
+        RendererAttachmentChanged,
+    };
+    use crate::utils::ParamsExtractor;
+
+    let host_dir = tempfile::tempdir()?;
+    let controller_dir = tempfile::tempdir()?;
+    let renderer_dir = tempfile::tempdir()?;
+    let other_renderer_dir = tempfile::tempdir()?;
+    let host = fixture(host_dir.path()).await?;
+    let signals = Arc::new(RecordedSignals::default());
+    let controller = fixture_with_broadcaster(
+        controller_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let renderer_node = fixture(renderer_dir.path()).await?;
+    let other_renderer = fixture(other_renderer_dir.path()).await?;
+    let track_ids = [
+        session_audio(&host, "target-cast-local-playing.ogg").await?,
+        session_audio(&host, "target-cast-next.ogg").await?,
+    ];
+    let items = track_ids
+        .iter()
+        .map(|id| library_item_for_id(&host, *id))
+        .collect::<Vec<_>>();
+    let host_items = futures::future::join_all(items)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+    let (host_address, controller_replica) = replicate_host_library(&host, &controller).await?;
+    super::pair(&host, &renderer_node).await?;
+    let (_, renderer) = replicate_host_library_at(&host, &renderer_node, host_address).await?;
+    let renderer_address = super::paired_full(&renderer_node, &controller).await?;
+    let renderer_info = super::info(&renderer_node).await?;
+    controller_replica
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &renderer_info.fingerprint,
+            vec![format!("127.0.0.1:{}", renderer_address.port())],
+        )
+        .await?;
+    let other_address = super::paired_full(&other_renderer, &controller).await?;
+    let other_info = super::info(&other_renderer).await?;
+    controller_replica
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &other_info.fingerprint,
+            vec![format!("127.0.0.1:{}", other_address.port())],
+        )
+        .await?;
+    let local_file_ids = file_ids_by_uuid(
+        &controller_replica.global_params.test_library().main_db,
+        &host_items
+            .iter()
+            .map(|item| item.file_uuid)
+            .collect::<Vec<_>>(),
+    )
+    .await?;
+    let local_audio_path = Path::new(&controller_replica.global_params.test_library().media_root)
+        .join("cast-local-playing.ogg");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
+        &local_audio_path,
+    )?;
+    let local_track_id = local_file_ids[&host_items[0].file_uuid];
+    media_files::Entity::update(media_files::ActiveModel {
+        id: Set(local_track_id),
+        directory: Set(String::new()),
+        file_name: Set("cast-local-playing.ogg".into()),
+        local_available: Set(true),
+        ..Default::default()
+    })
+    .exec(&*controller_replica.global_params.test_library().main_db)
+    .await?;
+    queue_session(&controller_replica, &[local_track_id]).await?;
+    controller_replica.global_params.player.lock().await.load(0);
+    controller_replica.global_params.player.lock().await.play();
+    let local_before = wait_player(&controller_replica, |status| {
+        status.state == PlaybackState::Playing && status.item.is_some()
+    })
+    .await?;
+    let make_query =
+        |file_id: i32, cast_to: Option<CastTarget>| OperatePlaybackWithMixQueryRequest {
+            queries: vec![MixQuery {
+                operator: "lib::track".into(),
+                parameter: file_id.to_string(),
+            }],
+            playback_mode: 0,
+            hint_position: -1,
+            initial_playback_item: None,
+            instantly_play: true,
+            operate_mode: PlaylistOperateMode::Replace,
+            fallback_playing_items: Vec::new(),
+            expected_revision: None,
+            cast_to,
+        };
+    let cast = make_query(
+        local_file_ids[&host_items[0].file_uuid],
+        Some(CastTarget {
+            fingerprint: renderer_info.fingerprint.clone(),
+            attach: false,
+        }),
+    );
+    let response = cast
+        .handle(
+            cast.extract_params(&controller_replica.global_params),
+            None,
+            &cast,
+        )
+        .await?
+        .context("detached cast response")?;
+    assert_eq!(response.playing_items.len(), 1);
+    let renderer_status = wait_player(&renderer, |status| {
+        status.state == PlaybackState::Playing && status.item.is_some()
+    })
+    .await?;
+    assert_eq!(renderer_status.playlist.len(), 1);
+    renderer.global_params.player.lock().await.pause();
+    wait_player(&renderer, |status| status.state == PlaybackState::Paused).await?;
+    let local_after = controller_replica
+        .global_params
+        .player
+        .lock()
+        .await
+        .get_status();
+    assert_eq!(local_after.item, local_before.item);
+    assert_eq!(local_after.state, PlaybackState::Playing);
+    assert!(
+        controller_replica
+            .global_params
+            .node
+            .renderer_link()?
+            .is_none()
+    );
+    assert!(
+        !signals
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(name, _)| name == "RendererAttachmentChanged")
+    );
+    // A one-off cast link must not show the renderer's session in this device's
+    // UI: hold one open while the renderer's state changes.
+    let renderer_session_id = renderer.global_params.node.session()?.session_id().await;
+    let (cast_link, _) = controller_replica
+        .global_params
+        .node
+        .connect_renderer(&renderer_info.fingerprint, RendererLinkUse::Cast)
+        .await?;
+    renderer.global_params.player.lock().await.play();
+    wait_player(&renderer, |status| status.state == PlaybackState::Playing).await?;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    renderer.global_params.player.lock().await.pause();
+    wait_player(&renderer, |status| status.state == PlaybackState::Paused).await?;
+    cast_link.close();
+    drop(cast_link);
+    assert!(
+        !signals
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(name, payload)| match name.as_str() {
+                "PlaylistUpdate" => rinf::deserialize::<PlaylistUpdate>(payload)
+                    .ok()
+                    .map(|update| update.session_id),
+                "PlaybackStatus" => rinf::deserialize::<PlaybackStatus>(payload)
+                    .ok()
+                    .map(|status| status.session_id),
+                _ => None,
+            })
+            .any(|session_id| session_id == renderer_session_id)
+    );
+
+    let attach_cast = make_query(
+        local_file_ids[&host_items[1].file_uuid],
+        Some(CastTarget {
+            fingerprint: renderer_info.fingerprint.clone(),
+            attach: true,
+        }),
+    );
+    attach_cast
+        .handle(
+            attach_cast.extract_params(&controller_replica.global_params),
+            None,
+            &attach_cast,
+        )
+        .await?;
+    let attached_cast_status = wait_player(&renderer, |status| {
+        status.state == PlaybackState::Playing
+            && status.item == Some(PlayingItem::InLibrary(host_items[1]))
+    })
+    .await?;
+    renderer.global_params.player.lock().await.pause();
+    wait_player(&renderer, |status| status.state == PlaybackState::Paused).await?;
+    assert_eq!(
+        controller_replica
+            .global_params
+            .node
+            .renderer_link()?
+            .as_ref()
+            .map(|link| link.fingerprint()),
+        Some(renderer_info.fingerprint.as_str())
+    );
+    assert_eq!(
+        attached_cast_status.item,
+        Some(PlayingItem::InLibrary(host_items[1]))
+    );
+
+    let append = OperatePlaybackWithMixQueryRequest {
+        queries: Vec::new(),
+        playback_mode: 0,
+        hint_position: -1,
+        initial_playback_item: None,
+        instantly_play: false,
+        operate_mode: PlaylistOperateMode::PlayNext,
+        fallback_playing_items: vec![PlayingItemRequest {
+            library_item: Some(host_items[1].into()),
+            in_library: None,
+            independent_file: None,
+        }],
+        expected_revision: None,
+        cast_to: Some(CastTarget {
+            fingerprint: renderer_info.fingerprint.clone(),
+            attach: false,
+        }),
+    };
+    renderer.global_params.player.lock().await.play();
+    let current = wait_player(&renderer, |status| status.state == PlaybackState::Playing).await?;
+    append
+        .handle(
+            append.extract_params(&controller_replica.global_params),
+            None,
+            &append,
+        )
+        .await?;
+    let after_next = wait_player(&renderer, |status| status.playlist.len() == 2).await?;
+    assert_eq!(after_next.state, PlaybackState::Playing);
+    assert_eq!(after_next.item, current.item);
+    assert_eq!(
+        after_next.playlist[1],
+        PlayingItem::InLibrary(host_items[1])
+    );
+    renderer.global_params.player.lock().await.pause();
+    wait_player(&renderer, |status| status.state == PlaybackState::Paused).await?;
+
+    signals.0.lock().unwrap().clear();
+    controller_replica
+        .global_params
+        .node
+        .attach_renderer(&renderer_info.fingerprint)
+        .await?;
+    assert_eq!(
+        signals
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(name, _)| name == "RendererAttachmentChanged")
+            .count(),
+        1
+    );
+
+    signals.0.lock().unwrap().clear();
+    controller_replica
+        .global_params
+        .node
+        .attach_renderer(&other_info.fingerprint)
+        .await?;
+    let changes = signals
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(name, _)| name == "RendererAttachmentChanged")
+        .filter_map(|(_, payload)| rinf::deserialize::<RendererAttachmentChanged>(payload).ok())
+        .collect::<Vec<_>>();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(
+        changes[0]
+            .renderer
+            .as_ref()
+            .map(|renderer| renderer.fingerprint.as_str()),
+        Some(other_info.fingerprint.as_str())
+    );
+    wait_controller_count(&renderer.global_params.node, 0).await?;
+    assert_eq!(
+        controller_replica
+            .global_params
+            .node
+            .renderer_link()?
+            .as_ref()
+            .map(|link| link.fingerprint()),
+        Some(other_info.fingerprint.as_str())
+    );
+
+    let before_queue = other_renderer
+        .global_params
+        .player
+        .lock()
+        .await
+        .get_playlist();
+    let before_revision = other_renderer
+        .global_params
+        .node
+        .session()?
+        .queue_revision()
+        .await;
+    let denied_cast = make_query(
+        local_file_ids[&host_items[0].file_uuid],
+        Some(CastTarget {
+            fingerprint: other_info.fingerprint.clone(),
+            attach: false,
+        }),
+    );
+    let error = match denied_cast
+        .handle(
+            denied_cast.extract_params(&controller_replica.global_params),
+            None,
+            &denied_cast,
+        )
+        .await
+    {
+        Err(error) => error,
+        Ok(_) => anyhow::bail!("cast to a renderer without the library unexpectedly succeeded"),
+    };
+    assert_eq!(classify(&error), RequestErrorKind::PermissionDenied);
+    assert_eq!(
+        other_renderer
+            .global_params
+            .player
+            .lock()
+            .await
+            .get_playlist(),
+        before_queue
+    );
+    assert_eq!(
+        other_renderer
+            .global_params
+            .node
+            .session()?
+            .queue_revision()
+            .await,
+        before_revision
+    );
+    assert_eq!(
+        controller_replica
+            .global_params
+            .node
+            .renderer_link()?
+            .as_ref()
+            .map(|link| link.fingerprint()),
+        Some(other_info.fingerprint.as_str())
+    );
+
+    controller_replica
+        .global_params
+        .node
+        .detach_renderer()
+        .await?;
+    renderer.global_params.node.shutdown().await?;
+    other_renderer.global_params.node.shutdown().await?;
+    host.global_params.node.shutdown().await?;
     Ok(())
 }
 

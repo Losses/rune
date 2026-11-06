@@ -192,9 +192,18 @@ type RemoteStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type PendingReplies = Arc<Mutex<HashMap<Uuid, oneshot::Sender<Result<(String, Vec<u8>)>>>>>;
 
 /// A node-owned control connection to a remote renderer.
+/// What a renderer link is for: controlling the renderer shows its session
+/// in this device's UI; a one-off cast only sends requests and reads replies.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RendererLinkUse {
+    Control,
+    Cast,
+}
+
 pub struct RendererLink {
     id: Uuid,
     fingerprint: String,
+    alias: String,
     write: Arc<Mutex<SplitSink<RemoteStream, TungsteniteMessage>>>,
     cancel: CancellationToken,
     locally_detached: Arc<AtomicBool>,
@@ -207,6 +216,7 @@ impl RendererLink {
     pub(crate) async fn connect(
         node: Arc<NodeContext>,
         fingerprint: &str,
+        link_use: RendererLinkUse,
     ) -> std::result::Result<(Self, String, String), RemoteConnectError> {
         let validator = node.cert_validator.read().await.clone();
         let hosts = validator.get_hosts_for_fingerprint(fingerprint).await;
@@ -236,18 +246,34 @@ impl RendererLink {
         .await
         .map(|info| info.alias)
         .map_err(|_| RemoteConnectError::Unreachable)?;
-        let link = Self::new(stream, node.clone(), fingerprint.to_owned()).await;
+        let link = Self::new(
+            stream,
+            node.clone(),
+            fingerprint.to_owned(),
+            alias.clone(),
+            link_use,
+        )
+        .await;
         Ok((link, host.to_owned(), alias))
     }
 
-    async fn new(stream: RemoteStream, node: Arc<NodeContext>, fingerprint: String) -> Self {
+    async fn new(
+        stream: RemoteStream,
+        node: Arc<NodeContext>,
+        fingerprint: String,
+        alias: String,
+        link_use: RendererLinkUse,
+    ) -> Self {
         let id = Uuid::new_v4();
         let cancel = node.token.child_token();
         let locally_detached = Arc::new(AtomicBool::new(false));
         let (write, mut read) = stream.split();
         let write = Arc::new(Mutex::new(write));
         let handlers = Arc::new(Mutex::new(HashMap::<String, MessageHandler>::new()));
-        register_renderer_handlers(&handlers, node.gui_broadcaster.clone()).await;
+        if link_use == RendererLinkUse::Control {
+            register_session_handlers(&handlers, node.gui_broadcaster.clone()).await;
+        }
+        register_reply_handlers(&handlers).await;
         let reader_handlers = handlers.clone();
         let pending_replies: PendingReplies = Arc::new(Mutex::new(HashMap::new()));
         let reader_pending_replies = pending_replies.clone();
@@ -296,6 +322,7 @@ impl RendererLink {
         Self {
             id,
             fingerprint,
+            alias,
             write,
             cancel,
             locally_detached,
@@ -364,6 +391,10 @@ impl RendererLink {
         &self.fingerprint
     }
 
+    pub(crate) fn alias(&self) -> &str {
+        &self.alias
+    }
+
     pub(crate) fn close(&self) {
         self.locally_detached.store(true, Ordering::Release);
         self.cancel.cancel();
@@ -425,7 +456,8 @@ impl Drop for RendererLink {
     }
 }
 
-async fn register_renderer_handlers(handlers: &HandlerMap, broadcaster: Arc<dyn Broadcaster>) {
+/// Forward the renderer's session (status, queue, spectrum) to this device's UI.
+async fn register_session_handlers(handlers: &HandlerMap, broadcaster: Arc<dyn Broadcaster>) {
     let status_broadcaster = broadcaster.clone();
     handlers.lock().await.insert(
         "PlaybackStatus".into(),
@@ -455,6 +487,9 @@ async fn register_renderer_handlers(handlers: &HandlerMap, broadcaster: Arc<dyn 
             },
         ),
     );
+}
+
+async fn register_reply_handlers(handlers: &HandlerMap) {
     for_all_responses!(register_response_handlers, handlers);
     handlers.lock().await.insert(
         "RemoteRequestFailed".into(),

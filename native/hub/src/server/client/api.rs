@@ -145,6 +145,7 @@ pub async fn operate_playback_with_mix_query_request(
         operate_mode: operate_mode.into(),
         fallback_playing_items: vec![],
         expected_revision: None,
+        cast_to: None,
     };
 
     connection

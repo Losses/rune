@@ -221,6 +221,14 @@ pub struct OperatePlaybackWithMixQueryRequest {
     pub fallback_playing_items: Vec<PlayingItemRequest>,
     #[serde(default)]
     pub expected_revision: Option<u64>,
+    #[serde(default)]
+    pub cast_to: Option<CastTarget>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, SignalPiece)]
+pub struct CastTarget {
+    pub fingerprint: String,
+    pub attach: bool,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
