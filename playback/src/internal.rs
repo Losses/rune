@@ -322,6 +322,7 @@ struct PendingLoad {
     index: usize,
     play: bool,
     mapped: bool,
+    restore_position: Option<Duration>,
 }
 
 fn try_new_sink(stream: &RuneOutputStreamHandle) -> Result<Sink, PlayError> {
@@ -393,6 +394,7 @@ pub(crate) struct PlayerInternal {
     stream_error_receiver: mpsc::UnboundedReceiver<String>,
     stream_retry_count: usize,
     adaptive_switching: bool,
+    // Where the load in flight seeks to when it completes, set when the load starts.
     restore_position: Option<Duration>,
     unavailable: HashMap<PlayingItem, UnavailableReason>,
 }
@@ -469,8 +471,7 @@ impl PlayerInternal {
                             self.debounce_timer = None;
                             self.send_playlist_updated()?;
                             self.set_playback_mode(mode)?;
-                            self.restore_position = Some(position);
-                            self.load(index, false, false)?;
+                            self.load_at(index, false, false, Some(position))?;
                         },
                         PlayerCommand::Load { index } => {
                             if index < self.playlist.len() {
@@ -496,7 +497,7 @@ impl PlayerInternal {
                             self.state = InternalPlaybackState::Stopped;
                             if let Some(pending) = self.pending_load.take() {
                                 debug!("Load {index} completed after a newer request; starting index {}", pending.index);
-                                self.load(Some(pending.index), pending.play, pending.mapped)?;
+                                self.load_at(Some(pending.index), pending.play, pending.mapped, pending.restore_position)?;
                                 continue;
                             }
                             match *result {
@@ -600,6 +601,18 @@ impl PlayerInternal {
     }
 
     fn load(&mut self, index: Option<usize>, play: bool, mapped: bool) -> Result<()> {
+        self.load_at(index, play, mapped, None)
+    }
+
+    // Loads a track that seeks to `restore_position` once it is ready. The position belongs to
+    // this request only: a newer request replaces it, whether it starts now or is queued.
+    fn load_at(
+        &mut self,
+        index: Option<usize>,
+        play: bool,
+        mapped: bool,
+        restore_position: Option<Duration>,
+    ) -> Result<()> {
         if self.state == InternalPlaybackState::Loading {
             if let Some(index) = index {
                 debug!("Load {index} queued while another track is loading; newest request wins");
@@ -607,6 +620,7 @@ impl PlayerInternal {
                     index,
                     play,
                     mapped,
+                    restore_position,
                 });
             }
             return Ok(());
@@ -630,6 +644,7 @@ impl PlayerInternal {
             self.load_generation = self.load_generation.wrapping_add(1);
             let generation = self.load_generation;
             self.play_when_loaded = play;
+            self.restore_position = restore_position;
 
             let item = self.playlist[mapped_index].clone();
             debug!("Starting track load at playlist index {mapped_index} (request index {index})");
@@ -1225,7 +1240,10 @@ impl PlayerInternal {
         if let Some(sink) = &self.sink {
             let position = sink.get_pos();
 
-            if sink.empty() {
+            // While a track loads, the previous one keeps the sink and may still run out. Its end
+            // either started this load or was skipped by the listener, so it must not move the
+            // queue again.
+            if sink.empty() && self.state != InternalPlaybackState::Loading {
                 if self
                     .active_stream_failure
                     .as_ref()
@@ -1860,17 +1878,21 @@ mod stream_open_tests {
         })
     }
 
+    fn library_tracks(library_id: Uuid, file_uuids: &[Uuid]) -> Vec<(PlayingItem, PlaybackSource)> {
+        file_uuids
+            .iter()
+            .map(|file_uuid| {
+                (
+                    library_item(library_id, *file_uuid),
+                    PlaybackSource::LibraryStream,
+                )
+            })
+            .collect()
+    }
+
     fn add_library_tracks(library_id: Uuid, file_uuids: &[Uuid]) -> PlayerCommand {
         PlayerCommand::AddToPlaylist {
-            tracks: file_uuids
-                .iter()
-                .map(|file_uuid| {
-                    (
-                        library_item(library_id, *file_uuid),
-                        PlaybackSource::LibraryStream,
-                    )
-                })
-                .collect(),
+            tracks: library_tracks(library_id, file_uuids),
             mode: AddMode::AppendToEnd,
         }
     }
@@ -2171,6 +2193,227 @@ mod stream_open_tests {
                     let event = next_track_state(&mut events).await?;
                     assert!(
                         matches!(&event, PlayerEvent::Playing { item, .. } if *item == expected),
+                        "{event:?}"
+                    );
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn old_track_ending_during_a_load_keeps_the_chosen_track() -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let (resolver, wav_path) = delayed_resolver_fixture(
+            &file_uuids,
+            ids.clone(),
+            started.clone(),
+            release.clone(),
+            &[3],
+        );
+        let (mut internal, commands_sender, mut events) = library_engine(resolver);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let current = library_item(library_id, file_uuids[0]);
+                    let expected = library_item(library_id, file_uuids[2]);
+                    commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
+                    commands_sender.send(PlayerCommand::Load { index: 0 })?;
+                    let event = next_track_state(&mut events).await?;
+                    assert!(
+                        matches!(&event, PlayerEvent::Loaded { item, .. } if *item == current),
+                        "{event:?}"
+                    );
+
+                    // The old track starts playing only once the chosen one is loading, so it
+                    // runs out during the load.
+                    commands_sender.send(PlayerCommand::Switch(2))?;
+                    tokio::time::timeout(Duration::from_secs(2), started.notified()).await?;
+                    commands_sender.send(PlayerCommand::Play)?;
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    while events.try_recv().is_ok() {}
+                    release.notify_one();
+
+                    let event = next_track_state(&mut events).await?;
+                    assert!(
+                        matches!(&event, PlayerEvent::Playing { item, .. } if *item == expected),
+                        "{event:?}"
+                    );
+                    assert_eq!(&*ids.lock().unwrap(), &[1, 3]);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn track_end_advances_once_while_the_next_track_loads() -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4()];
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let (resolver, wav_path) = delayed_resolver_fixture(
+            &file_uuids,
+            ids.clone(),
+            started.clone(),
+            release.clone(),
+            &[2],
+        );
+        let (mut internal, commands_sender, mut events) = library_engine(resolver);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let first = library_item(library_id, file_uuids[0]);
+                    let second = library_item(library_id, file_uuids[1]);
+                    commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    tokio::time::timeout(Duration::from_secs(2), started.notified()).await?;
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    release.notify_one();
+
+                    let mut ends = 0;
+                    tokio::time::timeout(Duration::from_secs(2), async {
+                        loop {
+                            match events.recv().await {
+                                Some(PlayerEvent::EndOfTrack { item, .. }) if item == first => {
+                                    ends += 1
+                                }
+                                Some(PlayerEvent::Playing { item, .. }) if item == second => break,
+                                Some(_) => {}
+                                None => bail!("player events closed"),
+                            }
+                        }
+                        Ok(())
+                    })
+                    .await??;
+                    assert_eq!(ends, 1);
+                    assert_eq!(&*ids.lock().unwrap(), &[1, 2]);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn restore_position_is_not_applied_to_a_newer_track() -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4()];
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let (resolver, wav_path) = delayed_resolver_fixture(
+            &file_uuids,
+            Arc::new(Mutex::new(Vec::new())),
+            started.clone(),
+            release.clone(),
+            &[1],
+        );
+        let (mut internal, commands_sender, mut events) = library_engine(resolver);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let expected = library_item(library_id, file_uuids[1]);
+                    commands_sender.send(PlayerCommand::Restore {
+                        tracks: library_tracks(library_id, &file_uuids),
+                        index: Some(0),
+                        position: Duration::from_secs(1),
+                        mode: PlaybackMode::Sequential,
+                    })?;
+                    tokio::time::timeout(Duration::from_secs(2), started.notified()).await?;
+                    commands_sender.send(PlayerCommand::Load { index: 1 })?;
+                    release.notify_one();
+
+                    let event = next_track_state(&mut events).await?;
+                    assert!(
+                        matches!(&event, PlayerEvent::Loaded { item, .. } if *item == expected),
+                        "{event:?}"
+                    );
+                    // A seek would report the new position as Paused.
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    while let Ok(event) = events.try_recv() {
+                        assert!(
+                            !matches!(
+                                event,
+                                PlayerEvent::Paused { .. } | PlayerEvent::Playing { .. }
+                            ),
+                            "{event:?}"
+                        );
+                    }
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn restore_during_load_keeps_its_position_after_the_hand_off() -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4()];
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let (resolver, wav_path) = delayed_resolver_fixture(
+            &file_uuids,
+            Arc::new(Mutex::new(Vec::new())),
+            started.clone(),
+            release.clone(),
+            &[1],
+        );
+        let (mut internal, commands_sender, mut events) = library_engine(resolver);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let expected = library_item(library_id, file_uuids[1]);
+                    commands_sender.send(add_library_tracks(library_id, &file_uuids[..1]))?;
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    tokio::time::timeout(Duration::from_secs(2), started.notified()).await?;
+                    commands_sender.send(PlayerCommand::Restore {
+                        tracks: library_tracks(library_id, &file_uuids[1..]),
+                        index: Some(1),
+                        position: Duration::from_secs(1),
+                        mode: PlaybackMode::Sequential,
+                    })?;
+                    release.notify_one();
+
+                    let event = next_track_state(&mut events).await?;
+                    assert!(
+                        matches!(&event, PlayerEvent::Loaded { item, .. } if *item == expected),
+                        "{event:?}"
+                    );
+                    let event = next_track_state(&mut events).await?;
+                    assert!(
+                        matches!(&event, PlayerEvent::Paused { item, .. } if *item == expected),
                         "{event:?}"
                     );
 
