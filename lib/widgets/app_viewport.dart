@@ -12,9 +12,10 @@ class AppViewport extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final factor = context.select<AppScaleProvider, double>(
-      (scale) => scale.scaleFactor,
-    );
+    final (factor, following) = context
+        .select<AppScaleProvider, (double, bool)>(
+          (scale) => (scale.scaleFactor, scale.followingTextSize),
+        );
     final media = MediaQuery.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -22,6 +23,11 @@ class AppViewport extends StatelessWidget {
         final scaledMedia = media
             .copyWith(
               size: size,
+              // A zoom that follows the text size stands in for it. Where the
+              // nearest zoom is 1, the text is scaled as usual instead.
+              textScaler: following && factor > 1
+                  ? TextScaler.noScaling
+                  : media.textScaler,
               devicePixelRatio: media.devicePixelRatio * factor,
               padding: media.padding / factor,
               viewPadding: media.viewPadding / factor,

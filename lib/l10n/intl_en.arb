@@ -1421,6 +1421,8 @@
   "@interfaceScale": {"description": "Title of the application interface scale setting."},
   "@interfaceScaleSubtitle": {"description": "Explains interface scaling relative to system scaling."},
   "@interfaceScaleSaveError": {"description": "Error title when saving interface scale fails."},
+  "interfaceScaleFollowTextSize": "Follow Text Size",
+  "@interfaceScaleFollowTextSize": {"description": "Option that sizes the interface to match the system text size."},
   "offlineAvailability": "Offline availability",
   "@offlineAvailability": {
     "description": "Context menu for the audio retained on this device."

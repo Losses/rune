@@ -105,4 +105,40 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     scale.dispose();
   });
+
+  testWidgets('the follow item appears only where it is supported', (
+    tester,
+  ) async {
+    for (final supported in [true, false]) {
+      int? saved;
+      final scale = AppScaleProvider(
+        read: () async => null,
+        write: (value) async {
+          saved = value;
+        },
+        supportsFollowTextSize: supported,
+      );
+      await scale.initialize();
+      await tester.pumpWidget(_app(scale));
+      final setting = tester.widget<SettingsBoxComboBox<int>>(
+        find.byType(SettingsBoxComboBox<int>),
+      );
+      expect(setting.items.map((item) => item.value), [
+        if (supported) AppScaleProvider.followTextSize,
+        ...AppScaleProvider.supportedPercentages,
+      ]);
+      expect(setting.value, scale.defaultPercentage);
+      if (supported) {
+        expect(setting.items.first.title, 'Follow Text Size');
+        setting.onChanged!(125);
+        await tester.pumpAndSettle();
+        setting.onChanged!(AppScaleProvider.followTextSize);
+        await tester.pumpAndSettle();
+        expect(saved, AppScaleProvider.followTextSize);
+        expect(scale.followingTextSize, isTrue);
+      }
+      await tester.pumpWidget(const SizedBox());
+      scale.dispose();
+    }
+  });
 }

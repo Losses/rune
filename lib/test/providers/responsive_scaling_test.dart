@@ -63,4 +63,36 @@ void main() {
       sizes.dispose();
     },
   );
+
+  testWidgets('following the text size moves an iPhone from phone to zune', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 3;
+    tester.view.physicalSize = const Size(1206, 2622);
+    tester.platformDispatcher.textScaleFactorTestValue = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final scale = AppScaleProvider(
+      read: () async => null,
+      write: (_) async {},
+      supportsFollowTextSize: true,
+    );
+    await scale.initialize();
+    final sizes = ScreenSizeProvider.withWriter(scale, (_) async {});
+    final responsive = ResponsiveProvider(sizes, () async => null);
+    expect(sizes.screenSize, const Size(402, 874));
+    expect(responsive.equalTo(DeviceType.phone), isTrue);
+    // One size larger is nearest to 100%, so the layout stays.
+    tester.platformDispatcher.textScaleFactorTestValue = 19 / 17;
+    await tester.pump();
+    expect(responsive.equalTo(DeviceType.phone), isTrue);
+    tester.platformDispatcher.textScaleFactorTestValue = 21 / 17;
+    await tester.pump();
+    expect(responsive.equalTo(DeviceType.zune), isTrue);
+    await tester.pump(const Duration(seconds: 2));
+    responsive.dispose();
+    sizes.dispose();
+    scale.dispose();
+  });
 }

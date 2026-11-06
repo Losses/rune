@@ -25,12 +25,17 @@ class InterfaceScaleSetting extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final percentage = context.watch<AppScaleProvider>().percentage;
+    final scale = context.watch<AppScaleProvider>();
     return SettingsBoxComboBox<int>(
       title: s.interfaceScale,
       subtitle: s.interfaceScaleSubtitle,
-      value: percentage,
+      value: scale.percentage,
       items: [
+        if (scale.supportsFollowTextSize)
+          SettingsBoxComboBoxItem(
+            value: AppScaleProvider.followTextSize,
+            title: s.interfaceScaleFollowTextSize,
+          ),
         for (final value in AppScaleProvider.supportedPercentages)
           SettingsBoxComboBoxItem(value: value, title: '$value%'),
       ],

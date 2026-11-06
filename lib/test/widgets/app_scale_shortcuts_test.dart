@@ -50,4 +50,42 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
   }
+
+  for (final supported in [true, false]) {
+    testWidgets('reset goes to the default (follow supported: $supported)', (
+      tester,
+    ) async {
+      final saved = <int>[];
+      final scale = AppScaleProvider(
+        read: () async => 200,
+        write: (value) async => saved.add(value),
+        supportsFollowTextSize: supported,
+      );
+      await scale.initialize();
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: scale,
+          child: FluentApp(
+            builder: (c, child) =>
+                AppViewport(child: AppScaleShortcuts(child: child!)),
+            home: const Focus(autofocus: true, child: SizedBox()),
+          ),
+        ),
+      );
+      await tester.pump();
+      final modifier = defaultTargetPlatform == TargetPlatform.macOS
+          ? LogicalKeyboardKey.metaLeft
+          : LogicalKeyboardKey.controlLeft;
+      await tester.sendKeyDownEvent(modifier);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit0);
+      await tester.sendKeyUpEvent(modifier);
+      await tester.pumpAndSettle();
+      final expected = supported ? AppScaleProvider.followTextSize : 100;
+      expect(scale.percentage, expected);
+      expect(scale.percentage, scale.defaultPercentage);
+      expect(saved, [expected]);
+      await tester.pumpWidget(const SizedBox());
+      scale.dispose();
+    });
+  }
 }

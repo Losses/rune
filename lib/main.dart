@@ -150,7 +150,10 @@ void main(List<String> arguments) async {
 
   final SettingsManager settingsManager = SettingsManager();
   StorageKeyManager.initialize(profile);
-  final appScale = AppScaleProvider();
+  await detectIosDevice();
+  final appScale = AppScaleProvider(
+    supportsFollowTextSize: iosDevice == IosDevice.iPhone,
+  );
   await appScale.initialize();
   await MacSecureManager().completed;
 

@@ -1402,6 +1402,7 @@
   "interfaceScale": "界面缩放",
   "interfaceScaleSubtitle": "相对于系统缩放立即调整文字和应用内容。窗口大小和屏幕分辨率不会改变。100% 遵循系统缩放。",
   "interfaceScaleSaveError": "无法保存界面缩放",
+  "interfaceScaleFollowTextSize": "跟随文字大小",
   "linuxCustomWindowControls": "自定义窗口控件",
   "@linuxCustomWindowControls": {"description": "Title for the Linux custom window controls setting option."},
   "linuxCustomWindowControlsSubtitle": "启用自定义窗口控件，使用类似 Windows 模式的无边框窗口。",
