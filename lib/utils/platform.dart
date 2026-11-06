@@ -42,3 +42,13 @@ IosDevice iosDeviceOf({required String model, required bool onMac}) {
   if (model.startsWith('iPad')) return IosDevice.iPad;
   return IosDevice.iPhone;
 }
+
+/// Checks if the current environment is a phone or tablet OS with an on-screen
+/// keyboard.
+bool get isMobile {
+  if (kIsWeb) return false;
+  return [
+    TargetPlatform.iOS,
+    TargetPlatform.android,
+  ].contains(defaultTargetPlatform);
+}

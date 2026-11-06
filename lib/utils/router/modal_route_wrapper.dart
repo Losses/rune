@@ -66,6 +66,19 @@ class _ModalRouteWrapperState extends State<ModalRouteWrapper> {
 
   @override
   Widget build(BuildContext context) {
-    return widget.builder(context, _handleClose);
+    // The route's safe area does not move a dialog clear of the on-screen
+    // keyboard, so it rises with the keyboard the way Material's Dialog does.
+    // The padding in the media data already excludes the keyboard, so the
+    // dialog is not inset twice.
+    return AnimatedPadding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      duration: const Duration(milliseconds: 100),
+      curve: Curves.decelerate,
+      child: MediaQuery.removeViewInsets(
+        context: context,
+        removeBottom: true,
+        child: widget.builder(context, _handleClose),
+      ),
+    );
   }
 }

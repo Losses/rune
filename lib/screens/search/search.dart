@@ -290,6 +290,8 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
                 ),
                 Expanded(
                   child: SingleChildScrollView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
                     padding: getScrollContainerPadding(context),
                     child: MediumScreenSearchTrackList(items: items),
                   ),
@@ -314,6 +316,8 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
               const SizedBox(height: 2),
               Expanded(
                 child: SingleChildScrollView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: getScrollContainerPadding(context),
                   child: BandScreenSearchTrackList(
                     items: items,
@@ -345,6 +349,8 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
                   builder: (context, controller) {
                     return SingleChildScrollView(
                       controller: controller,
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
                       scrollDirection: Axis.horizontal,
                       padding: getScrollContainerPadding(context),
                       child: BandScreenSearchTrackList(
@@ -373,6 +379,8 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
               ),
               Expanded(
                 child: SingleChildScrollView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: getScrollContainerPadding(context),
                   child: SmallScreenSearchTrackList(
                     items: items,
