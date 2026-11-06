@@ -132,6 +132,8 @@ class SceneDelegate: FlutterSceneDelegate {
     channel.setMethodCallHandler({ (call: FlutterMethodCall, result: @escaping FlutterResult) in
       if call.method == "get_directory_path" {
         FileSelector.shared.getDirectoryPath(result: result)
+      } else {
+        result(FlutterMethodNotImplemented)
       }
     })
 
@@ -170,18 +172,30 @@ class FileSelector: NSObject, UIDocumentPickerDelegate {
       return
     }
 
+    // An earlier call still waiting is answered as cancelled, so no caller waits forever.
+    finish(with: nil)
     self.result = result
 
     let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
     documentPicker.delegate = self
     documentPicker.allowsMultipleSelection = false
-    
+
     viewController.present(documentPicker, animated: true)
   }
-  
-  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {  
-    urls.first?.startAccessingSecurityScopedResource()
-    result!(urls.first?.path)
 
+  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    _ = urls.first?.startAccessingSecurityScopedResource()
+    finish(with: urls.first?.path)
+  }
+
+  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    finish(with: nil)
+  }
+
+  /// Answers the waiting call once.
+  private func finish(with path: String?) {
+    let result = self.result
+    self.result = nil
+    result?(path)
   }
 }
