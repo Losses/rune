@@ -153,7 +153,6 @@ class TrackListViewState extends State<TrackListView> {
               getItem: _getItem,
               queries: queries,
               mode: 99,
-              topPadding: true,
             ),
           );
         }
@@ -165,7 +164,6 @@ class TrackListViewState extends State<TrackListView> {
             getItem: _getItem,
             queries: queries,
             mode: 99,
-            topPadding: true,
           );
         }
 
@@ -175,7 +173,6 @@ class TrackListViewState extends State<TrackListView> {
             getItem: _getItem,
             queries: queries,
             mode: 99,
-            topPadding: true,
           );
         }
 
@@ -184,7 +181,6 @@ class TrackListViewState extends State<TrackListView> {
           getItem: _getItem,
           queries: queries,
           mode: 99,
-          topPadding: true,
         );
       },
     );

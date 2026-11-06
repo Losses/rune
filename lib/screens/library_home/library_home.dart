@@ -84,7 +84,6 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
                           child: BandScreenFeatureList(
                             items: bandScreenFirstColumn,
                             layoutManager: _layoutManager,
-                            topPadding: !isDock,
                             leadingItem: leadingItem,
                           ),
                         );
@@ -93,7 +92,6 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
                       return BandScreenFeatureList(
                         items: bandScreenFirstColumn,
                         layoutManager: _layoutManager,
-                        topPadding: !isDock,
                         leadingItem: leadingItem,
                       );
                     },
@@ -104,14 +102,12 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
                   return SmallScreenFeatureListView(
                     items: smallScreenFirstColumn,
                     layoutManager: _layoutManager,
-                    topPadding: !isDock,
                   );
                 }
 
                 return LargeScreenLibraryHomeListView(
                   libraryPath: libraryPath,
                   layoutManager: _layoutManager,
-                  topPadding: !isDock,
                 );
               },
             ),

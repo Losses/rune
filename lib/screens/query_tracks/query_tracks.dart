@@ -78,7 +78,6 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
                       layoutManager: _layoutManager,
                       queries: widget.queries,
                       mode: widget.mode,
-                      topPadding: isMini,
                     ),
                   ),
                 ],

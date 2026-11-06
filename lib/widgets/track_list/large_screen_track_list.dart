@@ -19,7 +19,6 @@ class LargeScreenTrackList extends StatelessWidget {
   final InternalMediaFile? Function(int) getItem;
   final QueryList queries;
   final int mode;
-  final bool topPadding;
 
   const LargeScreenTrackList({
     super.key,
@@ -27,7 +26,6 @@ class LargeScreenTrackList extends StatelessWidget {
     required this.getItem,
     required this.queries,
     required this.mode,
-    required this.topPadding,
   });
 
   @override

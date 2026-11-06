@@ -21,12 +21,10 @@ class LargeScreenSettingsHomeListView extends StatefulWidget {
   const LargeScreenSettingsHomeListView({
     super.key,
     required this.layoutManager,
-    required this.topPadding,
     required this.mysterious,
   });
 
   final StartScreenLayoutManager layoutManager;
-  final bool topPadding;
   final bool? mysterious;
 
   @override

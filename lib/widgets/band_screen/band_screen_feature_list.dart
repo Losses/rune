@@ -13,13 +13,11 @@ class BandScreenFeatureList extends StatefulWidget {
     super.key,
     required this.layoutManager,
     required this.items,
-    required this.topPadding,
     this.leadingItem,
   });
 
   final StartScreenLayoutManager layoutManager;
   final List<(String Function(BuildContext), String, IconData, bool)> items;
-  final bool topPadding;
   final Widget? leadingItem;
 
   @override
@@ -41,7 +39,6 @@ class LibraryHomeListState extends State<BandScreenFeatureList> {
   Widget build(BuildContext context) {
     return BandLinkTileList(
       links: widget.items,
-      topPadding: widget.topPadding,
       leadingItem: widget.leadingItem,
     );
   }

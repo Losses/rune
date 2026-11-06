@@ -16,7 +16,6 @@ class SmallScreenTrackList extends StatefulWidget {
   final InternalMediaFile? Function(int) getItem;
   final QueryList queries;
   final int mode;
-  final bool topPadding;
 
   const SmallScreenTrackList({
     super.key,
@@ -24,7 +23,6 @@ class SmallScreenTrackList extends StatefulWidget {
     required this.getItem,
     required this.queries,
     required this.mode,
-    required this.topPadding,
   });
 
   @override

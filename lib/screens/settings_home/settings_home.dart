@@ -52,60 +52,51 @@ class _SettingsHomePageState extends State<SettingsHomePage> {
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
       child: PageContentFrame(
-        child: SmallerOrEqualTo(
-          deviceType: DeviceType.dock,
-          builder: (context, isDock) {
-            return DeviceTypeBuilder(
-              deviceType: const [
-                DeviceType.band,
-                DeviceType.belt,
-                DeviceType.dock,
-                DeviceType.zune,
-                DeviceType.tv
-              ],
-              builder: (context, activeBreakpoint) {
-                if (activeBreakpoint == DeviceType.belt) {
-                  return BeltContainer(
-                    child: BandScreenFeatureList(
-                      items: firstColumn,
-                      layoutManager: _layoutManager,
-                      topPadding: !isDock,
-                    ),
-                  );
-                }
-
-                if (activeBreakpoint == DeviceType.dock ||
-                    activeBreakpoint == DeviceType.band) {
-                  return BandScreenFeatureList(
-                    items: firstColumn,
-                    layoutManager: _layoutManager,
-                    topPadding: !isDock,
-                  );
-                }
-
-                if (activeBreakpoint == DeviceType.zune) {
-                  return SmallScreenFeatureListView(
-                    items: [
-                      ...firstColumn,
-                      if (mysterious == true)
-                        (
-                          (context) => S.of(context).laboratory,
-                          '/settings/laboratory',
-                          Symbols.interests,
-                          false
-                        )
-                    ],
-                    layoutManager: _layoutManager,
-                    topPadding: !isDock,
-                  );
-                }
-
-                return LargeScreenSettingsHomeListView(
+        child: DeviceTypeBuilder(
+          deviceType: const [
+            DeviceType.band,
+            DeviceType.belt,
+            DeviceType.dock,
+            DeviceType.zune,
+            DeviceType.tv
+          ],
+          builder: (context, activeBreakpoint) {
+            if (activeBreakpoint == DeviceType.belt) {
+              return BeltContainer(
+                child: BandScreenFeatureList(
+                  items: firstColumn,
                   layoutManager: _layoutManager,
-                  topPadding: !isDock,
-                  mysterious: mysterious,
-                );
-              },
+                ),
+              );
+            }
+
+            if (activeBreakpoint == DeviceType.dock ||
+                activeBreakpoint == DeviceType.band) {
+              return BandScreenFeatureList(
+                items: firstColumn,
+                layoutManager: _layoutManager,
+              );
+            }
+
+            if (activeBreakpoint == DeviceType.zune) {
+              return SmallScreenFeatureListView(
+                items: [
+                  ...firstColumn,
+                  if (mysterious == true)
+                    (
+                      (context) => S.of(context).laboratory,
+                      '/settings/laboratory',
+                      Symbols.interests,
+                      false
+                    )
+                ],
+                layoutManager: _layoutManager,
+              );
+            }
+
+            return LargeScreenSettingsHomeListView(
+              layoutManager: _layoutManager,
+              mysterious: mysterious,
             );
           },
         ),

@@ -16,11 +16,9 @@ class SmallScreenFeatureListView extends StatefulWidget {
     super.key,
     required this.layoutManager,
     required this.items,
-    required this.topPadding,
   });
   final StartScreenLayoutManager layoutManager;
   final List<(String Function(BuildContext), String, IconData, bool)> items;
-  final bool topPadding;
 
   @override
   LibraryHomeListState createState() => LibraryHomeListState();

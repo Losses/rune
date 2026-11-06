@@ -8,15 +8,9 @@ import '../../providers/responsive_providers.dart';
 import '../navigation_bar/page_content_frame.dart';
 
 class BandLinkTileList extends StatelessWidget {
-  const BandLinkTileList({
-    super.key,
-    required this.links,
-    required this.topPadding,
-    this.leadingItem,
-  });
+  const BandLinkTileList({super.key, required this.links, this.leadingItem});
 
   final List<(String Function(BuildContext), String, IconData, bool)> links;
-  final bool topPadding;
   final Widget? leadingItem;
 
   @override
