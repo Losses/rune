@@ -212,6 +212,7 @@ pub enum PlayerCommand {
         index: usize,
     },
     LoadComplete {
+        generation: u64,
         result: Box<Result<AnySource>>,
         item: PlayingItem,
         original_item: PlayingItem,
@@ -375,6 +376,7 @@ pub(crate) struct PlayerInternal {
     _stream: Option<RuneOutputStream>,
     state: InternalPlaybackState,
     pending_load: Option<PendingLoad>,
+    load_generation: u64,
     debounce_timer: Option<Instant>,
     cancellation_token: CancellationToken,
     playback_mode: PlaybackMode,
@@ -415,6 +417,7 @@ impl PlayerInternal {
             realtime_fft: Arc::new(Mutex::new(RealTimeFFT::new(512))),
             state: InternalPlaybackState::Stopped,
             pending_load: None,
+            load_generation: 0,
             debounce_timer: None,
             cancellation_token,
             playback_mode: PlaybackMode::Sequential,
@@ -468,7 +471,11 @@ impl PlayerInternal {
                             }
                             self.load(Some(index), false, true)?;
                         },
-                        PlayerCommand::LoadComplete { result, item, original_item, index, playlist_index, path, play } => {
+                        PlayerCommand::LoadComplete { generation, result, item, original_item, index, playlist_index, path, play } => {
+                            if generation != self.load_generation {
+                                debug!("Dropping stale load completion generation {generation}; current generation is {}", self.load_generation);
+                                continue;
+                            }
                             self.state = InternalPlaybackState::Stopped;
                             if let Some(pending) = self.pending_load.take() {
                                 debug!("Load {index} completed after a newer request; starting index {}", pending.index);
@@ -603,6 +610,9 @@ impl PlayerInternal {
                 return Ok(());
             }
 
+            self.load_generation = self.load_generation.wrapping_add(1);
+            let generation = self.load_generation;
+
             let item = self.playlist[mapped_index].clone();
             debug!("Starting track load at playlist index {mapped_index} (request index {index})");
             let commands_sender = self.commands_sender.clone();
@@ -723,6 +733,7 @@ impl PlayerInternal {
                     Err(error) => (Err(error), PathBuf::new(), item.item),
                 };
                 let cmd = PlayerCommand::LoadComplete {
+                    generation,
                     result: Box::new(source_result),
                     item: resolved_item,
                     original_item,
@@ -882,6 +893,9 @@ impl PlayerInternal {
     }
 
     fn stop(&mut self) -> Result<()> {
+        self.load_generation = self.load_generation.wrapping_add(1);
+        self.pending_load = None;
+        self.state = InternalPlaybackState::Stopped;
         if let Some(sink) = self.sink.take() {
             sink.stop();
             info!("Playback stopped");
@@ -893,8 +907,6 @@ impl PlayerInternal {
             warn!("Stop command received but no track is loaded");
         }
         self.active_stream_failure = None;
-        self.pending_load = None;
-
         Ok(())
     }
 
@@ -1081,6 +1093,7 @@ impl PlayerInternal {
     }
 
     fn clear_playlist(&mut self) -> Result<()> {
+        self.load_generation = self.load_generation.wrapping_add(1);
         self.clear_unavailable(None)?;
         self.playlist.clear();
         self.playback_strategy
@@ -1324,7 +1337,7 @@ mod stream_open_tests {
     use super::*;
     use crate::player::{AudioRequest, LibraryItem, LibraryPlaybackSource, RemoteAudioSource};
     use futures::future::BoxFuture;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::io::{Read, Seek, SeekFrom};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::{Receiver, channel};
@@ -1441,6 +1454,8 @@ mod stream_open_tests {
         started: Arc<Notify>,
         release: Arc<Notify>,
         file_ids: Arc<HashMap<Uuid, i32>>,
+        file_path: PathBuf,
+        blocked_ids: Arc<HashSet<i32>>,
     }
 
     impl PlaybackSourceResolver for DelayedResolver {
@@ -1452,14 +1467,18 @@ mod stream_open_tests {
             let started = self.started.clone();
             let release = self.release.clone();
             let file_ids = self.file_ids.clone();
+            let file_path = self.file_path.clone();
+            let blocked_ids = self.blocked_ids.clone();
             Box::pin(async move {
                 Ok(Some(LibraryPlaybackSource {
-                    fsio: Arc::new(FsIo::new_noop()),
+                    fsio: Arc::new(FsIo::new()),
                     resolver: Arc::new(DelayedLibraryResolver {
                         ids,
                         started,
                         release,
                         file_ids,
+                        file_path,
+                        blocked_ids,
                     }),
                 }))
             })
@@ -1475,6 +1494,8 @@ mod stream_open_tests {
         started: Arc<Notify>,
         release: Arc<Notify>,
         file_ids: Arc<HashMap<Uuid, i32>>,
+        file_path: PathBuf,
+        blocked_ids: Arc<HashSet<i32>>,
     }
 
     impl PlaybackSourceResolver for DelayedLibraryResolver {
@@ -1487,9 +1508,10 @@ mod stream_open_tests {
             let ids = self.ids.clone();
             let started = self.started.clone();
             let release = self.release.clone();
+            let blocked_ids = self.blocked_ids.clone();
             Box::pin(async move {
                 ids.lock().unwrap().push(id);
-                if id == 1 {
+                if blocked_ids.contains(&id) {
                     started.notify_one();
                     release.notified().await;
                 }
@@ -1497,9 +1519,54 @@ mod stream_open_tests {
             })
         }
 
+        fn local_path(&self, _: i32) -> BoxFuture<'static, Result<Option<PathBuf>>> {
+            let path = self.file_path.clone();
+            Box::pin(async move { Ok(Some(path)) })
+        }
+
         fn resolve(&self, _: i32) -> BoxFuture<'static, Result<RemoteAudioSource>> {
             Box::pin(async { anyhow::bail!("unexpected remote source resolution") })
         }
+    }
+
+    fn delayed_resolver_fixture(
+        file_uuids: &[Uuid],
+        ids: Arc<Mutex<Vec<i32>>>,
+        started: Arc<Notify>,
+        release: Arc<Notify>,
+        blocked_ids: &[i32],
+    ) -> (Arc<DelayedResolver>, PathBuf) {
+        let wav_path = std::env::temp_dir().join(format!("playback-{}.wav", Uuid::new_v4()));
+        let mut wav = Vec::with_capacity(48);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&40_u32.to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16_u32.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&8_000_u32.to_le_bytes());
+        wav.extend_from_slice(&16_000_u32.to_le_bytes());
+        wav.extend_from_slice(&2_u16.to_le_bytes());
+        wav.extend_from_slice(&16_u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&4_u32.to_le_bytes());
+        wav.extend_from_slice(&[0; 4]);
+        std::fs::write(&wav_path, wav).unwrap();
+        let resolver = Arc::new(DelayedResolver {
+            ids,
+            started,
+            release,
+            file_ids: Arc::new(
+                file_uuids
+                    .iter()
+                    .enumerate()
+                    .map(|(index, file_uuid)| (*file_uuid, index as i32 + 1))
+                    .collect(),
+            ),
+            file_path: wav_path.clone(),
+            blocked_ids: Arc::new(blocked_ids.iter().copied().collect()),
+        });
+        (resolver, wav_path)
     }
 
     #[tokio::test]
@@ -1508,16 +1575,13 @@ mod stream_open_tests {
         let ids = Arc::new(Mutex::new(Vec::new()));
         let started = Arc::new(Notify::new());
         let release = Arc::new(Notify::new());
-        let resolver = Arc::new(DelayedResolver {
-            ids: ids.clone(),
-            started: started.clone(),
-            release: release.clone(),
-            file_ids: Arc::new(HashMap::from([
-                (file_uuids[0], 1),
-                (file_uuids[1], 2),
-                (file_uuids[2], 3),
-            ])),
-        });
+        let (resolver, wav_path) = delayed_resolver_fixture(
+            &file_uuids,
+            ids.clone(),
+            started.clone(),
+            release.clone(),
+            &[1],
+        );
         let (commands_sender, commands) = mpsc::unbounded_channel();
         let (event_sender, _events) = mpsc::unbounded_channel();
         let mut internal = PlayerInternal::new(
@@ -1567,6 +1631,159 @@ mod stream_open_tests {
                     assert_eq!(&*ids.lock().unwrap(), &[1, 3]);
 
                     runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn clear_replace_during_load_finishes_on_the_new_first_track() -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let (resolver, wav_path) = delayed_resolver_fixture(
+            &file_uuids,
+            ids.clone(),
+            started.clone(),
+            release.clone(),
+            &[1, 2],
+        );
+        let (commands_sender, commands) = mpsc::unbounded_channel();
+        let (event_sender, mut events) = mpsc::unbounded_channel();
+        let mut internal = PlayerInternal::new(
+            commands,
+            event_sender,
+            CancellationToken::new(),
+            commands_sender.clone(),
+            Arc::new(FsIo::new_noop()),
+            PcmTap::new(),
+            Arc::new(RwLock::new(Some(resolver))),
+        );
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let track = |file_uuid| {
+                        (
+                            PlayingItem::InLibrary(LibraryItem {
+                                library_id,
+                                file_uuid,
+                            }),
+                            PlaybackSource::LibraryStream,
+                        )
+                    };
+                    commands_sender.send(PlayerCommand::AddToPlaylist {
+                        tracks: vec![track(file_uuids[0])],
+                        mode: AddMode::AppendToEnd,
+                    })?;
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    tokio::time::timeout(Duration::from_secs(2), started.notified()).await?;
+                    commands_sender.send(PlayerCommand::ClearPlaylist)?;
+                    commands_sender.send(PlayerCommand::AddToPlaylist {
+                        tracks: vec![track(file_uuids[1]), track(file_uuids[2])],
+                        mode: AddMode::AppendToEnd,
+                    })?;
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    commands_sender.send(PlayerCommand::Play)?;
+                    tokio::time::timeout(Duration::from_secs(2), async {
+                        loop {
+                            if ids.lock().unwrap().len() >= 2 {
+                                break;
+                            }
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await?;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    release.notify_one();
+
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    assert_eq!(&*ids.lock().unwrap(), &[1, 2]);
+                    release.notify_one();
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    release.notify_one();
+
+                    let expected = PlayingItem::InLibrary(LibraryItem {
+                        library_id,
+                        file_uuid: file_uuids[1],
+                    });
+                    tokio::time::timeout(Duration::from_secs(3), async {
+                        loop {
+                            if let Some(PlayerEvent::Playing { item, .. }) = events.recv().await
+                                && item == expected
+                            {
+                                break;
+                            }
+                        }
+                    })
+                    .await?;
+                    assert_eq!(&*ids.lock().unwrap(), &[1, 2, 2]);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stop_during_load_drops_the_late_completion() -> Result<()> {
+        let file_uuids = [Uuid::new_v4()];
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let (resolver, wav_path) =
+            delayed_resolver_fixture(&file_uuids, ids, started.clone(), release.clone(), &[1]);
+        let (commands_sender, commands) = mpsc::unbounded_channel();
+        let (event_sender, mut events) = mpsc::unbounded_channel();
+        let mut internal = PlayerInternal::new(
+            commands,
+            event_sender,
+            CancellationToken::new(),
+            commands_sender.clone(),
+            Arc::new(FsIo::new_noop()),
+            PcmTap::new(),
+            Arc::new(RwLock::new(Some(resolver))),
+        );
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let expected = PlayingItem::InLibrary(LibraryItem {
+                        library_id,
+                        file_uuid: file_uuids[0],
+                    });
+                    commands_sender.send(PlayerCommand::AddToPlaylist {
+                        tracks: vec![(expected.clone(), PlaybackSource::LibraryStream)],
+                        mode: AddMode::AppendToEnd,
+                    })?;
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    tokio::time::timeout(Duration::from_secs(2), started.notified()).await?;
+                    commands_sender.send(PlayerCommand::Stop)?;
+                    release.notify_one();
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    while let Ok(event) = events.try_recv() {
+                        assert!(!matches!(
+                            event,
+                            PlayerEvent::Loaded { item, .. } | PlayerEvent::Playing { item, .. }
+                                if item == expected
+                        ));
+                    }
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
                     Ok::<(), anyhow::Error>(())
                 }
                 .await

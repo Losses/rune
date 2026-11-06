@@ -1,14 +1,14 @@
 use std::sync::{Arc, Weak};
 
 use rodio::cpal::Sample;
-#[cfg(not(feature = "test-output"))]
+#[cfg(not(any(feature = "test-output", test)))]
 use rodio::cpal::traits::HostTrait;
 use rodio::cpal::traits::StreamTrait;
 use rodio::dynamic_mixer::{self, DynamicMixerController};
 use rodio::source::Source;
 use rodio::{DeviceTrait, SupportedStreamConfig, cpal};
 use rodio::{PlayError, StreamError};
-#[cfg(feature = "test-output")]
+#[cfg(any(feature = "test-output", test))]
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     thread,
@@ -18,7 +18,7 @@ use std::{
 pub struct RuneOutputStream {
     mixer: Arc<DynamicMixerController<f32>>,
     _stream: Option<cpal::Stream>,
-    #[cfg(feature = "test-output")]
+    #[cfg(any(feature = "test-output", test))]
     test_stop: Option<Arc<AtomicBool>>,
 }
 
@@ -59,7 +59,7 @@ impl RuneOutputStream {
         let out = Self {
             mixer,
             _stream: Some(_stream),
-            #[cfg(feature = "test-output")]
+            #[cfg(any(feature = "test-output", test))]
             test_stop: None,
         };
         let handle = RuneOutputStreamHandle {
@@ -68,7 +68,7 @@ impl RuneOutputStream {
         Ok((out, handle))
     }
 
-    #[cfg(not(feature = "test-output"))]
+    #[cfg(not(any(feature = "test-output", test)))]
     pub fn try_default_with_callback<E>(
         error_callback: E,
     ) -> Result<(Self, RuneOutputStreamHandle), StreamError>
@@ -95,7 +95,7 @@ impl RuneOutputStream {
     }
 }
 
-#[cfg(feature = "test-output")]
+#[cfg(any(feature = "test-output", test))]
 impl RuneOutputStream {
     pub fn try_default_with_callback<E>(_: E) -> Result<(Self, RuneOutputStreamHandle), StreamError>
     where
@@ -126,7 +126,7 @@ impl RuneOutputStream {
     }
 }
 
-#[cfg(feature = "test-output")]
+#[cfg(any(feature = "test-output", test))]
 impl Drop for RuneOutputStream {
     fn drop(&mut self) {
         if let Some(stop) = &self.test_stop {
