@@ -30,6 +30,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             class: RequestClass::NodeLocal,
         },
         RequestResponse {
+            request: "ListRenderersRequest".to_string(),
+            response: Some("ListRenderersResponse".to_string()),
+            class: RequestClass::NodeLocal,
+        },
+        RequestResponse {
             request: "GetDeviceGrantsRequest".to_string(),
             response: Some("GetDeviceGrantsResponse".to_string()),
             class: RequestClass::NodeLocal,

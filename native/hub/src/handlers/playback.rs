@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::slice;
 use std::sync::Arc;
 
@@ -22,7 +22,7 @@ use ::playback::{
 };
 
 use crate::request_error::ExpectedRequestError;
-use crate::server::libraries::cast_library_state;
+use crate::server::libraries::{cast_library_state, cast_library_states, parse_library_ids};
 use crate::{
     Session, Signal,
     library_pool::{LibraryHandle, LibraryPool},
@@ -774,28 +774,15 @@ impl Signal for CastPreflightRequest {
         _session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let library_ids = request
-            .library_ids
-            .iter()
-            .map(|library_id| {
-                Uuid::parse_str(library_id).map_err(|error| {
-                    anyhow::Error::new(ExpectedRequestError::invalid_input(format!(
-                        "Invalid cast library id: {error}"
-                    )))
-                })
+        let library_ids = parse_library_ids(&request.library_ids)?;
+        let libraries = cast_library_states(&node, &library_ids)
+            .await
+            .into_iter()
+            .map(|(library_id, state)| CastLibraryStatus {
+                library_id: library_id.to_string(),
+                state,
             })
-            .collect::<Result<Vec<_>>>()?;
-        let mut libraries = Vec::new();
-        let mut seen = HashSet::new();
-        for (library_id, parsed_id) in request.library_ids.iter().zip(library_ids) {
-            if !seen.insert(parsed_id) {
-                continue;
-            }
-            libraries.push(CastLibraryStatus {
-                library_id: library_id.clone(),
-                state: cast_library_state(&node, parsed_id).await,
-            });
-        }
+            .collect();
         Ok(Some(CastPreflightResponse { libraries }))
     }
 }

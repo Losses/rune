@@ -1,3 +1,4 @@
+use super::libraries::{cast_preflight, peer_access};
 use super::sync_auth::SyncAuth;
 use super::sync_worker::wait_for_revocation;
 use crate::backends::remote::{RemoteConnectError, token_error};
@@ -333,6 +334,8 @@ impl ServerManager {
                 super::sync::pool_router(node.clone(), node_id),
             )
             .route("/libraries", get(super::libraries::list_libraries))
+            .route("/access", get(peer_access))
+            .route("/cast/preflight", post(cast_preflight))
             .layer(middleware::from_fn_with_state(
                 auth.clone(),
                 super::sync_auth::require_auth,
@@ -1189,6 +1192,55 @@ mod lifecycle_tests {
         let capabilities: discovery::capabilities::Capabilities =
             serde_json::from_value(body["capabilities"].clone())?;
         assert_eq!(capabilities, Capabilities::rune_native());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn authenticated_access_and_cast_preflight_require_control() -> Result<()> {
+        let server_dir = tempfile::tempdir()?;
+        let peer_dir = tempfile::tempdir()?;
+        let server = fixture(server_dir.path()).await?;
+        let peer = fixture(peer_dir.path()).await?;
+        let address = paired_full(&server, &peer).await?;
+        let peer_fingerprint = info(&peer).await?.fingerprint;
+        let mut grants = server
+            .global_params
+            .node
+            .access_policy
+            .grants(&peer_fingerprint)?;
+        grants.control = false;
+        server
+            .global_params
+            .node
+            .access_policy
+            .set(&peer_fingerprint, grants)?;
+        let (_, client) = authenticated_client(
+            &peer.global_params.node,
+            &info(&peer).await?.fingerprint,
+            &peer.private_key,
+            &info(&server).await?.fingerprint,
+            "127.0.0.1",
+            address.port(),
+        )
+        .await?;
+
+        let access: serde_json::Value = client
+            .get(format!("https://{address}/access"))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert_eq!(access, serde_json::json!({ "control": false }));
+
+        let response = client
+            .post(format!("https://{address}/cast/preflight"))
+            .json(&serde_json::json!({ "libraryIds": [] }))
+            .send()
+            .await?;
+        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+        server.global_params.node.shutdown().await?;
+        peer.global_params.node.shutdown().await?;
         Ok(())
     }
 

@@ -1,7 +1,11 @@
 use crate::access_policy::{Action, LibraryLevel};
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use std::path::Path;
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Result;
 use axum::{Extension, Json, http::StatusCode};
@@ -12,19 +16,299 @@ use discovery::server::UserStatus;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::sync_worker::{authenticated_client, peer_endpoints};
+use super::sync_worker::{PeerEndpoint, authenticated_client, peer_endpoints};
 use super::utils::device::load_device_info;
 use super::{ServerManager, generate_or_load_certificates};
+use crate::backends::remote::select_renderer_host;
 use crate::backends::remote::{RemoteConnectError, token_error};
 use crate::library_pool::LibraryHandle;
-use crate::messages::{CastLibraryState, DeviceLibraryLevel, PeerLibrary};
+use crate::messages::{
+    CastLibraryState, DeviceLibraryLevel, PeerLibrary, RendererAvailability, RendererCandidate,
+};
 use crate::node::NodeContext;
+use crate::request_error::ExpectedRequestError;
+use crate::server::api::fetch_device_info_at_port;
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct ListedLibrary {
     pub(super) library_id: Uuid,
     pub(super) alias: String,
     pub(super) level: LibraryLevel,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct PeerAccess {
+    control: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CastPreflightBody {
+    library_ids: Vec<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct HttpCastLibraryStatus {
+    library_id: String,
+    state: CastLibraryState,
+}
+
+pub(super) async fn peer_access(
+    Extension(manager): Extension<Arc<ServerManager>>,
+    Extension(peer): Extension<PeerIdentity>,
+) -> Result<Json<PeerAccess>, StatusCode> {
+    let node = manager
+        .node()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let control = node
+        .access_policy
+        .grants(&peer.fingerprint)
+        .map_err(|_| StatusCode::FORBIDDEN)?
+        .control;
+    Ok(Json(PeerAccess { control }))
+}
+
+pub(super) async fn cast_preflight(
+    Extension(manager): Extension<Arc<ServerManager>>,
+    Extension(peer): Extension<PeerIdentity>,
+    Json(request): Json<CastPreflightBody>,
+) -> Result<Json<Vec<HttpCastLibraryStatus>>, StatusCode> {
+    let node = manager
+        .node()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    node.access_policy
+        .check(&peer, &Action::Control)
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+    let library_ids =
+        parse_library_ids(&request.library_ids).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let libraries = cast_library_states(&node, &library_ids)
+        .await
+        .into_iter()
+        .map(|(library_id, state)| HttpCastLibraryStatus {
+            library_id: library_id.to_string(),
+            state,
+        })
+        .collect();
+    Ok(Json(libraries))
+}
+
+/// Parse library ids sent by a controller; a malformed id is `InvalidInput`.
+pub(crate) fn parse_library_ids(library_ids: &[String]) -> Result<Vec<Uuid>> {
+    library_ids
+        .iter()
+        .map(|library_id| {
+            Uuid::parse_str(library_id).map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("Invalid library id: {error}")).into()
+            })
+        })
+        .collect()
+}
+
+/// The cast state of each distinct library, in the order first named.
+pub(crate) async fn cast_library_states(
+    node: &NodeContext,
+    library_ids: &[Uuid],
+) -> Vec<(Uuid, CastLibraryState)> {
+    let mut seen = HashSet::new();
+    let mut states = Vec::new();
+    for library_id in library_ids {
+        if seen.insert(*library_id) {
+            states.push((*library_id, cast_library_state(node, *library_id).await));
+        }
+    }
+    states
+}
+
+pub(crate) async fn list_renderer_candidates(
+    node: Arc<NodeContext>,
+    library_ids: Vec<Uuid>,
+) -> Result<Vec<RendererCandidate>> {
+    let own = load_device_info(Path::new(&*node.config_path)).await?;
+    let (_, _, private_key) =
+        generate_or_load_certificates(Path::new(&*node.config_path), &own.alias).await?;
+    let endpoints = peer_endpoints(&node, &own.fingerprint).await;
+    let mut peers = BTreeMap::<String, Vec<PeerEndpoint>>::new();
+    for endpoint in endpoints.into_iter().flatten() {
+        peers
+            .entry(endpoint.fingerprint.clone())
+            .or_default()
+            .push(endpoint);
+    }
+    let mut probes = tokio::task::JoinSet::<Result<Option<RendererCandidate>>>::new();
+    for (fingerprint, endpoints) in peers {
+        let node = node.clone();
+        let private_key = private_key.clone();
+        let own_fingerprint = own.fingerprint.clone();
+        let library_ids = library_ids.clone();
+        probes.spawn(async move {
+            let fallback = RendererCandidate {
+                fingerprint: fingerprint.clone(),
+                alias: fingerprint.clone(),
+                attached: node
+                    .renderer_link()
+                    .ok()
+                    .flatten()
+                    .is_some_and(|link| link.fingerprint() == fingerprint),
+                availability: RendererAvailability::Offline,
+                blocked_library_id: None,
+                library_state: None,
+            };
+            match tokio::time::timeout(
+                Duration::from_secs(3),
+                probe_renderer(
+                    node,
+                    own_fingerprint,
+                    private_key,
+                    fingerprint,
+                    endpoints,
+                    library_ids,
+                    fallback.clone(),
+                ),
+            )
+            .await
+            {
+                Ok(Ok(candidate)) => Ok(candidate),
+                Ok(Err(error)) => {
+                    log::debug!("Renderer candidate probe failed: {error:#}");
+                    Ok(Some(fallback))
+                }
+                Err(_) => Ok(Some(fallback)),
+            }
+        });
+    }
+    let mut renderers = Vec::new();
+    while let Some(result) = probes.join_next().await {
+        match result {
+            Ok(Ok(Some(candidate))) => renderers.push(candidate),
+            Ok(Ok(None)) => {}
+            Ok(Err(error)) => log::debug!("Renderer candidate probe failed: {error:#}"),
+            Err(error) => log::debug!("Renderer candidate task failed: {error}"),
+        }
+    }
+    renderers.sort_by(|left, right| left.alias.cmp(&right.alias));
+    Ok(renderers)
+}
+
+async fn probe_renderer(
+    node: Arc<NodeContext>,
+    own_fingerprint: String,
+    private_key: String,
+    fingerprint: String,
+    endpoints: Vec<PeerEndpoint>,
+    library_ids: Vec<Uuid>,
+    mut candidate: RendererCandidate,
+) -> Result<Option<RendererCandidate>> {
+    let hosts = endpoints
+        .iter()
+        .map(|endpoint| format!("https://{}:{}", endpoint.host, endpoint.port))
+        .collect();
+    let selected = select_renderer_host(&node, hosts).await?;
+    let url = url::Url::parse(&selected)?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("invalid peer host"))?;
+    let port = url.port().unwrap_or(7863);
+    let validator = node.cert_validator.read().await.clone();
+    let info = fetch_device_info_at_port(
+        host,
+        port,
+        Arc::new(Arc::new(validator.clone()).into_client_config()),
+    )
+    .await?;
+    if info
+        .capabilities
+        .as_ref()
+        .and_then(|caps| caps.renderer.as_ref())
+        .is_none()
+    {
+        return Ok(None);
+    }
+    candidate.alias = info.alias;
+    let (base, client) = match authenticated_client(
+        &node,
+        &own_fingerprint,
+        &private_key,
+        &fingerprint,
+        host,
+        port,
+    )
+    .await
+    {
+        Ok(client) => client,
+        Err(error) => {
+            candidate.availability = if is_auth_refusal(&error) {
+                RendererAvailability::NotApproved
+            } else {
+                RendererAvailability::Offline
+            };
+            return Ok(Some(candidate));
+        }
+    };
+    let access = match client.get(format!("{base}/access")).send().await {
+        Ok(response)
+            if response.status() == StatusCode::UNAUTHORIZED
+                || response.status() == StatusCode::FORBIDDEN =>
+        {
+            candidate.availability = RendererAvailability::NotApproved;
+            return Ok(Some(candidate));
+        }
+        Ok(response) if response.status().is_success() => response.json::<PeerAccess>().await,
+        _ => {
+            candidate.availability = RendererAvailability::Offline;
+            return Ok(Some(candidate));
+        }
+    };
+    let access = match access {
+        Ok(access) => access,
+        Err(_) => {
+            candidate.availability = RendererAvailability::Offline;
+            return Ok(Some(candidate));
+        }
+    };
+    if !access.control {
+        candidate.availability = RendererAvailability::NoControl;
+        return Ok(Some(candidate));
+    }
+    if !library_ids.is_empty() {
+        let raw_ids = library_ids.iter().map(Uuid::to_string).collect::<Vec<_>>();
+        let response = match client
+            .post(format!("{base}/cast/preflight"))
+            .json(&serde_json::json!({ "libraryIds": raw_ids }))
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => response,
+            _ => {
+                candidate.availability = RendererAvailability::Offline;
+                return Ok(Some(candidate));
+            }
+        };
+        let states: Vec<HttpCastLibraryStatus> = response.json().await?;
+        if let Some(blocked) = states
+            .into_iter()
+            .find(|status| status.state != CastLibraryState::Ready)
+        {
+            candidate.availability = RendererAvailability::CantPlay;
+            candidate.blocked_library_id = Some(blocked.library_id);
+            candidate.library_state = Some(blocked.state);
+            return Ok(Some(candidate));
+        }
+    }
+    candidate.availability = RendererAvailability::Available;
+    Ok(Some(candidate))
+}
+
+fn is_auth_refusal(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause.downcast_ref::<reqwest::Error>().is_some_and(|error| {
+            matches!(
+                error.status(),
+                Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
+            )
+        })
+    })
 }
 
 /// Check whether this node can currently read a registered library for a cast.

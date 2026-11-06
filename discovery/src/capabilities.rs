@@ -105,8 +105,8 @@ impl Capabilities {
     /// recommendations are served to peers; charts and visualizer feeds are not.
     /// They render any library for which they hold a standing read grant, keep
     /// one node-wide session, and push status updates to attached controllers.
-    /// Controllers can play or pause, seek, change volume, and edit the queue;
-    /// loading a cast has not been implemented.
+    /// Controllers can play or pause, seek, change volume, edit the queue, and
+    /// load a cast of library items after the renderer verifies its standing grant.
     pub fn rune_native() -> Self {
         Self {
             library_provider: Some(LibraryProviderCaps {
@@ -125,6 +125,7 @@ impl Capabilities {
                     Control::Seek,
                     Control::Volume,
                     Control::QueueEdit,
+                    Control::Load,
                 ],
             }),
         }
@@ -164,6 +165,7 @@ mod tests {
                     Control::Seek,
                     Control::Volume,
                     Control::QueueEdit,
+                    Control::Load,
                 ],
             }),
         };
@@ -181,7 +183,7 @@ mod tests {
                 "acceptedSources": "anyGrantedLibrary",
                 "sessions": "singleGlobal",
                 "statusDelivery": "push",
-                "controls": ["playPause", "seek", "volume", "queueEdit"]
+                "controls": ["playPause", "seek", "volume", "queueEdit", "load"]
             }
         });
         assert_eq!(
@@ -243,6 +245,6 @@ mod tests {
         );
         assert_eq!(renderer.sessions, SessionCardinality::SingleGlobal);
         assert_eq!(renderer.status_delivery, StatusDelivery::Push);
-        assert!(!renderer.controls.contains(&Control::Load));
+        assert!(renderer.controls.contains(&Control::Load));
     }
 }

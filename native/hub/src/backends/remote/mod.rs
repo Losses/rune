@@ -194,6 +194,7 @@ type PendingReplies = Arc<Mutex<HashMap<Uuid, oneshot::Sender<Result<(String, Ve
 /// A node-owned control connection to a remote renderer.
 pub struct RendererLink {
     id: Uuid,
+    fingerprint: String,
     write: Arc<Mutex<SplitSink<RemoteStream, TungsteniteMessage>>>,
     cancel: CancellationToken,
     locally_detached: Arc<AtomicBool>,
@@ -235,11 +236,11 @@ impl RendererLink {
         .await
         .map(|info| info.alias)
         .map_err(|_| RemoteConnectError::Unreachable)?;
-        let link = Self::new(stream, node.clone()).await;
+        let link = Self::new(stream, node.clone(), fingerprint.to_owned()).await;
         Ok((link, host.to_owned(), alias))
     }
 
-    async fn new(stream: RemoteStream, node: Arc<NodeContext>) -> Self {
+    async fn new(stream: RemoteStream, node: Arc<NodeContext>, fingerprint: String) -> Self {
         let id = Uuid::new_v4();
         let cancel = node.token.child_token();
         let locally_detached = Arc::new(AtomicBool::new(false));
@@ -294,6 +295,7 @@ impl RendererLink {
         });
         Self {
             id,
+            fingerprint,
             write,
             cancel,
             locally_detached,
@@ -356,6 +358,10 @@ impl RendererLink {
 
     pub(crate) fn id(&self) -> Uuid {
         self.id
+    }
+
+    pub(crate) fn fingerprint(&self) -> &str {
+        &self.fingerprint
     }
 
     pub(crate) fn close(&self) {
@@ -888,7 +894,7 @@ pub async fn server_player_loop(
     Ok(())
 }
 
-async fn select_renderer_host(
+pub(crate) async fn select_renderer_host(
     node: &NodeContext,
     hosts: Vec<String>,
 ) -> std::result::Result<String, RemoteConnectError> {

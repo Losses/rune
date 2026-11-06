@@ -6,8 +6,9 @@ use crate::{
     access_policy::LibraryLevel,
     handlers::playback::{playing_item_from_request, playing_item_requests},
     messages::{
-        CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem, LibraryItemRequest,
-        PlayingItemRequest, PlaylistUpdate, RequestErrorKind,
+        CastLibraryState, CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem,
+        LibraryItemRequest, ListRenderersRequest, PlayingItemRequest, PlaylistUpdate,
+        RendererAvailability, RendererCandidate, RequestErrorKind,
     },
     request_error::classify,
     session::store::SessionState,
@@ -2638,6 +2639,132 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     );
 
     renderer.global_params.node.shutdown().await?;
+    controller.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn list_renderers_reports_access_availability_and_attachment() -> Result<()> {
+    let host_dir = tempfile::tempdir()?;
+    let renderer_dir = tempfile::tempdir()?;
+    let no_control_dir = tempfile::tempdir()?;
+    let offline_dir = tempfile::tempdir()?;
+    let controller_dir = tempfile::tempdir()?;
+    let host = fixture(host_dir.path()).await?;
+    let renderer = fixture(renderer_dir.path()).await?;
+    let no_control = fixture(no_control_dir.path()).await?;
+    let offline = fixture(offline_dir.path()).await?;
+    let controller = fixture(controller_dir.path()).await?;
+
+    replicate_host_library(&host, &renderer).await?;
+    let renderer_address = paired_full(&renderer, &controller).await?;
+    let no_control_address = paired_full(&no_control, &controller).await?;
+    let offline_address = paired_full(&offline, &controller).await?;
+
+    let controller_info = info(&controller).await?;
+    let renderer_info = info(&renderer).await?;
+    let no_control_info = info(&no_control).await?;
+    let offline_info = info(&offline).await?;
+    for (fingerprint, address) in [
+        (&renderer_info.fingerprint, renderer_address),
+        (&no_control_info.fingerprint, no_control_address),
+        (&offline_info.fingerprint, offline_address),
+    ] {
+        controller
+            .global_params
+            .cert_validator
+            .read()
+            .await
+            .replace_hosts_for_fingerprint(
+                fingerprint,
+                vec![format!("127.0.0.1:{}", address.port())],
+            )
+            .await?;
+    }
+    let host_library_id = host.global_params.library_id.context("host library id")?;
+    let controller_library_id = controller
+        .global_params
+        .library_id
+        .context("controller library id")?;
+    let mut no_control_grants = no_control
+        .global_params
+        .node
+        .access_policy
+        .grants(&controller_info.fingerprint)?;
+    no_control_grants.control = false;
+    no_control
+        .global_params
+        .node
+        .access_policy
+        .set(&controller_info.fingerprint, no_control_grants)?;
+    offline.global_params.node.shutdown().await?;
+
+    async fn list(
+        controller: &Fixture,
+        library_ids: Vec<String>,
+    ) -> Result<Vec<RendererCandidate>> {
+        let request = ListRenderersRequest { library_ids };
+        Ok(request
+            .handle(
+                request.extract_params(&controller.global_params),
+                None,
+                &request,
+            )
+            .await?
+            .context("renderer list response")?
+            .renderers)
+    }
+
+    let empty = list(&controller, Vec::new()).await?;
+    fn candidate<'a>(
+        renderers: &'a [RendererCandidate],
+        fingerprint: &str,
+    ) -> Result<&'a RendererCandidate> {
+        renderers
+            .iter()
+            .find(|renderer| renderer.fingerprint == fingerprint)
+            .with_context(|| format!("missing renderer candidate {fingerprint}"))
+    }
+    assert_eq!(
+        candidate(&empty, &renderer_info.fingerprint)?.availability,
+        RendererAvailability::Available
+    );
+    assert_eq!(
+        candidate(&empty, &no_control_info.fingerprint)?.availability,
+        RendererAvailability::NoControl
+    );
+    assert_eq!(
+        candidate(&empty, &offline_info.fingerprint)?.availability,
+        RendererAvailability::Offline
+    );
+
+    let host_library = list(&controller, vec![host_library_id.to_string()]).await?;
+    assert_eq!(
+        candidate(&host_library, &renderer_info.fingerprint)?.availability,
+        RendererAvailability::Available
+    );
+    let own_library = list(&controller, vec![controller_library_id.to_string()]).await?;
+    let blocked = candidate(&own_library, &renderer_info.fingerprint)?;
+    assert_eq!(blocked.availability, RendererAvailability::CantPlay);
+    let controller_library_id_text = controller_library_id.to_string();
+    assert_eq!(
+        blocked.blocked_library_id.as_deref(),
+        Some(controller_library_id_text.as_str())
+    );
+    assert_eq!(blocked.library_state, Some(CastLibraryState::NotHeld));
+
+    controller
+        .global_params
+        .node
+        .attach_renderer(&renderer_info.fingerprint)
+        .await?;
+    let attached = list(&controller, Vec::new()).await?;
+    assert!(candidate(&attached, &renderer_info.fingerprint)?.attached);
+
+    controller.global_params.node.detach_renderer().await?;
+    host.global_params.node.shutdown().await?;
+    renderer.global_params.node.shutdown().await?;
+    no_control.global_params.node.shutdown().await?;
     controller.global_params.node.shutdown().await?;
     Ok(())
 }
