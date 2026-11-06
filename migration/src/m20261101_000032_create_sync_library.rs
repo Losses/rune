@@ -2,7 +2,7 @@ use sea_orm_migration::{
     prelude::*,
     sea_orm::{ConnectionTrait, FromQueryResult, TransactionTrait, prelude::Uuid},
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[path = "source_uuid_conversion.rs"]
 mod source_uuid_conversion;
@@ -19,6 +19,33 @@ struct LegacyStat {
     played_through: i32,
     updated_at: String,
     file_uuid: Option<String>,
+}
+
+/// Merges the statistics rows the previous release kept for one media file. Its table had no
+/// unique key on the file, so two updates that raced each inserted a row, and later updates went
+/// to the row a plain query returned first, the one with the lowest id. The counts add up, the
+/// like and the id come from that row, and the time is the latest.
+fn merge_duplicate_stats(mut rows: Vec<LegacyStat>) -> Vec<LegacyStat> {
+    rows.sort_by_key(|row| row.id);
+    let mut merged: Vec<LegacyStat> = Vec::with_capacity(rows.len());
+    let mut by_file: HashMap<i32, usize> = HashMap::new();
+    for row in rows {
+        match by_file.get(&row.media_file_id) {
+            Some(&index) => {
+                let kept = &mut merged[index];
+                kept.skipped = kept.skipped.saturating_add(row.skipped);
+                kept.played_through = kept.played_through.saturating_add(row.played_through);
+                if row.updated_at > kept.updated_at {
+                    kept.updated_at = row.updated_at;
+                }
+            }
+            None => {
+                by_file.insert(row.media_file_id, merged.len());
+                merged.push(row);
+            }
+        }
+    }
+    merged
 }
 
 #[derive(FromQueryResult)]
@@ -179,7 +206,11 @@ async fn correct_catalog_identities(
         }
     }
     if schema.has_table("media_cover_art").await? {
-        let mut identities = HashSet::new();
+        // The previous release could store one cover twice when two files were scanned at once.
+        // Both copies take the same identity, so files that used a copy move to the first row
+        // and the copy is removed.
+        let mut first_by_identity = HashMap::new();
+        let mut copies = Vec::new();
         let mut after = 0;
         loop {
             let query = Query::select()
@@ -218,15 +249,30 @@ async fn correct_catalog_identities(
             }
             let digest = blake3::hash(&row.binary).to_hex().to_string();
             let id = catalog_identity::artwork(&digest).to_string();
-            if !identities.insert(id.clone()) {
-                return Err(DbErr::Custom(format!(
-                    "ambiguous duplicate artwork identity at row {}",
-                    row.id
-                )));
+            if let Some(&first) = first_by_identity.get(&id) {
+                copies.push((row.id, first));
+                continue;
             }
+            first_by_identity.insert(id.clone(), row.id);
             if row.hlc_uuid != id {
                 changes.push(("media_cover_art", row.id, id));
             }
+        }
+        let files_use_artwork = schema.has_column("media_files", "cover_art_id").await?;
+        for (copy, first) in copies {
+            if files_use_artwork {
+                let repoint = Query::update()
+                    .table(Alias::new("media_files"))
+                    .value(Alias::new("cover_art_id"), first)
+                    .and_where(Expr::col(Alias::new("cover_art_id")).eq(copy))
+                    .to_owned();
+                tx.execute(&repoint).await?;
+            }
+            let remove = Query::delete()
+                .from_table(Alias::new("media_cover_art"))
+                .and_where(Expr::col(Alias::new("id")).eq(copy))
+                .to_owned();
+            tx.execute(&remove).await?;
         }
     }
     if schema.has_table("media_file_fingerprint").await? {
@@ -509,17 +555,12 @@ impl MigrationTrait for Migration {
                     .equals((Alias::new("s"), Alias::new("media_file_id"))),
             )
             .to_owned();
-        let rows = LegacyStat::find_by_statement(db.get_database_backend().build(&select))
-            .all(&txn)
-            .await?;
-        let mut seen = HashSet::new();
+        let rows = merge_duplicate_stats(
+            LegacyStat::find_by_statement(db.get_database_backend().build(&select))
+                .all(&txn)
+                .await?,
+        );
         for row in &rows {
-            if !seen.insert(row.media_file_id) {
-                return Err(DbErr::Custom(format!(
-                    "Ambiguous legacy statistics for media file {}",
-                    row.media_file_id
-                )));
-            }
             let file_uuid = row.file_uuid.as_deref().ok_or_else(|| {
                 DbErr::Custom("Legacy statistics reference a missing media file".to_owned())
             })?;
@@ -1172,29 +1213,45 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn duplicate_legacy_rows_roll_back() {
+    async fn duplicate_legacy_rows_merge_into_the_row_the_old_app_read() {
         let db = setup().await;
         db.execute_unprepared(
-            "INSERT INTO media_files VALUES (7, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')",
+            "INSERT INTO media_files VALUES (7, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'), (8, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')",
         )
         .await
         .unwrap();
-        db.execute_unprepared("INSERT INTO media_file_stats VALUES (4, 7, 1, 3, 9, '2020-01-01'), (5, 7, 0, 0, 0, '2020-01-02')").await.unwrap();
-        assert!(Migration.up(&SchemaManager::new(&db)).await.is_err());
-        let row = db
-            .query_one_raw(Statement::from_string(
+        db.execute_unprepared("INSERT INTO media_file_stats VALUES (5, 7, 0, 2, 1, '2020-01-02'), (4, 7, 1, 3, 9, '2020-01-01'), (6, 8, 0, 1, 0, '2020-01-03'), (9, 8, 1, 0, 0, '2020-01-01')").await.unwrap();
+        crate::with_migration_actor(
+            Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+            Migration.up(&SchemaManager::new(&db)),
+        )
+        .await
+        .unwrap();
+        let rows = db
+            .query_all_raw(Statement::from_string(
                 db.get_database_backend(),
-                "SELECT COUNT(*) AS n FROM media_file_stats".to_owned(),
+                "SELECT s.id, s.skipped, s.played_through, s.updated_at, f.liked FROM media_file_stats s LEFT JOIN media_file_likes f ON f.track_uuid=s.track_uuid ORDER BY s.id".to_owned(),
             ))
             .await
-            .unwrap()
             .unwrap();
-        assert_eq!(row.try_get::<i64>("", "n").unwrap(), 2);
-        assert!(
-            !SchemaManager::new(&db)
-                .has_table("media_file_likes")
-                .await
-                .unwrap()
+        let rows: Vec<_> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row.try_get::<i32>("", "id").unwrap(),
+                    row.try_get::<i32>("", "skipped").unwrap(),
+                    row.try_get::<i32>("", "played_through").unwrap(),
+                    row.try_get::<String>("", "updated_at").unwrap(),
+                    row.try_get::<Option<bool>>("", "liked").unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (4, 5, 10, "2020-01-02".to_owned(), Some(true)),
+                (6, 1, 0, "2020-01-03".to_owned(), None),
+            ]
         );
     }
     async fn populated_library() -> sea_orm_migration::sea_orm::DatabaseConnection {
@@ -1387,20 +1444,49 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn artwork_duplicate_identity_rejects_without_deletion() {
+    async fn duplicate_artwork_folds_into_the_first_row() {
         let db = setup().await;
         db.execute_unprepared("CREATE TABLE media_cover_art (id INTEGER PRIMARY KEY, file_hash TEXT NOT NULL, binary BLOB NOT NULL, hlc_uuid TEXT NOT NULL)").await.unwrap();
-        db.execute_unprepared("INSERT INTO media_cover_art VALUES (1,'a',x'010203','old-a'), (2,'b',x'010203','old-b')").await.unwrap();
-        assert!(Migration.up(&SchemaManager::new(&db)).await.is_err());
-        let row = db
-            .query_one_raw(Statement::from_string(
+        db.execute_unprepared("ALTER TABLE media_files ADD COLUMN cover_art_id INTEGER")
+            .await
+            .unwrap();
+        db.execute_unprepared("INSERT INTO media_cover_art VALUES (1,'a',x'010203','old-a'), (2,'a',x'010203','old-a'), (3,'b',x'040506','old-b')").await.unwrap();
+        db.execute_unprepared("INSERT INTO media_files VALUES (7, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 1), (8, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 2), (9, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 3)").await.unwrap();
+        Migration.up(&SchemaManager::new(&db)).await.unwrap();
+        let artwork = |bytes: &[u8]| {
+            crate::catalog_identity::artwork(blake3::hash(bytes).to_hex().as_ref()).to_string()
+        };
+        let covers = db
+            .query_all_raw(Statement::from_string(
                 db.get_database_backend(),
-                "SELECT COUNT(*) AS n FROM media_cover_art".to_owned(),
+                "SELECT hlc_uuid FROM media_cover_art ORDER BY id".to_owned(),
             ))
             .await
-            .unwrap()
             .unwrap();
-        assert_eq!(row.try_get::<i64>("", "n").unwrap(), 2);
+        let covers: Vec<String> = covers
+            .iter()
+            .map(|row| row.try_get("", "hlc_uuid").unwrap())
+            .collect();
+        assert_eq!(covers, [artwork(&[1, 2, 3]), artwork(&[4, 5, 6])]);
+        let files = db
+            .query_all_raw(Statement::from_string(
+                db.get_database_backend(),
+                "SELECT cover_art_uuid FROM media_files ORDER BY id".to_owned(),
+            ))
+            .await
+            .unwrap();
+        let files: Vec<String> = files
+            .iter()
+            .map(|row| row.try_get("", "cover_art_uuid").unwrap())
+            .collect();
+        assert_eq!(
+            files,
+            [
+                artwork(&[1, 2, 3]),
+                artwork(&[1, 2, 3]),
+                artwork(&[4, 5, 6])
+            ]
+        );
     }
     async fn setup_analysis_sources() -> sea_orm_migration::sea_orm::DatabaseConnection {
         let db = setup().await;
