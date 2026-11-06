@@ -425,6 +425,10 @@ pub(crate) struct PlayerInternal {
     output_stale: bool,
     // An interruption paused playback, so playback goes on when the interruption ends.
     resume_after_interruption: bool,
+    // An interruption is going on. The system may stop a stream opened now, or never start it,
+    // so such a stream counts as stale. Cleared when the interruption ends, or when an output
+    // opens to play, since the system does not always say that it ended.
+    interrupted: bool,
     unavailable: HashMap<PlayingItem, UnavailableReason>,
     // How many of the next attempts to open an output fail.
     #[cfg(test)]
@@ -477,6 +481,7 @@ impl PlayerInternal {
             restore_position: None,
             output_stale: false,
             resume_after_interruption: false,
+            interrupted: false,
             unavailable: HashMap::new(),
             #[cfg(test)]
             failing_opens: Arc::new(AtomicUsize::new(0)),
@@ -845,6 +850,14 @@ impl PlayerInternal {
                 bail!("the test output refused to open");
             }
         }
+        // Every playback after an interruption opens a new stream, so whatever asked to play, the
+        // session is set up and active again before the stream starts. A session that cannot be
+        // activated, as during a call, fails the open, and the track waits paused for the next
+        // play.
+        #[cfg(target_os = "ios")]
+        if !crate::ios_session::activate() {
+            bail!("the audio session could not be activated");
+        }
         RuneOutputStream::try_default_with_callback({
             let error_sender = self.stream_error_sender.clone();
             move |error| {
@@ -865,7 +878,12 @@ impl PlayerInternal {
     ) -> Result<()> {
         let (stream, stream_handle) = self.open_output()?;
         let sink = try_new_sink(&stream_handle).context("Failed to create sink")?;
-        self.output_stale = false;
+        // An output that opened to play shows the interruption is over, even if the system never
+        // said that it ended.
+        if play {
+            self.interrupted = false;
+        }
+        self.output_stale = self.interrupted;
 
         self.active_stream_failure = source.stream_failure();
         let source = SharedSource::new(source);
@@ -1041,9 +1059,11 @@ impl PlayerInternal {
                     self.pause()?;
                     self.resume_after_interruption = true;
                 }
+                self.interrupted = true;
                 self.mark_output_stale();
             }
             OutputEvent::InterruptionEnded { resume } => {
+                self.interrupted = false;
                 if std::mem::take(&mut self.resume_after_interruption) && resume {
                     self.play()?;
                 }
@@ -3076,6 +3096,81 @@ mod stream_open_tests {
                         expect_playing(&mut events, &track).await?,
                         Duration::from_secs(2),
                     );
+                    assert_eq!(opens.load(Ordering::SeqCst), 2);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn output_opened_during_an_interruption_opens_again_on_play() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let opens = internal.output_opens.clone();
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let track = library_item(library_id, file_uuid);
+                    commands_sender.send(PlayerCommand::Output(OutputEvent::Interrupted))?;
+                    commands_sender.send(add_library_tracks(library_id, &[file_uuid]))?;
+                    commands_sender.send(PlayerCommand::Load { index: 0 })?;
+                    let event = next_track_state(&mut events).await?;
+                    assert!(
+                        matches!(&event, PlayerEvent::Loaded { item, .. } if *item == track),
+                        "{event:?}"
+                    );
+                    assert_eq!(opens.load(Ordering::SeqCst), 1);
+
+                    commands_sender.send(PlayerCommand::Output(
+                        OutputEvent::InterruptionEnded { resume: false },
+                    ))?;
+                    assert_nothing_plays(&mut events).await;
+                    commands_sender.send(PlayerCommand::Play)?;
+                    expect_playing(&mut events, &track).await?;
+                    assert_eq!(opens.load(Ordering::SeqCst), 2);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn interruption_without_an_end_is_over_once_an_output_opens_to_play() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let opens = internal.output_opens.clone();
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
+                    commands_sender.send(PlayerCommand::Output(OutputEvent::Interrupted))?;
+                    let paused_at = expect_paused(&mut events, &track).await?;
+
+                    // The end of the interruption never comes.
+                    commands_sender.send(PlayerCommand::Play)?;
+                    assert_about(expect_playing(&mut events, &track).await?, paused_at);
+                    assert_eq!(opens.load(Ordering::SeqCst), 2);
+
+                    commands_sender.send(PlayerCommand::Pause)?;
+                    expect_paused(&mut events, &track).await?;
+                    commands_sender.send(PlayerCommand::Play)?;
+                    expect_playing(&mut events, &track).await?;
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
 
                     runner.abort();

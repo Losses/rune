@@ -306,6 +306,9 @@ pub struct Player {
     pcm_tap: Arc<PcmTap>,
     crash_sender: SimpleSender<String>,
     cancellation_token: CancellationToken,
+    /// Tells the player about calls and headphones while it lives.
+    #[cfg(target_os = "ios")]
+    _audio_session: crate::ios_session::Observers,
 }
 
 impl Default for Player {
@@ -354,6 +357,10 @@ impl Player {
         let pcm_tap = PcmTap::new();
 
         let commands = Arc::new(Mutex::new(cmd_tx.clone()));
+        // The player owns the audio session on iOS. Its category is set now, so that any audio
+        // the app plays has it from the start.
+        #[cfg(target_os = "ios")]
+        crate::ios_session::configure();
         // Create the Player instance and wrap the command sender in Arc<Mutex>
         let source_resolver = Arc::new(RwLock::new(None));
         let player = Player {
@@ -368,6 +375,8 @@ impl Player {
             crash_sender: crash_sender.clone(),
             log_sender: log_sender.clone(),
             cancellation_token: cancellation_token.clone(),
+            #[cfg(target_os = "ios")]
+            _audio_session: crate::ios_session::observe(cmd_tx.clone()),
         };
 
         // Start a new thread to run the PlayerInternal logic

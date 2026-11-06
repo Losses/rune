@@ -1,4 +1,6 @@
 mod internal;
+#[cfg(any(test, target_os = "ios"))]
+mod ios_session;
 mod realtime_fft;
 mod sfx_internal;
 mod shared_source;
