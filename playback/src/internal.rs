@@ -417,18 +417,15 @@ pub(crate) struct PlayerInternal {
     stream_retry_count: usize,
     adaptive_switching: bool,
     // Where the current track starts once its output opens. Set when a load starts and taken
-    // when the output opens. It stays while no output could be opened, or while a stale output
-    // cannot seek, so that the next play opens one there.
+    // when the output opens. It stays while the track has no output that plays, so that the next
+    // play opens one there: the track came up paused, no output could be opened, or a stale
+    // output cannot seek.
     restore_position: Option<Duration>,
-    // The current output stream can no longer play, or none could be opened. The next play opens
-    // a new one for the current track where it stands.
+    // The current track has no output that can play: it came up paused and none was opened, none
+    // could be opened, or its stream stopped. The next play opens one where the track stands.
     output_stale: bool,
     // An interruption paused playback, so playback goes on when the interruption ends.
     resume_after_interruption: bool,
-    // An interruption is going on. The system may stop a stream opened now, or never start it,
-    // so such a stream counts as stale. Cleared when the interruption ends, or when an output
-    // opens to play, since the system does not always say that it ended.
-    interrupted: bool,
     unavailable: HashMap<PlayingItem, UnavailableReason>,
     // How many of the next attempts to open an output fail.
     #[cfg(test)]
@@ -481,7 +478,6 @@ impl PlayerInternal {
             restore_position: None,
             output_stale: false,
             resume_after_interruption: false,
-            interrupted: false,
             unavailable: HashMap::new(),
             #[cfg(test)]
             failing_opens: Arc::new(AtomicUsize::new(0)),
@@ -555,8 +551,12 @@ impl PlayerInternal {
                                         self.schedule_playlist_update();
                                     }
                                     let start = self.restore_position.take();
-                                    if let Err(e) = self.setup_sink(source, item.clone(), index, path.clone(), play, start) {
-                                        self.output_failed(e, item, index, path, start.unwrap_or_default())?;
+                                    if play {
+                                        if let Err(e) = self.setup_sink(source, item.clone(), index, path.clone(), start) {
+                                            self.output_failed(e, item, index, path, start.unwrap_or_default())?;
+                                        }
+                                    } else {
+                                        self.loaded_paused(item, index, path, start.unwrap_or_default())?;
                                     }
                                 }
                                 Err(e) => {
@@ -629,7 +629,7 @@ impl PlayerInternal {
                         if self.state == InternalPlaybackState::Playing {
                             self.stream_retry_count += 1;
                             info!("Opening the audio output again (attempt {} of 5)", self.stream_retry_count);
-                            if let Err(e) = self.reopen_output(true) {
+                            if let Err(e) = self.reopen_output() {
                                 error!("Retry failed: {e:?}");
                             }
                         }
@@ -867,23 +867,19 @@ impl PlayerInternal {
         .context("Failed to create output stream")
     }
 
+    // Opens an output for a loaded track and plays it from `start`. Only playback opens an
+    // output; a track that comes up paused waits without one.
     fn setup_sink(
         &mut self,
         source: AnySource,
         item: PlayingItem,
         index: usize,
         path: PathBuf,
-        play: bool,
         start: Option<Duration>,
     ) -> Result<()> {
         let (stream, stream_handle) = self.open_output()?;
         let sink = try_new_sink(&stream_handle).context("Failed to create sink")?;
-        // An output that opened to play shows the interruption is over, even if the system never
-        // said that it ended.
-        if play {
-            self.interrupted = false;
-        }
-        self.output_stale = self.interrupted;
+        self.output_stale = false;
 
         self.active_stream_failure = source.stream_failure();
         let source = SharedSource::new(source);
@@ -926,9 +922,7 @@ impl PlayerInternal {
         {
             error!("Failed to seek to the start position {start:?}: {e:#?}");
         }
-        if play {
-            sink.play();
-        }
+        sink.play();
         let position = sink.get_pos();
 
         self.sink = Some(sink);
@@ -938,31 +932,62 @@ impl PlayerInternal {
         self.current_track_path = Some(path.clone());
         info!("Track loaded: {path:?}");
 
-        if play {
-            self.event_sender
-                .send(PlayerEvent::Playing {
-                    item,
-                    index,
-                    path,
-                    playback_mode: self.playback_mode,
-                    position,
-                })
-                .context("Failed to send Playing event")?;
-            self.state = InternalPlaybackState::Playing;
-        } else {
-            self.event_sender
-                .send(PlayerEvent::Loaded {
-                    item,
-                    index,
-                    path,
-                    playback_mode: self.playback_mode,
-                    position,
-                })
-                .context("Failed to send Playing event")?;
-            self.state = InternalPlaybackState::Stopped;
-        }
+        self.event_sender
+            .send(PlayerEvent::Playing {
+                item,
+                index,
+                path,
+                playback_mode: self.playback_mode,
+                position,
+            })
+            .context("Failed to send Playing event")?;
+        self.state = InternalPlaybackState::Playing;
 
         Ok(())
+    }
+
+    // A track that came up paused stays current without an output, as `Loaded` at `position`.
+    // Opening one now would take the audio from other apps on iOS and keep an idle stream open
+    // elsewhere. The first play loads the track again and opens an output there.
+    fn loaded_paused(
+        &mut self,
+        item: PlayingItem,
+        index: usize,
+        path: PathBuf,
+        position: Duration,
+    ) -> Result<()> {
+        info!("Track loaded paused: {path:?}");
+        self.keep_without_output(item.clone(), index, path.clone(), position);
+        self.event_sender
+            .send(PlayerEvent::Loaded {
+                item,
+                index,
+                path,
+                playback_mode: self.playback_mode,
+                position,
+            })
+            .context("Failed to send Loaded event")?;
+        Ok(())
+    }
+
+    // Keeps a track current with no output, paused where it stands, and the next play opens one
+    // there. Stopped inside, so that no progress is reported without a sink.
+    fn keep_without_output(
+        &mut self,
+        item: PlayingItem,
+        index: usize,
+        path: PathBuf,
+        position: Duration,
+    ) {
+        self.sink = None;
+        self._stream = None;
+        self.active_stream_failure = None;
+        self.output_stale = true;
+        self.restore_position = Some(position);
+        self.current_track_index = Some(index);
+        self.current_item = Some(item);
+        self.current_track_path = Some(path);
+        self.state = InternalPlaybackState::Stopped;
     }
 
     fn play(&mut self) -> Result<()> {
@@ -974,7 +999,7 @@ impl PlayerInternal {
         }
 
         if !loading && self.output_stale && self.current_track_index.is_some() {
-            return self.reopen_output(true);
+            return self.reopen_output();
         }
 
         if let Some(sink) = &self.sink {
@@ -1059,11 +1084,9 @@ impl PlayerInternal {
                     self.pause()?;
                     self.resume_after_interruption = true;
                 }
-                self.interrupted = true;
                 self.mark_output_stale();
             }
             OutputEvent::InterruptionEnded { resume } => {
-                self.interrupted = false;
                 if std::mem::take(&mut self.resume_after_interruption) && resume {
                     self.play()?;
                 }
@@ -1078,7 +1101,7 @@ impl PlayerInternal {
                 // Move what is playing to the new device now. A track that is loading opens its
                 // stream there anyway, and a paused one does on the next play.
                 if self.state == InternalPlaybackState::Playing {
-                    self.reopen_output(true)?;
+                    self.reopen_output()?;
                 }
             }
         }
@@ -1091,23 +1114,19 @@ impl PlayerInternal {
         }
     }
 
-    // Opens a new output stream for the current track and goes on from where it stands, playing
-    // or paused as `play` says. It loads the track again, so the old stream is never used for a
-    // seek, which would wait for a stream that no longer runs.
-    fn reopen_output(&mut self, play: bool) -> Result<()> {
+    // Opens a new output stream for the current track and plays on from where it stands. It loads
+    // the track again, so the old stream is never used for a seek, which would wait for a stream
+    // that no longer runs.
+    fn reopen_output(&mut self) -> Result<()> {
         let Some(index) = self.current_track_index else {
             return Ok(());
         };
-        let position = match (self.restore_position.take(), &self.sink) {
-            (Some(position), _) => position,
-            (None, Some(sink)) => sink.get_pos(),
-            (None, None) => Duration::ZERO,
-        };
+        let position = self.current_position().unwrap_or_default();
         if let Some(sink) = &self.sink {
             sink.pause();
         }
         info!("Opening the audio output again at {position:?}");
-        self.load_at(Some(index), play, true, Some(position))
+        self.load_at(Some(index), true, true, Some(position))
     }
 
     // Keeps the player running when no output stream could be opened, for example while another
@@ -1122,16 +1141,7 @@ impl PlayerInternal {
         position: Duration,
     ) -> Result<()> {
         error!("Failed to open the audio output: {error:?}");
-        self.sink = None;
-        self._stream = None;
-        self.active_stream_failure = None;
-        self.output_stale = true;
-        self.restore_position = Some(position);
-        self.current_track_index = Some(index);
-        self.current_item = Some(item.clone());
-        self.current_track_path = Some(path.clone());
-        // Stopped inside, so that no progress is reported without a sink.
-        self.state = InternalPlaybackState::Stopped;
+        self.keep_without_output(item.clone(), index, path.clone(), position);
         self.event_sender
             .send(PlayerEvent::Paused {
                 item,
@@ -1205,9 +1215,9 @@ impl PlayerInternal {
 
     fn previous(&mut self) -> Result<()> {
         if let Some(index) = self.current_track_index {
-            match &self.sink {
-                Some(sink) => {
-                    let need_adaptive = sink.get_pos() > Duration::from_secs(3);
+            match self.current_position() {
+                Some(position) => {
+                    let need_adaptive = position > Duration::from_secs(3);
 
                     if self.adaptive_switching && need_adaptive {
                         self.load(Some(index), true, true)?;
@@ -1221,6 +1231,21 @@ impl PlayerInternal {
         }
 
         Ok(())
+    }
+
+    // Where the current track stands: where it starts once an output opens while it has none
+    // that plays, or else where its sink is.
+    fn current_position(&self) -> Option<Duration> {
+        if self.output_stale
+            && let Some(position) = self.restore_position
+        {
+            return Some(position);
+        }
+        match &self.sink {
+            Some(sink) => Some(sink.get_pos()),
+            None if self.output_stale => Some(Duration::ZERO),
+            None => None,
+        }
     }
 
     fn switch(&mut self, index: usize) -> Result<()> {
@@ -1525,14 +1550,15 @@ impl PlayerInternal {
                     .with_context(|| "Failed to send Progress event")?;
             }
         } else {
+            // A track without an output that plays is still ready, where it starts.
             self.event_sender
                 .send(PlayerEvent::Progress {
                     item: id,
                     index,
                     path,
                     playback_mode,
-                    position: Duration::from_secs(0),
-                    ready: false,
+                    position: self.current_position().unwrap_or_default(),
+                    ready: self.output_stale && self.current_track_index.is_some(),
                 })
                 .with_context(|| "Failed to send Progress event")?;
         }
@@ -2303,7 +2329,9 @@ mod stream_open_tests {
                     );
                     assert_nothing_plays(&mut events).await;
 
+                    // Play loads the track again to open its output, and the resolver holds it.
                     commands_sender.send(PlayerCommand::Play)?;
+                    release.notify_one();
                     let event = next_track_state(&mut events).await?;
                     assert!(
                         matches!(&event, PlayerEvent::Playing { item, .. } if *item == expected),
@@ -2371,12 +2399,13 @@ mod stream_open_tests {
         let file_uuids = [Uuid::new_v4(), Uuid::new_v4()];
         let started = Arc::new(Notify::new());
         let release = Arc::new(Notify::new());
-        let (resolver, wav_path) = delayed_resolver_fixture(
+        let (resolver, wav_path) = delayed_resolver_fixture_with_samples(
             &file_uuids,
             Arc::new(Mutex::new(Vec::new())),
             started.clone(),
             release.clone(),
             &[2],
+            LONG_TRACK_SAMPLES,
         );
         let (mut internal, commands_sender, mut events) = library_engine(resolver);
         let local = LocalSet::new();
@@ -2388,12 +2417,8 @@ mod stream_open_tests {
                     let current = library_item(library_id, file_uuids[0]);
                     let expected = library_item(library_id, file_uuids[1]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
-                    commands_sender.send(PlayerCommand::Load { index: 0 })?;
-                    let event = next_track_state(&mut events).await?;
-                    assert!(
-                        matches!(&event, PlayerEvent::Loaded { item, .. } if *item == current),
-                        "{event:?}"
-                    );
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    expect_playing(&mut events, &current).await?;
 
                     commands_sender.send(PlayerCommand::Switch(1))?;
                     tokio::time::timeout(Duration::from_secs(2), started.notified()).await?;
@@ -2558,12 +2583,13 @@ mod stream_open_tests {
         let ids = Arc::new(Mutex::new(Vec::new()));
         let started = Arc::new(Notify::new());
         let release = Arc::new(Notify::new());
-        let (resolver, wav_path) = delayed_resolver_fixture(
+        let (resolver, wav_path) = delayed_resolver_fixture_with_samples(
             &file_uuids,
             ids.clone(),
             started.clone(),
             release.clone(),
             &[3],
+            LONG_TRACK_SAMPLES,
         );
         let (mut internal, commands_sender, mut events) = library_engine(resolver);
         let local = LocalSet::new();
@@ -2575,19 +2601,14 @@ mod stream_open_tests {
                     let current = library_item(library_id, file_uuids[0]);
                     let expected = library_item(library_id, file_uuids[2]);
                     commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
-                    commands_sender.send(PlayerCommand::Load { index: 0 })?;
-                    let event = next_track_state(&mut events).await?;
-                    assert!(
-                        matches!(&event, PlayerEvent::Loaded { item, .. } if *item == current),
-                        "{event:?}"
-                    );
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    expect_playing(&mut events, &current).await?;
 
-                    // The old track starts playing only once the chosen one is loading, so it
-                    // runs out during the load.
+                    // The old track plays on while the chosen one loads, and runs out first.
                     commands_sender.send(PlayerCommand::Switch(2))?;
                     tokio::time::timeout(Duration::from_secs(2), started.notified()).await?;
-                    commands_sender.send(PlayerCommand::Play)?;
-                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    commands_sender.send(PlayerCommand::Seek(4.9))?;
+                    tokio::time::sleep(Duration::from_millis(400)).await;
                     while events.try_recv().is_ok() {}
                     release.notify_one();
 
@@ -2929,8 +2950,11 @@ mod stream_open_tests {
                     );
                     assert_nothing_plays(&mut events).await;
 
-                    // The load opened its stream after the loss, so Play needs no other.
+                    // Play loads the track again, which the resolver holds, and opens the only
+                    // output.
+                    assert_eq!(opens.load(Ordering::SeqCst), 0);
                     commands_sender.send(PlayerCommand::Play)?;
+                    release.notify_one();
                     expect_playing(&mut events, &track).await?;
                     assert_eq!(opens.load(Ordering::SeqCst), 1);
 
@@ -3109,7 +3133,7 @@ mod stream_open_tests {
     }
 
     #[tokio::test]
-    async fn output_opened_during_an_interruption_opens_again_on_play() -> Result<()> {
+    async fn load_during_an_interruption_opens_no_output_until_play() -> Result<()> {
         let file_uuid = Uuid::new_v4();
         let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
         let opens = internal.output_opens.clone();
@@ -3128,7 +3152,7 @@ mod stream_open_tests {
                         matches!(&event, PlayerEvent::Loaded { item, .. } if *item == track),
                         "{event:?}"
                     );
-                    assert_eq!(opens.load(Ordering::SeqCst), 1);
+                    assert_eq!(opens.load(Ordering::SeqCst), 0);
 
                     commands_sender.send(PlayerCommand::Output(
                         OutputEvent::InterruptionEnded { resume: false },
@@ -3136,7 +3160,7 @@ mod stream_open_tests {
                     assert_nothing_plays(&mut events).await;
                     commands_sender.send(PlayerCommand::Play)?;
                     expect_playing(&mut events, &track).await?;
-                    assert_eq!(opens.load(Ordering::SeqCst), 2);
+                    assert_eq!(opens.load(Ordering::SeqCst), 1);
 
                     runner.abort();
                     let _ = std::fs::remove_file(wav_path);
@@ -3180,6 +3204,213 @@ mod stream_open_tests {
                 .await
             })
             .await?;
+        Ok(())
+    }
+
+    fn restore(library_id: Uuid, file_uuids: &[Uuid], index: usize, seconds: f64) -> PlayerCommand {
+        PlayerCommand::Restore {
+            tracks: library_tracks(library_id, file_uuids),
+            index: Some(index),
+            position: Duration::from_secs_f64(seconds),
+            mode: PlaybackMode::Sequential,
+        }
+    }
+
+    async fn expect_loaded(
+        events: &mut mpsc::UnboundedReceiver<PlayerEvent>,
+        track: &PlayingItem,
+    ) -> Result<Duration> {
+        let event = next_track_state(events).await?;
+        assert!(
+            matches!(&event, PlayerEvent::Loaded { item, .. } if item == track),
+            "{event:?}"
+        );
+        Ok(position_of(&event))
+    }
+
+    #[tokio::test]
+    async fn paused_load_opens_no_output_until_play() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let opens = internal.output_opens.clone();
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let track = library_item(library_id, file_uuid);
+                    commands_sender.send(restore(library_id, &[file_uuid], 0, 1.5))?;
+                    assert_about(
+                        expect_loaded(&mut events, &track).await?,
+                        Duration::from_millis(1500),
+                    );
+                    assert_nothing_plays(&mut events).await;
+                    assert_eq!(opens.load(Ordering::SeqCst), 0);
+
+                    commands_sender.send(PlayerCommand::Play)?;
+                    assert_about(
+                        expect_playing(&mut events, &track).await?,
+                        Duration::from_millis(1500),
+                    );
+                    assert_eq!(opens.load(Ordering::SeqCst), 1);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn seek_before_the_first_play_is_where_playback_starts() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let opens = internal.output_opens.clone();
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let track = library_item(library_id, file_uuid);
+                    commands_sender.send(restore(library_id, &[file_uuid], 0, 1.0))?;
+                    expect_loaded(&mut events, &track).await?;
+                    commands_sender.send(PlayerCommand::Seek(3.0))?;
+                    assert_about(
+                        expect_paused(&mut events, &track).await?,
+                        Duration::from_secs(3),
+                    );
+                    assert_eq!(opens.load(Ordering::SeqCst), 0);
+
+                    commands_sender.send(PlayerCommand::Play)?;
+                    assert_about(
+                        expect_playing(&mut events, &track).await?,
+                        Duration::from_secs(3),
+                    );
+                    assert_eq!(opens.load(Ordering::SeqCst), 1);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn paused_track_reports_that_it_is_ready_where_it_stands() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let track = library_item(library_id, file_uuid);
+                    commands_sender.send(restore(library_id, &[file_uuid], 0, 2.0))?;
+                    expect_loaded(&mut events, &track).await?;
+                    // Changing the mode reports progress, which must keep the controls usable.
+                    commands_sender
+                        .send(PlayerCommand::SetPlaybackMode(PlaybackMode::RepeatAll))?;
+                    assert_about(next_progress(&mut events).await?, Duration::from_secs(2));
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn another_paused_load_opens_nothing_and_next_opens_one_output() -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&file_uuids);
+        let opens = internal.output_opens.clone();
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    commands_sender.send(restore(library_id, &file_uuids, 0, 1.0))?;
+                    expect_loaded(&mut events, &library_item(library_id, file_uuids[0])).await?;
+                    commands_sender.send(PlayerCommand::Load { index: 1 })?;
+                    expect_loaded(&mut events, &library_item(library_id, file_uuids[1])).await?;
+                    assert_eq!(opens.load(Ordering::SeqCst), 0);
+
+                    commands_sender.send(PlayerCommand::Next)?;
+                    expect_playing(&mut events, &library_item(library_id, file_uuids[2])).await?;
+                    assert_eq!(opens.load(Ordering::SeqCst), 1);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn previous_restarts_a_paused_track_that_stands_past_three_seconds() -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4()];
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&file_uuids);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let track = library_item(library_id, file_uuids[1]);
+                    commands_sender.send(PlayerCommand::SetAdaptiveSwitchingEnabled(true))?;
+                    commands_sender.send(restore(library_id, &file_uuids, 1, 4.0))?;
+                    expect_loaded(&mut events, &track).await?;
+                    commands_sender.send(PlayerCommand::Previous)?;
+                    assert_about(expect_playing(&mut events, &track).await?, Duration::ZERO);
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn volume_set_before_the_first_play_applies() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let script = async {
+            let library_id = Uuid::new_v4();
+            let track = library_item(library_id, file_uuid);
+            commands_sender.send(add_library_tracks(library_id, &[file_uuid]))?;
+            commands_sender.send(PlayerCommand::Load { index: 0 })?;
+            expect_loaded(&mut events, &track).await?;
+            commands_sender.send(PlayerCommand::SetVolume(0.25))?;
+            commands_sender.send(PlayerCommand::Play)?;
+            expect_playing(&mut events, &track).await?;
+            Ok::<(), anyhow::Error>(())
+        };
+        // The test runs the player itself, so that it can look at the sink afterwards.
+        tokio::select! {
+            result = internal.run() => bail!("the player stopped: {result:?}"),
+            result = script => result?,
+        }
+        assert_eq!(internal.sink.as_ref().map(Sink::volume), Some(0.25));
+        let _ = std::fs::remove_file(wav_path);
         Ok(())
     }
 }
