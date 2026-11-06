@@ -240,7 +240,7 @@ pub trait Playable: Send {
     fn next(&self);
     fn previous(&self);
     fn switch(&self, index: usize);
-    fn seek(&self, position_ms: f64);
+    fn seek(&self, position_seconds: f64);
     fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode);
     fn add_to_playlist_with_sources(
         &self,
@@ -609,8 +609,8 @@ impl Playable for Player {
         self.command(PlayerCommand::Switch(index));
     }
 
-    fn seek(&self, position_ms: f64) {
-        self.command(PlayerCommand::Seek(position_ms));
+    fn seek(&self, position_seconds: f64) {
+        self.command(PlayerCommand::Seek(position_seconds));
     }
 
     fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode) {
@@ -738,7 +738,7 @@ impl Playable for MockPlayer {
     fn next(&self) {}
     fn previous(&self) {}
     fn switch(&self, _index: usize) {}
-    fn seek(&self, _position_ms: f64) {}
+    fn seek(&self, _position_seconds: f64) {}
     fn add_to_playlist(&self, _tracks: Vec<(PlayingItem, PathBuf)>, _mode: AddMode) {}
     fn remove_from_playlist(&self, _index: usize) {}
     fn clear_playlist(&self) {}

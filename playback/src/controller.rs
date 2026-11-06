@@ -148,26 +148,57 @@ pub async fn handle_media_control_event(
         MediaControlEvent::Next => player.lock().await.next(),
         MediaControlEvent::Previous => player.lock().await.previous(),
         MediaControlEvent::Stop => player.lock().await.stop(),
-        MediaControlEvent::Seek(direction) => {
-            let seek_seconds: f64 = match direction {
-                SeekDirection::Forward => 10.0,
-                SeekDirection::Backward => -10.0,
-            };
-
+        MediaControlEvent::Seek(_) | MediaControlEvent::SetPosition(_) => {
             let current_position = player.lock().await.get_status().position;
-
-            player
-                .lock()
-                .await
-                .seek(current_position.as_millis() as f64 + seek_seconds * 1000.0);
-        }
-        MediaControlEvent::SetPosition(position) => {
-            player.lock().await.seek(position.0.as_millis() as f64)
+            if let Some(target) = seek_target(&event, current_position) {
+                player.lock().await.seek(target);
+            }
         }
         _ => debug!("Unhandled media control event: {event:?}"),
     }
 
     Ok(())
+}
+
+/// Where a seek or position event asks the player to go, in seconds, which is what
+/// [`Playable::seek`] takes. A seek moves 10 s from `current_position`.
+fn seek_target(event: &MediaControlEvent, current_position: Duration) -> Option<f64> {
+    match event {
+        MediaControlEvent::Seek(direction) => {
+            let step = match direction {
+                SeekDirection::Forward => 10.0,
+                SeekDirection::Backward => -10.0,
+            };
+            Some(current_position.as_secs_f64() + step)
+        }
+        MediaControlEvent::SetPosition(position) => Some(position.0.as_secs_f64()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MediaPosition;
+
+    #[test]
+    fn a_position_from_the_lock_screen_is_given_in_seconds() {
+        let event = MediaControlEvent::SetPosition(MediaPosition(Duration::from_millis(63_959)));
+        assert_eq!(seek_target(&event, Duration::from_secs(5)), Some(63.959));
+    }
+
+    #[test]
+    fn a_seek_moves_ten_seconds_from_where_the_track_is() {
+        let forward = MediaControlEvent::Seek(SeekDirection::Forward);
+        let backward = MediaControlEvent::Seek(SeekDirection::Backward);
+        assert_eq!(seek_target(&forward, Duration::from_secs(30)), Some(40.0));
+        assert_eq!(seek_target(&backward, Duration::from_secs(30)), Some(20.0));
+    }
+
+    #[test]
+    fn other_events_do_not_seek() {
+        assert_eq!(seek_target(&MediaControlEvent::Play, Duration::ZERO), None);
+    }
 }
 
 #[cfg(target_os = "windows")]
