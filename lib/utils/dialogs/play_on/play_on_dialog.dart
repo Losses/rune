@@ -133,6 +133,7 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
   late Future<Map<String, String>> _libraryNames;
   String? _working;
   Object? _error;
+  String? _errorAlias;
 
   @override
   void initState() {
@@ -143,19 +144,30 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
 
   void _load() {
     _error = null;
+    _errorAlias = null;
     _renderers = widget.loader(widget.libraryIds);
   }
 
-  Future<void> _select(String key, Future<void> Function() action) async {
+  Future<void> _select(
+    String key,
+    Future<void> Function() action, {
+    String? alias,
+  }) async {
     setState(() {
       _working = key;
       _error = null;
+      _errorAlias = null;
     });
     try {
       await action();
       if (mounted) Navigator.of(context).pop();
     } on RequestFailure catch (error) {
-      if (mounted) setState(() => _error = error);
+      if (mounted) {
+        setState(() {
+          _error = error;
+          _errorAlias = widget.castMode ? alias : null;
+        });
+      }
     } finally {
       if (mounted && _working != null) setState(() => _working = null);
     }
@@ -203,7 +215,7 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (_error != null) ...[
-                        Text(requestErrorText(strings, _error!)),
+                        Text(_errorText(strings, _error!, _errorAlias, names)),
                         const SizedBox(height: 8),
                       ],
                       if (!widget.castMode)
@@ -242,6 +254,7 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                                   () => widget.castMode
                                       ? widget.cast!(candidate)
                                       : widget.attach(candidate.fingerprint),
+                                  alias: candidate.alias,
                                 )
                               : null,
                         ),
@@ -272,6 +285,24 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
       ),
     ],
   );
+
+  String _errorText(
+    AppLocalizations strings,
+    Object error,
+    String? alias,
+    Map<String, String> libraryNames,
+  ) {
+    if (widget.castMode && alias != null && error is RequestFailure) {
+      final cause = error.cause;
+      if (cause case RequestFailureCauseCastNotPossible(:final libraryId)) {
+        return strings.castNotPossible(
+          alias,
+          libraryNames[libraryId] ?? libraryId,
+        );
+      }
+    }
+    return requestErrorText(strings, error);
+  }
 
   Widget _row({
     required String alias,

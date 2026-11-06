@@ -437,6 +437,7 @@ fn renderer_reply(name: String, body: Vec<u8>) -> Result<(String, Vec<u8>)> {
     Err(ExpectedRequestError::Remote {
         kind: failure.kind,
         detail: failure.detail,
+        cause: failure.cause,
     }
     .into())
 }
@@ -607,6 +608,7 @@ fn dispatch_remote_failure(payload: &[u8]) {
                 request: failure.request,
                 kind,
                 detail: failure.detail,
+                cause: failure.cause,
             }
             .send_signal_to_dart();
             if kind == RequestErrorKind::Internal {
@@ -888,6 +890,7 @@ pub async fn server_player_loop(
                             request: failure.request,
                             kind,
                             detail: failure.detail,
+                            cause: failure.cause,
                         }
                         .send_signal_to_dart();
                         if kind == RequestErrorKind::Internal {
@@ -963,6 +966,7 @@ mod loss_tests {
             kind: RequestErrorKind::Internal,
             request: "ExampleRequest".into(),
             detail: "outer: inner".into(),
+            cause: None,
         };
         assert_eq!(
             remote_failure_detail(&failure),

@@ -48,6 +48,7 @@ macro_rules! handle_single_gui_event {
                                                 request: stringify!($request).to_owned(),
                                                 kind,
                                                 detail: format!("{e:#}"),
+                                                cause: $crate::request_failure_cause(&e),
                                             }.send_signal_to_dart();
                                             true
                                         }
@@ -57,6 +58,7 @@ macro_rules! handle_single_gui_event {
                                             request: stringify!($request).to_owned(),
                                             kind: RequestErrorKind::Internal,
                                             detail: format!("{e:#}"),
+                                            cause: None,
                                         }.send_signal_to_dart();
                                         true
                                     }
@@ -77,6 +79,7 @@ macro_rules! handle_single_gui_event {
                                             request: stringify!($request).to_owned(),
                                             kind,
                                             detail: format!("{e:#}"),
+                                            cause: $crate::request_failure_cause(&e),
                                         }
                                         .send_signal_to_dart();
                                         if kind == RequestErrorKind::Internal {

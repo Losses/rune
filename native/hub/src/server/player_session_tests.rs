@@ -8,7 +8,7 @@ use crate::{
     messages::{
         CastLibraryState, CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem,
         LibraryItemRequest, ListRenderersRequest, PlayingItemRequest, PlaylistUpdate,
-        RendererAvailability, RendererCandidate, RequestErrorKind,
+        RendererAvailability, RendererCandidate, RequestErrorKind, RequestFailureCause,
     },
     request_error::classify,
     session::store::SessionState,
@@ -2870,7 +2870,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "CastLoadRequest",
         rinf::serialize(&CastLoadRequest {
-            items: vec![not_held],
+            items: vec![not_held.clone()],
             start_index: Some(0),
             mode: PlaylistOperateMode::Replace,
             expected_revision: Some(revision),
@@ -2879,9 +2879,14 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     )
     .await?;
     assert_eq!(name, "RemoteRequestFailed");
+    let failure = rinf::deserialize::<RemoteRequestFailed>(&payload)?;
+    assert_eq!(failure.kind, RequestErrorKind::PermissionDenied);
     assert_eq!(
-        rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
-        RequestErrorKind::PermissionDenied
+        failure.cause,
+        Some(RequestFailureCause::CastNotPossible {
+            library_id: not_held.library_id.clone(),
+            state: CastLibraryState::NotHeld,
+        })
     );
     assert_eq!(
         renderer

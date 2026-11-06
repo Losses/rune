@@ -7,8 +7,9 @@ class RequestFailure implements Exception {
   final String request;
   final RequestErrorKind kind;
   final String detail;
+  final RequestFailureCause? cause;
 
-  const RequestFailure(this.request, this.kind, this.detail);
+  const RequestFailure(this.request, this.kind, this.detail, [this.cause]);
 
   @override
   String toString() => 'RequestFailure($request, $kind: $detail)';
@@ -39,7 +40,12 @@ Future<T> awaitResponse<T>(
             (failure) {
               if (failure.request == request && !result.isCompleted) {
                 result.completeError(
-                  RequestFailure(failure.request, failure.kind, failure.detail),
+                  RequestFailure(
+                    failure.request,
+                    failure.kind,
+                    failure.detail,
+                    failure.cause,
+                  ),
                 );
               }
             },

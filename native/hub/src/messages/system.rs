@@ -1,6 +1,8 @@
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
+use super::CastLibraryState;
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SystemInfoRequest {}
 
@@ -33,9 +35,19 @@ pub enum RequestErrorKind {
     Conflict,
 }
 
+#[derive(Deserialize, Serialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
+pub enum RequestFailureCause {
+    CastNotPossible {
+        library_id: String,
+        state: CastLibraryState,
+    },
+}
+
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct RequestFailedResponse {
     pub request: String,
     pub kind: RequestErrorKind,
     pub detail: String,
+    #[serde(default)]
+    pub cause: Option<RequestFailureCause>,
 }

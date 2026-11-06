@@ -1,4 +1,4 @@
-use super::system::RequestErrorKind;
+use super::system::{RequestErrorKind, RequestFailureCause};
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
@@ -104,4 +104,6 @@ pub struct RemoteRequestFailed {
     pub kind: RequestErrorKind,
     pub request: String,
     pub detail: String,
+    #[serde(default)]
+    pub cause: Option<RequestFailureCause>,
 }

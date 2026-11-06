@@ -176,7 +176,33 @@ void main() {
     expect(find.text('Play on'), findsNothing);
   });
 
-  testWidgets('cast failures stay in the dialog with a localized message', (
+  testWidgets('typed cast failures name the renderer and blocked library', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      candidates: [_candidate('Bedroom', RendererAvailability.available)],
+      castLibraryIds: const ['blocked-library'],
+      cast: (_) async {
+        throw const RequestFailure(
+          'OperatePlaybackWithMixQueryRequest',
+          RequestErrorKind.permissionDenied,
+          'denied',
+          RequestFailureCauseCastNotPossible(
+            libraryId: 'blocked-library',
+            state: CastLibraryState.notHeld,
+          ),
+        );
+      },
+    );
+
+    await tester.tap(find.text('Bedroom'));
+    await tester.pumpAndSettle();
+    expect(find.text("Bedroom can't play My Music"), findsOneWidget);
+    expect(find.text('Play on'), findsOneWidget);
+  });
+
+  testWidgets('cast failures without a cause keep the generic message', (
     tester,
   ) async {
     await _open(
@@ -195,7 +221,6 @@ void main() {
     await tester.tap(find.text('Bedroom'));
     await tester.pumpAndSettle();
     expect(find.text("This device isn't allowed to do that"), findsOneWidget);
-    expect(find.text('Play on'), findsOneWidget);
   });
 }
 

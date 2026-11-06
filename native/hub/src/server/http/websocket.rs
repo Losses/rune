@@ -19,7 +19,7 @@ use crate::{
     Session,
     backends::remote::{decode_message_with_library_id, encode_message},
     messages::RemoteRequestFailed,
-    request_error::classify,
+    request_error::{classify, request_failure_cause},
     server::{ServerState, sync_auth::AuthenticatedFingerprint},
 };
 use discovery::server::{User, UserStatus};
@@ -145,6 +145,7 @@ pub async fn handle_socket(
                                 kind: classify(&e),
                                 request: msg_type,
                                 detail: format!("{e:#}"),
+                                cause: request_failure_cause(&e),
                             };
                             match rinf::serialize(&failure) {
                                 Ok(payload) => ("RemoteRequestFailed".to_owned(), payload),

@@ -3,7 +3,7 @@ use database::error::ExpectedError;
 use thiserror::Error as ThisError;
 
 use crate::access_policy::Denial;
-use crate::messages::{CastLibraryState, RequestErrorKind};
+use crate::messages::{CastLibraryState, RequestErrorKind, RequestFailureCause};
 
 /// Expected failures at the request boundary.
 #[derive(Debug, ThisError)]
@@ -16,6 +16,7 @@ pub enum ExpectedRequestError {
     Remote {
         kind: RequestErrorKind,
         detail: String,
+        cause: Option<RequestFailureCause>,
     },
     #[error("Queue changed: expected revision {expected}, current revision {current}")]
     StaleQueueRevision { expected: u64, current: u64 },
@@ -66,13 +67,32 @@ pub fn classify(error: &Error) -> RequestErrorKind {
     RequestErrorKind::Internal
 }
 
+/// Preserve a typed detail for expected failures through remote request hops.
+pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
+    for cause in error.chain() {
+        if let Some(expected) = cause.downcast_ref::<ExpectedRequestError>() {
+            match expected {
+                ExpectedRequestError::CastNotPossible { library_id, state } => {
+                    return Some(RequestFailureCause::CastNotPossible {
+                        library_id: library_id.clone(),
+                        state: *state,
+                    });
+                }
+                ExpectedRequestError::Remote { cause, .. } => return cause.clone(),
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::{Context, Error, anyhow};
     use database::error::ExpectedError;
 
-    use super::{ExpectedRequestError, classify};
-    use crate::messages::RequestErrorKind;
+    use super::{ExpectedRequestError, classify, request_failure_cause};
+    use crate::messages::{CastLibraryState, RequestErrorKind, RequestFailureCause};
 
     #[test]
     fn database_not_found_survives_nested_context() {
@@ -128,8 +148,33 @@ mod tests {
         let error = Error::new(ExpectedRequestError::Remote {
             kind: RequestErrorKind::InvalidInput,
             detail: "invalid cast item".into(),
+            cause: None,
         })
         .context("CastLoadRequest");
         assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn request_failure_cause_preserves_typed_cast_failure_through_remote_hops() {
+        let expected = RequestFailureCause::CastNotPossible {
+            library_id: "library-h".into(),
+            state: CastLibraryState::NotHeld,
+        };
+        assert_eq!(request_failure_cause(&anyhow!("plain")), None);
+
+        let cast_error = Error::new(ExpectedRequestError::CastNotPossible {
+            library_id: "library-h".into(),
+            state: CastLibraryState::NotHeld,
+        })
+        .context("load cast items");
+        assert_eq!(request_failure_cause(&cast_error), Some(expected.clone()));
+
+        let remote_error = Error::new(ExpectedRequestError::Remote {
+            kind: RequestErrorKind::PermissionDenied,
+            detail: "renderer rejected library".into(),
+            cause: Some(expected.clone()),
+        })
+        .context("forward cast load");
+        assert_eq!(request_failure_cause(&remote_error), Some(expected));
     }
 }
