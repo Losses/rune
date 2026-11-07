@@ -12,6 +12,9 @@
 , arch ? (if system == "aarch64-windows" then "arm64" else "x64")
 , inputs ? {}
 , customMsvcRoot ? null
+, useSystemMsvc ? false
+, vcVersion ? (if useSystemMsvc then "14.39.33519" else (import ./msvc-packages.nix).vcVersion)
+, sdkVersion ? (if useSystemMsvc then "10.0.22621.0" else (import ./msvc-packages.nix).sdkVersion)
 }:
 
 let
@@ -21,8 +24,12 @@ let
   else
     (import <nix/fetchurl.nix>);
 
+  portableMsvc = import ./msvc-portable.nix { inherit fetchurl system; };
+
   msvc = import ./msvc.nix {
-    inherit customMsvcRoot system arch;
+    inherit system arch vcVersion sdkVersion;
+    customMsvcRoot = if customMsvcRoot != null then customMsvcRoot
+      else if useSystemMsvc then null else portableMsvc;
   };
 
   rust = import ./rust.nix {
@@ -58,7 +65,7 @@ let
   };
 
 in {
-  inherit msvc rust flutter tools innosetup dxc rinf arch system;
+  inherit msvc portableMsvc rust flutter tools innosetup dxc rinf arch system;
 
   devShells = {
     default = devshell;
@@ -66,5 +73,6 @@ in {
 
   packages = {
     default = runeWindows;
+    msvc = portableMsvc;
   };
 }

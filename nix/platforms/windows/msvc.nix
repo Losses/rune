@@ -2,8 +2,8 @@
 # Supports both x86_64 (x64) and Windows on ARM (arm64).
 #
 # Resolves MSVC toolchain either from:
-# 1. customMsvcRoot: portable MSVC or offline layout folder (e.g. created via vs_BuildTools.exe --layout)
-# 2. Host Visual Studio installation (auto-detected via vswhere or standard install paths)
+# 1. customMsvcRoot: assembled portable MSVC + SDK (msvc-portable.nix)
+# 2. Host Visual Studio installation (explicit useSystemMsvc in default.nix)
 #
 # Provides exact environment variables (INCLUDE, LIB, PATH, VCINSTALLDIR, WindowsSdkDir)
 # required by rustc, cc-rs, CMake, and Ninja for MSVC builds.
@@ -38,6 +38,8 @@ in rec {
     vcBin = "${vcToolsDir}/bin/Host${hostArch}/${arch}";
     vcInclude = "${vcToolsDir}/include";
     vcLib = "${vcToolsDir}/lib/${arch}";
+    vcAtlInclude = "${vcToolsDir}/atlmfc/include";
+    vcAtlLib = "${vcToolsDir}/atlmfc/lib/${arch}";
     sdkBin = "${winSdkDir}/bin/${sdkVersion}/${hostArch}";
     sdkInclude = [
       "${winSdkDir}/Include/${sdkVersion}/ucrt"
@@ -57,8 +59,8 @@ in rec {
     WindowsSdkDir = "${winSdkDir}/";
     WindowsSDKVersion = "${sdkVersion}\\";
 
-    INCLUDE = builtins.concatStringsSep ";" ([ paths.vcInclude ] ++ paths.sdkInclude);
-    LIB = builtins.concatStringsSep ";" ([ paths.vcLib ] ++ paths.sdkLib);
+    INCLUDE = builtins.concatStringsSep ";" ([ paths.vcInclude paths.vcAtlInclude ] ++ paths.sdkInclude);
+    LIB = builtins.concatStringsSep ";" ([ paths.vcLib paths.vcAtlLib ] ++ paths.sdkLib);
     PATH = "${paths.vcBin};${paths.sdkBin}";
 
     CC = "cl.exe";

@@ -47,7 +47,7 @@ derivation {
   shellHookPwsh = ''
     Write-Host "==========================================================" -ForegroundColor Cyan
     Write-Host "  Rune Windows Development Environment (MSVC - ${arch})" -ForegroundColor Green
-    Write-Host "  Toolchains: MSVC ${msvc.version}, Rust ${rust.version} (${rust.target})" -ForegroundColor Gray
+    Write-Host "  Toolchains: MSVC ${msvc.vcVersion}, Rust ${rust.version} (${rust.target})" -ForegroundColor Gray
     Write-Host "==========================================================" -ForegroundColor Cyan
     ${msvc.setupHookPwsh}
     ${rust.setupHookPwsh}
