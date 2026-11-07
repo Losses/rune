@@ -42,6 +42,19 @@ pub async fn playing_item_from_request(
     Ok(items.pop().unwrap_or(PlayingItem::Unknown))
 }
 
+pub(crate) fn reject_remote_independent_item(
+    session: Option<&Session>,
+    item: &PlayingItemRequest,
+) -> Result<()> {
+    if session.is_some() && item.independent_file.is_some() {
+        return Err(ExpectedError::InvalidInput {
+            detail: "independent files are only available on this device".into(),
+        }
+        .into());
+    }
+    Ok(())
+}
+
 /// Convert many requests against one library with a single id lookup.
 pub async fn playing_items_from_requests(
     requests: &[PlayingItemRequest],
@@ -799,9 +812,15 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
     async fn handle(
         &self,
         (library, _node_id, node): Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        if let Some(item) = &dart_signal.initial_playback_item {
+            reject_remote_independent_item(session.as_ref(), item)?;
+        }
+        for item in &dart_signal.fallback_playing_items {
+            reject_remote_independent_item(session.as_ref(), item)?;
+        }
         let library = require_library(library)?;
         let attached = node.renderer_link()?;
         let (cast_link, temporary_link) = match &dart_signal.cast_to {

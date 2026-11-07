@@ -168,7 +168,8 @@ where
     resolve_m3u8(main_db, &parse_m3u8_lines(&content)).await
 }
 
-fn parse_m3u8_lines(content: &str) -> Vec<String> {
+/// The entries of an m3u8 playlist: non-empty lines that are not comments.
+pub fn parse_m3u8_lines(content: &str) -> Vec<String> {
     content
         .lines()
         .map(str::trim)
@@ -577,6 +578,16 @@ pub async fn create_m3u8_playlist(
     path: &Path,
 ) -> Result<(playlists::Model, PlaylistImportResult)> {
     let lines = parse_m3u8_lines(&read_to_string(path).await?);
+    create_m3u8_playlist_from_lines(db, store, name, group, lines).await
+}
+
+pub async fn create_m3u8_playlist_from_lines(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    name: String,
+    group: String,
+    lines: Vec<String>,
+) -> Result<(playlists::Model, PlaylistImportResult)> {
     let tx = db.begin().await?;
     store.lock(&tx).await?;
     let row = create_on(&tx, name, group).await?;

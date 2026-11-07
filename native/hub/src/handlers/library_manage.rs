@@ -29,6 +29,7 @@ use crate::{
     library_pool::LibraryHandle,
     messages::*,
     node::NodeContext,
+    server::http::file::validate_remote_media_path,
     utils::{Broadcaster, GlobalParams, ParamsExtractor, determine_batch_size, require_library},
 };
 
@@ -119,10 +120,16 @@ impl Signal for ScanAudioLibraryRequest {
     async fn handle(
         &self,
         (library, node_id, task_tokens, broadcaster, sync_settings): Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<()>> {
         let library = require_library(library)?;
+        validate_remote_media_path(
+            session.as_ref(),
+            &library.fsio,
+            Path::new(&library.media_root),
+            Path::new(&dart_signal.path),
+        )?;
         let mut tokens = task_tokens.lock().await;
         // If there is scanning task
         if let Some(token) = tokens.scan_token.take() {
@@ -327,10 +334,16 @@ impl Signal for AnalyzeAudioLibraryRequest {
     async fn handle(
         &self,
         (library, _node_id, task_tokens, broadcaster): Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
+        validate_remote_media_path(
+            session.as_ref(),
+            &library.fsio,
+            Path::new(&library.media_root),
+            Path::new(&dart_signal.path),
+        )?;
         let mut tokens = task_tokens.lock().await;
         if let Some(token) = tokens.scan_token.take() {
             token.cancel();
@@ -436,10 +449,16 @@ impl Signal for DeduplicateAudioLibraryRequest {
     async fn handle(
         &self,
         (library, node_id, task_tokens, broadcaster): Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
+        validate_remote_media_path(
+            session.as_ref(),
+            &library.fsio,
+            Path::new(&library.media_root),
+            Path::new(&dart_signal.path),
+        )?;
         let mut tokens = task_tokens.lock().await;
         if let Some(token) = tokens.deduplicate_token.take() {
             token.cancel();

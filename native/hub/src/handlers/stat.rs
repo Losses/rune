@@ -8,7 +8,7 @@ use ::playback::player::PlayingItem;
 
 use crate::{
     Session, Signal,
-    handlers::playback::playing_item_from_request,
+    handlers::playback::{playing_item_from_request, reject_remote_independent_item},
     library_pool::LibraryHandle,
     messages::*,
     utils::{GlobalParams, ParamsExtractor, require_library},
@@ -29,13 +29,14 @@ impl Signal for SetLikedRequest {
     async fn handle(
         &self,
         library: Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
         let library = require_library(library)?;
 
         if let Some(item) = &request.item {
+            reject_remote_independent_item(session.as_ref(), item)?;
             let parsed_item = playing_item_from_request(item.clone(), Some(&library)).await?;
 
             let response = match parsed_item {
@@ -112,13 +113,14 @@ impl Signal for GetLikedRequest {
     async fn handle(
         &self,
         library: Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
         let library = require_library(library)?;
 
         if let Some(item) = &request.item {
+            reject_remote_independent_item(session.as_ref(), item)?;
             let parsed_item = playing_item_from_request(item.clone(), Some(&library)).await?;
 
             let response = match parsed_item {

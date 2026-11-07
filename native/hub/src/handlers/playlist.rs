@@ -1,10 +1,11 @@
 use crate::request_error::ExpectedRequestError;
+use crate::server::http::file::canonicalize_media_path;
 use database::actions::cover_art::bake_cover_art_by_media_files;
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::playlists::{
-    OccurrenceCursor, add_item_to_playlist, create_m3u8_playlist, create_playlist,
-    list_occurrences, remove_item_from_playlist, remove_playlist, reorder_playlist_item_position,
-    update_playlist,
+    OccurrenceCursor, add_item_to_playlist, create_m3u8_playlist_from_lines, create_playlist,
+    list_occurrences, parse_m3u8_lines, remove_item_from_playlist, remove_playlist,
+    reorder_playlist_item_position, update_playlist,
 };
 use database::error::ExpectedError;
 use std::collections::HashMap;
@@ -329,7 +330,7 @@ impl Signal for CreateM3u8PlaylistRequest {
     async fn handle(
         &self,
         (library, broadcaster): Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
@@ -339,12 +340,26 @@ impl Signal for CreateM3u8PlaylistRequest {
         let group = &request.group;
         let path = &request.path;
 
-        match create_m3u8_playlist(
+        // A remote session may only import a playlist file inside this library.
+        // Its entries are matched against the catalog, never read from disk.
+        let content = if session.is_some() {
+            let import_path = canonicalize_media_path(
+                &library.fsio,
+                Path::new(&library.media_root),
+                Path::new(path),
+            )?;
+            library.fsio.read_to_string(&import_path)?
+        } else {
+            tokio::fs::read_to_string(path).await?
+        };
+        let lines = parse_m3u8_lines(&content);
+
+        match create_m3u8_playlist_from_lines(
             &library.main_db,
             &library.library_sync.record_store(),
             name.clone(),
             group.clone(),
-            Path::new(&path),
+            lines,
         )
         .await
         {
