@@ -1,7 +1,6 @@
 use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
 use crate::utils::CollectionCoverOptions;
-use crate::utils::RunningMode;
 use std::{marker::PhantomData, str::FromStr, sync::Arc};
 
 use anyhow::{Error, Result};
@@ -226,24 +225,20 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
 }
 
 impl ParamsExtractor for ComplexQueryRequest {
-    type Params = (Option<LibraryHandle>, RunningMode, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            all_params.library.clone(),
-            all_params.running_mode,
-            all_params.node.clone(),
-        )
+        (all_params.library.clone(), all_params.node.clone())
     }
 }
 
 impl Signal for ComplexQueryRequest {
-    type Params = (Option<LibraryHandle>, RunningMode, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
     type Response = ComplexQueryResponse;
 
     async fn handle(
         &self,
-        (library, running_mode, node): Self::Params,
+        (library, node): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -297,7 +292,6 @@ impl Signal for ComplexQueryRequest {
                                         None,
                                         CollectionCoverOptions {
                                             bake: true,
-                                            running_mode: &running_mode,
                                             remote_host: &remote_host,
                                             playback_queue: &queue,
                                         },

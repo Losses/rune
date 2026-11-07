@@ -94,12 +94,6 @@ pub struct TaskTokens {
     pub deduplicate_token: Option<CancellationToken>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum RunningMode {
-    Server,
-    Client,
-}
-
 /// The current UI library for a request, or the expected `Unavailable` error
 /// when this process has none open (for example in remote-control mode).
 pub fn require_library(library: Option<LibraryHandle>) -> Result<LibraryHandle> {
@@ -133,7 +127,6 @@ pub struct GlobalParams {
     pub cert_validator: Arc<RwLock<CertValidator>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
-    pub running_mode: RunningMode,
 }
 
 impl GlobalParams {
@@ -411,7 +404,6 @@ async fn handle_media_library_path(
 
 pub struct CollectionCoverOptions<'a> {
     pub bake: bool,
-    pub running_mode: &'a RunningMode,
     pub remote_host: &'a Option<String>,
     pub playback_queue: &'a [i32],
 }
@@ -444,15 +436,10 @@ pub async fn inject_cover_art_map(
     // Get the base cover art paths
     let raw_cover_art_map = bake_cover_art_by_media_files(fsio, main_db, files).await?;
 
-    // Process the cover art paths based on the running mode
+    // Rewrite paths for the session receiving this response.
     let cover_art_map: HashMap<i32, String> = raw_cover_art_map
         .into_iter()
-        .map(|(id, path)| {
-            (
-                id,
-                process_cover_art_path(&path, options.running_mode, options.remote_host),
-            )
-        })
+        .map(|(id, path)| (id, process_cover_art_path(&path, options.remote_host)))
         .collect();
 
     Ok(Collection {
@@ -505,37 +492,18 @@ pub fn determine_batch_size(workload_factor: f32) -> usize {
     std::cmp::min(std::cmp::max(batch_size, min_batch_size), max_batch_size)
 }
 
-pub fn process_cover_art_path(
-    path: &str,
-    running_mode: &RunningMode,
-    remote_host: &Option<String>,
-) -> String {
-    match running_mode {
-        RunningMode::Server => {
-            // Path is from server, we need to convert to a remote URL
-            if path.is_empty() {
-                path.to_string()
-            } else {
-                // If we have a remote host, we need to construct a URL for the file
-                if let Some(host) = remote_host {
-                    // Extract the filename from the path, as we only need the cache part
-                    let file_name = Path::new(path)
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or_default();
-
-                    // Construct the URL using the host and cache prefix
-                    format!("{host}/files/cache/{file_name}")
-                } else {
-                    // No host available, return the original path
-                    path.to_string()
-                }
-            }
-        }
-        RunningMode::Client => {
-            // We're running as a client, so the path is already correct
-            path.to_string()
-        }
+pub fn process_cover_art_path(path: &str, remote_host: &Option<String>) -> String {
+    if path.is_empty() {
+        return path.to_string();
+    }
+    if let Some(host) = remote_host {
+        let file_name = Path::new(path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        format!("{host}/files/cache/{file_name}")
+    } else {
+        path.to_string()
     }
 }
 
@@ -743,4 +711,23 @@ pub fn init_logging() {
         .with_writer(writer)
         .with_ansi(false)
         .try_init();
+}
+
+#[cfg(test)]
+mod cover_art_path_tests {
+    use super::process_cover_art_path;
+
+    #[test]
+    fn cover_paths_are_rewritten_only_for_the_request_session() {
+        let local_path = "/cache/covers/cover.jpg";
+        assert_eq!(process_cover_art_path(local_path, &None), local_path);
+        assert_eq!(
+            process_cover_art_path(local_path, &Some("https://renderer:7863".into())),
+            "https://renderer:7863/files/cache/cover.jpg"
+        );
+        assert_eq!(
+            process_cover_art_path("", &Some("https://renderer".into())),
+            ""
+        );
+    }
 }
