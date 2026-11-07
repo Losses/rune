@@ -72,10 +72,12 @@ String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
       RequestErrorKind.internal => s.unknownError,
     };
 
-String requestErrorText(AppLocalizations s, Object error) => switch (error) {
-      RequestFailure() => requestFailureMessage(s, error),
-      // awaitResponse gives up with a timeout when the other device never
-      // answers.
-      TimeoutException() => s.remoteOpenUnreachable,
-      _ => 'Error: $error',
-    };
+String requestErrorText(AppLocalizations s, Object error) =>
+    error is RequestFailure ? requestFailureMessage(s, error) : 'Error: $error';
+
+/// [requestErrorText] for a request that waits on another device: there a
+/// timeout means that device never answered.
+String remoteRequestErrorText(AppLocalizations s, Object error) =>
+    error is TimeoutException
+        ? s.remoteOpenUnreachable
+        : requestErrorText(s, error);

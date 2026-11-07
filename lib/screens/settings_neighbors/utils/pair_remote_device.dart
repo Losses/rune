@@ -63,7 +63,7 @@ Future<String?> pairRemoteDevice(
     await showErrorDialog(
       context: context,
       title: s.unknownError,
-      errorMessage: requestErrorText(s, e),
+      errorMessage: remoteRequestErrorText(s, e),
     );
 
     return null;

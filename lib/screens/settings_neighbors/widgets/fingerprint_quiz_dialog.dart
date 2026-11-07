@@ -69,7 +69,7 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
             }
             if (snapshot.hasError) {
               return Text(
-                requestErrorText(S.of(context), snapshot.error!),
+                remoteRequestErrorText(S.of(context), snapshot.error!),
                 style: TextStyle(height: 1.4),
               );
             }

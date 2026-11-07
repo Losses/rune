@@ -164,6 +164,11 @@ class FileSelector: NSObject, UIDocumentPickerDelegate {
   private override init() {}
   
   func getDirectoryPath(result: @escaping FlutterResult) {
+    // An earlier call still waiting is answered as cancelled, so no caller waits forever, and its
+    // picker goes away, so it cannot answer this call.
+    finish(with: nil)
+    picker?.dismiss(animated: false)
+
     let activeWindow = UIApplication.shared.connectedScenes
       .compactMap { $0 as? UIWindowScene }
       .filter { $0.activationState == .foregroundActive }
@@ -174,10 +179,6 @@ class FileSelector: NSObject, UIDocumentPickerDelegate {
       return
     }
 
-    // An earlier call still waiting is answered as cancelled, so no caller waits forever, and its
-    // picker goes away, so it cannot answer this call.
-    finish(with: nil)
-    picker?.dismiss(animated: false)
     self.result = result
 
     let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
