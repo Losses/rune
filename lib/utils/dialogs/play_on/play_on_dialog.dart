@@ -16,8 +16,7 @@ import '../../../widgets/rune_clickable.dart';
 
 typedef RendererLoader =
     Future<List<RendererCandidate>> Function(List<String> libraryIds);
-typedef RendererAttach = Future<void> Function(String fingerprint);
-typedef RendererDetach = Future<void> Function();
+typedef RendererHandoff = Future<void> Function(String? target);
 typedef RendererCast = Future<void> Function(RendererCandidate candidate);
 typedef LibraryNamesLoader = Future<Map<String, String>> Function();
 
@@ -36,8 +35,7 @@ Future<Map<String, String>> _loadLibraryNames() async {
 Future<void> showPlayOnDialog(
   BuildContext context, {
   RendererLoader loader = listRenderers,
-  RendererAttach attach = attachRenderer,
-  RendererDetach detach = detachRenderer,
+  RendererHandoff handoff = handoffRenderer,
   LibraryNamesLoader loadLibraryNames = _loadLibraryNames,
   List<String>? castLibraryIds,
   RendererCast? cast,
@@ -55,8 +53,7 @@ Future<void> showPlayOnDialog(
     context: context,
     builder: (dialogContext) => _PlayOnDialog(
       loader: loader,
-      attach: attach,
-      detach: detach,
+      handoff: handoff,
       libraryNamesFuture: namesFuture,
       libraryIds: libraryIds,
       attachment: attachment,
@@ -106,8 +103,7 @@ List<String> queueLibraryIds(Iterable<PlayingItem> items) {
 class _PlayOnDialog extends StatefulWidget {
   const _PlayOnDialog({
     required this.loader,
-    required this.attach,
-    required this.detach,
+    required this.handoff,
     required this.libraryNamesFuture,
     required this.libraryIds,
     required this.attachment,
@@ -116,8 +112,7 @@ class _PlayOnDialog extends StatefulWidget {
   });
 
   final RendererLoader loader;
-  final RendererAttach attach;
-  final RendererDetach detach;
+  final RendererHandoff handoff;
   final Future<Map<String, String>> libraryNamesFuture;
   final List<String> libraryIds;
   final RendererAttachmentProvider attachment;
@@ -165,7 +160,7 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
       if (mounted) {
         setState(() {
           _error = error;
-          _errorAlias = widget.castMode ? alias : null;
+          _errorAlias = alias;
         });
       }
     } finally {
@@ -226,7 +221,10 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                           working: _working == 'this-device',
                           onTap: currentRenderer == null
                               ? null
-                              : () => _select('this-device', widget.detach),
+                              : () => _select(
+                                  'this-device',
+                                  () => widget.handoff(null),
+                                ),
                         ),
                       for (final candidate in snapshot.data!) ...[
                         const Divider(),
@@ -253,7 +251,7 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                                   candidate.fingerprint,
                                   () => widget.castMode
                                       ? widget.cast!(candidate)
-                                      : widget.attach(candidate.fingerprint),
+                                      : widget.handoff(candidate.fingerprint),
                                   alias: candidate.alias,
                                 )
                               : null,
@@ -292,7 +290,7 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
     String? alias,
     Map<String, String> libraryNames,
   ) {
-    if (widget.castMode && alias != null && error is RequestFailure) {
+    if (alias != null && error is RequestFailure) {
       final cause = error.cause;
       if (cause case RequestFailureCauseCastNotPossible(:final libraryId)) {
         return strings.castNotPossible(

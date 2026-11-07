@@ -10,19 +10,12 @@ Future<List<RendererCandidate>> listRenderers(List<String> libraryIds) async {
   return response.message.renderers;
 }
 
-Future<void> attachRenderer(String fingerprint) async {
+/// Moves the queue and position to the renderer [target], or back to this
+/// device when [target] is null.
+Future<void> handoffRenderer(String? target) async {
   await awaitResponse(
-    'AttachRendererRequest',
-    RendererAttachmentChanged.rustSignalStream,
-    send: () =>
-        AttachRendererRequest(fingerprint: fingerprint).sendSignalToRust(),
-  );
-}
-
-Future<void> detachRenderer() async {
-  await awaitResponse(
-    'DetachRendererRequest',
-    RendererAttachmentChanged.rustSignalStream,
-    send: () => const DetachRendererRequest().sendSignalToRust(),
+    'HandoffRequest',
+    HandoffResponse.rustSignalStream,
+    send: () => HandoffRequest(target: target).sendSignalToRust(),
   );
 }

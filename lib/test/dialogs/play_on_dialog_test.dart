@@ -7,8 +7,11 @@ import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/playlist.dart';
 import '../../providers/renderer_attachment.dart';
+import '../../providers/library_path.dart';
+import '../../providers/status.dart';
 import '../../utils/api/request_failure.dart';
 import '../../utils/dialogs/play_on/play_on_dialog.dart';
+import '../../utils/dialogs/play_queue_dialog.dart';
 import '../../utils/playing_item.dart';
 import '../../utils/execute_middle_click_action.dart';
 
@@ -30,7 +33,7 @@ void main() {
     await _open(
       tester,
       candidates: candidates,
-      attach: (_) async => attached++,
+      handoff: (_) async => attached++,
     );
 
     expect(find.text('Offline'), findsOneWidget);
@@ -48,9 +51,9 @@ void main() {
   });
 
   testWidgets(
-    'available renderer attaches and closes; current target is marked',
+    'available renderer hands off and closes; current target is marked',
     (tester) async {
-      var attachedFingerprint = '';
+      String? handoffTarget;
       final renderer = AttachedRenderer(fingerprint: 'fp-b', alias: 'Bedroom');
       await _open(
         tester,
@@ -68,22 +71,22 @@ void main() {
           ),
         ],
         initial: RendererAttachmentChanged(renderer: renderer),
-        attach: (fingerprint) async => attachedFingerprint = fingerprint,
+        handoff: (target) async => handoffTarget = target,
       );
 
       expect(find.text('Bedroom'), findsOneWidget);
       expect(find.byIcon(Symbols.check), findsOneWidget);
       await tester.tap(find.text('Kitchen'));
       await tester.pumpAndSettle();
-      expect(attachedFingerprint, 'fp-k');
+      expect(handoffTarget, 'fp-k');
       expect(find.text('Kitchen'), findsNothing);
     },
   );
 
-  testWidgets('this device detaches and loader failures can be retried', (
+  testWidgets('this device hands off back and loader failures can be retried', (
     tester,
   ) async {
-    var detached = false;
+    var handedOffToThisDevice = false;
     var loads = 0;
     await _open(
       tester,
@@ -108,7 +111,7 @@ void main() {
           ),
         ];
       },
-      detach: () async => detached = true,
+      handoff: (target) async => handedOffToThisDevice = target == null,
     );
     expect(find.text("This isn't available right now"), findsOneWidget);
     await tester.tap(find.text('Retry'));
@@ -116,7 +119,7 @@ void main() {
     expect(loads, 2);
     await tester.tap(find.text('This device'));
     await tester.pumpAndSettle();
-    expect(detached, isTrue);
+    expect(handedOffToThisDevice, isTrue);
     expect(find.text('Play on'), findsNothing);
   });
 
@@ -222,6 +225,55 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text("This device isn't allowed to do that"), findsOneWidget);
   });
+
+  testWidgets('handoff reports typed cast failures in the dialog', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      candidates: [_candidate('Bedroom', RendererAvailability.available)],
+      handoff: (_) async {
+        throw const RequestFailure(
+          'HandoffRequest',
+          RequestErrorKind.permissionDenied,
+          'denied',
+          RequestFailureCauseCastNotPossible(
+            libraryId: 'blocked-library',
+            state: CastLibraryState.notHeld,
+          ),
+        );
+      },
+    );
+
+    await tester.tap(find.text('Bedroom'));
+    await tester.pumpAndSettle();
+    expect(find.text("Bedroom can't play My Music"), findsOneWidget);
+    expect(find.text('Play on'), findsOneWidget);
+  });
+
+  testWidgets('queue panel opens Play on and hides it for a remote library', (
+    tester,
+  ) async {
+    var opened = 0;
+    await _openQueue(
+      tester,
+      libraryPath: '/music',
+      onPlayOn: (_) async => opened++,
+    );
+    await tester.tap(find.byKey(const Key('queue-play-on')));
+    await tester.pumpAndSettle();
+    expect(opened, 1);
+    await tester.tap(find.byIcon(Symbols.close));
+    await tester.pumpAndSettle();
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _openQueue(
+      tester,
+      libraryPath: '@RR|ws://renderer',
+      onPlayOn: (_) async => opened++,
+    );
+    expect(find.byKey(const Key('queue-play-on')), findsNothing);
+  });
 }
 
 RendererCandidate _candidate(
@@ -245,8 +297,7 @@ Future<void> _open(
   WidgetTester tester, {
   List<RendererCandidate> candidates = const [],
   RendererLoader? loader,
-  RendererAttach? attach,
-  RendererDetach? detach,
+  RendererHandoff? handoff,
   RendererAttachmentChanged? initial,
   List<String>? castLibraryIds,
   RendererCast? cast,
@@ -268,8 +319,7 @@ Future<void> _open(
             onPressed: () => showPlayOnDialog(
               context,
               loader: loader ?? (_) async => candidates,
-              attach: attach ?? (_) async {},
-              detach: detach ?? () async {},
+              handoff: handoff ?? (_) async {},
               loadLibraryNames: () async => {'blocked-library': 'My Music'},
               castLibraryIds: castLibraryIds,
               cast: cast,
@@ -281,4 +331,44 @@ Future<void> _open(
   );
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
+}
+
+Future<void> _openQueue(
+  WidgetTester tester, {
+  required String? libraryPath,
+  required PlayOnDialogOpener onPlayOn,
+}) async {
+  await tester.pumpWidget(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => PlaylistProvider()),
+        ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
+        ChangeNotifierProvider<LibraryPathProvider>(
+          create: (_) => _TestLibraryPathProvider(libraryPath),
+        ),
+      ],
+      child: FluentApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Builder(
+          builder: (context) => Button(
+            child: const Text('open queue'),
+            onPressed: () =>
+                showPlayQueueDialog(context, playOnDialog: onPlayOn),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('open queue'));
+  await tester.pumpAndSettle();
+}
+
+class _TestLibraryPathProvider extends LibraryPathProvider {
+  _TestLibraryPathProvider(this.path) : super(null);
+
+  final String? path;
+
+  @override
+  String? get currentPath => path;
 }
