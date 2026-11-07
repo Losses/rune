@@ -4,10 +4,12 @@ mod fixtures;
 use anyhow::{Context, Result, ensure};
 use sea_orm::sea_query::Condition;
 use sea_orm::sea_query::Func;
+use std::collections::BTreeMap;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+use std::time::{Duration, Instant};
 use sync::causal;
 use sync::causal::Dot;
 use sync_orm::maintenance::Maintenance;
@@ -119,6 +121,209 @@ async fn synchronize(
         }
     }
     anyhow::bail!("SQL reconciliation did not finish")
+}
+
+#[tokio::test]
+async fn concurrent_three_replica_sync_reports_namespace_lock_contention() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let (mut host_db, initial_host, _) = setup(namespace).await?;
+    let (_, first, _) = setup(namespace).await?;
+    let (_, second, _) = setup(namespace).await?;
+    let (_, third, _) = setup(namespace).await?;
+
+    for id in 0..96 {
+        initial_host
+            .write_local(
+                p::ObjectKey {
+                    collection: 1,
+                    id: Uuid::from_u128(id + 1),
+                },
+                Some(Note(format!("row {id}"))),
+            )
+            .await?;
+    }
+
+    let lock_waits = Arc::new(Mutex::new(Vec::<(String, Duration)>::new()));
+    let lock_holds = Arc::new(Mutex::new(Vec::<(&'static str, Duration)>::new()));
+    let captured = lock_waits.clone();
+    host_db.set_metric_callback(move |info| {
+        let sql = info.statement.sql.to_ascii_lowercase();
+        if sql.starts_with("update \"sync_meta\" set \"head\" = \"head\"") {
+            captured
+                .lock()
+                .unwrap()
+                .push((info.statement.sql.clone(), info.elapsed));
+        }
+    });
+    let hold_samples = lock_holds.clone();
+    let host = CausalEndpoint::new(
+        CausalReplica::open(host_db.clone(), namespace, initial_host.store().author()).await?,
+    )
+    .with_lock_holder_observer(Arc::new(move |operation, elapsed| {
+        hold_samples.lock().unwrap().push((operation, elapsed));
+    }));
+
+    async fn advance_pass(
+        source: &CausalEndpoint<Notes>,
+        target: &CausalEndpoint<Notes>,
+        coordinator: &mut p::Coordinator<Notes>,
+    ) -> Result<(bool, Duration, usize)> {
+        let pass_started = Instant::now();
+        let mut incomplete = 0;
+        for _ in 0..20_000 {
+            match coordinator
+                .advance(target, target, target, source, source)
+                .await?
+            {
+                p::SessionAdvance::Complete(_) => {
+                    return Ok((true, pass_started.elapsed(), incomplete));
+                }
+                p::SessionAdvance::BudgetExhausted => {
+                    coordinator.start_pass();
+                    return Ok((false, pass_started.elapsed(), incomplete));
+                }
+                p::SessionAdvance::Incomplete => incomplete += 1,
+                p::SessionAdvance::Cancelled => anyhow::bail!("unexpected cancellation"),
+            }
+        }
+        anyhow::bail!("SQL reconciliation pass did not finish")
+    }
+
+    let mut first_coordinator = p::Coordinator::new(
+        p::Scope {
+            collections: [1].into_iter().collect(),
+        },
+        session_limits(),
+    )?;
+    let mut second_coordinator = p::Coordinator::new(
+        p::Scope {
+            collections: [1].into_iter().collect(),
+        },
+        session_limits(),
+    )?;
+    let mut third_coordinator = p::Coordinator::new(
+        p::Scope {
+            collections: [1].into_iter().collect(),
+        },
+        session_limits(),
+    )?;
+    let mut done = [false; 3];
+    let mut replica_times = [Duration::ZERO; 3];
+    let mut incomplete_calls = [0; 3];
+    let mut pass_records = Vec::new();
+    while !done.iter().all(|complete| *complete) {
+        let waits_before = lock_waits.lock().unwrap().len();
+        let holds_before = lock_holds.lock().unwrap().len();
+        let (a, b, c) = tokio::join!(
+            advance_pass(&host, &first, &mut first_coordinator),
+            advance_pass(&host, &second, &mut second_coordinator),
+            advance_pass(&host, &third, &mut third_coordinator),
+        );
+        let passes = [a?, b?, c?];
+        for (index, (complete, elapsed, incomplete)) in passes.into_iter().enumerate() {
+            done[index] = complete;
+            replica_times[index] += elapsed;
+            incomplete_calls[index] += incomplete;
+        }
+        let waits = lock_waits.lock().unwrap();
+        let pass_waits: Vec<_> = waits[waits_before..]
+            .iter()
+            .map(|(_, elapsed)| *elapsed)
+            .collect();
+        let holds = lock_holds.lock().unwrap();
+        let pass_holds = holds[holds_before..].to_vec();
+        pass_records.push((
+            passes.map(|(_, elapsed, _)| elapsed),
+            pass_waits,
+            pass_holds,
+        ));
+    }
+
+    let waits = lock_waits.lock().unwrap().clone();
+    let mut sorted_waits: Vec<_> = waits.iter().map(|(_, elapsed)| *elapsed).collect();
+    sorted_waits.sort();
+    let median_wait = sorted_waits[sorted_waits.len() / 2];
+    let max_wait = sorted_waits.last().copied().unwrap_or_default();
+    assert!(!waits.is_empty(), "namespace lock SQL was not measured");
+    let mut pass_times: Vec<_> = pass_records
+        .iter()
+        .flat_map(|(passes, _, _)| passes.iter().copied())
+        .filter(|elapsed| !elapsed.is_zero())
+        .collect();
+    pass_times.sort();
+    let median_pass = pass_times[pass_times.len() / 2];
+    let max_pass = pass_times.last().copied().unwrap_or_default();
+    let holds = lock_holds.lock().unwrap().clone();
+    let mut by_operation = BTreeMap::<&str, Vec<Duration>>::new();
+    for (operation, elapsed) in &holds {
+        by_operation.entry(operation).or_default().push(*elapsed);
+    }
+    let hold_summary: Vec<_> = by_operation
+        .into_iter()
+        .map(|(operation, mut times)| {
+            times.sort();
+            (
+                operation,
+                times.len(),
+                times[times.len() / 2],
+                times.last().copied().unwrap_or_default(),
+            )
+        })
+        .collect();
+    let mut sorted_replica_times = replica_times.to_vec();
+    sorted_replica_times.sort();
+    let pass_summary: Vec<_> = pass_records
+        .iter()
+        .enumerate()
+        .map(|(index, (times, waits, holds))| {
+            let mut holds_by_operation = BTreeMap::<&str, Vec<Duration>>::new();
+            for (operation, elapsed) in holds {
+                holds_by_operation
+                    .entry(operation)
+                    .or_default()
+                    .push(*elapsed);
+            }
+            let holds = holds_by_operation
+                .into_iter()
+                .map(|(operation, mut elapsed)| {
+                    elapsed.sort();
+                    (
+                        operation,
+                        elapsed.len(),
+                        elapsed[elapsed.len() / 2],
+                        elapsed.last().copied().unwrap_or_default(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let mut waits = waits.clone();
+            waits.sort();
+            (
+                index + 1,
+                times,
+                waits.len(),
+                waits.iter().copied().sum::<Duration>(),
+                waits.last().copied().unwrap_or_default(),
+                holds,
+            )
+        })
+        .collect();
+    eprintln!(
+        "three-replica: lock acquisitions={}, median_lock_wait={median_wait:?}, max_lock_wait={max_wait:?}, median_pass={median_pass:?}, max_pass={max_pass:?}, median_replica={:?}, max_replica={:?}, incomplete_calls={incomplete_calls:?}, lock_holder_transactions={hold_summary:?}",
+        waits.len(),
+        sorted_replica_times[sorted_replica_times.len() / 2],
+        sorted_replica_times.last().copied().unwrap_or_default(),
+    );
+    for (index, peer_times, lock_count, lock_total, lock_max, held) in pass_summary {
+        eprintln!(
+            "sync pass {index}: peer_times={peer_times:?}, lock_count={lock_count}, lock_total={lock_total:?}, lock_max={lock_max:?}, held_transactions={held:?}"
+        );
+    }
+    assert!(pass_records.len() >= 2 && incomplete_calls.iter().all(|incomplete| *incomplete > 0));
+    assert!(
+        waits.len() <= 5_000,
+        "namespace lock acquisitions exceeded the measured bound"
+    );
+    Ok(())
 }
 
 #[tokio::test]

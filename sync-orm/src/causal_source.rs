@@ -2,6 +2,7 @@
 //!
 //! Work is advanced under caller transactions; immutable candidate values remain
 //! in the primary retained candidate relation and are never copied into a source table.
+use crate::causal_leases::{create_build_locked_on, lock_on};
 use anyhow::{Result, ensure};
 use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait, FromQueryResult,
@@ -2368,7 +2369,21 @@ pub(crate) enum SnapshotAdmission<M: SyncModel> {
 /// Admit or recover the same caller-identified snapshot build. This operation
 /// only establishes its captured basis and initial checkpoint; it never claims
 /// that the source snapshot has been completed.
-pub(crate) async fn admit_snapshot_on<M: SyncModel>(
+#[cfg(test)]
+async fn admit_snapshot_on<M: SyncModel>(
+    tx: &DatabaseTransaction,
+    source: protocol::StoreIdentity,
+    request_id: Uuid,
+    scope: protocol::Scope<M>,
+    timing: SnapshotTiming,
+    limits: WorkLimits,
+    resume: Option<protocol::WorkCursor>,
+) -> Result<SnapshotAdmission<M>> {
+    lock_on(tx, source.namespace).await?;
+    admit_snapshot_locked_on(tx, source, request_id, scope, timing, limits, resume).await
+}
+
+async fn admit_snapshot_locked_on<M: SyncModel>(
     tx: &DatabaseTransaction,
     source: protocol::StoreIdentity,
     request_id: Uuid,
@@ -2402,10 +2417,8 @@ pub(crate) async fn admit_snapshot_on<M: SyncModel>(
         "invalid snapshot admission"
     );
     let namespace = source.namespace;
-    crate::causal_leases::lock_on(tx, namespace).await?;
     let mut existing = crate::causal_leases::load_on(tx, namespace, request_id).await?;
     if existing.is_none() {
-        crate::causal_leases::lock_on(tx, namespace).await?;
         existing = crate::causal_leases::load_on(tx, namespace, request_id).await?;
     }
     if let Some(lease) = existing {
@@ -2466,7 +2479,7 @@ pub(crate) async fn admit_snapshot_on<M: SyncModel>(
     let expiry = now_ms
         .checked_add(ttl_ms)
         .ok_or_else(|| anyhow::anyhow!("snapshot expiry overflow"))?;
-    let lease = crate::causal_leases::create_build_on(
+    let lease = create_build_locked_on(
         tx,
         crate::causal_leases::BuildLeaseRequest {
             namespace,
@@ -2657,11 +2670,11 @@ pub(crate) async fn open_step_on<M: SyncModel>(
         "invalid transient snapshot allowance"
     );
     let SnapshotTiming { now_ms, ttl_ms } = timing;
-    crate::causal_leases::lock_on(tx, source.namespace).await?;
+    lock_on(tx, source.namespace).await?;
     let existed = crate::causal_leases::load_on(tx, source.namespace, request_id)
         .await?
         .is_some();
-    let mut state = match admit_snapshot_on(
+    let mut state = match admit_snapshot_locked_on(
         tx,
         source,
         request_id,
@@ -2697,7 +2710,21 @@ pub(crate) async fn open_step_on<M: SyncModel>(
 
 /// Advance exactly one transaction and return an in-memory successor plan.
 /// The caller reserves the supplied plan before starting this transaction.
-pub(crate) async fn open_batch_step_on<M: SyncModel>(
+#[cfg(test)]
+async fn open_batch_step_on<M: SyncModel>(
+    tx: &DatabaseTransaction,
+    source: protocol::StoreIdentity,
+    request_id: Uuid,
+    scope: protocol::Scope<M>,
+    timing: SnapshotTiming,
+    limits: SnapshotBatchLimits,
+    resume: Option<protocol::WorkCursor>,
+) -> Result<SnapshotBatchResult<M>> {
+    lock_on(tx, source.namespace).await?;
+    open_batch_step_locked_on(tx, source, request_id, scope, timing, limits, resume).await
+}
+
+pub(crate) async fn open_batch_step_locked_on<M: SyncModel>(
     tx: &DatabaseTransaction,
     source: protocol::StoreIdentity,
     request_id: Uuid,
@@ -2708,24 +2735,26 @@ pub(crate) async fn open_batch_step_on<M: SyncModel>(
 ) -> Result<SnapshotBatchResult<M>> {
     use protocol::SyncError;
     let SnapshotBatchLimits { full, plan } = limits;
-    crate::causal_leases::lock_on(tx, source.namespace).await?;
     let existed = crate::causal_leases::load_on(tx, source.namespace, request_id)
         .await?
         .is_some();
-    let mut state =
-        match admit_snapshot_on(tx, source, request_id, scope, timing, full, resume).await? {
-            SnapshotAdmission::Ready(descriptor) => {
-                if plan.is_some() {
-                    return Err(SyncError::StaleWork.into());
-                }
-                return Ok(SnapshotBatchResult {
-                    outcome: protocol::WorkOutcome::Ready(*descriptor),
-                    charged: full,
-                    next: None,
-                });
+    let mut state = match admit_snapshot_locked_on(
+        tx, source, request_id, scope, timing, full, resume,
+    )
+    .await?
+    {
+        SnapshotAdmission::Ready(descriptor) => {
+            if plan.is_some() {
+                return Err(SyncError::StaleWork.into());
             }
-            SnapshotAdmission::Building(state) => state,
-        };
+            return Ok(SnapshotBatchResult {
+                outcome: protocol::WorkOutcome::Ready(*descriptor),
+                charged: full,
+                next: None,
+            });
+        }
+        SnapshotAdmission::Building(state) => state,
+    };
     if !existed {
         if plan.is_some() {
             return Err(SyncError::StaleWork.into());
@@ -2799,6 +2828,19 @@ pub async fn summarize_on<M: SyncModel>(
     limits: WorkLimits,
     resume: Option<protocol::WorkCursor>,
 ) -> Result<protocol::WorkOutcome<protocol::RangeSummary<M>>> {
+    lock_on(tx, namespace).await?;
+    summarize_locked_on(tx, namespace, snapshot_id, range, now_ms, limits, resume).await
+}
+
+pub(crate) async fn summarize_locked_on<M: SyncModel>(
+    tx: &DatabaseTransaction,
+    namespace: Uuid,
+    snapshot_id: Uuid,
+    range: KeyRange<M>,
+    now_ms: i64,
+    limits: WorkLimits,
+    resume: Option<protocol::WorkCursor>,
+) -> Result<protocol::WorkOutcome<protocol::RangeSummary<M>>> {
     use protocol::SyncError;
     ensure!(
         limits.max_requests > 0
@@ -2808,7 +2850,6 @@ pub async fn summarize_on<M: SyncModel>(
             && limits.max_depth > 0,
         "invalid summary limits"
     );
-    crate::causal_leases::lock_on(tx, namespace).await?;
     let parent = crate::causal_leases::load_on(tx, namespace, snapshot_id)
         .await?
         .ok_or(SyncError::SnapshotExpired)?;
@@ -2848,7 +2889,6 @@ pub async fn summarize_on<M: SyncModel>(
         }
         .into());
     }
-    crate::causal_leases::lock_on(tx, namespace).await?;
     let parent = crate::causal_leases::load_on(tx, namespace, snapshot_id)
         .await?
         .ok_or(SyncError::SnapshotExpired)?;
@@ -3153,6 +3193,19 @@ pub async fn split_on<M: SyncModel>(
     limits: WorkLimits,
     resume: Option<protocol::WorkCursor>,
 ) -> Result<protocol::WorkOutcome<Vec<KeyRange<M>>>> {
+    lock_on(tx, namespace).await?;
+    split_locked_on(tx, namespace, snapshot_id, range, now_ms, limits, resume).await
+}
+
+pub(crate) async fn split_locked_on<M: SyncModel>(
+    tx: &DatabaseTransaction,
+    namespace: Uuid,
+    snapshot_id: Uuid,
+    range: KeyRange<M>,
+    now_ms: i64,
+    limits: WorkLimits,
+    resume: Option<protocol::WorkCursor>,
+) -> Result<protocol::WorkOutcome<Vec<KeyRange<M>>>> {
     use protocol::SyncError;
     ensure!(
         limits.max_requests > 0
@@ -3162,7 +3215,6 @@ pub async fn split_on<M: SyncModel>(
             && limits.max_depth > 0,
         "invalid split limits"
     );
-    crate::causal_leases::lock_on(tx, namespace).await?;
     let parent = crate::causal_leases::load_on(tx, namespace, snapshot_id)
         .await?
         .ok_or(SyncError::SnapshotExpired)?;
@@ -3192,7 +3244,6 @@ pub async fn split_on<M: SyncModel>(
         }
         .into());
     }
-    crate::causal_leases::lock_on(tx, namespace).await?;
     let parent = crate::causal_leases::load_on(tx, namespace, snapshot_id)
         .await?
         .ok_or(SyncError::SnapshotExpired)?;

@@ -20,7 +20,6 @@ pub async fn open_bounded_on<M: SyncModel>(
     ttl_ms: i64,
     limits: WorkLimits,
 ) -> Result<SnapshotDescriptor<M>> {
-    causal_leases::lock_on(tx, source.namespace).await?;
     let request = Uuid::new_v4();
     let mut resume = None;
     // Each step is bounded; cap the number of steps for this atomic convenience API.

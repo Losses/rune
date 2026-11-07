@@ -67,6 +67,15 @@ pub async fn create_build_on(
     tx: &DatabaseTransaction,
     request: BuildLeaseRequest,
 ) -> Result<Lease, DbErr> {
+    lock_on(tx, request.namespace).await?;
+    create_build_locked_on(tx, request).await
+}
+
+/// Insert a build pin when the caller already owns the namespace lock.
+pub(crate) async fn create_build_locked_on(
+    tx: &DatabaseTransaction,
+    request: BuildLeaseRequest,
+) -> Result<Lease, DbErr> {
     let BuildLeaseRequest {
         namespace: ns,
         id,
@@ -88,7 +97,6 @@ pub async fn create_build_on(
     {
         return Err(err("invalid lease admission"));
     }
-    lock_on(tx, ns).await?;
     let count = Query::select()
         .expr(Func::count(Expr::val(1)))
         .from(Alias::new("sync_leases"))
@@ -404,6 +412,7 @@ pub(crate) async fn complete_child_on(
 
 /// Conservative minimum positions protected by every non-revoked lease.
 /// Expired leases remain pins until `revoke_expired_on` commits their revocation.
+/// The caller must already hold the namespace lock (`lock_on`) when it acts on the result.
 pub async fn minimum_pins_on(
     tx: &DatabaseTransaction,
     ns: Uuid,
@@ -415,7 +424,6 @@ pub(crate) async fn minimum_pins_except_on(
     ns: Uuid,
     excluded: Option<Uuid>,
 ) -> Result<Option<(i64, i64)>, DbErr> {
-    lock_on(tx, ns).await?;
     let mut q = Query::select()
         .expr(Func::min(Expr::col(Alias::new("state_seq"))))
         .expr(Func::min(Expr::col(Alias::new("head"))))
@@ -535,14 +543,14 @@ pub(crate) async fn checkpoint_bounded_on(
     Ok(())
 }
 
-/// Read and validate an active build while holding the namespace serialization lock.
+/// Read and validate an active build from the caller's transaction snapshot.
+/// The caller must already hold the namespace lock (`lock_on`).
 pub async fn building_on(
     tx: &DatabaseTransaction,
     ns: Uuid,
     id: Uuid,
     now_ms: i64,
 ) -> Result<Lease, DbErr> {
-    lock_on(tx, ns).await?;
     let lease = load_on(tx, ns, id)
         .await?
         .ok_or_else(|| err("snapshot expired"))?;

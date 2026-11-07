@@ -170,19 +170,25 @@ pub async fn prune_history_step_on(
         .order_by(Alias::new("sequence"), Order::Asc)
         .limit(max_rows)
         .to_owned();
+    let rows = tx.query_all(&q).await?;
     let mut removed = 0;
-    for row in tx.query_all(&q).await? {
+    for batch in rows.chunks(100) {
+        let mut matches = Condition::any();
+        for row in batch {
+            matches = matches.add(
+                Condition::all()
+                    .add(
+                        Expr::col(Alias::new("generation")).eq(row.try_get_by_index::<Vec<u8>>(0)?),
+                    )
+                    .add(Expr::col(Alias::new("sequence")).eq(row.try_get_by_index::<i64>(1)?)),
+            );
+        }
         removed += tx
             .execute(
                 &Query::delete()
                     .from_table(Alias::new("sync_journal"))
                     .and_where(Expr::col(Alias::new("namespace")).eq(ns.as_bytes().to_vec()))
-                    .and_where(
-                        Expr::col(Alias::new("generation")).eq(row.try_get_by_index::<Vec<u8>>(0)?),
-                    )
-                    .and_where(
-                        Expr::col(Alias::new("sequence")).eq(row.try_get_by_index::<i64>(1)?),
-                    )
+                    .cond_where(matches)
                     .to_owned(),
             )
             .await?
@@ -229,19 +235,25 @@ pub async fn reclaim_rows_step_on(tx: &DatabaseTransaction, ns: Uuid, limit: u64
         .cond_where(dead)
         .limit(limit - removed)
         .to_owned();
-    for row in tx.query_all(&q).await? {
+    let rows = tx.query_all(&q).await?;
+    for batch in rows.chunks(100) {
+        let mut matches = Condition::any();
+        for row in batch {
+            matches = matches.add(
+                Condition::all()
+                    .add(
+                        Expr::col(Alias::new("collection")).eq(row.try_get_by_index::<Vec<u8>>(0)?),
+                    )
+                    .add(Expr::col(Alias::new("writer")).eq(row.try_get_by_index::<Vec<u8>>(1)?))
+                    .add(Expr::col(Alias::new("counter")).eq(row.try_get_by_index::<i64>(2)?)),
+            );
+        }
         removed += tx
             .execute(
                 &Query::delete()
                     .from_table(Alias::new("sync_candidates"))
                     .and_where(Expr::col(Alias::new("namespace")).eq(ns.as_bytes().to_vec()))
-                    .and_where(
-                        Expr::col(Alias::new("collection")).eq(row.try_get_by_index::<Vec<u8>>(0)?),
-                    )
-                    .and_where(
-                        Expr::col(Alias::new("writer")).eq(row.try_get_by_index::<Vec<u8>>(1)?),
-                    )
-                    .and_where(Expr::col(Alias::new("counter")).eq(row.try_get_by_index::<i64>(2)?))
+                    .cond_where(matches)
                     .to_owned(),
             )
             .await?

@@ -1,5 +1,6 @@
 //! Transaction-bound causal authoring, reception, and accepted-state queries.
 use crate::causal_candidates::CandidateRow;
+use crate::causal_leases::lock_on;
 use crate::causal_writer::WriterIncarnation;
 use anyhow::{Result, ensure};
 use sea_orm::sea_query::Order;
@@ -178,7 +179,7 @@ impl<M: SyncModel> CausalReplica<M> {
     }
     /// Serialize a caller-owned mutation and verify this namespace's model.
     pub async fn lock(&self, tx: &DatabaseTransaction) -> Result<()> {
-        crate::causal_leases::lock_on(tx, self.namespace).await?;
+        lock_on(tx, self.namespace).await?;
         self.meta_on(tx).await?;
         Ok(())
     }
@@ -260,10 +261,21 @@ impl<M: SyncModel> CausalReplica<M> {
         value: Option<M::Payload>,
         observed: protocol::Observed,
     ) -> Result<CommandResult<M>> {
+        lock_on(tx, self.namespace).await?;
+        self.write_observed_locked_on(tx, key, value, observed)
+            .await
+    }
+
+    pub(crate) async fn write_observed_locked_on(
+        &self,
+        tx: &DatabaseTransaction,
+        key: protocol::ObjectKey<M>,
+        value: Option<M::Payload>,
+        observed: protocol::Observed,
+    ) -> Result<CommandResult<M>> {
         use protocol::{Candidate, Dot, Event, KeyDelta, ManifestKind, ProjectionChange, Revision};
         ensure!(!key.id.is_nil(), "nil object UUID");
         M::validate(&key, &value)?;
-        crate::causal_leases::lock_on(tx, self.namespace).await?;
         let (identity, meta) = self.meta_on(tx).await?;
         let tag = M::collection_tag(&key.collection);
         ensure!(
@@ -588,7 +600,15 @@ impl<M: SyncModel> CausalReplica<M> {
         tx: &DatabaseTransaction,
         delta: &protocol::KeyDelta<M>,
     ) -> Result<protocol::ProjectionChange<M>> {
-        crate::causal_leases::lock_on(tx, self.namespace).await?;
+        lock_on(tx, self.namespace).await?;
+        self.apply_key_locked_on(tx, delta).await
+    }
+
+    async fn apply_key_locked_on(
+        &self,
+        tx: &DatabaseTransaction,
+        delta: &protocol::KeyDelta<M>,
+    ) -> Result<protocol::ProjectionChange<M>> {
         let event = protocol::Event::Key(delta.clone());
         protocol::canonical_event(&event)?;
         if delta.added.is_empty() {
@@ -667,6 +687,16 @@ impl<M: SyncModel> CausalReplica<M> {
         page: &protocol::ChangePage<M>,
         limits: protocol::ApplyLimits,
     ) -> Result<protocol::ApplyResult<M>> {
+        lock_on(tx, self.namespace).await?;
+        self.apply_page_inner_on(tx, page, limits, true).await
+    }
+
+    pub(crate) async fn apply_page_locked_on(
+        &self,
+        tx: &DatabaseTransaction,
+        page: &protocol::ChangePage<M>,
+        limits: protocol::ApplyLimits,
+    ) -> Result<protocol::ApplyResult<M>> {
         self.apply_page_inner_on(tx, page, limits, true).await
     }
 
@@ -674,6 +704,17 @@ impl<M: SyncModel> CausalReplica<M> {
     /// commitment are checked again; only the inline transport envelope size
     /// is inapplicable after the event has been transferred in fragments.
     pub async fn apply_staged_event_on(
+        &self,
+        tx: &DatabaseTransaction,
+        prepared: &protocol::PreparedEvent<M>,
+        limits: protocol::ApplyLimits,
+    ) -> Result<protocol::ApplyResult<M>> {
+        lock_on(tx, self.namespace).await?;
+        self.apply_staged_event_locked_on(tx, prepared, limits)
+            .await
+    }
+
+    pub(crate) async fn apply_staged_event_locked_on(
         &self,
         tx: &DatabaseTransaction,
         prepared: &protocol::PreparedEvent<M>,
@@ -766,7 +807,6 @@ impl<M: SyncModel> CausalReplica<M> {
             protocol::SyncError::WorkLimit
         );
         let mut range_budget = limits.max_mutations - estimated_mutations;
-        crate::causal_leases::lock_on(tx, self.namespace).await?;
         let (local, _) = self.meta_on(tx).await?;
         ensure!(
             page.request.source.replica != local.replica
@@ -831,7 +871,7 @@ impl<M: SyncModel> CausalReplica<M> {
         for link in &page.links {
             if let Some(EventRef::Inline(Event::Key(delta))) = &link.event {
                 let before_head = self.meta_on(tx).await?.1.head;
-                let change = self.apply_key_on(tx, delta).await?;
+                let change = self.apply_key_locked_on(tx, delta).await?;
                 let after_head = self.meta_on(tx).await?.1.head;
                 if after_head > before_head {
                     causal_changes += 1;
@@ -856,7 +896,7 @@ impl<M: SyncModel> CausalReplica<M> {
             if let Some(EventRef::Inline(Event::Merge(range))) = &link.event {
                 ensure!(range_budget > 0, protocol::SyncError::WorkLimit);
                 let (_, batch) = self
-                    .apply_merge_on(tx, range, limits, &mut range_budget)
+                    .apply_merge_locked_on(tx, range, limits, &mut range_budget)
                     .await?;
                 causal_changes = causal_changes
                     .checked_add(batch.causal_changes)
@@ -1386,6 +1426,17 @@ impl<M: SyncModel> CausalReplica<M> {
         limits: protocol::ApplyLimits,
         budget: &mut u64,
     ) -> Result<(bool, protocol::ProjectionBatch<M>)> {
+        lock_on(tx, self.namespace).await?;
+        self.apply_merge_locked_on(tx, delta, limits, budget).await
+    }
+
+    pub(crate) async fn apply_merge_locked_on(
+        &self,
+        tx: &DatabaseTransaction,
+        delta: &protocol::MergeDelta<M>,
+        limits: protocol::ApplyLimits,
+        budget: &mut u64,
+    ) -> Result<(bool, protocol::ProjectionBatch<M>)> {
         ensure!(
             limits.max_projection_items > 0
                 && limits.max_projection_items <= protocol::MAX_PROJECTION_ITEMS
@@ -1398,7 +1449,6 @@ impl<M: SyncModel> CausalReplica<M> {
         *budget = std::cmp::min(*budget, limits.max_mutations)
             .checked_sub(1)
             .ok_or(protocol::SyncError::WorkLimit)?;
-        crate::causal_leases::lock_on(tx, self.namespace).await?;
         let event = protocol::Event::Merge(Box::new(delta.clone()));
         protocol::canonical_event(&event)?;
         let revision = delta

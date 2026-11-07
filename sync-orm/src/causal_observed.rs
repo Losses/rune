@@ -240,23 +240,27 @@ pub async fn reclaim_step_on(
         .and_where(Expr::col(Alias::new("removed_seq")).lte(below_state))
         .limit(limit)
         .to_owned();
+    let rows = tx.query_all(&q).await?;
     let mut removed = 0;
-    for row in tx.query_all(&q).await? {
+    for batch in rows.chunks(100) {
+        let mut matches = Condition::any();
+        for row in batch {
+            matches = matches.add(
+                Condition::all()
+                    .add(
+                        Expr::col(Alias::new("collection")).eq(row.try_get_by_index::<Vec<u8>>(0)?),
+                    )
+                    .add(Expr::col(Alias::new("writer")).eq(row.try_get_by_index::<Vec<u8>>(1)?))
+                    .add(Expr::col(Alias::new("first")).eq(row.try_get_by_index::<i64>(2)?))
+                    .add(Expr::col(Alias::new("added_seq")).eq(row.try_get_by_index::<i64>(3)?)),
+            );
+        }
         removed += tx
             .execute(
                 &Query::delete()
                     .from_table(Alias::new("sync_observed"))
                     .and_where(Expr::col(Alias::new("namespace")).eq(ns.as_bytes().to_vec()))
-                    .and_where(
-                        Expr::col(Alias::new("collection")).eq(row.try_get_by_index::<Vec<u8>>(0)?),
-                    )
-                    .and_where(
-                        Expr::col(Alias::new("writer")).eq(row.try_get_by_index::<Vec<u8>>(1)?),
-                    )
-                    .and_where(Expr::col(Alias::new("first")).eq(row.try_get_by_index::<i64>(2)?))
-                    .and_where(
-                        Expr::col(Alias::new("added_seq")).eq(row.try_get_by_index::<i64>(3)?),
-                    )
+                    .cond_where(matches)
                     .to_owned(),
             )
             .await?

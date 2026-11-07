@@ -47,28 +47,22 @@ impl Maintenance {
                 next.phase = Phase::Release;
             }
             Phase::Release => {
-                let q = Query::select()
+                let expired = Query::select()
                     .column(Alias::new("id"))
                     .from(Alias::new("sync_leases"))
                     .and_where(Expr::col(Alias::new("namespace")).eq(ns.as_bytes().to_vec()))
                     .and_where(Expr::col(Alias::new("status")).eq(2))
                     .limit(16)
                     .to_owned();
-                for row in tx.query_all(&q).await? {
-                    tx.execute(
-                        &Query::delete()
-                            .from_table(Alias::new("sync_leases"))
-                            .and_where(
-                                Expr::col(Alias::new("namespace")).eq(ns.as_bytes().to_vec()),
-                            )
-                            .and_where(
-                                Expr::col(Alias::new("id")).eq(row.try_get_by_index::<Vec<u8>>(0)?),
-                            )
-                            .and_where(Expr::col(Alias::new("status")).eq(2))
-                            .to_owned(),
-                    )
-                    .await?;
-                }
+                tx.execute(
+                    &Query::delete()
+                        .from_table(Alias::new("sync_leases"))
+                        .and_where(Expr::col(Alias::new("namespace")).eq(ns.as_bytes().to_vec()))
+                        .and_where(Expr::col(Alias::new("status")).eq(2))
+                        .and_where(Expr::col(Alias::new("id")).in_subquery(expired))
+                        .to_owned(),
+                )
+                .await?;
                 next.phase = Phase::Floor;
             }
             Phase::Floor => {

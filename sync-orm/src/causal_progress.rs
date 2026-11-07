@@ -1,4 +1,5 @@
 //! Transaction-bound publication continuity and directional completion.
+use crate::causal_leases::lock_on;
 use anyhow::{Result, ensure};
 use sea_orm::{
     ConnectionTrait, DatabaseTransaction, ExprTrait,
@@ -66,7 +67,7 @@ pub async fn initialization_complete_on<C: ConnectionTrait>(
 
 /// Commit with the caller's final checked initialization batch.
 pub async fn complete_initialization_on(tx: &DatabaseTransaction, namespace: Uuid) -> Result<()> {
-    crate::causal_leases::lock_on(tx, namespace).await?;
+    lock_on(tx, namespace).await?;
     let query = Query::update()
         .table(Alias::new("sync_meta"))
         .value(
@@ -269,11 +270,20 @@ pub async fn finish_session_on<M: SyncModel>(
     key: &CheckpointKey,
     through: &ReceiveProgress,
 ) -> Result<()> {
+    lock_on(tx, namespace).await?;
+    finish_session_locked_on::<M>(tx, namespace, key, through).await
+}
+
+pub(crate) async fn finish_session_locked_on<M: SyncModel>(
+    tx: &DatabaseTransaction,
+    namespace: Uuid,
+    key: &CheckpointKey,
+    through: &ReceiveProgress,
+) -> Result<()> {
     ensure!(
         key.namespace == namespace,
         p::SyncError::Invalid("namespace mismatch".into())
     );
-    crate::causal_leases::lock_on(tx, namespace).await?;
     let current = checkpoint_on::<M, _>(tx, key)
         .await?
         .ok_or(p::SyncError::IncompleteCoverage)?;
