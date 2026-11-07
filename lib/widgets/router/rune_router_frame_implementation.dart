@@ -201,6 +201,8 @@ class _RuneRouterFrameImplementationState
                         maintainState: true, // Keep the state
                         // In the lab mode the controller moves to the top of
                         // the window. It is the same widget, so it plays on.
+                        // At the bottom it stays above Android's navigation
+                        // bar, and runs under the home indicator on iOS.
                         child: AnimatedAlign(
                           alignment: labMode
                               ? Alignment.topCenter
@@ -210,6 +212,7 @@ class _RuneRouterFrameImplementationState
                           child: AnimatedPadding(
                             padding: EdgeInsets.only(
                               top: labMode ? keptClear.top : 0,
+                              bottom: labMode ? 0 : keptClear.bottom,
                             ),
                             duration: labModeDuration,
                             curve: labModeCurve,

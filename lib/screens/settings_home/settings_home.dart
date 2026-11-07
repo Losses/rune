@@ -58,7 +58,7 @@ class _SettingsHomePageState extends State<SettingsHomePage> {
             DeviceType.belt,
             DeviceType.dock,
             DeviceType.zune,
-            DeviceType.tv
+            DeviceType.tv,
           ],
           builder: (context, activeBreakpoint) {
             if (activeBreakpoint == DeviceType.belt) {
@@ -87,8 +87,8 @@ class _SettingsHomePageState extends State<SettingsHomePage> {
                       (context) => S.of(context).laboratory,
                       '/settings/laboratory',
                       Symbols.interests,
-                      false
-                    )
+                      false,
+                    ),
                 ],
                 layoutManager: _layoutManager,
               );

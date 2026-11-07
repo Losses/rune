@@ -154,6 +154,36 @@ enum DeviceType {
   }
 }
 
+/// The upright layout a window of [size] has by its width, the lying one by
+/// its height, and of the two the one a [ResponsiveProvider] picks: the one
+/// of the higher priority, the upright one on a tie.
+({DeviceType vertical, DeviceType horizontal, DeviceType active})
+deviceTypesFor(Size size) {
+  final vertical = DeviceType._determineDeviceType(
+    size: size.width,
+    orientation: DeviceOrientation.vertical,
+  );
+  final horizontal = DeviceType._determineDeviceType(
+    size: size.height,
+    orientation: DeviceOrientation.horizontal,
+  );
+  return (
+    vertical: vertical,
+    horizontal: horizontal,
+    active: vertical.priority >= horizontal.priority ? vertical : horizontal,
+  );
+}
+
+/// Whether a window of [layoutSize] has one of the layouts a phone is made
+/// for: zune, or an upright layout wider than it. The strip layouts and the
+/// dock are for the smallest windows, where most pages show little or
+/// nothing.
+bool isPhoneLayoutSize(Size layoutSize) {
+  final type = deviceTypesFor(layoutSize).active;
+  return type.orientation == DeviceOrientation.vertical &&
+      type.start >= DeviceType.zune.start;
+}
+
 Future<Size?> getSavedWindowSize() async {
   final savedSize = await SettingsManager().getValue<String>(
     kRememberdWindowSizeKey,
@@ -303,26 +333,13 @@ class ResponsiveProvider extends ChangeNotifier {
   }
 
   void _updateDeviceTypes() {
-    final size = _screenSizeProvider.layoutSize;
-    final width = size.width;
-    final height = size.height;
-
     final oldV = _currentVerticalDeviceType;
     final oldH = _currentHorizontalDeviceType;
     final oldA = currentDeviceType;
 
-    final newV = DeviceType._determineDeviceType(
-      size: width,
-      orientation: DeviceOrientation.vertical,
+    final (vertical: newV, horizontal: newH, active: newA) = deviceTypesFor(
+      _screenSizeProvider.layoutSize,
     );
-    final newH = DeviceType._determineDeviceType(
-      size: height,
-      orientation: DeviceOrientation.horizontal,
-    );
-
-    final verticalPriority = newV.priority;
-    final horizontalPriority = newH.priority;
-    final newA = verticalPriority >= horizontalPriority ? newV : newH;
 
     _currentVerticalDeviceType = newV;
     _currentHorizontalDeviceType = newH;

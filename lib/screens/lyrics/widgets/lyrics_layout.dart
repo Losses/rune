@@ -7,7 +7,6 @@ import '../../../utils/format_time.dart';
 import '../../../utils/playing_item.dart';
 import '../../../utils/color_brightness.dart';
 import '../../../widgets/tile/cover_art.dart';
-import '../../../widgets/keep_clear.dart';
 import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../../widgets/cover_wall_background/gradient_container.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
@@ -134,8 +133,9 @@ class LyricsLayoutState extends State<LyricsLayout> {
                     : constraints.maxWidth / 5 * 3,
                 height: constraints.maxHeight,
                 // The lyrics keep clear of a notch at the sides they reach.
-                child: KeepClear(
+                child: SafeArea(
                   left: isMini,
+                  bottom: false,
                   child: PageContentFrame(
                     child: LyricsDisplay(
                       key: ValueKey(widget.item),

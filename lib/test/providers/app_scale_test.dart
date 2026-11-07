@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:ui' show Size;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rune/providers/app_scale.dart';
+import 'package:rune/providers/responsive_providers.dart';
 
 void main() {
   test('loads only supported integer settings', () async {
@@ -143,6 +145,66 @@ void main() {
       }
     });
 
+    // The windows layouts are chosen by, less the insets kept clear of, in
+    // points before any zoom.
+    const iPhone17 = Size(402, 874 - 62);
+    const iPhone15ProOnItsSide = Size(852 - 2 * 59, 393);
+    const iPhoneSE = Size(375, 667 - 20);
+
+    test('keeps the nearest zoom while the layout stays a phone\'s', () {
+      for (final MapEntry(key: name, value: t) in textScales.entries) {
+        expect(
+          followedScaleFactor(t, 3, iPhone17),
+          textSizeScaleFactor(t, 3),
+          reason: name,
+        );
+      }
+      // Zune from two sizes up, as the text size has always done.
+      expect(
+        deviceTypesFor(iPhone17 / followedScaleFactor(21 / 17, 3, iPhone17))
+            .active,
+        DeviceType.zune,
+      );
+    });
+
+    test('holds the zoom at the layout floor', () {
+      for (final name in ['xxL', 'AX4']) {
+        // A phone on its side would be a fish or a band; it keeps its layout
+        // and the text alone grows.
+        expect(
+          followedScaleFactor(textScales[name]!, 3, iPhone15ProOnItsSide),
+          1.0,
+          reason: name,
+        );
+      }
+      // A full zoom would turn an SE into a belt; a step less keeps zune.
+      expect(textSizeScaleFactor(textScales['AX5']!, 2), 3.0);
+      expect(followedScaleFactor(textScales['AX5']!, 2, iPhoneSE), 2.5);
+      expect(followedScaleFactor(textScales['AX4']!, 2, iPhoneSE), 2.5);
+      expect(followedScaleFactor(textScales['AX3']!, 2, iPhoneSE), 2.5);
+    });
+
+    test('keeps the invariants of the floor for every size and window', () {
+      for (final (area, dpr) in [
+        (iPhone17, 3.0),
+        (iPhone15ProOnItsSide, 3.0),
+        (iPhoneSE, 2.0),
+        (iPhoneSE.flipped, 2.0),
+        (Size.zero, 3.0),
+      ]) {
+        for (final MapEntry(key: name, value: t) in textScales.entries) {
+          final factor = followedScaleFactor(t, dpr, area);
+          final reason = '$name in $area at DPR $dpr';
+          expect(factor * dpr, closeTo((factor * dpr).round(), 1e-9));
+          expect(factor, lessThanOrEqualTo(textSizeScaleFactor(t, dpr)));
+          if (t <= 1) expect(factor, 1.0, reason: reason);
+          if (factor > 1) {
+            expect(isPhoneLayoutSize(area / factor), isTrue, reason: reason);
+          }
+        }
+      }
+    });
+
     test('ignores an invalid device pixel ratio', () {
       expect(textSizeScaleFactor(2, 0), 1.0);
       expect(textSizeScaleFactor(2, -1), 1.0);
@@ -202,9 +264,12 @@ void main() {
     testWidgets('follows live text size and pixel ratio changes', (
       tester,
     ) async {
+      // An iPhone 17 upright, which stays a phone's layout at every size.
       tester.view.devicePixelRatio = 3;
+      tester.view.physicalSize = const Size(1206, 2622);
       tester.platformDispatcher.textScaleFactorTestValue = 1.0;
       addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       final saved = <int>[];
       final scale = AppScaleProvider(

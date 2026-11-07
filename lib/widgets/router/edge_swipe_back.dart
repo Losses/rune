@@ -3,29 +3,21 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
-import 'package:provider/provider.dart';
 
 import '../navigation_bar/page_chrome.dart';
-import '../../providers/responsive_providers.dart';
 import '../../utils/kept_clear.dart';
+import '../../utils/platform.dart';
 import '../../utils/navigation/utils/navigation_backward.dart';
 
-/// Narrowest strip at the left edge that starts the swipe, in logical pixels.
-const edgeSwipeMinWidth = 20.0;
-
-/// A rightward drag longer than this, or than a quarter of the width if that
-/// is shorter, goes back when the finger lifts.
-const edgeSwipeDistance = 60.0;
-
-/// A rightward fling faster than this goes back whatever its length.
-const edgeSwipeVelocity = 300.0;
+import 'constants/edge_swipe_back.dart';
 
 // As the back button in the header does.
 void _goBack() => navigateBackwardWithPop();
 
-/// On iOS, a drag from the left edge to the right calls [onBack] when the
-/// finger lifts. The page does not follow the finger. Other platforms get
-/// [child] as it is.
+/// On an iPhone or iPad, a finger's drag from the left edge to the right
+/// calls [onBack] when it lifts. The page does not follow the finger. Other
+/// platforms, and the iOS build on a Mac, which has a pointer and the back
+/// button, get [child] as it is.
 class EdgeSwipeBack extends StatelessWidget {
   const EdgeSwipeBack({
     super.key,
@@ -40,13 +32,13 @@ class EdgeSwipeBack extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (defaultTargetPlatform != TargetPlatform.iOS) return child;
+    if (defaultTargetPlatform != TargetPlatform.iOS ||
+        iosDevice == IosDevice.mac) {
+      return child;
+    }
 
     final keptClear = context.keptClear;
-    final chrome = pageChromeOf(
-      Provider.of<ResponsiveProvider>(context),
-      Provider.of<ScreenSizeProvider>(context).screenSize,
-    );
+    final chrome = pageChromeOf(context);
     // The strip starts below the header, so it never covers the back button
     // in the header's top left corner.
     final top = chrome.header + keptClear.top;
@@ -89,7 +81,12 @@ class _StripState extends State<_Strip> {
     final settings = MediaQuery.gestureSettingsOf(context);
 
     final drag = GestureRecognizerFactoryWithHandlers<_RightwardDrag>(
-      () => _RightwardDrag(debugOwner: this),
+      // A finger only: a mouse or a trackpad dragging from the edge is
+      // selecting or scrolling, not going back.
+      () => _RightwardDrag(
+        debugOwner: this,
+        supportedDevices: const {PointerDeviceKind.touch},
+      ),
       (instance) {
         instance
           ..gestureSettings = settings
@@ -123,7 +120,7 @@ class _StripState extends State<_Strip> {
 /// the right. One that goes to the left is left to the page under it, such as
 /// a horizontal list there.
 class _RightwardDrag extends HorizontalDragGestureRecognizer {
-  _RightwardDrag({super.debugOwner});
+  _RightwardDrag({super.debugOwner, super.supportedDevices});
 
   @override
   bool hasSufficientGlobalDistanceToAccept(

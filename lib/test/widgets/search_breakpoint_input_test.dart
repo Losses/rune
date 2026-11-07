@@ -135,4 +135,48 @@ void main() {
       screen.dispose();
     },
   );
+
+  testWidgets('the suggestions end above the keyboard in the tablet layout', (
+    tester,
+  ) async {
+    // The search box is inside the page's frame here, which takes the
+    // keyboard out of the media query below it.
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(760, 800);
+    addTearDown(tester.view.reset);
+    final screen = ScreenSizeProvider.withWriter(null, (_) async {});
+    final responsive = ResponsiveProvider(screen, () async => null);
+    addTearDown(screen.dispose);
+    addTearDown(responsive.dispose);
+    expect(responsive.currentDeviceType, DeviceType.tablet);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<ResponsiveProvider>.value(value: responsive),
+          ChangeNotifierProvider<ScreenSizeProvider>.value(value: screen),
+        ],
+        child: FluentApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const SearchPageImplementation(deviceType: DeviceType.tablet),
+        ),
+      ),
+    );
+    await tester.pump();
+    final box = find.byType(AutoSuggestBox<String>);
+    double popupHeight() =>
+        tester.widget<AutoSuggestBox<String>>(box).maxPopupHeight;
+    expect(popupHeight(), kAutoSuggestBoxPopupMaxHeight);
+
+    tester.view.viewInsets = const FakeViewPadding(bottom: 500);
+    await tester.pump();
+    await tester.pump();
+    final room = 800 - 500 - tester.getRect(box).bottom;
+    expect(room, lessThan(kAutoSuggestBoxPopupMaxHeight));
+    expect(popupHeight(), room);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
+  });
 }

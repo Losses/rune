@@ -321,7 +321,18 @@ void main() {
       tester.widget<LabPages>(find.byType(LabPages)).padding,
       const EdgeInsets.fromLTRB(14 + 59, 10, 14 + 59, 12),
     );
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('on Android the pages keep clear of the navigation bar', (
+    tester,
+  ) async {
+    tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+    await pump(tester, _phoneSide);
+    expect(
+      tester.widget<LabPages>(find.byType(LabPages)).padding,
+      const EdgeInsets.fromLTRB(14, 10, 14, 12 + 48),
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   group('the floating picture', () {
     testWidgets('starts in the bottom right and settles in the corner it is '

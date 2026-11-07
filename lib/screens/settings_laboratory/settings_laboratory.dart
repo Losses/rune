@@ -4,10 +4,9 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/router/navigation.dart';
-import '../../widgets/keep_clear.dart';
 import '../../widgets/rune_clickable.dart';
-import '../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../widgets/router/rune_stack.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'widgets/settings/cafe_mode_settings.dart';
@@ -28,13 +27,19 @@ class SettingsLaboratory extends StatelessWidget {
   Widget build(BuildContext context) {
     final typography = FluentTheme.of(context).typography;
 
-    return KeepClear(
-      child: RuneStack(
-        children: [
-          _buildBackButton(),
-          _buildTitle(context, typography),
-          _buildSettingsGrid(context),
-        ],
+    return PageContentFrame(
+      // The page has its own back button and title at the top, below the
+      // status bar.
+      top: false,
+      builder: (context) => SafeArea(
+        bottom: false,
+        child: RuneStack(
+          children: [
+            _buildBackButton(),
+            _buildTitle(context, typography),
+            _buildSettingsGrid(context),
+          ],
+        ),
       ),
     );
   }
@@ -84,8 +89,8 @@ class _ResponsiveSettingsGrid extends StatelessWidget {
     return SmallerOrEqualTo(
       deviceType: DeviceType.phone,
       builder: (context, isMini) => MasonryGridView(
-        // The playback controller is over the bottom of the page.
-        padding: EdgeInsets.only(top: 4, bottom: playbackControllerHeight),
+        padding:
+            getScrollContainerPadding(context) + const EdgeInsets.only(top: 4),
         gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: isMini ? 1 : 2,
         ),

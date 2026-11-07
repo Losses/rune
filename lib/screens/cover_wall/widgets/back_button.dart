@@ -2,7 +2,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../widgets/ax_reveal/ax_reveal.dart';
-import '../../../widgets/keep_clear.dart';
 import '../../../widgets/rune_clickable.dart';
 import '../../../widgets/playback_controller/cover_wall_button.dart';
 import '../../../providers/responsive_providers.dart';
@@ -19,8 +18,9 @@ class BackButton extends StatelessWidget {
       builder: (_, isTrue) {
         if (!isTrue) return Container();
 
-        return KeepClear(
+        return SafeArea(
           right: false,
+          bottom: false,
           child: Padding(
             padding: const EdgeInsets.only(top: 16, left: 16),
             child: AxReveal0(

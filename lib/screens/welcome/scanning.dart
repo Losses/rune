@@ -9,7 +9,6 @@ import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
 import '../../utils/l10n.dart';
 import '../../utils/router/navigation.dart';
-import '../../widgets/keep_clear.dart';
 import '../../widgets/status_bar_style.dart';
 
 class ScanningPage extends StatefulWidget {
@@ -64,7 +63,8 @@ class _ScanningPageState extends State<ScanningPage>
       child: StatusBarStyle(
         brightness: Brightness.dark,
         child: SizedBox.expand(
-          child: KeepClear(
+          child: SafeArea(
+            bottom: false,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,

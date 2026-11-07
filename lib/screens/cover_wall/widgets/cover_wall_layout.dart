@@ -7,7 +7,6 @@ import '../../../utils/l10n.dart';
 import '../../../utils/color_brightness.dart';
 import '../../../utils/visualizer_supported.dart';
 import '../../../utils/router/router_aware_flyout_controller.dart';
-import '../../../widgets/keep_clear.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../widgets/visualizer/visualizer_controller.dart';
 import '../../../widgets/visualizer/visualizer_surface.dart';
@@ -227,7 +226,7 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
                   child: child,
                 ),
               ),
-              child: const KeepClear(child: PlayingTrack()),
+              child: const SafeArea(bottom: false, child: PlayingTrack()),
             ),
             if (!isMini)
               LabModeBuilder(

@@ -7,7 +7,6 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../utils/l10n.dart';
-import '../../utils/platform.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
@@ -112,17 +111,6 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
     }
   }
 
-  /// On iOS a folder is named by where it shows in the Files app.
-  String _describePath(BuildContext context, String path) {
-    if (!Platform.isIOS) return path;
-    final s = S.of(context);
-    return filesAppLocation(
-      path,
-      onThisDevice: iosDevice == IosDevice.iPad ? s.onMyIPad : s.onMyIPhone,
-      iCloudDrive: s.iCloudDrive,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
@@ -179,7 +167,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                           aliases,
                           S.of(context).libraryFromDevice,
                           S.of(context).readOnly,
-                          describePath: (path) => _describePath(context, path),
+                          describePath: (path) =>
+                              describeLibraryPath(S.of(context), path),
                         );
                         final owner = row.library?.ownerFingerprint;
                         final shared = owner != null && owner.isNotEmpty;

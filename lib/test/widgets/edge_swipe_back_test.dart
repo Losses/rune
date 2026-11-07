@@ -1,8 +1,9 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:rune/providers/responsive_providers.dart';
+import 'package:rune/utils/platform.dart';
 import 'package:rune/widgets/router/edge_swipe_back.dart';
 
 const _phone = Size(400, 800);
@@ -11,15 +12,16 @@ const _phone = Size(400, 800);
 const _side = Size(844, 390);
 const _notch = EdgeInsets.only(left: 59, right: 59, bottom: 21);
 
-// A window of [size] on [platform], with Rune's providers for its layout.
+// The swipe is iOS's; the tests run as iOS unless they say otherwise.
+final _iOS = TargetPlatformVariant.only(TargetPlatform.iOS);
+
+// A window of [size], with Rune's providers for its layout.
 Future<void> _pump(
   WidgetTester tester,
   Widget child, {
   Size size = _phone,
   EdgeInsets viewPadding = EdgeInsets.zero,
-  TargetPlatform platform = TargetPlatform.iOS,
 }) async {
-  debugDefaultTargetPlatformOverride = platform;
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
   final padding = FakeViewPadding(
@@ -56,7 +58,7 @@ void main() {
     required Offset by,
     Size size = _phone,
     bool enabled = true,
-    TargetPlatform platform = TargetPlatform.iOS,
+    PointerDeviceKind kind = PointerDeviceKind.touch,
   }) async {
     var calls = 0;
     await _pump(
@@ -67,12 +69,9 @@ void main() {
         child: const SizedBox.expand(),
       ),
       size: size,
-      platform: platform,
     );
-    await tester.dragFrom(from, by);
+    await tester.dragFrom(from, by, kind: kind);
     await tester.pumpAndSettle();
-    // Reset before the framework checks its debug variables.
-    debugDefaultTargetPlatformOverride = null;
     return calls;
   }
 
@@ -81,7 +80,7 @@ void main() {
       await drag(tester, from: const Offset(5, 400), by: const Offset(145, 0)),
       1,
     );
-  });
+  }, variant: _iOS);
 
   testWidgets('a drag that starts away from the edge does not', (tester) async {
     expect(
@@ -92,14 +91,14 @@ void main() {
       ),
       0,
     );
-  });
+  }, variant: _iOS);
 
   testWidgets('a short drag does not', (tester) async {
     expect(
       await drag(tester, from: const Offset(5, 400), by: const Offset(20, 0)),
       0,
     );
-  });
+  }, variant: _iOS);
 
   testWidgets('a leftward drag does not', (tester) async {
     expect(
@@ -110,14 +109,14 @@ void main() {
       ),
       0,
     );
-  });
+  }, variant: _iOS);
 
   testWidgets('a drag in the header area does not', (tester) async {
     expect(
       await drag(tester, from: const Offset(5, 50), by: const Offset(145, 0)),
       0,
     );
-  });
+  }, variant: _iOS);
 
   testWidgets('the strip starts below the header in the car layout', (
     tester,
@@ -142,7 +141,7 @@ void main() {
       ),
       0,
     );
-  });
+  }, variant: _iOS);
 
   testWidgets('disabled never goes back', (tester) async {
     expect(
@@ -154,7 +153,7 @@ void main() {
       ),
       0,
     );
-  });
+  }, variant: _iOS);
 
   group('the page under the strip', () {
     // A vertical list, as on a real page.
@@ -191,9 +190,8 @@ void main() {
       );
       await tester.tapAt(const Offset(5, 400));
       await tester.pumpAndSettle();
-      debugDefaultTargetPlatformOverride = null;
       expect(taps, 1);
-    });
+    }, variant: _iOS);
 
     testWidgets('still scrolls from a drag that starts on the strip', (
       tester,
@@ -201,9 +199,8 @@ void main() {
       final scroll = await pumpPage(tester);
       await tester.dragFrom(const Offset(5, 400), const Offset(0, -200));
       await tester.pumpAndSettle();
-      debugDefaultTargetPlatformOverride = null;
       expect(scroll.offset, greaterThan(0));
-    });
+    }, variant: _iOS);
 
     testWidgets('a swipe over a scrolling page still goes back', (
       tester,
@@ -222,9 +219,8 @@ void main() {
       );
       await tester.dragFrom(const Offset(5, 400), const Offset(145, 0));
       await tester.pumpAndSettle();
-      debugDefaultTargetPlatformOverride = null;
       expect(backs, 1);
-    });
+    }, variant: _iOS);
 
     group('a horizontal list, on a phone on its side', () {
       // The track grids scroll across under the strip, which is as wide as
@@ -258,10 +254,9 @@ void main() {
         final (scroll, backs) = await pumpList(tester);
         await tester.dragFrom(const Offset(50, 250), const Offset(-45, 0));
         await tester.pumpAndSettle();
-        debugDefaultTargetPlatformOverride = null;
         expect(scroll.offset, greaterThan(0));
         expect(backs(), 0);
-      });
+      }, variant: _iOS);
 
       testWidgets('goes back from a rightward drag on the strip', (
         tester,
@@ -269,24 +264,55 @@ void main() {
         final (scroll, backs) = await pumpList(tester);
         await tester.dragFrom(const Offset(50, 250), const Offset(145, 0));
         await tester.pumpAndSettle();
-        debugDefaultTargetPlatformOverride = null;
         expect(backs(), 1);
         expect(scroll.offset, 0);
-      });
+      }, variant: _iOS);
     });
   });
 
-  for (final platform in [TargetPlatform.android, TargetPlatform.macOS]) {
-    testWidgets('never goes back on $platform', (tester) async {
+  testWidgets(
+    'never goes back elsewhere',
+    (tester) async {
       expect(
         await drag(
           tester,
           from: const Offset(5, 400),
           by: const Offset(145, 0),
-          platform: platform,
         ),
         0,
       );
-    });
-  }
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.macOS,
+    }),
+  );
+
+  testWidgets('a mouse drag from the edge does not go back', (tester) async {
+    expect(
+      await drag(
+        tester,
+        from: const Offset(5, 400),
+        by: const Offset(145, 0),
+        kind: PointerDeviceKind.mouse,
+      ),
+      0,
+    );
+  }, variant: _iOS);
+
+  testWidgets('the iOS build on a Mac has no strip', (tester) async {
+    debugIosDevice = IosDevice.mac;
+    addTearDown(() => debugIosDevice = null);
+    expect(
+      await drag(tester, from: const Offset(5, 400), by: const Offset(145, 0)),
+      0,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(EdgeSwipeBack),
+        matching: find.byType(RawGestureDetector),
+      ),
+      findsNothing,
+    );
+  }, variant: _iOS);
 }

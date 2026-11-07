@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../widgets/keep_clear.dart';
 import '../../../widgets/slide_fade_transition.dart';
 import '../../../screens/search/widgets/search_card.dart';
 import '../../../bindings/bindings.dart';
@@ -43,8 +42,9 @@ class LargeScreenSearchSidebar extends StatelessWidget {
           color: theme.cardColor,
           // The card runs under the status bar and to the right edge, its
           // content keeps clear of them.
-          child: KeepClear(
+          child: SafeArea(
             left: false,
+            bottom: false,
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(

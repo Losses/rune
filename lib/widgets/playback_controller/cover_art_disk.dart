@@ -387,11 +387,13 @@ class CoverArtDiskState extends State<CoverArtDisk>
       borderColor = theme.resources.controlStrokeColorSecondary;
     }
 
+    final keptClear = context.keptClear;
     return Positioned(
       // In the car layouts the disk peeks in from the right edge, clear of a
-      // notch there.
-      right: isCar ? _finalOffsetX + context.keptClear.right : _finalOffsetX,
-      bottom: _finalOffsetY,
+      // notch there. Elsewhere it rises from the bottom edge, clear of
+      // Android's navigation bar there.
+      right: isCar ? _finalOffsetX + keptClear.right : _finalOffsetX,
+      bottom: isCar ? _finalOffsetY : _finalOffsetY + keptClear.bottom,
       child: Transform(
         transform: Matrix4.identity()
           ..scaleByDouble(0.9, 0.9, 0.9, 1.0)

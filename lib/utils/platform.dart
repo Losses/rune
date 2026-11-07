@@ -24,6 +24,11 @@ IosDevice? _iosDevice;
 /// [detectIosDevice] has run.
 IosDevice? get iosDevice => _iosDevice;
 
+/// Stands in for [detectIosDevice] in a test, which sets it back to null when
+/// it is done.
+@visibleForTesting
+set debugIosDevice(IosDevice? device) => _iosDevice = device;
+
 /// Reads the device kind once at startup. Does nothing off iOS.
 Future<void> detectIosDevice() async {
   if (!Platform.isIOS) return;

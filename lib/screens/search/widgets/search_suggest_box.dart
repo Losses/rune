@@ -6,6 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../../utils/settings_manager.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/rune_clickable.dart';
+import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../../bindings/bindings.dart';
 import '../../../providers/responsive_providers.dart';
 
@@ -87,9 +88,10 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
 
   /// The popup's height so that it ends above the on-screen keyboard. Fluent
   /// only keeps it clear of the safe area, so the suggestions would otherwise
-  /// go behind the keyboard.
+  /// go behind the keyboard. Most layouts have the box inside a page's frame,
+  /// which takes the keyboard out of the view insets.
   double _popupHeight(BuildContext context) {
-    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    final keyboard = PageContentFrame.keyboardOf(context);
     final box = searchKey.currentContext?.findRenderObject();
     if (keyboard == 0 || box is! RenderBox || !box.attached || !box.hasSize) {
       return kAutoSuggestBoxPopupMaxHeight;

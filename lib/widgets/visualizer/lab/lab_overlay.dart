@@ -10,11 +10,9 @@ import '../../../bindings/bindings.dart';
 import '../../../providers/status.dart';
 import '../../../providers/visualizer_lab.dart';
 import '../../../providers/visualizer_scenes.dart';
-import '../../../providers/responsive_providers.dart';
 import '../../../utils/api/seek.dart';
 import '../../../utils/kept_clear.dart';
-import '../../keep_clear.dart';
-import '../../navigation_bar/page_chrome.dart';
+import '../../playback_controller/constants/playback_controller_height.dart';
 import '../visualizer_controller.dart';
 
 import 'lab_cards.dart';
@@ -69,20 +67,16 @@ class VisualizerLabOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chrome = pageChromeOf(
-      Provider.of<ResponsiveProvider>(context),
-      Provider.of<ScreenSizeProvider>(context).screenSize,
-    );
-
     return Positioned(
-      top: chrome.controller,
+      top: playbackControllerHeight,
       left: 0,
       right: 0,
       bottom: 0,
       // The controller is below the status bar, so is the overlay.
-      child: KeepClear(
+      child: SafeArea(
         left: false,
         right: false,
+        bottom: false,
         // It comes in after the controller has arrived, and goes out at once.
         child: LabModeBuilder(
           enterCurve: const Interval(0.35, 1, curve: labModeCurve),
@@ -292,12 +286,14 @@ class _LabBodyState extends State<LabBody> with WidgetsBindingObserver {
     LabPipLayout pip,
   ) {
     final keptClear = context.keptClear;
-    // The pages run to the screen's sides and keep their content clear of a
-    // notch there; the top is already under the controller, and the content
-    // runs under the home indicator.
+    // The pages run to the screen's sides and bottom and keep their content
+    // clear of a notch there and of Android's navigation bar; the top is
+    // already under the controller, and on iOS the content runs under the
+    // home indicator.
     final pages = padding.copyWith(
       left: padding.left + keptClear.left,
       right: padding.right + keptClear.right,
+      bottom: padding.bottom + keptClear.bottom,
     );
     return Stack(
       children: [
@@ -306,6 +302,7 @@ class _LabBodyState extends State<LabBody> with WidgetsBindingObserver {
             context: context,
             removeLeft: true,
             removeRight: true,
+            removeBottom: keptClear.bottom > 0,
             child: LabPages(
               axis: layout == LabLayout.pagesAcross
                   ? Axis.horizontal

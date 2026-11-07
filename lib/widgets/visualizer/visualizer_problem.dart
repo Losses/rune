@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../providers/responsive_providers.dart';
-import '../keep_clear.dart';
 
 import 'visualizer_controller.dart';
 
@@ -59,7 +58,8 @@ class _VisualizerProblemState extends State<VisualizerProblem> {
       left: 0,
       right: 0,
       child: IgnorePointer(
-        child: KeepClear(
+        child: SafeArea(
+          bottom: false,
           child: Padding(
             padding: EdgeInsets.fromLTRB(left, 16, 16, 0),
             child: AnimatedOpacity(

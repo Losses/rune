@@ -1,5 +1,4 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -42,47 +41,32 @@ Future<void> _secondaryTap(WidgetTester tester) async {
   await tester.pump();
 }
 
-Future<void> _onPlatform(
-  TargetPlatform platform,
-  Future<void> Function() body,
-) async {
-  debugDefaultTargetPlatformOverride = platform;
-  try {
-    await body();
-  } finally {
-    debugDefaultTargetPlatformOverride = null;
-  }
-}
-
 void main() {
-  for (final platform in TargetPlatform.values) {
-    testWidgets('secondary tap opens the menu on $platform', (tester) async {
-      await _onPlatform(platform, () async {
-        final opened = await _pumpWrapper(tester);
-        await _secondaryTap(tester);
+  testWidgets('secondary tap opens the menu', (tester) async {
+    final opened = await _pumpWrapper(tester);
+    await _secondaryTap(tester);
 
-        expect(opened, hasLength(1));
-      });
-    });
-  }
+    expect(opened, hasLength(1));
+  }, variant: TargetPlatformVariant.all());
 
-  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
-    testWidgets('long press opens the menu on $platform', (tester) async {
-      await _onPlatform(platform, () async {
-        final opened = await _pumpWrapper(tester);
-        await tester.longPress(_target);
-
-        expect(opened, hasLength(1));
-      });
-    });
-  }
-
-  testWidgets('long press does not open the menu on desktop', (tester) async {
-    await _onPlatform(TargetPlatform.macOS, () async {
+  testWidgets(
+    'long press opens the menu',
+    (tester) async {
       final opened = await _pumpWrapper(tester);
       await tester.longPress(_target);
 
-      expect(opened, isEmpty);
-    });
-  });
+      expect(opened, hasLength(1));
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.iOS,
+      TargetPlatform.android,
+    }),
+  );
+
+  testWidgets('long press does not open the menu on desktop', (tester) async {
+    final opened = await _pumpWrapper(tester);
+    await tester.longPress(_target);
+
+    expect(opened, isEmpty);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 }

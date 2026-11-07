@@ -5,7 +5,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/kept_clear.dart';
 import '../../utils/query_list.dart';
-import '../../widgets/keep_clear.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../providers/responsive_providers.dart';
@@ -46,9 +45,10 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
           return PageContentFrame(
             top: isMini,
             // The title is at the top, below the status bar.
-            child: KeepClear(
+            child: SafeArea(
               left: false,
               right: false,
+              bottom: false,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

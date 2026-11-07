@@ -11,7 +11,6 @@ import '../../utils/api/fetch_media_file_by_ids.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../widgets/keep_clear.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/search/widgets/small_screen_search_track_list.dart';
 import '../../screens/search/constants/search_categories.dart';
@@ -273,9 +272,10 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
         child: PageContentFrame(
           top: false,
           // The search box is at the top, below the status bar.
-          builder: (context) => KeepClear(
+          builder: (context) => SafeArea(
             left: false,
             right: false,
+            bottom: false,
             child: Column(
               children: [
                 if (Platform.isWindows) SizedBox(height: 20),
@@ -403,8 +403,9 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
               left: false,
               right: false,
               // The sidebar has the right side of the window.
-              child: KeepClear(
+              child: SafeArea(
                 right: false,
+                bottom: false,
                 child: LargeScreenSearchTrackList(
                   selectedItem: selectedItem,
                   items: items,

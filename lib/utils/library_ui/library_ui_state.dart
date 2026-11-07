@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart';
+
 import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
+import '../platform.dart';
 import '../remote_connection_messages.dart';
 
 enum PeerLibrariesStatus { loading, error, empty, rows }
@@ -95,6 +98,17 @@ String filesAppLocation(
   final cloud = _filesInICloud.firstMatch(path);
   if (cloud != null) return join(iCloudDrive, cloud.group(1));
   return path;
+}
+
+/// How a library folder is named to the user: on iOS by where it shows in
+/// the Files app ([filesAppLocation]), elsewhere by its path.
+String describeLibraryPath(AppLocalizations s, String path) {
+  if (defaultTargetPlatform != TargetPlatform.iOS) return path;
+  return filesAppLocation(
+    path,
+    onThisDevice: iosDevice == IosDevice.iPad ? s.onMyIPad : s.onMyIPhone,
+    iCloudDrive: s.iCloudDrive,
+  );
 }
 
 // Whether the open local library is a read-only replica.

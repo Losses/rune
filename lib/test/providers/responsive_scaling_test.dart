@@ -1,9 +1,11 @@
 import 'dart:async';
-import 'dart:ui' show Size;
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:rune/providers/app_scale.dart';
 import 'package:rune/providers/responsive_providers.dart';
+import 'package:rune/widgets/app_viewport.dart';
 
 void main() {
   testWidgets(
@@ -94,5 +96,131 @@ void main() {
     responsive.dispose();
     sizes.dispose();
     scale.dispose();
+  });
+
+  group('following a large text size', () {
+    // An iPhone with the system text size [textScale], in points, as the app
+    // starts with it. Gives the layout and the size a 17 pt font ends up at.
+    Future<(DeviceType, double)> open(
+      WidgetTester tester, {
+      required Size size,
+      required double devicePixelRatio,
+      required EdgeInsets viewPadding,
+      required double textScale,
+    }) async {
+      tester.view.devicePixelRatio = devicePixelRatio;
+      tester.view.physicalSize = size * devicePixelRatio;
+      final padding = viewPadding * devicePixelRatio;
+      tester.view.viewPadding = FakeViewPadding(
+        left: padding.left,
+        top: padding.top,
+        right: padding.right,
+        bottom: padding.bottom,
+      );
+      tester.platformDispatcher.textScaleFactorTestValue = textScale;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final scale = AppScaleProvider(
+        read: () async => null,
+        write: (_) async {},
+        supportsFollowTextSize: true,
+      );
+      await scale.initialize();
+      final sizes = ScreenSizeProvider.withWriter(scale, (_) async {});
+      final responsive = ResponsiveProvider(sizes, () async => null);
+      addTearDown(scale.dispose);
+      addTearDown(sizes.dispose);
+      addTearDown(responsive.dispose);
+
+      late TextScaler text;
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: scale,
+          child: AppViewport(
+            child: Builder(
+              builder: (context) {
+                text = MediaQuery.textScalerOf(context);
+                return const SizedBox.expand();
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(seconds: 2));
+      return (
+        responsive.currentDeviceType as DeviceType,
+        text.scale(17) * scale.scaleFactor,
+      );
+    }
+
+    // A phone's layouts: zune and the upright ones wider than it.
+    final phoneLayouts = [
+      DeviceType.zune,
+      DeviceType.phone,
+      DeviceType.mobile,
+      DeviceType.tablet,
+      DeviceType.desktop,
+    ];
+
+    for (final (name, textScale) in [('xxL', 21 / 17), ('AX4', 47 / 17)]) {
+      testWidgets('keeps a phone on its side in its layout at $name', (
+        tester,
+      ) async {
+        final (layout, font) = await open(
+          tester,
+          size: const Size(852, 393),
+          devicePixelRatio: 3,
+          viewPadding: const EdgeInsets.only(left: 59, right: 59, bottom: 21),
+          textScale: textScale,
+        );
+        expect(layout, isIn(phoneLayouts));
+        expect(font, closeTo(17 * textScale, 1e-9));
+      }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+    }
+
+    testWidgets('keeps an iPhone SE upright in zune at AX5', (tester) async {
+      final (layout, font) = await open(
+        tester,
+        size: const Size(375, 667),
+        devicePixelRatio: 2,
+        viewPadding: const EdgeInsets.only(top: 20),
+        textScale: 53 / 17,
+      );
+      expect(layout, DeviceType.zune);
+      expect(font, closeTo(53, 1e-9));
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('a turn holds the zoom at the floor and lets it go again', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 3;
+      tester.view.physicalSize = const Size(1179, 2556);
+      tester.view.viewPadding = const FakeViewPadding(top: 177, bottom: 102);
+      tester.platformDispatcher.textScaleFactorTestValue = 47 / 17;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final scale = AppScaleProvider(
+        read: () async => null,
+        write: (_) async {},
+        supportsFollowTextSize: true,
+      );
+      addTearDown(scale.dispose);
+      await scale.initialize();
+      expect(scale.scaleFactor, closeTo(8 / 3, 1e-9));
+
+      tester.view.physicalSize = const Size(2556, 1179);
+      tester.view.viewPadding = const FakeViewPadding(
+        left: 177,
+        right: 177,
+        bottom: 63,
+      );
+      await tester.pump();
+      expect(scale.scaleFactor, 1.0);
+
+      tester.view.physicalSize = const Size(1179, 2556);
+      tester.view.viewPadding = const FakeViewPadding(top: 177, bottom: 102);
+      await tester.pump();
+      expect(scale.scaleFactor, closeTo(8 / 3, 1e-9));
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });
 }

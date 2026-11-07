@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -195,6 +196,7 @@ void main() {
     // Where the nearest zoom is 1, smaller or slightly larger, text scales.
     for (final (textScale, following, replaced) in [
       (21 / 17, true, true),
+      (23 / 17, true, true),
       (19 / 17, true, false),
       (15 / 17, true, false),
       (21 / 17, false, false),
@@ -224,11 +226,19 @@ void main() {
           ),
         ),
       );
-      expect(
-        media.textScaler,
-        replaced ? TextScaler.noScaling : same(scaler),
-        reason: 'text scale $textScale, following $following',
-      );
+      final reason = 'text scale $textScale, following $following';
+      if (replaced) {
+        // Both zoom by 4/3. The rest of the larger size is the text's, and
+        // the smaller one, rounded up, is not taken back from the text.
+        expect(scale.scaleFactor, closeTo(4 / 3, 1e-9), reason: reason);
+        expect(
+          media.textScaler.scale(17) * scale.scaleFactor,
+          closeTo(math.max(17 * textScale, 17 * 4 / 3), 1e-9),
+          reason: reason,
+        );
+      } else {
+        expect(media.textScaler, same(scaler), reason: reason);
+      }
       await tester.pumpWidget(const SizedBox());
       scale.dispose();
     }

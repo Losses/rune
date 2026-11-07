@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -12,7 +13,6 @@ import 'package:rune/screens/home/home.dart';
 import 'package:rune/screens/settings_library/widgets/add_library_setting_button.dart';
 import 'package:rune/utils/kept_clear.dart';
 import 'package:rune/widgets/app_viewport.dart';
-import 'package:rune/widgets/keep_clear.dart';
 import 'package:rune/widgets/navigation_bar/constants/navigation_bar_height.dart';
 import 'package:rune/widgets/navigation_bar/page_chrome.dart';
 import 'package:rune/widgets/navigation_bar/page_content_frame.dart';
@@ -24,6 +24,14 @@ import 'package:rune/widgets/status_bar_style.dart';
 // An iPhone upright and on its side, in points.
 const _portrait = EdgeInsets.only(top: 62, bottom: 34);
 const _landscape = EdgeInsets.only(left: 62, right: 62, bottom: 21);
+
+// An Android phone upright with the three-button navigation bar, in dp.
+const _androidButtons = EdgeInsets.only(top: 24, bottom: 48);
+
+// The rule for the bottom inset differs between them. Tests run as Android
+// unless told otherwise.
+final _iOS = TargetPlatformVariant.only(TargetPlatform.iOS);
+final _android = TargetPlatformVariant.only(TargetPlatform.android);
 
 const _phone = Size(390, 844);
 
@@ -120,15 +128,25 @@ Widget _scrollPaddingProbe({double leftPlus = 0, double rightPlus = 0}) {
 }
 
 void main() {
-  test('the bottom is never kept clear of', () {
+  test('on iOS the home indicator at the bottom is not kept clear of', () {
     for (final insets in const [
       EdgeInsets.fromLTRB(0, 62, 0, 34),
       EdgeInsets.fromLTRB(62, 0, 62, 21),
-      EdgeInsets.fromLTRB(0, 24, 0, 48),
     ]) {
-      final clear = keptClearOf(insets);
+      final clear = keptClearOf(insets, platform: TargetPlatform.iOS);
       expect(clear.bottom, 0);
       expect(clear.copyWith(bottom: insets.bottom), insets);
+    }
+  });
+
+  test('elsewhere the bottom is kept clear of, such as Android\'s buttons', () {
+    for (final platform in TargetPlatform.values) {
+      if (platform == TargetPlatform.iOS) continue;
+      expect(
+        keptClearOf(_androidButtons, platform: platform),
+        _androidButtons,
+        reason: '$platform',
+      );
     }
   });
 
@@ -157,7 +175,7 @@ void main() {
       expect(sizes.screenSize, const Size(812, 375));
       expect(responsive.equalTo(DeviceType.tablet), isTrue);
       await tester.pump(const Duration(seconds: 2));
-    });
+    }, variant: _iOS);
 
     testWidgets('leaves out the status bar but not the home indicator', (
       tester,
@@ -171,7 +189,20 @@ void main() {
       expect(sizes.layoutSize, const Size(375, 762));
       expect(sizes.screenSize, const Size(375, 812));
       await tester.pump(const Duration(seconds: 2));
-    });
+    }, variant: _iOS);
+
+    testWidgets('leaves out Android\'s status bar and navigation bar', (
+      tester,
+    ) async {
+      final (sizes, _) = await _pump(
+        tester,
+        size: const Size(412, 915),
+        viewPadding: _androidButtons,
+        child: const SizedBox(),
+      );
+      expect(sizes.layoutSize, const Size(412, 915 - 24 - 48.0));
+      expect(sizes.screenSize, const Size(412, 915));
+    }, variant: _android);
 
     testWidgets('a rotation notifies once', (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -200,7 +231,7 @@ void main() {
       sizes.didChangeMetrics();
       expect(notified, 2);
       await tester.pump(const Duration(seconds: 2));
-    });
+    }, variant: _iOS);
 
     testWidgets('under the app viewport, the layout size is the media '
         'query\'s size less the insets kept clear of', (tester) async {
@@ -245,7 +276,7 @@ void main() {
       );
       expect(sizes.screenSize, media.size);
       await tester.pump(const Duration(seconds: 2));
-    });
+    }, variant: _iOS);
 
     testWidgets('a 360 x 640 Android phone on its side takes the car layout '
         'from the height under its status bar', (tester) async {
@@ -266,7 +297,7 @@ void main() {
     });
   });
 
-  group('pageChromeOf', () {
+  group('pageChromeFor', () {
     // What the navigation bar, the controller and the disk take in each
     // layout, as the page frame and the lists reserved before.
     final cases = <(String, Size, DeviceType, double, double, EdgeInsets)>[
@@ -337,7 +368,7 @@ void main() {
         );
         expect(responsive.currentDeviceType, type);
 
-        final chrome = pageChromeOf(responsive, sizes.screenSize);
+        final chrome = pageChromeFor(responsive, sizes.screenSize);
         expect(chrome.header, header);
         expect(chrome.controller, controller);
         expect(chrome.disk, disk);
@@ -388,6 +419,69 @@ void main() {
       );
 
       expect(_framePadding(tester).bottom, playbackControllerHeight);
+    }, variant: _iOS);
+
+    testWidgets('on Android the bottom clears the navigation bar too', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        size: const Size(412, 915),
+        viewPadding: _androidButtons,
+        child: PageContentFrame(child: _probe()),
+      );
+
+      expect(
+        _framePadding(tester).bottom,
+        playbackControllerHeight + _androidButtons.bottom,
+      );
+      expect(_inside.padding.bottom, 0);
+    }, variant: _android);
+
+    testWidgets('on Android the keyboard covers the navigation bar', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        size: const Size(412, 915),
+        viewPadding: _androidButtons,
+        viewInsets: const EdgeInsets.only(bottom: 300),
+        child: PageContentFrame(child: _probe()),
+      );
+
+      expect(_framePadding(tester).bottom, playbackControllerHeight + 300);
+    }, variant: _android);
+
+    testWidgets('a page given as a builder is not built again while only the '
+        'insets change', (tester) async {
+      var builds = 0;
+      final (sizes, _) = await _pump(
+        tester,
+        size: _phone,
+        viewPadding: _portrait,
+        child: PageContentFrame(
+          builder: (context) {
+            builds++;
+            return const SizedBox.expand();
+          },
+        ),
+      );
+      expect(builds, 1);
+
+      // The keyboard slides in.
+      for (final keyboard in [100.0, 200.0, 300.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+        await tester.pump();
+      }
+      expect(_framePadding(tester).bottom, playbackControllerHeight + 300);
+
+      // A resize within the layout.
+      tester.view.physicalSize = const Size(400, 800);
+      await tester.pump();
+      expect(sizes.screenSize, const Size(400, 800));
+
+      expect(builds, 1);
+      await tester.pump(const Duration(seconds: 2));
     });
 
     testWidgets('the keyboard still pushes the content up', (tester) async {
@@ -545,6 +639,24 @@ void main() {
       );
 
       expect(_scrollPadding.bottom, 240 / 3);
+    }, variant: _iOS);
+
+    testWidgets('keeps the zune list above the disk on Android\'s navigation '
+        'bar', (tester) async {
+      await _pump(
+        tester,
+        size: const Size(240, 400),
+        viewPadding: _androidButtons,
+        child: PageContentFrame(child: _scrollPaddingProbe()),
+      );
+
+      expect(_scrollPadding.bottom, 240 / 3 + _androidButtons.bottom);
+    }, variant: _android);
+
+    testWidgets('needs a frame around it', (tester) async {
+      await _pump(tester, size: _phone, child: _scrollPaddingProbe());
+
+      expect(tester.takeException(), isAssertionError);
     });
 
     testWidgets('the keyboard still lifts the zune list', (tester) async {
@@ -575,7 +687,9 @@ void main() {
     });
   });
 
-  group('KeepClear', () {
+  // What keeps the top and the sides clear outside a page's frame. Fluent's
+  // scrollbars pad themselves by the view padding, so it must go too.
+  group('SafeArea without the bottom', () {
     testWidgets('takes the sides it keeps clear of out of both paddings', (
       tester,
     ) async {
@@ -584,7 +698,7 @@ void main() {
         tester,
         size: _phone.flipped,
         viewPadding: insets,
-        child: KeepClear(child: _probe()),
+        child: SafeArea(bottom: false, child: _probe()),
       );
 
       const bottom = EdgeInsets.only(bottom: 34);
@@ -601,7 +715,12 @@ void main() {
         tester,
         size: _phone.flipped,
         viewPadding: insets,
-        child: KeepClear(top: false, right: false, child: _probe()),
+        child: SafeArea(
+          top: false,
+          right: false,
+          bottom: false,
+          child: _probe(),
+        ),
       );
 
       const left = EdgeInsets.fromLTRB(0, 59, 47, 34);
@@ -678,6 +797,38 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 2));
   });
+
+  for (final (variant, bottom) in [
+    (_android, _androidButtons.bottom),
+    (_iOS, 0.0),
+  ]) {
+    testWidgets('the zune disk rises from the bottom inset kept clear of', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        size: const Size(240, 400),
+        viewPadding: defaultTargetPlatform == TargetPlatform.iOS
+            ? _portrait
+            : _androidButtons,
+        settle: false,
+        child: ChangeNotifierProvider<PlaybackStatusProvider>.value(
+          value: _Status(),
+          child: const Stack(children: [CoverArtDisk()]),
+        ),
+      );
+
+      final disk = tester.widget<Positioned>(
+        find.descendant(
+          of: find.byType(CoverArtDisk),
+          matching: find.byType(Positioned),
+        ),
+      );
+      expect(disk.bottom, bottom);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 2));
+    }, variant: variant);
+  }
 
   group('StatusBarStyle', () {
     SystemUiOverlayStyle? styleOf(WidgetTester tester) => tester
