@@ -1528,5 +1528,7 @@
   "queueUnavailableAccessRevoked": "访问权限已撤销",
   "queueUnavailableLibraryUnavailable": "媒体库不可用",
   "queueUnavailableSourceUnreachable": "无法连接到来源",
-  "queueUnavailableUnreadable": "无法读取音频"
+  "queueUnavailableUnreadable": "无法读取音频",
+  "rendererLinkLost": "与 {alias} 的连接已断开",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

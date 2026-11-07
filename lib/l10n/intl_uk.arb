@@ -1447,5 +1447,7 @@
   "queueUnavailableAccessRevoked": "Доступ відкликано",
   "queueUnavailableLibraryUnavailable": "Бібліотека недоступна",
   "queueUnavailableSourceUnreachable": "Не вдалося підключитися до джерела",
-  "queueUnavailableUnreadable": "Не вдалося прочитати аудіо"
+  "queueUnavailableUnreadable": "Не вдалося прочитати аудіо",
+  "rendererLinkLost": "З’єднання з {alias} втрачено",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

@@ -1412,5 +1412,7 @@
   "queueUnavailableAccessRevoked": "La atingo estis revokita",
   "queueUnavailableLibraryUnavailable": "La biblioteko ne disponeblas",
   "queueUnavailableSourceUnreachable": "La fonto ne atingeblas",
-  "queueUnavailableUnreadable": "La aŭdaĵo ne legeblas"
+  "queueUnavailableUnreadable": "La aŭdaĵo ne legeblas",
+  "rendererLinkLost": "Konekto al {alias} perdiĝis",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

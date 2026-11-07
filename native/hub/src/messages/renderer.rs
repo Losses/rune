@@ -21,6 +21,12 @@ pub struct RendererAttachmentChanged {
     pub renderer: Option<AttachedRenderer>,
 }
 
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct RendererLinkLost {
+    pub fingerprint: String,
+    pub alias: String,
+}
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ListRenderersRequest {
     pub library_ids: Vec<String>,
@@ -51,3 +57,4 @@ pub struct ListRenderersResponse {
 }
 
 crate::implement_rinf_rust_signal_trait!(RendererAttachmentChanged);
+crate::implement_rinf_rust_signal_trait!(RendererLinkLost);

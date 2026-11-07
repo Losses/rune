@@ -1410,5 +1410,7 @@
   "queueUnavailableAccessRevoked": "存取權已撤銷",
   "queueUnavailableLibraryUnavailable": "媒體庫用唔到",
   "queueUnavailableSourceUnreachable": "連接唔到來源",
-  "queueUnavailableUnreadable": "讀取唔到音訊"
+  "queueUnavailableUnreadable": "讀取唔到音訊",
+  "rendererLinkLost": "同 {alias} 嘅連線已中斷",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

@@ -1447,5 +1447,7 @@
   "queueUnavailableAccessRevoked": "Der Zugriff wurde widerrufen",
   "queueUnavailableLibraryUnavailable": "Die Bibliothek ist nicht verfügbar",
   "queueUnavailableSourceUnreachable": "Die Quelle ist nicht erreichbar",
-  "queueUnavailableUnreadable": "Die Audiodatei ist nicht lesbar"
+  "queueUnavailableUnreadable": "Die Audiodatei ist nicht lesbar",
+  "rendererLinkLost": "Verbindung zu {alias} verloren",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

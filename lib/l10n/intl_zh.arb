@@ -1518,5 +1518,7 @@
   "queueUnavailableAccessRevoked": "存取權已撤銷",
   "queueUnavailableLibraryUnavailable": "資料庫無法使用",
   "queueUnavailableSourceUnreachable": "無法連線至來源",
-  "queueUnavailableUnreadable": "無法讀取音訊"
+  "queueUnavailableUnreadable": "無法讀取音訊",
+  "rendererLinkLost": "与 {alias} 的连接已断开",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

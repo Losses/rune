@@ -31,9 +31,8 @@ use crate::{
     library_pool::{LibraryHandle, LibraryPool},
     messages::{
         AttachedRenderer, ClientStatus, ClientSummary, IncommingClientPermissionNotification,
-        InitializeNodeRequest, InitializeNodeResponse, RemoteConnectionLost, RemoteLossKind,
-        RendererAttachmentChanged, TrustListUpdated, TrustedClientsChanged,
-        TrustedServerCertificate,
+        InitializeNodeRequest, InitializeNodeResponse, RendererAttachmentChanged, RendererLinkLost,
+        TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
     },
     request_error::classify,
     server::{ServerManager, WebSocketService, utils::device::load_device_info},
@@ -369,16 +368,18 @@ impl NodeContext {
         Ok(())
     }
 
-    pub(crate) async fn renderer_link_lost(&self, id: Uuid, kind: RemoteLossKind, detail: String) {
+    pub(crate) async fn renderer_link_lost(&self, id: Uuid) {
         let removed = match self.renderer_link.lock() {
             Ok(mut slot) if slot.as_ref().is_some_and(|link| link.id() == id) => slot.take(),
             _ => None,
         };
-        if removed.is_none() {
+        let Some(link) = removed else {
             return;
-        }
-        self.gui_broadcaster
-            .broadcast(&RemoteConnectionLost { kind, detail });
+        };
+        self.gui_broadcaster.broadcast(&RendererLinkLost {
+            fingerprint: link.fingerprint().to_owned(),
+            alias: link.alias().to_owned(),
+        });
         self.gui_broadcaster
             .broadcast(&RendererAttachmentChanged { renderer: None });
         if let Ok(session) = self.session()

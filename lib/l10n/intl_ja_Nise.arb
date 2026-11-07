@@ -1410,5 +1410,7 @@
   "queueUnavailableAccessRevoked": "アクセスが取り消されました",
   "queueUnavailableLibraryUnavailable": "ライブラリを利用できません",
   "queueUnavailableSourceUnreachable": "ソースに接続できません",
-  "queueUnavailableUnreadable": "音声を読み取れません"
+  "queueUnavailableUnreadable": "音声を読み取れません",
+  "rendererLinkLost": "{alias} との接続が失われました",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

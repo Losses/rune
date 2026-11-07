@@ -1412,5 +1412,7 @@
   "queueUnavailableAccessRevoked": "存取權已取消",
   "queueUnavailableLibraryUnavailable": "資料庫袂使",
   "queueUnavailableSourceUnreachable": "無法度連線來源",
-  "queueUnavailableUnreadable": "無法度讀取音訊"
+  "queueUnavailableUnreadable": "無法度讀取音訊",
+  "rendererLinkLost": "Kah {alias} ê liân-soàⁿ í-keng tiong-toān",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

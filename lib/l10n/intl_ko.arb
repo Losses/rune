@@ -1449,5 +1449,7 @@
   "queueUnavailableAccessRevoked": "접근 권한이 취소되었습니다",
   "queueUnavailableLibraryUnavailable": "라이브러리를 사용할 수 없습니다",
   "queueUnavailableSourceUnreachable": "소스에 연결할 수 없습니다",
-  "queueUnavailableUnreadable": "오디오를 읽을 수 없습니다"
+  "queueUnavailableUnreadable": "오디오를 읽을 수 없습니다",
+  "rendererLinkLost": "{alias} 연결이 끊겼습니다",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

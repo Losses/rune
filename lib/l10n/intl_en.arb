@@ -1574,5 +1574,7 @@
   "queueUnavailableAccessRevoked": "Access was revoked",
   "queueUnavailableLibraryUnavailable": "Library is unavailable",
   "queueUnavailableSourceUnreachable": "Source is unreachable",
-  "queueUnavailableUnreadable": "Audio cannot be read"
+  "queueUnavailableUnreadable": "Audio cannot be read",
+  "rendererLinkLost": "Connection to {alias} lost",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

@@ -1410,5 +1410,7 @@
   "queueUnavailableAccessRevoked": "アクセスがとりけされました",
   "queueUnavailableLibraryUnavailable": "ライブラリをりようできません",
   "queueUnavailableSourceUnreachable": "ソースにせつぞくできません",
-  "queueUnavailableUnreadable": "おんせいをよみとれません"
+  "queueUnavailableUnreadable": "おんせいをよみとれません",
+  "rendererLinkLost": "{alias} との接続が失われました",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

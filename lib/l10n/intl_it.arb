@@ -1449,5 +1449,7 @@
   "queueUnavailableAccessRevoked": "L’accesso è stato revocato",
   "queueUnavailableLibraryUnavailable": "La raccolta non è disponibile",
   "queueUnavailableSourceUnreachable": "La sorgente non è raggiungibile",
-  "queueUnavailableUnreadable": "Il file audio non è leggibile"
+  "queueUnavailableUnreadable": "Il file audio non è leggibile",
+  "rendererLinkLost": "Connessione con {alias} persa",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }

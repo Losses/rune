@@ -82,6 +82,7 @@ import 'providers/linux_custom_window_controls.dart';
 import 'providers/playback_controller.dart';
 import 'providers/controllers.dart';
 import 'providers/renderer_attachment.dart';
+import 'providers/renderer_link_loss.dart';
 import 'providers/responsive_providers.dart';
 
 import 'theme.dart';
@@ -555,6 +556,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   Timer? _throttleTimer;
   bool _shouldCallUpdate = false;
   late final RemoteConnectionLossHandler _remoteLoss;
+  late final RendererLinkLossHandler _rendererLinkLoss;
 
   @override
   void initState() {
@@ -575,6 +577,21 @@ class RuneLifecycleState extends State<RuneLifecycle> {
             showFailedToInitializeLibrary(rootContext, message);
           }
         });
+      },
+    );
+    _rendererLinkLoss = RendererLinkLossHandler(
+      losses: RendererLinkLost.rustSignalStream.map((signal) => signal.message),
+      showNotice: (alias) {
+        final context = rootNavigatorKey.currentState?.overlay?.context;
+        if (context == null || !context.mounted) return;
+        displayInfoBar(
+          context,
+          builder: (_, close) => InfoBar(
+            title: Text(S.of(context).rendererLinkLost(alias)),
+            severity: InfoBarSeverity.warning,
+            onClose: close,
+          ),
+        );
       },
     );
 
@@ -621,6 +638,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     super.dispose();
 
     _remoteLoss.dispose();
+    _rendererLinkLoss.dispose();
     license.removeListener(_updateLicense);
     status.removeListener(_throttleUpdateTray);
     $router.removeListener(_throttleUpdateTray);

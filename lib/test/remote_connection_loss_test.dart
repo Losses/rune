@@ -6,6 +6,7 @@ import '../bindings/bindings.dart';
 import '../l10n/app_localizations_en.dart';
 import '../providers/crash.dart';
 import '../providers/remote_connection_loss.dart';
+import '../providers/renderer_link_loss.dart';
 import '../utils/remote_connection_messages.dart';
 
 void main() {
@@ -67,6 +68,25 @@ void main() {
     expect(crash.report, isNull);
     handler.dispose();
     crash.dispose();
+    await losses.close();
+  });
+
+  test('renderer link loss shows its alias and keeps the library open', () async {
+    final losses = StreamController<RendererLinkLost>();
+    final noticed = Completer<String>();
+    final handler = RendererLinkLossHandler(
+      losses: losses.stream,
+      showNotice: (alias) =>
+          noticed.complete(AppLocalizationsEn().rendererLinkLost(alias)),
+    );
+    losses.add(
+      const RendererLinkLost(fingerprint: 'fp-b', alias: 'Bedroom'),
+    );
+    expect(
+      await noticed.future.timeout(const Duration(seconds: 1)),
+      'Connection to Bedroom lost',
+    );
+    handler.dispose();
     await losses.close();
   });
 }

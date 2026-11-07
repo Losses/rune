@@ -1449,5 +1449,7 @@
   "queueUnavailableAccessRevoked": "L’accès a été révoqué",
   "queueUnavailableLibraryUnavailable": "La bibliothèque est indisponible",
   "queueUnavailableSourceUnreachable": "La source est inaccessible",
-  "queueUnavailableUnreadable": "Le fichier audio est illisible"
+  "queueUnavailableUnreadable": "Le fichier audio est illisible",
+  "rendererLinkLost": "Connexion à {alias} perdue",
+  "@rendererLinkLost": {"placeholders": {"alias": {"type": "String"}}}
 }
