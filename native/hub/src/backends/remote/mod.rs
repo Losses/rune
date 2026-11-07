@@ -652,6 +652,7 @@ fn dispatch_remote_failure(payload: &[u8]) {
             let kind = failure.kind;
             RequestFailedResponse {
                 request: failure.request,
+                call_id: None,
                 kind,
                 detail: failure.detail,
                 cause: failure.cause,
@@ -935,6 +936,7 @@ pub async fn server_player_loop(
                         let kind = failure.kind;
                         RequestFailedResponse {
                             request: failure.request,
+                            call_id: None,
                             kind,
                             detail: failure.detail,
                             cause: failure.cause,

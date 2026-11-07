@@ -10,6 +10,10 @@ enum RequestClass {
     Administer,
 }
 
+/// Requests whose payload carries a `call_id` that replies and failures echo,
+/// so Dart can match them to the call when several are in flight.
+const CALL_ID_REQUESTS: &[&str] = &["SearchForRequest"];
+
 struct RequestResponse {
     request: String,
     response: Option<String>,
@@ -726,6 +730,22 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         )
         .collect();
 
+    let call_id_impls: Vec<_> = all_requests
+        .iter()
+        .map(|request| {
+            let method = if CALL_ID_REQUESTS.iter().any(|name| request == name) {
+                quote! { fn call_id(&self) -> Option<u64> { Some(self.call_id) } }
+            } else {
+                quote! {}
+            };
+            quote! {
+                impl crate::CallIdentified for crate::messages::#request {
+                    #method
+                }
+            }
+        })
+        .collect();
+
     let non_local_requests: Vec<_> = types
         .iter()
         .filter(|t| t.class != RequestClass::NodeLocal)
@@ -785,6 +805,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         })
         .collect();
     let expanded = quote! {
+        #(#call_id_impls)*
+
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub enum RequestClass { NodeLocal, Control, LibraryRead, LibraryWrite, Administer }
         pub fn request_class(name: &str) -> Option<RequestClass> {

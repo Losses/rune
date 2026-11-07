@@ -1,11 +1,10 @@
-import 'dart:async';
-
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../../utils/api/fetch_collection_by_ids.dart';
 import '../../../../utils/api/fetch_media_file_by_ids.dart';
 import '../../../../utils/api/search_collection_summary.dart';
+import '../../../../utils/api/search_for.dart';
 import '../../../../utils/api/fetch_collection_group_summary_title.dart';
 import '../../../../bindings/bindings.dart';
 import '../../../../providers/responsive_providers.dart';
@@ -237,46 +236,6 @@ class _MixEditorState extends State<MixEditor> {
   }
 }
 
-Future<Map<String, List<int>>> searchFor(String query, String field) async {
-  // Match the word being typed as a prefix, like the search page.
-  if (!query.endsWith('*')) {
-    query = '$query*';
-  }
-
-  // Subscribe before sending so the response cannot be missed. A request that
-  // fails in the hub sends no response; give up instead of waiting forever,
-  // which would keep this field from searching again.
-  final response = Completer<SearchForResponse>();
-  final subscription = SearchForResponse.rustSignalStream.listen((x) {
-    if (!response.isCompleted) response.complete(x.message);
-  });
-
-  final SearchForResponse message;
-  try {
-    final searchRequest = SearchForRequest(
-      queryStr: query,
-      fields: [field],
-      n: 30,
-    );
-    searchRequest.sendSignalToRust();
-
-    message = await response.future.timeout(const Duration(seconds: 10));
-  } finally {
-    // A timed-out request must not keep listening
-    await subscription.cancel();
-  }
-
-  final Map<String, List<int>> result = {};
-
-  result['artists'] = message.artists;
-  result['albums'] = message.albums;
-  result['playlists'] = message.playlists;
-  result['tracks'] = message.tracks;
-  result['genres'] = message.genres;
-
-  return result;
-}
-
 Future<List<AutoSuggestBoxItem<int>>> getInitResult(
   CollectionType collectionType,
 ) async {
@@ -291,7 +250,15 @@ Future<List<AutoSuggestBoxItem<int>>> _searchItems<T>(
   String field,
   Future<List<(int, String)>> Function(List<int>) fetchByIds,
 ) async {
-  final ids = (await searchFor(query, field))[field];
+  final response = await searchFor(query, fields: [field]);
+  final ids = switch (field) {
+    'artists' => response.artists,
+    'albums' => response.albums,
+    'playlists' => response.playlists,
+    'tracks' => response.tracks,
+    'genres' => response.genres,
+    _ => null,
+  };
 
   if (ids == null) return [];
 

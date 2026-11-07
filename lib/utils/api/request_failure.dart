@@ -20,11 +20,18 @@ Future<T> awaitResponse<T>(
   Stream<T> responses, {
   Duration timeout = const Duration(seconds: 30),
   Stream<RequestFailedResponse>? failures,
+  int? callId,
+  int? Function(T value)? responseCallId,
   void Function()? send,
 }) async {
+  assert(
+    callId == null || responseCallId != null,
+    'callId needs responseCallId to read the id from a response',
+  );
   final result = Completer<T>();
   final responseSubscription = responses.listen(
     (value) {
+      if (callId != null && responseCallId?.call(value) != callId) return;
       if (!result.isCompleted) result.complete(value);
     },
     onError: (Object error, StackTrace stack) {
@@ -38,7 +45,9 @@ Future<T> awaitResponse<T>(
               ))
           .listen(
             (failure) {
-              if (failure.request == request && !result.isCompleted) {
+              if (failure.request == request &&
+                  (callId == null || failure.callId?.toInt() == callId) &&
+                  !result.isCompleted) {
                 result.completeError(
                   RequestFailure(
                     failure.request,

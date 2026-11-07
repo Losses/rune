@@ -44,22 +44,24 @@ macro_rules! handle_single_gui_event {
                                         Ok(forwarded) => forwarded,
                                         Err(e) => {
                                             let kind = classify(&e);
-                                            RequestFailedResponse {
-                                                request: stringify!($request).to_owned(),
+                                            RequestFailedResponse::for_request(
+                                                &event,
+                                                stringify!($request),
                                                 kind,
-                                                detail: format!("{e:#}"),
-                                                cause: $crate::request_failure_cause(&e),
-                                            }.send_signal_to_dart();
+                                                format!("{e:#}"),
+                                                $crate::request_failure_cause(&e),
+                                            ).send_signal_to_dart();
                                             true
                                         }
                                     },
                                     Err(e) => {
-                                        RequestFailedResponse {
-                                            request: stringify!($request).to_owned(),
-                                            kind: RequestErrorKind::Internal,
-                                            detail: format!("{e:#}"),
-                                            cause: None,
-                                        }.send_signal_to_dart();
+                                        RequestFailedResponse::for_request(
+                                            &event,
+                                            stringify!($request),
+                                            RequestErrorKind::Internal,
+                                            format!("{e:#}"),
+                                            None,
+                                        ).send_signal_to_dart();
                                         true
                                     }
                                 }
@@ -75,12 +77,13 @@ macro_rules! handle_single_gui_event {
                                     }
                                     Err(e) => {
                                         let kind = classify(&e);
-                                        RequestFailedResponse {
-                                            request: stringify!($request).to_owned(),
+                                        RequestFailedResponse::for_request(
+                                            &event,
+                                            stringify!($request),
                                             kind,
-                                            detail: format!("{e:#}"),
-                                            cause: $crate::request_failure_cause(&e),
-                                        }
+                                            format!("{e:#}"),
+                                            $crate::request_failure_cause(&e),
+                                        )
                                         .send_signal_to_dart();
                                         if kind == RequestErrorKind::Internal {
                                             error!("Request {} failed: {:?}", stringify!($request), e);
@@ -118,4 +121,28 @@ macro_rules! handle_response {
         }
     };
     ($response:expr, without_response) => {};
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::messages::{RequestErrorKind, RequestFailedResponse, SearchForRequest};
+
+    #[test]
+    fn search_request_failure_in_local_dispatch_keeps_call_id() {
+        let request = SearchForRequest {
+            call_id: 73,
+            query_str: "missing".to_owned(),
+            fields: Vec::new(),
+            n: 30,
+        };
+        let failure = RequestFailedResponse::for_request(
+            &request,
+            "SearchForRequest",
+            RequestErrorKind::NotFound,
+            "failed".to_owned(),
+            None,
+        );
+
+        assert_eq!(failure.call_id, Some(73));
+    }
 }

@@ -54,6 +54,12 @@ pub trait Signal: Sized {
     ) -> impl Future<Output = Result<Option<Self::Response>>> + Send;
 }
 
+pub trait CallIdentified {
+    fn call_id(&self) -> Option<u64> {
+        None
+    }
+}
+
 pub(crate) use backends::remote::{forward_control_request, is_control_request};
 
 rinf::write_interface!();

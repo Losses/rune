@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 
 use crate::library_pool::LibraryHandle;
 use ::database::actions::collection::CollectionQueryType;
@@ -48,30 +49,50 @@ impl Signal for SearchForRequest {
         .await
         .with_context(|| format!("Search request failed: query_str={query_str}, n={n}"))?;
 
-        let mut artists: Vec<i32> = Vec::new();
-        let mut albums: Vec<i32> = Vec::new();
-        let mut playlists: Vec<i32> = Vec::new();
-        let mut tracks: Vec<i32> = Vec::new();
-        let mut genres: Vec<i32> = Vec::new();
+        Ok(Some(search_response(request.call_id, results)))
+    }
+}
 
-        for (collection_type, ids) in results {
-            let ids: Vec<i32> = ids.iter().map(|&x| x as i32).collect();
-            match collection_type {
-                CollectionQueryType::Artist => artists.extend(ids),
-                CollectionQueryType::Album => albums.extend(ids),
-                CollectionQueryType::Playlist => playlists.extend(ids),
-                CollectionQueryType::Track => tracks.extend(ids),
-                CollectionQueryType::Genre => genres.extend(ids),
-                _ => {}
-            }
+fn search_response(
+    call_id: u64,
+    results: HashMap<CollectionQueryType, Vec<i64>>,
+) -> SearchForResponse {
+    let mut artists = Vec::new();
+    let mut albums = Vec::new();
+    let mut playlists = Vec::new();
+    let mut tracks = Vec::new();
+    let mut genres = Vec::new();
+
+    for (collection_type, ids) in results {
+        let ids: Vec<i32> = ids.iter().map(|&x| x as i32).collect();
+        match collection_type {
+            CollectionQueryType::Artist => artists.extend(ids),
+            CollectionQueryType::Album => albums.extend(ids),
+            CollectionQueryType::Playlist => playlists.extend(ids),
+            CollectionQueryType::Track => tracks.extend(ids),
+            CollectionQueryType::Genre => genres.extend(ids),
+            _ => {}
         }
+    }
 
-        Ok(Some(SearchForResponse {
-            artists,
-            albums,
-            playlists,
-            tracks,
-            genres,
-        }))
+    SearchForResponse {
+        call_id,
+        artists,
+        albums,
+        playlists,
+        tracks,
+        genres,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::search_response;
+    use std::collections::HashMap;
+
+    #[test]
+    fn search_handler_response_echoes_call_id() {
+        let response = search_response(42, HashMap::new());
+        assert_eq!(response.call_id, 42);
     }
 }

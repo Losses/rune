@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SearchForRequest {
+    pub call_id: u64,
     pub query_str: String,
     pub fields: Vec<String>,
     pub n: i32,
@@ -10,6 +11,7 @@ pub struct SearchForRequest {
 
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct SearchForResponse {
+    pub call_id: u64,
     pub artists: Vec<i32>,
     pub albums: Vec<i32>,
     pub playlists: Vec<i32>,
