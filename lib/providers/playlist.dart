@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../bindings/bindings.dart';
+import '../utils/api/request_failure.dart';
 import '../utils/playing_item.dart';
 
 final class PlaylistEntry {
@@ -26,21 +27,36 @@ class PlaylistProvider with ChangeNotifier {
   List<PlaylistEntry> get items => _items;
 
   late StreamSubscription<PlaylistUpdate> subscription;
+  late final StreamSubscription<RequestFailedResponse> _failureSubscription;
+  final StreamController<RequestFailure> _failureFeedback =
+      StreamController<RequestFailure>.broadcast();
 
   PlaylistProvider({
     Stream<PlaylistUpdate>? playlistUpdates,
+    Stream<RequestFailedResponse>? requestFailures,
     void Function(MovePlaylistItemRequest)? sendMoveRequest,
     void Function(RemoveRequest)? sendRemoveRequest,
+    void Function(SwitchRequest)? sendSwitchRequest,
   }) : _sendMoveRequest = sendMoveRequest ?? _sendMoveRequestToRust {
     _sendRemoveRequest = sendRemoveRequest ?? _sendRemoveRequestToRust;
+    _sendSwitchRequest = sendSwitchRequest ?? _sendSwitchRequestToRust;
     subscription =
         (playlistUpdates ??
                 PlaylistUpdate.rustSignalStream.map((event) => event.message))
             .listen(_updatePlaylist);
+    _failureSubscription =
+        (requestFailures ??
+                RequestFailedResponse.rustSignalStream.map(
+                  (event) => event.message,
+                ))
+            .listen(_handleRequestFailure);
   }
 
   final void Function(MovePlaylistItemRequest) _sendMoveRequest;
   late final void Function(RemoveRequest) _sendRemoveRequest;
+  late final void Function(SwitchRequest) _sendSwitchRequest;
+
+  Stream<RequestFailure> get failureFeedback => _failureFeedback.stream;
 
   static void _sendMoveRequestToRust(MovePlaylistItemRequest request) {
     request.sendSignalToRust();
@@ -50,10 +66,31 @@ class PlaylistProvider with ChangeNotifier {
     request.sendSignalToRust();
   }
 
+  static void _sendSwitchRequestToRust(SwitchRequest request) {
+    request.sendSignalToRust();
+  }
+
   @override
   void dispose() {
     super.dispose();
     subscription.cancel();
+    _failureSubscription.cancel();
+    _failureFeedback.close();
+  }
+
+  void _handleRequestFailure(RequestFailedResponse response) {
+    if (response.request == 'MovePlaylistItemRequest' ||
+        response.request == 'RemoveRequest' ||
+        response.request == 'SwitchRequest') {
+      _failureFeedback.add(
+        RequestFailure(
+          response.request,
+          response.kind,
+          response.detail,
+          response.cause,
+        ),
+      );
+    }
   }
 
   void _updatePlaylist(PlaylistUpdate playlistUpdate) {
@@ -87,6 +124,12 @@ class PlaylistProvider with ChangeNotifier {
   void removeItem(int index) {
     _sendRemoveRequest(
       RemoveRequest(index: index, expectedRevision: _revision),
+    );
+  }
+
+  void playItem(int index) {
+    _sendSwitchRequest(
+      SwitchRequest(index: index, expectedRevision: _revision),
     );
   }
 }

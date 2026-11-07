@@ -49,6 +49,8 @@ pub struct SetPlaybackModeRequest {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SwitchRequest {
     pub index: u32,
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]

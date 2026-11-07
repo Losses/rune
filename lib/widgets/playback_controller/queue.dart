@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:reorderables/reorderables.dart';
@@ -9,6 +11,7 @@ import '../../bindings/bindings.dart';
 import '../../providers/playlist.dart';
 import '../../providers/status.dart';
 import '../../utils/dialogs/information/error.dart';
+import '../../utils/api/request_failure.dart';
 
 String? _unavailableReason(
   BuildContext context,
@@ -112,12 +115,33 @@ class Queue extends StatefulWidget {
 
 class _QueueState extends State<Queue> {
   final ScrollController _scrollController = ScrollController();
+  late final StreamSubscription<RequestFailure> _failureSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _failureSubscription = context
+        .read<PlaylistProvider>()
+        .failureFeedback
+        .listen((failure) {
+          if (!mounted) return;
+          displayInfoBar(
+            context,
+            builder: (_, close) => InfoBar(
+              title: Text(requestFailureMessage(S.of(context), failure)),
+              severity: InfoBarSeverity.error,
+              onClose: close,
+            ),
+          );
+        });
+  }
 
   @override
   void dispose() {
     super.dispose();
 
     _scrollController.dispose();
+    _failureSubscription.cancel();
   }
 
   @override
@@ -158,9 +182,7 @@ class _QueueState extends State<Queue> {
                             key: ValueKey(x.entry.item),
                             entry: x,
                             isCurrent: isCurrent,
-                            onPlay: () => SwitchRequest(
-                              index: x.index,
-                            ).sendSignalToRust(),
+                            onPlay: () => playlistProvider.playItem(x.index),
                           );
                         }, childCount: playlistProvider.items.length),
                       ),

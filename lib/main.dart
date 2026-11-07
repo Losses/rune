@@ -36,6 +36,7 @@ import 'utils/storage_key_manager.dart';
 import 'utils/api/set_adaptive_switching_enabled.dart';
 import 'utils/api/set_mix_with_others.dart';
 import 'utils/api/operate_playback_with_mix_query.dart';
+import 'utils/start_cafe_playback_after_open.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
 import 'utils/macos_window_control_button_manager.dart';
 
@@ -578,23 +579,24 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     );
 
     if (cafeMode && initialPath != null) {
-      Future.delayed(
-        Duration(seconds: disableBrandingAnimation == true ? 1 : 4),
-      ).then((_) {
-        operatePlaybackWithMixQuery(
-          queries: const QueryList([
-            ("lib::random", "1"),
-            ("filter::analyzed", "true"),
-            ("pipe::recommend", "-1"),
-          ]),
-          playbackMode: 99,
-          hintPosition: -1,
-          initialPlaybackId: -1,
-          instantlyPlay: true,
-          operateMode: PlaylistOperateMode.replace,
-          fallbackPlayingItems: [],
-        );
-      });
+      unawaited(
+        startCafePlaybackAfterOpen(
+          libraryOpened: context.read<LibraryPathProvider>().initialOpen,
+          play: () => operatePlaybackWithMixQuery(
+            queries: const QueryList([
+              ("lib::random", "1"),
+              ("filter::analyzed", "true"),
+              ("pipe::recommend", "-1"),
+            ]),
+            playbackMode: 99,
+            hintPosition: -1,
+            initialPlaybackId: -1,
+            instantlyPlay: true,
+            operateMode: PlaylistOperateMode.replace,
+            fallbackPlayingItems: [],
+          ).then((_) {}),
+        ),
+      );
     }
   }
 

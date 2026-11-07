@@ -114,6 +114,7 @@ class LibraryPathProvider with ChangeNotifier {
   bool _readOnly = false;
   int _refreshVersion = 0;
   bool _disposed = false;
+  late final Future<bool> initialOpen;
 
   bool get isReadOnlyReplica => _readOnly;
 
@@ -146,12 +147,13 @@ class LibraryPathProvider with ChangeNotifier {
       _refreshAccess();
     });
     if (initialPath != null) {
-      setLibraryPath(null, initialPath, null).then((result) {
+      initialOpen = setLibraryPath(null, initialPath, null).then((result) {
         final success = result.$1;
-        if (!success) {
-          $$replace("/");
-        }
+        if (!success) $$replace("/");
+        return success;
       });
+    } else {
+      initialOpen = Future.value(false);
     }
 
     _fileStorageService.getAllOpenedFiles().then((files) {

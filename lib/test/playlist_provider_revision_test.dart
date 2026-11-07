@@ -10,16 +10,21 @@ void main() {
     'sends the latest queue revision and takes the refreshed queue after a rejected edit',
     () async {
       final updates = StreamController<PlaylistUpdate>();
+      final failures = StreamController<RequestFailedResponse>();
       final sent = <MovePlaylistItemRequest>[];
       final removed = <RemoveRequest>[];
+      final switched = <SwitchRequest>[];
       final provider = PlaylistProvider(
         playlistUpdates: updates.stream,
+        requestFailures: failures.stream,
         sendMoveRequest: sent.add,
         sendRemoveRequest: removed.add,
+        sendSwitchRequest: switched.add,
       );
       addTearDown(() async {
         provider.dispose();
         await updates.close();
+        await failures.close();
       });
       const item = PlaylistItem(
         item: PlayingItemRequest(),
@@ -53,6 +58,23 @@ void main() {
         removed.single.expectedRevision,
         Uint64.fromBigInt(BigInt.from(12)),
       );
+      provider.playItem(1);
+      expect(switched.single.index, 1);
+      expect(
+        switched.single.expectedRevision,
+        Uint64.fromBigInt(BigInt.from(12)),
+      );
+      final conflictFeedback = provider.failureFeedback.first;
+      failures.add(
+        const RequestFailedResponse(
+          request: 'SwitchRequest',
+          kind: RequestErrorKind.conflict,
+          detail: 'stale queue revision',
+        ),
+      );
+      final failure = await conflictFeedback;
+      expect(failure.request, 'SwitchRequest');
+      expect(failure.kind, RequestErrorKind.conflict);
       expect(provider.items.map((entry) => entry.entry.title), ['second', '']);
       updates.add(
         PlaylistUpdate(

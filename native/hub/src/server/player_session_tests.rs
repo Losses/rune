@@ -11,6 +11,7 @@ use crate::{
         CastLibraryState, CastPreflightRequest, GetMediaFilesCountRequest, InLibraryPlayingItem,
         LibraryItemRequest, ListRenderersRequest, PlayingItemRequest, PlaylistUpdate,
         RendererAvailability, RendererCandidate, RequestErrorKind, RequestFailureCause,
+        SwitchRequest,
     },
     request_error::{ExpectedRequestError, classify},
     session::store::SessionState,
@@ -3671,6 +3672,60 @@ async fn session_c2a_revision_conflicts_and_identity_persist() -> Result<()> {
         3
     );
     reopened.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn switch_request_rejects_stale_queue_revision_and_accepts_current_revision() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = fixture(dir.path()).await?;
+    let first = session_audio(&fixture, "switch-revision-first.ogg").await?;
+    let second = session_audio(&fixture, "switch-revision-second.ogg").await?;
+    let items = [
+        library_item_for_id(&fixture, first).await?,
+        library_item_for_id(&fixture, second).await?,
+    ];
+    let session = fixture.global_params.node.session()?;
+    session
+        .edit_queue(None, |player| {
+            player.add_to_playlist_with_sources(
+                items
+                    .iter()
+                    .copied()
+                    .map(|item| (PlayingItem::InLibrary(item), PlaybackSource::LibraryStream))
+                    .collect(),
+                AddMode::AppendToEnd,
+            );
+            true
+        })
+        .await?;
+    fixture.global_params.player.lock().await.switch(0);
+    wait_player(&fixture, |status| status.index == Some(0)).await?;
+    let before = fixture.global_params.player.lock().await.get_status().item;
+
+    let stale = SwitchRequest {
+        index: 1,
+        expected_revision: Some(0),
+    };
+    let params = stale.extract_params(&fixture.global_params);
+    let error = stale.handle(params, None, &stale).await.unwrap_err();
+    assert_eq!(classify(&error), RequestErrorKind::Conflict);
+    assert_eq!(
+        fixture.global_params.player.lock().await.get_status().item,
+        before
+    );
+
+    let current = SwitchRequest {
+        index: 1,
+        expected_revision: Some(1),
+    };
+    let params = current.extract_params(&fixture.global_params);
+    current.handle(params, None, &current).await?;
+    wait_player(&fixture, |status| status.index == Some(1)).await?;
+    assert_eq!(
+        fixture.global_params.player.lock().await.get_status().item,
+        Some(PlayingItem::InLibrary(items[1])),
+    );
     Ok(())
 }
 

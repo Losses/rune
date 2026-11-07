@@ -466,6 +466,10 @@ impl Signal for PauseRequest {
 
 async fn record_skip(node: &NodeContext, player: &Arc<Mutex<dyn Playable>>) -> Result<()> {
     let item = player.lock().await.get_status().item;
+    record_skip_item(node, item).await
+}
+
+async fn record_skip_item(node: &NodeContext, item: Option<PlayingItem>) -> Result<()> {
     if let Some(PlayingItem::InLibrary(identity)) = item
         && let Ok(library) = node.library_pool.acquire(identity.library_id).await
     {
@@ -568,16 +572,22 @@ impl Signal for SwitchRequest {
 
     async fn handle(
         &self,
-        (node, player): Self::Params,
+        (node, _player): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        record_skip(&node, &player).await?;
-
-        player
-            .lock()
-            .await
-            .switch(dart_signal.index.try_into().unwrap());
+        let index = dart_signal.index.try_into().map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("Invalid switch index: {error}"))
+        })?;
+        let mut previous_item = None;
+        node.session()?
+            .edit_queue(dart_signal.expected_revision, |player| {
+                previous_item = player.get_status().item;
+                player.switch(index);
+                false
+            })
+            .await?;
+        record_skip_item(&node, previous_item).await?;
 
         Ok(Some(()))
     }
