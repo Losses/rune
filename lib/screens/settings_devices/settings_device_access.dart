@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../bindings/bindings.dart';
+import '../../providers/responsive_providers.dart';
 import '../../utils/api/device_grants.dart';
 import '../../utils/api/request_failure.dart';
 import '../../utils/dialogs/information/error.dart';
@@ -11,12 +12,19 @@ import '../../utils/settings_page_padding.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/settings/settings_box_toggle.dart';
 import '../../widgets/settings/settings_tile_title.dart';
-import 'device_access.dart';
 
 class SettingsDeviceAccessPage extends StatefulWidget {
-  const SettingsDeviceAccessPage({super.key, required this.client});
+  const SettingsDeviceAccessPage({
+    super.key,
+    required this.client,
+    this.loadGrants,
+    this.saveGrants,
+  });
 
   final ClientSummary client;
+  final Future<GetDeviceGrantsResponse> Function(String fingerprint)?
+  loadGrants;
+  final Future<void> Function(SetDeviceGrantsRequest request)? saveGrants;
 
   @override
   State<SettingsDeviceAccessPage> createState() =>
@@ -35,7 +43,9 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
 
   Future<void> _load() async {
     try {
-      final result = await getDeviceGrants(widget.client.fingerprint);
+      final result = await (widget.loadGrants ?? getDeviceGrants)(
+        widget.client.fingerprint,
+      );
       if (mounted) setState(() => data = result);
     } catch (error) {
       if (mounted) _showError(error);
@@ -45,7 +55,7 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
   Future<void> _save({bool? control, DeviceLibraryGrant? library}) async {
     setState(() => saving = true);
     try {
-      await setDeviceGrants(
+      await (widget.saveGrants ?? setDeviceGrants)(
         SetDeviceGrantsRequest(
           fingerprint: widget.client.fingerprint,
           control: control,
@@ -96,53 +106,30 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
                       style: FluentTheme.of(context).typography.subtitle,
                     ),
                   ),
+                  _LibraryAccessHeader(
+                    title: '',
+                    connection: s.deviceConnection,
+                    sync: s.deviceSync,
+                  ),
                   for (final library in current.libraries)
-                    ListTile(
-                      title: SettingsTileTitle(
-                        icon: Symbols.library_music,
-                        title: library.alias,
-                        subtitle: '',
-                        showActions: true,
-                        actionsBuilder: (context) =>
-                            ComboBox<DeviceAccessChoice>(
-                              value: choiceForLevel(library.sync),
-                              items: [
-                                ComboBoxItem(
-                                  value: DeviceAccessChoice.notShared,
-                                  child: Text(s.deviceNotShared),
-                                ),
-                                ComboBoxItem(
-                                  value: DeviceAccessChoice.read,
-                                  child: Text(s.deviceReadOnly),
-                                ),
-                                ComboBoxItem(
-                                  value: DeviceAccessChoice.readWrite,
-                                  child: Text(s.deviceReadWrite),
-                                ),
-                              ],
-                              onChanged: saving
-                                  ? null
-                                  : (value) {
-                                      if (value != null &&
-                                          value !=
-                                              choiceForLevel(library.sync)) {
-                                        _save(
-                                          library: DeviceLibraryGrant(
-                                            libraryId: library.libraryId,
-                                            connection: switch (value) {
-                                              DeviceAccessChoice.notShared =>
-                                                DeviceConnectionLevel.none,
-                                              DeviceAccessChoice.read =>
-                                                DeviceConnectionLevel.view,
-                                              DeviceAccessChoice.readWrite =>
-                                                DeviceConnectionLevel.viewEdit,
-                                            },
-                                            sync: levelForChoice(value),
-                                          ),
-                                        );
-                                      }
-                                    },
-                            ),
+                    _LibraryAccessRow(
+                      alias: library.alias,
+                      connection: library.connection,
+                      sync: library.sync,
+                      saving: saving,
+                      onConnectionChanged: (value) => _save(
+                        library: DeviceLibraryGrant(
+                          libraryId: library.libraryId,
+                          connection: value,
+                          sync: library.sync,
+                        ),
+                      ),
+                      onSyncChanged: (value) => _save(
+                        library: DeviceLibraryGrant(
+                          libraryId: library.libraryId,
+                          connection: library.connection,
+                          sync: value,
+                        ),
                       ),
                     ),
                 ],
@@ -151,6 +138,154 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _LibraryAccessHeader extends StatelessWidget {
+  const _LibraryAccessHeader({
+    required this.title,
+    required this.connection,
+    required this.sync,
+  });
+
+  final String title;
+  final String connection;
+  final String sync;
+
+  @override
+  Widget build(BuildContext context) => SmallerOrEqualToScreenSize(
+    maxSize: 650,
+    builder: (context, isNarrow) => isNarrow
+        ? const SizedBox.shrink()
+        : Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                Expanded(child: Text(title)),
+                Expanded(child: Text(connection)),
+                Expanded(child: Text(sync)),
+              ],
+            ),
+          ),
+  );
+}
+
+class _LibraryAccessRow extends StatelessWidget {
+  const _LibraryAccessRow({
+    required this.alias,
+    required this.connection,
+    required this.sync,
+    required this.saving,
+    required this.onConnectionChanged,
+    required this.onSyncChanged,
+  });
+
+  final String alias;
+  final DeviceConnectionLevel connection;
+  final DeviceSyncLevel sync;
+  final bool saving;
+  final ValueChanged<DeviceConnectionLevel> onConnectionChanged;
+  final ValueChanged<DeviceSyncLevel> onSyncChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    return SmallerOrEqualToScreenSize(
+      maxSize: 650,
+      builder: (context, isNarrow) {
+        final connectionBox = ComboBox<DeviceConnectionLevel>(
+          value: connection,
+          items: [
+            ComboBoxItem(
+              value: DeviceConnectionLevel.none,
+              child: Text(s.deviceConnectionOff),
+            ),
+            ComboBoxItem(
+              value: DeviceConnectionLevel.view,
+              child: Text(s.deviceConnectionView),
+            ),
+            ComboBoxItem(
+              value: DeviceConnectionLevel.viewEdit,
+              child: Text(s.deviceConnectionViewEdit),
+            ),
+          ],
+          onChanged: saving
+              ? null
+              : (value) {
+                  if (value != null && value != connection) {
+                    onConnectionChanged(value);
+                  }
+                },
+        );
+        final syncBox = ComboBox<DeviceSyncLevel>(
+          value: sync,
+          items: [
+            ComboBoxItem(
+              value: DeviceSyncLevel.none,
+              child: Text(s.deviceSyncOff),
+            ),
+            ComboBoxItem(
+              value: DeviceSyncLevel.pull,
+              child: Text(s.deviceSyncPull),
+            ),
+            ComboBoxItem(
+              value: DeviceSyncLevel.pullPush,
+              child: Text(s.deviceSyncPullPush),
+            ),
+          ],
+          onChanged: saving
+              ? null
+              : (value) {
+                  if (value != null && value != sync) onSyncChanged(value);
+                },
+        );
+        final controls = Column(
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(s.deviceConnection),
+            ),
+            connectionBox,
+            const SizedBox(height: 8),
+            Align(alignment: Alignment.centerLeft, child: Text(s.deviceSync)),
+            syncBox,
+          ],
+        );
+        return ListTile(
+          title: isNarrow
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SettingsTileTitle(
+                      icon: Symbols.library_music,
+                      title: alias,
+                      subtitle: '',
+                      showActions: false,
+                      actionsBuilder: (_) => const SizedBox.shrink(),
+                    ),
+                    const SizedBox(height: 8),
+                    controls,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                      child: SettingsTileTitle(
+                        icon: Symbols.library_music,
+                        title: alias,
+                        subtitle: '',
+                        showActions: false,
+                        actionsBuilder: (_) => const SizedBox.shrink(),
+                      ),
+                    ),
+                    Expanded(child: connectionBox),
+                    const SizedBox(width: 8),
+                    Expanded(child: syncBox),
+                  ],
+                ),
+        );
+      },
     );
   }
 }

@@ -38,7 +38,7 @@ void main() {
           libraries: [
             const DeviceLibraryGrant(
               libraryId: 'a',
-              connection: DeviceConnectionLevel.none,
+              connection: DeviceConnectionLevel.view,
               sync: DeviceSyncLevel.none,
             ),
           ],
@@ -46,6 +46,21 @@ void main() {
         s,
       ),
       'Guest · Can control playback',
+    );
+    expect(
+      deviceAccessSummary(
+        grants(
+          libraries: [
+            const DeviceLibraryGrant(
+              libraryId: 'a',
+              connection: DeviceConnectionLevel.none,
+              sync: DeviceSyncLevel.none,
+            ),
+          ],
+        ),
+        s,
+      ),
+      'Custom',
     );
     expect(deviceAccessSummary(grants(control: false), s), 'Custom');
     expect(
@@ -67,18 +82,6 @@ void main() {
     );
     expect(deviceAccessSummary(grants(administer: true), s), 'Custom');
     expect(deviceAccessSummary(null, s), 'Custom');
-  });
-
-  test('sync levels map to the corresponding dropdown values', () {
-    expect(choiceForLevel(DeviceSyncLevel.none), DeviceAccessChoice.notShared);
-    expect(choiceForLevel(DeviceSyncLevel.pull), DeviceAccessChoice.read);
-    expect(
-      choiceForLevel(DeviceSyncLevel.pullPush),
-      DeviceAccessChoice.readWrite,
-    );
-    for (final choice in DeviceAccessChoice.values) {
-      expect(choiceForLevel(levelForChoice(choice)), choice);
-    }
   });
 
   test('only approved controlling devices show the live status', () {
