@@ -1,12 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:provider/provider.dart';
 
-import '../../../providers/library_path.dart';
-import '../../../utils/api/close_library.dart';
-import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../utils/l10n.dart';
-import '../../../utils/remote_connection_messages.dart';
-import '../../../utils/router/navigation.dart';
 import '../../../widgets/no_shortcuts.dart';
 
 import '../utils/add_remote_device_form_controller.dart';
@@ -14,14 +8,9 @@ import '../utils/add_remote_device_form_controller.dart';
 import 'add_remote_device_form.dart';
 
 class AddRemoteDeviceDialog extends StatefulWidget {
-  final bool navigateIfFailed;
-  final void Function(void) $close;
+  final void Function(String?) $close;
 
-  const AddRemoteDeviceDialog({
-    super.key,
-    required this.navigateIfFailed,
-    required this.$close,
-  });
+  const AddRemoteDeviceDialog({super.key, required this.$close});
 
   @override
   AddRemoteDeviceDialogState createState() => AddRemoteDeviceDialogState();
@@ -42,30 +31,11 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
     super.dispose();
   }
 
-  _addConnection() async {
-    final libraryPath = Provider.of<LibraryPathProvider>(
-      context,
-      listen: false,
-    );
-
-    await closeLibrary(context);
-
-    if (!mounted) return;
-
-    final (switched, cancelled, _, errorKind) = await libraryPath
-        .setLibraryPath(context, '@RR|${controller.toWebSocketUrl()}', null);
-
-    widget.$close(null);
-    if (!switched && !cancelled) {
-      if (!context.mounted) return;
-      await showFailedToInitializeLibrary(
-        context,
-        remoteOpenErrorMessage(S.of(context), errorKind),
-      );
-      if (widget.navigateIfFailed) {
-        $$replace('/');
-      }
-    }
+  /// Close with the `host[:port]` the user entered; the caller pairs.
+  void _addConnection() {
+    final uri = Uri.parse(controller.toWebSocketUrl());
+    final hostName = uri.host.contains(':') ? '[${uri.host}]' : uri.host;
+    widget.$close(uri.hasPort ? '$hostName:${uri.port}' : hostName);
   }
 
   @override

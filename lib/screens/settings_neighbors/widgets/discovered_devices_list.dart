@@ -30,7 +30,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   Timer? _pollingTimer;
   StreamSubscription? _responseSubscription;
   late StreamSubscription<RustSignalPack<GetDiscoveredDeviceResponse>>
-      _subscription;
+  _subscription;
 
   @override
   void initState() {
@@ -40,8 +40,9 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   }
 
   void _startListening() {
-    _subscription =
-        GetDiscoveredDeviceResponse.rustSignalStream.listen(_onData);
+    _subscription = GetDiscoveredDeviceResponse.rustSignalStream.listen(
+      _onData,
+    );
   }
 
   void _startDiscovery() {
@@ -106,7 +107,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
                       child: Text(s.pair),
                     ),
                   ],
-                )
+                ),
               ],
             ),
           ),
@@ -121,9 +122,15 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   void _handlePairDevice(DiscoveredDeviceMessage device) async {
     if (device.ips.isNotEmpty) {
       widget.onPaired();
-      final result = await showFingerprintQuizDialog(context, device.ips.first);
+      final answer = await showFingerprintQuizDialog(context, device.ips.first);
 
-      widget.onAnswered(device, result);
+      // The certificate the user checked must be the one the device announced.
+      widget.onAnswered(
+        device,
+        answer == null
+            ? null
+            : answer.correct && answer.fingerprint == device.fingerprint,
+      );
     }
   }
 }

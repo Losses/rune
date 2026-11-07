@@ -40,15 +40,15 @@ class ServerStatusDialogState extends State<ServerStatusDialog> {
     _pollingSubscription = Stream.periodic(const Duration(seconds: 2))
         .asyncMap((_) => _checkDeviceStatus())
         .listen(
-      (response) {
-        if (response.status != ClientStatus.pending) {
-          widget.close(response);
-        }
-      },
-      onError: (e) async {
-        await _handlePollingError(e);
-      },
-    );
+          (response) {
+            if (response.status != ClientStatus.pending) {
+              widget.close(response);
+            }
+          },
+          onError: (e) async {
+            await _handlePollingError(e);
+          },
+        );
   }
 
   Future<CheckDeviceOnServerResponse> _checkDeviceStatus() async {
@@ -80,17 +80,11 @@ class ServerStatusDialogState extends State<ServerStatusDialog> {
         children: [
           const Center(child: ProgressRing()),
           const SizedBox(height: 20),
-          Text(
-            S.of(context).waitForApprove,
-            textAlign: TextAlign.center,
-          ),
+          Text(S.of(context).waitForApprove, textAlign: TextAlign.center),
         ],
       ),
       actions: [
-        Button(
-          onPressed: _cancelPolling,
-          child: Text(S.of(context).cancel),
-        ),
+        Button(onPressed: _cancelPolling, child: Text(S.of(context).cancel)),
       ],
     );
   }

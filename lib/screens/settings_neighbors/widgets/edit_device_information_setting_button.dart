@@ -6,9 +6,7 @@ import '../../../widgets/settings/settings_button.dart';
 import '../utils/show_edit_device_information_setting_dialog.dart';
 
 class EditDeviceInformationSettingButton extends StatelessWidget {
-  const EditDeviceInformationSettingButton({
-    super.key,
-  });
+  const EditDeviceInformationSettingButton({super.key});
 
   @override
   Widget build(BuildContext context) {

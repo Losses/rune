@@ -101,5 +101,31 @@ void main() {
         '/old/library',
       ]);
     });
+
+    test(
+      'removes legacy remote destinations once and keeps local history',
+      () async {
+        await settings.setValue(kOpenedFilesKey, [
+          {'path': '/music', 'alias': 'music', 'createdAt': ''},
+          {'path': '@RR|ws://speaker', 'alias': 'speaker', 'createdAt': ''},
+          {
+            'path': '@LR|https://server/music',
+            'alias': 'server',
+            'createdAt': '',
+          },
+        ]);
+        await settings.setValue(kDataVersionKey, 2);
+
+        final storage = FileStorageService();
+        expect(await storage.getLastOpenedFile(), '/music');
+        expect(await storage.getAllOpenedFiles(), ['/music']);
+        expect(await settings.getValue<int>(kDataVersionKey), 3);
+
+        expect(await storage.getLastOpenedFile(), '/music');
+        expect(await settings.getValue<List<dynamic>>(kOpenedFilesKey), [
+          {'path': '/music', 'alias': 'music', 'createdAt': ''},
+        ]);
+      },
+    );
   });
 }

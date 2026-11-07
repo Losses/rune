@@ -13,10 +13,7 @@ Future<CheckDeviceOnServerResponse?> showServerStatusDialog(
 ) async {
   return await $showModal<CheckDeviceOnServerResponse?>(
     context,
-    (context, $close) => ServerStatusDialog(
-      hosts: hosts,
-      close: $close,
-    ),
+    (context, $close) => ServerStatusDialog(hosts: hosts, close: $close),
     barrierDismissible: false,
     dismissWithEsc: true,
   );
