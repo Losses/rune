@@ -995,6 +995,14 @@
   "@adaptiveSwitchingSubtitle": {
     "description": "播放设置页面中条目的设置描述"
   },
+  "mixWithOthers": "与其他应用同时播放",
+  "@mixWithOthers": {
+    "description": "播放设置页面中条目的设置标题"
+  },
+  "mixWithOthersSubtitle": "其他应用在 Rune 播放时继续播放。开启后，锁屏、控制中心和耳机按键无法控制 Rune。",
+  "@mixWithOthersSubtitle": {
+    "description": "播放设置页面中条目的设置描述"
+  },
   "considerPurchase": "请考虑购买正版许可证。",
   "@considerPurchase": {
     "description": "关于页面中的通知，引导用户购买许可证"

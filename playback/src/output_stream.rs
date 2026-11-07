@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::sync::{Arc, Weak};
 
 use rodio::cpal::Sample;
@@ -18,8 +19,14 @@ use std::{
 pub struct RuneOutputStream {
     mixer: Arc<DynamicMixerController<f32>>,
     _stream: Option<cpal::Stream>,
+    // The stream is stopped while nothing plays. Only iOS stops it.
+    suspended: Cell<bool>,
     #[cfg(any(feature = "test-output", test))]
     test_stop: Option<Arc<AtomicBool>>,
+    // Whether the test output pulls samples, as a device stream does while it runs. Only the
+    // player's own tests stop it.
+    #[cfg(test)]
+    test_running: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Clone)]
@@ -59,13 +66,58 @@ impl RuneOutputStream {
         let out = Self {
             mixer,
             _stream: Some(_stream),
+            suspended: Cell::new(false),
             #[cfg(any(feature = "test-output", test))]
             test_stop: None,
+            #[cfg(test)]
+            test_running: None,
         };
         let handle = RuneOutputStreamHandle {
             mixer: Arc::downgrade(&out.mixer),
         };
         Ok((out, handle))
+    }
+
+    /// Stops the stream while nothing plays. iOS takes an app's play state, which the lock screen
+    /// and Control Center show, from whether the app's audio output runs, so a stream that runs on
+    /// with silence shows a paused player as playing. No other platform reads the play state from
+    /// the output, so elsewhere the stream runs on as it always has. In the player's own tests the
+    /// test output stops too, so that they see what iOS does.
+    ///
+    /// Nothing pulls samples from a stopped stream, so a sink on it takes no seek until it runs.
+    pub fn suspend(&self) -> Result<(), cpal::PauseStreamError> {
+        #[cfg(target_os = "ios")]
+        if let Some(stream) = &self._stream {
+            stream.pause()?;
+            self.suspended.set(true);
+        }
+        #[cfg(test)]
+        if let Some(running) = &self.test_running {
+            running.store(false, Ordering::Relaxed);
+            self.suspended.set(true);
+        }
+        Ok(())
+    }
+
+    /// Starts a stream that [`Self::suspend`] stopped. A stream that cannot start again, such as
+    /// one whose audio session another app took, is of no more use.
+    pub fn resume(&self) -> Result<(), cpal::PlayStreamError> {
+        if !self.suspended.get() {
+            return Ok(());
+        }
+        if let Some(stream) = &self._stream {
+            stream.play()?;
+        }
+        #[cfg(test)]
+        if let Some(running) = &self.test_running {
+            running.store(true, Ordering::Relaxed);
+        }
+        self.suspended.set(false);
+        Ok(())
+    }
+
+    pub fn is_suspended(&self) -> bool {
+        self.suspended.get()
     }
 
     #[cfg(not(any(feature = "test-output", test)))]
@@ -103,11 +155,16 @@ impl RuneOutputStream {
     {
         let (mixer, mut source) = dynamic_mixer::mixer::<f32>(2, 48_000);
         let stop = Arc::new(AtomicBool::new(false));
+        let running = Arc::new(AtomicBool::new(true));
+        #[cfg(test)]
+        let test_running = Some(running.clone());
         let cancel = stop.clone();
         thread::spawn(move || {
             while !cancel.load(Ordering::Relaxed) {
-                for _ in 0..960 {
-                    let _ = source.next();
+                if running.load(Ordering::Relaxed) {
+                    for _ in 0..960 {
+                        let _ = source.next();
+                    }
                 }
                 thread::sleep(Duration::from_millis(10));
             }
@@ -119,7 +176,10 @@ impl RuneOutputStream {
             Self {
                 mixer,
                 _stream: None,
+                suspended: Cell::new(false),
                 test_stop: Some(stop),
+                #[cfg(test)]
+                test_running,
             },
             handle,
         ))

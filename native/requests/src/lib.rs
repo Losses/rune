@@ -196,6 +196,12 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             class: RequestClass::Control,
         },
+        // This device's own audio session, so never forwarded to a renderer.
+        RequestResponse {
+            request: "SetMixWithOthersRequest".to_string(),
+            response: None,
+            class: RequestClass::NodeLocal,
+        },
         // Visualizer (the GPU and the frame buffer live in this process)
         RequestResponse {
             request: "StartVisualizerRequest".to_string(),

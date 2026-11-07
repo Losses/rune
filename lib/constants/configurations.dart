@@ -48,6 +48,10 @@ const kMiddleClickActionKey = 'middle_click_action';
 /// under specific conditions.
 const kAdaptiveSwitchingKey = 'adaptive_switching';
 
+/// iOS only. When on, other apps keep playing while Rune plays, and the lock
+/// screen, Control Center and headphone buttons no longer control Rune.
+const kMixWithOthersKey = 'mix_with_others';
+
 /// This key is used to store the user's preference for the color mode of the
 /// application. This can include options such as "system", "dark", or "light".
 const kColorModeKey = 'color_mode';

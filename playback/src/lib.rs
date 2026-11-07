@@ -1,4 +1,8 @@
 mod internal;
+#[cfg(any(test, target_os = "ios"))]
+mod ios_now_playing;
+#[cfg(any(test, target_os = "ios"))]
+mod ios_session;
 mod realtime_fft;
 mod sfx_internal;
 mod shared_source;
@@ -22,7 +26,7 @@ pub use dummy_souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
 #[cfg(not(target_os = "android"))]
 pub use souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
 
-pub use internal::{PlaybackMode, PlayerCommand, PlayerEvent};
+pub use internal::{OutputEvent, PlaybackMode, PlayerCommand, PlayerEvent};
 
 #[cfg(target_os = "android")]
 pub mod android_utils;

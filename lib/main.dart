@@ -34,6 +34,7 @@ import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
 import 'utils/storage_key_manager.dart';
 import 'utils/api/set_adaptive_switching_enabled.dart';
+import 'utils/api/set_mix_with_others.dart';
 import 'utils/api/operate_playback_with_mix_query.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
 import 'utils/macos_window_control_button_manager.dart';
@@ -309,6 +310,7 @@ void main(List<String> arguments) async {
   }
 
   setAdaptiveSwitchingEnabled();
+  setMixWithOthers();
 
   mainLoop(licenseProvider, linuxCustomWindowControls, appScale);
   if (isDesktop && !Platform.isMacOS) {

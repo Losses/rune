@@ -1,17 +1,5 @@
 @preconcurrency import Flutter
 import UIKit
-import AVFAudio
-
-func initAudioSession() {
-  let audio_session = AVAudioSession.sharedInstance();
-  do {
-      try audio_session.setCategory(AVAudioSession.Category.playAndRecord);
-      try audio_session.setActive(true);
-  } catch {
-      // This is a fatal error because the audio session is required for the app to work
-      fatalError("\(error)");
-  }
-}
 
 /// Hands scene files (`.runescene`) the system asked Rune to open over to Dart.
 ///
@@ -113,14 +101,6 @@ class SceneDelegate: FlutterSceneDelegate {
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, @preconcurrency FlutterImplicitEngineDelegate {
-  override func application(
-    _ application: UIApplication,
-    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-  ) -> Bool {
-    initAudioSession()
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-  }
-
   // Flutter invokes this delegate on the main thread, but its protocol is not actor-annotated.
   @MainActor
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {

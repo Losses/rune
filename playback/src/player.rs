@@ -240,7 +240,7 @@ pub trait Playable: Send {
     fn next(&self);
     fn previous(&self);
     fn switch(&self, index: usize);
-    fn seek(&self, position_ms: f64);
+    fn seek(&self, position_seconds: f64);
     fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode);
     fn add_to_playlist_with_sources(
         &self,
@@ -282,6 +282,8 @@ pub trait Playable: Send {
     /// The raw PCM tap (disabled by default); see [`PcmTap`].
     fn pcm_tap(&self) -> Arc<PcmTap>;
     fn set_adaptive_switching_enabled(&mut self, enabled: bool);
+    /// iOS: lets other apps keep playing while this one does. Other platforms ignore it.
+    fn set_mix_with_others(&mut self, enabled: bool);
     fn terminate(&self);
     fn get_status(&self) -> PlayerStatus;
     fn get_playlist(&self) -> Vec<PlayingItem>;
@@ -306,6 +308,9 @@ pub struct Player {
     pcm_tap: Arc<PcmTap>,
     crash_sender: SimpleSender<String>,
     cancellation_token: CancellationToken,
+    /// Tells the player about calls and headphones while it lives.
+    #[cfg(target_os = "ios")]
+    _audio_session: crate::ios_session::Observers,
 }
 
 impl Default for Player {
@@ -354,6 +359,10 @@ impl Player {
         let pcm_tap = PcmTap::new();
 
         let commands = Arc::new(Mutex::new(cmd_tx.clone()));
+        // The player owns the audio session on iOS. Its category is set now, so that any audio
+        // the app plays has it from the start.
+        #[cfg(target_os = "ios")]
+        crate::ios_session::configure(false);
         // Create the Player instance and wrap the command sender in Arc<Mutex>
         let source_resolver = Arc::new(RwLock::new(None));
         let player = Player {
@@ -368,6 +377,8 @@ impl Player {
             crash_sender: crash_sender.clone(),
             log_sender: log_sender.clone(),
             cancellation_token: cancellation_token.clone(),
+            #[cfg(target_os = "ios")]
+            _audio_session: crate::ios_session::observe(cmd_tx.clone()),
         };
 
         // Start a new thread to run the PlayerInternal logic
@@ -598,8 +609,8 @@ impl Playable for Player {
         self.command(PlayerCommand::Switch(index));
     }
 
-    fn seek(&self, position_ms: f64) {
-        self.command(PlayerCommand::Seek(position_ms));
+    fn seek(&self, position_seconds: f64) {
+        self.command(PlayerCommand::Seek(position_seconds));
     }
 
     fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode) {
@@ -676,6 +687,10 @@ impl Playable for Player {
         self.command(PlayerCommand::SetAdaptiveSwitchingEnabled(enabled));
     }
 
+    fn set_mix_with_others(&mut self, enabled: bool) {
+        self.command(PlayerCommand::SetMixWithOthers(enabled));
+    }
+
     fn terminate(&self) {
         self.cancellation_token.cancel();
     }
@@ -723,7 +738,7 @@ impl Playable for MockPlayer {
     fn next(&self) {}
     fn previous(&self) {}
     fn switch(&self, _index: usize) {}
-    fn seek(&self, _position_ms: f64) {}
+    fn seek(&self, _position_seconds: f64) {}
     fn add_to_playlist(&self, _tracks: Vec<(PlayingItem, PathBuf)>, _mode: AddMode) {}
     fn remove_from_playlist(&self, _index: usize) {}
     fn clear_playlist(&self) {}
@@ -735,6 +750,7 @@ impl Playable for MockPlayer {
         PcmTap::with_capacity(1)
     }
     fn set_adaptive_switching_enabled(&mut self, _enabled: bool) {}
+    fn set_mix_with_others(&mut self, _enabled: bool) {}
     fn terminate(&self) {}
     fn get_status(&self) -> PlayerStatus {
         PlayerStatus {
