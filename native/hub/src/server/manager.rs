@@ -924,8 +924,13 @@ mod lifecycle_tests {
 
     use crate::backends::remote::{connect_remote, decode_message};
     use crate::library_pool::{LibraryHandle, LibraryPool};
-    use crate::messages::{PlaybackStatus, TrustListUpdated};
+    use crate::messages::{
+        PlaybackStatus, RequestErrorKind, RequestFailureCause, TrustListUpdated,
+        TrustedServerCertificate,
+    };
     use crate::node::NodeSlot;
+    use crate::request_error::request_failure_cause;
+    use crate::server::api::{add_trusted_server, edit_trusted_hosts};
     use crate::server::sync::client::sync_library;
     use database::sync::model::RuneModel;
     use futures::StreamExt;
@@ -1182,6 +1187,160 @@ mod lifecycle_tests {
 
     async fn info(manager: &Fixture) -> Result<discovery::utils::DeviceInfo> {
         load_device_info(Path::new(&*manager.global_params.config_path)).await
+    }
+
+    async fn start_test_tls_server(fixture: &Fixture) -> Result<(SocketAddr, String)> {
+        let device_info = info(fixture).await?;
+        fixture
+            .manager
+            .clone()
+            .start(([127, 0, 0, 1], 0).into(), DiscoveryParams { device_info })
+            .await?;
+        let address = fixture
+            .manager
+            .get_address()
+            .await
+            .context("server address")?;
+        Ok((address, info(fixture).await?.fingerprint))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn add_trusted_server_accepts_matching_certificate_and_stores_host() -> Result<()> {
+        let server_dir = tempfile::tempdir()?;
+        let client_dir = tempfile::tempdir()?;
+        let server = fixture(server_dir.path()).await?;
+        let client = fixture(client_dir.path()).await?;
+        let (address, fingerprint) = start_test_tls_server(&server).await?;
+        let validator = client.global_params.cert_validator.read().await.clone();
+        let host = format!("127.0.0.1:{}", address.port());
+        let unreachable_host = "127.0.0.1:1".to_owned();
+
+        add_trusted_server(
+            &validator,
+            Some(&TrustedServerCertificate {
+                fingerprint: fingerprint.clone(),
+                hosts: vec![unreachable_host.clone(), host.clone()],
+            }),
+        )
+        .await?;
+
+        let stored_hosts = validator.get_hosts_for_fingerprint(&fingerprint).await;
+        assert!(stored_hosts.contains(&host));
+        assert!(stored_hosts.contains(&unreachable_host));
+        server.manager.stop().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn add_trusted_server_rejects_mismatch_with_typed_failure() -> Result<()> {
+        let server_dir = tempfile::tempdir()?;
+        let client_dir = tempfile::tempdir()?;
+        let server = fixture(server_dir.path()).await?;
+        let client = fixture(client_dir.path()).await?;
+        let (address, _) = start_test_tls_server(&server).await?;
+        let validator = client.global_params.cert_validator.read().await.clone();
+        let host = format!("127.0.0.1:{}", address.port());
+        let error = add_trusted_server(
+            &validator,
+            Some(&TrustedServerCertificate {
+                fingerprint: "different fingerprint".into(),
+                hosts: vec![host],
+            }),
+        )
+        .await
+        .expect_err("mismatched certificate must be refused");
+
+        assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+        assert_eq!(
+            request_failure_cause(&error),
+            Some(RequestFailureCause::CertificateMismatch)
+        );
+        assert!(validator.list_trusted_fingerprints().await.is_empty());
+        server.manager.stop().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn add_trusted_server_rejects_missing_certificate_as_invalid_input() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let client = fixture(dir.path()).await?;
+        let validator = client.global_params.cert_validator.read().await.clone();
+        let error = add_trusted_server(&validator, None)
+            .await
+            .expect_err("missing certificate must be refused");
+        assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn add_trusted_server_rejects_when_no_host_is_reachable() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let client = fixture(dir.path()).await?;
+        let validator = client.global_params.cert_validator.read().await.clone();
+        let error = add_trusted_server(
+            &validator,
+            Some(&TrustedServerCertificate {
+                fingerprint: "expected fingerprint".into(),
+                hosts: vec!["127.0.0.1:1".into()],
+            }),
+        )
+        .await
+        .expect_err("unreachable hosts must be refused");
+        assert_eq!(classify(&error), RequestErrorKind::Unavailable);
+        assert!(validator.list_trusted_fingerprints().await.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn edit_hosts_refuses_untrusted_fingerprint() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let client = fixture(dir.path()).await?;
+        let validator = client.global_params.cert_validator.read().await.clone();
+        let error = edit_trusted_hosts(&validator, "unknown fingerprint", vec![])
+            .await
+            .expect_err("untrusted fingerprint must be refused");
+        assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+        assert!(validator.list_trusted_fingerprints().await.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn edit_hosts_refuses_host_with_different_certificate() -> Result<()> {
+        let trusted_dir = tempfile::tempdir()?;
+        let other_dir = tempfile::tempdir()?;
+        let client_dir = tempfile::tempdir()?;
+        let trusted = fixture(trusted_dir.path()).await?;
+        let other = fixture(other_dir.path()).await?;
+        let client = fixture(client_dir.path()).await?;
+        let (trusted_address, trusted_fingerprint) = start_test_tls_server(&trusted).await?;
+        let (other_address, _) = start_test_tls_server(&other).await?;
+        let validator = client.global_params.cert_validator.read().await.clone();
+        let original_host = format!("127.0.0.1:{}", trusted_address.port());
+        validator
+            .add_trusted_domains([original_host.clone()], &trusted_fingerprint)
+            .await?;
+        let error = edit_trusted_hosts(
+            &validator,
+            &trusted_fingerprint,
+            vec![format!("127.0.0.1:{}", other_address.port())],
+        )
+        .await
+        .expect_err("different certificate must be refused");
+
+        assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+        assert_eq!(
+            request_failure_cause(&error),
+            Some(RequestFailureCause::CertificateMismatch)
+        );
+        assert_eq!(
+            validator
+                .get_hosts_for_fingerprint(&trusted_fingerprint)
+                .await,
+            [original_host]
+        );
+        trusted.manager.stop().await?;
+        other.manager.stop().await?;
+        Ok(())
     }
 
     /// Deliver a discovery announcement for `info` at `addr` to `receiver`,
@@ -3580,6 +3739,14 @@ mod lifecycle_tests {
             Ok(())
         })
         .await?;
+        // A's background sync may have fetched a fresh token while B's were
+        // expired above; drop it so the stream itself has to renew.
+        sync_worker::invalidate_sync_token(
+            &a.global_params.node,
+            &b_info.fingerprint,
+            "127.0.0.2",
+            b_addr.port(),
+        );
         let renewed_ranges = tokio::join!(
             peer_step("first concurrent renewed ranged audio GET", async {
                 let response = source.request.get(Some((0, Some(15)))).await?;

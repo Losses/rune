@@ -43,6 +43,7 @@ pub enum RequestFailureCause {
         library_id: String,
         state: CastLibraryState,
     },
+    CertificateMismatch,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

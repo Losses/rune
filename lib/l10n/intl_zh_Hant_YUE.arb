@@ -1363,6 +1363,7 @@
   "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
   "requestItemMissing": "呢個項目已經唔存在",
   "requestInvalid": "要求無效",
+  "requestCertificateMismatch": "呢部裝置嘅憑證唔相符",
   "requestUnavailable": "而家用唔到",
   "requestStorageBusy": "儲存空間忙緊，請再試一次。",
   "mixNoLongerExists": "呢個混音已經唔存在",

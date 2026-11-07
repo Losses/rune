@@ -12,6 +12,8 @@ pub enum ExpectedRequestError {
     InvalidInput { detail: String },
     #[error("{what} unavailable")]
     Unavailable { what: &'static str },
+    #[error("A host presented a different certificate")]
+    CertificateMismatch,
     #[error("Renderer request failed: {detail}")]
     Remote {
         kind: RequestErrorKind,
@@ -68,6 +70,7 @@ pub fn classify(error: &Error) -> RequestErrorKind {
             return match expected {
                 ExpectedRequestError::InvalidInput { .. } => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::Unavailable { .. } => RequestErrorKind::Unavailable,
+                ExpectedRequestError::CertificateMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::Remote { kind, .. } => *kind,
                 ExpectedRequestError::StaleQueueRevision { .. } => RequestErrorKind::Conflict,
                 ExpectedRequestError::CastNotPossible { state, .. } => match state {
@@ -98,6 +101,9 @@ pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
                     });
                 }
                 ExpectedRequestError::Remote { cause, .. } => return cause.clone(),
+                ExpectedRequestError::CertificateMismatch => {
+                    return Some(RequestFailureCause::CertificateMismatch);
+                }
                 _ => {}
             }
         }

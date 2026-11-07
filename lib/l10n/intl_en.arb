@@ -1527,6 +1527,7 @@
   "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
   "requestItemMissing": "This item no longer exists",
   "requestInvalid": "The request was not valid",
+  "requestCertificateMismatch": "This device's certificate does not match",
   "requestUnavailable": "This isn't available right now",
   "requestStorageBusy": "Storage is busy. Try again.",
   "mixNoLongerExists": "This mix no longer exists",

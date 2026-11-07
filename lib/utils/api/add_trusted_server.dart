@@ -1,7 +1,7 @@
 import 'request_failure.dart';
 import '../../bindings/bindings.dart';
 
-Future<bool> addTrustedServer(
+Future<void> addTrustedServer(
   String fingerprint,
   List<String> hosts,
 ) async {
@@ -12,16 +12,9 @@ Future<bool> addTrustedServer(
     ),
   );
 
-  final rustSignal = await awaitResponse(
+  await awaitResponse(
     'AddTrustedServerRequest',
     AddTrustedServerResponse.rustSignalStream,
     send: () => removeTrustRequest.sendSignalToRust(),
   );
-  final response = rustSignal.message;
-
-  if (!response.success) {
-    throw response.error;
-  }
-
-  return response.success;
 }

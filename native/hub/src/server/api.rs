@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
+use url::Url;
 use urlencoding::encode;
 
 use ::http_request::{
@@ -10,6 +11,87 @@ use ::http_request::{
 };
 
 use super::utils::device::SanitizedDeviceInfo;
+use crate::{messages::TrustedServerCertificate, request_error::ExpectedRequestError};
+use ::discovery::client::{CertValidator, fetch_server_certificate};
+
+async fn verify_hosts_for_fingerprint(hosts: &[String], expected_fingerprint: &str) -> Result<()> {
+    let mut matched = false;
+    for host in hosts {
+        let Ok(url) = certificate_url(host) else {
+            continue;
+        };
+        let certificate = tokio::time::timeout(
+            Duration::from_secs(5),
+            fetch_server_certificate(url.as_str()),
+        )
+        .await;
+        match certificate {
+            Ok(Ok(certificate)) if certificate.fingerprint == expected_fingerprint => {
+                matched = true;
+            }
+            Ok(Ok(_)) => return Err(ExpectedRequestError::CertificateMismatch.into()),
+            Ok(Err(_)) | Err(_) => {}
+        }
+    }
+    if matched {
+        Ok(())
+    } else {
+        Err(ExpectedRequestError::Unavailable {
+            what: "certificate host",
+        }
+        .into())
+    }
+}
+
+fn certificate_url(host: &str) -> Result<Url> {
+    let url = if host.contains("://") {
+        Url::parse(host).context("Invalid certificate host URL")?
+    } else {
+        Url::parse(&format!("https://{host}")).context("Invalid certificate host")?
+    };
+    let mut url = url;
+    url.set_scheme("https")
+        .map_err(|()| anyhow!("Invalid certificate host scheme"))?;
+    url.set_path("/ping");
+    Ok(url)
+}
+
+pub async fn add_trusted_server(
+    validator: &CertValidator,
+    certificate: Option<&TrustedServerCertificate>,
+) -> Result<()> {
+    let certificate = certificate.ok_or_else(|| {
+        ExpectedRequestError::invalid_input("A certificate is required to trust a server")
+    })?;
+    verify_hosts_for_fingerprint(&certificate.hosts, &certificate.fingerprint).await?;
+    validator
+        .add_trusted_domains(&certificate.hosts, &certificate.fingerprint)
+        .await?;
+    Ok(())
+}
+
+pub async fn edit_trusted_hosts(
+    validator: &CertValidator,
+    fingerprint: &str,
+    hosts: Vec<String>,
+) -> Result<()> {
+    if !validator
+        .list_trusted_fingerprints()
+        .await
+        .iter()
+        .any(|trusted| trusted == fingerprint)
+    {
+        return Err(ExpectedRequestError::invalid_input(
+            "Cannot edit hosts for an untrusted fingerprint",
+        )
+        .into());
+    }
+    verify_hosts_for_fingerprint(&hosts, fingerprint).await?;
+    validator
+        .replace_hosts_for_fingerprint(fingerprint, hosts)
+        .await?;
+    Ok(())
+}
 
 pub async fn fetch_device_info(
     host: &str,

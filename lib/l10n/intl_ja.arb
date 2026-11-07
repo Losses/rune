@@ -1400,6 +1400,7 @@
   "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
   "requestItemMissing": "この項目はもう存在しません",
   "requestInvalid": "リクエストが無効でした",
+  "requestCertificateMismatch": "このデバイスの証明書が一致しません",
   "requestUnavailable": "現在利用できません",
   "requestStorageBusy": "ストレージが使用中です。もう一度お試しください。",
   "mixNoLongerExists": "このミックスはもう存在しません",

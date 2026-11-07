@@ -1363,6 +1363,7 @@
   "@libraryFromDevice": {"placeholders": {"device": {"type": "String"}}},
   "requestItemMissing": "このアイテムはもうありません",
   "requestInvalid": "リクエストがインバリッドです",
+  "requestCertificateMismatch": "このデバイスの証明書が一致しません",
   "requestUnavailable": "いまはアベイラブルではありません",
   "requestStorageBusy": "ストレージが使用中です。もういちどおためしください。",
   "mixNoLongerExists": "このミックスはもうありません",

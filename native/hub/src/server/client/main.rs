@@ -28,6 +28,7 @@ use cli::{Cli, DiscoveryCmd, RemoteCmd, ReplCommand};
 use connection::WSConnection;
 use editor::{EditorConfig, create_editor};
 use fs::VirtualFS;
+use hub::server::api::edit_trusted_hosts;
 use utils::{
     AppState, get_fingerprint_by_index, print_certificate_table, print_device_details,
     print_device_table,
@@ -235,9 +236,7 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
         }
         RemoteCmd::Edit { fingerprint, hosts } => {
             let new_hosts: Vec<_> = hosts.split(',').map(|s| s.trim().to_string()).collect();
-            validator
-                .replace_hosts_for_fingerprint(&fingerprint, new_hosts)
-                .await?;
+            edit_trusted_hosts(&validator, &fingerprint, new_hosts).await?;
             Ok(())
         }
         RemoteCmd::Verify { index } => {

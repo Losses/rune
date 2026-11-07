@@ -2,7 +2,7 @@ use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
 use crate::server::{
     ServerManager,
-    api::{check_fingerprint, register_device},
+    api::{add_trusted_server, check_fingerprint, edit_trusted_hosts, register_device},
     generate_or_load_certificates, get_or_generate_alias,
     sync_worker::{
         SyncTokenStore, obtain_or_reuse_token, peer_base, tls_config, trusted_fingerprint,
@@ -551,21 +551,16 @@ impl Signal for EditHostsRequest {
         _session: Option<Session>,
         req: &Self,
     ) -> Result<Option<Self::Response>> {
-        let result = validator
-            .write()
-            .await
-            .replace_hosts_for_fingerprint(&req.fingerprint, req.hosts.clone())
-            .await;
-        match result {
-            Ok(_) => Ok(Some(EditHostsResponse {
-                success: true,
-                error: String::new(),
-            })),
-            Err(e) => Ok(Some(EditHostsResponse {
-                success: false,
-                error: format!("{e:#?}"),
-            })),
-        }
+        edit_trusted_hosts(
+            &validator.read().await.clone(),
+            &req.fingerprint,
+            req.hosts.clone(),
+        )
+        .await?;
+        Ok(Some(EditHostsResponse {
+            success: true,
+            error: String::new(),
+        }))
     }
 }
 
@@ -587,37 +582,19 @@ impl Signal for AddTrustedServerRequest {
         _session: Option<Session>,
         req: &Self,
     ) -> Result<Option<Self::Response>> {
-        let certificate = match &req.certificate {
-            Some(x) => x,
-            None => {
-                return Ok(Some(AddTrustedServerResponse {
-                    success: true,
-                    error: String::new(),
-                }));
-            }
-        };
+        add_trusted_server(&validator.read().await.clone(), req.certificate.as_ref()).await?;
 
-        info!(
-            "Adding trusted host {:?} with fingerprint {:?}",
-            certificate.hosts, certificate.fingerprint
-        );
-
-        let result = validator
-            .write()
-            .await
-            .add_trusted_domains(&certificate.hosts, certificate.fingerprint.clone())
-            .await;
-
-        match result {
-            Ok(_) => Ok(Some(AddTrustedServerResponse {
-                success: true,
-                error: String::new(),
-            })),
-            Err(e) => Ok(Some(AddTrustedServerResponse {
-                success: false,
-                error: format!("{e:#?}"),
-            })),
+        if let Some(certificate) = &req.certificate {
+            info!(
+                "Adding trusted host {:?} with fingerprint {:?}",
+                certificate.hosts, certificate.fingerprint
+            );
         }
+
+        Ok(Some(AddTrustedServerResponse {
+            success: true,
+            error: String::new(),
+        }))
     }
 }
 

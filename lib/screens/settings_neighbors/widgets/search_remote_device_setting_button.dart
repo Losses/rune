@@ -4,6 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../utils/api/add_trusted_server.dart';
+import '../../../utils/api/request_failure.dart';
 import '../../../utils/api/register_device_on_server.dart';
 import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/dialogs/information/information.dart';
@@ -62,7 +63,7 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
           showErrorDialog(
             context: context,
             title: s.unknownError,
-            errorMessage: e.toString(),
+            errorMessage: requestErrorText(S.of(context), e),
           );
           // Do not register with or open a device we failed to trust.
           return;
