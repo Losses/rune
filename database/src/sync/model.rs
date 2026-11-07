@@ -428,7 +428,9 @@ sync_orm::row_policies! {
                         media_cover_art::Column::Binary => Vec::<u8>::new(),
                         media_cover_art::Column::LocalAvailable => false
                     },
-                    source_filter: Condition::all().add(media_cover_art::Column::HlcUuid.ne(Uuid::nil().to_string())).add(media_cover_art::Column::HlcUuid.ne("")),
+                    // The library migration leaves a cover over the size limit without a digest and
+                    // marks it unavailable, so it has nothing to sync.
+                    source_filter: Condition::all().add(media_cover_art::Column::HlcUuid.ne(Uuid::nil().to_string())).add(media_cover_art::Column::HlcUuid.ne("")).add(media_cover_art::Column::ContentHash.is_not_null()),
                     limits: {
                         digest => (64, 64),
                         size => (1, 8 * 1024 * 1024)
