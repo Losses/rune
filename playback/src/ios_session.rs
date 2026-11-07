@@ -31,13 +31,29 @@ const INTERRUPTION_BEGAN: usize = 1;
 const INTERRUPTION_ENDED: usize = 0;
 // `AVAudioSessionInterruptionOptions`.
 const INTERRUPTION_SHOULD_RESUME: usize = 1;
+// `AVAudioSessionInterruptionReason`.
+const INTERRUPTION_REASON_APP_WAS_SUSPENDED: usize = 1;
 // `AVAudioSessionRouteChangeReason`.
 const ROUTE_NEW_DEVICE_AVAILABLE: usize = 1;
 const ROUTE_OLD_DEVICE_UNAVAILABLE: usize = 2;
 
-/// What an interruption means for the output, from the notification's type and options.
-fn interruption_event(kind: usize, options: usize) -> Option<OutputEvent> {
+/// What an interruption means for the output, from the notification's type, options and reason,
+/// and whether it says that the app was suspended.
+///
+/// The system deactivates the session of an app that it suspends, and iOS 15 tells the app so
+/// once it runs again, as the start of an interruption. That news comes late and no end follows
+/// it. The app may be playing again by then, woken by a remote command, so it means nothing for
+/// the output. iOS 16 and later no longer send it.
+fn interruption_event(
+    kind: usize,
+    options: usize,
+    reason: usize,
+    was_suspended: bool,
+) -> Option<OutputEvent> {
     match kind {
+        INTERRUPTION_BEGAN if was_suspended || reason == INTERRUPTION_REASON_APP_WAS_SUSPENDED => {
+            None
+        }
         INTERRUPTION_BEGAN => Some(OutputEvent::Interrupted),
         INTERRUPTION_ENDED => Some(OutputEvent::InterruptionEnded {
             resume: options & INTERRUPTION_SHOULD_RESUME != 0,
@@ -78,10 +94,11 @@ mod ios {
     use objc2_avf_audio::{
         AVAudioSession, AVAudioSessionCategoryOptions, AVAudioSessionCategoryPlayback,
         AVAudioSessionInterruptionNotification, AVAudioSessionInterruptionOptionKey,
-        AVAudioSessionInterruptionOptions, AVAudioSessionInterruptionType,
-        AVAudioSessionInterruptionTypeKey, AVAudioSessionMediaServicesWereResetNotification,
-        AVAudioSessionModeDefault, AVAudioSessionRouteChangeNotification,
-        AVAudioSessionRouteChangeReason, AVAudioSessionRouteChangeReasonKey,
+        AVAudioSessionInterruptionOptions, AVAudioSessionInterruptionReasonKey,
+        AVAudioSessionInterruptionType, AVAudioSessionInterruptionTypeKey,
+        AVAudioSessionMediaServicesWereResetNotification, AVAudioSessionModeDefault,
+        AVAudioSessionRouteChangeNotification, AVAudioSessionRouteChangeReason,
+        AVAudioSessionRouteChangeReasonKey,
     };
     use objc2_foundation::{
         NSNotification, NSNotificationCenter, NSNotificationName, NSNumber, NSObjectProtocol,
@@ -90,9 +107,9 @@ mod ios {
     use tokio::sync::mpsc::UnboundedSender;
 
     use super::{
-        INTERRUPTION_BEGAN, INTERRUPTION_ENDED, INTERRUPTION_SHOULD_RESUME,
-        ROUTE_NEW_DEVICE_AVAILABLE, ROUTE_OLD_DEVICE_UNAVAILABLE, interruption_event,
-        media_services_reset_event, route_change_event,
+        INTERRUPTION_BEGAN, INTERRUPTION_ENDED, INTERRUPTION_REASON_APP_WAS_SUSPENDED,
+        INTERRUPTION_SHOULD_RESUME, ROUTE_NEW_DEVICE_AVAILABLE, ROUTE_OLD_DEVICE_UNAVAILABLE,
+        interruption_event, media_services_reset_event, route_change_event,
     };
     use crate::internal::{OutputEvent, PlayerCommand};
 
@@ -110,6 +127,12 @@ mod ios {
             ROUTE_OLD_DEVICE_UNAVAILABLE == AVAudioSessionRouteChangeReason::OldDeviceUnavailable.0
         );
     };
+    // The SDK marks the reason deprecated, as iOS 16 and later no longer give it.
+    #[allow(deprecated)]
+    const _: () = assert!(
+        INTERRUPTION_REASON_APP_WAS_SUSPENDED
+            == objc2_avf_audio::AVAudioSessionInterruptionReason::AppWasSuspended.0
+    );
 
     /// Gives the session the playback category, as Rune only plays. The category sends music to
     /// the speaker rather than the receiver and to Bluetooth headphones in full quality, and
@@ -242,17 +265,23 @@ mod ios {
     }
 
     fn interruption(notification: &NSNotification) -> Option<OutputEvent> {
-        // SAFETY: these are constants of the AVFAudio framework, which is linked.
-        let (kind_key, options_key) = unsafe {
+        // SAFETY: these are constants of the AVFAudio framework, which is linked. The key that
+        // says the app was suspended is deprecated, but iOS 15 may still set it.
+        #[allow(deprecated)]
+        let (kind_key, options_key, reason_key, suspended_key) = unsafe {
             (
                 AVAudioSessionInterruptionTypeKey,
                 AVAudioSessionInterruptionOptionKey,
+                AVAudioSessionInterruptionReasonKey,
+                objc2_avf_audio::AVAudioSessionInterruptionWasSuspendedKey,
             )
         };
         let kind = number(notification, kind_key)?;
-        // Only the end of an interruption carries options.
+        // Only the end of an interruption carries options, and only its start a reason.
         let options = number(notification, options_key).unwrap_or(0);
-        interruption_event(kind, options)
+        let reason = number(notification, reason_key).unwrap_or(0);
+        let was_suspended = number(notification, suspended_key).is_some_and(|value| value != 0);
+        interruption_event(kind, options, reason, was_suspended)
     }
 
     fn route_change(notification: &NSNotification) -> Option<OutputEvent> {
@@ -281,18 +310,40 @@ mod tests {
     #[test]
     fn interruption_begins_and_ends() {
         assert_eq!(
-            interruption_event(INTERRUPTION_BEGAN, 0),
+            interruption_event(INTERRUPTION_BEGAN, 0, 0, false),
             Some(OutputEvent::Interrupted)
         );
         assert_eq!(
-            interruption_event(INTERRUPTION_ENDED, INTERRUPTION_SHOULD_RESUME),
+            interruption_event(INTERRUPTION_ENDED, INTERRUPTION_SHOULD_RESUME, 0, false),
             Some(OutputEvent::InterruptionEnded { resume: true })
         );
         assert_eq!(
-            interruption_event(INTERRUPTION_ENDED, 0),
+            interruption_event(INTERRUPTION_ENDED, 0, 0, false),
             Some(OutputEvent::InterruptionEnded { resume: false })
         );
-        assert_eq!(interruption_event(7, 0), None);
+        assert_eq!(interruption_event(7, 0, 0, false), None);
+    }
+
+    #[test]
+    fn the_late_news_that_the_app_was_suspended_is_no_interruption() {
+        assert_eq!(
+            interruption_event(
+                INTERRUPTION_BEGAN,
+                0,
+                INTERRUPTION_REASON_APP_WAS_SUSPENDED,
+                false
+            ),
+            None
+        );
+        assert_eq!(interruption_event(INTERRUPTION_BEGAN, 0, 0, true), None);
+        // Other reasons, such as a muted microphone or a route that went away, still interrupt.
+        for reason in [2, 4] {
+            assert_eq!(
+                interruption_event(INTERRUPTION_BEGAN, 0, reason, false),
+                Some(OutputEvent::Interrupted),
+                "reason {reason}"
+            );
+        }
     }
 
     #[test]

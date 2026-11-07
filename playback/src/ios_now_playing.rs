@@ -25,7 +25,8 @@
 //! the lock is held, so they are queued in the order they were decided, and the elapsed time each
 //! carries is the one decided then. A call is never made right away, even on the main thread, so
 //! none overtakes one queued before it, and of an attach and a detach the one made last holds.
-//! What only the main thread touches, the targets and the artwork object, sits in `OnMain`.
+//! What only the main thread touches, the targets and the artwork object, sits in a
+//! `MainThreadOnly`.
 //!
 //! Images load off the main thread, as `UIImage` is sendable (`NS_SWIFT_SENDABLE` in UIKit's
 //! header). A command handler only calls the hub's handler, which is `Send` but not `Sync`, under a
@@ -193,39 +194,51 @@ mod ios {
         artwork: Option<(Retained<UIImage>, Retained<MPMediaItemArtwork>)>,
     }
 
-    /// A [`MainState`] that may move to any thread but is only reached on the main thread.
-    struct OnMain(RefCell<MainState>);
+    /// A value only used on the main thread, which may be moved anywhere: it is dropped on the
+    /// main thread as well. The same as flutter-texture's.
+    struct MainThreadOnly<T: 'static>(Option<T>);
 
-    // SAFETY: the state is only reached through `get`, which takes a `MainThreadMarker`, and a
-    // drop elsewhere hands it to the main thread.
-    unsafe impl Send for OnMain {}
+    // SAFETY: the value is only reached with a `MainThreadMarker`, and dropped on the main thread.
+    unsafe impl<T: 'static> Send for MainThreadOnly<T> {}
     // SAFETY: as above.
-    unsafe impl Sync for OnMain {}
+    unsafe impl<T: 'static> Sync for MainThreadOnly<T> {}
 
-    impl OnMain {
-        fn get(&self, _mtm: MainThreadMarker) -> &RefCell<MainState> {
-            &self.0
+    impl<T: 'static> MainThreadOnly<T> {
+        fn new(value: T) -> Self {
+            Self(Some(value))
+        }
+
+        fn get(&self, _mtm: MainThreadMarker) -> &T {
+            self.0.as_ref().expect("present until dropped")
         }
     }
 
-    impl Drop for OnMain {
+    impl<T: 'static> Drop for MainThreadOnly<T> {
         fn drop(&mut self) {
+            let Some(value) = self.0.take() else { return };
             if MainThreadMarker::new().is_some() {
+                drop(value);
                 return;
             }
-            struct AssertSend(MainState);
-            // SAFETY: the state only moves to the main thread, where it is dropped.
-            unsafe impl Send for AssertSend {}
-            let state = AssertSend(self.0.take());
+            struct AssertSend<T>(T);
+            // SAFETY: the value only moves to the main thread, where it is dropped.
+            unsafe impl<T> Send for AssertSend<T> {}
+            let value = AssertSend(value);
+            // Not `exec_sync`: the main thread may be waiting for this one.
             DispatchQueue::main().exec_async(move || {
-                let state = state;
-                drop(state.0);
+                let value = value;
+                drop(value.0);
             });
         }
     }
 
-    /// Runs `f` on the main thread, from the main queue. It is queued even when this is the main
-    /// thread, so that no call overtakes one queued before it.
+    /// What the main thread keeps for the lock screen.
+    type OnMain = MainThreadOnly<RefCell<MainState>>;
+
+    /// Runs `f` on the main thread, from the main queue. Unlike flutter-texture's `run`, it never
+    /// calls `f` right away, even on the main thread: a call made there and then would overtake
+    /// the ones queued before it, and the writes, and the attaches and detaches, must reach the
+    /// system in the order they were made.
     fn on_main(f: impl FnOnce(MainThreadMarker) + Send + 'static) {
         DispatchQueue::main().exec_async(move || {
             // SAFETY: the main queue runs its work on the main thread.
@@ -257,7 +270,7 @@ mod ios {
             };
             Ok(Self {
                 state: Arc::new(Mutex::new(state)),
-                main: Arc::new(OnMain(RefCell::new(MainState::default()))),
+                main: Arc::new(MainThreadOnly::new(RefCell::new(MainState::default()))),
             })
         }
 
@@ -472,9 +485,11 @@ mod ios {
             let size = unsafe { image.size() };
             let shown = image.clone();
             let handler = RcBlock::new(move |_: CGSize| NonNull::from(&*image));
-            // SAFETY: `initWithBoundsSize:requestHandler:` is the designated initializer (iOS 10),
-            // sent to a new artwork with the image's size and a handler that returns the image,
-            // which the handler owns for as long as the artwork keeps it.
+            // SAFETY: objc2-media-player generates `initWithBoundsSize:requestHandler:` for macOS
+            // only, where the handler returns an `NSImage`, so the message is sent by hand. It is
+            // the designated initializer (iOS 10), sent to a new artwork with the image's size and
+            // a handler that returns a `UIImage`, as iOS expects: the image, which the handler
+            // owns for as long as the artwork keeps it.
             let artwork: Retained<MPMediaItemArtwork> = unsafe {
                 msg_send![
                     MPMediaItemArtwork::alloc(),
