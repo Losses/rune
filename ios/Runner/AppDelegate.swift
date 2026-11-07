@@ -158,7 +158,9 @@ class FileSelector: NSObject, UIDocumentPickerDelegate {
   static let shared = FileSelector()
 
   private var result: FlutterResult?
-  
+  // The picker that answers `result`. A picker it replaced may still call back, and is ignored.
+  private weak var picker: UIDocumentPickerViewController?
+
   private override init() {}
   
   func getDirectoryPath(result: @escaping FlutterResult) {
@@ -172,13 +174,16 @@ class FileSelector: NSObject, UIDocumentPickerDelegate {
       return
     }
 
-    // An earlier call still waiting is answered as cancelled, so no caller waits forever.
+    // An earlier call still waiting is answered as cancelled, so no caller waits forever, and its
+    // picker goes away, so it cannot answer this call.
     finish(with: nil)
+    picker?.dismiss(animated: false)
     self.result = result
 
     let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
     documentPicker.delegate = self
     documentPicker.allowsMultipleSelection = false
+    picker = documentPicker
 
     // present(_:) on a controller that is already presenting does nothing, so
     // the picker goes on top of whatever is shown.
@@ -190,11 +195,13 @@ class FileSelector: NSObject, UIDocumentPickerDelegate {
   }
 
   func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    guard controller === picker else { return }
     _ = urls.first?.startAccessingSecurityScopedResource()
     finish(with: urls.first?.path)
   }
 
   func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    guard controller === picker else { return }
     finish(with: nil)
   }
 
