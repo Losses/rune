@@ -735,13 +735,19 @@ impl WebSocketDartBridge {
         }
     }
 
-    pub async fn run(&mut self, ws_stream: RemoteStream, node: Arc<NodeContext>) -> Result<()> {
+    pub async fn run(
+        &mut self,
+        ws_stream: RemoteStream,
+        node: Arc<NodeContext>,
+        fingerprint: String,
+    ) -> Result<()> {
         info!("WebSocket connection established");
 
         let (write, mut read) = ws_stream.split();
         let write = Arc::new(Mutex::new(write));
 
         let cancel_token: CancellationToken = node.token.child_token();
+        node.set_remote_proxy(fingerprint.clone(), cancel_token.clone());
 
         let sfx_player = SfxPlayer::new(Some(cancel_token.clone()));
         let sfx_player: Arc<Mutex<SfxPlayer>> = Arc::new(Mutex::new(sfx_player));
@@ -777,6 +783,8 @@ impl WebSocketDartBridge {
         );
 
         let handlers = self.handlers.clone();
+        let proxy_node = node.clone();
+        let proxy_fingerprint = fingerprint;
         let write_clone = Arc::clone(&write);
         let cancel_token_clone = Arc::clone(&cancel_token);
         let message_loop = || async move {
@@ -833,6 +841,7 @@ impl WebSocketDartBridge {
                 }
             }
             cancel_token_clone.cancel();
+            proxy_node.clear_remote_proxy(&proxy_fingerprint);
         };
 
         let global_params = GlobalParams {
@@ -885,7 +894,7 @@ pub async fn server_player_loop(
     info!("Media Library Received, initialize the server loop");
 
     let config_path = node.config_path.as_str();
-    let ws_stream = tokio::time::timeout(Duration::from_secs(10), async {
+    let (ws_stream, fingerprint) = tokio::time::timeout(Duration::from_secs(10), async {
         let cert_validator = Arc::new(node.cert_validator.read().await.clone());
         let hosts = decode_rnsrv_url(url).map_err(protocol)?;
         let entries = cert_validator.clone_trusted_entries().await;
@@ -905,6 +914,20 @@ pub async fn server_player_loop(
             return Err(RemoteConnectError::UntrustedEndpoint);
         }
         let endpoint = select_renderer_host(&node, hosts).await?;
+        let parsed_endpoint = url::Url::parse(&endpoint).map_err(protocol)?;
+        let endpoint_host = parsed_endpoint.host_str().unwrap_or_default().to_owned();
+        let endpoint_port = parsed_endpoint.port().unwrap_or(7863);
+        let fingerprint = entries
+            .iter()
+            .find(|(_, candidates)| {
+                candidates.iter().any(|candidate| {
+                    endpoint_host_port(candidate).is_some_and(|(host, port)| {
+                        host == endpoint_host && port.is_none_or(|port| port == endpoint_port)
+                    })
+                })
+            })
+            .map(|(fingerprint, _)| fingerprint.clone())
+            .ok_or(RemoteConnectError::UntrustedEndpoint)?;
         let parsed = url::Url::parse(&endpoint).map_err(protocol)?;
         let host = parsed
             .host_str()
@@ -917,6 +940,7 @@ pub async fn server_player_loop(
             &node.sync_tokens,
         )
         .await
+        .map(|stream| (stream, fingerprint))
     })
     .await
     .map_err(|_| RemoteConnectError::Unreachable)??;
@@ -975,7 +999,7 @@ pub async fn server_player_loop(
             LibraryContentChanged
         );
 
-        bridge.run(ws_stream, node).await?;
+        bridge.run(ws_stream, node, fingerprint).await?;
     }
 
     Ok(())

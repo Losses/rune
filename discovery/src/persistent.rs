@@ -66,6 +66,7 @@ pub struct PersistentDataManager<T> {
     watcher: Arc<RwLock<RecommendedWatcher>>,
     /// Broadcast channel sender to notify subscribers of data changes.
     change_tx: broadcast::Sender<T>,
+    external_change_tx: broadcast::Sender<T>,
 }
 
 impl<T> PersistentDataManager<T>
@@ -139,12 +140,14 @@ where
 
         // Create broadcast channel for change notifications
         let (change_tx, _) = broadcast::channel::<T>(128);
+        let (external_change_tx, _) = broadcast::channel::<T>(128);
 
         let manager = Self {
             data: Arc::new(RwLock::new(initial_data)),
             file_path,
             watcher: Arc::new(RwLock::new(watcher)),
             change_tx,
+            external_change_tx,
         };
 
         // Start the file monitoring thread
@@ -166,6 +169,7 @@ where
         let data_clone = self.data.clone();
         let path_clone = self.file_path.clone();
         let tx_clone = self.change_tx.clone();
+        let external_tx_clone = self.external_change_tx.clone();
 
         std::thread::spawn(move || {
             for event in rx {
@@ -180,7 +184,8 @@ where
                                         rt.block_on(async {
                                             let mut data = data_clone.write().await;
                                             *data = new_data.clone(); // Update in-memory data
-                                            let _ = tx_clone.send(new_data); // Notify subscribers of change
+                                            let _ = tx_clone.send(new_data.clone()); // Notify subscribers of change
+                                            let _ = external_tx_clone.send(new_data); // Notify subscribers of external change
                                         });
                                     }
                                 }
@@ -336,5 +341,10 @@ where
     ///                             receive a clone of the data whenever it is updated.
     pub fn subscribe(&self) -> broadcast::Receiver<T> {
         self.change_tx.subscribe()
+    }
+
+    /// Returns a receiver for changes loaded from the watched file.
+    pub fn subscribe_external(&self) -> broadcast::Receiver<T> {
+        self.external_change_tx.subscribe()
     }
 }

@@ -1,12 +1,14 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock as StdRwLock};
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{RwLock, broadcast, watch};
+use tokio::sync::{RwLock, broadcast, broadcast::error::RecvError, watch};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 use crate::persistent::{PersistenceError, PersistentDataManager};
 use crate::utils::DeviceType;
@@ -125,6 +127,7 @@ pub struct PermissionManager {
     request_sender: broadcast::Sender<User>,
     change_sender: watch::Sender<u64>,
     trust_change_hook: Option<TrustChangeHook>,
+    additional_trust_change_hooks: Arc<StdRwLock<Vec<TrustChangeHook>>>,
 }
 
 impl Debug for PermissionManager {
@@ -137,6 +140,92 @@ impl PermissionManager {
     /// Attach the application's durable grant lifecycle to trust edits.
     pub fn set_trust_change_hook(&mut self, hook: TrustChangeHook) {
         self.trust_change_hook = Some(hook);
+    }
+
+    pub fn add_trust_change_hook(&mut self, hook: TrustChangeHook) {
+        self.additional_trust_change_hooks
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(hook);
+    }
+
+    fn notify_trust_change(
+        &self,
+        fingerprint: &str,
+        status: Option<&UserStatus>,
+    ) -> Result<(), PermissionError> {
+        if let Some(hook) = &self.trust_change_hook {
+            hook(fingerprint, status).map_err(PermissionError::Grants)?;
+        }
+        let hooks = self
+            .additional_trust_change_hooks
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        for hook in &hooks {
+            hook(fingerprint, status).map_err(PermissionError::Grants)?;
+        }
+        Ok(())
+    }
+
+    /// Apply externally written permission changes to the same trust lifecycle
+    /// used by in-process edits.
+    pub async fn watch_external_changes(&self, cancel: CancellationToken) -> JoinHandle<()> {
+        let mut changes = self.storage.subscribe_external();
+        let change_sender = self.change_sender.clone();
+        let trust_change_hook = self.trust_change_hook.clone();
+        let additional_trust_change_hooks = self.additional_trust_change_hooks.clone();
+        let mut known = self.storage.read().await.users.clone();
+        tokio::spawn(async move {
+            loop {
+                let received = tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    received = changes.recv() => received,
+                };
+                let next = match received {
+                    Ok(next) => next,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => return,
+                };
+                let fingerprints = known
+                    .keys()
+                    .chain(next.users.keys())
+                    .cloned()
+                    .collect::<std::collections::HashSet<_>>();
+                let mut status_changed = false;
+                for fingerprint in fingerprints {
+                    let old_status = known.get(&fingerprint).map(|user| &user.status);
+                    let new_status = next.users.get(&fingerprint).map(|user| &user.status);
+                    if old_status == new_status {
+                        continue;
+                    }
+                    status_changed = true;
+                    if let Some(hook) = &trust_change_hook
+                        && let Err(error) = hook(&fingerprint, new_status)
+                    {
+                        log::warn!(
+                            "Could not apply external trust change for {fingerprint}: {error}"
+                        );
+                    }
+                    let hooks = additional_trust_change_hooks
+                        .read()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .clone();
+                    for hook in &hooks {
+                        if let Err(error) = hook(&fingerprint, new_status) {
+                            log::warn!(
+                                "Could not apply external trust change for {fingerprint}: {error}"
+                            );
+                        }
+                    }
+                }
+                known = next.users;
+                if status_changed {
+                    change_sender
+                        .send_modify(|generation| *generation = generation.wrapping_add(1));
+                }
+            }
+        })
     }
 
     /// Creates a new `PermissionManager` instance, initializing persistent storage.
@@ -168,6 +257,7 @@ impl PermissionManager {
             request_sender,
             change_sender: watch::channel(0).0,
             trust_change_hook: None,
+            additional_trust_change_hooks: Arc::new(StdRwLock::new(Vec::new())),
         })
     }
 
@@ -248,9 +338,7 @@ impl PermissionManager {
                     // Check if queue is full (max 5 entries)
                     if let Some(old_key) = queue.pop_front() {
                         // Remove oldest entry if queue is full
-                        if let Some(hook) = &self.trust_change_hook {
-                            hook(&old_key, None).map_err(PermissionError::Grants)?;
-                        }
+                        self.notify_trust_change(&old_key, None)?;
                         permissions.users.remove(&old_key); // Optionally remove user associated with the oldest key
                     }
                 }
@@ -342,9 +430,7 @@ impl PermissionManager {
                     .users
                     .get_mut(fingerprint) // Get mutable reference to user by fingerprint
                     .ok_or(PermissionError::UserNotFound)?; // Return error if user not found
-                if let Some(hook) = &self.trust_change_hook {
-                    hook(fingerprint, Some(&new_status)).map_err(PermissionError::Grants)?;
-                }
+                self.notify_trust_change(fingerprint, Some(&new_status))?;
                 user.status = new_status.clone(); // Update user status
                 Ok::<_, PermissionError>((permissions, ())) // Return updated permissions and success result
             })
@@ -371,10 +457,8 @@ impl PermissionManager {
         self.storage
             .update(|mut permissions| async move {
                 // Update operation on persistent storage
-                if permissions.users.contains_key(fingerprint)
-                    && let Some(hook) = &self.trust_change_hook
-                {
-                    hook(fingerprint, None).map_err(PermissionError::Grants)?;
+                if permissions.users.contains_key(fingerprint) {
+                    self.notify_trust_change(fingerprint, None)?;
                 }
                 if permissions.users.remove(fingerprint).is_none() {
                     // Try to remove user by fingerprint
@@ -453,6 +537,9 @@ impl PermissionManager {
 mod change_tests {
     use super::{PermissionManager, UserStatus};
     use crate::utils::DeviceType;
+    use std::sync::{Arc, Mutex};
+    use tokio::time::{Duration, timeout};
+    use tokio_util::sync::CancellationToken;
 
     #[tokio::test]
     async fn generation_tracks_mutations_not_reads() -> Result<(), Box<dyn std::error::Error>> {
@@ -480,6 +567,56 @@ mod change_tests {
         assert_eq!(*changes.borrow_and_update(), initial + 1);
         manager.remove_user("fingerprint").await?;
         assert_eq!(*changes.borrow_and_update(), initial + 2);
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn file_reload_notifies_once_and_runs_trust_hook()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir =
+            std::env::temp_dir().join(format!("permission-file-reload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut manager = PermissionManager::new(&dir)?;
+        manager
+            .add_user(
+                "key".into(),
+                "fingerprint".into(),
+                "alias".into(),
+                "model".into(),
+                DeviceType::Desktop,
+                "ip".into(),
+            )
+            .await?;
+        manager
+            .change_user_status("fingerprint", UserStatus::Approved)
+            .await?;
+        let hook_calls = Arc::new(Mutex::new(Vec::new()));
+        let observed = hook_calls.clone();
+        manager.set_trust_change_hook(Arc::new(move |fingerprint, status| {
+            observed
+                .lock()
+                .unwrap()
+                .push((fingerprint.to_owned(), status.cloned()));
+            Ok(())
+        }));
+        manager
+            .watch_external_changes(CancellationToken::new())
+            .await;
+        let mut changes = manager.changes();
+        let initial_generation = *changes.borrow_and_update();
+
+        let cli_manager = PermissionManager::new(&dir)?;
+        cli_manager
+            .change_user_status("fingerprint", UserStatus::Blocked)
+            .await?;
+
+        timeout(Duration::from_secs(5), changes.changed()).await??;
+        assert_eq!(*changes.borrow(), initial_generation + 1);
+        assert_eq!(
+            *hook_calls.lock().unwrap(),
+            vec![("fingerprint".to_owned(), Some(UserStatus::Blocked))]
+        );
         std::fs::remove_dir_all(dir)?;
         Ok(())
     }

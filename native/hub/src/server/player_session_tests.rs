@@ -704,6 +704,64 @@ async fn detached_renderer_restores_local_session_signals() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn removing_renderer_trust_restores_local_session() -> Result<()> {
+    use crate::messages::{RendererAttachmentChanged, RendererLinkLost};
+
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let a = fixture_with_broadcaster(
+        a_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let b = fixture(b_dir.path()).await?;
+    let alias = super::info(&b).await?.alias;
+    let fingerprint = attach_pair_with_signals(&a, &b, &signals).await?;
+    let local_track = session_audio(&a, "trust-revoked.ogg").await?;
+    queue_session(&a, &[local_track]).await?;
+    let local_session_id = a.global_params.node.session()?.session_id().await;
+    signals.0.lock().unwrap().clear();
+
+    a.global_params.node.revoke_outgoing_for(&fingerprint).await;
+
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let complete = {
+                let records = signals.0.lock().unwrap();
+                let lost = records.iter().any(|(name, bytes)| {
+                    name == "RendererLinkLost"
+                        && rinf::deserialize::<RendererLinkLost>(bytes).is_ok_and(|event| {
+                            event.fingerprint == fingerprint && event.alias == alias
+                        })
+                });
+                let detached = records.iter().any(|(name, bytes)| {
+                    name == "RendererAttachmentChanged"
+                        && rinf::deserialize::<RendererAttachmentChanged>(bytes)
+                            .is_ok_and(|event| event.renderer.is_none())
+                });
+                let local_session = records.iter().any(|(name, bytes)| {
+                    name == "PlaylistUpdate"
+                        && rinf::deserialize::<PlaylistUpdate>(bytes)
+                            .is_ok_and(|event| event.session_id == local_session_id)
+                });
+                lost && detached && local_session
+            };
+            if complete {
+                return;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("trust revocation did not restore the local session")?;
+    assert!(a.global_params.node.renderer_link()?.is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stopped_renderer_clears_link_and_reports_server_stopped() -> Result<()> {
     use crate::messages::{
         PlaybackStatus, RemoteConnectionLost, RendererAttachmentChanged, RendererLinkLost,

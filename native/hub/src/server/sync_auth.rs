@@ -82,6 +82,27 @@ impl SyncAuth {
             fingerprint,
         }
     }
+
+    pub fn trust_change_hook(
+        &self,
+    ) -> impl Fn(&str, Option<&UserStatus>) -> Result<(), String> + Send + Sync + 'static {
+        let entries = self.entries.clone();
+        move |fingerprint, status| {
+            if status == Some(&UserStatus::Approved) {
+                return Ok(());
+            }
+            let fingerprint = fingerprint.to_owned();
+            let entries = entries.clone();
+            tokio::spawn(async move {
+                entries
+                    .lock()
+                    .await
+                    .tokens
+                    .retain(|_, (token_fingerprint, _)| token_fingerprint != &fingerprint);
+            });
+            Ok(())
+        }
+    }
     #[cfg(test)]
     pub(super) async fn expire_tokens_for_fingerprint_for_test(&self, fingerprint: &str) -> bool {
         let mut entries = self.entries.lock().await;
@@ -104,6 +125,21 @@ impl SyncAuth {
     #[cfg(test)]
     pub(super) async fn authorization_count_for_test(&self) -> usize {
         self.entries.lock().await.authorization_count
+    }
+
+    #[cfg(test)]
+    pub(super) async fn issue_token_for_test(&self, fingerprint: &str) -> String {
+        let token = random();
+        self.entries.lock().await.tokens.insert(
+            token.clone(),
+            (fingerprint.to_owned(), Instant::now() + TOKEN_TTL),
+        );
+        token
+    }
+
+    #[cfg(test)]
+    pub(super) async fn has_token_for_test(&self, token: &str) -> bool {
+        self.entries.lock().await.tokens.contains_key(token)
     }
     #[cfg(test)]
     pub(super) async fn reject_next_authorization_for_test(&self, fingerprint: &str) {
@@ -325,6 +361,7 @@ mod tests {
     };
     use discovery::utils::DeviceType;
     use rsa::{RsaPrivateKey, pkcs8::DecodePrivateKey};
+    use tokio::time::timeout;
     use tower::ServiceExt;
 
     #[tokio::test]
@@ -388,6 +425,10 @@ mod tests {
         let cert = discovery::ssl::generate_self_signed_cert("test", "rune", "CA", 1).unwrap();
         let fingerprint = cert.public_key_fingerprint.clone();
         let auth = SyncAuth::new(permissions.clone(), "server".into());
+        permissions
+            .write()
+            .await
+            .add_trust_change_hook(Arc::new(auth.trust_change_hook()));
         let app = auth.router();
         let sign = |challenge: &Challenge| {
             let private = RsaPrivateKey::from_pkcs8_pem(&cert.private_key).unwrap();
@@ -497,6 +538,22 @@ mod tests {
             .change_user_status(&fingerprint, UserStatus::Blocked)
             .await
             .unwrap();
+        permissions
+            .write()
+            .await
+            .change_user_status(&fingerprint, UserStatus::Approved)
+            .await
+            .unwrap();
+        timeout(Duration::from_secs(2), async {
+            loop {
+                if auth.entries.lock().await.tokens.is_empty() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
         assert!(auth.resolve_token(&token.token).await.is_none());
         permissions
             .write()

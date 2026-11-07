@@ -606,23 +606,24 @@ impl Signal for AddTrustedServerRequest {
 }
 
 impl ParamsExtractor for RemoveTrustedServerRequest {
-    type Params = (Arc<RwLock<CertValidator>>, SyncTokenStore);
+    type Params = (Arc<RwLock<CertValidator>>, SyncTokenStore, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.cert_validator),
             all_params.node.sync_tokens.clone(),
+            all_params.node.clone(),
         )
     }
 }
 
 impl Signal for RemoveTrustedServerRequest {
-    type Params = (Arc<RwLock<CertValidator>>, SyncTokenStore);
+    type Params = (Arc<RwLock<CertValidator>>, SyncTokenStore, Arc<NodeContext>);
     type Response = RemoveTrustedServerResponse;
 
     async fn handle(
         &self,
-        (validator, sync_tokens): Self::Params,
+        (validator, sync_tokens, node): Self::Params,
         _session: Option<Session>,
         req: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -633,6 +634,7 @@ impl Signal for RemoveTrustedServerRequest {
             .await;
         if result.is_ok() {
             sync_tokens.remove_peer(&req.fingerprint);
+            node.revoke_outgoing_for(&req.fingerprint).await;
         }
         match result {
             Ok(_) => Ok(Some(RemoveTrustedServerResponse {

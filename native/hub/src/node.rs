@@ -73,6 +73,7 @@ pub struct NodeContext {
     pub websocket_service: Arc<WebSocketService>,
     pub gui_broadcaster: Arc<dyn Broadcaster>,
     pub renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
+    remote_proxy: StdMutex<Option<(String, CancellationToken)>>,
     pub token: Arc<CancellationToken>,
     pub(crate) sync_tokens: SyncTokenStore,
     pub server_manager: OnceLock<Arc<ServerManager>>,
@@ -141,21 +142,11 @@ impl NodeContext {
         let websocket_service = Arc::new(WebSocketService::new());
         let renderer_link = Arc::new(StdMutex::new(None));
         let sync_tokens = SyncTokenStore::default();
-        let mut permission_manager = PermissionManager::new(config_path)?;
+        let permission_manager = PermissionManager::new(config_path)?;
         let access_policy = Arc::new(RuneAccessPolicy::load(
             Path::new(config_path),
             &permission_manager.list_users().await,
         )?);
-        let policy = access_policy.clone();
-        let revoked_tokens = sync_tokens.clone();
-        permission_manager.set_trust_change_hook(Arc::new(move |fingerprint, status| {
-            if status != Some(&UserStatus::Approved) {
-                revoked_tokens.remove_peer(fingerprint);
-            }
-            policy
-                .trust_changed(fingerprint, status)
-                .map_err(|error| format!("{error:#}"))
-        }));
         let node = Arc::new(Self {
             config_path: Arc::new(config_path.to_owned()),
             library_pool: LibraryPool::new(Path::new(config_path), Path::new(db_path), &node_id)?,
@@ -173,6 +164,7 @@ impl NodeContext {
             gui_broadcaster: broadcaster,
             websocket_service,
             renderer_link,
+            remote_proxy: StdMutex::new(None),
             token: Arc::new(CancellationToken::new()),
             sync_tokens,
             server_manager: OnceLock::new(),
@@ -180,6 +172,34 @@ impl NodeContext {
             current_ui: Mutex::new(None),
             event_handles: Mutex::new(Vec::new()),
         });
+        let policy = node.access_policy.clone();
+        let revoked_tokens = node.sync_tokens.clone();
+        let weak_node = Arc::downgrade(&node);
+        node.permission_manager
+            .write()
+            .await
+            .set_trust_change_hook(Arc::new(move |fingerprint, status| {
+                if status != Some(&UserStatus::Approved) {
+                    revoked_tokens.remove_peer(fingerprint);
+                    let weak_node = weak_node.clone();
+                    let fingerprint = fingerprint.to_owned();
+                    tokio::spawn(async move {
+                        if let Some(node) = weak_node.upgrade() {
+                            node.revoke_outgoing_for(&fingerprint).await;
+                        }
+                    });
+                }
+                policy
+                    .trust_changed(fingerprint, status)
+                    .map_err(|error| format!("{error:#}"))
+            }));
+        let trust_listener = node
+            .permission_manager
+            .read()
+            .await
+            .watch_external_changes(node.token.child_token())
+            .await;
+        node.event_handles.lock().await.push(trust_listener);
         let manager = Arc::new(ServerManager::new(node.clone()).await?);
         node.server_manager
             .set(manager.clone())
@@ -386,6 +406,42 @@ impl NodeContext {
             && let Err(error) = session.reemit_current().await
         {
             log::warn!("Could not restore local session after renderer loss: {error:#}");
+        }
+    }
+
+    pub(crate) async fn revoke_outgoing_for(&self, fingerprint: &str) {
+        if let Ok(proxy) = self.remote_proxy.lock()
+            && let Some((proxy_fingerprint, cancel)) = proxy.as_ref()
+            && proxy_fingerprint == fingerprint
+        {
+            cancel.cancel();
+        }
+        let link = self
+            .renderer_link()
+            .ok()
+            .flatten()
+            .filter(|link| link.fingerprint() == fingerprint);
+        if let Some(link) = link {
+            link.close();
+            self.renderer_link_lost(link.id()).await;
+        }
+    }
+
+    pub(crate) fn set_remote_proxy(&self, fingerprint: String, cancel: CancellationToken) {
+        if let Ok(mut proxy) = self.remote_proxy.lock()
+            && let Some((_, previous)) = proxy.replace((fingerprint, cancel))
+        {
+            previous.cancel();
+        }
+    }
+
+    pub(crate) fn clear_remote_proxy(&self, fingerprint: &str) {
+        if let Ok(mut proxy) = self.remote_proxy.lock()
+            && proxy
+                .as_ref()
+                .is_some_and(|(current, _)| current == fingerprint)
+        {
+            proxy.take();
         }
     }
 

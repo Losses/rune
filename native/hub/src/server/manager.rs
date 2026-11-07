@@ -323,11 +323,17 @@ impl ServerManager {
         let (_, fingerprint) = parse_certificate(&self.certificate)?;
         let auth = {
             let mut sync_auth = self.sync_auth.lock().await;
-            sync_auth
-                .get_or_insert_with(|| {
-                    SyncAuth::new(node.permission_manager.clone(), fingerprint.clone())
-                })
-                .clone()
+            if let Some(auth) = sync_auth.as_ref() {
+                auth.clone()
+            } else {
+                let auth = SyncAuth::new(node.permission_manager.clone(), fingerprint.clone());
+                node.permission_manager
+                    .write()
+                    .await
+                    .add_trust_change_hook(Arc::new(auth.trust_change_hook()));
+                *sync_auth = Some(auth.clone());
+                auth
+            }
         };
         let sync_routes = Router::new()
             .nest(
@@ -912,7 +918,11 @@ mod lifecycle_tests {
         LibrarySyncStore,
         model::{Album, Collection, MetadataTag, ObjectKey, Payload, Track},
     };
-    use discovery::{capabilities::Capabilities, server::UserStatus, utils::DeviceType};
+    use discovery::{
+        capabilities::Capabilities,
+        server::{PermissionManager, UserStatus},
+        utils::DeviceType,
+    };
     use playback::sfx_player::SfxPlayer;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::future::Future;
@@ -1829,6 +1839,19 @@ mod lifecycle_tests {
         let validator = b.global_params.cert_validator.read().await.clone();
         let fingerprint = info(&b).await?.fingerprint;
         for remove in [false, true] {
+            let auth_token = if remove {
+                None
+            } else {
+                let manager = a.global_params.node.manager()?;
+                let auth = manager
+                    .sync_auth
+                    .lock()
+                    .await
+                    .clone()
+                    .context("sync auth was not initialized")?;
+                let token = auth.issue_token_for_test(&fingerprint).await;
+                Some((auth, token))
+            };
             let mut socket = connect_remote(
                 "127.0.0.1",
                 addr.port(),
@@ -1837,21 +1860,36 @@ mod lifecycle_tests {
                 &b.global_params.node.sync_tokens,
             )
             .await?;
-            let manager = a.global_params.permission_manager.read().await;
             if remove {
-                manager.remove_user(&fingerprint).await?;
+                a.global_params
+                    .permission_manager
+                    .read()
+                    .await
+                    .remove_user(&fingerprint)
+                    .await?;
             } else {
-                manager
+                PermissionManager::new(a.global_params.config_path.as_str())?
                     .change_user_status(&fingerprint, UserStatus::Blocked)
                     .await?;
             }
-            drop(manager);
             let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
                 .await?
                 .context("socket closed without frame")??;
             assert!(
                 matches!(frame, Message::Close(Some(frame)) if u16::from(frame.code) == 4403 && frame.reason == "revoked")
             );
+            if let Some((auth, token)) = auth_token {
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    loop {
+                        if !auth.has_token_for_test(&token).await {
+                            return;
+                        }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .context("file-driven client block did not purge sync tokens")?;
+            }
             tokio::time::timeout(Duration::from_secs(3), async {
                 loop {
                     if a.global_params
@@ -3054,7 +3092,7 @@ mod lifecycle_tests {
         let mut bridge = WebSocketDartBridge::new();
         peer_step(
             "run headless controller bridge",
-            bridge.run(socket, b.global_params.node.clone()),
+            bridge.run(socket, b.global_params.node.clone(), "test-peer".to_owned()),
         )
         .await?;
         let remote_ui = b.global_params.node.current_ui().await?;
