@@ -11,3 +11,12 @@ String remoteOpenErrorMessage(AppLocalizations s, LibraryOpenErrorKind? kind) {
     null => s.unknownError,
   };
 }
+
+String remoteLossMessage(AppLocalizations s, RemoteLossKind kind) {
+  return switch (kind) {
+    RemoteLossKind.revoked => s.remoteLossRevoked,
+    RemoteLossKind.serverStopped => s.remoteLossServerStopped,
+    RemoteLossKind.networkLost => s.remoteLossNetworkLost,
+    RemoteLossKind.detached => s.remoteLossDetached,
+  };
+}

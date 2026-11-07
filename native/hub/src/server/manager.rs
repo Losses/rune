@@ -2795,7 +2795,7 @@ mod lifecycle_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn node_without_ui_serves_and_syncs_held_libraries_bidirectionally() -> Result<()> {
-        use crate::backends::remote::connect_remote;
+        use crate::backends::remote::{WebSocketDartBridge, connect_remote};
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
         let a = fixture(first.path()).await?;
@@ -2881,7 +2881,7 @@ mod lifecycle_tests {
             wait_for_album(&right, &forward)
         )?;
         let worker = b.sync_handle.lock().await.as_ref().context("worker")?.id();
-        let mut socket = peer_step("connect headless controller", async {
+        let socket = peer_step("connect headless controller", async {
             Ok(connect_remote(
                 "127.0.0.1",
                 a_addr.port(),
@@ -2892,7 +2892,18 @@ mod lifecycle_tests {
             .await?)
         })
         .await?;
-        assert!(b.global_params.node.current_ui().await.is_err());
+        let mut bridge = WebSocketDartBridge::new();
+        peer_step(
+            "run headless controller bridge",
+            bridge.run(socket, b.global_params.node.clone()),
+        )
+        .await?;
+        let remote_ui = b.global_params.node.current_ui().await?;
+        assert!(remote_ui.library_id.is_none());
+        assert!(Arc::ptr_eq(
+            &remote_ui.permission_manager,
+            &b.global_params.permission_manager
+        ));
         assert_eq!(b.get_address().await, Some(b_addr));
         assert_eq!(
             b.sync_handle.lock().await.as_ref().context("worker")?.id(),
@@ -2900,7 +2911,7 @@ mod lifecycle_tests {
         );
         let later = write_album(&left, "while controlling another node").await?;
         wait_for_album(&right, &later).await?;
-        socket.close(None).await?;
+        close_ui(&remote_ui).await?;
         b.global_params.node.shutdown().await?;
         a.global_params.node.shutdown().await?;
         Ok(())

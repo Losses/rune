@@ -21,6 +21,12 @@ pub struct TestLibraryInitializedResponse {
     pub not_ready: bool,
 }
 
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperationDestination {
+    Local,
+    Remote,
+}
+
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetMediaLibraryPathRequest {
     pub path: String,
@@ -28,6 +34,8 @@ pub struct SetMediaLibraryPathRequest {
     pub config_path: String,
     pub alias: String,
     pub mode: Option<LibraryInitializeMode>,
+    pub plays_on: OperationDestination,
+    pub hosted_on: OperationDestination,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +55,22 @@ pub struct SetMediaLibraryPathResponse {
     pub error: Option<String>,
     pub not_ready: bool,
 }
+
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemoteLossKind {
+    Revoked,
+    ServerStopped,
+    NetworkLost,
+    Detached,
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct RemoteConnectionLost {
+    pub kind: RemoteLossKind,
+    pub detail: String,
+}
+
+crate::implement_rinf_rust_signal_trait!(RemoteConnectionLost);
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
 pub struct AttachedControllerInfo {

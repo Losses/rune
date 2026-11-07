@@ -14,7 +14,6 @@ pub mod messages;
 pub mod node;
 pub mod request_error;
 pub(crate) use request_error::request_failure_cause;
-pub(crate) use utils::RinfRustSignal;
 pub mod session;
 #[macro_use]
 pub mod server;

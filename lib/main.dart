@@ -17,7 +17,11 @@ import 'package:system_tray/system_tray.dart';
 
 import 'l10n/app_localizations.dart';
 import 'utils/l10n.dart';
+import 'utils/api/close_library.dart';
 import 'utils/api/request_failure.dart';
+import 'utils/dialogs/failed_to_initialize_library.dart';
+import 'utils/remote_connection_messages.dart';
+import 'utils/router/navigation.dart';
 import 'utils/locale.dart';
 import 'utils/rune_log.dart';
 import 'utils/scene_files.dart';
@@ -60,6 +64,7 @@ import 'constants/configurations.dart';
 
 import 'providers/app_scale.dart';
 import 'providers/crash.dart';
+import 'providers/remote_connection_loss.dart';
 import 'providers/visualizer_scenes.dart';
 import 'providers/visualizer_lab.dart';
 import 'providers/volume.dart';
@@ -550,12 +555,30 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   late LicenseProvider license;
   Timer? _throttleTimer;
   bool _shouldCallUpdate = false;
+  late final RemoteConnectionLossHandler _remoteLoss;
   late final RendererLinkLossHandler _rendererLinkLoss;
 
   @override
   void initState() {
     super.initState();
 
+    _remoteLoss = RemoteConnectionLossHandler(
+      losses: RemoteConnectionLost.rustSignalStream.map(
+        (signal) => signal.message,
+      ),
+      closeLibrary: () => closeLibrary(context),
+      showLoss: (kind) {
+        if (!mounted) return;
+        final message = remoteLossMessage(S.of(context), kind);
+        $$replace('/');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final rootContext = rootNavigatorKey.currentContext;
+          if (rootContext != null) {
+            showFailedToInitializeLibrary(rootContext, message);
+          }
+        });
+      },
+    );
     _rendererLinkLoss = RendererLinkLossHandler(
       losses: RendererLinkLost.rustSignalStream.map((signal) => signal.message),
       showNotice: (alias) {
@@ -614,6 +637,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   dispose() {
     super.dispose();
 
+    _remoteLoss.dispose();
     _rendererLinkLoss.dispose();
     license.removeListener(_updateLicense);
     status.removeListener(_throttleUpdateTray);

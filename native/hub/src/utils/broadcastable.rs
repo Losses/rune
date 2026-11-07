@@ -1,4 +1,3 @@
-use crate::implement_rinf_rust_signal_trait;
 use crate::messages::*;
 use rinf::RustSignal;
 

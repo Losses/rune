@@ -705,7 +705,9 @@ async fn detached_renderer_restores_local_session_signals() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stopped_renderer_clears_link_and_reports_server_stopped() -> Result<()> {
-    use crate::messages::{PlaybackStatus, RendererAttachmentChanged, RendererLinkLost};
+    use crate::messages::{
+        PlaybackStatus, RemoteConnectionLost, RendererAttachmentChanged, RendererLinkLost,
+    };
 
     let a_dir = tempfile::tempdir()?;
     let b_dir = tempfile::tempdir()?;
@@ -751,10 +753,17 @@ async fn stopped_renderer_clears_link_and_reports_server_stopped() -> Result<()>
                         && rinf::deserialize::<PlaylistUpdate>(bytes)
                             .is_ok_and(|event| event.session_id == local_session_id)
                 });
-                (loss, attachment, status, queue)
+                let no_legacy_loss = !records.iter().any(|(name, bytes)| {
+                    name == "RemoteConnectionLost"
+                        && rinf::deserialize::<RemoteConnectionLost>(bytes).is_ok()
+                });
+                (loss, attachment, status, queue, no_legacy_loss)
             };
-            if let (Some(loss), Some(attachment), Some(status), Some(queue)) = observed {
+            if let (Some(loss), Some(attachment), Some(status), Some(queue), no_legacy_loss) =
+                observed
+            {
                 assert!(loss < attachment && attachment < status && status < queue);
+                assert!(no_legacy_loss);
                 break;
             }
             sleep(Duration::from_millis(20)).await;
