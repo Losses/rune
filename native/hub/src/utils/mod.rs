@@ -46,10 +46,7 @@ use ::playback::{
 };
 use ::scrobbling::manager::ScrobblingManager;
 
-use crate::backends::{
-    local::local_player_loop,
-    remote::{RemoteConnectError, server_player_loop},
-};
+use crate::backends::local::local_player_loop;
 use crate::library_pool::{LibraryHandle, LibraryPool};
 use crate::messages::*;
 use crate::request_error::ExpectedRequestError;
@@ -197,6 +194,27 @@ pub trait RinfRustSignal {
     fn send_to_dart(&self);
 }
 
+#[macro_export]
+macro_rules! implement_rinf_rust_signal_trait {
+    ($($t:ty),*) => {
+        $(
+            impl $crate::RinfRustSignal for $t {
+                fn name(&self) -> String {
+                    stringify!($t).to_string()
+                }
+
+                fn encode_to_vec(&self) -> anyhow::Result<Vec<u8>> {
+                    rinf::serialize(self).map_err(anyhow::Error::from)
+                }
+
+                fn send_to_dart(&self) {
+                    self.send_signal_to_dart();
+                }
+            }
+        )*
+    };
+}
+
 pub trait Broadcaster: Send + Sync {
     fn broadcast(&self, message: &dyn RinfRustSignal);
 }
@@ -298,48 +316,14 @@ async fn handle_media_library_path(
             }
         };
 
-        match &dart_signal.message.hosted_on {
-            OperationDestination::Local => {
-                let database_mode = dart_signal.message.mode;
-                info!("Received path: {media_library_path}");
+        {
+            let database_mode = dart_signal.message.mode;
+            info!("Received path: {media_library_path}");
 
-                let library_test = match check_library_state(&fsio, media_library_path) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        error!("Failed to check library state: {e:#?}");
-                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                            restore_last_index: false,
-                            error_kind: None,
-                            path: media_library_path.to_string(),
-                            success: false,
-                            error: Some(format!("{e:#?}")),
-                            not_ready: false,
-                        });
-                        return;
-                    }
-                };
-
-                if database_mode.is_none() {
-                    match &library_test {
-                        LibraryState::Uninitialized => {
-                            broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                                restore_last_index: false,
-                                error_kind: None,
-                                path: media_library_path.to_string(),
-                                success: true,
-                                error: None,
-                                not_ready: true,
-                            });
-                            return;
-                        }
-                        LibraryState::Initialized(_) => {}
-                    }
-                }
-
-                if let Some(mode) = database_mode
-                    && mode == LibraryInitializeMode::Redirected
-                    && let Err(e) = create_redirect(&fsio, media_library_path).await
-                {
+            let library_test = match check_library_state(&fsio, media_library_path) {
+                Ok(x) => x,
+                Err(e) => {
+                    error!("Failed to check library state: {e:#?}");
                     broadcaster.broadcast(&SetMediaLibraryPathResponse {
                         restore_last_index: false,
                         error_kind: None,
@@ -350,74 +334,75 @@ async fn handle_media_library_path(
                     });
                     return;
                 }
+            };
 
-                let opened = async {
-                    let mode = check_storage_mode(&fsio, media_library_path)?;
-                    let mut registry = LibraryRegistry::load(Path::new(config_path))?;
-                    let descriptor =
-                        resolve_library(&fsio, &mut registry, media_library_path, alias, mode)
-                            .await?;
-                    node.library_pool.acquire_ui(descriptor.library_id).await
-                }
-                .await;
-                match opened {
-                    Ok(library) => {
-                        info!("Resolved library id: {}", library.descriptor.library_id);
-                        let result =
-                            local_player_loop(library, node.clone(), Arc::clone(&scrobbler)).await;
-                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                            restore_last_index: result.is_ok()
-                                && node
-                                    .session()
-                                    .is_ok_and(|session| session.take_legacy_restore()),
-                            error_kind: None,
-                            path: media_library_path.to_string(),
-                            success: result.is_ok(),
-                            error: result.err().map(|error| format!("{error:#}")),
-                            not_ready: false,
-                        });
-                    }
-                    Err(e) => {
-                        error!("Library initialization failed: {e:#?}");
-                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                            restore_last_index: false,
-                            error_kind: None,
-                            path: media_library_path.to_string(),
-                            success: false,
-                            error: Some(format!("{e:#?}")),
-                            not_ready: false,
-                        });
-                    }
-                }
-            }
-            OperationDestination::Remote => {
-                match server_player_loop(fsio, media_library_path, node, alias).await {
-                    Ok(_) => {
+            if database_mode.is_none() {
+                match &library_test {
+                    LibraryState::Uninitialized => {
                         broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             restore_last_index: false,
                             error_kind: None,
                             path: media_library_path.to_string(),
                             success: true,
                             error: None,
-                            not_ready: false,
+                            not_ready: true,
                         });
+                        return;
                     }
-                    Err(e) => {
-                        error!("Failed to server player loop: {e:#?}");
-                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
-                            restore_last_index: false,
-                            error_kind: Some(
-                                e.downcast_ref::<RemoteConnectError>()
-                                    .map_or(LibraryOpenErrorKind::RemoteProtocol, |error| {
-                                        error.kind()
-                                    }),
-                            ),
-                            path: media_library_path.to_string(),
-                            success: false,
-                            error: Some(format!("{e:#?}")),
-                            not_ready: false,
-                        });
-                    }
+                    LibraryState::Initialized(_) => {}
+                }
+            }
+
+            if let Some(mode) = database_mode
+                && mode == LibraryInitializeMode::Redirected
+                && let Err(e) = create_redirect(&fsio, media_library_path).await
+            {
+                broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                    restore_last_index: false,
+                    error_kind: None,
+                    path: media_library_path.to_string(),
+                    success: false,
+                    error: Some(format!("{e:#?}")),
+                    not_ready: false,
+                });
+                return;
+            }
+
+            let opened = async {
+                let mode = check_storage_mode(&fsio, media_library_path)?;
+                let mut registry = LibraryRegistry::load(Path::new(config_path))?;
+                let descriptor =
+                    resolve_library(&fsio, &mut registry, media_library_path, alias, mode).await?;
+                node.library_pool.acquire_ui(descriptor.library_id).await
+            }
+            .await;
+            match opened {
+                Ok(library) => {
+                    info!("Resolved library id: {}", library.descriptor.library_id);
+                    let result =
+                        local_player_loop(library, node.clone(), Arc::clone(&scrobbler)).await;
+                    broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                        restore_last_index: result.is_ok()
+                            && node
+                                .session()
+                                .is_ok_and(|session| session.take_legacy_restore()),
+                        error_kind: None,
+                        path: media_library_path.to_string(),
+                        success: result.is_ok(),
+                        error: result.err().map(|error| format!("{error:#}")),
+                        not_ready: false,
+                    });
+                }
+                Err(e) => {
+                    error!("Library initialization failed: {e:#?}");
+                    broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                        restore_last_index: false,
+                        error_kind: None,
+                        path: media_library_path.to_string(),
+                        success: false,
+                        error: Some(format!("{e:#?}")),
+                        not_ready: false,
+                    });
                 }
             }
         }

@@ -25,8 +25,6 @@ Future<(bool, bool, String?, LibraryOpenErrorKind?)> setMediaLibraryPath(
     configPath: await getSettingsPath(),
     alias: await settingsManager.getValue<String?>(kDeviceAliasKey) ?? "Rune",
     mode: mode,
-    playsOn: OperationDestination.local,
-    hostedOn: OperationDestination.local,
   );
 
   try {
