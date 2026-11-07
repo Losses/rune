@@ -32,6 +32,12 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
     _fingerprintFuture = fetchServerCertificate(widget.host);
   }
 
+  // The first fetch often fails on iOS while the local network permission
+  // prompt is still open.
+  void _retry() {
+    setState(() => _fingerprintFuture = fetchServerCertificate(widget.host));
+  }
+
   void _handleAnswer(String fingerprint, bool correct) {
     widget.$close((correct: correct, fingerprint: fingerprint));
   }
@@ -86,6 +92,12 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
           },
         ),
         actions: [
+          FutureBuilder<String>(
+            future: _fingerprintFuture,
+            builder: (context, snapshot) => snapshot.hasError
+                ? FilledButton(onPressed: _retry, child: Text(s.playOnRetry))
+                : const SizedBox.shrink(),
+          ),
           Button(
             onPressed: () => widget.$close(null),
             child: Text(s.cancel),

@@ -11,7 +11,9 @@ void showAddRemoteDeviceDialog(bool navigateIfFailed, BuildContext context) {
       navigateIfFailed: navigateIfFailed,
       $close: $close,
     ),
-    barrierDismissible: true,
-    dismissWithEsc: true,
+    // Pairing and opening the device take a while once Add is pressed, and must
+    // not be cut off half way, so the dialog closes only through its buttons.
+    barrierDismissible: false,
+    dismissWithEsc: false,
   );
 }

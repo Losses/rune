@@ -2,11 +2,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/l10n.dart';
-import '../../../utils/dialogs/information/information.dart';
 import '../../../widgets/settings/settings_button.dart';
 
 import '../utils/show_search_remote_device_dialog.dart';
-import '../utils/trust_and_open_remote_device.dart';
+import '../utils/pair_remote_device.dart';
 
 class SearchRemoteDeviceSettingButton extends StatelessWidget {
   const SearchRemoteDeviceSettingButton({
@@ -34,20 +33,10 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
 
         if (correct == null) return;
 
-        if (!correct) {
-          if (!context.mounted) return;
-          showInformationDialog(
-            context: context,
-            title: s.pairingFailureTitle,
-            subtitle: s.pairingFailureMessage,
-          );
-
-          return;
-        }
-
         if (!context.mounted) return;
-        await trustAndOpenRemoteDevice(
+        await pairRemoteDevice(
           context,
+          correct: correct,
           fingerprint: device.fingerprint,
           hosts: device.ips,
           alias: device.alias,

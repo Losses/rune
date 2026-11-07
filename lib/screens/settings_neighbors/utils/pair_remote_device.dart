@@ -5,19 +5,26 @@ import '../../../bindings/bindings.dart';
 import '../../../providers/library_path.dart';
 import '../../../utils/api/add_trusted_server.dart';
 import '../../../utils/api/register_device_on_server.dart';
+import '../../../utils/api/request_failure.dart';
 import '../../../utils/dialogs/information/error.dart';
+import '../../../utils/dialogs/information/information.dart';
+import '../../../utils/discovery_url.dart';
 import '../../../utils/l10n.dart';
 
-import 'remote_device_address.dart';
 import 'show_server_status_dialog.dart';
 
-/// Trusts the server with [fingerprint], registers this device on it, checks
-/// the access status and stores the device in the library history.
+/// Pairs with a remote device after its fingerprint quiz: trusts the server
+/// with [fingerprint], registers this device on it, checks the access status
+/// and stores the device in the library history. It does not open the library.
+///
+/// A wrong quiz answer ([correct] is false) is reported here too, so that
+/// every caller shows the same failure.
 ///
 /// Returns the stored library path, or null if any step failed or was
 /// dismissed.
-Future<String?> trustAndOpenRemoteDevice(
+Future<String?> pairRemoteDevice(
   BuildContext context, {
+  required bool correct,
   required String fingerprint,
   required List<String> hosts,
   required String alias,
@@ -25,15 +32,24 @@ Future<String?> trustAndOpenRemoteDevice(
   final s = S.of(context);
   final libraryPath = Provider.of<LibraryPathProvider>(context, listen: false);
 
+  if (!correct) {
+    await showInformationDialog(
+      context: context,
+      title: s.pairingFailureTitle,
+      subtitle: s.pairingFailureMessage,
+    );
+    return null;
+  }
+
   try {
     await addTrustedServer(fingerprint, hosts);
   } catch (e) {
     if (!context.mounted) return null;
 
-    showErrorDialog(
+    await showErrorDialog(
       context: context,
       title: s.unknownError,
-      errorMessage: e.toString(),
+      errorMessage: requestErrorText(s, e),
     );
 
     return null;
@@ -44,10 +60,10 @@ Future<String?> trustAndOpenRemoteDevice(
   } catch (e) {
     if (!context.mounted) return null;
 
-    showErrorDialog(
+    await showErrorDialog(
       context: context,
       title: s.unknownError,
-      errorMessage: e.toString(),
+      errorMessage: requestErrorText(s, e),
     );
 
     return null;
@@ -81,7 +97,9 @@ Future<String?> trustAndOpenRemoteDevice(
 
   if (!context.mounted) return null;
   final path = remoteLibraryPath(hosts);
-  libraryPath.addLibraryPath(context, path, alias);
+  // Awaited because setLibraryPath stores the history as well, and the two
+  // writes must not overlap.
+  await libraryPath.addLibraryPath(context, path, alias);
 
   return path;
 }

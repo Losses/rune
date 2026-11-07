@@ -2,18 +2,24 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/discovery_url.dart';
 import '../../../utils/l10n.dart';
-import '../utils/add_remote_device_form_controller.dart';
 
 class AddRemoteDeviceForm extends StatelessWidget {
-  final AddRemoteDeviceFormController controller;
+  final TextEditingController controller;
   final GlobalKey<FormState>? formKey;
   final VoidCallback? onSubmitted;
+
+  /// Whether the field says what is wrong with the address as it is typed.
+  /// Off until the first submit, so an empty field is not an error yet.
+  final bool validateAsTyped;
+  final bool enabled;
 
   const AddRemoteDeviceForm({
     super.key,
     required this.controller,
     this.formKey,
     this.onSubmitted,
+    this.validateAsTyped = false,
+    this.enabled = true,
   });
 
   @override
@@ -30,10 +36,13 @@ class AddRemoteDeviceForm extends StatelessWidget {
           InfoLabel(
             label: s.ipAddress,
             child: TextFormBox(
-              controller: controller.hostnameController,
+              controller: controller,
+              enabled: enabled,
               placeholder: '192.168.1.20',
               autofocus: true,
-              autovalidateMode: AutovalidateMode.onUserInteraction,
+              autovalidateMode: validateAsTyped
+                  ? AutovalidateMode.onUserInteraction
+                  : AutovalidateMode.disabled,
               validator: (value) => parseIpv4Host(value ?? '') == null
                   ? s.invalidIpv4Address
                   : null,

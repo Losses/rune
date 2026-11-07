@@ -180,7 +180,13 @@ class FileSelector: NSObject, UIDocumentPickerDelegate {
     documentPicker.delegate = self
     documentPicker.allowsMultipleSelection = false
 
-    viewController.present(documentPicker, animated: true)
+    // present(_:) on a controller that is already presenting does nothing, so
+    // the picker goes on top of whatever is shown.
+    var presenter = viewController
+    while let presented = presenter.presentedViewController {
+      presenter = presented
+    }
+    presenter.present(documentPicker, animated: true)
   }
 
   func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {

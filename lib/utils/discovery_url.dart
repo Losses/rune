@@ -9,11 +9,13 @@ List<int>? _ipv4Octets(String ip) {
   return octets.any((n) => n > 255) ? null : octets;
 }
 
-/// Returns the trimmed [input] if it is a dotted IPv4 literal, otherwise null.
-String? parseIpv4Host(String input) {
-  final host = input.trim();
-  return _ipv4Octets(host) == null ? null : host;
-}
+/// Returns the trimmed [input] in canonical dotted form if it is an IPv4
+/// literal, otherwise null.
+///
+/// The canonical form drops leading zeros (`192.168.01.20` becomes
+/// `192.168.1.20`). The trust and the library path are keyed by the host, and
+/// the path only holds the numeric value, so every step has to use this form.
+String? parseIpv4Host(String input) => _ipv4Octets(input.trim())?.join('.');
 
 String _encodeIPv4(String ip) {
   final nums = _ipv4Octets(ip);
@@ -78,3 +80,6 @@ List<String> decodeRnSrvUrl(String url) {
     (i) => _decodeIPv4(encoded.substring(i * 7, (i + 1) * 7)),
   );
 }
+
+/// The library path under which a remote device is stored and opened.
+String remoteLibraryPath(List<String> hosts) => '@RR|${encodeRnSrvUrl(hosts)}';

@@ -4,16 +4,14 @@ import 'package:provider/provider.dart';
 import '../../../providers/library_path.dart';
 import '../../../utils/api/close_library.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
-import '../../../utils/dialogs/information/information.dart';
 import '../../../utils/discovery_url.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/remote_connection_messages.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../widgets/no_shortcuts.dart';
 
-import '../utils/add_remote_device_form_controller.dart';
 import '../utils/show_fingerprint_quiz_dialog.dart';
-import '../utils/trust_and_open_remote_device.dart';
+import '../utils/pair_remote_device.dart';
 
 import 'add_remote_device_form.dart';
 
@@ -32,26 +30,34 @@ class AddRemoteDeviceDialog extends StatefulWidget {
 }
 
 class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
-  late AddRemoteDeviceFormController controller;
+  final TextEditingController hostController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-
-  @override
-  void initState() {
-    super.initState();
-    controller = AddRemoteDeviceFormController();
-  }
+  // Whether Add was pressed once: from then on the field validates as typed.
+  bool _tried = false;
+  // The pairing and the switch of the library take long, and run only once.
+  bool isLoading = false;
 
   @override
   void dispose() {
-    controller.dispose();
+    hostController.dispose();
     super.dispose();
   }
 
   Future<void> _addConnection() async {
-    final s = S.of(context);
+    if (isLoading) return;
+    if (!_tried) setState(() => _tried = true);
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    final host = parseIpv4Host(controller.hostnameController.text)!;
+    final host = parseIpv4Host(hostController.text)!;
 
+    setState(() => isLoading = true);
+    try {
+      await _pairAndOpen(host);
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _pairAndOpen(String host) async {
     final libraryPath = Provider.of<LibraryPathProvider>(
       context,
       listen: false,
@@ -60,17 +66,9 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
     final quiz = await showFingerprintQuizDialog(context, host);
     if (quiz == null || !mounted) return;
 
-    if (!quiz.correct) {
-      showInformationDialog(
-        context: context,
-        title: s.pairingFailureTitle,
-        subtitle: s.pairingFailureMessage,
-      );
-      return;
-    }
-
-    final path = await trustAndOpenRemoteDevice(
+    final path = await pairRemoteDevice(
       context,
+      correct: quiz.correct,
       fingerprint: quiz.fingerprint,
       hosts: [host],
       alias: host,
@@ -105,13 +103,27 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
       ContentDialog(
         title: Column(children: [SizedBox(height: 8), Text(s.addConnection)]),
         content: AddRemoteDeviceForm(
-          controller: controller,
+          controller: hostController,
           formKey: _formKey,
+          validateAsTyped: _tried,
+          enabled: !isLoading,
           onSubmitted: _addConnection,
         ),
         actions: [
-          FilledButton(onPressed: _addConnection, child: Text(s.addConnection)),
-          Button(onPressed: () => widget.$close(null), child: Text(s.cancel)),
+          FilledButton(
+            onPressed: isLoading ? null : _addConnection,
+            child: isLoading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: ProgressRing(strokeWidth: 2),
+                  )
+                : Text(s.addConnection),
+          ),
+          Button(
+            onPressed: isLoading ? null : () => widget.$close(null),
+            child: Text(s.cancel),
+          ),
         ],
       ),
     );

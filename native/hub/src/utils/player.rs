@@ -63,7 +63,7 @@ pub(crate) async fn update_media_controls_metadata(
     #[cfg(target_os = "ios")]
     let cover_url_owned = ios_cover_path(
         cover_art_path.map(|x| x.as_str()),
-        Some(get_default_cover_art_path()),
+        get_default_cover_art_path(),
     );
     #[cfg(target_os = "ios")]
     let cover_url = cover_url_owned.as_deref();
@@ -95,13 +95,14 @@ fn macos_cover_file_url(path: &std::path::Path) -> Option<String> {
 }
 
 // On iOS this value is read as a plain filesystem path, so a cover that is
-// relative or gone is replaced by the default cover, as on other platforms.
+// relative or gone is replaced by the default cover. Linux and Windows pass
+// the path through unchecked, and macOS shows no cover in that case.
 #[cfg(any(target_os = "ios", test))]
-fn ios_cover_path(path: Option<&str>, default: Option<&std::path::Path>) -> Option<String> {
+fn ios_cover_path(path: Option<&str>, default: &std::path::Path) -> Option<String> {
     let usable = |path: &std::path::Path| path.is_absolute() && path.is_file();
     path.map(std::path::Path::new)
         .filter(|path| usable(path))
-        .or(default.filter(|path| usable(path)))
+        .or(Some(default).filter(|path| usable(path)))
         .and_then(|path| path.to_str())
         .map(Into::into)
 }
@@ -179,7 +180,7 @@ mod cover_file_url_tests {
         std::fs::write(&cover, b"test fixture").unwrap();
         std::fs::write(&default, b"test fixture").unwrap();
         assert_eq!(
-            ios_cover_path(cover.to_str(), Some(&default)),
+            ios_cover_path(cover.to_str(), &default),
             cover.to_str().map(String::from)
         );
     }
@@ -192,22 +193,19 @@ mod cover_file_url_tests {
         let expected = default.to_str().map(String::from);
         let missing = dir.path().join("missing.jpg");
         assert_eq!(
-            ios_cover_path(Some("cache/covers/a.jpg"), Some(&default)),
+            ios_cover_path(Some("cache/covers/a.jpg"), &default),
             expected
         );
-        assert_eq!(ios_cover_path(missing.to_str(), Some(&default)), expected);
-        assert_eq!(
-            ios_cover_path(dir.path().to_str(), Some(&default)),
-            expected
-        );
-        assert_eq!(ios_cover_path(None, Some(&default)), expected);
+        assert_eq!(ios_cover_path(missing.to_str(), &default), expected);
+        assert_eq!(ios_cover_path(dir.path().to_str(), &default), expected);
+        assert_eq!(ios_cover_path(None, &default), expected);
     }
 
     #[test]
     fn ios_cover_path_is_none_without_usable_default() {
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("missing.png");
-        assert_eq!(ios_cover_path(Some("relative.jpg"), Some(&missing)), None);
-        assert_eq!(ios_cover_path(None, None), None);
+        assert_eq!(ios_cover_path(Some("relative.jpg"), &missing), None);
+        assert_eq!(ios_cover_path(None, &missing), None);
     }
 }
