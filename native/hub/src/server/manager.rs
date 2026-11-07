@@ -469,7 +469,7 @@ impl ServerManager {
                         && let Some(library) = &params.library
                     {
                         node.broadcaster.broadcast(&LibraryContentChanged {
-                            path: library.media_root.clone(),
+                            path: library.descriptor.app_name(),
                         });
                     }
                 });
@@ -905,8 +905,8 @@ mod lifecycle_tests {
     use database::connection::StorageMode;
     use database::entities::{media_files, media_files::Column};
     use database::library_registry::{
-        DbPlacement, LibraryAuthority, LibraryDescriptor, LibraryRegistry, LibraryStorage,
-        create_replica, resolve_library,
+        DbPlacement, LibraryAuthority, LibraryDescriptor, LibraryLocation, LibraryRegistry,
+        LibraryStorage, create_replica, resolve_library,
     };
     use database::sync::{
         LibrarySyncStore,
@@ -1051,7 +1051,13 @@ mod lifecycle_tests {
 
     async fn fixture_open_replica(source: &Fixture, root: &Path) -> Result<Fixture> {
         let node = source.global_params.node.clone();
-        let mut registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+        let config = Path::new(&*node.config_path);
+        let mut registry = LibraryRegistry::load(config)?;
+        // A replica added through the peer flow is named by id, not by folder.
+        let root = match LibraryLocation::parse(root.to_str().context("replica path")?)? {
+            LibraryLocation::Replica(id) => registry.replica(id)?.root(config),
+            LibraryLocation::Path(path) => std::path::PathBuf::from(path),
+        };
         let descriptor = resolve_library(
             &source.global_params.test_library().fsio,
             &mut registry,
@@ -2789,7 +2795,7 @@ mod lifecycle_tests {
             &replica.global_params.test_library().fsio,
             &replica.global_params.test_library().main_db,
             &replica.global_params.node_id,
-            Path::new(&path),
+            Path::new(&replica.global_params.test_library().media_root),
             ScanOptions {
                 cleanup: true,
                 force: false,

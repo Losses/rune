@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -7,6 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../utils/l10n.dart';
+import '../../utils/library_reference.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
@@ -190,7 +190,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                             (scanProgress?.initialize ?? false) ||
                                 (analyzeProgress?.isInitializeTask ?? false);
 
-                        String fileName = File(itemPath).uri.pathSegments.last;
+                        String fileName = libraryFolderName(itemPath);
 
                         void Function()? whileWorking(void Function() x) {
                           return isCurrentLibrary ||

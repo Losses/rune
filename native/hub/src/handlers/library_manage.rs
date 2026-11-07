@@ -70,10 +70,11 @@ impl Signal for CloseLibraryRequest {
 
         info!("Closing library: {:#?}", request.path);
 
-        if request.path != library.media_root {
+        let app_name = library.descriptor.app_name();
+        if request.path != app_name {
             warn!(
                 "Library path mismatch: {:#?} != {:#?}",
-                request.path, library.media_root
+                request.path, app_name
             );
             return Ok(None);
         }
@@ -137,17 +138,18 @@ impl Signal for ScanAudioLibraryRequest {
 
         // Clone all the data we need before spawning the task
         let request_path = dart_signal.path.clone();
+        let fs_path = library.fs_path(&request_path);
         // FsIo on Android is rooted at the granted SAF tree; the content://
         // URI Dart passes is not a path inside that tree. Scans always start
         // at the tree root there.
         #[cfg(target_os = "android")]
-        let scan_path = if request_path.starts_with("content://") {
+        let scan_path = if fs_path.starts_with("content://") {
             String::new()
         } else {
-            request_path.clone()
+            fs_path
         };
         #[cfg(not(target_os = "android"))]
-        let scan_path = request_path.clone();
+        let scan_path = fs_path;
         let request_force = dart_signal.force;
         let missing_host_file = sync_settings.read().await.missing_host_file;
         let main_db_clone = Arc::clone(&library.main_db);
@@ -346,16 +348,17 @@ impl Signal for AnalyzeAudioLibraryRequest {
 
         let request_path = request.path.clone();
         let closure_request_path = request_path.clone();
+        let fs_path = library.fs_path(&request_path);
         // See ScanAudioLibraryRequest: on Android the content:// URI is not a
         // path inside the SAF tree; analysis starts at the tree root.
         #[cfg(target_os = "android")]
-        let analysis_path = if request_path.starts_with("content://") {
+        let analysis_path = if fs_path.starts_with("content://") {
             String::new()
         } else {
-            request_path.clone()
+            fs_path
         };
         #[cfg(not(target_os = "android"))]
-        let analysis_path = request_path.clone();
+        let analysis_path = fs_path;
         let batch_size = determine_batch_size(request.workload_factor);
         let computing_device = request.computing_device;
 
@@ -451,6 +454,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
         let request = dart_signal;
         let request_path = Arc::new(request.path.clone());
+        let fs_path = library.fs_path(&request.path);
         let batch_size = determine_batch_size(request.workload_factor);
         let config = Configuration::default();
         let similarity_threshold = request.similarity_threshold;
@@ -486,7 +490,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 compute_file_fingerprints(
                     Arc::clone(&_library.fsio),
                     &_library.main_db,
-                    Path::new(&request_path_clone),
+                    Path::new(&fs_path),
                     batch_size,
                     move |cur, total| {
                         let progress = cur as f32 / total as f32 * 0.33;
