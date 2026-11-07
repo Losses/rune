@@ -30,10 +30,16 @@ class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
 
     return NoShortcuts(
       ContentDialog(
-        style: ContentDialogThemeData.standard(FluentTheme.of(context)).merge(
-          FluentTheme.of(context).dialogTheme.merge(
-            ContentDialogThemeData(padding: EdgeInsets.fromLTRB(0, 0, 0, 12)),
+        style: ContentDialogThemeData.standard(
+          FluentTheme.of(
+            context,
           ),
+        ).merge(
+          FluentTheme.of(context).dialogTheme.merge(
+                ContentDialogThemeData(
+                  padding: EdgeInsets.fromLTRB(0, 0, 0, 12),
+                ),
+              ),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -44,7 +50,10 @@ class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [ProgressBar(), SizedBox(height: 20)],
+                children: [
+                  ProgressBar(),
+                  SizedBox(height: 20),
+                ],
               ),
             ),
             SizedBox(
@@ -57,11 +66,14 @@ class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
                       widget.completer.complete((device, correct)),
                 ),
               ),
-            ),
+            )
           ],
         ),
         actions: [
-          Button(onPressed: () => widget.$close(null), child: Text(s.cancel)),
+          Button(
+            onPressed: () => widget.$close(null),
+            child: Text(s.cancel),
+          ),
         ],
       ),
     );

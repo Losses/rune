@@ -6,14 +6,6 @@ import '../../../utils/api/fetch_server_certificate.dart';
 import '../../../widgets/fingerprint/fingerprint_quiz.dart';
 import '../../../widgets/no_shortcuts.dart';
 
-/// The user's answer and the certificate fingerprint they checked it against.
-class FingerprintAnswer {
-  const FingerprintAnswer({required this.fingerprint, required this.correct});
-
-  final String fingerprint;
-  final bool correct;
-}
-
 class FingerprintQuizDialog extends StatefulWidget {
   const FingerprintQuizDialog({
     super.key,
@@ -22,7 +14,7 @@ class FingerprintQuizDialog extends StatefulWidget {
   });
 
   final String host;
-  final void Function(FingerprintAnswer?) $close;
+  final void Function(bool?) $close;
 
   @override
   FingerprintQuizDialogState createState() => FingerprintQuizDialogState();
@@ -37,10 +29,8 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
     _fingerprintFuture = fetchServerCertificate(widget.host);
   }
 
-  void _handleAnswer(String fingerprint, bool correct) {
-    widget.$close(
-      FingerprintAnswer(fingerprint: fingerprint, correct: correct),
-    );
+  void _handleAnswer(bool correct) async {
+    widget.$close(correct);
   }
 
   @override
@@ -50,7 +40,10 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
     return NoShortcuts(
       ContentDialog(
         title: Column(
-          children: [SizedBox(height: 8), Text(S.of(context).pairingTitle)],
+          children: [
+            SizedBox(height: 8),
+            Text(S.of(context).pairingTitle),
+          ],
         ),
         content: FutureBuilder<String>(
           future: _fingerprintFuture,
@@ -75,18 +68,24 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(s.pairingInstructions, style: TextStyle(height: 1.4)),
+                Text(
+                  s.pairingInstructions,
+                  style: TextStyle(height: 1.4),
+                ),
                 const SizedBox(height: 24),
                 FingerprintQuiz(
                   fingerprint: snapshot.data!,
-                  onAnswer: (correct) => _handleAnswer(snapshot.data!, correct),
-                ),
+                  onAnswer: _handleAnswer,
+                )
               ],
             );
           },
         ),
         actions: [
-          Button(onPressed: () => widget.$close(null), child: Text(s.cancel)),
+          Button(
+            onPressed: () => widget.$close(null),
+            child: Text(s.cancel),
+          ),
         ],
       ),
     );

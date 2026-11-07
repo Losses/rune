@@ -91,22 +91,6 @@ Future<void> showCastOnDialog(
   );
 }
 
-String rendererUnavailableReason(
-  AppLocalizations strings,
-  RendererCandidate candidate, [
-  Map<String, String> libraryNames = const {},
-]) => switch (candidate.availability) {
-  RendererAvailability.offline => strings.playOnOffline,
-  RendererAvailability.notApproved => strings.playOnNotApproved,
-  RendererAvailability.noControl => strings.playOnNoControl,
-  RendererAvailability.cantPlay => strings.playOnCantPlay(
-    libraryNames[candidate.blockedLibraryId] ??
-        candidate.blockedLibraryId ??
-        '',
-  ),
-  RendererAvailability.available => '',
-};
-
 /// Returns queue library ids in first-seen order, omitting non-library items.
 List<String> queueLibraryIds(Iterable<PlayingItem> items) {
   final seen = <String>{};
@@ -184,6 +168,22 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
     }
   }
 
+  String _reason(
+    AppLocalizations strings,
+    RendererCandidate candidate,
+    Map<String, String> libraryNames,
+  ) => switch (candidate.availability) {
+    RendererAvailability.offline => strings.playOnOffline,
+    RendererAvailability.notApproved => strings.playOnNotApproved,
+    RendererAvailability.noControl => strings.playOnNoControl,
+    RendererAvailability.cantPlay => strings.playOnCantPlay(
+      libraryNames[candidate.blockedLibraryId] ??
+          candidate.blockedLibraryId ??
+          '',
+    ),
+    RendererAvailability.available => '',
+  };
+
   @override
   Widget build(BuildContext context) {
     final strings = S.of(context);
@@ -234,11 +234,7 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                               candidate.availability ==
                                   RendererAvailability.available
                               ? null
-                              : rendererUnavailableReason(
-                                  strings,
-                                  candidate,
-                                  names,
-                                ),
+                              : _reason(strings, candidate, names),
                           selected:
                               currentRenderer?.fingerprint ==
                               candidate.fingerprint,

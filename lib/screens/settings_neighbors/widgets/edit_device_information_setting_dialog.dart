@@ -9,7 +9,10 @@ import '../../../providers/broadcast.dart';
 class EditDeviceInformationSettingDialog extends StatefulWidget {
   final void Function(void) $close;
 
-  const EditDeviceInformationSettingDialog({super.key, required this.$close});
+  const EditDeviceInformationSettingDialog({
+    super.key,
+    required this.$close,
+  });
 
   @override
   EditDeviceInformationSettingDialogState createState() =>
@@ -23,9 +26,8 @@ class EditDeviceInformationSettingDialogState
   @override
   void initState() {
     final broadcast = Provider.of<BroadcastProvider>(context, listen: false);
-    deviceNameController.value = TextEditingValue(
-      text: broadcast.deviceAlias ?? "",
-    );
+    deviceNameController.value =
+        TextEditingValue(text: broadcast.deviceAlias ?? "");
     super.initState();
   }
 
@@ -49,7 +51,10 @@ class EditDeviceInformationSettingDialogState
     return NoShortcuts(
       ContentDialog(
         title: Column(
-          children: [SizedBox(height: 8), Text(s.editDeviceInformation)],
+          children: [
+            SizedBox(height: 8),
+            Text(s.editDeviceInformation),
+          ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -74,7 +79,10 @@ class EditDeviceInformationSettingDialogState
                 : _updateDeviceName,
             child: Text(s.edit),
           ),
-          Button(onPressed: () => widget.$close(null), child: Text(s.cancel)),
+          Button(
+            onPressed: () => widget.$close(null),
+            child: Text(s.cancel),
+          ),
         ],
       ),
     );

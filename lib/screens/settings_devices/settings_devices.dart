@@ -25,7 +25,7 @@ import '../settings_neighbors/widgets/search_remote_device_setting_button.dart';
 import '../settings_neighbors/widgets/add_neighbor_manually_setting_button.dart';
 import 'device_status.dart';
 import 'device_access.dart';
-import 'paired_renderers_list.dart';
+import 'remote_destinations_list.dart';
 
 import '../settings_server/utils/show_confirm_remove_device_dialog.dart';
 import '../settings_server/utils/show_review_connection_dialog.dart';
@@ -57,8 +57,7 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
     do {
       refreshGrantsAgain = false;
       final clients = Provider.of<BroadcastProvider>(
-        context,
-        listen: false,
+        context, listen: false,
       ).users;
       for (final client in clients.where(
         (c) => c.status == ClientStatus.approved,
@@ -172,8 +171,11 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                     tryClose: true,
                     navigateIfFailed: true,
                   ),
-                  const AddNeighborManuallySettingButton(),
-                  const PairedRenderersList(),
+                  const AddNeighborManuallySettingButton(
+                    tryClose: true,
+                    navigateIfFailed: true,
+                  ),
+                  const RemoteDestinationsList(),
                 ],
               ),
             ),
@@ -232,8 +234,7 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                     Button(
                       onPressed: () async {
                         await $push(
-                          '/settings/device-access',
-                          arguments: client,
+                          '/settings/device-access', arguments: client,
                         );
                         if (mounted) _refreshGrants();
                       },

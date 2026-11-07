@@ -21,6 +21,11 @@ import '../constants/configurations.dart';
 
 final FileStorageService _fileStorageService = FileStorageService();
 
+enum ConnectionType {
+  local,
+  remote,
+}
+
 @immutable
 class LibraryPathEntry {
   final String rawPath;

@@ -9,7 +9,7 @@ import '../../constants/configurations.dart';
 final SettingsManager settingsManager = SettingsManager();
 
 class FileStorageService {
-  static const _currentDataVersion = 3;
+  static const _currentDataVersion = 2;
 
   // Get the list of opened files
   Future<List<Map<String, dynamic>>> _getOpenedFiles() async {
@@ -44,32 +44,14 @@ class FileStorageService {
 
   Future<void> _migrateData(int oldVersion) async {
     if (oldVersion == 1) {
-      final raw = await settingsManager.getValue<List<dynamic>>(
-        kOpenedFilesKey,
-      );
+      final raw =
+          await settingsManager.getValue<List<dynamic>>(kOpenedFilesKey);
 
       await settingsManager.setValue(
-        kOpenedFilesKey,
-        normalizeOpenedFiles(raw ?? []),
-      );
-      await settingsManager.setValue(kDataVersionKey, 2);
-      oldVersion = 2;
-    }
-
-    if (oldVersion < 3) {
-      final raw = await settingsManager.getValue<List<dynamic>>(
-        kOpenedFilesKey,
-      );
-      final entries = normalizeOpenedFiles(raw ?? [])
-          .where((entry) => !_isLegacyRemotePath(entry['path'] as String))
-          .toList();
-      await settingsManager.setValue(kOpenedFilesKey, entries);
+          kOpenedFilesKey, normalizeOpenedFiles(raw ?? []));
       await settingsManager.setValue(kDataVersionKey, _currentDataVersion);
     }
   }
-
-  bool _isLegacyRemotePath(String path) =>
-      path.startsWith('@RR|') || path.startsWith('@LR|');
 
   Map<String, dynamic> _migrateLegacyPath(String path) {
     final entry = LibraryPathEntry(path);

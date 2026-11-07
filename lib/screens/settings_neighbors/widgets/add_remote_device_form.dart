@@ -6,7 +6,10 @@ import '../utils/add_remote_device_form_controller.dart';
 class AddRemoteDeviceForm extends StatelessWidget {
   final AddRemoteDeviceFormController controller;
 
-  const AddRemoteDeviceForm({super.key, required this.controller});
+  const AddRemoteDeviceForm({
+    super.key,
+    required this.controller,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +33,7 @@ class AddRemoteDeviceForm extends StatelessWidget {
           checked: controller.securedController.isChecked,
           onChanged: (v) => controller.securedController.isChecked = v,
           content: Text(s.secured),
-        ),
+        )
       ],
     );
   }

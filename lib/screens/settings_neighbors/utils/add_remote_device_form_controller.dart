@@ -25,13 +25,11 @@ class AddRemoteDeviceFormController {
       if (uri.scheme == 'ws' || uri.scheme == 'wss') {
         controller.securedController.isChecked = (uri.scheme == 'wss');
 
-        controller.hostnameController.text = uri.host.isNotEmpty
-            ? uri.host
-            : defaultHostname;
+        controller.hostnameController.text =
+            uri.host.isNotEmpty ? uri.host : defaultHostname;
 
-        controller.portController.text = uri.port != 0
-            ? uri.port.toString()
-            : defaultPort;
+        controller.portController.text =
+            uri.port != 0 ? uri.port.toString() : defaultPort;
       } else {
         throw 'Invalid URL';
       }
@@ -49,9 +47,8 @@ class AddRemoteDeviceFormController {
     final address = hostnameController.text.isNotEmpty
         ? hostnameController.text
         : defaultHostname;
-    final port = portController.text.isNotEmpty
-        ? portController.text
-        : defaultPort;
+    final port =
+        portController.text.isNotEmpty ? portController.text : defaultPort;
 
     return '$protocol://$address:$port';
   }
