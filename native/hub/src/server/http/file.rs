@@ -10,8 +10,10 @@ use axum::{
     http::{Request, StatusCode},
     response::{IntoResponse, Response},
 };
+use database::entities::media_cover_art;
 use database::error::ExpectedError;
 use fsio::FsIo;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
@@ -83,6 +85,26 @@ pub async fn file_handler(
     }
 
     let (prefix, relative_path) = (path_parts[0], path_parts[1]);
+
+    if prefix == "cache" {
+        let Some(file_name) = FilePath::new(relative_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+        else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        let belongs_to_library = media_cover_art::Entity::find()
+            .filter(media_cover_art::Column::ContentHash.eq(file_name))
+            .filter(media_cover_art::Column::LocalAvailable.eq(true))
+            .one(&*authorized_library.main_db)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+        if !belongs_to_library {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+    }
 
     // Determine the actual root directory based on the prefix
     let library = if prefix == "library" {

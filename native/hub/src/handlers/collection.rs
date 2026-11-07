@@ -15,6 +15,7 @@ use ::database::{
     entities::{albums, artists, genres, mix_queries, mixes, playlists},
 };
 use ::fsio::FsIo;
+use uuid::Uuid;
 
 use crate::utils::{
     GlobalParams, ParamsExtractor, RunningMode, inject_cover_art_map, require_library,
@@ -41,6 +42,13 @@ pub struct CollectionActionParams {
     ids: Option<Vec<i32>>,
     n: Option<u32>,
     bake_cover_arts: bool,
+}
+
+struct CollectionCoverContext<'a> {
+    library_id: Uuid,
+    running_mode: &'a RunningMode,
+    remote_host: &'a Option<String>,
+    playback_queue: Vec<i32>,
 }
 
 async fn handle_fetch_group_summary<T: CollectionQuery>(
@@ -74,10 +82,8 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
     fsio: &Arc<FsIo>,
     main_db: &Arc<MainDbConnection>,
     recommend_db: &Arc<RecommendationDbConnection>,
-    running_mode: &RunningMode,
-    remote_host: &Option<String>,
     params: CollectionActionParams,
-    queue: Vec<i32>,
+    cover_context: CollectionCoverContext<'_>,
 ) -> Result<Option<FetchCollectionGroupsResponse>> {
     let entry = T::get_groups(
         main_db,
@@ -90,7 +96,7 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
         let collections_result: Result<Vec<Collection>> = join_all(x.1.into_iter().map(|x| {
             let main_db = Arc::clone(main_db);
             let recommend_db = Arc::clone(recommend_db);
-            let queue = queue.clone();
+            let playback_queue = cover_context.playback_queue.clone();
 
             async move {
                 Collection::from_model_bakeable(
@@ -100,9 +106,10 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
                     x.0.clone(),
                     CollectionCoverOptions {
                         bake: params.bake_cover_arts,
-                        running_mode,
-                        remote_host,
-                        playback_queue: &queue,
+                        library_id: cover_context.library_id,
+                        running_mode: cover_context.running_mode,
+                        remote_host: cover_context.remote_host,
+                        playback_queue: &playback_queue,
                     },
                 )
                 .await
@@ -130,10 +137,8 @@ async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
     fsio: &Arc<FsIo>,
     main_db: &Arc<MainDbConnection>,
     recommend_db: &Arc<RecommendationDbConnection>,
-    running_mode: &RunningMode,
-    remote_host: &Option<String>,
     params: CollectionActionParams,
-    queue: Vec<i32>,
+    cover_context: CollectionCoverContext<'_>,
 ) -> Result<Option<FetchCollectionByIdsResponse>> {
     let items = T::get_by_ids(
         main_db,
@@ -143,7 +148,7 @@ async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
     )
     .await?;
     let futures = items.into_iter().map(|item| {
-        let queue = queue.clone();
+        let playback_queue = cover_context.playback_queue.clone();
         async move {
             Collection::from_model_bakeable(
                 fsio,
@@ -152,9 +157,10 @@ async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
                 item.clone(),
                 CollectionCoverOptions {
                     bake: params.bake_cover_arts,
-                    running_mode,
-                    remote_host,
-                    playback_queue: &queue,
+                    library_id: cover_context.library_id,
+                    running_mode: cover_context.running_mode,
+                    remote_host: cover_context.remote_host,
+                    playback_queue: &playback_queue,
                 },
             )
             .await
@@ -372,10 +378,13 @@ impl Signal for FetchCollectionGroupsRequest {
                     fsio,
                     main_db,
                     recommend_db,
-                    &running_mode,
-                    &remote_host,
                     params,
-                    queue.clone(),
+                    CollectionCoverContext {
+                        library_id: library.descriptor.library_id,
+                        running_mode: &running_mode,
+                        remote_host: &remote_host,
+                        playback_queue: queue.clone(),
+                    },
                 )
                 .await
             }
@@ -384,10 +393,13 @@ impl Signal for FetchCollectionGroupsRequest {
                     fsio,
                     main_db,
                     recommend_db,
-                    &running_mode,
-                    &remote_host,
                     params,
-                    queue.clone(),
+                    CollectionCoverContext {
+                        library_id: library.descriptor.library_id,
+                        running_mode: &running_mode,
+                        remote_host: &remote_host,
+                        playback_queue: queue.clone(),
+                    },
                 )
                 .await
             }
@@ -396,10 +408,13 @@ impl Signal for FetchCollectionGroupsRequest {
                     fsio,
                     main_db,
                     recommend_db,
-                    &running_mode,
-                    &remote_host,
                     params,
-                    queue.clone(),
+                    CollectionCoverContext {
+                        library_id: library.descriptor.library_id,
+                        running_mode: &running_mode,
+                        remote_host: &remote_host,
+                        playback_queue: queue.clone(),
+                    },
                 )
                 .await
             }
@@ -408,10 +423,13 @@ impl Signal for FetchCollectionGroupsRequest {
                     fsio,
                     main_db,
                     recommend_db,
-                    &running_mode,
-                    &remote_host,
                     params,
-                    queue.clone(),
+                    CollectionCoverContext {
+                        library_id: library.descriptor.library_id,
+                        running_mode: &running_mode,
+                        remote_host: &remote_host,
+                        playback_queue: queue.clone(),
+                    },
                 )
                 .await
             }
@@ -420,10 +438,13 @@ impl Signal for FetchCollectionGroupsRequest {
                     fsio,
                     main_db,
                     recommend_db,
-                    &running_mode,
-                    &remote_host,
                     params,
-                    queue.clone(),
+                    CollectionCoverContext {
+                        library_id: library.descriptor.library_id,
+                        running_mode: &running_mode,
+                        remote_host: &remote_host,
+                        playback_queue: queue.clone(),
+                    },
                 )
                 .await
             }
@@ -477,10 +498,13 @@ impl Signal for FetchCollectionByIdsRequest {
                     fsio,
                     main_db,
                     recommend_db,
-                    &running_mode,
-                    &remote_host,
                     params,
-                    queue.clone(),
+                    CollectionCoverContext {
+                        library_id: library.descriptor.library_id,
+                        running_mode: &running_mode,
+                        remote_host: &remote_host,
+                        playback_queue: queue.clone(),
+                    },
                 )
                 .await
             }
@@ -489,10 +513,13 @@ impl Signal for FetchCollectionByIdsRequest {
                     fsio,
                     main_db,
                     recommend_db,
-                    &running_mode,
-                    &remote_host,
                     params,
-                    queue.clone(),
+                    CollectionCoverContext {
+                        library_id: library.descriptor.library_id,
+                        running_mode: &running_mode,
+                        remote_host: &remote_host,
+                        playback_queue: queue.clone(),
+                    },
                 )
                 .await
             }
@@ -501,10 +528,13 @@ impl Signal for FetchCollectionByIdsRequest {
                     fsio,
                     main_db,
                     recommend_db,
-                    &running_mode,
-                    &remote_host,
                     params,
-                    queue.clone(),
+                    CollectionCoverContext {
+                        library_id: library.descriptor.library_id,
+                        running_mode: &running_mode,
+                        remote_host: &remote_host,
+                        playback_queue: queue.clone(),
+                    },
                 )
                 .await
             }
@@ -513,10 +543,13 @@ impl Signal for FetchCollectionByIdsRequest {
                     fsio,
                     main_db,
                     recommend_db,
-                    &running_mode,
-                    &remote_host,
                     params,
-                    queue.clone(),
+                    CollectionCoverContext {
+                        library_id: library.descriptor.library_id,
+                        running_mode: &running_mode,
+                        remote_host: &remote_host,
+                        playback_queue: queue.clone(),
+                    },
                 )
                 .await
             }
@@ -525,10 +558,13 @@ impl Signal for FetchCollectionByIdsRequest {
                     fsio,
                     main_db,
                     recommend_db,
-                    &running_mode,
-                    &remote_host,
                     params,
-                    queue.clone(),
+                    CollectionCoverContext {
+                        library_id: library.descriptor.library_id,
+                        running_mode: &running_mode,
+                        remote_host: &remote_host,
+                        playback_queue: queue.clone(),
+                    },
                 )
                 .await
             }

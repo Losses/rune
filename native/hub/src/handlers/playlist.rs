@@ -16,7 +16,9 @@ use uuid::Uuid;
 use anyhow::{Context, Result};
 
 use crate::library_pool::LibraryHandle;
-use crate::utils::{GlobalParams, ParamsExtractor, require_library};
+use crate::utils::{
+    GlobalParams, ParamsExtractor, RunningMode, process_cover_art_map, require_library,
+};
 use crate::{Session, Signal, messages::*};
 use ::database::actions::playlists::{get_all_playlists, get_playlist_by_id};
 
@@ -437,19 +439,23 @@ impl Signal for RemoveItemFromPlaylistRequest {
 }
 
 impl ParamsExtractor for FetchPlaylistOccurrencesRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>);
+    type Params = (Option<LibraryHandle>, Arc<String>, RunningMode);
     fn extract_params(&self, params: &GlobalParams) -> Self::Params {
-        (params.library.clone(), params.node_id.clone())
+        (
+            params.library.clone(),
+            params.node_id.clone(),
+            params.running_mode,
+        )
     }
 }
 
 impl Signal for FetchPlaylistOccurrencesRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>);
+    type Params = (Option<LibraryHandle>, Arc<String>, RunningMode);
     type Response = FetchPlaylistOccurrencesResponse;
     async fn handle(
         &self,
-        (library, node): Self::Params,
-        _session: Option<Session>,
+        (library, node, running_mode): Self::Params,
+        session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
@@ -486,6 +492,13 @@ impl Signal for FetchPlaylistOccurrencesRequest {
         } else {
             HashMap::new()
         };
+        let remote_host = session.map(|session| session.host);
+        let cover_art_map = process_cover_art_map(
+            cover_art_map,
+            library.descriptor.library_id,
+            &running_mode,
+            &remote_host,
+        );
         Ok(Some(FetchPlaylistOccurrencesResponse {
             request_id: request.request_id.clone(),
             entries: page

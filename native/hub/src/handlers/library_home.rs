@@ -251,6 +251,7 @@ impl Signal for ComplexQueryRequest {
         let fsio = Arc::clone(&library.fsio);
         let main_db = Arc::clone(&library.main_db);
         let recommend_db = Arc::clone(&library.recommend_db);
+        let library_id = library.descriptor.library_id;
         let queue = Arc::new(
             node.session_queue_for_library(library.descriptor.library_id)
                 .await?,
@@ -297,6 +298,7 @@ impl Signal for ComplexQueryRequest {
                                         None,
                                         CollectionCoverOptions {
                                             bake: true,
+                                            library_id,
                                             running_mode: &running_mode,
                                             remote_host: &remote_host,
                                             playback_queue: &queue,

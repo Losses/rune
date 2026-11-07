@@ -10,10 +10,12 @@ mod access_policy_tests {
     use crate::server::sync::client::LibrarySession;
     use crate::server::sync_worker::TestPeerSession;
     use database::actions::stats::{get_liked, set_liked};
+    use database::entities::media_cover_art;
     use futures::StreamExt;
     use http_request::sync::MetadataPeer;
     use std::fs;
     use sync::protocol::SyncError;
+    use sea_orm::ActiveValue;
     use tempfile::TempDir;
     use tokio::{
         task::yield_now,
@@ -158,11 +160,23 @@ mod access_policy_tests {
     async fn served_files(pair: &PolicyPair, name: &str) -> Result<[String; 2]> {
         let library = pair.a.global_params.library_pool.acquire(pair.id).await?;
         fs::write(Path::new(&library.media_root).join(name), b"audio")?;
+        let cover_hash = blake3::hash(b"cover").to_hex().to_string();
+        media_cover_art::Entity::insert(media_cover_art::ActiveModel {
+                file_hash: ActiveValue::Set(cover_hash.clone()),
+                binary: ActiveValue::Set(b"cover".to_vec()),
+                content_hash: ActiveValue::Set(Some(cover_hash.clone())),
+                content_size: ActiveValue::Set(Some(5)),
+                local_available: ActiveValue::Set(true),
+                hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+                ..Default::default()
+            })
+        .exec(&*library.main_db)
+        .await?;
         fs::create_dir_all(&*COVER_TEMP_DIR)?;
-        fs::write(COVER_TEMP_DIR.join(name), b"cover")?;
+        fs::write(COVER_TEMP_DIR.join(&cover_hash), b"cover")?;
         Ok([
             format!("files/library/{name}"),
-            format!("files/cache/{name}"),
+            format!("files/cache/{cover_hash}?library_id={}", pair.id),
         ])
     }
 
@@ -469,6 +483,46 @@ mod access_policy_tests {
         let [audio, cover] = served_files(&pair, "guest-browse.txt").await?;
         assert_eq!(status(&pair, &audio).await?, reqwest::StatusCode::FORBIDDEN);
         assert_eq!(status(&pair, &cover).await?, reqwest::StatusCode::OK);
+        pair.close().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn cover_cache_requires_the_addressed_library_to_own_the_cover() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        pair.grants(DeviceLibraryLevel::Read).await?;
+        let name = blake3::hash(b"cover from another library").to_hex().to_string();
+        fs::create_dir_all(&*COVER_TEMP_DIR)?;
+        fs::write(COVER_TEMP_DIR.join(&name), b"cover from another library")?;
+
+        let from_other_library = format!(
+            "files/cache/{name}?library_id={}",
+            Uuid::new_v4()
+        );
+        let from_allowed_library = format!(
+            "files/cache/{name}?library_id={}",
+            pair.id
+        );
+        for path in [&from_other_library, &from_allowed_library] {
+            let response = pair
+                .client
+                .get(format!("https://{}/{path}", pair.addr))
+                .send()
+                .await?;
+            assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+            assert_ne!(
+                response.bytes().await?.as_ref(),
+                b"cover from another library"
+            );
+        }
+
+        let cover = served_files(&pair, "same-library-audio.txt").await?[1].clone();
+        let response = pair
+            .client
+            .get(format!("https://{}/{cover}", pair.addr))
+            .send()
+            .await?;
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.bytes().await?.as_ref(), b"cover");
         pair.close().await
     }
 

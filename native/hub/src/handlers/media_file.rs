@@ -17,25 +17,32 @@ use crate::{
     Session, Signal,
     library_pool::LibraryHandle,
     messages::*,
-    utils::{GlobalParams, ParamsExtractor, parse_media_files, require_library},
+    utils::{
+        GlobalParams, ParamsExtractor, RunningMode, parse_media_files, process_cover_art_map,
+        require_library,
+    },
 };
 
 impl ParamsExtractor for FetchMediaFilesRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>);
+    type Params = (Option<LibraryHandle>, Arc<String>, RunningMode);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), Arc::clone(&all_params.node_id))
+        (
+            all_params.library.clone(),
+            Arc::clone(&all_params.node_id),
+            all_params.running_mode,
+        )
     }
 }
 
 impl Signal for FetchMediaFilesRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>);
+    type Params = (Option<LibraryHandle>, Arc<String>, RunningMode);
     type Response = FetchMediaFilesResponse;
 
     async fn handle(
         &self,
-        (library, node_id): Self::Params,
-        _session: Option<Session>,
+        (library, node_id, running_mode): Self::Params,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -62,6 +69,13 @@ impl Signal for FetchMediaFilesRequest {
         } else {
             HashMap::new()
         };
+        let remote_host = session.map(|session| session.host);
+        let cover_art_map = process_cover_art_map(
+            cover_art_map,
+            library.descriptor.library_id,
+            &running_mode,
+            &remote_host,
+        );
 
         let media_summaries = get_metadata_summary_by_files(main_db.as_ref(), media_entries)
             .await
@@ -85,21 +99,25 @@ impl Signal for FetchMediaFilesRequest {
 }
 
 impl ParamsExtractor for FetchMediaFileByIdsRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>);
+    type Params = (Option<LibraryHandle>, Arc<String>, RunningMode);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), Arc::clone(&all_params.node_id))
+        (
+            all_params.library.clone(),
+            Arc::clone(&all_params.node_id),
+            all_params.running_mode,
+        )
     }
 }
 
 impl Signal for FetchMediaFileByIdsRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>);
+    type Params = (Option<LibraryHandle>, Arc<String>, RunningMode);
     type Response = FetchMediaFileByIdsResponse;
 
     async fn handle(
         &self,
-        (library, node_id): Self::Params,
-        _session: Option<Session>,
+        (library, node_id, running_mode): Self::Params,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -131,6 +149,13 @@ impl Signal for FetchMediaFileByIdsRequest {
         } else {
             HashMap::new()
         };
+        let remote_host = session.map(|session| session.host);
+        let cover_art_map = process_cover_art_map(
+            cover_art_map,
+            library.descriptor.library_id,
+            &running_mode,
+            &remote_host,
+        );
 
         Ok(Some(FetchMediaFileByIdsResponse {
             media_files: items,

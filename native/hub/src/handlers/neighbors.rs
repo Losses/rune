@@ -10,13 +10,20 @@ use crate::server::{
     utils::device::load_device_info,
 };
 use std::net::SocketAddr;
-use std::{fs, future::Future, path::Path, sync::Arc, time::Duration};
+use std::{
+    fs,
+    future::Future,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, anyhow};
 use log::info;
 use reqwest::redirect::Policy;
 use tokio::sync::RwLock;
 use url::Url;
+use uuid::Uuid;
 
 use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::discovery::{
@@ -911,6 +918,37 @@ pub(crate) async fn authorized_get(
     Ok(client.get(url).bearer_auth(refreshed).send().await?)
 }
 
+fn remote_file_cache_path(
+    cache_root: &Path,
+    fingerprint: &str,
+    library_id: Uuid,
+    file_name: &str,
+) -> PathBuf {
+    cache_root
+        .join("remote_files")
+        .join(fingerprint)
+        .join(library_id.to_string())
+        .join(file_name)
+}
+
+fn publish_verified_remote_file(cache_dir: &Path, file_name: &str, body: &[u8]) -> Result<PathBuf> {
+    let digest = blake3::hash(body).to_hex().to_string();
+    if digest != file_name {
+        return Err(anyhow!(
+            "Downloaded file does not match its BLAKE3 digest name"
+        ));
+    }
+    let local_path = cache_dir.join(file_name);
+    let temporary_path = cache_dir.join(format!(".{file_name}.{}.tmp", Uuid::new_v4()));
+    if let Err(error) =
+        fs::write(&temporary_path, body).and_then(|()| fs::rename(&temporary_path, &local_path))
+    {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(error.into());
+    }
+    Ok(local_path)
+}
+
 impl Signal for FetchRemoteFileRequest {
     type Params = FetchRemoteFileParams;
     type Response = FetchRemoteFileResponse;
@@ -956,12 +994,25 @@ impl Signal for FetchRemoteFileRequest {
             }));
         }
 
+        let library_id = url
+            .query_pairs()
+            .find(|(name, _)| name == "library_id")
+            .and_then(|(_, value)| Uuid::parse_str(&value).ok());
+        let Some(library_id) = library_id else {
+            return Ok(Some(FetchRemoteFileResponse {
+                success: false,
+                local_path: String::new(),
+                error: "Remote file URL must include a valid library_id".to_string(),
+            }));
+        };
+
         // Extract the file name from the URL path
         let path = url.path();
         let file_name = Path::new(path)
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .to_owned();
 
         if file_name.is_empty() {
             return Ok(Some(FetchRemoteFileResponse {
@@ -971,8 +1022,32 @@ impl Signal for FetchRemoteFileRequest {
             }));
         }
 
-        // Ensure the cover arts directory exists
-        if let Err(e) = fs::create_dir_all(COVER_TEMP_DIR.clone()) {
+        if file_name.len() != 64 || !file_name.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Ok(Some(FetchRemoteFileResponse {
+                success: false,
+                local_path: String::new(),
+                error: "Remote cover file name must be a BLAKE3 digest".to_string(),
+            }));
+        }
+
+        // Authenticate the peer before a cached response can be returned.
+        let server_fingerprint = match trusted_fingerprint(&validator, &host, port).await {
+            Ok(fingerprint) => fingerprint,
+            Err(error) => {
+                return Ok(Some(FetchRemoteFileResponse {
+                    success: false,
+                    local_path: String::new(),
+                    error: format!("Failed to authorize remote host: {error:#}"),
+                }));
+            }
+        };
+
+        let local_path =
+            remote_file_cache_path(&COVER_TEMP_DIR, &server_fingerprint, library_id, &file_name);
+        let cache_dir = local_path
+            .parent()
+            .context("remote file cache path has no parent")?;
+        if let Err(e) = fs::create_dir_all(cache_dir) {
             return Ok(Some(FetchRemoteFileResponse {
                 success: false,
                 local_path: String::new(),
@@ -980,14 +1055,12 @@ impl Signal for FetchRemoteFileRequest {
             }));
         }
 
-        // Create the local file path
-        let local_path = COVER_TEMP_DIR.clone().join(file_name);
-
-        // Check if the file already exists locally
+        // The host is a trusted peer (checked above) and the name is content-addressed
+        // within that peer and library, so a cached copy needs no new download.
         if local_path.exists() {
             return Ok(Some(FetchRemoteFileResponse {
                 success: true,
-                local_path: local_path.to_str().unwrap_or_default().to_string(),
+                local_path: local_path.to_string_lossy().into_owned(),
                 error: String::new(),
             }));
         }
@@ -1012,7 +1085,6 @@ impl Signal for FetchRemoteFileRequest {
             }
         };
 
-        // Check the response status
         if !res.status().is_success() {
             return Ok(Some(FetchRemoteFileResponse {
                 success: false,
@@ -1033,20 +1105,60 @@ impl Signal for FetchRemoteFileRequest {
             }
         };
 
-        // Write the file to disk
-        if let Err(e) = fs::write(&local_path, &body) {
-            return Ok(Some(FetchRemoteFileResponse {
-                success: false,
-                local_path: String::new(),
-                error: format!("Failed to write file to disk: {e}"),
-            }));
-        }
+        let published_path = match publish_verified_remote_file(cache_dir, &file_name, &body) {
+            Ok(path) => path,
+            Err(error) => {
+                return Ok(Some(FetchRemoteFileResponse {
+                    success: false,
+                    local_path: String::new(),
+                    error: format!("Failed to verify or publish remote file: {error:#}"),
+                }));
+            }
+        };
 
         // Return the successful response with the local file path
         Ok(Some(FetchRemoteFileResponse {
             success: true,
-            local_path: local_path.to_str().unwrap_or_default().to_string(),
+            local_path: published_path.to_string_lossy().into_owned(),
             error: String::new(),
         }))
+    }
+}
+
+#[cfg(test)]
+mod remote_file_cache_tests {
+    use super::{publish_verified_remote_file, remote_file_cache_path};
+    use anyhow::{Context, Result};
+    use std::fs;
+    use tempfile::TempDir;
+    use uuid::Uuid;
+
+    #[test]
+    fn remote_file_cache_is_scoped_to_peer_and_library() -> Result<()> {
+        let temp = TempDir::new()?;
+        let library_id = Uuid::new_v4();
+        let file_name = blake3::hash(b"shared basename").to_hex().to_string();
+        let peer_x = remote_file_cache_path(temp.path(), "peer-x", library_id, &file_name);
+        let peer_y = remote_file_cache_path(temp.path(), "peer-y", library_id, &file_name);
+
+        fs::create_dir_all(peer_x.parent().context("peer X cache directory")?)?;
+        fs::write(&peer_x, b"peer X bytes")?;
+
+        assert_ne!(peer_x, peer_y);
+        assert!(peer_x.exists());
+        assert!(!peer_y.exists());
+        assert!(peer_x.ends_with(format!("peer-x/{library_id}/{file_name}")));
+        assert!(peer_y.ends_with(format!("peer-y/{library_id}/{file_name}")));
+        Ok(())
+    }
+
+    #[test]
+    fn mismatched_digest_is_not_published() -> Result<()> {
+        let temp = TempDir::new()?;
+        let file_name = blake3::hash(b"expected").to_hex().to_string();
+        let result = publish_verified_remote_file(temp.path(), &file_name, b"different");
+        assert!(result.is_err());
+        assert!(!temp.path().join(file_name).exists());
+        Ok(())
     }
 }

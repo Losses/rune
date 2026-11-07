@@ -11,7 +11,10 @@ use ::database::actions::{
 };
 
 use crate::library_pool::LibraryHandle;
-use crate::utils::{GlobalParams, ParamsExtractor, parse_media_files, require_library};
+use crate::utils::{
+    GlobalParams, ParamsExtractor, RunningMode, parse_media_files, process_cover_art_map,
+    require_library,
+};
 use crate::{Session, Signal, messages::*};
 
 type MixParams = Option<LibraryHandle>;
@@ -274,25 +277,36 @@ impl Signal for GetMixByIdRequest {
 }
 
 impl ParamsExtractor for MixQueryRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>, Arc<NodeContext>);
+    type Params = (
+        Option<LibraryHandle>,
+        Arc<String>,
+        Arc<NodeContext>,
+        RunningMode,
+    );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             all_params.library.clone(),
             Arc::clone(&all_params.node_id),
             all_params.node.clone(),
+            all_params.running_mode,
         )
     }
 }
 
 impl Signal for MixQueryRequest {
-    type Params = (Option<LibraryHandle>, Arc<String>, Arc<NodeContext>);
+    type Params = (
+        Option<LibraryHandle>,
+        Arc<String>,
+        Arc<NodeContext>,
+        RunningMode,
+    );
     type Response = MixQueryResponse;
 
     async fn handle(
         &self,
-        (library, node_id, node): Self::Params,
-        _session: Option<Session>,
+        (library, node_id, node, running_mode): Self::Params,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(library)?;
@@ -338,6 +352,13 @@ impl Signal for MixQueryRequest {
         } else {
             HashMap::new()
         };
+        let remote_host = session.map(|session| session.host);
+        let cover_art_map = process_cover_art_map(
+            cover_art_map,
+            library.descriptor.library_id,
+            &running_mode,
+            &remote_host,
+        );
 
         Ok(Some(MixQueryResponse {
             files,

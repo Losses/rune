@@ -426,6 +426,7 @@ async fn handle_media_library_path(
 
 pub struct CollectionCoverOptions<'a> {
     pub bake: bool,
+    pub library_id: uuid::Uuid,
     pub running_mode: &'a RunningMode,
     pub remote_host: &'a Option<String>,
     pub playback_queue: &'a [i32],
@@ -460,15 +461,12 @@ pub async fn inject_cover_art_map(
     let raw_cover_art_map = bake_cover_art_by_media_files(fsio, main_db, files).await?;
 
     // Process the cover art paths based on the running mode
-    let cover_art_map: HashMap<i32, String> = raw_cover_art_map
-        .into_iter()
-        .map(|(id, path)| {
-            (
-                id,
-                process_cover_art_path(&path, options.running_mode, options.remote_host),
-            )
-        })
-        .collect();
+    let cover_art_map = process_cover_art_map(
+        raw_cover_art_map,
+        options.library_id,
+        options.running_mode,
+        options.remote_host,
+    );
 
     Ok(Collection {
         id: collection.id,
@@ -478,6 +476,23 @@ pub async fn inject_cover_art_map(
         cover_art_map,
         readonly: collection.readonly,
     })
+}
+
+pub fn process_cover_art_map(
+    cover_art_map: HashMap<i32, String>,
+    library_id: uuid::Uuid,
+    running_mode: &RunningMode,
+    remote_host: &Option<String>,
+) -> HashMap<i32, String> {
+    cover_art_map
+        .into_iter()
+        .map(|(id, path)| {
+            (
+                id,
+                process_cover_art_path(&path, library_id, running_mode, remote_host),
+            )
+        })
+        .collect()
 }
 
 pub async fn query_cover_arts(
@@ -522,6 +537,7 @@ pub fn determine_batch_size(workload_factor: f32) -> usize {
 
 pub fn process_cover_art_path(
     path: &str,
+    library_id: uuid::Uuid,
     running_mode: &RunningMode,
     remote_host: &Option<String>,
 ) -> String {
@@ -540,7 +556,7 @@ pub fn process_cover_art_path(
                         .unwrap_or_default();
 
                     // Construct the URL using the host and cache prefix
-                    format!("{host}/files/cache/{file_name}")
+                    format!("{host}/files/cache/{file_name}?library_id={library_id}")
                 } else {
                     // No host available, return the original path
                     path.to_string()
@@ -738,6 +754,28 @@ pub fn init_logging() {
     tracing_subscriber::fmt()
         .with_env_filter(stdout_filter)
         .init();
+}
+
+#[cfg(test)]
+mod cover_art_url_tests {
+    use super::{RunningMode, process_cover_art_path};
+    use uuid::Uuid;
+
+    #[test]
+    fn remote_cover_url_names_its_library() {
+        let library_id = Uuid::new_v4();
+        let path = "/tmp/rune/cover_arts/cover-digest";
+        let remote_host = Some("https://peer.example".to_string());
+
+        assert_eq!(
+            process_cover_art_path(path, library_id, &RunningMode::Server, &remote_host),
+            format!("https://peer.example/files/cache/cover-digest?library_id={library_id}")
+        );
+        assert_eq!(
+            process_cover_art_path(path, library_id, &RunningMode::Client, &remote_host),
+            path
+        );
+    }
 }
 
 #[cfg(target_os = "android")]

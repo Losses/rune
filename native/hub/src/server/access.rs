@@ -130,20 +130,12 @@ pub(super) async fn require_library_read(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let mut query = match Query::<LibraryQuery>::try_from_uri(request.uri()) {
+    let query = match Query::<LibraryQuery>::try_from_uri(request.uri()) {
         Ok(Query(query)) => query,
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
-    if request.uri().path().starts_with("/files/cache/") {
-        // The shared cover cache has no library identity; scope it to the current UI.
-        query.library_id = match manager.node() {
-            Ok(node) => node
-                .current_ui()
-                .await
-                .ok()
-                .and_then(|params| params.library_id),
-            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-        };
+    if request.uri().path().starts_with("/files/cache/") && query.library_id.is_none() {
+        return StatusCode::BAD_REQUEST.into_response();
     }
     let library = match request_library(&manager, query).await {
         Ok(library) => library,
