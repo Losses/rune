@@ -1,6 +1,8 @@
 use std::{
     fmt::{Debug, Formatter, Result as FmtResult},
     fs,
+    io::Error,
+    mem::MaybeUninit,
     path::Path,
     sync::{Arc, Mutex as StdMutex, OnceLock, Weak},
 };
@@ -137,6 +139,8 @@ impl NodeContext {
         broadcaster: Arc<dyn Broadcaster>,
         os_media_controls: bool,
     ) -> Result<Arc<Self>> {
+        #[cfg(unix)]
+        raise_nofile_soft_limit();
         fs::create_dir_all(config_path).context("Create node configuration directory")?;
         let node_id = Arc::new(get_or_create_node_id(config_path).await?.to_string());
         let websocket_service = Arc::new(WebSocketService::new());
@@ -628,6 +632,68 @@ impl NodeContext {
             result = result.and(handle.await.context("Node event listener failed"));
         }
         result
+    }
+}
+
+#[cfg(unix)]
+fn raise_nofile_soft_limit() {
+    let mut limits = MaybeUninit::<libc::rlimit>::uninit();
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, limits.as_mut_ptr()) } != 0 {
+        log::warn!("Could not read RLIMIT_NOFILE: {}", Error::last_os_error());
+        return;
+    }
+    let mut limits = unsafe { limits.assume_init() };
+    let before = limits.rlim_cur;
+    let target = limits.rlim_max.min(8192);
+    if before < target {
+        limits.rlim_cur = target;
+        if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limits) } != 0 {
+            log::warn!(
+                "Could not raise RLIMIT_NOFILE soft limit from {before} towards {target}: {}",
+                Error::last_os_error()
+            );
+        }
+    }
+    let mut after = MaybeUninit::<libc::rlimit>::uninit();
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, after.as_mut_ptr()) } != 0 {
+        log::warn!(
+            "Could not read RLIMIT_NOFILE after adjustment: {}",
+            Error::last_os_error()
+        );
+        return;
+    }
+    let after = unsafe { after.assume_init() };
+    log::info!(
+        "RLIMIT_NOFILE soft limit: {before} -> {} (hard limit {})",
+        after.rlim_cur,
+        after.rlim_max
+    );
+}
+
+#[cfg(all(test, unix))]
+mod nofile_tests {
+    use super::{MaybeUninit, raise_nofile_soft_limit};
+
+    #[cfg(unix)]
+    #[test]
+    fn raises_soft_limit_towards_hard_limit() {
+        let mut limits = MaybeUninit::<libc::rlimit>::uninit();
+        let result = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, limits.as_mut_ptr()) };
+        assert_eq!(result, 0, "read RLIMIT_NOFILE");
+        let limits = unsafe { limits.assume_init() };
+        let target = limits.rlim_max.min(8192);
+
+        raise_nofile_soft_limit();
+
+        let mut after = MaybeUninit::<libc::rlimit>::uninit();
+        let result = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, after.as_mut_ptr()) };
+        assert_eq!(result, 0, "read RLIMIT_NOFILE after initialization");
+        let after = unsafe { after.assume_init() };
+        assert!(
+            after.rlim_cur >= target,
+            "soft limit should reach {target}, got {}",
+            after.rlim_cur
+        );
     }
 }
 

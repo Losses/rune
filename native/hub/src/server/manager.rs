@@ -3539,7 +3539,7 @@ mod lifecycle_tests {
         let a_reserve = TcpListener::bind("127.0.0.1:0")?;
         let b_reserve = TcpListener::bind("127.0.0.1:0")?;
         let a_addr = a_reserve.local_addr()?;
-        let b_addr = SocketAddr::from(([127, 0, 0, 2], b_reserve.local_addr()?.port()));
+        let b_addr = SocketAddr::from(([127, 0, 0, 1], b_reserve.local_addr()?.port()));
         assert_ne!(a_addr.port(), b_addr.port());
         drop((a_reserve, b_reserve));
         std::fs::copy(
@@ -3754,7 +3754,7 @@ mod lifecycle_tests {
                 .cert_validator
                 .read()
                 .await
-                .add_trusted_domains(["127.0.0.2"], &b_info.fingerprint)
+                .add_trusted_domains(["127.0.0.1", "localhost"], &b_info.fingerprint)
                 .await?;
             Ok(())
         })
@@ -3786,6 +3786,10 @@ mod lifecycle_tests {
         .await
         .context("could not resolve remote audio")?;
         let expected = std::fs::read(second.path().join("source.ogg"))?;
+        let source_path = source
+            .url
+            .strip_prefix(&format!("https://127.0.0.1:{}", b_addr.port()))
+            .context("remote audio URL did not use the announced loopback address")?;
         let full_bytes = peer_step("full audio GET", async {
             let full = source.request.get(None).await?;
             anyhow::ensure!(
@@ -3932,11 +3936,11 @@ mod lifecycle_tests {
                 &a_info.fingerprint,
                 &a.private_key,
                 &b_info.fingerprint,
-                "127.0.0.2",
+                "localhost",
                 b_addr.port(),
-                |_, client| {
+                |base, client| {
                     client
-                        .get(&source.url)
+                        .get(format!("{base}{source_path}"))
                         .header(reqwest::header::RANGE, "bytes=-12")
                 },
             )
@@ -3955,11 +3959,11 @@ mod lifecycle_tests {
                 &a_info.fingerprint,
                 &a.private_key,
                 &b_info.fingerprint,
-                "127.0.0.2",
+                "localhost",
                 b_addr.port(),
-                |_, client| {
+                |base, client| {
                     client
-                        .get(&source.url)
+                        .get(format!("{base}{source_path}"))
                         .header(reqwest::header::RANGE, format!("bytes={}-", expected.len()))
                 },
             )

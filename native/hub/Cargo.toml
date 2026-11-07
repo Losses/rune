@@ -132,3 +132,6 @@ tempfile = "3.17.1"
 
 [lints]
 workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
