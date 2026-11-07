@@ -73,6 +73,11 @@ struct StoredSyncToken {
 }
 
 impl SyncTokenStore {
+    #[cfg(test)]
+    pub(crate) fn insert_stale_for_test(&self, fingerprint: &str, base: &str) {
+        self.insert(fingerprint, base, "unknown-to-peer".to_owned());
+    }
+
     /// Serializes authorization per peer endpoint, so concurrent passes against one
     /// peer share a single challenge round trip while other peers are not blocked.
     fn authorization_lock(&self, fingerprint: &str, base: &str) -> Arc<Mutex<()>> {
@@ -1132,6 +1137,33 @@ pub(super) async fn authenticated_client(
         .redirect(Policy::none())
         .build()?;
     Ok((base, client))
+}
+
+/// Send one authenticated peer request, renewing a cached token once if the
+/// peer no longer recognizes it.
+pub(super) async fn send_authenticated_request<F>(
+    global: &NodeContext,
+    own: &str,
+    private_key: &str,
+    fingerprint: &str,
+    host: &str,
+    peer_port: u16,
+    request: F,
+) -> Result<reqwest::Response>
+where
+    F: Fn(&str, &reqwest::Client) -> reqwest::RequestBuilder,
+{
+    let (base, client) =
+        authenticated_client(global, own, private_key, fingerprint, host, peer_port).await?;
+    let response = request(&base, &client).send().await?;
+    if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+        return Ok(response);
+    }
+
+    invalidate_sync_token(global, fingerprint, host, peer_port);
+    let (base, client) =
+        authenticated_client(global, own, private_key, fingerprint, host, peer_port).await?;
+    Ok(request(&base, &client).send().await?)
 }
 
 pub(crate) async fn obtain_or_reuse_token(

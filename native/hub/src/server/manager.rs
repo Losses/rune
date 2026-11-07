@@ -1,6 +1,6 @@
 use super::libraries::{cast_preflight, peer_access};
 use super::sync_auth::SyncAuth;
-use super::sync_worker::{invalidate_sync_token, wait_for_revocation};
+use super::sync_worker::{authenticated_client, send_authenticated_request, wait_for_revocation};
 use crate::backends::remote::{RemoteConnectError, token_error};
 use database::actions::file::catalog_track;
 use database::sync::model::RuneModel;
@@ -575,7 +575,23 @@ impl ServerManager {
                 let trusted_host = endpoint.trusted_host;
                 let port = endpoint.port;
                 let result = async {
-                    let (base, mut client) = super::sync_worker::authenticated_client(
+                    // Check access first: it renews a cached token the peer no longer knows.
+                    let response = send_authenticated_request(
+                        &node,
+                        &own,
+                        &self.private_key,
+                        &fingerprint,
+                        &host,
+                        port,
+                        |base, client| {
+                            client
+                                .head(format!("{}/sync/blobs/{}", super::sync::library_base(base, library_id), blob.digest))
+                                .query(&[("track_id", track_id.to_string())])
+                        },
+                    )
+                    .await
+                    .map_err(RemoteAudioError::unreachable)?;
+                    let (base, client) = authenticated_client(
                         &node,
                         &own,
                         &self.private_key,
@@ -594,17 +610,6 @@ impl ServerManager {
                     );
                     let url = format!("{base}/sync/blobs/{}", blob.digest);
                     let access_url = format!("{url}?track_id={track_id}");
-                    let mut response = client.head(&url).query(&[("track_id", track_id.to_string())]).send().await
-                        .map_err(RemoteAudioError::unreachable)?;
-                    if matches!(response.status(), reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN | reqwest::StatusCode::NOT_FOUND) {
-                        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-                            invalidate_sync_token(&node, &fingerprint, &host, port);
-                        }
-                        let (_, renewed) = super::sync_worker::authenticated_client(&node, &own, &self.private_key, &fingerprint, &host, port).await?;
-                        client = renewed;
-                        response = client.head(&url).query(&[("track_id", track_id.to_string())]).send().await
-                            .map_err(RemoteAudioError::unreachable)?;
-                    }
                     if matches!(response.status(), reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN | reqwest::StatusCode::NOT_FOUND) {
                         lifetime.cancel();
                         anyhow::bail!(RemoteAudioError::AccessRevoked);

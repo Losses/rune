@@ -3,6 +3,10 @@ mod access_policy_tests {
     use crate::access_policy::{DeviceGrants, LibraryLevel};
     use crate::backends::remote::connect_remote;
     use crate::macros::{RequestClass, request_class};
+    use crate::messages::{CastLibraryState, RendererAvailability};
+    use crate::server::libraries::{
+        cast_library_state, list_peer_libraries, list_renderer_candidates,
+    };
     use crate::server::sync::client::LibrarySession;
     use crate::server::sync_worker::TestPeerSession;
     use database::actions::stats::{get_liked, set_liked};
@@ -55,11 +59,18 @@ mod access_policy_tests {
             })
         }
         async fn client_for(a: &Fixture, b: &Fixture, addr: SocketAddr) -> Result<reqwest::Client> {
+            let peer_fingerprint = info(a).await?.fingerprint;
+            sync_worker::invalidate_sync_token(
+                &b.global_params.node,
+                &peer_fingerprint,
+                "127.0.0.1",
+                addr.port(),
+            );
             let (_, client) = authenticated_client(
                 &b.global_params.node,
                 &info(b).await?.fingerprint,
                 &b.private_key,
-                &info(a).await?.fingerprint,
+                &peer_fingerprint,
                 "127.0.0.1",
                 addr.port(),
             )
@@ -224,6 +235,75 @@ mod access_policy_tests {
         assert_eq!(response.bytes().await?.as_ref(), b"migration");
         socket.close(None).await?;
         pair.close().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stale_peer_token_recovers_across_library_requests() -> Result<()> {
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let id = Uuid::new_v4();
+        let a = fixture_with_library(first.path(), id).await?;
+        let b = fixture_with_library(second.path(), id).await?;
+        let a_addr = paired_full(&a, &b).await?;
+        let b_addr = paired_full(&b, &a).await?;
+        announce_peer(&b, &info(&a).await?, a_addr).await?;
+        announce_peer(&a, &info(&b).await?, b_addr).await?;
+        a.stop_worker().await?;
+        b.stop_worker().await?;
+        let a_fingerprint = info(&a).await?.fingerprint;
+        let b_fingerprint = info(&b).await?.fingerprint;
+        let store = &b.global_params.node.sync_tokens;
+        let base = sync_worker::peer_base("127.0.0.1", a_addr.port());
+
+        store.insert_stale_for_test(&a_fingerprint, &base);
+        let candidates = list_renderer_candidates(b.global_params.node.clone(), vec![id]).await?;
+        assert!(candidates.iter().any(|candidate| {
+            candidate.fingerprint == a_fingerprint
+                && candidate.availability == RendererAvailability::Available
+        }));
+
+        LibraryRegistry::update(Path::new(&*b.global_params.config_path), |registry| {
+            let library = registry
+                .libraries
+                .iter_mut()
+                .find(|library| library.library_id == id)
+                .context("replica library")?;
+            library.authority = LibraryAuthority::Hosted {
+                fingerprint: a_fingerprint.clone(),
+            };
+            Ok(())
+        })
+        .await?;
+        store.insert_stale_for_test(&a_fingerprint, &base);
+        assert_eq!(
+            cast_library_state(&b.global_params.node, id).await,
+            CastLibraryState::Ready
+        );
+
+        store.insert_stale_for_test(&a_fingerprint, &base);
+        let listed =
+            list_peer_libraries(&b.global_params.node, &b.private_key, &a_fingerprint).await?;
+        assert!(
+            listed
+                .iter()
+                .any(|library| library.library_id == id.to_string())
+        );
+
+        a.global_params
+            .permission_manager
+            .write()
+            .await
+            .change_user_status(&b_fingerprint, UserStatus::Blocked)
+            .await?;
+        store.insert_stale_for_test(&a_fingerprint, &base);
+        let candidates = list_renderer_candidates(b.global_params.node.clone(), vec![id]).await?;
+        assert!(candidates.iter().any(|candidate| {
+            candidate.fingerprint == a_fingerprint
+                && candidate.availability == RendererAvailability::NotApproved
+        }));
+        a.global_params.node.shutdown().await?;
+        b.global_params.node.shutdown().await?;
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

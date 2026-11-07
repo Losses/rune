@@ -16,7 +16,7 @@ use discovery::server::UserStatus;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::sync_worker::{PeerEndpoint, authenticated_client, peer_endpoints};
+use super::sync_worker::{PeerEndpoint, peer_endpoints, send_authenticated_request};
 use super::utils::device::load_device_info;
 use super::{ServerManager, generate_or_load_certificates};
 use crate::backends::remote::select_renderer_host;
@@ -226,17 +226,18 @@ async fn probe_renderer(
         return Ok(None);
     }
     candidate.alias = info.alias;
-    let (base, client) = match authenticated_client(
+    let access = match send_authenticated_request(
         &node,
         &own_fingerprint,
         &private_key,
         &fingerprint,
         host,
         port,
+        |base, client| client.get(format!("{base}/access")),
     )
     .await
     {
-        Ok(client) => client,
+        Ok(response) => response,
         Err(error) => {
             candidate.availability = if is_auth_refusal(&error) {
                 RendererAvailability::NotApproved
@@ -246,15 +247,15 @@ async fn probe_renderer(
             return Ok(Some(candidate));
         }
     };
-    let access = match client.get(format!("{base}/access")).send().await {
-        Ok(response)
+    let access = match access {
+        response
             if response.status() == StatusCode::UNAUTHORIZED
                 || response.status() == StatusCode::FORBIDDEN =>
         {
             candidate.availability = RendererAvailability::NotApproved;
             return Ok(Some(candidate));
         }
-        Ok(response) if response.status().is_success() => response.json::<PeerAccess>().await,
+        response if response.status().is_success() => response.json::<PeerAccess>().await,
         _ => {
             candidate.availability = RendererAvailability::Offline;
             return Ok(Some(candidate));
@@ -273,11 +274,20 @@ async fn probe_renderer(
     }
     if !library_ids.is_empty() {
         let raw_ids = library_ids.iter().map(Uuid::to_string).collect::<Vec<_>>();
-        let response = match client
-            .post(format!("{base}/cast/preflight"))
-            .json(&serde_json::json!({ "libraryIds": raw_ids }))
-            .send()
-            .await
+        let response = match send_authenticated_request(
+            &node,
+            &own_fingerprint,
+            &private_key,
+            &fingerprint,
+            host,
+            port,
+            |base, client| {
+                client
+                    .post(format!("{base}/cast/preflight"))
+                    .json(&serde_json::json!({ "libraryIds": raw_ids }))
+            },
+        )
+        .await
         {
             Ok(response) if response.status().is_success() => response,
             _ => {
@@ -356,17 +366,18 @@ pub(crate) async fn cast_library_state(node: &NodeContext, library_id: Uuid) -> 
         log::warn!("Cast preflight has no eligible trusted endpoint for {fingerprint}");
     }
     for endpoint in endpoints {
-        let (base, client) = match authenticated_client(
+        let response = match send_authenticated_request(
             node,
             &info.fingerprint,
             &private_key,
             fingerprint,
             &endpoint.host,
             endpoint.port,
+            |base, client| client.get(format!("{base}/libraries")),
         )
         .await
         {
-            Ok(client) => client,
+            Ok(response) => response,
             Err(error) => {
                 log::warn!("Cast preflight could not authenticate with {fingerprint}: {error:#}");
                 if error.chain().any(|cause| {
@@ -379,15 +390,6 @@ pub(crate) async fn cast_library_state(node: &NodeContext, library_id: Uuid) -> 
                 }) {
                     return CastLibraryState::AccessRevoked;
                 }
-                continue;
-            }
-        };
-        let response = match client.get(format!("{base}/libraries")).send().await {
-            Ok(response) => response,
-            Err(error) => {
-                log::warn!(
-                    "Cast preflight could not reach library authority {fingerprint}: {error}"
-                );
                 continue;
             }
         };
@@ -497,20 +499,17 @@ pub(super) async fn list_peer_libraries(
     let mut failure = RemoteConnectError::Unreachable;
     for endpoint in endpoints {
         let result = async {
-            let (base, client) = authenticated_client(
+            let response = send_authenticated_request(
                 params,
                 &own.fingerprint,
                 private_key,
                 fingerprint,
                 &endpoint.host,
                 endpoint.port,
+                |base, client| client.get(format!("{base}/libraries")),
             )
-            .await?;
-            let response = client
-                .get(format!("{base}/libraries"))
-                .send()
-                .await?
-                .error_for_status()?;
+            .await?
+            .error_for_status()?;
             let libraries: Vec<ListedLibrary> = response.json().await?;
             let registry = LibraryRegistry::load(Path::new(&*params.config_path))?;
             Ok::<_, anyhow::Error>(
