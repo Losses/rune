@@ -1364,6 +1364,7 @@
   "requestItemMissing": "呢個項目已經唔存在",
   "requestInvalid": "要求無效",
   "requestUnavailable": "而家用唔到",
+  "requestStorageBusy": "儲存空間忙緊，請再試一次。",
   "mixNoLongerExists": "呢個混音已經唔存在",
   "devices": "裝置",
   "playOn": "播放裝置",

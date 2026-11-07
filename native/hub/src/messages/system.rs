@@ -38,6 +38,7 @@ pub enum RequestErrorKind {
 
 #[derive(Deserialize, Serialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
 pub enum RequestFailureCause {
+    StorageBusy,
     CastNotPossible {
         library_id: String,
         state: CastLibraryState,

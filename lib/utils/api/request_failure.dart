@@ -72,13 +72,16 @@ Future<T> awaitResponse<T>(
 }
 
 String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
-    switch (failure.kind) {
+    switch (failure.cause) {
+      RequestFailureCauseStorageBusy() => s.requestStorageBusy,
+      _ => switch (failure.kind) {
       RequestErrorKind.notFound => s.requestItemMissing,
       RequestErrorKind.invalidInput => s.requestInvalid,
       RequestErrorKind.unavailable => s.requestUnavailable,
       RequestErrorKind.permissionDenied => s.requestPermissionDenied,
       RequestErrorKind.conflict => s.requestConflict,
       RequestErrorKind.internal => s.unknownError,
+      },
     };
 
 String requestErrorText(AppLocalizations s, Object error) =>

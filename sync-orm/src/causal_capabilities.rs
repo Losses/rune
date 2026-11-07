@@ -52,10 +52,59 @@ struct EndpointState<M: p::SyncModel> {
     receiver: Mutex<p::ReceiverLedger<M>>,
 }
 fn error(error: anyhow::Error) -> p::SyncError {
+    if crate::is_storage_busy(&error) {
+        return p::SyncError::StorageBusy;
+    }
     error
         .downcast_ref::<p::SyncError>()
         .cloned()
         .unwrap_or_else(|| p::SyncError::Storage(format!("{error:#}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use sea_orm::{
+        ConnectionTrait, SqlxSqliteConnector,
+        sqlx::{SqlitePool, sqlite::SqliteConnectOptions},
+    };
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn sqlite_busy_db_error_converts_to_typed_sync_error() {
+        let path = std::env::temp_dir().join(format!("sync-busy-{}.db", uuid::Uuid::new_v4()));
+        let lock_pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(&path)
+                .create_if_missing(true)
+                .busy_timeout(Duration::from_secs(1)),
+        )
+        .await
+        .unwrap();
+        let test_pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(&path)
+                .busy_timeout(Duration::from_millis(1)),
+        )
+        .await
+        .unwrap();
+        let lock = SqlxSqliteConnector::from_sqlx_sqlite_pool(lock_pool);
+        let under_test = SqlxSqliteConnector::from_sqlx_sqlite_pool(test_pool);
+        lock.execute_unprepared("CREATE TABLE writes (value INTEGER)")
+            .await
+            .unwrap();
+        lock.execute_unprepared("BEGIN IMMEDIATE").await.unwrap();
+        let db_error = under_test
+            .execute_unprepared("INSERT INTO writes VALUES (1)")
+            .await
+            .unwrap_err();
+        assert_eq!(
+            super::error(anyhow::Error::new(db_error)),
+            sync::SyncError::StorageBusy
+        );
+        drop(lock);
+        drop(under_test);
+        let _ = std::fs::remove_file(path);
+    }
 }
 fn now() -> u64 {
     std::cmp::max(chrono::Utc::now().timestamp_millis(), 0) as u64

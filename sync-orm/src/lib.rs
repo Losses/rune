@@ -21,3 +21,20 @@ pub mod row_policy;
 
 pub mod derived_effect;
 pub mod owned_list;
+
+/// Recognize SQLite write-lock contention from a SeaORM/SQLx error chain.
+/// Driver codes 5 and 6 are SQLITE_BUSY and SQLITE_LOCKED.
+pub fn is_storage_busy(error: &anyhow::Error) -> bool {
+    use sea_orm::{DbErr, RuntimeErr, sqlx::Error as SqlxError};
+    use std::ops::Deref;
+
+    error.chain().filter_map(|cause| cause.downcast_ref::<DbErr>()).any(|db| {
+        let sqlx_error = match db {
+            DbErr::Exec(RuntimeErr::SqlxError(error))
+            | DbErr::Query(RuntimeErr::SqlxError(error)) => Some(error.deref()),
+            _ => None,
+        };
+        matches!(sqlx_error, Some(SqlxError::Database(driver_error))
+            if driver_error.code().and_then(|code| code.parse::<i32>().ok()).is_some_and(|code| matches!(code, 5 | 6)))
+    })
+}

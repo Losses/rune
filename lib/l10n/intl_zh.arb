@@ -1472,6 +1472,7 @@
   "requestItemMissing": "此项目已不存在",
   "requestInvalid": "请求无效",
   "requestUnavailable": "目前无法使用",
+  "requestStorageBusy": "存储空间正忙，请重试。",
   "mixNoLongerExists": "此混音已不存在",
   "devices": "裝置",
   "playOn": "播放设备",

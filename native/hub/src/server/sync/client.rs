@@ -7,8 +7,10 @@ use http_request::sync::{BidirectionalSession, MetadataPeer};
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 use std::time::Duration;
+use std::{future::Future, pin::Pin};
 use sync::{SyncModel, SyncPeer};
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -56,12 +58,32 @@ impl LibrarySession {
         remote: &MetadataPeer<RuneModel>,
         notify: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<bool> {
+        self.advance_cancellable(remote, notify, &CancellationToken::new())
+            .await
+    }
+    pub async fn advance_cancellable(
+        &mut self,
+        remote: &MetadataPeer<RuneModel>,
+        notify: Arc<dyn Fn() + Send + Sync>,
+        cancel: &CancellationToken,
+    ) -> Result<bool> {
         let endpoint = self.local.endpoint().with_notification(notify);
-        Ok(match self.direction {
-            SessionDirection::Both => self.session.advance(&endpoint, remote).await?,
-            SessionDirection::Pull => self.session.pull_only(&endpoint, remote).await?,
-            SessionDirection::Push => self.session.push_only(&endpoint, remote).await?,
-        })
+        let mut step = (&mut self.session, &endpoint, remote, self.direction);
+        retry_storage_busy(
+            cancel,
+            &mut step,
+            |(session, endpoint, remote, direction)| {
+                Box::pin(async move {
+                    match direction {
+                        SessionDirection::Both => session.advance(*endpoint, *remote).await,
+                        SessionDirection::Pull => session.pull_only(*endpoint, *remote).await,
+                        SessionDirection::Push => session.push_only(*endpoint, *remote).await,
+                    }
+                    .map_err(anyhow::Error::new)
+                })
+            },
+        )
+        .await
     }
     pub fn report(&self) -> Result<LibrarySyncReport> {
         let (pulled, pushed) = self
@@ -75,6 +97,36 @@ impl LibrarySession {
             artwork_complete: false,
         })
     }
+}
+
+async fn retry_storage_busy<T, State, F>(
+    cancel: &CancellationToken,
+    state: &mut State,
+    mut step: F,
+) -> Result<T>
+where
+    F: for<'a> FnMut(&'a mut State) -> Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>,
+{
+    let mut delay = Duration::from_millis(100);
+    for attempt in 0..5 {
+        match step(state).await {
+            Ok(value) => return Ok(value),
+            Err(error)
+                if error
+                    .downcast_ref::<sync::SyncError>()
+                    .is_some_and(|error| *error == sync::SyncError::StorageBusy)
+                    && attempt < 4 =>
+            {
+                tokio::select! {
+                    _ = cancel.cancelled() => return Err(sync::SyncError::Cancelled.into()),
+                    _ = tokio::time::sleep(delay) => {}
+                }
+                delay = (delay * 2).min(Duration::from_millis(800));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(sync::SyncError::StorageBusy.into())
 }
 
 pub async fn sync_library(
@@ -127,4 +179,53 @@ pub async fn sync_library_with_notify(
     report.artwork_pending = pending;
     report.artwork_complete = cursor.is_complete();
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::retry_storage_busy;
+    use sync::SyncError;
+    use tokio_util::sync::CancellationToken;
+
+    #[tokio::test]
+    async fn busy_step_retries_and_recovers() {
+        let cancel = CancellationToken::new();
+        let mut calls = AtomicUsize::new(0);
+        let result = retry_storage_busy(&cancel, &mut calls, |calls| {
+            Box::pin(async move {
+                if calls.fetch_add(1, Ordering::SeqCst) < 2 {
+                    Err(anyhow::Error::new(SyncError::StorageBusy))
+                } else {
+                    Ok("complete")
+                }
+            })
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(result, "complete");
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn busy_step_stops_at_five_attempts_with_typed_error() {
+        let cancel = CancellationToken::new();
+        let mut calls = AtomicUsize::new(0);
+        let error = retry_storage_busy(&cancel, &mut calls, |calls| {
+            Box::pin(async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(anyhow::Error::new(SyncError::StorageBusy))
+            })
+        })
+        .await
+        .unwrap_err();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 5);
+        assert_eq!(
+            error.downcast_ref::<SyncError>(),
+            Some(&SyncError::StorageBusy)
+        );
+    }
 }

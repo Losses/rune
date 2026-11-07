@@ -1403,6 +1403,7 @@
   "requestItemMissing": "Questo elemento non esiste più",
   "requestInvalid": "La richiesta non era valida",
   "requestUnavailable": "Non è disponibile al momento",
+  "requestStorageBusy": "L’archiviazione è occupata. Riprova.",
   "mixNoLongerExists": "Questo mix non esiste più",
   "devices": "Dispositivi",
   "playOn": "Riproduci su",

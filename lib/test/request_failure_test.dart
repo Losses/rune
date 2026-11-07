@@ -101,6 +101,17 @@ void main() {
     expect(message(RequestErrorKind.internal), s.unknownError);
   });
 
+  test('storage busy cause has its localized retry message', () {
+    final s = AppLocalizationsEn();
+    const failure = RequestFailure(
+      'Wanted',
+      RequestErrorKind.unavailable,
+      'locked',
+      RequestFailureCauseStorageBusy(),
+    );
+    expect(requestFailureMessage(s, failure), 'Storage is busy. Try again.');
+  });
+
   test('error text localizes request failures and preserves other errors', () {
     final s = AppLocalizationsEn();
     expect(

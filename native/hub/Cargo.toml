@@ -30,6 +30,7 @@ sea-orm = "2.0.4"
 lyric = { path = "../../lyric" }
 database = { path = "../../database" }
 sync = { path = "../../sync" }
+sync-orm = { path = "../../sync-orm" }
 analysis = { path = "../../analysis" }
 playback = { path = "../../playback" }
 visualizer = { path = "../../visualizer" }
@@ -121,7 +122,6 @@ swift-rs = { version = "1.0.7", features = ["build"] }
 [dev-dependencies]
 playback = { path = "../../playback", features = ["test-output"] }
 tokio = { version = "1.44.2", features = ["test-util"] }
-sync-orm = { path = "../../sync-orm" }
 hyper = "1.6.0"
 portpicker = "0.1.1"
 env_logger = "0.11.8"

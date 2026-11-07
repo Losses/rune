@@ -3693,24 +3693,22 @@ mod lifecycle_tests {
             Ok(())
         })
         .await?;
-        let (_, raw_client) = peer_step("authenticate raw audio client", async {
-            authenticated_client(
+        // Blocking dropped A's token on B, so this renews it once on 401.
+        let suffix_bytes = peer_step("raw suffix audio GET", async {
+            let suffix = send_authenticated_request(
                 &a.global_params.node,
                 &a_info.fingerprint,
                 &a.private_key,
                 &b_info.fingerprint,
                 "127.0.0.2",
                 b_addr.port(),
+                |_, client| {
+                    client
+                        .get(&source.url)
+                        .header(reqwest::header::RANGE, "bytes=-12")
+                },
             )
-            .await
-        })
-        .await?;
-        let suffix_bytes = peer_step("raw suffix audio GET", async {
-            let suffix = raw_client
-                .get(&source.url)
-                .header(reqwest::header::RANGE, "bytes=-12")
-                .send()
-                .await?;
+            .await?;
             anyhow::ensure!(
                 suffix.status() == reqwest::StatusCode::PARTIAL_CONTENT,
                 "suffix audio GET status"
@@ -3720,11 +3718,20 @@ mod lifecycle_tests {
         .await?;
         assert_eq!(suffix_bytes.as_ref(), &expected[expected.len() - 12..]);
         let invalid = peer_step("invalid range audio GET", async {
-            Ok(raw_client
-                .get(&source.url)
-                .header(reqwest::header::RANGE, format!("bytes={}-", expected.len()))
-                .send()
-                .await?)
+            send_authenticated_request(
+                &a.global_params.node,
+                &a_info.fingerprint,
+                &a.private_key,
+                &b_info.fingerprint,
+                "127.0.0.2",
+                b_addr.port(),
+                |_, client| {
+                    client
+                        .get(&source.url)
+                        .header(reqwest::header::RANGE, format!("bytes={}-", expected.len()))
+                },
+            )
+            .await
         })
         .await?;
         assert_eq!(invalid.status(), reqwest::StatusCode::RANGE_NOT_SATISFIABLE);

@@ -38,6 +38,9 @@ impl ExpectedRequestError {
 
 /// Classify a request failure without relying on its diagnostic text.
 pub fn classify(error: &Error) -> RequestErrorKind {
+    if sync_orm::is_storage_busy(error) {
+        return RequestErrorKind::Unavailable;
+    }
     for cause in error.chain() {
         if cause.is::<Denial>() {
             return RequestErrorKind::PermissionDenied;
@@ -69,6 +72,9 @@ pub fn classify(error: &Error) -> RequestErrorKind {
 
 /// Preserve a typed detail for expected failures through remote request hops.
 pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
+    if sync_orm::is_storage_busy(error) {
+        return Some(RequestFailureCause::StorageBusy);
+    }
     for cause in error.chain() {
         if let Some(expected) = cause.downcast_ref::<ExpectedRequestError>() {
             match expected {
@@ -93,6 +99,11 @@ mod tests {
 
     use super::{ExpectedRequestError, classify, request_failure_cause};
     use crate::messages::{CastLibraryState, RequestErrorKind, RequestFailureCause};
+    use sea_orm::{
+        ConnectionTrait, SqlxSqliteConnector,
+        sqlx::{SqlitePool, sqlite::SqliteConnectOptions},
+    };
+    use std::time::Duration;
 
     #[test]
     fn database_not_found_survives_nested_context() {
@@ -176,5 +187,43 @@ mod tests {
         })
         .context("forward cast load");
         assert_eq!(request_failure_cause(&remote_error), Some(expected));
+    }
+
+    #[tokio::test]
+    async fn sqlite_write_lock_is_unavailable_with_typed_cause() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("busy.db");
+        let lock_pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(&path)
+                .create_if_missing(true)
+                .busy_timeout(Duration::from_secs(1)),
+        )
+        .await
+        .unwrap();
+        let test_pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(&path)
+                .busy_timeout(Duration::from_millis(1)),
+        )
+        .await
+        .unwrap();
+        let lock = SqlxSqliteConnector::from_sqlx_sqlite_pool(lock_pool);
+        let under_test = SqlxSqliteConnector::from_sqlx_sqlite_pool(test_pool);
+        lock.execute_unprepared("CREATE TABLE writes (value INTEGER)")
+            .await
+            .unwrap();
+        lock.execute_unprepared("BEGIN IMMEDIATE").await.unwrap();
+
+        let error = under_test
+            .execute_unprepared("INSERT INTO writes VALUES (1)")
+            .await
+            .unwrap_err();
+        let error = Error::new(error).context("write request");
+        assert_eq!(classify(&error), RequestErrorKind::Unavailable);
+        assert_eq!(
+            request_failure_cause(&error),
+            Some(RequestFailureCause::StorageBusy)
+        );
     }
 }

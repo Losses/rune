@@ -1364,6 +1364,7 @@
   "requestItemMissing": "此項已不存",
   "requestInvalid": "所請有誤",
   "requestUnavailable": "今不可用",
+  "requestStorageBusy": "儲存空間正忙，請再試。",
   "mixNoLongerExists": "此輯已不存",
   "devices": "裝置",
   "playOn": "播音於",

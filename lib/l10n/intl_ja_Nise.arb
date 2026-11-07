@@ -1364,6 +1364,7 @@
   "requestItemMissing": "此項目既不存在",
   "requestInvalid": "要求無効",
   "requestUnavailable": "現在利用不可",
+  "requestStorageBusy": "ストレージが使用中です。再試行してください。",
   "mixNoLongerExists": "此混合既不存在",
   "devices": "デバイス",
   "playOn": "再生先",

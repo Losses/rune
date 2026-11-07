@@ -1366,6 +1366,7 @@
   "requestItemMissing": "Ĉi tiu ero ne plu ekzistas",
   "requestInvalid": "La peto ne estis valida",
   "requestUnavailable": "Ĉi tio nun ne disponeblas",
+  "requestStorageBusy": "La memoro estas okupita. Bonvolu reprovi.",
   "mixNoLongerExists": "Ĉi tiu miksaĵo ne plu ekzistas",
   "devices": "Aparatoj",
   "playOn": "Ludi per",

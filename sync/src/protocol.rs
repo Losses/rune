@@ -84,6 +84,7 @@ pub enum SyncError {
     Unauthorized,
     Forbidden,
     NamespaceNotServed,
+    StorageBusy,
     Storage(String),
     Transport(String),
 }

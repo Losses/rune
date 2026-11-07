@@ -1366,6 +1366,7 @@
   "requestItemMissing": "這个項目已經無矣",
   "requestInvalid": "要求無效",
   "requestUnavailable": "這馬無法度使用",
+  "requestStorageBusy": "儲存空間咧忙，請閣試一擺。",
   "mixNoLongerExists": "這个混音已經無矣",
   "devices": "裝置",
   "playOn": "播放裝置",

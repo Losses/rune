@@ -1364,6 +1364,7 @@
   "requestItemMissing": "このアイテムはもうありません",
   "requestInvalid": "リクエストがインバリッドです",
   "requestUnavailable": "いまはアベイラブルではありません",
+  "requestStorageBusy": "ストレージが使用中です。もういちどおためしください。",
   "mixNoLongerExists": "このミックスはもうありません",
   "devices": "デバイス",
   "playOn": "サイセイサキ",
