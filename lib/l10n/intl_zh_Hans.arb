@@ -1488,6 +1488,7 @@
   "devicesThatCanConnect": "可以连接到此设备的设备",
   "otherDevices": "其他设备",
   "myDevice": "我的设备",
+  "controllingNow": "正在控制此设备",
   "waitingForApproval": "等待批准",
   "guest": "访客",
   "myDeviceAccessDescription": "可以播放、浏览和同步你的音乐库",

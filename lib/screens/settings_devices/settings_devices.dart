@@ -16,6 +16,7 @@ import '../../widgets/settings/settings_tile_title.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/broadcast.dart';
+import '../../providers/controllers.dart';
 import '../../providers/library_path.dart';
 import '../../utils/router/navigation.dart';
 import '../settings_server/widgets/peer_libraries_dialog.dart';
@@ -191,6 +192,7 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
 
   Widget _buildUserListView(List<ClientSummary> clients, BuildContext context) {
     final broadcastProvider = Provider.of<BroadcastProvider>(context);
+    final controllersProvider = Provider.of<ControllersProvider>(context);
 
     return SizedBox(
       width: double.maxFinite,
@@ -216,11 +218,14 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                   : null,
               badgeColor: _getStatusColor(client.status),
               title: client.alias,
-              subtitle: client.status == ClientStatus.approved
-                  ? deviceAccessSummary(
-                      grants[client.fingerprint], S.of(context),
-                    )
-                  : presentation.subtitle,
+              subtitle: deviceRowSubtitle(
+                status: client.status,
+                grants: grants[client.fingerprint],
+                isControlling: controllersProvider.isControlling(
+                  client.fingerprint,
+                ),
+                strings: S.of(context),
+              ),
               showActions: selectedUserId == client.fingerprint,
               actionsBuilder: (context) => Wrap(
                 crossAxisAlignment: WrapCrossAlignment.center,

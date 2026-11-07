@@ -1391,6 +1391,7 @@
   "devicesThatCanConnect": "このデバイスに接続できるデバイス",
   "otherDevices": "その他のデバイス",
   "myDevice": "自分のデバイス",
+  "controllingNow": "今このデバイスを操作中",
   "waitingForApproval": "承認待ち",
   "guest": "ゲスト",
   "myDeviceAccessDescription": "ライブラリの再生、閲覧、同期ができます",

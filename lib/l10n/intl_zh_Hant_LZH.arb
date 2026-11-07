@@ -1391,6 +1391,7 @@
   "devicesThatCanConnect": "可連此裝置之裝置",
   "otherDevices": "他裝置",
   "myDevice": "我的裝置",
+  "controllingNow": "正控制此裝置",
   "waitingForApproval": "待允",
   "guest": "訪客",
   "myDeviceAccessDescription": "可以播放、瀏覽和同步你的音樂庫",

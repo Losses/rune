@@ -1428,6 +1428,7 @@
   "devicesThatCanConnect": "Geräte, die sich mit diesem verbinden können",
   "otherDevices": "Andere Geräte",
   "myDevice": "Mein Gerät",
+  "controllingNow": "Steuert dieses Gerät gerade",
   "waitingForApproval": "Wartet auf Bestätigung",
   "guest": "Gast",
   "myDeviceAccessDescription": "Kann deine Mediatheken abspielen, durchsuchen und synchronisieren",

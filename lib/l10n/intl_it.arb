@@ -1430,6 +1430,7 @@
   "devicesThatCanConnect": "Dispositivi che possono connettersi a questo",
   "otherDevices": "Altri dispositivi",
   "myDevice": "Il mio dispositivo",
+  "controllingNow": "Sta controllando questo dispositivo",
   "waitingForApproval": "In attesa di approvazione",
   "guest": "Ospite",
   "myDeviceAccessDescription": "Può riprodurre, esplorare e sincronizzare le tue librerie",

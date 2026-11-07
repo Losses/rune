@@ -72,4 +72,43 @@ void main() {
       expect(choiceForLevel(levelForChoice(choice)), choice);
     }
   });
+
+  test('only approved controlling devices show the live status', () {
+    expect(
+      deviceRowSubtitle(
+        status: ClientStatus.approved,
+        grants: grants(),
+        isControlling: true,
+        strings: s,
+      ),
+      'Guest · Can control playback · Controlling now',
+    );
+    expect(
+      deviceRowSubtitle(
+        status: ClientStatus.approved,
+        grants: grants(),
+        isControlling: false,
+        strings: s,
+      ),
+      'Guest · Can control playback',
+    );
+    expect(
+      deviceRowSubtitle(
+        status: ClientStatus.pending,
+        grants: grants(),
+        isControlling: true,
+        strings: s,
+      ),
+      s.waitingForApproval,
+    );
+    expect(
+      deviceRowSubtitle(
+        status: ClientStatus.blocked,
+        grants: grants(),
+        isControlling: true,
+        strings: s,
+      ),
+      s.blockedStatus,
+    );
+  });
 }

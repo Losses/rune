@@ -34,6 +34,7 @@ use playback::{
 };
 use sea_orm::sea_query::Expr;
 use sea_orm::{EntityTrait, Set};
+use serde::de::DeserializeOwned;
 #[cfg(target_os = "linux")]
 use tokio::runtime::Builder;
 use tokio::time::{Instant, sleep, timeout};
@@ -150,6 +151,23 @@ impl Broadcaster for RecordedSignals {
             .lock()
             .unwrap()
             .push((message.name(), message.encode_to_vec().unwrap()));
+    }
+}
+
+impl RecordedSignals {
+    fn clear(&self) {
+        self.0.lock().unwrap().clear();
+    }
+
+    /// Every signal named `name` recorded so far, decoded.
+    fn decoded<T: DeserializeOwned>(&self, name: &str) -> Vec<T> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(signal, _)| signal == name)
+            .filter_map(|(_, payload)| rinf::deserialize::<T>(payload).ok())
+            .collect()
     }
 }
 
@@ -418,6 +436,135 @@ async fn renderer_link_forwards_controls_routes_status_and_keeps_local_queue() -
     );
     a.global_params.node.shutdown().await?;
     b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn renderer_link_does_not_forward_its_controller_list() -> Result<()> {
+    use crate::messages::{ControllersUpdated, ListControllersRequest};
+
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let c_dir = tempfile::tempdir()?;
+    let a_signals = Arc::new(RecordedSignals::default());
+    let b_signals = Arc::new(RecordedSignals::default());
+    let a = fixture_with_broadcaster(
+        a_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        a_signals.clone(),
+    )
+    .await?;
+    let b = fixture_with_broadcaster(
+        b_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        b_signals.clone(),
+    )
+    .await?;
+    let c = fixture(c_dir.path()).await?;
+
+    let b_address = super::paired_full(&b, &a).await?;
+    let b_info = super::info(&b).await?;
+    a.global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &b_info.fingerprint,
+            vec![format!("127.0.0.1:{}", b_address.port())],
+        )
+        .await?;
+    a.global_params
+        .node
+        .attach_renderer(&b_info.fingerprint)
+        .await?;
+    assert_eq!(
+        a.global_params
+            .node
+            .renderer_link()?
+            .as_ref()
+            .map(|link| link.fingerprint()),
+        Some(b_info.fingerprint.as_str())
+    );
+    a_signals.clear();
+
+    super::pair(&b, &c).await?;
+    let mut c_socket = super::connect_remote(
+        "127.0.0.1",
+        b_address.port(),
+        &c.global_params.config_path,
+        c.global_params.cert_validator.read().await.clone(),
+        &c.global_params.node.sync_tokens,
+    )
+    .await?;
+    wait_controller_count(&b.global_params.node, 2).await?;
+
+    let b_list = ListControllersRequest {};
+    let b_controllers = b_list
+        .handle(b.global_params.node.clone(), None, &b_list)
+        .await?
+        .context("renderer controller list")?
+        .controllers;
+    let a_fingerprint = super::info(&a).await?.fingerprint;
+    let c_fingerprint = super::info(&c).await?.fingerprint;
+    assert!(
+        b_controllers
+            .iter()
+            .any(|entry| entry.fingerprint == a_fingerprint)
+    );
+    assert!(
+        b_controllers
+            .iter()
+            .any(|entry| entry.fingerprint == c_fingerprint)
+    );
+
+    let b_updates = b_signals.decoded::<ControllersUpdated>("ControllersUpdated");
+    assert!(b_updates.iter().any(|update| {
+        update
+            .controllers
+            .iter()
+            .any(|entry| entry.fingerprint == c_fingerprint)
+    }));
+    assert!(
+        a_signals
+            .decoded::<ControllersUpdated>("ControllersUpdated")
+            .is_empty()
+    );
+
+    // Only updates sent after C leaves count: B's lists from before C joined lack C too.
+    b_signals.clear();
+    c_socket.close(None).await?;
+    wait_controller_count(&b.global_params.node, 1).await?;
+    timeout(Duration::from_secs(3), async {
+        loop {
+            let has_removed = b_signals
+                .decoded::<ControllersUpdated>("ControllersUpdated")
+                .iter()
+                .any(|update| {
+                    update
+                        .controllers
+                        .iter()
+                        .all(|entry| entry.fingerprint != c_fingerprint)
+                });
+            if has_removed {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("renderer did not publish the disconnected controller list")?;
+    assert!(
+        a_signals
+            .decoded::<ControllersUpdated>("ControllersUpdated")
+            .is_empty()
+    );
+
+    drop(c_socket);
+    for fixture in [&a, &b, &c] {
+        fixture.global_params.node.shutdown().await?;
+    }
     Ok(())
 }
 

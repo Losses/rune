@@ -1428,6 +1428,7 @@
   "devicesThatCanConnect": "Пристрої, які можуть підключатися до цього",
   "otherDevices": "Інші пристрої",
   "myDevice": "Мій пристрій",
+  "controllingNow": "Зараз керує цим пристроєм",
   "waitingForApproval": "Очікує на підтвердження",
   "guest": "Гість",
   "myDeviceAccessDescription": "Може відтворювати, переглядати й синхронізувати ваші бібліотеки",

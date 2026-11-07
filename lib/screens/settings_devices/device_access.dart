@@ -1,5 +1,6 @@
 import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
+import 'device_status.dart';
 
 enum DeviceAccessChoice { notShared, read, readWrite }
 
@@ -34,4 +35,17 @@ String deviceAccessSummary(DeviceGrantsInfo? grants, AppLocalizations s) {
     }
   }
   return s.customDeviceAccess;
+}
+
+String deviceRowSubtitle({
+  required ClientStatus status,
+  required DeviceGrantsInfo? grants,
+  required bool isControlling,
+  required AppLocalizations strings,
+}) {
+  if (status != ClientStatus.approved) {
+    return deviceStatusPresentation(status, strings).subtitle;
+  }
+  final access = deviceAccessSummary(grants, strings);
+  return isControlling ? '$access · ${strings.controllingNow}' : access;
 }

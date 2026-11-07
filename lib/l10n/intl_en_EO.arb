@@ -1393,6 +1393,7 @@
   "devicesThatCanConnect": "Aparatoj kiuj povas konektiĝi al ĉi tiu",
   "otherDevices": "Aliaj aparatoj",
   "myDevice": "Mia aparato",
+  "controllingNow": "Regas ĉi tiun aparaton nun",
   "waitingForApproval": "Atendante aprobon",
   "guest": "Gasto",
   "myDeviceAccessDescription": "Povas ludi, foliumi kaj sinkronigi viajn bibliotekojn",

@@ -1391,6 +1391,7 @@
   "devicesThatCanConnect": "コノデバイスニセツゾクデキルデバイス",
   "otherDevices": "ホカノデバイス",
   "myDevice": "ジブンノデバイス",
+  "controllingNow": "イマ コノ デバイスヲ ソウサチュウ",
   "waitingForApproval": "ショウニンマチ",
   "guest": "ゲスト",
   "myDeviceAccessDescription": "ライブラリヲ サイセイ、エツラン、ドウキ デキマス",

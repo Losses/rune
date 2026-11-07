@@ -1393,6 +1393,7 @@
   "devicesThatCanConnect": "會當連線此裝置的裝置",
   "otherDevices": "其他裝置",
   "myDevice": "我的裝置",
+  "controllingNow": "tsit-tsāi khòng-tsè tse ê thí-kì",
   "waitingForApproval": "等待批准",
   "guest": "訪客",
   "myDeviceAccessDescription": "可以播放、瀏覽和同步你的音樂庫",
