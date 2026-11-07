@@ -64,6 +64,8 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
             title: s.unknownError,
             errorMessage: e.toString(),
           );
+          // Do not register with or open a device we failed to trust.
+          return;
         }
 
         try {
