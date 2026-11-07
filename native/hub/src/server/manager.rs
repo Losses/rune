@@ -1570,6 +1570,75 @@ mod lifecycle_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn one_connection_keeps_frame_order() -> Result<()> {
+        use crate::backends::remote::encode_message;
+        use crate::server::register_gated_handler;
+        use futures::SinkExt;
+        use std::time::Duration;
+        use tokio::sync::Notify;
+        use tokio::time::timeout;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let renderer_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let renderer = fixture(renderer_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let service = &renderer.global_params.node.websocket_service;
+        let (first_entered, release_first) = register_gated_handler(service, "OrderFirst").await;
+        let second_entered = Arc::new(Notify::new());
+        let second_entered_handler = second_entered.clone();
+        service
+            .register_handler("OrderSecond", move |_, _, _| {
+                let entered = second_entered_handler.clone();
+                async move {
+                    entered.notify_one();
+                    ("OrderSecondResponse".into(), Ok(Vec::new()))
+                }
+            })
+            .await;
+
+        let addr = paired_full(&renderer, &controller).await?;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &controller.global_params.config_path,
+            controller.global_params.cert_validator.read().await.clone(),
+            &controller.global_params.node.sync_tokens,
+        )
+        .await?;
+        socket
+            .send(Message::Binary(
+                encode_message("OrderFirst", &[], Some(Uuid::new_v4())).into(),
+            ))
+            .await?;
+        socket
+            .send(Message::Binary(
+                encode_message("OrderSecond", &[], Some(Uuid::new_v4())).into(),
+            ))
+            .await?;
+
+        timeout(Duration::from_secs(2), first_entered.notified())
+            .await
+            .context("first handler did not enter")?;
+        assert!(
+            timeout(Duration::from_millis(200), second_entered.notified())
+                .await
+                .is_err(),
+            "second frame ran before the first handler finished"
+        );
+
+        release_first.notify_one();
+        timeout(Duration::from_secs(2), second_entered.notified())
+            .await
+            .context("second handler did not enter after the first completed")?;
+
+        drop(socket);
+        renderer.global_params.node.shutdown().await?;
+        controller.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn remote_connection_classification_and_revocation() -> Result<()> {
         use crate::backends::remote::{RemoteConnectError, connect_remote};
         use futures::StreamExt;
