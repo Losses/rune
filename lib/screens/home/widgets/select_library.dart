@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../utils/l10n.dart';
 import '../../../utils/router/navigation.dart';
+import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../widgets/settings/settings_button.dart';
 import '../../../providers/library_path.dart';
@@ -89,6 +91,9 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                   child: SizedBox(
                     width: double.maxFinite,
                     child: ListView.builder(
+                      // The list is in the middle of the window, not at its
+                      // edges.
+                      padding: EdgeInsets.zero,
                       shrinkWrap: true,
                       itemCount: allOpenedFiles.length + 1,
                       itemBuilder: (context, index) {
@@ -106,7 +111,10 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                         return SettingsButton(
                           icon: Symbols.folder,
                           title: fileName,
-                          subtitle: allOpenedFiles[index - 1],
+                          subtitle: describeLibraryPath(
+                            S.of(context),
+                            itemPath,
+                          ),
                           onPressed: () async {
                             final path = allOpenedFiles[index - 1];
 

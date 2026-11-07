@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 
 import '../../../utils/l10n.dart';
+import '../../../utils/platform.dart';
 import '../../../widgets/settings/settings_box_combo_box.dart';
 import '../../../constants/configurations.dart';
 import '../../../constants/settings_manager.dart';
@@ -23,7 +24,7 @@ class WindowSizeSettingState extends State<WindowSizeSetting> {
   @override
   void initState() {
     super.initState();
-    _loadWindowSizeSetting();
+    if (isDesktop) _loadWindowSizeSetting();
   }
 
   Future<void> _loadWindowSizeSetting() async {
@@ -49,6 +50,11 @@ class WindowSizeSettingState extends State<WindowSizeSetting> {
 
   @override
   Widget build(BuildContext context) {
+    // There is no window to resize outside desktop.
+    if (!isDesktop) {
+      return const SizedBox.shrink();
+    }
+
     final s = S.of(context);
 
     return SettingsBoxComboBox(

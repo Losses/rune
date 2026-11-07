@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import 'package:rune/utils/ax_shadow.dart';
 import 'package:rune/bindings/bindings.dart';
+import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/providers/visualizer_lab.dart';
 import 'package:rune/providers/visualizer_scenes.dart';
 import 'package:rune/widgets/visualizer/lab/lab_data.dart';
@@ -104,6 +105,9 @@ void main() {
           ChangeNotifierProvider<VisualizerLabProvider>.value(value: lab),
           ChangeNotifierProvider<VisualizerScenesProvider>.value(
             value: _FakeScenes(),
+          ),
+          ChangeNotifierProvider(
+            create: (_) => ScreenSizeProvider.withWriter(null, (_) async {}),
           ),
         ],
         child: FluentApp(home: LabBody(controller: VisualizerController())),

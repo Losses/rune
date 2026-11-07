@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/responsive_providers.dart';
+import '../../widgets/status_bar_style.dart';
 import '../../widgets/visualizer/visualizer_dark_theme.dart';
 
 import 'widgets/cover_wall_layout.dart';
@@ -30,7 +31,11 @@ class _CoverWallPageState extends State<CoverWallPage> {
           return const PageContentFrame(child: BandScreenCoverWallView());
         }
 
-        return const VisualizerDarkTheme(child: CoverWallLayout());
+        // The status bar follows the wall's theme, which turns dark while a
+        // scene shows.
+        return const VisualizerDarkTheme(
+          child: StatusBarStyle(child: CoverWallLayout()),
+        );
       },
     );
   }

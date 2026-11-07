@@ -27,7 +27,6 @@ class BandScreenTrackList extends StatelessWidget {
   final InternalMediaFile? Function(int) getItem;
   final QueryList queries;
   final int mode;
-  final bool topPadding;
 
   const BandScreenTrackList({
     super.key,
@@ -35,7 +34,6 @@ class BandScreenTrackList extends StatelessWidget {
     required this.getItem,
     required this.queries,
     required this.mode,
-    required this.topPadding,
   });
 
   @override
@@ -83,7 +81,7 @@ class BandScreenTrackList extends StatelessWidget {
           ? Axis.vertical
           : Axis.horizontal,
       controller: scrollController,
-      padding: getScrollContainerPadding(context, top: topPadding),
+      padding: getScrollContainerPadding(context),
       itemCount: totalCount,
       itemBuilder: (context, index) {
         final item = getItem(index);

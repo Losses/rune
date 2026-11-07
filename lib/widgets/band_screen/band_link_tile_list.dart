@@ -8,15 +8,9 @@ import '../../providers/responsive_providers.dart';
 import '../navigation_bar/page_content_frame.dart';
 
 class BandLinkTileList extends StatelessWidget {
-  const BandLinkTileList({
-    super.key,
-    required this.links,
-    required this.topPadding,
-    this.leadingItem,
-  });
+  const BandLinkTileList({super.key, required this.links, this.leadingItem});
 
   final List<(String Function(BuildContext), String, IconData, bool)> links;
-  final bool topPadding;
   final Widget? leadingItem;
 
   @override
@@ -51,7 +45,7 @@ class BandLinkTileList extends StatelessWidget {
       builder: (context, deviceType) {
         if (deviceType == DeviceType.dock) {
           return SingleChildScrollView(
-            padding: getScrollContainerPadding(context, top: topPadding),
+            padding: getScrollContainerPadding(context),
             child: Column(
               children: children,
             ),
@@ -62,7 +56,7 @@ class BandLinkTileList extends StatelessWidget {
           builder: (context, controller) {
             return SingleChildScrollView(
               controller: controller,
-              padding: getScrollContainerPadding(context, top: topPadding),
+              padding: getScrollContainerPadding(context),
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: children,

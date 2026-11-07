@@ -23,8 +23,8 @@ class ContextMenuWrapper extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTertiaryTapUp: (event) => onMiddleClick(event.localPosition),
-      onSecondaryTapUp:
-          isDesktop ? (details) => onContextMenu(details.localPosition) : null,
+      // A mouse or trackpad can be attached on any platform.
+      onSecondaryTapUp: (details) => onContextMenu(details.localPosition),
       onLongPressEnd:
           isDesktop ? null : (details) => onContextMenu(details.localPosition),
       child: FlyoutTarget(

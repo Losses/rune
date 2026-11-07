@@ -18,19 +18,15 @@ class BackButton extends StatelessWidget {
       builder: (_, isTrue) {
         if (!isTrue) return Container();
 
-        final viewPadding = MediaQuery.of(context).viewPadding;
-
-        return Padding(
-          padding: EdgeInsets.only(
-            top: 16 + viewPadding.top,
-            left: 16 + viewPadding.left,
-          ),
-          child: AxReveal0(
-            child: RuneClickable(
-              onPressed: showCoverArtWall,
-              child: Icon(
-                Symbols.arrow_back,
-                size: 24,
+        return SafeArea(
+          right: false,
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 16, left: 16),
+            child: AxReveal0(
+              child: RuneClickable(
+                onPressed: showCoverArtWall,
+                child: Icon(Symbols.arrow_back, size: 24),
               ),
             ),
           ),

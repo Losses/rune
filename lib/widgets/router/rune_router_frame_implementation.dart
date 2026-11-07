@@ -7,6 +7,7 @@ import 'package:fast_file_picker/fast_file_picker.dart';
 
 import '../../main.dart';
 
+import '../../utils/kept_clear.dart';
 import '../../utils/query_list.dart';
 import '../../utils/playing_item.dart';
 import '../../utils/filter_audio_files.dart';
@@ -20,6 +21,7 @@ import '../../widgets/navigation_bar/navigation_back_button.dart';
 import '../../widgets/banding_animation/branding_animation.dart';
 import '../../widgets/playback_controller/cover_art_disk.dart';
 import '../../widgets/playback_controller/playback_controller.dart';
+import '../../widgets/status_bar_style.dart';
 
 import '../../providers/crash.dart';
 import '../../providers/router_path.dart';
@@ -113,7 +115,11 @@ class _RuneRouterFrameImplementationState
     final showDisk = isZune || isCar;
 
     if (crash.report != null) {
-      return Bsod(report: crash.report!);
+      // The report is on a dark background in both themes.
+      return StatusBarStyle(
+        brightness: Brightness.dark,
+        child: Bsod(report: crash.report!),
+      );
     }
 
     if (library.currentPath == null) {
@@ -128,7 +134,7 @@ class _RuneRouterFrameImplementationState
     final path = Provider.of<RouterPathProvider>(context).path;
     final isSpecialLayout = isCoverArtWallLayout(path);
     final labMode = watchVisualizerLabMode(context);
-    final topInset = MediaQuery.of(context).viewPadding.top;
+    final keptClear = context.keptClear;
 
     // Create the PlaybackController with a key once
     final playbackController = KeyedSubtree(
@@ -195,6 +201,8 @@ class _RuneRouterFrameImplementationState
                         maintainState: true, // Keep the state
                         // In the lab mode the controller moves to the top of
                         // the window. It is the same widget, so it plays on.
+                        // At the bottom it stays above Android's navigation
+                        // bar, and runs under the home indicator on iOS.
                         child: AnimatedAlign(
                           alignment: labMode
                               ? Alignment.topCenter
@@ -203,7 +211,8 @@ class _RuneRouterFrameImplementationState
                           curve: labModeCurve,
                           child: AnimatedPadding(
                             padding: EdgeInsets.only(
-                              top: labMode ? topInset : 0,
+                              top: labMode ? keptClear.top : 0,
+                              bottom: labMode ? 0 : keptClear.bottom,
                             ),
                             duration: labModeDuration,
                             curve: labModeCurve,
@@ -234,7 +243,7 @@ class _RuneRouterFrameImplementationState
                                     child: Transform.translate(
                                       offset: Offset(
                                         0,
-                                        -value * (240 + topInset),
+                                        -value * (240 + keptClear.top),
                                       ),
                                       child: child,
                                     ),
@@ -243,10 +252,10 @@ class _RuneRouterFrameImplementationState
                             );
                           }
 
-                          return const Positioned(
-                            top: -12,
-                            left: -12,
-                            child: NavigationBackButton(),
+                          return Positioned(
+                            top: -12 + keptClear.top,
+                            left: -12 + keptClear.left,
+                            child: const NavigationBackButton(),
                           );
                         },
                       ),

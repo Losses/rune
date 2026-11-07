@@ -36,13 +36,11 @@ const groupTitleLinks = {
 class LargeScreenLibraryHomeListView extends StatefulWidget {
   final String libraryPath;
   final StartScreenLayoutManager layoutManager;
-  final bool topPadding;
 
   const LargeScreenLibraryHomeListView({
     super.key,
     required this.libraryPath,
     required this.layoutManager,
-    required this.topPadding,
   });
 
   @override
@@ -208,10 +206,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                         SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
                           controller: scrollController,
-                          padding: getScrollContainerPadding(
-                            context,
-                            top: widget.topPadding,
-                          ),
+                          padding: getScrollContainerPadding(context),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.start,
                             crossAxisAlignment: CrossAxisAlignment.start,

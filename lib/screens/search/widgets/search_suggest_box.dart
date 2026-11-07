@@ -6,6 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../../utils/settings_manager.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/rune_clickable.dart';
+import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../../bindings/bindings.dart';
 import '../../../providers/responsive_providers.dart';
 
@@ -85,6 +86,29 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
     }
   }
 
+  /// The popup's height so that it ends above the on-screen keyboard. Fluent
+  /// only keeps it clear of the safe area, so the suggestions would otherwise
+  /// go behind the keyboard. Most layouts have the box inside a page's frame,
+  /// which takes the keyboard out of the view insets.
+  double _popupHeight(BuildContext context) {
+    final keyboard = PageContentFrame.keyboardOf(context);
+    final box = searchKey.currentContext?.findRenderObject();
+    if (keyboard == 0 || box is! RenderBox || !box.attached || !box.hasSize) {
+      return kAutoSuggestBoxPopupMaxHeight;
+    }
+    final overlay = Overlay.of(context, rootOverlay: true).context;
+    final bottom = box
+        .localToGlobal(
+          Offset(0, box.size.height),
+          ancestor: overlay.findRenderObject(),
+        )
+        .dy;
+    return (MediaQuery.sizeOf(context).height - keyboard - bottom).clamp(
+      0.0,
+      kAutoSuggestBoxPopupMaxHeight,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
@@ -104,6 +128,7 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
         key: searchKey,
         focusNode: searchFocusNode,
         controller: widget.controller,
+        maxPopupHeight: _popupHeight(context),
         unfocusedColor: Colors.transparent,
         style: widget.deviceType == DeviceType.dock
             ? theme.typography.caption

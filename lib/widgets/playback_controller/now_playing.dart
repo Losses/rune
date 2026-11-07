@@ -1,6 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/kept_clear.dart';
 import '../../widgets/playback_controller/now_playing_track_cover_art_button.dart';
 import '../../providers/status.dart';
 import '../../providers/responsive_providers.dart';
@@ -22,6 +23,7 @@ class NowPlaying extends StatelessWidget {
     final notReady = statusProvider.notReady;
     final item = statusProvider.playingItem;
 
+    final keptClear = context.keptClear;
     final r = Provider.of<ResponsiveProvider>(context);
     final miniLayout = r.smallerOrEqualTo(DeviceType.tablet);
     final hideProgress = r.smallerOrEqualTo(DeviceType.phone);
@@ -38,7 +40,7 @@ class NowPlaying extends StatelessWidget {
         child: miniLayout
             ? Row(
                 children: [
-                  const SizedBox(width: 16),
+                  SizedBox(width: 16 + keptClear.left),
                   const NowPlayingTrackCoverArtButton(size: 48),
                   if (hideProgress) const SizedBox(width: 10),
                   hideProgress

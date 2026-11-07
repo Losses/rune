@@ -28,6 +28,18 @@
   "@factoryResetSubtitle": {
     "description": "设置界面中“恢复出厂设置”按钮的说明文字。"
   },
+  "onMyIPhone": "我的 iPhone",
+  "@onMyIPhone": {
+    "description": "iPhone 上“文件”App 中的位置，显示在媒体库位置的开头。"
+  },
+  "onMyIPad": "我的 iPad",
+  "@onMyIPad": {
+    "description": "iPad 上“文件”App 中的位置，显示在媒体库位置的开头。"
+  },
+  "iCloudDrive": "iCloud 云盘",
+  "@iCloudDrive": {
+    "description": "iCloud 云盘在“文件”App 中的位置，显示在媒体库位置的开头。"
+  },
   "bsodBody": "您的播放器遇到问题，需要重新启动。我们尊重您的隐私，不会收集任何数据。",
   "@bsodBody": {
     "description": "在蓝屏界面，这向用户解释软件遇到了致命错误。并信达雅提示用户隐私保护。"
@@ -1402,6 +1414,7 @@
   "interfaceScale": "界面缩放",
   "interfaceScaleSubtitle": "相对于系统缩放立即调整文字和应用内容。窗口大小和屏幕分辨率不会改变。100% 遵循系统缩放。",
   "interfaceScaleSaveError": "无法保存界面缩放",
+  "interfaceScaleFollowTextSize": "跟随文字大小",
   "linuxCustomWindowControls": "自定义窗口控件",
   "@linuxCustomWindowControls": {"description": "Title for the Linux custom window controls setting option."},
   "linuxCustomWindowControlsSubtitle": "启用自定义窗口控件，使用类似 Windows 模式的无边框窗口。",

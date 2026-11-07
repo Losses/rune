@@ -35,7 +35,7 @@ class _SettingsMediaControllerPageState
     final entries = playbackController.availableEntries(context);
 
     return PageContentFrame(
-      child: UnavailablePageOnBand(
+      builder: (context) => UnavailablePageOnBand(
         child: SettingsPagePadding(
           child: SingleChildScrollView(
             padding: getScrollContainerPadding(context),

@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:provider/provider.dart';
 
 import '../../../providers/responsive_providers.dart';
 
@@ -34,6 +35,9 @@ LabLayout labLayoutFor(Size window) {
       : LabLayout.pagesAcross;
 }
 
-/// How the lab lays out in the window [context] is in.
-LabLayout labLayoutOf(BuildContext context) =>
-    labLayoutFor(MediaQuery.sizeOf(context));
+/// How the lab lays out in the window [context] is in, by the size layouts
+/// are chosen by ([ScreenSizeProvider.layoutSize]).
+LabLayout labLayoutOf(BuildContext context, {bool listen = true}) =>
+    labLayoutFor(
+      Provider.of<ScreenSizeProvider>(context, listen: listen).layoutSize,
+    );

@@ -3,6 +3,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../config/routes.dart';
 import '../../widgets/router/router_animation.dart';
 
+import '../../providers/visualizer_lab.dart';
+
+import 'edge_swipe_back.dart';
 import 'no_effect_page_route.dart';
 import 'rune_router_frame_implementation.dart';
 
@@ -45,10 +48,14 @@ class RuneWithNavigationBarAndPlaybackControllorState
         if (didPop) return;
       },
       child: RuneRouterFrameImplementation(
-        child: Navigator(
-          key: runeWithNavigationBarAndPlaybackControllorNavigatorKey,
-          initialRoute: widget.routeName,
-          onGenerateRoute: _onGenerateRoute,
+        child: EdgeSwipeBack(
+          // The lab's page handle drags at the left edge.
+          enabled: !watchVisualizerLabMode(context),
+          child: Navigator(
+            key: runeWithNavigationBarAndPlaybackControllorNavigatorKey,
+            initialRoute: widget.routeName,
+            onGenerateRoute: _onGenerateRoute,
+          ),
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
+import '../../../utils/platform.dart';
 import '../../../widgets/settings/settings_box_toggle.dart';
 import '../../../constants/configurations.dart';
 import '../../../constants/settings_manager.dart';
@@ -19,7 +20,7 @@ class RememberWindowSizeSettingState extends State<RememberWindowSizeSetting> {
   @override
   void initState() {
     super.initState();
-    _loadRememberWindowSizeSetting();
+    if (isDesktop) _loadRememberWindowSizeSetting();
   }
 
   Future<void> _loadRememberWindowSizeSetting() async {
@@ -39,6 +40,11 @@ class RememberWindowSizeSettingState extends State<RememberWindowSizeSetting> {
 
   @override
   Widget build(BuildContext context) {
+    // There is no window to remember the size of outside desktop.
+    if (!isDesktop) {
+      return const SizedBox.shrink();
+    }
+
     final s = S.of(context);
 
     return SettingsBoxToggle(

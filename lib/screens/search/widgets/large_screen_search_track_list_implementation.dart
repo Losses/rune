@@ -32,6 +32,7 @@ class LargeScreenSearchTrackListImplementation extends StatelessWidget {
   Widget build(BuildContext context) {
     return GridView(
       shrinkWrap: true,
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: rows,
         mainAxisSpacing: gapSize,
@@ -40,7 +41,6 @@ class LargeScreenSearchTrackListImplementation extends StatelessWidget {
       ),
       padding: getScrollContainerPadding(
         context,
-        top: false,
         left: false,
         right: false,
       ),

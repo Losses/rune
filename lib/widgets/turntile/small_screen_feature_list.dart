@@ -16,11 +16,9 @@ class SmallScreenFeatureListView extends StatefulWidget {
     super.key,
     required this.layoutManager,
     required this.items,
-    required this.topPadding,
   });
   final StartScreenLayoutManager layoutManager;
   final List<(String Function(BuildContext), String, IconData, bool)> items;
-  final bool topPadding;
 
   @override
   LibraryHomeListState createState() => LibraryHomeListState();
@@ -41,7 +39,7 @@ class LibraryHomeListState extends State<SmallScreenFeatureListView> {
   Widget build(BuildContext context) {
     return Center(
       child: SingleChildScrollView(
-        padding: getScrollContainerPadding(context, top: widget.topPadding),
+        padding: getScrollContainerPadding(context),
         child: TurntileGroup<(String Function(BuildContext), String, IconData, bool)>(
           groupIndex: 0,
           items: widget.items,

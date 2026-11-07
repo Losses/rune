@@ -8,6 +8,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:provider/provider.dart';
+import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/widgets/ax_reveal/ax_reveal.dart';
 import 'package:rune/widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import 'package:rune/widgets/hover_opacity.dart';
@@ -517,15 +519,18 @@ void main() {
       addTearDown(tester.view.reset);
       final model = LabRowsModel();
       await tester.pumpWidget(
-        FluentApp(
-          // As the app's root: the reveal of its items needs it.
-          builder: (context, child) => RevealEffectContext(child: child!),
-          home: ScaffoldPage(
-            padding: EdgeInsets.zero,
-            content: LabTimeline(
-              data: LabTimelineData(length: 60, columns: _columns),
-              rows: model,
-              onSeek: (_) {},
+        ChangeNotifierProvider(
+          create: (_) => ScreenSizeProvider.withWriter(null, (_) async {}),
+          child: FluentApp(
+            // As the app's root: the reveal of its items needs it.
+            builder: (context, child) => RevealEffectContext(child: child!),
+            home: ScaffoldPage(
+              padding: EdgeInsets.zero,
+              content: LabTimeline(
+                data: LabTimelineData(length: 60, columns: _columns),
+                rows: model,
+                onSeek: (_) {},
+              ),
             ),
           ),
         ),
@@ -566,15 +571,18 @@ void main() {
       addTearDown(tester.view.reset);
       model ??= LabRowsModel();
       await tester.pumpWidget(
-        FluentApp(
-          // As the app's root: the reveal of its items needs it.
-          builder: (context, child) => RevealEffectContext(child: child!),
-          home: ScaffoldPage(
-            padding: EdgeInsets.zero,
-            content: LabTimeline(
-              data: LabTimelineData(length: 60, columns: _columns),
-              rows: model,
-              onSeek: (_) {},
+        ChangeNotifierProvider(
+          create: (_) => ScreenSizeProvider.withWriter(null, (_) async {}),
+          child: FluentApp(
+            // As the app's root: the reveal of its items needs it.
+            builder: (context, child) => RevealEffectContext(child: child!),
+            home: ScaffoldPage(
+              padding: EdgeInsets.zero,
+              content: LabTimeline(
+                data: LabTimelineData(length: 60, columns: _columns),
+                rows: model,
+                onSeek: (_) {},
+              ),
             ),
           ),
         ),

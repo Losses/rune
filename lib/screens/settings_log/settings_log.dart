@@ -220,7 +220,7 @@ class SettingsLogPageState extends State<SettingsLogPage> {
   @override
   Widget build(BuildContext context) {
     return PageContentFrame(
-      child: UnavailablePageOnBand(
+      builder: (context) => UnavailablePageOnBand(
         child: ContextMenuWrapper(
           contextAttachKey: _contextAttachKey,
           contextController: _contextController,

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -182,5 +183,64 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     screen.dispose();
     scale.dispose();
+  });
+  testWidgets('following the text size replaces the system text scaler', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 3;
+    tester.view.physicalSize = const Size(1206, 2622);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    // A text size that zooms the interface is not applied to text again.
+    // Where the nearest zoom is 1, smaller or slightly larger, text scales.
+    for (final (textScale, following, replaced) in [
+      (21 / 17, true, true),
+      (23 / 17, true, true),
+      (19 / 17, true, false),
+      (15 / 17, true, false),
+      (21 / 17, false, false),
+    ]) {
+      tester.platformDispatcher.textScaleFactorTestValue = textScale;
+      final scaler = TextScaler.linear(textScale);
+      final scale = AppScaleProvider(
+        read: () async => following ? AppScaleProvider.followTextSize : 125,
+        write: (_) async {},
+        supportsFollowTextSize: true,
+      );
+      await scale.initialize();
+      late MediaQueryData media;
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: scale,
+          child: MediaQuery(
+            data: MediaQueryData(textScaler: scaler),
+            child: AppViewport(
+              child: Builder(
+                builder: (context) {
+                  media = MediaQuery.of(context);
+                  return const SizedBox.expand();
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      final reason = 'text scale $textScale, following $following';
+      if (replaced) {
+        // Both zoom by 4/3. The rest of the larger size is the text's, and
+        // the smaller one, rounded up, is not taken back from the text.
+        expect(scale.scaleFactor, closeTo(4 / 3, 1e-9), reason: reason);
+        expect(
+          media.textScaler.scale(17) * scale.scaleFactor,
+          closeTo(math.max(17 * textScale, 17 * 4 / 3), 1e-9),
+          reason: reason,
+        );
+      } else {
+        expect(media.textScaler, same(scaler), reason: reason);
+      }
+      await tester.pumpWidget(const SizedBox());
+      scale.dispose();
+    }
   });
 }

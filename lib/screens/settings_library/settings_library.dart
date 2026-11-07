@@ -120,7 +120,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
         Provider.of<LibraryManagerProvider>(context, listen: false);
 
     return PageContentFrame(
-      child: UnavailablePageOnBand(
+      builder: (context) => UnavailablePageOnBand(
         child: SettingsPagePadding(
           child: SingleChildScrollView(
             padding: getScrollContainerPadding(context),
@@ -167,6 +167,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                           aliases,
                           S.of(context).libraryFromDevice,
                           S.of(context).readOnly,
+                          describePath: (path) =>
+                              describeLibraryPath(S.of(context), path),
                         );
                         final owner = row.library?.ownerFingerprint;
                         final shared = owner != null && owner.isNotEmpty;

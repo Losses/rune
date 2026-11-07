@@ -25,9 +25,9 @@ class AppScaleShortcuts extends StatelessWidget {
         actions: <Type, Action<Intent>>{
           _ResetScaleIntent: CallbackAction<_ResetScaleIntent>(
             onInvoke: (_) {
-              context
-                  .read<AppScaleProvider>()
-                  .setPercentage(100)
+              final scale = context.read<AppScaleProvider>();
+              scale
+                  .setPercentage(scale.defaultPercentage)
                   .catchError(
                     (Object error) =>
                         debugPrint('Could not reset interface scale: $error'),

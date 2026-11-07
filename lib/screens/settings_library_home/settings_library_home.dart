@@ -27,7 +27,7 @@ class _SettingsLibraryHomeState extends State<SettingsLibraryHome> {
     final theme = FluentTheme.of(context);
 
     return PageContentFrame(
-      child: UnavailablePageOnBand(
+      builder: (context) => UnavailablePageOnBand(
         child: SettingsPagePadding(
           child: SingleChildScrollView(
             padding: getScrollContainerPadding(context),

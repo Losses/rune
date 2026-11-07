@@ -16,7 +16,6 @@ class SmallScreenTrackList extends StatefulWidget {
   final InternalMediaFile? Function(int) getItem;
   final QueryList queries;
   final int mode;
-  final bool topPadding;
 
   const SmallScreenTrackList({
     super.key,
@@ -24,7 +23,6 @@ class SmallScreenTrackList extends StatefulWidget {
     required this.getItem,
     required this.queries,
     required this.mode,
-    required this.topPadding,
   });
 
   @override
@@ -61,7 +59,6 @@ class _SmallScreenTrackListState extends State<SmallScreenTrackList> {
         controller: _scrollController,
         padding: getScrollContainerPadding(
           context,
-          top: widget.topPadding,
           leftPlus: 16,
           rightPlus: 16,
         ),
@@ -76,32 +73,22 @@ class _SmallScreenTrackListState extends State<SmallScreenTrackList> {
             );
           }
 
-          final isLastItem = index == widget.totalCount - 1;
-
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ManagedTurntileScreenItem(
-                groupId: 0,
-                row: index,
-                column: 1,
-                child: AxPressure(
-                  child: SmallScreenTrackListItem(
-                    index: index,
-                    item: item,
-                    queries: widget.queries,
-                    fallbackFileIds: const [],
-                    coverArtPath: item.coverArtPath,
-                    mode: widget.mode,
-                    position: index,
-                    reloadData: () {},
-                  ),
-                ),
+          return ManagedTurntileScreenItem(
+            groupId: 0,
+            row: index,
+            column: 1,
+            child: AxPressure(
+              child: SmallScreenTrackListItem(
+                index: index,
+                item: item,
+                queries: widget.queries,
+                fallbackFileIds: const [],
+                coverArtPath: item.coverArtPath,
+                mode: widget.mode,
+                position: index,
+                reloadData: () {},
               ),
-              // Add extra bottom spacing for the last item
-              if (isLastItem)
-                SizedBox(height: MediaQuery.of(context).size.width / 3 + 20),
-            ],
+            ),
           );
         },
       ),

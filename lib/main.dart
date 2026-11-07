@@ -45,6 +45,8 @@ import 'config/shortcuts.dart';
 
 import 'widgets/app_viewport.dart';
 import 'widgets/app_scale_shortcuts.dart';
+import 'widgets/status_bar_style.dart';
+import 'widgets/dismiss_keyboard_on_tap.dart';
 import 'widgets/router/discovery_frame.dart';
 import 'widgets/router/no_effect_page_route.dart';
 import 'widgets/title_bar/window_frame.dart';
@@ -151,7 +153,10 @@ void main(List<String> arguments) async {
 
   final SettingsManager settingsManager = SettingsManager();
   StorageKeyManager.initialize(profile);
-  final appScale = AppScaleProvider();
+  await detectIosDevice();
+  final appScale = AppScaleProvider(
+    supportsFollowTextSize: iosDevice == IosDevice.iPhone,
+  );
   await appScale.initialize();
   await MacSecureManager().completed;
 
@@ -514,14 +519,18 @@ class _RuneState extends State<Rune> {
                 textDirection: appTheme.textDirection,
                 child: Shortcuts(
                   shortcuts: shortcuts,
-                  child: NavigationShortcutManager(
-                    RuneLifecycle(RevealEffectContext(child: child!)),
+                  child: DismissKeyboardOnTap(
+                    child: NavigationShortcutManager(
+                      RuneLifecycle(RevealEffectContext(child: child!)),
+                    ),
                   ),
                 ),
               ),
             );
 
-            return AppViewport(child: AppScaleShortcuts(child: content));
+            return StatusBarStyle(
+              child: AppViewport(child: AppScaleShortcuts(child: content)),
+            );
           },
         );
       },

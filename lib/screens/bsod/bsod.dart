@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/l10n.dart';
+import '../../utils/kept_clear.dart';
 import '../../providers/responsive_providers.dart';
 
 class Bsod extends StatelessWidget {
@@ -53,7 +54,7 @@ class Bsod extends StatelessWidget {
             child: SingleChildScrollView(
               child: Container(
                 constraints: const BoxConstraints(maxWidth: 1200),
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(12) + context.keptClear,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,

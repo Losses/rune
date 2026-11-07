@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rune/bindings/bindings.dart';
+import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/providers/visualizer_lab.dart';
 import 'package:rune/providers/visualizer_scenes.dart';
 import 'package:rune/widgets/visualizer/lab/lab_cards.dart';
@@ -92,6 +93,9 @@ void main() {
           ChangeNotifierProvider<VisualizerLabProvider>.value(value: lab),
           ChangeNotifierProvider<VisualizerScenesProvider>.value(
             value: _FakeScenes(),
+          ),
+          ChangeNotifierProvider(
+            create: (_) => ScreenSizeProvider.withWriter(null, (_) async {}),
           ),
         ],
         child: FluentApp(home: LabBody(controller: VisualizerController())),
@@ -304,6 +308,31 @@ void main() {
     expect(card('Scene'), findsOneWidget);
     expect(find.byType(LabSplitter), findsNWidgets(2));
   });
+
+  testWidgets('a phone on its side keeps the pages clear of the notch, and '
+      'runs them under the home indicator', (tester) async {
+    tester.view.viewPadding = const FakeViewPadding(
+      left: 59,
+      right: 59,
+      bottom: 21,
+    );
+    await pump(tester, _phoneSide);
+    expect(
+      tester.widget<LabPages>(find.byType(LabPages)).padding,
+      const EdgeInsets.fromLTRB(14 + 59, 10, 14 + 59, 12),
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('on Android the pages keep clear of the navigation bar', (
+    tester,
+  ) async {
+    tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+    await pump(tester, _phoneSide);
+    expect(
+      tester.widget<LabPages>(find.byType(LabPages)).padding,
+      const EdgeInsets.fromLTRB(14, 10, 14, 12 + 48),
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   group('the floating picture', () {
     testWidgets('starts in the bottom right and settles in the corner it is '

@@ -226,7 +226,7 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
                   child: child,
                 ),
               ),
-              child: const PlayingTrack(),
+              child: const SafeArea(bottom: false, child: PlayingTrack()),
             ),
             if (!isMini)
               LabModeBuilder(

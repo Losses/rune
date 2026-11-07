@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../utils/kept_clear.dart';
 import '../utils/settings_manager.dart';
 import 'app_scale.dart';
 import '../constants/configurations.dart';
@@ -152,6 +154,36 @@ enum DeviceType {
   }
 }
 
+/// The upright layout a window of [size] has by its width, the lying one by
+/// its height, and of the two the one a [ResponsiveProvider] picks: the one
+/// of the higher priority, the upright one on a tie.
+({DeviceType vertical, DeviceType horizontal, DeviceType active})
+deviceTypesFor(Size size) {
+  final vertical = DeviceType._determineDeviceType(
+    size: size.width,
+    orientation: DeviceOrientation.vertical,
+  );
+  final horizontal = DeviceType._determineDeviceType(
+    size: size.height,
+    orientation: DeviceOrientation.horizontal,
+  );
+  return (
+    vertical: vertical,
+    horizontal: horizontal,
+    active: vertical.priority >= horizontal.priority ? vertical : horizontal,
+  );
+}
+
+/// Whether a window of [layoutSize] has one of the layouts a phone is made
+/// for: zune, or an upright layout wider than it. The strip layouts and the
+/// dock are for the smallest windows, where most pages show little or
+/// nothing.
+bool isPhoneLayoutSize(Size layoutSize) {
+  final type = deviceTypesFor(layoutSize).active;
+  return type.orientation == DeviceOrientation.vertical &&
+      type.start >= DeviceType.zune.start;
+}
+
 Future<Size?> getSavedWindowSize() async {
   final savedSize = await SettingsManager().getValue<String>(
     kRememberdWindowSizeKey,
@@ -192,9 +224,21 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
   final Future<void> Function(String) _writeSize;
   Future<void> _writes = Future.value();
   Size _rawWindowSize = Size.zero;
+  EdgeInsets _keptClear = EdgeInsets.zero;
   Timer? _debounceTimer;
   Size get rawWindowSize => _rawWindowSize;
+
+  /// The whole window at the interface scale, for what is sized by it.
   Size get screenSize => _rawWindowSize / (_scale?.scaleFactor ?? 1);
+
+  /// The size layouts are chosen by: the window less the insets content keeps
+  /// clear of ([keptClearOf]), at the interface scale.
+  Size get layoutSize =>
+      Size(
+        math.max(0.0, _rawWindowSize.width - _keptClear.horizontal),
+        math.max(0.0, _rawWindowSize.height - _keptClear.vertical),
+      ) /
+      (_scale?.scaleFactor ?? 1);
 
   void _scaleChanged() => notifyListeners();
 
@@ -208,6 +252,12 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
     final view = views.first;
     if (view.devicePixelRatio <= 0) return;
     final size = view.physicalSize / view.devicePixelRatio;
+    final keptClear = keptClearOf(
+      EdgeInsets.fromViewPadding(view.viewPadding, view.devicePixelRatio),
+    );
+    // A rotation changes both at once, and notifies once.
+    final insetsChanged = keptClear != _keptClear;
+    _keptClear = keptClear;
     if (size != _rawWindowSize) {
       _rawWindowSize = size;
       notifyListeners();
@@ -222,6 +272,8 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
               });
         });
       }
+    } else if (insetsChanged) {
+      notifyListeners();
     }
   }
 
@@ -281,26 +333,13 @@ class ResponsiveProvider extends ChangeNotifier {
   }
 
   void _updateDeviceTypes() {
-    final size = _screenSizeProvider.screenSize;
-    final width = size.width;
-    final height = size.height;
-
     final oldV = _currentVerticalDeviceType;
     final oldH = _currentHorizontalDeviceType;
     final oldA = currentDeviceType;
 
-    final newV = DeviceType._determineDeviceType(
-      size: width,
-      orientation: DeviceOrientation.vertical,
+    final (vertical: newV, horizontal: newH, active: newA) = deviceTypesFor(
+      _screenSizeProvider.layoutSize,
     );
-    final newH = DeviceType._determineDeviceType(
-      size: height,
-      orientation: DeviceOrientation.horizontal,
-    );
-
-    final verticalPriority = newV.priority;
-    final horizontalPriority = newH.priority;
-    final newA = verticalPriority >= horizontalPriority ? newV : newH;
 
     _currentVerticalDeviceType = newV;
     _currentHorizontalDeviceType = newH;
@@ -490,8 +529,8 @@ class SmallerOrEqualToScreenSize extends StatelessWidget {
     return Selector<ScreenSizeProvider, bool>(
       selector: (_, screenSizeProvider) {
         final size = orientation == DeviceOrientation.vertical
-            ? screenSizeProvider.screenSize.width
-            : screenSizeProvider.screenSize.height;
+            ? screenSizeProvider.layoutSize.width
+            : screenSizeProvider.layoutSize.height;
         return size <= maxSize;
       },
       builder: (context, isSmaller, child) => builder(context, isSmaller),
@@ -516,8 +555,8 @@ class GreaterOrEqualToScreenSize extends StatelessWidget {
     return Selector<ScreenSizeProvider, bool>(
       selector: (_, screenSizeProvider) {
         final size = orientation == DeviceOrientation.vertical
-            ? screenSizeProvider.screenSize.width
-            : screenSizeProvider.screenSize.height;
+            ? screenSizeProvider.layoutSize.width
+            : screenSizeProvider.layoutSize.height;
         return size >= minSize;
       },
       builder: (context, isGreater, child) => builder(context, isGreater),
@@ -538,8 +577,8 @@ class SmallerOrEqualThanWatch extends StatelessWidget {
   Widget build(BuildContext context) {
     return Selector<ScreenSizeProvider, bool>(
       selector: (_, screenSizeProvider) {
-        final width = screenSizeProvider.screenSize.width;
-        final height = screenSizeProvider.screenSize.height;
+        final width = screenSizeProvider.layoutSize.width;
+        final height = screenSizeProvider.layoutSize.height;
         return width <= 64 || height <= 64;
       },
       builder: (context, isWatch, child) => builder(context, isWatch),

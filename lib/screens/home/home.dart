@@ -12,10 +12,11 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final libraryPath = Provider.of<LibraryPathProvider>(context);
 
-    if (libraryPath.libraryHistory.isEmpty) {
-      return const WelcomePage();
-    }
-
-    return const SelectLibraryPage();
+    return SafeArea(
+      bottom: false,
+      child: libraryPath.libraryHistory.isEmpty
+          ? const WelcomePage()
+          : const SelectLibraryPage(),
+    );
   }
 }

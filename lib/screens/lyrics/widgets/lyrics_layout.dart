@@ -132,13 +132,18 @@ class LyricsLayoutState extends State<LyricsLayout> {
                     ? constraints.maxWidth
                     : constraints.maxWidth / 5 * 3,
                 height: constraints.maxHeight,
-                child: PageContentFrame(
-                  child: LyricsDisplay(
-                    key: ValueKey(widget.item),
-                    lyrics: widget.lyrics,
-                    currentTimeMilliseconds: widget.currentTimeMilliseconds,
-                    activeLines: widget.activeLines,
-                    interpolatedTime: widget.interpolatedTime,
+                // The lyrics keep clear of a notch at the sides they reach.
+                child: SafeArea(
+                  left: isMini,
+                  bottom: false,
+                  child: PageContentFrame(
+                    child: LyricsDisplay(
+                      key: ValueKey(widget.item),
+                      lyrics: widget.lyrics,
+                      currentTimeMilliseconds: widget.currentTimeMilliseconds,
+                      activeLines: widget.activeLines,
+                      interpolatedTime: widget.interpolatedTime,
+                    ),
                   ),
                 ),
               ),
