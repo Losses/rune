@@ -1,6 +1,6 @@
 mod access_policy_tests {
     use super::*;
-    use crate::access_policy::{DeviceGrants, LibraryLevel};
+    use crate::access_policy::{ConnectionLevel, DeviceGrants, SyncLevel};
     use crate::backends::remote::connect_remote;
     use crate::macros::{RequestClass, request_class};
     use crate::messages::{CastLibraryState, RendererAvailability};
@@ -11,17 +11,15 @@ mod access_policy_tests {
     use crate::server::sync_worker::TestPeerSession;
     use database::actions::stats::{get_liked, set_liked};
     use database::entities::media_cover_art;
-    use futures::StreamExt;
     use http_request::sync::MetadataPeer;
+    use sea_orm::ActiveValue;
     use std::fs;
     use sync::protocol::SyncError;
-    use sea_orm::ActiveValue;
     use tempfile::TempDir;
     use tokio::{
         task::yield_now,
         time::{sleep, timeout},
     };
-    use tokio_tungstenite::tungstenite::Message;
 
     struct PolicyPair {
         _first: TempDir,
@@ -79,22 +77,29 @@ mod access_policy_tests {
             .await?;
             Ok(client)
         }
-        async fn grants(&self, level: DeviceLibraryLevel) -> Result<()> {
+        async fn grants(&self, level: DeviceSyncLevel) -> Result<()> {
             self.grants_for(&self.a, &self.b, level).await
         }
         async fn grants_for(
             &self,
             local: &Fixture,
             peer: &Fixture,
-            level: DeviceLibraryLevel,
+            level: DeviceSyncLevel,
         ) -> Result<()> {
             let request = SetDeviceGrantsRequest {
                 fingerprint: info(peer).await?.fingerprint,
                 preset: Some(DevicePreset::Guest),
                 control: Some(false),
-                library_levels: vec![DeviceLibraryGrant {
+                all_connection: None,
+                all_sync: None,
+                library_grants: vec![DeviceLibraryGrant {
                     library_id: self.id.to_string(),
-                    level,
+                    connection: match level {
+                        DeviceSyncLevel::None => DeviceConnectionLevel::None,
+                        DeviceSyncLevel::Pull => DeviceConnectionLevel::View,
+                        DeviceSyncLevel::PullPush => DeviceConnectionLevel::ViewEdit,
+                    },
+                    sync: level,
                 }],
             };
             let response = request
@@ -162,14 +167,14 @@ mod access_policy_tests {
         fs::write(Path::new(&library.media_root).join(name), b"audio")?;
         let cover_hash = blake3::hash(b"cover").to_hex().to_string();
         media_cover_art::Entity::insert(media_cover_art::ActiveModel {
-                file_hash: ActiveValue::Set(cover_hash.clone()),
-                binary: ActiveValue::Set(b"cover".to_vec()),
-                content_hash: ActiveValue::Set(Some(cover_hash.clone())),
-                content_size: ActiveValue::Set(Some(5)),
-                local_available: ActiveValue::Set(true),
-                hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
-                ..Default::default()
-            })
+            file_hash: ActiveValue::Set(cover_hash.clone()),
+            binary: ActiveValue::Set(b"cover".to_vec()),
+            content_hash: ActiveValue::Set(Some(cover_hash.clone())),
+            content_size: ActiveValue::Set(Some(5)),
+            local_available: ActiveValue::Set(true),
+            hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+            ..Default::default()
+        })
         .exec(&*library.main_db)
         .await?;
         fs::create_dir_all(&*COVER_TEMP_DIR)?;
@@ -209,7 +214,7 @@ mod access_policy_tests {
         pair.client = PolicyPair::client_for(&pair.a, &pair.b, pair.addr).await?;
         let json: serde_json::Value =
             serde_json::from_slice(&fs::read(config.join("grants.json"))?)?;
-        assert_eq!(json["version"], 1);
+        assert_eq!(json["version"], 2);
         assert_eq!(
             json["devices"][&fingerprint],
             serde_json::to_value(DeviceGrants::my_device())?
@@ -323,7 +328,7 @@ mod access_policy_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn access_policy_read_only_replica() -> Result<()> {
         let pair = PolicyPair::new().await?;
-        pair.grants(DeviceLibraryLevel::Read).await?;
+        pair.grants(DeviceSyncLevel::Pull).await?;
         let owner_fingerprint = info(&pair.a).await?.fingerprint;
         LibraryRegistry::update(Path::new(&*pair.b.global_params.config_path), |registry| {
             let replica = registry
@@ -337,7 +342,8 @@ mod access_policy_tests {
             Ok(())
         })
         .await?;
-        assert_eq!(pair.listings().await?[0]["level"], "Read");
+        assert_eq!(pair.listings().await?[0]["connection"], "View");
+        assert_eq!(pair.listings().await?[0]["sync"], "Pull");
         let original = scan_held_track(&pair.a, pair.id, "readonly.ogg").await?;
         let left = pair.a.global_params.library_pool.acquire(pair.id).await?;
         let right = pair.b.global_params.library_pool.acquire(pair.id).await?;
@@ -350,6 +356,7 @@ mod access_policy_tests {
             .find(|library| library.library_id == pair.id)
             .context("replica descriptor")?;
         assert_eq!(serde_json::to_value(replica)?["access_level"], "Read");
+        assert_eq!(serde_json::to_value(replica)?["connection_access"], "View");
         assert!(right.library_sync.get(&album).await?.is_some());
         let remote = media_files::Entity::find()
             .filter(Column::HlcUuid.eq(&original.hlc_uuid))
@@ -393,13 +400,13 @@ mod access_policy_tests {
         }
         // The hosted replica is absent from listings. A push 403 must be remembered,
         // and the owner's worker must not pull unauthorized edits around the gate.
-        pair.grants_for(&pair.b, &pair.a, DeviceLibraryLevel::Read)
+        pair.grants_for(&pair.b, &pair.a, DeviceSyncLevel::Pull)
             .await?;
         for _ in 0..3 {
             assert_eq!(pair.pass(true).await?, PeerPass::Complete);
         }
         assert!(!get_liked(&*left.main_db, original.id).await?);
-        pair.grants(DeviceLibraryLevel::ReadWrite).await?;
+        pair.grants(DeviceSyncLevel::PullPush).await?;
         assert_eq!(pair.pass(false).await?, PeerPass::Complete);
         let registry = LibraryRegistry::load(Path::new(&*pair.b.global_params.config_path))?;
         let replica = registry
@@ -414,7 +421,7 @@ mod access_policy_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn access_policy_not_shared() -> Result<()> {
         let pair = PolicyPair::new().await?;
-        pair.grants(DeviceLibraryLevel::NotShared).await?;
+        pair.grants(DeviceSyncLevel::None).await?;
         assert_eq!(pair.listings().await?, serde_json::json!([]));
         let metadata = pair
             .client
@@ -452,12 +459,16 @@ mod access_policy_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn access_policy_guest_browses_but_cannot_pull() -> Result<()> {
+        use crate::messages::CreatePlaylistRequest;
+
         let pair = PolicyPair::new().await?;
         let request = SetDeviceGrantsRequest {
             fingerprint: info(&pair.b).await?.fingerprint,
             preset: Some(DevicePreset::Guest),
             control: Some(true),
-            library_levels: Vec::new(),
+            all_connection: None,
+            all_sync: None,
+            library_grants: Vec::new(),
         };
         let response = request
             .handle(
@@ -468,8 +479,35 @@ mod access_policy_tests {
             .await?
             .context("grants response")?;
         assert!(response.error.is_none(), "{:?}", response.error);
-        // Control lets a Guest browse while controlling, nothing more.
-        assert_eq!(pair.listings().await?, serde_json::json!([]));
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            pair.addr.port(),
+            &pair.b.global_params.config_path,
+            pair.b.global_params.cert_validator.read().await.clone(),
+            &pair.b.global_params.node.sync_tokens,
+        )
+        .await?;
+        let (name, _) = socket_request(
+            &mut socket,
+            "GetMediaFilesCountRequest",
+            &rinf::serialize(&GetMediaFilesCountRequest {})?,
+        )
+        .await?;
+        assert_eq!(name, "GetMediaFilesCountResponse");
+        let (name, payload) = socket_request(
+            &mut socket,
+            "CreatePlaylistRequest",
+            &rinf::serialize(&CreatePlaylistRequest {
+                name: "guest denied".into(),
+                group: "test".into(),
+            })?,
+        )
+        .await?;
+        assert_eq!(name, "RemoteRequestFailed");
+        let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
+        assert_eq!(failure.kind, RequestErrorKind::PermissionDenied);
+        assert_eq!(pair.listings().await?[0]["connection"], "View");
+        assert_eq!(pair.listings().await?[0]["sync"], "None");
         let metadata = pair
             .client
             .post(format!(
@@ -480,28 +518,171 @@ mod access_policy_tests {
             .send()
             .await?;
         assert_eq!(metadata.status(), reqwest::StatusCode::FORBIDDEN);
+        let source = pair.a.global_params.library_pool.acquire(pair.id).await?;
+        let album = write_album(&source, "guest cannot replicate").await?;
+        assert_eq!(pair.pass(false).await?, PeerPass::LibraryNotServed);
+        let replica = pair.b.global_params.library_pool.acquire(pair.id).await?;
+        assert!(replica.library_sync.get(&album).await?.is_none());
         let [audio, cover] = served_files(&pair, "guest-browse.txt").await?;
         assert_eq!(status(&pair, &audio).await?, reqwest::StatusCode::FORBIDDEN);
         assert_eq!(status(&pair, &cover).await?, reqwest::StatusCode::OK);
+        let digest = blake3::hash(b"guest blob").to_hex();
+        assert_eq!(
+            pair.client
+                .get(format!(
+                    "https://{}/libraries/{}/sync/blobs/{digest}",
+                    pair.addr, pair.id
+                ))
+                .send()
+                .await?
+                .status(),
+            reqwest::StatusCode::FORBIDDEN
+        );
+        socket.close(None).await?;
+        pair.close().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn control_without_library_grants_does_not_allow_library_reads() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let fingerprint = info(&pair.b).await?.fingerprint;
+        let mut grants = DeviceGrants::guest();
+        grants.connection.all_libraries = Some(ConnectionLevel::None);
+        pair.a
+            .global_params
+            .node
+            .access_policy
+            .set(&fingerprint, grants)?;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            pair.addr.port(),
+            &pair.b.global_params.config_path,
+            pair.b.global_params.cert_validator.read().await.clone(),
+            &pair.b.global_params.node.sync_tokens,
+        )
+        .await?;
+        let (name, _) = socket_request(
+            &mut socket,
+            "PauseRequest",
+            &rinf::serialize(&PauseRequest {})?,
+        )
+        .await?;
+        assert_ne!(name, "RemoteRequestFailed");
+        let (name, payload) = socket_request(
+            &mut socket,
+            "GetMediaFilesCountRequest",
+            &rinf::serialize(&GetMediaFilesCountRequest {})?,
+        )
+        .await?;
+        assert_eq!(name, "RemoteRequestFailed");
+        let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
+        assert_eq!(failure.kind, RequestErrorKind::PermissionDenied);
+        socket.close(None).await?;
+        pair.close().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn connection_edit_without_sync_allows_websocket_writes_only() -> Result<()> {
+        use crate::messages::CreatePlaylistRequest;
+
+        let pair = PolicyPair::new().await?;
+        let fingerprint = info(&pair.b).await?.fingerprint;
+        let mut grants = DeviceGrants::guest();
+        grants.control = false;
+        grants.connection.all_libraries = Some(ConnectionLevel::ViewEdit);
+        grants.sync.all_libraries = Some(SyncLevel::None);
+        pair.a
+            .global_params
+            .node
+            .access_policy
+            .set(&fingerprint, grants)?;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            pair.addr.port(),
+            &pair.b.global_params.config_path,
+            pair.b.global_params.cert_validator.read().await.clone(),
+            &pair.b.global_params.node.sync_tokens,
+        )
+        .await?;
+        let (name, _) = socket_request(
+            &mut socket,
+            "CreatePlaylistRequest",
+            &rinf::serialize(&CreatePlaylistRequest {
+                name: "axis edit".into(),
+                group: "test".into(),
+            })?,
+        )
+        .await?;
+        assert_eq!(name, "CreatePlaylistResponse");
+        assert_eq!(
+            pair.client
+                .post(format!(
+                    "https://{}/libraries/{}/sync/metadata",
+                    pair.addr, pair.id
+                ))
+                .json(&serde_json::json!({"operation": "identity"}))
+                .send()
+                .await?
+                .status(),
+            reqwest::StatusCode::FORBIDDEN
+        );
+        socket.close(None).await?;
+        pair.close().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn sync_pull_without_connection_refuses_websocket_reads() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let fingerprint = info(&pair.b).await?.fingerprint;
+        let mut grants = DeviceGrants::guest();
+        grants.control = false;
+        grants.connection.all_libraries = Some(ConnectionLevel::None);
+        grants.sync.all_libraries = Some(SyncLevel::Pull);
+        pair.a
+            .global_params
+            .node
+            .access_policy
+            .set(&fingerprint, grants)?;
+        assert_eq!(pair.listings().await?[0]["connection"], "None");
+        assert_eq!(pair.listings().await?[0]["sync"], "Pull");
+        let source = pair.a.global_params.library_pool.acquire(pair.id).await?;
+        let album = write_album(&source, "pull only").await?;
+        assert_eq!(pair.pass(false).await?, PeerPass::Complete);
+        let replica = pair.b.global_params.library_pool.acquire(pair.id).await?;
+        assert!(replica.library_sync.get(&album).await?.is_some());
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            pair.addr.port(),
+            &pair.b.global_params.config_path,
+            pair.b.global_params.cert_validator.read().await.clone(),
+            &pair.b.global_params.node.sync_tokens,
+        )
+        .await?;
+        let (name, payload) = socket_request(
+            &mut socket,
+            "GetMediaFilesCountRequest",
+            &rinf::serialize(&GetMediaFilesCountRequest {})?,
+        )
+        .await?;
+        assert_eq!(name, "RemoteRequestFailed");
+        let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
+        assert_eq!(failure.kind, RequestErrorKind::PermissionDenied);
+        socket.close(None).await?;
         pair.close().await
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn cover_cache_requires_the_addressed_library_to_own_the_cover() -> Result<()> {
         let pair = PolicyPair::new().await?;
-        pair.grants(DeviceLibraryLevel::Read).await?;
-        let name = blake3::hash(b"cover from another library").to_hex().to_string();
+        pair.grants(DeviceSyncLevel::Pull).await?;
+        let name = blake3::hash(b"cover from another library")
+            .to_hex()
+            .to_string();
         fs::create_dir_all(&*COVER_TEMP_DIR)?;
         fs::write(COVER_TEMP_DIR.join(&name), b"cover from another library")?;
 
-        let from_other_library = format!(
-            "files/cache/{name}?library_id={}",
-            Uuid::new_v4()
-        );
-        let from_allowed_library = format!(
-            "files/cache/{name}?library_id={}",
-            pair.id
-        );
+        let from_other_library = format!("files/cache/{name}?library_id={}", Uuid::new_v4());
+        let from_allowed_library = format!("files/cache/{name}?library_id={}", pair.id);
         for path in [&from_other_library, &from_allowed_library] {
             let response = pair
                 .client
@@ -557,11 +738,16 @@ mod access_policy_tests {
             response = &mut request => panic!("sync did not remain in flight: {:?}", response.map(|r| r.status())),
             _ = sleep(Duration::from_millis(200)) => {},
         }
-        pair.grants(DeviceLibraryLevel::NotShared).await?;
-        let frame = timeout(Duration::from_secs(2), socket.next())
-            .await?
-            .context("closed without frame")??;
-        assert!(matches!(frame, Message::Close(Some(frame)) if u16::from(frame.code) == 4403));
+        pair.grants(DeviceSyncLevel::None).await?;
+        let (name, payload) = socket_request(
+            &mut socket,
+            "GetMediaFilesCountRequest",
+            &rinf::serialize(&GetMediaFilesCountRequest {})?,
+        )
+        .await?;
+        assert_eq!(name, "RemoteRequestFailed");
+        let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
+        assert_eq!(failure.kind, RequestErrorKind::PermissionDenied);
         assert_eq!(
             timeout(Duration::from_secs(2), request).await??.status(),
             reqwest::StatusCode::FORBIDDEN
@@ -627,6 +813,14 @@ mod access_policy_tests {
             a.global_params.node.access_policy.grants(&fingerprint)?,
             DeviceGrants::guest()
         );
+        assert_eq!(
+            DeviceGrants::guest().connection_level(Uuid::new_v4()),
+            ConnectionLevel::View
+        );
+        assert_eq!(
+            DeviceGrants::guest().sync_level(Uuid::new_v4()),
+            SyncLevel::None
+        );
         let request = GetDeviceGrantsRequest {
             fingerprint: fingerprint.clone(),
         };
@@ -636,15 +830,20 @@ mod access_policy_tests {
             .context("get grants")?;
         assert_eq!(response.libraries.len(), 1);
         assert!(matches!(
-            response.libraries[0].level,
-            DeviceLibraryLevel::NotShared
+            response.libraries[0].connection,
+            DeviceConnectionLevel::View
         ));
         let mut grants = DeviceGrants::my_device();
         let later = Uuid::new_v4();
-        assert_eq!(grants.level(later), LibraryLevel::ReadWrite);
-        grants.libraries.insert(later, LibraryLevel::NotShared);
-        // Control lets a controller browse, not pull or download the library.
-        assert_eq!(grants.level(later), LibraryLevel::NotShared);
+        assert_eq!(grants.sync_level(later), SyncLevel::PullPush);
+        grants
+            .connection
+            .libraries
+            .insert(later, ConnectionLevel::None);
+        grants.sync.libraries.insert(later, SyncLevel::None);
+        // Per-library overrides apply independently on both axes.
+        assert_eq!(grants.connection_level(later), ConnectionLevel::None);
+        assert_eq!(grants.sync_level(later), SyncLevel::None);
         assert!(!grants.administer);
         a.global_params
             .permission_manager

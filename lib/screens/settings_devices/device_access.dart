@@ -4,32 +4,36 @@ import 'device_status.dart';
 
 enum DeviceAccessChoice { notShared, read, readWrite }
 
-DeviceAccessChoice choiceForLevel(DeviceLibraryLevel level) => switch (level) {
-  DeviceLibraryLevel.notShared => DeviceAccessChoice.notShared,
-  DeviceLibraryLevel.read => DeviceAccessChoice.read,
-  DeviceLibraryLevel.readWrite => DeviceAccessChoice.readWrite,
+DeviceAccessChoice choiceForLevel(DeviceSyncLevel level) => switch (level) {
+  DeviceSyncLevel.none => DeviceAccessChoice.notShared,
+  DeviceSyncLevel.pull => DeviceAccessChoice.read,
+  DeviceSyncLevel.pullPush => DeviceAccessChoice.readWrite,
 };
 
-DeviceLibraryLevel levelForChoice(DeviceAccessChoice choice) =>
-    switch (choice) {
-      DeviceAccessChoice.notShared => DeviceLibraryLevel.notShared,
-      DeviceAccessChoice.read => DeviceLibraryLevel.read,
-      DeviceAccessChoice.readWrite => DeviceLibraryLevel.readWrite,
-    };
+DeviceSyncLevel levelForChoice(DeviceAccessChoice choice) => switch (choice) {
+  DeviceAccessChoice.notShared => DeviceSyncLevel.none,
+  DeviceAccessChoice.read => DeviceSyncLevel.pull,
+  DeviceAccessChoice.readWrite => DeviceSyncLevel.pullPush,
+};
 
 String deviceAccessSummary(DeviceGrantsInfo? grants, AppLocalizations s) {
   if (grants == null) return s.customDeviceAccess;
   if (grants.control && !grants.administer) {
-    if (grants.allLibraries == DeviceLibraryLevel.readWrite &&
+    if (grants.allConnection == DeviceConnectionLevel.viewEdit &&
+        grants.allSync == DeviceSyncLevel.pullPush &&
         grants.libraries.every(
-          (entry) => entry.level == DeviceLibraryLevel.readWrite,
+          (entry) =>
+              entry.connection == DeviceConnectionLevel.viewEdit &&
+              entry.sync == DeviceSyncLevel.pullPush,
         )) {
       return s.myDevice;
     }
-    if ((grants.allLibraries == null ||
-            grants.allLibraries == DeviceLibraryLevel.notShared) &&
+    if (grants.allConnection == DeviceConnectionLevel.view &&
+        grants.allSync == DeviceSyncLevel.none &&
         grants.libraries.every(
-          (entry) => entry.level == DeviceLibraryLevel.notShared,
+          (entry) =>
+              entry.connection == DeviceConnectionLevel.none &&
+              entry.sync == DeviceSyncLevel.none,
         )) {
       return s.guestControlSummary;
     }

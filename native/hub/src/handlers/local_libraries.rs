@@ -47,7 +47,8 @@ impl Signal for ListLocalLibrariesRequest {
                         LibraryAuthority::Hosted { fingerprint } => Some(fingerprint),
                     },
                     background_sync: library.background_sync,
-                    access_level: library.access_level.map(Into::into),
+                    connection_access: library.connection_access.map(Into::into),
+                    sync_access: library.access_level.map(Into::into),
                 }
             })
             .collect();

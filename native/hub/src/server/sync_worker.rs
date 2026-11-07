@@ -7,7 +7,7 @@ use super::sync::{library_base, library_notification};
 use super::sync_auth::{Authorization, Challenge, TOKEN_TTL, Token, message};
 #[cfg(test)]
 use super::utils::device::load_device_info;
-use crate::access_policy::{Action, LibraryLevel};
+use crate::access_policy::{Action, ConnectionLevel, SyncLevel};
 #[cfg(test)]
 use crate::utils::GlobalParams;
 use crate::{library_pool::LibraryHandle, node::NodeContext};
@@ -15,7 +15,7 @@ use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, file_ids_by_uuid, materialized_path};
 use database::actions::library::clean_local_orphans;
-use database::library_registry::{LibraryAccess, LibraryRegistry};
+use database::library_registry::{LibraryAccess, LibraryConnectionAccess, LibraryRegistry};
 use database::sync::Maintenance;
 use database::sync::model::RuneModel;
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
@@ -218,7 +218,7 @@ struct PeerSession {
     identity: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid)>,
     artwork_cursor: http_request::sync::PageCursor,
     last_used: std::time::Instant,
-    advertised_level: Option<LibraryLevel>,
+    advertised_level: Option<SyncLevel>,
     push_forbidden: bool,
     direction: SessionDirection,
     read_only_logged: bool,
@@ -815,7 +815,7 @@ async fn sync_one(
                         .access_policy
                         .check(
                             &peer,
-                            &Action::LibraryRead {
+                            &Action::SyncPull {
                                 library_id: library.descriptor.library_id,
                             },
                         )
@@ -827,7 +827,7 @@ async fn sync_one(
                     .access_policy
                     .check(
                         &peer,
-                        &Action::LibraryWrite {
+                        &Action::SyncPush {
                             library_id: library.descriptor.library_id,
                         },
                     )
@@ -952,11 +952,11 @@ async fn metadata_pass(
     let advertised = listings
         .iter()
         .find(|entry| entry.library_id == local.namespace)
-        .map(|entry| entry.level);
+        .map(|entry| entry.sync);
     let level = advertised
         // Hosted replicas are not advertised. Probe their authenticated routes;
         // a push denial below switches this peer to pull-only.
-        .unwrap_or(LibraryLevel::ReadWrite);
+        .unwrap_or(SyncLevel::PullPush);
     if state.advertised_level != Some(level) {
         state.push_forbidden = false;
         state.advertised_level = Some(level);
@@ -966,9 +966,9 @@ async fn metadata_pass(
             LibraryAccess::Read
         } else {
             match level {
-                LibraryLevel::NotShared => LibraryAccess::NotShared,
-                LibraryLevel::Read => LibraryAccess::Read,
-                LibraryLevel::ReadWrite => LibraryAccess::ReadWrite,
+                SyncLevel::None => LibraryAccess::NotShared,
+                SyncLevel::Pull => LibraryAccess::Read,
+                SyncLevel::PullPush => LibraryAccess::ReadWrite,
             }
         };
         if LibraryRegistry::set_access_level(
@@ -981,13 +981,32 @@ async fn metadata_pass(
         {
             notify();
         }
+        let connection_access = match listings
+            .iter()
+            .find(|entry| entry.library_id == local.namespace)
+            .map(|entry| entry.connection)
+        {
+            Some(ConnectionLevel::None) | None => LibraryConnectionAccess::None,
+            Some(ConnectionLevel::View) => LibraryConnectionAccess::View,
+            Some(ConnectionLevel::ViewEdit) => LibraryConnectionAccess::ViewEdit,
+        };
+        if LibraryRegistry::set_connection_access(
+            Path::new(&*global.config_path),
+            local.namespace,
+            fingerprint,
+            connection_access,
+        )
+        .await?
+        {
+            notify();
+        }
     }
-    if level == LibraryLevel::NotShared {
+    if level == SyncLevel::None {
         state.session = None;
         state.library = None;
         return Err(SyncError::NamespaceNotServed.into());
     }
-    let read_only = level == LibraryLevel::Read || state.push_forbidden;
+    let read_only = level == SyncLevel::Pull || state.push_forbidden;
     if read_only && !state.read_only_logged {
         log::info!(
             "Library {} is read-only on peer; synchronization is pull-only",

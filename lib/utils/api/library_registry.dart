@@ -26,7 +26,8 @@ Future<AddRemoteLibraryResponse> addRemoteLibrary(
       fingerprint: fingerprint,
       libraryId: library.libraryId,
       alias: library.alias,
-      accessLevel: library.accessLevel,
+      connection: library.connection,
+      sync: library.sync,
     ).sendSignalToRust(),
   );
   return (await response).message;

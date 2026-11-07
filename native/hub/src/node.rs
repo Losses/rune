@@ -488,10 +488,9 @@ impl NodeContext {
                         what: "UI library identity",
                     })?;
                 if class == RequestClass::LibraryRead {
-                    // The WebSocket is a control attachment: reads there browse.
-                    Action::Browse { library_id }
+                    Action::ConnectionView { library_id }
                 } else {
-                    Action::LibraryWrite { library_id }
+                    Action::ConnectionEdit { library_id }
                 }
             }
             _ => return Err(Denial::NodeLocal.into()),

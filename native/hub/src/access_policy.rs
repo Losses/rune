@@ -6,7 +6,7 @@ use std::{
     sync::{Mutex, RwLock},
 };
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use discovery::{
     access_policy::{AccessPolicy, PeerIdentity},
     server::{UserStatus, UserSummary},
@@ -21,61 +21,88 @@ use uuid::Uuid;
 pub enum Action {
     // Control is node-wide until player sessions exist.
     Control,
-    /// Browsing a library through a control attachment (queries, covers,
-    /// metadata), so a controller can pick songs to queue. Control grants it;
-    /// it never allows pulling a replica or downloading audio files.
-    Browse {
-        library_id: Uuid,
-    },
-    LibraryRead {
-        library_id: Uuid,
-    },
-    LibraryWrite {
-        library_id: Uuid,
-    },
+    ConnectionView { library_id: Uuid },
+    ConnectionEdit { library_id: Uuid },
+    SyncPull { library_id: Uuid },
+    SyncPush { library_id: Uuid },
     Administer,
 }
 
-/// Ordered library access. Control does not raise it; see `Action::Browse`.
+/// Connection access granted to a device for one library.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum LibraryLevel {
+pub enum ConnectionLevel {
     #[default]
-    NotShared,
-    Read,
-    ReadWrite,
+    None,
+    View,
+    ViewEdit,
 }
 
-/// Durable per-device grants. A library entry overrides the wildcard.
+/// Synchronization access granted to a device for one library.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum SyncLevel {
+    #[default]
+    None,
+    Pull,
+    PullPush,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LibraryGrants<T> {
+    pub all_libraries: Option<T>,
+    pub libraries: BTreeMap<Uuid, T>,
+}
+
+impl<T: Copy> LibraryGrants<T> {
+    pub fn level(&self, library_id: Uuid) -> Option<T> {
+        self.libraries
+            .get(&library_id)
+            .copied()
+            .or(self.all_libraries)
+    }
+}
+
+/// Durable per-device grants. A library entry overrides the wildcard per axis.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceGrants {
     pub control: bool,
-    pub all_libraries: Option<LibraryLevel>,
-    pub libraries: BTreeMap<Uuid, LibraryLevel>,
+    pub connection: LibraryGrants<ConnectionLevel>,
+    pub sync: LibraryGrants<SyncLevel>,
     pub administer: bool,
 }
 impl DeviceGrants {
     pub fn my_device() -> Self {
         Self {
             control: true,
-            all_libraries: Some(LibraryLevel::ReadWrite),
-            libraries: BTreeMap::new(),
+            connection: LibraryGrants {
+                all_libraries: Some(ConnectionLevel::ViewEdit),
+                libraries: BTreeMap::new(),
+            },
+            sync: LibraryGrants {
+                all_libraries: Some(SyncLevel::PullPush),
+                libraries: BTreeMap::new(),
+            },
             administer: false,
         }
     }
     pub fn guest() -> Self {
         Self {
             control: true,
-            all_libraries: None,
-            libraries: BTreeMap::new(),
+            connection: LibraryGrants {
+                all_libraries: Some(ConnectionLevel::View),
+                libraries: BTreeMap::new(),
+            },
+            sync: LibraryGrants {
+                all_libraries: Some(SyncLevel::None),
+                libraries: BTreeMap::new(),
+            },
             administer: false,
         }
     }
-    pub fn level(&self, library_id: Uuid) -> LibraryLevel {
-        self.libraries
-            .get(&library_id)
-            .copied()
-            .or(self.all_libraries)
-            .unwrap_or_default()
+    pub fn connection_level(&self, library_id: Uuid) -> ConnectionLevel {
+        self.connection.level(library_id).unwrap_or_default()
+    }
+    pub fn sync_level(&self, library_id: Uuid) -> SyncLevel {
+        self.sync.level(library_id).unwrap_or_default()
     }
 }
 
@@ -93,6 +120,9 @@ pub enum Denial {
     Unavailable,
 }
 
+/// Version 2 stores separate Connection and Sync grants per library.
+const GRANTS_VERSION: u32 = 2;
+
 #[derive(Clone, Serialize, Deserialize)]
 struct GrantsFile {
     version: u32,
@@ -109,21 +139,28 @@ pub struct RuneAccessPolicy {
 impl RuneAccessPolicy {
     pub fn load(config: &Path, users: &[UserSummary]) -> Result<Self> {
         let path = config.join("grants.json");
-        let mut file = match fs::read(&path) {
-            Ok(data) => {
-                serde_json::from_slice::<GrantsFile>(&data).context("Invalid grants file")?
-            }
-            Err(error) if error.kind() == ErrorKind::NotFound => GrantsFile {
-                version: 1,
-                devices: BTreeMap::new(),
+        let fresh = || GrantsFile {
+            version: GRANTS_VERSION,
+            devices: BTreeMap::new(),
+        };
+        // A missing file is a node that predates grants: approved devices keep
+        // full access. A file that cannot be read as the current version is
+        // reset, and its approved devices fall back to the least-privileged
+        // preset rather than gaining access they may never have had.
+        let (mut file, reset) = match fs::read(&path) {
+            Ok(data) => match serde_json::from_slice::<GrantsFile>(&data)
+                .ok()
+                .filter(|file| file.version == GRANTS_VERSION)
+            {
+                Some(file) => (file, false),
+                None => {
+                    log::warn!("Device grants file is not in the current format; resetting it");
+                    (fresh(), true)
+                }
             },
+            Err(error) if error.kind() == ErrorKind::NotFound => (fresh(), false),
             Err(error) => return Err(error).context("Read device grants"),
         };
-        ensure!(
-            file.version == 1,
-            "Unsupported grants version {}",
-            file.version
-        );
         file.devices.retain(|fingerprint, _| {
             users
                 .iter()
@@ -135,7 +172,13 @@ impl RuneAccessPolicy {
         {
             file.devices
                 .entry(user.fingerprint.clone())
-                .or_insert_with(DeviceGrants::my_device);
+                .or_insert_with(|| {
+                    if reset {
+                        DeviceGrants::guest()
+                    } else {
+                        DeviceGrants::my_device()
+                    }
+                });
         }
         let policy = Self {
             path,
@@ -214,12 +257,15 @@ impl AccessPolicy for RuneAccessPolicy {
             .ok_or(Denial::MissingGrants)?;
         let allowed = match action {
             Action::Control => grants.control,
-            Action::Browse { library_id } => {
-                grants.control || grants.level(*library_id) >= LibraryLevel::Read
+            Action::ConnectionView { library_id } => {
+                grants.connection_level(*library_id) >= ConnectionLevel::View
             }
-            Action::LibraryRead { library_id } => grants.level(*library_id) >= LibraryLevel::Read,
-            Action::LibraryWrite { library_id } => {
-                grants.level(*library_id) >= LibraryLevel::ReadWrite
+            Action::ConnectionEdit { library_id } => {
+                grants.connection_level(*library_id) >= ConnectionLevel::ViewEdit
+            }
+            Action::SyncPull { library_id } => grants.sync_level(*library_id) >= SyncLevel::Pull,
+            Action::SyncPush { library_id } => {
+                grants.sync_level(*library_id) >= SyncLevel::PullPush
             }
             Action::Administer => grants.administer,
         };
@@ -233,5 +279,46 @@ impl AccessPolicy for RuneAccessPolicy {
     }
     fn changes(&self) -> watch::Receiver<u64> {
         self.changes.subscribe()
+    }
+}
+
+#[cfg(test)]
+mod load_tests {
+    use super::{DeviceGrants, RuneAccessPolicy};
+    use discovery::{
+        server::{UserStatus, UserSummary},
+        utils::DeviceType,
+    };
+    use std::time::SystemTime;
+
+    fn approved(fingerprint: &str) -> UserSummary {
+        UserSummary {
+            alias: fingerprint.to_owned(),
+            fingerprint: fingerprint.to_owned(),
+            device_model: String::new(),
+            device_type: DeviceType::Desktop,
+            status: UserStatus::Approved,
+            add_time: SystemTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn a_missing_file_keeps_approved_devices_fully_trusted() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let policy = RuneAccessPolicy::load(dir.path(), &[approved("a")])?;
+        assert_eq!(policy.grants("a")?, DeviceGrants::my_device());
+        Ok(())
+    }
+
+    #[test]
+    fn an_unreadable_file_resets_approved_devices_to_guest() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        std::fs::write(
+            dir.path().join("grants.json"),
+            br#"{"version":1,"devices":{}}"#,
+        )?;
+        let policy = RuneAccessPolicy::load(dir.path(), &[approved("a")])?;
+        assert_eq!(policy.grants("a")?, DeviceGrants::guest());
+        Ok(())
     }
 }

@@ -8,19 +8,27 @@ void main() {
   final s = AppLocalizationsEn();
   DeviceGrantsInfo grants({
     bool control = true,
-    DeviceLibraryLevel? all,
+    DeviceConnectionLevel? allConnection = DeviceConnectionLevel.view,
+    DeviceSyncLevel? allSync = DeviceSyncLevel.none,
     List<DeviceLibraryGrant> libraries = const [],
     bool administer = false,
   }) => DeviceGrantsInfo(
     control: control,
-    allLibraries: all,
+    allConnection: allConnection,
+    allSync: allSync,
     libraries: libraries,
     administer: administer,
   );
 
   test('summarizes my device, guest, custom and missing settings', () {
     expect(
-      deviceAccessSummary(grants(all: DeviceLibraryLevel.readWrite), s),
+      deviceAccessSummary(
+        grants(
+          allConnection: DeviceConnectionLevel.viewEdit,
+          allSync: DeviceSyncLevel.pullPush,
+        ),
+        s,
+      ),
       'My device',
     );
     expect(deviceAccessSummary(grants(), s), 'Guest · Can control playback');
@@ -30,7 +38,8 @@ void main() {
           libraries: [
             const DeviceLibraryGrant(
               libraryId: 'a',
-              level: DeviceLibraryLevel.notShared,
+              connection: DeviceConnectionLevel.none,
+              sync: DeviceSyncLevel.none,
             ),
           ],
         ),
@@ -42,11 +51,13 @@ void main() {
     expect(
       deviceAccessSummary(
         grants(
-          all: DeviceLibraryLevel.readWrite,
+          allConnection: DeviceConnectionLevel.viewEdit,
+          allSync: DeviceSyncLevel.pullPush,
           libraries: [
             const DeviceLibraryGrant(
               libraryId: 'a',
-              level: DeviceLibraryLevel.read,
+              connection: DeviceConnectionLevel.view,
+              sync: DeviceSyncLevel.pull,
             ),
           ],
         ),
@@ -58,14 +69,11 @@ void main() {
     expect(deviceAccessSummary(null, s), 'Custom');
   });
 
-  test('library levels map to the corresponding dropdown values', () {
+  test('sync levels map to the corresponding dropdown values', () {
+    expect(choiceForLevel(DeviceSyncLevel.none), DeviceAccessChoice.notShared);
+    expect(choiceForLevel(DeviceSyncLevel.pull), DeviceAccessChoice.read);
     expect(
-      choiceForLevel(DeviceLibraryLevel.notShared),
-      DeviceAccessChoice.notShared,
-    );
-    expect(choiceForLevel(DeviceLibraryLevel.read), DeviceAccessChoice.read);
-    expect(
-      choiceForLevel(DeviceLibraryLevel.readWrite),
+      choiceForLevel(DeviceSyncLevel.pullPush),
       DeviceAccessChoice.readWrite,
     );
     for (final choice in DeviceAccessChoice.values) {

@@ -115,9 +115,9 @@ async fn serve_library(
         false
     };
     let action = if write {
-        Action::LibraryWrite { library_id: id }
+        Action::SyncPush { library_id: id }
     } else {
-        Action::LibraryRead { library_id: id }
+        Action::SyncPull { library_id: id }
     };
     guarded_response(global.clone(), peer, action, async move {
         let library = match path.library_id.parse::<Uuid>() {

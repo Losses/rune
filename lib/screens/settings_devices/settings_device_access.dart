@@ -49,7 +49,7 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
         SetDeviceGrantsRequest(
           fingerprint: widget.client.fingerprint,
           control: control,
-          libraryLevels: library == null ? [] : [library],
+          libraryGrants: library == null ? [] : [library],
         ),
       );
       await _load();
@@ -105,7 +105,7 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
                         showActions: true,
                         actionsBuilder: (context) =>
                             ComboBox<DeviceAccessChoice>(
-                              value: choiceForLevel(library.level),
+                              value: choiceForLevel(library.sync),
                               items: [
                                 ComboBoxItem(
                                   value: DeviceAccessChoice.notShared,
@@ -125,11 +125,19 @@ class _SettingsDeviceAccessPageState extends State<SettingsDeviceAccessPage> {
                                   : (value) {
                                       if (value != null &&
                                           value !=
-                                              choiceForLevel(library.level)) {
+                                              choiceForLevel(library.sync)) {
                                         _save(
                                           library: DeviceLibraryGrant(
                                             libraryId: library.libraryId,
-                                            level: levelForChoice(value),
+                                            connection: switch (value) {
+                                              DeviceAccessChoice.notShared =>
+                                                DeviceConnectionLevel.none,
+                                              DeviceAccessChoice.read =>
+                                                DeviceConnectionLevel.view,
+                                              DeviceAccessChoice.readWrite =>
+                                                DeviceConnectionLevel.viewEdit,
+                                            },
+                                            sync: levelForChoice(value),
                                           ),
                                         );
                                       }

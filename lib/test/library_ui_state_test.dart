@@ -25,12 +25,18 @@ void main() {
     );
     const libraries = [
       PeerLibrary(
-        libraryId: '1', alias: 'One', added: false,
-        accessLevel: DeviceLibraryLevel.read,
+        libraryId: '1',
+        alias: 'One',
+        added: false,
+        connection: DeviceConnectionLevel.view,
+        sync: DeviceSyncLevel.pull,
       ),
       PeerLibrary(
-        libraryId: '2', alias: 'Two', added: true,
-        accessLevel: DeviceLibraryLevel.readWrite,
+        libraryId: '2',
+        alias: 'Two',
+        added: true,
+        connection: DeviceConnectionLevel.viewEdit,
+        sync: DeviceSyncLevel.pullPush,
       ),
     ];
     final rows = peerLibrariesState(
@@ -48,7 +54,8 @@ void main() {
         path: '/one',
         ownerFingerprint: 'peer',
         backgroundSync: true,
-        accessLevel: DeviceLibraryLevel.read,
+        connectionAccess: DeviceConnectionLevel.view,
+        syncAccess: DeviceSyncLevel.pull,
       ),
       LocalLibrary(
         libraryId: '2',
@@ -61,7 +68,11 @@ void main() {
       String path, [
       Map<String, String> aliases = const {},
     ]) => libraryRowState(
-      path, libraries, aliases, (device) => 'From $device', s.readOnly,
+      path,
+      libraries,
+      aliases,
+      (device) => 'From $device',
+      s.readOnly,
     );
     expect(row('/one', {'peer': 'Laptop'}).subtitle, 'From Laptop · Read only');
     expect(row('/one').subtitle, 'From Music · Read only');
@@ -76,7 +87,8 @@ void main() {
       onThisDevice: 'On My iPhone',
       iCloudDrive: 'iCloud Drive',
     );
-    const onDevice = '/private/var/mobile/Containers/Shared/AppGroup/'
+    const onDevice =
+        '/private/var/mobile/Containers/Shared/AppGroup/'
         '2A36B718-E77C-43AD-9B4A-C15B1D7F74FC/File Provider Storage';
     expect(location('$onDevice/music'), 'On My iPhone › music');
     expect(
@@ -121,19 +133,22 @@ void main() {
     expect(row('/one').subtitle, startsWith('From Music'));
   });
   test('only the current read replica is read only', () {
-    LocalLibrary library(String path, String? owner, DeviceLibraryLevel? level) =>
+    LocalLibrary library(String path, String? owner, DeviceSyncLevel? level) =>
         LocalLibrary(
           libraryId: path,
           alias: path,
           path: path,
           ownerFingerprint: owner,
           backgroundSync: true,
-          accessLevel: level,
+          connectionAccess: level == DeviceSyncLevel.none
+              ? DeviceConnectionLevel.none
+              : DeviceConnectionLevel.view,
+          syncAccess: level,
         );
     final libraries = [
-      library('/owned', null, DeviceLibraryLevel.read),
-      library('/read', 'peer', DeviceLibraryLevel.read),
-      library('/write', 'peer', DeviceLibraryLevel.readWrite),
+      library('/owned', null, DeviceSyncLevel.pull),
+      library('/read', 'peer', DeviceSyncLevel.pull),
+      library('/write', 'peer', DeviceSyncLevel.pullPush),
       library('/unknown', 'peer', null),
     ];
     expect(currentLibraryIsReadOnly('/owned', libraries), false);

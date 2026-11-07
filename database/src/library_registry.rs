@@ -31,6 +31,8 @@ pub struct LibraryDescriptor {
     pub background_sync: bool,
     #[serde(default)]
     pub access_level: Option<LibraryAccess>,
+    #[serde(default)]
+    pub connection_access: Option<LibraryConnectionAccess>,
 }
 
 /// Access granted by the authority of a hosted library.
@@ -39,6 +41,13 @@ pub enum LibraryAccess {
     NotShared,
     Read,
     ReadWrite,
+}
+/// Connection access advertised by the authority of a hosted library.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LibraryConnectionAccess {
+    None,
+    View,
+    ViewEdit,
 }
 /// The authority responsible for a library.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -160,6 +169,30 @@ impl LibraryRegistry {
             };
             let changed = library.access_level != Some(level);
             library.access_level = Some(level);
+            Ok(changed)
+        })
+        .await
+    }
+
+    /// Record an authority's current connection grant on its replica.
+    pub async fn set_connection_access(
+        config_dir: &Path,
+        library_id: Uuid,
+        fingerprint: &str,
+        access: LibraryConnectionAccess,
+    ) -> Result<bool> {
+        Self::update(config_dir, |registry| {
+            let Some(library) = registry.libraries.iter_mut().find(|library| {
+                library.library_id == library_id
+                    && library.authority
+                        == (LibraryAuthority::Hosted {
+                            fingerprint: fingerprint.to_owned(),
+                        })
+            }) else {
+                return Ok(false);
+            };
+            let changed = library.connection_access != Some(access);
+            library.connection_access = Some(access);
             Ok(changed)
         })
         .await
@@ -292,6 +325,15 @@ pub async fn resolve_library(
             .find(|entry| entry.library_id == id)
             .and_then(|entry| entry.access_level)
     };
+    let connection_access = if authority == LibraryAuthority::Owned {
+        None
+    } else {
+        registry
+            .libraries
+            .iter()
+            .find(|entry| entry.library_id == id)
+            .and_then(|entry| entry.connection_access)
+    };
     let descriptor = LibraryDescriptor {
         library_id: id,
         alias,
@@ -301,6 +343,7 @@ pub async fn resolve_library(
         },
         db_placement: placement,
         access_level,
+        connection_access,
         background_sync: registry
             .libraries
             .iter()
@@ -393,6 +436,7 @@ pub async fn create_replica(
         db_placement: DbPlacement::Portable,
         background_sync: true,
         access_level: None,
+        connection_access: None,
     };
     registry.libraries.push(descriptor.clone());
     if let Err(error) = registry.save() {

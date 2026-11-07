@@ -3,7 +3,7 @@ use std::{env, process::Command};
 use std::{path::PathBuf, sync::Mutex as StdMutex};
 
 use crate::{
-    access_policy::LibraryLevel,
+    access_policy::{ConnectionLevel, SyncLevel},
     handlers::playback::{
         playing_item_from_request, playing_item_requests, session_snapshot_from_status,
     },
@@ -2665,8 +2665,10 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
         .access_policy
         .grants(&b_info.fingerprint)?;
     grant
+        .connection
         .libraries
-        .insert(c_library_id, LibraryLevel::NotShared);
+        .insert(c_library_id, ConnectionLevel::None);
+    grant.sync.libraries.insert(c_library_id, SyncLevel::None);
     let c_blob = catalog_track(&c.global_params.test_library().main_db, c_ids[0])
         .await?
         .context("host audio blob")?;
@@ -3147,7 +3149,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &host,
         &renderer_info.fingerprint,
         host_library_id,
-        LibraryLevel::NotShared,
+        SyncLevel::None,
     )?;
     let (name, payload, _) = controller_request(
         &mut socket,
@@ -3984,11 +3986,19 @@ fn set_library_grant(
     host: &Fixture,
     peer_fingerprint: &str,
     library_id: Uuid,
-    level: LibraryLevel,
+    level: SyncLevel,
 ) -> Result<()> {
     let policy = &host.global_params.node.access_policy;
     let mut grant = policy.grants(peer_fingerprint)?;
-    grant.libraries.insert(library_id, level);
+    grant.connection.libraries.insert(
+        library_id,
+        match level {
+            SyncLevel::None => ConnectionLevel::None,
+            SyncLevel::Pull => ConnectionLevel::View,
+            SyncLevel::PullPush => ConnectionLevel::ViewEdit,
+        },
+    );
+    grant.sync.libraries.insert(library_id, level);
     policy.set(peer_fingerprint, grant)?;
     Ok(())
 }
@@ -4020,7 +4030,7 @@ async fn replicate_host_library_at(
         host,
         &peer_info.fingerprint,
         host_library_id,
-        LibraryLevel::ReadWrite,
+        SyncLevel::PullPush,
     )?;
     let listed = request_peer_libraries(peer, &host_info.fingerprint).await?;
     let hosted = listed
@@ -4517,7 +4527,7 @@ async fn wait_persisted_queue(store: &Path, len: usize) -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Result<()> {
-    use crate::access_policy::{DeviceGrants, LibraryLevel};
+    use crate::access_policy::{ConnectionLevel, DeviceGrants, LibraryGrants, SyncLevel};
     use crate::backends::remote::connect_remote;
     use crate::messages::{
         CreateM3u8PlaylistRequest, CreateM3u8PlaylistResponse, RemoteRequestFailed,
@@ -4539,10 +4549,16 @@ async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Res
         &fingerprint,
         DeviceGrants {
             control: true,
-            all_libraries: None,
-            libraries: [(library_id, LibraryLevel::ReadWrite)]
-                .into_iter()
-                .collect(),
+            connection: LibraryGrants {
+                all_libraries: None,
+                libraries: [(library_id, ConnectionLevel::ViewEdit)]
+                    .into_iter()
+                    .collect(),
+            },
+            sync: LibraryGrants {
+                all_libraries: None,
+                libraries: [(library_id, SyncLevel::PullPush)].into_iter().collect(),
+            },
             administer: false,
         },
     )?;
@@ -4623,7 +4639,7 @@ async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Res
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn remote_independent_file_lyrics_are_refused() -> Result<()> {
-    use crate::access_policy::{DeviceGrants, LibraryLevel};
+    use crate::access_policy::{ConnectionLevel, DeviceGrants, LibraryGrants, SyncLevel};
     use crate::backends::remote::connect_remote;
     use crate::messages::{
         GetLyricByTrackIdRequest, IndependentFilePlayingItem, RemoteRequestFailed,
@@ -4640,8 +4656,14 @@ async fn remote_independent_file_lyrics_are_refused() -> Result<()> {
         &fingerprint,
         DeviceGrants {
             control: true,
-            all_libraries: None,
-            libraries: [(library_id, LibraryLevel::Read)].into_iter().collect(),
+            connection: LibraryGrants {
+                all_libraries: None,
+                libraries: [(library_id, ConnectionLevel::View)].into_iter().collect(),
+            },
+            sync: LibraryGrants {
+                all_libraries: None,
+                libraries: [(library_id, SyncLevel::Pull)].into_iter().collect(),
+            },
             administer: false,
         },
     )?;

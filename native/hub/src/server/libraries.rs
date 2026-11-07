@@ -1,4 +1,4 @@
-use crate::access_policy::{Action, LibraryLevel};
+use crate::access_policy::{Action, ConnectionLevel, LibraryGrants, SyncLevel};
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use std::path::Path;
 use std::{
@@ -10,7 +10,8 @@ use std::{
 use anyhow::Result;
 use axum::{Extension, Json, http::StatusCode};
 use database::library_registry::{
-    LibraryAuthority, LibraryDescriptor, LibraryRegistry, LibraryStorage, create_replica,
+    LibraryAuthority, LibraryConnectionAccess, LibraryDescriptor, LibraryRegistry, LibraryStorage,
+    create_replica,
 };
 use discovery::server::UserStatus;
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,7 @@ use crate::backends::remote::select_renderer_host;
 use crate::backends::remote::{RemoteConnectError, token_error};
 use crate::library_pool::LibraryHandle;
 use crate::messages::{
-    CastLibraryState, DeviceLibraryLevel, PeerLibrary, RendererAvailability, RendererCandidate,
+    CastLibraryState, DeviceSyncLevel, PeerLibrary, RendererAvailability, RendererCandidate,
 };
 use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
@@ -33,13 +34,17 @@ use crate::server::api::fetch_device_info_at_port;
 pub(super) struct ListedLibrary {
     pub(super) library_id: Uuid,
     pub(super) alias: String,
-    pub(super) level: LibraryLevel,
+    pub(super) connection: ConnectionLevel,
+    pub(super) sync: SyncLevel,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct PeerAccess {
     control: bool,
+    connection: LibraryGrants<ConnectionLevel>,
+    sync: LibraryGrants<SyncLevel>,
+    administer: bool,
 }
 
 #[derive(Deserialize)]
@@ -62,12 +67,16 @@ pub(super) async fn peer_access(
     let node = manager
         .node()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let control = node
+    let grants = node
         .access_policy
         .grants(&peer.fingerprint)
-        .map_err(|_| StatusCode::FORBIDDEN)?
-        .control;
-    Ok(Json(PeerAccess { control }))
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+    Ok(Json(PeerAccess {
+        control: grants.control,
+        connection: grants.connection,
+        sync: grants.sync,
+        administer: grants.administer,
+    }))
 }
 
 pub(super) async fn cast_preflight(
@@ -428,11 +437,20 @@ fn library_visible_to_peer(
     node.access_policy
         .check(
             peer,
-            &Action::LibraryRead {
+            &Action::ConnectionView {
                 library_id: library.library_id,
             },
         )
         .is_ok()
+        || node
+            .access_policy
+            .check(
+                peer,
+                &Action::SyncPull {
+                    library_id: library.library_id,
+                },
+            )
+            .is_ok()
 }
 
 pub(super) async fn list_libraries(
@@ -457,7 +475,8 @@ pub(super) async fn list_libraries(
             .map(|library| ListedLibrary {
                 library_id: library.library_id,
                 alias: library.alias,
-                level: grants.level(library.library_id),
+                connection: grants.connection_level(library.library_id),
+                sync: grants.sync_level(library.library_id),
             })
             .collect(),
     ))
@@ -525,7 +544,8 @@ pub(super) async fn list_peer_libraries(
                         }),
                         library_id: library.library_id.to_string(),
                         alias: library.alias,
-                        access_level: library.level.into(),
+                        connection: library.connection.into(),
+                        sync: library.sync.into(),
                     })
                     .collect(),
             )
@@ -550,7 +570,8 @@ pub(crate) async fn add_remote_library(
     fingerprint: &str,
     library_id: &str,
     alias: &str,
-    access_level: DeviceLibraryLevel,
+    connection_access: LibraryConnectionAccess,
+    access_level: DeviceSyncLevel,
 ) -> Result<String> {
     let mut registry = LibraryRegistry::load(config_dir)?;
     let descriptor = create_replica(
@@ -566,6 +587,13 @@ pub(crate) async fn add_remote_library(
         descriptor.library_id,
         fingerprint,
         access_level.into(),
+    )
+    .await?;
+    LibraryRegistry::set_connection_access(
+        config_dir,
+        descriptor.library_id,
+        fingerprint,
+        connection_access,
     )
     .await?;
     let LibraryStorage::Local { path } = descriptor.storage;

@@ -1,7 +1,7 @@
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
-use super::DeviceLibraryLevel;
+use super::{DeviceConnectionLevel, DeviceSyncLevel};
 
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct ListLocalLibrariesRequest {}
@@ -13,7 +13,8 @@ pub struct LocalLibrary {
     pub path: String,
     pub owner_fingerprint: Option<String>,
     pub background_sync: bool,
-    pub access_level: Option<DeviceLibraryLevel>,
+    pub connection_access: Option<DeviceConnectionLevel>,
+    pub sync_access: Option<DeviceSyncLevel>,
 }
 
 #[derive(Serialize, Deserialize, RustSignal)]

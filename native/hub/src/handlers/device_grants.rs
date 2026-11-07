@@ -1,56 +1,92 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result, ensure};
-use database::library_registry::{LibraryAccess, LibraryRegistry};
+use database::library_registry::{LibraryAccess, LibraryConnectionAccess, LibraryRegistry};
 use discovery::server::UserStatus;
 use uuid::Uuid;
 
 use crate::{
     Session, Signal,
-    access_policy::{DeviceGrants, LibraryLevel},
+    access_policy::{ConnectionLevel, DeviceGrants, SyncLevel},
     messages::{
-        DeviceGrantsInfo, DeviceLibraryAccess, DeviceLibraryGrant, DeviceLibraryLevel,
-        DevicePreset, GetDeviceGrantsRequest, GetDeviceGrantsResponse, SetDeviceGrantsRequest,
-        SetDeviceGrantsResponse,
+        DeviceConnectionLevel, DeviceGrantsInfo, DeviceLibraryAccess, DeviceLibraryGrant,
+        DevicePreset, DeviceSyncLevel, GetDeviceGrantsRequest, GetDeviceGrantsResponse,
+        SetDeviceGrantsRequest, SetDeviceGrantsResponse,
     },
     node::NodeContext,
     request_error::{ExpectedRequestError, classify},
     utils::{GlobalParams, ParamsExtractor},
 };
 
-impl From<DeviceLibraryLevel> for LibraryLevel {
-    fn from(level: DeviceLibraryLevel) -> Self {
+impl From<DeviceConnectionLevel> for ConnectionLevel {
+    fn from(level: DeviceConnectionLevel) -> Self {
         match level {
-            DeviceLibraryLevel::NotShared => Self::NotShared,
-            DeviceLibraryLevel::Read => Self::Read,
-            DeviceLibraryLevel::ReadWrite => Self::ReadWrite,
+            DeviceConnectionLevel::None => Self::None,
+            DeviceConnectionLevel::View => Self::View,
+            DeviceConnectionLevel::ViewEdit => Self::ViewEdit,
         }
     }
 }
-impl From<LibraryLevel> for DeviceLibraryLevel {
-    fn from(level: LibraryLevel) -> Self {
+impl From<DeviceConnectionLevel> for LibraryConnectionAccess {
+    fn from(level: DeviceConnectionLevel) -> Self {
         match level {
-            LibraryLevel::NotShared => Self::NotShared,
-            LibraryLevel::Read => Self::Read,
-            LibraryLevel::ReadWrite => Self::ReadWrite,
+            DeviceConnectionLevel::None => Self::None,
+            DeviceConnectionLevel::View => Self::View,
+            DeviceConnectionLevel::ViewEdit => Self::ViewEdit,
         }
     }
 }
-impl From<DeviceLibraryLevel> for LibraryAccess {
-    fn from(level: DeviceLibraryLevel) -> Self {
+impl From<ConnectionLevel> for DeviceConnectionLevel {
+    fn from(level: ConnectionLevel) -> Self {
         match level {
-            DeviceLibraryLevel::NotShared => Self::NotShared,
-            DeviceLibraryLevel::Read => Self::Read,
-            DeviceLibraryLevel::ReadWrite => Self::ReadWrite,
+            ConnectionLevel::None => Self::None,
+            ConnectionLevel::View => Self::View,
+            ConnectionLevel::ViewEdit => Self::ViewEdit,
         }
     }
 }
-impl From<LibraryAccess> for DeviceLibraryLevel {
+impl From<DeviceSyncLevel> for SyncLevel {
+    fn from(level: DeviceSyncLevel) -> Self {
+        match level {
+            DeviceSyncLevel::None => Self::None,
+            DeviceSyncLevel::Pull => Self::Pull,
+            DeviceSyncLevel::PullPush => Self::PullPush,
+        }
+    }
+}
+impl From<SyncLevel> for DeviceSyncLevel {
+    fn from(level: SyncLevel) -> Self {
+        match level {
+            SyncLevel::None => Self::None,
+            SyncLevel::Pull => Self::Pull,
+            SyncLevel::PullPush => Self::PullPush,
+        }
+    }
+}
+impl From<DeviceSyncLevel> for LibraryAccess {
+    fn from(level: DeviceSyncLevel) -> Self {
+        match level {
+            DeviceSyncLevel::None => Self::NotShared,
+            DeviceSyncLevel::Pull => Self::Read,
+            DeviceSyncLevel::PullPush => Self::ReadWrite,
+        }
+    }
+}
+impl From<LibraryAccess> for DeviceSyncLevel {
     fn from(level: LibraryAccess) -> Self {
         match level {
-            LibraryAccess::NotShared => Self::NotShared,
-            LibraryAccess::Read => Self::Read,
-            LibraryAccess::ReadWrite => Self::ReadWrite,
+            LibraryAccess::NotShared => Self::None,
+            LibraryAccess::Read => Self::Pull,
+            LibraryAccess::ReadWrite => Self::PullPush,
+        }
+    }
+}
+impl From<LibraryConnectionAccess> for DeviceConnectionLevel {
+    fn from(level: LibraryConnectionAccess) -> Self {
+        match level {
+            LibraryConnectionAccess::None => Self::None,
+            LibraryConnectionAccess::View => Self::View,
+            LibraryConnectionAccess::ViewEdit => Self::ViewEdit,
         }
     }
 }
@@ -84,21 +120,41 @@ impl Signal for GetDeviceGrantsRequest {
             .map(|library| DeviceLibraryAccess {
                 library_id: library.library_id.to_string(),
                 alias: library.alias,
-                level: grants.level(library.library_id).into(),
+                connection: grants.connection_level(library.library_id).into(),
+                sync: grants.sync_level(library.library_id).into(),
             })
             .collect();
         Ok(Some(GetDeviceGrantsResponse {
             libraries,
             grants: DeviceGrantsInfo {
                 control: grants.control,
-                all_libraries: grants.all_libraries.map(Into::into),
+                all_connection: grants.connection.all_libraries.map(Into::into),
+                all_sync: grants.sync.all_libraries.map(Into::into),
                 administer: grants.administer,
                 libraries: grants
+                    .connection
                     .libraries
+                    .keys()
+                    .chain(grants.sync.libraries.keys())
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>()
                     .into_iter()
-                    .map(|(id, level)| DeviceLibraryGrant {
+                    .map(|id| DeviceLibraryGrant {
                         library_id: id.to_string(),
-                        level: level.into(),
+                        connection: grants
+                            .connection
+                            .libraries
+                            .get(&id)
+                            .copied()
+                            .unwrap_or_default()
+                            .into(),
+                        sync: grants
+                            .sync
+                            .libraries
+                            .get(&id)
+                            .copied()
+                            .unwrap_or_default()
+                            .into(),
                     })
                     .collect(),
             },
@@ -121,7 +177,6 @@ impl Signal for SetDeviceGrantsRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         let result = async {
-            // Serialize with trust edits so a blocked device cannot regain stale grants.
             let permissions = node.permission_manager.write().await;
             ensure!(
                 permissions
@@ -138,7 +193,13 @@ impl Signal for SetDeviceGrantsRequest {
             if let Some(control) = request.control {
                 grants.control = control;
             }
-            for entry in &request.library_levels {
+            if let Some(level) = request.all_connection {
+                grants.connection.all_libraries = Some(level.into());
+            }
+            if let Some(level) = request.all_sync {
+                grants.sync.all_libraries = Some(level.into());
+            }
+            for entry in &request.library_grants {
                 let id = Uuid::parse_str(&entry.library_id)
                     .map_err(|error| ExpectedRequestError::invalid_input(error.to_string()))?;
                 registry
@@ -146,7 +207,11 @@ impl Signal for SetDeviceGrantsRequest {
                     .iter()
                     .find(|library| library.library_id == id)
                     .context(ExpectedRequestError::invalid_input("Unknown library"))?;
-                grants.libraries.insert(id, entry.level.into());
+                grants
+                    .connection
+                    .libraries
+                    .insert(id, entry.connection.into());
+                grants.sync.libraries.insert(id, entry.sync.into());
             }
             node.access_policy.set(&request.fingerprint, grants)
         }

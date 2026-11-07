@@ -935,8 +935,8 @@ mod lifecycle_tests {
     use crate::backends::remote::{connect_remote, decode_message};
     use crate::library_pool::{LibraryHandle, LibraryPool};
     use crate::messages::{
-        PlaybackStatus, RequestErrorKind, RequestFailureCause, TrustListUpdated,
-        TrustedServerCertificate,
+        DeviceConnectionLevel, DeviceSyncLevel, PlaybackStatus, RequestErrorKind,
+        RequestFailureCause, TrustListUpdated, TrustedServerCertificate,
     };
     use crate::node::NodeSlot;
     use crate::request_error::request_failure_cause;
@@ -1039,6 +1039,7 @@ mod lifecycle_tests {
                 db_placement: DbPlacement::Portable,
                 background_sync: true,
                 access_level: None,
+                connection_access: None,
             });
             Ok(())
         })
@@ -1430,7 +1431,11 @@ mod lifecycle_tests {
             .error_for_status()?
             .json()
             .await?;
-        assert_eq!(access, serde_json::json!({ "control": false }));
+        assert_eq!(access["control"], false);
+        assert!(access.get("connection").is_some());
+        assert!(access.get("sync").is_some());
+        assert_eq!(access["connection"]["all_libraries"], "ViewEdit");
+        assert_eq!(access["sync"]["all_libraries"], "PullPush");
 
         let response = client
             .post(format!("https://{address}/cast/preflight"))
@@ -2009,7 +2014,7 @@ mod lifecycle_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn addressed_websocket_requests_select_and_authorize_the_named_library() -> Result<()> {
         use crate::Session;
-        use crate::access_policy::{DeviceGrants, LibraryLevel};
+        use crate::access_policy::{ConnectionLevel, DeviceGrants, LibraryGrants};
         use crate::backends::remote::connect_remote;
         use crate::messages::CreatePlaylistRequest;
 
@@ -2028,10 +2033,16 @@ mod lifecycle_tests {
 
         pair(&renderer, &controller).await?;
         let controller_fingerprint = info(&controller).await?.fingerprint;
-        let addressed_grants = |library_id, level| DeviceGrants {
+        let addressed_grants = |library_id, connection| DeviceGrants {
             control: false,
-            all_libraries: None,
-            libraries: [(library_id, level)].into_iter().collect(),
+            connection: LibraryGrants {
+                all_libraries: None,
+                libraries: [(library_id, connection)].into_iter().collect(),
+            },
+            sync: LibraryGrants {
+                all_libraries: None,
+                libraries: Default::default(),
+            },
             administer: false,
         };
         let user = renderer
@@ -2049,7 +2060,7 @@ mod lifecycle_tests {
         };
         renderer.global_params.node.access_policy.set(
             &controller_fingerprint,
-            addressed_grants(other_id, LibraryLevel::Read),
+            addressed_grants(other_id, ConnectionLevel::View),
         )?;
         renderer
             .global_params
@@ -2063,7 +2074,7 @@ mod lifecycle_tests {
             .await?;
         renderer.global_params.node.access_policy.set(
             &controller_fingerprint,
-            addressed_grants(renderer_id, LibraryLevel::Read),
+            addressed_grants(renderer_id, ConnectionLevel::View),
         )?;
         let denied = renderer
             .global_params
@@ -2082,8 +2093,19 @@ mod lifecycle_tests {
             &controller_fingerprint,
             DeviceGrants {
                 control: true,
-                all_libraries: None,
-                libraries: [(other_id, LibraryLevel::Read)].into_iter().collect(),
+                connection: LibraryGrants {
+                    all_libraries: None,
+                    libraries: [
+                        (other_id, ConnectionLevel::View),
+                        (renderer_id, ConnectionLevel::View),
+                    ]
+                    .into_iter()
+                    .collect(),
+                },
+                sync: LibraryGrants {
+                    all_libraries: None,
+                    libraries: Default::default(),
+                },
                 administer: false,
             },
         )?;
@@ -2141,8 +2163,14 @@ mod lifecycle_tests {
             &controller_fingerprint,
             DeviceGrants {
                 control: true,
-                all_libraries: None,
-                libraries: [(other_id, LibraryLevel::Read)].into_iter().collect(),
+                connection: LibraryGrants {
+                    all_libraries: None,
+                    libraries: [(other_id, ConnectionLevel::View)].into_iter().collect(),
+                },
+                sync: LibraryGrants {
+                    all_libraries: None,
+                    libraries: Default::default(),
+                },
                 administer: false,
             },
         )?;
@@ -2167,7 +2195,8 @@ mod lifecycle_tests {
         .await?;
         assert_eq!(name, "RemoteRequestFailed");
         let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
-        assert_eq!(failure.kind, RequestErrorKind::NotFound);
+        // An ungranted address is rejected before the server reveals whether it exists.
+        assert_eq!(failure.kind, RequestErrorKind::PermissionDenied);
 
         socket.close(None).await?;
         renderer.manager.stop().await?;
@@ -2178,6 +2207,7 @@ mod lifecycle_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn access_policy_guest_websocket() -> Result<()> {
+        use crate::access_policy::DeviceGrants;
         use crate::backends::remote::connect_remote;
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
@@ -2188,12 +2218,21 @@ mod lifecycle_tests {
         fs::write(
             first.path().join("grants.json"),
             serde_json::to_vec(&serde_json::json!({
-                "version": 1, "devices": {fingerprint: {
+                "version": 1, "devices": {fingerprint.clone(): {
                     "control": true, "all_libraries": null, "libraries": {}, "administer": false
                 }}
             }))?,
         )?;
         let a = reopen_fixture(&original).await?;
+        // An old-format grants file is reset to the least-privileged preset.
+        assert_eq!(
+            a.global_params.node.access_policy.grants(&fingerprint)?,
+            DeviceGrants::guest()
+        );
+        a.global_params
+            .node
+            .access_policy
+            .set(&fingerprint, DeviceGrants::guest())?;
         let addr = paired_full(&a, &b).await?;
         let validator = b.global_params.cert_validator.read().await.clone();
         let mut socket = connect_remote(
@@ -2703,7 +2742,8 @@ mod lifecycle_tests {
             fingerprint: fingerprint.to_owned(),
             library_id: library.library_id.clone(),
             alias: library.alias.clone(),
-            access_level: library.access_level,
+            connection: library.connection,
+            sync: library.sync,
         };
         let response = request
             .handle(
@@ -3007,7 +3047,8 @@ mod lifecycle_tests {
                     library_id: id.to_string(),
                     alias: "Held".into(),
                     added: false,
-                    access_level: DeviceLibraryLevel::ReadWrite,
+                    connection: DeviceConnectionLevel::ViewEdit,
+                    sync: DeviceSyncLevel::PullPush,
                 },
             ),
         )
@@ -3210,7 +3251,8 @@ mod lifecycle_tests {
                 library_id: id.to_string(),
                 alias: "Held".into(),
                 added: false,
-                access_level: DeviceLibraryLevel::ReadWrite,
+                connection: DeviceConnectionLevel::ViewEdit,
+                sync: DeviceSyncLevel::PullPush,
             },
         )
         .await?;
@@ -3300,7 +3342,8 @@ mod lifecycle_tests {
             library_id: library_id.to_string(),
             alias: "L2".into(),
             added: false,
-            access_level: DeviceLibraryLevel::ReadWrite,
+            connection: DeviceConnectionLevel::ViewEdit,
+            sync: DeviceSyncLevel::PullPush,
         };
         request_add_library(&b, &fingerprint, &peer_library).await?;
         let original = scan_held_track(&a, library_id, "first.ogg").await?;

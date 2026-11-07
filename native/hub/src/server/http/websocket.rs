@@ -14,6 +14,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use tokio::sync::{broadcast::Receiver, mpsc};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     Session,
@@ -44,16 +45,6 @@ pub async fn websocket_handler(
         .filter(|user| user.status == UserStatus::Approved);
     match user {
         Some(user) => {
-            let Some(node) = state.node.upgrade() else {
-                return StatusCode::SERVICE_UNAVAILABLE.into_response();
-            };
-            let peer = PeerIdentity {
-                fingerprint: user.fingerprint.clone(),
-                public_key: user.public_key.clone(),
-            };
-            if node.access_policy.check(&peer, &Action::Control).is_err() {
-                return StatusCode::FORBIDDEN.into_response();
-            }
             info!("Connection authorized for {} @ {}", user.alias, addr);
             let host = format!("https://{host}:7863");
             let broadcast_rx = state.websocket_service.broadcast_tx.subscribe();
@@ -80,19 +71,50 @@ pub async fn handle_socket(
     let Ok(session) = node.session() else {
         return;
     };
-    let controller_guard = session.attach_controller(user.fingerprint.clone(), user.alias.clone());
-    let controller_cancel = controller_guard.cancellation_token();
     let policy = node.access_policy.clone();
+    let controller_guard = policy
+        .check(
+            &PeerIdentity {
+                fingerprint: user.fingerprint.clone(),
+                public_key: user.public_key.clone(),
+            },
+            &Action::Control,
+        )
+        .is_ok()
+        .then(|| session.attach_controller(user.fingerprint.clone(), user.alias.clone()));
+    let controller_cancel = controller_guard
+        .as_ref()
+        .map(|guard| guard.cancellation_token());
     drop(node);
-    let mut grant_changes = policy.changes();
     let peer = PeerIdentity {
         fingerprint: user.fingerprint.clone(),
         public_key: user.public_key.clone(),
     };
-    let session_peer = peer.clone();
     let permission_manager = state.permission_manager.clone();
     let session_cancel = state.session_cancel.clone();
     let session_fingerprint = user.fingerprint.clone();
+    let controller_watch_cancel = CancellationToken::new();
+    let controller_watch = {
+        let policy = policy.clone();
+        let peer = peer.clone();
+        let cancel = controller_watch_cancel.clone();
+        let mut changes = policy.changes();
+        tokio::spawn(async move {
+            let Some(guard) = controller_guard else {
+                return;
+            };
+            loop {
+                if policy.check(&peer, &Action::Control).is_err() {
+                    break;
+                }
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    result = changes.changed() => if result.is_err() { break; },
+                }
+            }
+            drop(guard);
+        })
+    };
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::channel(32);
 
@@ -115,6 +137,7 @@ pub async fn handle_socket(
     // Clone alias for incoming task
     let incoming_tx = tx.clone();
     let incoming_alias = alias.clone();
+    let incoming_public_key = peer.public_key.clone();
     let incoming = async move {
         while let Some(Ok(msg)) = receiver.next().await {
             if let WsMessage::Binary(payload) = msg
@@ -130,7 +153,7 @@ pub async fn handle_socket(
                         msg_payload,
                         Some(Session {
                             fingerprint: fingerprint.to_owned(),
-                            public_key: peer.public_key.clone(),
+                            public_key: incoming_public_key.clone(),
                             host: host.to_owned(),
                         }),
                         library_id,
@@ -172,8 +195,16 @@ pub async fn handle_socket(
     // Clone alias for outgoing task
     let broadcast_tx = tx.clone();
     let outgoing_alias = alias.clone();
+    let outgoing_policy = policy.clone();
+    let outgoing_peer = peer.clone();
     let outgoing = async move {
         while let Ok(msg) = broadcast_rx.recv().await {
+            if outgoing_policy
+                .check(&outgoing_peer, &Action::Control)
+                .is_err()
+            {
+                continue;
+            }
             if let Err(e) = broadcast_tx.send(WsMessage::Binary(msg.into())).await {
                 error!("[{outgoing_alias}] Failed to queue broadcast: {e}");
                 break;
@@ -191,20 +222,25 @@ pub async fn handle_socket(
                 .verify_by_fingerprint(&session_fingerprint)
                 .await
                 .is_some_and(|user| user.status == UserStatus::Approved);
-            if !approved || policy.check(&session_peer, &Action::Control).is_err() {
+            if !approved {
                 break;
             }
             tokio::select! {
                 result = changes.changed() => if result.is_err() { break; },
-                result = grant_changes.changed() => if result.is_err() { break; },
             }
+        }
+    };
+    let controller_cancelled = async {
+        match &controller_cancel {
+            Some(cancel) => cancel.cancelled().await,
+            None => std::future::pending().await,
         }
     };
     let close = tokio::select! {
         _ = incoming => None,
         _ = outgoing => None,
         _ = revoked => Some((4403, "revoked")),
-        _ = controller_cancel.cancelled() => Some((4409, "detached")),
+        _ = controller_cancelled => Some((4409, "detached")),
         _ = session_cancel.cancelled() => Some((1001, "server stopping")),
     };
     if let Some((code, reason)) = close {
@@ -216,10 +252,11 @@ pub async fn handle_socket(
             .await;
     }
     drop(tx);
+    controller_watch_cancel.cancel();
+    let _ = controller_watch.await;
 
     // Wait for the send task to complete
     let _ = send_task.await;
-    drop(controller_guard);
     info!("[{alias}] WebSocket connection closed");
 }
 

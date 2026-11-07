@@ -62,9 +62,9 @@ LibraryRowState libraryRowState(
         owner == null || owner.isEmpty
             ? (describePath?.call(path) ?? path)
             : fromDevice(deviceAliases[owner] ?? library.alias) +
-                (library.accessLevel == DeviceLibraryLevel.read
-                    ? ' · $readOnly'
-                    : ''),
+                  (library.syncAccess == DeviceSyncLevel.pull
+                      ? ' · $readOnly'
+                      : ''),
       );
     }
   }
@@ -88,10 +88,8 @@ String filesAppLocation(
   required String onThisDevice,
   required String iCloudDrive,
 }) {
-  String join(String root, String? rest) => [
-        root,
-        ...?rest?.split('/').where((part) => part.isNotEmpty),
-      ].join(' › ');
+  String join(String root, String? rest) =>
+      [root, ...?rest?.split('/').where((part) => part.isNotEmpty)].join(' › ');
 
   final local = _filesOnDevice.firstMatch(path);
   if (local != null) return join(onThisDevice, local.group(1));
@@ -114,9 +112,11 @@ String describeLibraryPath(AppLocalizations s, String path) {
 // Whether the open local library is a read-only replica.
 bool currentLibraryIsReadOnly(String? path, List<LocalLibrary> libraries) {
   if (path == null || path.startsWith('@RR|')) return false;
-  return libraries.any((library) =>
-      library.path == path &&
-      library.ownerFingerprint != null &&
-      library.ownerFingerprint!.isNotEmpty &&
-      library.accessLevel == DeviceLibraryLevel.read);
+  return libraries.any(
+    (library) =>
+        library.path == path &&
+        library.ownerFingerprint != null &&
+        library.ownerFingerprint!.isNotEmpty &&
+        library.syncAccess == DeviceSyncLevel.pull,
+  );
 }

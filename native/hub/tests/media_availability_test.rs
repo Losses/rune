@@ -48,6 +48,7 @@ async fn request_library(
         db_placement: DbPlacement::Portable,
         background_sync: false,
         access_level: None,
+        connection_access: None,
     };
     pool.register_ui(LibraryResources {
         main_db: Arc::new(db),
