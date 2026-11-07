@@ -45,13 +45,13 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli {
-        Cli::Repl(args) => repl_mode(&args.service_url, args.library.as_deref()).await,
+        Cli::Repl(args) => repl_mode(&args.service_url).await,
         Cli::Discovery(cmd) => handle_discovery_command(cmd).await,
         Cli::Remote(cmd) => handle_remote_command(cmd).await,
     }
 }
 
-async fn repl_mode(service_url: &str, library: Option<&str>) -> Result<()> {
+async fn repl_mode(service_url: &str) -> Result<()> {
     let service_url = match validate_and_format_url(service_url) {
         Ok(x) => x,
         Err(e) => {
@@ -65,7 +65,7 @@ async fn repl_mode(service_url: &str, library: Option<&str>) -> Result<()> {
     println!("\nType 'help' to see available commands");
 
     let config = EditorConfig::default();
-    let connection = match WSConnection::connect(service_url.clone(), library).await {
+    let connection = match WSConnection::connect(service_url.clone()).await {
         Ok(x) => x,
         Err(e) => {
             error!("{e}");

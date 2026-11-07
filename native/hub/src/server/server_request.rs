@@ -27,7 +27,6 @@ macro_rules! register_single_handler {
                 let global_params = global_params.clone();
                 async move {
                     use $crate::macros::{RequestClass, request_class};
-                    use $crate::request_error::ExpectedRequestError;
 
                     let Some(global_params) = global_params.upgrade() else {
                         return (String::new(), Err(anyhow::anyhow!("Node has shut down")));
@@ -37,20 +36,6 @@ macro_rules! register_single_handler {
                         request_class,
                         Some(RequestClass::LibraryRead | RequestClass::LibraryWrite)
                     ));
-                    if addressed_library.is_none()
-                        && matches!(
-                            request_class,
-                            Some(RequestClass::LibraryRead | RequestClass::LibraryWrite)
-                        )
-                    {
-                        return (
-                            String::new(),
-                            Err(ExpectedRequestError::invalid_input(
-                                "library-scoped request is missing library_id",
-                            )
-                            .into()),
-                        );
-                    }
                     let params = if let Some(library_id) = addressed_library {
                         if let Some(session) = &session
                             && let Err(error) = global_params.authorize_request(
@@ -74,6 +59,7 @@ macro_rules! register_single_handler {
                             },
                         }
                     } else {
+                        // TODO(C6): reject frames without library_id
                         let ui_params = match global_params.current_ui().await {
                             Ok(params) => params,
                             Err(error) => return (String::new(), Err(error)),

@@ -17,7 +17,7 @@ use cli::{
 use hub::{
     node::initialize_node,
     server::WebSocketService,
-    utils::{GlobalParams, TaskTokens},
+    utils::{GlobalParams, RunningMode, TaskTokens},
 };
 
 use ::database::connection::check_storage_mode;
@@ -157,6 +157,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         cert_validator,
         permission_manager,
         server_manager: OnceLock::new(),
+        running_mode: RunningMode::Server,
     });
 
     let server_manager = node.manager()?;
