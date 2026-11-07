@@ -116,15 +116,4 @@ void main() {
     );
   });
 
-  test('only a request to another device reads a timeout as no answer', () {
-    final s = AppLocalizationsEn();
-    final timeout = TimeoutException('no answer');
-    expect(requestErrorText(s, timeout), startsWith('Error: '));
-    expect(remoteRequestErrorText(s, timeout), s.remoteOpenUnreachable);
-    expect(
-      remoteRequestErrorText(s, StateError('broken')),
-      'Error: Bad state: broken',
-    );
-  });
-
 }

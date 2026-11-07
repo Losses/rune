@@ -1065,17 +1065,21 @@
   "@userToken": {
     "description": "scrobble 登录表单的输入字段标题。"
   },
-  "ipAddress": "IP 地址",
-  "@ipAddress": {
-    "description": "在添加连接对话框中输入的另一台设备的 IPv4 地址。"
+  "hostname": "主机名",
+  "@hostname": {
+    "description": "URL 的主机名部分。"
+  },
+  "port": "端口",
+  "@port": {
+    "description": "URL 的端口部分。"
+  },
+  "secured": "已加密",
+  "@secured": {
+    "description": "是否为加密连接。"
   },
   "addConnection": "添加连接",
   "@addConnection": {
     "description": "对话框中的操作按钮。"
-  },
-  "invalidIpv4Address": "请输入有效的 IPv4 地址，例如 192.168.1.20。",
-  "@invalidIpv4Address": {
-    "description": "在添加连接对话框中输入的主机不是 IPv4 地址时显示的错误。"
   },
   "neighbors": "附近",
   "@neighbors": {

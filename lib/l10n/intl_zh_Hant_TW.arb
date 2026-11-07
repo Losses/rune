@@ -788,6 +788,18 @@
   "@userToken": {
     "description": "scrobble 登入表單的輸入欄位標題。"
   },
+  "hostname": "主機名",
+  "@hostname": {
+    "description": "URL 的主機名部分。"
+  },
+  "port": "埠",
+  "@port": {
+    "description": "URL 的埠部分。"
+  },
+  "secured": "已加密",
+  "@secured": {
+    "description": "是否為加密連接。"
+  },
   "addConnection": "添加連接",
   "@addConnection": {
     "description": "對話框中的操作按鈕。"

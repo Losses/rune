@@ -1,25 +1,9 @@
-final _ipv4Pattern = RegExp(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$');
-
-/// Returns the four octets of a dotted IPv4 literal, or null for anything else.
-List<int>? _ipv4Octets(String ip) {
-  final match = _ipv4Pattern.firstMatch(ip);
-  if (match == null) return null;
-
-  final octets = [for (var i = 1; i <= 4; i++) int.parse(match.group(i)!)];
-  return octets.any((n) => n > 255) ? null : octets;
-}
-
-/// Returns the trimmed [input] in canonical dotted form if it is an IPv4
-/// literal, otherwise null.
-///
-/// The canonical form drops leading zeros (`192.168.01.20` becomes
-/// `192.168.1.20`). The trust and the library path are keyed by the host, and
-/// the path only holds the numeric value, so every step has to use this form.
-String? parseIpv4Host(String input) => _ipv4Octets(input.trim())?.join('.');
-
 String _encodeIPv4(String ip) {
-  final nums = _ipv4Octets(ip);
-  if (nums == null) throw FormatException('Invalid IPv4');
+  final parts = ip.split('.');
+  if (parts.length != 4) throw FormatException('Invalid IPv4');
+
+  final nums = parts.map((p) => int.parse(p)).toList();
+  if (nums.any((n) => n < 0 || n > 255)) throw FormatException('Invalid octet');
 
   int num = nums[0] << 24 | nums[1] << 16 | nums[2] << 8 | nums[3];
   final buffer = StringBuffer();
@@ -80,6 +64,3 @@ List<String> decodeRnSrvUrl(String url) {
     (i) => _decodeIPv4(encoded.substring(i * 7, (i + 1) * 7)),
   );
 }
-
-/// The library path under which a remote device is stored and opened.
-String remoteLibraryPath(List<String> hosts) => '@RR|${encodeRnSrvUrl(hosts)}';

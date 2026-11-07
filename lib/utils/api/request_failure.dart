@@ -74,10 +74,3 @@ String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
 
 String requestErrorText(AppLocalizations s, Object error) =>
     error is RequestFailure ? requestFailureMessage(s, error) : 'Error: $error';
-
-/// [requestErrorText] for a request that waits on another device: there a
-/// timeout means that device never answered.
-String remoteRequestErrorText(AppLocalizations s, Object error) =>
-    error is TimeoutException
-        ? s.remoteOpenUnreachable
-        : requestErrorText(s, error);

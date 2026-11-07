@@ -6,9 +6,6 @@ import '../../../utils/api/fetch_server_certificate.dart';
 import '../../../widgets/fingerprint/fingerprint_quiz.dart';
 import '../../../widgets/no_shortcuts.dart';
 
-/// The outcome of the quiz and the fingerprint it was asked about.
-typedef FingerprintQuizResult = ({bool correct, String fingerprint});
-
 class FingerprintQuizDialog extends StatefulWidget {
   const FingerprintQuizDialog({
     super.key,
@@ -17,7 +14,7 @@ class FingerprintQuizDialog extends StatefulWidget {
   });
 
   final String host;
-  final void Function(FingerprintQuizResult?) $close;
+  final void Function(bool?) $close;
 
   @override
   FingerprintQuizDialogState createState() => FingerprintQuizDialogState();
@@ -32,14 +29,8 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
     _fingerprintFuture = fetchServerCertificate(widget.host);
   }
 
-  // The first fetch often fails on iOS while the local network permission
-  // prompt is still open.
-  void _retry() {
-    setState(() => _fingerprintFuture = fetchServerCertificate(widget.host));
-  }
-
-  void _handleAnswer(String fingerprint, bool correct) {
-    widget.$close((correct: correct, fingerprint: fingerprint));
+  void _handleAnswer(bool correct) async {
+    widget.$close(correct);
   }
 
   @override
@@ -69,7 +60,7 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
             }
             if (snapshot.hasError) {
               return Text(
-                remoteRequestErrorText(S.of(context), snapshot.error!),
+                requestErrorText(S.of(context), snapshot.error!),
                 style: TextStyle(height: 1.4),
               );
             }
@@ -84,20 +75,13 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
                 const SizedBox(height: 24),
                 FingerprintQuiz(
                   fingerprint: snapshot.data!,
-                  onAnswer: (correct) =>
-                      _handleAnswer(snapshot.data!, correct),
+                  onAnswer: _handleAnswer,
                 )
               ],
             );
           },
         ),
         actions: [
-          FutureBuilder<String>(
-            future: _fingerprintFuture,
-            builder: (context, snapshot) => snapshot.hasError
-                ? FilledButton(onPressed: _retry, child: Text(s.playOnRetry))
-                : const SizedBox.shrink(),
-          ),
           Button(
             onPressed: () => widget.$close(null),
             child: Text(s.cancel),

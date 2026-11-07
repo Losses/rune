@@ -1055,6 +1055,18 @@
   "@userToken": {
     "description": "Input field title of the scrobble login form."
   },
+  "hostname": "ホスト",
+  "@hostname": {
+    "description": "The host name part of an URL."
+  },
+  "port": "ポート",
+  "@port": {
+    "description": "The port part of an URL."
+  },
+  "secured": "セキュアなコネクション",
+  "@secured": {
+    "description": "If the connection is secured."
+  },
   "addConnection": "コネクションをアド",
   "@addConnection": {
     "description": "The action button of the dialog."

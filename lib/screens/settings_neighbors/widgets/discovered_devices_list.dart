@@ -123,16 +123,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
       widget.onPaired();
       final result = await showFingerprintQuizDialog(context, device.ips.first);
 
-      // The quiz showed the certificate served at the IP, while the
-      // announcement is unauthenticated multicast. Trusting the announced
-      // fingerprint after verifying another certificate would let a spoofed
-      // announcement pass, so a mismatch fails the pairing.
-      widget.onAnswered(
-        device,
-        result == null
-            ? null
-            : result.correct && result.fingerprint == device.fingerprint,
-      );
+      widget.onAnswered(device, result);
     }
   }
 }

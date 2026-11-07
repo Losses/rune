@@ -1057,6 +1057,18 @@
   "@userToken": {
     "description": "Input field title of the scrobble login form."
   },
+  "hostname": "호스트명",
+  "@hostname": {
+    "description": "URL의 호스트명 부분."
+  },
+  "port": "포트",
+  "@port": {
+    "description": "URL의 포트 부분."
+  },
+  "secured": "보안",
+  "@secured": {
+    "description": "연결이 보안되었는지 여부."
+  },
   "addConnection": "연결 추가",
   "@addConnection": {
     "description": "대화상자의 작업 버튼."

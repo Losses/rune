@@ -1055,6 +1055,18 @@
   "@userToken": {
     "description": "Input field title of the scrobble login form."
   },
+  "hostname": "Ім'я хоста",
+  "@hostname": {
+    "description": "Частина URL з ім'ям хоста."
+  },
+  "port": "Порт",
+  "@port": {
+    "description": "Частина URL з портом."
+  },
+  "secured": "Захищене",
+  "@secured": {
+    "description": "Чи є з'єднання захищеним."
+  },
   "addConnection": "Додати з'єднання",
   "@addConnection": {
     "description": "Кнопка дії діалогу."
