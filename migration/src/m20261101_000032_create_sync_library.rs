@@ -18,13 +18,16 @@ struct LegacyStat {
     skipped: i32,
     played_through: i32,
     updated_at: String,
+    /// When the row the like comes from was last written. Merging can move `updated_at` to a
+    /// later duplicate, whose like is dropped.
+    liked_at: String,
     file_uuid: Option<String>,
 }
 
 /// Merges the statistics rows the previous release kept for one media file. Its table had no
 /// unique key on the file, so two updates that raced each inserted a row, and later updates went
 /// to the row a plain query returned first, the one with the lowest id. The counts add up, the
-/// like and the id come from that row, and the time is the latest.
+/// like and the id come from that row, and the time of the counts is the latest.
 fn merge_duplicate_stats(mut rows: Vec<LegacyStat>) -> Vec<LegacyStat> {
     rows.sort_by_key(|row| row.id);
     let mut merged: Vec<LegacyStat> = Vec::with_capacity(rows.len());
@@ -95,6 +98,8 @@ async fn correct_catalog_identities(
     let schema = SchemaManager::new(tx);
     let backend = tx.get_database_backend();
     let mut changes: Vec<(&str, i32, String)> = Vec::new();
+    // Artwork rows to remove, each with the row its files move to.
+    let mut copies: Vec<(i32, i32)> = Vec::new();
     for (table, kind) in [
         ("artists", ParentKind::Artist),
         ("genres", ParentKind::Genre),
@@ -210,7 +215,6 @@ async fn correct_catalog_identities(
         // Both copies take the same identity, so files that used a copy move to the first row
         // and the copy is removed.
         let mut first_by_identity = HashMap::new();
-        let mut copies = Vec::new();
         let mut after = 0;
         loop {
             let query = Query::select()
@@ -257,22 +261,6 @@ async fn correct_catalog_identities(
             if row.hlc_uuid != id {
                 changes.push(("media_cover_art", row.id, id));
             }
-        }
-        let files_use_artwork = schema.has_column("media_files", "cover_art_id").await?;
-        for (copy, first) in copies {
-            if files_use_artwork {
-                let repoint = Query::update()
-                    .table(Alias::new("media_files"))
-                    .value(Alias::new("cover_art_id"), first)
-                    .and_where(Expr::col(Alias::new("cover_art_id")).eq(copy))
-                    .to_owned();
-                tx.execute(&repoint).await?;
-            }
-            let remove = Query::delete()
-                .from_table(Alias::new("media_cover_art"))
-                .and_where(Expr::col(Alias::new("id")).eq(copy))
-                .to_owned();
-            tx.execute(&remove).await?;
         }
     }
     if schema.has_table("media_file_fingerprint").await? {
@@ -395,7 +383,8 @@ async fn correct_catalog_identities(
             }
         }
     }
-    if !changes.is_empty() {
+    // A removed copy takes its identity with it, so it needs unpublished state as a change does.
+    if !changes.is_empty() || !copies.is_empty() {
         for table in [
             "sync_candidates",
             "sync_journal",
@@ -422,6 +411,22 @@ async fn correct_catalog_identities(
                 .and_where(Expr::col(Alias::new("id")).eq(id))
                 .to_owned();
             tx.execute_raw(backend.build(&query)).await?;
+        }
+        let files_use_artwork = schema.has_column("media_files", "cover_art_id").await?;
+        for (copy, first) in copies {
+            if files_use_artwork {
+                let repoint = Query::update()
+                    .table(Alias::new("media_files"))
+                    .value(Alias::new("cover_art_id"), first)
+                    .and_where(Expr::col(Alias::new("cover_art_id")).eq(copy))
+                    .to_owned();
+                tx.execute(&repoint).await?;
+            }
+            let remove = Query::delete()
+                .from_table(Alias::new("media_cover_art"))
+                .and_where(Expr::col(Alias::new("id")).eq(copy))
+                .to_owned();
+            tx.execute(&remove).await?;
         }
     }
     Ok(())
@@ -542,6 +547,10 @@ impl MigrationTrait for Migration {
                     "updated_at",
                 ]
                 .map(|column| (Alias::new("s"), Alias::new(column))),
+            )
+            .expr_as(
+                Expr::col((Alias::new("s"), Alias::new("updated_at"))),
+                Alias::new("liked_at"),
             )
             .expr_as(
                 Expr::col((Alias::new("f"), Alias::new("hlc_uuid"))),
@@ -800,7 +809,7 @@ impl MigrationTrait for Migration {
                     stat_uuid.into(),
                     row.skipped.into(),
                     row.played_through.into(),
-                    row.updated_at.clone().into(),
+                    row.updated_at.into(),
                 ])
                 .to_owned();
             txn.execute(&stats_insert).await?;
@@ -812,7 +821,7 @@ impl MigrationTrait for Migration {
                         row.media_file_id.into(),
                         file_uuid_text.into(),
                         row.liked.into(),
-                        row.updated_at.into(),
+                        row.liked_at.into(),
                     ])
                     .to_owned();
                 txn.execute(&like_insert).await?;
@@ -1230,7 +1239,7 @@ mod tests {
         let rows = db
             .query_all_raw(Statement::from_string(
                 db.get_database_backend(),
-                "SELECT s.id, s.skipped, s.played_through, s.updated_at, f.liked FROM media_file_stats s LEFT JOIN media_file_likes f ON f.track_uuid=s.track_uuid ORDER BY s.id".to_owned(),
+                "SELECT s.id, s.skipped, s.played_through, s.updated_at, f.liked, f.updated_at AS liked_at FROM media_file_stats s LEFT JOIN media_file_likes f ON f.track_uuid=s.track_uuid ORDER BY s.id".to_owned(),
             ))
             .await
             .unwrap();
@@ -1243,14 +1252,22 @@ mod tests {
                     row.try_get::<i32>("", "played_through").unwrap(),
                     row.try_get::<String>("", "updated_at").unwrap(),
                     row.try_get::<Option<bool>>("", "liked").unwrap(),
+                    row.try_get::<Option<String>>("", "liked_at").unwrap(),
                 )
             })
             .collect();
         assert_eq!(
             rows,
             [
-                (4, 5, 10, "2020-01-02".to_owned(), Some(true)),
-                (6, 1, 0, "2020-01-03".to_owned(), None),
+                (
+                    4,
+                    5,
+                    10,
+                    "2020-01-02".to_owned(),
+                    Some(true),
+                    Some("2020-01-01".to_owned())
+                ),
+                (6, 1, 0, "2020-01-03".to_owned(), None, None),
             ]
         );
     }
@@ -1459,15 +1476,20 @@ mod tests {
         let covers = db
             .query_all_raw(Statement::from_string(
                 db.get_database_backend(),
-                "SELECT hlc_uuid FROM media_cover_art ORDER BY id".to_owned(),
+                "SELECT id, hlc_uuid FROM media_cover_art ORDER BY id".to_owned(),
             ))
             .await
             .unwrap();
-        let covers: Vec<String> = covers
+        let covers: Vec<(i32, String)> = covers
             .iter()
-            .map(|row| row.try_get("", "hlc_uuid").unwrap())
+            .map(|row| {
+                (
+                    row.try_get("", "id").unwrap(),
+                    row.try_get("", "hlc_uuid").unwrap(),
+                )
+            })
             .collect();
-        assert_eq!(covers, [artwork(&[1, 2, 3]), artwork(&[4, 5, 6])]);
+        assert_eq!(covers, [(1, artwork(&[1, 2, 3])), (3, artwork(&[4, 5, 6]))]);
         let files = db
             .query_all_raw(Statement::from_string(
                 db.get_database_backend(),
@@ -1487,6 +1509,33 @@ mod tests {
                 artwork(&[4, 5, 6])
             ]
         );
+    }
+    #[tokio::test]
+    async fn duplicate_artwork_stays_when_state_is_published() {
+        let db = setup().await;
+        db.execute_unprepared("CREATE TABLE media_cover_art (id INTEGER PRIMARY KEY, file_hash TEXT NOT NULL, binary BLOB NOT NULL, hlc_uuid TEXT NOT NULL)").await.unwrap();
+        let first = crate::catalog_identity::artwork(blake3::hash(&[1, 2, 3]).to_hex().as_ref());
+        db.execute_unprepared(&format!(
+            "INSERT INTO media_cover_art VALUES (1,'a',x'010203','{first}'), (2,'a',x'010203','old-a')"
+        ))
+        .await
+        .unwrap();
+        db.execute_unprepared("CREATE TABLE sync_objects (id INTEGER)")
+            .await
+            .unwrap();
+        db.execute_unprepared("INSERT INTO sync_objects VALUES (1)")
+            .await
+            .unwrap();
+        assert!(Migration.up(&SchemaManager::new(&db)).await.is_err());
+        let row = db
+            .query_one_raw(Statement::from_string(
+                db.get_database_backend(),
+                "SELECT COUNT(*) AS n FROM media_cover_art".to_owned(),
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.try_get::<i64>("", "n").unwrap(), 2);
     }
     async fn setup_analysis_sources() -> sea_orm_migration::sea_orm::DatabaseConnection {
         let db = setup().await;
