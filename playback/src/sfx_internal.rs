@@ -1,11 +1,14 @@
 use crate::decoder::RuneDecoder;
-use std::{fs::File, io::BufReader, path::PathBuf};
+use std::{fs::File, io::BufReader, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use log::{debug, error, info};
 use rodio::{OutputStream, Sink};
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, time::interval};
 use tokio_util::sync::CancellationToken;
+
+// How often the player looks whether its sound has finished.
+const FINISHED_CHECK: Duration = Duration::from_millis(100);
 
 #[derive(Debug)]
 pub enum SfxPlayerCommand {
@@ -47,20 +50,18 @@ impl SfxPlayerInternal {
     }
 
     pub async fn run(&mut self) -> Result<()> {
+        let mut finished_check = interval(FINISHED_CHECK);
         loop {
             if self.cancellation_token.is_cancelled() {
                 break;
             }
 
-            if let Some(sink) = &self.sink
-                && sink.empty()
-                && self.state == InternalSfxPlaybackState::Playing
-            {
-                self.state = InternalSfxPlaybackState::Empty;
-            }
-
             let cmd = tokio::select! {
                 _ = self.cancellation_token.cancelled() => break,
+                _ = finished_check.tick(), if self.sink.is_some() => {
+                    self.close_finished_output();
+                    continue;
+                },
                 cmd = self.commands.recv() => cmd,
             };
             if let Some(cmd) = cmd {
@@ -117,6 +118,17 @@ impl SfxPlayerInternal {
         Ok(())
     }
 
+    // Closes the output once its sound has finished. An open output keeps the device's audio
+    // running, and on iOS the system then takes the app for one that plays.
+    fn close_finished_output(&mut self) {
+        if self.sink.as_ref().is_some_and(Sink::empty) {
+            self.sink = None;
+            self._stream = None;
+            self.state = InternalSfxPlaybackState::Empty;
+            debug!("SFX finished, so its output is closed");
+        }
+    }
+
     fn set_volume(&mut self, volume: f32) -> Result<()> {
         self.volume = volume;
         if let Some(sink) = &self.sink {
@@ -124,5 +136,40 @@ impl SfxPlayerInternal {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rodio::Source;
+    use rodio::source::SineWave;
+
+    // Runs the player for a while, long enough for it to look at its sound a few times.
+    async fn run_briefly(internal: &mut SfxPlayerInternal) {
+        let _ = tokio::time::timeout(FINISHED_CHECK * 3, internal.run()).await;
+    }
+
+    #[tokio::test]
+    async fn the_output_closes_once_the_sound_has_finished() {
+        let (_commands_sender, commands) = mpsc::unbounded_channel();
+        let mut internal = SfxPlayerInternal::new(commands, CancellationToken::new());
+        // A sink without a device, whose queue the test plays by hand.
+        let (sink, mut queue) = Sink::new_idle();
+        sink.append(SineWave::new(440.0).take_duration(Duration::from_millis(10)));
+        internal.sink = Some(sink);
+        internal.state = InternalSfxPlaybackState::Playing;
+
+        // A sound that still plays keeps its output.
+        run_briefly(&mut internal).await;
+        assert!(internal.sink.is_some());
+
+        for _ in 0..48_000 {
+            queue.next();
+        }
+        assert!(internal.sink.as_ref().is_some_and(Sink::empty));
+        run_briefly(&mut internal).await;
+        assert!(internal.sink.is_none());
+        assert_eq!(internal.state, InternalSfxPlaybackState::Empty);
     }
 }

@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/asset_helper.dart';
@@ -23,22 +24,26 @@ class BrandingAnimation extends StatefulWidget {
   State<BrandingAnimation> createState() => _BrandingAnimationState();
 }
 
+/// The startup sound until one is chosen. iOS starts without one, since the
+/// sound would stop the audio of other apps every time Rune opens.
+String get defaultStartUpSfx =>
+    defaultTargetPlatform == TargetPlatform.iOS ? 'mute' : 'tech';
+
+/// The asset of the startup sound that [config] names, or null for none.
+String? startUpSfxAsset(String? config) {
+  switch (config ?? defaultStartUpSfx) {
+    case 'mute':
+      return null;
+    case 'fantasy':
+      return 'assets/startup_0.ogg';
+    default:
+      return 'assets/startup_1.ogg';
+  }
+}
+
 Future<String?> getStartUpSfxPath() async {
   final config = await SettingsManager().getValue<String?>(kBandingSfxKey);
-
-  if (config == null) {
-    return 'assets/startup_1.ogg';
-  }
-
-  if (config == 'mute') {
-    return null;
-  }
-
-  if (config == 'fantasy') {
-    return 'assets/startup_0.ogg';
-  }
-
-  return 'assets/startup_1.ogg';
+  return startUpSfxAsset(config);
 }
 
 class _BrandingAnimationState extends State<BrandingAnimation>

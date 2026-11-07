@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../../utils/settings_manager.dart';
 import '../../../../constants/configurations.dart';
+import '../../../../widgets/banding_animation/branding_animation.dart';
 
 import '../../utils/settings_combo_box_item.dart';
 import '../../constants/branding_sfx.dart';
@@ -18,7 +19,7 @@ class BrandingAnimationSettings extends StatefulWidget {
 }
 
 class BrandingAnimationSettingsState extends State<BrandingAnimationSettings> {
-  String? brandingSfx = 'fantasy';
+  String? brandingSfx = defaultStartUpSfx;
   final SettingsManager _settingsManager = SettingsManager();
 
   @override
